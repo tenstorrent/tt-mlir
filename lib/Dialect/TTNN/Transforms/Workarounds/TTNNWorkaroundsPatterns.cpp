@@ -470,8 +470,6 @@ public:
               ScaledDotProductAttentionPadTileDimsRewritePattern,
           workarounds::decomposition::PointToPointOpRewritePattern,
           workarounds::decomposition::RMSNormConfigRewritePattern,
-          workarounds::decomposition::
-              DistributedRMSNormWidthShardInputRewritePattern,
           workarounds::decomposition::ReduceScatterConfigRewritePattern,
           workarounds::decomposition::TopKRouterGptDecompositionRewritePattern,
           workarounds::decomposition::SliceStaticOpRewritePattern,
@@ -480,15 +478,21 @@ public:
       patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
           &getContext(), /*benefit=*/2);
 
-      // PagedUpdateCacheOpRewritePattern is only needed below opt-level 2.
-      // At level >= 2 the greedy sharding optimizer drives the upstream
-      // producer to L1 height-sharded and inserts a proper ToMemoryConfigOp
-      // via beam search: metal's own grid TT_FATAL (tt-metal #45016) makes the
-      // constraint query reject any other operand-1 layout.
+      // Patterns only needed below opt-level 2. At level >= 2 the greedy
+      // optimizer owns these layouts:
+      //  - PagedUpdateCacheOpRewritePattern: the optimizer drives the upstream
+      //    producer to L1 height-sharded and inserts a proper ToMemoryConfigOp
+      //    via beam search; metal's own grid TT_FATAL (tt-metal #45016) makes
+      //    the constraint query reject any other operand-1 layout.
+      //  - DistributedRMSNormWidthShardInputRewritePattern: the optimizer +
+      //    DistributedRMSNormRuleBook choose the width-shard grid and the
+      //    LayerNormShardedMultiCoreProgramConfig (tt-xla #5738), so the
+      //    hand-rolled grid selection only runs at lower opt levels.
       if (optimizationLevel < 2) {
-        patterns
-            .add<workarounds::decomposition::PagedUpdateCacheOpRewritePattern>(
-                &getContext());
+        patterns.add<
+            workarounds::decomposition::PagedUpdateCacheOpRewritePattern,
+            workarounds::decomposition::
+                DistributedRMSNormWidthShardInputRewritePattern>(&getContext());
       }
 
       runRewritePatterns(std::move(patterns),
