@@ -424,6 +424,106 @@ public:
   }
 };
 
+// Fuses: activation(rms_norm(x, weight, bias)) -> DitRMSNormUnaryFusedOp.
+//
+// Where `activation` is a supported unary activation (silu, gelu, relu) that
+// maps to the experimental TTNN dit_rms_norm_unary_fused kernel.
+//
+// The activation does not need to consume the RMSNormOp result directly: the
+// pattern looks through a chain of value-preserving shape ops (permute /
+// reshape) sitting between the two. Because the activation is elementwise it
+// commutes with such ops, e.g.
+//   act(reshape(permute(rms_norm(x)))) == reshape(permute(act(rms_norm(x))))
+// so the activation is baked into a fused op that replaces the RMSNormOp,
+// leaving the intervening shape ops untouched. To keep this rewrite valid the
+// RMSNormOp and every shape op in the chain must have a single use,
+// guaranteeing the chain is linear and the activation is its only escape.
+//
+// Like the other constraint-gated fusings (e.g. NLPConcatHeadsDecodeFusing),
+// the fused op is only created when the op-model confirms it is valid for the
+// current layouts. If validation fails the rms_norm + activation pair is left
+// untouched, so no decomposition fallback is needed downstream.
+template <typename ActivationOp>
+class TTNNRMSNormWithActivation : public mlir::OpRewritePattern<ActivationOp> {
+public:
+  TTNNRMSNormWithActivation(mlir::MLIRContext *context,
+                            const OpValidationConfig &validationConfig)
+      : mlir::OpRewritePattern<ActivationOp>(context),
+        validationConfig(validationConfig) {}
+
+  mlir::LogicalResult
+  matchAndRewrite(ActivationOp activationOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    // Walk backwards from the activation through single-use, value-preserving
+    // shape ops (permute / reshape) to find the RMSNormOp that feeds it.
+    mlir::Value cur = activationOp.getInput();
+    while (mlir::Operation *def = cur.getDefiningOp()) {
+      if (!def->hasOneUse()) {
+        break;
+      }
+      if (auto permute = mlir::dyn_cast<PermuteOp>(def)) {
+        cur = permute.getInput();
+        continue;
+      }
+      if (auto reshape = mlir::dyn_cast<ReshapeOp>(def)) {
+        cur = reshape.getInput();
+        continue;
+      }
+      break;
+    }
+
+    auto rmsNorm = cur.template getDefiningOp<RMSNormOp>();
+    if (!rmsNorm || !rmsNorm->hasOneUse()) {
+      return mlir::failure();
+    }
+
+    llvm::StringLiteral fullOpName = ActivationOp::getOperationName();
+    llvm::StringRef activation = fullOpName.rsplit('.').second;
+
+    // Validate the candidate fused op via the op-model before committing. The
+    // fused op keeps the RMSNormOp's result type/layout, so we validate against
+    // those. Guard the singleton device for the duration of the query.
+    op_model::ScopedSingletonDeviceGuard deviceGuard(rmsNorm);
+
+    IsolatedIRValidationWrapper validator(rewriter.getContext(),
+                                          validationConfig);
+    OpValidationResult validationResult =
+        validator.template validateOp<DitRMSNormUnaryFusedOp>(
+            rmsNorm.getOperation(), rmsNorm.getLoc(),
+            {rmsNorm.getResult().getType()}, rmsNorm.getInput(),
+            rmsNorm.getWeight(), rmsNorm.getBias(),
+            /*residual_input=*/Value(), rmsNorm.getEpsilonAttr(),
+            rewriter.getStringAttr(activation),
+            /*memory_config=*/MemoryConfigAttr(),
+            rmsNorm.getComputeConfigAttr());
+
+    if (!validationResult.isSuccess()) {
+      return mlir::failure();
+    }
+
+    // Create the fused op in place of the rms_norm (activation baked in), so
+    // any intervening shape ops keep operating on the fused result. The fused
+    // op therefore takes the RMSNormOp's result type, not the activation's.
+    rewriter.setInsertionPoint(rmsNorm);
+    auto fused = rewriter.create<DitRMSNormUnaryFusedOp>(
+        rmsNorm.getLoc(), rmsNorm.getResult().getType(), rmsNorm.getInput(),
+        rmsNorm.getWeight(), rmsNorm.getBias(), /*residual_input=*/Value(),
+        rmsNorm.getEpsilon(), rewriter.getStringAttr(activation));
+    if (rmsNorm.getComputeConfigAttr()) {
+      fused.setComputeConfigAttr(rmsNorm.getComputeConfigAttr());
+    }
+
+    rewriter.replaceOp(rmsNorm, fused.getResult());
+    // Drop the now-redundant activation; its (shape-transformed) input already
+    // carries the activation via the fused op.
+    rewriter.replaceOp(activationOp, activationOp.getInput());
+    return mlir::success();
+  }
+
+private:
+  OpValidationConfig validationConfig;
+};
+
 #endif // TTMLIR_ENABLE_OPMODEL
 
 class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {
@@ -477,6 +577,10 @@ public:
           &getContext(), validationConfig);
       patterns.add<fusing::NLPCreateQKVHeadsDecodeFusing>(&getContext(),
                                                           validationConfig);
+      patterns.add<TTNNRMSNormWithActivation<SiluOp>,
+                   TTNNRMSNormWithActivation<GeluOp>,
+                   TTNNRMSNormWithActivation<ReluOp>>(&getContext(),
+                                                      validationConfig);
     }
 #endif // TTMLIR_ENABLE_OPMODEL
 

@@ -1371,6 +1371,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_RMSNormOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::DitRMSNormUnaryFusedOp: {
+    tensorRefs = {opContext.type_as_DitRMSNormUnaryFusedOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::RMSNormPreAllGatherOp: {
     tensorRefs = {opContext.type_as_RMSNormPreAllGatherOp()->out()};
     break;
@@ -1945,6 +1949,21 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     }
     if (opContext.type_as_RMSNormOp()->bias()) {
       tensorRefs.push_back(opContext.type_as_RMSNormOp()->bias());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DitRMSNormUnaryFusedOp: {
+    tensorRefs = {opContext.type_as_DitRMSNormUnaryFusedOp()->input()};
+    if (opContext.type_as_DitRMSNormUnaryFusedOp()->weight()) {
+      tensorRefs.push_back(
+          opContext.type_as_DitRMSNormUnaryFusedOp()->weight());
+    }
+    if (opContext.type_as_DitRMSNormUnaryFusedOp()->bias()) {
+      tensorRefs.push_back(opContext.type_as_DitRMSNormUnaryFusedOp()->bias());
+    }
+    if (opContext.type_as_DitRMSNormUnaryFusedOp()->residual_input()) {
+      tensorRefs.push_back(
+          opContext.type_as_DitRMSNormUnaryFusedOp()->residual_input());
     }
     break;
   }

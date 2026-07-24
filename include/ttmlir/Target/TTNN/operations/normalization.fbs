@@ -47,6 +47,18 @@ table RMSNormOp {
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
 
+table DitRMSNormUnaryFusedOp {
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  residual_input: tt.target.ttnn.TensorRef;
+  epsilon: float;
+  activation: string;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table LayerNormShardedMultiCoreProgramConfig {
   compute_with_storage_grid_size: tt.target.ttnn.CoreCoord;
   subblock_w: uint64;
