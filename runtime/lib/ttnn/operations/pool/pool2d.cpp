@@ -135,7 +135,23 @@ void runMaxPool2dOp(
              ::ttnn::Layout::ROW_MAJOR,
              /*config_tensor_in_dram=*/op->config_tensors_in_dram());
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), results[0]);
+  // tt-metal's ttnn::max_pool2d returns a [N, H_out, W_out, C] tensor, but
+  // tt-mlir declares the result type with the NHW-flattened shape
+  // [1, 1, N*H_out*W_out, C]. Reshape so downstream ops see the declared
+  // logical_shape and broadcast classifiers (e.g. binary_ng) don't misfire.
+  ::ttnn::Tensor out = results[0];
+  const auto *fbShape = op->out()->desc()->shape();
+  std::vector<int32_t> declaredShape(fbShape->begin(), fbShape->end());
+  bool shapeMatches = out.logical_shape().size() == declaredShape.size();
+  for (size_t i = 0; shapeMatches && i < declaredShape.size(); ++i) {
+    shapeMatches =
+        static_cast<int32_t>(out.logical_shape()[i]) == declaredShape[i];
+  }
+  if (!shapeMatches) {
+    out = ::ttnn::reshape(out, declaredShape);
+  }
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
 void run(const ::tt::target::ttnn::Pool2dOp *op, ProgramContext &context) {
