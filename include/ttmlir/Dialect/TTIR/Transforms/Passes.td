@@ -304,10 +304,6 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
   let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
 
   let options = [
-      Option<"conv2dWithMultiplyEnabled",
-             "ttnn-enable-conv2d-with-multiply-pattern",
-             "bool", /*default=*/"false",
-             "Controls if we should enable the Conv2dWithMultiply pattern">,
       Option<"permuteMatmulEnabled",
              "enable-permute-matmul-fusion",
              "bool", /*default=*/"false",

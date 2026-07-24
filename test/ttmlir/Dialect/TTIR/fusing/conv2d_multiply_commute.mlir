@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-implicit-broadcast-fold --ttir-fusing="ttnn-enable-conv2d-with-multiply-pattern=true" -o %t %s
+// RUN: ttmlir-opt --ttir-implicit-broadcast-fold --ttir-fusing -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Commute multiply before conv2d.

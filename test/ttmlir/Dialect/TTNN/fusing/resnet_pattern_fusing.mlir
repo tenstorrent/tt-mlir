@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-fusing-pass=true enable-fusing-conv2d-with-multiply-pattern=true" --mlir-print-local-scope -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-fusing-pass=true" --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // This is common pattern throughout Resnet. We have conv2d with constant weight, followed by multiply with constant input. This will be commuted through conv2d.
