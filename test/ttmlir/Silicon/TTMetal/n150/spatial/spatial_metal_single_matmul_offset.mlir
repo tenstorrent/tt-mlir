@@ -24,7 +24,7 @@ module {
     %view_0 = d2m.view_layout %4 remapping = #map2 : tensor<1x1x4x2x!ttcore.tile<32x32, bf16>, #layout1> -> tensor<1x1x4x2x!ttcore.tile<32x32, bf16>, #layout1>
     %12 = d2m.empty() : tensor<1x1x2x2x!ttcore.tile<32x32, bf16>, #layout2>
     %view_3 = d2m.view_layout %12 remapping = #map2 : tensor<1x1x2x2x!ttcore.tile<32x32, bf16>, #layout2> -> tensor<1x1x2x2x!ttcore.tile<32x32, bf16>, #layout2>
-    %result_reg_0_metal = d2m.spatial {grid_ranges = [#ttcore.core_range<0x0, 1x1>]}
+    %result_reg_0_metal = d2m.spatial {grid_ranges = [#ttcore.core_range<(0,0), 1x1>]}
         ins(%view, %view_0 : tensor<1x1x2x4x!ttcore.tile<32x32, bf16>, #layout>, tensor<1x1x4x2x!ttcore.tile<32x32, bf16>, #layout1>)
         outs(%view_3 : tensor<1x1x2x2x!ttcore.tile<32x32, bf16>, #layout2>) {
       ^region_0:

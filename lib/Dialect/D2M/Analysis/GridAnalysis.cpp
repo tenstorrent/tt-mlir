@@ -580,8 +580,8 @@ GridAnalysis::getTargetGridRange(GenericOp genericOp) const {
           mlir::cast<ttcore::CoreRangeAttr>(gridRangesAttr[regionIndex]);
       targetGridRange.shape.assign(range.getSize().begin(),
                                    range.getSize().end());
-      targetGridRange.offset.assign(range.getOffset().begin(),
-                                    range.getOffset().end());
+      targetGridRange.offset = {range.getOffset().getY(),
+                                range.getOffset().getX()};
       return targetGridRange;
     }
   }

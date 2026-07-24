@@ -22,7 +22,7 @@ module  {
     %out_tensor0_metal = ttir.ttnn_metal_layout_cast %out_ttnn_0 : tensor<64x128xf32, #ttnn_layout> -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #ttmetal_layout>
     %out_tensor1_metal = ttir.ttnn_metal_layout_cast %out_ttnn_1 {virtual_grid_forward_mapping = #vgm_fwd, virtual_grid_inverse_mapping = #vgm_inv} : tensor<64x128xf32, #ttnn_layout> -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #ttmetal_layout>
 
-    %result_reg_0_metal, %result_reg_1_metal = d2m.spatial {grid_ranges = [#ttcore.core_range<0x0, 2x2>, #ttcore.core_range<2x0, 2x2>]}
+    %result_reg_0_metal, %result_reg_1_metal = d2m.spatial {grid_ranges = [#ttcore.core_range<(0,0), 2x2>, #ttcore.core_range<(2,0), 2x2>]}
     ins(%shared_tensor_metal_0, %shared_tensor_metal_1 : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #ttmetal_layout>, tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #ttmetal_layout>)
     outs(%out_tensor0_metal, %out_tensor1_metal : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #ttmetal_layout>, tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #ttmetal_layout>) {
       ^region0():

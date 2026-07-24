@@ -1950,30 +1950,25 @@ void TTCoreDialect::registerTypes() {
 }
 
 bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
-  llvm::ArrayRef<int64_t> offset = getOffset();
+  CoreCoordAttr offset = getOffset();
   llvm::ArrayRef<int64_t> size = getSize();
-  llvm::ArrayRef<int64_t> otherOffset = other.getOffset();
+  CoreCoordAttr otherOffset = other.getOffset();
   llvm::ArrayRef<int64_t> otherSize = other.getSize();
 
-  return offset[0] < otherOffset[0] + otherSize[0] &&
-         otherOffset[0] < offset[0] + size[0] &&
-         offset[1] < otherOffset[1] + otherSize[1] &&
-         otherOffset[1] < offset[1] + size[1];
+  return offset.getY() < otherOffset.getY() + otherSize[0] &&
+         otherOffset.getY() < offset.getY() + size[0] &&
+         offset.getX() < otherOffset.getX() + otherSize[1] &&
+         otherOffset.getX() < offset.getX() + size[1];
 }
 
 ::llvm::LogicalResult CoreRangeAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    ::llvm::ArrayRef<int64_t> offset, ::llvm::ArrayRef<int64_t> size) {
-  if (offset.size() != 2) {
-    return emitError() << "offset must contain exactly 2 values, got "
-                       << offset.size();
-  }
+    CoreCoordAttr offset, ::llvm::ArrayRef<int64_t> size) {
   if (size.size() != 2) {
     return emitError() << "size must contain exactly 2 values, got "
                        << size.size();
   }
-  if (std::any_of(offset.begin(), offset.end(),
-                  [](int64_t value) { return value < 0; })) {
+  if (offset.getY() < 0 || offset.getX() < 0) {
     return emitError() << "offset values must be non-negative";
   }
   if (std::any_of(size.begin(), size.end(),

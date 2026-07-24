@@ -35,7 +35,7 @@ module {
     %view_3 = d2m.view_layout %12 remapping = #map : tensor<1x1x2x2x!ttcore.tile<32x32, bf16>, #layout2> -> tensor<1x1x2x2x!ttcore.tile<32x32, bf16>, #layout2>
     %14 = d2m.empty() {virtualGridForwardMapping = #map2, virtualGridInverseMapping = #map3} : tensor<1x1x2x2x!ttcore.tile<32x32, bf16>, #layout2>
     %view_4 = d2m.view_layout %14 remapping = #map : tensor<1x1x2x2x!ttcore.tile<32x32, bf16>, #layout2> -> tensor<1x1x2x2x!ttcore.tile<32x32, bf16>, #layout2>
-    %16:2 = d2m.spatial {grid_ranges = [#ttcore.core_range<0x0, 1x1>, #ttcore.core_range<1x1, 1x1>]}
+    %16:2 = d2m.spatial {grid_ranges = [#ttcore.core_range<(0,0), 1x1>, #ttcore.core_range<(1,1), 1x1>]}
         ins(%view, %view_0, %view_1, %view_2 : tensor<1x1x2x4x!ttcore.tile<32x32, bf16>, #layout>, tensor<1x1x4x2x!ttcore.tile<32x32, bf16>, #layout1>, tensor<1x1x2x4x!ttcore.tile<32x32, bf16>, #layout>, tensor<1x1x4x2x!ttcore.tile<32x32, bf16>, #layout1>)
         outs(%view_3, %view_4 : tensor<1x1x2x2x!ttcore.tile<32x32, bf16>, #layout2>, tensor<1x1x2x2x!ttcore.tile<32x32, bf16>, #layout2>) {
       %21 = d2m.generic {block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map4, #map5, #map6], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<unified>]}

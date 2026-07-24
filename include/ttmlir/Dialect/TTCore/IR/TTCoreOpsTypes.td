@@ -790,7 +790,8 @@ def TTCore_CoreRangeAttr: TTCore_Attr<"CoreRange", "core_range"> {
     - `size`: The (height, width) extent of the core range
 
     Constraints:
-    - `offset` and `size` must each contain exactly two values.
+    - `offset` is a `CoreCoordAttr`.
+    - `size` must contain exactly two values.
     - `offset` values must be non-negative.
     - `size` values must be positive.
 
@@ -799,13 +800,13 @@ def TTCore_CoreRangeAttr: TTCore_Attr<"CoreRange", "core_range"> {
     ```mlir
     // Define a core range at offset (1,1) with size (3,4)
     // This represents a 3x4 rectangular grid of cores
-    #core_range = #ttcore.core_range<1x1, 3x4>
+    #core_range = #ttcore.core_range<(1,1), 3x4>
     ```
   }];
 
-  let parameters = (ins ArrayRefParameter<"int64_t">:$offset,
+  let parameters = (ins "CoreCoordAttr":$offset,
                         ArrayRefParameter<"int64_t">:$size);
-  let assemblyFormat = "`<` custom<DimensionList>($offset) `,` custom<DimensionList>($size) `>`";
+  let assemblyFormat = "`<` custom<CoordBracketStyle>($offset) `,` custom<DimensionList>($size) `>`";
 
   let extraClassDeclaration = [{
     bool intersects(CoreRangeAttr other) const;

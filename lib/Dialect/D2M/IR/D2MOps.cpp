@@ -2340,11 +2340,11 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
   for (auto [region, rangeAttr] :
        llvm::zip(getRegions(), gridRangesAttr.getValue())) {
     auto coreRange = mlir::cast<ttcore::CoreRangeAttr>(rangeAttr);
-    llvm::ArrayRef<int64_t> offset = coreRange.getOffset();
+    ttcore::CoreCoordAttr offset = coreRange.getOffset();
     llvm::ArrayRef<int64_t> size = coreRange.getSize();
     utils::BoundingBox regionBox;
-    regionBox.start = {offset[0], offset[1]};
-    regionBox.end = {offset[0] + size[0] - 1, offset[1] + size[1] - 1};
+    regionBox.start = {offset.getY(), offset.getX()};
+    regionBox.end = {offset.getY() + size[0] - 1, offset.getX() + size[1] - 1};
     int64_t regionShapeY = size[0];
     int64_t regionShapeX = size[1];
 
@@ -2390,8 +2390,8 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
         return emitOpError(
                    "generic op grid not contained in region grid_ranges "
                    "offset [")
-               << offset[0] << ", " << offset[1] << "], size [" << size[0]
-               << ", " << size[1] << "]";
+               << offset.getY() << ", " << offset.getX() << "], size ["
+               << size[0] << ", " << size[1] << "]";
       }
     }
   }

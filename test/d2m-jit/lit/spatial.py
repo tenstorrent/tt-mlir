@@ -94,7 +94,7 @@ _finalize("MULTI_REGION_SHARED_INPUT_IR", [out_add, out_mul])
 
 # CHECK-LABEL: MULTI_REGION_SHARED_INPUT_IR
 # CHECK:       d2m.spatial
-# CHECK-SAME:  grid_ranges = [#ttcore.core_range<0x0, 1x1>, #ttcore.core_range<1x0, 1x1>]
+# CHECK-SAME:  grid_ranges = [#ttcore.core_range<(0,0), 1x1>, #ttcore.core_range<(1,0), 1x1>]
 # CHECK:       d2m.generic
 # CHECK:       "d2m.tile_add"
 # CHECK:       d2m.spatial_yield
@@ -124,7 +124,7 @@ _finalize("INPUTS_NOT_SHARED_IR", [out_add, out_mul])
 
 # CHECK-LABEL: INPUTS_NOT_SHARED_IR
 # CHECK:       d2m.spatial
-# CHECK-SAME:  grid_ranges = [#ttcore.core_range<0x0, 1x1>, #ttcore.core_range<1x1, 1x1>]
+# CHECK-SAME:  grid_ranges = [#ttcore.core_range<(0,0), 1x1>, #ttcore.core_range<(1,1), 1x1>]
 # CHECK:       d2m.generic
 # CHECK:       "d2m.tile_add"
 # CHECK:       d2m.spatial_yield
@@ -154,7 +154,7 @@ _finalize("HETEROGENEOUS_KERNELS_IR", [out_exp, out_mm])
 
 # CHECK-LABEL: HETEROGENEOUS_KERNELS_IR
 # CHECK:       d2m.spatial
-# CHECK-SAME:  grid_ranges = [#ttcore.core_range<0x0, 1x1>, #ttcore.core_range<1x0, 1x1>]
+# CHECK-SAME:  grid_ranges = [#ttcore.core_range<(0,0), 1x1>, #ttcore.core_range<(1,0), 1x1>]
 # CHECK:       d2m.generic
 # CHECK:       "d2m.tile_exp"
 # CHECK:       d2m.spatial_yield
@@ -188,7 +188,7 @@ _finalize("MULTICORE_MATMUL_AND_ELTWISE_IR", [out_mm, out_exp])
 
 # CHECK-LABEL: MULTICORE_MATMUL_AND_ELTWISE_IR
 # CHECK:       d2m.spatial
-# CHECK-SAME:  grid_ranges = [#ttcore.core_range<0x0, 2x2>, #ttcore.core_range<2x0, 2x2>]
+# CHECK-SAME:  grid_ranges = [#ttcore.core_range<(0,0), 2x2>, #ttcore.core_range<(2,0), 2x2>]
 # CHECK:       d2m.generic
 # CHECK-SAME:  grid = #ttcore.grid<2x2>
 # CHECK:       "d2m.tile_matmul"
@@ -220,7 +220,7 @@ _finalize("THREE_REGIONS_IR", [out_add, out_mul, out_exp])
 
 # CHECK-LABEL: THREE_REGIONS_IR
 # CHECK:       d2m.spatial
-# CHECK-SAME:  grid_ranges = [#ttcore.core_range<0x0, 1x1>, #ttcore.core_range<0x1, 1x1>, #ttcore.core_range<1x0, 1x1>]
+# CHECK-SAME:  grid_ranges = [#ttcore.core_range<(0,0), 1x1>, #ttcore.core_range<(0,1), 1x1>, #ttcore.core_range<(1,0), 1x1>]
 # CHECK:       d2m.generic
 # CHECK:       "d2m.tile_add"
 # CHECK:       d2m.spatial_yield

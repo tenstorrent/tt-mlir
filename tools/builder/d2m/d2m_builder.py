@@ -616,7 +616,7 @@ class D2MBuilder(Builder):
             range_attrs = [
                 ttcore.ir.CoreRangeAttr.get(
                     self._ctx,
-                    [offset_y, offset_x],
+                    ttcore.ir.CoreCoordAttr.get(self._ctx, offset_y, offset_x),
                     [size_y, size_x],
                 )
                 for (offset_y, offset_x), (size_y, size_x) in grid_ranges
