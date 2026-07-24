@@ -288,9 +288,6 @@ public:
   static TTNNOperandsWorkarounds createDropoutOpOperandsWorkarounds();
 
   static TTNNOperandsWorkarounds
-  createUpdateCacheOpOperandsWorkarounds(RankedTensorType updateIndex);
-
-  static TTNNOperandsWorkarounds
   createPagedUpdateCacheOpOperandsWorkarounds(Operation *op);
 
   static TTNNOperandsWorkarounds

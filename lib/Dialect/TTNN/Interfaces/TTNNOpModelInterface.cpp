@@ -3267,37 +3267,8 @@ FillCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// UpdateCacheOp - TTNN Op Model Interface
+// PagedUpdateCacheOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
-
-llvm::Expected<op_model::OpConstraints>
-UpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                const OpConfig &opConfig) {
-  assert(inputs.size() == 3);
-
-  auto cacheShape = getCache().getType().getShape();
-  auto inputShape = getInput().getType().getShape();
-  auto updateIndexShape = getUpdateIndex().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<UpdateCacheOp>::getOpConstraints, *this, cacheShape,
-      inputs[0], inputShape, inputs[1], updateIndexShape, inputs[2],
-      getBatchOffset(), opConfig.outputLayout);
-}
-
-llvm::Expected<size_t>
-UpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                            const OpConfig &opConfig) {
-  assert(inputs.size() == 3);
-  auto cacheShape = getCache().getType().getShape();
-  auto inputShape = getInput().getType().getShape();
-  auto updateIndexShape = getUpdateIndex().getType().getShape();
-
-  return opRuntimeCache().getOrCompute(
-      op_model::OpModel<UpdateCacheOp>::getOpRuntime, *this, cacheShape,
-      inputs[0], inputShape, inputs[1], updateIndexShape, inputs[2],
-      getBatchOffset(), opConfig.outputLayout);
-}
 
 llvm::Expected<op_model::OpConstraints>
 PagedUpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,

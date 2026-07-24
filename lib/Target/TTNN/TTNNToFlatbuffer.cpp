@@ -1950,19 +1950,6 @@ createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
       *cache.fbb, input, scaleType, scaleFactor, mode, memoryConfig, output);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::UpdateCacheOp>
-createOp(FlatbufferObjectCache &cache, UpdateCacheOp op) {
-  auto cacheOperand = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getCache()));
-  auto input = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getInput()));
-  auto updateIndex = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getUpdateIndex()));
-
-  return ::tt::target::ttnn::CreateUpdateCacheOp(
-      *cache.fbb, cacheOperand, input, updateIndex, op.getBatchOffset());
-}
-
 ::flatbuffers::Offset<::tt::target::ttnn::PagedUpdateCacheOp>
 createOp(FlatbufferObjectCache &cache, PagedUpdateCacheOp op) {
   auto cacheOperand = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4811,10 +4798,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto deallocateOp = dyn_cast<DeallocateOp>(op); deallocateOp) {
     return createOperation(cache, createDeallocateOp(cache, deallocateOp),
                            debugString, locInfo);
-  }
-  if (auto updateCacheOp = dyn_cast<UpdateCacheOp>(op); updateCacheOp) {
-    return createOperation(cache, createOp(cache, updateCacheOp), debugString,
-                           locInfo);
   }
   if (auto pagedUpdateCacheOp = dyn_cast<PagedUpdateCacheOp>(op);
       pagedUpdateCacheOp) {

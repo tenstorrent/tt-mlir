@@ -1589,7 +1589,6 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::FillCacheOp:
   case ::tt::target::ttnn::OpType::PagedFillCacheOp:
-  case ::tt::target::ttnn::OpType::UpdateCacheOp:
   case ::tt::target::ttnn::OpType::PagedUpdateCacheOp:
   case ::tt::target::ttnn::OpType::WriteTensorOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -2118,12 +2117,6 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::DeallocateOp: {
     tensorRefs = {opContext.type_as_DeallocateOp()->in()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::UpdateCacheOp: {
-    tensorRefs = {opContext.type_as_UpdateCacheOp()->cache(),
-                  opContext.type_as_UpdateCacheOp()->input(),
-                  opContext.type_as_UpdateCacheOp()->update_index()};
     break;
   }
   case ::tt::target::ttnn::OpType::PagedUpdateCacheOp: {

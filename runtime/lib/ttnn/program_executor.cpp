@@ -75,7 +75,6 @@
 #include "operations/kv_cache/fill_cache.h"
 #include "operations/kv_cache/paged_fill_cache.h"
 #include "operations/kv_cache/paged_update_cache.h"
-#include "operations/kv_cache/update_cache.h"
 #include "operations/layout/bitcast_convert.h"
 #include "operations/layout/from_device.h"
 #include "operations/layout/to_device.h"
@@ -587,9 +586,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
     return operations::creation::run(op->type_as_ArangeOp(), getContext());
-  }
-  case ::tt::target::ttnn::OpType::UpdateCacheOp: {
-    return operations::kv_cache::run(op->type_as_UpdateCacheOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::PagedUpdateCacheOp: {
     return operations::kv_cache::run(op->type_as_PagedUpdateCacheOp(),
