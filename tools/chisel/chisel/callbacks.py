@@ -11,7 +11,7 @@ are recorded as chisel_bug.
 import logging
 from contextlib import contextmanager
 from enum import Enum
-from typing import Iterator
+from typing import Iterator, Optional
 
 from _ttmlir_runtime import runtime as tt_runtime
 from _ttmlir_runtime.binary import Binary
@@ -37,9 +37,15 @@ from .report import (
     NoGoldenPayload,
     NumericsMode,
     SkippedNumericsPayload,
+    SkippedOpPayload,
 )
 from .safety import chisel_safe
-from .utils import cached_retrieve_tensor, get_op_asm, invalidate_device_cache
+from .utils import (
+    cached_retrieve_tensor,
+    get_op_asm,
+    golden_to_runtime_tensor,
+    invalidate_device_cache,
+)
 from .validators import check_numerics, check_shape_dtype
 
 logger = logging.getLogger("chisel")
@@ -189,6 +195,41 @@ def _evict_inplace_no_golden(ctx: ChiselContext) -> None:
         )
 
 
+def _skip_op(
+    ctx: ChiselContext,
+    op,
+    entries: list[tuple[Value, TensorRef]],
+    entry_ssas: list[SSAName],
+    asm_state,
+    isolated_outs: Optional[list[GoldenMapTensor]],
+) -> None:
+    """Overwrite the op's output(s) with the isolation golden, on device.
+
+    Simulates a correct op so downstream device ops run on the substituted
+    value. `entries` and `golden_outs` cover both SSA outputs and in-place
+    mutated operands, in the same order the POST PCC loop pairs them, so the
+    write-back handles in-place ops uniformly. Reuses `isolated_outs` when
+    isolation mode already computed it; otherwise computes the golden from
+    stashed device inputs.
+    """
+    golden_outs = (
+        isolated_outs
+        if isolated_outs is not None
+        else execute_golden_with_ssa_inputs(op, ctx.stashed_inputs, asm_state)
+    )
+    for (_mlir_value, tensor_ref), golden_out, ssa in zip(
+        entries, golden_outs, entry_ssas, strict=True
+    ):
+        rt_tensor = golden_to_runtime_tensor(golden_out)
+        tt_runtime.update_tensor_in_pool(ctx.rt_program_context, tensor_ref, rt_tensor)
+        # The device tensor changed under us; drop any cached host copy.
+        invalidate_device_cache(ctx, ssa)
+
+    ctx.write_record(
+        ChiselRecord(op=op.name, check="skipped_op", payload=SkippedOpPayload())
+    )
+
+
 @chisel_safe
 def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
     """Run isolation + accumulation goldens; shape/dtype + PCC each output."""
@@ -232,6 +273,7 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
         for mlir_value, tensor_ref in entries
     ]
 
+    isolated_outs: Optional[list[GoldenMapTensor]] = None
     for mode in modes:
         ssa_inputs = (
             ctx.stashed_inputs
@@ -239,6 +281,8 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
             else ctx.golden_tensor_pool
         )
         all_outs = execute_golden_with_ssa_inputs(op, ssa_inputs, asm_state)
+        if mode is NumericsMode.ISOLATED:
+            isolated_outs = all_outs
 
         for idx, (mlir_value, _tensor_ref) in enumerate(entries):
             ssa = entry_ssas[idx]
@@ -258,6 +302,12 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
                 continue
 
             ctx.golden_tensor_pool[ssa] = golden_out
+
+    # Skip mode (accumulation only): if the predicate selects this op, overwrite
+    # its device output with the isolation golden.
+    skip_op = ctx.checks_config.skip_op
+    if ctx.checks_config.accumulation and skip_op is not None and skip_op(ctx):
+        _skip_op(ctx, op, entries, entry_ssas, asm_state, isolated_outs)
 
 
 def run_op_callback(
