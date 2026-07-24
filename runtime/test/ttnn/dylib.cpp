@@ -4,7 +4,6 @@
 
 #include "tt/runtime/test/ttnn/dylib.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
@@ -31,7 +30,7 @@ static std::string getMangledName(std::string_view funcName) {
   std::string emittedFuncName = getEmittedFuncName(funcName);
   mangledName += std::to_string(emittedFuncName.size());
   mangledName += emittedFuncName;
-  mangledName += "St6vectorIN2tt8tt_metal6TensorESaIS2_EE";
+  mangledName += "St6vectorIN4ttnn6TensorESaIS1_EE";
   return mangledName;
 }
 
