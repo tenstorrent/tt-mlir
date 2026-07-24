@@ -59,6 +59,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <cmath>
 #include <numeric>
@@ -416,6 +417,8 @@ public:
     SmallVector<ttir::Conv2dOp, 4> candidates;
     mod.walk([&](ttir::Conv2dOp op) { candidates.push_back(op); });
 
+    llvm::errs() << "[TTIRDepthwiseConvSpatialPackingOpt] " << candidates.size()
+                 << " Conv2dOp candidates\n";
     for (ttir::Conv2dOp convOp : candidates)
       process(convOp, ctx);
   }
@@ -456,16 +459,25 @@ private:
     int64_t icGroup = weightType.getDimSize(1); // must be 1 for depthwise
     int64_t kH      = weightType.getDimSize(2);
     int64_t kW      = weightType.getDimSize(3);
-    if (icGroup != 1)
+    if (icGroup != 1) {
+      llvm::errs() << "[TTIRDepthwiseConvSpatialPackingOpt] SKIP IC=" << IC
+                   << " icGroup=" << icGroup << " (not depthwise)\n";
       return;
+    }
 
     // Must be depthwise: groups == IC.
-    if (static_cast<int64_t>(convOp.getGroups()) != IC)
+    if (static_cast<int64_t>(convOp.getGroups()) != IC) {
+      llvm::errs() << "[TTIRDepthwiseConvSpatialPackingOpt] SKIP groups="
+                   << convOp.getGroups() << " != IC=" << IC << "\n";
       return;
+    }
 
     // IC must be narrow and TILE_WIDTH must divide by IC exactly.
-    if (IC >= TILE_WIDTH || (TILE_WIDTH % IC) != 0)
+    if (IC >= TILE_WIDTH || (TILE_WIDTH % IC) != 0) {
+      llvm::errs() << "[TTIRDepthwiseConvSpatialPackingOpt] SKIP IC=" << IC
+                   << " fails narrow/tile-divisible guard (TILE_WIDTH=" << TILE_WIDTH << ")\n";
       return;
+    }
 
     // Extract stride and padding.
     SmallVector<int32_t> stride, padding, dilation;
@@ -505,6 +517,10 @@ private:
     // Verify the unpack reshape is mathematically correct.
     if (K * packedOut_H != out_H)
       return;
+
+    llvm::errs() << "[TTIRDepthwiseConvSpatialPackingOpt] MATCHED depthwise"
+                 << " IC=" << IC << " K=" << K << " kH=" << kH << " kW=" << kW
+                 << " H=" << H << " W=" << W << " packedIC=" << packedIC << "\n";
 
     auto bf16 = BFloat16Type::get(ctx);
     Value origWeight = convOp.getWeight(); // [IC, 1, kH, kW]
@@ -596,6 +612,8 @@ private:
     postPerm.erase();
     convOp.erase();
     prePerm.erase();
+    llvm::errs() << "[TTIRDepthwiseConvSpatialPackingOpt] REWRITTEN depthwise"
+                 << " IC=" << IC << " → packedIC=" << packedIC << "\n";
   }
 };
 
@@ -637,31 +655,106 @@ public:
     SmallVector<ttir::Conv2dOp, 4> candidates;
     mod.walk([&](ttir::Conv2dOp op) { candidates.push_back(op); });
 
+    llvm::errs() << "[TTIRPointwiseConv2dPartialPackingOpt] " << candidates.size()
+                 << " Conv2dOp candidates\n";
     for (ttir::Conv2dOp convOp : candidates)
       process(convOp, ctx);
   }
 
 private:
+  // Check if op is ttir.transpose with the given normalized dim pair (accepts
+  // both negative and positive indices for a 4-D tensor).
+  static bool isTranspose4D(Operation *op, int32_t d0, int32_t d1) {
+    auto tr = mlir::dyn_cast_or_null<ttir::TransposeOp>(op);
+    if (!tr)
+      return false;
+    auto norm = [](int32_t d) -> int32_t { return d < 0 ? d + 4 : d; };
+    return norm(tr.getDim0()) == norm(d0) && norm(tr.getDim1()) == norm(d1);
+  }
+
   void process(ttir::Conv2dOp convOp, MLIRContext *ctx) {
     static const int64_t kNCHWtoNHWC[] = {0, 2, 3, 1};
     static const int64_t kNHWCtoNCHW[] = {0, 3, 1, 2};
 
-    // ── 1. Match permute(NCHW→NHWC) → conv2d → permute(NHWC→NCHW) ──────────
-    auto *prePermuteOp = convOp.getInput().getDefiningOp();
-    if (!isPermute(prePermuteOp, kNCHWtoNHWC))
-      return;
-    auto prePerm = mlir::cast<ttir::PermuteOp>(prePermuteOp);
-    Value origInput = prePerm.getInput(); // [N,IC,H,W] NCHW
-
-    ttir::PermuteOp postPerm;
-    for (Operation *u : convOp.getResult().getUsers()) {
-      if (isPermute(u, kNHWCtoNCHW)) {
-        postPerm = mlir::cast<ttir::PermuteOp>(u);
-        break;
+    // ── 0. Dump candidate pattern for diagnostic ──────────────────────────────
+    {
+      auto wt = mlir::cast<RankedTensorType>(convOp.getWeight().getType());
+      auto it = mlir::cast<RankedTensorType>(convOp.getInput().getType());
+      auto *inDefOp = convOp.getInput().getDefiningOp();
+      llvm::errs() << "[TTIRPointwiseConv2dPartialPackingOpt][CANDIDATE]"
+                   << " weight=" << wt
+                   << " input=" << it
+                   << " channel_last=" << convOp->hasAttr("channel_last")
+                   << " groups=" << convOp.getGroups()
+                   << " inputDefOp=" << (inDefOp ? inDefOp->getName().getStringRef() : "<block-arg>")
+                   << "\n";
+      if (auto tr = mlir::dyn_cast_or_null<ttir::TransposeOp>(inDefOp))
+        llvm::errs() << "  transpose dim0=" << tr.getDim0()
+                     << " dim1=" << tr.getDim1() << "\n";
+      if (auto perm = mlir::dyn_cast_or_null<ttir::PermuteOp>(inDefOp)) {
+        llvm::errs() << "  permute dims=[";
+        for (int64_t d : perm.getPermutation()) llvm::errs() << d << ",";
+        llvm::errs() << "]\n";
       }
     }
-    if (!postPerm)
-      return;
+
+    // ── 1. Pattern detection — two supported paths ────────────────────────────
+    //
+    // Path A (NCHW→NHWC permute wrapper, existing):
+    //   permute({0,2,3,1}) [NCHW→NHWC] → conv2d → permute({0,3,1,2}) [NHWC→NCHW]
+    //
+    // Path B (backbone channel_last, new):
+    //   transpose(-3,-2) → transpose(-2,-1) → conv2d{channel_last}  (no post-permute)
+    //   The two transposes are equivalent to permute({0,2,3,1}) but TTIRFusing
+    //   doesn't fold them when the downstream backbone stays fully channel_last.
+
+    Value origInput; // NCHW [N, IC, H, W] source for packing (both paths)
+    ttir::PermuteOp prePerm, postPerm;
+    ttir::TransposeOp preTr1, preTr2;
+    bool pathB = false; // true → channel_last output, no postPerm to erase
+
+    auto *inputDefOp = convOp.getInput().getDefiningOp();
+
+    if (isPermute(inputDefOp, kNCHWtoNHWC)) {
+      // Path A: single permute NCHW→NHWC before conv2d.
+      prePerm   = mlir::cast<ttir::PermuteOp>(inputDefOp);
+      origInput = prePerm.getInput();
+      for (Operation *u : convOp.getResult().getUsers()) {
+        if (isPermute(u, kNHWCtoNCHW)) {
+          postPerm = mlir::cast<ttir::PermuteOp>(u);
+          break;
+        }
+      }
+      // Path A1: permute→conv2d→permute  (NCHW output)
+      // Path A2: permute→conv2d channel_last, no post-permute (NHWC output)
+      //   TTIRFusing may fold two transposes into a single permute and the
+      //   backbone can stay channel_last throughout.
+      if (!postPerm) {
+        if (!convOp->hasAttr("channel_last")) {
+          llvm::errs() << "[TTIRPointwiseConv2dPartialPackingOpt] SKIP pathA"
+                       << " no postPerm and not channel_last\n";
+          return;
+        }
+        pathB = true; // reuse Path B output logic (channel_last result type)
+      }
+    } else if (isTranspose4D(inputDefOp, -2, -1)) {
+      // Path B: transpose(-3,-2) → transpose(-2,-1) → conv2d{channel_last}
+      // The second transpose (dim0=-2, dim1=-1) is the direct input to conv2d.
+      preTr2    = mlir::cast<ttir::TransposeOp>(inputDefOp);
+      auto *tr1Op = preTr2.getInput().getDefiningOp();
+      if (!isTranspose4D(tr1Op, -3, -2))
+        return;
+      preTr1    = mlir::cast<ttir::TransposeOp>(tr1Op);
+      origInput = preTr1.getInput(); // NCHW source [N, IC, H, W]
+      pathB     = true;
+      if (!convOp->hasAttr("channel_last"))
+        return;
+      for (Operation *u : convOp.getResult().getUsers())
+        if (isPermute(u, kNHWCtoNCHW))
+          return;
+    } else {
+      return; // no recognised pre-op pattern
+    }
 
     // ── 2. Guard: partial-K 1×1 pointwise conv, non-depthwise ───────────────
     auto weightType = mlir::cast<RankedTensorType>(convOp.getWeight().getType());
@@ -672,21 +765,36 @@ private:
     int64_t kH = weightType.getDimSize(2);
     int64_t kW = weightType.getDimSize(3);
 
-    if (kH != 1 || kW != 1)
+    if (kH != 1 || kW != 1) {
+      llvm::errs() << "[TTIRPointwiseConv2dPartialPackingOpt] SKIP IC=" << IC
+                   << " kH=" << kH << " kW=" << kW << " (not 1x1)\n";
       return;
-    if (IC >= TILE_WIDTH)
+    }
+    if (IC >= TILE_WIDTH) {
+      llvm::errs() << "[TTIRPointwiseConv2dPartialPackingOpt] SKIP IC=" << IC
+                   << " >= TILE_WIDTH=" << TILE_WIDTH << "\n";
       return;
+    }
 
     int64_t K = packingFactor(IC);
 
     // Only handle partial packing (K < TILE_WIDTH).
     // K == TILE_WIDTH is handled by TTIRSpatialRowGroupPackingOpt (linear path).
-    if (K == TILE_WIDTH)
+    if (K == TILE_WIDTH) {
+      llvm::errs() << "[TTIRPointwiseConv2dPartialPackingOpt] SKIP IC=" << IC
+                   << " K=TILE_WIDTH=" << TILE_WIDTH << " (handled by RowGroupPacking)\n";
       return;
+    }
 
     // Non-depthwise only.
-    if (convOp.getGroups() != 1)
+    if (convOp.getGroups() != 1) {
+      llvm::errs() << "[TTIRPointwiseConv2dPartialPackingOpt] SKIP IC=" << IC
+                   << " groups=" << convOp.getGroups() << " (depthwise, skip)\n";
       return;
+    }
+    llvm::errs() << "[TTIRPointwiseConv2dPartialPackingOpt] Checking 1x1 conv"
+                 << " IC=" << IC << " OC=" << OC << " K=" << K
+                 << " path=" << (pathB ? "B(channel_last)" : "A(permute)") << "\n";
 
     // Stride [1,1], padding all zeros.
     if (auto arr = mlir::dyn_cast<DenseI32ArrayAttr>(convOp.getStride()))
@@ -698,6 +806,7 @@ private:
         if (p != 0)
           return;
 
+    // origInput is always NCHW [N, IC, H, W]: dim0=N, dim1=IC, dim2=H, dim3=W.
     auto inputType = mlir::cast<RankedTensorType>(origInput.getType());
     if (inputType.getRank() != 4)
       return;
@@ -705,12 +814,21 @@ private:
     int64_t H = inputType.getDimSize(2);
     int64_t W = inputType.getDimSize(3);
 
-    if (H % K != 0)
+    if (H % K != 0) {
+      llvm::errs() << "[TTIRPointwiseConv2dPartialPackingOpt] SKIP IC=" << IC
+                   << " K=" << K << " H=" << H << " not divisible by K\n";
       return;
+    }
 
     int64_t packedH  = H / K;
     int64_t packedIC = IC * K;
     int64_t packedOC = OC * K;
+
+    llvm::errs() << "[TTIRPointwiseConv2dPartialPackingOpt] MATCHED 1x1 pointwise"
+                 << " IC=" << IC << " OC=" << OC << " K=" << K
+                 << " H=" << H << " W=" << W
+                 << " packedIC=" << packedIC << " packedOC=" << packedOC
+                 << " path=" << (pathB ? "B(channel_last)" : "A(permute)") << "\n";
 
     auto bf16     = BFloat16Type::get(ctx);
     auto actElemTy = mlir::cast<RankedTensorType>(origInput.getType()).getElementType();
@@ -858,18 +976,54 @@ private:
             .getResult();
 
     // reshape [N,OC*K,H/K,W] → [N,OC,H,W]  free view unpack
-    auto finalTy = RankedTensorType::get({N, OC, H, W}, actElemTy);
-    Value finalOut =
+    auto ncHWTy = RankedTensorType::get({N, OC, H, W}, actElemTy);
+    Value ncHW  =
         b.create<ttir::ReshapeOp>(
-             loc, finalTy, oPer,
+             loc, ncHWTy, oPer,
              b.getI32ArrayAttr({(int32_t)N, (int32_t)OC, (int32_t)H, (int32_t)W}))
             .getResult();
 
+    // Path B: backbone stays channel_last → add NCHW→NHWC permute so the
+    // result type matches the original conv2d output [N,H,W,OC] NHWC.
+    Value finalOut;
+    if (pathB) {
+      auto nhwcTy = RankedTensorType::get({N, H, W, OC}, actElemTy);
+      finalOut    =
+          b.create<ttir::PermuteOp>(
+               loc, nhwcTy, ncHW,
+               b.getDenseI64ArrayAttr({0, 2, 3, 1}))
+              .getResult();
+    } else {
+      finalOut = ncHW; // Path A: NCHW replaces postPerm's NCHW result
+    }
+
     // ── 4. Replace old chain ──────────────────────────────────────────────────
-    postPerm.getResult().replaceAllUsesWith(finalOut);
-    postPerm.erase();
-    convOp.erase();
-    prePerm.erase();
+    if (pathB) {
+      // Path A2 / Path B: replace the channel_last conv2d output directly.
+      convOp.getResult().replaceAllUsesWith(finalOut);
+      convOp.erase();
+      if (prePerm) {
+        // Path A2: single pre-permute op, erase it.
+        if (prePerm.getResult().use_empty())
+          prePerm.erase();
+      } else {
+        // Path B: two-transpose chain; erase if dead.
+        if (preTr2 && preTr2.getResult().use_empty())
+          preTr2.erase();
+        if (preTr1 && preTr1.getResult().use_empty())
+          preTr1.erase();
+      }
+    } else {
+      // Path A1: replace postPerm (NCHW output) and erase pre-permute chain.
+      postPerm.getResult().replaceAllUsesWith(finalOut);
+      postPerm.erase();
+      convOp.erase();
+      prePerm.erase();
+    }
+    llvm::errs() << "[TTIRPointwiseConv2dPartialPackingOpt] REWRITTEN 1x1 pointwise"
+                 << " IC=" << IC << " OC=" << OC
+                 << " → packedIC=" << packedIC << " packedOC=" << packedOC
+                 << " path=" << (pathB ? "B(channel_last)" : "A(permute)") << "\n";
   }
 };
 
