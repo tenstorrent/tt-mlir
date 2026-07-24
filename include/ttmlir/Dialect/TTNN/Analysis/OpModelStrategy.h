@@ -73,6 +73,19 @@ struct LayoutScore {
   /// Memory footprint from ValidationResult (for tie-breaking).
   uint64_t outputL1Usage = 0;
 
+  /// Total output tensor footprint in bytes, independent of buffer type
+  /// (L1 or DRAM). Unlike `outputL1Usage` (which is 0 for DRAM outputs), this
+  /// is the real size of the produced tensor, so cost models can charge DRAM
+  /// output writes and size reshards out of DRAM-resident producers. Not part
+  /// of the heuristic ordering (`operator>`/`operator==`).
+  uint64_t outputBytes = 0;
+
+  /// Matmul compute work in 32x32x32 tile-multiplies (0 for non-matmul ops).
+  /// Lets the analytical-time model add a compute roofline term so it does not
+  /// trade away matmul parallelism for fewer reshards. Layout-independent (same
+  /// for every candidate of an op); not part of the heuristic ordering.
+  uint64_t tileMuls = 0;
+
   /// Higher score is better.
   bool operator>(const LayoutScore &other) const;
   bool operator==(const LayoutScore &other) const;
@@ -95,6 +108,10 @@ struct BeamCandidate {
 
   /// Quality score for this candidate.
   LayoutScore score;
+
+  /// Accumulated analytical-time path cost (filled by the AnalyticalTime cost
+  /// model; unused by the default Heuristic model). Lower is better.
+  double accumulatedCost = 0.0;
 
   /// Backend validation result.
   op_constraint_validation::ValidationResult validationResult;

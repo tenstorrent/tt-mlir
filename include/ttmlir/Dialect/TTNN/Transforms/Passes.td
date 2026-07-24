@@ -884,6 +884,9 @@ def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagat
            "Directory for decision trace JSON output.">,
     Option<"enableCompileTimeStats", "enable-compile-time-stats", "bool", "false",
            "Print per-op compile-time statistics at DEBUG level.">,
+    Option<"layoutCostModel", "layout-cost-model", "std::string", "\"heuristic\"",
+           "Beam cost model: heuristic (local LayoutScore, default) or "
+           "time (accumulated analytical-time over the producer chain).">,
   ];
 }
 

@@ -68,6 +68,7 @@ public:
     enableDecisionTrace = opts.enableDecisionTrace;
     decisionTraceDir = std::move(opts.decisionTraceDir);
     enableCompileTimeStats = opts.enableCompileTimeStats;
+    layoutCostModel = std::move(opts.layoutCostModel);
     overrideOutputLayout = std::move(opts.overrideOutputLayout);
     overrideConv2dConfig = std::move(opts.overrideConv2dConfig);
     overrideConv3dConfig = std::move(opts.overrideConv3dConfig);
@@ -169,6 +170,16 @@ public:
       });
     });
 
+    // Resolve the beam cost model selected via the pipeline option.
+    LayoutCostModelKind costModelKind = LayoutCostModelKind::Heuristic;
+    if (layoutCostModel == "time") {
+      costModelKind = LayoutCostModelKind::AnalyticalTime;
+    } else if (layoutCostModel != "heuristic") {
+      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                   "Unknown layout-cost-model '{0}'; using heuristic.",
+                   layoutCostModel);
+    }
+
     // Step 4: Run layout propagation for each forward device function.
     moduleOp->walk([&](func::FuncOp func) {
       if (!ttmlir::utils::isForwardDeviceFunc(func)) {
@@ -198,7 +209,7 @@ public:
           static_cast<size_t>(beamWidth),
           static_cast<size_t>(maxInputCandidatesPerOperand),
           static_cast<size_t>(maxReshardCandidatesPerType),
-          std::move(observer));
+          std::move(observer), costModelKind);
       propagation.run();
 
       // Sync D2M subgraph function types to match dispatch op's current inputs
