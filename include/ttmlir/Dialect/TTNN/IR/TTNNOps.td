@@ -892,7 +892,7 @@ def TTNN_PowScalarOp : TTNN_ElementwiseBinaryCompositeScalarOp<"pow_scalar"> {
     // Output tensor: [4.0, 9.0, 16.0, 25.0]
     ```
 
-    Restriction: TTNN API supports expoenent ≥ 0 only.
+    Restriction: TTNN API supports exponent ≥ 0 only.
   }];
 
   let extraClassDeclaration = [{
@@ -4591,6 +4591,13 @@ def TTNN_ChunkedScaledDotProductAttentionOp : TTNN_Op<"chunked_scaled_dot_produc
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
       return wa::TTNNOperandsWorkaroundsFactory::createChunkedScaledDotProductAttentionOpOperandsWorkarounds(getOperation());
     }
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
   }];
 
   let hasVerifier = 1;

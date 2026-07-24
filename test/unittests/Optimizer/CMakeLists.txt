@@ -52,7 +52,9 @@ if (TTMLIR_ENABLE_OPMODEL)
     # registering MockDeviceEnvironment) rather than add_mlir_unittest, so it is
     # NOT wired into MLIRUnitTests/check-ttmlir -- it needs the op-model lib and
     # a mock device, matching the TestOpModelLibMockDevice convention. Runs
-    # HW-free (mock device) on any box with the op-model build.
+    # HW-free (mock device) on any box with the op-model build. Invoked in CI by
+    # .github/test_scripts/op_model.sh (alongside the other mock-device gtest
+    # binaries), since check-ttmlir does not run it.
     add_executable(L1SpillManagementMockAllocatorTests
         TestL1SpillManagementMockAllocator.cpp
     )

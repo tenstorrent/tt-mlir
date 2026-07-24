@@ -2042,6 +2042,26 @@ void MockAllocatorL1Tracker::addTensor(Value result,
     aliasOf[result] = result;
     aliasRefcount[result] = 1;
   }
+  // The pending stash for `op` is only needed to associate its records to its
+  // tensor results, which happens right after the validate() that produced it
+  // (both the forward-sweep commit and the revalidation cascade call validate()
+  // immediately before addTensor()). Drop the entry once the op's last tensor
+  // result has been associated so pendingRecords does not accumulate a stale
+  // entry per op visited over the pass. Results are committed in ascending
+  // order in both paths, so once the highest-numbered tensor result is reached
+  // every earlier result of this op has already been associated, and no further
+  // addTensor() for `op` runs before its next validate() re-stashes -- so this
+  // never orphans an association.
+  bool isLastTensorResult = true;
+  for (unsigned i = idx + 1, e = op->getNumResults(); i < e; ++i) {
+    if (mlir::isa<RankedTensorType>(op->getResult(i).getType())) {
+      isLastTensorResult = false;
+      break;
+    }
+  }
+  if (isLastTensorResult) {
+    pendingRecords.erase(it);
+  }
 }
 
 void MockAllocatorL1Tracker::addTensorAlias(Value out, Value src) {

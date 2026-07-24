@@ -743,6 +743,15 @@ namespace {
 // Snapshot of the mock allocator state taken before a batch of stateful spill
 // queries, so it can be restored exactly afterward. Single mock device per
 // compile; snapshot is always paired with a restore by the spill pass.
+//
+// INVARIANT: this file-global relies on strictly sequential, non-reentrant use.
+// The op-model / SingletonDeviceContext layer is single-threaded per compile
+// (there is one shared mock device), and the only writer is the greedy L1 spill
+// pass, which brackets exactly one spill run with snapshot -> (queries) ->
+// restore via an RAII guard (see GreedyL1SpillManagement.cpp). There is no
+// nesting: a second snapshotMockAllocatorState() before the matching restore
+// would overwrite the pending snapshot and silently lose the original state.
+// Do not call these from a reentrant / concurrent context.
 std::optional<::tt::tt_metal::experimental::MockAllocatorState>
     g_spillAllocatorSnapshot;
 } // namespace
@@ -3820,6 +3829,22 @@ OpModel<ChunkedScaledDotProductAttentionOp>::getOpConstraints(
     TTNNLayoutAttr chunkStartIdxLayout, std::optional<llvm::APFloat> scale,
     std::optional<SDPAProgramConfigAttr> programConfig,
     TTNNLayoutAttr outputLayout) {
+  return getOpConstraintsWithState(
+      queryShape, queryLayout, keyShape, keyLayout, valueShape, valueLayout,
+      pageTableShape, pageTableLayout, chunkStartIdxShape, chunkStartIdxLayout,
+      scale, programConfig, outputLayout, /*initialState=*/nullptr);
+}
+
+llvm::Expected<OpConstraints>
+OpModel<ChunkedScaledDotProductAttentionOp>::getOpConstraintsWithState(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+    llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
+    llvm::ArrayRef<int64_t> chunkStartIdxShape,
+    TTNNLayoutAttr chunkStartIdxLayout, std::optional<llvm::APFloat> scale,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -3844,17 +3869,21 @@ OpModel<ChunkedScaledDotProductAttentionOp>::getOpConstraints(
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
       sdpaProgramConfig = conversion::getSDPAProgramConfig(programConfig);
 
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
   auto chunkedScaledDotProductAttentionOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
         ::ttnn::transformer::chunked_scaled_dot_product_attention, device,
-        querySpec, keySpec, valueSpec, pageTableSpec, chunkStartIdxSpec,
-        scaleFloat, detail::getNullableMemoryConfig(outputLayout),
-        sdpaProgramConfig,
+        initialStateOpt, querySpec, keySpec, valueSpec, pageTableSpec,
+        chunkStartIdxSpec, scaleFloat,
+        detail::getNullableMemoryConfig(outputLayout), sdpaProgramConfig,
         /*compute_kernel_config=*/std::nullopt);
   };
 
-  return operation::getOpConstraints(queryLayout.getContext(),
-                                     chunkedScaledDotProductAttentionOpQuery);
+  return operation::getOpConstraintsWithState(
+      queryLayout.getContext(), chunkedScaledDotProductAttentionOpQuery);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL

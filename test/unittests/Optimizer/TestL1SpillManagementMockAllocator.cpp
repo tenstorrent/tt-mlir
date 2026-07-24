@@ -174,7 +174,7 @@ TEST_F(MockAllocatorDeviceL1Test, OverSubscriptionSpills) {
 }
 
 //===----------------------------------------------------------------------===//
-// SequentialChainFreesRecords
+// DeadTensorsFreeRecordsNoSpill
 //
 // Complement to the accumulation test: a long chain where each tensor dies one
 // step after birth. If the tracker frees live records on tensor death
@@ -367,7 +367,13 @@ static bool queryReportsL1Address0(mlir::Operation *op,
       /*liveRecords=*/
       llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>{},
       /*additionalL1Usage=*/0);
+  // Fatal for this helper: a failed query has no meaningful outputAllocations,
+  // so record the failure and stop rather than falling through to `return
+  // false` (which would misreport as "no L1 address-0 output").
   EXPECT_TRUE(result.isSuccess()) << "stateful op-model query should succeed";
+  if (!result.isSuccess()) {
+    return false;
+  }
   for (const auto &r : result.outputAllocations) {
     if (r.bufferType == mlir::tt::ttnn::BufferType::L1 && r.address == 0) {
       return true;
@@ -426,6 +432,24 @@ TEST_F(MockAllocatorViewTripwireTest, PermuteNopViewReportsL1Address0) {
       << "identity ttnn.permute must report an L1 output at address 0";
 }
 
+// Reshape: the primary view op. A reshape that keeps the last two dims (only
+// reinterpreting the leading dims) is a zero-copy view (reshape.cpp:378-384).
+TEST_F(MockAllocatorViewTripwireTest, ReshapeViewReportsL1Address0) {
+  llvm::SmallVector<int64_t> inShape = {2, 1, 32, 64};
+  llvm::SmallVector<int64_t> outShape = {1, 2, 32, 64}; // last two dims fixed
+  auto inLayout = makeL1Interleaved(inShape);
+  auto outLayout = makeL1Interleaved(outShape);
+  auto args = beginFunc({tensorType(inShape, inLayout)});
+  auto *reshape = addReshape(args[0], tensorType(outShape, outLayout),
+                             /*l1UsageBytes=*/0);
+  finishFunc({reshape->getResult(0)});
+
+  EXPECT_TRUE(mlir::tt::ttnn::canReshapeBeView(reshape));
+  EXPECT_TRUE(mlir::tt::ttnn::isAliasingViewOp(reshape));
+  EXPECT_TRUE(queryReportsL1Address0(reshape, inLayout, outLayout))
+      << "view-eligible ttnn.reshape must report an L1 output at address 0";
+}
+
 // Negative: a real (non-view) pad that grows a tile dim must NOT be classified
 // a view.
 TEST_F(MockAllocatorViewTripwireTest, RealPadIsNotAView) {
@@ -438,12 +462,17 @@ TEST_F(MockAllocatorViewTripwireTest, RealPadIsNotAView) {
 
   EXPECT_FALSE(mlir::tt::ttnn::canPadBeView(pad))
       << "a pad that adds a full tile row is a real allocation, not a view";
+  // ...and it must not be picked up by the unified aliasing-view predicate the
+  // spill pass keys on (else it would alias/undercount a real allocation).
+  EXPECT_FALSE(mlir::tt::ttnn::isAliasingViewOp(pad))
+      << "a real (non-view) pad must not be classified as an aliasing view";
 }
 
 } // namespace
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
+  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory) - GTest takes ownership.
   ::testing::AddGlobalTestEnvironment(new MockDeviceEnvironment());
   return RUN_ALL_TESTS();
 }

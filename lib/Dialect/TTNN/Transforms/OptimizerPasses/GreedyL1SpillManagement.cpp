@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -19,13 +20,8 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/ErrorHandling.h"
-
-namespace mlir::tt::ttnn::op_model {
-// Defined in TTNNOpModel.cpp (behind the op-model / tt-metalium boundary).
-void snapshotMockAllocatorState();
-void restoreMockAllocatorState();
-} // namespace mlir::tt::ttnn::op_model
 
 namespace mlir::tt::ttnn {
 
@@ -113,15 +109,24 @@ public:
       // tt-metal's MockAllocatorState. Toggle off to fall back to the
       // scalar-heuristic tracker.
       if (useMockAllocatorState) {
-        // The stateful spill queries mutate the shared mock device's allocator.
-        // Snapshot it before and restore it after, so later stateless op-model
-        // queries (conv2d config search, pool/conv constraint checks in
-        // OperationValidationAndFallback) see the exact device state main sees.
-        op_model::snapshotMockAllocatorState();
         StatefulL1SpillManagement spill(func, deviceGrid, l1BudgetPerCore,
-                                           std::move(observer));
-        spill.run();
-        op_model::restoreMockAllocatorState();
+                                        std::move(observer));
+        {
+          // The stateful spill queries mutate the shared mock device's
+          // allocator. Snapshot it before and restore it after, so later
+          // stateless op-model queries (conv2d config search, pool/conv
+          // constraint checks in OperationValidationAndFallback) see the exact
+          // device state main sees. RAII: restore must run even if spill.run()
+          // throws or a future early-return is added between the snapshot and
+          // here -- otherwise a corrupted shared mock device leaks into every
+          // subsequent stateless query. The guard fires at this inner scope's
+          // exit, i.e. right after run() and before finalize(), matching the
+          // original explicit-restore ordering.
+          op_model::snapshotMockAllocatorState();
+          auto restoreGuard = llvm::make_scope_exit(
+              []() noexcept { op_model::restoreMockAllocatorState(); });
+          spill.run();
+        }
         return finalize(spill);
       }
       SumL1SpillManagement spill(func, deviceGrid, l1BudgetPerCore,
