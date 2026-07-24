@@ -130,9 +130,10 @@ def test_scalar_kernel_arg(target: str, request, device):
     capsule = ttmetal_to_flatbuffer_bin(module)
     fbb = tt_runtime.binary.load_binary_from_capsule(capsule)
 
-    scalar = tt_runtime.runtime.create_scalar_tensor(42)
-    outputs = tt_runtime.runtime.submit(device, fbb, 0, [scalar])
-    tt_runtime.runtime.wait(outputs)
+    for value in (42, 42, 7, 42):
+        scalar = tt_runtime.runtime.create_scalar_tensor(value)
+        outputs = tt_runtime.runtime.submit(device, fbb, 0, [scalar])
+        tt_runtime.runtime.wait(outputs)
 
 
 @pytest.mark.parametrize("target", ["ttnn"])
