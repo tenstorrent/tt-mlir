@@ -15,9 +15,9 @@ module attributes {} {
     // and automatically insert layout conversion for tile input.
     // Also, the output layout of upsample op will be the same as input layout, so revert it back to the expected layout.
 
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK-NEXT: "ttnn.upsample"
-    // CHECK-NEXT: "ttnn.to_layout"
+    // CHECK-NEXT: "ttnn.to_tensor_spec"
     // CHECK-SAME: -> tensor<4x64x128x3xbf16,
     // CHECK-SAME: !ttcore.tile<32x32,
 

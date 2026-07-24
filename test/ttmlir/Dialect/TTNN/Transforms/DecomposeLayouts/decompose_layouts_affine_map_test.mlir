@@ -21,7 +21,7 @@
 #ttnn_layout_dram_tile = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x64x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>
 module {
   func.func @forward(%arg0: tensor<1x1x8x2048xbf16, #ttnn_layout_dram_rm>) -> tensor<1x1x8x2048xbf16, #ttnn_layout_dram_tile> {
-    %0 = "ttnn.to_layout"(%arg0)  : (tensor<1x1x8x2048xbf16, #ttnn_layout_dram_rm>) -> tensor<1x1x8x2048xbf16, #ttnn_layout_dram_tile>
+    %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<1x1x8x2048xbf16, #ttnn_layout_dram_rm>) -> tensor<1x1x8x2048xbf16, #ttnn_layout_dram_tile>
     // CHECK: "ttnn.to_layout"
     return %0 : tensor<1x1x8x2048xbf16, #ttnn_layout_dram_tile>
   }

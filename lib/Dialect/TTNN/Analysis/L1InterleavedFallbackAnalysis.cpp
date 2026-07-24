@@ -396,7 +396,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   // If next consumer has TTNN layout output encoding, verify both operations
   // can coexist in L1.
   if (utils::producesTTNNLayoutEncoding(nextConsumerOp) &&
-      !isa<ttnn::ToLayoutOp>(nextConsumerOp)) {
+      !isa<ttnn::ToTensorSpecOp>(nextConsumerOp)) {
     const OpConfig &nextConsumerOpConfig =
         analysisInput.currentConfigs.at(nextConsumerOp);
 

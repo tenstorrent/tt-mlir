@@ -562,7 +562,7 @@ public:
         }
       });
 
-      llvm::DenseMap<Operation *, ToLayoutOp> insertedMemoryReconfigOps;
+      llvm::DenseMap<Operation *, ToTensorSpecOp> insertedMemoryReconfigOps;
       if (memReconfigEnabled) {
         insertedMemoryReconfigOps =
             processMemReconfigEdges(memReconfigEntryMap, deviceGrid);
@@ -660,7 +660,7 @@ private:
   void extractReshardEdges(ModuleOp &moduleOp,
                            llvm::DenseSet<Edge> &overrideReshardEdges) {
     moduleOp->walk([&](Operation *op) {
-      if (isa<ToLayoutOp>(op)) {
+      if (isa<ToTensorSpecOp>(op)) {
         return;
       }
 
@@ -691,12 +691,12 @@ private:
     assert(insertMemReconfig.size() == overrideReshardEdges.size());
   }
 
-  static llvm::DenseMap<Operation *, ToLayoutOp> processMemReconfigEdges(
+  static llvm::DenseMap<Operation *, ToTensorSpecOp> processMemReconfigEdges(
       const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap,
       ttcore::GridAttr deviceGrid) {
 
     // Mapping from producer op to the nearest inserted memory reconfig op.
-    llvm::DenseMap<Operation *, ToLayoutOp> insertedMemoryReconfigOps;
+    llvm::DenseMap<Operation *, ToTensorSpecOp> insertedMemoryReconfigOps;
 
     // Insert memory reconfig ops here based on results of memory layout
     // analysis.
@@ -760,19 +760,19 @@ private:
           producerOpTensorShape, producerOpTensorType.getElementType(),
           reshardOpLayout);
 
-      // If producerOp is a toLayoutOp, adjust its output layout(update
+      // If producerOp is a ToTensorSpecOp, adjust its output layout(update
       // inplace) to reflect consumerOp's output layout. If producerOp is not a
-      // toLayoutOp, insert a toLayoutOp in between producerOp
+      // ToTensorSpecOp, insert a ToTensorSpecOp in between producerOp
       // and consumerOp.
       //
-      if (isa_and_nonnull<ToLayoutOp>(producerOp)) {
-        ToLayoutOp toLayoutOp = llvm::cast<ToLayoutOp>(producerOp);
-        toLayoutOp.getResult().setType(newTensorType);
+      if (auto toTensorSpecOp =
+              dyn_cast_if_present<ToTensorSpecOp>(producerOp)) {
+        toTensorSpecOp.getResult().setType(newTensorType);
       } else {
         OpBuilder builder(consumerOp);
         Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
                                                            "_mem_reconfig");
-        ToLayoutOp memoryReconfigOp = builder.create<ToLayoutOp>(
+        ToTensorSpecOp memoryReconfigOp = builder.create<ToTensorSpecOp>(
             loc,
             newTensorType,                              // output type
             consumerOp->getOperand(edge.operandIndex)); // input value
@@ -787,7 +787,7 @@ private:
           if (!inserted) {
             // There is already a memory reconfig op for this producer.
             // Keep the one that is closer to the producer (earlier in block).
-            ToLayoutOp existingMemoryReconfigOp = it->second;
+            ToTensorSpecOp existingMemoryReconfigOp = it->second;
             if (!existingMemoryReconfigOp->isBeforeInBlock(consumerOp)) {
               it->second = memoryReconfigOp;
             }
@@ -800,7 +800,7 @@ private:
 
   void processSpillOps(const std::vector<Operation *> &spillToDramOps,
                        ttcore::GridAttr deviceGrid,
-                       const llvm::DenseMap<Operation *, ToLayoutOp>
+                       const llvm::DenseMap<Operation *, ToTensorSpecOp>
                            &insertedMemoryReconfigOps) {
 
     for (Operation *spilledOp : spillToDramOps) {
@@ -837,7 +837,7 @@ private:
       }
 
       // Step 2: Insert spilling to DRAM.
-      Operation *spillToDRAMOp = builder.create<ToLayoutOp>(
+      Operation *spillToDRAMOp = builder.create<ToTensorSpecOp>(
           loc, newTensorType, spilledOp->getResult(0));
 
       // Step 3: Reconnect uses.
@@ -856,7 +856,8 @@ private:
       if (insertedMemoryReconfigOps.count(spilledOp)) {
         // There is a memory reconfig op inserted on a branch outgoing from
         // spilled op. We will avoid spill to DRAM on that branch.
-        ToLayoutOp memoryReconfigOp = insertedMemoryReconfigOps.at(spilledOp);
+        ToTensorSpecOp memoryReconfigOp =
+            insertedMemoryReconfigOps.at(spilledOp);
         auto spilledOpResultLayout = mlir::cast<TTNNLayoutAttr>(
             mlir::cast<RankedTensorType>(spilledOp->getResult(0).getType())
                 .getEncoding());
@@ -941,11 +942,11 @@ private:
         uses.emplace_back(use.getOwner(), use.getOperandNumber());
       }
 
-      Operation *toLayoutOp = builder.create<ToLayoutOp>(
+      Operation *toTensorSpecOp = builder.create<ToTensorSpecOp>(
           loc, newTensorType, spilledOp->getResult(0));
 
       for (auto &[useOp, operandIdx] : uses) {
-        useOp->setOperand(operandIdx, toLayoutOp->getResult(0));
+        useOp->setOperand(operandIdx, toTensorSpecOp->getResult(0));
       }
     }
   }

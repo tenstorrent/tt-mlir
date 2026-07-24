@@ -14,7 +14,7 @@ module attributes {} {
     // but the output layout doesn't match the expected one, so it inserts a revert to tile layout with bf16.
 
     // CHECK: %[[TANH_RES:.*]] = "ttnn.tanh"
-    // CHECK: "ttnn.to_layout"(%[[TANH_RES]])
+    // CHECK: "ttnn.to_tensor_spec"(%[[TANH_RES]])
     // CHECK-SAME: -> tensor<1x1x32x32xbf16,
     // CHECK-SAME: !ttcore.tile<32x32,
 

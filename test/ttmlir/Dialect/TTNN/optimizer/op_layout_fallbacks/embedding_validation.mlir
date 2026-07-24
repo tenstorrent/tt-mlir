@@ -16,7 +16,7 @@ module attributes {} {
     // The post-optimizer validation should detect that embedding requires:
     // BFloat16 data type for weight tensor (f32 -> bf16)
 
-    // CHECK: %[[CONVERTED:.*]] = "ttnn.to_layout"
+    // CHECK: %[[CONVERTED:.*]] = "ttnn.to_tensor_spec"
     // CHECK-SAME: -> tensor<100x32xbf16
     // CHECK: "ttnn.embedding"
     // CHECK-SAME: %[[CONVERTED]])
@@ -32,9 +32,9 @@ module attributes {} {
     // The post-optimizer validation should detect that embedding requires:
     // BFloat16 data type for weight tensor (f32 -> bf16)
 
-    // CHECK: %[[ARG0_BF16:.*]] = "ttnn.to_layout"
+    // CHECK: %[[ARG0_BF16:.*]] = "ttnn.to_tensor_spec"
     // CHECK-SAME: -> tensor<32x32xbf16
-    // CHECK: %[[ARG1_BF16:.*]] = "ttnn.to_layout"
+    // CHECK: %[[ARG1_BF16:.*]] = "ttnn.to_tensor_spec"
     // CHECK-SAME: -> tensor<1000x32xbf16
     // CHECK: "ttnn.embedding"
     // CHECK-SAME: (%[[ARG0_BF16]], %[[ARG1_BF16]])

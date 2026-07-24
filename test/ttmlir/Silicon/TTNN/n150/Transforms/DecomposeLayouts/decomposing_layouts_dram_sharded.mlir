@@ -63,7 +63,7 @@ module attributes {} {
         // CHECK: %[[UNTILIZE:.*]] = "ttnn.to_layout"(%[[TO_DEV]])
         // CHECK-SAME: -> tensor<32x384xbf16, #[[DRAM_WS_RM_BF16]]>
         // CHECK: return %[[UNTILIZE]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<32x384xbf16, #host_tile_bf16>) -> tensor<32x384xbf16, #dram_ws_rm_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<32x384xbf16, #host_tile_bf16>) -> tensor<32x384xbf16, #dram_ws_rm_bf16>
         return %0 : tensor<32x384xbf16, #dram_ws_rm_bf16>
     }
 
@@ -76,7 +76,7 @@ module attributes {} {
         // CHECK: %[[RESHARD:.*]] = "ttnn.to_memory_config"(%[[UNTILIZE]])
         // CHECK-SAME: -> tensor<32x384xbf16, #[[DRAM_IL_RM_BF16]]>
         // CHECK: return %[[RESHARD]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<32x384xbf16, #dram_ws_tile_bf16>) -> tensor<32x384xbf16, #dram_il_rm_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<32x384xbf16, #dram_ws_tile_bf16>) -> tensor<32x384xbf16, #dram_il_rm_bf16>
         return %0 : tensor<32x384xbf16, #dram_il_rm_bf16>
     }
 
@@ -88,7 +88,7 @@ module attributes {} {
         // CHECK-NOT: ttnn.to_memory_config
         // CHECK-NOT: ttnn.from_device
         // CHECK: return %[[UNTILIZE]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<32x384xbf16, #dram_ws_tile_bf16>) -> tensor<32x384xbf16, #dram_ws_rm_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<32x384xbf16, #dram_ws_tile_bf16>) -> tensor<32x384xbf16, #dram_ws_rm_bf16>
         return %0 : tensor<32x384xbf16, #dram_ws_rm_bf16>
     }
 
@@ -99,7 +99,7 @@ module attributes {} {
         // CHECK-SAME: -> tensor<32x384xbf16, #[[DRAM_WS_RM_BF16]]>
         // CHECK: %[[FROM_DEV:.*]] = "ttnn.from_device"(%[[UNTILIZE]])
         // CHECK: return %[[FROM_DEV]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<32x384xbf16, #dram_ws_tile_bf16>) -> tensor<32x384xbf16, #host_rm_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<32x384xbf16, #dram_ws_tile_bf16>) -> tensor<32x384xbf16, #host_rm_bf16>
         return %0 : tensor<32x384xbf16, #host_rm_bf16>
     }
 
@@ -112,7 +112,7 @@ module attributes {} {
         // CHECK-NOT: ttnn.to_memory_config
         // CHECK-NOT: ttnn.from_device
         // CHECK: return %[[UNTILIZE]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<256x32xbf16, #dram_hs_tile_bf16>) -> tensor<256x32xbf16, #dram_hs_rm_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<256x32xbf16, #dram_hs_tile_bf16>) -> tensor<256x32xbf16, #dram_hs_rm_bf16>
         return %0 : tensor<256x32xbf16, #dram_hs_rm_bf16>
     }
 
@@ -132,7 +132,7 @@ module attributes {} {
         // CHECK: %[[UNTILIZE:.*]] = "ttnn.to_layout"(%[[CAST]])
         // CHECK-SAME: -> tensor<32x384xbf16, #[[DRAM_WS_RM_BF16]]>
         // CHECK: return %[[UNTILIZE]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<32x384xf32, #host_tile_f32>) -> tensor<32x384xbf16, #dram_ws_rm_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<32x384xf32, #host_tile_f32>) -> tensor<32x384xbf16, #dram_ws_rm_bf16>
         return %0 : tensor<32x384xbf16, #dram_ws_rm_bf16>
     }
 
@@ -148,7 +148,7 @@ module attributes {} {
         // CHECK: %[[RESHARD:.*]] = "ttnn.to_memory_config"(%[[UNTILIZE]])
         // CHECK-SAME: -> tensor<32x384xbf16, #[[DRAM_WS_RM_BF16]]>
         // CHECK: return %[[RESHARD]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<32x384xf32, #dram_il_tile_f32>) -> tensor<32x384xbf16, #dram_ws_rm_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<32x384xf32, #dram_il_tile_f32>) -> tensor<32x384xbf16, #dram_ws_rm_bf16>
         return %0 : tensor<32x384xbf16, #dram_ws_rm_bf16>
     }
 
@@ -164,7 +164,7 @@ module attributes {} {
         // CHECK: %[[RESHARD:.*]] = "ttnn.to_memory_config"(%[[UNTILIZE]])
         // CHECK-SAME: -> tensor<32x384xbf16, #[[DRAM_IL_RM_BF16]]>
         // CHECK: return %[[RESHARD]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<32x384xf32, #dram_ws_tile_f32>) -> tensor<32x384xbf16, #dram_il_rm_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<32x384xf32, #dram_ws_tile_f32>) -> tensor<32x384xbf16, #dram_il_rm_bf16>
         return %0 : tensor<32x384xbf16, #dram_il_rm_bf16>
     }
 
@@ -181,7 +181,7 @@ module attributes {} {
         // CHECK: %[[TILIZE:.*]] = "ttnn.to_layout"(%[[TO_DEV]])
         // CHECK-SAME: -> tensor<32x384xbf16, #[[DRAM_WS_TILE_BF16]]>
         // CHECK: return %[[TILIZE]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<32x384xbf16, #host_rm_bf16>) -> tensor<32x384xbf16, #dram_ws_tile_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<32x384xbf16, #host_rm_bf16>) -> tensor<32x384xbf16, #dram_ws_tile_bf16>
         return %0 : tensor<32x384xbf16, #dram_ws_tile_bf16>
     }
 
@@ -200,7 +200,7 @@ module attributes {} {
         // CHECK-SAME: -> tensor<32x384xbf16, #[[DRAM_WS_TILE_BF16]]>
         // CHECK-NOT: "ttnn.typecast"
         // CHECK: return %[[TILIZE]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<32x384xf32, #host_rm_f32>) -> tensor<32x384xbf16, #dram_ws_tile_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<32x384xf32, #host_rm_f32>) -> tensor<32x384xbf16, #dram_ws_tile_bf16>
         return %0 : tensor<32x384xbf16, #dram_ws_tile_bf16>
     }
 
@@ -215,7 +215,7 @@ module attributes {} {
         // CHECK: %[[RESHARD:.*]] = "ttnn.to_memory_config"(%[[TILIZE]])
         // CHECK-SAME: -> tensor<32x384xbf16, #[[DRAM_WS_TILE_BF16]]>
         // CHECK: return %[[RESHARD]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<32x384xf32, #dram_il_rm_f32>) -> tensor<32x384xbf16, #dram_ws_tile_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<32x384xf32, #dram_il_rm_f32>) -> tensor<32x384xbf16, #dram_ws_tile_bf16>
         return %0 : tensor<32x384xbf16, #dram_ws_tile_bf16>
     }
 
@@ -233,7 +233,7 @@ module attributes {} {
         // CHECK-NEXT: %[[TO_MEM_CONFIG:.*]] = "ttnn.to_memory_config"(%[[TYPECAST]])
         // CHECK-SAME: -> tensor<32x384xf32, #[[DRAM_IL_TILE_F32]]>
         // CHECK-NEXT: return %[[TO_MEM_CONFIG]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<32x384xbf16, #dram_ws_tile_bf16>) -> tensor<32x384xf32, #dram_il_tile_f32>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<32x384xbf16, #dram_ws_tile_bf16>) -> tensor<32x384xf32, #dram_il_tile_f32>
         return %0 : tensor<32x384xf32, #dram_il_tile_f32>
     }
 
@@ -246,7 +246,7 @@ module attributes {} {
         // CHECK-NOT: ttnn.to_layout
         // CHECK-NOT: ttnn.typecast
         // CHECK: return %[[TO_MEM_CONFIG]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<32x384xbf16, #dram_ws_tile_bf16>) -> tensor<32x384xbf16, #dram_ws_tile_bf16_grid6>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<32x384xbf16, #dram_ws_tile_bf16>) -> tensor<32x384xbf16, #dram_ws_tile_bf16_grid6>
         return %0 : tensor<32x384xbf16, #dram_ws_tile_bf16_grid6>
     }
 
@@ -259,7 +259,7 @@ module attributes {} {
         // CHECK-NOT: ttnn.to_layout
         // CHECK-NOT: ttnn.typecast
         // CHECK: return %[[TO_MEM_CONFIG]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<32x384xbf16, #l1_bs_tile_bf16>) -> tensor<32x384xbf16, #dram_ws_tile_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<32x384xbf16, #l1_bs_tile_bf16>) -> tensor<32x384xbf16, #dram_ws_tile_bf16>
         return %0 : tensor<32x384xbf16, #dram_ws_tile_bf16>
     }
 }

@@ -23,13 +23,13 @@ module {
   func.func @all_to_all_dispatch(%input: tensor<1x1x128x2880xbf16, #disp_in>, %indices: tensor<1x1x128x4xsi32, #disp_idx>, %mapping: tensor<1x1x32x8xsi32, #disp_map>) -> (tensor<1x2x128x2880xbf16, #disp_out>, tensor<1x2x128x4xsi32, #disp_meta>) {
     // CHECK-LABEL: func.func @all_to_all_dispatch
     // input_tensor -> RowMajor BFLOAT16.
-    // CHECK: %[[IN:.*]] = "ttnn.to_layout"(%arg0)
+    // CHECK: %[[IN:.*]] = "ttnn.to_tensor_spec"(%arg0)
     // CHECK-SAME: -> tensor<1x1x128x2880xbf16, {{.*}} memref<128x2880xbf16,
     // expert_indices -> RowMajor UINT16.
-    // CHECK: %[[IDX:.*]] = "ttnn.to_layout"(%arg1)
+    // CHECK: %[[IDX:.*]] = "ttnn.to_tensor_spec"(%arg1)
     // CHECK-SAME: -> tensor<1x1x128x4xui16, {{.*}} memref<128x4xui16,
     // expert_mapping -> RowMajor UINT16.
-    // CHECK: %[[MAP:.*]] = "ttnn.to_layout"(%arg2)
+    // CHECK: %[[MAP:.*]] = "ttnn.to_tensor_spec"(%arg2)
     // CHECK-SAME: -> tensor<1x1x32x8xui16, {{.*}} memref<32x8xui16,
     // CHECK: "ttnn.all_to_all_dispatch"(%[[IN]], %[[IDX]], %[[MAP]])
     %dispatched, %metadata = "ttnn.all_to_all_dispatch"(%input, %indices, %mapping) <{cluster_axis = 0 : i64, num_devices = 2 : i64}> : (tensor<1x1x128x2880xbf16, #disp_in>, tensor<1x1x128x4xsi32, #disp_idx>, tensor<1x1x32x8xsi32, #disp_map>) -> (tensor<1x2x128x2880xbf16, #disp_out>, tensor<1x2x128x4xsi32, #disp_meta>)
@@ -50,13 +50,13 @@ module {
   func.func @all_to_all_combine(%input: tensor<4x2x128x2880xbf16, #comb_in>, %metadata: tensor<1x2x128x4xsi32, #comb_meta>, %mapping: tensor<1x1x32x8xsi32, #comb_map>) -> tensor<4x1x128x2880xbf16, #comb_out> {
     // CHECK-LABEL: func.func @all_to_all_combine
     // input_tensor -> RowMajor BFLOAT16.
-    // CHECK: %[[IN:.*]] = "ttnn.to_layout"(%arg0)
+    // CHECK: %[[IN:.*]] = "ttnn.to_tensor_spec"(%arg0)
     // CHECK-SAME: -> tensor<4x2x128x2880xbf16, {{.*}} memref<1024x2880xbf16,
     // expert_metadata -> RowMajor UINT16.
-    // CHECK: %[[META:.*]] = "ttnn.to_layout"(%arg1)
+    // CHECK: %[[META:.*]] = "ttnn.to_tensor_spec"(%arg1)
     // CHECK-SAME: -> tensor<1x2x128x4xui16, {{.*}} memref<256x4xui16,
     // expert_mapping -> RowMajor UINT16.
-    // CHECK: %[[MAP:.*]] = "ttnn.to_layout"(%arg2)
+    // CHECK: %[[MAP:.*]] = "ttnn.to_tensor_spec"(%arg2)
     // CHECK-SAME: -> tensor<1x1x32x8xui16, {{.*}} memref<32x8xui16,
     // CHECK: "ttnn.all_to_all_combine"(%[[IN]], %[[META]], %[[MAP]])
     %result = "ttnn.all_to_all_combine"(%input, %metadata, %mapping) <{cluster_axis = 0 : i64, num_devices = 2 : i64, num_experts_per_tok = 4 : i64, output_shard_dim = 1 : i64}> : (tensor<4x2x128x2880xbf16, #comb_in>, tensor<1x2x128x4xsi32, #comb_meta>, tensor<1x1x32x8xsi32, #comb_map>) -> tensor<4x1x128x2880xbf16, #comb_out>
@@ -77,13 +77,13 @@ module {
   func.func @moe_expert_token_remap(%topk: tensor<1x2x128x32xbf16, #rmp_topk>, %mapping: tensor<1x1x32x8xsi32, #rmp_map>, %metadata: tensor<1x2x128x4xsi32, #rmp_meta>) -> (tensor<1x2x128x4xbf16, #rmp_topk>, tensor<1x1x8x4xbf16, #rmp_red>) {
     // CHECK-LABEL: func.func @moe_expert_token_remap
     // topk_tensor -> RowMajor BFLOAT16.
-    // CHECK: %[[TOPK:.*]] = "ttnn.to_layout"(%arg0)
+    // CHECK: %[[TOPK:.*]] = "ttnn.to_tensor_spec"(%arg0)
     // CHECK-SAME: -> tensor<1x2x128x32xbf16, {{.*}} memref<256x32xbf16,
     // expert_mapping -> RowMajor UINT16.
-    // CHECK: %[[MAP:.*]] = "ttnn.to_layout"(%arg1)
+    // CHECK: %[[MAP:.*]] = "ttnn.to_tensor_spec"(%arg1)
     // CHECK-SAME: -> tensor<1x1x32x8xui16, {{.*}} memref<32x8xui16,
     // expert_metadata -> RowMajor UINT16.
-    // CHECK: %[[META:.*]] = "ttnn.to_layout"(%arg2)
+    // CHECK: %[[META:.*]] = "ttnn.to_tensor_spec"(%arg2)
     // CHECK-SAME: -> tensor<1x2x128x4xui16, {{.*}} memref<256x4xui16,
     // CHECK: "ttnn.moe_expert_token_remap"(%[[TOPK]], %[[MAP]], %[[META]])
     %mapping_out, %reduced = "ttnn.moe_expert_token_remap"(%topk, %mapping, %metadata) <{reduction_size = 32 : i64}> : (tensor<1x2x128x32xbf16, #rmp_topk>, tensor<1x1x32x8xsi32, #rmp_map>, tensor<1x2x128x4xsi32, #rmp_meta>) -> (tensor<1x2x128x4xbf16, #rmp_topk>, tensor<1x1x8x4xbf16, #rmp_red>)
@@ -108,13 +108,13 @@ module {
   func.func @all_to_all_dispatch_metadata(%input: tensor<1x1x32x128xbf16, #dm_in>, %indices: tensor<1x1x32x4xui16, #dm_idx>, %scores: tensor<1x1x32x4xbf16, #dm_score>, %mapping: tensor<8x4xui16, #dm_map>) -> (tensor<1x32x128xbf16, #dm_disp>, tensor<1x32x4xui16, #dm_iout>, tensor<1x32x4xbf16, #dm_sout>) {
     // CHECK-LABEL: func.func @all_to_all_dispatch_metadata
     // input_tensor -> L1-interleaved RowMajor BFLOAT16.
-    // CHECK: %[[IN:.*]] = "ttnn.to_layout"(%arg0)
+    // CHECK: %[[IN:.*]] = "ttnn.to_tensor_spec"(%arg0)
     // CHECK-SAME: -> tensor<1x1x32x128xbf16, {{.*}} memref<1x4096xbf16, #ttnn.buffer_type<l1>>
     // expert_indices -> L1-interleaved RowMajor UINT16.
-    // CHECK: %[[IDX:.*]] = "ttnn.to_layout"(%arg1)
+    // CHECK: %[[IDX:.*]] = "ttnn.to_tensor_spec"(%arg1)
     // CHECK-SAME: -> tensor<1x1x32x4xui16, {{.*}} memref<1x128xui16, #ttnn.buffer_type<l1>>
     // expert_scores -> L1-interleaved RowMajor BFLOAT16.
-    // CHECK: %[[SC:.*]] = "ttnn.to_layout"(%arg2)
+    // CHECK: %[[SC:.*]] = "ttnn.to_tensor_spec"(%arg2)
     // CHECK-SAME: -> tensor<1x1x32x4xbf16, {{.*}} memref<1x128xbf16, #ttnn.buffer_type<l1>>
     // CHECK: "ttnn.all_to_all_dispatch_metadata"(%[[IN]], %[[IDX]], %[[SC]], %arg3)
     %disp, %idx, %sc = "ttnn.all_to_all_dispatch_metadata"(%input, %indices, %scores, %mapping) <{cluster_axis = 0 : i64, num_devices = 1 : i64, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 0, 0>}> : (tensor<1x1x32x128xbf16, #dm_in>, tensor<1x1x32x4xui16, #dm_idx>, tensor<1x1x32x4xbf16, #dm_score>, tensor<8x4xui16, #dm_map>) -> (tensor<1x32x128xbf16, #dm_disp>, tensor<1x32x4xui16, #dm_iout>, tensor<1x32x4xbf16, #dm_sout>)
@@ -137,7 +137,7 @@ module {
 module {
   func.func public @sparse_matmul_sparsity_f32_to_bf16(%a: tensor<1x4x32x256xbf16, #sm_a>, %b: tensor<1x4x256x64xbf16, #sm_b>, %s: tensor<1x4x1x4xf32, #sm_sf>) -> tensor<1x4x1x4x32x64xbf16, #sm_o> {
     // CHECK-LABEL: func.func public @sparse_matmul_sparsity_f32_to_bf16
-    // CHECK: %[[SPARSITY:.*]] = "ttnn.to_layout"(%arg2)
+    // CHECK: %[[SPARSITY:.*]] = "ttnn.to_tensor_spec"(%arg2)
     // CHECK-SAME: tensor<1x4x1x4xf32,
     // CHECK-SAME: -> tensor<1x4x1x4xbf16, {{.*}} memref<4x4xbf16,
     // CHECK: "ttnn.sparse_matmul"(%arg0, %arg1, %[[SPARSITY]])
@@ -156,7 +156,7 @@ module {
 module {
   func.func public @sparse_matmul_sparsity_ui16_to_bf16(%a: tensor<1x4x32x256xbf16, #sm_a>, %b: tensor<1x4x256x64xbf16, #sm_b>, %s: tensor<1x4x1x4xui16, #sm_su>) -> tensor<1x4x1x4x32x64xbf16, #sm_o> {
     // CHECK-LABEL: func.func public @sparse_matmul_sparsity_ui16_to_bf16
-    // CHECK: %[[SPARSITY:.*]] = "ttnn.to_layout"(%arg2)
+    // CHECK: %[[SPARSITY:.*]] = "ttnn.to_tensor_spec"(%arg2)
     // CHECK-SAME: tensor<1x4x1x4xui16,
     // CHECK-SAME: -> tensor<1x4x1x4xbf16, {{.*}} memref<4x4xbf16,
     // CHECK: "ttnn.sparse_matmul"(%arg0, %arg1, %[[SPARSITY]])
