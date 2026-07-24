@@ -7,8 +7,14 @@ module @jit_batch_norm attributes {} {
       epsilon = 0.0 : f32,
       feature_index = 1 : i64
     } : (tensor<2x2x2x2xf32>, tensor<2xf32>, tensor<2xf32>) -> (tensor<2x2x2x2xf32>, tensor<2xf32>, tensor<2xf32>)
-    // CHECK: [[VAL0:%[0-9]+]] = "ttir.zeros"() <{shape = array<i32: 2>}> : () -> tensor<2xf32>
-    // CHECK: [[VAL1:%[0-9]+]] = "ttir.ones"() <{shape = array<i32: 2>}> : () -> tensor<2xf32>
+    // The synthetic running_mean/running_var must be ttir.empty (NonCacheable,
+    // declares Allocate memory effect) — NOT ttir.zeros / ttir.ones. Using
+    // zero/one-initialized constants here would let CSE merge them with the
+    // user-side scale=ones / offset=zeros constants in subsequent lowering,
+    // causing SSA aliasing on the ttnn.batch_norm_training [MemWrite] operands
+    // and clobbering weight/bias when tt-metal updates running stats in place.
+    // CHECK: [[VAL0:%[0-9]+]] = ttir.empty() : tensor<2xf32>
+    // CHECK: [[VAL1:%[0-9]+]] = ttir.empty() : tensor<2xf32>
     // CHECK: [[RESULT:%[a-z_]+]], [[MEAN:%[a-z_]+]], [[VAR:%[a-z_]+]] = "ttir.batch_norm_training"(%arg0, %arg1, %arg2, [[VAL0]], [[VAL1]]) <{dimension = 1 : i32, epsilon = 0.000000e+00 : f32, momentum = 1.000000e+00 : f32}> : (tensor<2x2x2x2xf32>, tensor<2xf32>, tensor<2xf32>, tensor<2xf32>, tensor<2xf32>) -> (tensor<2x2x2x2xf32>, tensor<2xf32>, tensor<2xf32>)
     return %result, %batch_mean, %batch_variance : tensor<2x2x2x2xf32>, tensor<2xf32>, tensor<2xf32>
     // CHECK: return [[RESULT]], [[MEAN]], [[VAR]] : tensor<2x2x2x2xf32>, tensor<2xf32>, tensor<2xf32>
