@@ -782,6 +782,8 @@ def TTNN_PowTensorOp : TTNN_ElementwiseBinaryCompositeOp<"pow_tensor"> {
         %result: [4.0, 0.0, -nan, 25.0, 0.333333343, inf]
       ```
     }];
+
+    let hasCanonicalizeMethod = 1;
 }
 
 def TTNN_PowScalarOp : TTNN_ElementwiseBinaryCompositeScalarOp<"pow_scalar"> {

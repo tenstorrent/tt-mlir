@@ -1209,6 +1209,29 @@ mlir::tt::ttnn::TypecastOp::canonicalize(TypecastOp typecastOp,
   return foldConsecutiveDataCastOps(typecastOp, rewriter);
 }
 
+// pow_tensor(x, ones) -> x, as long as lhs is not broadcast to the result.
+::llvm::LogicalResult
+mlir::tt::ttnn::PowTensorOp::canonicalize(PowTensorOp op,
+                                          ::mlir::PatternRewriter &rewriter) {
+  if (op.getLhs().getType() != op.getType()) {
+    return mlir::failure();
+  }
+  mlir::Operation *rhs = op.getRhs().getDefiningOp();
+  bool exponentIsOne = mlir::isa_and_present<OnesOp>(rhs);
+  if (auto full = mlir::dyn_cast_if_present<FullOp>(rhs)) {
+    if (auto f = mlir::dyn_cast<mlir::FloatAttr>(full.getFillValue())) {
+      exponentIsOne = f.getValueAsDouble() == 1.0;
+    } else if (auto i = mlir::dyn_cast<mlir::IntegerAttr>(full.getFillValue())) {
+      exponentIsOne = i.getInt() == 1;
+    }
+  }
+  if (!exponentIsOne) {
+    return mlir::failure();
+  }
+  rewriter.replaceOp(op, op.getLhs());
+  return mlir::success();
+}
+
 //===----------------------------------------------------------------------===//
 // Common verifier for 2d pooling ops
 //===----------------------------------------------------------------------===//
