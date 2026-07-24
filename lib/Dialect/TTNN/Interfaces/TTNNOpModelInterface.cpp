@@ -2602,9 +2602,11 @@ unpackScaledDotProductAttentionDecodeArgs(
   return ret;
 }
 
-llvm::Expected<op_model::OpConstraints>
-ScaledDotProductAttentionDecodeOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+scaledDotProductAttentionDecodeConstraintsImpl(
+    ScaledDotProductAttentionDecodeOp op,
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    const op_model::MockAllocatorState *state) {
   // Clang tidy falsley determines that the underling float data in the
   // llvm::APFloat is freed more than once as APFloat is passed by value and
   // then destroyed at the end of this function.
@@ -2619,12 +2621,11 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
          "4, 5, or 6 input tensors");
 
   ScaledDotProductAttentionDecodeArgs sdpaArgs =
-      unpackScaledDotProductAttentionDecodeArgs(inputs, *this);
+      unpackScaledDotProductAttentionDecodeArgs(inputs, op);
 
-  auto scale = getScale();
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints,
-      *this, sdpaArgs.queryShape, sdpaArgs.queryLayout, sdpaArgs.keyShape,
+  auto scale = op.getScale();
+  return detail::constraintsDispatch(
+      op, state, sdpaArgs.queryShape, sdpaArgs.queryLayout, sdpaArgs.keyShape,
       sdpaArgs.keyLayout, sdpaArgs.valueShape, sdpaArgs.valueLayout,
       sdpaArgs.isCausal, sdpaArgs.attentionMaskShape,
       sdpaArgs.attentionMaskLayout, sdpaArgs.curPosTensorShape,
@@ -2635,30 +2636,20 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
 }
 
 llvm::Expected<op_model::OpConstraints>
+ScaledDotProductAttentionDecodeOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return scaledDotProductAttentionDecodeConstraintsImpl(*this, inputs, opConfig,
+                                                        /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
 ScaledDotProductAttentionDecodeOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
-  assert(inputs.size() >= 3 && inputs.size() <= 6 &&
-         "ttnn::transformer::scaled_dot_product_attention_decode can have 3, "
-         "4, 5, or 6 input tensors");
-
-  ScaledDotProductAttentionDecodeArgs sdpaArgs =
-      unpackScaledDotProductAttentionDecodeArgs(inputs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<ScaledDotProductAttentionDecodeOp>::
-      getOpConstraintsWithState(
-          sdpaArgs.queryShape, sdpaArgs.queryLayout, sdpaArgs.keyShape,
-          sdpaArgs.keyLayout, sdpaArgs.valueShape, sdpaArgs.valueLayout,
-          sdpaArgs.isCausal, sdpaArgs.attentionMaskShape,
-          sdpaArgs.attentionMaskLayout, sdpaArgs.curPosTensorShape,
-          sdpaArgs.curPosTensorLayout, sdpaArgs.attentionSinkShape,
-          sdpaArgs.attentionSinkLayout, sdpaArgs.scale, sdpaArgs.programConfig,
-          opConfig.outputLayout, initialState.get());
-  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+  return scaledDotProductAttentionDecodeConstraintsImpl(*this, inputs, opConfig,
+                                                        initialState.get());
 }
 
 llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
@@ -2764,9 +2755,11 @@ unpackPagedScaledDotProductAttentionDecodeArgs(
   return ret;
 }
 
-llvm::Expected<op_model::OpConstraints>
-PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+pagedScaledDotProductAttentionDecodeConstraintsImpl(
+    PagedScaledDotProductAttentionDecodeOp op,
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    const op_model::MockAllocatorState *state) {
   // See the comment in scaledDotProductAttentionDecodeOp::getOpConstraints for
   // an explanation of this lint suppression.
   // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
@@ -2775,12 +2768,10 @@ PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
          "7 input tensors");
 
   PagedScaledDotProductAttentionDecodeArgs pagedSdpaArgs =
-      unpackPagedScaledDotProductAttentionDecodeArgs(inputs, *this);
+      unpackPagedScaledDotProductAttentionDecodeArgs(inputs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<
-          PagedScaledDotProductAttentionDecodeOp>::getOpConstraints,
-      *this, pagedSdpaArgs.queryShape, pagedSdpaArgs.queryLayout,
+  return detail::constraintsDispatch(
+      op, state, pagedSdpaArgs.queryShape, pagedSdpaArgs.queryLayout,
       pagedSdpaArgs.keyShape, pagedSdpaArgs.keyLayout, pagedSdpaArgs.valueShape,
       pagedSdpaArgs.valueLayout, pagedSdpaArgs.pageTableShape,
       pagedSdpaArgs.pageTableLayout, pagedSdpaArgs.isCausal,
@@ -2793,33 +2784,20 @@ PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
 }
 
 llvm::Expected<op_model::OpConstraints>
+PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return pagedScaledDotProductAttentionDecodeConstraintsImpl(
+      *this, inputs, opConfig, /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
 PagedScaledDotProductAttentionDecodeOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
-  assert(inputs.size() >= 4 && inputs.size() <= 7 &&
-         "ttnn::paged_scaled_dot_product_attention_decode can have 4, 5, 6, or "
-         "7 input tensors");
-
-  PagedScaledDotProductAttentionDecodeArgs pagedSdpaArgs =
-      unpackPagedScaledDotProductAttentionDecodeArgs(inputs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<PagedScaledDotProductAttentionDecodeOp>::
-      getOpConstraintsWithState(
-          pagedSdpaArgs.queryShape, pagedSdpaArgs.queryLayout,
-          pagedSdpaArgs.keyShape, pagedSdpaArgs.keyLayout,
-          pagedSdpaArgs.valueShape, pagedSdpaArgs.valueLayout,
-          pagedSdpaArgs.pageTableShape, pagedSdpaArgs.pageTableLayout,
-          pagedSdpaArgs.isCausal, pagedSdpaArgs.attentionMaskShape,
-          pagedSdpaArgs.attentionMaskLayout, pagedSdpaArgs.curPosTensorShape,
-          pagedSdpaArgs.curPosTensorLayout, pagedSdpaArgs.attentionSinkShape,
-          pagedSdpaArgs.attentionSinkLayout, pagedSdpaArgs.scale,
-          pagedSdpaArgs.slidingWindowSize, pagedSdpaArgs.programConfig,
-          opConfig.outputLayout, initialState.get());
-  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+  return pagedScaledDotProductAttentionDecodeConstraintsImpl(
+      *this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t> PagedScaledDotProductAttentionDecodeOp::getOpRuntime(
@@ -2926,47 +2904,41 @@ unpackPagedFlashMultiLatentAttentionDecodeArgs(
   return ret;
 }
 
-llvm::Expected<op_model::OpConstraints>
-PagedFlashMultiLatentAttentionDecodeOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+pagedFlashMultiLatentAttentionDecodeConstraintsImpl(
+    PagedFlashMultiLatentAttentionDecodeOp op,
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    const op_model::MockAllocatorState *state) {
   // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
 
   PagedFlashMultiLatentAttentionDecodeArgs args =
-      unpackPagedFlashMultiLatentAttentionDecodeArgs(inputs, *this);
+      unpackPagedFlashMultiLatentAttentionDecodeArgs(inputs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<
-          PagedFlashMultiLatentAttentionDecodeOp>::getOpConstraints,
-      *this, args.queryShape, args.queryLayout, args.keyShape, args.keyLayout,
-      args.valueShape, args.valueLayout, args.headDimV, args.pageTableShape,
-      args.pageTableLayout, args.isCausal, args.attentionMaskShape,
-      args.attentionMaskLayout, args.curPosTensorShape, args.curPosTensorLayout,
-      args.attentionSinkShape, args.attentionSinkLayout, args.scale,
-      opConfig.outputLayout);
+  return detail::constraintsDispatch(
+      op, state, args.queryShape, args.queryLayout, args.keyShape,
+      args.keyLayout, args.valueShape, args.valueLayout, args.headDimV,
+      args.pageTableShape, args.pageTableLayout, args.isCausal,
+      args.attentionMaskShape, args.attentionMaskLayout, args.curPosTensorShape,
+      args.curPosTensorLayout, args.attentionSinkShape, args.attentionSinkLayout,
+      args.scale, opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+}
+
+llvm::Expected<op_model::OpConstraints>
+PagedFlashMultiLatentAttentionDecodeOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return pagedFlashMultiLatentAttentionDecodeConstraintsImpl(
+      *this, inputs, opConfig, /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints>
 PagedFlashMultiLatentAttentionDecodeOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
-  PagedFlashMultiLatentAttentionDecodeArgs args =
-      unpackPagedFlashMultiLatentAttentionDecodeArgs(inputs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<PagedFlashMultiLatentAttentionDecodeOp>::
-      getOpConstraintsWithState(
-          args.queryShape, args.queryLayout, args.keyShape, args.keyLayout,
-          args.valueShape, args.valueLayout, args.headDimV, args.pageTableShape,
-          args.pageTableLayout, args.isCausal, args.attentionMaskShape,
-          args.attentionMaskLayout, args.curPosTensorShape,
-          args.curPosTensorLayout, args.attentionSinkShape,
-          args.attentionSinkLayout, args.scale, opConfig.outputLayout,
-          initialState.get());
-  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+  return pagedFlashMultiLatentAttentionDecodeConstraintsImpl(
+      *this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t> PagedFlashMultiLatentAttentionDecodeOp::getOpRuntime(
@@ -2990,48 +2962,42 @@ llvm::Expected<size_t> PagedFlashMultiLatentAttentionDecodeOp::getOpRuntime(
 // ChunkedScaledDotProductAttentionOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-ChunkedScaledDotProductAttentionOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+chunkedScaledDotProductAttentionConstraintsImpl(
+    ChunkedScaledDotProductAttentionOp op,
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 5 &&
          "ttnn::chunked_scaled_dot_product_attention has 5 input tensors "
          "(q, k, v, page_table, chunk_start_idx)");
 
-  const auto queryShape = getQuery().getType().getShape();
-  const auto keyShape = getKey().getType().getShape();
-  const auto valueShape = getValue().getType().getShape();
-  const auto pageTableShape = getPageTable().getType().getShape();
-  const auto chunkStartIdxShape = getChunkStartIdx().getType().getShape();
+  const auto queryShape = op.getQuery().getType().getShape();
+  const auto keyShape = op.getKey().getType().getShape();
+  const auto valueShape = op.getValue().getType().getShape();
+  const auto pageTableShape = op.getPageTable().getType().getShape();
+  const auto chunkStartIdxShape = op.getChunkStartIdx().getType().getShape();
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ChunkedScaledDotProductAttentionOp>::getOpConstraints,
-      *this, queryShape, inputs[0], keyShape, inputs[1], valueShape, inputs[2],
-      pageTableShape, inputs[3], chunkStartIdxShape, inputs[4], getScale(),
-      getProgramConfig(), opConfig.outputLayout);
+  return detail::constraintsDispatch(
+      op, state, queryShape, inputs[0], keyShape, inputs[1], valueShape,
+      inputs[2], pageTableShape, inputs[3], chunkStartIdxShape, inputs[4],
+      op.getScale(), op.getProgramConfig(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+ChunkedScaledDotProductAttentionOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return chunkedScaledDotProductAttentionConstraintsImpl(
+      *this, inputs, opConfig, /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints>
 ChunkedScaledDotProductAttentionOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  assert(inputs.size() == 5 &&
-         "ttnn::chunked_scaled_dot_product_attention has 5 input tensors "
-         "(q, k, v, page_table, chunk_start_idx)");
-
-  const auto queryShape = getQuery().getType().getShape();
-  const auto keyShape = getKey().getType().getShape();
-  const auto valueShape = getValue().getType().getShape();
-  const auto pageTableShape = getPageTable().getType().getShape();
-  const auto chunkStartIdxShape = getChunkStartIdx().getType().getShape();
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<ChunkedScaledDotProductAttentionOp>::
-      getOpConstraintsWithState(
-          queryShape, inputs[0], keyShape, inputs[1], valueShape, inputs[2],
-          pageTableShape, inputs[3], chunkStartIdxShape, inputs[4], getScale(),
-          getProgramConfig(), opConfig.outputLayout, initialState.get());
+  return chunkedScaledDotProductAttentionConstraintsImpl(
+      *this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t> ChunkedScaledDotProductAttentionOp::getOpRuntime(
@@ -3057,78 +3023,56 @@ llvm::Expected<size_t> ChunkedScaledDotProductAttentionOp::getOpRuntime(
 // ScaledDotProductAttentionOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-ScaledDotProductAttentionOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+scaledDotProductAttentionConstraintsImpl(
+    ScaledDotProductAttentionOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
   assert(inputs.size() >= 3 && inputs.size() <= 5 &&
          "ttnn::scaled_dot_product_attention can have 3 to 5 operands input "
          "tensors (q, k, v, optional mask, optional attention_sink)");
 
-  const auto queryShape = getQuery().getType().getShape();
-  const auto keyShape = getKey().getType().getShape();
-  const auto valueShape = getValue().getType().getShape();
+  const auto queryShape = op.getQuery().getType().getShape();
+  const auto keyShape = op.getKey().getType().getShape();
+  const auto valueShape = op.getValue().getType().getShape();
 
   size_t idx = 3;
   const std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape =
-      getAttentionMask()
-          ? std::make_optional(getAttentionMask().getType().getShape())
+      op.getAttentionMask()
+          ? std::make_optional(op.getAttentionMask().getType().getShape())
           : std::nullopt;
   const std::optional<TTNNLayoutAttr> attentionMaskLayout =
-      getAttentionMask() ? std::make_optional(inputs[idx++]) : std::nullopt;
+      op.getAttentionMask() ? std::make_optional(inputs[idx++]) : std::nullopt;
   const std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape =
-      getAttentionSink()
-          ? std::make_optional(getAttentionSink().getType().getShape())
+      op.getAttentionSink()
+          ? std::make_optional(op.getAttentionSink().getType().getShape())
           : std::nullopt;
   const std::optional<TTNNLayoutAttr> attentionSinkLayout =
-      getAttentionSink() ? std::make_optional(inputs[idx++]) : std::nullopt;
+      op.getAttentionSink() ? std::make_optional(inputs[idx++]) : std::nullopt;
 
-  bool isCausal = getIsCausal();
+  bool isCausal = op.getIsCausal();
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ScaledDotProductAttentionOp>::getOpConstraints, *this,
-      queryShape, inputs[0], keyShape, inputs[1], valueShape, inputs[2],
-      attentionMaskShape, attentionMaskLayout, attentionSinkShape,
-      attentionSinkLayout, isCausal, getScale(), getSlidingWindowSize(),
+  return detail::constraintsDispatch(
+      op, state, queryShape, inputs[0], keyShape, inputs[1], valueShape,
+      inputs[2], attentionMaskShape, attentionMaskLayout, attentionSinkShape,
+      attentionSinkLayout, isCausal, op.getScale(), op.getSlidingWindowSize(),
       opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+ScaledDotProductAttentionOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return scaledDotProductAttentionConstraintsImpl(*this, inputs, opConfig,
+                                                  /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints>
 ScaledDotProductAttentionOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  assert(inputs.size() >= 3 && inputs.size() <= 5 &&
-         "ttnn::scaled_dot_product_attention can have 3 to 5 operands input "
-         "tensors (q, k, v, optional mask, optional attention_sink)");
-
-  const auto queryShape = getQuery().getType().getShape();
-  const auto keyShape = getKey().getType().getShape();
-  const auto valueShape = getValue().getType().getShape();
-
-  size_t idx = 3;
-  const std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape =
-      getAttentionMask()
-          ? std::make_optional(getAttentionMask().getType().getShape())
-          : std::nullopt;
-  const std::optional<TTNNLayoutAttr> attentionMaskLayout =
-      getAttentionMask() ? std::make_optional(inputs[idx++]) : std::nullopt;
-  const std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape =
-      getAttentionSink()
-          ? std::make_optional(getAttentionSink().getType().getShape())
-          : std::nullopt;
-  const std::optional<TTNNLayoutAttr> attentionSinkLayout =
-      getAttentionSink() ? std::make_optional(inputs[idx++]) : std::nullopt;
-
-  bool isCausal = getIsCausal();
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<ScaledDotProductAttentionOp>::
-      getOpConstraintsWithState(
-          queryShape, inputs[0], keyShape, inputs[1], valueShape, inputs[2],
-          attentionMaskShape, attentionMaskLayout, attentionSinkShape,
-          attentionSinkLayout, isCausal, getScale(), getSlidingWindowSize(),
-          opConfig.outputLayout, initialState.get());
+  return scaledDotProductAttentionConstraintsImpl(*this, inputs, opConfig,
+                                                  initialState.get());
 }
 
 llvm::Expected<size_t> ScaledDotProductAttentionOp::getOpRuntime(
