@@ -6732,6 +6732,16 @@ llvm::Expected<OpConstraints> OpModel<DistributedRMSNormOp>::getOpConstraints(
     llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
     std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
 #ifdef TTMLIR_ENABLE_OPMODEL
+  // The fused kernel requires a width-sharded L1 input (plain rms_norm, which
+  // this proxies, also accepts interleaved) — reject anything else so the
+  // optimizer can't pick an interleaved-input config the kernel rejects.
+  if (!inputLayout.hasL1BufferType() || !inputLayout.getMemLayout() ||
+      inputLayout.getMemLayout().getValue() !=
+          TensorMemoryLayout::WidthSharded) {
+    return llvm::createStringError(
+        "distributed_rms_norm requires a width-sharded L1 input");
+  }
+
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -6763,6 +6773,15 @@ llvm::Expected<size_t> OpModel<DistributedRMSNormOp>::getOpRuntime(
     llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
     std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
 #ifdef TTMLIR_ENABLE_OPMODEL
+  // Match getOpConstraints: the fused kernel only runs on a width-sharded L1
+  // input.
+  if (!inputLayout.hasL1BufferType() || !inputLayout.getMemLayout() ||
+      inputLayout.getMemLayout().getValue() !=
+          TensorMemoryLayout::WidthSharded) {
+    return llvm::createStringError(
+        "distributed_rms_norm requires a width-sharded L1 input");
+  }
+
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 

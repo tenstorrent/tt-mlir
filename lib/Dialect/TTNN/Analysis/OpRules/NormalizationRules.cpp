@@ -125,6 +125,14 @@ bool isWidthShardedL1FullBbox(TTNNLayoutAttr layout) {
   return layout_filter_utils::isFullBboxSharded(layout);
 }
 
+// A width shard is valid only when the core count evenly divides the width in
+// tiles; an uneven split pads the last cores. `numWidthTiles` is the logical
+// last-dim tile count (not the padded shard grid).
+bool isEvenWidthShard(TTNNLayoutAttr layout, int64_t numWidthTiles) {
+  int64_t numCores = ttmlir::utils::volume(layout.getGridShape());
+  return numCores > 0 && numWidthTiles % numCores == 0;
+}
+
 // Derive the LayerNormShardedMultiCoreProgramConfig from a width-sharded
 // layout, mirroring DistributedRMSNormWidthShardInputRewritePattern: grid = the
 // shard core grid's bounding box (full-bbox => rectangular), block_h/block_w
@@ -163,8 +171,11 @@ programConfigFromLayout(mlir::MLIRContext *ctx, TTNNLayoutAttr layout) {
 
 LayoutFilterFn
 DistributedRMSNormRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
-  // operand 0 = input, operand 2 = residual: full-bbox width-sharded L1.
-  if (operandIdx == 0 || operandIdx == 2) {
+  // Flat operand order is [input, weight, (residual?), stats, ...]. Constrain
+  // only operand 0 (input) to full-bbox width-sharded L1: with residual absent,
+  // flat index 2 is the f32 `stats` tensor, not residual, so a width-shard
+  // constraint there would be wrong.
+  if (operandIdx == 0) {
     return [](TTNNLayoutAttr layout) -> bool {
       return isWidthShardedL1FullBbox(layout);
     };
@@ -184,11 +195,21 @@ bool DistributedRMSNormRuleBook::generatesRowMajorInputSiblings(
 OutputHints DistributedRMSNormRuleBook::getOutputHints(
     Operation *op, const std::vector<OpConfig> &legalConfigs) const {
   // Output shape == input shape (only stats are all-gathered), so the output
-  // must also be full-bbox width-sharded L1. For each such candidate, attach
-  // the program config derived from its shard spec.
+  // must also be full-bbox width-sharded L1 with an even shard (core count
+  // divides numWidthTiles). For each such candidate, attach the program config
+  // derived from its shard spec.
+  auto resultType =
+      mlir::dyn_cast<mlir::RankedTensorType>(op->getResult(0).getType());
+  if (!resultType || resultType.getRank() == 0) {
+    return OutputHints{{}, {}};
+  }
+  int64_t numWidthTiles = llvm::divideCeil(resultType.getShape().back(),
+                                           static_cast<int64_t>(kTileWidth));
+
   std::vector<OpConfig> hints;
   for (const OpConfig &cfg : legalConfigs) {
-    if (!cfg.outputLayout || !isWidthShardedL1FullBbox(cfg.outputLayout)) {
+    if (!cfg.outputLayout || !isWidthShardedL1FullBbox(cfg.outputLayout) ||
+        !isEvenWidthShard(cfg.outputLayout, numWidthTiles)) {
       continue;
     }
     LayerNormShardedMultiCoreProgramConfigAttr pc =

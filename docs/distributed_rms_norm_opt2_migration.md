@@ -3,42 +3,58 @@
 Handoff notes for the layout-optimizer developers. Branch:
 `mvasiljevic/5738-distributed-rmsnorm-rulebook`.
 
-> **Status: works on Wormhole; blocked on Blackhole.** All three pieces (rulebook + gating +
-> op-model proxy) are in. Validated: lit tests pass, and on a **Wormhole** mock with the real
-> 8192/2×2 shape opt-2 emits a clean `8×8=64` width-sharded norm + program config (rc=0).
-> **But the llama-1-layer opt-2 run on qb2 (Blackhole) fails** — see "Blackhole blocker"
-> below: on the 11-wide grid the optimizer can't reach a full-bbox 64-core width-shard by
-> canonical placement, falls back to an **interleaved input while still attaching a sharded
-> program config**, and the fused kernel then hits `bad optional access`. Fixing BH needs the
-> explicit-rectangular placement (previously filed as a perf-only open question — it is a
-> correctness blocker here).
+> **Status: working on Wormhole and Blackhole.** All pieces are in and validated: lit tests
+> pass, and the llama-3.1-70B 1-layer opt-2 run on qb2 (Blackhole, 2×2 mesh, `--pcc-decode`)
+> **passes** (decode PCC ≥ 0.94). The Blackhole fix required, beyond the rulebook + gating +
+> op-model proxy, two more things described below: modeling the fused op's real input
+> constraint in the op-model, and a full-bbox/even prune in reshard-candidate generation.
 
-## Blackhole blocker (why the device run fails)
+## Blackhole bring-up (what it took beyond the base recipe)
 
-BH decode norm at opt-2 comes out inconsistent:
+The base recipe (rulebook + opt<2 gating + op-model proxy) worked on Wormhole but produced an
+inconsistent config on Blackhole: an interleaved-DRAM input paired with a sharded program
+config, crashing the fused kernel (`bad optional access` / `Bad StatusOr access: INTERNAL 13`,
+sometimes a segfault depending on stale L1). Three defects, all now fixed on this branch:
 
-```
-program_config = #ttnn.layernorm_sharded_multicore<grid=<11,2>, block_w=6>   (sharded, 22 cores)
-input layout   = interleaved DRAM
-```
+1. **Invalid output hint (`getOutputHints` divisibility).** The hint accepted *any* full-bbox
+   width-sharded rectangle without checking the core count divides the width-tile count. For
+   the 4096-wide (128-tile) decode norm it emitted an **11×2 = 22-core** shard (22 ∤ 128 →
+   padded to 22×6 = 132). Fixed: `getOutputHints` now keeps only even divisor shards
+   (`isEvenWidthShard`), so the emitted output/config is a valid **1×8 = 8-core** shard
+   (8×16 = 128).
 
-Sharded program config on an interleaved input → the kernel dereferences an absent shard
-spec → `bad optional access` (surfaces as `RuntimeError: Bad StatusOr access: INTERNAL 13`).
+2. **Op-model too permissive (`OpModel<DistributedRMSNormOp>`).** The proxy queried plain
+   `::ttnn::rms_norm`, which *accepts interleaved input*, so the beam search legally chose the
+   cheaper interleaved-input / sharded-output config — which the fused kernel cannot run.
+   Fixed: the op-model now rejects any non-width-sharded-L1 input, matching the fused op's real
+   constraint, so that config is illegal and the search must width-shard the input.
 
-Root cause: on the 11-wide BH worker grid, 64 shards (128 width-tiles) form 55+9 =
-non-rectangular under canonical row-major placement, so the full-bbox filter rejects it; the
-only full-bbox candidates are ≤ 22 cores, and the beam search did not land a valid
-width-sharded *input*, so it fell back to interleaved — while `getOutputHints` still attached
-the sharded program config. On Wormhole (8-wide) the `8×8=64` full-bbox shard *is* reachable,
-so the input stays consistently width-sharded and it works.
+3. **Valid shard crowded out of reshard candidates (shared reshard generation).**
+   `generateReshardCandidates` keeps only the top `maxReshardCandidatesPerType` (=4) width
+   shards **by grid volume**, then filters. On the 11-wide grid the *valid* `1×8` shard
+   (volume 8) was crowded out of the top-4 by higher-volume shards that the op-model then
+   rejected, leaving only the interleaved fallback. Fixed with an **opt-in** rulebook flag
+   `OpRuleBook::requiresFullBboxShardedInput()` (default false; `DistributedRMSNormOp` returns
+   true): when set, `generateReshardCandidates` prunes — *before* the volume cap — any shard
+   that would leave uninitialized cells in the kernel's bounding-box reduction rectangle,
+   i.e. **phantom cores** (non-full-bbox, via `isFullBboxSharded`) and, for width shards, a
+   **padded tail** (uneven division). Zero blast radius for other ops (the prune only runs
+   when the op opts in). This is the same physical invariant the runtime validator enforces
+   (tt-metal#50979 / tt-xla#5738): the fused reduction reads the whole bbox rectangle, so every
+   cell must hold real data.
 
-Required for BH (in order):
-1. **Explicit-rectangular width-shard placement** in `LegalTensorLayoutAnalysis` so a valid
-   full-bbox grid (e.g. 8×8) exists on an 11-wide grid — this is a **correctness** blocker on
-   BH, not just perf.
-2. **Consistency guard** in the rulebook (`isValidOutputHintForInputs`): never attach a
-   sharded program config to a non-width-sharded input, so a mismatch fails loud rather than
-   as `bad optional access`.
+Also fixed an operand-indexing bug: with `residual` absent (`operandSegmentSizes <1,1,0,…>`),
+flat operand 2 is the f32 `stats` tensor, not residual — so the width-shard filter must not be
+applied to it. The filter now constrains only operand 0 (input, width-sharded L1) and
+operand 1 (weight, ROW_MAJOR).
+
+### Remaining perf note (not a blocker)
+
+The optimizer currently lands the correct-but-modest **1×8 = 8-core** shard, whereas the
+workaround hand-places **64 cores (8×8)**. Reaching 64 needs explicit-rectangular placement in
+`LegalTensorLayoutAnalysis` (canonical row-major placement can only form a full-bbox *even*
+divisor of 128 up to 8 cores on an 11-wide grid). This is a throughput refinement on a
+correct, passing baseline.
 
 ## Goal
 
@@ -153,11 +169,10 @@ Notes:
 
 - Is the local-norm-proxy op-model an acceptable pattern, or do you prefer waiting for
   tt-metal#44748 so the fused op can be queried directly?
-- The layout generator uses canonical (row-major) placement, so for a shard count that is
-  not a multiple of the grid width it can only reach a *smaller* full-bbox rectangle than
-  the workaround's explicit rectangle (e.g. 22 cores vs 8×8=64 on Blackhole for the 70B
-  decode norm). Correct, but lower utilization. Do you want explicit-rectangle placement
-  added to `LegalTensorLayoutAnalysis` for parity, or is the canonical result acceptable?
+- The layout generator uses canonical (row-major) placement. See "Blackhole blocker" above:
+  the immediate correctness fix is the divisibility constraint; explicit-rectangle placement
+  in `LegalTensorLayoutAnalysis` is then wanted only to recover utilization (reach 8×8=64 on
+  BH instead of the canonical divisor cap of 1×8). Is that placement change acceptable?
 
 ## References
 

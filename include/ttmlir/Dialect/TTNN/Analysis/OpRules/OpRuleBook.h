@@ -44,6 +44,12 @@ struct OpRuleBook {
     return nullptr;
   }
 
+  /// Whether this op's kernel reduces over the input shard grid's full
+  /// bounding box, requiring every cell to hold real data. When true,
+  /// reshard-candidate generation drops shards with phantom cores (non-full-
+  /// bbox) or a padded tail (uneven width division). Default false (opt-in).
+  virtual bool requiresFullBboxShardedInput() const { return false; }
+
   /// Whether to generate reshard candidates for this op's inputs.
   /// This is a compile-time optimization: returning false skips
   /// O(K * reshardCandidates) backend validation calls. Use false when

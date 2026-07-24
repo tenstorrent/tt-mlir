@@ -106,7 +106,8 @@ private:
   std::vector<TTNNLayoutAttr> generateReshardCandidates(
       RankedTensorType tensorType, TTNNLayoutAttr currentLayout,
       bool exploreInterleavedToSharded = false,
-      int64_t maxGridVolume = std::numeric_limits<int64_t>::max());
+      int64_t maxGridVolume = std::numeric_limits<int64_t>::max(),
+      bool requireFullBboxShard = false);
 
   /// Create a DRAM interleaved fallback layout for an op.
   TTNNLayoutAttr getDRAMInterleavedFallback(Operation *op);

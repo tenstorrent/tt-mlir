@@ -70,9 +70,14 @@ struct RmsNormRuleBook : OpRuleBook {
 //===----------------------------------------------------------------------===//
 
 struct DistributedRMSNormRuleBook : OpRuleBook {
-  /// operand 0 (input) and operand 2 (residual): full-bbox width-sharded L1.
+  /// operand 0 (input): full-bbox width-sharded L1.
   /// operand 1 (weight/gamma): ROW_MAJOR (the fused kernel requires it).
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+
+  /// The fused rms_allgather reduces over the shard grid's bounding box, so the
+  /// input shard must fully populate that rectangle: no phantom cores and no
+  /// padded tail (core count must evenly divide the width in tiles).
+  bool requiresFullBboxShardedInput() const override { return true; }
 
   /// The weight must be ROW_MAJOR; clone tiled weight candidates into RowMajor
   /// siblings so the candidate pool can satisfy the filter above.

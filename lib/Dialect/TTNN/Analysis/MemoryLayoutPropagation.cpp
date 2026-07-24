@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/ConvRules.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/OpRuleBook.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -829,10 +830,12 @@ void MemoryLayoutPropagation::addReshardCandidates(
   }
 
   // Collect unique reshard layouts across all base layouts.
+  bool requireFullBboxShard = getRuleBook(op).requiresFullBboxShardedInput();
   llvm::SmallVector<TTNNLayoutAttr> uniqueReshardLayouts;
   for (const auto &baseLayout : layoutsToExplore) {
     std::vector<TTNNLayoutAttr> reshardCandidates = generateReshardCandidates(
-        tensorType, baseLayout, exploreInterleavedToSharded, maxGridVolume);
+        tensorType, baseLayout, exploreInterleavedToSharded, maxGridVolume,
+        requireFullBboxShard);
     for (const auto &reshardLayout : reshardCandidates) {
       // Dedup: skip if already in uniqueReshardLayouts or existing candidates.
       bool alreadyPresent = false;
@@ -1026,7 +1029,8 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
 
 std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
     RankedTensorType tensorType, TTNNLayoutAttr currentLayout,
-    bool exploreInterleavedToSharded, int64_t maxGridVolume) {
+    bool exploreInterleavedToSharded, int64_t maxGridVolume,
+    bool requireFullBboxShard) {
   // Generate reshard candidates targeting sharded layouts.
   // getShardedLayoutsForTensorTypeAndScalarType only returns sharded layouts,
   // so the output is always sharded regardless of the source layout.
@@ -1060,6 +1064,10 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
           *tensorTypePossibleLayouts, tensorType, scalarElementType);
 
   // Filter out the current layout (no-op reshard) and non-sharded (defensive).
+  int64_t numWidthTiles =
+      tensorType.getRank() > 0
+          ? (tensorType.getShape().back() + TILE_WIDTH - 1) / TILE_WIDTH
+          : 0;
   std::vector<TTNNLayoutAttr> filtered;
   for (const auto &layout : allSharded) {
     if (layout == currentLayout) {
@@ -1071,6 +1079,25 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
     }
     if (ttmlir::utils::volume(layout.getGridShape()) > maxGridVolume) {
       continue;
+    }
+    // For opted-in ops, drop shards that leave uninitialized cells in the
+    // kernel's bbox reduction rectangle. Done before the volume cap below, so a
+    // high-core-count invalid shard can't crowd out the valid low-core-count
+    // one (the backend rejects it, but only after the cap).
+    if (requireFullBboxShard) {
+      // Phantom cores (a bbox core with no shard); and, for width shards, a
+      // padded tail (core count must evenly divide the width in tiles).
+      if (!layout_filter_utils::isFullBboxSharded(layout)) {
+        continue;
+      }
+      if (layout.getMemLayout().getValue() ==
+          TensorMemoryLayout::WidthSharded) {
+        int64_t numCores = ttmlir::utils::volume(layout.getGridShape());
+        if (numCores == 0 || numWidthTiles == 0 ||
+            numWidthTiles % numCores != 0) {
+          continue;
+        }
+      }
     }
     filtered.push_back(layout);
   }
