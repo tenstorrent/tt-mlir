@@ -189,7 +189,8 @@ public:
         (inputLayout.getLogicalShape() == outputLayout.getLogicalShape() &&
          inputLayout.getDimAlignments() == outputLayout.getDimAlignments() &&
          inputLayout.getCollapsedIntervals() ==
-             outputLayout.getCollapsedIntervals());
+             outputLayout.getCollapsedIntervals() &&
+         inputInfo.type.getNumElements() == outputInfo.type.getNumElements());
 
     bool bothTilized =
         ttcore::isTiled(inputInfo.type) && ttcore::isTiled(outputInfo.type);
