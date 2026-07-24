@@ -1167,7 +1167,7 @@ def spatial(inputs, outputs, grid_ranges, region_builders):
             [
                 ttcore.ir.CoreRangeAttr.get(
                     b.ctx,
-                    [oy, ox],
+                    ttcore.ir.CoreCoordAttr.get(b.ctx, oy, ox),
                     [height, width],
                 )
                 for (oy, ox), (height, width) in parsed_ranges

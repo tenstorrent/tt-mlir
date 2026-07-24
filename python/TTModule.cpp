@@ -275,17 +275,15 @@ void populateTTModule(nb::module_ &m) {
       .def_prop_ro("x", &tt::ttcore::CoreCoordAttr::getX);
 
   tt_attribute_class<tt::ttcore::CoreRangeAttr>(m, "CoreRangeAttr")
-      .def_static("get",
-                  [](MlirContext ctx, std::vector<int64_t> offset,
-                     std::vector<int64_t> size) {
-                    return wrap(tt::ttcore::CoreRangeAttr::get(
-                        unwrap(ctx), llvm::ArrayRef<int64_t>(offset),
-                        llvm::ArrayRef<int64_t>(size)));
-                  })
-      .def_prop_ro("offset",
-                   [](tt::ttcore::CoreRangeAttr self) {
-                     return toStdVector(self.getOffset());
-                   })
+      .def_static(
+          "get",
+          [](MlirContext ctx, MlirAttribute offset, std::vector<int64_t> size) {
+            return wrap(tt::ttcore::CoreRangeAttr::get(
+                unwrap(ctx),
+                mlir::cast<tt::ttcore::CoreCoordAttr>(unwrap(offset)),
+                llvm::ArrayRef<int64_t>(size)));
+          })
+      .def_prop_ro("offset", &tt::ttcore::CoreRangeAttr::getOffset)
       .def_prop_ro("size", [](tt::ttcore::CoreRangeAttr self) {
         return toStdVector(self.getSize());
       });

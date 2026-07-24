@@ -16,7 +16,7 @@ module {
     %shared_tensor_metal = ttir.ttnn_metal_layout_cast %shared_tensor : tensor<64x128xf32, #ttnn_layout> -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #ttmetal_layout>
     %out_tensor0_metal = ttir.ttnn_metal_layout_cast %out_ttnn_0 : tensor<64x128xf32, #ttnn_layout> -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #ttmetal_layout>
 
-    %result_reg_0_metal = d2m.spatial {grid_ranges = [#ttcore.core_range<0x0, 2x2>]}
+    %result_reg_0_metal = d2m.spatial {grid_ranges = [#ttcore.core_range<(0,0), 2x2>]}
     ins(%shared_tensor_metal : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #ttmetal_layout>)
     outs(%out_tensor0_metal : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #ttmetal_layout>) {
       ^region0():
