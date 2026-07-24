@@ -3,13 +3,42 @@
 Handoff notes for the layout-optimizer developers. Branch:
 `mvasiljevic/5738-distributed-rmsnorm-rulebook`.
 
-> **Status: implemented and passing at the lit level.** All three pieces (rulebook +
-> gating + op-model proxy) are in. At opt-2 the workaround is gated off and the optimizer
-> emits a width-sharded `distributed_rms_norm` with a generated
-> `LayerNormShardedMultiCoreProgramConfig`; the existing opt-2 lit test passes via the
-> optimizer path and opt-1 still uses the workaround. Remaining: a full-model device check
-> (llama-1-layer, opt-2, qb2) and the open questions at the end. See the "Op-model" section
-> for the proxy design.
+> **Status: works on Wormhole; blocked on Blackhole.** All three pieces (rulebook + gating +
+> op-model proxy) are in. Validated: lit tests pass, and on a **Wormhole** mock with the real
+> 8192/2×2 shape opt-2 emits a clean `8×8=64` width-sharded norm + program config (rc=0).
+> **But the llama-1-layer opt-2 run on qb2 (Blackhole) fails** — see "Blackhole blocker"
+> below: on the 11-wide grid the optimizer can't reach a full-bbox 64-core width-shard by
+> canonical placement, falls back to an **interleaved input while still attaching a sharded
+> program config**, and the fused kernel then hits `bad optional access`. Fixing BH needs the
+> explicit-rectangular placement (previously filed as a perf-only open question — it is a
+> correctness blocker here).
+
+## Blackhole blocker (why the device run fails)
+
+BH decode norm at opt-2 comes out inconsistent:
+
+```
+program_config = #ttnn.layernorm_sharded_multicore<grid=<11,2>, block_w=6>   (sharded, 22 cores)
+input layout   = interleaved DRAM
+```
+
+Sharded program config on an interleaved input → the kernel dereferences an absent shard
+spec → `bad optional access` (surfaces as `RuntimeError: Bad StatusOr access: INTERNAL 13`).
+
+Root cause: on the 11-wide BH worker grid, 64 shards (128 width-tiles) form 55+9 =
+non-rectangular under canonical row-major placement, so the full-bbox filter rejects it; the
+only full-bbox candidates are ≤ 22 cores, and the beam search did not land a valid
+width-sharded *input*, so it fell back to interleaved — while `getOutputHints` still attached
+the sharded program config. On Wormhole (8-wide) the `8×8=64` full-bbox shard *is* reachable,
+so the input stays consistently width-sharded and it works.
+
+Required for BH (in order):
+1. **Explicit-rectangular width-shard placement** in `LegalTensorLayoutAnalysis` so a valid
+   full-bbox grid (e.g. 8×8) exists on an 11-wide grid — this is a **correctness** blocker on
+   BH, not just perf.
+2. **Consistency guard** in the rulebook (`isValidOutputHintForInputs`): never attach a
+   sharded program config to a non-width-sharded input, so a mismatch fails loud rather than
+   as `bad optional access`.
 
 ## Goal
 
