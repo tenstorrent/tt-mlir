@@ -3606,7 +3606,6 @@ def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache", [TTIR_CacheOpInterface]> {
       MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
   }];
 
-  let hasCanonicalizer = 1;
   let hasVerifier = 1;
 }
 
