@@ -545,7 +545,7 @@ def TTNNCCLActivationDtypeLowering: Pass<"ttnn-ccl-activation-dtype-lowering", "
         residual add. The residual add's result encoding stays bf16 (it was
         constructed from the bf16 residual operand), so TTNN restores bf16
         at the block output by combining the bfp_bf8 CCL output with the
-        bf16 residual — no exit-side cast needed.
+        bf16 residual - no exit-side cast needed.
       - MLP up / gate matmuls -> [view / CCL]* -> silu / multiply. The
         multiply's result encoding is rewritten to bfp_bf8 so the downstream
         FF2 matmul receives bfp_bf8 input; the FF2 residual add then
@@ -619,9 +619,28 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
     - system_memory_ops: Operations with system_memory buffer type
     - Percentages: All counts as percentage of total_shardable_ops
 
+    FLOP report ("flops" section):
+    - total_flops: sum of logical, un-padded FLOPs (2*M*K*N for matmul, etc.)
+      over the matrix-engine (GEMM-class) ops only: matmul/linear/sparse_matmul,
+      conv, and SDPA & flash-MLA prefill. SFPU / vector-engine ops (elementwise,
+      softmax, norm, pooling, reduction) are not counted - they run at a
+      different peak and are negligible next to the matmuls. All decode /
+      chunked / paged attention variants (chunked-prefill SDPA, non-paged and
+      paged SDPA decode, paged flash-MLA decode) are not counted either: their
+      effective key length is a runtime value (past-sequence length / paged
+      cache), so it can't be derived from the static op shapes.
+      This is graph-invariant model work - the MFU numerator. Downstream
+      tooling computes MFU = total_flops / (measured_time * peak_flops_per_sec),
+      so a better-compiled graph reports a higher MFU.
+    - peak_flops_per_sec: hardware matrix-engine peak per math fidelity.
+    - flops_by_category and a secondary per-op roofline (ideal_compute_ms /
+      ideal_memory_ms / ideal_roofline_ms) for this specific graph.
+
     Verbose output (--ttnn-perf-metrics-verbose-output-enabled) includes:
     - Detailed per-operation analysis with sharding and memory layout information for shardable ops
     - Complete operation type breakdown with counts for all operation types (excluding const-eval functions)
+    - A per-op FLOP array ("flops"/"per_op") with logical flops, dram bytes,
+      math fidelity and the per-op roofline breakdown.
   }];
 
   let options = [
@@ -754,7 +773,7 @@ def TTNNResolveComposites : Pass<"ttnn-resolve-composites", "::mlir::ModuleOp"> 
     Resolution mode is controlled by the `composite-resolution` option:
 
     - `inline` (default): All composites are unconditionally inlined (decomposed
-      into primitives). This is the safe default — downstream TTNN fusing
+      into primitives). This is the safe default - downstream TTNN fusing
       patterns can still create typed ops from the inlined primitives.
 
     - `validate`: The typed op is validated via OpModel before promotion. If
