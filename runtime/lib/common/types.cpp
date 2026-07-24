@@ -239,6 +239,14 @@ std::uint64_t Tensor::nextTensorGlobalId() {
   return globalId.fetch_add(1, std::memory_order_relaxed);
 }
 
+void Tensor::bindGlobalId(std::uint64_t id) {
+  LOG_ASSERT(!globalIdBound_ || globalId == id,
+             "Tensor globalId is already bound to ", globalId,
+             " and cannot be rebound to ", id);
+  globalId = id;
+  globalIdBound_ = true;
+}
+
 std::uint64_t GlobalSemaphore::nextGlobalSemaphoreGlobalId() {
   static std::atomic<std::uint64_t> globalId = 0;
   return globalId.fetch_add(1, std::memory_order_relaxed);
