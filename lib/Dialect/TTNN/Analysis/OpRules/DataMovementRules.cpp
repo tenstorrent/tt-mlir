@@ -319,4 +319,28 @@ OutputHints MeshPartitionRuleBook::getOutputHints(
   return layout_filter_utils::dramInterleavedOnlyOutputHints(legalConfigs);
 }
 
+//===----------------------------------------------------------------------===//
+// CCLRuleBook (all_gather / reduce_scatter / all_reduce)
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+CCLRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
+  // Reject all sharded CCL inputs: the op-model validates the per-device shard
+  // grid, but the runtime mesh tensor carries the global shape and can overflow
+  // the core grid. Interleaved (L1 or DRAM) is safe. See TODO(rpavlovicTT,
+  // #9070).
+  return layout_filter_utils::rejectAllSharded;
+}
+
+bool CCLRuleBook::shouldExploreReshards() const { return false; }
+
+OutputHints
+CCLRuleBook::getOutputHints(Operation * /*op*/,
+                            const std::vector<OpConfig> &legalConfigs) const {
+  // Non-sharded output only (interleaved L1 or DRAM). A sharded CCL output
+  // can pass the per-device constraint query but fail metal's global
+  // shard-grid-fit at runtime. See TODO(rpavlovicTT, #9070).
+  return layout_filter_utils::nonShardedOutputHints(legalConfigs);
+}
+
 } // namespace mlir::tt::ttnn
