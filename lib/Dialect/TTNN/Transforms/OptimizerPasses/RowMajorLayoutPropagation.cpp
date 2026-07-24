@@ -64,6 +64,16 @@ public:
         return;
       }
 
+      // Skip functions with D2M subgraphs: D2M requires tiled inputs, and the
+      // pre-D2M invocation of this pass already handled RM propagation.
+      if (func.getBody()
+              .walk([](ttnn::D2MSubgraphOp) {
+                return mlir::WalkResult::interrupt();
+              })
+              .wasInterrupted()) {
+        return;
+      }
+
       TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
                    "Running RM layout propagation on function: {}",
                    func.getName());
@@ -194,49 +204,63 @@ private:
     return rmArgs;
   }
 
-  // Sets `user`'s result type to what the backend actually produces (RowMajor
-  // layout with the backend's dtype). If that dtype differs from the IR's
-  // expected element type, inserts a RowMajor-preserving toLayout op after
-  // `user` so the on-device typecast happens without leaving RowMajor.
-  // TTNNDecomposeLayouts emits an on-device typecast for this no-layout-change
-  // case (see handleDeviceInputNoLayoutTypecast). Returns the value to keep
-  // propagating RM layout from.
-  Value setBackendResultAndMaybeTypecast(Operation *user, IRRewriter &rewriter,
-                                         TTNNLayoutAttr rmOutputLayout,
-                                         Type backendDataType,
-                                         Type tensorElementType,
-                                         RankedTensorType userResultType) {
+  // Handles dtype conversion when backend dtype differs from IR tensor element
+  // type. Inserts a toLayout op with TILE layout (required for on-device
+  // typecast) to perform the dtype conversion. Returns true if conversion was
+  // inserted, indicating RM propagation should stop at this point.
+  //
+  // TODO(bmalesevic, #6783): Once issue is addressed (on-device typecasting
+  // support for RM tensors), RM propagation should be allowed to continue after
+  // dtype conversion without forcing conversion to tile layout (which currently
+  // stops RM propagation).
+  bool handleDtypeConversionIfNeeded(Operation *user, IRRewriter &rewriter,
+                                     TTNNLayoutAttr rmOutputLayout,
+                                     Type backendDataType,
+                                     Type tensorElementType,
+                                     RankedTensorType userResultType) {
+    if (backendDataType == tensorElementType) {
+      return false; // No conversion needed
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
+                 "Dtype mismatch detected at op {}: backend dtype {} != "
+                 "tensor element type {}. Inserting toLayout op.",
+                 ttmlir::opToString(user), backendDataType, tensorElementType);
+
+    // First, set the operation's result type to match what the backend
+    // actually produces (with backend's dtype in the layout)
     RankedTensorType backendResultType = RankedTensorType::get(
         userResultType.getShape(), backendDataType, rmOutputLayout);
     user->getResult(0).setType(backendResultType);
 
-    if (backendDataType == tensorElementType) {
-      return user->getResult(0);
-    }
-
-    TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
-                 "Dtype mismatch at op {}: backend dtype {} != tensor element "
-                 "type {}. Inserting RowMajor toLayout op for on-device "
-                 "typecast.",
-                 ttmlir::opToString(user), backendDataType, tensorElementType);
-
     rewriter.setInsertionPointAfter(user);
 
-    TTNNLayoutAttr rmLayoutWithTargetDtype =
+    // Create layout with TILE (required for on-device typecast) and the
+    // original tensor element type. TTNNDecomposeLayouts requires TILE
+    // layout for on-device dtype conversion; ROW_MAJOR would force a
+    // host round-trip (from_device → typecast → to_device).
+    TTNNLayoutAttr tileLayout =
         TTNNLayoutAttr::Builder(rmOutputLayout, userResultType.getShape())
-            .setElementType(tensorElementType);
+            .setElementType(tensorElementType)
+            .setLayout(Layout::Tile);
 
+    // Create toLayout op using TILE layout for dtype conversion
     auto toLayoutOp = utils::createToLayoutOp(
         user,
         mlir::cast<mlir::TypedValue<RankedTensorType>>(user->getResult(0)),
-        rewriter, rmLayoutWithTargetDtype.getLayout(),
-        rmLayoutWithTargetDtype.getBufferType(),
-        rmLayoutWithTargetDtype.getMemLayout(),
-        rmLayoutWithTargetDtype.getDataType(), "_dtype_conversion");
+        rewriter, tileLayout.getLayout(), tileLayout.getBufferType(),
+        tileLayout.getMemLayout(), tileLayout.getDataType(),
+        "_dtype_conversion");
 
+    // Replace all uses (except the toLayout itself)
     user->getResult(0).replaceAllUsesExcept(toLayoutOp.getResult(), toLayoutOp);
 
-    return toLayoutOp.getResult();
+    TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
+                 "Inserted toLayout op (TILE) after {} to convert {} -> "
+                 "{}. Stopping RM propagation.",
+                 ttmlir::opToString(user), backendDataType, tensorElementType);
+
+    return true; // Conversion inserted, stop RM propagation
   }
 
   // Propagates RowMajor layout through the function starting from the given
@@ -294,20 +318,24 @@ private:
         Type backendDataType = rmOutputLayout->getScalarElementType();
         Type tensorElementType = userResultType.getElementType();
 
-        // Set the user's result to the backend's RM layout, inserting an
-        // on-device typecast (also RM) if the backend dtype differs from the
-        // IR's expected element type. Propagation continues either from the
-        // user op directly or from the inserted typecast.
-        Value propagatedValue = setBackendResultAndMaybeTypecast(
-            user, rewriter, rmOutputLayout.get(), backendDataType,
-            tensorElementType, userResultType);
+        // Handle dtype conversion if backend dtype differs from IR element type
+        if (handleDtypeConversionIfNeeded(user, rewriter, rmOutputLayout.get(),
+                                          backendDataType, tensorElementType,
+                                          userResultType)) {
+          continue; // Stop RM propagation (converted to TILE)
+        }
+
+        // No dtype mismatch, continue propagating with RM layout
+        RankedTensorType backendResultType = RankedTensorType::get(
+            userResultType.getShape(), backendDataType, rmOutputLayout.get());
+        user->getResult(0).setType(backendResultType);
 
         TTMLIR_DEBUG(
             ttmlir::LogComponent::RMPropagation,
             "Set RowMajor layout on op {} at {}, \n\t output layout: {}",
             user->getName(), user->getLoc(), rmOutputLayout.get());
 
-        worklist.push(propagatedValue);
+        worklist.push(user->getResult(0));
       }
     }
   }
@@ -363,12 +391,18 @@ private:
           "Stopping RM propagation", llvm::inconvertibleErrorCode());
     }
 
-    auto actualFirstOutputLayout = result.checkAndGetFirstActualOutputLayout();
-    if (actualFirstOutputLayout.isTiled()) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
-                   "Stopping RM propagation at op {} as it returns tile "
-                   "layout,\n\t output layout: {}",
-                   ttmlir::opToString(op), actualFirstOutputLayout);
+    // validateOperation() can succeed with an empty output-layout set (si32 ops
+    // with no OpModel support, e.g. ttnn.eq/ge/add). Use the null-safe accessor
+    // and treat a missing layout as a stop, rather than deref-ing null in Release.
+    auto actualFirstOutputLayout = result.getFirstActualOutputLayout();
+    if (!actualFirstOutputLayout || actualFirstOutputLayout.isTiled()) {
+      TTMLIR_DEBUG(
+          ttmlir::LogComponent::RMPropagation,
+          "Stopping RM propagation at op {}: {},\n\t output layout: {}",
+          ttmlir::opToString(op),
+          actualFirstOutputLayout ? "returns tile layout"
+                                  : "no actual output layout",
+          actualFirstOutputLayout);
       return llvm::make_error<llvm::StringError>(
           "Stopping RM propagation", llvm::inconvertibleErrorCode());
     }
