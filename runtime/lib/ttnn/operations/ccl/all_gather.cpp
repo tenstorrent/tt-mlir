@@ -41,9 +41,10 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
         ::tt::runtime::common::toMetalTopology(op->topology().value()));
   }
 
-  ::ttnn::Tensor out = ::ttnn::all_gather(
-      input, allGatherDim, clusterAxis, subDeviceId, outputMemoryConfig,
-      optionalOutputTensor, numLinks, topology);
+  ::ttnn::Tensor out =
+      ::ttnn::all_gather(input, allGatherDim, clusterAxis, outputMemoryConfig,
+                         optionalOutputTensor, subDeviceId,
+                         /*sub_core_grid=*/std::nullopt, numLinks, topology);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
