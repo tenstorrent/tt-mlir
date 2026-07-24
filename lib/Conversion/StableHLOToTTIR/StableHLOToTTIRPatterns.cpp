@@ -6177,6 +6177,30 @@ public:
     int64_t indexedDim = startIndexMap[0];
     int64_t maxIndex = inputShape[indexedDim] - sliceSizes[indexedDim];
     int64_t sliceSize = sliceSizes[indexedDim];
+
+    // This pattern reconstructs the gather as a concat of operand-shaped
+    // frames along `indexedDim`, so it is only valid when the gather output
+    // has the same rank as the operand and differs only in `indexedDim`.
+    // Batched index vectors (e.g. a RoPE `cos[position_ids]` lookup with
+    // start_indices of shape [1, N]) add leading dims to the output; matching
+    // them here would build a concat whose element shape mismatches the
+    // declared output type. Bail out so such gathers fall through to the
+    // embedding lowering, which handles them correctly.
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    auto outputShape = outputType.getShape();
+    if (outputShape.size() != inputShape.size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "gather output rank differs from operand rank");
+    }
+    for (int64_t i = 0; i < static_cast<int64_t>(inputShape.size()); ++i) {
+      if (i != indexedDim && outputShape[i] != inputShape[i]) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "gather output shape differs from operand shape on a "
+                   "non-indexed dimension");
+      }
+    }
+
     int32_t starts = 0, ends = 0, lastIndex = 0;
     // It is expected that the indices are consecutive and in ascending order.
     // Like [0,0,0,1,2,3,4,5,5,5,5,5].
@@ -6235,9 +6259,6 @@ public:
         createSlices(ends, indexedDim, sliceSize,
                      /*sliceStart=*/inputShape[indexedDim] - sliceSize,
                      inputShape, inputType, rewriter, srcOp, input));
-
-    auto outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     Value result = rewriter.create<ttir::ConcatOp>(
         srcOp.getLoc(), outputType, slicesToConcat,
