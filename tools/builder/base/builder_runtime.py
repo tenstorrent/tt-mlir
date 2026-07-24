@@ -635,9 +635,13 @@ def execute_fb(
     )
 
     if verify_intermediates or dump_memory:
-        tt_runtime.runtime.DebugHooks.get(
+        hooks = tt_runtime.runtime.DebugHooks.get(
             post_op=post_op_get_callback_fn(callback_runtime_config),
         )
+        if hooks is None and len(bypass_ops) > 0:
+            raise TTBuilderRuntimeException(
+                "Runtime hooks are unavailable, so bypass_ops cannot be applied."
+            )
 
     for program_index in program_indices:
         if fbb.is_program_private(program_index):

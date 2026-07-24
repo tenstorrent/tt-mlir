@@ -2,24 +2,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+#include "tt/runtime/debug.h"
 
+#include <utility>
+
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 #include <mutex>
 #include <shared_mutex>
 #include <sstream>
 
-#include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/logger.h"
+#endif
 
 namespace tt::runtime::debug {
-
-const Env &Env::get(bool dumpKernels, bool loadKernels,
-                    bool useLocForKernelName, std::string kernelSourceDir,
-                    bool deviceAddressValidation, bool blockingCQ) {
-  static Env config(dumpKernels, loadKernels, useLocForKernelName,
-                    kernelSourceDir, deviceAddressValidation, blockingCQ);
-  return config;
-}
 
 const Hooks &Hooks::get(
     std::optional<debug::Hooks::OperationCallbackFn> preOperatorCallback,
@@ -39,6 +34,16 @@ const Hooks &Hooks::get(
   if (postProgramCallback.has_value()) {
     config.postProgramCallback = std::move(postProgramCallback);
   }
+  return config;
+}
+
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+
+const Env &Env::get(bool dumpKernels, bool loadKernels,
+                    bool useLocForKernelName, std::string kernelSourceDir,
+                    bool deviceAddressValidation, bool blockingCQ) {
+  static Env config(dumpKernels, loadKernels, useLocForKernelName,
+                    kernelSourceDir, deviceAddressValidation, blockingCQ);
   return config;
 }
 
@@ -90,6 +95,6 @@ std::string Stats::toString() const {
   return oss.str();
 }
 
-} // namespace tt::runtime::debug
-
 #endif
+
+} // namespace tt::runtime::debug

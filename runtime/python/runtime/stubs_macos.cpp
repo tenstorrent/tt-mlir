@@ -113,20 +113,20 @@ void Env::setProgramMetadata(const std::string &programMetadata) {
 
 namespace debug {
 
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-// Stub for debug::Env::get
-const Env &Env::get(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
-                    bool useLocForKernelName, std::string kernelSourceDir,
-                    bool deviceAddressValidation, bool blockingCQ) {
-  __builtin_trap();
-}
-
 // Stub for debug::Hooks::get
 const Hooks &
 Hooks::get(std::optional<Hooks::OperationCallbackFn> preOperatorCallback,
            std::optional<Hooks::OperationCallbackFn> postOperatorCallback,
            std::optional<Hooks::ProgramCallbackFn> preProgramCallback,
            std::optional<Hooks::ProgramCallbackFn> postProgramCallback) {
+  __builtin_trap();
+}
+
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+// Stub for debug::Env::get
+const Env &Env::get(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
+                    bool useLocForKernelName, std::string kernelSourceDir,
+                    bool deviceAddressValidation, bool blockingCQ) {
   __builtin_trap();
 }
 

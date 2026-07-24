@@ -78,63 +78,37 @@ struct Hooks {
   using OperationCallbackFn =
       std::function<void(Binary, CallbackContext, OpContext)>;
   using ProgramCallbackFn = std::function<void(Binary, CallbackContext)>;
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+
   static const Hooks &
   get(std::optional<OperationCallbackFn> preOperatorCallback = std::nullopt,
       std::optional<OperationCallbackFn> postOperatorCallback = std::nullopt,
       std::optional<ProgramCallbackFn> preProgramCallback = std::nullopt,
       std::optional<ProgramCallbackFn> postProgramCallback = std::nullopt);
-#else
-  constexpr static Hooks get() { return Hooks(); }
-#endif
 
   const std::optional<OperationCallbackFn> &getPreOperatorCallback() const {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return preOperatorCallback;
-#else
-    static const std::optional<OperationCallbackFn> empty = std::nullopt;
-    return empty;
-#endif
   }
 
   const std::optional<OperationCallbackFn> &getPostOperatorCallback() const {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return postOperatorCallback;
-#else
-    static const std::optional<OperationCallbackFn> empty = std::nullopt;
-    return empty;
-#endif
   }
 
   const std::optional<ProgramCallbackFn> &getpreProgramCallback() const {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return preProgramCallback;
-#else
-    static const std::optional<ProgramCallbackFn> empty = std::nullopt;
-    return empty;
-#endif
   }
 
   const std::optional<ProgramCallbackFn> &getpostProgramCallback() const {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return postProgramCallback;
-#else
-    static const std::optional<ProgramCallbackFn> empty = std::nullopt;
-    return empty;
-#endif
   }
 
   void unregisterHooks() const {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     preOperatorCallback = std::nullopt;
     postOperatorCallback = std::nullopt;
     preProgramCallback = std::nullopt;
     postProgramCallback = std::nullopt;
-#endif
   }
 
 private:
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   Hooks(const std::optional<OperationCallbackFn> &preOperatorCallback,
         const std::optional<OperationCallbackFn> &postOperatorCallback,
         const std::optional<ProgramCallbackFn> &preProgramCallback,
@@ -148,10 +122,6 @@ private:
   mutable std::optional<OperationCallbackFn> postOperatorCallback;
   mutable std::optional<ProgramCallbackFn> preProgramCallback;
   mutable std::optional<ProgramCallbackFn> postProgramCallback;
-
-#else
-  constexpr Hooks() = default;
-#endif
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Hooks &hooks) {

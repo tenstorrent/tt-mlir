@@ -748,7 +748,6 @@ void registerRuntimeBindings(nb::module_ &m) {
              std::optional<nb::callable> post_op_func,
              std::optional<nb::callable> pre_program_func,
              std::optional<nb::callable> post_program_func) {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
             std::optional<tt::runtime::debug::Hooks::OperationCallbackFn>
                 pre_op_cb = std::nullopt;
             std::optional<tt::runtime::debug::Hooks::OperationCallbackFn>
@@ -797,12 +796,9 @@ void registerRuntimeBindings(nb::module_ &m) {
 
             return tt::runtime::debug::Hooks::get(
                 pre_op_cb, post_op_cb, pre_program_cb, post_program_cb);
-#else
-            tt::runtime::debug::Hooks::get();
-            return std::nullopt;
-#endif
           },
-          nb::arg("pre_op") = std::nullopt, nb::arg("post_op") = std::nullopt,
+          nb::rv_policy::reference, nb::arg("pre_op") = std::nullopt,
+          nb::arg("post_op") = std::nullopt,
           nb::arg("pre_program") = std::nullopt,
           nb::arg("post_program") = std::nullopt)
       .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
