@@ -140,8 +140,8 @@ checkConstraintsResult(Operation *contextOp,
           //   2. A CB-vs-L1 overlap: "Statically allocated circular buffers ...
           //      clash with L1 buffers ..." -- the op's static circular-buffer
           //      region collides with a still-live L1 input (e.g. a large
-          //      height-sharded conv activation). Evicting that L1 input to DRAM
-          //      and refitting resolves it.
+          //      height-sharded conv activation). Evicting that L1 input to
+          //      DRAM and refitting resolves it.
           // Classify both as OOM so run() calls handleOOM (which spills the
           // offending L1 input) instead of the metalBackendError branch, which
           // only demotes the op's *output* to DRAM -- useless here, since the

@@ -475,9 +475,9 @@ TEST_F(MockAllocatorViewTripwireTest, RealPadIsNotAView) {
 // with an EMPTY live-record set has to be byte-for-byte equivalent to the plain
 // stateless query (buildInitialState({}) -> null state -> constraintsDispatch
 // takes the cached stateless path). This is the invariant the whole
-// stateless-through-the-stateful-API design and the interface constraintsDispatch
-// helper rely on; assert it directly so a future change to buildInitialState or
-// the dispatch cannot silently diverge the two paths.
+// stateless-through-the-stateful-API design and the interface
+// constraintsDispatch helper rely on; assert it directly so a future change to
+// buildInitialState or the dispatch cannot silently diverge the two paths.
 //===----------------------------------------------------------------------===//
 class MockAllocatorStatelessEquivalenceTest
     : public L1SpillMockAllocatorFixture {};
@@ -491,8 +491,9 @@ TEST_F(MockAllocatorStatelessEquivalenceTest, EmptyRecordsMatchesStateless) {
   finishFunc({op->getResult(0)});
 
   const mlir::tt::ttnn::OpConfig config(layout);
-  const auto stateless = mlir::tt::ttnn::op_constraint_validation::
-      validateOperation(op, /*inputLayouts=*/{layout}, config);
+  const auto stateless =
+      mlir::tt::ttnn::op_constraint_validation::validateOperation(
+          op, /*inputLayouts=*/{layout}, config);
   const auto statefulEmpty =
       mlir::tt::ttnn::op_constraint_validation::validateOperation(
           op, /*inputLayouts=*/{layout}, config,

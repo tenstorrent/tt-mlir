@@ -744,7 +744,7 @@ namespace {
 // queries, so it can be restored exactly afterward. Single mock device per
 // compile; snapshot is always paired with a restore by the spill pass.
 //
-// INVARIANT: this file-global relies on strictly sequential, non-reentrant use.
+// INVARIANT: this state relies on strictly sequential, non-reentrant use.
 // The op-model / SingletonDeviceContext layer is single-threaded per compile
 // (there is one shared mock device), and the only writer is the greedy L1 spill
 // pass, which brackets exactly one spill run with snapshot -> (queries) ->
@@ -752,8 +752,15 @@ namespace {
 // nesting: a second snapshotMockAllocatorState() before the matching restore
 // would overwrite the pending snapshot and silently lose the original state.
 // Do not call these from a reentrant / concurrent context.
-std::optional<::tt::tt_metal::experimental::MockAllocatorState>
-    g_spillAllocatorSnapshot;
+//
+// Held in a function-local static rather than a namespace-scope global so the
+// mutable state stays encapsulated behind this accessor.
+std::optional<::tt::tt_metal::experimental::MockAllocatorState> &
+spillAllocatorSnapshot() {
+  static std::optional<::tt::tt_metal::experimental::MockAllocatorState>
+      snapshot;
+  return snapshot;
+}
 } // namespace
 #endif
 
@@ -761,17 +768,17 @@ void snapshotMockAllocatorState() {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto *device = SingletonDeviceContext::getInstance().getDevice();
   if (::tt::tt_metal::experimental::get_mock_allocator(*device) == nullptr) {
-    g_spillAllocatorSnapshot.reset();
+    spillAllocatorSnapshot().reset();
     return;
   }
-  g_spillAllocatorSnapshot =
+  spillAllocatorSnapshot() =
       ::tt::tt_metal::experimental::extract_mock_allocator_state(*device);
 #endif
 }
 
 void restoreMockAllocatorState() {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  if (!g_spillAllocatorSnapshot.has_value()) {
+  if (!spillAllocatorSnapshot().has_value()) {
     return;
   }
   // The stateful (build-from-records) query mutates the SHARED mock device's
@@ -784,8 +791,8 @@ void restoreMockAllocatorState() {
   // spuriously legal), producing wrong configs and corrupt output.
   auto *device = SingletonDeviceContext::getInstance().getDevice();
   ::tt::tt_metal::experimental::override_mock_allocator_state(
-      *device, *g_spillAllocatorSnapshot);
-  g_spillAllocatorSnapshot.reset();
+      *device, *spillAllocatorSnapshot());
+  spillAllocatorSnapshot().reset();
 #endif
 }
 
