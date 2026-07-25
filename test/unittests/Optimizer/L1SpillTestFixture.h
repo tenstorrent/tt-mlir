@@ -152,13 +152,28 @@ public:
   };
   llvm::DenseMap<mlir::Operation *, PerOpConfig> perOpConfigs;
 
+  /// Mesh shape the test device is registered with. Default {} registers a
+  /// single-device mesh. Override in a fixture that needs multi-device-only
+  /// behavior (e.g. StatefulL1SpillManagement's static-CB headroom floor, which
+  /// is armed only on a mesh compile).
+  virtual llvm::SmallVector<int64_t> deviceMeshShape() const { return {}; }
+
   void SetUp() override {
     context.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
     context.loadDialect<TTNNDialect>();
     context.loadDialect<mlir::func::FuncDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToStart(&module->getBodyRegion().front());
-    mlir::tt::ttcore::registerDevice(module.get());
+    llvm::SmallVector<int64_t> meshShape = deviceMeshShape();
+    mlir::tt::ttcore::registerDevice(
+        module.get(), mlir::tt::ttcore::Arch::WormholeB0, meshShape);
+  }
+
+  /// Address static circular buffers grow up from on the registered chip. The
+  /// stateful headroom floor is expressed relative to it.
+  uint64_t l1UnreservedBase() {
+    return mlir::tt::ttcore::getOpChipDescAttr(module.get())
+        .getL1UnreservedBase();
   }
 
   void TearDown() override {}
@@ -431,6 +446,58 @@ public:
     pass->getMemoryTracker().backendValidator = makeValidator();
     pass->run();
     return {rawObs};
+  }
+
+  // --- Stateful (record-backed) pass execution, still device-free ---
+
+  /// StatefulL1SpillManagement instance, kept alive for post-run inspection.
+  std::unique_ptr<StatefulL1SpillManagement> statefulPass;
+
+  /// Drive StatefulL1SpillManagement with the synthetic validator, extended to
+  /// hand back allocation records so the record-address logic (the static-CB
+  /// headroom floor, getLowestOccupiedL1Address) is exercised without a device.
+  ///
+  /// The synthesized addresses mimic tt-metal's top-down L1 allocator over
+  /// [l1UnreservedBase, l1UnreservedBase + l1BudgetPerCore): an output of size
+  /// S placed while `occupied` bytes are live lands at
+  ///   base + budget - (occupied + S)
+  /// i.e. the more L1 is already live, the lower the new buffer sits — which is
+  /// exactly the pressure the floor guards against.
+  RunResult runStateful() {
+    auto obs = std::make_unique<RecordingObserver>();
+    auto *rawObs = obs.get();
+
+    auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
+    ttcore::GridAttr deviceGrid = deviceAttr.getWorkerGrid();
+
+    statefulPass = std::make_unique<StatefulL1SpillManagement>(
+        func, deviceGrid, l1BudgetPerCore, std::move(obs));
+
+    auto inner = makeValidator();
+    uint64_t base = l1UnreservedBase();
+    uint64_t budget = l1BudgetPerCore;
+    StatefulL1SpillManagement *pass = statefulPass.get();
+    statefulPass->getMemoryTracker().backendValidator =
+        [inner, base, budget, pass](
+            mlir::Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+            const OpConfig &config, uint64_t additionalL1) -> ValidationResult {
+      ValidationResult result = inner(op, inputLayouts, config, additionalL1);
+      if (!result.isSuccess() || result.outputL1Usage == 0) {
+        return result;
+      }
+      uint64_t occupied = pass->getMemoryTracker().getOccupiedL1();
+      uint64_t top = occupied + result.outputL1Usage;
+      uint64_t address = top <= budget ? base + budget - top : base;
+      result.outputAllocations.push_back(op_model::OpModelAllocationRecord{
+          BufferType::L1, address, result.outputL1Usage});
+      return result;
+    };
+    statefulPass->run();
+    return {rawObs};
+  }
+
+  MockAllocatorL1Tracker &getStatefulTracker() {
+    return statefulPass->getMemoryTracker();
   }
 
   // --- IR inspection helpers ---

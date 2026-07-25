@@ -1409,6 +1409,10 @@ void L1SpillManagementBase<MemoryTracker>::restoreCheckpoint(int64_t pos) {
 
 template <typename MemoryTracker>
 void L1SpillManagementBase<MemoryTracker>::run() {
+  // Strategy-specific tracker configuration (needs virtual dispatch, so it
+  // cannot live in the constructor).
+  configureTracker();
+
   ScheduleData data = buildScheduleData();
 
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
@@ -1963,25 +1967,27 @@ op_constraint_validation::ValidationResult
 MockAllocatorL1Tracker::validate(Operation *op,
                                  llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                                  const OpConfig &config) const {
-  // Test-only hook takes precedence and is state-agnostic.
-  if (backendValidator) {
-    return backendValidator(op, inputLayouts, config, /*additionalL1Usage=*/0);
-  }
-
-  // Flatten the currently-live L1 allocations into the stateful query's initial
-  // state. Aliases share their owner's record (no separate entry), so there is
-  // no duplication. additionalL1Usage is 0: the live set is encoded in the
-  // records. Ops that don't override the stateful interface method fall back to
-  // the (cached) stateless query and return no records.
-  llvm::SmallVector<op_model::OpModelAllocationRecord> flat;
-  for (const auto &entry : liveRecords) {
-    flat.append(entry.second.begin(), entry.second.end());
-  }
-
-  op_constraint_validation::ValidationResult result =
-      op_constraint_validation::validateOperation(op, inputLayouts, config,
-                                                  flat,
-                                                  /*additionalL1Usage=*/0);
+  // Run the query: the test-only hook when installed (state-agnostic), else the
+  // real stateful query. Either way the optimizer-policy checks below run on
+  // the result, so a test can drive them without a device.
+  op_constraint_validation::ValidationResult result = [&] {
+    if (backendValidator) {
+      return backendValidator(op, inputLayouts, config,
+                              /*additionalL1Usage=*/0);
+    }
+    // Flatten the currently-live L1 allocations into the stateful query's
+    // initial state. Aliases share their owner's record (no separate entry), so
+    // there is no duplication. additionalL1Usage is 0: the live set is encoded
+    // in the records. Ops that don't override the stateful interface method
+    // fall back to the (cached) stateless query and return no records.
+    llvm::SmallVector<op_model::OpModelAllocationRecord> flat;
+    for (const auto &entry : liveRecords) {
+      flat.append(entry.second.begin(), entry.second.end());
+    }
+    return op_constraint_validation::validateOperation(op, inputLayouts, config,
+                                                       flat,
+                                                       /*additionalL1Usage=*/0);
+  }();
 
   if (result.isSuccess()) {
     // The query decides fit / fragmentation / CB-clash on the device's physical
@@ -1994,6 +2000,30 @@ MockAllocatorL1Tracker::validate(Operation *op,
       return op_constraint_validation::ValidationResult::outOfMemoryError(
           "stateful: projected L1 (" + std::to_string(projected) +
           "B) exceeds optimizer budget (" + std::to_string(l1Budget) + "B)");
+    }
+    // Static-CB headroom floor (multi-device only; see
+    // `cbHeadroomFloorEnabled`). The query answers "does THIS op fit", but
+    // tt-metal validates EVERY program's static CB region against the device's
+    // globally lowest occupied L1 address -- including programs this model
+    // never queried (CCL/OpModelExempt ops, fabric, post-pass semaphores,
+    // co-resident graphs). Keep the live working set above
+    // `l1UnreservedBase + <largest CB region this function is known to need>`
+    // so those unmodeled CB regions still have somewhere to grow. A violation
+    // is reported as OOM, which routes run() to the same evict-and-refit
+    // recovery an allocator OOM or a reported CB clash takes.
+    if (cbHeadroomFloorEnabled) {
+      cbHeadroomHighWater = std::max(cbHeadroomHighWater, result.cbPeakUsage);
+      const uint64_t floor = l1UnreservedBase + cbHeadroomHighWater;
+      std::optional<uint64_t> lowest =
+          getLowestOccupiedL1Address(result.outputAllocations);
+      if (lowest && *lowest < floor) {
+        return op_constraint_validation::ValidationResult::outOfMemoryError(
+            "stateful: live L1 buffer at " + std::to_string(*lowest) +
+            "B sits below the static-CB headroom floor " +
+            std::to_string(floor) + "B (l1UnreservedBase " +
+            std::to_string(l1UnreservedBase) + "B + CB high-water " +
+            std::to_string(cbHeadroomHighWater) + "B)");
+      }
     }
     // Stash this op's output records for association at addTensor time.
     if (!result.outputAllocations.empty()) {
@@ -2021,6 +2051,12 @@ void MockAllocatorL1Tracker::init(uint64_t l1BudgetPerCore) {
   pendingRecords.clear();
   aliasOf.clear();
   aliasRefcount.clear();
+  // Deliberately NOT reset here: the static-CB headroom floor state
+  // (l1UnreservedBase / cbHeadroomFloorEnabled / cbHeadroomHighWater). This
+  // runs mid-sweep too — evictAllFromL1 calls it to drop every live record —
+  // and the largest static CB region the function needs does not change when L1
+  // is flushed. armCBHeadroomFloor (from run()'s configureTracker) owns that
+  // state.
 }
 
 void MockAllocatorL1Tracker::addTensor(Value result,
@@ -2128,6 +2164,34 @@ uint64_t MockAllocatorL1Tracker::getOccupiedL1() const {
   return total;
 }
 
+std::optional<uint64_t> MockAllocatorL1Tracker::getLowestOccupiedL1Address(
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> alsoConsider) const {
+  std::optional<uint64_t> lowest;
+  auto fold = [&lowest](const op_model::OpModelAllocationRecord &rec) {
+    if (rec.bufferType != BufferType::L1) {
+      return;
+    }
+    lowest = lowest ? std::min(*lowest, rec.address) : rec.address;
+  };
+  for (const auto &entry : liveRecords) {
+    for (const auto &rec : entry.second) {
+      fold(rec);
+    }
+  }
+  for (const auto &rec : alsoConsider) {
+    fold(rec);
+  }
+  return lowest;
+}
+
+void MockAllocatorL1Tracker::armCBHeadroomFloor(uint64_t unreservedBase,
+                                                bool enabled,
+                                                uint64_t minHeadroom) {
+  l1UnreservedBase = unreservedBase;
+  cbHeadroomFloorEnabled = enabled;
+  cbHeadroomHighWater = enabled ? minHeadroom : 0;
+}
+
 MockAllocatorL1Tracker::Snapshot MockAllocatorL1Tracker::takeSnapshot() const {
   return Snapshot{liveRecords, aliasOf, aliasRefcount};
 }
@@ -2142,11 +2206,38 @@ void MockAllocatorL1Tracker::restoreSnapshot(const Snapshot &snapshot) {
 // StatefulL1SpillManagement (captured allocator state)
 //===----------------------------------------------------------------------===//
 
+void StatefulL1SpillManagement::configureTracker() {
+  // Arm the static-CB headroom floor on multi-device (mesh) compiles only. On a
+  // single-device compile the modeled device matches the real one closely
+  // enough that the per-op query is the whole story, and reserving headroom
+  // there would cost L1 for no benefit; on a mesh compile it demonstrably is
+  // not (see MockAllocatorL1Tracker::cbHeadroomFloorEnabled).
+  ttcore::DeviceAttr device = ttcore::lookupDevice(func);
+  const bool multiDevice =
+      device && ttmlir::utils::volume(device.getMeshShape()) > 1;
+  // Seed the headroom with the same cushion the address-sim path applies to its
+  // CB-overlap check (kCBFragCushionFraction of the budget), so the floor is
+  // already meaningful for the ops processed before the function's largest CB
+  // region has been observed.
+  memoryTracker.armCBHeadroomFloor(
+      ttcore::getOpChipDescAttr(func).getL1UnreservedBase(), multiDevice,
+      /*minHeadroom=*/cbFragCushion);
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "L1 spill (stateful): static-CB headroom floor {0} "
+               "(l1UnreservedBase={1}, seed={2})",
+               multiDevice ? "armed (multi-device)" : "off (single device)",
+               memoryTracker.l1UnreservedBase,
+               memoryTracker.cbHeadroomHighWater);
+}
+
 uint64_t StatefulL1SpillManagement::placeValidatedOutput(
     Operation *, int64_t, ScheduleData &,
     const op_constraint_validation::ValidationResult &result) {
-  // Fit / fragmentation / CB-overlap are all answered by the stateful query, so
-  // a validated output is committed at its reported L1 size with no extra
+  // Fit / fragmentation / CB-overlap are all answered by the stateful query
+  // (plus the tracker's budget ceiling and, on a mesh compile, its static-CB
+  // headroom floor -- both applied in MockAllocatorL1Tracker::validate, which
+  // reports a violation as OOM). A result that reaches here is already
+  // validated, so its output is committed at the reported L1 size with no extra
   // checks.
   return result.outputL1Usage;
 }

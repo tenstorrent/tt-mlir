@@ -213,6 +213,56 @@ struct MockAllocatorL1Tracker {
 
   void init(uint64_t l1BudgetPerCore);
 
+  /// Arm (or disarm) the static-CB headroom floor. `l1UnreservedBase` is the
+  /// address static circular buffers start growing up from on this chip
+  /// (ChipDescAttr::getL1UnreservedBase); `minHeadroom` seeds the high-water
+  /// mark so the floor is meaningful before the first big-CB op is queried. See
+  /// `cbHeadroomFloorEnabled` for why this is a multi-device-only guard, and
+  /// validate() for the check itself.
+  void armCBHeadroomFloor(uint64_t l1UnreservedBase, bool enabled,
+                          uint64_t minHeadroom = 0);
+
+  /// Byte address static circular buffers grow up from. Only read while the
+  /// headroom floor is armed.
+  uint64_t l1UnreservedBase = 0;
+
+  /// When set, validate() additionally requires every live L1 buffer to sit
+  /// above `l1UnreservedBase + cbHeadroomHighWater`.
+  ///
+  /// Why this exists, and why it is multi-device only: on a mesh compile the
+  /// stateful query does NOT see every program that will run on the device.
+  ///   * CCL / OpModelExempt ops have no op-model body, so their static CBs are
+  ///     never queried. The sweep flushes *tracked* L1 for them, which does not
+  ///     cover buffers it never tracked.
+  ///   * The op-model device is a 1x1 mesh with fabric DISABLED
+  ///     (SingletonDeviceContext's makeEnvDescriptor, blocked on
+  ///     tt-metal#44748), so the fabric / EDM L1 that a real mesh reserves on
+  ///     worker cores is missing from the modeled state.
+  ///   * Distributed-op semaphores are allocated after this pass
+  ///     (TTNNAllocateDistributedOpSemaphores).
+  ///   * tt-metal validates each program's static CB region against the
+  ///     device's GLOBALLY lowest occupied L1 address
+  ///     (ProgramImpl::validate_circular_buffer_region), which on a mesh
+  ///     workload also covers buffers owned by other graphs co-resident in the
+  ///     same process (e.g. vLLM precompiling several graphs back to back).
+  /// So a per-op query can certify "this op fits" while a program the model
+  /// never saw still aborts at launch with "Statically allocated circular
+  /// buffers ... clash with L1 buffers ...". Keeping a floor under the live
+  /// working set — sized by the largest static CB region this function is known
+  /// to need — is what the address-sim path gets from its CB-overlap check plus
+  /// cushion, and what the stateful path was missing.
+  ///
+  /// The guard can only ever spill more: a violation takes the existing
+  /// evict-and-refit path, and if nothing is evictable the op's output is
+  /// demoted to DRAM. It never fails the pass.
+  bool cbHeadroomFloorEnabled = false;
+
+  /// Running high-water mark of the static CB region this function is known to
+  /// need: max(seed, largest cbPeakUsage a successful query has reported).
+  /// Seeded by armCBHeadroomFloor so the floor already bites before the first
+  /// big-CB op is reached. Mutable so the const validate() can update it.
+  mutable uint64_t cbHeadroomHighWater = 0;
+
   /// Stateful fit decision: flatten liveRecords (deduped by owner) into the
   /// op-model's stateful query and stash the resulting per-output records for
   /// association at addTensor time.
@@ -244,6 +294,21 @@ struct MockAllocatorL1Tracker {
   bool hasTensor(Value result) const;
   uint64_t getTensorSize(Value result) const;
   uint64_t getOccupiedL1() const;
+
+  /// Lowest device address occupied by a live L1 record, or nullopt when no L1
+  /// record is live. Unlike SumL1MemoryTracker::getLowestOccupiedAddress (a
+  /// simulated top-down address in a [0, budget) space), these are the real
+  /// addresses tt-metal's allocator handed out in the stateful query, so they
+  /// are directly comparable with a program's static circular-buffer region
+  /// end -- which is what tt-metal itself compares against
+  /// (validate_circular_buffer_region in tt_metal/impl/program/program.cpp).
+  ///
+  /// `alsoConsider` lets a caller fold in records that are not live yet (an
+  /// op's own freshly-reported output allocations), which is the state the
+  /// device is in when that op's program launches.
+  std::optional<uint64_t> getLowestOccupiedL1Address(
+      llvm::ArrayRef<op_model::OpModelAllocationRecord> alsoConsider = {})
+      const;
 
   /// Replay checkpoint: the live record set + alias bookkeeping.
   struct Snapshot {
@@ -345,6 +410,12 @@ protected:
   /// address-sim event-log replay. Gates checkpoint capture + rewind wiring so
   /// the Sum/address-sim path stays byte-identical.
   virtual bool usesRewindEviction() const { return false; }
+
+  /// Strategy hook: apply tracker configuration that needs module-level
+  /// information (chip desc, mesh shape). Called at the top of run(), where
+  /// virtual dispatch is live (it is not, in the constructor). Default no-op so
+  /// the Sum/address-sim path stays byte-identical.
+  virtual void configureTracker() {}
 
   /// Capture / restore the full sweep state (tracker snapshot + liveValues +
   /// liveSet) at a schedule position. Used by the rewind eviction.
@@ -648,6 +719,8 @@ public:
 
 protected:
   bool usesRewindEviction() const override { return true; }
+
+  void configureTracker() override;
 
   uint64_t placeValidatedOutput(
       Operation *op, int64_t pos, ScheduleData &data,

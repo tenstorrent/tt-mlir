@@ -854,3 +854,111 @@ TEST_F(FragmentationTrackerTest, WouldAllocateAtReportsNoFitAndRoundTrips) {
   EXPECT_EQ(tracker.getOccupiedL1(), 60 * kKiB);
   EXPECT_FALSE(tracker.wouldAllocateAt(60 * kKiB).has_value());
 }
+
+//===----------------------------------------------------------------------===//
+// StatefulCBHeadroomFloor tests
+//
+// Regression coverage for the multi-device static-CB headroom floor. On QB2
+// (Blackhole, 1x4 tensor-parallel mesh) vllm_qwen2_5_coder_32b_instruct_qb2_tp
+// aborted at program launch with
+//   "Statically allocated circular buffers in program 226024 clash with L1
+//    buffers on core range [0-0 - 0-0]. L1 buffer allocated at 447488 and
+//    static circular buffer region ends at 471808"
+// The stateful sweep had certified every op it queried (tt-metal runs its own
+// CB-vs-L1 check inside the query, and #9064's fix routes a reported clash to
+// the evict-and-refit recovery), but tt-metal validates EVERY program's CB
+// region against the device's globally lowest occupied L1 address -- including
+// programs the model never queried. The floor keeps the live working set above
+// l1UnreservedBase + the largest CB region the function is known to need, so
+// those unmodeled CB regions still fit. It is armed on mesh compiles only.
+//===----------------------------------------------------------------------===//
+
+// 1x2 mesh: the floor is armed.
+class StatefulMeshHeadroomTest : public L1SpillTestFixture {
+  llvm::SmallVector<int64_t> deviceMeshShape() const override { return {1, 2}; }
+};
+
+// Same graph, single device: the floor is disarmed and behavior is unchanged.
+class StatefulSingleDeviceHeadroomTest : public L1SpillTestFixture {};
+
+// opA (600 KiB) stays live across opB, so opB's own 600 KiB output is placed
+// low -- at base + 102400, below opB's own 300 KiB static CB region. Both fit
+// the byte budget (1200 KiB <= 1300 KiB), so only the address-level floor can
+// catch it. Expect the floor to report OOM, evict opA and spill it to DRAM,
+// after which opB is placed high enough to clear its CB region.
+TEST_F(StatefulMeshHeadroomTest, LowAddressOutputBelowCBFloorEvicts) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+  auto tt = tensorType(shape, makeL1Sharded(shape));
+
+  auto args = beginFunc({tt});
+  auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/600 * kKiB);
+  auto *opB = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/600 * kKiB);
+  setL1Usage(opB, /*l1=*/600 * kKiB, /*cb=*/300 * kKiB);
+  finishFunc({opB->getResult(0)});
+
+  auto [obs] = runStateful();
+
+  EXPECT_FALSE(obs->ooms.empty())
+      << "static-CB headroom floor should report OOM for opB";
+  ASSERT_FALSE(obs->evictions.empty());
+  EXPECT_EQ(obs->evictions[0].victim, opA);
+  EXPECT_EQ(countSpills(), 1u) << "expected one spill-to-DRAM for opA";
+  EXPECT_TRUE(wasSpilled(opA->getResult(0)));
+}
+
+// Identical graph on a single-device mesh: the floor is not armed, so the pass
+// keeps both tensors in L1 exactly as before this guard existed.
+TEST_F(StatefulSingleDeviceHeadroomTest, FloorDisarmedOnSingleDevice) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+  auto tt = tensorType(shape, makeL1Sharded(shape));
+
+  auto args = beginFunc({tt});
+  auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/600 * kKiB);
+  auto *opB = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/600 * kKiB);
+  setL1Usage(opB, /*l1=*/600 * kKiB, /*cb=*/300 * kKiB);
+  finishFunc({opB->getResult(0)});
+
+  auto [obs] = runStateful();
+
+  EXPECT_TRUE(obs->ooms.empty())
+      << "single-device compile must not arm the floor";
+  EXPECT_TRUE(obs->evictions.empty());
+  EXPECT_EQ(countSpills(), 0u);
+  EXPECT_TRUE(resultIsL1(opA->getResult(0)));
+}
+
+// getLowestOccupiedL1Address is the address the floor compares against: the
+// minimum over live L1 records, optionally folding in records that are not live
+// yet (an op's own freshly reported output, which IS allocated by the time that
+// op's program launches). DRAM records never participate.
+TEST_F(StatefulSingleDeviceHeadroomTest, LowestOccupiedL1AddressFoldsExtras) {
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+  auto tt = tensorType(shape, makeL1Sharded(shape));
+  auto args = beginFunc({tt, tt});
+  finishFunc({args[0]});
+
+  mlir::tt::ttnn::MockAllocatorL1Tracker tracker;
+  tracker.init(l1BudgetPerCore);
+  EXPECT_FALSE(tracker.getLowestOccupiedL1Address().has_value());
+
+  tracker.liveRecords[args[0]] = {
+      mlir::tt::ttnn::op_model::OpModelAllocationRecord{
+          mlir::tt::ttnn::BufferType::L1,
+          /*address=*/900000,
+          /*sizePerBank=*/1024}};
+  tracker.liveRecords[args[1]] = {
+      mlir::tt::ttnn::op_model::OpModelAllocationRecord{
+          mlir::tt::ttnn::BufferType::DRAM,
+          /*address=*/16,
+          /*sizePerBank=*/1024}};
+  ASSERT_TRUE(tracker.getLowestOccupiedL1Address().has_value());
+  EXPECT_EQ(*tracker.getLowestOccupiedL1Address(), 900000u)
+      << "DRAM records must not lower the L1 floor";
+
+  llvm::SmallVector<mlir::tt::ttnn::op_model::OpModelAllocationRecord> extra = {
+      {mlir::tt::ttnn::BufferType::L1, /*address=*/400000,
+       /*sizePerBank=*/2048}};
+  EXPECT_EQ(*tracker.getLowestOccupiedL1Address(extra), 400000u);
+}
