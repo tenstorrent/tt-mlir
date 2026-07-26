@@ -1142,6 +1142,107 @@ public:
   }
 };
 
+// This pattern pulls the row-major conversion above an op whose only consumer
+// is a to_tensor_spec that converts that op's result to row-major.
+//
+// An op that produces a non tile-aligned result in TILE layout pads its
+// degenerate height to a full tile, inflating the DRAM footprint. When the next
+// op immediately converts that result to row-major, the padded TILE buffer is
+// pure transient waste.
+//
+// The rewrite converts the input to row-major first and re-emits the op
+// directly in row-major, avoiding materialization of the padded TILE buffer.
+//
+// Example, for OpTy = ttnn::ReshapeOp:
+//   reshape [108365, 64] TILE -> [6935360] TILE
+//   to_tensor_spec [6935360] TILE -> [6935360] ROW_MAJOR
+//
+// becomes:
+//
+//   to_tensor_spec [108365, 64] TILE -> [108365, 64] ROW_MAJOR
+//   reshape [108365, 64] ROW_MAJOR -> [6935360] ROW_MAJOR
+template <typename OpTy>
+class ToTensorSpecRowMajorAdjusting : public OpRewritePattern<OpTy> {
+public:
+  using OpRewritePattern<OpTy>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(OpTy op,
+                                PatternRewriter &rewriter) const override {
+    if (!op->hasOneUse()) {
+      return failure();
+    }
+
+    auto toTensorSpecUser =
+        mlir::dyn_cast<ttnn::ToTensorSpecOp>(*op->user_begin());
+    if (!toTensorSpecUser) {
+      return failure();
+    }
+
+    auto opResultType =
+        mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    auto opResultLayout =
+        mlir::dyn_cast<ttnn::TTNNLayoutAttr>(opResultType.getEncoding());
+    if (!opResultLayout || !opResultLayout.isTiled()) {
+      return failure();
+    }
+
+    auto toTensorSpecResultType =
+        mlir::cast<RankedTensorType>(toTensorSpecUser.getResult().getType());
+    auto toTensorSpecResultLayout = mlir::dyn_cast<ttnn::TTNNLayoutAttr>(
+        toTensorSpecResultType.getEncoding());
+    if (!toTensorSpecResultLayout || toTensorSpecResultLayout.isTiled()) {
+      return failure();
+    }
+
+    // The op inherits the consumer's encoding, but cannot change dtype.
+    if (toTensorSpecResultLayout.getDataType() !=
+        opResultLayout.getDataType()) {
+      return failure();
+    }
+
+    auto rowMajorOpLayout = TTNNLayoutAttr::Builder(opResultType)
+                                .setLayout(ttnn::Layout::RowMajor)
+                                .build();
+
+    // Skip unless tiling actually inflates the memory footprint.
+    if (opResultLayout.getShardSizeInBytes() <=
+        rowMajorOpLayout.getShardSizeInBytes()) {
+      return failure();
+    }
+
+    // Gate on the layout, not the producing op: a to_tensor_spec producer can
+    // still yield TILE.
+    Value opInput = op->getOperand(0);
+    auto inputType = mlir::cast<RankedTensorType>(opInput.getType());
+    auto inputLayout =
+        mlir::dyn_cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+    if (!inputLayout) {
+      return failure();
+    }
+
+    if (inputLayout.isTiled()) {
+      auto rowMajorInput = utils::createToTensorSpecOp(
+          op, mlir::cast<mlir::TypedValue<RankedTensorType>>(opInput), rewriter,
+          Layout::RowMajor, inputLayout.getBufferType(),
+          inputLayout.getMemLayout(), inputLayout.getDataType(),
+          "_input_row_major");
+      opInput = rowMajorInput.getResult();
+    }
+
+    // Clone rather than construct: the logical shape is unchanged, so every
+    // op-specific attribute stays valid and only the operand and the result
+    // encoding need overriding.
+    Operation *newOp = rewriter.clone(*op);
+    newOp->setOperand(0, opInput);
+    newOp->getResult(0).setType(toTensorSpecResultType);
+
+    rewriter.replaceOp(toTensorSpecUser, newOp->getResult(0));
+    rewriter.eraseOp(op);
+
+    return success();
+  }
+};
+
 class TTNNMemoryManagement
     : public impl::TTNNMemoryManagementBase<TTNNMemoryManagement> {
 public:
@@ -1159,7 +1260,8 @@ public:
                    ReshapeElementwiseAdjusting<ttnn::MultiplyOp>,
                    ReshapeElementwiseAdjusting<ttnn::SubtractOp>,
                    ReshapeElementwiseAdjusting<ttnn::DivideOp>,
-                   PermuteRowMajorAdjusting, ReshapeRowMajorAdjusting>(
+                   PermuteRowMajorAdjusting, ReshapeRowMajorAdjusting,
+                   ToTensorSpecRowMajorAdjusting<ttnn::ReshapeOp>>(
           &getContext());
     }
     patterns.add<PropagateSliceThroughPermute, PropagateSliceThroughReshape,
