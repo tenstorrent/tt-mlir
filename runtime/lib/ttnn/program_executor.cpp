@@ -10,6 +10,36 @@
 #include <tt-metalium/distributed.hpp>
 #endif
 
+// ============================================================================
+// DIAGNOSTIC BUILD ONLY -- DO NOT MERGE.
+//
+// Always-on per-op probe of the device-global lowest-occupied L1 address, for
+// defect A on PR #9069 (QB2 `vllm_qwen2_5_coder_32b_instruct_qb2_tp` aborts
+// with "Statically allocated circular buffers in program 226024 clash with L1
+// buffers
+// ... L1 buffer allocated at 447488 and static circular buffer region ends at
+// 471808").
+//
+// The compile-time model says graph g4's `ttnn.slice_static` CB region is
+// [111360, 471808) and that g4 has ZERO live L1 of its own there, so the buffer
+// at 447488 belongs to something else that is still resident. All six graphs of
+// this benchmark deallocate every L1 tensor in their own IR, and g1's retained
+// trace slots are all DRAM -- so the question this probe answers is:
+//
+//   does the device-global L1 floor return to empty between g1 and g4, or does
+//   g1's ~1.1 MB/core residency persist into g4's program creation?
+//
+// tt-metal reads exactly this number in the check that throws:
+//   Device::lowest_occupied_compute_l1_address() -> allocator
+//   ->get_lowest_occupied_l1_address(0)   (impl/device/device.cpp)
+// consumed by ProgramImpl::validate_circular_buffer_region
+// (impl/program/program.cpp), which compares it against the CB region end.
+//
+// Deliberately NOT env-gated: the tt-xla benchmark workflow has no per-run env
+// passthrough, so this must self-activate on the CI QB2 runner. Written to
+// std::cerr (unbuffered) so the trailing lines survive the TT_THROW/abort.
+// ============================================================================
+
 #include "operations/cache/load_cached.h"
 #include "operations/ccl/aggregate_tensor.h"
 #include "operations/ccl/all_gather.h"
@@ -133,9 +163,78 @@
 
 #include <cstring>
 
+// DIAGNOSTIC BUILD ONLY (see banner above): L1-floor probe support.
+#include <iostream>
+
+#include <tt-metalium/allocator.hpp>
+
 namespace tt::runtime::ttnn {
 
 using LogType = ::tt::runtime::logger::LogType;
+
+// ===== DIAGNOSTIC BUILD ONLY -- DO NOT MERGE (see banner at top of file) =====
+namespace l1probe {
+
+// Monotonic id so the g1 -> g4 boundary is unambiguous even when two programs
+// share a name.
+static uint64_t nextProgramSeq() {
+  static uint64_t seq = 0;
+  return ++seq;
+}
+
+struct Snapshot {
+  int64_t lowest = -1; // -1 == allocator reports NO live L1 at all
+  size_t allocated = 0;
+  size_t freeBytes = 0;
+  size_t largestFree = 0;
+  bool hasStats = false;
+};
+
+static Snapshot sample(::ttnn::MeshDevice &device, bool withStats) {
+  Snapshot s;
+  // `lowest_occupied_compute_l1_address()` is EXACTLY the value
+  // ProgramImpl::validate_circular_buffer_region compares a program's static CB
+  // region end against (it resolves to
+  // allocator->get_lowest_occupied_l1_address(0), device-global, bank 0).
+  // Sampling the same accessor means the probe and the throw cannot disagree.
+  std::optional<::tt::tt_metal::DeviceAddr> lowest =
+      device.lowest_occupied_compute_l1_address();
+  if (lowest.has_value()) {
+    s.lowest = static_cast<int64_t>(*lowest);
+  }
+  // get_statistics walks the allocator's block list, so only take it at program
+  // boundaries -- per-op it would add real dispatch overhead and risk pushing
+  // the CI job past its timeout before the clash is reached.
+  if (withStats) {
+    const auto &alloc = device.allocator();
+    if (alloc) {
+      ::tt::tt_metal::Statistics stats =
+          alloc->get_statistics(::tt::tt_metal::BufferType::L1);
+      s.allocated = stats.total_allocated_bytes;
+      s.freeBytes = stats.total_free_bytes;
+      s.largestFree = stats.largest_free_block_bytes;
+      s.hasStats = true;
+    }
+  }
+  return s;
+}
+
+// One line per event, unbuffered, prefix `[L1PROBE]` for easy grepping.
+static void emit(const char *tag, uint64_t progSeq, const char *progName,
+                 int64_t opIdx, const char *opName, const Snapshot &s) {
+  std::cerr << "[L1PROBE] " << tag << " seq=" << progSeq << " prog=" << progName
+            << " op=" << opIdx << " " << (opName ? opName : "-")
+            << " lowestL1=" << s.lowest;
+  if (s.hasStats) {
+    std::cerr << " allocL1=" << s.allocated << " freeL1=" << s.freeBytes
+              << " largestFreeL1=" << s.largestFree;
+  }
+  std::cerr << "\n";
+  std::cerr.flush();
+}
+
+} // namespace l1probe
+// ===== END DIAGNOSTIC =====
 
 ProgramExecutor::ProgramExecutor(
     ::tt::runtime::Device deviceHandle, ::tt::runtime::Binary &executableHandle,
@@ -220,9 +319,32 @@ void ProgramExecutor::execute() {
             "Starting execution of program: ", program->name()->c_str());
   runProgramCallback(debug::Hooks::get().getpreProgramCallback(),
                      executableHandle, context.get());
+
+  // ===== DIAGNOSTIC BUILD ONLY -- DO NOT MERGE =====
+  // Program entry/exit bracket the g1 -> g4 boundary; the per-op lines below
+  // carry the floor right up to the throw.
+  const uint64_t l1probeSeq = l1probe::nextProgramSeq();
+  const char *l1probeProgName = program->name()->c_str();
+  l1probe::emit("BEGIN", l1probeSeq, l1probeProgName, -1, "-",
+                l1probe::sample(context->getMeshDevice(), /*withStats=*/true));
+  int64_t l1probeOpIdx = -1;
+  // ===== END DIAGNOSTIC =====
+
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
+
+    // ===== DIAGNOSTIC BUILD ONLY -- DO NOT MERGE =====
+    // Sampled BEFORE the op runs: the failing op never returns (its program
+    // creation throws), so a pre-op sample is the only way to see the floor the
+    // clashing program was validated against.
+    ++l1probeOpIdx;
+    l1probe::emit(
+        "PRE  ", l1probeSeq, l1probeProgName, l1probeOpIdx,
+        ::tt::target::ttnn::EnumNameOpType(op->type_type()),
+        l1probe::sample(context->getMeshDevice(), /*withStats=*/false));
+    // ===== END DIAGNOSTIC =====
+
     // TODO(#7743): Remove these tracy messages.
     // Currently they are being used by `ttrt perf` for parsing the csv output.
     perf::Env::get().tracyLogOpLocation(std::string(op->loc_info()->c_str()));
@@ -240,6 +362,14 @@ void ProgramExecutor::execute() {
                   executableHandle, op, context.get());
     readProfilerDataIfNeeded();
   }
+
+  // ===== DIAGNOSTIC BUILD ONLY -- DO NOT MERGE =====
+  // The END sample is the load-bearing one: if the floor here is back to -1
+  // (no live L1) for g1, then g1 hands nothing to g4 and the residency at the
+  // clash comes from elsewhere. If it is still ~447488, g1 over-retains.
+  l1probe::emit("END  ", l1probeSeq, l1probeProgName, l1probeOpIdx, "-",
+                l1probe::sample(context->getMeshDevice(), /*withStats=*/true));
+  // ===== END DIAGNOSTIC =====
 
   runProgramCallback(debug::Hooks::get().getpostProgramCallback(),
                      executableHandle, context.get());
