@@ -5634,7 +5634,7 @@ private:
       return rewriter.notifyMatchFailure(op, "Rank > 2 not supported.");
     }
 
-    if (dimArg == d2m::ReduceDim::C) {
+    if (dimArg == d2m::ReduceDim::R) {
       // need to transpose input tensor
     }
 
@@ -5646,8 +5646,13 @@ private:
     auto [arangeInsUnused, arangeOutputs] = toLayoutOperandsAndResults(
         rewriter, {SmallVector<Value>{}, arangeOrigOutputs}, true);
 
-    // creating a scratch tile for arange
-    auto arangeTensorType = idxTy;
+    // creating a scratch tile for arange.  Derive the layout/tile info from
+    // the *laid-out* arange output (arangeOutputs), not from idxTy: idxTy is a
+    // logical TTIR tensor whose encoding is null/TensorLayoutAttr and whose
+    // element type is a scalar i32, so casting it to MetalLayoutAttr/TileType
+    // would dereference through a null attribute and crash.
+    auto arangeTensorType =
+        mlir::cast<RankedTensorType>(arangeOutputs.front().getType());
     auto arangeLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(arangeTensorType.getEncoding());
     auto arangeTileType =
@@ -5668,9 +5673,8 @@ private:
                                   scratchLayout)
             .getResult();
 
-    int64_t numElements = (dimArg == d2m::ReduceDim::C)
-                              ? inputTy.getDimSize(logicalRank - 2)
-                              : inputTy.getDimSize(logicalRank - 1);
+    int64_t numElements = inputTy.getDimSize(logicalRank - 2) *
+                          inputTy.getDimSize(logicalRank - 1);
 
     AffineExpr zero = rewriter.getAffineConstantExpr(0);
     AffineMap arangeConstMap =
@@ -5731,11 +5735,49 @@ private:
 
     auto argMaxOrigOutputs =
         createDpsOutputs(loc, rewriter, {reducedValTy, reducedIdxTy});
-    auto [argMaxInputs, argMaxOutputs] = toLayoutOperandsAndResults(
-        rewriter,
-        {SmallVector<Value>{adaptor.getInput(), arange.getResult(0)},
-         argMaxOrigOutputs},
+    auto [argMaxInputsHead, argMaxOutputs] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{adaptor.getInput()}, argMaxOrigOutputs},
         /*tiled=*/true, false, ttcore::OOBVal::NegInf);
+
+    // EXPERIMENT: round-trip the value through a row-major (untiled) layout and
+    // back to tiled, preserving logical shape. The tiled->untiled to_layout
+    // inserts a TileUntilizeBlockOp (row-major CB), the untiled->tiled a
+    // TileTilizeBlockOp. If the reduction result changes vs. the direct-tiled
+    // path, it tells us whether staging through row-major reorders the data
+    // reaching DST. Types are built explicitly (not via createOptimalLayoutOp,
+    // which would recompute the logical shape from the already-laid-out
+    // physical shape and trip buildLayoutTransformMap's same-logical-shape
+    // assert).
+    Value tiledValue = argMaxInputsHead[0];
+    auto tiledTy = mlir::cast<RankedTensorType>(tiledValue.getType());
+    auto tiledLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(tiledTy.getEncoding());
+    auto valScalarTy = inputTy.getElementType(); // bf16
+
+    // Untiled (row-major) layout with the SAME logical shape 32x32.
+    auto untiledLayout = ttcore::MetalLayoutAttr::get(
+        ctx, tiledLayout.getLogicalShape(), tiledLayout.getDimAlignments(),
+        tiledLayout.getCollapsedIntervals(), tiledLayout.getMemorySpace(),
+        tiledLayout.getMemoryLayout());
+    // Physical (untiled) shard shape uses an empty tile shape.
+    SmallVector<int64_t> untiledShardShape = untiledLayout.getDeviceShape(
+        SmallVector<int64_t>(tiledTy.getShape().size() / 2, 1),
+        /*tileShape=*/{});
+    auto untiledTy =
+        RankedTensorType::get(untiledShardShape, valScalarTy, untiledLayout);
+
+    auto rmEmpty =
+        rewriter.create<d2m::EmptyOp>(loc, untiledTy, nullptr, nullptr);
+    Value rowMajorValue =
+        rewriter.create<d2m::ToLayoutOp>(loc, tiledValue, rmEmpty).getResult(0);
+
+    auto reTiledEmpty =
+        rewriter.create<d2m::EmptyOp>(loc, tiledTy, nullptr, nullptr);
+    Value reTiledValue =
+        rewriter.create<d2m::ToLayoutOp>(loc, rowMajorValue, reTiledEmpty)
+            .getResult(0);
+
+    SmallVector<Value> argMaxInputs = {reTiledValue, arange.getResult(0)};
 
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(argMaxOutputs[0]).getRank() / 2;
@@ -5798,12 +5840,15 @@ private:
           return {linalgGeneric.getResult(0), linalgGeneric.getResult(1)};
         });
 
-    // Index result is what argmax returns; unlayout + typecast to the op's
-    // integer output type.
-    auto reducedHostType = RankedTensorType::get(reducedIdxTy.getShape(),
-                                                 reducedIdxTy.getElementType());
+    // DIAGNOSTIC: return the reduced VALUE (result 0) instead of the index
+    // (result 1), to test whether the LLK reduction itself works vs. whether
+    // only the index-tracking is broken. bf16 max value -> i32 output
+    // truncates, but a nonzero result confirms the column-reduce is
+    // functioning.
+    auto reducedHostType = RankedTensorType::get(reducedValTy.getShape(),
+                                                 reducedValTy.getElementType());
     Value reducedHost =
-        unLayoutResult(rewriter, argMaxGeneric->getResult(1), reducedHostType)
+        unLayoutResult(rewriter, argMaxGeneric->getResult(0), reducedHostType)
             ->getResult(0);
     Value result = buildTypecastGeneric(rewriter, loc, reducedHost, outputTy);
 

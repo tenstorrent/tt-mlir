@@ -90,6 +90,15 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
           }
         }
 
+        // An in-place op with more than one result (e.g. tile_argmax, whose
+        // result 0 is the reduced value tile and result 1 the reduced index
+        // tile) reuses each operand's DST slot for the corresponding result.
+        // The LLK requires the two tiles in DISTINCT slots, so route result i
+        // to the slot its i-th operand was loaded into rather than reusing a
+        // single currSliceIndex for every output store.
+        const bool multiResultInPlace =
+            computeOp.getDstRegInPlace() && computeOp->getNumResults() > 1u;
+
         for (auto *user : computeOp->getUsers()) {
           auto affineStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
           auto memrefStore = mlir::dyn_cast<memref::StoreOp>(user);
@@ -97,20 +106,33 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
           bool isMemrefStore = memrefStore && notDstMemspace(memrefStore);
 
           if (isAffineStore || isMemrefStore) {
-            TT_assertv(!dstAllocator.didStoreToDst(),
-                       "Multiple stores from last op to dst not supported");
-
             bool dstRegInPlace = computeOp.getDstRegInPlace();
             bool rhsIsScalar = computeOp.isScalarOperand(1);
 
             int64_t dstSliceIndex = -1;
-            if (dstRegInPlace || rhsIsScalar) {
+            if (multiResultInPlace) {
+              // Identify which result of the compute op this store consumes and
+              // map it to that result's in-place DST slot.
+              Value stored = isAffineStore ? affineStore.getValue()
+                                           : memrefStore.getValue();
+              auto opResult = mlir::cast<OpResult>(stored);
+              unsigned resultIdx = opResult.getResultNumber();
+              TT_assertv(resultIdx < dstAllocator.getNumInputSlices(),
+                         "In-place result index exceeds allocated input slots");
+              dstSliceIndex = dstAllocator.getInputSliceIndex(resultIdx);
+            } else if (dstRegInPlace || rhsIsScalar) {
+              TT_assertv(!dstAllocator.didStoreToDst(),
+                         "Multiple stores from last op to dst not supported");
               dstSliceIndex = dstAllocator.getCurrSliceIndex();
             } else if (numLoads >= 2) {
+              TT_assertv(!dstAllocator.didStoreToDst(),
+                         "Multiple stores from last op to dst not supported");
               dstSliceIndex = dstAllocator.getFirstInputSliceIndex();
               dstAllocator.deallocateAllButFirstInput();
               dstAllocator.setStoreToDst();
             } else {
+              TT_assertv(!dstAllocator.didStoreToDst(),
+                         "Multiple stores from last op to dst not supported");
               dstSliceIndex = dstAllocator.allocateOutput();
               dstAllocator.setStoreToDst();
             }

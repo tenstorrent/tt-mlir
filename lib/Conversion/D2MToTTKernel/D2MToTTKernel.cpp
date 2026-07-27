@@ -280,16 +280,37 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
 // reuse across DST regions after LICM), we prefer stores in the same block
 // as the defining op. This ensures we get the DST index for the correct
 // allocation context.
-static Value getDstIdxFromResult(Value d2mOpResult) {
-  memref::StoreOp storeOp;
-  for (Operation *op : d2mOpResult.getUsers()) {
-    auto maybeStore = mlir::dyn_cast<memref::StoreOp>(op);
-    if (maybeStore && ttcore::getMemorySpace(maybeStore.getMemRef()) ==
-                          ttcore::MemorySpace::RegisterDst) {
-      storeOp = mlir::cast<memref::StoreOp>(op);
-      break;
+// Finds the memref.store that writes `value` (or a dst_reinterpret_cast of it)
+// back into RegisterDst, and returns its slot index; null StoreOp if none.
+// The cast case covers results whose element type differs from the DST buffer
+// type (e.g. tile_argmax's bf16 value stored into an si32 DST slot).
+static memref::StoreOp findDstStoreForValue(Value value) {
+  auto directStore = [](Value v) -> memref::StoreOp {
+    for (Operation *op : v.getUsers()) {
+      auto maybeStore = mlir::dyn_cast<memref::StoreOp>(op);
+      if (maybeStore && ttcore::getMemorySpace(maybeStore.getMemRef()) ==
+                            ttcore::MemorySpace::RegisterDst) {
+        return maybeStore;
+      }
+    }
+    return {};
+  };
+
+  if (memref::StoreOp store = directStore(value)) {
+    return store;
+  }
+  for (Operation *op : value.getUsers()) {
+    if (auto cast = mlir::dyn_cast<d2m::DstReinterpretCastOp>(op)) {
+      if (memref::StoreOp store = directStore(cast.getResult())) {
+        return store;
+      }
     }
   }
+  return {};
+}
+
+static Value getDstIdxFromResult(Value d2mOpResult) {
+  memref::StoreOp storeOp = findDstStoreForValue(d2mOpResult);
   assert(storeOp && "Expected store op.");
   assert(storeOp.getIndices().size() == 1 &&
          "Expected single index in store op");
@@ -3135,30 +3156,43 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     Location loc = op->getLoc();
 
-    // idst / idstIdx are the DST slot indices of the (in-place) values and
-    // indices tiles. After d2m-insert-dst-register-access + type conversion an
-    // in-place DST operand becomes a memref.load from RegisterDst, which
-    // MemrefLoadRewriter lowers to a linearized index. If the operand did not
-    // come through a real DST subview (offset-0 / non-subview case) it is an
-    // unrealized_conversion_cast; fall back to a concrete slot then. The two
-    // tiles must occupy DISTINCT DST slots, so the fallbacks differ (0 vs 1).
-    Value idst = adaptor.getValues();
-    Value idstIdx = adaptor.getIndices();
-    if (mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
-            idst.getDefiningOp())) {
-      idst = index(rewriter, loc, 0);
-    }
-    if (mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
-            idstIdx.getDefiningOp())) {
-      idstIdx = index(rewriter, loc, 1);
-    }
+    // idst / idstIdx are the DST slot indices of the (in-place) reduced value
+    // and reduced index tiles. Derive them from the memref.store that writes
+    // each result back into RegisterDst, the same way every other in-place
+    // compute op does (robust, unlike reading the operand loads which can leave
+    // an unresolved unrealized_conversion_cast). The two slots are DISTINCT, as
+    // the LLK requires. In the cross-tile compose-and-gather path an
+    // intermediate tile_argmax's *value* result can be dead (only its index is
+    // carried forward); since the op reduces in place, that slot is the same as
+    // the value operand's DST slot, so fall back to the operand's store index.
+    auto slotForResultOrOperand = [&](Value result, Value operand) -> Value {
+      if (memref::StoreOp store = findDstStoreForValue(result)) {
+        return store.getIndices().front();
+      }
+      // In-place: result slot == operand slot. Read the slot straight from the
+      // (pre-conversion) DST operand load's index operand, an index SSA value
+      // that survives conversion -- rather than the remapped adaptor operand,
+      // which for non-subview DST accesses is an unresolved materialization.
+      auto load = mlir::cast<memref::LoadOp>(operand.getDefiningOp());
+      assert(ttcore::getMemorySpace(load.getMemRef()) ==
+                 ttcore::MemorySpace::RegisterDst &&
+             "Expected in-place argmax operand to load from RegisterDst");
+      return load.getIndices().front();
+    };
+
+    Value idst = slotForResultOrOperand(op.getOutValues(), op.getValues());
+    Value idstIdx = slotForResultOrOperand(op.getOutIndices(), op.getIndices());
     ensureDominatesInsertionPoint(rewriter, idst);
     ensureDominatesInsertionPoint(rewriter, idstIdx);
 
     // Configure the SFPU input/output CB formats before the compute op, then
     // arm max_reduce_with_indices (index-tracking mode + replay buffer). The
     // per-tile CB<->DST copies are emitted by the memref load/store rewriters.
-    Value cbValues = getCB(rewriter, op.getValues());
+    // The value operand is loaded in place from DST, so getCB(op.getValues())
+    // would resolve to the DST memref (an unresolved index materialization)
+    // rather than a CB. Use the function's first L1 input/output CBs, as the
+    // other in-place SFPU inits (MemrefStoreRewriter) do.
+    Value cbValues = getInCB(rewriter, op);
     Value outCB = getOutCB(rewriter, op);
     {
       OpBuilder::InsertionGuard guard(rewriter);
@@ -4065,7 +4099,8 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreSetOp>,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,
                ttkernel::D2MSemaphoreWaitRewriter,
-               ttkernel::D2MDeviceSynchronizeRewriter>(typeConverter, ctx);
+               ttkernel::D2MDeviceSynchronizeRewriter,
+               ttkernel::D2MArgMaxRewriter>(typeConverter, ctx);
 
   patterns.add<ttkernel::D2MGetArgRewriter>(typeConverter, ctx,
                                             forceCompileTimeArgs);
