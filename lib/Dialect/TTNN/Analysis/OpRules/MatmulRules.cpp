@@ -52,6 +52,33 @@ static int64_t getNumDRAMBanks(ttcore::SystemDescAttr systemDesc) {
 // computeShardParams. Keep these uses consistent.
 static constexpr int64_t kNumIn0Cores = 8;
 
+// How many cores the DS activation (in0) is width-sharded across. 8 is the
+// empirically preferred value, but it MUST divide K in tiles -- the contraction
+// dim is split evenly across these cores. Hardcoding 8 silently excluded every
+// model whose K/32 is not a multiple of 8: gpt-oss (hidden 2880 -> 90 K-tiles)
+// lost DRAM sharding entirely on that arithmetic alone. Verified on silicon
+// (ds-runs/probe_ds_sweep.py) that 90 K-tiles runs at PCC 1.0000 with 10, 9, 6
+// or 5 in0 cores, so this is a search parameter, not a kernel constraint.
+// Returns 0 when no usable split exists.
+static int64_t chooseNumIn0Cores(int64_t kTiles) {
+  if (kTiles <= 0) {
+    return 0;
+  }
+  if (kTiles % kNumIn0Cores == 0) {
+    return kNumIn0Cores;
+  }
+  // Nearest usable divisor to the preferred count, searching outwards so the
+  // in0 shard stays as close to the tuned width as the shape allows.
+  for (int64_t delta = 1; delta < kNumIn0Cores; ++delta) {
+    for (int64_t candidate : {kNumIn0Cores + delta, kNumIn0Cores - delta}) {
+      if (candidate >= 1 && kTiles % candidate == 0) {
+        return candidate;
+      }
+    }
+  }
+  return 1;
+}
+
 // ============================================================================
 // Eligibility helpers
 // ============================================================================
@@ -176,7 +203,7 @@ static bool isDRAMShardEligible(Operation *op) {
   // divide evenly by the in0 core count (same requirement computeShardParams
   // enforces via kTiles % numIn0Cores). Gate on it here so an ineligible op is
   // rejected up front rather than deep in shard-param computation.
-  if ((K / kTileSize) % kNumIn0Cores != 0) {
+  if (chooseNumIn0Cores(K / kTileSize) == 0) {
     return false;
   }
   // No M gate. M is the LOGICAL row count, so any batch -- 1, 32, or a prefill
@@ -261,8 +288,9 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
       ttmlir::utils::volume(deviceAttr.getWorkerGrid().getShape());
 
   auto pOpt =
-      computeShardParams(M, K, N, getNumDRAMBanks(systemDesc), kNumIn0Cores,
-                         numAvailableCores, weightDataType, l1Available);
+      computeShardParams(M, K, N, getNumDRAMBanks(systemDesc),
+                         chooseNumIn0Cores(K / kTileSize), numAvailableCores,
+                         weightDataType, l1Available);
   if (!pOpt) {
     return std::nullopt;
   }
@@ -577,7 +605,7 @@ bool MatmulRuleBook::isValidOutputHintForInputs(
 // ============================================================================
 
 LayoutScore
-MatmulRuleBook::adjustScore(Operation * /*op*/, LayoutScore base,
+MatmulRuleBook::adjustScore(Operation *op, LayoutScore base,
                             const OpConfig &config,
                             llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                             bool /*requiresReshard*/) const {
@@ -596,9 +624,19 @@ MatmulRuleBook::adjustScore(Operation * /*op*/, LayoutScore base,
     if (in0 && in0.hasL1BufferType()) {
       auto ml = in0.getMemLayoutOpt();
       if (ml && *ml == TensorMemoryLayout::WidthSharded) {
+        // "Canonical" is the in0 split this op's K actually uses, which is 8
+        // only when 8 divides K in tiles (see chooseNumIn0Cores).
+        int64_t wantCores = kNumIn0Cores;
+        if (auto operands = getDSOperands(op)) {
+          auto weightType =
+              mlir::dyn_cast<RankedTensorType>(operands->second.getType());
+          if (weightType && isDSWeightShaped(weightType)) {
+            wantCores = chooseNumIn0Cores(getWeightKN(weightType).first /
+                                          kTileSize);
+          }
+        }
         auto shape = in0.getGridShape();
-        if (shape.size() == 2 && shape[0] == 1 &&
-            shape[1] == kNumIn0Cores) {
+        if (shape.size() == 2 && shape[0] == 1 && shape[1] == wantCores) {
           base.hasCanonicalDSIn0 = true;
         }
       }
@@ -642,8 +680,8 @@ MatmulRuleBook::getExtraInputReshardCandidates(Operation *op,
   int64_t numAvailCores =
       ttmlir::utils::volume(deviceAttr.getWorkerGrid().getShape());
   auto pOpt = computeShardParams(M, K, N, getNumDRAMBanks(systemDesc),
-                                 kNumIn0Cores, numAvailCores, weightDataType,
-                                 l1Available);
+                                 chooseNumIn0Cores(K / kTileSize), numAvailCores,
+                                 weightDataType, l1Available);
   if (!pOpt) {
     return {};
   }
@@ -653,7 +691,7 @@ MatmulRuleBook::getExtraInputReshardCandidates(Operation *op,
   if (operandIdx == 0) {
     auto in0Layout = mlir::cast<TTNNLayoutAttr>(in0Type.getEncoding());
     return {buildL1ShardedLayout(ctx, in0Layout, in0Type.getShape(),
-                                 kNumIn0Cores, deviceAttr)};
+                                 chooseNumIn0Cores(K / kTileSize), deviceAttr)};
   }
   if (operandIdx == 1) {
     auto weightLayout = mlir::cast<TTNNLayoutAttr>(weightType.getEncoding());
