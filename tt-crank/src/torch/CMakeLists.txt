@@ -27,6 +27,7 @@ nanobind_add_module(_tt_kurbla_torch_native NB_STATIC
     ops/fallback.cpp
     ops/linear.cpp
     ops/op_utils.cpp
+    ops/sdpa.cpp
     ops/tensor.cpp
     tensor.cpp
     ttir_module_builder.cpp
