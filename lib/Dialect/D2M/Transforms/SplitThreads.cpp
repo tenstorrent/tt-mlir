@@ -144,6 +144,7 @@ static LogicalResult checkComputeSyncScope(GenericOp generic) {
   // the compute ops to validate.
   llvm::MapVector<unsigned, DenseSet<Block *>> dmaBlocks;
   llvm::MapVector<unsigned, DenseSet<Operation *>> consumerNests;
+  DenseSet<unsigned> portsWithNestedDMA;
   DenseSet<Operation *> synchronizableParents;
   SmallVector<Operation *> computeOps;
   region.walk([&](Operation *op) {
@@ -154,7 +155,11 @@ static LogicalResult checkComputeSyncScope(GenericOp generic) {
       return; // a view, not an access
     }
     if (isa<ShardDMAOpInterface>(op)) {
-      dmaBlocks[getDMACBPort(generic, op)].insert(op->getBlock());
+      unsigned port = getDMACBPort(generic, op);
+      dmaBlocks[port].insert(op->getBlock());
+      if (topLevelNest(op, regionBlock)) {
+        portsWithNestedDMA.insert(port);
+      }
       return;
     }
     if (Operation *nest = topLevelNest(op, regionBlock)) {
@@ -183,8 +188,16 @@ static LogicalResult checkComputeSyncScope(GenericOp generic) {
 
   // (2) Consumer-side confinement: each CB's reads occupy a single top-level
   // nest.
+  //
+  // Only CBs whose transfer is itself inside a loop nest are confined. When the
+  // DMA marker sits at the region top level (or the CB has no marker at all),
+  // d2m-insert-compute-cb scopes the sync to the top-level compute block, where
+  // a single wait/pop dominates/post-dominates every sibling nest -- one
+  // transfer, one wait, many reads, so there is no cadence to mismatch. The
+  // topk merge tree relies on this: the CB is loaded once and then read by
+  // tile_topk_* ops in one sibling scf.for per reduction round.
   for (auto &[port, nests] : consumerNests) {
-    if (nests.size() > 1) {
+    if (nests.size() > 1 && portsWithNestedDMA.contains(port)) {
       return generic.emitOpError()
              << "circular buffer (port " << port
              << ") is consumed by compute across distinct loop nests; "
@@ -402,7 +415,21 @@ public:
     patterns.add<D2MSplitThreadsRewriter>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
+      return;
     }
+
+    // A rewriter that bails out (e.g. checkComputeSyncScope rejected the
+    // generic) only reports "pattern did not apply" to the greedy driver, which
+    // still converges successfully. Any unified generic left behind is a hard
+    // failure: the rest of the DMA lowering pipeline assumes the split,
+    // explicit-CB form and would otherwise crash on the implicit-form ops.
+    getOperation()->walk([&](GenericOp generic) {
+      if (generic.getNumRegions() == 1 &&
+          generic.getRegionThreadType(0) == ThreadType::Unified) {
+        generic.emitOpError("failed to split unified thread");
+        signalPassFailure();
+      }
+    });
   }
 };
 } // namespace
