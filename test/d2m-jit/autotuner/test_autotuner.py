@@ -278,6 +278,14 @@ def test_override_bench_tensors_noop_returns_same():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.device_only(
+    reason="asserts the on-silicon contract -- that the swept knob reached a "
+    "constructed Layout and that real device numerics pass PCC. Under the "
+    "simulator it does not error, it passes vacuously: autotune_kernel dispatches "
+    "to the sim backend, so error/pcc describe the simulator rather than silicon. "
+    "The other tests here are pure decision logic and are backend-agnostic, so "
+    "they are deliberately left unmarked"
+)
 def test_autotune_exp_on_device(tmp_path):
     """End-to-end autotune of the `exp` KernelBench on device.
 

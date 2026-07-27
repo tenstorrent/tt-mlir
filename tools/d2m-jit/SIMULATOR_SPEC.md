@@ -547,15 +547,23 @@ Deferred (🟡/🟢), out of v1:
    keeps it visible in that report too — and stops it drifting out of date, which
    it did twice before the reasons were audited against actual root causes.
 
-   The reason should name the root cause, not the symptom. Four classes appear:
+   The reason should name the root cause, not the symptom. Five classes appear:
    intended divergences (§9 — multicast); error type/message parity (§8 —
    `test_errors.py`, the reduce-dim rejections, staleness); host APIs the switch
    does not dispatch, which raise `NotImplementedError` (`d2m.spatial`,
-   `d2m.arange`, `d2m.reshape`); and device-only machinery with no sim analog
+   `d2m.arange`, `d2m.reshape`); device-only machinery with no sim analog
    (the pass-pipeline debug knobs, `runner`-driven rewrite and e2e tests, and the
    RoPE kernel — which derives its half-roll `view_layout` from the device
    physical rank-4 shape via `LazyTensor.value`, something §3 deliberately does
-   not model).
+   not model); and tests that would pass *vacuously* under sim
+   (`autotuner/test_autotuner.py::test_autotune_exp_on_device` asserts an
+   on-silicon contract, and dispatching it to the simulator makes its `error` /
+   `pcc` assertions describe the simulator instead — a green result that checks
+   nothing it claims to).
+
+   That last class is worth calling out: `device_only` is not only for tests that
+   *fail* under sim. A test whose assertions stop meaning anything is worse than
+   one that errors, because nothing draws attention to it.
 5. **Separate no-device lane (🟢 viable, deliberately not wired).** Because item
    3 holds, `pytest test/d2m-jit/sim` runs green on a no-device runner in
    ~2s — verified locally, and `"runs-on": "builder"` in
