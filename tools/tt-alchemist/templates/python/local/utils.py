@@ -112,9 +112,9 @@ def execute_cpu_hoisted_function(inputs, function, mesh_shape=None):
 
     # Recover the mesh grid when the compiler did not bake it in: the standalone
     # path opens its own device via the DeviceGetter singleton (which may be
-    # multi-device), so read the mesh from there.
+    # multi-device), so read the mesh it was initialized with.
     if mesh_shape is None and DeviceGetter._instance is not None:
-        mesh_shape = DeviceGetter._instance.shape
+        mesh_shape = DeviceGetter._mesh_shape
 
     # No mesh (single-chip): run the body once on the host.
     if mesh_shape is None:
