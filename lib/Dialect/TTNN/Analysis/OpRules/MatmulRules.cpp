@@ -32,7 +32,20 @@ namespace mlir::tt::ttnn {
 // passed into computeShardParams as numBanks / numIn0Cores.
 
 static constexpr int64_t kTileSize = 32;
-static constexpr int64_t kNumDRAMBanks = 12;
+
+// How many DRAM banks the weight is width-sharded across. This MUST come from
+// the system descriptor, not from a constant: Wormhole has 12 DRAM channels but
+// Blackhole has 8, and a hardcoded 12 produces a weight layout that cannot be
+// allocated on Blackhole at all -- tensor creation aborts with
+// "logical_coord.x < num_dram_views" in metal_soc_descriptor.cpp. It slips past
+// the op model because validateTensorSpec deliberately skips the shard
+// bounding-box check for DRAM buffers, so the bad layout is only caught on
+// silicon.
+static int64_t getNumDRAMBanks(ttcore::SystemDescAttr systemDesc) {
+  return static_cast<int64_t>(
+      systemDesc.getChipDescs().front().getNumDramChannels());
+}
+
 // Single source of truth for how many cores the DS-matmul activation (in0) is
 // width-sharded across. Drives the in0 shard width, the K-divisibility
 // eligibility gate, and the in0 L1 tensor-buffer reservation in
@@ -242,7 +255,7 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
       ttmlir::utils::volume(deviceAttr.getWorkerGrid().getShape());
 
   auto pOpt =
-      computeShardParams(M, K, N, kNumDRAMBanks, kNumIn0Cores,
+      computeShardParams(M, K, N, getNumDRAMBanks(systemDesc), kNumIn0Cores,
                          numAvailableCores, weightDataType, l1Available);
   if (!pOpt) {
     return std::nullopt;
@@ -622,8 +635,9 @@ MatmulRuleBook::getExtraInputReshardCandidates(Operation *op,
   ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
   int64_t numAvailCores =
       ttmlir::utils::volume(deviceAttr.getWorkerGrid().getShape());
-  auto pOpt = computeShardParams(M, K, N, kNumDRAMBanks, kNumIn0Cores,
-                                 numAvailCores, weightDataType, l1Available);
+  auto pOpt = computeShardParams(M, K, N, getNumDRAMBanks(systemDesc),
+                                 kNumIn0Cores, numAvailCores, weightDataType,
+                                 l1Available);
   if (!pOpt) {
     return {};
   }
