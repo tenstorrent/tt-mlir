@@ -70,7 +70,9 @@ private:
   std::optional<OpConfig> buildDRAMShardingHint(Operation *op) const;
 
   /// Set program/compute config and split fused activation for a DS matmul.
-  void applyDRAMShardedTransformation(MatmulOp matmulOp,
+  /// Takes the generic Operation* because the DS path covers both ttnn.matmul
+  /// and bias-free ttnn.linear (see isDRAMShardEligible).
+  void applyDRAMShardedTransformation(Operation *op,
                                       const MatmulAttrs &matmulAttrs) const;
 };
 

@@ -770,12 +770,16 @@ void L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(Value victim) {
 // tt-metal abort rather than returning a catchable error. Callers must therefore
 // recognize this op up front (reshard in0 / keep output sharded) instead of
 // validating or demoting it.
+// Covers ttnn.linear as well as ttnn.matmul: MatmulRules gives either one a DS
+// program config (a bias-free linear is the same computation), and a linear
+// that slipped past this check would hit exactly the illegal demotion described
+// above.
 static bool isDRAMShardedMatmul(Operation *op) {
-  auto matmulOp = mlir::dyn_cast<MatmulOp>(op);
-  if (!matmulOp) {
-    return false;
-  }
-  std::optional<mlir::Attribute> pc = matmulOp.getMatmulProgramConfig();
+  std::optional<mlir::Attribute> pc =
+      llvm::TypeSwitch<Operation *, std::optional<mlir::Attribute>>(op)
+          .Case<MatmulOp, LinearOp>(
+              [](auto concreteOp) { return concreteOp.getMatmulProgramConfig(); })
+          .Default([](Operation *) { return std::nullopt; });
   return pc.has_value() && *pc &&
          mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
              *pc);

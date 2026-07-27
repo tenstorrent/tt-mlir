@@ -85,16 +85,46 @@ static int64_t getActivationM(RankedTensorType rtt) {
   return M;
 }
 
-static bool isDRAMShardEligible(MatmulOp matmulOp) {
+// The DS path covers ttnn.matmul and ttnn.linear alike: a bias-free linear IS
+// the matmul the DS kernel implements, and most of the ttnn decoders in the
+// wild write their projections as ttnn.linear (both Llamas, and the packed QKV
+// of Qwen2.5-Coder), so restricting DS to MatmulOp made it invisible for them.
+// A bias operand or either transpose flag is outside the DS contract and is
+// rejected here rather than silently mis-modelled.
+//
+// Returns the (activation, weight) operand pair, or nullopt if `op` is not a
+// DS-capable matmul-like op.
+static std::optional<std::pair<Value, Value>> getDSOperands(Operation *op) {
+  if (auto matmulOp = dyn_cast<MatmulOp>(op)) {
+    if (matmulOp.getTransposeA() || matmulOp.getTransposeB()) {
+      return std::nullopt;
+    }
+    return std::make_pair(matmulOp.getA(), matmulOp.getB());
+  }
+  if (auto linearOp = dyn_cast<LinearOp>(op)) {
+    if (linearOp.getBias() || linearOp.getTransposeA() ||
+        linearOp.getTransposeB()) {
+      return std::nullopt;
+    }
+    return std::make_pair(linearOp.getA(), linearOp.getB());
+  }
+  return std::nullopt;
+}
+
+static bool isDRAMShardEligible(Operation *op) {
   // Respect the disable-dram-sharded-matmul pipeline option (set as a module
   // attribute by DevicePassesWrapper). This is the single choke point for the
   // DS path: buildDRAMShardingHint and getExtraInputReshardCandidates both gate
   // on it, and getOutputHints reaches DS only through buildDRAMShardingHint.
-  if (ttnn::utils::isDRAMShardedMatmulDisabled(matmulOp)) {
+  if (ttnn::utils::isDRAMShardedMatmulDisabled(op)) {
     return false;
   }
 
-  Value weight = matmulOp.getB();
+  auto operands = getDSOperands(op);
+  if (!operands) {
+    return false;
+  }
+  auto [activation, weight] = *operands;
 
   if (!isBfpDRAMInterleaved(weight)) {
     return false;
@@ -107,7 +137,7 @@ static bool isDRAMShardEligible(MatmulOp matmulOp) {
     return false;
   }
 
-  auto in0Type = mlir::cast<RankedTensorType>(matmulOp.getA().getType());
+  auto in0Type = mlir::cast<RankedTensorType>(activation.getType());
   int64_t M = getActivationM(in0Type);
   auto [K, N] = getWeightKN(weightType);
 
@@ -168,14 +198,10 @@ static bool hasMatmulProgramConfig(const OpConfig &config) {
 
 std::optional<OpConfig>
 MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
-  auto matmulOp = dyn_cast<MatmulOp>(op);
-  if (!matmulOp) {
+  if (!isDRAMShardEligible(op)) {
     return std::nullopt;
   }
-
-  if (!isDRAMShardEligible(matmulOp)) {
-    return std::nullopt;
-  }
+  auto [dsActivation, dsWeight] = *getDSOperands(op);
 
   auto moduleOp = op->getParentOfType<ModuleOp>();
   if (!moduleOp) {
@@ -190,11 +216,11 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
       static_cast<int64_t>(ttnn::utils::getTensorL1UsageCap(moduleOp) *
                            systemDesc.getChipDescs()[0].getUsableL1Size());
 
-  auto in0Type = mlir::cast<RankedTensorType>(matmulOp.getA().getType());
-  auto weightType = mlir::cast<RankedTensorType>(matmulOp.getB().getType());
+  auto in0Type = mlir::cast<RankedTensorType>(dsActivation.getType());
+  auto weightType = mlir::cast<RankedTensorType>(dsWeight.getType());
   int64_t M = getActivationM(in0Type);
   auto [K, N] = getWeightKN(weightType);
-  auto weightDataType = getWeightDataType(matmulOp.getB());
+  auto weightDataType = getWeightDataType(dsWeight);
 
   ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
   int64_t numAvailableCores =
@@ -240,22 +266,27 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
 }
 
 void MatmulRuleBook::applyDRAMShardedTransformation(
-    MatmulOp matmulOp, const MatmulAttrs &matmulAttrs) const {
-  auto *ctx = matmulOp.getContext();
+    Operation *matmulLikeOp, const MatmulAttrs &matmulAttrs) const {
+  auto *ctx = matmulLikeOp->getContext();
   // Input reshards (activation → L1 1×kNumIn0Cores, weight → DRAM 1×numBanks) handled by
   // pass-2 in applyToIR via reshardLayouts populated from the input candidates
   // injected by getExtraInputReshardCandidates.
 
-  OpBuilder builder(matmulOp);
+  OpBuilder builder(matmulLikeOp);
 
   // --- 1. Set program config and compute config ---
-  matmulOp.setMatmulProgramConfigAttr(
+  // ttnn.matmul and ttnn.linear both carry matmul_program_config / compute_config
+  // / activation, so the DS rewrite is identical for either (see getDSOperands).
+  auto dsProgConfig =
       mlir::cast<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
-          matmulAttrs.matmulProgramConfig.value()));
-
-  if (matmulAttrs.computeKernelConfig.has_value()) {
-    matmulOp.setComputeConfigAttr(*matmulAttrs.computeKernelConfig);
-  }
+          matmulAttrs.matmulProgramConfig.value());
+  llvm::TypeSwitch<Operation *>(matmulLikeOp)
+      .Case<MatmulOp, LinearOp>([&](auto concreteOp) {
+        concreteOp.setMatmulProgramConfigAttr(dsProgConfig);
+        if (matmulAttrs.computeKernelConfig.has_value()) {
+          concreteOp.setComputeConfigAttr(*matmulAttrs.computeKernelConfig);
+        }
+      });
 
   // --- 2. Handle the fused activation ---
   // Fusing the activation into the DS matmul kernel is significantly slower
@@ -264,11 +295,12 @@ void MatmulRuleBook::applyDRAMShardedTransformation(
   // consuming multiply as its operand-A activation — SwiGLU: multiply(silu(gate),
   // up) — which runs on the full grid (cheapest), or (b) fall back to a separate
   // elementwise op.
-  auto activationAttr = matmulOp.getActivationAttr();
+  auto activationAttr =
+      matmulLikeOp->getAttrOfType<StringAttr>("activation");
   if (activationAttr) {
-    matmulOp.removeActivationAttr();
+    matmulLikeOp->removeAttr("activation");
     StringRef actStr = activationAttr.getValue();
-    Value matmulResult = matmulOp.getResult();
+    Value matmulResult = matmulLikeOp->getResult(0);
 
     // (a) Try to fold silu into a consuming ttnn.multiply's lhs_activation.
     // Only when the matmul result's sole non-dealloc consumer is a multiply
@@ -313,9 +345,9 @@ void MatmulRuleBook::applyDRAMShardedTransformation(
         opName = "ttnn.gelu";
       }
       if (!opName.empty()) {
-        builder.setInsertionPointAfter(matmulOp);
+        builder.setInsertionPointAfter(matmulLikeOp);
         auto *activationOp = builder.create(
-            matmulOp.getLoc(), StringAttr::get(ctx, opName),
+            matmulLikeOp->getLoc(), StringAttr::get(ctx, opName),
             ValueRange{matmulResult}, TypeRange{matmulResult.getType()});
         matmulResult.replaceAllUsesExcept(activationOp->getResult(0),
                                           activationOp);
@@ -408,8 +440,8 @@ void MatmulRuleBook::applyOpSpecificAttrs(
   bool isDRAMSharded =
       mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
           programConfig);
-  if (isDRAMSharded && matmulOp) {
-    applyDRAMShardedTransformation(matmulOp, matmulAttrs);
+  if (isDRAMSharded) {
+    applyDRAMShardedTransformation(op, matmulAttrs);
     return;
   }
 
@@ -548,10 +580,10 @@ MatmulRuleBook::adjustScore(Operation * /*op*/, LayoutScore base,
 std::vector<TTNNLayoutAttr>
 MatmulRuleBook::getExtraInputReshardCandidates(Operation *op,
                                                unsigned operandIdx) const {
-  auto matmulOp = dyn_cast<MatmulOp>(op);
-  if (!matmulOp || !isDRAMShardEligible(matmulOp)) {
+  if (!isDRAMShardEligible(op)) {
     return {};
   }
+  auto [dsActivation, dsWeight] = *getDSOperands(op);
 
   auto moduleOp = op->getParentOfType<ModuleOp>();
   if (!moduleOp) {
@@ -566,11 +598,11 @@ MatmulRuleBook::getExtraInputReshardCandidates(Operation *op,
       static_cast<int64_t>(ttnn::utils::getTensorL1UsageCap(moduleOp) *
                            systemDesc.getChipDescs()[0].getUsableL1Size());
 
-  auto in0Type = mlir::cast<RankedTensorType>(matmulOp.getA().getType());
-  auto weightType = mlir::cast<RankedTensorType>(matmulOp.getB().getType());
+  auto in0Type = mlir::cast<RankedTensorType>(dsActivation.getType());
+  auto weightType = mlir::cast<RankedTensorType>(dsWeight.getType());
   int64_t M = getActivationM(in0Type);
   auto [K, N] = getWeightKN(weightType);
-  auto weightDataType = getWeightDataType(matmulOp.getB());
+  auto weightDataType = getWeightDataType(dsWeight);
 
   ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
   int64_t numAvailCores =
