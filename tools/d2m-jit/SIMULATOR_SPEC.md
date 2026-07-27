@@ -415,8 +415,9 @@ allow reuse.
 ## 9. Intended divergences from device (document, don't hide)
 
 The sim is an oracle for *intended* semantics, so it deliberately differs in a
-few places. Each should be discoverable (a `config.sim_warn_divergence` flag
-that prints once per occurrence):
+few places. Making each one discoverable at runtime — a `config.sim_warn_divergence`
+flag that prints once per occurrence — is a 🟢 follow-up (§10); v1 documents them
+here only:
 
 | Area | Device | Sim |
 | --- | --- | --- |
