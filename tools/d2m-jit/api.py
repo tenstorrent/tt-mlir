@@ -115,6 +115,19 @@ class _DispatchKernel:
     def __call__(self, *args, **kwargs):
         return self._impl()(*args, **kwargs)
 
+    def __getattr__(self, name):
+        # Before the backend switch, `@d2m.kernel` evaluated to the concrete
+        # kernel object, so callers read attributes off it directly (notably
+        # `CompiledKernel._captures`). Forward anything we don't define to the
+        # current backend's kernel so that keeps working; building it here is
+        # the same work decoration used to do eagerly.
+        #
+        # Only names missing from the instance reach this. The fields _impl()
+        # itself needs are excluded so a half-initialised object cannot recurse.
+        if name in {"fn", "_device", "_sim"}:
+            raise AttributeError(name)
+        return getattr(self._impl(), name)
+
 
 def kernel(fn):
     """Decorate a user function as a d2m_jit kernel (backend-dispatching)."""

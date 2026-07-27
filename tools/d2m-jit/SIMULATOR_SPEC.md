@@ -77,10 +77,34 @@ package keeps importing without torch.
 
 Design rule: **the device path is untouched.** The simulator is additive
 (`_src/sim/` + a thin `d2m_jit/sim.py` re-export). `import d2m_jit.sim`
-must not require the `_ttmlir_runtime` extension or an MLIR `Context`, so
-sim works in environments with no tt-metal build at all. (`Layout` is a pure
-descriptor and is reused as-is; sim simply never calls its `build_*` MLIR
-methods.)
+must not *require* the `ttmlir` bindings, the `_ttmlir_runtime` extension, or an
+MLIR `Context`, so sim works in environments with no tt-metal build at all.
+(`Layout` is a pure descriptor and is reused as-is; sim simply never calls its
+`build_*` MLIR methods.)
+
+"Not required" is the precise claim, and it is weaker than "never imported":
+where the bindings *are* installed, `import d2m_jit.sim` still loads `ttmlir`,
+because the dtype constants below resolve to real `ttcore` enum members so that
+one `Layout` works under either backend. It never loads `_ttmlir_runtime` or
+`d2m_jit.api`.
+
+Holding that rule true takes two deliberate pieces of laziness, because
+importing a submodule runs every module on the path to it:
+
+1. `d2m_jit/__init__.py` resolves the `d2m_jit.api` device surface through a
+   PEP 562 module `__getattr__` instead of star-importing it eagerly —
+   otherwise `import d2m_jit.sim` would pull in the parent's `api` import (and
+   with it the bindings and the runtime extension) before reaching `sim`.
+2. `_src/tensor_layout.py` imports the MLIR bindings lazily (`_mlir()`), since
+   every sim module needs `Layout` from it. When the bindings are present,
+   `dtype` / `mem_space` resolve to the same `ttcore` enum members as before,
+   so the device path is bit-identical; when they are absent they resolve to
+   the pure-Python `_DataType` / `_MemorySpace` mirrors (same member names,
+   values, and `str()` spellings), which only the sim ever sees — it keys off
+   `.name`.
+
+This is easy to regress by adding one module-scope import, so it is asserted by
+a test rather than left to convention (§11).
 
 The two surfaces share one implementation: `d2m_jit.sim.<name>` are the
 sim-bound entry points; the (deferred) `backend="sim"` switch will make the
@@ -215,8 +239,13 @@ fidelity).
 
 ### 5.2 Elementwise ✅
 
-Unary (all 41 in the README table) and binary (all 13) map to the obvious
-torch op over `.tiles`. `where(c,t,f)` → `torch.where(c.tiles != 0, t.tiles,
+Unary (all 41 in the README table) and binary (all 19) map to the obvious
+torch op over `.tiles`. The six comparisons in that binary list (`eq` / `ne` /
+`gt` / `ge` / `lt` / `le`) go through `_compare`, which writes 1/0 in the
+*operands'* tile dtype to match `d2m.tile_eq` & co. (they take the lhs tile
+type); like the device they are name-only — Python's `<` / `==` dunders stay
+unoverloaded because `visit_Compare` lowers compares to `arith.cmpi` for
+index-domain conditions. `where(c,t,f)` → `torch.where(c.tiles != 0, t.tiles,
 f.tiles)`. `clamp_scalar(x,lo,hi)` → `x.tiles.clamp(lo,hi)`.
 `typecast(x,dtype)` → `x.tiles.to(torch_dtype)`. `tile_transpose(x)` →
 `x.tiles.transpose(2,3)`, i.e. transpose the trailing `32×32` of every tile
@@ -283,6 +312,15 @@ reproduce the device's undefined-accumulator bug ([TODO §1]) — `d2m.empty`
 outputs are zero in sim, so `matmul_kernel` is correct whether the caller
 pre-fills with `zeros` or not. This divergence is intended (sim = oracle for
 the *intended* semantics); it is noted in §9.
+
+The explicit-K-loop idiom the README prescribes — a kernel-body
+`zeros([m, n])` accumulator plus `c += a @ b` — works in sim too. In-kernel
+`zeros(shape)` returns an f32 zero block of `shape` *tiles* (the device op's
+tile type is always f32 regardless of operand layouts), and native Python `+=`
+on a `SimBlock` computes what the device lowers through the hidden
+`__matmul_acc__` helper, so that helper needs no separate sim backing. This is
+distinct from host-side `d2m.zeros(layout)`, which allocates a whole tensor
+(§7).
 
 ### 5.5 Async / semaphores ✅ (DMA 🟡)
 
@@ -419,6 +457,12 @@ The backend switch lives in `api.py`: `config.backend` (new field in
 (shadow) and `test/d2m-jit/test_backend_switch.py` (switch), both pure pytest
 with no device / no SYSTEM_DESC_PATH.
 
+Two existing files were made lazy so the sim import path stays binding-free
+(§2) — `__init__.py` (PEP 562 `__getattr__` over `api`) and
+`_src/tensor_layout.py` (`_mlir()`) — plus `test/d2m-jit/conftest.py`, whose
+`_Builder` import and `runner` import (both of which reach the bindings) now
+happen inside the fixture / only when a parametrized fixture is requested.
+
 Deferred (🟡/🟢), out of v1:
 - `quirks.py` — device-quirk numerics (§6).
 - `config` fields `sim_device_quirks` / `sim_warn_divergence`.
@@ -448,10 +492,19 @@ Deferred (🟡/🟢), out of v1:
    `pytest -m 'not parity'`. Doubles as a lowering-regression net; only covers
    kernels where device and sim are expected to agree (the §9 divergences are
    excluded by construction).
-3. **No-runtime CI lane.** Because sim imports without `_ttmlir_runtime`, add a
-   CI job that runs the sim suite on a plain Python+torch image — fast signal
-   with no silicon.
-4. **Kernel-author UX test.** Confirm `print(...)` / `breakpoint()` inside a
+3. **Runtime-free import, asserted (✅ implemented).**
+   `test_sim_imports_and_runs_without_mlir_bindings` re-runs the import and a
+   one-block kernel in a subprocess with `ttmlir` / `_ttmlir_runtime` forced
+   unimportable, so the §2 design rule fails a test rather than silently
+   eroding the first time someone adds a module-scope import on the sim path.
+4. **No-runtime CI lane (🟡 not wired).** With item 3 holding,
+   `pytest test/d2m-jit/test_sim.py` runs green on a plain Python+torch image
+   (verified with the bindings blocked process-wide) — fast signal with no
+   silicon. Not added as a CI job here: the existing `d2m_jit.sh` lane already
+   runs the whole suite, sim tests included, on n150. Note the lane must name
+   `test_sim.py` specifically; the other modules in `test/d2m-jit/` build device
+   kernels at import time and so error at collection without the bindings.
+5. **Kernel-author UX test.** Confirm `print(...)` / `breakpoint()` inside a
    kernel body work under sim (they can't on device), since that's a headline
    benefit.
 
@@ -460,15 +513,23 @@ Deferred (🟡/🟢), out of v1:
 ## 12. Phasing
 
 - **v1 (✅ done):** SPMD `core_index` execution model; `SimTensor`/`SimBlock`;
-  all eltwise (unary/binary/where/clamp/typecast/tile_transpose/bcast);
-  reductions; matmul; views/permute/tilize/untilize; host ops; `to_host`;
-  `async def` + `await` bodies and no-op `Semaphore` (§5.5); shadow module
-  **and** the `config.backend` switch; exact numerics; tests in
-  `test/d2m-jit/test_sim.py` and `test/d2m-jit/test_backend_switch.py`.
+  all eltwise (unary/binary/comparisons/where/clamp/typecast/tile_transpose/
+  bcast); reductions; matmul plus the in-kernel `zeros` + `+=` accumulator
+  idiom; views/permute/tilize/untilize; host ops; `to_host`; `async def` +
+  `await` bodies and no-op `Semaphore` (§5.5); shadow module **and** the
+  `config.backend` switch; exact numerics; runtime-free import (§2), asserted;
+  tests in `test/d2m-jit/test_sim.py`, `test/d2m-jit/test_backend_switch.py`,
+  and `test/d2m-jit/test_parity.py`.
 - **v2 (🟡):** declarative generic forms (`indexing_maps` / `iterator_types` /
-  `block_factors` with `iter_index`/`block_index`/`block_offset`); async-
-  generator (`yield`) producer/consumer scheduling beyond pure serialization
-  (currently rejected, §5.5); DMA primitives as they land in `api.py`.
+  `block_factors` with `iter_index`/`block_index`/`block_offset`) and the
+  `!tensor.store` method that goes with them; async-generator (`yield`)
+  producer/consumer scheduling beyond pure serialization (currently rejected,
+  §5.5); DMA primitives as they land in `api.py`.
+
+Note that `SimKernel.__call__` *rejects* `indexing_maps` / `iterator_types`
+(`NotImplementedError`) but currently accepts and ignores `block_factors` and
+`kernel_io_in_dram`; both are placement/blocking hints that do not change
+values in the SPMD form, but the asymmetry is worth closing when v2 lands.
 - **v3 (🟢):** device-quirk numerics (fp19 fills, reduced-precision accumulate);
   optional staleness emulation; a sim↔device divergence report.
 

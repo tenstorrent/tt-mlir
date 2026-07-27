@@ -10,6 +10,9 @@ matched exactly (sim is more precise than the device tile path). See
 tools/d2m-jit/SIMULATOR_SPEC.md.
 """
 
+import subprocess
+import sys
+
 import pytest
 import torch
 
@@ -110,6 +113,30 @@ def matmul_transpose_b(lhs, rhs, out):
     a = remote_load(lhs, [0, 0])
     b = remote_load(rhs, [0, 0])
     remote_store(out, [0, 0], matmul(a, b, transpose_b=True))
+
+
+@d2m.kernel
+def matmul_k_loop(lhs, rhs, out, k_blocks):
+    c = zeros([1, 1])
+    for k in range(k_blocks):
+        c += remote_load(lhs, [0, k]) @ remote_load(rhs, [k, 0])
+    remote_store(out, [0, 0], c)
+
+
+@d2m.kernel
+def compare_ops(lhs, rhs, out_gt, out_le, out_eq):
+    a = remote_load(lhs, [0, 0])
+    b = remote_load(rhs, [0, 0])
+    remote_store(out_gt, [0, 0], gt(a, b))  # free-function form
+    remote_store(out_le, [0, 0], a.le(b))  # method form
+    remote_store(out_eq, [0, 0], eq(a, a))  # all-ones
+
+
+@d2m.kernel
+def max_via_where_ge(lhs, rhs, out):
+    a = remote_load(lhs, [0, 0])
+    b = remote_load(rhs, [0, 0])
+    remote_store(out, [0, 0], where(a.ge(b), a, b))
 
 
 @d2m.kernel
@@ -222,6 +249,74 @@ def test_matmul_transpose_b():
         d2m.to_layout(lhs, layout), d2m.to_layout(rhs, layout), out, grid=(1, 1)
     )
     assert_pcc(lhs @ rhs.T, out.to_host())
+
+
+def test_matmul_k_loop_via_kernel_zeros():
+    """The README's explicit-K-loop idiom: a `zeros([m, n])` accumulator plus
+    `+=`. Native `+=` on a SimBlock covers what the device lowers through
+    `__matmul_acc__`."""
+    lhs, rhs = torch.randn(32, 64), torch.randn(64, 32)
+    lin = _layout((32, 64))
+    rin = _layout((64, 32))
+    out = d2m.empty(_layout((32, 32)))
+    matmul_k_loop(d2m.to_layout(lhs, lin), d2m.to_layout(rhs, rin), out, 2, grid=(1, 1))
+    assert_pcc(lhs @ rhs, out.to_host())
+
+
+def test_kernel_zeros_block_is_zero_and_f32():
+    from d2m_jit._src.sim.ops import zeros as sim_zeros
+
+    block = sim_zeros([2, 3])
+    assert block.tile_grid == (2, 3)
+    assert block.tiles.dtype == torch.float32  # device tile type is f32
+    assert torch.count_nonzero(block.tiles).item() == 0
+    with pytest.raises(NotImplementedError, match="rank-2"):
+        sim_zeros([1, 1, 1])
+
+
+def test_comparison_ops_free_and_method_forms():
+    """`gt(a, b)` / `a.le(b)` / `eq(a, a)` write 1/0 in the operand dtype."""
+    lhs = torch.randn(32, 32)
+    rhs = lhs.clone()
+    # Perturb ~half the cells so eq/ne/gt/le each see both outcomes.
+    mask = torch.rand(32, 32) < 0.5
+    rhs[mask] = torch.randn(32, 32)[mask]
+    layout = _layout((32, 32))
+    o_gt, o_le, o_eq = (d2m.empty(layout) for _ in range(3))
+    compare_ops(
+        d2m.to_layout(lhs, layout),
+        d2m.to_layout(rhs, layout),
+        o_gt,
+        o_le,
+        o_eq,
+        num_outs=3,
+        grid=(1, 1),
+    )
+    r_gt, r_le, r_eq = o_gt.to_host(), o_le.to_host(), o_eq.to_host()
+    assert r_gt.dtype == torch.float32
+    assert torch.equal(r_gt, (lhs > rhs).to(torch.float32))
+    assert torch.equal(r_le, (lhs <= rhs).to(torch.float32))
+    assert torch.equal(r_eq, torch.ones(32, 32))
+
+
+def test_max_via_where_ge():
+    lhs, rhs = torch.randn(32, 32), torch.randn(32, 32)
+    layout = _layout((32, 32))
+    out = d2m.empty(layout)
+    max_via_where_ge(
+        d2m.to_layout(lhs, layout), d2m.to_layout(rhs, layout), out, grid=(1, 1)
+    )
+    assert torch.allclose(torch.maximum(lhs, rhs), out.to_host(), atol=1e-5)
+
+
+def test_comparisons_reachable_as_methods_and_free_functions():
+    """Every comparison the device DSL registers has a sim backing in both
+    forms, so a kernel body resolves the same names under either backend."""
+    from d2m_jit._src.sim.ops import SIM_METHODS, SIM_OPS
+
+    for name in ("eq", "ne", "gt", "ge", "lt", "le"):
+        assert name in SIM_OPS, f"{name} missing from the kernel-body namespace"
+        assert name in SIM_METHODS, f"{name} missing from SimBlock method forms"
 
 
 def test_where_clamp_tile_bcast():
@@ -369,3 +464,70 @@ def test_async_generator_kernel_rejected():
     out = d2m.empty(layout)
     with pytest.raises(NotImplementedError, match="async-generator"):
         gen_kernel(d2m.to_layout(t, layout), out, grid=(1, 1))
+
+
+# --- runtime-free import -----------------------------------------------------
+
+
+# Run in a subprocess so blocking the bindings cannot disturb this interpreter,
+# which has them loaded. The blocker makes `ttmlir` / `_ttmlir_runtime`
+# unimportable, standing in for a plain python+torch image with no tt-metal
+# build; the sim must import and run a kernel anyway (SIMULATOR_SPEC.md §2).
+_NO_BINDINGS_SCRIPT = """
+import importlib.abc, sys
+
+
+class Blocker(importlib.abc.MetaPathFinder):
+    def find_spec(self, name, path=None, target=None):
+        if name.split(".")[0] in ("ttmlir", "_ttmlir_runtime"):
+            raise ImportError("blocked for test: " + name)
+        return None
+
+
+sys.meta_path.insert(0, Blocker())
+
+import torch
+
+import d2m_jit.sim as d2m
+
+leaked = [m for m in sys.modules if m.split(".")[0] in ("ttmlir", "_ttmlir_runtime")]
+assert not leaked, "sim import pulled in the bindings: %s" % leaked
+
+layout = d2m.Layout(
+    shape=(32, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+)
+
+
+@d2m.kernel
+def add_one_block(lhs, rhs, out):
+    remote_store(out, [0, 0], remote_load(lhs, [0, 0]) + remote_load(rhs, [0, 0]))
+
+
+lhs, rhs = torch.randn(32, 32), torch.randn(32, 32)
+out = d2m.empty(layout)
+add_one_block(
+    d2m.to_layout(lhs, layout), d2m.to_layout(rhs, layout), out, grid=(1, 1)
+)
+assert torch.allclose(lhs + rhs, out.to_host(), atol=1e-5), "wrong result"
+print("OK")
+"""
+
+
+def test_sim_imports_and_runs_without_mlir_bindings():
+    """`import d2m_jit.sim` must not require `ttmlir` / `_ttmlir_runtime`.
+
+    This is the property that lets the sim suite run on a plain python+torch
+    image. It is easy to regress by adding a module-scope import to any module
+    on the sim import path (`d2m_jit/__init__.py`, `_src/tensor_layout.py`,
+    `_src/sim/*`), so it is asserted rather than documented.
+    """
+    proc = subprocess.run(
+        [sys.executable, "-c", _NO_BINDINGS_SCRIPT],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, (
+        f"sim import/run failed without the MLIR bindings:\n"
+        f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
+    )
+    assert "OK" in proc.stdout

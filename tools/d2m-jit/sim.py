@@ -15,8 +15,11 @@ eltwise / reduction / matmul ops) and the host surface (`Layout`,
 `view_layout`, `permute`, `reduction_layout`, `to_host`) match the device
 package. See SIMULATOR_SPEC.md.
 
-Unlike the device package this module imports without `_ttmlir_runtime`, so it
-works in environments with no tt-metal build.
+Unlike the device package this module *requires* neither the `ttmlir` bindings
+nor the `_ttmlir_runtime` extension, so it works in environments with no
+tt-metal build. (In a full build it does load `ttmlir`, which backs the shared
+dtype vocabulary; it never loads the runtime extension or `d2m_jit.api`.) See
+SIMULATOR_SPEC.md §2 for what keeps that true and the test that enforces it.
 """
 
 # Pure descriptor + dtype constants, reused unchanged from the device package.

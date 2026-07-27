@@ -98,6 +98,25 @@ def matmul_kernel(lhs, rhs, out, m_blocks, n_blocks):
             remote_store(out, [m_off + m, n_off + n], a @ b)
 
 
+@d2m.kernel
+def matmul_k_loop(lhs, rhs, out, k_blocks):
+    c = zeros([1, 1])
+    for k in range(k_blocks):
+        c += remote_load(lhs, [0, k]) @ remote_load(rhs, [k, 0])
+    remote_store(out, [0, 0], c)
+
+
+@d2m.kernel
+def max_via_where_ge(lhs, rhs, out, m_blocks, n_blocks):
+    m_off = core_index(0) * m_blocks
+    n_off = core_index(1) * n_blocks
+    for m in range(m_blocks):
+        for n in range(n_blocks):
+            a = remote_load(lhs, [m_off + m, n_off + n])
+            b = remote_load(rhs, [m_off + m, n_off + n])
+            remote_store(out, [m_off + m, n_off + n], where(a.ge(b), a, b))
+
+
 # --- parity tests ------------------------------------------------------------
 
 
@@ -151,6 +170,47 @@ def test_parity_reduce_sum_cols():
         out = d2m.empty(d2m.reduction_layout(layout, 1))
         reduce_sum_cols(
             d2m.to_layout(torch.randn(64, 32), layout), out, 1, 1, grid=(2, 1)
+        )
+        return out.to_host()
+
+    assert_parity(build)
+
+
+def test_parity_matmul_k_loop_via_kernel_zeros():
+    """The in-kernel `zeros([m, n])` accumulator plus `+=`: the device lowers the
+    `+=` through `__matmul_acc__`, the sim runs native `+=` on the block."""
+
+    def build():
+        lin, rin = _layout((32, 64)), _layout((64, 32))
+        out = d2m.empty(_layout((32, 32)))
+        matmul_k_loop(
+            d2m.to_layout(torch.randn(32, 64), lin),
+            d2m.to_layout(torch.randn(64, 32), rin),
+            out,
+            2,
+            grid=(1, 1),
+        )
+        return out.to_host()
+
+    assert_parity(build)
+
+
+def test_parity_max_via_where_ge():
+    """Comparison + `where`. The mask itself is not parity-testable near the
+    equality boundary (the SFPU rounds f32 through fp19, so cells differing only
+    in the low mantissa bits compare equal on device -- see test_compare.py), but
+    selecting between two near-equal values is insensitive to those ties."""
+
+    def build():
+        layout = _layout((64, 64), grid=(2, 2))
+        out = d2m.empty(layout)
+        max_via_where_ge(
+            d2m.to_layout(torch.randn(64, 64), layout),
+            d2m.to_layout(torch.randn(64, 64), layout),
+            out,
+            1,
+            1,
+            grid=(2, 2),
         )
         return out.to_host()
 

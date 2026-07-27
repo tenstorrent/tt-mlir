@@ -468,11 +468,20 @@ d2m.config.backend = "sim"   # or env D2M_JIT_BACKEND=sim ; default "device"
 The kernel body executes on the host (so `print` / `breakpoint()` work inside
 it), and `to_host()` returns a `torch.Tensor` matching the *intended*
 semantics — useful as a fast inner loop and as a golden oracle for device
-tests. It imports without `_ttmlir_runtime`, so it works with no tt-metal
-build. See [SIMULATOR_SPEC.md](SIMULATOR_SPEC.md) for the design and the list
-of intended device divergences (e.g. `empty` is zero, matmul is correct
-without a zeros-prefill, multicast runs). Tests: `test/d2m-jit/test_sim.py`
-(pure pytest, device-free).
+tests. The whole in-kernel op surface above is covered, comparisons and the
+kernel-body `zeros([m, n])` accumulator included.
+
+`import d2m_jit.sim` requires neither the `ttmlir` bindings nor
+`_ttmlir_runtime`, so it works with no tt-metal build at all —
+`pytest test/d2m-jit/test_sim.py` passes on a plain Python+torch image. (Where
+the bindings are installed it does load `ttmlir` for the shared dtype
+constants, but never the runtime extension. The canonical `import d2m_jit`
+surface needs both regardless of `config.backend`.)
+
+See [SIMULATOR_SPEC.md](SIMULATOR_SPEC.md) for the design and the list of
+intended device divergences (e.g. `empty` is zero, matmul is correct without a
+zeros-prefill, multicast runs). Tests: `test/d2m-jit/test_sim.py` (device-free)
+and `test/d2m-jit/test_parity.py` (sim-vs-device PCC, `-m parity`).
 
 ## Related
 

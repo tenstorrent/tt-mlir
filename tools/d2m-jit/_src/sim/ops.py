@@ -138,6 +138,13 @@ def _predicate(pred, x):
     return SimBlock(pred(x.tiles).to(x.tiles.dtype), x.reduced_axes)
 
 
+def _compare(cmp, lhs, rhs):
+    # Comparisons write 1/0 into each tile lane in the operands' element type,
+    # matching d2m.tile_eq / tile_gt / ... (which take the lhs tile type).
+    reduced = lhs.reduced_axes & rhs.reduced_axes
+    return SimBlock(cmp(lhs.tiles, rhs.tiles).to(lhs.tiles.dtype), reduced)
+
+
 # Plain unary ops backed directly by a torch callable.
 _UNARY = {
     "recip": torch.reciprocal,
@@ -189,6 +196,18 @@ _BINARY = {
     "logical_left_shift": torch.bitwise_left_shift,
     "logical_right_shift": torch.bitwise_right_shift,
     "right_shift": torch.bitwise_right_shift,
+}
+
+# Comparisons return 0/1 in the operands' tile dtype. Not wired to Python's
+# `<` / `==` dunders -- api.py lowers `visit_Compare` to arith.cmpi for
+# index-domain conditions, so the DSL exposes these by name only.
+_COMPARE = {
+    "eq": torch.eq,
+    "ne": torch.ne,
+    "gt": torch.gt,
+    "ge": torch.ge,
+    "lt": torch.lt,
+    "le": torch.le,
 }
 
 # Predicates return 0.0/1.0 in the tile dtype.
@@ -266,6 +285,23 @@ def where(cond, true_value, false_value):
     return SimBlock(out)
 
 
+def zeros(shape):
+    """Kernel-body zero block of `shape` tiles, e.g. `zeros([m_tiles, n_tiles])`.
+
+    The device op's tile type is always f32 regardless of the operand layouts,
+    so the sim block is f32 too. Distinct from host-side `d2m.zeros(layout)`,
+    which allocates a whole tensor. This is the loop-carried accumulator for an
+    explicit K loop (`c = zeros([1, 1])` then `c += a @ b`); native `+=` on a
+    SimBlock covers what the device lowers via `__matmul_acc__`.
+    """
+    if len(shape) != 2:
+        raise NotImplementedError(
+            f"sim zeros() supports rank-2 block shapes only, got {list(shape)}"
+        )
+    bm, bn = int(shape[0]), int(shape[1])
+    return SimBlock(torch.zeros(bm, bn, TILE, TILE, dtype=torch.float32))
+
+
 def matmul(lhs, rhs, transpose_b=False):
     a = lhs.to_2d()
     b = rhs.to_2d()
@@ -338,6 +374,10 @@ def _make_predicate(pred):
     return lambda x: _predicate(pred, x)
 
 
+def _make_compare(cmp):
+    return lambda lhs, rhs: _compare(cmp, lhs, rhs)
+
+
 # Block ops reachable both as free functions and (most of them) as methods.
 _BLOCK_OPS = {}
 for _name, _fn in _UNARY.items():
@@ -346,6 +386,8 @@ for _name, _fn in _BINARY.items():
     _BLOCK_OPS[_name] = _make_binary(_fn)
 for _name, _pred in _PREDICATE.items():
     _BLOCK_OPS[_name] = _make_predicate(_pred)
+for _name, _cmp in _COMPARE.items():
+    _BLOCK_OPS[_name] = _make_compare(_cmp)
 _BLOCK_OPS.update(
     {
         "clamp_scalar": clamp_scalar,
@@ -374,6 +416,8 @@ SIM_OPS.update(
         "remote_load": remote_load,
         "remote_store": remote_store,
         "Semaphore": Semaphore,
+        # Free function only -- there is no `!tensor.zeros` method form.
+        "zeros": zeros,
     }
 )
 

@@ -66,6 +66,25 @@ def test_invalid_backend_raises():
         d2m.empty(_layout())
 
 
+def test_kernel_forwards_attributes_to_backend_kernel():
+    """Before the switch, `@d2m.kernel` *was* the concrete kernel, so callers
+    read attributes straight off it -- `CompiledKernel._captures` is checked by
+    test/d2m-jit/lit/captures.py. The dispatch wrapper has to forward those."""
+    d2m.config.backend = "device"
+    LIMIT = 7
+
+    @d2m.kernel
+    def captures_limit(in_t, out_t):
+        for _ in range(LIMIT):
+            remote_store(out_t, [0, 0], remote_load(in_t, [0, 0]))
+
+    assert captures_limit._captures.get("LIMIT") == LIMIT
+    # Still the wrapper's own name, not the impl's.
+    assert captures_limit.__name__ == "captures_limit"
+    with pytest.raises(AttributeError):
+        captures_limit.not_a_real_attribute
+
+
 def test_kernel_decorator_picks_backend_per_call():
     # The same @d2m.kernel object dispatches by backend at call time.
     layout = _layout()

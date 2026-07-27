@@ -5,8 +5,6 @@
 import pytest
 import torch
 
-from d2m_jit._src.builder import _Builder
-
 
 def pytest_configure(config):
     config.addinivalue_line(
@@ -27,6 +25,12 @@ def _reset_builder():
     """Drop the process-level builder singleton between tests so a failed
     compile (negative tests) doesn't leak MLIR state into the next test."""
     yield
+    # Imported here, not at module scope: the simulator suite runs with no MLIR
+    # bindings at all, and there is no builder state to drop in that case.
+    try:
+        from d2m_jit._src.builder import _Builder
+    except ImportError:
+        return
     _Builder.reset()
 
 
@@ -34,6 +38,12 @@ def pytest_generate_tests(metafunc):
     """Parametrize the generic pattern tests over every spec declared in the
     bundled pattern files (test/d2m-jit/patterns/*.py). Adding a pattern file with
     PATTERN_TESTS / KERNEL_BENCHES is picked up here with no harness edits."""
+    # `runner` imports the MLIR bindings, so only reach for it when a test
+    # actually asks for one of the parametrized fixtures -- otherwise collecting
+    # the device-free simulator suite would require a tt-metal build.
+    if not {"pattern_test", "kernel_bench", "e2e_spec"} & set(metafunc.fixturenames):
+        return
+
     from runner import discover
 
     pattern_tests, kernel_benches = discover()
