@@ -1120,6 +1120,9 @@ applyRoPEDecodeRewrite(mlir::Operation *layoutOp, RotaryEmbeddingOp ropeOp,
   // the permuted tensor (last/head dim preserved) so the RoPE sees
   // rms_norm(permute(x)); otherwise permute the RoPE input directly.
   Value decodeRopeInput;
+  // Ops created to produce decodeRopeInput, erased (consumer-first) if the
+  // fused RoPE fails validation below.
+  llvm::SmallVector<Operation *, 2> createdInputOps;
   if (qkNorm) {
     auto normPrePermute = ttir_to_ttnn::utils::generatePermute(
         mlir::cast<TypedValue<RankedTensorType>>(qkNorm.getInput()),
@@ -1128,11 +1131,13 @@ applyRoPEDecodeRewrite(mlir::Operation *layoutOp, RotaryEmbeddingOp ropeOp,
         qkNorm.getLoc(), normPrePermute.getType(), normPrePermute.getResult(),
         qkNorm.getWeight(), qkNorm.getBias(), qkNorm.getEpsilon());
     decodeRopeInput = newNorm.getResult();
+    createdInputOps = {newNorm.getOperation(), normPrePermute.getOperation()};
   } else {
     auto prePermute = ttir_to_ttnn::utils::generatePermute(
         mlir::cast<TypedValue<RankedTensorType>>(ropeOp.getInput()),
         llvm::ArrayRef(perm), rewriter, ropeOp.getLoc());
     decodeRopeInput = prePermute.getResult();
+    createdInputOps = {prePermute.getOperation()};
   }
 
   auto tokenIndex = rewriter.getIntegerAttr(
@@ -1169,7 +1174,9 @@ applyRoPEDecodeRewrite(mlir::Operation *layoutOp, RotaryEmbeddingOp ropeOp,
 
     if (!validationResult.isSuccess()) {
       rewriter.eraseOp(newRope);
-      rewriter.eraseOp(prePermute);
+      for (Operation *op : createdInputOps) {
+        rewriter.eraseOp(op);
+      }
       return failure();
     }
   }
