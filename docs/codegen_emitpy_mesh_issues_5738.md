@@ -78,15 +78,23 @@ Fix direction: ensure the load harness opens/sets the mesh device before const-e
 the runtime ProgramContext), or thread the passed `device` into
 `execute_cpu_hoisted_function`, or derive the mesh from the tensor.
 
-**Local unblock used for the bisection:** patched the emitted `graph_0/utils.py` so
-`execute_cpu_hoisted_function` opens the mesh idempotently when the singleton is null:
-```python
-mesh_device = DeviceGetter._instance
-if mesh_device is None:
-    mesh_device = DeviceGetter.get_device((2,2), fabric_config=ttnn.FabricConfig.FABRIC_1D_RING)
+**A naive unblock does NOT work** — opening the mesh from the helper when the singleton is
+null hits a *third* problem: the load harness (tt-alchemist `PythonModelRunner`) **already has
+a mesh open** (it just didn't register it in `DeviceGetter`), so `get_device` → `open_mesh_device`
+tries to re-set the fabric config on top of it and aborts:
 ```
-(get_device is idempotent, so forward's later call reuses it.) This is a per-emit patch
-(wiped on re-emit); the real fix belongs in the codegen/load harness.
+SetFabricConfig(FABRIC_1D_RING) is not allowed while devices are still open …
+TT_FATAL @ …/impl/context/metal_env.cpp:253: !devices_still_open
+```
+**Correct local unblock:** don't open a new mesh — **assign the harness's already-open device**
+(the `device` threaded into `consteval_forward`/`main_const_eval_*`) to the singleton before the
+const-evals run, e.g. at the top of `consteval_forward`:
+```python
+utils.DeviceGetter._instance = device   # harness mesh; no open, no set_fabric_config
+```
+This is a per-emit patch (wiped on re-emit). The real fix belongs in the codegen/load harness:
+either register the harness mesh in `DeviceGetter` before const-evals, or thread the passed
+`device` into `execute_cpu_hoisted_function` instead of reading the singleton.
 
 **Repro.**
 ```
