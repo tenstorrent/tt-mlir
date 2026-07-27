@@ -279,6 +279,52 @@ static LogicalResult insertCBOpsForCompute(
     }
   }
 
+  // (1b) Accesses that no raw span covers. When the compute region is lowered
+  // to a *flat* sequence -- memref.load/store and tile ops sitting directly in
+  // the compute block, with no enclosing scf.for -- every span degenerates to a
+  // single tile op, which holds no memref accesses of its own. The CB reads and
+  // writes around those tile ops would then go unattributed, and the CB would
+  // get no wait/pop: the datamovement thread keeps pushing into a CB nobody
+  // drains and blocks forever on reserve. Attribute them here, anchored at the
+  // access itself so the bracket still lands at the right loop depth.
+  DenseSet<Operation *> coveredBySpan;
+  for (Operation *span : rawSpans) {
+    span->walk([&](Operation *op) { coveredBySpan.insert(op); });
+  }
+  {
+    using Access = std::pair<Operation *, OpOperand *>;
+    llvm::MapVector<Value, SmallVector<Access>> blockConsumed, blockProduced;
+    computeBlock->walk([&](Operation *op) {
+      if (coveredBySpan.contains(op)) {
+        return;
+      }
+      if (auto ld = mlir::dyn_cast<memref::LoadOp>(op)) {
+        if (auto t = traceCBUse(ld->getOpOperand(0), generic)) {
+          blockConsumed[t->first].push_back({ld, t->second});
+        }
+      } else if (auto st = mlir::dyn_cast<memref::StoreOp>(op)) {
+        // memref.store operands: (value, memref, indices...).
+        if (auto t = traceCBUse(st->getOpOperand(1), generic)) {
+          blockProduced[t->first].push_back({st, t->second});
+        }
+      }
+    });
+    // Output reuse: a CB written here is not also treated as an input.
+    for (auto &[cb, accesses] : blockProduced) {
+      blockConsumed.erase(cb);
+    }
+    for (auto &[cb, accesses] : blockConsumed) {
+      for (auto &[access, use] : accesses) {
+        add(consumers, cb, access, use);
+      }
+    }
+    for (auto &[cb, accesses] : blockProduced) {
+      for (auto &[access, use] : accesses) {
+        add(producers, cb, access, use);
+      }
+    }
+  }
+
   // (2) Interface compute ops not nested inside a raw span.
   DenseSet<Operation *> rawSpanSet(rawSpans.begin(), rawSpans.end());
   computeBlock->walk([&](Operation *op) {
@@ -300,6 +346,41 @@ static LogicalResult insertCBOpsForCompute(
       }
     }
   });
+
+  // (3) Ops that reference a CB memref directly but are neither memref
+  // accesses nor synchronizable compute ops -- e.g. d2m.fill_arange_tile, a
+  // plain generic-region op whose `output` operand *is* the CB. They do not
+  // decide whether the CB is produced or consumed, but their operand must still
+  // be threaded to the CB handle (the wait/reserve result) and the bracket must
+  // cover them. Left alone they address the raw allocation instead of the CB's
+  // current slot, which is the wrong buffer as soon as the CB rotates.
+  llvm::MapVector<Value, SmallVector<std::pair<Operation *, OpOperand *>>>
+      directCBUses;
+  computeBlock->walk([&](Operation *op) {
+    if (mlir::isa<memref::LoadOp, memref::StoreOp, memref::CollapseShapeOp,
+                  memref::SubViewOp, d2m::TileMatmulBlockOp>(op) ||
+        mlir::isa<SynchronizableOpInterface>(op) ||
+        mlir::isa<ShardDMAOpInterface>(op)) {
+      return;
+    }
+    for (OpOperand &operand : op->getOpOperands()) {
+      if (!mlir::isa<MemRefType>(operand.get().getType())) {
+        continue;
+      }
+      if (auto t = traceCBUse(operand, generic)) {
+        directCBUses[t->first].push_back({op, t->second});
+      }
+    }
+  });
+  for (auto &[cb, accesses] : directCBUses) {
+    // Join whichever side already owns this CB; a CB only touched here is
+    // written by compute and so belongs to the producers.
+    llvm::MapVector<Value, CBSync> &map =
+        consumers.count(cb) ? consumers : producers;
+    for (auto &[access, use] : accesses) {
+      add(map, cb, access, use);
+    }
+  }
 
   // Program-order index for sorting anchors (which may be discovered out of
   // order across the two sources above).
