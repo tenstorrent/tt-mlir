@@ -482,12 +482,12 @@ See [SIMULATOR_SPEC.md](SIMULATOR_SPEC.md) for the design and the list of
 intended device divergences (e.g. `empty` is zero, matmul is correct without a
 zeros-prefill, multicast runs).
 
-CI covers the simulator two ways, both on the existing d2m-jit lane: the whole
-pytest directory is re-run with `D2M_JIT_BACKEND=sim` after the device pass — so
-every device kernel is checked against the oracle, not just the kernels
-`test_sim.py` defines — and `test/d2m-jit/test_parity.py` asserts sim-vs-device
-PCC (`-m parity`). Tests that cannot hold on the simulator are marked
-`device_only` and skip themselves in the sim re-run.
+CI checks the simulator by re-running the whole pytest directory with
+`D2M_JIT_BACKEND=sim` after the device pass, on the existing d2m-jit lane. Every
+test carries its own torch golden, so each kernel is checked against the same
+reference on both backends — not just the kernels `test_sim.py` defines. Tests
+that cannot hold on the simulator are marked `device_only` and skip themselves in
+the sim re-run.
 
 A few host functions are device-only and say so under `backend = "sim"`:
 `arange`, `reshape`, and `spatial` raise `NotImplementedError` rather than

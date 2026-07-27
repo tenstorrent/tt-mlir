@@ -11,11 +11,6 @@ import torch
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
-        "parity: sim-vs-device PCC parity test (runs a kernel on both backends; "
-        "requires a device). Select with `-m parity`, skip with `-m 'not parity'`.",
-    )
-    config.addinivalue_line(
-        "markers",
         "device_only: asserts device-specific behavior -- an intended simulator "
         "divergence (SIMULATOR_SPEC.md §9), a host API the backend switch does "
         "not dispatch, or a device-specific error type (§8). Skipped when the "

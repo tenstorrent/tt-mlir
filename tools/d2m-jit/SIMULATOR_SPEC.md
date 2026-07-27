@@ -428,9 +428,13 @@ here only:
 | synchronization | real semaphores/threads | serialized, no-op waits |
 | reduced-precision tiles | bf16/fp16 math | f32 (unless quirk mode) |
 
-These make the sim a clean **golden reference**: a device test can assert
-`pcc(device_out, sim_out)` to catch lowering regressions, and the sim result
-is the algebraically-correct target.
+These make the sim result the algebraically-correct target, which is what lets
+the whole device suite re-run against it (§11.4). Note the sim is an oracle for
+*intended semantics*, not a substitute for a reference: a test should assert
+against its own torch golden on both backends rather than asserting
+`pcc(device_out, sim_out)`. Two implementations can share a misconception and
+agree with each other while both disagree with torch — see §11.2 for why the
+device-vs-sim parity suite was removed in favor of the goldens.
 
 ---
 
@@ -483,9 +487,7 @@ Deferred (🟡/🟢), out of v1:
    - simulator-only rejections and internals: `async def` + `await` with no-op
      `Semaphore`, the async-generator rejection, the declarative-form
      rejection, the sim arg-order `TypeError`, the in-kernel `zeros` block;
-   - the runtime-free import property (item 3);
-   - a composed softmax, kept only because no device test composes one, so the
-     re-run does not cover that shape.
+   - the runtime-free import property (item 3).
 
    It used to mirror the whole op surface (eltwise, reductions, matmul,
    comparisons, views, broadcasts) against hand-copied kernels. Item 4 covers
@@ -502,15 +504,27 @@ Deferred (🟡/🟢), out of v1:
    with `!tensor.store` and `__matmul_acc__` as the known v2 gaps. It lives
    there rather than in `test_sim.py` because reading the device registry needs
    the bindings.
-2. **Sim-vs-device parity (✅ implemented).** `test/d2m-jit/test_parity.py`
-   runs each kernel on both backends through the `config.backend` switch and
-   asserts `assert_pcc(sim, device)` (`utils.assert_parity` reseeds torch so
-   both runs see identical inputs). Tagged with the `parity` marker (registered
-   in `conftest.py`) and skipped via `utils.device_runtime_available()` when no
-   device is present. Run with `pytest -m parity`; exclude with
-   `pytest -m 'not parity'`. Doubles as a lowering-regression net; only covers
-   kernels where device and sim are expected to agree (the §9 divergences are
-   excluded by construction).
+2. **Sim-vs-device parity (removed — subsumed by the goldens).** There was a
+   `test_parity.py` that ran each kernel on both backends and asserted
+   `assert_pcc(sim, device)`. It was deleted, along with `utils.assert_parity` /
+   `_run_on_backend` / `device_runtime_available` and the `parity` marker, because
+   every test in the directory carries its own torch golden and item 4 runs those
+   same tests on both backends. Given `|device − golden| < t` and
+   `|sim − golden| < t`, parity follows by the triangle inequality — and parity's
+   threshold (PCC 0.99) was never tighter than the goldens it backstopped
+   (`diff < 0.05` for reductions and unary ops, `diff < 0.01` for the where/ge
+   case). So it could not fail unless a golden check already had.
+
+   It was also the *weaker* oracle: two implementations can share a misconception
+   and agree with each other while both disagree with torch. Agreement with an
+   independent golden strictly dominates mutual agreement, so §9's old suggestion
+   to "assert `pcc(device_out, sim_out)` to catch lowering regressions" was worse
+   advice than just checking each backend against torch.
+
+   Where parity would still earn its keep: a configuration whose torch golden is
+   genuinely awkward to express (multi-block sharded reductions are the plausible
+   case) but where device-vs-sim is easy to state. None of the removed cases were
+   that. Recover the helper from git history if such a case turns up.
 3. **Runtime-free import, asserted (✅ implemented).**
    `test_sim_imports_and_runs_without_mlir_bindings` re-runs the import and a
    one-block kernel in a subprocess with `ttmlir` / `_ttmlir_runtime` forced
@@ -518,11 +532,12 @@ Deferred (🟡/🟢), out of v1:
    eroding the first time someone adds a module-scope import on the sim path.
 4. **Whole-suite sim re-run (✅ implemented).** `d2m_jit.sh` re-runs the entire
    pytest directory with `D2M_JIT_BACKEND=sim` after the device pass, so every
-   device kernel is also checked against the oracle without anyone hand-copying
-   it into the sim suite. This is what catches "new device kernel uses an op the
-   sim lacks", which a stand-alone sim file structurally cannot. Excludes
-   `-m parity` (those drive both backends themselves and already ran) and writes
-   its own `_sim.xml` report so it does not clobber the device run's.
+   device kernel is checked against the same torch golden the device run used,
+   without anyone hand-copying it into the sim suite. This is what catches "new
+   device kernel uses an op the sim lacks", which a stand-alone sim file
+   structurally cannot. It writes its own `_sim.xml` report so it does not clobber
+   the device run's. Together with the device pass this replaces the old parity
+   suite (item 2).
 
    Tests that cannot hold on the simulator carry the `device_only` marker, which
    `conftest.py` skips only when `D2M_JIT_BACKEND=sim`. Marking rather than
@@ -563,8 +578,8 @@ Deferred (🟡/🟢), out of v1:
   idiom; views/permute/tilize/untilize; host ops; `to_host`; `async def` +
   `await` bodies and no-op `Semaphore` (§5.5); shadow module **and** the
   `config.backend` switch; exact numerics; runtime-free import (§2), asserted;
-  tests in `test/d2m-jit/test_sim.py`, `test/d2m-jit/test_backend_switch.py`,
-  and `test/d2m-jit/test_parity.py`.
+  tests in `test/d2m-jit/test_sim.py` and `test/d2m-jit/test_backend_switch.py`,
+  plus the whole-suite sim re-run in CI (§11.4).
 - **v2 (🟡):** declarative generic forms (`indexing_maps` / `iterator_types` /
   `block_factors` with `iter_index`/`block_index`/`block_offset`) and the
   `!tensor.store` method that goes with them; async-generator (`yield`)

@@ -22,8 +22,12 @@ What lives here is what that re-run cannot reach:
     hold by construction in sim and are undefined on device, so a shared test
     could not make them;
   * simulator-only rejections and internals: `async def` bodies, the declarative
-    generic form, the in-kernel `zeros` block, the op registry;
+    generic form, the in-kernel `zeros` block;
   * the runtime-free import property (§2).
+
+The op-registry audit (every device-registered in-kernel name has a sim backing)
+lives in test_backend_switch.py, since reading the device registry needs the
+MLIR bindings that this file deliberately does without.
 
 See tools/d2m-jit/SIMULATOR_SPEC.md.
 """
@@ -64,19 +68,6 @@ def add(lhs, rhs, out, m_blocks, n_blocks):
 
 
 @d2m.kernel
-def softmax_row(x, out, m_blocks, n_blocks):
-    m_off = core_index(0) * m_blocks
-    n_off = core_index(1) * n_blocks
-    for m in range(m_blocks):
-        for n in range(n_blocks):
-            t = remote_load(x, [m_off + m, n_off + n])
-            row_max = reduce_max(t, 1)
-            e = exp(t - row_max)
-            row_sum = reduce_sum(e, 1)
-            remote_store(out, [m_off + m, n_off + n], e * recip(row_sum))
-
-
-@d2m.kernel
 def matmul_kernel(lhs, rhs, out):
     remote_store(out, [0, 0], remote_load(lhs, [0, 0]) @ remote_load(rhs, [0, 0]))
 
@@ -95,17 +86,6 @@ def test_shadow_module_runs_a_kernel_end_to_end():
     mb, nb = _blocks_per_core((512, 512), (1, 1), (2, 2))
     add(d2m.to_layout(lhs, lin), d2m.to_layout(rhs, lin), out, mb, nb, grid=(2, 2))
     assert torch.allclose(lhs + rhs, out.to_host(), atol=1e-5)
-
-
-def test_softmax_within_tile():
-    """Composed reduce -> broadcast -> eltwise chain, the canonical consumer of
-    the §5.3 broadcast-back semantics. Kept because no device test composes a
-    full softmax, so the sim re-run does not cover this shape."""
-    x = torch.randn(32, 32)
-    layout = _layout((32, 32))
-    out = d2m.empty(layout)
-    softmax_row(d2m.to_layout(x, layout), out, 1, 1, grid=(1, 1))
-    assert_pcc(torch.softmax(x, dim=1), out.to_host())
 
 
 # --- intended divergences from device (§9) -----------------------------------

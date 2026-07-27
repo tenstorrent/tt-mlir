@@ -22,14 +22,14 @@ echo "Running d2m-jit tests (RUNS_ON=$RUNS_ON)..."
 llvm-lit -v --xunit-xml-output "$LIT_REPORT_PATH" "$BUILD_DIR/test/d2m-jit/lit"
 pytest -v "$WORK_DIR"/test/d2m-jit/test_*.py --junit-xml="$TEST_REPORT_PATH"
 
-# Re-run the same kernels on the pure-Python/torch simulator backend, so every
-# device kernel is also checked against the intended-semantics oracle without
-# anyone having to hand-copy it into the sim suite. Tests marked `device_only`
-# skip themselves here (conftest.py); parity tests are excluded because they
-# drive both backends explicitly and already ran above.
+# Re-run the same kernels on the pure-Python/torch simulator backend. Every test
+# carries its own torch golden, so this checks the simulator against the same
+# reference the device run uses -- no hand-copied sim suite, and no separate
+# device-vs-sim comparison needed. Tests marked `device_only` skip themselves
+# here (see conftest.py).
 echo "Re-running d2m-jit tests on the simulator backend..."
 D2M_JIT_BACKEND=sim pytest -v "$WORK_DIR"/test/d2m-jit/test_*.py \
-    -m 'not parity' --junit-xml="$SIM_REPORT_PATH"
+    --junit-xml="$SIM_REPORT_PATH"
 
 # cleanup
 rm -rf $WORK_DIR/third_party/tt-metal
