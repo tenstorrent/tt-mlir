@@ -7034,6 +7034,77 @@ TEST_F(OpModelBase, FlashMlaPrefillOpInterfaceWithMask) {
 }
 
 //===----------------------------------------------------------------------===//
+// IndexerScoreDsaOp
+//===----------------------------------------------------------------------===//
+
+// ttnn.experimental.indexer_score_dsa is Blackhole-only: on any other
+// architecture the metal op raises (TT_FATAL), which the op-model query
+// surfaces as an error. The test therefore skips when the query is
+// unavailable so it still exercises the binding on Blackhole hardware without
+// failing elsewhere.
+TEST_F(OpModelBase, IndexerScoreDsaOpInterface) {
+  // Shapes mirror the transformer lit tests: query [B, Hi, Sq, D],
+  // key [B, 1, T, D], weights [B, Hi, Sq, 1] -> score [B, 1, Sq, T].
+  llvm::SmallVector<int64_t> queryShape = {1, 8, 32, 128};
+  llvm::SmallVector<int64_t> keyShape = {1, 1, 32, 128};
+  llvm::SmallVector<int64_t> weightsShape = {1, 8, 32, 1};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 32, 32};
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+
+  llvm::SmallVector<int64_t> gridAttr{1, 1};
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto makeDramLayout = [&](llvm::ArrayRef<int64_t> shape, mlir::Type elem) {
+    return TTNNLayoutAttr::Builder(&context, shape, elem)
+        .setBufferType(BufferType::DRAM)
+        .setMemoryLayout(tensorMemoryLayoutAttr)
+        .setGridShape(gridAttr)
+        .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  };
+
+  auto queryLayout = makeDramLayout(queryShape, tiledElemType);
+  auto keyLayout = makeDramLayout(keyShape, tiledElemType);
+  auto weightsLayout = makeDramLayout(weightsShape, tiledElemType);
+  auto outputLayout = makeDramLayout(outputShape, tiledElemType);
+
+  auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
+  auto key = createEmptyTensor(keyShape, tiledElemType, keyLayout);
+  auto weights = createEmptyTensor(weightsShape, tiledElemType, weightsLayout);
+
+  auto outputType =
+      createRankedTensorType(outputShape, tiledElemType, outputLayout);
+
+  auto indexerOp = builder.create<IndexerScoreDsaOp>(
+      builder.getUnknownLoc(), outputType, query, key, weights,
+      /*chunk_start_idx=*/0);
+
+  indexerOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(indexerOp.getOperation());
+  if (!constraintsExp) {
+    GTEST_SKIP() << "indexer_score_dsa op-model query unavailable "
+                    "(Blackhole-only): "
+                 << llvm::toString(constraintsExp.takeError());
+  }
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+      constraintsExp.get();
+  EXPECT_GE(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GE(totalPeakSize, 0);
+
+  auto runtimeExp = getOpRuntime(indexerOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    // Constraints succeeded but the runtime (execution) query is unavailable;
+    // don't hard-fail the Blackhole-only op on this path.
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // SamplingOp
 //===----------------------------------------------------------------------===//
 

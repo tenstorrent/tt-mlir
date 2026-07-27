@@ -9549,6 +9549,234 @@ public:
 } // namespace
 
 namespace {
+// Builds the primitive decomposition function for the ttcore.composite op for
+// the DSA lightning-indexer scorer. This is a fallback that gets inlined by the
+// TTNNResolveComposites pass when the composite op cannot be promoted to
+// ttnn.indexer_score_dsa.
+//
+//   score[b, s, t] = sum_h relu(q[b,h,s,:] . k[b,t,:]) * weights[b,h,s]
+//   masked to -inf where t > chunk_start_idx + s.
+//
+// q [B, Hi, Sq, D], k [B, 1, T, D], weights [B, Hi, Sq, 1] -> [B, 1, Sq, T].
+static Value
+buildIndexerScoreDsaDecompositionBody(ConversionPatternRewriter &rewriter,
+                                      Location loc, Value query, Value key,
+                                      Value weights, uint32_t chunkStartIdx) {
+  auto queryType = mlir::cast<RankedTensorType>(query.getType());
+  auto keyType = mlir::cast<RankedTensorType>(key.getType());
+  ArrayRef<int64_t> qShape = queryType.getShape();
+
+  int64_t batch = qShape[0];
+  int64_t numHeads = qShape[1];
+  int64_t querySeqLen = qShape[2];
+  int64_t headDim = qShape[3];
+  int64_t keySeqLen = keyType.getShape()[2];
+
+  Type elemType = queryType.getElementType();
+  Attribute encoding = queryType.getEncoding();
+
+  auto tensorType = [&](ArrayRef<int64_t> shape) {
+    return RankedTensorType::get(shape, elemType, encoding);
+  };
+
+  // Fold the query heads into the sequence dim so a single batched matmul
+  // against K's single kv-head works without broadcasting K across heads.
+  Value qFold =
+      ttir::utils::createReshapeOp(rewriter, loc, query,
+                                   {batch, 1, numHeads * querySeqLen, headDim})
+          .getResult();
+
+  // K^T: [B, 1, T, D] -> [B, 1, D, T].
+  Value keyT = rewriter
+                   .create<ttir::PermuteOp>(
+                       loc, tensorType({batch, 1, headDim, keySeqLen}), key,
+                       rewriter.getDenseI64ArrayAttr({0, 1, 3, 2}))
+                   .getResult();
+
+  // QK^T (grouped form), then unfold heads: [B, Hi, Sq, T].
+  Value qkFold =
+      rewriter
+          .create<ttir::MatmulOp>(
+              loc, tensorType({batch, 1, numHeads * querySeqLen, keySeqLen}),
+              qFold, keyT)
+          .getResult();
+  Value qk =
+      ttir::utils::createReshapeOp(rewriter, loc, qkFold,
+                                   {batch, numHeads, querySeqLen, keySeqLen})
+          .getResult();
+
+  // relu(QK^T).
+  Value qkRelu =
+      rewriter
+          .create<ttir::ReluOp>(
+              loc, tensorType({batch, numHeads, querySeqLen, keySeqLen}), qk)
+          .getResult();
+
+  // Multiply by the per-head gate weights, broadcast over the key dim.
+  Value weightsBcast =
+      rewriter
+          .create<ttir::BroadcastOp>(
+              loc, tensorType({batch, numHeads, querySeqLen, keySeqLen}),
+              weights, SmallVector<int64_t>{1, 1, 1, keySeqLen})
+          .getResult();
+  Value weighted =
+      rewriter
+          .create<ttir::MultiplyOp>(
+              loc, tensorType({batch, numHeads, querySeqLen, keySeqLen}),
+              qkRelu, weightsBcast)
+          .getResult();
+
+  // Sum over the head dim: [B, 1, Sq, T].
+  auto scoreType = tensorType({batch, 1, querySeqLen, keySeqLen});
+  Value score =
+      rewriter
+          .create<ttir::SumOp>(loc, scoreType, weighted,
+                               rewriter.getBoolAttr(/*keep_dim=*/true),
+                               rewriter.getI32ArrayAttr({1}))
+          .getResult();
+
+  // Causal mask: visible iff key index t <= chunk_start_idx + query index s.
+  // Future positions get an additive -inf. The index arithmetic and the
+  // comparison run in i32 (not the query element type) so that positions
+  // beyond bf16's exact-integer range (256) are not conflated --
+  // chunk_start_idx pushes the compared magnitudes well past that for long DSA
+  // contexts.
+  auto indexType = RankedTensorType::get({batch, 1, querySeqLen, keySeqLen},
+                                         rewriter.getI32Type(), encoding);
+  Value rowIdx = rewriter
+                     .create<ttir::ArangeOp>(loc, indexType, /*start=*/0,
+                                             /*end=*/querySeqLen, /*step=*/1,
+                                             /*arange_dimension=*/2)
+                     .getResult();
+  Value colIdx = rewriter
+                     .create<ttir::ArangeOp>(loc, indexType, /*start=*/0,
+                                             /*end=*/keySeqLen, /*step=*/1,
+                                             /*arange_dimension=*/3)
+                     .getResult();
+  Value chunkStartConst =
+      rewriter
+          .create<ttir::FullOp>(
+              loc, indexType,
+              rewriter.getI32IntegerAttr(static_cast<int32_t>(chunkStartIdx)))
+          .getResult();
+  Value threshold =
+      rewriter.create<ttir::AddOp>(loc, indexType, rowIdx, chunkStartConst)
+          .getResult();
+  Value visibleBool =
+      rewriter.create<ttir::GreaterEqualOp>(loc, indexType, threshold, colIdx)
+          .getResult();
+  Value zeros =
+      rewriter
+          .create<ttir::FullOp>(loc, scoreType, rewriter.getF32FloatAttr(0.0f))
+          .getResult();
+  Value negInf =
+      rewriter
+          .create<ttir::FullOp>(
+              loc, scoreType,
+              rewriter.getF32FloatAttr(-std::numeric_limits<float>::infinity()))
+          .getResult();
+  Value maskAdd =
+      rewriter.create<ttir::WhereOp>(loc, scoreType, visibleBool, zeros, negInf)
+          .getResult();
+  return rewriter.create<ttir::AddOp>(loc, scoreType, score, maskAdd)
+      .getResult();
+}
+
+// Converts stablehlo.custom_call @tt.indexer_score_dsa into a ttcore.composite
+// "indexer_score_dsa" carrying the synthesized primitive decomposition. The
+// composite is promoted to ttnn.indexer_score_dsa by TTNNResolveComposites
+// (Blackhole only); the decomposition body is the inlined fallback.
+class StableHLOToTTCoreIndexerScoreDsaOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.indexer_score_dsa") {
+      return failure();
+    }
+
+    auto operands = adaptor.getOperands();
+    if (operands.size() != 3) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "indexer_score_dsa expects exactly 3 operands (q, k, weights).");
+    }
+    Value query = operands[0];
+    Value key = operands[1];
+    Value weights = operands[2];
+
+    // chunk_start_idx is optional and defaults to 0.
+    uint32_t chunkStartIdx = 0;
+    if (auto frontendAttributes = mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"))) {
+      if (auto chunkStartIdxStringAttr =
+              frontendAttributes.getAs<mlir::StringAttr>("chunk_start_idx")) {
+        if (!llvm::to_integer(chunkStartIdxStringAttr.getValue(),
+                              chunkStartIdx)) {
+          return rewriter.notifyMatchFailure(
+              srcOp,
+              "chunk_start_idx attribute must be a non-negative integer. "
+              "Received \"" +
+                  chunkStartIdxStringAttr.getValue() + "\".");
+        }
+      }
+    }
+    IntegerAttr chunkStartIdxAttr = rewriter.getUI32IntegerAttr(chunkStartIdx);
+
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    // Synthesize the private decomposition function (inlined fallback).
+    ModuleOp moduleOp = srcOp->getParentOfType<ModuleOp>();
+    std::string decompFuncName = "indexer_score_dsa_decomp";
+    {
+      unsigned counter = 0;
+      while (SymbolTable::lookupSymbolIn(moduleOp, decompFuncName)) {
+        decompFuncName =
+            "indexer_score_dsa_decomp_" + std::to_string(counter++);
+      }
+    }
+
+    SmallVector<Value> compositeInputs = {query, key, weights};
+    SmallVector<Type> argTypes =
+        llvm::to_vector(ValueRange(compositeInputs).getTypes());
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToEnd(moduleOp.getBody());
+      auto decompFunc = rewriter.create<func::FuncOp>(
+          srcOp.getLoc(), decompFuncName,
+          rewriter.getFunctionType(argTypes, {outputType}));
+      decompFunc.setPrivate();
+      Block *entry = decompFunc.addEntryBlock();
+      rewriter.setInsertionPointToStart(entry);
+
+      Value decompResult = buildIndexerScoreDsaDecompositionBody(
+          rewriter, srcOp.getLoc(), entry->getArgument(0),
+          entry->getArgument(1), entry->getArgument(2), chunkStartIdx);
+      rewriter.create<mlir::func::ReturnOp>(srcOp.getLoc(), decompResult);
+    }
+
+    SmallVector<NamedAttribute> compositeAttrList;
+    compositeAttrList.push_back(
+        rewriter.getNamedAttr("chunk_start_idx", chunkStartIdxAttr));
+
+    rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
+        srcOp, TypeRange{outputType}, ValueRange(compositeInputs),
+        rewriter.getStringAttr("indexer_score_dsa"),
+        FlatSymbolRefAttr::get(rewriter.getContext(), decompFuncName),
+        rewriter.getDictionaryAttr(compositeAttrList));
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 // Pattern to convert mhlo.topk to ttir.topk
 class StableHLOTopKOpMHLOConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
@@ -10107,6 +10335,7 @@ static void addScaledDotProductAttentionDecodeOpConversionPattern(
       StableHLOToTTIRPagedScaledDotProductAttentionDecodeOpConversionPattern,
       StableHLOToTTCoreFlashMlaPrefillOpConversionPattern,
       StableHLOToTTIRPagedFlashMLADecodeOpConversionPattern,
+      StableHLOToTTCoreIndexerScoreDsaOpConversionPattern,
       StableHLOToTTIRChunkedScaledDotProductAttentionOpConversionPattern>(
       typeConverter, ctx);
 }

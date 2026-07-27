@@ -6782,6 +6782,72 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// IndexerScoreDsaOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::IndexerScoreDsaOp::verify() {
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType weightsType = getWeights().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  if (queryType.getRank() != 4) {
+    return emitOpError("Query must be a 4D tensor [B, Hi, Sq, D]");
+  }
+  if (keyType.getRank() != 4) {
+    return emitOpError("Key must be a 4D tensor [B, 1, T, D]");
+  }
+  if (weightsType.getRank() != 4) {
+    return emitOpError("Weights must be a 4D tensor [B, Hi, Sq, 1]");
+  }
+  if (resultType.getRank() != 4) {
+    return emitOpError("Result must be a 4D tensor [B, 1, Sq, T]");
+  }
+
+  int64_t batch = queryType.getShape()[0];
+  int64_t numHeads = queryType.getShape()[1];
+  int64_t querySeqLen = queryType.getShape()[2];
+  int64_t headDim = queryType.getShape()[3];
+  int64_t keySeqLen = keyType.getShape()[2];
+
+  // Batch size must be 1 (tt-metal op restriction)
+  if (batch != 1) {
+    return emitOpError("Query batch size (dim 0) must be 1, got ") << batch;
+  }
+
+  if (keyType.getShape()[0] != batch) {
+    return emitOpError("Key batch size must match query batch size");
+  }
+  if (keyType.getShape()[1] != 1) {
+    return emitOpError("Key must have a single head (dim 1 must be 1)");
+  }
+  if (keyType.getShape()[3] != headDim) {
+    return emitOpError("Key head dim must match query head dim");
+  }
+
+  if (weightsType.getShape()[0] != batch ||
+      weightsType.getShape()[1] != numHeads ||
+      weightsType.getShape()[2] != querySeqLen ||
+      weightsType.getShape()[3] != 1) {
+    return emitOpError(
+        "Weights shape must be [batch, num_heads, query_seq_len, 1]");
+  }
+
+  if (resultType.getShape()[0] != batch || resultType.getShape()[1] != 1 ||
+      resultType.getShape()[2] != querySeqLen ||
+      resultType.getShape()[3] != keySeqLen) {
+    return emitOpError(
+        "Result shape must be [batch, 1, query_seq_len, key_seq_len]");
+  }
+
+  if (queryType.getElementType() != keyType.getElementType()) {
+    return emitOpError("Query and key must have the same element type");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // GlobalAvgPool2dOp
 //===----------------------------------------------------------------------===//
 
