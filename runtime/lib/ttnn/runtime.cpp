@@ -1590,6 +1590,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
         opContext.type_as_TopKOp()->outputs());
     break;
   }
+  case ::tt::target::ttnn::OpType::TopKLargeIndicesOp: {
+    tensorRefs = {opContext.type_as_TopKLargeIndicesOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::TopKRouterGptOp: {
     auto *op = opContext.type_as_TopKRouterGptOp();
     tensorRefs = {op->expert_indices(), op->expert_weights()};
@@ -1793,6 +1797,10 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::TopKOp: {
     tensorRefs = {opContext.type_as_TopKOp()->input_tensor()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TopKLargeIndicesOp: {
+    tensorRefs = {opContext.type_as_TopKLargeIndicesOp()->input()};
     break;
   }
   case ::tt::target::ttnn::OpType::TopKRouterGptOp: {

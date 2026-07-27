@@ -150,6 +150,16 @@ extractSparseSdpaArgs(ttcore::CompositeOp compositeOp) {
   return args;
 }
 
+// Recover the k attribute from a "topk_large_indices" composite. Shared by its
+// validate and build callbacks.
+static uint32_t getTopKLargeIndicesK(ttcore::CompositeOp compositeOp) {
+  DictionaryAttr attrs = compositeOp.getCompositeAttributes().value_or(nullptr);
+  TT_assert(attrs);
+  auto kAttr = attrs.getAs<mlir::IntegerAttr>("k");
+  TT_assert(kAttr);
+  return static_cast<uint32_t>(kAttr.getValue().getZExtValue());
+}
+
 static void registerBuiltinComposites() {
   auto &registry = getCompositeRegistry();
   if (!registry.empty()) {
@@ -312,6 +322,32 @@ static void registerBuiltinComposites() {
         }
         return requireBlackhole(compositeOp);
       }};
+
+  registry["topk_large_indices"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 1u);
+
+        uint32_t k = getTopKLargeIndicesK(compositeOp);
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<TopKLargeIndicesOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], k);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        uint32_t k = getTopKLargeIndicesK(compositeOp);
+        return builder.create<TopKLargeIndicesOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], k);
+      },
+      // Promotion guard: ttnn.experimental.topk_large_indices is
+      // Blackhole-only. On any other architecture, veto promotion so the
+      // composite falls back to inlining its decomposition instead of
+      // failing the pass.
+      requireBlackhole};
 }
 
 // Inline the decomposition function body at the composite ops location,
@@ -374,8 +410,8 @@ static Operation *tryCreateTypedOp(ttcore::CompositeOp compositeOp,
 
   auto &entry = it->second;
 
-  // A promotion guard can veto promotion. When it fails, fall back to inlining
-  // the decomposition.
+  // A promotion guard can veto promotion (even under force-promote). When it
+  // fails, fall back to inlining the decomposition.
   if (entry.promotionGuard && mlir::failed(entry.promotionGuard(compositeOp))) {
     return nullptr;
   }

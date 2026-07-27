@@ -158,6 +158,7 @@ union OpType {
   RegionStartOp,
   RegionEndOp,
   TopKOp,
+  TopKLargeIndicesOp,
   TopKRouterGptOp,
   CreateGlobalSemaphoreOp,
   ResetGlobalSemaphoreOp,

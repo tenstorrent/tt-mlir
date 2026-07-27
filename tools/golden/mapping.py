@@ -8524,6 +8524,22 @@ def sparse_sdpa_golden(
     return output.to(output_dtype)
 
 
+def topk_large_indices_golden(
+    input: GoldenMapTensor,
+    k: int,
+) -> GoldenMapTensor:
+    """
+    Golden for the tt.topk_large_indices custom_call (experimental large-row
+    top-k indices op).
+
+    Returns the sorted-descending top-k indices along the last dimension:
+        indices = topk(input, k, dim=-1, largest=True, sorted=True).indices
+    as a UINT32 tensor of shape ``[..., k]``.
+    """
+    _, indices = torch.topk(input.float(), k=k, dim=-1, largest=True, sorted=True)
+    return indices.to(torch.uint32)
+
+
 def ttir_paged_sdpa_decode_golden(
     query: GoldenMapTensor,
     key: GoldenMapTensor,
@@ -9186,6 +9202,7 @@ STABLEHLO_CUSTOM_CALL_GOLDEN_MAPPINGS: Dict[str, Callable] = {
     "tt.flash_mla_prefill": flash_mla_prefill_golden,
     "tt.indexer_score_dsa": indexer_score_dsa_golden,
     "tt.sparse_sdpa": sparse_sdpa_golden,
+    "tt.topk_large_indices": topk_large_indices_golden,
 }
 
 
