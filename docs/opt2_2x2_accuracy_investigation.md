@@ -1,46 +1,46 @@
 # opt-2 accuracy failure on llama-3.1-70B qb2 (2×2 mesh) — investigation
 
-**Status:** root cause **NOT yet confirmed.** The bug is **depth-compounding** and only
-appears at high layer count in **decode** — at 3 layers opt-1 and opt-2 are
-indistinguishable, so any fix must be evaluated at ~80 layers, not 3.
-
-> **CORRECTION (2026-07-27).** Earlier this doc claimed the exact root was **LoFi vs
-> HiFi2** matmul fidelity, "confirmed" by an op-by-op driver at **3-layer prefill**. That
-> conclusion was **wrong**, for two compounding reasons:
-> 1. **3 layers does not reproduce the bug.** Measured on qb2, 3-layer:
->    opt-1 = prefill 0.9224 / decode 0.9786; opt-2 = 0.918 / 0.9787. **Identical.** The
->    opt-1-vs-opt-2 divergence (0.9917 vs 0.624) is purely a many-layer decode effect.
->    So the op-by-op "injectors" found at 3-layer prefill were **noise** — opt-1 injects
->    the same amounts there.
-> 2. **The HiFi2 fix, applied in the optimizer and tested end-to-end at 3 layers, changed
->    nothing** (0.918→0.920 prefill, 0.9787→0.9789 decode) — inconclusive by construction,
->    since there was no divergence at 3 layers to fix. (A first attempt was *worse*, 0.890,
->    because setting a compute config with only `math_fidelity` defaulted `packer_l1_acc`
->    to false and disabled L1 accumulation; fixed by pinning `packer_l1_acc=true`,
->    `fp32_dest_acc=false`.)
+> ## CURRENT VERDICT (end of 2026-07-27 session) — read this first
 >
-> The LoFi/HiFi2 *difference* is real (opt-1 matmuls have no program config → HiFi2; opt-2
-> matmuls carry one → LoFi — see below), but **fidelity is now DEFINITIVELY RULED OUT.**
-> The HiFi2 fix (implemented in `MatmulRules::applyOpSpecificAttrs`; emits verified
-> `compute_kernel_config=HiFi2, packer_l1_acc=true, fp32_dest_acc=false`), tested at **80
-> layers**:
+> **Symptom:** opt-2 (optimization_level=2, i.e. greedy optimizer + `memoryLayoutAnalysis`)
+> collapses llama-70B qb2 **2×2** 80-layer decode PCC to **0.624**; the opt<2 workaround gives
+> **0.9917**. Depth-compounding — at 3 layers opt-1 ≡ opt-2 (≈0.978), so fixes must be judged
+> at ~80 layers.
 >
-> | config | 80L prefill | 80L decode |
+> **Root cause: NOT yet pinpointed, but the space is heavily narrowed.** Confirmed at 80L:
+> | hypothesis | test | verdict |
 > |---|---|---|
-> | opt-1 (workaround) | — | **0.9917** |
-> | opt-2 baseline (LoFi) | — | **0.624** |
-> | opt-2 + HiFi2 fix | 0.391 | **0.626** |
+> | matmul math fidelity (LoFi/HiFi2) | HiFi2 → 0.626 | **RULED OUT** |
+> | matmul fp32 dest-accumulation | fp32 on qkv/o_proj/down_proj → 0.641 | **RULED OUT** |
+> | matmul output sharding | force DRAM-interleaved → 0.638 | **RULED OUT** (matmuls fully exonerated) |
+> | phantom cores (the #5738 norm-bug class) | static scan | **RULED OUT** (ubiquitous in *both* meshes; only bbox-reducing op, the norm, is clean) |
+> | all_reduce / CCL | IR diff | **RULED OUT** (identical opt-1 vs opt-2 @2×2) |
+> | QKV-split / rotary layout | IR diff | **RULED OUT** (mesh-driven, shared by working opt<2@2×2) |
 >
-> HiFi2 = 0.626 ≈ LoFi baseline 0.624. **No effect.** The depth-compounding decode collapse
-> is NOT matmul fidelity. Treat everything below the "Fidelity difference" heading as
-> *dead-end mechanism notes*.
+> ⇒ It is a **structural** issue in opt-2's sharding of the **non-matmul residual/elementwise
+> stream** (sharded add/multiply/silu + inserted reshards) at **low TP (2×2/TP=2)**, NOT a
+> precision problem. It is **not Blackhole-specific** — opt-2 works on the same board at TP=4
+> (qb2 default `(1,4)`); it tracks the TP factor. Galaxy runs level-1, so it is not an opt-2
+> datapoint. Exact culprit op still to be found via emit-iterate bisection, which is currently
+> **blocked by two EmitPy codegen bugs** on the 2×2 mesh (see
+> `codegen_emitpy_mesh_issues_5738.md`).
 >
-> **Still open (untested at 80L):** (a) fp32 dest-accumulation on matmuls (needs subblock≤4
-> program-config sizing — the ordering fix); (b) the sharded-vs-interleaved matmul/CCL
-> **accumulation order**, i.e. opt-2's sharded kernels vs opt-1's interleaved kernels
-> (opt-1 = fully interleaved, HiFi2, no program configs). Next: a structured opt-1-vs-opt-2
-> per-op *config* diff (sharding/kernel/program-config), not tensor dumps, to enumerate
-> exactly what opt-2 changes, then bisect layer count to localize the compounding.
+> **On the norm's core grid (`1×8` vs `8×8`):** under opt-2 the fused `distributed_rms_norm`
+> lands on a **clean full-bbox 1×8 (8 cores)** — bit-identical output (1.0), *not* the bug —
+> whereas the opt<2 workaround hand-places **8×8 (64 cores)**. opt-2 can't reach 64 because
+> `LegalTensorLayoutAnalysis`'s canonical **row-major** placement can only form a full-bbox
+> *even* divisor of 128 up to 8 cores on the 11-wide BH grid; reaching 64 needs
+> explicit-rectangular placement. This is a **throughput** refinement, not a correctness issue
+> (details in `distributed_rms_norm_opt2_migration.md`, "Remaining perf note").
+>
+> ### ⚠️ Reading guide — SUPERSEDED sections below
+> This doc accreted across sessions. Everything **above** and the sections dated
+> **(2026-07-27)** / titled **"… RULED OUT"** are current. The sections **"Finding:
+> bf16-accumulation drift … down_proj"**, **"The clincher — it is PRECISION"**, **"Why opt-1 ✓
+> … tp2×2 ✗" (K-dependent)**, **"LEADING HYPOTHESIS: large-K bf16 …"**, **"fp32-acc
+> experiment"**, and **"Fix"** below are an **earlier hypothesis (matmul K-accumulation
+> precision) that the 80-layer experiments above DISPROVED** — kept only as a historical
+> record. Do not act on them.
 
 ## Decode-graph config diff (opt-1 vs opt-2, 2×2, per op type — only differences)
 
@@ -203,7 +203,7 @@ interleaved DRAM, Ring, cluster_axis=0 in both) and **matmul kernel type** (both
 `MatmulMultiCoreReuseMultiCast1DProgramConfig`; matmuls DO carry program configs at 2×2 — the
 earlier "no PC at 2×2" was a census-window artifact).
 
-## LEADING HYPOTHESIS (post-triangulation): large-K bf16 accumulation in the 1D sharded matmul
+## [⚠️ SUPERSEDED — disproven by 80L tests; see CURRENT VERDICT at top] LEADING HYPOTHESIS (post-triangulation): large-K bf16 accumulation in the 1D sharded matmul
 
 The bug = intersection of "opt-2-specific" AND "2×2-specific". opt-2's residual-stream matmuls
 use the **1D-multicast sharded kernel** (blocked bf16 dest-accumulation) at both meshes; opt-1
@@ -344,7 +344,7 @@ and opt-1 (≈reference, PCC 0.99) is the baseline.
 prefill, which already diverges — so a decode diff is confounded. Prefill has the
 same real inputs for both.
 
-## Finding: bf16-accumulation drift in the sharded matmuls, dominated by `down_proj`
+## [⚠️ SUPERSEDED — disproven by 80L tests; see CURRENT VERDICT at top] Finding: bf16-accumulation drift in the sharded matmuls, dominated by `down_proj`
 
 Per-op *injected* error (drop each op causes beyond its input), opt-1 vs opt-2 prefill,
 default fidelity. Only a few ops inject; the rest carry:
@@ -366,7 +366,7 @@ rms_norm / mean / rsqrt / add / silu (elementwise)  ~0.0  YES (until input drift
 - **`gate_proj`/`up_proj`/`o_proj` are bit-identical** — opt-2 shards them so their
   kernels round identically to opt-1.
 
-### The clincher — it is PRECISION, not a wrong-sharding bug
+### [⚠️ SUPERSEDED — this "it is PRECISION" conclusion was DISPROVEN at 80L; see CURRENT VERDICT] The clincher — it is PRECISION, not a wrong-sharding bug
 
 `o_proj` (clean, 1.00000) and `down_proj` (injects −0.00039) have **byte-identical**
 configs: `BLOCK_SHARDED`, `11×9=99` cores, shard `[64,384]`, out_subblock_w=6,
@@ -397,7 +397,7 @@ failure mode cannot recur. The phantom/multi-range placements that *do* exist ar
 The opt-2 loss is a *precision* (accumulation) problem, ~1e-4/matmul, not a ~PCC-0
 correctness bug.
 
-## Why opt-1 ✓, tp4 (1×4) ✓, but tp2x2 (2×2) + opt-2 ✗
+## [⚠️ SUPERSEDED — the K-dependent-precision explanation below was disproven at 80L; the TP-factor observation is right but the *mechanism* is structural, not precision] Why opt-1 ✓, tp4 (1×4) ✓, but tp2x2 (2×2) + opt-2 ✗
 
 The drift is (opt-2 sharded matmul kernel) × (per-device reduction depth K), and K
 depends on the tensor-parallel degree set by the mesh:
@@ -422,7 +422,7 @@ prefill). (A per-device op-by-op comparison spuriously showed ~0.12 for lm_head 
 opt-1 interleaves the vocab output while opt-2 width-shards it across the 4 devices — the
 per-device shards aren't comparable; the 0.9989 logits PCC is authoritative.)
 
-## Fix
+## [⚠️ SUPERSEDED — this fp32/HiFi2-based fix was DISPROVEN at 80L (HiFi2 0.626, fp32 0.641); see CURRENT VERDICT at top] Fix
 
 **Primary fix — set matmul fidelity to HiFi2 when the optimizer attaches a program
 config.** The root is that a program-config'd matmul defaults to LoFi. So the optimizer
