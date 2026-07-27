@@ -1048,6 +1048,23 @@ public:
             op.getContext(), std::to_string(iterations)));
       }
       return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::MaxReduceWithIndicesTileOp>) {
+      // max_reduce_with_indices<num_rows, layout, accumulate, ITERATIONS>(
+      //     idst, idst_idx, chunk)
+      // Reduce the full 32-row column via the ROW_MAJOR data layout path.
+      SmallVector<Attribute, 2> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(op.getContext(), "32"));
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), "ckernel::DataLayout::ROW_MAJOR"));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::MaxReduceWithIndicesInitOp>) {
+      // max_reduce_with_indices_init<layout>()
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), "ckernel::DataLayout::ROW_MAJOR"));
+      return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
   }
@@ -2882,7 +2899,9 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrFromBankIDOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::TensorAccessorOp>>(
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TensorAccessorOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MaxReduceWithIndicesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MaxReduceWithIndicesTileOp>>(
         typeConverter, context);
 
     patterns.add<TTKernelToEmitCCBVoidMethodRewriter<ttkernel::CBPushBackOp>>(

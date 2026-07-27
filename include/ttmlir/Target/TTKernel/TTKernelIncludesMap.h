@@ -270,8 +270,8 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"std::max<size_t>",                               {"<algorithm>", "<algorithm>"}},
         {"std::min<size_t>",                               {"<algorithm>", "<algorithm>"}},
 
-        {"max_reduce_with_indices_tile", {"api/compute/compute_kernel_api.h", ""}},
-        {"max_reduce_with_indices_tile_init", {"api/compute/compute_kernel_api.h", ""}},
+        {"max_reduce_with_indices", {"api/compute/compute_kernel_api.h", ""}},
+        {"max_reduce_with_indices_init", {"api/compute/compute_kernel_api.h", ""}},
     };
     // clang-format on
     llvm::StringMap<HeaderRequirement> map;

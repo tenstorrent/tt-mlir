@@ -727,14 +727,14 @@ def TTKernel_SFPUReduceInitOp : TTKernel_InitOp<"sfpu_reduce_init"> {
     let hasVerifier = 1;
 }
 
-def TTKernel_MaxReduceWithIndicesInitOp : TTKernel_InitOp<"max_reduce_with_indices_tile_init"> {
+def TTKernel_MaxReduceWithIndicesInitOp : TTKernel_InitOp<"max_reduce_with_indices_init"> {
     let summary = "Init for max_reduce_with_indices.";
     let description = [{
       Initializes max_reduce_with_indices. Must be called before max_reduce_with_indices.
     }];
 }
 
-def TTKernel_MaxReduceWithIndicesTileOp : TTKernel_SFPUOp<"max_reduce_with_indices_tile"> {
+def TTKernel_MaxReduceWithIndicesTileOp : TTKernel_SFPUOp<"max_reduce_with_indices"> {
     let summary = "You know him, you love him.";
     let description = [{
       Performs MaxPool with indices algorithm on the data tile and index tile
