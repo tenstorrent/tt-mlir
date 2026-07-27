@@ -7,21 +7,15 @@
 #ttnn_layout_weight_rm = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x32xbf16, #system_memory>>
 
 module @test_allocate_buffers attributes {} {
-  func.func public @test_allocates_stats_buffer(
+  func.func public @test_no_stats_buffer_allocated(
       %arg0: tensor<1x1x32x128xbf16, #ttnn_layout_input_ws>,
       %arg1: tensor<4x32xbf16, #ttnn_layout_weight_rm>) -> tensor<1x1x32x128xbf16, #ttnn_layout_input_ws> {
-    // CHECK: #[[STATS_LAYOUT:.+]] = #ttnn.ttnn_layout{{.*}}tile<32x32, f32>{{.*}}<width_sharded>
-    // CHECK-LABEL: func.func public @test_allocates_stats_buffer
-    // CHECK: %[[DEV:.+]] = "ttnn.get_device"
-    // The stats buffer holds one 32-wide tile per device on the cluster axis
-    // (mesh_shape 1x2, cluster_axis 1 -> 2 devices -> last dim 2*32 = 64), so
-    // the fused kernel averages E(x^2) over all devices rather than a single
-    // one (num_distributed_devices = padded_shape[-1] / 32).
-    // CHECK: %[[STATS:.+]] = "ttnn.empty"
-    // CHECK-SAME: tensor<1x1x32x64xf32, #[[STATS_LAYOUT]]>
+    // Metal now allocates and releases the stats buffer internally; the pass
+    // must NOT insert a ttnn.empty for it.
+    // CHECK-LABEL: func.func public @test_no_stats_buffer_allocated
+    // CHECK-NOT: "ttnn.empty"
     // CHECK: "ttnn.distributed_rms_norm"
-    // CHECK-SAME: %[[STATS]]
-    // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 0, 1, 0, 1>
+    // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 1>
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
     %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{
       cluster_axis = 1 : ui32,

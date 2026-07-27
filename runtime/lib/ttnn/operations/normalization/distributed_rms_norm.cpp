@@ -71,8 +71,10 @@ void run(const ::tt::target::ttnn::DistributedRMSNormOp *op,
       context.getGlobalSemaphorePool().getTTNNGlobalSemaphoreAndValidate(
           op->semaphore());
 
-  ::ttnn::Tensor &statsTensor =
-      tensorPool.getTTNNTensorAndValidate(op->stats());
+  std::optional<::ttnn::Tensor> statsTensor = std::nullopt;
+  if (op->stats()) {
+    statsTensor = tensorPool.getTTNNTensorAndValidate(op->stats());
+  }
 
   ::ttnn::Tensor output = ::ttnn::fused_rms_minimal(
       input, programConfig, clusterAxis, meshDevice, semaphore,
