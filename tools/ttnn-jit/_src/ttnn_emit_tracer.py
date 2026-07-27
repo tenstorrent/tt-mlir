@@ -529,6 +529,32 @@ def _rotary_embedding_handler(
         )
 
 
+def _rotary_embedding_hf_handler(
+    jit_ctx, input, cos_cache, sin_cache, *, is_decode_mode=None, **kwargs
+):
+    """``ttnn.experimental.rotary_embedding_hf`` -> ``ttnn.rotary_embedding``.
+
+    Not a stand-in: the dialect op documents exactly the HuggingFace formula
+    (``x*cos + rotate_half(x)*sin``, rotate_half swapping the halves of the last
+    dim), which is what the HF runtime op computes. The runtime op additionally
+    takes ``is_decode_mode`` to select the per-batch-position kernel variant --
+    that changes neither shapes nor layouts, and the dialect op carries no such
+    flag, so it is dropped. The traced graph stays shape- and layout-faithful,
+    which is what the advisor consumes.
+    """
+    del is_decode_mode
+    shape = [int(d) for d in input.mlir_value.type.shape]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _retype(jit_ctx.ctx, input.mlir_value, shape)
+        return ttnn.rotary_embedding(
+            result=rt,
+            input=input.mlir_value,
+            cos_cache=cos_cache.mlir_value,
+            sin_cache=sin_cache.mlir_value,
+            token_index=None,
+        )
+
+
 def _sdpa_handler(jit_ctx, q, k, v, *, is_causal=None, scale=None, **kwargs):
     shape = [int(d) for d in q.mlir_value.type.shape]
     with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
@@ -856,6 +882,7 @@ _TOPLEVEL_MULTI = {
 # ttnn.experimental.<op> handlers.
 _EXPERIMENTAL_VALUE = {
     "rotary_embedding": _rotary_embedding_handler,
+    "rotary_embedding_hf": _rotary_embedding_hf_handler,
     "rotary_embedding_llama": _rotary_embedding_llama_handler,
     "nlp_concat_heads": _nlp_concat_heads_handler,
     "nlp_concat_heads_decode": _nlp_concat_heads_decode_handler,
