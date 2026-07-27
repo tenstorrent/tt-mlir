@@ -39,6 +39,35 @@ std::string getUniqueDecompName() {
 // 1.0 (see the addcmul pattern for the full derivation).
 constexpr double kAddcmulScalar = 1.0;
 
+// True if the reduce_scatter scatters the last axis of its input. tt-metal's
+// fused minimal-matmul kernel only supports scattering the matmul output's
+// last (N) dim (its validate asserts dim == 3 on the 4D tensor), so scatters
+// on any other axis must not fuse.
+bool scattersLastAxis(ReduceScatterOp reduceScatterOp) {
+  auto inputType =
+      mlir::cast<RankedTensorType>(reduceScatterOp.getInput().getType());
+  int64_t rank = inputType.getRank();
+  int64_t scatterDim = reduceScatterOp.getScatterDim();
+  if (scatterDim < 0) {
+    scatterDim += rank;
+  }
+  return scatterDim == rank - 1;
+}
+
+// True if `v` is a per-channel (row-broadcast) tensor: every dim except the
+// last is 1, e.g. `[1, N]`. The fused addcmul epilogue applies the gate
+// per-channel, broadcasting it across the row (M) dim; a full `[M, N]` gate
+// would be silently collapsed to its first row (see the addcmul pattern), so
+// only a row-broadcast gate may fuse.
+bool isRowBroadcast(mlir::Value v) {
+  auto type = mlir::dyn_cast<RankedTensorType>(v.getType());
+  if (!type) {
+    return false;
+  }
+  return llvm::all_of(type.getShape().drop_back(),
+                      [](int64_t dim) { return dim == 1; });
+}
+
 // True if this reduce_scatter result flows into a gated-residual epilogue
 // (a multiply then an add), which the addcmul pattern folds in whole.
 bool feedsGatedResidualEpilogue(ReduceScatterOp reduceScatterOp) {
@@ -100,6 +129,11 @@ mlir::LogicalResult MatmulReduceScatterFusing<MatmulLikeOp>::matchAndRewrite(
     ReduceScatterOp reduceScatterOp, mlir::PatternRewriter &rewriter) const {
   // Don't re-fuse the primitive ops we cloned into a decomposition body.
   if (utils::isInsideCompositeDecomposition(reduceScatterOp)) {
+    return mlir::failure();
+  }
+
+  // The fused kernel only scatters the matmul output's last (N) dim.
+  if (!scattersLastAxis(reduceScatterOp)) {
     return mlir::failure();
   }
 
@@ -216,6 +250,17 @@ MatmulReduceScatterAddcmulFusing<MatmulLikeOp>::matchAndRewrite(
     gate = gateMulOp.getLhs();
   }
   if (!reduceScatterOp || !reduceScatterOp.getResult().hasOneUse()) {
+    return mlir::failure();
+  }
+
+  // The fused kernel only scatters the matmul output's last (N) dim.
+  if (!scattersLastAxis(reduceScatterOp)) {
+    return mlir::failure();
+  }
+
+  // The fused epilogue only supports a row-broadcast gate; a full `[M, N]`
+  // gate would be silently collapsed, so leave that case unfused.
+  if (!isRowBroadcast(gate)) {
     return mlir::failure();
   }
 

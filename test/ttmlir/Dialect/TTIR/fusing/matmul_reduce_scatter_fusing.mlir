@@ -72,18 +72,19 @@ func.func @no_fuse_multiuse(%x: tensor<32x128xbf16>, %w: tensor<128x64xbf16>)
 
 // Gated-residual epilogue: residual + gate * reduce_scatter(matmul(x, W)) folds
 // the whole thing (matmul + reduce_scatter + multiply + add) into one composite,
-// with residual/gate mapped to the addcmul operands and scalar = 1.0.
+// with residual/gate mapped to the addcmul operands and scalar = 1.0. The fused
+// kernel applies the gate per-channel, so it must be row-broadcast (`[1, N]`).
 // CHECK-LABEL: func.func @matmul_reduce_scatter_addcmul
 // CHECK: "ttcore.composite"
 // CHECK-SAME: has_addcmul = true
 // CHECK-SAME: scalar = 1.000000e+00 : f32
 // CHECK-SAME: composite_name = "minimal_matmul_strided_reduce_scatter_async"
 func.func @matmul_reduce_scatter_addcmul(%x: tensor<32x128xbf16>, %w: tensor<128x64xbf16>,
-                                         %gate: tensor<32x32xbf16>, %res: tensor<32x32xbf16>)
+                                         %gate: tensor<1x32xbf16>, %res: tensor<32x32xbf16>)
     -> tensor<32x32xbf16> {
   %0 = "ttir.matmul"(%x, %w) <{transpose_a = false, transpose_b = false}> : (tensor<32x128xbf16>, tensor<128x64xbf16>) -> tensor<32x64xbf16>
   %1 = "ttir.reduce_scatter"(%0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 1 : si32}> : (tensor<32x64xbf16>) -> tensor<32x32xbf16>
-  %2 = "ttir.multiply"(%1, %gate) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+  %2 = "ttir.multiply"(%1, %gate) : (tensor<32x32xbf16>, tensor<1x32xbf16>) -> tensor<32x32xbf16>
   %3 = "ttir.add"(%res, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
   return %3 : tensor<32x32xbf16>
 }
@@ -98,19 +99,43 @@ func.func @matmul_reduce_scatter_addcmul(%x: tensor<32x128xbf16>, %w: tensor<128
 // CHECK-SAME: has_bias = true
 // CHECK-SAME: composite_name = "minimal_matmul_strided_reduce_scatter_async"
 func.func @linear_reduce_scatter_addcmul(%x: tensor<32x128xbf16>, %w: tensor<128x64xbf16>, %bias: tensor<1x64xbf16>,
-                                         %gate: tensor<32x32xbf16>, %res: tensor<32x32xbf16>)
+                                         %gate: tensor<1x32xbf16>, %res: tensor<32x32xbf16>)
     -> tensor<32x32xbf16> {
   %0 = "ttir.linear"(%x, %w, %bias) <{transpose_a = false, transpose_b = false}> : (tensor<32x128xbf16>, tensor<128x64xbf16>, tensor<1x64xbf16>) -> tensor<32x64xbf16>
   %1 = "ttir.reduce_scatter"(%0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 1 : si32}> : (tensor<32x64xbf16>) -> tensor<32x32xbf16>
-  %2 = "ttir.multiply"(%gate, %1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+  %2 = "ttir.multiply"(%gate, %1) : (tensor<1x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
   %3 = "ttir.add"(%2, %res) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
   return %3 : tensor<32x32xbf16>
 }
 
 // -----
 
+// A full `[M, N]` gate must NOT fuse: the fused addcmul epilogue applies the
+// gate per-channel (broadcast across the M/row dim), so a full gate would be
+// silently collapsed to its first row. The guard leaves the primitive
+// matmul + reduce_scatter + multiply + add in place.
+// CHECK-LABEL: func.func @no_fuse_full_gate
+// CHECK: "ttir.matmul"
+// CHECK: "ttir.reduce_scatter"
+// CHECK: "ttir.multiply"
+// CHECK: "ttir.add"
+// CHECK-NOT: ttcore.composite
+func.func @no_fuse_full_gate(%x: tensor<32x128xbf16>, %w: tensor<128x64xbf16>,
+                             %gate: tensor<32x32xbf16>, %res: tensor<32x32xbf16>)
+    -> tensor<32x32xbf16> {
+  %0 = "ttir.matmul"(%x, %w) <{transpose_a = false, transpose_b = false}> : (tensor<32x128xbf16>, tensor<128x64xbf16>) -> tensor<32x64xbf16>
+  %1 = "ttir.reduce_scatter"(%0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 1 : si32}> : (tensor<32x64xbf16>) -> tensor<32x32xbf16>
+  %2 = "ttir.multiply"(%1, %gate) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+  %3 = "ttir.add"(%res, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+  return %3 : tensor<32x32xbf16>
+}
+
+// -----
+
 // The generated decomposition function is emitted and marked so fusing never
-// recurses into it.
+// recurses into it. (The CHECK-LABEL also bounds @no_fuse_full_gate's
+// CHECK-NOT above so it does not reach this function's legitimate composite.)
+// CHECK-LABEL: func.func @emit_decomp
 // CHECK: func.func private @minimal_matmul_strided_reduce_scatter_async_decomp
 // CHECK-SAME: attributes {tt.composite_decomposition}
 func.func @emit_decomp(%x: tensor<32x128xbf16>, %w: tensor<128x64xbf16>)

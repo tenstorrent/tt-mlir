@@ -7,15 +7,17 @@
 // stages with no silicon:
 //   1. the op verifier (runs on parse),
 //   2. the `--ttnn-allocate-distributed-op-semaphores` pass, which materializes
-//      the two reduce-scatter semaphores + barrier semaphore via the
+//      the three reduce-scatter semaphores + barrier semaphore via the
 //      DistributedOpInterface when they are left unbound, and
 //   3. flatbuffer serialization (`ttmlir-translate --ttnn-to-flatbuffer`).
 
 #dram = #ttnn.buffer_type<dram>
 #l1 = #ttnn.buffer_type<l1>
 
-// Activation A[M=32, K=128] sharded along K across a 1x4 worker grid; the
-// semaphore pass derives the semaphore core range from this layout.
+// Activation A[M=32, K=128] sharded along K across a 1x4 worker grid. The
+// semaphore pass creates the global semaphores over the full device worker
+// grid (not the input's shard range), so every matmul/reduce-scatter core has
+// them.
 #ttnn_layout_in = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x4>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (3,0)>]>>
 // Weight B[K=128, N=64].
 #ttnn_layout_w = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
@@ -32,10 +34,10 @@ module @test_minimal_matmul_strided_reduce_scatter_async attributes {} {
       %weight: tensor<128x64xbf16, #ttnn_layout_w>)
       -> tensor<32x64xbf16, #ttnn_layout_out> attributes {tt.function_type = "forward_device"} {
     // CHECK: "ttnn.get_device"
-    // The pass allocates two reduce-scatter semaphores plus one barrier semaphore.
-    // CHECK-COUNT-3: "ttnn.create_global_semaphore"
+    // The pass allocates three reduce-scatter semaphores plus one barrier semaphore.
+    // CHECK-COUNT-4: "ttnn.create_global_semaphore"
     // CHECK: "ttnn.minimal_matmul_strided_reduce_scatter_async"
-    // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 2, 1, 1>
+    // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 3, 1, 1>
     %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
     %0 = "ttnn.minimal_matmul_strided_reduce_scatter_async"(%input, %weight, %device) <{
       cluster_axis = 1 : ui32,
@@ -54,9 +56,9 @@ module @test_minimal_matmul_strided_reduce_scatter_async attributes {} {
       %res: tensor<32x64xbf16, #ttnn_layout_out>,
       %gate: tensor<1x64xbf16, #ttnn_layout_row>)
       -> tensor<32x64xbf16, #ttnn_layout_out> attributes {tt.function_type = "forward_device"} {
-    // CHECK-COUNT-3: "ttnn.create_global_semaphore"
+    // CHECK-COUNT-4: "ttnn.create_global_semaphore"
     // CHECK: "ttnn.minimal_matmul_strided_reduce_scatter_async"
-    // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 2, 1, 1>
+    // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 3, 1, 1>
     %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
     %0 = "ttnn.minimal_matmul_strided_reduce_scatter_async"(%input, %weight, %bias, %res, %gate, %device) <{
       cluster_axis = 1 : ui32,

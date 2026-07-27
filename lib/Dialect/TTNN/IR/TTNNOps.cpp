@@ -3221,13 +3221,14 @@ void MoeComputeOp::allocateSemaphores(::mlir::RewriterBase &rewriter) {}
     return emitOpError("weight tensor must have rank >= 2");
   }
 
-  // The reduce-scatter is synchronized by exactly two global semaphores. When
-  // the operand is left unbound it is materialized later by
-  // TTNNAllocateDistributedOpSemaphores; if provided it must be a pair.
+  // The reduce-scatter is synchronized by exactly three global semaphores
+  // (tt-metal's validate asserts semaphore.size() == 3). When the operand is
+  // left unbound it is materialized later by
+  // TTNNAllocateDistributedOpSemaphores; if provided it must be a triple.
   if (!getMultiDeviceSemaphore().empty() &&
-      getMultiDeviceSemaphore().size() != 2) {
+      getMultiDeviceSemaphore().size() != 3) {
     return emitOpError(
-               "expects exactly two multi-device global semaphores, got ")
+               "expects exactly three multi-device global semaphores, got ")
            << getMultiDeviceSemaphore().size();
   }
 
@@ -3283,22 +3284,20 @@ void MinimalMatmulStridedReduceScatterAsyncOp::allocateSemaphores(
     return;
   }
 
-  // The reduce-scatter semaphores must live on cores that exist on the device.
-  // Derive the core range from the input tensor's layout (its worker grid).
+  // The global semaphores must live on every core that participates in the
+  // fused op -- the matmul cores span the top of the grid and the
+  // reduce-scatter cores the bottom -- so they are created over the FULL
+  // compute grid, matching tt-metal's own test (which builds them on
+  // `all_cores`). Scoping them to just the input tensor's (possibly small,
+  // sharded) core range would leave the matmul/RS cores waiting on a semaphore
+  // that does not exist for them, which deadlocks.
   MLIRContext *ctx = rewriter.getContext();
-  auto inputLayout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
-      getInput().getType().getEncoding());
-  CoreRangeSetAttr coreRangeSet =
-      inputLayout ? inputLayout.getCoreRangeSet() : CoreRangeSetAttr();
-
-  if (!coreRangeSet) {
-    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(*this);
-    llvm::ArrayRef<int64_t> gridShape = deviceAttr.getWorkerGrid().getShape();
-    coreRangeSet = CoreRangeSetAttr::get(
-        ctx, {CoreRangeAttr::get(
-                 ctx, CoreCoordAttr::get(ctx, 0, 0),
-                 CoreCoordAttr::get(ctx, gridShape[1] - 1, gridShape[0] - 1))});
-  }
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(*this);
+  llvm::ArrayRef<int64_t> gridShape = deviceAttr.getWorkerGrid().getShape();
+  CoreRangeSetAttr coreRangeSet = CoreRangeSetAttr::get(
+      ctx, {CoreRangeAttr::get(
+               ctx, CoreCoordAttr::get(ctx, 0, 0),
+               CoreCoordAttr::get(ctx, gridShape[1] - 1, gridShape[0] - 1))});
 
   Value device = getDevice();
 
@@ -3318,7 +3317,8 @@ void MinimalMatmulStridedReduceScatterAsyncOp::allocateSemaphores(
   };
 
   if (getMultiDeviceSemaphore().empty()) {
-    SmallVector<Value> semaphores = {createSemaphore(), createSemaphore()};
+    SmallVector<Value> semaphores = {createSemaphore(), createSemaphore(),
+                                     createSemaphore()};
     rewriter.modifyOpInPlace(
         *this, [&]() { getMultiDeviceSemaphoreMutable().assign(semaphores); });
   }

@@ -3,12 +3,12 @@
 // verifier. Verifier only inspects operand shapes, so plain (unencoded)
 // tensors suffice.
 
-// Bound multi-device semaphores must come as an exact pair.
+// Bound multi-device semaphores must come as an exact triple.
 module {
   func.func @wrong_semaphore_count(%input: tensor<32x128xbf16>, %weight: tensor<128x64xbf16>) -> tensor<32x64xbf16> {
     %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
     %sem = "ttnn.create_global_semaphore"(%device) <{core_range_set = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (3,0)>]>, initial_value = 0 : ui32}> : (!ttnn.device) -> !ttnn.global_semaphore
-    // CHECK: error: 'ttnn.minimal_matmul_strided_reduce_scatter_async' op expects exactly two multi-device global semaphores, got 1
+    // CHECK: error: 'ttnn.minimal_matmul_strided_reduce_scatter_async' op expects exactly three multi-device global semaphores, got 1
     %0 = "ttnn.minimal_matmul_strided_reduce_scatter_async"(%input, %weight, %sem, %device) <{
       cluster_axis = 1 : ui32,
       operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 1, 0, 1>

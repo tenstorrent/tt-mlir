@@ -214,10 +214,23 @@ static void registerBuiltinComposites() {
         FloatAttr scalar =
             hasAddcmul ? attrs.getAs<FloatAttr>("scalar") : FloatAttr();
 
-        // The typed op needs a device handle and (later) semaphores; those are
-        // TTNN-level concerns that belong here, not in the TTIR fusing pattern.
-        // Semaphores are left unbound and materialized by
-        // TTNNAllocateDistributedOpSemaphores via the DistributedOpInterface.
+        // The tt-metal kernel asserts the scatter targets dim 3, so
+        // canonicalize the last-axis index (all the fusing pattern matches) to
+        // 3.
+        constexpr int32_t kMetalScatterDim = 3;
+        int64_t rank =
+            mlir::cast<RankedTensorType>(compositeOp.getResult(0).getType())
+                .getRank();
+        int64_t scatterDimValue = scatterDim.getValue().getSExtValue();
+        if (scatterDimValue < 0) {
+          scatterDimValue += rank;
+        }
+        int32_t dim = scatterDimValue == rank - 1
+                          ? kMetalScatterDim
+                          : static_cast<int32_t>(scatterDimValue);
+
+        // The typed op needs a device handle; semaphores are left unbound and
+        // materialized later by TTNNAllocateDistributedOpSemaphores.
         IRRewriter rewriter(builder.getContext());
         rewriter.setInsertionPoint(compositeOp);
         Value device =
@@ -228,13 +241,17 @@ static void registerBuiltinComposites() {
             bias, addcmulInput1, addcmulInput2,
             /*multi_device_semaphore=*/ValueRange{},
             /*barrier_semaphore=*/Value(), device, clusterAxis, scalar,
-            /*topology=*/ttcore::TopologyAttr(),
+            // The kernel only supports Ring topology, so pin it here. The mesh
+            // must therefore be opened with a ring fabric (FABRIC_1D_RING) or
+            // it deadlocks.
+            /*topology=*/
+            ttcore::TopologyAttr::get(builder.getContext(),
+                                      ttcore::Topology::Ring),
             /*num_links=*/IntegerAttr(), /*memory_config=*/MemoryConfigAttr(),
             /*dtype=*/ttcore::DataTypeAttr(),
             /*compute_config=*/DeviceComputeKernelConfigAttr(),
             /*num_workers_per_link=*/1u, /*num_buffers_per_channel=*/1u,
-            /*dim=*/
-            static_cast<int32_t>(scatterDim.getValue().getSExtValue()));
+            /*dim=*/dim);
       }};
 }
 
