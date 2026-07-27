@@ -606,10 +606,6 @@ NB_MODULE(_native, m) {
         },
         "output"_a, "input"_a, "cluster_axis"_a, "scatter_dim"_a);
 
-    m.def(
-        "describe_tensor",
-        [](nb::handle py_t) -> std::string { return tk::describe_tensor(unpack_torch_tensor(py_t)); }, "py_t"_a);
-
     // Strict-fallback toggle. Tests flip this on to assert that a code path
     // never falls back to CPU; the catch-all fallback raises instead of
     // running while strict mode is set.
@@ -686,8 +682,7 @@ NB_MODULE(_native, m) {
                 &::tt::kurbla::CompileOptions::experimental_enable_dram_space_saving_optimization)
         .def_rw("enable_create_d2m_subgraphs", &::tt::kurbla::CompileOptions::enable_create_d2m_subgraphs)
         .def_rw("ttnn_perf_metrics_enabled", &::tt::kurbla::CompileOptions::ttnn_perf_metrics_enabled)
-        .def_rw("ttnn_perf_metrics_output_file", &::tt::kurbla::CompileOptions::ttnn_perf_metrics_output_file)
-        .def_rw("all_reduce_workaround_enabled", &::tt::kurbla::CompileOptions::all_reduce_workaround_enabled);
+        .def_rw("ttnn_perf_metrics_output_file", &::tt::kurbla::CompileOptions::ttnn_perf_metrics_output_file);
 
     nb::class_<PyModuleBuilder>(m, "ModuleBuilder")
         .def(nb::init<std::vector<tk::TensorTypeSpec>, const std::vector<mlir::tt::ttcore::ArgumentType> &>(),

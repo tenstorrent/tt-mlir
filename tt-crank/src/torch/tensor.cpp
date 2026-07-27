@@ -253,12 +253,4 @@ void reduce_scatter_into(const at::Tensor &output, const at::Tensor &input, std:
     });
 }
 
-std::string describe_tensor(const at::Tensor &t) {
-    auto &storage = storage_of(t);
-    std::ostringstream oss;
-    oss << "at::Tensor shape=" << t.sizes() << " dtype=" << t.dtype() << "\nruntime TensorTopology:\n"
-        << ::tt::runtime::getTensorTopologyDescription(storage.tensor());
-    return oss.str();
-}
-
 } // namespace tt::kurbla::torch_backend

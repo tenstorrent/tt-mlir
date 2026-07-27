@@ -1148,7 +1148,6 @@ def test_compile_options() -> None:
     assert defaults.fp32_dest_acc_en is None
     assert defaults.experimental_enable_permute_matmul_fusion is True
     assert defaults.enable_const_eval is None
-    assert defaults.all_reduce_workaround_enabled is None
 
     # Every Category-A option round-trips into the native CompileOptions struct.
     c = _compile_options({
@@ -1167,7 +1166,6 @@ def test_compile_options() -> None:
         CompileOption.ENABLE_CREATE_D2M_SUBGRAPHS: True,
         CompileOption.TTNN_PERF_METRICS_ENABLED: True,
         CompileOption.TTNN_PERF_METRICS_OUTPUT_FILE: "/tmp/perf.json",
-        CompileOption.ALL_REDUCE_WORKAROUND_ENABLED: False,
     })
     assert c.optimization_level == 2
     assert c.experimental_weight_dtype == BfpDtype.BfpBf8
@@ -1184,7 +1182,6 @@ def test_compile_options() -> None:
     assert c.enable_create_d2m_subgraphs is True
     assert c.ttnn_perf_metrics_enabled is True
     assert c.ttnn_perf_metrics_output_file == "/tmp/perf.json"
-    assert c.all_reduce_workaround_enabled is False
 
     # Plain string keys are accepted alongside CompileOption members.
     string_keyed = _compile_options({"enable_trace": True, "math_fidelity": MathFidelity.LoFi})

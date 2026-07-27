@@ -93,23 +93,13 @@ std::vector<std::vector<std::byte>> read_per_shard_to_host(const at::Tensor &sel
     return per_shard;
 }
 
-// True iff `self`'s runtime tensor is replicated across the mesh (every chip
-// holds identical data) rather than sharded. Lets reshape/copy rebuild with the
-// matching distribution instead of always stamping Shard.
-bool runtime_is_replicated(const at::Tensor &self) {
-    const auto desc = ::tt::runtime::getTensorTopologyDescription(storage_of(self).tensor());
-    return desc.find("Replicate") != std::string::npos && desc.find("Shard") == std::string::npos;
-}
-
 // Rebuild `src`'s runtime tensor at per-chip shape `sizes`, preserving its
-// distribution. Single-chip or replicated: read shard 0 once and fan it across
-// the mesh; sharded: read every chip's slab and keep them distinct.
+// distribution. Always reads every chip's slab and keeps them distinct —
+// correct whether `src` is sharded (shards differ) or replicated (shards
+// identical); we never need to know which. Costs reading N shards instead of 1
+// for replicated tensors.
 ::tt::runtime::Tensor rebuild_at_shape(const at::Tensor &src, at::IntArrayRef sizes, c10::ScalarType dtype,
                                        const char *who) {
-    if (::tt::kurbla::runtime_device_mesh_size() <= 1 || runtime_is_replicated(src)) {
-        const auto buffer = read_to_host(src, who);
-        return runtime_from_host_shards({buffer.data()}, sizes, dtype);
-    }
     const auto per_shard = read_per_shard_to_host(src, who);
     std::vector<const void *> ptrs;
     ptrs.reserve(per_shard.size());
@@ -139,12 +129,12 @@ at::Tensor copy_from(const at::Tensor &self, const at::Tensor &dst, bool /*non_b
     }
 
     if (self.is_cpu() && is_tt(dst)) {
-        // The rebuild replicates the CPU buffer to every chip. A sharded dst
-        // would need each rank's local data, but we only have rank 0's — fail
-        // loudly instead of silently overwriting every shard with it.
-        TORCH_CHECK(::tt::kurbla::runtime_device_mesh_size() <= 1 || runtime_is_replicated(dst),
-                    "tt-kurbla _copy_from(cpu→tt): destination is sharded; copying a CPU tensor would replicate "
-                    "rank 0's local data over every shard — distribute the new data instead (distribute_tensor)");
+        // Upload the single local-shaped CPU buffer to every chip. Unlike real
+        // multi-process SPMD (where each rank copies its own shard), the
+        // single-process backend receives one host buffer and cannot
+        // reconstruct N distinct shards — so broadcasting is the only coherent
+        // behaviour, and also the only case we have observed so far on this
+        // path.
         // TODO: investigate createBorrowedHostTensor over self.data_ptr() to avoid
         //       the buffer copy here. Need to confirm tt-mlir runtime's borrowed-
         //       tensor lifetime rules vs. how long PyTorch keeps `self` alive.
@@ -294,18 +284,26 @@ at::Tensor view(const at::Tensor &self, at::IntArrayRef size) {
 at::Tensor as_strided(const at::Tensor &self, at::IntArrayRef size, at::IntArrayRef stride,
                       std::optional<int64_t> storage_offset) {
     TORCH_CHECK(is_tt(self), "tt-kurbla aten::as_strided: tensor is not on the tt backend");
-    TORCH_CHECK(::tt::kurbla::runtime_device_mesh_size() <= 1 || runtime_is_replicated(self),
-                "tt-kurbla aten::as_strided: not supported on a sharded tt tensor "
-                "(DTensor doesn't define strided views over shards; redistribute to Replicate first)");
 
-    // Pull to CPU, apply the requested view on the CPU side (gives correct
-    // strided semantics for any stride/offset combination), then materialize a
-    // fresh contiguous copy onto the tt backend. Slow but exhaustively correct.
-    auto buffer = read_to_host(self, "aten::as_strided");
-    auto cpu_full =
-        at::from_blob(buffer.data(), self.sizes(), at::TensorOptions().dtype(self.scalar_type()).device(at::kCPU));
-    auto cpu_strided = cpu_full.as_strided(size, stride, storage_offset).contiguous();
-    return make_tt_tensor_from_host(cpu_strided.data_ptr(), size, self.scalar_type());
+    // Apply the strided view to every shard independently and keep the results
+    // distinct. Correct whether `self` is sharded (each shard viewed on its own
+    // slab) or replicated (identical shards yield identical views); we never
+    // need to know which. DTensor calls as_strided on the local tensor with
+    // local-valid size/stride, so the view is well-defined per shard. Maybe
+    // inefficient (a host round-trip per shard) but exhaustively correct.
+    auto per_shard = read_per_shard_to_host(self, "aten::as_strided");
+    const auto opts = at::TensorOptions().dtype(self.scalar_type()).device(at::kCPU);
+    std::vector<at::Tensor> strided; // owns the contiguous buffers until upload
+    strided.reserve(per_shard.size());
+    std::vector<const void *> ptrs;
+    ptrs.reserve(per_shard.size());
+    for (auto &shard : per_shard) {
+        auto cpu_full = at::from_blob(shard.data(), self.sizes(), opts);
+        strided.push_back(cpu_full.as_strided(size, stride, storage_offset).contiguous());
+        ptrs.push_back(strided.back().data_ptr());
+    }
+    return wrap_tt_tensor(runtime_from_host_shards(std::move(ptrs), size, self.scalar_type()), size,
+                          self.scalar_type());
 }
 
 // _local_scalar_dense — the underlying primitive that backs Tensor.item() and
