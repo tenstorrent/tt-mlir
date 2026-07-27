@@ -569,6 +569,14 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::desc("Print per-op compile-time statistics at DEBUG level."),
       llvm::cl::init(false)};
 
+  // Beam cost model used by the greedy memory layout propagation.
+  Option<std::string> layoutCostModel{
+      *this, "layout-cost-model",
+      llvm::cl::desc("Greedy optimizer beam cost model: heuristic (local "
+                     "LayoutScore, default) or time (accumulated "
+                     "analytical-time over the producer chain)."),
+      llvm::cl::init("heuristic")};
+
   void resolveCreateD2MSubgraphsOptions() const {
     // enable-d2m-elementwise-fusion is a sub-option of
     // enable-create-d2m-subgraphs and should only be enabled if

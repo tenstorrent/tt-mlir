@@ -28,6 +28,7 @@ struct TTNNGreedyMemoryLayoutPropagationPipelineOptions {
   bool enableDecisionTrace = false;
   std::string decisionTraceDir = "ttrt-artifacts/decision_trace";
   bool enableCompileTimeStats = false;
+  std::string layoutCostModel = "heuristic";
 };
 
 std::unique_ptr<::mlir::Pass> createTTNNGreedyMemoryLayoutPropagation(

@@ -4,6 +4,7 @@ add_mlir_dialect_library(TTMLIRTTNNUtils
   OptimizerOverrides.cpp
   OptimizerUtils.cpp
   PassOverrides.cpp
+  Roofline.cpp
   TransformUtils.cpp
   Utils.cpp
   VerificationUtils.cpp
