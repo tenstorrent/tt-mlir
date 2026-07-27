@@ -66,6 +66,48 @@ def test_invalid_backend_raises():
         d2m.empty(_layout())
 
 
+def test_every_device_syntax_name_has_a_sim_backing():
+    """Mechanical audit: every in-kernel name the device DSL registers resolves in
+    the sim registries too, so a kernel body resolves identically under either
+    backend. This catches "new device op landed with no sim backing" at the
+    source, rather than waiting for some kernel to use it -- the gap that left
+    the comparisons and in-kernel `zeros` unbacked.
+
+    Lives here rather than in test_sim.py because reading the device registry
+    needs the MLIR bindings, which that file deliberately does without."""
+    import d2m_jit.api  # noqa: F401 -- the @syntax decorators populate _syntax
+    from d2m_jit._src.ast import D2MCompiler
+    from d2m_jit._src.sim.ops import SIM_METHODS, SIM_OPS
+    from d2m_jit._src.sim.tensors import SimBlock
+
+    registry = D2MCompiler._syntax
+    # Guard against a vacuous pass: an empty registry would satisfy the subset
+    # assertion below trivially (it is only populated by importing api).
+    assert len(registry) > 100, f"device syntax registry looks unpopulated: {registry}"
+
+    missing = []
+    for qualified in registry:
+        name = qualified.rsplit(".", 1)[-1]
+        if qualified.startswith("!d2m.semaphore."):
+            # Backed as methods on the Semaphore class injected into SIM_OPS.
+            if not hasattr(SIM_OPS["Semaphore"], name):
+                missing.append(qualified)
+        elif name.startswith("__") and name.endswith("__"):
+            # Operator forms are implemented directly on SimBlock.
+            if not hasattr(SimBlock, name):
+                missing.append(qualified)
+        elif name not in SIM_OPS and name not in SIM_METHODS:
+            missing.append(qualified)
+
+    # `!tensor.store` belongs to the declarative generic form, and
+    # `__matmul_acc__` is supplied by native Python `+=` on a SimBlock; both are
+    # v2 items tracked in SIMULATOR_SPEC.md §12.
+    known_gaps = {"!tensor.store", "__matmul_acc__"}
+    assert (
+        set(missing) <= known_gaps
+    ), f"device syntax names with no sim backing: {sorted(set(missing) - known_gaps)}"
+
+
 def test_kernel_forwards_attributes_to_backend_kernel():
     """Before the switch, `@d2m.kernel` *was* the concrete kernel, so callers
     read attributes straight off it -- `CompiledKernel._captures` is checked by

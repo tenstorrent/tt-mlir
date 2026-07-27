@@ -20,6 +20,12 @@ import torch
 
 import d2m_jit as d2m
 
+# Every test here asserts the `D2mJitError` type, its file:line header, and
+# its "did you mean?" hints. The simulator deliberately raises plain Python
+# errors from the real interpreter instead (a genuine traceback into the
+# kernel body beats a synthesized hint) -- SIMULATOR_SPEC.md §8.
+pytestmark = pytest.mark.device_only
+
 
 _L = d2m.Layout(
     shape=(64, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]

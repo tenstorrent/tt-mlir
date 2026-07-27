@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
 import pytest
 import torch
 
@@ -12,6 +14,36 @@ def pytest_configure(config):
         "parity: sim-vs-device PCC parity test (runs a kernel on both backends; "
         "requires a device). Select with `-m parity`, skip with `-m 'not parity'`.",
     )
+    config.addinivalue_line(
+        "markers",
+        "device_only: asserts device-specific behavior -- an intended simulator "
+        "divergence (SIMULATOR_SPEC.md §9), a host API the backend switch does "
+        "not dispatch, or a device-specific error type (§8). Skipped when the "
+        "suite is re-run with D2M_JIT_BACKEND=sim.",
+    )
+
+
+def _sim_backend_requested():
+    return os.environ.get("D2M_JIT_BACKEND", "device") == "sim"
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip `device_only` tests when the whole suite is re-run on the simulator.
+
+    CI runs this directory twice: once on the device, once with
+    D2M_JIT_BACKEND=sim (see .github/test_scripts/d2m_jit.sh). Skipping by
+    marker rather than by deselecting paths keeps the exclusions visible in the
+    junit report instead of silently narrowing what the sim lane covers.
+    """
+    if not _sim_backend_requested():
+        return
+    skip_sim = pytest.mark.skip(
+        reason="device_only: asserts device behavior that the simulator does "
+        "not reproduce (see the marker docs in conftest.py)"
+    )
+    for item in items:
+        if item.get_closest_marker("device_only"):
+            item.add_marker(skip_sim)
 
 
 @pytest.fixture(scope="function", autouse=True)

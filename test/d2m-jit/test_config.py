@@ -7,6 +7,8 @@ round-trip path."""
 
 import io
 import contextlib
+
+import pytest
 import torch
 import d2m_jit as d2m
 
@@ -20,6 +22,7 @@ def make_layout():
     )
 
 
+@pytest.mark.device_only
 def test_print_pipeline_fires():
     d2m.config.print_pipeline = True
     d2m.config.print_ir_before_pipeline = False
@@ -38,6 +41,7 @@ def test_print_pipeline_fires():
     d2m.config.print_pipeline = False
 
 
+@pytest.mark.device_only
 def test_print_ir_before_after():
     d2m.config.print_ir_before_pipeline = True
     d2m.config.print_ir_after_pipeline = True

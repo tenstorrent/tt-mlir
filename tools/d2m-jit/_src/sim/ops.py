@@ -314,6 +314,11 @@ def matmul(lhs, rhs, transpose_b=False):
 
 
 def _norm_axis(dim):
+    # bool is an int subclass, so `int(True) == 1` would silently reduce columns.
+    # The device rejects bool dims ("expected integer literal"); match that
+    # rather than guessing an axis.
+    if isinstance(dim, bool):
+        raise TypeError(f"reduce dim must be an integer literal, got {dim!r}")
     d = int(dim)
     if d in (0, -2):
         return 0

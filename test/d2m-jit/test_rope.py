@@ -9,6 +9,11 @@ from kernels.prefill.rope import KERNEL_BENCHES, build_rope_tables
 from runner import TensorSpec, run_bench
 from utils import assert_pcc
 
+# Driven through `runner`, which builds device LazyTensors directly rather
+# than going through the dispatched host surface, so these do not run on the
+# sim backend.
+pytestmark = pytest.mark.device_only
+
 
 @pytest.mark.parametrize(
     "seq_len,head_dim,grid_shape,block_shape",

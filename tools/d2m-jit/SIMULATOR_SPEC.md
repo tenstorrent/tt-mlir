@@ -382,9 +382,9 @@ exact mode; quirks are a 🟢 follow-up.
 | `reduction_layout(L, dim, ...)` | reused unchanged (pure descriptor math) |
 
 `view`/`permute` validation (rank, true-permutation, torch-tensor rejection)
-and the `to_host`-on-view rejection are replicated; the view/permute test cases
-in `test_sim.py` (`test_permute_is_view_and_materialise`,
-`test_view_identity_round_trip`, `test_to_host_on_view_raises`, …) exercise them.
+and the `to_host`-on-view rejection are replicated; `test/d2m-jit/test_views.py`
+exercises them on both backends, since the whole-suite sim re-run (§11.4) covers
+that file unchanged.
 
 ---
 
@@ -472,18 +472,36 @@ Deferred (🟡/🟢), out of v1:
 
 ## 11. Testing strategy
 
-1. **Dedicated shadow suite (✅ implemented).** `test/d2m-jit/test_sim.py`
-   uses `import d2m_jit.sim as d2m` and re-covers the surface in one
-   device-free file: eltwise (add, fused exp+add), softmax, reductions
-   (sum-cols, max-rows), implicit-broadcast centering, matmul (per-shard +
-   `transpose_b`), where/clamp/tile_bcast, zeros/full/empty, bf16 eltwise,
-   views (permute/view/view_layout identity + round-trip, `to_host`-on-view
-   and non-permutation rejections), and arg-validation (scalar-before-tensor,
-   declarative-form rejection). It reuses the golden torch computations and
-   `utils.assert_pcc`, and runs with **no device** and no `SYSTEM_DESC_PATH`.
-   (This is a stand-alone file rather than a reparametrization of the existing
-   `test_*.py` suite — the sim redefines its own kernels against the shadow
-   import.)
+1. **Sim-specific suite (✅ implemented).** `test/d2m-jit/test_sim.py` uses
+   `import d2m_jit.sim as d2m`, runs with **no device** and no
+   `SYSTEM_DESC_PATH`, and deliberately covers *only* what the whole-suite
+   re-run (item 4) cannot reach:
+   - the shadow surface itself — the re-run goes through `import d2m_jit` plus
+     `config.backend`, so nothing else imports `tools/d2m-jit/sim.py`;
+   - the §9 divergences, which are assertions no shared test could make:
+     `empty` is zero, and matmul into a raw `empty` is the correct product;
+   - simulator-only rejections and internals: `async def` + `await` with no-op
+     `Semaphore`, the async-generator rejection, the declarative-form
+     rejection, the sim arg-order `TypeError`, the in-kernel `zeros` block;
+   - the runtime-free import property (item 3);
+   - a composed softmax, kept only because no device test composes one, so the
+     re-run does not cover that shape.
+
+   It used to mirror the whole op surface (eltwise, reductions, matmul,
+   comparisons, views, broadcasts) against hand-copied kernels. Item 4 covers
+   all of that against the kernels people actually write, so the duplicates were
+   removed — a stand-alone sim file can only ever test what someone remembered
+   to copy, which is exactly how the comparisons and in-kernel `zeros` came to
+   be missing in the first place.
+
+   The mechanical counterpart lives in `test_backend_switch.py`:
+   `test_every_device_syntax_name_has_a_sim_backing` walks
+   `D2MCompiler._syntax` and asserts every registered in-kernel name resolves in
+   the sim registries (`!d2m.semaphore.*` against the `Semaphore` class,
+   operator forms against `SimBlock`, the rest against `SIM_OPS`/`SIM_METHODS`),
+   with `!tensor.store` and `__matmul_acc__` as the known v2 gaps. It lives
+   there rather than in `test_sim.py` because reading the device registry needs
+   the bindings.
 2. **Sim-vs-device parity (✅ implemented).** `test/d2m-jit/test_parity.py`
    runs each kernel on both backends through the `config.backend` switch and
    asserts `assert_pcc(sim, device)` (`utils.assert_parity` reseeds torch so
@@ -498,14 +516,40 @@ Deferred (🟡/🟢), out of v1:
    one-block kernel in a subprocess with `ttmlir` / `_ttmlir_runtime` forced
    unimportable, so the §2 design rule fails a test rather than silently
    eroding the first time someone adds a module-scope import on the sim path.
-4. **No-runtime CI lane (🟡 not wired).** With item 3 holding,
-   `pytest test/d2m-jit/test_sim.py` runs green on a plain Python+torch image
-   (verified with the bindings blocked process-wide) — fast signal with no
-   silicon. Not added as a CI job here: the existing `d2m_jit.sh` lane already
-   runs the whole suite, sim tests included, on n150. Note the lane must name
-   `test_sim.py` specifically; the other modules in `test/d2m-jit/` build device
-   kernels at import time and so error at collection without the bindings.
-5. **Kernel-author UX test.** Confirm `print(...)` / `breakpoint()` inside a
+4. **Whole-suite sim re-run (✅ implemented).** `d2m_jit.sh` re-runs the entire
+   pytest directory with `D2M_JIT_BACKEND=sim` after the device pass, so every
+   device kernel is also checked against the oracle without anyone hand-copying
+   it into the sim suite. This is what catches "new device kernel uses an op the
+   sim lacks", which a stand-alone sim file structurally cannot. Excludes
+   `-m parity` (those drive both backends themselves and already ran) and writes
+   its own `_sim.xml` report so it does not clobber the device run's.
+
+   Tests that cannot hold on the simulator carry the `device_only` marker, which
+   `conftest.py` skips only when `D2M_JIT_BACKEND=sim`. Marking rather than
+   filtering paths keeps the exclusions visible in the junit report. Three
+   reasons appear: intended divergences (§9 — multicast), error type/message
+   parity (§8 — `test_errors.py`, the reduce-dim rejections, staleness), and
+   device-only machinery with no sim analog (`d2m.spatial` / `d2m.arange` /
+   `d2m.reshape`, the pass-pipeline debug knobs, `runner`-driven rewrite and
+   e2e tests).
+5. **Separate no-device lane (🟢 viable, deliberately not wired).** Because item
+   3 holds, `pytest test/d2m-jit/test_sim.py` runs green on a no-device runner in
+   ~2s — verified locally, and `"runs-on": "builder"` in
+   `.github/settings/tests.json` is the ready-made hook (the matrix generator
+   turns it into `no-device: true`, dropping `--device /dev/tenstorrent` and
+   skipping the system-descriptor and lit steps). It is not wired because it adds
+   **no coverage**: `test_sim.py` is already run twice by the hardware lane (the
+   plain glob, then the sim re-run), so a separate job only buys latency and
+   turns one sim bug into two red jobs. The one signal it would add that the
+   hardware lane cannot give is catching the sim path accidentally acquiring a
+   device, since its container has no `/dev/tenstorrent`. Worth adding if sim
+   feedback latency ever starts to hurt.
+
+   Note what such a lane would and would not prove: the `builder` runner still
+   downloads the build artifacts, so the bindings are present there. It would
+   demonstrate "no device", not "no tt-metal build" — the latter is what item 3's
+   subprocess test covers, in every lane.
+6. **Kernel-author UX test.** Confirm `print(...)` / `breakpoint()` inside a
    kernel body work under sim (they can't on device), since that's a headline
    benefit.
 

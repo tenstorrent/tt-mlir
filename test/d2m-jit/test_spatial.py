@@ -12,8 +12,15 @@ Each test covers one expression axis (not spatial-op functional coverage):
   5. three regions in one spatial
 """
 
+import pytest
 import torch
 import d2m_jit as d2m
+
+# `d2m.spatial` is not one of the host functions the `config.backend` switch
+# dispatches, so under the sim backend it reaches the device builder and fails
+# on a LazyTensor internal. Device-only until it gets a sim backing (or rejects
+# sim explicitly) -- see SIMULATOR_SPEC.md §2.
+pytestmark = pytest.mark.device_only
 
 
 @d2m.kernel
