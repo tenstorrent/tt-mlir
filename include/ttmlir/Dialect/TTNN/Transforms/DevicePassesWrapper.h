@@ -28,6 +28,9 @@ struct DevicePassesWrapperOptions {
   // This is set as a module attribute by DevicePassesWrapper, making it
   // accessible to the matmul rule book via utils::isDRAMShardedMatmulDisabled()
   bool disableDRAMShardedMatmul = false;
+  // Whether bf16 weights may also be offered a DRAM-sharded matmul; see
+  // utils::isBf16DRAMShardedMatmulAllowed().
+  bool allowBf16DRAMShardedMatmul = false;
 };
 
 // Creates a pass that wraps device-dependent passes with device lifecycle

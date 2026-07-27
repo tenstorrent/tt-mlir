@@ -282,6 +282,16 @@ struct TTIRToTTNNCommonPipelineOptions
           "Disable generation of DRAM-sharded matmuls in the optimizer."),
       llvm::cl::init(false)};
 
+  // The DS matmul kernel accepts bf16 weights (verified on silicon), but DS
+  // streams the weights from DRAM, so bf16 doubles the bytes bfp8 moves and
+  // quadruples bfp4's -- the regime where 1D-mcast starts winning. The rule
+  // book therefore offers DS only for bfp4/bfp8 by default; set this to also
+  // offer it for bf16 weights.
+  Option<bool> allowBf16DRAMShardedMatmul{
+      *this, OptionNames::allowBf16DramShardedMatmul,
+      llvm::cl::desc("Also offer DRAM-sharded matmuls for bf16 weights."),
+      llvm::cl::init(false)};
+
   // Option to enable/disable the workaround pass.
   //
   Option<bool> disableWorkarounds{

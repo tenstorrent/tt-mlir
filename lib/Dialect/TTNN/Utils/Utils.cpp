@@ -52,6 +52,19 @@ bool isDRAMShardedMatmulDisabled(Operation *op) {
   return false;
 }
 
+bool isBf16DRAMShardedMatmulAllowed(Operation *op) {
+  ModuleOp moduleOp = op->getParentOfType<ModuleOp>();
+
+  if (moduleOp) {
+    if (auto attr = moduleOp->getAttrOfType<BoolAttr>(
+            g_AllowBf16DRAMShardedMatmulAttrName)) {
+      return attr.getValue();
+    }
+  }
+
+  return false;
+}
+
 uint64_t getReservedL1Usage(Operation *op) {
   ModuleOp moduleOp = op->getParentOfType<ModuleOp>();
 

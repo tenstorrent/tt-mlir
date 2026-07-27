@@ -114,6 +114,8 @@ void createTTNNPipelineAnalysisPasses(
     wrapperOptions.devicePtr = options.devicePtr;
     wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
     wrapperOptions.disableDRAMShardedMatmul = options.disableDRAMShardedMatmul;
+    wrapperOptions.allowBf16DRAMShardedMatmul =
+        options.allowBf16DRAMShardedMatmul;
 
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
@@ -241,6 +243,8 @@ void createTTNNResolveCompositesPass(
     wrapperOptions.devicePtr = options.devicePtr;
     wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
     wrapperOptions.disableDRAMShardedMatmul = options.disableDRAMShardedMatmul;
+    wrapperOptions.allowBf16DRAMShardedMatmul =
+        options.allowBf16DRAMShardedMatmul;
     pm.addPass(createDevicePassesWrapper(
         [](OpPassManager &innerPm) {
           TTNNResolveCompositesOptions resolveOptions;
@@ -277,6 +281,8 @@ void createTTNNFusingPass(OpPassManager &pm,
       wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
       wrapperOptions.disableDRAMShardedMatmul =
           options.disableDRAMShardedMatmul;
+      wrapperOptions.allowBf16DRAMShardedMatmul =
+          options.allowBf16DRAMShardedMatmul;
 
       uint32_t fallbackAttempts = options.maxFallbackAttempts;
       pm.addPass(createDevicePassesWrapper(
@@ -416,6 +422,8 @@ void createTTIRToTTNNCommonPipeline(
         decompWrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
         decompWrapperOptions.disableDRAMShardedMatmul =
             options.disableDRAMShardedMatmul;
+        decompWrapperOptions.allowBf16DRAMShardedMatmul =
+            options.allowBf16DRAMShardedMatmul;
 
         uint32_t decompFallbackAttempts = options.maxFallbackAttempts;
         devicePm.addPass(createDevicePassesWrapper(

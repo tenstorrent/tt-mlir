@@ -113,10 +113,10 @@ properties of the *traced graph*, so the capture has to be faithful:
 
 | requirement | why | if you get it wrong |
 | --- | --- | --- |
-| weights **bfp4/bfp8**, DRAM-interleaved | the DS kernel streams packed weights | no DS candidate is ever built |
+| weights **bfp4/bfp8**, tiled, DRAM-interleaved | *policy, not a kernel limit* — bf16 DS runs at PCC 1.0000, but DS streams the weights so bf16 moves 2x bfp8's bytes | no DS candidate; override with `--pipeline-options allow-bf16-dram-sharded-matmul=true` |
 | **any batch** whose activation is one tile row (M <= 32) | tt-metal's DS kernel currently takes an in0 height of exactly one tile | M > 32 is offered anyway and refused by tt-metal with *"currently only support in0 tensor height of tile height"* |
-| K/32 divisible by 8 | K is split across the 8 in0 cores | no DS candidate |
-| matmul / bias-free linear, weight `[K,N]` or `[1,1,K,N]` | the DS contract | no DS candidate |
+| K/32 divisible by *some* in0-core count | the contraction dim is split across the in0 cores; the count is now chosen from K, not fixed at 8 | effectively never rejects |
+| matmul or linear (**bias is fine**), weight `[K,N]` or `[1,1,K,N]` | a genuinely batched weight (per-expert MoE) is not a DS shape | no DS candidate |
 
 **Match the shipped precision.** The most common trap: a capture builds weights
 in bf16 "because dtype is not an advisor decision". That was true before
@@ -144,9 +144,15 @@ bf16 host buffer and present the shipped dtype to the tracer instead; the tracer
 reads only `.shape`/`.dtype` off a captured weight. See the `_BfpView` proxy in
 `forge_experiments/qb2-experiments/dram-sharded-advisor/scripts/` (agentic-research).
 
-**Advice is not a measurement.** A DRAM-sharded recommendation means the config
-is legal and the optimizer preferred it — not that it beats the 1D config on your
-model. Sweep it.
+**Advice is not a measurement, and it is not a correctness check.** A DRAM-sharded
+recommendation means the config is legal and the optimizer preferred it. It does
+**not** mean it is faster — the optimizer has no cost model and prefers DS
+whenever it is legal. It also does **not** mean it is numerically safe: the
+advisor never reasons about numerics. GPT-OSS is the cautionary case — DRAM-sharded
+attention there is latency-competitive but fails the sliding-window boundary
+(BF16 pos-130 PCC 0.913), so enabling the bf16 switch on that model makes the
+advisor propose exactly the config known to break it. Sweep for perf **and** PCC
+before shipping anything from this report.
 
 ## Gotchas
 

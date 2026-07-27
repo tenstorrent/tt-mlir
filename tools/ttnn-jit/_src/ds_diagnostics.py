@@ -10,6 +10,10 @@ weights in bf16 "because dtype is not an advisor decision", which was true until
 DRAM-sharding landed and made dtype *the* gate. It looked like "the advisor
 considered DRAM-sharding and declined".
 
+Several of these are policy rather than kernel limits, and the messages say so,
+because the distinction decides what you do about it: a policy limit has a
+switch, a kernel limit needs a different config.
+
 The gates mirror `isDRAMShardEligible` in
 lib/Dialect/TTNN/Analysis/OpRules/MatmulRules.cpp. Keep them in sync; this is a
 diagnostic, so when in doubt it reports "not-considered (unknown)" rather than
@@ -72,29 +76,35 @@ def _activation_rows(act_dims):
 
 
 def _gate_failure(act, weight, has_bias):
-    """First DS eligibility gate that rejects, or None if all pass."""
+    """First DS eligibility gate that rejects, or None if all pass.
+
+    Mirrors isDRAMShardEligible. Deliberately short: most limits that used to
+    live here turned out to be policy or advisor-side constants and have since
+    been removed, so anything not caught below is left to the op model, whose
+    own failureReason is quoted instead of a reason invented here.
+    """
     (a_dims, _a_dtype), (w_dims, w_dtype) = act, weight
-    if has_bias:
-        return "linear has a bias operand (outside the DS contract)"
-    if w_dtype not in ("bfp_bf4", "bfp_bf8"):
-        return (f"weight dtype is {w_dtype}, DS needs bfp_bf4/bfp_bf8 "
-                f"-- does the capture match the shipped precision?")
-    if len(w_dims) < 2 or any(d != 1 for d in w_dims[:-2]):
-        return f"weight shape {w_dims} is a batched matmul (leading dims must be 1)"
+    del has_bias  # a bias is fine: verified on silicon (PCC 0.9996)
+    if len(w_dims) < 2:
+        return f"weight shape {w_dims} is not a matrix"
+    if any(d != 1 for d in w_dims[:-2]):
+        return (f"weight {w_dims} is a batched matmul (per-expert weights); DS "
+                f"takes a single [K, N] matrix")
     if len(a_dims) < 2:
         return f"activation shape {a_dims} is not a matrix"
     K, N = w_dims[-2], w_dims[-1]
-    M = _activation_rows(a_dims)
     if K % TILE or N % TILE:
         return f"K/N = {K}/{N} not tile-aligned"
-    if (K // TILE) % NUM_IN0_CORES:
-        return (f"K={K} -> {K // TILE} tiles is not divisible by the "
-                f"{NUM_IN0_CORES} in0 cores")
-    # No M gate: the rule book offers a DS candidate for any batch and lets the
-    # op model answer. tt-metal currently accepts only an in0 height of one tile
-    # ("M == 1 ... currently only support in0 tensor height of tile height",
-    # matmul_device_operation.cpp), so M > 32 comes back as a normal rejection
-    # carrying that message rather than a gate invented here.
+    if w_dtype not in ("bfp_bf4", "bfp_bf8"):
+        if w_dtype == "bf16":
+            return ("bf16 weights are not offered by default -- policy, not a "
+                    "kernel limit (bf16 DS runs at PCC 1.0000). DS streams the "
+                    "weights, so bf16 moves 2x bfp8's bytes. Enable with "
+                    "--pipeline-options allow-bf16-dram-sharded-matmul=true, or "
+                    "capture at the shipped precision if the model ships BFP.")
+        return f"weight dtype is {w_dtype}, DS needs bfp_bf4/bfp_bf8"
+    # No M gate and no K-divisibility gate: the in0-core count is chosen from K
+    # (chooseNumIn0Cores) and tt-metal answers on the activation height itself.
     return None
 
 

@@ -83,32 +83,42 @@ static int64_t chooseNumIn0Cores(int64_t kTiles) {
 // Eligibility helpers
 // ============================================================================
 
-static bool isBfpDRAMInterleaved(Value weight) {
+// Whether the weight is a tiled, DRAM-interleaved tensor of a data type the DS
+// kernel should be offered for.
+//
+// The TTNNLayoutAttr is the source of truth, not the tensor's element type: a
+// bfp4/bfp8 tensor carries a ttcore::TileType element, but a bf16 tensor is
+// spelled with a scalar bf16 element and records its tiling in the layout. An
+// element-type-only check therefore rejected every bf16 weight before the dtype
+// question was even reached.
+static bool isBfpDRAMInterleaved(Value weight, bool allowBf16) {
   auto rtt = mlir::dyn_cast<RankedTensorType>(weight.getType());
   if (!rtt) {
     return false;
   }
-  auto elType = rtt.getElementType();
-  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elType)) {
-    auto dt = tileType.getDataType();
-    if (dt != ttcore::DataType::BFP_BFloat8 &&
-        dt != ttcore::DataType::BFP_BFloat4) {
-      return false;
-    }
-  } else {
+  auto layoutAttr = mlir::dyn_cast_or_null<TTNNLayoutAttr>(rtt.getEncoding());
+  if (!layoutAttr || !layoutAttr.isTiled()) {
     return false;
   }
-  auto layoutAttr = mlir::dyn_cast_or_null<TTNNLayoutAttr>(rtt.getEncoding());
-  if (!layoutAttr) {
+  auto dt = layoutAttr.getDataType();
+  // bf16 is buildable -- verified on silicon at PCC 1.0000, and the gpt-oss
+  // bring-up swept DS attention in BF16 too. It is off by default purely on
+  // bandwidth: DS streams the weights, so bf16 moves 2x the bytes of bfp8 and
+  // 4x bfp4, which is the regime where 1D-mcast wins. Opt in with
+  // allow-bf16-dram-sharded-matmul when you intend to measure it.
+  bool isBfp = dt == ttcore::DataType::BFP_BFloat8 ||
+               dt == ttcore::DataType::BFP_BFloat4;
+  if (!isBfp && !(allowBf16 && dt == ttcore::DataType::BFloat16)) {
     return false;
   }
   return layoutAttr.hasInterleavedDRAMTensorMemoryLayout();
 }
 
 static ttcore::DataType getWeightDataType(Value weight) {
+  // From the layout, for the same reason isBfpDRAMInterleaved uses it: a bf16
+  // weight has a scalar element type and casting it to TileType would abort.
   auto rtt = mlir::cast<RankedTensorType>(weight.getType());
-  auto tileType = mlir::cast<ttcore::TileType>(rtt.getElementType());
-  return tileType.getDataType();
+  return mlir::cast<TTNNLayoutAttr>(rtt.getEncoding()).getDataType();
 }
 
 // A weight is DS-shaped when it is a plain 2-D matrix, possibly carrying
@@ -144,8 +154,8 @@ static int64_t getActivationM(RankedTensorType rtt) {
 // the matmul the DS kernel implements, and most of the ttnn decoders in the
 // wild write their projections as ttnn.linear (both Llamas, and the packed QKV
 // of Qwen2.5-Coder), so restricting DS to MatmulOp made it invisible for them.
-// A bias operand or either transpose flag is outside the DS contract and is
-// rejected here rather than silently mis-modelled.
+// Either transpose flag is outside the DS contract and is rejected here rather
+// than silently mis-modelled.
 //
 // Returns the (activation, weight) operand pair, or nullopt if `op` is not a
 // DS-capable matmul-like op.
@@ -157,8 +167,10 @@ static std::optional<std::pair<Value, Value>> getDSOperands(Operation *op) {
     return std::make_pair(matmulOp.getA(), matmulOp.getB());
   }
   if (auto linearOp = dyn_cast<LinearOp>(op)) {
-    if (linearOp.getBias() || linearOp.getTransposeA() ||
-        linearOp.getTransposeB()) {
+    // A bias is fine: verified on silicon that ttnn.linear with a bias and a DS
+    // program config runs (gpt-oss QKV shape, PCC 0.9996 -- the delta is bfp8
+    // quantization). The kernel takes it; the earlier exclusion was policy.
+    if (linearOp.getTransposeA() || linearOp.getTransposeB()) {
       return std::nullopt;
     }
     return std::make_pair(linearOp.getA(), linearOp.getB());
@@ -181,7 +193,8 @@ static bool isDRAMShardEligible(Operation *op) {
   }
   auto [activation, weight] = *operands;
 
-  if (!isBfpDRAMInterleaved(weight)) {
+  if (!isBfpDRAMInterleaved(weight,
+                            ttnn::utils::isBf16DRAMShardedMatmulAllowed(op))) {
     return false;
   }
   if (!ttcore::valueTracesToConstantArgs(weight)) {

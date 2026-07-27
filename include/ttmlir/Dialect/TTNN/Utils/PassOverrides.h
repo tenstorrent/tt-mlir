@@ -39,6 +39,8 @@ struct OptionNames {
   static constexpr StringRef tensorL1UsageCap = "tensor-l1-usage-cap";
   static constexpr StringRef disableDramShardedMatmul =
       "disable-dram-sharded-matmul";
+  static constexpr StringRef allowBf16DramShardedMatmul =
+      "allow-bf16-dram-sharded-matmul";
   static constexpr StringRef ttnnPerfMetricsOutputFile =
       "ttnn-perf-metrics-output-file";
   static constexpr StringRef ttnnPerfMetricsVerboseOutputEnabled =
