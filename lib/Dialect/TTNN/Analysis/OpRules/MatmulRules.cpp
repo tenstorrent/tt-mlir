@@ -71,10 +71,25 @@ static ttcore::DataType getWeightDataType(Value weight) {
   return tileType.getDataType();
 }
 
+// A weight is DS-shaped when it is a plain 2-D matrix, possibly carrying
+// leading unit batch dims: ttnn models routinely hold projection weights as
+// [1, 1, K, N] (the autoport Llama decoders do), which is the same matrix as
+// [K, N] -- same element count, same tile grid, and TTNN already collapses both
+// to a 2-D memref in the layout. Anything with a non-unit batch dim is a real
+// batched matmul and is not DS-shaped.
+static bool isDSWeightShaped(RankedTensorType rtt) {
+  auto shape = rtt.getShape();
+  if (shape.size() < 2) {
+    return false;
+  }
+  return llvm::all_of(shape.drop_back(2),
+                      [](int64_t dim) { return dim == 1; });
+}
+
 static std::pair<int64_t, int64_t> getWeightKN(RankedTensorType rtt) {
   auto shape = rtt.getShape();
-  assert(shape.size() == 2 && "Expected 2D weight tensor");
-  return {shape[0], shape[1]};
+  assert(isDSWeightShaped(rtt) && "Expected a 2D (or unit-batched) weight");
+  return {shape[shape.size() - 2], shape[shape.size() - 1]};
 }
 
 static int64_t getActivationM(RankedTensorType rtt) {
@@ -133,7 +148,7 @@ static bool isDRAMShardEligible(Operation *op) {
     return false;
   }
   auto weightType = mlir::cast<RankedTensorType>(weight.getType());
-  if (weightType.getRank() != 2) {
+  if (!isDSWeightShaped(weightType)) {
     return false;
   }
 
