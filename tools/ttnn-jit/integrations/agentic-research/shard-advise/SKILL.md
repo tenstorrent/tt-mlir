@@ -114,7 +114,7 @@ properties of the *traced graph*, so the capture has to be faithful:
 | requirement | why | if you get it wrong |
 | --- | --- | --- |
 | weights **bfp4/bfp8**, DRAM-interleaved | the DS kernel streams packed weights | no DS candidate is ever built |
-| decode at **batch 32** (M = 32, exactly one tile row) | DS is decode-only | no DS candidate (M=1 at batch 1) |
+| **any batch** whose activation is one tile row (M <= 32) | tt-metal's DS kernel currently takes an in0 height of exactly one tile | M > 32 is offered anyway and refused by tt-metal with *"currently only support in0 tensor height of tile height"* |
 | K/32 divisible by 8 | K is split across the 8 in0 cores | no DS candidate |
 | matmul / bias-free linear, weight `[K,N]` or `[1,1,K,N]` | the DS contract | no DS candidate |
 

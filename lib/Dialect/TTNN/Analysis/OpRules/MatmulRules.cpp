@@ -169,7 +169,7 @@ static bool isDRAMShardEligible(Operation *op) {
   int64_t M = getActivationM(in0Type);
   auto [K, N] = getWeightKN(weightType);
 
-  if (M % kTileSize != 0 || K % kTileSize != 0 || N % kTileSize != 0) {
+  if (K % kTileSize != 0 || N % kTileSize != 0) {
     return false;
   }
   // K is the contraction dim, width-sharded across the in0 cores, so it must
@@ -179,10 +179,16 @@ static bool isDRAMShardEligible(Operation *op) {
   if ((K / kTileSize) % kNumIn0Cores != 0) {
     return false;
   }
-  // Decode-only: factory asserts per_core_M == 1 when num_blocks_per_shard > 1.
-  if (M / kTileSize > 1) {
-    return false;
-  }
+  // No M gate. M is the LOGICAL row count, so any batch -- 1, 32, or a prefill
+  // sequence -- is offered as a DS candidate and the op model decides. The
+  // previous rule (M % 32 == 0 && M / 32 == 1) admitted batch 32 and nothing
+  // else, which excluded both ends of the useful range: batch 1, where the QB2
+  // bring-up measured DRAM-sharded as the FASTEST option and shipped it as the
+  // small-batch default (Qwen2.5-Coder DS-40c, 2.1503 ms), and every batch in
+  // between. Whether a multi-tile-row M is buildable is a tt-metal question
+  // (the factory constrains per_core_M against num_blocks_per_shard), so let
+  // the constraint query answer it per shape instead of hardcoding one.
+  (void)M;
 
   return true;
 }

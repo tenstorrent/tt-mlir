@@ -63,6 +63,14 @@ def _parse_tensor(text):
     return dims, (dtype or "?")
 
 
+def _activation_rows(act_dims):
+    """Logical row count M of the activation (all dims but the last)."""
+    m = 1
+    for d in act_dims[:-1]:
+        m *= d
+    return m
+
+
 def _gate_failure(act, weight, has_bias):
     """First DS eligibility gate that rejects, or None if all pass."""
     (a_dims, _a_dtype), (w_dims, w_dtype) = act, weight
@@ -76,17 +84,17 @@ def _gate_failure(act, weight, has_bias):
     if len(a_dims) < 2:
         return f"activation shape {a_dims} is not a matrix"
     K, N = w_dims[-2], w_dims[-1]
-    M = 1
-    for d in a_dims[:-1]:
-        M *= d
-    if M % TILE or K % TILE or N % TILE:
-        return f"M/K/N = {M}/{K}/{N} not all tile-aligned"
+    M = _activation_rows(a_dims)
+    if K % TILE or N % TILE:
+        return f"K/N = {K}/{N} not tile-aligned"
     if (K // TILE) % NUM_IN0_CORES:
         return (f"K={K} -> {K // TILE} tiles is not divisible by the "
                 f"{NUM_IN0_CORES} in0 cores")
-    if M // TILE > 1:
-        return (f"M={M} is {M // TILE} tile rows; DS is decode-only (M must be "
-                f"exactly {TILE}) -- captured at batch {M}?")
+    # No M gate: the rule book offers a DS candidate for any batch and lets the
+    # op model answer. tt-metal currently accepts only an in0 height of one tile
+    # ("M == 1 ... currently only support in0 tensor height of tile height",
+    # matmul_device_operation.cpp), so M > 32 comes back as a normal rejection
+    # carrying that message rather than a gate invented here.
     return None
 
 
@@ -128,7 +136,7 @@ def analyze(final_ir, trace_path=None):
         act, weight = _parse_tensor(tensors[0]), _parse_tensor(tensors[1])
         has_bias = op_name == "ttnn.linear" and len(tensors) > 2
         advised = "dram_sharded" in rest
-        row = {"op": op_name, "advised": advised,
+        row = {"op": op_name, "advised": advised, "activation_rows": _activation_rows(act[0]),
                "weight_shape": weight[0], "weight_dtype": weight[1]}
         if not advised:
             row["why"] = _gate_failure(act, weight, has_bias) or "considered, but rejected"
@@ -151,8 +159,15 @@ def analyze(final_ir, trace_path=None):
 
     advised = sum(1 for r in rows if r["advised"])
     considered = sum(1 for r in rows if r["considered"])
+    # Rows below a full tile are exactly the ones the old gate rejected: it
+    # required M % 32 == 0, so only batch 32 qualified. Flagging them is
+    # attribution -- "this pick is newly reachable" -- not a general warning.
+    # (M > 32 is still refused, but by tt-metal, and it says so itself.)
+    sub_tile = sorted({r["activation_rows"] for r in rows
+                       if r["advised"] and 0 < r["activation_rows"] < TILE})
     return ({"matmuls": len(rows), "dram_sharded_advised": advised,
-             "dram_sharded_considered": considered}, rows)
+             "dram_sharded_considered": considered,
+             "sub_tile_batch_rows": sub_tile}, rows)
 
 
 def render(final_ir, trace_path=None):
@@ -166,6 +181,11 @@ def render(final_ir, trace_path=None):
             out.append(f"  [{i}] {r['op']} {r['weight_shape']} {r['weight_dtype']}  -> DRAM-sharded")
         else:
             out.append(f"  [{i}] {r['op']} {r['weight_shape']} {r['weight_dtype']}  -> no: {r['why']}")
+    if summary.get("sub_tile_batch_rows"):
+        rows_str = ", ".join(str(m) for m in summary["sub_tile_batch_rows"])
+        out.append(f"  NOTE: {rows_str} activation row(s), under a full 32-row tile — DS here was")
+        out.append("        withheld until the one-tile-row gate started rounding up, so these are")
+        out.append("        newly reachable picks rather than a re-confirmation.")
     if summary["dram_sharded_considered"] == 0 and rows:
         out.append("  NOTE: DRAM-sharding was never even a candidate here. That is a property")
         out.append("        of the capture, not a verdict on the model -- fix the reason above")

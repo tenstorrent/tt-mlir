@@ -328,7 +328,9 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   p.shardW = p.nPadded / numBanks;
   p.kTiles = K / kTileSize;
   p.shardWTiles = p.shardW / kTileSize;
-  p.perCoreM = M / kTileSize;
+  // Round up: a sub-tile activation (batch 1..31 decode) is still one tile row.
+  // Truncating here would yield per_core_M = 0 and a degenerate config.
+  p.perCoreM = divUp(M, kTileSize);
   p.perCoreN = (N / kTileSize + numOutCores - 1) / numOutCores; // div_up
   p.in0ShardW = K / numIn0Cores;
   p.weightDataType = weightDataType;
