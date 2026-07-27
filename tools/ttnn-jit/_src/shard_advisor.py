@@ -23,6 +23,7 @@ from ttnn_jit._src.decision_trace_parser import (
     DecisionTraceReport,
 )
 from ttnn_jit._src.advisor_report import render_text_report
+from ttnn_jit._src import ds_diagnostics
 from ttnn_jit._src.ir_layout_summary import (
     render_ir_summary,
     parse_ir_summary,
@@ -304,7 +305,12 @@ class ShardAdvisor:
                 f"=== {len(unfixable)} UNFIXABLE OP(S) -- skip these / use other "
                 "hints ===\n" + "\n".join(lines) + "\n\n"
             )
-        text = banner + ir_summary + "\n" + rationale
+        # Why each matmul did or did not get a DRAM-sharded config. Without
+        # this a capture that can never receive DS advice (bf16 weights,
+        # batch-1 decode) reports an indistinguishable silent zero.
+        ds_text, ds_summary, ds_rows = ds_diagnostics.render(ttnn_mlir, trace_path)
+
+        text = banner + ir_summary + "\n" + ds_text + "\n" + rationale
         report = AdvisorReport(trace, text, ttnn_mlir, ir_summary, self.out_dir)
 
         # Persist every artifact next to the decision trace so a run leaves a
@@ -351,6 +357,9 @@ class ShardAdvisor:
                 }
                 for r in summary.reshards
             ],
+            # Machine-readable form of the DRAM-sharding section above, so an
+            # agent can branch on "never considered" vs "considered, rejected".
+            "dram_sharding": {**ds_summary, "matmul_details": ds_rows},
             "artifacts": {
                 "final_ir": final_ir_path,
                 "report_txt": report_txt_path,

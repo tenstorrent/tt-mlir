@@ -97,11 +97,56 @@ the optimizer picks for that strategy (e.g. `matmul_multi_core_reuse_multi_cast_
 already chose (bfp4/bfp8 weights included), so layout reasoning uses the real
 footprint — but it does not *recommend* a dtype change.
 
-It does **not** pick the **DRAM-sharded-weight** matmul strategy (a distinct
-optimizer feature landing soon; once chosen its program config surfaces the same
-way) or tune **compute-kernel configs** (hifi2/hifi4). Comparing to a hand-tuned
-model, expect agreement on the layout skeleton + chosen-strategy program config,
-and gaps on precision and the DRAM-sharded-weight strategy.
+It **does** now pick the **DRAM-sharded-weight** matmul strategy when that wins
+(`matmul_multi_core_reuse_multi_cast_dram_sharded`), but only if the capture lets
+it — see "Capture preconditions" below. It does not tune **compute-kernel
+configs** (hifi2/hifi4) and does not *recommend* a dtype change. Comparing to a
+hand-tuned model, expect agreement on the layout skeleton and the matmul
+strategy, and gaps on precision and compute-kernel config.
+
+## Capture preconditions — get these wrong and the advice is silently narrower
+
+The advisor is deterministic: same capture, same build, byte-identical
+`final_ir.mlir`. So a "missing" recommendation is never flakiness — it means the
+capture never gave the optimizer the option. DRAM-sharding is gated on
+properties of the *traced graph*, so the capture has to be faithful:
+
+| requirement | why | if you get it wrong |
+| --- | --- | --- |
+| weights **bfp4/bfp8**, DRAM-interleaved | the DS kernel streams packed weights | no DS candidate is ever built |
+| decode at **batch 32** (M = 32, exactly one tile row) | DS is decode-only | no DS candidate (M=1 at batch 1) |
+| K/32 divisible by 8 | K is split across the 8 in0 cores | no DS candidate |
+| matmul / bias-free linear, weight `[K,N]` or `[1,1,K,N]` | the DS contract | no DS candidate |
+
+**Match the shipped precision.** The most common trap: a capture builds weights
+in bf16 "because dtype is not an advisor decision". That was true before
+DRAM-sharding; dtype is now *the* gate. A bf16 capture of a model that ships BFP4
+reports 0 DRAM-sharded matmuls and looks like a considered verdict.
+
+**Check the report before drawing conclusions.** `report.txt` /
+`report.json.dram_sharding` now say, per matmul, whether DS was *considered* and
+which gate rejected it:
+
+```
+=== DRAM-sharded matmuls: 0 of 5 (0 considered) ===
+  [0] ttnn.linear [4096, 6144] bf16  -> no: weight dtype is bf16, DS needs bfp_bf4/bfp_bf8 ...
+  NOTE: DRAM-sharding was never even a candidate here. ...
+```
+
+`dram_sharded_considered == 0` means *fix the capture*, not "the model does not
+want DRAM sharding".
+
+**Host-only captures:** if the capture avoids silicon (stub device, host-resident
+tensors), do **not** build real BFP weights — the host BFP packing path
+initializes the cluster, and every op-model query then dies with
+`Watcher server is unavailable, and the target is not a mock device`. Keep the
+bf16 host buffer and present the shipped dtype to the tracer instead; the tracer
+reads only `.shape`/`.dtype` off a captured weight. See the `_BfpView` proxy in
+`forge_experiments/qb2-experiments/dram-sharded-advisor/scripts/` (agentic-research).
+
+**Advice is not a measurement.** A DRAM-sharded recommendation means the config
+is legal and the optimizer preferred it — not that it beats the 1D config on your
+model. Sweep it.
 
 ## Gotchas
 
@@ -112,6 +157,11 @@ and gaps on precision and the DRAM-sharded-weight strategy.
   that is a bounded per-op task in tt-mlir, not a dead end. Report the op rather
   than working around it. (For a model that hits one, `--tracer interception`
   routes through the older TTIR path as a stopgap.)
+- **`tensor.memory_config()` during tracing** — some optimized decoders branch on
+  it to skip a redundant move; the analysis tracer refuses it by design
+  (`memory_config is unknown during analysis`). Subclass the decoder for capture
+  and make those moves unconditional; the optimizer folds away what it does not
+  need. Committed examples: the Qwen3-32B and Falcon3-7B capture scripts.
 - **ttnn version skew** — the advisor traces against tt-mlir's ttnn, not the
   experiment's tt-metal branch; diverged op signatures surface as the same
   loud trace failure.
