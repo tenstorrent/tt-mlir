@@ -473,7 +473,9 @@ kernel-body `zeros([m, n])` accumulator included.
 
 `import d2m_jit.sim` requires neither the `ttmlir` bindings nor
 `_ttmlir_runtime`, so it works with no tt-metal build at all —
-`pytest test/d2m-jit/test_sim.py` passes on a plain Python+torch image. (Where
+`pytest test/d2m-jit/sim/test_sim.py` passes on a plain Python+torch image (its
+sibling `test_backend_switch.py` drives the device surface, so it does need the
+bindings). (Where
 the bindings are installed it does load `ttmlir` for the shared dtype
 constants, but never the runtime extension. The canonical `import d2m_jit`
 surface needs both regardless of `config.backend`.)

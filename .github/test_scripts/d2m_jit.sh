@@ -19,8 +19,10 @@ SIM_REPORT_PATH="${TEST_REPORT_PATH%.xml}_sim.xml"
 
 echo "Running d2m-jit tests (RUNS_ON=$RUNS_ON)..."
 # Full suite: FileCheck lit tests + every pytest module. Runs on every PR.
+# Pass the directory, not a test_*.py glob: the glob only matches the top level
+# and would silently skip subdirectories such as test/d2m-jit/sim/.
 llvm-lit -v --xunit-xml-output "$LIT_REPORT_PATH" "$BUILD_DIR/test/d2m-jit/lit"
-pytest -v "$WORK_DIR"/test/d2m-jit/test_*.py --junit-xml="$TEST_REPORT_PATH"
+pytest -v "$WORK_DIR"/test/d2m-jit --junit-xml="$TEST_REPORT_PATH"
 
 # Re-run the same kernels on the pure-Python/torch simulator backend. Every test
 # carries its own torch golden, so this checks the simulator against the same
@@ -28,7 +30,7 @@ pytest -v "$WORK_DIR"/test/d2m-jit/test_*.py --junit-xml="$TEST_REPORT_PATH"
 # device-vs-sim comparison needed. Tests marked `device_only` skip themselves
 # here (see conftest.py).
 echo "Re-running d2m-jit tests on the simulator backend..."
-D2M_JIT_BACKEND=sim pytest -v "$WORK_DIR"/test/d2m-jit/test_*.py \
+D2M_JIT_BACKEND=sim pytest -v "$WORK_DIR"/test/d2m-jit \
     --junit-xml="$SIM_REPORT_PATH"
 
 # cleanup

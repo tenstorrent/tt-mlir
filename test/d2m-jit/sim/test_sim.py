@@ -8,10 +8,10 @@ Scope: this file deliberately does **not** re-cover the op surface. CI re-runs
 the whole device suite with `D2M_JIT_BACKEND=sim` (see
 .github/test_scripts/d2m_jit.sh), so eltwise, reductions, matmul, comparisons,
 views, broadcasts and the host ops are all checked against the kernels people
-actually write -- in test_eltwise.py, test_ops.py, test_reductions.py,
-test_matmul.py, test_compare.py, test_views.py, test_bespoke.py,
-test_broadcasts.py, test_zeros_full_where.py. Duplicating them here would only
-test kernels somebody remembered to copy over.
+actually write -- in the device suite one directory up (test_eltwise.py,
+test_ops.py, test_reductions.py, test_matmul.py, test_compare.py, test_views.py,
+test_bespoke.py, test_broadcasts.py, test_zeros_full_where.py). Duplicating them
+here would only test kernels somebody remembered to copy over.
 
 What lives here is what that re-run cannot reach:
 

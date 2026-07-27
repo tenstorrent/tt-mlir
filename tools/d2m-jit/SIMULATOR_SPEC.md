@@ -13,10 +13,10 @@ have · ✅ in scope for v1.
 
 **Status (implemented):** v1 is landed. `import d2m_jit.sim as d2m` runs the
 full eltwise / reduction / matmul / view surface on torch with no device
-(`_src/sim/`, tests in `test/d2m-jit/test_sim.py`). The `config.backend`
+(`_src/sim/`, tests in `test/d2m-jit/sim/test_sim.py`). The `config.backend`
 switch (§2) is also wired: `import d2m_jit as d2m; d2m.config.backend = "sim"`
 (or `D2M_JIT_BACKEND=sim`) dispatches the canonical surface to the simulator
-(tests in `test/d2m-jit/test_backend_switch.py`).
+(tests in `test/d2m-jit/sim/test_backend_switch.py`).
 
 ---
 
@@ -458,8 +458,8 @@ tools/d2m-jit/
 ```
 The backend switch lives in `api.py`: `config.backend` (new field in
 `_src/config.py`, env `D2M_JIT_BACKEND`) selects per call; the device path in
-`_src/builder.py` is otherwise untouched. Tests: `test/d2m-jit/test_sim.py`
-(shadow) and `test/d2m-jit/test_backend_switch.py` (switch), both pure pytest
+`_src/builder.py` is otherwise untouched. Tests live under `test/d2m-jit/sim/`: `test_sim.py`
+(shadow) and `test_backend_switch.py` (switch), both pure pytest
 with no device / no SYSTEM_DESC_PATH.
 
 Two existing files were made lazy so the sim import path stays binding-free
@@ -476,7 +476,7 @@ Deferred (🟡/🟢), out of v1:
 
 ## 11. Testing strategy
 
-1. **Sim-specific suite (✅ implemented).** `test/d2m-jit/test_sim.py` uses
+1. **Sim-specific suite (✅ implemented).** `test/d2m-jit/sim/test_sim.py` uses
    `import d2m_jit.sim as d2m`, runs with **no device** and no
    `SYSTEM_DESC_PATH`, and deliberately covers *only* what the whole-suite
    re-run (item 4) cannot reach:
@@ -496,7 +496,7 @@ Deferred (🟡/🟢), out of v1:
    to copy, which is exactly how the comparisons and in-kernel `zeros` came to
    be missing in the first place.
 
-   The mechanical counterpart lives in `test_backend_switch.py`:
+   The mechanical counterpart lives alongside it in `test_backend_switch.py`:
    `test_every_device_syntax_name_has_a_sim_backing` walks
    `D2MCompiler._syntax` and asserts every registered in-kernel name resolves in
    the sim registries (`!d2m.semaphore.*` against the `Semaphore` class,
@@ -557,13 +557,13 @@ Deferred (🟡/🟢), out of v1:
    physical rank-4 shape via `LazyTensor.value`, something §3 deliberately does
    not model).
 5. **Separate no-device lane (🟢 viable, deliberately not wired).** Because item
-   3 holds, `pytest test/d2m-jit/test_sim.py` runs green on a no-device runner in
+   3 holds, `pytest test/d2m-jit/sim` runs green on a no-device runner in
    ~2s — verified locally, and `"runs-on": "builder"` in
    `.github/settings/tests.json` is the ready-made hook (the matrix generator
    turns it into `no-device: true`, dropping `--device /dev/tenstorrent` and
    skipping the system-descriptor and lit steps). It is not wired because it adds
-   **no coverage**: `test_sim.py` is already run twice by the hardware lane (the
-   plain glob, then the sim re-run), so a separate job only buys latency and
+   **no coverage**: `test/d2m-jit/sim/` is already run twice by the hardware lane
+   (the device pass, then the sim re-run), so a separate job only buys latency and
    turns one sim bug into two red jobs. The one signal it would add that the
    hardware lane cannot give is catching the sim path accidentally acquiring a
    device, since its container has no `/dev/tenstorrent`. Worth adding if sim
@@ -587,7 +587,7 @@ Deferred (🟡/🟢), out of v1:
   idiom; views/permute/tilize/untilize; host ops; `to_host`; `async def` +
   `await` bodies and no-op `Semaphore` (§5.5); shadow module **and** the
   `config.backend` switch; exact numerics; runtime-free import (§2), asserted;
-  tests in `test/d2m-jit/test_sim.py` and `test/d2m-jit/test_backend_switch.py`,
+  tests in `test/d2m-jit/sim/`,
   plus the whole-suite sim re-run in CI (§11.4).
 - **v2 (🟡):** declarative generic forms (`indexing_maps` / `iterator_types` /
   `block_factors` with `iter_index`/`block_index`/`block_offset`) and the
