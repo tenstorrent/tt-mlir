@@ -6782,6 +6782,126 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// SparseSdpaOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::SparseSdpaOp::verify() {
+  // Tile granularity the tt-metal kernel tiles the head/key axes with; see
+  // sparse_sdpa_device_operation.cpp.
+  constexpr int64_t kTileSize = 32;
+
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType kvType = getKv().getType();
+  RankedTensorType indicesType = getIndices().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  if (queryType.getRank() != 4) {
+    return emitOpError("Query must be a 4D tensor [1, H, S, K_DIM]");
+  }
+  if (kvType.getRank() != 4) {
+    return emitOpError("Kv must be a 4D tensor [1, 1, T, K_DIM]");
+  }
+  if (indicesType.getRank() != 4) {
+    return emitOpError("Indices must be a 4D tensor [1, 1, S, TOPK]");
+  }
+  if (resultType.getRank() != 4) {
+    return emitOpError("Result must be a 4D tensor [1, H, S, v_dim]");
+  }
+
+  int64_t batch = queryType.getShape()[0];
+  int64_t numHeads = queryType.getShape()[1];
+  int64_t querySeqLen = queryType.getShape()[2];
+  int64_t headDim = queryType.getShape()[3];
+  int64_t keySeqLen = kvType.getShape()[2];
+  int64_t topK = indicesType.getShape()[3];
+  int64_t vDim = static_cast<int64_t>(getVDim());
+  int64_t kChunkSize = static_cast<int64_t>(getKChunkSize());
+
+  // Batch size must be 1 (tt-metal op restriction).
+  if (batch != 1) {
+    return emitOpError("Query batch size (dim 0) must be 1, got ") << batch;
+  }
+  if (numHeads < kTileSize || numHeads % kTileSize != 0) {
+    return emitOpError("Query head count (dim 1) must be a positive multiple "
+                       "of ")
+           << kTileSize << ", got " << numHeads;
+  }
+
+  if (kvType.getShape()[0] != batch) {
+    return emitOpError("Kv batch size must match query batch size");
+  }
+  if (kvType.getShape()[1] != 1) {
+    return emitOpError("Kv must have a single head (dim 1 must be 1)");
+  }
+  if (kvType.getShape()[3] != headDim) {
+    return emitOpError("Kv head dim must match query head dim");
+  }
+  if (headDim % kTileSize != 0) {
+    return emitOpError("Query/kv head dim (K_DIM) must be a multiple of ")
+           << kTileSize << ", got " << headDim;
+  }
+
+  if (indicesType.getShape()[0] != batch || indicesType.getShape()[1] != 1 ||
+      indicesType.getShape()[2] != querySeqLen) {
+    return emitOpError(
+        "Indices shape must be [batch, 1, query_seq_len, top_k]");
+  }
+  if (!indicesType.getElementType().isInteger()) {
+    return emitOpError("Indices must have an integer element type");
+  }
+
+  if (vDim <= 0 || vDim > headDim) {
+    return emitOpError("v_dim must be in (0, K_DIM=")
+           << headDim << "], got " << vDim;
+  }
+  if (vDim % kTileSize != 0) {
+    return emitOpError("v_dim must be a multiple of ")
+           << kTileSize << ", got " << vDim;
+  }
+
+  if (kChunkSize < kTileSize || kChunkSize % kTileSize != 0) {
+    return emitOpError("k_chunk_size must be a positive multiple of ")
+           << kTileSize << ", got " << kChunkSize;
+  }
+  if (topK <= 0) {
+    return emitOpError("Indices top_k (dim 3) must be greater than 0");
+  }
+  if (topK % kChunkSize != 0) {
+    return emitOpError("k_chunk_size (")
+           << kChunkSize << ") must divide top_k (" << topK << ")";
+  }
+
+  if (querySeqLen <= 0) {
+    return emitOpError("Query sequence length (S) must be greater than 0");
+  }
+  if (keySeqLen <= 0) {
+    return emitOpError("Kv sequence length (T) must be greater than 0");
+  }
+
+  if (resultType.getShape()[0] != batch ||
+      resultType.getShape()[1] != numHeads ||
+      resultType.getShape()[2] != querySeqLen ||
+      resultType.getShape()[3] != vDim) {
+    return emitOpError(
+        "Result shape must be [batch, num_heads, query_seq_len, v_dim]");
+  }
+
+  if (queryType.getElementType() != kvType.getElementType()) {
+    return emitOpError("Query and kv must have the same element type");
+  }
+  if (queryType.getElementType() != resultType.getElementType()) {
+    return emitOpError("Query and result must have the same element type");
+  }
+
+  if (std::optional<llvm::APFloat> scale = getScale();
+      scale && !(scale->convertToFloat() > 0.0f)) {
+    return emitOpError("scale must be greater than 0");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // GlobalAvgPool2dOp
 //===----------------------------------------------------------------------===//
 

@@ -49,6 +49,8 @@ static constexpr llvm::StringLiteral moeExpertTokenRemapTargetName =
 static constexpr llvm::StringLiteral flashMlaPrefillTargetName =
     "tt.flash_mla_prefill";
 
+static constexpr llvm::StringLiteral sparseSdpaTargetName = "tt.sparse_sdpa";
+
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   mlir::Operation::operand_range inputs = scatterOp.getInputs();
@@ -499,6 +501,133 @@ getFlashMlaPrefillShardingRule(mlir::stablehlo::CustomCallOp op) {
     builder.addFactor(maskDims, {sdy::kNullDim}, S,
                       sdy::FactorType::kNeedReplication);
   }
+
+  return builder.build();
+}
+
+// Sharding rule for the `tt.sparse_sdpa` custom_call (sparse top-k MLA prefill
+// attention).
+//
+// Tensor layout (matches the StableHLO conversion in
+// StableHLOToTTIRPatterns.cpp):
+//   query   : [B, H, S, K_DIM]   H query heads, query seq S, latent head dim
+//   kv      : [B, 1, T, K_DIM]   single (shared) latent cache, key seq T
+//   indices : [B, 1, S, TOPK]    absolute key positions per query token
+//   out     : [B, H, S, v_dim]   v_dim = leading columns of kv
+//
+// Factor design:
+//   - Batch     (kPassThrough,     size B)     : dim 0 of every tensor. Data
+//       parallel; every batch element is independent.
+//   - Heads     (kPassThrough,     size H)     : query dim 1, out dim 1. Each
+//       head attends over the same kv with the same indices, so sharding heads
+//       is pure tensor parallelism; kv/indices stay replicated (kNullDim).
+//   - Query seq (kPassThrough,     size S)     : query/indices dim 2, out dim
+//       2. Shardable: masking is carried entirely by `indices` (absolute key
+//       positions), so the op recomputes nothing from the query's position and
+//       a query-seq shard is self-contained given a replicated kv.
+//   - Key seq   (kNeedReplication, size T)     : kv dim 2. `indices` address
+//       the full key sequence, so every shard must see all of kv.
+//   - Head dim  (kNeedReplication, size K_DIM) : query/kv dim 3. Contracted
+//       internally by the q.k dot product.
+//   - Top-k     (kNeedReplication, size TOPK)  : indices dim 3. Reduced
+//       internally by the softmax over the selected keys.
+//   - v_dim     (kNeedReplication, size v_dim) : out dim 3 only. A slice of
+//       kv's replicated latent width, produced whole by the op.
+static mlir::sdy::OpShardingRuleAttr
+getSparseSdpaShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 3 || op.getNumResults() != 1) {
+    op.getOperation()->emitWarning()
+        << "sparse_sdpa expects 3 operands (query, kv, indices) and 1 result";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto qType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto kvType = llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto idxType = llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
+  auto outType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+
+  if (!qType || !kvType || !idxType || !outType) {
+    op.getOperation()->emitWarning()
+        << "sparse_sdpa requires ranked tensor types";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  if (qType.getRank() != 4 || kvType.getRank() != 4 || idxType.getRank() != 4 ||
+      outType.getRank() != 4) {
+    op.getOperation()->emitWarning() << "sparse_sdpa requires 4D tensors";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  ArrayRef<int64_t> qShape = qType.getShape();
+  ArrayRef<int64_t> kvShape = kvType.getShape();
+  ArrayRef<int64_t> idxShape = idxType.getShape();
+  ArrayRef<int64_t> outShape = outType.getShape();
+
+  int64_t B = qShape[0];
+  int64_t H = qShape[1];
+  int64_t S = qShape[2];
+  int64_t kDim = qShape[3];
+  int64_t T = kvShape[2];
+  int64_t topK = idxShape[3];
+  int64_t vDim = outShape[3];
+
+  auto isStaticPositiveDim = [](int64_t dim) {
+    return !ShapedType::isDynamic(dim) && dim > 0;
+  };
+  if (!isStaticPositiveDim(B) || !isStaticPositiveDim(H) ||
+      !isStaticPositiveDim(S) || !isStaticPositiveDim(kDim) ||
+      !isStaticPositiveDim(T) || !isStaticPositiveDim(topK) ||
+      !isStaticPositiveDim(vDim)) {
+    op.getOperation()->emitWarning()
+        << "sparse_sdpa requires static, positive B/H/S/K_DIM/T/TOPK/v_dim "
+           "dimensions";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Cross-operand shape consistency (see layout above). kv and indices carry
+  // the single shared latent head in dim 1.
+  if (kvShape[0] != B || idxShape[0] != B || outShape[0] != B || // B
+      kvShape[1] != 1 || idxShape[1] != 1 ||                     // shared head
+      outShape[1] != H ||                                        // H
+      idxShape[2] != S || outShape[2] != S ||                    // S
+      kvShape[3] != kDim ||                                      // K_DIM
+      vDim > kDim) {                                             // v_dim <= K
+    op.getOperation()->emitWarning() << "sparse_sdpa shape validation failed";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  sdy::OpShardingRuleBuilder builder(op);
+
+  // Operand order: query(0), kv(1), indices(2). Result: out(0).
+
+  // Batch (dim 0): kPassThrough — data parallel across all tensors.
+  builder.addFactor({0, 0, 0}, {0}, B, sdy::FactorType::kPassThrough);
+
+  // Query heads (query dim 1, out dim 1): kPassThrough. kv/indices are shared
+  // across heads and stay replicated.
+  builder.addFactor({1, sdy::kNullDim, sdy::kNullDim}, {1}, H,
+                    sdy::FactorType::kPassThrough);
+
+  // Query sequence (query/indices dim 2, out dim 2): kPassThrough.
+  builder.addFactor({2, sdy::kNullDim, 2}, {2}, S,
+                    sdy::FactorType::kPassThrough);
+
+  // Key sequence (kv dim 2): kNeedReplication — indices address all of kv.
+  builder.addFactor({sdy::kNullDim, 2, sdy::kNullDim}, {sdy::kNullDim}, T,
+                    sdy::FactorType::kNeedReplication);
+
+  // Latent head dim (query/kv dim 3): kNeedReplication — contracted internally.
+  builder.addFactor({3, 3, sdy::kNullDim}, {sdy::kNullDim}, kDim,
+                    sdy::FactorType::kNeedReplication);
+
+  // Top-k slots (indices dim 3): kNeedReplication — reduced internally.
+  builder.addFactor({sdy::kNullDim, sdy::kNullDim, 3}, {sdy::kNullDim}, topK,
+                    sdy::FactorType::kNeedReplication);
+
+  // Output width (out dim 3): kNeedReplication — a slice of the replicated
+  // latent width, so it has no operand dim of its own.
+  builder.addFactor({sdy::kNullDim, sdy::kNullDim, sdy::kNullDim}, {3}, vDim,
+                    sdy::FactorType::kNeedReplication);
 
   return builder.build();
 }
@@ -1841,6 +1970,7 @@ private:
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
           {utils::kTTRMSNormCustomCallTargetName, getRMSNormShardingRule},
           {flashMlaPrefillTargetName, getFlashMlaPrefillShardingRule},
+          {sparseSdpaTargetName, getSparseSdpaShardingRule},
           {utils::kTTTopKCustomCallTargetName, getTopKShardingRule},
           {utils::kTTTopKValuesCustomCallTargetName, getTopKShardingRule},
           {utils::kTTTopKIndicesCustomCallTargetName, getTopKShardingRule},

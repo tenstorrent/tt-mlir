@@ -1106,6 +1106,43 @@ TTNNOperandsWorkaroundsFactory::createFlashMlaPrefillOpOperandsWorkarounds(
   return operandsWorkaround;
 }
 
+// Create workarounds for sparse_sdpa op operands.
+//
+// The tt-metal kernel reads q/kv/indices (and drains the output) through
+// row-major paged accessors, so every tensor must be unpadded ROW_MAJOR and
+// DRAM interleaved, and the dtypes are hard-checked:
+//   q, kv, out : BFLOAT16 (tt-metal also accepts fp8_e4m3, which the TTNN
+//                dialect cannot express, so bf16 is the only reachable choice)
+//   indices    : UINT32
+// See sparse_sdpa_device_operation.cpp (validate_non_hashed and
+// validate_on_program_cache_miss).
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSparseSdpaOpOperandsWorkarounds(
+    Operation *op) {
+  auto interleaved = TensorMemoryLayoutAttr::get(
+      op->getContext(), TensorMemoryLayout::Interleaved);
+
+  TTNNOperandWorkarounds rowMajorDramBf16Workaround;
+  rowMajorDramBf16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorDramBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
+  rowMajorDramBf16Workaround.tensorBufferTypeWorkaround = BufferType::DRAM;
+  rowMajorDramBf16Workaround.tensorMemoryLayoutWorkaround = interleaved;
+
+  TTNNOperandWorkarounds rowMajorDramUint32Workaround;
+  rowMajorDramUint32Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorDramUint32Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::UInt32;
+  rowMajorDramUint32Workaround.tensorBufferTypeWorkaround = BufferType::DRAM;
+  rowMajorDramUint32Workaround.tensorMemoryLayoutWorkaround = interleaved;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorDramBf16Workaround)   // query
+      .addInputOperandWorkaround(rowMajorDramBf16Workaround)   // kv
+      .addInputOperandWorkaround(rowMajorDramUint32Workaround) // indices
+      .addOutputOperandWorkaround(rowMajorDramBf16Workaround); // result
+}
+
 // Create workarounds for SDPA decode op: cast f32 inputs to bf16.
 // tt-metal SDPA only supports bf16/bfp8_b/bfp4_b.
 // Issue page: https://github.com/tenstorrent/tt-metal/issues/36717

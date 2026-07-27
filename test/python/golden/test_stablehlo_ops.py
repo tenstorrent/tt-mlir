@@ -2546,3 +2546,106 @@ def test_flash_mla_prefill_value_mask_scale(
     )
 
     check_op(output, "flash_mla_prefill")
+
+
+# Sparse (top-k) MLA prefill attention (stablehlo.custom_call @tt.sparse_sdpa
+# -> ttcore.composite -> ttnn.sparse_sdpa).
+#
+# Two lowering paths:
+#   * on Blackhole with batch_size == 1:
+#       shlo.custom_call -> ttcore.composite -> ttnn.sparse_sdpa
+#   * otherwise:
+#       shlo.custom_call -> ttcore.composite -> decomposed into ttnn primitives
+#       (matmul/softmax + the dense sparsity mask built from `indices`)
+@pytest.mark.parametrize(
+    "shapes,v_dim,k_chunk_size",
+    [
+        # query [B, H, S, K_DIM], kv [B, 1, T, K_DIM], indices [B, 1, S, TOPK].
+        # H is a multiple of 32; K_DIM / v_dim / k_chunk_size are multiples of
+        # 32 and k_chunk_size divides TOPK -- all kernel requirements.
+        # Batch = 1: exercises the lowering to ttnn.sparse_sdpa on BH.
+        ([(1, 32, 32, 64), (1, 1, 128, 64), (1, 1, 32, 32)], 32, 32),
+        # Batch > 1: exercises the batched decomposition path.
+        ([(2, 32, 32, 64), (2, 1, 128, 64), (2, 1, 32, 32)], 32, 32),
+    ],
+    ids=["single_batch", "multi_batch"],
+)
+@pytest.mark.parametrize(
+    "scale", [None, 0.125], ids=["default_scale", "explicit_scale"]
+)
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+def test_sparse_sdpa(
+    shapes: List[Shape],
+    v_dim: int,
+    k_chunk_size: int,
+    scale: Optional[float],
+    target: str,
+    device,
+    request,
+    system_desc,
+):
+    # indices are integer key positions; the rest are activations.
+    dtypes = [torch.bfloat16, torch.bfloat16, torch.int32]
+
+    batch_size, _, query_seq_len, _ = shapes[0]
+    key_seq_len = shapes[1][2]  # T
+    top_k = shapes[2][3]  # TOPK
+
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, dtypes)
+        def sparse_sdpa(
+            query: Operand,
+            kv: Operand,
+            indices: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # The default random integer fill would put every index far outside
+            # [0, T), masking every key and turning the softmax into NaN. Draw
+            # TOPK distinct in-range key positions per query row instead, which
+            # is also what the kernel's producer preconditions require (every
+            # row has at least one valid key, non-sentinel indices are < T).
+            valid_indices = torch.argsort(
+                torch.rand(batch_size, 1, query_seq_len, key_seq_len), dim=-1
+            )[..., :top_k].to(torch.int32)
+            builder.set_goldens({indices: valid_indices})
+
+            return builder.sparse_sdpa(
+                query,
+                kv,
+                indices,
+                v_dim=v_dim,
+                scale=scale,
+                k_chunk_size=k_chunk_size,
+                unit_attrs=unit_attrs,
+            )
+
+    pipeline_options = ["optimization-level=1"]
+    if target == "emitc":
+        # The decomposition's mask is shape-only, so const-eval hoists it into
+        # separate functions. `mlir-to-cpp` emits no forward declarations and
+        # keeps module order, so those functions land after their caller and the
+        # generated C++ does not compile. That EmitC gap is independent of this
+        # op (see issue #6100), so keep the mask inline for the emitc target.
+        pipeline_options.append("enable-const-eval=false")
+
+    output = compile_and_execute_shlo(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        save_artifacts=True,
+        ttir_pipeline_options=pipeline_options,
+    )
+
+    expect_typed_op = system_desc.get_arch() == "Blackhole" and batch_size == 1
+
+    # The promoted typed op appears in a target-specific form.
+    typed_op_marker = {
+        "ttnn": "ttnn.sparse_sdpa",
+        "emitc": "ttnn::transformer::sparse_sdpa",
+        "emitpy": "ttnn.transformer.sparse_sdpa",
+    }[target]
+    with open(output, "r") as f:
+        has_typed_op = any(typed_op_marker in line for line in f)
+    assert has_typed_op == expect_typed_op
