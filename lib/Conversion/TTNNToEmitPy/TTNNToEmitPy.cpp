@@ -3733,6 +3733,56 @@ public:
 };
 } // namespace
 
+// AllGatherMinimalMatmulAsyncOp
+//
+namespace {
+class AllGatherMinimalMatmulAsyncOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::AllGatherMinimalMatmulAsyncOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.all_gather_minimal_matmul_async";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.strided_all_gather_minimal_matmul_async";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::AllGatherMinimalMatmulAsyncOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllGatherMinimalMatmulAsyncOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<
+        mlir::tt::ttnn::AllGatherMinimalMatmulAsyncOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput(), "input_tensor"),
+        emitter.emit(srcOp.getWeight(), "weight_tensor"),
+        emitter.emit(srcOp.getDim(), "dim"),
+        emitter.emit(srcOp.getNumLinks(), "num_links"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config_ag"),
+        emitter.emit(srcOp.getTopology(), "topology"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(srcOp.getBias(), "bias"),
+        emitter.emit(srcOp.getNumWorkersPerLink(), "num_workers_per_link"),
+        emitter.emit(srcOp.getNumBuffersPerChannel(),
+                     "num_buffers_per_channel"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // AllReduceOp
 //
 namespace {
@@ -5536,6 +5586,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // clang-format off
   patterns.add<AllGatherOpConversionPattern,
                ReduceScatterOpConversionPattern,
+               AllGatherMinimalMatmulAsyncOpConversionPattern,
                AllReduceOpConversionPattern,
                AllReduceAsyncOpConversionPattern,
                PointToPointOpConversionPattern,
