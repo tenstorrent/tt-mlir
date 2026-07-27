@@ -106,6 +106,16 @@ table IndexerScoreDsaOp {
   cluster_axis: uint32 = null;
 }
 
+table SparseSdpaOp {
+  query: tt.target.ttnn.TensorRef;
+  kv: tt.target.ttnn.TensorRef;
+  indices: tt.target.ttnn.TensorRef;
+  v_dim: uint32;
+  scale: float = null;
+  k_chunk_size: uint32;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table NLPCreateQKVHeadsDecodeOp {
   input: tt.target.ttnn.TensorRef;
   q_out: tt.target.ttnn.TensorRef;

@@ -552,6 +552,12 @@ const std::set<mlir::StringRef>
         // tt-metal SDPA-supported dtype (bf16). Without it, opt_level>=1 leaves
         // f32 operands
         ttnn::FlashMlaPrefillOp::getOperationName(),
+        // SparseSdpa's operands workaround forces ROW_MAJOR DRAM-interleaved
+        // q/kv/indices/output plus bf16 q/kv and uint32 indices; the metal
+        // kernel's row-major paged accessors TT_FATAL on anything else, so
+        // without it opt_level>=1 layout propagation picks Tile/f32 and every
+        // op-model query for the op fails.
+        ttnn::SparseSdpaOp::getOperationName(),
         // SDPA prefill/decode kernels TT_FATAL on non-bf16 inputs
         // (sdpa_device_operation.cpp). Their operands workaround narrows
         // Q/K/V/mask/output f32->bf16. Without it at opt_level>=1 the f32 op

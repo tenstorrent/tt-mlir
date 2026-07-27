@@ -3626,6 +3626,29 @@ createOp(FlatbufferObjectCache &cache, IndexerScoreDsaOp op) {
       *cache.fbb, query, key, weights, chunkStartIdx, out, clusterAxis);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SparseSdpaOp>
+createOp(FlatbufferObjectCache &cache, SparseSdpaOp op) {
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto kv = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKv()));
+  auto indices = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getIndices()));
+
+  auto vDim = op.getVDim();
+  ::flatbuffers::Optional<float> scale = toFlatbuffer(
+      cache, op.getScale()
+                 ? std::make_optional(op.getScale().value().convertToFloat())
+                 : std::nullopt);
+  auto kChunkSize = op.getKChunkSize();
+  auto out =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateSparseSdpaOp(*cache.fbb, query, kv, indices,
+                                                vDim, scale, kChunkSize, out);
+}
+
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
 createKernelArgs(FlatbufferObjectCache &cache,
                  llvm::ArrayRef<mlir::Attribute> argsAttrs) {
@@ -5113,6 +5136,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       indexerScoreDsaOp) {
     return createOperation(cache, createOp(cache, indexerScoreDsaOp),
                            debugString, locInfo);
+  }
+  if (auto sparseSdpaOp = dyn_cast<SparseSdpaOp>(op); sparseSdpaOp) {
+    return createOperation(cache, createOp(cache, sparseSdpaOp), debugString,
+                           locInfo);
   }
   if (auto dtOp = dyn_cast<DistributeTensorOp>(op); dtOp) {
     return createOperation(cache, createOp(cache, dtOp), debugString, locInfo);

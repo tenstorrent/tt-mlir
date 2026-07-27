@@ -3924,6 +3924,91 @@ llvm::Expected<size_t> OpModel<IndexerScoreDsaOp>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// SparseSdpaOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<SparseSdpaOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> kvShape, TTNNLayoutAttr kvLayout,
+    llvm::ArrayRef<int64_t> indicesShape, TTNNLayoutAttr indicesLayout,
+    uint32_t vDim, std::optional<llvm::APFloat> scale, uint32_t kChunkSize,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec kvSpec,
+                   detail::convertToTensorSpec(device, kvShape, kvLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec indicesSpec,
+      detail::convertToTensorSpec(device, indicesShape, indicesLayout));
+
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+
+  // ttnn::transformer::sparse_sdpa has no output memory-config parameter; the
+  // output is always DRAM-interleaved ROW_MAJOR (see compute_output_specs), so
+  // outputLayout is not forwarded and compute_kernel_config falls back to the
+  // ttnn default. cache_batch_idx / block_cyclic_* are not modelled by the TTNN
+  // dialect op, so they stay unset.
+  auto sparseSdpaOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS(::ttnn::transformer::sparse_sdpa, device,
+                                querySpec, kvSpec, indicesSpec, vDim,
+                                scaleFloat, kChunkSize,
+                                /*compute_kernel_config=*/std::nullopt,
+                                /*cache_batch_idx=*/std::nullopt,
+                                /*block_cyclic_sp_axis=*/std::nullopt,
+                                /*block_cyclic_chunk_local=*/std::nullopt);
+  };
+
+  return operation::getOpConstraints(queryLayout.getContext(),
+                                     sparseSdpaOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<SparseSdpaOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> kvShape, TTNNLayoutAttr kvLayout,
+    llvm::ArrayRef<int64_t> indicesShape, TTNNLayoutAttr indicesLayout,
+    uint32_t vDim, std::optional<llvm::APFloat> scale, uint32_t kChunkSize,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec kvSpec,
+                   detail::convertToTensorSpec(device, kvShape, kvLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec indicesSpec,
+      detail::convertToTensorSpec(device, indicesShape, indicesLayout));
+
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+
+  auto sparseSdpaOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttnn::transformer::sparse_sdpa, device, querySpec,
+                            kvSpec, indicesSpec, vDim, scaleFloat, kChunkSize,
+                            /*compute_kernel_config=*/std::nullopt,
+                            /*cache_batch_idx=*/std::nullopt,
+                            /*block_cyclic_sp_axis=*/std::nullopt,
+                            /*block_cyclic_chunk_local=*/std::nullopt);
+  };
+
+  return operation::getOpRuntime(sparseSdpaOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 //===-----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp
 // ===----------------------------------------------------------------------===//

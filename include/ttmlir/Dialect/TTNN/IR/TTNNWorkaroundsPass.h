@@ -384,6 +384,13 @@ public:
   static TTNNOperandsWorkarounds
   createSDPAForwardOpOperandsWorkarounds(Operation *op);
 
+  // Create workarounds for sparse_sdpa op operands. The tt-metal kernel gathers
+  // q/kv/indices with row-major paged accessors, so all three operands and the
+  // output must be unpadded ROW_MAJOR DRAM-interleaved, q/kv bf16 and indices
+  // uint32 (sparse_sdpa_device_operation.cpp).
+  static TTNNOperandsWorkarounds
+  createSparseSdpaOpOperandsWorkarounds(Operation *op);
+
   // Create workarounds for sparse_matmul op operands.
   // Sparsity tensor must be in ROW_MAJOR layout.
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39126
