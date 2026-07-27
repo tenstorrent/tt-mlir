@@ -42,7 +42,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNResolveTTLangKernelsPython.cpp
         TTNNLowerTTLangToGeneric.cpp
         OptimizerPasses/OperationValidationAndFallback.cpp
-        OptimizerPasses/Optimizer.cpp
         OptimizerPasses/DevicePassesWrapper.cpp
         OptimizerPasses/GreedyL1SpillManagement.cpp
         OptimizerPasses/GreedyMemoryLayoutPropagation.cpp
