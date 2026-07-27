@@ -635,10 +635,14 @@ def _(mb, input, diagonal=0):
     return mb.tril(input, int(diagonal))
 
 
-@_lowering(_aten._scaled_dot_product_flash_attention_for_cpu.default)
-@_skip_prepare(_aten._scaled_dot_product_flash_attention_for_cpu.default)
-def _(mb, query, key, value, dropout_p=0.0, is_causal=False, attn_mask=None, scale=None):
-    result = mb.sdpa(query, key, value, is_causal=is_causal, scale=scale, attn_mask=attn_mask)
+@_lowering(_aten._scaled_dot_product_fused_attention_overrideable.default)
+@_skip_prepare(_aten._scaled_dot_product_fused_attention_overrideable.default)
+def _(mb, query, key, value, attn_bias=None, dropout_p=0.0, is_causal=False, return_debug_mask=False, scale=None):
+    if dropout_p:
+        raise NotImplementedError(f"tt-kurbla sdpa: dropout_p must be 0 (inference only), got {dropout_p}")
+    if return_debug_mask:
+        raise NotImplementedError("tt-kurbla sdpa: return_debug_mask=True is not supported")
+    result = mb.sdpa(query, key, value, is_causal=is_causal, scale=scale, attn_mask=attn_bias)
     # Returns a 9-tuple; downstream getitem[0] extracts the attention output.
     return (result, None, None, None, None, None, None, None, None)
 
@@ -976,6 +980,10 @@ class _TTIRInterpreter(torch.fx.Interpreter):
         return self._call_operator(target, args, kwargs)
 
 
+# Hook which enables tests to analyze the fx graph AOTAutograd provides to us.
+_post_aot_fx_hook: Callable[[torch.fx.GraphModule], None] | None = None
+
+
 def _lower_and_compile(
     gm: torch.fx.GraphModule,
     example_inputs: list[torch.Tensor],
@@ -990,6 +998,8 @@ def _lower_and_compile(
     inputs and runs the compiled program on each call. `roles` tags each graph
     arg for const-eval (see tt_backend / _forward_parameter_roles).
     """
+    if _post_aot_fx_hook is not None:
+        _post_aot_fx_hook(gm)
     specs = [_spec_from_tensor(t) for t in example_inputs]
     mb = _native.ModuleBuilder(specs, roles)
     placeholder_values = [mb.arg(i) for i in range(len(specs))]

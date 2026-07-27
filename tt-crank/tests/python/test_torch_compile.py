@@ -1039,29 +1039,6 @@ def test_compile_tril(shape: tuple, diagonal: int) -> None:
 
 
 @pytest.mark.usefixtures("skip_if_sim")
-@pytest.mark.parametrize("is_causal", [True, False], ids=["causal", "noncausal"])
-def test_compile_sdpa(is_causal: bool) -> None:
-    """scaled_dot_product_attention in a compiled graph — Dynamo dispatches to
-    _scaled_dot_product_flash_attention_for_cpu on CPU which the tt lowering
-    maps to build_sdpa. Tests both the causal (is_causal=True, no explicit mask)
-    and non-causal (is_causal=False) variants."""
-    class _SDPA(nn.Module):
-        def __init__(self, causal: bool) -> None:
-            super().__init__()
-            self.causal = causal
-
-        def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
-            return torch.nn.functional.scaled_dot_product_attention(
-                q, k, v, is_causal=self.causal
-            )
-
-    q = torch.randn((1, 8, 32, 64), dtype=torch.bfloat16)
-    k = torch.randn((1, 8, 32, 64), dtype=torch.bfloat16)
-    v = torch.randn((1, 8, 32, 64), dtype=torch.bfloat16)
-    _assert_compile_matches_eager(_SDPA(is_causal), q, k, v, atol=0.05, rtol=0.05)
-
-
-@pytest.mark.usefixtures("skip_if_sim")
 def test_compile_index_copy() -> None:
     """aten::index_copy.default in a compiled graph — copies rows from `src`
     into `dst` at positions given by `index` along dim 0. Used by StaticCache

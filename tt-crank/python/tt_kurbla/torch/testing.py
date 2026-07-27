@@ -9,9 +9,10 @@ from contextlib import contextmanager
 from typing import Any
 
 import torch
+import torch.fx
 from tt_kurbla.torch._compile import CompileOption
 
-from . import _native
+from . import _compile, _native
 
 
 class DeviceType(enum.Enum):
@@ -144,3 +145,18 @@ def get_supported_dtypes() -> list[torch.dtype]:
     if os.environ.get("TT_KURBLA_USE_SIMULATOR") == "1":
         return [torch.bfloat16]
     return [torch.bfloat16, torch.float32]
+
+
+@contextmanager
+def post_aot_fx_hook(hook: Callable[[torch.fx.GraphModule], None]) -> Iterator[None]:
+    """Install `hook` to receive each post-aot FX graph the compile backend lowers
+    (forward and backward) for the duration of the context, then restore the previous
+    hook. The compile itself proceeds unchanged, so callers can inspect the graph (e.g.
+    assert an op stayed atomic) without patching backend internals.
+    """
+    prev = _compile._post_aot_fx_hook
+    _compile._post_aot_fx_hook = hook
+    try:
+        yield
+    finally:
+        _compile._post_aot_fx_hook = prev
