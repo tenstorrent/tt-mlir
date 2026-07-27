@@ -14,7 +14,6 @@ from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 from conftest import get_request_kwargs
-from test_utils import SkipIf
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -323,7 +322,10 @@ def test_tensor_accessor_dma_tiled_vgm(
     )
 
 
-@pytest.mark.parametrize("target", ["ttmetal" | SkipIf(["n150", "sim"])])
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.skip_exec(
+    ("n150", "sim"), reason="TEN-3868 LLK f32 tilize undefined behavior"
+)
 def test_tensor_accessor_binary_add(
     target: str,
     request,
@@ -456,7 +458,6 @@ def test_tensor_accessor_matmul(
         device=device,
         custom_pipeline=pipeline,
         **get_request_kwargs(request),
-        pcc=0.97,
     )
 
 
