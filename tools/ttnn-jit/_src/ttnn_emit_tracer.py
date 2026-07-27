@@ -18,10 +18,11 @@ Coverage is the full transformer-decoder vocabulary: dense compute
 (slice, reshape, transpose, permute, concat, embedding), attention (SDPA,
 paged SDPA decode), heads (QKV split + concat, prefill and decode), RoPE, and
 in-place paged KV-cache ops. The full Llama decoder sweeps in both phases. Not
-yet ported: the long-tail allowlisted ops the TTIR tracer covers via
-BaseOpHandler (reductions, the rest of the tm/unary/binary set) and the MoE ops
-(topk/scatter/sparse_matmul); trace models needing those through the default
-TTIR path (pipeline="scoped").
+MoE router (topk/scatter/zeros/arange/pad/clamp/fill_cache). Not yet ported:
+the long-tail allowlisted ops the TTIR tracer covers via BaseOpHandler, and
+ttnn.sparse_matmul -- the routed-expert path -- for which the whole optimizer
+has no coverage anyway (the op is OpModelExempt and unregistered in the rule
+book), so a MoE capture must trace its dense expert graph.
 """
 
 from contextlib import contextmanager
@@ -246,16 +247,37 @@ def _linear_handler(
 
 def _binary(op_fn):
     def handler(jit_ctx, x, y, **kwargs):
+        # Either operand may be a python scalar -- `ttnn.multiply(gate, 1.703125)`
+        # is ordinary model code (gpt-oss's SwiGLU alpha). Materialize it as a
+        # ttnn.full shaped like the tensor operand so the graph stays all-tensor,
+        # the same way _where_handler does.
+        tensor_ref = x if hasattr(x, "mlir_value") else y
+        if not hasattr(tensor_ref, "mlir_value"):
+            raise TypeError("binary op needs at least one tensor operand")
         with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
-            # scalar operand -> not supported in analysis; require two tensors.
-            xs = [int(d) for d in x.mlir_value.type.shape]
-            ys = [int(d) for d in y.mlir_value.type.shape]
+            def dims_of(v):
+                if hasattr(v, "mlir_value"):
+                    return [int(d) for d in v.mlir_value.type.shape]
+                return [int(d) for d in tensor_ref.mlir_value.type.shape]
+
+            xs, ys = dims_of(x), dims_of(y)
             n = max(len(xs), len(ys))
             xr = [1] * (n - len(xs)) + xs
             yr = [1] * (n - len(ys)) + ys
             out = [a if b == 1 else b if a == 1 else max(a, b) for a, b in zip(xr, yr)]
-            rt = _retype(jit_ctx.ctx, x.mlir_value, out)
-            return op_fn(result=rt, lhs=x.mlir_value, rhs=y.mlir_value)
+            elem = tensor_ref.mlir_value.type.element_type
+
+            def operand(v):
+                if hasattr(v, "mlir_value"):
+                    return v.mlir_value
+                return ttnn.full(
+                    result=_tt(jit_ctx.ctx, out, elem),
+                    shape=ttnn.ir.ShapeAttr.get(jit_ctx.ctx, out),
+                    fill_value=FloatAttr.get(F32Type.get(jit_ctx.ctx), float(v)),
+                )
+
+            rt = _tt(jit_ctx.ctx, out, elem)
+            return op_fn(result=rt, lhs=operand(x), rhs=operand(y))
 
     return handler
 
@@ -553,6 +575,136 @@ def _rotary_embedding_hf_handler(
             sin_cache=sin_cache.mlir_value,
             token_index=None,
         )
+
+
+# --- MoE / router + long-tail creation ops ---------------------------------
+# gpt-oss's decoder is the first traced model needing these; every one maps 1:1
+# onto an existing TTNN dialect op, same as the rest of this file.
+
+
+def _zeros_handler(jit_ctx, shape=None, *, dtype=None, device=None, **kwargs):
+    """``ttnn.zeros(shape)`` -> ``ttnn.zeros``. dtype defaults to bf16."""
+    dims = [int(d) for d in (shape if shape is not None else kwargs.get("size", []))]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        elem = _traced_element_type(dtype or _ttnn_rt.bfloat16, jit_ctx.ctx)
+        return ttnn.zeros(
+            result=_tt(jit_ctx.ctx, dims, elem),
+            shape=ttnn.ir.ShapeAttr.get(jit_ctx.ctx, dims),
+        )
+
+
+def _zeros_like_handler(jit_ctx, input, **kwargs):
+    """``ttnn.zeros_like(x)`` -> ``ttnn.zeros`` of x's shape/element type."""
+    dims = [int(d) for d in input.mlir_value.type.shape]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        return ttnn.zeros(
+            result=_retype(jit_ctx.ctx, input.mlir_value, dims),
+            shape=ttnn.ir.ShapeAttr.get(jit_ctx.ctx, dims),
+        )
+
+
+def _arange_handler(jit_ctx, start=0, end=None, step=1, *, dtype=None, **kwargs):
+    """``ttnn.arange(start, end, step)`` -> ``ttnn.arange`` (1-D)."""
+    if end is None:
+        start, end = 0, start
+    start, end, step = int(start), int(end), int(step or 1)
+    n = max(0, -(-(end - start) // step))
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        elem = _traced_element_type(dtype or _ttnn_rt.bfloat16, jit_ctx.ctx)
+        return ttnn.arange(
+            result=_tt(jit_ctx.ctx, [n], elem), start=start, end=end, step=step
+        )
+
+
+def _clamp_handler(jit_ctx, input, min=None, max=None, **kwargs):
+    """``ttnn.clamp`` -> clamp_scalar (bounds are scalars in every traced use)."""
+    lo = kwargs.get("min", min)
+    hi = kwargs.get("max", max)
+    dims = [int(d) for d in input.mlir_value.type.shape]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        f32 = F32Type.get(jit_ctx.ctx)
+        return ttnn.clamp_scalar(
+            result=_retype(jit_ctx.ctx, input.mlir_value, dims),
+            input=input.mlir_value,
+            min=FloatAttr.get(f32, float("-inf") if lo is None else float(lo)),
+            max=FloatAttr.get(f32, float("inf") if hi is None else float(hi)),
+        )
+
+
+def _pad_handler(jit_ctx, input, padding=None, value=0.0, **kwargs):
+    """``ttnn.pad`` -> ``ttnn.pad``; padding is (before, after) per dim."""
+    padding = kwargs.get("padding", padding) or []
+    dims = [int(d) for d in input.mlir_value.type.shape]
+    flat, out = [], list(dims)
+    for i, pair in enumerate(padding):
+        before, after = (int(pair[0]), int(pair[1])) if isinstance(pair, (list, tuple)) else (0, int(pair))
+        flat += [before, after]
+        if i < len(out):
+            out[i] += before + after
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        return ttnn.pad(
+            result=_retype(jit_ctx.ctx, input.mlir_value, out),
+            input=input.mlir_value,
+            padding=flat,
+            value=FloatAttr.get(F32Type.get(jit_ctx.ctx), float(value or 0.0)),
+            use_multicore=True,
+        )
+
+
+def _scatter_handler(jit_ctx, input, dim=None, index=None, src=None, **kwargs):
+    """``ttnn.scatter(input, dim=, index=, src=)`` -> ``ttnn.scatter``.
+
+    The router scatters distinct expert indices into a zeros tensor, so a SUM
+    reduce is equivalent to assignment (same modelling as the TTIR tracer).
+    """
+    dim = kwargs.get("dim", dim)
+    index = kwargs.get("index", index)
+    src = kwargs.get("src", src)
+    dims = [int(d) for d in input.mlir_value.type.shape]
+    d = 0 if dim is None else (int(dim) % len(dims))
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        return ttnn.scatter(
+            result=_retype(jit_ctx.ctx, input.mlir_value, dims),
+            input=input.mlir_value,
+            index=index.mlir_value,
+            source=src.mlir_value,
+            dim=d,
+            scatter_reduce_type=ttcore.ir.ReduceTypeAttr.get(
+                jit_ctx.ctx, ttcore.ir.ReduceType.Sum
+            ),
+        )
+
+
+def _topk_handler(jit_ctx, input, k=None, dim=None, largest=None, sorted=None, **kwargs):
+    """``ttnn.topk`` -> ``ttnn.topk`` (values, indices); the top-k dim becomes k."""
+    k = int(kwargs.get("k", k))
+    dim = kwargs.get("dim", dim)
+    dims = [int(d) for d in input.mlir_value.type.shape]
+    d = (len(dims) - 1) if dim is None else (int(dim) % len(dims))
+    out = list(dims)
+    out[d] = k
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        vt = _retype(jit_ctx.ctx, input.mlir_value, out)
+        # Indices are int32; use the shared mapping so the layout's scalar type
+        # matches the tensor element type (ScalarDataTypeAnalysis asserts it).
+        it = _tt(jit_ctx.ctx, out, _traced_element_type(_ttnn_rt.int32, jit_ctx.ctx))
+        res = ttnn.topk(
+            values=vt, indices=it, input_tensor=input.mlir_value, k=k, dim=d,
+            largest=(True if largest is None else bool(largest)),
+            sorted=(True if sorted is None else bool(sorted)),
+        )
+        return list(res)
+
+
+def _fill_cache_handler(jit_ctx, cache, input, batch_offset=0, **kwargs):
+    """``ttnn.fill_cache`` -> ``ttnn.fill_cache``; mutates the cache in place."""
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        ttnn.fill_cache(
+            cache=cache.mlir_value,
+            input=input.mlir_value,
+            batch_offset=int(batch_offset or 0),
+        )
+    return cache.mlir_value
 
 
 def _sdpa_handler(jit_ctx, q, k, v, *, is_causal=None, scale=None, **kwargs):
@@ -866,6 +1018,13 @@ _VALUE_HANDLERS = {
     "sign": _unary(ttnn.sign),
     "erf": _unary(ttnn.erf),
     "erfc": _unary(ttnn.erfc),
+    "logical_and": _binary(ttnn.logical_and),
+    "clamp": _clamp_handler,
+    "pad": _pad_handler,
+    "scatter": _scatter_handler,
+    "zeros": _zeros_handler,
+    "zeros_like": _zeros_like_handler,
+    "arange": _arange_handler,
     "logical_not": _unary(ttnn.logical_not),
     "bitwise_not": _unary(ttnn.bitwise_not),
     # reductions
@@ -877,6 +1036,12 @@ _VALUE_HANDLERS = {
 
 _TOPLEVEL_MULTI = {
     "split": _split_handler,
+    "topk": _topk_handler,
+}
+
+# name -> positional index of the mutated argument (ttnn returns None).
+_TOPLEVEL_INPLACE = {
+    "fill_cache": (_fill_cache_handler, 0),
 }
 
 # ttnn.experimental.<op> handlers.
@@ -968,6 +1133,9 @@ def patch_ttnn(jit_ctx):
         for name, value_fn in _TOPLEVEL_MULTI.items():
             originals[name] = getattr(_ttnn_rt, name, _MISSING)
             setattr(_ttnn_rt, name, _make_multi_op(value_fn, jit_ctx))
+        for name, (value_fn, idx) in _TOPLEVEL_INPLACE.items():
+            originals[name] = getattr(_ttnn_rt, name, _MISSING)
+            setattr(_ttnn_rt, name, _make_inplace_op(value_fn, jit_ctx, idx))
         if experimental is not None:
             for name, value_fn in _EXPERIMENTAL_VALUE.items():
                 exp_originals[name] = getattr(experimental, name, _MISSING)
