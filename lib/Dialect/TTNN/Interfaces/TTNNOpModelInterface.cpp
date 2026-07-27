@@ -31,6 +31,38 @@
 
 namespace mlir::tt::ttnn {
 
+//===----------------------------------------------------------------------===//
+// Stateful op-model migration policy (L1 spill)
+//
+// Ops that participate in the stateful, allocator-backed L1 spill pass override
+// the OpModel interface's getOpConstraintsWithState -- directly, via a per-op
+// extraClassDeclaration + out-of-line body, via a per-family helper macro
+// (e.g. TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE), or via a templated
+// *OpModel body. Every op that does NOT override it inherits the interface
+// default, which delegates to the stateless getOpConstraints
+// (buildInitialState({}) yields a null state -> plain stateless query). That
+// default is SAFE, not buggy: an unmigrated op is modeled exactly as before
+// this feature (no live-record state), never silently wrong -- only less
+// fragmentation-aware if it ever appears in the spill window.
+//
+// The ops below are INTENTIONALLY left on the stateless default as of this
+// change (they are creation / structural ops, or their stateful body has not
+// been needed by the models this pass targets). This list exists so future
+// readers can distinguish "intentionally stateless" from "accidentally
+// forgot" -- migrating any of them just means adding a
+// getOpConstraintsWithState override mirroring its stateless twin (see
+// ChunkedScaledDotProductAttentionOp for the pattern) and changes no existing
+// behavior:
+//   * Creation / no-activation-input ops: ArangeOp, EmptyOp, FullOp, OnesOp,
+//     ZerosOp, RandOp.
+//   * Structural / bookkeeping ops: AssignOp, DeallocateOp, D2MSubgraphOp,
+//     DropoutOp, PrepareConv3dWeightsOp.
+//   * Elementwise binary-composite / bitwise binaries: Atan2Op, MaximumOp,
+//     MinimumOp, PowTensorOp, RemainderOp, BitwiseAndOp, BitwiseOrOp,
+//     BitwiseXorOp.
+//   * QuantizeOp, DequantizeOp, Conv1dOp, MoeGptOp, TanhOp.
+//===----------------------------------------------------------------------===//
+
 namespace detail {
 
 char OpNotSupportedError::ID = 0;
@@ -124,17 +156,54 @@ convertOptionalArrayAttrToSmallVec(std::optional<mlir::ArrayAttr> arrayAttr) {
   return convertArrayAttrToSmallVec(arrayAttr.value());
 }
 
+// Centralizes the cache-vs-bypass decision for every constraints query.
+//
+// The opConstraintsCache key is the op plus its args; liveRecords are
+// deliberately NOT part of the key. A stateful query (state != nullptr)
+// therefore MUST bypass the cache -- otherwise it would return a fit decision
+// cached under a different (or empty) live set, i.e. a stale-fit result. A
+// stateless query (state == nullptr) goes through the cache exactly as before.
+// Every op interface body routes through here so this invariant lives in one
+// place. Args are taken by value: they are cheap (ArrayRef views, attrs) and
+// each branch consumes them at most once.
+template <typename OpT, typename... Args>
+llvm::Expected<op_model::OpConstraints>
+constraintsDispatch(OpT op, const op_model::MockAllocatorState *state,
+                    Args... args) {
+  if (state) {
+    return op_model::OpModel<OpT>::getOpConstraintsWithState(args..., state);
+  }
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<OpT>::getOpConstraints, op, args...);
+}
+
 template <typename OpT>
 llvm::Expected<op_model::OpConstraints>
-getUnaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
-                      const OpConfig &opConfig) {
+getUnaryConstraintsImpl(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig,
+                        const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 1);
 
   const auto inputShape = op.getInput().getType().getShape();
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpConstraints, op, inputShape, inputs[0],
-      opConfig.outputLayout);
+  return constraintsDispatch(op, state, inputShape, inputs[0],
+                             opConfig.outputLayout);
+}
+
+template <typename OpT>
+llvm::Expected<op_model::OpConstraints>
+getUnaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig) {
+  return getUnaryConstraintsImpl(op, inputs, opConfig, /*state=*/nullptr);
+}
+
+template <typename OpT>
+llvm::Expected<op_model::OpConstraints> getUnaryOpConstraintsWithState(
+    OpT op, const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return getUnaryConstraintsImpl(op, inputs, opConfig, initialState.get());
 }
 
 template <typename OpT>
@@ -152,8 +221,9 @@ getUnaryOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
 
 template <typename OpT>
 llvm::Expected<op_model::OpConstraints>
-getBinaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
-                       const OpConfig &opConfig) {
+getBinaryConstraintsImpl(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig,
+                         const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 2);
 
   const auto inputShapeA = op.getLhs().getType().getShape();
@@ -164,9 +234,24 @@ getBinaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
     opDtypeAttr = dtypeOp.getDtypeAttr();
   }
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpConstraints, op, inputShapeA, inputs[0],
-      inputShapeB, inputs[1], opConfig.outputLayout, opDtypeAttr);
+  return constraintsDispatch(op, state, inputShapeA, inputs[0], inputShapeB,
+                             inputs[1], opConfig.outputLayout, opDtypeAttr);
+}
+
+template <typename OpT>
+llvm::Expected<op_model::OpConstraints>
+getBinaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
+  return getBinaryConstraintsImpl(op, inputs, opConfig, /*state=*/nullptr);
+}
+
+template <typename OpT>
+llvm::Expected<op_model::OpConstraints> getBinaryOpConstraintsWithState(
+    OpT op, const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return getBinaryConstraintsImpl(op, inputs, opConfig, initialState.get());
 }
 
 template <typename OpT>
@@ -185,17 +270,34 @@ getBinaryOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
 
 template <typename OpT>
 llvm::Expected<op_model::OpConstraints>
-getTernaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
-                        const OpConfig &opConfig) {
+getTernaryConstraintsImpl(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig,
+                          const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 3);
 
   const auto inputShapeA = op.getFirst().getType().getShape();
   const auto inputShapeB = op.getSecond().getType().getShape();
   const auto inputShapeC = op.getThird().getType().getShape();
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpConstraints, op, inputShapeA, inputs[0],
-      inputShapeB, inputs[1], inputShapeC, inputs[2], opConfig.outputLayout);
+  return constraintsDispatch(op, state, inputShapeA, inputs[0], inputShapeB,
+                             inputs[1], inputShapeC, inputs[2],
+                             opConfig.outputLayout);
+}
+
+template <typename OpT>
+llvm::Expected<op_model::OpConstraints>
+getTernaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  return getTernaryConstraintsImpl(op, inputs, opConfig, /*state=*/nullptr);
+}
+
+template <typename OpT>
+llvm::Expected<op_model::OpConstraints> getTernaryOpConstraintsWithState(
+    OpT op, const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return getTernaryConstraintsImpl(op, inputs, opConfig, initialState.get());
 }
 
 template <typename OpT>
@@ -215,14 +317,31 @@ getTernaryOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
 
 template <typename OpT>
 llvm::Expected<op_model::OpConstraints>
-getReductionOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
-                          const OpConfig &opConfig) {
+getReductionConstraintsImpl(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig,
+                            const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 1);
   const auto inputShape = op.getInput().getType().getShape();
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpConstraints, op, inputShape, inputs[0],
+  return constraintsDispatch(
+      op, state, inputShape, inputs[0],
       detail::convertOptionalArrayAttrToSmallVec(op.getDimArg()),
       op.getKeepDim(), opConfig.outputLayout);
+}
+
+template <typename OpT>
+llvm::Expected<op_model::OpConstraints>
+getReductionOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  return getReductionConstraintsImpl(op, inputs, opConfig, /*state=*/nullptr);
+}
+
+template <typename OpT>
+llvm::Expected<op_model::OpConstraints> getReductionOpConstraintsWithState(
+    OpT op, const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return getReductionConstraintsImpl(op, inputs, opConfig, initialState.get());
 }
 
 template <typename OpT>
@@ -239,18 +358,35 @@ getReductionOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
 
 template <typename OpT>
 llvm::Expected<op_model::OpConstraints>
-getPoolingOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
-                        const OpConfig &opConfig) {
+getPoolingConstraintsImpl(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig,
+                          const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 1);
 
   const auto inputShape = op.getInput().getType().getShape();
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpConstraints, op, inputShape, inputs[0],
-      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
-      op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
-      op.getConfigTensorsInDram(), opConfig.outputLayout);
+  return constraintsDispatch(
+      op, state, inputShape, inputs[0], op.getBatchSize(), op.getInputHeight(),
+      op.getInputWidth(), op.getChannels(), op.getKernelSize(), op.getStride(),
+      op.getPadding(), op.getDilation(), op.getCeilMode(),
+      op.getReallocateHaloOutput(), op.getConfigTensorsInDram(),
+      opConfig.outputLayout);
+}
+
+template <typename OpT>
+llvm::Expected<op_model::OpConstraints>
+getPoolingOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  return getPoolingConstraintsImpl(op, inputs, opConfig, /*state=*/nullptr);
+}
+
+template <typename OpT>
+llvm::Expected<op_model::OpConstraints> getPoolingOpConstraintsWithState(
+    OpT op, const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return getPoolingConstraintsImpl(op, inputs, opConfig, initialState.get());
 }
 
 template <typename OpT>
@@ -270,21 +406,40 @@ getPoolingOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 template <typename OpT>
-llvm::Expected<op_model::OpConstraints>
-getMaxPool2dWithIndicesOpConstraints(OpT op,
-                                     const std::vector<TTNNLayoutAttr> &inputs,
-                                     const OpConfig &opConfig) {
+llvm::Expected<op_model::OpConstraints> getMaxPool2dWithIndicesConstraintsImpl(
+    OpT op, const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 1);
 
   const auto inputShape = op.getInput().getType().getShape();
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpConstraints, op, inputShape, inputs[0],
-      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
-      op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
+  return constraintsDispatch(
+      op, state, inputShape, inputs[0], op.getBatchSize(), op.getInputHeight(),
+      op.getInputWidth(), op.getChannels(), op.getKernelSize(), op.getStride(),
+      op.getPadding(), op.getDilation(), op.getCeilMode(),
+      op.getReallocateHaloOutput(),
       /*deallocate_input*/ false, /*return_indices*/ true,
       op.getConfigTensorsInDram(), opConfig.outputLayout);
+}
+
+template <typename OpT>
+llvm::Expected<op_model::OpConstraints>
+getMaxPool2dWithIndicesOpConstraints(OpT op,
+                                     const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  return getMaxPool2dWithIndicesConstraintsImpl(op, inputs, opConfig,
+                                                /*state=*/nullptr);
+}
+
+template <typename OpT>
+llvm::Expected<op_model::OpConstraints>
+getMaxPool2dWithIndicesOpConstraintsWithState(
+    OpT op, const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return getMaxPool2dWithIndicesConstraintsImpl(op, inputs, opConfig,
+                                                initialState.get());
 }
 
 template <typename OpT>
@@ -367,6 +522,87 @@ llvm::Expected<size_t>
 ReluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                      const OpConfig &opConfig) {
   return detail::getUnaryOpRuntime(*this, inputs, opConfig);
+}
+
+//===----------------------------------------------------------------------===//
+// Elementwise-unary family: stateful getOpConstraintsWithState overrides.
+// Uniform members route through the stateful helper (both UnaryEltwiseOpModel
+// and UnaryEltwiseWithFastApproxModeOpModel have migrated op-model bodies).
+// ErfOp and BitwiseNotOp provide their own per-op extraClassDeclaration in
+// tablegen (which declares getOpConstraintsWithState there), so they are
+// defined here via the same helper macro.
+//===----------------------------------------------------------------------===//
+
+#define TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(OP)                        \
+  llvm::Expected<op_model::OpConstraints> OP::getOpConstraintsWithState(       \
+      const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,     \
+      llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {         \
+    return detail::getUnaryOpConstraintsWithState(*this, inputs, opConfig,     \
+                                                  liveRecords);                \
+  }
+
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(AbsOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(ErfOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(BitwiseNotOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(CbrtOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(CeilOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(CosOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(ExpOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(ErfcOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(NegOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(ReciprocalOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(ReluOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(Relu6Op)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(SinOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(SqrtOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(RsqrtOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(HardsigmoidOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(SiluOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(MishOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(LogOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(AcosOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(AsinOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(AsinhOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(AtanOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(Expm1Op)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(FloorOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(GeluOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(IsFiniteOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(Log1pOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(LogicalNotOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(SignOp)
+TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE(TanOp)
+
+#undef TTNN_DEFINE_UNARY_OP_CONSTRAINTS_WITH_STATE
+
+// SigmoidOp (bespoke op-model) has the standard unary
+// (inputShape, inputLayout, outputLayout) signature, so it routes through the
+// uniform stateful helper. LeakyReluOp carries an extra float parameter, so it
+// threads state through a bespoke query.
+llvm::Expected<op_model::OpConstraints> SigmoidOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  return detail::getUnaryOpConstraintsWithState(*this, inputs, opConfig,
+                                                liveRecords);
+}
+
+static llvm::Expected<op_model::OpConstraints> leakyReluConstraintsImpl(
+    LeakyReluOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     op.getParameter(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints> LeakyReluOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return leakyReluConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 //===----------------------------------------------------------------------===//
@@ -888,13 +1124,7 @@ ExpOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 LeakyReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<LeakyReluOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getParameter(), opConfig.outputLayout);
+  return leakyReluConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
 }
 
 llvm::Expected<size_t>
@@ -923,6 +1153,64 @@ llvm::Expected<size_t>
 AddOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                     const OpConfig &opConfig) {
   return detail::getBinaryOpRuntime(*this, inputs, opConfig);
+}
+
+//===----------------------------------------------------------------------===//
+// Elementwise-binary family: stateful getOpConstraintsWithState overrides.
+// Declared on the shared TTNN_ElementwiseBinaryOp base (extraClassDeclaration),
+// so every member defines it here. The uniform BinaryEltwiseOpModel members
+// route through the stateful helper; GeluBackwardOp (bespoke op-model, extra
+// approximate arg) is not yet state-aware and delegates to the stateless query.
+//===----------------------------------------------------------------------===//
+
+#define TTNN_DEFINE_BINARY_OP_CONSTRAINTS_WITH_STATE(OP)                       \
+  llvm::Expected<op_model::OpConstraints> OP::getOpConstraintsWithState(       \
+      const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,     \
+      llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {         \
+    return detail::getBinaryOpConstraintsWithState(*this, inputs, opConfig,    \
+                                                   liveRecords);               \
+  }
+
+TTNN_DEFINE_BINARY_OP_CONSTRAINTS_WITH_STATE(AddOp)
+TTNN_DEFINE_BINARY_OP_CONSTRAINTS_WITH_STATE(DivideOp)
+TTNN_DEFINE_BINARY_OP_CONSTRAINTS_WITH_STATE(MultiplyOp)
+TTNN_DEFINE_BINARY_OP_CONSTRAINTS_WITH_STATE(SubtractOp)
+TTNN_DEFINE_BINARY_OP_CONSTRAINTS_WITH_STATE(EqualOp)
+TTNN_DEFINE_BINARY_OP_CONSTRAINTS_WITH_STATE(NotEqualOp)
+TTNN_DEFINE_BINARY_OP_CONSTRAINTS_WITH_STATE(GreaterEqualOp)
+TTNN_DEFINE_BINARY_OP_CONSTRAINTS_WITH_STATE(GreaterThanOp)
+TTNN_DEFINE_BINARY_OP_CONSTRAINTS_WITH_STATE(LessEqualOp)
+TTNN_DEFINE_BINARY_OP_CONSTRAINTS_WITH_STATE(LessThanOp)
+TTNN_DEFINE_BINARY_OP_CONSTRAINTS_WITH_STATE(LogicalAndOp)
+TTNN_DEFINE_BINARY_OP_CONSTRAINTS_WITH_STATE(LogicalOrOp)
+TTNN_DEFINE_BINARY_OP_CONSTRAINTS_WITH_STATE(LogicalXorOp)
+TTNN_DEFINE_BINARY_OP_CONSTRAINTS_WITH_STATE(LogicalRightShiftOp)
+
+#undef TTNN_DEFINE_BINARY_OP_CONSTRAINTS_WITH_STATE
+
+// GeluBackwardOp shares the binary tablegen base but has a bespoke op-model
+// (extra `approximate` arg), so it threads state through a bespoke query.
+static llvm::Expected<op_model::OpConstraints> geluBackwardConstraintsImpl(
+    GeluBackwardOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA = op.getLhs().getType().getShape();
+  const auto inputShapeB = op.getRhs().getType().getShape();
+
+  return detail::constraintsDispatch(
+      op, state, inputShapeA, inputs[0], inputShapeB, inputs[1],
+      op.getApproximate().str(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+GeluBackwardOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return geluBackwardConstraintsImpl(*this, inputs, opConfig,
+                                     initialState.get());
 }
 
 //===----------------------------------------------------------------------===//
@@ -971,6 +1259,14 @@ llvm::Expected<size_t>
 LogicalLeftShiftOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                                  const OpConfig &opConfig) {
   return detail::getBinaryOpRuntime(*this, inputs, opConfig);
+}
+
+llvm::Expected<op_model::OpConstraints>
+LogicalLeftShiftOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  return detail::getBinaryOpConstraintsWithState(*this, inputs, opConfig,
+                                                 liveRecords);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1073,26 +1369,40 @@ BitwiseXorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ScatterOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints>
+scatterConstraintsImpl(ScatterOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig,
+                       const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 3);
+
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto indexShape = op.getIndex().getType().getShape();
+  const auto sourceShape = op.getSource().getType().getShape();
+
+  std::optional<ttcore::ReduceTypeAttr> reduceType =
+      ttcore::ReduceTypeAttr::get(op.getContext(), ttcore::ReduceType::Invalid);
+  if (op.getScatterReduceType() != ttcore::ReduceType::Invalid) {
+    reduceType =
+        ttcore::ReduceTypeAttr::get(op.getContext(), op.getScatterReduceType());
+  }
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], indexShape, inputs[1], sourceShape,
+      inputs[2], op.getDim(), reduceType, opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 ScatterOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
-  assert(inputs.size() == 3);
+  return scatterConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-  const auto indexShape = getIndex().getType().getShape();
-  const auto sourceShape = getSource().getType().getShape();
-
-  std::optional<ttcore::ReduceTypeAttr> reduceType =
-      ttcore::ReduceTypeAttr::get(getContext(), ttcore::ReduceType::Invalid);
-  if (getScatterReduceType() != ttcore::ReduceType::Invalid) {
-    reduceType =
-        ttcore::ReduceTypeAttr::get(getContext(), getScatterReduceType());
-  }
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ScatterOp>::getOpConstraints, *this, inputShape,
-      inputs[0], indexShape, inputs[1], sourceShape, inputs[2], getDim(),
-      reduceType, opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> ScatterOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return scatterConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -1121,18 +1431,33 @@ ScatterOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // GatherOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints>
+gatherConstraintsImpl(GatherOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig,
+                      const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 2);
+
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto indexShape = op.getIndex().getType().getShape();
+  int32_t dim = op.getDim();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     indexShape, inputs[1], dim,
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 GatherOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
-  assert(inputs.size() == 2);
+  return gatherConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-  const auto indexShape = getIndex().getType().getShape();
-  int32_t dim = getDim();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<GatherOp>::getOpConstraints, *this, inputShape,
-      inputs[0], indexShape, inputs[1], dim, opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> GatherOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return gatherConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -1172,15 +1497,8 @@ Atan2Op::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 GeluBackwardOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                  const OpConfig &opConfig) {
-  assert(inputs.size() == 2);
-
-  const auto inputShapeA = getLhs().getType().getShape();
-  const auto inputShapeB = getRhs().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<GeluBackwardOp>::getOpConstraints, getOperation(),
-      inputShapeA, inputs[0], inputShapeB, inputs[1], getApproximate().str(),
-      opConfig.outputLayout);
+  return geluBackwardConstraintsImpl(*this, inputs, opConfig,
+                                     /*state=*/nullptr);
 }
 
 llvm::Expected<size_t>
@@ -1236,16 +1554,29 @@ PowTensorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // PowScalarOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> powScalarConstraintsImpl(
+    PowScalarOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getLhs().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     op.getRhs(), opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 PowScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return powScalarConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getLhs().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PowScalarOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getRhs(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> PowScalarOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return powScalarConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -1436,6 +1767,13 @@ WhereOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return detail::getTernaryOpRuntime(*this, inputs, opConfig);
 }
 
+llvm::Expected<op_model::OpConstraints> WhereOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  return detail::getTernaryOpConstraintsWithState(*this, inputs, opConfig,
+                                                  liveRecords);
+}
+
 //===----------------------------------------------------------------------===//
 // MeanOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
@@ -1450,6 +1788,13 @@ llvm::Expected<size_t>
 MeanOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                      const OpConfig &opConfig) {
   return getReductionOpRuntime(*this, inputs, opConfig);
+}
+
+llvm::Expected<op_model::OpConstraints> MeanOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  return getReductionOpConstraintsWithState(*this, inputs, opConfig,
+                                            liveRecords);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1468,6 +1813,13 @@ MaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return getReductionOpRuntime(*this, inputs, opConfig);
 }
 
+llvm::Expected<op_model::OpConstraints> MaxOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  return getReductionOpConstraintsWithState(*this, inputs, opConfig,
+                                            liveRecords);
+}
+
 //===----------------------------------------------------------------------===//
 // MinOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
@@ -1482,6 +1834,13 @@ llvm::Expected<size_t>
 MinOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                     const OpConfig &opConfig) {
   return getReductionOpRuntime(*this, inputs, opConfig);
+}
+
+llvm::Expected<op_model::OpConstraints> MinOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  return getReductionOpConstraintsWithState(*this, inputs, opConfig,
+                                            liveRecords);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1500,20 +1859,42 @@ SumOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return getReductionOpRuntime(*this, inputs, opConfig);
 }
 
+llvm::Expected<op_model::OpConstraints> SumOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  return getReductionOpConstraintsWithState(*this, inputs, opConfig,
+                                            liveRecords);
+}
+
 //===----------------------------------------------------------------------===//
 // SoftmaxOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints>
+softmaxConstraintsImpl(SoftmaxOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig,
+                       const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     op.getDimension(), op.getNumericStable(),
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 SoftmaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return softmaxConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<SoftmaxOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getDimension(), getNumericStable(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> SoftmaxOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return softmaxConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -1532,18 +1913,32 @@ SoftmaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ReshapeOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints>
+reshapeConstraintsImpl(ReshapeOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig,
+                       const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  const auto outputShape = op.getResult().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     outputShape, opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 ReshapeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return reshapeConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  const auto outputShape = getResult().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ReshapeOp>::getOpConstraints, *this, inputShape,
-      inputs[0], outputShape, opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> ReshapeOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return reshapeConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -1563,18 +1958,34 @@ ReshapeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // SliceStaticOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> sliceStaticConstraintsImpl(
+    SliceStaticOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0],
+      detail::convertArrayAttrToSmallVec(op.getBegins()),
+      detail::convertArrayAttrToSmallVec(op.getEnds()),
+      detail::convertArrayAttrToSmallVec(op.getStep()), opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 SliceStaticOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                 const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return sliceStaticConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<SliceStaticOp>::getOpConstraints, *this, inputShape,
-      inputs[0], detail::convertArrayAttrToSmallVec(getBegins()),
-      detail::convertArrayAttrToSmallVec(getEnds()),
-      detail::convertArrayAttrToSmallVec(getStep()), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+SliceStaticOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return sliceStaticConstraintsImpl(*this, inputs, opConfig,
+                                    initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -1595,20 +2006,36 @@ SliceStaticOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // SliceDynamicOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> sliceDynamicConstraintsImpl(
+    SliceDynamicOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 3);
+
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto beginsShape = op.getBegins().getType().getShape();
+  const auto endsShape = op.getEnds().getType().getShape();
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], beginsShape, inputs[1], endsShape,
+      inputs[2], detail::convertOptionalArrayAttrToSmallVec(op.getStep()),
+      opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 SliceDynamicOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                  const OpConfig &opConfig) {
-  assert(inputs.size() == 3);
+  return sliceDynamicConstraintsImpl(*this, inputs, opConfig,
+                                     /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-  const auto beginsShape = getBegins().getType().getShape();
-  const auto endsShape = getEnds().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<SliceDynamicOp>::getOpConstraints, *this, inputShape,
-      inputs[0], beginsShape, inputs[1], endsShape, inputs[2],
-      detail::convertOptionalArrayAttrToSmallVec(getStep()),
-      opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+SliceDynamicOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return sliceDynamicConstraintsImpl(*this, inputs, opConfig,
+                                     initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -1630,20 +2057,36 @@ SliceDynamicOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 //===----------------------------------------------------------------------===//
 // BitcastConvertOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
+static llvm::Expected<op_model::OpConstraints> bitcastConvertConstraintsImpl(
+    BitcastConvertOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  ttcore::DataTypeAttr dtype =
+      detail::resolveOutputDtype(op.getOperation(), opConfig.outputLayout);
+  assert(dtype && "BitcastConvertOp requires output dtype");
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0], dtype,
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 BitcastConvertOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                    const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return bitcastConvertConstraintsImpl(*this, inputs, opConfig,
+                                       /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  ttcore::DataTypeAttr dtype =
-      detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
-  assert(dtype && "BitcastConvertOp requires output dtype");
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<BitcastConvertOp>::getOpConstraints, *this, inputShape,
-      inputs[0], dtype, opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+BitcastConvertOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return bitcastConvertConstraintsImpl(*this, inputs, opConfig,
+                                       initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -1666,25 +2109,38 @@ BitcastConvertOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // TypecastOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-TypecastOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                             const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints> typecastConstraintsImpl(
+    TypecastOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 1);
 
   if (inputs[0].getBufferType() == BufferType::SystemMemory) {
     return issueErrorForGetOpConstraints(
-        getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
+        op.getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
   }
 
-  const auto inputShape = getInput().getType().getShape();
+  const auto inputShape = op.getInput().getType().getShape();
 
   ttcore::DataTypeAttr dtype =
-      detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
+      detail::resolveOutputDtype(op.getOperation(), opConfig.outputLayout);
   assert(dtype && "TypecastOp requires output dtype");
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<TypecastOp>::getOpConstraints, *this, inputShape,
-      inputs[0], dtype, opConfig.outputLayout);
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0], dtype,
+                                     opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+TypecastOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  return typecastConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints> TypecastOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return typecastConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -1712,29 +2168,42 @@ TypecastOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ToLayoutOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-ToLayoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                             const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints> toLayoutConstraintsImpl(
+    ToLayoutOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 1);
   assert(opConfig.outputLayout && "ToLayoutOp requires output layout");
-  assert(opConfig.outputLayout.getLayout() == getLayoutAttr().getValue());
+  assert(opConfig.outputLayout.getLayout() == op.getLayoutAttr().getValue());
 
-  const auto inputShape = getInput().getType().getShape();
+  const auto inputShape = op.getInput().getType().getShape();
 
   // Only signal a dtype conversion to the op model when this to_layout is
   // genuinely changing dtype. Use the resolved (candidate or intrinsic)
   // output dtype, and compare it against the input dtype.
   std::optional<ttcore::DataType> outputDtype = std::nullopt;
-  if (ttcore::DataTypeAttr dtype =
-          detail::resolveOutputDtype(getOperation(), opConfig.outputLayout)) {
+  if (ttcore::DataTypeAttr dtype = detail::resolveOutputDtype(
+          op.getOperation(), opConfig.outputLayout)) {
     if (dtype.getValue() != inputs[0].getDataType()) {
       outputDtype = dtype.getValue();
     }
   }
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ToLayoutOp>::getOpConstraints, *this, inputShape,
-      inputs[0], outputDtype, opConfig.outputLayout);
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     outputDtype, opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+ToLayoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  return toLayoutConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints> ToLayoutOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return toLayoutConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -1763,21 +2232,37 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ToMemoryConfigOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-ToMemoryConfigOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                   const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints> toMemoryConfigConstraintsImpl(
+    ToMemoryConfigOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 1);
 
-  const auto inputShape = getInput().getType().getShape();
+  const auto inputShape = op.getInput().getType().getShape();
 
   TTNNLayoutAttr outputLayout =
       opConfig.outputLayout
           ? opConfig.outputLayout
-          : mlir::cast<TTNNLayoutAttr>(getResult().getType().getEncoding());
+          : mlir::cast<TTNNLayoutAttr>(op.getResult().getType().getEncoding());
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ToMemoryConfigOp>::getOpConstraints, *this, inputShape,
-      inputs[0], outputLayout);
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+ToMemoryConfigOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                   const OpConfig &opConfig) {
+  return toMemoryConfigConstraintsImpl(*this, inputs, opConfig,
+                                       /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+ToMemoryConfigOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return toMemoryConfigConstraintsImpl(*this, inputs, opConfig,
+                                       initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -1801,21 +2286,35 @@ ToMemoryConfigOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ConcatOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-ConcatOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                           const OpConfig &opConfig) {
-  assert(inputs.size() == getInputs().size());
+static llvm::Expected<op_model::OpConstraints>
+concatConstraintsImpl(ConcatOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig,
+                      const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == op.getInputs().size());
 
   std::vector<llvm::ArrayRef<int64_t>> inputShapes;
-  for (const Value &opInput : getInputs()) {
+  for (const Value &opInput : op.getInputs()) {
     mlir::RankedTensorType inputType =
         mlir::cast<mlir::RankedTensorType>(opInput.getType());
     inputShapes.push_back(inputType.getShape());
   }
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ConcatOp>::getOpConstraints, *this, inputShapes, inputs,
-      getDim(), opConfig.outputLayout);
+  return detail::constraintsDispatch(op, state, inputShapes, inputs,
+                                     op.getDim(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+ConcatOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  return concatConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints> ConcatOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return concatConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -1839,16 +2338,30 @@ ConcatOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // TransposeOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> transposeConstraintsImpl(
+    TransposeOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     op.getDim0(), op.getDim1(),
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 TransposeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return transposeConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<TransposeOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getDim0(), getDim1(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> TransposeOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return transposeConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -1867,17 +2380,31 @@ TransposeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // CumSumOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints>
+cumSumConstraintsImpl(CumSumOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig,
+                      const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], op.getDim(),
+      dataTypeAttrToOptional(op.getDtypeAttr()), opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 CumSumOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return cumSumConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<CumSumOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getDim(), dataTypeAttrToOptional(getDtypeAttr()),
-      opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> CumSumOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return cumSumConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -1896,17 +2423,31 @@ CumSumOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // CumProdOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints>
+cumProdConstraintsImpl(CumProdOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig,
+                       const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], op.getDim(),
+      dataTypeAttrToOptional(op.getDtypeAttr()), opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 CumProdOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return cumProdConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<CumProdOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getDim(), dataTypeAttrToOptional(getDtypeAttr()),
-      opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> CumProdOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return cumProdConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -1925,16 +2466,32 @@ CumProdOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ConcatenateHeadsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> concatenateHeadsConstraintsImpl(
+    ConcatenateHeadsOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 ConcatenateHeadsOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                      const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return concatenateHeadsConstraintsImpl(*this, inputs, opConfig,
+                                         /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ConcatenateHeadsOp>::getOpConstraints, *this,
-      inputShape, inputs[0], opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+ConcatenateHeadsOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return concatenateHeadsConstraintsImpl(*this, inputs, opConfig,
+                                         initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -2023,9 +2580,11 @@ unpackScaledDotProductAttentionDecodeArgs(
   return ret;
 }
 
-llvm::Expected<op_model::OpConstraints>
-ScaledDotProductAttentionDecodeOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+scaledDotProductAttentionDecodeConstraintsImpl(
+    ScaledDotProductAttentionDecodeOp op,
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    const op_model::MockAllocatorState *state) {
   // Clang tidy falsley determines that the underling float data in the
   // llvm::APFloat is freed more than once as APFloat is passed by value and
   // then destroyed at the end of this function.
@@ -2040,12 +2599,11 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
          "4, 5, or 6 input tensors");
 
   ScaledDotProductAttentionDecodeArgs sdpaArgs =
-      unpackScaledDotProductAttentionDecodeArgs(inputs, *this);
+      unpackScaledDotProductAttentionDecodeArgs(inputs, op);
 
-  auto scale = getScale();
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints,
-      *this, sdpaArgs.queryShape, sdpaArgs.queryLayout, sdpaArgs.keyShape,
+  auto scale = op.getScale();
+  return detail::constraintsDispatch(
+      op, state, sdpaArgs.queryShape, sdpaArgs.queryLayout, sdpaArgs.keyShape,
       sdpaArgs.keyLayout, sdpaArgs.valueShape, sdpaArgs.valueLayout,
       sdpaArgs.isCausal, sdpaArgs.attentionMaskShape,
       sdpaArgs.attentionMaskLayout, sdpaArgs.curPosTensorShape,
@@ -2053,6 +2611,23 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
       sdpaArgs.attentionSinkLayout, sdpaArgs.scale, sdpaArgs.programConfig,
       opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+}
+
+llvm::Expected<op_model::OpConstraints>
+ScaledDotProductAttentionDecodeOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return scaledDotProductAttentionDecodeConstraintsImpl(*this, inputs, opConfig,
+                                                        /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+ScaledDotProductAttentionDecodeOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return scaledDotProductAttentionDecodeConstraintsImpl(*this, inputs, opConfig,
+                                                        initialState.get());
 }
 
 llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
@@ -2158,9 +2733,11 @@ unpackPagedScaledDotProductAttentionDecodeArgs(
   return ret;
 }
 
-llvm::Expected<op_model::OpConstraints>
-PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+pagedScaledDotProductAttentionDecodeConstraintsImpl(
+    PagedScaledDotProductAttentionDecodeOp op,
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    const op_model::MockAllocatorState *state) {
   // See the comment in scaledDotProductAttentionDecodeOp::getOpConstraints for
   // an explanation of this lint suppression.
   // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
@@ -2169,12 +2746,10 @@ PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
          "7 input tensors");
 
   PagedScaledDotProductAttentionDecodeArgs pagedSdpaArgs =
-      unpackPagedScaledDotProductAttentionDecodeArgs(inputs, *this);
+      unpackPagedScaledDotProductAttentionDecodeArgs(inputs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<
-          PagedScaledDotProductAttentionDecodeOp>::getOpConstraints,
-      *this, pagedSdpaArgs.queryShape, pagedSdpaArgs.queryLayout,
+  return detail::constraintsDispatch(
+      op, state, pagedSdpaArgs.queryShape, pagedSdpaArgs.queryLayout,
       pagedSdpaArgs.keyShape, pagedSdpaArgs.keyLayout, pagedSdpaArgs.valueShape,
       pagedSdpaArgs.valueLayout, pagedSdpaArgs.pageTableShape,
       pagedSdpaArgs.pageTableLayout, pagedSdpaArgs.isCausal,
@@ -2184,6 +2759,23 @@ PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
       pagedSdpaArgs.scale, pagedSdpaArgs.slidingWindowSize,
       pagedSdpaArgs.programConfig, opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+}
+
+llvm::Expected<op_model::OpConstraints>
+PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return pagedScaledDotProductAttentionDecodeConstraintsImpl(
+      *this, inputs, opConfig, /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PagedScaledDotProductAttentionDecodeOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return pagedScaledDotProductAttentionDecodeConstraintsImpl(
+      *this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t> PagedScaledDotProductAttentionDecodeOp::getOpRuntime(
@@ -2290,24 +2882,41 @@ unpackPagedFlashMultiLatentAttentionDecodeArgs(
   return ret;
 }
 
-llvm::Expected<op_model::OpConstraints>
-PagedFlashMultiLatentAttentionDecodeOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+pagedFlashMultiLatentAttentionDecodeConstraintsImpl(
+    PagedFlashMultiLatentAttentionDecodeOp op,
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    const op_model::MockAllocatorState *state) {
   // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
 
   PagedFlashMultiLatentAttentionDecodeArgs args =
-      unpackPagedFlashMultiLatentAttentionDecodeArgs(inputs, *this);
+      unpackPagedFlashMultiLatentAttentionDecodeArgs(inputs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<
-          PagedFlashMultiLatentAttentionDecodeOp>::getOpConstraints,
-      *this, args.queryShape, args.queryLayout, args.keyShape, args.keyLayout,
-      args.valueShape, args.valueLayout, args.headDimV, args.pageTableShape,
-      args.pageTableLayout, args.isCausal, args.attentionMaskShape,
-      args.attentionMaskLayout, args.curPosTensorShape, args.curPosTensorLayout,
-      args.attentionSinkShape, args.attentionSinkLayout, args.scale,
-      opConfig.outputLayout);
+  return detail::constraintsDispatch(
+      op, state, args.queryShape, args.queryLayout, args.keyShape,
+      args.keyLayout, args.valueShape, args.valueLayout, args.headDimV,
+      args.pageTableShape, args.pageTableLayout, args.isCausal,
+      args.attentionMaskShape, args.attentionMaskLayout, args.curPosTensorShape,
+      args.curPosTensorLayout, args.attentionSinkShape,
+      args.attentionSinkLayout, args.scale, opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+}
+
+llvm::Expected<op_model::OpConstraints>
+PagedFlashMultiLatentAttentionDecodeOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return pagedFlashMultiLatentAttentionDecodeConstraintsImpl(
+      *this, inputs, opConfig, /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PagedFlashMultiLatentAttentionDecodeOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return pagedFlashMultiLatentAttentionDecodeConstraintsImpl(
+      *this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t> PagedFlashMultiLatentAttentionDecodeOp::getOpRuntime(
@@ -2331,24 +2940,42 @@ llvm::Expected<size_t> PagedFlashMultiLatentAttentionDecodeOp::getOpRuntime(
 // ChunkedScaledDotProductAttentionOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-ChunkedScaledDotProductAttentionOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+chunkedScaledDotProductAttentionConstraintsImpl(
+    ChunkedScaledDotProductAttentionOp op,
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 5 &&
          "ttnn::chunked_scaled_dot_product_attention has 5 input tensors "
          "(q, k, v, page_table, chunk_start_idx)");
 
-  const auto queryShape = getQuery().getType().getShape();
-  const auto keyShape = getKey().getType().getShape();
-  const auto valueShape = getValue().getType().getShape();
-  const auto pageTableShape = getPageTable().getType().getShape();
-  const auto chunkStartIdxShape = getChunkStartIdx().getType().getShape();
+  const auto queryShape = op.getQuery().getType().getShape();
+  const auto keyShape = op.getKey().getType().getShape();
+  const auto valueShape = op.getValue().getType().getShape();
+  const auto pageTableShape = op.getPageTable().getType().getShape();
+  const auto chunkStartIdxShape = op.getChunkStartIdx().getType().getShape();
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ChunkedScaledDotProductAttentionOp>::getOpConstraints,
-      *this, queryShape, inputs[0], keyShape, inputs[1], valueShape, inputs[2],
-      pageTableShape, inputs[3], chunkStartIdxShape, inputs[4], getScale(),
-      getProgramConfig(), opConfig.outputLayout);
+  return detail::constraintsDispatch(
+      op, state, queryShape, inputs[0], keyShape, inputs[1], valueShape,
+      inputs[2], pageTableShape, inputs[3], chunkStartIdxShape, inputs[4],
+      op.getScale(), op.getProgramConfig(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+ChunkedScaledDotProductAttentionOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return chunkedScaledDotProductAttentionConstraintsImpl(
+      *this, inputs, opConfig, /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+ChunkedScaledDotProductAttentionOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return chunkedScaledDotProductAttentionConstraintsImpl(
+      *this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t> ChunkedScaledDotProductAttentionOp::getOpRuntime(
@@ -2374,39 +3001,56 @@ llvm::Expected<size_t> ChunkedScaledDotProductAttentionOp::getOpRuntime(
 // ScaledDotProductAttentionOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-ScaledDotProductAttentionOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+scaledDotProductAttentionConstraintsImpl(
+    ScaledDotProductAttentionOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
   assert(inputs.size() >= 3 && inputs.size() <= 5 &&
          "ttnn::scaled_dot_product_attention can have 3 to 5 operands input "
          "tensors (q, k, v, optional mask, optional attention_sink)");
 
-  const auto queryShape = getQuery().getType().getShape();
-  const auto keyShape = getKey().getType().getShape();
-  const auto valueShape = getValue().getType().getShape();
+  const auto queryShape = op.getQuery().getType().getShape();
+  const auto keyShape = op.getKey().getType().getShape();
+  const auto valueShape = op.getValue().getType().getShape();
 
   size_t idx = 3;
   const std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape =
-      getAttentionMask()
-          ? std::make_optional(getAttentionMask().getType().getShape())
+      op.getAttentionMask()
+          ? std::make_optional(op.getAttentionMask().getType().getShape())
           : std::nullopt;
   const std::optional<TTNNLayoutAttr> attentionMaskLayout =
-      getAttentionMask() ? std::make_optional(inputs[idx++]) : std::nullopt;
+      op.getAttentionMask() ? std::make_optional(inputs[idx++]) : std::nullopt;
   const std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape =
-      getAttentionSink()
-          ? std::make_optional(getAttentionSink().getType().getShape())
+      op.getAttentionSink()
+          ? std::make_optional(op.getAttentionSink().getType().getShape())
           : std::nullopt;
   const std::optional<TTNNLayoutAttr> attentionSinkLayout =
-      getAttentionSink() ? std::make_optional(inputs[idx++]) : std::nullopt;
+      op.getAttentionSink() ? std::make_optional(inputs[idx++]) : std::nullopt;
 
-  bool isCausal = getIsCausal();
+  bool isCausal = op.getIsCausal();
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ScaledDotProductAttentionOp>::getOpConstraints, *this,
-      queryShape, inputs[0], keyShape, inputs[1], valueShape, inputs[2],
-      attentionMaskShape, attentionMaskLayout, attentionSinkShape,
-      attentionSinkLayout, isCausal, getScale(), getSlidingWindowSize(),
+  return detail::constraintsDispatch(
+      op, state, queryShape, inputs[0], keyShape, inputs[1], valueShape,
+      inputs[2], attentionMaskShape, attentionMaskLayout, attentionSinkShape,
+      attentionSinkLayout, isCausal, op.getScale(), op.getSlidingWindowSize(),
       opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+ScaledDotProductAttentionOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return scaledDotProductAttentionConstraintsImpl(*this, inputs, opConfig,
+                                                  /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+ScaledDotProductAttentionOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return scaledDotProductAttentionConstraintsImpl(*this, inputs, opConfig,
+                                                  initialState.get());
 }
 
 llvm::Expected<size_t> ScaledDotProductAttentionOp::getOpRuntime(
@@ -2491,21 +3135,37 @@ unpackFlashMlaPrefillArgs(const std::vector<TTNNLayoutAttr> &inputs,
   return ret;
 }
 
-llvm::Expected<op_model::OpConstraints>
-FlashMlaPrefillOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                    const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints> flashMlaPrefillConstraintsImpl(
+    FlashMlaPrefillOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
   assert(inputs.size() >= 2 && inputs.size() <= 4 &&
          "ttnn::flash_mla_prefill can have 2 to 4 input tensors "
          "(q, k, optional value, optional mask)");
 
-  FlashMlaPrefillArgs args = unpackFlashMlaPrefillArgs(inputs, *this);
+  FlashMlaPrefillArgs args = unpackFlashMlaPrefillArgs(inputs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<FlashMlaPrefillOp>::getOpConstraints, *this,
-      args.queryShape, args.queryLayout, args.keyShape, args.keyLayout,
-      args.valueShape, args.valueLayout, args.attentionMaskShape,
-      args.attentionMaskLayout, args.headDimV, args.isCausal, getScale(),
-      opConfig.outputLayout);
+  return detail::constraintsDispatch(
+      op, state, args.queryShape, args.queryLayout, args.keyShape,
+      args.keyLayout, args.valueShape, args.valueLayout,
+      args.attentionMaskShape, args.attentionMaskLayout, args.headDimV,
+      args.isCausal, op.getScale(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+FlashMlaPrefillOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  return flashMlaPrefillConstraintsImpl(*this, inputs, opConfig,
+                                        /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+FlashMlaPrefillOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return flashMlaPrefillConstraintsImpl(*this, inputs, opConfig,
+                                        initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -2562,21 +3222,39 @@ IndexerScoreDsaOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // RotaryEmbeddingLlamaOp - TTNN Op Model Interface
 // ===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints>
+rotaryEmbeddingLlamaConstraintsImpl(RotaryEmbeddingLlamaOp op,
+                                    const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig,
+                                    const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 4);
+
+  auto inputShape = op.getInput().getType().getShape();
+  auto cosShape = op.getCosCache().getType().getShape();
+  auto sinShape = op.getSinCache().getType().getShape();
+  auto transMatShape = op.getTransMat().getType().getShape();
+  bool isDecodeMode = op.getIsDecodeMode();
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], cosShape, inputs[1], sinShape,
+      inputs[2], transMatShape, inputs[3], isDecodeMode, opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 RotaryEmbeddingLlamaOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  assert(inputs.size() == 4);
+  return rotaryEmbeddingLlamaConstraintsImpl(*this, inputs, opConfig,
+                                             /*state=*/nullptr);
+}
 
-  auto inputShape = getInput().getType().getShape();
-  auto cosShape = getCosCache().getType().getShape();
-  auto sinShape = getSinCache().getType().getShape();
-  auto transMatShape = getTransMat().getType().getShape();
-  bool isDecodeMode = getIsDecodeMode();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<RotaryEmbeddingLlamaOp>::getOpConstraints, *this,
-      inputShape, inputs[0], cosShape, inputs[1], sinShape, inputs[2],
-      transMatShape, inputs[3], isDecodeMode, opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+RotaryEmbeddingLlamaOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return rotaryEmbeddingLlamaConstraintsImpl(*this, inputs, opConfig,
+                                             initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -2600,20 +3278,36 @@ RotaryEmbeddingLlamaOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // RotaryEmbeddingOp - TTNN Op Model Interface
 //===-----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> rotaryEmbeddingConstraintsImpl(
+    RotaryEmbeddingOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 3);
+
+  auto inputShape = op.getInput().getType().getShape();
+  auto cosShape = op.getCosCache().getType().getShape();
+  auto sinShape = op.getSinCache().getType().getShape();
+  auto tokenIndex = op.getTokenIndex();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0], cosShape,
+                                     inputs[1], sinShape, inputs[2], tokenIndex,
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 RotaryEmbeddingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                     const OpConfig &opConfig) {
-  assert(inputs.size() == 3);
+  return rotaryEmbeddingConstraintsImpl(*this, inputs, opConfig,
+                                        /*state=*/nullptr);
+}
 
-  auto inputShape = getInput().getType().getShape();
-  auto cosShape = getCosCache().getType().getShape();
-  auto sinShape = getSinCache().getType().getShape();
-  auto tokenIndex = getTokenIndex();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<RotaryEmbeddingOp>::getOpConstraints, *this, inputShape,
-      inputs[0], cosShape, inputs[1], sinShape, inputs[2], tokenIndex,
-      opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+RotaryEmbeddingOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return rotaryEmbeddingConstraintsImpl(*this, inputs, opConfig,
+                                        initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -2636,25 +3330,42 @@ RotaryEmbeddingOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // NLPCreateQKVHeadsDecodeOp - TTNN Op Model Interface
 // ===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-NLPCreateQKVHeadsDecodeOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  assert(inputs.size() == (1 + (getBatchOffset() == nullptr ? 0 : 1)));
+static llvm::Expected<op_model::OpConstraints>
+nLPCreateQKVHeadsDecodeConstraintsImpl(
+    NLPCreateQKVHeadsDecodeOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == (1 + (op.getBatchOffset() == nullptr ? 0 : 1)));
 
-  auto inputShape = getInput().getType().getShape();
+  auto inputShape = op.getInput().getType().getShape();
 
   std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape;
   std::optional<TTNNLayoutAttr> batchOffsetEncoding;
   if (inputs.size() == 2) {
-    batchOffsetShape = getBatchOffset().getType().getShape();
+    batchOffsetShape = op.getBatchOffset().getType().getShape();
     batchOffsetEncoding = inputs[1];
   }
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints, *this,
-      inputShape, inputs[0], batchOffsetShape, batchOffsetEncoding,
-      getNumHeads(), getNumKvHeads(), getOverlapQkCoregrid(), getSliceSize(),
-      opConfig.outputLayout);
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], batchOffsetShape, batchOffsetEncoding,
+      op.getNumHeads(), op.getNumKvHeads(), op.getOverlapQkCoregrid(),
+      op.getSliceSize(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+NLPCreateQKVHeadsDecodeOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return nLPCreateQKVHeadsDecodeConstraintsImpl(*this, inputs, opConfig,
+                                                /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+NLPCreateQKVHeadsDecodeOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return nLPCreateQKVHeadsDecodeConstraintsImpl(*this, inputs, opConfig,
+                                                initialState.get());
 }
 
 llvm::Expected<size_t> NLPCreateQKVHeadsDecodeOp::getOpRuntime(
@@ -2681,16 +3392,32 @@ llvm::Expected<size_t> NLPCreateQKVHeadsDecodeOp::getOpRuntime(
 // NLPConcatHeadsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> nLPConcatHeadsConstraintsImpl(
+    NLPConcatHeadsOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 NLPConcatHeadsOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                    const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return nLPConcatHeadsConstraintsImpl(*this, inputs, opConfig,
+                                       /*state=*/nullptr);
+}
 
-  auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<NLPConcatHeadsOp>::getOpConstraints, *this, inputShape,
-      inputs[0], opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+NLPConcatHeadsOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return nLPConcatHeadsConstraintsImpl(*this, inputs, opConfig,
+                                       initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -2708,17 +3435,35 @@ NLPConcatHeadsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 //===----------------------------------------------------------------------===//
 // NLPConcatHeadsDecodeOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
+static llvm::Expected<op_model::OpConstraints>
+nLPConcatHeadsDecodeConstraintsImpl(NLPConcatHeadsDecodeOp op,
+                                    const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig,
+                                    const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+  uint32_t numHeads = op.getNumHeads();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0], numHeads,
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 NLPConcatHeadsDecodeOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return nLPConcatHeadsDecodeConstraintsImpl(*this, inputs, opConfig,
+                                             /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-  uint32_t numHeads = getNumHeads();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints, *this,
-      inputShape, inputs[0], numHeads, opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+NLPConcatHeadsDecodeOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return nLPConcatHeadsDecodeConstraintsImpl(*this, inputs, opConfig,
+                                             initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -2736,26 +3481,45 @@ NLPConcatHeadsDecodeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 //===----------------------------------------------------------------------===//
 // SplitQueryKeyValueAndSplitHeadsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
-llvm::Expected<op_model::OpConstraints>
-SplitQueryKeyValueAndSplitHeadsOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  assert(inputs.size() == (1 + (getKvInputTensor() ? 1 : 0)));
+static llvm::Expected<op_model::OpConstraints>
+splitQueryKeyValueAndSplitHeadsConstraintsImpl(
+    SplitQueryKeyValueAndSplitHeadsOp op,
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == (1 + (op.getKvInputTensor() ? 1 : 0)));
 
-  auto inputShape = getInputTensor().getType().getShape();
+  auto inputShape = op.getInputTensor().getType().getShape();
 
   // Handle optional kv input tensor
   std::optional<llvm::ArrayRef<int64_t>> kvInputShape = std::nullopt;
   std::optional<TTNNLayoutAttr> kvInputLayout = std::nullopt;
 
-  if (getKvInputTensor()) {
-    kvInputShape = getKvInputTensor().getType().getShape();
+  if (op.getKvInputTensor()) {
+    kvInputShape = op.getKvInputTensor().getType().getShape();
     kvInputLayout = inputs[1];
   }
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints,
-      *this, inputShape, inputs[0], kvInputShape, kvInputLayout, getNumHeads(),
-      getNumKvHeads(), getTransposeKey(), opConfig.outputLayout);
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], kvInputShape, kvInputLayout,
+      op.getNumHeads(), op.getNumKvHeads(), op.getTransposeKey(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+SplitQueryKeyValueAndSplitHeadsOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return splitQueryKeyValueAndSplitHeadsConstraintsImpl(*this, inputs, opConfig,
+                                                        /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+SplitQueryKeyValueAndSplitHeadsOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return splitQueryKeyValueAndSplitHeadsConstraintsImpl(*this, inputs, opConfig,
+                                                        initialState.get());
 }
 
 llvm::Expected<size_t> SplitQueryKeyValueAndSplitHeadsOp::getOpRuntime(
@@ -2779,16 +3543,33 @@ llvm::Expected<size_t> SplitQueryKeyValueAndSplitHeadsOp::getOpRuntime(
 // RepeatInterleaveOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> repeatInterleaveConstraintsImpl(
+    RepeatInterleaveOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     op.getRepeats(), op.getDim(),
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 RepeatInterleaveOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                      const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return repeatInterleaveConstraintsImpl(*this, inputs, opConfig,
+                                         /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<RepeatInterleaveOp>::getOpConstraints, *this,
-      inputShape, inputs[0], getRepeats(), getDim(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+RepeatInterleaveOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return repeatInterleaveConstraintsImpl(*this, inputs, opConfig,
+                                         initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -2807,16 +3588,31 @@ RepeatInterleaveOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // RepeatOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints>
+repeatConstraintsImpl(RepeatOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig,
+                      const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     op.getRepeatDims().getShape(),
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 RepeatOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return repeatConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<RepeatOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getRepeatDims().getShape(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> RepeatOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return repeatConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -2835,16 +3631,31 @@ RepeatOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // PadOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints>
+padConstraintsImpl(PadOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                   const OpConfig &opConfig,
+                   const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], op.getPadding(), op.getValue(),
+      op.getUseMulticore(), opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 PadOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                         const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return padConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PadOp>::getOpConstraints, *this, inputShape, inputs[0],
-      getPadding(), getValue(), getUseMulticore(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> PadOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return padConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -2863,16 +3674,31 @@ PadOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // SortOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints>
+sortConstraintsImpl(SortOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                    const OpConfig &opConfig,
+                    const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     op.getDim(), op.getDescending(),
+                                     op.getStable(), opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 SortOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return sortConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<SortOp>::getOpConstraints, *this, inputShape, inputs[0],
-      getDim(), getDescending(), getStable(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> SortOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return sortConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -2891,16 +3717,31 @@ SortOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ArgMaxOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints>
+argMaxConstraintsImpl(ArgMaxOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig,
+                      const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     op.getDim(), op.getKeepDim(),
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 ArgMaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return argMaxConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ArgMaxOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getDim(), getKeepDim(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> ArgMaxOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return argMaxConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -2919,16 +3760,31 @@ ArgMaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ProdOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints>
+prodConstraintsImpl(ProdOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                    const OpConfig &opConfig,
+                    const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     op.getDimArg(), op.getKeepDim(),
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 ProdOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return prodConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ProdOp>::getOpConstraints, *this, inputShape, inputs[0],
-      getDimArg(), getKeepDim(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> ProdOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return prodConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -2974,21 +3830,34 @@ DequantizeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // RequantizeOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> requantizeConstraintsImpl(
+    RequantizeOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 5);
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto inScaleShape = op.getInScale().getType().getShape();
+  const auto inZeroPointShape = op.getInZeroPoint().getType().getShape();
+  const auto outScaleShape = op.getOutScale().getType().getShape();
+  const auto outZeroPointShape = op.getOutZeroPoint().getType().getShape();
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], inScaleShape, inputs[1],
+      inZeroPointShape, inputs[2], outScaleShape, inputs[3], outZeroPointShape,
+      inputs[4], op.getAxis(), op.getOutputDtype(), opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 RequantizeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                const OpConfig &opConfig) {
-  assert(inputs.size() == 5);
-  const auto inputShape = getInput().getType().getShape();
-  const auto inScaleShape = getInScale().getType().getShape();
-  const auto inZeroPointShape = getInZeroPoint().getType().getShape();
-  const auto outScaleShape = getOutScale().getType().getShape();
-  const auto outZeroPointShape = getOutZeroPoint().getType().getShape();
+  return requantizeConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<RequantizeOp>::getOpConstraints, *this, inputShape,
-      inputs[0], inScaleShape, inputs[1], inZeroPointShape, inputs[2],
-      outScaleShape, inputs[3], outZeroPointShape, inputs[4], getAxis(),
-      getOutputDtype(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> RequantizeOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return requantizeConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -3039,35 +3908,49 @@ static MatmulAttrs unpackMatmulAttrs(const OpConfig::OpSpecificAttrs &attrs,
                          : op.getComputeConfig()};
 }
 
-llvm::Expected<op_model::OpConstraints>
-LinearOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                           const OpConfig &opConfig) {
-  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
+static llvm::Expected<op_model::OpConstraints>
+linearConstraintsImpl(LinearOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig,
+                      const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == (2 + (op.getBias() == nullptr ? 0 : 1)));
 
-  const auto inputShapeA = getA().getType().getShape();
-  const auto inputShapeB = getB().getType().getShape();
+  const auto inputShapeA = op.getA().getType().getShape();
+  const auto inputShapeB = op.getB().getType().getShape();
 
   std::optional<llvm::ArrayRef<int64_t>> biasShape;
   std::optional<TTNNLayoutAttr> biasLayout;
 
   if (inputs.size() == 3) {
-    biasShape = getBias().getType().getShape();
+    biasShape = op.getBias().getType().getShape();
     biasLayout = inputs[2];
   }
 
   // Convert activation attribute to optional StringRef
   std::optional<llvm::StringRef> activation =
-      getActivation() ? std::make_optional(getActivation().value())
-                      : std::nullopt;
+      op.getActivation() ? std::make_optional(op.getActivation().value())
+                         : std::nullopt;
 
   // Get matmul program config from opConfig if present, otherwise from op.
-  MatmulAttrs attr = unpackMatmulAttrs(opConfig.opSpecificAttrs, *this);
+  MatmulAttrs attr = unpackMatmulAttrs(opConfig.opSpecificAttrs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<LinearOp>::getOpConstraints, *this, inputShapeA,
-      inputs[0], inputShapeB, inputs[1], biasShape, biasLayout,
-      opConfig.outputLayout, getTransposeA(), getTransposeB(), activation,
-      attr.matmulProgramConfig, attr.computeKernelConfig);
+  return detail::constraintsDispatch(
+      op, state, inputShapeA, inputs[0], inputShapeB, inputs[1], biasShape,
+      biasLayout, opConfig.outputLayout, op.getTransposeA(), op.getTransposeB(),
+      activation, attr.matmulProgramConfig, attr.computeKernelConfig);
+}
+
+llvm::Expected<op_model::OpConstraints>
+LinearOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  return linearConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints> LinearOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return linearConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -3096,27 +3979,41 @@ LinearOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // MatmulOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                           const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+matmulConstraintsImpl(MatmulOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig,
+                      const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 2);
 
-  const auto inputShapeA = getA().getType().getShape();
-  const auto inputShapeB = getB().getType().getShape();
+  const auto inputShapeA = op.getA().getType().getShape();
+  const auto inputShapeB = op.getB().getType().getShape();
 
   // Convert activation attribute to optional StringRef
   std::optional<llvm::StringRef> activation =
-      getActivation() ? std::make_optional(getActivation().value())
-                      : std::nullopt;
+      op.getActivation() ? std::make_optional(op.getActivation().value())
+                         : std::nullopt;
 
   // Get matmul program config from opConfig if present, otherwise from op.
-  MatmulAttrs attr = unpackMatmulAttrs(opConfig.opSpecificAttrs, *this);
+  MatmulAttrs attr = unpackMatmulAttrs(opConfig.opSpecificAttrs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<MatmulOp>::getOpConstraints, *this, inputShapeA,
-      inputs[0], inputShapeB, inputs[1], opConfig.outputLayout, getTransposeA(),
-      getTransposeB(), activation, attr.matmulProgramConfig,
-      attr.computeKernelConfig);
+  return detail::constraintsDispatch(
+      op, state, inputShapeA, inputs[0], inputShapeB, inputs[1],
+      opConfig.outputLayout, op.getTransposeA(), op.getTransposeB(), activation,
+      attr.matmulProgramConfig, attr.computeKernelConfig);
+}
+
+llvm::Expected<op_model::OpConstraints>
+MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  return matmulConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints> MatmulOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return matmulConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -3137,20 +4034,36 @@ MatmulOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // TopKRouterGptOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> topKRouterGptConstraintsImpl(
+    TopKRouterGptOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 3);
+
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto weightShape = op.getWeight().getType().getShape();
+  const auto biasShape = op.getBias().getType().getShape();
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], weightShape, inputs[1], biasShape,
+      inputs[2], static_cast<uint32_t>(op.getK()),
+      static_cast<uint32_t>(op.getNumExperts()), opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 TopKRouterGptOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                   const OpConfig &opConfig) {
-  assert(inputs.size() == 3);
+  return topKRouterGptConstraintsImpl(*this, inputs, opConfig,
+                                      /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-  const auto weightShape = getWeight().getType().getShape();
-  const auto biasShape = getBias().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<TopKRouterGptOp>::getOpConstraints, *this, inputShape,
-      inputs[0], weightShape, inputs[1], biasShape, inputs[2],
-      static_cast<uint32_t>(getK()), static_cast<uint32_t>(getNumExperts()),
-      opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+TopKRouterGptOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return topKRouterGptConstraintsImpl(*this, inputs, opConfig,
+                                      initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -3191,26 +4104,44 @@ MoeGptOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // PrepareMoEComputeW0W1WeightsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-PrepareMoEComputeW0W1WeightsOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  const bool hasBias = getBias_0() != nullptr;
+static llvm::Expected<op_model::OpConstraints>
+prepareMoEComputeW0W1WeightsConstraintsImpl(
+    PrepareMoEComputeW0W1WeightsOp op,
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    const op_model::MockAllocatorState *state) {
+  const bool hasBias = op.getBias_0() != nullptr;
   assert(inputs.size() == (hasBias ? 4u : 2u));
 
   std::optional<llvm::ArrayRef<int64_t>> bias0Shape, bias1Shape;
   std::optional<TTNNLayoutAttr> bias0Layout, bias1Layout;
   if (hasBias) {
-    bias0Shape = getBias_0().getType().getShape();
-    bias1Shape = getBias_1().getType().getShape();
+    bias0Shape = op.getBias_0().getType().getShape();
+    bias1Shape = op.getBias_1().getType().getShape();
     bias0Layout = inputs[2];
     bias1Layout = inputs[3];
   }
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PrepareMoEComputeW0W1WeightsOp>::getOpConstraints,
-      *this, getW0().getType().getShape(), inputs[0],
-      getW1().getType().getShape(), inputs[1], bias0Shape, bias0Layout,
-      bias1Shape, bias1Layout, getHiddenSize(), getIntermediateSize());
+  return detail::constraintsDispatch(
+      op, state, op.getW0().getType().getShape(), inputs[0],
+      op.getW1().getType().getShape(), inputs[1], bias0Shape, bias0Layout,
+      bias1Shape, bias1Layout, op.getHiddenSize(), op.getIntermediateSize());
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareMoEComputeW0W1WeightsOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return prepareMoEComputeW0W1WeightsConstraintsImpl(*this, inputs, opConfig,
+                                                     /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareMoEComputeW0W1WeightsOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return prepareMoEComputeW0W1WeightsConstraintsImpl(*this, inputs, opConfig,
+                                                     initialState.get());
 }
 
 llvm::Expected<size_t> PrepareMoEComputeW0W1WeightsOp::getOpRuntime(
@@ -3223,23 +4154,40 @@ llvm::Expected<size_t> PrepareMoEComputeW0W1WeightsOp::getOpRuntime(
 // PrepareMoEComputeW2WeightsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-PrepareMoEComputeW2WeightsOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  const bool hasBias = getBias_2() != nullptr;
+static llvm::Expected<op_model::OpConstraints>
+prepareMoEComputeW2WeightsConstraintsImpl(
+    PrepareMoEComputeW2WeightsOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  const bool hasBias = op.getBias_2() != nullptr;
   assert(inputs.size() == (hasBias ? 2u : 1u));
 
   std::optional<llvm::ArrayRef<int64_t>> bias2Shape;
   std::optional<TTNNLayoutAttr> bias2Layout;
   if (hasBias) {
-    bias2Shape = getBias_2().getType().getShape();
+    bias2Shape = op.getBias_2().getType().getShape();
     bias2Layout = inputs[1];
   }
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PrepareMoEComputeW2WeightsOp>::getOpConstraints, *this,
-      getW2().getType().getShape(), inputs[0], bias2Shape, bias2Layout,
-      getHiddenSize(), getIntermediateSize());
+  return detail::constraintsDispatch(
+      op, state, op.getW2().getType().getShape(), inputs[0], bias2Shape,
+      bias2Layout, op.getHiddenSize(), op.getIntermediateSize());
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareMoEComputeW2WeightsOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return prepareMoEComputeW2WeightsConstraintsImpl(*this, inputs, opConfig,
+                                                   /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareMoEComputeW2WeightsOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return prepareMoEComputeW2WeightsConstraintsImpl(*this, inputs, opConfig,
+                                                   initialState.get());
 }
 
 llvm::Expected<size_t> PrepareMoEComputeW2WeightsOp::getOpRuntime(
@@ -3273,18 +4221,31 @@ DeallocateOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // FillCacheOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> fillCacheConstraintsImpl(
+    FillCacheOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 2);
+
+  auto cacheShape = op.getCache().getType().getShape();
+  auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, cacheShape, inputs[0],
+                                     inputShape, inputs[1], op.getBatchOffset(),
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 FillCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  assert(inputs.size() == 2);
+  return fillCacheConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  auto cacheShape = getCache().getType().getShape();
-  auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<FillCacheOp>::getOpConstraints, *this, cacheShape,
-      inputs[0], inputShape, inputs[1], getBatchOffset(),
-      opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> FillCacheOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return fillCacheConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -3304,19 +4265,34 @@ FillCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // UpdateCacheOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> updateCacheConstraintsImpl(
+    UpdateCacheOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 3);
+
+  auto cacheShape = op.getCache().getType().getShape();
+  auto inputShape = op.getInput().getType().getShape();
+  auto updateIndexShape = op.getUpdateIndex().getType().getShape();
+
+  return detail::constraintsDispatch(
+      op, state, cacheShape, inputs[0], inputShape, inputs[1], updateIndexShape,
+      inputs[2], op.getBatchOffset(), opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 UpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                 const OpConfig &opConfig) {
-  assert(inputs.size() == 3);
+  return updateCacheConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  auto cacheShape = getCache().getType().getShape();
-  auto inputShape = getInput().getType().getShape();
-  auto updateIndexShape = getUpdateIndex().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<UpdateCacheOp>::getOpConstraints, *this, cacheShape,
-      inputs[0], inputShape, inputs[1], updateIndexShape, inputs[2],
-      getBatchOffset(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+UpdateCacheOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return updateCacheConstraintsImpl(*this, inputs, opConfig,
+                                    initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -3333,26 +4309,43 @@ UpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       getBatchOffset(), opConfig.outputLayout);
 }
 
-llvm::Expected<op_model::OpConstraints>
-PagedUpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                     const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints> pagedUpdateCacheConstraintsImpl(
+    PagedUpdateCacheOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
   assert(inputs.size() >= 3 && inputs.size() <= 4 &&
          "PagedUpdateCacheOp must have 3 or 4 inputs");
 
-  auto cacheShape = getCache().getType().getShape();
-  auto inputShape = getInput().getType().getShape();
-  auto updateIndexShape = getUpdateIndex().getType().getShape();
+  auto cacheShape = op.getCache().getType().getShape();
+  auto inputShape = op.getInput().getType().getShape();
+  auto updateIndexShape = op.getUpdateIndex().getType().getShape();
   std::optional<llvm::ArrayRef<int64_t>> pageTableShape;
   std::optional<TTNNLayoutAttr> pageTableLayout;
-  if (getPageTable()) {
-    pageTableShape = getPageTable().getType().getShape();
+  if (op.getPageTable()) {
+    pageTableShape = op.getPageTable().getType().getShape();
     pageTableLayout = inputs[3];
   }
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PagedUpdateCacheOp>::getOpConstraints, *this,
-      cacheShape, inputs[0], inputShape, inputs[1], updateIndexShape, inputs[2],
-      pageTableShape, pageTableLayout, getShareCache(), opConfig.outputLayout);
+  return detail::constraintsDispatch(op, state, cacheShape, inputs[0],
+                                     inputShape, inputs[1], updateIndexShape,
+                                     inputs[2], pageTableShape, pageTableLayout,
+                                     op.getShareCache(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PagedUpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  return pagedUpdateCacheConstraintsImpl(*this, inputs, opConfig,
+                                         /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PagedUpdateCacheOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return pagedUpdateCacheConstraintsImpl(*this, inputs, opConfig,
+                                         initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -3376,26 +4369,42 @@ PagedUpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       pageTableShape, pageTableLayout, getShareCache(), opConfig.outputLayout);
 }
 
-llvm::Expected<op_model::OpConstraints>
-PagedFillCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                   const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints> pagedFillCacheConstraintsImpl(
+    PagedFillCacheOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
   assert(inputs.size() >= 3 && inputs.size() <= 4 &&
          "PagedFillCacheOp must have 3 or 4 inputs");
 
-  auto cacheShape = getCache().getType().getShape();
-  auto inputShape = getInput().getType().getShape();
-  auto pageTableShape = getPageTable().getType().getShape();
+  auto cacheShape = op.getCache().getType().getShape();
+  auto inputShape = op.getInput().getType().getShape();
+  auto pageTableShape = op.getPageTable().getType().getShape();
   std::optional<llvm::ArrayRef<int64_t>> batchIdxShape;
   std::optional<TTNNLayoutAttr> batchIdxLayout;
-  if (getBatchIdxTensor()) {
-    batchIdxShape = getBatchIdxTensor().getType().getShape();
+  if (op.getBatchIdxTensor()) {
+    batchIdxShape = op.getBatchIdxTensor().getType().getShape();
     batchIdxLayout = inputs[3];
   }
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PagedFillCacheOp>::getOpConstraints, *this, cacheShape,
-      inputs[0], inputShape, inputs[1], pageTableShape, inputs[2],
-      batchIdxShape, batchIdxLayout, opConfig.outputLayout);
+  return detail::constraintsDispatch(
+      op, state, cacheShape, inputs[0], inputShape, inputs[1], pageTableShape,
+      inputs[2], batchIdxShape, batchIdxLayout, opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PagedFillCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                   const OpConfig &opConfig) {
+  return pagedFillCacheConstraintsImpl(*this, inputs, opConfig,
+                                       /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PagedFillCacheOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return pagedFillCacheConstraintsImpl(*this, inputs, opConfig,
+                                       initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -3423,17 +4432,30 @@ PagedFillCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // SamplingOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> samplingConstraintsImpl(
+    SamplingOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 5);
+  return detail::constraintsDispatch(
+      op, state, op.getInputValues().getType().getShape(), inputs[0],
+      op.getInputIndices().getType().getShape(), inputs[1],
+      op.getK().getType().getShape(), inputs[2], op.getP().getType().getShape(),
+      inputs[3], op.getTemp().getType().getShape(), inputs[4], op.getSeed(),
+      opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 SamplingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
-  assert(inputs.size() == 5);
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<mlir::tt::ttnn::SamplingOp>::getOpConstraints, *this,
-      getInputValues().getType().getShape(), inputs[0],
-      getInputIndices().getType().getShape(), inputs[1],
-      getK().getType().getShape(), inputs[2], getP().getType().getShape(),
-      inputs[3], getTemp().getType().getShape(), inputs[4], getSeed(),
-      opConfig.outputLayout);
+  return samplingConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints> SamplingOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return samplingConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -3549,30 +4571,45 @@ static Conv2dAttrs unpackConv2dAttrs(const OpConfig::OpSpecificAttrs &attrs,
                          : op.getComputeConfig()};
 }
 
-llvm::Expected<op_model::OpConstraints>
-Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                           const OpConfig &opConfig) {
-  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
+static llvm::Expected<op_model::OpConstraints>
+conv2dConstraintsImpl(Conv2dOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig,
+                      const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == (2 + (op.getBias() == nullptr ? 0 : 1)));
 
-  const auto inputShape = getInput().getType().getShape();
-  const auto weightShape = getWeight().getType().getShape();
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto weightShape = op.getWeight().getType().getShape();
   std::optional<llvm::ArrayRef<int64_t>> biasShape;
   std::optional<TTNNLayoutAttr> biasLayout;
 
   if (inputs.size() == 3) {
-    biasShape = getBias().getType().getShape();
+    biasShape = op.getBias().getType().getShape();
     biasLayout = inputs[2];
   }
 
-  Conv2dAttrs attr = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
+  Conv2dAttrs attr = unpackConv2dAttrs(opConfig.opSpecificAttrs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<Conv2dOp>::getOpConstraints, *this, inputShape,
-      inputs[0], weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
-      getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
-      getKernelSize(), getStride(), getPadding(), getDilation(), getGroups(),
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], weightShape, inputs[1], biasShape,
+      biasLayout, op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
+      op.getInputHeight(), op.getInputWidth(), op.getKernelSize(),
+      op.getStride(), op.getPadding(), op.getDilation(), op.getGroups(),
       attr.conv2dConfig, attr.deviceComputeKernelConfig,
-      getConv2dSliceConfigAttr(), opConfig.outputLayout);
+      op.getConv2dSliceConfigAttr(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  return conv2dConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints> Conv2dOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return conv2dConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -3624,35 +4661,50 @@ static Conv3dAttrs unpackConv3dAttrs(const OpConfig::OpSpecificAttrs &attrs,
                          : op.getComputeConfig()};
 }
 
-llvm::Expected<op_model::OpConstraints>
-Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                           const OpConfig &opConfig) {
-  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
+static llvm::Expected<op_model::OpConstraints>
+conv3dConstraintsImpl(Conv3dOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig,
+                      const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == (2 + (op.getBias() == nullptr ? 0 : 1)));
 
-  const auto inputShape = getInput().getType().getShape();
+  const auto inputShape = op.getInput().getType().getShape();
   // tt-metal's conv3d kernel consumes the prepared 2D weight; the in-IR
   // weight may still be raw 5D (before TTNNPrepareConv3dWeights runs), so
   // pass the prepared shape/layout regardless of what's currently in IR.
-  auto preparedWeight = op_model::getPreparedConv3dWeightsOutputTensor(this);
+  auto preparedWeight = op_model::getPreparedConv3dWeightsOutputTensor(&op);
   const auto weightShape = preparedWeight.getShape();
   auto weightLayout = mlir::cast<TTNNLayoutAttr>(preparedWeight.getEncoding());
   std::optional<llvm::ArrayRef<int64_t>> biasShape;
   std::optional<TTNNLayoutAttr> biasLayout;
 
   if (inputs.size() == 3) {
-    biasShape = getBias().getType().getShape();
+    biasShape = op.getBias().getType().getShape();
     biasLayout = inputs[2];
   }
 
-  Conv3dAttrs attr = unpackConv3dAttrs(opConfig.opSpecificAttrs, *this);
+  Conv3dAttrs attr = unpackConv3dAttrs(opConfig.opSpecificAttrs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<Conv3dOp>::getOpConstraints, *this, inputShape,
-      inputs[0], weightShape, weightLayout, biasShape, biasLayout,
-      getInChannels(), getOutChannels(), getBatchSize(), getInputDepth(),
-      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
-      getPadding(), getGroups(), getPaddingMode(), getDtypeAttr(),
-      attr.conv3dConfig, attr.deviceComputeKernelConfig, opConfig.outputLayout);
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], weightShape, weightLayout, biasShape,
+      biasLayout, op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
+      op.getInputDepth(), op.getInputHeight(), op.getInputWidth(),
+      op.getKernelSize(), op.getStride(), op.getPadding(), op.getGroups(),
+      op.getPaddingMode(), op.getDtypeAttr(), attr.conv3dConfig,
+      attr.deviceComputeKernelConfig, opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  return conv3dConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints> Conv3dOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return conv3dConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -3708,31 +4760,48 @@ static Conv2dAttrs unpackConv2dAttrs(const OpConfig::OpSpecificAttrs &attrs,
                      std::nullopt};
 }
 
-llvm::Expected<op_model::OpConstraints>
-ConvTranspose2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                    const OpConfig &opConfig) {
-  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
+static llvm::Expected<op_model::OpConstraints> convTranspose2dConstraintsImpl(
+    ConvTranspose2dOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == (2 + (op.getBias() == nullptr ? 0 : 1)));
 
-  const auto inputShape = getInput().getType().getShape();
-  const auto weightShape = getWeight().getType().getShape();
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto weightShape = op.getWeight().getType().getShape();
   std::optional<llvm::ArrayRef<int64_t>> biasShape;
   std::optional<TTNNLayoutAttr> biasLayout;
 
   if (inputs.size() == 3) {
-    biasShape = getBias().getType().getShape();
+    biasShape = op.getBias().getType().getShape();
     biasLayout = inputs[2];
   }
 
   // If a conv config has been specified, use that. If not, read the op property
-  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
+  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ConvTranspose2dOp>::getOpConstraints, *this, inputShape,
-      inputs[0], weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
-      getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
-      getKernelSize(), getStride(), getPadding(), getOutputPadding(),
-      getDilation(), getGroups(), conv2dAttrs.conv2dConfig,
-      getConv2dSliceConfig(), opConfig.outputLayout);
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], weightShape, inputs[1], biasShape,
+      biasLayout, op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
+      op.getInputHeight(), op.getInputWidth(), op.getKernelSize(),
+      op.getStride(), op.getPadding(), op.getOutputPadding(), op.getDilation(),
+      op.getGroups(), conv2dAttrs.conv2dConfig, op.getConv2dSliceConfig(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+ConvTranspose2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  return convTranspose2dConstraintsImpl(*this, inputs, opConfig,
+                                        /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+ConvTranspose2dOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return convTranspose2dConstraintsImpl(*this, inputs, opConfig,
+                                        initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -3766,24 +4835,43 @@ ConvTranspose2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // PrepareConv2dWeightsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-PrepareConv2dWeightsOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+prepareConv2dWeightsConstraintsImpl(PrepareConv2dWeightsOp op,
+                                    const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig,
+                                    const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 1);
 
   const ::llvm::ArrayRef<int64_t> weightShape =
-      getWeightTensor().getType().getShape();
-  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
+      op.getWeightTensor().getType().getShape();
+  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PrepareConv2dWeightsOp>::getOpConstraints, *this,
-      inputs[0], weightShape, getInputMemoryConfig(), getInputTensorLayout(),
-      getWeightsFormat(), getInChannels(), getOutChannels(), getBatchSize(),
-      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
-      getPadding(), getDilation(), getHasBias(), getGroups(), getInputDtype(),
-      getOutputDtype(), conv2dAttrs.conv2dConfig,
-      conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfigAttr(),
+  return detail::constraintsDispatch(
+      op, state, inputs[0], weightShape, op.getInputMemoryConfig(),
+      op.getInputTensorLayout(), op.getWeightsFormat(), op.getInChannels(),
+      op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
+      op.getInputWidth(), op.getKernelSize(), op.getStride(), op.getPadding(),
+      op.getDilation(), op.getHasBias(), op.getGroups(), op.getInputDtype(),
+      op.getOutputDtype(), conv2dAttrs.conv2dConfig,
+      conv2dAttrs.deviceComputeKernelConfig, op.getConv2dSliceConfigAttr(),
       opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConv2dWeightsOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return prepareConv2dWeightsConstraintsImpl(*this, inputs, opConfig,
+                                             /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConv2dWeightsOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return prepareConv2dWeightsConstraintsImpl(*this, inputs, opConfig,
+                                             initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -3797,23 +4885,40 @@ PrepareConv2dWeightsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // PrepareConv2dBiasOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-PrepareConv2dBiasOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                      const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints> prepareConv2dBiasConstraintsImpl(
+    PrepareConv2dBiasOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 1);
 
   const ::llvm::ArrayRef<int64_t> biasShape =
-      getBiasTensor().getType().getShape();
-  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
+      op.getBiasTensor().getType().getShape();
+  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PrepareConv2dBiasOp>::getOpConstraints, *this,
-      inputs[0], biasShape, getInputMemoryConfig(), getInputTensorLayout(),
-      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
-      getInputWidth(), getKernelSize(), getStride(), getPadding(),
-      getDilation(), getGroups(), getInputDtype(), getOutputDtype(),
+  return detail::constraintsDispatch(
+      op, state, inputs[0], biasShape, op.getInputMemoryConfig(),
+      op.getInputTensorLayout(), op.getInChannels(), op.getOutChannels(),
+      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
+      op.getKernelSize(), op.getStride(), op.getPadding(), op.getDilation(),
+      op.getGroups(), op.getInputDtype(), op.getOutputDtype(),
       conv2dAttrs.conv2dConfig, conv2dAttrs.deviceComputeKernelConfig,
       opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConv2dBiasOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                      const OpConfig &opConfig) {
+  return prepareConv2dBiasConstraintsImpl(*this, inputs, opConfig,
+                                          /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConv2dBiasOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return prepareConv2dBiasConstraintsImpl(*this, inputs, opConfig,
+                                          initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -3846,25 +4951,43 @@ PrepareConv3dWeightsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // PrepareConvTranspose2dWeightsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-PrepareConvTranspose2dWeightsOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+prepareConvTranspose2dWeightsConstraintsImpl(
+    PrepareConvTranspose2dWeightsOp op,
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 1);
 
   const ::llvm::ArrayRef<int64_t> weightShape =
-      getWeightTensor().getType().getShape();
-  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
+      op.getWeightTensor().getType().getShape();
+  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraints,
-      *this, inputs[0], weightShape, getInputMemoryConfig(),
-      getInputTensorLayout(), getWeightsFormat(), getInChannels(),
-      getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
-      getKernelSize(), getStride(), getPadding(), getOutputPadding(),
-      getDilation(), getHasBias(), getGroups(), getInputDtype(),
-      getOutputDtype(), conv2dAttrs.conv2dConfig,
-      conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfig(),
-      getMirrorKernel(), opConfig.outputLayout);
+  return detail::constraintsDispatch(
+      op, state, inputs[0], weightShape, op.getInputMemoryConfig(),
+      op.getInputTensorLayout(), op.getWeightsFormat(), op.getInChannels(),
+      op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
+      op.getInputWidth(), op.getKernelSize(), op.getStride(), op.getPadding(),
+      op.getOutputPadding(), op.getDilation(), op.getHasBias(), op.getGroups(),
+      op.getInputDtype(), op.getOutputDtype(), conv2dAttrs.conv2dConfig,
+      conv2dAttrs.deviceComputeKernelConfig, op.getConv2dSliceConfig(),
+      op.getMirrorKernel(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConvTranspose2dWeightsOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return prepareConvTranspose2dWeightsConstraintsImpl(*this, inputs, opConfig,
+                                                      /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConvTranspose2dWeightsOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return prepareConvTranspose2dWeightsConstraintsImpl(*this, inputs, opConfig,
+                                                      initialState.get());
 }
 
 llvm::Expected<size_t> PrepareConvTranspose2dWeightsOp::getOpRuntime(
@@ -3877,23 +5000,41 @@ llvm::Expected<size_t> PrepareConvTranspose2dWeightsOp::getOpRuntime(
 // PrepareConvTranspose2dBiasOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-PrepareConvTranspose2dBiasOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+prepareConvTranspose2dBiasConstraintsImpl(
+    PrepareConvTranspose2dBiasOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 1);
 
   const ::llvm::ArrayRef<int64_t> biasShape =
-      getBiasTensor().getType().getShape();
-  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
+      op.getBiasTensor().getType().getShape();
+  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PrepareConvTranspose2dBiasOp>::getOpConstraints, *this,
-      inputs[0], biasShape, getInputMemoryConfig(), getInputTensorLayout(),
-      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
-      getInputWidth(), getKernelSize(), getStride(), getPadding(),
-      getDilation(), getGroups(), getInputDtype(), getOutputDtype(),
+  return detail::constraintsDispatch(
+      op, state, inputs[0], biasShape, op.getInputMemoryConfig(),
+      op.getInputTensorLayout(), op.getInChannels(), op.getOutChannels(),
+      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
+      op.getKernelSize(), op.getStride(), op.getPadding(), op.getDilation(),
+      op.getGroups(), op.getInputDtype(), op.getOutputDtype(),
       conv2dAttrs.conv2dConfig, conv2dAttrs.deviceComputeKernelConfig,
-      getConv2dSliceConfig(), opConfig.outputLayout);
+      op.getConv2dSliceConfig(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConvTranspose2dBiasOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return prepareConvTranspose2dBiasConstraintsImpl(*this, inputs, opConfig,
+                                                   /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConvTranspose2dBiasOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return prepareConvTranspose2dBiasConstraintsImpl(*this, inputs, opConfig,
+                                                   initialState.get());
 }
 
 llvm::Expected<size_t> PrepareConvTranspose2dBiasOp::getOpRuntime(
@@ -3918,6 +5059,13 @@ MaxPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return detail::getPoolingOpRuntime(*this, inputs, opConfig);
 }
 
+llvm::Expected<op_model::OpConstraints> MaxPool2dOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  return detail::getPoolingOpConstraintsWithState(*this, inputs, opConfig,
+                                                  liveRecords);
+}
+
 //===----------------------------------------------------------------------===//
 // MaxPool2dWithIndicesOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
@@ -3934,6 +5082,14 @@ MaxPool2dWithIndicesOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return detail::getMaxPool2dWithIndicesOpRuntime(*this, inputs, opConfig);
 }
 
+llvm::Expected<op_model::OpConstraints>
+MaxPool2dWithIndicesOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  return detail::getMaxPool2dWithIndicesOpConstraintsWithState(
+      *this, inputs, opConfig, liveRecords);
+}
+
 //===----------------------------------------------------------------------===//
 // AvgPoo2dOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
@@ -3948,6 +5104,13 @@ llvm::Expected<size_t>
 AvgPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
   return detail::getPoolingOpRuntime(*this, inputs, opConfig);
+}
+
+llvm::Expected<op_model::OpConstraints> AvgPool2dOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  return detail::getPoolingOpConstraintsWithState(*this, inputs, opConfig,
+                                                  liveRecords);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3983,24 +5146,41 @@ unpackBatchNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
   return ret;
 }
 
-llvm::Expected<op_model::OpConstraints> BatchNormInferenceOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+batchNormInferenceConstraintsImpl(BatchNormInferenceOp op,
+                                  const std::vector<TTNNLayoutAttr> &inputs,
+                                  const OpConfig &opConfig,
+                                  const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 5 && "ttnn::batch_norm can only have 5 input tensors "
                                "(representing main input tensor, "
                                "running_mean, running_var, weight and bias).");
 
-  const auto inputShape = getInput().getType().getShape();
+  const auto inputShape = op.getInput().getType().getShape();
 
-  BatchNormOptionalArgs optionalArgs =
-      unpackBatchNormOptionalArgs(inputs, *this);
+  BatchNormOptionalArgs optionalArgs = unpackBatchNormOptionalArgs(inputs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<BatchNormInferenceOp>::getOpConstraints, *this,
-      inputShape, inputs[0], optionalArgs.runningMeanShape,
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], optionalArgs.runningMeanShape,
       optionalArgs.runningMeanLayout, optionalArgs.runningVarShape,
       optionalArgs.runningVarLayout, optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+      optionalArgs.biasLayout, op.getEpsilon(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints> BatchNormInferenceOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return batchNormInferenceConstraintsImpl(*this, inputs, opConfig,
+                                           /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+BatchNormInferenceOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return batchNormInferenceConstraintsImpl(*this, inputs, opConfig,
+                                           initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4028,9 +5208,9 @@ BatchNormInferenceOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // BatchNormTrainingOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-BatchNormTrainingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                      const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints> batchNormTrainingConstraintsImpl(
+    BatchNormTrainingOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
   assert((inputs.size() == 1 || inputs.size() == 5) &&
          "ttnn::batch_norm_training can either have 1 input tensor "
          "(representing the main input) or 5 input tensors (representing main "
@@ -4038,19 +5218,34 @@ BatchNormTrainingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
          "usage of this op with 2-4 input tensors is discouraged as it's "
          "ambiguous.");
 
-  const auto inputShape = getInput().getType().getShape();
+  const auto inputShape = op.getInput().getType().getShape();
 
-  BatchNormOptionalArgs optionalArgs =
-      unpackBatchNormOptionalArgs(inputs, *this);
+  BatchNormOptionalArgs optionalArgs = unpackBatchNormOptionalArgs(inputs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<BatchNormTrainingOp>::getOpConstraints, *this,
-      inputShape, inputs[0], optionalArgs.runningMeanShape,
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], optionalArgs.runningMeanShape,
       optionalArgs.runningMeanLayout, optionalArgs.runningVarShape,
       optionalArgs.runningVarLayout, optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), getMomentum(),
+      optionalArgs.biasLayout, op.getEpsilon(), op.getMomentum(),
       opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+BatchNormTrainingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                      const OpConfig &opConfig) {
+  return batchNormTrainingConstraintsImpl(*this, inputs, opConfig,
+                                          /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+BatchNormTrainingOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return batchNormTrainingConstraintsImpl(*this, inputs, opConfig,
+                                          initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4109,24 +5304,38 @@ unpackRMSNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
   return ret;
 }
 
+static llvm::Expected<op_model::OpConstraints>
+rMSNormConstraintsImpl(RMSNormOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig,
+                       const op_model::MockAllocatorState *state) {
+  const auto inputShape = op.getInput().getType().getShape();
+
+  RMSNormOptionalArgs optionalArgs = unpackRMSNormOptionalArgs(inputs, op);
+
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      op.getComputeConfigAttr() ? std::optional<DeviceComputeKernelConfigAttr>(
+                                      op.getComputeConfigAttr())
+                                : std::nullopt;
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], optionalArgs.weightShape,
+      optionalArgs.weightLayout, optionalArgs.biasShape,
+      optionalArgs.biasLayout, op.getEpsilon(), opConfig.outputLayout,
+      computeKernelConfig);
+}
+
 llvm::Expected<op_model::OpConstraints>
 RMSNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
+  return rMSNormConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  RMSNormOptionalArgs optionalArgs = unpackRMSNormOptionalArgs(inputs, *this);
-
-  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
-      getComputeConfigAttr()
-          ? std::optional<DeviceComputeKernelConfigAttr>(getComputeConfigAttr())
-          : std::nullopt;
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<RMSNormOp>::getOpConstraints, *this, inputShape,
-      inputs[0], optionalArgs.weightShape, optionalArgs.weightLayout,
-      optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
-      opConfig.outputLayout, computeKernelConfig);
+llvm::Expected<op_model::OpConstraints> RMSNormOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return rMSNormConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4173,19 +5382,37 @@ unpackRMSNormPreAllGatherOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
   return ret;
 }
 
-llvm::Expected<op_model::OpConstraints> RMSNormPreAllGatherOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-
-  const auto inputShape = getInput().getType().getShape();
+static llvm::Expected<op_model::OpConstraints>
+rMSNormPreAllGatherConstraintsImpl(RMSNormPreAllGatherOp op,
+                                   const std::vector<TTNNLayoutAttr> &inputs,
+                                   const OpConfig &opConfig,
+                                   const op_model::MockAllocatorState *state) {
+  const auto inputShape = op.getInput().getType().getShape();
 
   RMSNormPreAllGatherOptionalArgs optionalArgs =
-      unpackRMSNormPreAllGatherOptionalArgs(inputs, *this);
+      unpackRMSNormPreAllGatherOptionalArgs(inputs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<RMSNormPreAllGatherOp>::getOpConstraints, *this,
-      inputShape, inputs[0], optionalArgs.residualInputShape,
-      optionalArgs.residualInputLayout, dataTypeAttrToOptional(getDtypeAttr()),
-      getUse_2dCoreGrid(), opConfig.outputLayout);
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], optionalArgs.residualInputShape,
+      optionalArgs.residualInputLayout,
+      dataTypeAttrToOptional(op.getDtypeAttr()), op.getUse_2dCoreGrid(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints> RMSNormPreAllGatherOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return rMSNormPreAllGatherConstraintsImpl(*this, inputs, opConfig,
+                                            /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints>
+RMSNormPreAllGatherOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return rMSNormPreAllGatherConstraintsImpl(*this, inputs, opConfig,
+                                            initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4235,20 +5462,31 @@ unpackLayerNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
   return ret;
 }
 
+static llvm::Expected<op_model::OpConstraints> layerNormConstraintsImpl(
+    LayerNormOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  const auto inputShape = op.getInput().getType().getShape();
+
+  LayerNormOptionalArgs optionalArgs = unpackLayerNormOptionalArgs(inputs, op);
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], optionalArgs.weightShape,
+      optionalArgs.weightLayout, optionalArgs.biasShape,
+      optionalArgs.biasLayout, op.getEpsilon(), opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 LayerNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
+  return layerNormConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  LayerNormOptionalArgs optionalArgs =
-      unpackLayerNormOptionalArgs(inputs, *this);
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<LayerNormOp>::getOpConstraints, *this, inputShape,
-      inputs[0], optionalArgs.weightShape, optionalArgs.weightLayout,
-      optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
-      opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> LayerNormOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return layerNormConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4298,21 +5536,37 @@ unpackLayerNormPreAllGatherOptionalArgs(
   return ret;
 }
 
+static llvm::Expected<op_model::OpConstraints>
+layerNormPreAllGatherConstraintsImpl(
+    LayerNormPreAllGatherOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  const auto inputShape = op.getInput().getType().getShape();
+
+  LayerNormPreAllGatherOptionalArgs optionalArgs =
+      unpackLayerNormPreAllGatherOptionalArgs(inputs, op);
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], optionalArgs.residualInputShape,
+      optionalArgs.residualInputLayout, optionalArgs.recipShape,
+      optionalArgs.recipLayout, dataTypeAttrToOptional(op.getDtypeAttr()),
+      opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 LayerNormPreAllGatherOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return layerNormPreAllGatherConstraintsImpl(*this, inputs, opConfig,
+                                              /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  LayerNormPreAllGatherOptionalArgs optionalArgs =
-      unpackLayerNormPreAllGatherOptionalArgs(inputs, *this);
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<LayerNormPreAllGatherOp>::getOpConstraints, *this,
-      inputShape, inputs[0], optionalArgs.residualInputShape,
-      optionalArgs.residualInputLayout, optionalArgs.recipShape,
-      optionalArgs.recipLayout, dataTypeAttrToOptional(getDtypeAttr()),
-      opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+LayerNormPreAllGatherOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return layerNormPreAllGatherConstraintsImpl(*this, inputs, opConfig,
+                                              initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4363,21 +5617,38 @@ unpackLayerNormPostAllGatherOptionalArgs(
   return ret;
 }
 
+static llvm::Expected<op_model::OpConstraints>
+layerNormPostAllGatherConstraintsImpl(
+    LayerNormPostAllGatherOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto statsShape = op.getStats().getType().getShape();
+
+  LayerNormPostAllGatherOptionalArgs optionalArgs =
+      unpackLayerNormPostAllGatherOptionalArgs(inputs, op);
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], statsShape, inputs[1],
+      optionalArgs.weightShape, optionalArgs.weightLayout,
+      optionalArgs.biasShape, optionalArgs.biasLayout, op.getEpsilon(),
+      opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 LayerNormPostAllGatherOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return layerNormPostAllGatherConstraintsImpl(*this, inputs, opConfig,
+                                               /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-  const auto statsShape = getStats().getType().getShape();
-
-  LayerNormPostAllGatherOptionalArgs optionalArgs =
-      unpackLayerNormPostAllGatherOptionalArgs(inputs, *this);
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<LayerNormPostAllGatherOp>::getOpConstraints, *this,
-      inputShape, inputs[0], statsShape, inputs[1], optionalArgs.weightShape,
-      optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+LayerNormPostAllGatherOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return layerNormPostAllGatherConstraintsImpl(*this, inputs, opConfig,
+                                               initialState.get());
 }
 
 llvm::Expected<size_t> LayerNormPostAllGatherOp::getOpRuntime(
@@ -4435,22 +5706,35 @@ unpackGroupNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
   return ret;
 }
 
+static llvm::Expected<op_model::OpConstraints> groupNormConstraintsImpl(
+    GroupNormOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(!inputs.empty() && "GroupNormOp requires at least input layout");
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  GroupNormOptionalArgs optionalArgs = unpackGroupNormOptionalArgs(inputs, op);
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], optionalArgs.inputMaskShape,
+      optionalArgs.inputMaskLayout, optionalArgs.weightShape,
+      optionalArgs.weightLayout, optionalArgs.biasShape,
+      optionalArgs.biasLayout, op.getNumGroups(), op.getEpsilon(),
+      opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 GroupNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  assert(!inputs.empty() && "GroupNormOp requires at least input layout");
+  return groupNormConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  GroupNormOptionalArgs optionalArgs =
-      unpackGroupNormOptionalArgs(inputs, *this);
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<GroupNormOp>::getOpConstraints, *this, inputShape,
-      inputs[0], optionalArgs.inputMaskShape, optionalArgs.inputMaskLayout,
-      optionalArgs.weightShape, optionalArgs.weightLayout,
-      optionalArgs.biasShape, optionalArgs.biasLayout, getNumGroups(),
-      getEpsilon(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> GroupNormOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return groupNormConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4474,16 +5758,32 @@ GroupNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ClampScalarOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> clampScalarConstraintsImpl(
+    ClampScalarOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     op.getMinAttr(), op.getMaxAttr(),
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 ClampScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                 const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return clampScalarConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ClampScalarOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getMinAttr(), getMaxAttr(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+ClampScalarOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return clampScalarConstraintsImpl(*this, inputs, opConfig,
+                                    initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4502,17 +5802,33 @@ ClampScalarOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ClampTensorOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> clampTensorConstraintsImpl(
+    ClampTensorOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 3);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], op.getMin().getType().getShape(),
+      inputs[1], op.getMax().getType().getShape(), inputs[2],
+      opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 ClampTensorOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                 const OpConfig &opConfig) {
-  assert(inputs.size() == 3);
+  return clampTensorConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ClampTensorOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getMin().getType().getShape(), inputs[1],
-      getMax().getType().getShape(), inputs[2], opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+ClampTensorOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return clampTensorConstraintsImpl(*this, inputs, opConfig,
+                                    initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4532,16 +5848,31 @@ ClampTensorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // PermuteOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints>
+permuteConstraintsImpl(PermuteOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig,
+                       const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     op.getPermutation(), op.getPadValue(),
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 PermuteOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return permuteConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PermuteOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getPermutation(), getPadValue(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> PermuteOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return permuteConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4560,16 +5891,30 @@ PermuteOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // UpsampleOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> upsampleConstraintsImpl(
+    UpsampleOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     op.getScaleFactor(), op.getMode(),
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 UpsampleOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return upsampleConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<UpsampleOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getScaleFactor(), getMode(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> UpsampleOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return upsampleConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4588,17 +5933,31 @@ UpsampleOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // EmbeddingOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> embeddingConstraintsImpl(
+    EmbeddingOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 2);
+
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto weightShape = op.getWeight().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     weightShape, inputs[1],
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 EmbeddingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  assert(inputs.size() == 2);
+  return embeddingConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-  const auto weightShape = getWeight().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<EmbeddingOp>::getOpConstraints, *this, inputShape,
-      inputs[0], weightShape, inputs[1], opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> EmbeddingOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return embeddingConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4618,19 +5977,35 @@ EmbeddingOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // EmbeddingBackwardOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> embeddingBackwardConstraintsImpl(
+    EmbeddingBackwardOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 3);
+
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto weightShape = op.getWeight().getType().getShape();
+  const auto inGradientShape = op.getInGradient().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     weightShape, inputs[1], inGradientShape,
+                                     inputs[2], opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 EmbeddingBackwardOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                       const OpConfig &opConfig) {
-  assert(inputs.size() == 3);
+  return embeddingBackwardConstraintsImpl(*this, inputs, opConfig,
+                                          /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-  const auto weightShape = getWeight().getType().getShape();
-  const auto inGradientShape = getInGradient().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<EmbeddingBackwardOp>::getOpConstraints, *this,
-      inputShape, inputs[0], weightShape, inputs[1], inGradientShape, inputs[2],
-      opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+EmbeddingBackwardOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return embeddingBackwardConstraintsImpl(*this, inputs, opConfig,
+                                          initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4769,16 +6144,33 @@ FullOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // MeshPartitionOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> meshPartitionConstraintsImpl(
+    MeshPartitionOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     op.getDim(), op.getClusterAxis(),
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 MeshPartitionOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                   const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return meshPartitionConstraintsImpl(*this, inputs, opConfig,
+                                      /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<MeshPartitionOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getDim(), getClusterAxis(), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+MeshPartitionOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return meshPartitionConstraintsImpl(*this, inputs, opConfig,
+                                      initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4797,14 +6189,27 @@ MeshPartitionOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ConstantOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> constantConstraintsImpl(
+    ConstantOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 0);
+
+  return detail::constraintsDispatch(op, state, op.getValue(),
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 ConstantOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
-  assert(inputs.size() == 0);
+  return constantConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ConstantOp>::getOpConstraints, *this, getValue(),
-      opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints> ConstantOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return constantConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4874,16 +6279,33 @@ DropoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // GlobalAvgPool2dOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints> globalAvgPool2dConstraintsImpl(
+    GlobalAvgPool2dOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     dataTypeAttrToOptional(op.getDtypeAttr()),
+                                     opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 GlobalAvgPool2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                     const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  return globalAvgPool2dConstraintsImpl(*this, inputs, opConfig,
+                                        /*state=*/nullptr);
+}
 
-  const auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<GlobalAvgPool2dOp>::getOpConstraints, *this, inputShape,
-      inputs[0], dataTypeAttrToOptional(getDtypeAttr()), opConfig.outputLayout);
+llvm::Expected<op_model::OpConstraints>
+GlobalAvgPool2dOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return globalAvgPool2dConstraintsImpl(*this, inputs, opConfig,
+                                        initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -5114,15 +6536,29 @@ D2MSubgraphOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // TopKOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+static llvm::Expected<op_model::OpConstraints>
+topKConstraintsImpl(TopKOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                    const OpConfig &opConfig,
+                    const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == 1);
+  const auto inputShape = op.getInputTensor().getType().getShape();
+  return detail::constraintsDispatch(op, state, inputShape, inputs[0],
+                                     op.getK(), op.getDim(), op.getLargest(),
+                                     op.getSorted(), opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 TopKOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-  const auto inputShape = getInputTensor().getType().getShape();
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<mlir::tt::ttnn::TopKOp>::getOpConstraints, *this,
-      inputShape, inputs[0], getK(), getDim(), getLargest(), getSorted(),
-      opConfig.outputLayout);
+  return topKConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
+}
+
+llvm::Expected<op_model::OpConstraints> TopKOp::getOpConstraintsWithState(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+  std::shared_ptr<op_model::MockAllocatorState> initialState =
+      op_model::buildInitialState(liveRecords);
+  return topKConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
