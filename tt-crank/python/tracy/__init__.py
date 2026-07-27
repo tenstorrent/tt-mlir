@@ -51,7 +51,7 @@ _dev_bin_dir = (
     Path(__file__).parent / ".." / ".." / "build" / "third_party" / "tt-mlir-install" / "bin"
 )
 
-if _wheel_bin_dir.exists() and (_wheel_bin_dir / "capture-release").exists():
+if _wheel_bin_dir.exists() and (_wheel_bin_dir / "tracy-capture").exists():
     PROFILER_BIN_DIR = _wheel_bin_dir
 else:
     PROFILER_BIN_DIR = _dev_bin_dir

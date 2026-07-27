@@ -4,8 +4,8 @@ tt-kurbla bundles tt-metal's Tracy profiler. Every build ships:
 
 - the `tracy` console script (a thin wrapper around tt-metal's `tools/tracy`
   module — orchestrates a profiling run and writes the per-op CSV report),
-- the `capture-release` binary (headless Tracy capture),
-- `csvexport-release` (export `.tracy` files to CSV).
+- the `tracy-capture` binary (headless Tracy capture),
+- `tracy-csvexport` (export `.tracy` files to CSV).
 
 `libtt_kurbla.so` is also instrumented with Tracy zones by default. The zones
 mark the hot paths in our compile / run pipeline so a recorded trace shows
@@ -74,13 +74,13 @@ in real time and captures the trace directly. Then run:
 tracy -p --no-device -m pytest -svv tests/python/op_tests/test_elementwise.py
 ```
 
-### Workaround 2: run `capture-release` in a second terminal
+### Workaround 2: run `tracy-capture` in a second terminal
 
-`capture-release` is the headless equivalent of the GUI. Start it first:
+`tracy-capture` is the headless equivalent of the GUI. Start it first:
 
 ```bash
 # Terminal 1: start the capture listener
-./build/third_party/tt-mlir-install/bin/capture-release -o output.tracy
+./build/third_party/tt-mlir-install/bin/tracy-capture -o output.tracy
 ```
 
 ```bash
@@ -88,7 +88,7 @@ tracy -p --no-device -m pytest -svv tests/python/op_tests/test_elementwise.py
 tracy -p --no-device -m pytest -svv tests/python/op_tests/test_elementwise.py
 ```
 
-`capture-release -h` lists the relevant flags (`-o` output path, `-a` address,
+`tracy-capture -h` lists the relevant flags (`-o` output path, `-a` address,
 `-p` port, `-f` force overwrite, `-s` stop after N seconds).
 
 ## Adding more zones
