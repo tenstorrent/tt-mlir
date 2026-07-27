@@ -56,6 +56,36 @@ workaround hand-places **64 cores (8×8)**. Reaching 64 needs explicit-rectangul
 divisor of 128 up to 8 cores on an 11-wide grid). This is a throughput refinement on a
 correct, passing baseline.
 
+#### Example fix (tested, uncommitted — reverted for blast radius; not in git)
+
+The row-major placer in `TTNNOpsAttrs.cpp` (`deriveCanonicalL1CoreRangeSet` → `buildRowMajorCoreRanges`)
+wraps at the worker-grid width, so 64 cores become the non-rectangular 55+9. Replacing it with a
+compact-rectangle placer for the width-sharded case lets 64 land as 8×8:
+
+```cpp
+// widest H'×W' with H'*W'==numCores fitting the grid; else fall back to row-major
+static llvm::SmallVector<CoreRangeAttr>
+buildCompactRectCoreRanges(mlir::MLIRContext *ctx, int64_t numCores,
+                           ArrayRef<int64_t> gridSize) {
+  const int64_t gridH = gridSize[0], gridW = gridSize[1];
+  for (int64_t h = std::min(numCores, gridH); h >= 1; --h) {
+    if (numCores % h) continue;
+    int64_t w = numCores / h;
+    if (w <= gridW)
+      return {CoreRangeAttr::get(ctx, CoreCoordAttr::get(ctx, 0, 0),
+                                 CoreCoordAttr::get(ctx, w - 1, h - 1))};
+  }
+  return buildRowMajorCoreRanges(ctx, numCores, gridSize);
+}
+// in deriveCanonicalL1CoreRangeSet, WidthSharded case:
+//   ranges = buildCompactRectCoreRanges(ctx, gridShape[1], workerGridShape);
+```
+
+Result when tested: opt-2 norm placed 8×8=64, llama passed. Two caveats: (1) `deriveCanonicalL1CoreRangeSet`
+feeds **all** L1-sharded ops, so this shifts other layout selections — needs full-suite/perf
+validation or scoping to the norm; (2) `LegalTensorLayoutAnalysis` must also *offer* the higher
+core count (it caps at 8 today because row-major only places full-bbox up to 8).
+
 ## Goal
 
 Today `DistributedRMSNormWidthShardInputRewritePattern` (a TTNN workaround) hand-picks the
