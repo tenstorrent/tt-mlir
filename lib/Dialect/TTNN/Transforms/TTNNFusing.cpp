@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
@@ -174,6 +175,138 @@ private:
     return false;
   }
 };
+
+// Activation fusion changes the lowered TTNN op from
+// `unary(binary(a, b))` into a single `binary(a, b, activations=[unary])`,
+// which routes through tt-metal's `binary_ng` post-activation path. That path
+// currently mishandles broadcast inputs (e.g. height/channel-broadcast bias
+// add) and produces wrong values.
+// Metal issue: https://github.com/tenstorrent/tt-metal/issues/44823
+// Only fuse activations into binary ops whose two inputs have identical
+// shapes (no broadcast).
+inline bool binaryOpInputsHaveSameShape(ElementwiseBinary binaryOp) {
+  auto lhsType =
+      mlir::dyn_cast<mlir::RankedTensorType>(binaryOp.getLhs().getType());
+  auto rhsType =
+      mlir::dyn_cast<mlir::RankedTensorType>(binaryOp.getRhs().getType());
+  if (!lhsType || !rhsType) {
+    return false;
+  }
+  return lhsType.getShape() == rhsType.getShape();
+}
+
+namespace {
+class TTNNBinaryOpInputsActivation
+    : public mlir::OpInterfaceRewritePattern<ElementwiseBinaryActivations> {
+  using TTNNBinaryOpInputsActivation::OpInterfaceRewritePattern<
+      ElementwiseBinaryActivations>::OpInterfaceRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ElementwiseBinaryActivations binaryOpWithActivations,
+                  mlir::PatternRewriter &rewriter) const final {
+    auto binaryOp =
+        mlir::cast<ElementwiseBinary>(binaryOpWithActivations.getOperation());
+
+    if (!binaryOpInputsHaveSameShape(binaryOp)) {
+      return failure();
+    }
+
+    bool isFused = false;
+
+    if (auto lhsUnaryOp = getFusableUnaryOp(binaryOp.getLhs())) {
+      fuseInputActivation(lhsUnaryOp, binaryOpWithActivations, rewriter,
+                          /*isLhs=*/true);
+      isFused = true;
+    }
+
+    if (auto rhsUnaryOp = getFusableUnaryOp(binaryOp.getRhs())) {
+      fuseInputActivation(rhsUnaryOp, binaryOpWithActivations, rewriter,
+                          /*isLhs=*/false);
+      isFused = true;
+    }
+
+    return mlir::success(isFused);
+  }
+
+private:
+  ElementwiseUnary getFusableUnaryOp(Value operand) const {
+    if (!operand.hasOneUse()) {
+      return {};
+    }
+
+    auto unaryOp = operand.getDefiningOp<ElementwiseUnary>();
+    if (unaryOp && unaryOp.getUnaryOpType() != UnaryOpType::Unknown) {
+      return unaryOp;
+    }
+
+    return {};
+  }
+
+  void fuseInputActivation(ElementwiseUnary unaryOp,
+                           ElementwiseBinaryActivations binaryOp,
+                           mlir::PatternRewriter &rewriter, bool isLhs) const {
+    rewriter.modifyOpInPlace(binaryOp.getOperation(), [&]() {
+      if (isLhs) {
+        binaryOp.addInputTensorAActivation(unaryOp.getUnaryOpType(),
+                                           unaryOp.getParams());
+      } else {
+        binaryOp.addInputTensorBActivation(unaryOp.getUnaryOpType(),
+                                           unaryOp.getParams());
+      }
+      rewriter.replaceOp(unaryOp, unaryOp.getInput());
+    });
+  }
+};
+} // namespace
+
+namespace {
+class TTNNBinaryOpOutputActivation
+    : public mlir::OpInterfaceRewritePattern<ElementwiseUnary> {
+  using TTNNBinaryOpOutputActivation::OpInterfaceRewritePattern<
+      ElementwiseUnary>::OpInterfaceRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ElementwiseUnary unaryOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    if (!isFusable(unaryOp)) {
+      return failure();
+    }
+
+    auto binaryOp = getFusableBinaryOp(unaryOp.getInput());
+    if (!binaryOp) {
+      return failure();
+    }
+
+    if (!binaryOpInputsHaveSameShape(
+            mlir::cast<ElementwiseBinary>(binaryOp.getOperation()))) {
+      return failure();
+    }
+
+    rewriter.modifyOpInPlace(binaryOp, [&]() {
+      binaryOp.addActivation(unaryOp.getUnaryOpType(), unaryOp.getParams());
+      binaryOp->getResult(0).setType(unaryOp->getResult(0).getType());
+    });
+    rewriter.replaceOp(unaryOp, unaryOp.getInput());
+
+    return mlir::success();
+  }
+
+private:
+  bool isFusable(ElementwiseUnary unaryOp) const {
+    return unaryOp.getUnaryOpType() != UnaryOpType::Unknown;
+  }
+
+  ElementwiseBinaryActivations getFusableBinaryOp(Value operand) const {
+    if (!operand.hasOneUse()) {
+      return {};
+    }
+
+    return operand.getDefiningOp<ElementwiseBinaryActivations>();
+  }
+};
+} // namespace
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
@@ -432,6 +565,7 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
+    RewritePatternSet laterPatterns(&getContext());
     // TODO(mvasiljevic): Add HardsigmoidOp once tt-metal issue is resolved
     // https://github.com/tenstorrent/tt-metal/issues/30973
     patterns.add<
@@ -443,6 +577,9 @@ public:
         TTNNMatmulAndLinearWithActivation<LinearOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, GeluOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>>(&getContext());
+    laterPatterns
+        .add<TTNNBinaryOpInputsActivation, TTNNBinaryOpOutputActivation>(
+            &getContext());
 
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {
@@ -484,10 +621,12 @@ public:
     // (e.g. bf16->f32->bf16) that appear after SDPA fusing, enabling
     // patterns like NLPConcatHeadsDecodeFusing to match cleanly.
     TypecastOp::getCanonicalizationPatterns(patterns, &getContext());
+    TypecastOp::getCanonicalizationPatterns(laterPatterns, &getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));
+    (void)applyPatternsGreedily(getOperation(), std::move(laterPatterns));
   }
 };
 } // namespace

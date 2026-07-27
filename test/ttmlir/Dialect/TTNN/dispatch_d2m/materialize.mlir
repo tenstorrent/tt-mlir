@@ -18,7 +18,7 @@ module {
     // CHECK: "ttnn.generic"
     // CHECK-SAME: symbol_ref = @datamovement_kernel0
     // CHECK-SAME: symbol_ref = @compute_kernel1
-    %1 = "ttnn.add"(%arg3, %arg4) : (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
+    %1 = "ttnn.add"(%arg3, %arg4) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
     return %1 : tensor<64x64xbf16, #ttnn_layout>
   }
   // CHECK: func.func private @datamovement_kernel0
@@ -66,7 +66,7 @@ module {
   // CHECK-LABEL: func.func @mixed_ttnn_ops_d2m_subgraph
   func.func @mixed_ttnn_ops_d2m_subgraph(%arg0: tensor<64x64xbf16, #ttnn_layout>, %arg1: tensor<64x64xbf16, #ttnn_layout>, %out0: tensor<64x64xbf16, #ttnn_layout>, %out1: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
     // CHECK: "ttnn.add"
-    %0 = "ttnn.add"(%arg0, %arg1) : (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
+    %0 = "ttnn.add"(%arg0, %arg1) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
     %1 = ttnn.d2m_subgraph @d2m_subgraph_0
         ins(%0 : tensor<64x64xbf16, #ttnn_layout>)
         outs(%out0 : tensor<64x64xbf16, #ttnn_layout>) : tensor<64x64xbf16, #ttnn_layout>
