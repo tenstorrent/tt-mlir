@@ -19,18 +19,31 @@
 >
 > ⇒ It is a **structural** issue in opt-2's sharding of the **non-matmul residual/elementwise
 > stream** (sharded add/multiply/silu + inserted reshards) at **low TP (2×2/TP=2)**, NOT a
-> precision problem. It is **not Blackhole-specific** — opt-2 works on the same board at TP=4
-> (qb2 default `(1,4)`); it tracks the TP factor. Galaxy runs level-1, so it is not an opt-2
-> datapoint. Exact culprit op still to be found via emit-iterate bisection, which is currently
-> **blocked by two EmitPy codegen bugs** on the 2×2 mesh (see
-> `codegen_emitpy_mesh_issues_5738.md`).
+> precision problem. Exact culprit op still to be found via emit-iterate bisection, currently
+> **blocked by two EmitPy codegen bugs** on the 2×2 mesh (see `codegen_emitpy_mesh_issues_5738.md`).
 >
-> **On the norm's core grid (`1×8` vs `8×8`):** under opt-2 the fused `distributed_rms_norm`
-> lands on a **clean full-bbox 1×8 (8 cores)** — bit-identical output (1.0), *not* the bug —
-> whereas the opt<2 workaround hand-places **8×8 (64 cores)**. opt-2 can't reach 64 because
-> `LegalTensorLayoutAnalysis`'s canonical **row-major** placement can only form a full-bbox
-> *even* divisor of 128 up to 8 cores on the 11-wide BH grid; reaching 64 needs
-> explicit-rectangular placement. This is a **throughput** refinement, not a correctness issue
+> **⚠️ Is it Blackhole-specific? NOT established (earlier claim retracted).** The failure
+> *correlates* with TP (fails TP=2, works TP=4 on the same BH board) — but that is the **exact
+> same pattern the `distributed_rms_norm` bug showed, and that one WAS Blackhole-specific**
+> (64 cores wrap to a non-rectangular 55+9 on BH's 11-wide grid; clean 8×8 on WH's 8-wide). So
+> "fails TP=2 / works TP=4 on BH" does **not** discriminate a TP-factor cause from a
+> Blackhole-grid-geometry cause, and "no arch conditionals in the code" rules nothing out (the
+> norm bug had none either — its arch-dependence was runtime grid geometry). Evidence here even
+> *leans* Blackhole: opt-2's sharded ops get **non-rectangular multi-range core placements**
+> (e.g. `11×9+7`) that are an artifact of row-major placement on the **11-wide BH grid** — same
+> mechanism class as the norm. **Discriminating test not yet run: opt-2 at TP=2 (a 2×2 mesh) on
+> Wormhole.** The Galaxy probe (opt-2, TP=8, run 30267363946) **HUNG** — device timeout
+> "waiting for physical cores to finish 19-27,18-27" on devices 27-31; no PCC produced. So
+> opt-2 doesn't cleanly run at TP=8 on WH either, but a hang ≠ the BH 0.624 collapse → inconclusive
+> for accuracy, and still doesn't test TP=2.
+>
+> **Norm core grid — opt-2 REGRESSES vs the workaround (real deficiency, separate from the
+> 0.624 collapse):** the fused `distributed_rms_norm` is accuracy-*correct* under opt-2 (clean
+> full-bbox **1×8**, PCC 1.0), but opt-2 places it on **8 cores** vs the workaround's **8×8 = 64**
+> — so opt-2 is strictly slower and **does not match the workaround it is meant to replace**.
+> opt-2 can't reach 64 because `LegalTensorLayoutAnalysis`'s canonical **row-major** placement
+> only forms a full-bbox even divisor up to 8 cores on the 11-wide BH grid; reaching 64 needs
+> explicit-rectangular placement. Perf/utilization regression, distinct from the decode collapse
 > (details in `distributed_rms_norm_opt2_migration.md`, "Remaining perf note").
 >
 > ### ⚠️ Reading guide — SUPERSEDED sections below
@@ -41,6 +54,37 @@
 > experiment"**, and **"Fix"** below are an **earlier hypothesis (matmul K-accumulation
 > precision) that the 80-layer experiments above DISPROVED** — kept only as a historical
 > record. Do not act on them.
+
+## Compiler-lever bisection (force ops interleaved) — done, method now exhausted (2026-07-27)
+
+Since emit-load bisection is blocked by codegen bugs, I bisected via the compiler: a
+matmul-style rulebook that returns **specific interleaved hints** for a target op forces its
+output interleaved (verified in the emit — the base rulebook's NULL hint does *not* constrain;
+`LegalTensorLayoutAnalysis` is per-tensor-type with `op`=module, so it can't target an op).
+Registered interleaved-only rulebooks and ran 80L decode:
+
+| forced interleaved | 80L decode PCC |
+|---|---|
+| matmul output → DRAM-interleaved | 0.638 |
+| residual `add` | 0.624 |
+| elementwise stream (`add`/`multiply`/`subtract`/`silu`) | 0.622 |
+| matmul **+** elementwise stream | 0.632 |
+
+**All ≈ baseline 0.624 — none recover** (opt<2, everything interleaved = 0.9917).
+
+**Why this method is exhausted:** forcing an **elementwise** op interleaved cannot change its
+numerics (add is add regardless of layout) — it only removes the reshards around it. So the
+method can only detect **layout-sensitive** ops (matmul, reductions, reshards). Of those:
+matmul is ruled out (above), the norm is fine (opt<2 shards it width-sharded and gets 0.9917),
+all_reduce is byte-identical opt<2-vs-opt-2. The residue that only *full* interleaving (=opt-1)
+removes is the **reshards opt-2 inserts** and/or an **aggregate** effect — neither isolable by
+forcing one op-type interleaved.
+
+**Conclusion:** pinpointing the culprit needs **per-op numeric localization** (opt-2 vs opt-1
+per-op output at a divergent layer count), which requires either the emit-load loop (blocked by
+codegen Bug A/B) or the runtime golden hooks (`TT_RUNTIME_DEBUG`, not built). Absent that, the
+practical fix for 2×2 is opt<2 / level-1 (what Galaxy does); making opt-2's sharding correct at
+2×2 remains open. All bisection changes were experiments (reverted; tree clean).
 
 ## Decode-graph config diff (opt-1 vs opt-2, 2×2, per op type — only differences)
 
