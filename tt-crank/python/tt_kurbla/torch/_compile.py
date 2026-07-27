@@ -828,7 +828,6 @@ class CompileOption(StrEnum):
     ENABLE_CREATE_D2M_SUBGRAPHS = "enable_create_d2m_subgraphs" # bool
     TTNN_PERF_METRICS_ENABLED = "ttnn_perf_metrics_enabled" # bool
     TTNN_PERF_METRICS_OUTPUT_FILE = "ttnn_perf_metrics_output_file" # str
-    ALL_REDUCE_WORKAROUND_ENABLED = "all_reduce_workaround_enabled" # bool
 
 
 COMPILE_OPTIONS = [opt for opt in CompileOption]
@@ -896,9 +895,6 @@ def _compile_options(options: dict [CompileOption, str | int | bool] | None) -> 
 
     if (CompileOption.TTNN_PERF_METRICS_OUTPUT_FILE in options):
         opts.ttnn_perf_metrics_output_file = options[CompileOption.TTNN_PERF_METRICS_OUTPUT_FILE]
-
-    if (CompileOption.ALL_REDUCE_WORKAROUND_ENABLED in options):
-        opts.all_reduce_workaround_enabled = options[CompileOption.ALL_REDUCE_WORKAROUND_ENABLED]
 
     return opts
 

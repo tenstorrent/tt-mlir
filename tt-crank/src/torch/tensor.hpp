@@ -134,11 +134,6 @@ void allreduce_into(const at::Tensor &tensor, std::uint32_t cluster_axis);
 void reduce_scatter_into(const at::Tensor &output, const at::Tensor &input, std::uint32_t cluster_axis,
                          std::int64_t scatter_dim);
 
-// Stream-formatted dump of the underlying ttnn::Tensor TensorTopology
-// (distribution_shape / placements / mesh_coords). Pure metadata — no host
-// data transfer.
-std::string describe_tensor(const at::Tensor &t);
-
 // Pick the shared tt device from the operands, upload any CPU stragglers,
 // and return the migrated tensors.
 //

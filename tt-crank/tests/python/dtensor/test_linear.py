@@ -12,8 +12,6 @@ import torch
 import torch.nn.functional as F
 from torch.distributed.tensor import Partial, Replicate, Shard, distribute_tensor
 
-from tt_kurbla.torch import _native
-
 pytestmark = pytest.mark.multichip
 
 
@@ -33,12 +31,6 @@ def test_linear_replicated_weight_sharded_input(tt_pg) -> None:
     dbias = distribute_tensor(bias.to("tt"), mesh, [Replicate()])
     dx = distribute_tensor(x.to("tt"), mesh, [Shard(0)])
 
-    desc_w = _native.describe_tensor(dweight._local_tensor)
-    assert "PlacementReplicate()" in desc_w, f"weight should be replicated:\n{desc_w}"
-
-    desc_x = _native.describe_tensor(dx._local_tensor)
-    assert "PlacementShard(0)" in desc_x, f"input should be Shard(0):\n{desc_x}"
-
     # Shard(0) input × Replicate weight → Shard(0) output (batch-dim sharding).
     dout = F.linear(dx, dweight, dbias)
     assert dout._spec.placements == (Shard(0),), \
@@ -46,18 +38,11 @@ def test_linear_replicated_weight_sharded_input(tt_pg) -> None:
     assert tuple(dout._local_tensor.shape) == (batch // n, out_features), \
         f"per-rank output shape mismatch: {dout._local_tensor.shape}"
 
-    desc_out = _native.describe_tensor(dout._local_tensor)
-    assert "PlacementShard(0)" in desc_out, f"output topology should be Shard(0):\n{desc_out}"
-
     # full_tensor() redistributes Shard(0) → Replicate via allgather.
     full = dout.full_tensor()
     assert full.device.type == "tt", f"full_tensor should stay on tt, got {full.device}"
     assert tuple(full.shape) == (batch, out_features), \
         f"full_tensor shape mismatch: got {tuple(full.shape)}, expected ({batch}, {out_features})"
-
-    desc_full = _native.describe_tensor(full)
-    assert "PlacementReplicate()" in desc_full, f"full_tensor topology should be Replicate:\n{desc_full}"
-    assert "PlacementShard" not in desc_full, f"unexpected shard placement:\n{desc_full}"
 
     full_cpu = full.cpu()
     torch.testing.assert_close(full_cpu, expected, atol=0.1, rtol=0.1)
@@ -87,11 +72,6 @@ def test_linear_row_parallel(tt_pg) -> None:
     dx = distribute_tensor(x.to("tt"), mesh, [Shard(1)])
     dweight = distribute_tensor(w_kn.to("tt"), mesh, [Shard(0)])
 
-    # Underlying topology should be Shard (any dim — our scatter hardcodes
-    # the tensor shard dim to 0 in the topology metadata).
-    assert "PlacementShard" in _native.describe_tensor(dx._local_tensor)
-    assert "PlacementShard" in _native.describe_tensor(dweight._local_tensor)
-
     # Shard(K)×Shard(K) → Partial output (per-chip partial sums).
     dout = dx @ dweight
     assert dout._spec.placements == (Partial(),), \
@@ -101,6 +81,5 @@ def test_linear_row_parallel(tt_pg) -> None:
     full = dout.full_tensor()
     assert full.device.type == "tt"
     assert tuple(full.shape) == (batch, out_features)
-    assert "PlacementReplicate()" in _native.describe_tensor(full)
 
     torch.testing.assert_close(full.cpu(), expected, atol=0.2, rtol=0.1)

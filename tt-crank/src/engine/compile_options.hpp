@@ -95,9 +95,6 @@ struct TT_KURBLA_API CompileOptions {
     // Output file for TTNN performance metrics (empty -> default location).
     std::optional<std::string> ttnn_perf_metrics_output_file;
 
-    // Decompose all_reduce into reduce_scatter + all_gather (or all_gather + local reduce).
-    std::optional<bool> all_reduce_workaround_enabled;
-
     ///////////
     // Utils //
     ///////////

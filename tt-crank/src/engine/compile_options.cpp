@@ -103,7 +103,6 @@ std::string CompileOptions::to_string() const {
     ss << ", enable_create_d2m_subgraphs: " << opt_bool(enable_create_d2m_subgraphs);
     ss << ", ttnn_perf_metrics_enabled: " << opt_bool(ttnn_perf_metrics_enabled);
     ss << ", ttnn_perf_metrics_output_file: " << opt_str(ttnn_perf_metrics_output_file);
-    ss << ", all_reduce_workaround_enabled: " << opt_bool(all_reduce_workaround_enabled);
     ss << " }";
 
     return ss.str();
@@ -160,9 +159,6 @@ void CompileOptions::set_options_on(mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOpt
     }
     if (ttnn_perf_metrics_output_file.has_value()) {
         opts.ttnnPerfMetricsOutputFile = *ttnn_perf_metrics_output_file;
-    }
-    if (all_reduce_workaround_enabled.has_value()) {
-        opts.allReduceWorkaroundEnabled = *all_reduce_workaround_enabled;
     }
 }
 
