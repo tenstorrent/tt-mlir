@@ -2444,6 +2444,10 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ArangeOp> emitter(
         srcOp, adaptor, rewriter);
 
+    // ttnn::arange has no single-argument overload, so the generic
+    // DefaultOpConversionPattern (which would emit only the operands, and
+    // arange has none besides the optional device) cannot be used: the trailing
+    // defaults have to be spelled out.
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getStart()),
         emitter.emit(srcOp.getEnd()),
@@ -3858,6 +3862,45 @@ public:
         emitter.emit(srcOp.getKey()),
         emitter.emit(srcOp.getWeights()),
         emitter.emit(srcOp.getChunkStartIdx()),
+    };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// SparseSdpaOp conversion pattern
+//
+namespace {
+class SparseSdpaOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::SparseSdpaOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.sparse_sdpa";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::transformer::sparse_sdpa";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SparseSdpaOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SparseSdpaOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SparseSdpaOp> emitter(
+        srcOp, adaptor, rewriter);
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),   emitter.emit(srcOp.getKv()),
+        emitter.emit(srcOp.getIndices()), emitter.emit(srcOp.getVDim()),
+        emitter.emit(srcOp.getScale()),   emitter.emit(srcOp.getKChunkSize()),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
@@ -5866,6 +5909,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                                                              ctx);
   patterns.add<FlashMlaPrefillOpConversionPattern>(typeConverter, ctx);
   patterns.add<IndexerScoreDsaOpConversionPattern>(typeConverter, ctx);
+  patterns.add<SparseSdpaOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPCreateQKVHeadsDecodeOpConversionPattern>(typeConverter, ctx);
 }
 // ANCHOR_END: op_rewriter_pattern_set_emitc

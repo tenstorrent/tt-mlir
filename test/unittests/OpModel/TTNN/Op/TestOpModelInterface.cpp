@@ -7105,6 +7105,84 @@ TEST_F(OpModelBase, IndexerScoreDsaOpInterface) {
 }
 
 //===----------------------------------------------------------------------===//
+// SparseSdpaOp
+//===----------------------------------------------------------------------===//
+
+// ttnn::transformer::sparse_sdpa is Blackhole-only: on any other architecture
+// the metal op raises (TT_FATAL), which the op-model query surfaces as an
+// error. The test therefore skips when the query is unavailable so it still
+// exercises the binding on Blackhole hardware without failing elsewhere.
+TEST_F(OpModelBase, SparseSdpaOpInterface) {
+  // query [1, H, S, K_DIM], kv [1, 1, T, K_DIM], indices [1, 1, S, TOPK]
+  //   -> out [1, H, S, v_dim].
+  // H is a multiple of 32 and K_DIM / v_dim / k_chunk_size are multiples of 32,
+  // with k_chunk_size dividing TOPK -- all hard requirements of the kernel.
+  const uint32_t vDim = 512;
+  const uint32_t kChunkSize = 128;
+  llvm::SmallVector<int64_t> queryShape = {1, 32, 128, 576};
+  llvm::SmallVector<int64_t> kvShape = {1, 1, 512, 576};
+  llvm::SmallVector<int64_t> indicesShape = {1, 1, 128, 128};
+  llvm::SmallVector<int64_t> outputShape = {1, 32, 128, vDim};
+
+  llvm::SmallVector<int64_t> gridAttr{1, 1};
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  // Layouts match the kernel's contract post-workaround: every tensor is
+  // ROW_MAJOR DRAM-interleaved (a scalar element type, not a TileType),
+  // q/kv/out bf16 and indices uint32.
+  auto bf16Type = builder.getBF16Type();
+  auto ui32Type = builder.getIntegerType(32, false);
+
+  auto makeDramLayout = [&](llvm::ArrayRef<int64_t> shape, mlir::Type elem) {
+    return TTNNLayoutAttr::Builder(&context, shape, elem)
+        .setBufferType(BufferType::DRAM)
+        .setMemoryLayout(tensorMemoryLayoutAttr)
+        .setGridShape(gridAttr)
+        .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  };
+
+  auto queryLayout = makeDramLayout(queryShape, bf16Type);
+  auto kvLayout = makeDramLayout(kvShape, bf16Type);
+  auto indicesLayout = makeDramLayout(indicesShape, ui32Type);
+  auto outputLayout = makeDramLayout(outputShape, bf16Type);
+
+  auto query = createEmptyTensor(queryShape, bf16Type, queryLayout);
+  auto kv = createEmptyTensor(kvShape, bf16Type, kvLayout);
+  auto indices = createEmptyTensor(indicesShape, ui32Type, indicesLayout);
+
+  auto outputType = createRankedTensorType(outputShape, bf16Type, outputLayout);
+
+  auto sparseSdpaOp = builder.create<SparseSdpaOp>(
+      builder.getUnknownLoc(), outputType, query, kv, indices,
+      /*v_dim=*/vDim,
+      /*scale=*/nullptr,
+      /*k_chunk_size=*/kChunkSize);
+
+  sparseSdpaOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(sparseSdpaOp.getOperation());
+  if (!constraintsExp) {
+    GTEST_SKIP() << "sparse_sdpa op-model query unavailable (Blackhole-only): "
+                 << llvm::toString(constraintsExp.takeError());
+  }
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+      constraintsExp.get();
+  EXPECT_GE(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GE(totalPeakSize, 0);
+
+  auto runtimeExp = getOpRuntime(sparseSdpaOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    // Constraints succeeded but the runtime (execution) query is unavailable;
+    // don't hard-fail the Blackhole-only op on this path.
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // SamplingOp
 //===----------------------------------------------------------------------===//
 

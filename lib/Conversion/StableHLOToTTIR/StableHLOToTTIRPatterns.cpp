@@ -9777,6 +9777,336 @@ public:
 } // namespace
 
 namespace {
+// Builds the primitive decomposition function for the ttcore.composite op for
+// sparse (top-k) MLA prefill attention. This is a fallback that gets inlined by
+// the TTNNResolveComposites pass when the composite op cannot be promoted to
+// ttnn.sparse_sdpa.
+//
+//   out[b, h, s, :] = softmax_over_{t in indices[b,0,s,:]}(
+//                         scale * q[b,h,s,:] . kv[b,0,t,:]) @ kv[b,0,t,:v_dim]
+//
+// The sparsity is expressed densely: scores are computed against all T keys and
+// every key not listed in the query's `indices` row gets an additive -inf, so
+// the softmax and the V matmul over the full key axis reproduce the sparse sum
+// exactly. Sentinel indices (0xFFFFFFFF) select nothing and therefore drop out
+// on their own.
+//
+// q [B, H, S, K_DIM], kv [B, 1, T, K_DIM], indices [B, 1, S, TOPK]
+//   -> [B, H, S, v_dim].
+static Value buildSparseSdpaDecompositionBody(
+    ConversionPatternRewriter &rewriter, Location loc, Value query, Value kv,
+    Value indices, uint32_t vDim, std::optional<float> scale) {
+  auto queryType = mlir::cast<RankedTensorType>(query.getType());
+  auto kvType = mlir::cast<RankedTensorType>(kv.getType());
+  auto indicesType = mlir::cast<RankedTensorType>(indices.getType());
+  ArrayRef<int64_t> qShape = queryType.getShape();
+
+  int64_t batch = qShape[0];
+  int64_t numHeads = qShape[1];
+  int64_t querySeqLen = qShape[2];
+  int64_t headDim = qShape[3];
+  int64_t keySeqLen = kvType.getShape()[2];
+  int64_t topK = indicesType.getShape()[3];
+  int64_t valueDim = static_cast<int64_t>(vDim);
+
+  Type elemType = queryType.getElementType();
+  Attribute encoding = queryType.getEncoding();
+
+  auto tensorType = [&](ArrayRef<int64_t> shape) {
+    return RankedTensorType::get(shape, elemType, encoding);
+  };
+  // The index arithmetic runs in f32 rather than the query element type: bf16
+  // only represents integers exactly up to 256, far below realistic key
+  // sequence lengths, so comparing positions in bf16 would conflate distinct
+  // keys. f32 is exact up to 2^24, which bounds T (and the 0xFFFFFFFF sentinel
+  // stays far above any in-range key position either way).
+  auto indexTensorType = [&](ArrayRef<int64_t> shape) {
+    return RankedTensorType::get(shape, rewriter.getF32Type(), encoding);
+  };
+
+  // Fold the query heads into the sequence dim so a single batched matmul
+  // against kv's single latent head works without broadcasting kv across
+  // heads.
+  Value qFold =
+      ttir::utils::createReshapeOp(rewriter, loc, query,
+                                   {batch, 1, numHeads * querySeqLen, headDim})
+          .getResult();
+
+  // Kᵀ: [B, 1, T, K_DIM] -> [B, 1, K_DIM, T].
+  Value kvT = rewriter
+                  .create<ttir::PermuteOp>(
+                      loc, tensorType({batch, 1, headDim, keySeqLen}), kv,
+                      rewriter.getDenseI64ArrayAttr({0, 1, 3, 2}))
+                  .getResult();
+
+  // QKᵀ (grouped form), then unfold heads: [B, H, S, T].
+  Value scoresFold =
+      rewriter
+          .create<ttir::MatmulOp>(
+              loc, tensorType({batch, 1, numHeads * querySeqLen, keySeqLen}),
+              qFold, kvT)
+          .getResult();
+  Value scores =
+      ttir::utils::createReshapeOp(rewriter, loc, scoresFold,
+                                   {batch, numHeads, querySeqLen, keySeqLen})
+          .getResult();
+
+  // Scale QKᵀ. The additive mask is applied after scaling so it is not itself
+  // scaled.
+  auto scoresType = tensorType({batch, numHeads, querySeqLen, keySeqLen});
+  float scaleVal =
+      scale ? *scale : 1.0f / std::sqrt(static_cast<float>(headDim));
+  Value scaleConst =
+      rewriter
+          .create<ttir::FullOp>(loc, scoresType,
+                                rewriter.getF32FloatAttr(scaleVal))
+          .getResult();
+  scores =
+      rewriter.create<ttir::MultiplyOp>(loc, scoresType, scores, scaleConst)
+          .getResult();
+
+  // Sparsity mask. `selected[b, s, t] != 0` iff key t appears in
+  // indices[b, 0, s, :]; built by comparing every (query, slot) index against
+  // every key position and reducing the slot axis away.
+  auto slotType = indexTensorType({batch, querySeqLen, topK, keySeqLen});
+  Value indicesF32 =
+      rewriter
+          .create<ttir::TypecastOp>(
+              loc, indexTensorType({batch, 1, querySeqLen, topK}), indices)
+          .getResult();
+  Value indicesSlot =
+      ttir::utils::createReshapeOp(rewriter, loc, indicesF32,
+                                   {batch, querySeqLen, topK, 1})
+          .getResult();
+  Value indicesBcast =
+      rewriter
+          .create<ttir::BroadcastOp>(loc, slotType, indicesSlot,
+                                     SmallVector<int64_t>{1, 1, 1, keySeqLen})
+          .getResult();
+  Value keyPos = rewriter
+                     .create<ttir::ArangeOp>(loc, slotType, /*start=*/0,
+                                             /*end=*/keySeqLen, /*step=*/1,
+                                             /*arange_dimension=*/3)
+                     .getResult();
+  Value slotHit =
+      rewriter.create<ttir::EqualOp>(loc, slotType, indicesBcast, keyPos)
+          .getResult();
+  // Sum over the top-k slot axis: [B, S, 1, T] -> [B, 1, S, T]. A key selected
+  // more than once in a row still yields a nonzero count, so the > 0 test below
+  // does not depend on the producer emitting distinct indices.
+  Value hitCount =
+      rewriter
+          .create<ttir::SumOp>(
+              loc, indexTensorType({batch, querySeqLen, 1, keySeqLen}), slotHit,
+              rewriter.getBoolAttr(/*keep_dim=*/true),
+              rewriter.getI32ArrayAttr({2}))
+          .getResult();
+  auto maskIndexType = indexTensorType({batch, 1, querySeqLen, keySeqLen});
+  Value selected =
+      ttir::utils::createReshapeOp(rewriter, loc, hitCount,
+                                   {batch, 1, querySeqLen, keySeqLen})
+          .getResult();
+  Value indexZeros = rewriter
+                         .create<ttir::FullOp>(loc, maskIndexType,
+                                               rewriter.getF32FloatAttr(0.0f))
+                         .getResult();
+  Value visible =
+      rewriter
+          .create<ttir::GreaterThanOp>(loc, maskIndexType, selected, indexZeros)
+          .getResult();
+
+  // Additive 0 / -inf mask, broadcast over the query heads.
+  auto maskType = tensorType({batch, 1, querySeqLen, keySeqLen});
+  Value zeros =
+      rewriter
+          .create<ttir::FullOp>(loc, maskType, rewriter.getF32FloatAttr(0.0f))
+          .getResult();
+  Value negInf =
+      rewriter
+          .create<ttir::FullOp>(
+              loc, maskType,
+              rewriter.getF32FloatAttr(-std::numeric_limits<float>::infinity()))
+          .getResult();
+  Value maskAdd =
+      rewriter.create<ttir::WhereOp>(loc, maskType, visible, zeros, negInf)
+          .getResult();
+  Value maskBcast =
+      rewriter
+          .create<ttir::BroadcastOp>(loc, scoresType, maskAdd,
+                                     SmallVector<int64_t>{1, numHeads, 1, 1})
+          .getResult();
+  Value maskedScores =
+      rewriter.create<ttir::AddOp>(loc, scoresType, scores, maskBcast)
+          .getResult();
+
+  Value probs = rewriter
+                    .create<ttir::SoftmaxOp>(
+                        loc, scoresType, maskedScores,
+                        rewriter.getSI32IntegerAttr(
+                            static_cast<int32_t>(scoresType.getRank() - 1)),
+                        rewriter.getBoolAttr(/*numericStable=*/true))
+                    .getResult();
+
+  // V is the leading v_dim columns of the K_DIM-wide latent cache.
+  Value value =
+      rewriter
+          .create<ttir::SliceStaticOp>(
+              loc, tensorType({batch, 1, keySeqLen, valueDim}), kv,
+              rewriter.getI32ArrayAttr({0, 0, 0, 0}),
+              rewriter.getI32ArrayAttr({static_cast<int32_t>(batch), 1,
+                                        static_cast<int32_t>(keySeqLen),
+                                        static_cast<int32_t>(valueDim)}),
+              rewriter.getI32ArrayAttr({1, 1, 1, 1}))
+          .getResult();
+
+  // probs @ V, again with the heads folded into the sequence dim.
+  Value probsFold =
+      ttir::utils::createReshapeOp(
+          rewriter, loc, probs, {batch, 1, numHeads * querySeqLen, keySeqLen})
+          .getResult();
+  Value outFold =
+      rewriter
+          .create<ttir::MatmulOp>(
+              loc, tensorType({batch, 1, numHeads * querySeqLen, valueDim}),
+              probsFold, value)
+          .getResult();
+  return ttir::utils::createReshapeOp(rewriter, loc, outFold,
+                                      {batch, numHeads, querySeqLen, valueDim})
+      .getResult();
+}
+
+// Converts stablehlo.custom_call @tt.sparse_sdpa into a ttcore.composite
+// "sparse_sdpa" carrying the synthesized primitive decomposition. The composite
+// is promoted to ttnn.sparse_sdpa by TTNNResolveComposites (Blackhole, batch 1
+// only); the decomposition body is the inlined fallback.
+class StableHLOToTTCoreSparseSdpaOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.sparse_sdpa") {
+      return failure();
+    }
+
+    auto operands = adaptor.getOperands();
+    if (operands.size() != 3) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "sparse_sdpa expects exactly 3 operands (q, kv, indices).");
+    }
+    Value query = operands[0];
+    Value kv = operands[1];
+    Value indices = operands[2];
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "SparseSdpa op must have mhlo.frontend_attributes attribute.");
+    }
+
+    // Required: v_dim (string -> uint32).
+    auto vDimStringAttr = frontendAttributes.getAs<mlir::StringAttr>("v_dim");
+    if (!vDimStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "SparseSdpa op requires v_dim attribute.");
+    }
+    uint32_t vDim;
+    if (!llvm::to_integer(vDimStringAttr.getValue(), vDim) || vDim == 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "v_dim attribute must be a positive integer. Received \"" +
+                     vDimStringAttr.getValue() + "\".");
+    }
+    IntegerAttr vDimAttr = rewriter.getUI32IntegerAttr(vDim);
+
+    // scale (optional float; defaults to 1 / sqrt(K_DIM) downstream).
+    auto scaleStringAttr = frontendAttributes.getAs<mlir::StringAttr>("scale");
+    std::optional<float> scale = std::nullopt;
+    if (scaleStringAttr) {
+      float parsedScale;
+      if (failed(parseFloatFromStringAttr(scaleStringAttr, parsedScale))) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "scale attribute string must be convertible to float. Received \"" +
+                scaleStringAttr.getValue() + "\".");
+      }
+      scale = parsedScale;
+    }
+    FloatAttr scaleAttr =
+        scale ? rewriter.getF32FloatAttr(scale.value()) : nullptr;
+
+    // k_chunk_size (optional; tt-metal defaults to 128).
+    auto kChunkSizeStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("k_chunk_size");
+    uint32_t kChunkSize = 128;
+    if (kChunkSizeStringAttr) {
+      if (!llvm::to_integer(kChunkSizeStringAttr.getValue(), kChunkSize) ||
+          kChunkSize == 0) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "k_chunk_size attribute must be a positive integer. Received \"" +
+                kChunkSizeStringAttr.getValue() + "\".");
+      }
+    }
+    IntegerAttr kChunkSizeAttr = rewriter.getUI32IntegerAttr(kChunkSize);
+
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    // Synthesize the private decomposition function (inlined fallback).
+    ModuleOp moduleOp = srcOp->getParentOfType<ModuleOp>();
+    std::string decompFuncName = "sparse_sdpa_decomp";
+    {
+      unsigned counter = 0;
+      while (SymbolTable::lookupSymbolIn(moduleOp, decompFuncName)) {
+        decompFuncName = "sparse_sdpa_decomp_" + std::to_string(counter++);
+      }
+    }
+
+    SmallVector<Value> compositeInputs = {query, kv, indices};
+    SmallVector<Type> argTypes =
+        llvm::to_vector(ValueRange(compositeInputs).getTypes());
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToEnd(moduleOp.getBody());
+      auto decompFunc = rewriter.create<func::FuncOp>(
+          srcOp.getLoc(), decompFuncName,
+          rewriter.getFunctionType(argTypes, {outputType}));
+      decompFunc.setPrivate();
+      Block *entry = decompFunc.addEntryBlock();
+      rewriter.setInsertionPointToStart(entry);
+
+      Value decompResult = buildSparseSdpaDecompositionBody(
+          rewriter, srcOp.getLoc(), entry->getArgument(0),
+          entry->getArgument(1), entry->getArgument(2), vDim, scale);
+      rewriter.create<mlir::func::ReturnOp>(srcOp.getLoc(), decompResult);
+    }
+
+    SmallVector<NamedAttribute> compositeAttrList;
+    compositeAttrList.push_back(rewriter.getNamedAttr("v_dim", vDimAttr));
+    if (scaleAttr) {
+      compositeAttrList.push_back(rewriter.getNamedAttr("scale", scaleAttr));
+    }
+    compositeAttrList.push_back(
+        rewriter.getNamedAttr("k_chunk_size", kChunkSizeAttr));
+
+    rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
+        srcOp, TypeRange{outputType}, ValueRange(compositeInputs),
+        rewriter.getStringAttr("sparse_sdpa"),
+        FlatSymbolRefAttr::get(rewriter.getContext(), decompFuncName),
+        rewriter.getDictionaryAttr(compositeAttrList));
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 // Pattern to convert mhlo.topk to ttir.topk
 class StableHLOTopKOpMHLOConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
@@ -10336,6 +10666,7 @@ static void addScaledDotProductAttentionDecodeOpConversionPattern(
       StableHLOToTTCoreFlashMlaPrefillOpConversionPattern,
       StableHLOToTTIRPagedFlashMLADecodeOpConversionPattern,
       StableHLOToTTCoreIndexerScoreDsaOpConversionPattern,
+      StableHLOToTTCoreSparseSdpaOpConversionPattern,
       StableHLOToTTIRChunkedScaledDotProductAttentionOpConversionPattern>(
       typeConverter, ctx);
 }

@@ -8472,6 +8472,58 @@ def indexer_score_dsa_golden(
     return (score + mask_add).to(output_dtype)
 
 
+def sparse_sdpa_golden(
+    query: GoldenMapTensor,
+    kv: GoldenMapTensor,
+    indices: GoldenMapTensor,
+    v_dim: int,
+    scale: Optional[float],
+) -> GoldenMapTensor:
+    """
+    Golden for the tt.sparse_sdpa custom_call (sparse top-k MLA prefill).
+
+    Each query token attends only to the key positions listed in its ``indices``
+    row; the sentinel ``0xFFFFFFFF`` marks a masked slot. ``K`` is the full
+    latent width of ``kv`` and ``V`` its leading ``v_dim`` columns.
+
+    Shapes: query [B, H, S, K_DIM], kv [B, 1, T, K_DIM],
+    indices [B, 1, S, TOPK] -> out [B, H, S, v_dim].
+    """
+    output_dtype = query.dtype
+
+    # Compute in f32 for golden accuracy, then cast back to the query dtype.
+    q = query.float()  # [B, H, S, K_DIM]
+    k = kv.float()  # [B, 1, T, K_DIM]
+
+    key_seq_len = k.shape[2]
+    scale_val = scale if scale is not None else q.shape[3] ** -0.5
+
+    # QK^T against kv's single latent head: [B, H, S, T]. GoldenMapTensor has no
+    # __mul__, so scale through torch.mul (routed via __torch_function__).
+    scores = torch.mul(torch.einsum("bhsd,btd->bhst", q, k[:, 0]), scale_val)
+
+    # Dense sparsity mask: key t is visible to query s iff t appears in
+    # indices[b, 0, s, :]. Sentinels are out of [0, T) so they select nothing.
+    # GoldenMapTensor routes torch ops through __torch_function__ but doesn't
+    # override reducing methods like .any -- use torch.* free functions instead.
+    idx = indices.long()[:, 0]  # [B, S, TOPK]
+    key_pos = torch.arange(key_seq_len).view(1, 1, 1, key_seq_len)
+    slot_hit = idx.unsqueeze(-1) == key_pos  # [B, S, TOPK, T]
+    visible = torch.any(slot_hit, dim=2)  # [B, S, T]
+    mask_add = torch.where(
+        visible.unsqueeze(1),
+        torch.zeros((), dtype=torch.float32),
+        torch.full((), float("-inf"), dtype=torch.float32),
+    )  # [B, 1, S, T]
+
+    probs = torch.softmax(scores + mask_add, dim=-1)
+
+    # V is the leading v_dim columns of the latent cache.
+    output = torch.einsum("bhst,btv->bhsv", probs, k[:, 0, :, :v_dim])
+
+    return output.to(output_dtype)
+
+
 def ttir_paged_sdpa_decode_golden(
     query: GoldenMapTensor,
     key: GoldenMapTensor,
@@ -9133,6 +9185,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
 STABLEHLO_CUSTOM_CALL_GOLDEN_MAPPINGS: Dict[str, Callable] = {
     "tt.flash_mla_prefill": flash_mla_prefill_golden,
     "tt.indexer_score_dsa": indexer_score_dsa_golden,
+    "tt.sparse_sdpa": sparse_sdpa_golden,
 }
 
 

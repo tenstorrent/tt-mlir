@@ -50,6 +50,25 @@ static llvm::StringMap<CompositeEntry> &getCompositeRegistry() {
   return registry;
 }
 
+// Promotion-guard building block for composites whose typed op maps to a
+// Blackhole-only tt-metal kernel: succeeds only when the module is compiled for
+// Blackhole.
+//
+// Without a system descriptor in scope (e.g. running the pass in isolation) the
+// architecture is unknown; allow promotion and defer the check to the metal
+// runtime, which fails on non-Blackhole devices.
+static LogicalResult requireBlackhole(ttcore::CompositeOp compositeOp) {
+  ModuleOp moduleOp = compositeOp->getParentOfType<ModuleOp>();
+  auto sysDesc = moduleOp ? moduleOp->getAttrOfType<ttcore::SystemDescAttr>(
+                                ttcore::SystemDescAttr::name)
+                          : nullptr;
+  if (!sysDesc) {
+    return success();
+  }
+  ttcore::Arch arch = sysDesc.getChipDesc(0).getArch().getValue();
+  return success(arch == ttcore::Arch::Blackhole);
+}
+
 // Operands and attributes recovered from a "flash_mla_prefill" composite,
 // shared by its validate and build registry callbacks.
 struct FlashMlaPrefillCompositeArgs {
@@ -102,6 +121,33 @@ getIndexerScoreDsaChunkStartIdx(ttcore::CompositeOp compositeOp) {
   return chunkStartIdxAttr ? static_cast<uint32_t>(
                                  chunkStartIdxAttr.getValue().getZExtValue())
                            : 0;
+}
+
+// Attributes recovered from a "sparse_sdpa" composite, shared by its validate,
+// build and promotion-guard callbacks.
+struct SparseSdpaCompositeArgs {
+  uint32_t vDim;
+  FloatAttr scale;     // null when the tt-metal default is meant to be used.
+  uint32_t kChunkSize; // tt-metal default when the attribute is absent.
+};
+
+static SparseSdpaCompositeArgs
+extractSparseSdpaArgs(ttcore::CompositeOp compositeOp) {
+  DictionaryAttr attrs = compositeOp.getCompositeAttributes().value_or(nullptr);
+  TT_assert(attrs);
+
+  auto vDimAttr = attrs.getAs<mlir::IntegerAttr>("v_dim");
+  TT_assert(vDimAttr);
+  auto kChunkSizeAttr = attrs.getAs<mlir::IntegerAttr>("k_chunk_size");
+
+  SparseSdpaCompositeArgs args;
+  args.vDim = static_cast<uint32_t>(vDimAttr.getValue().getZExtValue());
+  args.scale = attrs.getAs<FloatAttr>("scale");
+  args.kChunkSize =
+      kChunkSizeAttr
+          ? static_cast<uint32_t>(kChunkSizeAttr.getValue().getZExtValue())
+          : 128;
+  return args;
 }
 
 static void registerBuiltinComposites() {
@@ -230,20 +276,41 @@ static void registerBuiltinComposites() {
       // Blackhole-only. On any other architecture, veto promotion so the
       // composite falls back to inlining its decomposition instead of
       // failing the pass.
+      requireBlackhole};
+
+  registry["sparse_sdpa"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 3u);
+
+        SparseSdpaCompositeArgs args = extractSparseSdpaArgs(compositeOp);
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<SparseSdpaOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], args.vDim, args.scale, args.kChunkSize);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        SparseSdpaCompositeArgs args = extractSparseSdpaArgs(compositeOp);
+        return builder.create<SparseSdpaOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], args.vDim, args.scale, args.kChunkSize);
+      },
+      // Promotion guard: ttnn::transformer::sparse_sdpa is a Blackhole-only,
+      // single-batch kernel. Anywhere else, veto promotion so the composite
+      // falls back to inlining its decomposition instead of failing the pass.
       [](ttcore::CompositeOp compositeOp) -> LogicalResult {
-        ModuleOp moduleOp = compositeOp->getParentOfType<ModuleOp>();
-        auto sysDesc = moduleOp
-                           ? moduleOp->getAttrOfType<ttcore::SystemDescAttr>(
-                                 ttcore::SystemDescAttr::name)
-                           : nullptr;
-        // Without a system descriptor in scope (e.g. running the pass in
-        // isolation) the architecture is unknown; allow promotion and defer the
-        // check to the metal runtime, which fails on non-Blackhole devices.
-        if (!sysDesc) {
-          return success();
+        auto queryType = mlir::dyn_cast<RankedTensorType>(
+            compositeOp.getInputs()[0].getType());
+        if (!queryType || queryType.getRank() != 4 ||
+            queryType.getShape()[0] != 1) {
+          return failure();
         }
-        ttcore::Arch arch = sysDesc.getChipDesc(0).getArch().getValue();
-        return success(arch == ttcore::Arch::Blackhole);
+        return requireBlackhole(compositeOp);
       }};
 }
 
@@ -307,8 +374,8 @@ static Operation *tryCreateTypedOp(ttcore::CompositeOp compositeOp,
 
   auto &entry = it->second;
 
-  // A promotion guard can veto promotion.
-  // When it fails, fall back to inlining the decomposition.
+  // A promotion guard can veto promotion. When it fails, fall back to inlining
+  // the decomposition.
   if (entry.promotionGuard && mlir::failed(entry.promotionGuard(compositeOp))) {
     return nullptr;
   }

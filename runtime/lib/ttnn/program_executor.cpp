@@ -123,6 +123,7 @@
 #include "operations/transformer/rotary_embedding_llama.h"
 #include "operations/transformer/scaled_dot_product_attention.h"
 #include "operations/transformer/scaled_dot_product_attention_decode.h"
+#include "operations/transformer/sparse_sdpa.h"
 #include "operations/transformer/split_query_key_value_and_split_heads.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
@@ -682,6 +683,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::IndexerScoreDsaOp: {
     return operations::transformer::run(op->type_as_IndexerScoreDsaOp(),
+                                        getContext());
+  }
+  case ::tt::target::ttnn::OpType::SparseSdpaOp: {
+    return operations::transformer::run(op->type_as_SparseSdpaOp(),
                                         getContext());
   }
   case ::tt::target::ttnn::OpType::AggregateTensorOp: {

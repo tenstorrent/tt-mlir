@@ -4137,6 +4137,61 @@ def TTNN_IndexerScoreDsaOp : TTNN_Op<"indexer_score_dsa"> {
     let hasVerifier = 1;
 }
 
+def TTNN_SparseSdpaOp : TTNN_Op<"sparse_sdpa"> {
+    let summary = "Sparse (top-k) MLA prefill attention operation.";
+    let description = [{
+      Sparse MLA prefill as used by DeepSeek Sparse Attention (DSA). Mirrors
+      `ttnn::transformer::sparse_sdpa`.
+
+      Computes `softmax(Q @ Kᵀ * scale) @ V` where each query token attends only
+      to the key positions listed in its `indices` row instead of the whole key
+      sequence. `K` is the full width of the latent cache and `V` is its leading
+      `v_dim` columns, so a single `kv` tensor supplies both. Masking is carried
+      entirely by `indices`: the sentinel `0xFFFFFFFF` marks a slot as masked,
+      and sentinels form a contiguous tail of each row.
+
+      Shapes use `H` (query heads), `S` (query sequence length), `T` (key/cache
+      sequence length), `K_DIM` (latent head dim, taken from `query`/`kv`), and
+      `TOPK` (number of selected keys per query token).
+
+      Args:
+          query (AnyRankedTensor): `[1 x H x S x K_DIM]`. `H` must be a multiple
+              of 32.
+          kv (AnyRankedTensor): `[1 x 1 x T x K_DIM]` latent cache. Same element
+              type as `query`.
+          indices (AnyRankedTensor): `[1 x 1 x S x TOPK]` unsigned integer key
+              positions; `0xFFFFFFFF` marks a masked slot.
+          v_dim (uint): Width of `V` (the leading `v_dim` columns of `kv`), and
+              the output width. Must be a multiple of 32 and `<= K_DIM`.
+          scale (float, optional): Softmax scale. Defaults to
+              `1 / sqrt(K_DIM)`.
+          k_chunk_size (uint): Key-axis chunk size. Must be a multiple of 32 and
+              must divide `TOPK`. Defaults to `128`.
+
+      Returns:
+          AnyRankedTensor: `[1 x H x S x v_dim]` (same element type as `query`).
+
+      Note: this op is only supported on Blackhole.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$query,
+                         AnyRankedTensor:$kv,
+                         AnyRankedTensor:$indices,
+                         UI32Attr:$v_dim,
+                         OptionalAttr<F32Attr>:$scale,
+                         DefaultValuedAttr<UI32Attr, "128">:$k_chunk_size);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createSparseSdpaOpOperandsWorkarounds(getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d">{
   let summary = "A global average pooling 2d operation";
   let description = [{
