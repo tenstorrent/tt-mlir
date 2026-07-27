@@ -54,8 +54,6 @@ set(_TTMLIR_INSTALL_DIR "${CMAKE_CURRENT_BINARY_DIR}/tt-mlir-install")
 set(_TTMLIR_COMPILER_LIB "${_TTMLIR_INSTALL_DIR}/lib/libTTMLIRCompiler.so")
 set(_TTMLIR_RUNTIME_LIB  "${_TTMLIR_INSTALL_DIR}/lib/libTTMLIRRuntime.so")
 set(_TTMLIR_TRACY_LIB    "${_TTMLIR_INSTALL_DIR}/lib/libtracy.so")
-set(_TTMLIR_CAPTURE_BIN  "${_TTMLIR_INSTALL_DIR}/bin/capture-release")
-set(_TTMLIR_CSVEXPORT_BIN "${_TTMLIR_INSTALL_DIR}/bin/csvexport-release")
 
 # CMake requires INTERFACE_INCLUDE_DIRECTORIES paths on IMPORTED targets to exist
 # at configure time. The directory will be populated by tt-mlir's install step.
@@ -81,7 +79,7 @@ set(_TTMLIR_CMAKE_ARGS
     -DTTMLIR_ENABLE_EXPLORER=OFF
     -DTTMLIR_ENABLE_ALCHEMIST=OFF
     -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF
-    # Always build tt-metal/tt-mlir with Tracy. The Tracy CLI + capture-release
+    # Always build tt-metal/tt-mlir with Tracy. The Tracy CLI + tracy-capture
     # binaries are bundled into every tt-kurbla build via cmake/Tracy.cmake;
     # whether libtt_kurbla itself is instrumented is a separate switch
     # (TT_KURBLA_TRACY_ZONES, defined in the top-level CMakeLists.txt).
@@ -103,9 +101,6 @@ ExternalProject_Add(tt-mlir-ep
         -S <SOURCE_DIR> -B <BINARY_DIR>
     BUILD_COMMAND ${CMAKE_COMMAND} -E env ${TT_KURBLA_MLIR_ENV}
         ${CMAKE_COMMAND} --build <BINARY_DIR>
-    # --component SharedLib covers everything we consume: libTTMLIRCompiler.so,
-    # libTTMLIRRuntime.so, the runtime headers, libtracy.so, capture-release /
-    # csvexport-release, and the bundled tt-metal sub-tree (tools/tracy, ttnn).
     INSTALL_COMMAND ${CMAKE_COMMAND} -E env ${TT_KURBLA_MLIR_ENV}
         ${CMAKE_COMMAND} --install <BINARY_DIR> --component SharedLib
     # Declare the install outputs we consume so Ninja can wire the dependency
@@ -114,8 +109,6 @@ ExternalProject_Add(tt-mlir-ep
         "${_TTMLIR_COMPILER_LIB}"
         "${_TTMLIR_RUNTIME_LIB}"
         "${_TTMLIR_TRACY_LIB}"
-        "${_TTMLIR_CAPTURE_BIN}"
-        "${_TTMLIR_CSVEXPORT_BIN}"
     BUILD_ALWAYS FALSE
     USES_TERMINAL_BUILD TRUE
     LOG_CONFIGURE ON
@@ -173,11 +166,6 @@ set_target_properties(tt_kurbla::tracy PROPERTIES
     INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_TRACY_INCLUDE_DIR}"
 )
 
-# Expose the source + install dirs and binary paths to the parent CMake scope:
-# cmake/Tracy.cmake consumes the install dir + binaries (it's included after
-# add_subdirectory(third_party)); src/CMakeLists.txt consumes the source dir to
-# derive the tt-mlir commit and worktree hashes.
+# Expose the source + install dirs to the parent CMake scope.
 set(TT_KURBLA_TTMLIR_SOURCE_DIR  "${_TTMLIR_SRC}" PARENT_SCOPE)
 set(TT_KURBLA_TTMLIR_INSTALL_DIR "${_TTMLIR_INSTALL_DIR}" PARENT_SCOPE)
-set(TT_KURBLA_TRACY_CAPTURE_BIN  "${_TTMLIR_CAPTURE_BIN}" PARENT_SCOPE)
-set(TT_KURBLA_TRACY_CSVEXPORT_BIN "${_TTMLIR_CSVEXPORT_BIN}" PARENT_SCOPE)

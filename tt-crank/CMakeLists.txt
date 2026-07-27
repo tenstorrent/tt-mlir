@@ -24,8 +24,8 @@ option(TT_KURBLA_BUILD_TESTS "Build tt-kurbla unit tests" ${PROJECT_IS_TOP_LEVEL
 option(TT_KURBLA_BUILD_PYTHON_EXT
     "Build Python extension modules (set ON by scikit-build-core; OFF for C++-only builds)"
     OFF)
-# Decoupled from CLI bundling: the Tracy CLI (`tracy`, capture-release,
-# csvexport-release) is always built and shipped with tt-kurbla. This flag
+# Decoupled from CLI bundling: the Tracy CLI (`tracy`, tracy-capture,
+# tracy-csvexport) is always built and shipped with tt-kurbla. This flag
 # only controls whether libtt_kurbla itself is instrumented with ZoneScoped
 # macros.
 option(TT_KURBLA_TRACY_ZONES
