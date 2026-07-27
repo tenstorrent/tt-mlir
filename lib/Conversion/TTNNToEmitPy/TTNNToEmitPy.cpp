@@ -5311,6 +5311,7 @@ public:
 // The emitted Python would need to call the low-level ttml::metal::adamw
 // primitive, but tt-train's nanobind bindings only expose the high-level
 // AdamW optimizer class. We need to upstream those Python bindings.
+// See https://github.com/tenstorrent/tt-mlir/issues/9118.
 class AdamWOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::AdamWOp> {
 public:
