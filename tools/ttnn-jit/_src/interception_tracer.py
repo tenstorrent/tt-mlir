@@ -81,6 +81,16 @@ class TracedTensor:
             "memory_config is unknown during analysis; the optimizer assigns it"
         )
 
+    def deallocate(self, force=False):
+        # Method form of ttnn.deallocate (`t.deallocate(True)`), which real
+        # decoder code uses to free intermediates. Analysis-only: buffer
+        # lifetime is the optimizer's business (L1SpillManagement), so this is
+        # a no-op, matching the tracer's passthrough for the free function.
+        del force
+
+    def is_allocated(self):
+        return True
+
     @property
     def layout(self):
         raise NotImplementedError(
@@ -439,6 +449,26 @@ def _zeros_like_handler(jit_ctx, x, **kwargs):
         return ttir.zeros(result=rt, shape=shape)
 
 
+def _where_handler(jit_ctx, predicate, true_value, false_value, **kwargs):
+    """Model ``ttnn.where`` with normal right-aligned broadcasting."""
+
+    shapes = [
+        [int(d) for d in value.mlir_value.type.shape]
+        for value in (predicate, true_value, false_value)
+    ]
+    out_shape = _broadcast_batch(_broadcast_batch(shapes[0], shapes[1]), shapes[2])
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        result_type = RankedTensorType.get(
+            out_shape, true_value.mlir_value.type.element_type
+        )
+        return ttir.where(
+            result=result_type,
+            first=predicate.mlir_value,
+            second=true_value.mlir_value,
+            third=false_value.mlir_value,
+        )
+
+
 def _scatter_handler(jit_ctx, input, dim=None, index=None, src=None, **kwargs):
     # ttnn.scatter(input, dim=, index=, src=) -> ttir.scatter (result matches
     # input). Scattering distinct router indices into a zeros tensor, so SUM
@@ -511,6 +541,7 @@ _VALUE_HANDLERS = {
     "unsqueeze_to_4D": _unsqueeze_to_4d_handler,
     "softmax": _softmax_handler,
     "zeros_like": _zeros_like_handler,
+    "where": _where_handler,
     "scatter": _scatter_handler,
     "sparse_matmul": _sparse_matmul_handler,
 }
@@ -539,9 +570,59 @@ def _topk_handler(jit_ctx, x, k=None, dim=None, sorted=None, largest=None, **kwa
         return list(res)
 
 
+def _split_handler(jit_ctx, x, split_size, dim=0, **kwargs):
+    """Model ``ttnn.split`` as a sequence of static TTIR slices.
+
+    The shard advisor only needs shape/topology information.  TTIR has no
+    dedicated data-movement split op, while ``slice_static`` faithfully
+    represents the packed-projection boundary used by decoder MLPs.
+    """
+
+    shape = [int(d) for d in x.mlir_value.type.shape]
+    axis = int(dim) % len(shape)
+    axis_size = shape[axis]
+    if isinstance(split_size, (list, tuple)):
+        sizes = [int(size) for size in split_size]
+        if sum(sizes) != axis_size:
+            raise ValueError(
+                f"split sizes {sizes} do not cover dimension {axis_size}"
+            )
+    else:
+        chunk = int(split_size)
+        if chunk <= 0:
+            raise ValueError(f"split_size must be positive, got {chunk}")
+        sizes = [min(chunk, axis_size - start) for start in range(0, axis_size, chunk)]
+
+    results = []
+    start = 0
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        for size in sizes:
+            begins = [0] * len(shape)
+            ends = list(shape)
+            begins[axis] = start
+            ends[axis] = start + size
+            out_shape = list(shape)
+            out_shape[axis] = size
+            result_type = RankedTensorType.get(
+                out_shape, x.mlir_value.type.element_type
+            )
+            results.append(
+                ttir.slice_static(
+                    result=result_type,
+                    input=x.mlir_value,
+                    begins=begins,
+                    ends=ends,
+                    step=[1] * len(shape),
+                )
+            )
+            start += size
+    return results
+
+
 # Top-level (non-experimental) multi-output ops.
 _TOPLEVEL_MULTI = {
     "topk": _topk_handler,
+    "split": _split_handler,
 }
 
 

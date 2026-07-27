@@ -28,6 +28,8 @@ from contextlib import contextmanager
 
 from ttnn_jit.ttmlir.dialects import func, ttnn, ttcore
 from ttnn_jit.ttmlir.ir import (
+    F32Type,
+    FloatAttr,
     Location,
     InsertionPoint,
     RankedTensorType,
@@ -315,6 +317,52 @@ def _rms_norm_handler(jit_ctx, x, *, epsilon=1e-5, weight=None, **kwargs):
         )
 
 
+def _where_handler(jit_ctx, predicate, true_value, false_value, **kwargs):
+    """Emit ternary selection with normal right-aligned broadcasting.
+
+    Either branch may be a python scalar (`ttnn.where(mask, 0.0, -3.4e38)` is
+    the standard decode attention-mask idiom); a scalar branch is materialized
+    as a ttnn.full of the broadcast shape so the graph stays all-tensor.
+    """
+
+    branches = (predicate, true_value, false_value)
+    shapes = [
+        [int(d) for d in v.mlir_value.type.shape]
+        for v in branches
+        if hasattr(v, "mlir_value")
+    ]
+    out = shapes[0]
+    for shape in shapes[1:]:
+        out = _broadcast_batch(out, shape)
+
+    # Element type comes from a tensor branch when there is one, else from the
+    # predicate (which the producing comparison already emitted in the model's
+    # activation dtype).
+    elem_source = next(
+        (v for v in (true_value, false_value) if hasattr(v, "mlir_value")), predicate
+    )
+    elem = elem_source.mlir_value.type.element_type
+
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+
+        def operand(value):
+            if hasattr(value, "mlir_value"):
+                return value.mlir_value
+            return ttnn.full(
+                result=_tt(jit_ctx.ctx, out, elem),
+                shape=ttnn.ir.ShapeAttr.get(jit_ctx.ctx, out),
+                fill_value=FloatAttr.get(F32Type.get(jit_ctx.ctx), float(value)),
+            )
+
+        rt = _tt(jit_ctx.ctx, out, elem)
+        return ttnn.where(
+            result=rt,
+            first=predicate.mlir_value,
+            second=operand(true_value),
+            third=operand(false_value),
+        )
+
+
 def _slice_handler(jit_ctx, x, starts=None, ends=None, steps=None, **kwargs):
     if starts is None:
         starts = kwargs.get("slice_start", kwargs.get("starts"))
@@ -345,6 +393,47 @@ def _slice_handler(jit_ctx, x, starts=None, ends=None, steps=None, **kwargs):
         return ttnn.slice_static(
             result=rt, input=x.mlir_value, begins=begins, ends=ends_i, step=step
         )
+
+
+def _split_handler(jit_ctx, x, split_size, dim=0, **kwargs):
+    """Emit a runtime ``split`` boundary as static TTNN slices."""
+
+    shape = [int(d) for d in x.mlir_value.type.shape]
+    axis = int(dim) % len(shape)
+    axis_size = shape[axis]
+    if isinstance(split_size, (list, tuple)):
+        sizes = [int(size) for size in split_size]
+        if sum(sizes) != axis_size:
+            raise ValueError(
+                f"split sizes {sizes} do not cover dimension {axis_size}"
+            )
+    else:
+        chunk = int(split_size)
+        if chunk <= 0:
+            raise ValueError(f"split_size must be positive, got {chunk}")
+        sizes = [min(chunk, axis_size - start) for start in range(0, axis_size, chunk)]
+
+    results = []
+    start = 0
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        for size in sizes:
+            begins = [0] * len(shape)
+            ends = list(shape)
+            begins[axis] = start
+            ends[axis] = start + size
+            out = list(shape)
+            out[axis] = size
+            results.append(
+                ttnn.slice_static(
+                    result=_retype(jit_ctx.ctx, x.mlir_value, out),
+                    input=x.mlir_value,
+                    begins=begins,
+                    ends=ends,
+                    step=[1] * len(shape),
+                )
+            )
+            start += size
+    return results
 
 
 def _unsqueeze_to_4d_handler(jit_ctx, x, **kwargs):
@@ -412,6 +501,22 @@ def _rotary_embedding_llama_handler(
         )
 
 
+def _rotary_embedding_handler(
+    jit_ctx, input, cos_cache, sin_cache, token_index=None, **kwargs
+):
+    """Apply token-indexed RoPE; result shape matches ``input``."""
+    shape = [int(d) for d in input.mlir_value.type.shape]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _retype(jit_ctx.ctx, input.mlir_value, shape)
+        return ttnn.rotary_embedding(
+            result=rt,
+            input=input.mlir_value,
+            cos_cache=cos_cache.mlir_value,
+            sin_cache=sin_cache.mlir_value,
+            token_index=(None if token_index is None else int(token_index)),
+        )
+
+
 def _sdpa_handler(jit_ctx, q, k, v, *, is_causal=None, scale=None, **kwargs):
     shape = [int(d) for d in q.mlir_value.type.shape]
     with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
@@ -468,6 +573,36 @@ def _paged_sdpa_decode_handler(
             cur_pos_tensor=(
                 cur_pos_tensor.mlir_value if cur_pos_tensor is not None else None
             ),
+            scale=scale,
+        )
+
+
+def _sdpa_decode_handler(
+    jit_ctx,
+    q,
+    k,
+    v,
+    *,
+    is_causal=True,
+    attn_mask=None,
+    cur_pos_tensor=None,
+    attention_sink=None,
+    scale=None,
+    **kwargs,
+):
+    """Dense-cache decode attention; output shape matches the query."""
+    shape = [int(d) for d in q.mlir_value.type.shape]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _retype(jit_ctx.ctx, q.mlir_value, shape)
+        return ttnn.scaled_dot_product_attention_decode(
+            result=rt,
+            query=q.mlir_value,
+            key=k.mlir_value,
+            value=v.mlir_value,
+            is_causal=bool(is_causal),
+            attention_mask=(attn_mask.mlir_value if attn_mask is not None else None),
+            cur_pos_tensor=(cur_pos_tensor.mlir_value if cur_pos_tensor is not None else None),
+            attention_sink=(attention_sink.mlir_value if attention_sink is not None else None),
             scale=scale,
         )
 
@@ -627,14 +762,15 @@ def _reduction(op_fn):
 
 
 def _repeat_handler(jit_ctx, x, repeat_dims=None, **kwargs):
-    reps = [
+    reps = tuple(
         int(r) for r in (repeat_dims if repeat_dims is not None else kwargs["repeats"])
-    ]
+    )
     shape = [int(d) for d in x.mlir_value.type.shape]
     out = [shape[i] * reps[i] for i in range(len(shape))]
     with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
         rt = _retype(jit_ctx.ctx, x.mlir_value, out)
-        return ttnn.repeat(result=rt, input=x.mlir_value, repeat_dims=reps)
+        repeat_dims_attr = ttnn.ir.ShapeAttr.get(jit_ctx.ctx, reps)
+        return ttnn.repeat(result=rt, input=x.mlir_value, repeat_dims=repeat_dims_attr)
 
 
 _VALUE_HANDLERS = {
@@ -644,6 +780,7 @@ _VALUE_HANDLERS = {
     "typecast": _typecast_handler,
     "softmax": _softmax_handler,
     "rms_norm": _rms_norm_handler,
+    "where": _where_handler,
     "slice": _slice_handler,
     "unsqueeze_to_4D": _unsqueeze_to_4d_handler,
     "transpose": _transpose_handler,
@@ -700,8 +837,13 @@ _VALUE_HANDLERS = {
     "min": _reduction(ttnn.min),
 }
 
+_TOPLEVEL_MULTI = {
+    "split": _split_handler,
+}
+
 # ttnn.experimental.<op> handlers.
 _EXPERIMENTAL_VALUE = {
+    "rotary_embedding": _rotary_embedding_handler,
     "rotary_embedding_llama": _rotary_embedding_llama_handler,
     "nlp_concat_heads": _nlp_concat_heads_handler,
     "nlp_concat_heads_decode": _nlp_concat_heads_decode_handler,
@@ -719,6 +861,7 @@ _EXPERIMENTAL_INPLACE = {
 # ttnn.transformer.<op> handlers.
 _TRANSFORMER_VALUE = {
     "scaled_dot_product_attention": _sdpa_handler,
+    "scaled_dot_product_attention_decode": _sdpa_decode_handler,
     "chunked_scaled_dot_product_attention": _chunked_sdpa_handler,
     "paged_scaled_dot_product_attention_decode": _paged_sdpa_decode_handler,
 }
@@ -783,6 +926,9 @@ def patch_ttnn(jit_ctx):
         for name, value_fn in _VALUE_HANDLERS.items():
             originals[name] = getattr(_ttnn_rt, name, _MISSING)
             setattr(_ttnn_rt, name, _make_value_op(value_fn, jit_ctx))
+        for name, value_fn in _TOPLEVEL_MULTI.items():
+            originals[name] = getattr(_ttnn_rt, name, _MISSING)
+            setattr(_ttnn_rt, name, _make_multi_op(value_fn, jit_ctx))
         if experimental is not None:
             for name, value_fn in _EXPERIMENTAL_VALUE.items():
                 exp_originals[name] = getattr(experimental, name, _MISSING)
@@ -799,7 +945,7 @@ def patch_ttnn(jit_ctx):
                 setattr(transformer, name, _make_value_op(value_fn, jit_ctx))
         # Stub every allowlist op we don't emit yet so it fails loudly instead of
         # falling through to a real on-device ttnn call on a TracedTensor.
-        for name in _ALLOWLIST - set(_VALUE_HANDLERS):
+        for name in _ALLOWLIST - set(_VALUE_HANDLERS) - set(_TOPLEVEL_MULTI):
             originals.setdefault(name, getattr(_ttnn_rt, name, _MISSING))
             setattr(_ttnn_rt, name, _unhandled(name))
         yield

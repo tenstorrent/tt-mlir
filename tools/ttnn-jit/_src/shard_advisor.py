@@ -219,26 +219,35 @@ class ShardAdvisor:
         if self.debug:
             print(f"[shard-advisor] pipeline options: {options}")
 
-        # Mutates `ir` in place: TTIR -> TTNN with greedy optimizer + trace.
-        if self.pipeline == "scoped":
-            try:
-                run_pipeline(ir, "ttir-to-ttnn-l1-advisor", options)
-            except RuntimeError as e:
-                raise RuntimeError(
-                    "scoped ttir-to-ttnn-l1-advisor pipeline failed to lower the "
-                    "traced graph (an op may require decomposition). Retry with "
-                    f"pipeline='full'. Underlying error: {e}"
-                ) from e
-        elif self.pipeline == "ttnn":
-            # Input module is already TTNN (direct-TTNN producer); no lowering.
-            run_pipeline(ir, "ttnn-to-ttnn-l1-advisor", options)
-        elif self.pipeline == "full":
-            ttir_to_ttnn_runtime_pipeline(ir, options)
-        else:
-            raise ValueError(
-                f"unknown pipeline {self.pipeline!r}; expected 'scoped', "
-                "'ttnn', or 'full'"
-            )
+        # The pipeline runs OpModel against a synthetic cluster whose logical
+        # device IDs start at zero.  A host may use physical TT visibility IDs
+        # for the preceding hardware capture; do not leak that mapping into the
+        # mock-device context.
+        visible_devices = os.environ.pop("TT_VISIBLE_DEVICES", None)
+        try:
+            # Mutates `ir` in place: TTIR -> TTNN with greedy optimizer + trace.
+            if self.pipeline == "scoped":
+                try:
+                    run_pipeline(ir, "ttir-to-ttnn-l1-advisor", options)
+                except RuntimeError as e:
+                    raise RuntimeError(
+                        "scoped ttir-to-ttnn-l1-advisor pipeline failed to lower the "
+                        "traced graph (an op may require decomposition). Retry with "
+                        f"pipeline='full'. Underlying error: {e}"
+                    ) from e
+            elif self.pipeline == "ttnn":
+                # Input module is already TTNN (direct-TTNN producer); no lowering.
+                run_pipeline(ir, "ttnn-to-ttnn-l1-advisor", options)
+            elif self.pipeline == "full":
+                ttir_to_ttnn_runtime_pipeline(ir, options)
+            else:
+                raise ValueError(
+                    f"unknown pipeline {self.pipeline!r}; expected 'scoped', "
+                    "'ttnn', or 'full'"
+                )
+        finally:
+            if visible_devices is not None:
+                os.environ["TT_VISIBLE_DEVICES"] = visible_devices
 
         # The pipeline names the trace after the MLIR func symbol, which may not
         # match `name` (e.g. an existing .mlir file whose func is @main). Prefer
