@@ -22,7 +22,11 @@ def make_layout():
     )
 
 
-@pytest.mark.device_only
+@pytest.mark.device_only(
+    reason="observes pass-pipeline stdout; the simulator runs the kernel body as "
+    "Python with no MLIR pipeline at all, so there is nothing to print "
+    "(SIMULATOR_SPEC.md §13)"
+)
 def test_print_pipeline_fires():
     d2m.config.print_pipeline = True
     d2m.config.print_ir_before_pipeline = False
@@ -41,7 +45,11 @@ def test_print_pipeline_fires():
     d2m.config.print_pipeline = False
 
 
-@pytest.mark.device_only
+@pytest.mark.device_only(
+    reason="observes pass-pipeline stdout; the simulator runs the kernel body as "
+    "Python with no MLIR pipeline at all, so there is nothing to print "
+    "(SIMULATOR_SPEC.md §13)"
+)
 def test_print_ir_before_after():
     d2m.config.print_ir_before_pipeline = True
     d2m.config.print_ir_after_pipeline = True

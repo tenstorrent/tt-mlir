@@ -539,14 +539,23 @@ Deferred (🟡/🟢), out of v1:
    the device run's. Together with the device pass this replaces the old parity
    suite (item 2).
 
-   Tests that cannot hold on the simulator carry the `device_only` marker, which
-   `conftest.py` skips only when `D2M_JIT_BACKEND=sim`. Marking rather than
-   filtering paths keeps the exclusions visible in the junit report. Three
-   reasons appear: intended divergences (§9 — multicast), error type/message
-   parity (§8 — `test_errors.py`, the reduce-dim rejections, staleness), and
-   device-only machinery with no sim analog (`d2m.spatial` / `d2m.arange` /
-   `d2m.reshape`, the pass-pipeline debug knobs, `runner`-driven rewrite and
-   e2e tests).
+   Tests that cannot hold on the simulator carry
+   `@pytest.mark.device_only(reason=...)`, which `conftest.py` skips only when
+   `D2M_JIT_BACKEND=sim`, propagating the `reason` into the skip message.
+   Marking rather than filtering paths keeps the exclusions visible in the junit
+   report; carrying the reason on the marker rather than in a nearby comment
+   keeps it visible in that report too — and stops it drifting out of date, which
+   it did twice before the reasons were audited against actual root causes.
+
+   The reason should name the root cause, not the symptom. Four classes appear:
+   intended divergences (§9 — multicast); error type/message parity (§8 —
+   `test_errors.py`, the reduce-dim rejections, staleness); host APIs the switch
+   does not dispatch, which raise `NotImplementedError` (`d2m.spatial`,
+   `d2m.arange`, `d2m.reshape`); and device-only machinery with no sim analog
+   (the pass-pipeline debug knobs, `runner`-driven rewrite and e2e tests, and the
+   RoPE kernel — which derives its half-roll `view_layout` from the device
+   physical rank-4 shape via `LazyTensor.value`, something §3 deliberately does
+   not model).
 5. **Separate no-device lane (🟢 viable, deliberately not wired).** Because item
    3 holds, `pytest test/d2m-jit/test_sim.py` runs green on a no-device runner in
    ~2s — verified locally, and `"runs-on": "builder"` in

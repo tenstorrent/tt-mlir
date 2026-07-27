@@ -11,10 +11,12 @@ import torch
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
-        "device_only: asserts device-specific behavior -- an intended simulator "
-        "divergence (SIMULATOR_SPEC.md §9), a host API the backend switch does "
-        "not dispatch, or a device-specific error type (§8). Skipped when the "
-        "suite is re-run with D2M_JIT_BACKEND=sim.",
+        "device_only(reason): asserts device-specific behavior -- an intended "
+        "simulator divergence (SIMULATOR_SPEC.md §9), a host API the backend "
+        "switch does not dispatch, or a device-specific error type (§8). Skipped "
+        "when the suite is re-run with D2M_JIT_BACKEND=sim. Always pass "
+        "`reason=`: it is what shows up in the skip report, and it should name "
+        "the root cause, not the symptom.",
     )
 
 
@@ -32,13 +34,14 @@ def pytest_collection_modifyitems(config, items):
     """
     if not _sim_backend_requested():
         return
-    skip_sim = pytest.mark.skip(
-        reason="device_only: asserts device behavior that the simulator does "
-        "not reproduce (see the marker docs in conftest.py)"
-    )
     for item in items:
-        if item.get_closest_marker("device_only"):
-            item.add_marker(skip_sim)
+        marker = item.get_closest_marker("device_only")
+        if marker is None:
+            continue
+        reason = marker.kwargs.get("reason") or (
+            marker.args[0] if marker.args else "NO REASON GIVEN -- please add one"
+        )
+        item.add_marker(pytest.mark.skip(reason=f"device_only: {reason}"))
 
 
 @pytest.fixture(scope="function", autouse=True)

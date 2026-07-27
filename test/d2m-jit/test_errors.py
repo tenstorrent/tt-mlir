@@ -20,11 +20,12 @@ import torch
 
 import d2m_jit as d2m
 
-# Every test here asserts the `D2mJitError` type, its file:line header, and
-# its "did you mean?" hints. The simulator deliberately raises plain Python
-# errors from the real interpreter instead (a genuine traceback into the
-# kernel body beats a synthesized hint) -- SIMULATOR_SPEC.md §8.
-pytestmark = pytest.mark.device_only
+pytestmark = pytest.mark.device_only(
+    reason="asserts the D2mJitError type, its file:line header and its "
+    "did-you-mean hints; the simulator deliberately raises plain Python errors "
+    "from the real interpreter instead, so a genuine traceback into the kernel "
+    "body replaces the synthesized hint (SIMULATOR_SPEC.md §8)"
+)
 
 
 _L = d2m.Layout(

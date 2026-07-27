@@ -9,11 +9,6 @@ from kernels.prefill.rope import KERNEL_BENCHES, build_rope_tables
 from runner import TensorSpec, run_bench
 from utils import assert_pcc
 
-# Driven through `runner`, which builds device LazyTensors directly rather
-# than going through the dispatched host surface, so these do not run on the
-# sim backend.
-pytestmark = pytest.mark.device_only
-
 
 @pytest.mark.parametrize(
     "seq_len,head_dim,grid_shape,block_shape",
@@ -21,6 +16,14 @@ pytestmark = pytest.mark.device_only
         (64, 64, (1, 1), [2, 2]),
         (64, 128, (1, 2), [2, 2]),
     ],
+)
+@pytest.mark.device_only(
+    reason="the RoPE kernel derives its half-roll view_layout from the device "
+    "physical rank-4 shape [grid_y, grid_x, block_y, block_x] via "
+    "LazyTensor.value, and rolls feature tiles across the grid/block split. A "
+    "SimTensor has no .value and stores only a logical tile-padded buffer, since "
+    "physical placement is value-neutral (SIMULATOR_SPEC.md §3); the roll is also "
+    "not the paired grid/tile permutation sim's view_layout supports (§7)"
 )
 def test_rope_matches_torch(seq_len, head_dim, grid_shape, block_shape):
     """Test rope at various workload shapes and execution configs."""

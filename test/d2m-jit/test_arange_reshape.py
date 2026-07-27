@@ -21,11 +21,11 @@ import pytest
 import torch
 import d2m_jit as d2m
 
-# `d2m.arange` / `d2m.reshape` are host constructors the `config.backend`
-# switch does not dispatch, so they run device-only (they now say so rather
-# than failing inside the device impl on a SimTensor) -- see api.py
-# `_device_only` and SIMULATOR_SPEC.md §2.
-pytestmark = pytest.mark.device_only
+pytestmark = pytest.mark.device_only(
+    reason="d2m.arange() / d2m.reshape() are device-only host constructors: the "
+    "config.backend switch does not dispatch them, so they raise "
+    "NotImplementedError under the simulator (SIMULATOR_SPEC.md §2)"
+)
 
 
 def test_arange_2d_fp32():

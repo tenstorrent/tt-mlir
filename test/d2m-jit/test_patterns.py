@@ -25,9 +25,12 @@ from runner import (
 )
 
 
-# Compiler-path test (TTIR rewrite + FileCheck) driven through `runner`, not
-# through the dispatched host surface -- nothing for the simulator to run.
-@pytest.mark.device_only
+@pytest.mark.device_only(
+    reason="compiler-path test (TTIR rewrite + FileCheck) driven through runner, "
+    "which builds device LazyTensors directly; the dispatched to_layout rejects "
+    "those under the sim backend. Nothing here exercises a backend, so there is "
+    "nothing for the simulator to check"
+)
 def test_pattern_rewrite(pattern_test):
     """Apply the pattern file's rewrites and FileCheck the resulting IR."""
     ir_text = run_rewrite(pattern_test)
@@ -45,7 +48,7 @@ def test_kernel_device(kernel_bench):
     assert_pcc(expected, actual, kernel_bench.pcc)
 
 
-@pytest.mark.device_only  # needs silicon (opens a mesh device)
+@pytest.mark.device_only(reason="needs silicon: opens a mesh device")
 def test_e2e_device(e2e_spec, e2e_device):
     """True e2e: the rewritten module is compiled to a flatbuffer and run on
     device IN-PROCESS (no ttrt subprocess, no files). PCC the device output

@@ -16,11 +16,11 @@ import pytest
 import torch
 import d2m_jit as d2m
 
-# `d2m.spatial` is not one of the host functions the `config.backend` switch
-# dispatches, so under the sim backend it reaches the device builder and fails
-# on a LazyTensor internal. Device-only until it gets a sim backing (or rejects
-# sim explicitly) -- see SIMULATOR_SPEC.md §2.
-pytestmark = pytest.mark.device_only
+pytestmark = pytest.mark.device_only(
+    reason="d2m.spatial() is device-only: the config.backend switch does not "
+    "dispatch it, so it raises NotImplementedError under the simulator "
+    "(SIMULATOR_SPEC.md §2)"
+)
 
 
 @d2m.kernel
