@@ -26,20 +26,21 @@ void run(const ::tt::target::ttnn::PrepareMoEComputeW2WeightsOp *op,
   uint32_t E = w2.logical_shape()[1];
   bool hasBias = bias2.has_value();
 
+  // LOCAL BUILD SHIM (bh_ring_size): see prepare_moe_compute_w0_w1_weights.cpp.
   uint32_t bhRingSize = op->bh_ring_size() ? op->bh_ring_size().value() : 12;
+  (void)bhRingSize;
   ::ttnn::Tensor packed =
       hasBias ? ::ttnn::experimental::prepare_w2_tensor_with_bias(
                     w2, *bias2, L, E, op->intermediate_size(),
-                    op->hidden_size(), bhRingSize)
+                    op->hidden_size())
               : ::ttnn::experimental::prepare_w2_tensor_for_moe_compute(
-                    w2, L, E, op->intermediate_size(), op->hidden_size(),
-                    bhRingSize);
+                    w2, L, E, op->intermediate_size(), op->hidden_size());
 
   ::ttnn::Tensor out = ::ttnn::experimental::quantize_weights_via_host(
       packed, ::tt::tt_metal::DataType::BFLOAT4_B,
       ::ttnn::experimental::get_weight_mem_configs(
           &meshDevice, L, E, op->hidden_size(), op->intermediate_size(),
-          hasBias, bhRingSize)
+          hasBias)
           .w2);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);

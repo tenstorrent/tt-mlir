@@ -833,16 +833,21 @@ moeComputePackW0W1(const ::ttnn::Tensor &w0, const ::ttnn::Tensor &w1,
   uint32_t L = w0.logical_shape()[0];
   uint32_t E = w0.logical_shape()[1];
   bool hasBias = b0.has_value();
+  // LOCAL BUILD SHIM (bh_ring_size): this checkout builds against a tt-metal
+  // that predates the trailing bh_ring_size parameter on the MoE weight-prep
+  // API; those packers hardcode the 12-bank ring, which is the only value
+  // reaching here (getMoEComputeRing defaults to 12). Drop the argument so the
+  // call resolves. Same shim in runtime/lib/ttnn/operations/ccl/prepare_moe_*.
+  (void)bhRingSize;
   ::ttnn::Tensor packed =
       hasBias ? ::ttnn::experimental::prepare_w0_w1_tensor_with_bias(
-                    w0, w1, *b0, *b1, L, E, hiddenSize, intermediateSize,
-                    bhRingSize)
+                    w0, w1, *b0, *b1, L, E, hiddenSize, intermediateSize)
               : ::ttnn::experimental::prepare_w0_w1_tensor_for_moe_compute(
-                    w0, w1, L, E, hiddenSize, intermediateSize, bhRingSize);
+                    w0, w1, L, E, hiddenSize, intermediateSize);
   return ::ttnn::experimental::quantize_weights_via_host(
       packed, ::tt::tt_metal::DataType::BFLOAT4_B,
       ::ttnn::experimental::get_weight_mem_configs(
-          device, L, E, hiddenSize, intermediateSize, hasBias, bhRingSize)
+          device, L, E, hiddenSize, intermediateSize, hasBias)
           .w0_w1);
 }
 
@@ -853,15 +858,17 @@ moeComputePackW2(const ::ttnn::Tensor &w2, std::optional<::ttnn::Tensor> b2,
   uint32_t L = w2.logical_shape()[0];
   uint32_t E = w2.logical_shape()[1];
   bool hasBias = b2.has_value();
+  // LOCAL BUILD SHIM (bh_ring_size): see moeComputePackW0W1 above.
+  (void)bhRingSize;
   ::ttnn::Tensor packed =
       hasBias ? ::ttnn::experimental::prepare_w2_tensor_with_bias(
-                    w2, *b2, L, E, intermediateSize, hiddenSize, bhRingSize)
+                    w2, *b2, L, E, intermediateSize, hiddenSize)
               : ::ttnn::experimental::prepare_w2_tensor_for_moe_compute(
-                    w2, L, E, intermediateSize, hiddenSize, bhRingSize);
+                    w2, L, E, intermediateSize, hiddenSize);
   return ::ttnn::experimental::quantize_weights_via_host(
       packed, ::tt::tt_metal::DataType::BFLOAT4_B,
       ::ttnn::experimental::get_weight_mem_configs(
-          device, L, E, hiddenSize, intermediateSize, hasBias, bhRingSize)
+          device, L, E, hiddenSize, intermediateSize, hasBias)
           .w2);
 }
 

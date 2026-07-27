@@ -31,20 +31,24 @@ void run(const ::tt::target::ttnn::PrepareMoEComputeW0W1WeightsOp *op,
   uint32_t E = w0.logical_shape()[1];
   bool hasBias = bias0.has_value();
 
+  // LOCAL BUILD SHIM (bh_ring_size): this checkout builds against a tt-metal
+  // that predates the trailing bh_ring_size parameter on the MoE weight-prep
+  // API; those packers hardcode the 12-bank ring, which is the only value the
+  // flatbuffer carries here. Drop the argument so the call resolves.
   uint32_t bhRingSize = op->bh_ring_size() ? op->bh_ring_size().value() : 12;
+  (void)bhRingSize;
   ::ttnn::Tensor packed =
       hasBias ? ::ttnn::experimental::prepare_w0_w1_tensor_with_bias(
                     w0, w1, *bias0, *bias1, L, E, op->hidden_size(),
-                    op->intermediate_size(), bhRingSize)
+                    op->intermediate_size())
               : ::ttnn::experimental::prepare_w0_w1_tensor_for_moe_compute(
-                    w0, w1, L, E, op->hidden_size(), op->intermediate_size(),
-                    bhRingSize);
+                    w0, w1, L, E, op->hidden_size(), op->intermediate_size());
 
   ::ttnn::Tensor out = ::ttnn::experimental::quantize_weights_via_host(
       packed, ::tt::tt_metal::DataType::BFLOAT4_B,
       ::ttnn::experimental::get_weight_mem_configs(
           &meshDevice, L, E, op->hidden_size(), op->intermediate_size(),
-          hasBias, bhRingSize)
+          hasBias)
           .w0_w1);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
