@@ -308,7 +308,14 @@ class ShardAdvisor:
         # Why each matmul did or did not get a DRAM-sharded config. Without
         # this a capture that can never receive DS advice (bf16 weights,
         # batch-1 decode) reports an indistinguishable silent zero.
-        ds_text, ds_summary, ds_rows = ds_diagnostics.render(ttnn_mlir, trace_path)
+        # The diagnostic mirrors the rule book's gates, so it has to know the
+        # options that move them -- otherwise it reports "bf16 not offered" on a
+        # run where bf16 WAS offered and the op model rejected it for its own
+        # reason.
+        allow_bf16 = "allow-bf16-dram-sharded-matmul=true" in (
+            self.extra_pipeline_options or "")
+        ds_text, ds_summary, ds_rows = ds_diagnostics.render(
+            ttnn_mlir, trace_path, allow_bf16)
 
         text = banner + ir_summary + "\n" + ds_text + "\n" + rationale
         report = AdvisorReport(trace, text, ttnn_mlir, ir_summary, self.out_dir)

@@ -75,7 +75,7 @@ def _activation_rows(act_dims):
     return m
 
 
-def _gate_failure(act, weight, has_bias):
+def _gate_failure(act, weight, has_bias, allow_bf16=False):
     """First DS eligibility gate that rejects, or None if all pass.
 
     Mirrors isDRAMShardEligible. Deliberately short: most limits that used to
@@ -95,7 +95,7 @@ def _gate_failure(act, weight, has_bias):
     K, N = w_dims[-2], w_dims[-1]
     if K % TILE or N % TILE:
         return f"K/N = {K}/{N} not tile-aligned"
-    if w_dtype not in ("bfp_bf4", "bfp_bf8"):
+    if w_dtype not in ("bfp_bf4", "bfp_bf8") and not (allow_bf16 and w_dtype == "bf16"):
         if w_dtype == "bf16":
             return ("bf16 weights are not offered by default -- policy, not a "
                     "kernel limit (bf16 DS runs at PCC 1.0000). DS streams the "
@@ -108,28 +108,38 @@ def _gate_failure(act, weight, has_bias):
     return None
 
 
-def _rejection_from_trace(trace_path, op_index):
-    """The op-model's own reason for rejecting the canonical DS candidate."""
+def _matmul_rejections(trace_path):
+    """[reason or None] per matmul-like op, in trace order.
+
+    The trace keys entries by GLOBAL opIndex, not by matmul ordinal, so the two
+    have to be zipped by walking forwardPass in order -- indexing the trace with
+    the ordinal silently looked up an unrelated op.
+    """
     try:
         with open(trace_path) as f:
             trace = json.load(f)
     except (OSError, ValueError):
-        return None
+        return []
+    out = []
     for entry in trace.get("forwardPass", []):
-        if entry.get("opIndex") != op_index:
+        if entry.get("opName") not in ("ttnn.matmul", "ttnn.linear"):
             continue
+        reason = None
         for ev in entry.get("evaluations", []):
             ins = ev.get("inputs", [])
             # Only getExtraInputReshardCandidates injects this pair.
-            if (len(ins) > 1 and ins[0].endswith(f"width_sharded>/1x{NUM_IN0_CORES}")
+            if (len(ins) > 1 and "width_sharded>/1x" in ins[0]
+                    and ins[0].startswith("l1")
                     and ins[1].startswith("dram") and "width_sharded" in ins[1]):
-                reason = (ev.get("failureReason") or "").strip()
-                if reason:
-                    return " ".join(reason.split())[:160]
-    return None
+                r = (ev.get("failureReason") or "").strip()
+                if r:
+                    reason = " ".join(r.split())[:160]
+                    break
+        out.append(reason)
+    return out
 
 
-def analyze(final_ir, trace_path=None):
+def analyze(final_ir, trace_path=None, allow_bf16=False):
     """-> (summary dict, list of per-matmul dicts)."""
     rows = []
     for line in final_ir.splitlines():
@@ -149,7 +159,8 @@ def analyze(final_ir, trace_path=None):
         row = {"op": op_name, "advised": advised, "activation_rows": _activation_rows(act[0]),
                "weight_shape": weight[0], "weight_dtype": weight[1]}
         if not advised:
-            row["why"] = _gate_failure(act, weight, has_bias) or "considered, but rejected"
+            row["why"] = (_gate_failure(act, weight, has_bias, allow_bf16)
+                          or "considered, but rejected")
             row["considered"] = row["why"] == "considered, but rejected"
         else:
             row["considered"] = True
@@ -157,15 +168,11 @@ def analyze(final_ir, trace_path=None):
 
     # For ops that passed every gate, quote the op-model's actual reason.
     if trace_path:
-        idx = 0
-        for line in final_ir.splitlines():
-            if not _OP_RE.search(line):
-                continue
-            if idx < len(rows) and rows[idx].get("considered") and not rows[idx]["advised"]:
-                detail = _rejection_from_trace(trace_path, idx)
-                if detail:
-                    rows[idx]["why"] = detail
-            idx += 1
+        reasons = _matmul_rejections(trace_path)
+        for i, row in enumerate(rows):
+            if row.get("considered") and not row["advised"] and i < len(reasons):
+                if reasons[i]:
+                    row["why"] = reasons[i]
 
     advised = sum(1 for r in rows if r["advised"])
     considered = sum(1 for r in rows if r["considered"])
@@ -180,8 +187,8 @@ def analyze(final_ir, trace_path=None):
              "sub_tile_batch_rows": sub_tile}, rows)
 
 
-def render(final_ir, trace_path=None):
-    summary, rows = analyze(final_ir, trace_path)
+def render(final_ir, trace_path=None, allow_bf16=False):
+    summary, rows = analyze(final_ir, trace_path, allow_bf16)
     if not rows:
         return "", summary, rows
     out = [f"=== DRAM-sharded matmuls: {summary['dram_sharded_advised']} of "
