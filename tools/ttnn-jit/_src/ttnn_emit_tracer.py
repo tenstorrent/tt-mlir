@@ -84,6 +84,18 @@ def _ttcore_dtype(elem_type):
         return ttcore.DataType.Float32
     if s in ("i32", "si32"):
         return ttcore.DataType.Int32
+    # Unsigned integers reach the tracer via index/position tensors (gpt-oss
+    # feeds a ui32 cache position and ui16 router indices).
+    if s in ("ui32", "u32"):
+        return ttcore.DataType.UInt32
+    if s in ("ui16", "u16"):
+        return ttcore.DataType.UInt16
+    if s in ("ui8", "u8"):
+        return ttcore.DataType.UInt8
+    if s == "i1":
+        return ttcore.DataType.Bool
+    if s == "f16":
+        return ttcore.DataType.Float16
     if "bfp_bf8" in s.lower():
         return ttcore.DataType.BFP_BFloat8
     if "bfp_bf4" in s.lower():

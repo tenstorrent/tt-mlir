@@ -103,6 +103,7 @@ def _cmd_mlir(args) -> int:
             optimization_level=args.opt_level,
             out_dir=args.out,
             pipeline=args.pipeline,
+            extra_pipeline_options=args.pipeline_options,
             verbose=False,
         )
 
@@ -155,6 +156,7 @@ def _cmd_capture(args) -> int:
                 out_dir=args.out,
                 tracer=args.tracer,
                 pipeline=args.pipeline,
+                extra_pipeline_options=args.pipeline_options,
                 verbose=False,
             ).run(*inputs)
         finally:
@@ -178,6 +180,14 @@ def main(argv=None) -> int:
     )
     common.add_argument(
         "--out", default=None, help="output directory for the artifact set"
+    )
+    common.add_argument(
+        "--pipeline-options",
+        default="",
+        dest="pipeline_options",
+        help="extra pass-pipeline options, comma separated (e.g. "
+        "disable-dram-sharded-matmul=true). Appended to the options the "
+        "advisor builds from --opt-level.",
     )
     common.add_argument(
         "--pipeline",
