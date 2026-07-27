@@ -1081,19 +1081,30 @@ applyRoPEDecodeRewrite(mlir::Operation *layoutOp, RotaryEmbeddingOp ropeOp,
     return failure();
   }
 
-  // QK-Norm guard (Qwen3): a per-head RMSNorm sitting between the head split
-  // and the rotary (q_norm / k_norm) is not modeled by the fused decode
-  // attention path. This decode fusing was validated only on Qwen2.5, which has
-  // no QK-norm; when it fires for a QK-normed decode chain it mis-fuses Q/K and
-  // produces numerically wrong attention (negative PCC on Qwen3). If an RMSNorm
-  // is present in the RoPE input's layout-transform chain, bail so the whole
-  // decode chain stays unfused (the correct pre-#8931 path). See tt-xla Qwen3
-  // causal_lm PCC regression bisected to tt-mlir #8931.
-  Value ropeInputSrc =
-      skipTMs<TypecastOp, PermuteOp, ReshapeOp, RepeatOp>(ropeOp.getInput());
-  if (isa_and_nonnull<RMSNormOp, DistributedRMSNormOp>(
-          ropeInputSrc.getDefiningOp())) {
-    return failure();
+  // QK-Norm (Qwen3): a per-head RMSNorm (q_norm / k_norm) can sit directly on
+  // the RoPE input, between the head split and the rotary. Rather than bail
+  // (which leaves the whole decode chain on the slow, unfused generic rotary and
+  // costs ~20% on Qwen3 decode, tt-mlir #9110), fold the norm into the decode
+  // rewrite: the rewrite below permutes the RoPE input to reach decode layout,
+  // so we push that pre-permute *through* the norm and re-emit the norm on the
+  // permuted input. This keeps the norm on the head/last axis (RMSNorm
+  // normalizes the last dim, and the decode perm preserves it), so the decode
+  // RoPE consumes rms_norm(permute(x)). Only a plain RMSNorm applied directly to
+  // the RoPE input, single-use, with a last-dim-preserving perm is folded;
+  // anything else (distributed norm, norm behind transforms, or a perm that
+  // moves the normalized last dim) still bails and stays unfused (#9042).
+  RMSNormOp qkNorm = ropeOp.getInput().getDefiningOp<RMSNormOp>();
+  const bool foldNorm =
+      qkNorm && qkNorm.getResult().hasOneUse() && !perm.empty() &&
+      perm.back() == static_cast<int64_t>(perm.size()) - 1;
+  if (!foldNorm) {
+    qkNorm = nullptr;
+    Value ropeInputSrc =
+        skipTMs<TypecastOp, PermuteOp, ReshapeOp, RepeatOp>(ropeOp.getInput());
+    if (isa_and_nonnull<RMSNormOp, DistributedRMSNormOp>(
+            ropeInputSrc.getDefiningOp())) {
+      return failure();
+    }
   }
 
   // cos/sin must be single-position (dim -2 == 1).
@@ -1104,16 +1115,31 @@ applyRoPEDecodeRewrite(mlir::Operation *layoutOp, RotaryEmbeddingOp ropeOp,
 
   op_model::ScopedSingletonDeviceGuard deviceGuard(layoutOp);
 
-  // Create pre-permute on the original RoPE input: BHSD -> permuted order.
-  auto prePermute = ttir_to_ttnn::utils::generatePermute(
-      mlir::cast<TypedValue<RankedTensorType>>(ropeOp.getInput()),
-      llvm::ArrayRef(perm), rewriter, ropeOp.getLoc());
+  // Create the pre-permute (BHSD -> decode order) that the decode RoPE consumes.
+  // With a folded QK-norm, permute the norm's *input* and re-emit the norm on
+  // the permuted tensor (last/head dim preserved) so the RoPE sees
+  // rms_norm(permute(x)); otherwise permute the RoPE input directly.
+  Value decodeRopeInput;
+  if (qkNorm) {
+    auto normPrePermute = ttir_to_ttnn::utils::generatePermute(
+        mlir::cast<TypedValue<RankedTensorType>>(qkNorm.getInput()),
+        llvm::ArrayRef(perm), rewriter, qkNorm.getLoc());
+    auto newNorm = rewriter.create<RMSNormOp>(
+        qkNorm.getLoc(), normPrePermute.getType(), normPrePermute.getResult(),
+        qkNorm.getWeight(), qkNorm.getBias(), qkNorm.getEpsilon());
+    decodeRopeInput = newNorm.getResult();
+  } else {
+    auto prePermute = ttir_to_ttnn::utils::generatePermute(
+        mlir::cast<TypedValue<RankedTensorType>>(ropeOp.getInput()),
+        llvm::ArrayRef(perm), rewriter, ropeOp.getLoc());
+    decodeRopeInput = prePermute.getResult();
+  }
 
   auto tokenIndex = rewriter.getIntegerAttr(
       rewriter.getIntegerType(32, /*isSigned=*/false), 0);
 
   auto newRope = rewriter.create<RotaryEmbeddingOp>(
-      ropeOp.getLoc(), prePermute.getType(), prePermute.getResult(),
+      ropeOp.getLoc(), decodeRopeInput.getType(), decodeRopeInput,
       ropeOp.getCosCache(), ropeOp.getSinCache(), tokenIndex,
       ropeOp.getComputeConfigAttr());
 
