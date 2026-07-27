@@ -2612,13 +2612,19 @@ def test_indexer_score_dsa(
                 unit_attrs=unit_attrs,
             )
 
+    ttir_pipeline_options = ["optimization-level=1"]
+
+    # See https://github.com/tenstorrent/tt-mlir/issues/9121
+    if target == "emitc":
+        ttir_pipeline_options.append("enable-const-eval=false")
+
     output = compile_and_execute_shlo(
         module,
         **get_request_kwargs(request),
         target=target,
         device=device,
         save_artifacts=True,
-        ttir_pipeline_options=["optimization-level=1"],
+        ttir_pipeline_options=ttir_pipeline_options,
     )
 
     batch_size = shapes[0][0]
