@@ -395,7 +395,11 @@ def _build_pdl_text(patterns: Sequence[_Pattern]) -> str:
     return f"module {{\n{body}\n}}\n"
 
 
-def apply_patterns_text(input_text: str, pattern_paths: Sequence[str]) -> str:
+def apply_patterns_text(
+    input_text: str,
+    pattern_paths: Sequence[str],
+    preserve_debug_info: bool = False,
+) -> str:
     """Text-IO entrypoint for the d2m-jit pattern framework.
 
     Parses `input_text` (textual MLIR) in a fresh ir.Context, imports each
@@ -407,6 +411,9 @@ def apply_patterns_text(input_text: str, pattern_paths: Sequence[str]) -> str:
     the C++/Python "two MLIRs" problem (ttmlir-opt is statically linked
     against MLIR while ttmlir's Python bindings have their own shared
     copy, so capsule pointers can't cross the boundary safely).
+
+    When `preserve_debug_info` is true, the rewritten module retains location
+    metadata. The default output omits debug locations.
 
     Pattern registration is process-global; we snapshot and restore so
     repeated calls don't accumulate stale entries.
@@ -433,6 +440,8 @@ def apply_patterns_text(input_text: str, pattern_paths: Sequence[str]) -> str:
 
         apply_patterns(module)
         module.operation.verify()
+        if preserve_debug_info:
+            return module.operation.get_asm(enable_debug_info=True)
         return str(module)
     finally:
         _registry.clear()
