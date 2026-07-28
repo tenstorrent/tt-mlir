@@ -55,7 +55,7 @@ jobs:
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: build-${{ runner.os }}
+          key: build-${{ runner.os }}-debug
 
       - name: Build (debug)
         shell: bash
