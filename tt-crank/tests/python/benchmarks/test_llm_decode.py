@@ -274,13 +274,11 @@ def _run(request: pytest.FixtureRequest, llm_model_id: str, parallel: str) -> No
         )
     opt_level = request.getfixturevalue("opt_level")
     options = {
-        CompileOption.OPT_LEVEL: opt_level if opt_level is not None else 0,
+        CompileOption.OPT_LEVEL: opt_level if opt_level is not None else 2,
         CompileOption.ENABLE_TRACE: True,
-        # The following cause a hang in benchmark CI when all models are run (during gemma dp).
-        # If that model is ran individually - it passes.
-        # CompileOption.EXPERIMENTAL_WEIGHT_DTYPE: BfpDtype.BfpBf8,
-        # CompileOption.EXPERIMENTAL_KV_CACHE_DTYPE: BfpDtype.BfpBf8,
-        # CompileOption.EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION: False,
+        CompileOption.EXPERIMENTAL_WEIGHT_DTYPE: BfpDtype.BfpBf8,
+        CompileOption.EXPERIMENTAL_KV_CACHE_DTYPE: BfpDtype.BfpBf8,
+        CompileOption.EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION: False,
     }
     _run_decode_benchmark(
         llm_model_id,
