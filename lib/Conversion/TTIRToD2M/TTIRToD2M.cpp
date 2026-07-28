@@ -6046,7 +6046,7 @@ private:
     return unLayoutResult(rewriter, generic->getResult(0), resultType)
         ->getResult(0);
   }
-
+  // mark this OP as row major using a to layout op
   LogicalResult
   matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
@@ -6169,49 +6169,21 @@ private:
 
     auto argMaxOrigOutputs =
         createDpsOutputs(loc, rewriter, {reducedValTy, reducedIdxTy});
+    // The values operand is laid out UNTILED, i.e. row-major in L1: the
+    // `max_reduce_with_indices` LLK's 32-row path only accepts
+    // `DataLayout::ROW_MAJOR`, which expects the 64 DST rows of a tile ordered
+    // F0R0, F1R0, F0R1, F1R1, ... rather than face-major. No LLK stages that
+    // order from a tilized CB (the only unpacker hooks are SrcA transposes), so
+    // the ordering has to come from the data already being row-major in L1.
+    // Outputs stay tiled; only the reduced input needs the row-major order.
     auto [argMaxInputsHead, argMaxOutputs] = toLayoutOperandsAndResults(
-        rewriter, {SmallVector<Value>{adaptor.getInput()}, argMaxOrigOutputs},
+        rewriter, {SmallVector<Value>{}, argMaxOrigOutputs},
         /*tiled=*/true, false, ttcore::OOBVal::NegInf);
+    Value rowMajorValues = createOptimalLayoutOp(
+        adaptor.getInput(), memorySpaces[0], /*tiled=*/false,
+        /*noCollapse=*/false, rewriter, ttcore::OOBVal::NegInf);
 
-    // EXPERIMENT: round-trip the value through a row-major (untiled) layout and
-    // back to tiled, preserving logical shape. The tiled->untiled to_layout
-    // inserts a TileUntilizeBlockOp (row-major CB), the untiled->tiled a
-    // TileTilizeBlockOp. If the reduction result changes vs. the direct-tiled
-    // path, it tells us whether staging through row-major reorders the data
-    // reaching DST. Types are built explicitly (not via createOptimalLayoutOp,
-    // which would recompute the logical shape from the already-laid-out
-    // physical shape and trip buildLayoutTransformMap's same-logical-shape
-    // assert).
-    Value tiledValue = argMaxInputsHead[0];
-    auto tiledTy = mlir::cast<RankedTensorType>(tiledValue.getType());
-    auto tiledLayout =
-        mlir::cast<ttcore::MetalLayoutAttr>(tiledTy.getEncoding());
-    auto valScalarTy = inputTy.getElementType(); // bf16
-
-    // Untiled (row-major) layout with the SAME logical shape 32x32.
-    auto untiledLayout = ttcore::MetalLayoutAttr::get(
-        ctx, tiledLayout.getLogicalShape(), tiledLayout.getDimAlignments(),
-        tiledLayout.getCollapsedIntervals(), tiledLayout.getMemorySpace(),
-        tiledLayout.getMemoryLayout());
-    // Physical (untiled) shard shape uses an empty tile shape.
-    SmallVector<int64_t> untiledShardShape = untiledLayout.getDeviceShape(
-        SmallVector<int64_t>(tiledTy.getShape().size() / 2, 1),
-        /*tileShape=*/{});
-    auto untiledTy =
-        RankedTensorType::get(untiledShardShape, valScalarTy, untiledLayout);
-
-    auto rmEmpty =
-        rewriter.create<d2m::EmptyOp>(loc, untiledTy, nullptr, nullptr);
-    Value rowMajorValue =
-        rewriter.create<d2m::ToLayoutOp>(loc, tiledValue, rmEmpty).getResult(0);
-
-    auto reTiledEmpty =
-        rewriter.create<d2m::EmptyOp>(loc, tiledTy, nullptr, nullptr);
-    Value reTiledValue =
-        rewriter.create<d2m::ToLayoutOp>(loc, rowMajorValue, reTiledEmpty)
-            .getResult(0);
-
-    SmallVector<Value> argMaxInputs = {reTiledValue, arange.getResult(0)};
+    SmallVector<Value> argMaxInputs = {rowMajorValues, arange.getResult(0)};
 
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(argMaxOutputs[0]).getRank() / 2;
@@ -6264,6 +6236,7 @@ private:
               [&](mlir::OpBuilder &bb, mlir::Location bbLoc,
                   mlir::ValueRange bbArgs) {
                 // bbArgs = {values, indices, out_values, out_indices}
+                llvm::errs() << "emitting tile arg max\n";
                 auto argMax = bb.create<d2m::TileArgMaxOp>(
                     bbLoc, bbArgs[2].getType(), bbArgs[3].getType(), bbArgs[0],
                     bbArgs[1], reduceDimAttr);

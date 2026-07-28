@@ -3209,6 +3209,7 @@ public:
     constexpr int32_t kNumRows = 32;
     // accumulate=false: cross-tile reduction is done in the D2M region (the
     // compose-and-gather path), not via the LLK's in-kernel chunk accumulator.
+    llvm::errs() << "emitting max_reduce_with_indices_tile\n";
     rewriter.create<ttkernel::MaxReduceWithIndicesTileOp>(
         loc, idst, idstIdx, rewriter.getI32IntegerAttr(kNumRows),
         rewriter.getBoolAttr(false));
