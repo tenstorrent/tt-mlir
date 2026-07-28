@@ -1507,7 +1507,7 @@ def TTNN_LinearOp : TTNN_Op<"linear", [TTNN_ComputeKernelConfigOpInterface]> {
 }
 
 def TTNN_DitMatmulAddcmulFusedOp : TTNN_Op<"dit_matmul_addcmul_fused",
-      [TTNN_ComputeKernelConfigOpInterface, OpModelExempt]> {
+      [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Fused matmul + bias + gated residual (adaLN addcmul epilogue).";
 
     let description = [{
