@@ -119,6 +119,40 @@ MeshFabricConfig computeMeshFabricConfig(
 
   std::vector<FabricConfig> perAxisConfig = {rowAxisConfig, colAxisConfig};
 
+  // A wraparound on a 2-element axis is degenerate: front and back are the same
+  // adjacent pair, so classifyLine reports RING for any connected pair. Only an
+  // axis longer than 2 can carry a wrap edge distinct from its line edges.
+  //
+  // Axis-to-torus-dimension mapping follows tt-metal's get_valid_connections:
+  // TORUS_X wraps mesh_shape[1] (E/W), which is the axis a row line runs along;
+  // TORUS_Y wraps mesh_shape[0] (N/S), which is the axis a column line runs
+  // along.
+  bool rowAxisIsTorus =
+      numCols > 2 && rowAxisConfig == FabricConfig::FABRIC_1D_RING;
+  bool colAxisIsTorus =
+      numRows > 2 && colAxisConfig == FabricConfig::FABRIC_1D_RING;
+
+  // On a genuinely 2D mesh whose long axis wraps, request a 2D torus config
+  // rather than FABRIC_1D_RING. tt-metal's get_fabric_type() maps
+  // FABRIC_1D_RING to FabricType::MESH on anything that is not a UBB galaxy,
+  // which drops the wrap edges from intra-mesh connectivity while collectives
+  // still run a ring algorithm -- they then ask fabric to forward across the
+  // wrap and abort in fabric.cpp with "Could not find any forwarding
+  // direction". FABRIC_2D_TORUS_{X,Y,XY} map to the matching FabricType, so the
+  // wrap edges are actually built. See docs/fabric-1d-ring-torus-mismatch.md.
+  //
+  // The mesh graph descriptor must also declare the wrapping dimension RING, or
+  // tt-metal rejects the request in requires_more_connectivity().
+  if (numRows > 1 && numCols > 1 && (rowAxisIsTorus || colAxisIsTorus)) {
+    FabricConfig torusConfig = FabricConfig::FABRIC_2D_TORUS_XY;
+    if (!colAxisIsTorus) {
+      torusConfig = FabricConfig::FABRIC_2D_TORUS_X;
+    } else if (!rowAxisIsTorus) {
+      torusConfig = FabricConfig::FABRIC_2D_TORUS_Y;
+    }
+    return {torusConfig, perAxisConfig};
+  }
+
   // Global config is the best of the two axes: if at least one axis supports
   // a topology, the fabric can use it.
   FabricConfig globalConfig = FabricConfig::DISABLED;
