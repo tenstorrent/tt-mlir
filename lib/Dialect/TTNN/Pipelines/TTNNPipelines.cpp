@@ -83,11 +83,6 @@ void createTTNNPipelineTTIRPasses(
   // IC=2, K=16): eliminates K=2→32 TILE padding waste (93.8%) on NCHW→NHWC
   // permute. Packed IC=TILE_WIDTH=32 → zero waste, permute writes to L1.
   pm.addPass(mlir::tt::ttir::createTTIRDepthwiseConvSpatialPackingOpt());
-  // Spatial packing for narrow-channel 1x1 pointwise conv2d with partial K
-  // (e.g. IC=24 → K=4, packed IC*K=96=3×TILE_WIDTH, 0% tile waste).
-  // Uses ttir.conv2d (not ttir.linear) to avoid TTNNSpatialPackActivationRowMajorOpt
-  // interference which degrades PCC to ~0.972 for partial packing factors.
-  pm.addPass(mlir::tt::ttir::createTTIRPointwiseConv2dPartialPackingOpt());
   // Fuse 6D reshape->permute{0,3,5,1,2,4}->reshape chain into
   // ttir.pixel_unshuffle. Eliminates 87.5-93.75% DRAM tile-padding waste
   // from the 6D TILE reshape (Y path r=4, UV path r=2 in BEV pipeline).
