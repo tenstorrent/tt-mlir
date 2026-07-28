@@ -577,6 +577,33 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
 }
 // ANCHOR_END: adding_an_op_matmul_serialize_to_binary
 
+::flatbuffers::Offset<::tt::target::ttnn::DitMatmulAddcmulFusedOp>
+createOp(FlatbufferObjectCache &cache, DitMatmulAddcmulFusedOp op) {
+  auto a = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getA()));
+  auto b = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getB()));
+  auto residual = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getResidual()));
+  auto gate = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGate()));
+  auto bias = op.getBias()
+                  ? cache.at<::tt::target::ttnn::TensorRef>(
+                        getOperandThroughDPSOps(op.getBias()))
+                  : flatbuffers::Offset<::tt::target::ttnn::TensorRef>();
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  return ::tt::target::ttnn::CreateDitMatmulAddcmulFusedOp(
+      *cache.fbb, a, b, residual, gate, bias, output,
+      computeConfig.value_or(0));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::SparseMatmulOp>
 createOp(FlatbufferObjectCache &cache, SparseMatmulOp op) {
   auto a = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4575,6 +4602,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto matmulOp = dyn_cast<MatmulOp>(op); matmulOp) {
     return createOperation(cache, createOp(cache, matmulOp), debugString,
                            locInfo);
+  }
+  if (auto ditOp = dyn_cast<DitMatmulAddcmulFusedOp>(op); ditOp) {
+    return createOperation(cache, createOp(cache, ditOp), debugString, locInfo);
   }
   if (auto sparseMatmulOp = dyn_cast<SparseMatmulOp>(op); sparseMatmulOp) {
     return createOperation(cache, createOp(cache, sparseMatmulOp), debugString,

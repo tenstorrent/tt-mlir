@@ -10,6 +10,8 @@
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
+#include "ttnn/operations/experimental/transformer/dit_minimal_matmul_addcmul_fused/dit_minimal_matmul_addcmul_fused.hpp"
+
 #include <algorithm>
 #include <optional>
 
@@ -120,6 +122,48 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
       /*activation=*/activation, /*compute_kernel_config=*/computeConfig,
       /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
       /* optional_output_tensor=*/std::nullopt);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
+}
+
+void run(const ::tt::target::ttnn::DitMatmulAddcmulFusedOp *op,
+         ProgramContext &context) {
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->a());
+  const ::ttnn::Tensor &weight = tensorPool.getTTNNTensorAndValidate(op->b());
+  const ::ttnn::Tensor &residual =
+      tensorPool.getTTNNTensorAndValidate(op->residual());
+  const ::ttnn::Tensor &gate = tensorPool.getTTNNTensorAndValidate(op->gate());
+  std::optional<::ttnn::Tensor> bias =
+      op->bias()
+          ? std::make_optional(tensorPool.getTTNNTensorAndValidate(op->bias()))
+          : std::nullopt;
+
+  auto outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig,
+             "Memory config must exist for device tensors");
+
+  ::ttnn::DataType outputDataType = utils::getDataType(op->out());
+
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
+  // NOTE: the MinimalMatmulConfig (`config`) is left as nullopt for now, so the
+  // op derives a default schedule. Threading a tuned config from the compiler
+  // is a follow-up (perf-only, not correctness).
+  ::ttnn::Tensor output = ::ttnn::experimental::dit_minimal_matmul_addcmul_fused(
+      input, weight, /*scalar=*/1.0f, residual, gate,
+      /*bias_tensor=*/bias,
+      /*config=*/std::nullopt,
+      /*memory_config=*/outputMemoryConfig,
+      /*dtype=*/outputDataType,
+      /*compute_kernel_config=*/computeConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }

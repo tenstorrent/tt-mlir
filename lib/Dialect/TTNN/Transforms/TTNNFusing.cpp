@@ -176,6 +176,66 @@ private:
   }
 };
 
+// Fuse the DiT adaLN gated-residual epilogue on TTNN ops:
+//
+//   proj = matmul(a, b)          (or linear(a, b, bias))
+//   out  = residual + gate * proj
+//
+// into a single ttnn.dit_matmul_addcmul_fused, mirroring tt-metal's
+// experimental fused kernel. Anchors on ttnn.AddOp and handles the commuted
+// operand orders of both the add and the multiply. Requires single uses of the
+// projection and the multiply so nothing is duplicated, and bails on
+// activation/transposed operands the fused op does not model.
+template <typename MatmulLikeOp>
+class TTNNDitMatmulAddcmulFusing : public mlir::OpRewritePattern<AddOp> {
+  using TTNNDitMatmulAddcmulFusing::OpRewritePattern<AddOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
+    // add: one operand is the `gate * proj` multiply, the other the residual.
+    MultiplyOp gateMulOp = addOp.getLhs().getDefiningOp<MultiplyOp>();
+    mlir::Value residual = addOp.getRhs();
+    if (!gateMulOp) {
+      gateMulOp = addOp.getRhs().getDefiningOp<MultiplyOp>();
+      residual = addOp.getLhs();
+    }
+    if (!gateMulOp || !gateMulOp.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // multiply: one operand is the matmul/linear projection, the other the
+    // gate.
+    MatmulLikeOp projOp = gateMulOp.getLhs().getDefiningOp<MatmulLikeOp>();
+    mlir::Value gate = gateMulOp.getRhs();
+    if (!projOp) {
+      projOp = gateMulOp.getRhs().getDefiningOp<MatmulLikeOp>();
+      gate = gateMulOp.getLhs();
+    }
+    if (!projOp || !projOp.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // The fused op models neither a fused activation nor transposed operands.
+    if (projOp.getActivation() || projOp.getTransposeA() ||
+        projOp.getTransposeB()) {
+      return mlir::failure();
+    }
+
+    mlir::Value bias;
+    if constexpr (std::is_same_v<MatmulLikeOp, LinearOp>) {
+      bias = projOp.getBias();
+    }
+
+    // Operand order matches ttnn.dit_matmul_addcmul_fused:
+    //   a, b, residual, gate, [bias].
+    rewriter.replaceOpWithNewOp<DitMatmulAddcmulFusedOp>(
+        addOp, addOp.getType(), projOp.getA(), projOp.getB(), residual, gate,
+        bias, /*compute_config=*/nullptr);
+    return mlir::success();
+  }
+};
+
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 // ============================================================================
@@ -443,7 +503,9 @@ public:
         TTNNMatmulAndLinearWithActivation<MatmulOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, GeluOp>,
-        TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>>(&getContext());
+        TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>,
+        TTNNDitMatmulAddcmulFusing<MatmulOp>,
+        TTNNDitMatmulAddcmulFusing<LinearOp>>(&getContext());
 
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {

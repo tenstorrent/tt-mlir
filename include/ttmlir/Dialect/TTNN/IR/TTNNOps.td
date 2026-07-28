@@ -1506,6 +1506,29 @@ def TTNN_LinearOp : TTNN_Op<"linear", [TTNN_ComputeKernelConfigOpInterface]> {
     let hasVerifier = 1;
 }
 
+def TTNN_DitMatmulAddcmulFusedOp : TTNN_Op<"dit_matmul_addcmul_fused",
+      [TTNN_ComputeKernelConfigOpInterface, OpModelExempt]> {
+    let summary = "Fused matmul + bias + gated residual (adaLN addcmul epilogue).";
+
+    let description = [{
+      Computes `result = residual + (a * b + bias) * gate` in a single
+      kernel, folding the DiT adaLN gated-residual epilogue into the output
+      projection matmul. Mirrors tt-metal
+      `ttnn.experimental.dit_minimal_matmul_addcmul_fused`.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$a,
+                         AnyRankedTensor:$b,
+                         AnyRankedTensor:$residual,
+                         AnyRankedTensor:$gate,
+                         Optional<AnyRankedTensor>:$bias,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 
 // ANCHOR: adding_an_op_matmul_ttnn
 def TTNN_MatmulOp : TTNN_Op<"matmul", [TTNN_ComputeKernelConfigOpInterface]> {

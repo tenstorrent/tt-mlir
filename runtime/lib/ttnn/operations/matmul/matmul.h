@@ -11,6 +11,8 @@
 namespace tt::runtime::ttnn::operations::matmul {
 void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context);
 void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context);
+void run(const ::tt::target::ttnn::DitMatmulAddcmulFusedOp *op,
+         ProgramContext &context);
 void run(const ::tt::target::ttnn::SparseMatmulOp *op, ProgramContext &context);
 } // namespace tt::runtime::ttnn::operations::matmul
 

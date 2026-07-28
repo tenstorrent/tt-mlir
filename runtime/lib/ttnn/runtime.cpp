@@ -1231,6 +1231,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_MatmulOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::DitMatmulAddcmulFusedOp: {
+    tensorRefs = {opContext.type_as_DitMatmulAddcmulFusedOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::SparseMatmulOp: {
     tensorRefs = {opContext.type_as_SparseMatmulOp()->out()};
     break;
@@ -1755,6 +1759,15 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   case ::tt::target::ttnn::OpType::MatmulOp: {
     tensorRefs = {opContext.type_as_MatmulOp()->a(),
                   opContext.type_as_MatmulOp()->b()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DitMatmulAddcmulFusedOp: {
+    const auto *ditOp = opContext.type_as_DitMatmulAddcmulFusedOp();
+    tensorRefs = {ditOp->a(), ditOp->b(), ditOp->residual(), ditOp->gate()};
+    // bias is optional; only include it when present.
+    if (ditOp->bias()) {
+      tensorRefs.push_back(ditOp->bias());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::SparseMatmulOp: {

@@ -2658,6 +2658,26 @@ std::optional<int64_t> getMatmulInnerDim(::mlir::RankedTensorType inputA,
 
 // ANCHOR: adding_an_op_matmul_ttnn_verify
 // MatmulOp verification
+::mlir::LogicalResult mlir::tt::ttnn::DitMatmulAddcmulFusedOp::verify() {
+  ::mlir::RankedTensorType inputAType = getA().getType();
+  ::mlir::RankedTensorType inputBType = getB().getType();
+
+  if (inputAType.getRank() < 2 || inputBType.getRank() < 2) {
+    return emitOpError("Inputs a and b must be at least 2D tensors");
+  }
+
+  llvm::ArrayRef<int64_t> aShape = inputAType.getShape();
+  llvm::ArrayRef<int64_t> bShape = inputBType.getShape();
+  if (aShape[aShape.size() - 1] != bShape[bShape.size() - 2]) {
+    return emitOpError("Input a[-1](")
+           << aShape[aShape.size() - 1] << ") and b[-2]("
+           << bShape[bShape.size() - 2]
+           << ") must have matching inner dimensions";
+  }
+
+  return success();
+}
+
 ::mlir::LogicalResult mlir::tt::ttnn::MatmulOp::verify() {
   ::mlir::RankedTensorType inputAType = getA().getType();
   ::mlir::RankedTensorType inputBType = getB().getType();
