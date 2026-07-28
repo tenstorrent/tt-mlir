@@ -15,6 +15,7 @@ import inspect
 import torch
 
 from ..tensor_layout import Layout
+from ..layout_math import reduction_layout, resolve_reshape
 from .tensors import SimTensor, tile_padded_shape, torch_dtype
 
 
@@ -109,81 +110,13 @@ def arange(layout: Layout, start: int = 0, step: int = 1) -> SimTensor:
 
 def reshape(lt: SimTensor, *shape) -> SimTensor:
     """Sim analog of `builder.reshape`: a host roundtrip (`to_host` ->
-    `torch.reshape` -> `to_layout`).
-
-    The shape resolution below (list/positional forms, single `-1` inference,
-    element-count check, destination block/grid pick) mirrors `builder.reshape`
-    verbatim so the error messages the negative tests assert stay identical."""
+    `torch.reshape` -> `to_layout`). Shape resolution is the shared
+    `resolve_reshape`, so the resolved layout and the error messages the
+    negative tests assert are identical to the device path."""
     if not isinstance(lt, SimTensor):
         raise TypeError(f"reshape expected a SimTensor, got {type(lt).__name__}")
 
-    # Accept reshape(lt, 32, 128) and reshape(lt, [32, 128]).
-    if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
-        new_shape = tuple(shape[0])
-    else:
-        new_shape = tuple(shape)
-
-    src_numel = 1
-    for d in lt.layout.logical_shape:
-        src_numel *= d
-
-    # A single `-1` dim is inferred from the remaining dims (torch idiom).
-    neg_axes = [i for i, d in enumerate(new_shape) if d == -1]
-    if len(neg_axes) > 1:
-        raise ValueError(
-            f"reshape: only one dimension may be inferred (-1), got {new_shape}"
-        )
-    if any(d < -1 for d in new_shape):
-        raise ValueError(f"reshape: dimensions must be >= -1, got {new_shape}")
-    if neg_axes:
-        known = 1
-        for d in new_shape:
-            if d != -1:
-                known *= d
-        if known == 0 or src_numel % known != 0:
-            raise ValueError(
-                f"reshape: cannot infer -1 dimension: src has {src_numel} "
-                f"elements which is not divisible by the product of the "
-                f"known dims {known} (from {new_shape})"
-            )
-        inferred = src_numel // known
-        new_shape = tuple(inferred if d == -1 else d for d in new_shape)
-
-    dst_numel = 1
-    for d in new_shape:
-        dst_numel *= d
-    if src_numel != dst_numel:
-        raise ValueError(
-            f"reshape: total element count must match: "
-            f"src {tuple(lt.layout.logical_shape)} ({src_numel}) "
-            f"!= dst {new_shape} ({dst_numel})"
-        )
-
-    # Keep src's block/grid if they still divide the new shape, else fall back
-    # to a trivial single-block single-grid layout.
-    rank = len(new_shape)
-    src_block = list(lt.layout.block_shape)
-    src_grid = list(lt.layout.grid_shape)
-    if (
-        len(src_block) == rank
-        and len(src_grid) == rank
-        and all(
-            d % (b * g * (32 if lt.layout.tiled else 1)) == 0
-            for d, b, g in zip(new_shape, src_block, src_grid)
-        )
-    ):
-        block_shape = src_block
-        grid_shape = src_grid
-    else:
-        block_shape = [1] * rank
-        grid_shape = [1] * rank
-
-    dst_layout = lt.layout.replace(
-        shape=new_shape,
-        block_shape=block_shape,
-        grid_shape=grid_shape,
-    )
-
+    new_shape, dst_layout = resolve_reshape(lt.layout, shape)
     host = lt.to_host().reshape(new_shape)
     return to_layout(host, dst_layout)
 
@@ -335,30 +268,10 @@ def view_layout(lt: SimTensor, remapping_fn) -> SimTensor:
 
 
 # --- reductions / materialisation -------------------------------------------
-
-
-def reduction_layout(layout: Layout, dim, allow_cross_tile: bool = False) -> Layout:
-    rank = len(layout.logical_shape)
-    if dim < 0:
-        dim += rank
-    if dim < 0 or dim >= rank:
-        raise ValueError(
-            f"reduce dim must be in range [-{rank}, {rank - 1}], got {dim}"
-        )
-    if layout.grid_shape[dim] > 1 and not allow_cross_tile:
-        raise ValueError(
-            "collapsed reductions only support a reduced logical dimension "
-            f"that fits on one core; got {layout.grid_shape[dim]} cores along "
-            f"dimension {dim}. Pass allow_cross_tile=True only when the kernel "
-            "has an explicit cross-core gather/redistribute strategy."
-        )
-    shape = list(layout.logical_shape)
-    block_shape = list(layout.block_shape)
-    grid_shape = list(layout.grid_shape)
-    shape[dim] = 1
-    block_shape[dim] = 1
-    grid_shape[dim] = 1
-    return layout.replace(shape=shape, block_shape=block_shape, grid_shape=grid_shape)
+#
+# `reduction_layout` is the shared pure-descriptor helper, imported above and
+# re-exported here (and thus through the sim package) so the sim surface still
+# offers it.
 
 
 def to_host(*lts: SimTensor):
