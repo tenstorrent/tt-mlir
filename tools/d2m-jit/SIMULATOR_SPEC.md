@@ -379,7 +379,10 @@ exact mode; quirks are a 🟢 follow-up.
 | `view(lt, fn)` / `permute(lt, *d)` | logical permutation of `.buffer`; `is_view=True`; same arity/true-permutation validation as device |
 | `view_layout(lt, fn)` | **paired `(grid, tile)` permutations only** — the `2*n`-arg lambda's head permutes and the tail must mirror it (`pos == head[i]+n`); broadcast/const (literal `0`) remaps raise `NotImplementedError` (not modeled yet); `is_view=True` |
 | `to_host(*lts)` | reject `is_view` args (same message as device); return `tuple` of `to_logical()` slices (logical shape + dtype). No module/pipeline/reset needed |
-| `reduction_layout(L, dim, ...)` | reused unchanged (pure descriptor math) |
+| `reduction_layout(L, dim, ...)` | same pure descriptor math as device (duplicated, MLIR-free); dispatched so the sim copy is live under `backend="sim"` |
+| `arange(L, start, step)` | host `torch.arange` over `L.logical_shape` + `to_layout` (mirrors the device host roundtrip) |
+| `reshape(lt, *shape)` | host roundtrip (`to_host` → `torch.reshape` → `to_layout`); shape resolution (`-1` inference, numel/error messages) mirrors `builder.reshape` |
+| `spatial(inputs, outputs, grid_ranges, region_builders)` | runs each region builder in sequence — kernels mutate their outputs in place, and physical placement (`grid_ranges`) is value-neutral (§3), so no core-range modeling is needed |
 
 `view`/`permute` validation (rank, true-permutation, torch-tensor rejection)
 and the `to_host`-on-view rejection are replicated; `test/d2m-jit/test_views.py`
@@ -547,19 +550,21 @@ Deferred (🟡/🟢), out of v1:
    keeps it visible in that report too — and stops it drifting out of date, which
    it did twice before the reasons were audited against actual root causes.
 
-   The reason should name the root cause, not the symptom. Five classes appear:
+   The reason should name the root cause, not the symptom. Four classes appear:
    intended divergences (§9 — multicast); error type/message parity (§8 —
-   `test_errors.py`, the reduce-dim rejections, staleness); host APIs the switch
-   does not dispatch, which raise `NotImplementedError` (`d2m.spatial`,
-   `d2m.arange`, `d2m.reshape`); device-only machinery with no sim analog
-   (the pass-pipeline debug knobs, `runner`-driven rewrite and e2e tests, and the
-   RoPE kernel — which derives its half-roll `view_layout` from the device
-   physical rank-4 shape via `LazyTensor.value`, something §3 deliberately does
-   not model); and tests that would pass *vacuously* under sim
-   (`autotuner/test_autotuner.py::test_autotune_exp_on_device` asserts an
-   on-silicon contract, and dispatching it to the simulator makes its `error` /
-   `pcc` assertions describe the simulator instead — a green result that checks
-   nothing it claims to).
+   `test_errors.py`, the reduce-dim rejections, staleness); device-only machinery
+   with no sim analog (the pass-pipeline debug knobs, `runner`-driven rewrite and
+   e2e tests, and the RoPE kernel — which derives its half-roll `view_layout`
+   from the device physical rank-4 shape via `LazyTensor.value`, something §3
+   deliberately does not model); and tests that would pass *vacuously* under sim
+   (`autotuner/test_autotuner.py`, marked `device_only` at module scope, asserts
+   an on-silicon contract — dispatching it to the simulator would make its
+   `error` / `pcc` assertions describe the simulator instead, a green result that
+   checks nothing it claims to).
+
+   Every host op — `arange` / `reshape` / `spatial` included — is now dispatched
+   to the simulator (§7), so there is no longer a "host API the switch does not
+   dispatch" skip class.
 
    That last class is worth calling out: `device_only` is not only for tests that
    *fail* under sim. A test whose assertions stop meaning anything is worse than

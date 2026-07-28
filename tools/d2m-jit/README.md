@@ -491,9 +491,10 @@ reference on both backends — not just the kernels `test_sim.py` defines. Tests
 that cannot hold on the simulator are marked `device_only` and skip themselves in
 the sim re-run.
 
-A few host functions are device-only and say so under `backend = "sim"`:
-`arange`, `reshape`, and `spatial` raise `NotImplementedError` rather than
-failing inside the device implementation.
+The whole host-op surface is dispatched to the simulator too, `arange` /
+`reshape` / `spatial` included (`arange` / `reshape` are host roundtrips;
+`spatial` runs each region builder in sequence, since physical placement is
+value-neutral in sim — see SIMULATOR_SPEC.md §3).
 
 ## Related
 

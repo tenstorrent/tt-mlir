@@ -68,7 +68,11 @@ def _use_sim():
 
 def _dispatch(name):
     """Build a host-function wrapper that routes to the device or sim impl of
-    `name` based on `config.backend` at call time."""
+    `name` based on `config.backend` at call time.
+
+    The wrapper is tagged with `_d2m_dispatch_name` so the host-op surface is
+    discoverable: `test_backend_switch.py` audits that every dispatched host op
+    has a sim backing, mirroring the `@syntax` audit for in-kernel ops."""
     device_fn = getattr(_builder, name)
 
     @functools.wraps(device_fn)
@@ -76,6 +80,7 @@ def _dispatch(name):
         impl = getattr(_sim(), name) if _use_sim() else device_fn
         return impl(*args, **kwargs)
 
+    wrapper._d2m_dispatch_name = name
     return wrapper
 
 
@@ -90,6 +95,9 @@ view = _dispatch("view")
 permute = _dispatch("permute")
 to_host = _dispatch("to_host")
 
+# Pure descriptor math shared by both backends, but still dispatched so the sim
+# copy is live under backend="sim" and covered by the host-op parity audit.
+reduction_layout = _dispatch("reduction_layout")
 
 arange = _dispatch("arange")
 reshape = _dispatch("reshape")

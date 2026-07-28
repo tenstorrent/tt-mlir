@@ -108,6 +108,44 @@ def test_every_device_syntax_name_has_a_sim_backing():
     ), f"device syntax names with no sim backing: {sorted(set(missing) - known_gaps)}"
 
 
+def test_every_dispatched_host_op_is_backed_and_exported_by_sim():
+    """Host-op analog of the `@syntax` audit above.
+
+    Every host op the canonical `import d2m_jit` surface dispatches (each tagged
+    `_d2m_dispatch_name` by `api._dispatch`) must (a) resolve in the sim package,
+    (b) be listed in `_src/sim/__init__.__all__`, and (c) be listed in the
+    `d2m_jit.sim` shadow surface's `__all__`. Without this, a host op added to
+    the device builder + `_dispatch` but forgotten in `_src/sim/host.py` only
+    fails at call time under sim, and only if some test happens to exercise it --
+    the gap that left `reduction_layout` running the device impl under
+    `backend="sim"`."""
+    import d2m_jit.api as _api
+    import d2m_jit._src.sim as _sim_pkg
+    import d2m_jit.sim as _sim_shadow
+
+    dispatched = {
+        v._d2m_dispatch_name
+        for v in vars(_api).values()
+        if getattr(v, "_d2m_dispatch_name", None) is not None
+    }
+    # Guard against a vacuous pass if the tagging ever silently breaks (an empty
+    # set would satisfy every subset assertion below trivially).
+    assert len(dispatched) >= 12, f"dispatched host-op set looks wrong: {dispatched}"
+
+    not_backed = sorted(n for n in dispatched if not hasattr(_sim_pkg, n))
+    assert not not_backed, f"dispatched host ops with no sim backing: {not_backed}"
+
+    missing_pkg = sorted(n for n in dispatched if n not in _sim_pkg.__all__)
+    assert (
+        not missing_pkg
+    ), f"dispatched host ops missing from _src/sim __all__: {missing_pkg}"
+
+    missing_shadow = sorted(n for n in dispatched if n not in _sim_shadow.__all__)
+    assert (
+        not missing_shadow
+    ), f"dispatched host ops missing from d2m_jit.sim shadow __all__: {missing_shadow}"
+
+
 def test_kernel_forwards_attributes_to_backend_kernel():
     """Before the switch, `@d2m.kernel` *was* the concrete kernel, so callers
     read attributes straight off it -- `CompiledKernel._captures` is checked by
