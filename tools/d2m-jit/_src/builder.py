@@ -906,7 +906,7 @@ def _semaphore_backing_type(ctx, grid_shape):
         for i in range(rank)
         for endpoint in (i, i + 1)
     ]
-    collapse = DenseIntElementsAttr.get(interval_type, interval_values)
+    collapse = DenseIntElementsAttr.get(interval_values, type=interval_type)
     metal_layout = ttcore.ir.MetalLayoutAttr.get(
         ctx,
         list(grid_shape),
