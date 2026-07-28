@@ -18,6 +18,7 @@
 #include "llvm/Support/Error.h"
 
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <tuple>
 #include <variant>
@@ -59,6 +60,74 @@ const TestTensor inerleaved2048X2048L1 = {{2048, 2048},
                                           BufferType::L1,
                                           llvm::SmallVector<int64_t>{8, 8}};
 } // namespace detail
+
+// ==== Stateful peak-L1 underflow repair ====
+// tt-metal's graph-trace walker subtracts without a guard on buffer-deallocate
+// nodes, so a stateful (build-from-records) query -- whose trace frees
+// pre-seeded live buffers it never allocated -- can report a peak that wrapped
+// around zero. These are pure arithmetic tests of the repair; no device needed.
+
+TEST(RepairUnderflowedL1Peaks, SanePeaksArePreserved) {
+  const L1PeakUsage usage = repairUnderflowedL1Peaks(
+      L1PeakUsage{/*cbL1PeakSize=*/137280, /*tensorL1PeakSize=*/151552,
+                  /*peakL1MemorySize=*/288832, /*outputL1BufferSize=*/20480});
+  EXPECT_EQ(usage.cbL1PeakSize, 137280u);
+  EXPECT_EQ(usage.tensorL1PeakSize, 151552u);
+  EXPECT_EQ(usage.peakL1MemorySize, 288832u);
+  EXPECT_EQ(usage.outputL1BufferSize, 20480u);
+}
+
+TEST(RepairUnderflowedL1Peaks, ZeroPeaksArePreserved) {
+  const L1PeakUsage usage = repairUnderflowedL1Peaks(L1PeakUsage{});
+  EXPECT_EQ(usage.cbL1PeakSize, 0u);
+  EXPECT_EQ(usage.tensorL1PeakSize, 0u);
+  EXPECT_EQ(usage.peakL1MemorySize, 0u);
+  EXPECT_EQ(usage.outputL1BufferSize, 0u);
+}
+
+// The values observed on mobilenetv2 bs12 / n150 in
+// https://github.com/tenstorrent/tt-mlir/issues/9069: the overall peak came
+// back as 2^64 - 20480, 20480 being the size of a live per-core L1 record that
+// the op's trace deallocated. Unrepaired, that peak exceeds any L1 limit and
+// forces a spurious spill at ~1% real occupancy.
+TEST(RepairUnderflowedL1Peaks, WrappedOverallPeakIsRebuiltFromComponents) {
+  constexpr size_t wrapped = std::numeric_limits<size_t>::max() - 20480 + 1;
+  ASSERT_TRUE(isUnderflowedL1Usage(wrapped));
+
+  const L1PeakUsage usage = repairUnderflowedL1Peaks(
+      L1PeakUsage{/*cbL1PeakSize=*/137280, /*tensorL1PeakSize=*/18432,
+                  /*peakL1MemorySize=*/wrapped, /*outputL1BufferSize=*/20480});
+  EXPECT_FALSE(isUnderflowedL1Usage(usage.peakL1MemorySize));
+  // cbL1PeakSize + tensorL1PeakSize: the tightest bound on the true peak that
+  // cannot itself have wrapped.
+  EXPECT_EQ(usage.peakL1MemorySize, 137280u + 18432u);
+  // Untouched: only the wrapped fields are repaired.
+  EXPECT_EQ(usage.cbL1PeakSize, 137280u);
+  EXPECT_EQ(usage.tensorL1PeakSize, 18432u);
+}
+
+TEST(RepairUnderflowedL1Peaks, WrappedTensorPeakFallsBackToOutputSize) {
+  constexpr size_t wrappedTensor =
+      std::numeric_limits<size_t>::max() - 6144 + 1;
+  constexpr size_t wrappedTotal =
+      std::numeric_limits<size_t>::max() - 18432 + 1;
+
+  const L1PeakUsage usage = repairUnderflowedL1Peaks(L1PeakUsage{
+      /*cbL1PeakSize=*/137280, /*tensorL1PeakSize=*/wrappedTensor,
+      /*peakL1MemorySize=*/wrappedTotal, /*outputL1BufferSize=*/20480});
+  EXPECT_EQ(usage.tensorL1PeakSize, 20480u);
+  EXPECT_EQ(usage.peakL1MemorySize, 137280u + 20480u);
+}
+
+// A peak just under the wrap threshold is not treated as an underflow, and one
+// just over it is. Guards the detection bound itself.
+TEST(RepairUnderflowedL1Peaks, DetectionBound) {
+  constexpr size_t half = std::numeric_limits<size_t>::max() / 2;
+  EXPECT_FALSE(isUnderflowedL1Usage(half));
+  EXPECT_TRUE(isUnderflowedL1Usage(half + 1));
+  EXPECT_FALSE(isUnderflowedL1Usage(0));
+  EXPECT_FALSE(isUnderflowedL1Usage(1325166));
+}
 
 // ==== Unary Eltwise Ops Starts ====
 

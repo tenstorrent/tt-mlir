@@ -292,10 +292,19 @@ llvm::Expected<OpConstraints> getOpConstraintsWithState(MLIRContext *context,
                                 static_cast<uint64_t>(record.size_per_bank)});
   }
 
-  return OpConstraints(out.response.resource_usage.cb_peak_size_per_core,
-                       out.response.resource_usage.l1_buffers_peak_per_core,
-                       out.response.resource_usage.peak_memory_usage_per_core,
-                       out.response.resource_usage.l1_output_buffer_per_core,
+  // The stateful query pre-seeds the allocator with the caller's live records,
+  // so the captured trace frees buffers it never allocated and tt-metal's
+  // unguarded running-counter subtraction can report a peak that has wrapped
+  // below zero. Repair those before anyone compares them against an L1 limit
+  // (see repairUnderflowedL1Peaks).
+  const L1PeakUsage l1Usage = repairUnderflowedL1Peaks(
+      L1PeakUsage{out.response.resource_usage.cb_peak_size_per_core,
+                  out.response.resource_usage.l1_buffers_peak_per_core,
+                  out.response.resource_usage.peak_memory_usage_per_core,
+                  out.response.resource_usage.l1_output_buffer_per_core});
+
+  return OpConstraints(l1Usage.cbL1PeakSize, l1Usage.tensorL1PeakSize,
+                       l1Usage.peakL1MemorySize, l1Usage.outputL1BufferSize,
                        layoutAttrs, std::move(outputAllocations));
 }
 
