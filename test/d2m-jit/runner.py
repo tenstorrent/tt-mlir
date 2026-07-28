@@ -188,6 +188,17 @@ def _gen_tensor(shape, td, dist, gen):
     if callable(dist):
         return dist(shape, td, gen)
     spec = dist.strip()
+    if not td.is_floating_point:
+        # torch.rand/randn reject integer dtypes; map named dists to randint.
+        if spec.startswith("uniform"):
+            lo, hi = (
+                float(x) for x in spec[spec.index("(") + 1 : spec.index(")")].split(",")
+            )
+            return torch.randint(int(lo), int(hi) + 1, shape, generator=gen, dtype=td)
+        if spec in ("rand", "randn"):
+            info = torch.iinfo(td)
+            return torch.randint(info.min, info.max, shape, generator=gen, dtype=td)
+        raise ValueError(f"unknown input distribution for integer dtype: {dist!r}")
     if spec.startswith("uniform"):
         lo, hi = (
             float(x) for x in spec[spec.index("(") + 1 : spec.index(")")].split(",")

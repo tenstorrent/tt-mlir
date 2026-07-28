@@ -66,3 +66,17 @@ def test_parse_func_io_accepts_integer_arguments():
     """
 
     assert runner.parse_func_io(ttir) == [((8,), torch.int64)]
+
+
+def test_gen_tensor_supports_integer_distributions():
+    gen = torch.Generator()
+    gen.manual_seed(0)
+    uniform = runner._gen_tensor((4,), torch.int32, "uniform(0, 3)", gen)
+    assert uniform.dtype == torch.int32
+    assert uniform.shape == (4,)
+    assert int(uniform.min()) >= 0 and int(uniform.max()) <= 3
+
+    gen.manual_seed(1)
+    rand = runner._gen_tensor((2, 2), torch.int64, "rand", gen)
+    assert rand.dtype == torch.int64
+    assert rand.shape == (2, 2)
