@@ -109,7 +109,32 @@ def rms_scale_sc(x, gamma, inv, out, kh):
         remote_store(out, [0, n], t * g * iv)
 
 
-@d2m.pattern(root=ttir.RMSNormOp, benefit=10)
+def _rmsnorm_sc_match(op):
+    """Pure match predicate for the single-core RMSNorm rewrite.
+
+    Requires static rank-2 f32 activation with seq/hidden multiples of 32 and a
+    rank-1 weight of length `hidden`. Unsupported shapes must fail here rather
+    than inside the rewrite body.
+    """
+    if len(op.operands) < 2:
+        return False
+    xt = ir.RankedTensorType(op.operands[0].type)
+    wt = ir.RankedTensorType(op.operands[1].type)
+    if not xt.has_static_shape or not wt.has_static_shape:
+        return False
+    if len(xt.shape) != 2 or len(wt.shape) != 1:
+        return False
+    if not ir.F32Type.isinstance(xt.element_type):
+        return False
+    if xt.element_type != wt.element_type:
+        return False
+    seq, hidden = int(xt.shape[0]), int(xt.shape[1])
+    if seq % 32 != 0 or hidden % 32 != 0 or hidden == 0:
+        return False
+    return int(wt.shape[0]) == hidden
+
+
+@d2m.pattern(root=ttir.RMSNormOp, benefit=10, match=_rmsnorm_sc_match)
 def lower_rmsnorm(op, rewriter):
     x_val = op.operands[0]
     w_val = op.operands[1]

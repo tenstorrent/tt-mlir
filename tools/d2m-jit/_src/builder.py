@@ -318,7 +318,13 @@ class RewriteScope:
         import numpy as np
 
         host_ty = layout.build_host_tensor_type(self.ctx)
-        arr = np.ascontiguousarray(host_tensor.detach().cpu().numpy())
+        cpu = host_tensor.detach().cpu().contiguous()
+        # PyTorch bfloat16 cannot convert to NumPy directly; pack as uint16
+        # bits and attach the host tensor type explicitly (same as TTIRBuilder).
+        if cpu.dtype == torch.bfloat16:
+            arr = cpu.view(torch.int16).numpy().astype(np.uint16)
+        else:
+            arr = np.ascontiguousarray(cpu.numpy())
         with self.ctx, self.loc, self.insert_point:
             attr = DenseElementsAttr.get(arr, type=host_ty)
             return arith.ConstantOp(host_ty, attr).result
