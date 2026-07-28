@@ -1253,17 +1253,33 @@ createOp(FlatbufferObjectCache &cache, AllToAllDispatchMetadataOp op) {
     memoryConfig = toFlatbuffer(cache, memConfig.value());
   }
 
-  const ::tt::target::ttnn::CoreCoord *drainCorePtr = nullptr;
-  ::tt::target::ttnn::CoreCoord drainCoreVal;
-  if (auto drainCoreAttr = op.getDrainCore()) {
-    drainCoreVal = toFlatbuffer(cache, *drainCoreAttr);
-    drainCorePtr = &drainCoreVal;
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> dispatchedBuffer = 0;
+  if (op.getDispatchedBuffer()) {
+    dispatchedBuffer = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getDispatchedBuffer()));
+  }
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> indicesBuffer = 0;
+  if (op.getIndicesBuffer()) {
+    indicesBuffer = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getIndicesBuffer()));
+  }
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> scoresBuffer = 0;
+  if (op.getScoresBuffer()) {
+    scoresBuffer = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getScoresBuffer()));
+  }
+  ::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>
+      crossDeviceSemaphore = 0;
+  if (op.getCrossDeviceSemaphore()) {
+    crossDeviceSemaphore = cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(
+        op.getCrossDeviceSemaphore());
   }
 
   return ::tt::target::ttnn::CreateAllToAllDispatchMetadataOp(
       *cache.fbb, inputTensor, expertIndices, expertScores, expertMapping,
       dispatched, indices, scores, static_cast<uint32_t>(op.getNumDevices()),
-      static_cast<uint32_t>(op.getClusterAxis()), memoryConfig, drainCorePtr);
+      static_cast<uint32_t>(op.getClusterAxis()), memoryConfig,
+      dispatchedBuffer, indicesBuffer, scoresBuffer, crossDeviceSemaphore);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::AllToAllCombineOp>
@@ -3317,9 +3333,13 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::SDPAConfig>>
       programConfig = toFlatbuffer(cache, op.getProgramConfig());
 
+  ::flatbuffers::Optional<uint32_t> slidingWindowSize =
+      toFlatbuffer(cache, op.getSlidingWindowSize());
+
   return ::tt::target::ttnn::CreateScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, isCausal, attentionMask, curPosTensor,
-      attentionSink, scale, out, memoryConfig, programConfig.value_or(0));
+      attentionSink, scale, slidingWindowSize, out, memoryConfig,
+      programConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<

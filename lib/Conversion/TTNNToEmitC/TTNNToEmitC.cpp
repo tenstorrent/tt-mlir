@@ -4230,19 +4230,8 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AllToAllDispatchMetadataOp>
         emitter(srcOp, adaptor, rewriter);
 
-    // Emit drain_sync_tilizer_core as tt::tt_metal::CoreCoord if present.
-    mlir::Attribute drainCoreArg;
-    if (auto drainCore = srcOp.getDrainCore()) {
-      std::string buf;
-      llvm::raw_string_ostream rso(buf);
-      rso << "std::make_optional<tt::tt_metal::CoreCoord>("
-          << "tt::tt_metal::CoreCoord(" << drainCore->getX() << ", "
-          << drainCore->getY() << "))";
-      drainCoreArg = rewriter.getAttr<emitc::OpaqueAttr>(rso.str());
-    } else {
-      drainCoreArg = emitter.emit(std::nullopt);
-    }
-
+    // Persistent mode derives the drain core from the shard spec, so it is
+    // passed as nullopt.
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInputTensor()),
         emitter.emit(srcOp.getExpertIndices()),
@@ -4251,7 +4240,7 @@ public:
         /*axis=*/emitter.emit(srcOp.getClusterAxis()),
         /*optional_output_tensors=*/emitter.emit(std::nullopt),
         /*num_links=*/emitter.emit(std::nullopt),
-        /*drain_sync_tilizer_core=*/drainCoreArg,
+        /*drain_sync_tilizer_core=*/emitter.emit(std::nullopt),
     };
 
     // Multi-result: returns std::array<ttnn::Tensor, 3>.

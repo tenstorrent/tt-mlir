@@ -1,10 +1,14 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-split-unified-thread --split-input-file %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-split-unified-thread --verify-diagnostics --split-input-file %s
 
 // Cross-nest fan-out: a CB consumed by compute ops living in two distinct loop
-// nests. The producer pushes the CB once per blocking-loop iteration, so a
-// single per-block wait/pop pair cannot dominate/post-dominate consumers spread
-// across separate nests. This is not yet supported; the pattern must fail
-// without splitting the generic into a deadlocking DM/compute pair.
+// nests, whose producer transfers it from *inside* one of those nests. The DMA
+// pushes the CB once per iteration of the first nest, so a single wait/pop pair
+// cannot dominate/post-dominate consumers spread across separate nests. This is
+// not yet supported; the pattern must fail without splitting the generic into a
+// deadlocking DM/compute pair.
+//
+// The supported counterpart (a transfer at the region top level, read from
+// sibling nests) is covered by split_unified_thread_fanout_toplevel_transfer.mlir.
 
 #l1 = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
@@ -19,10 +23,8 @@ module attributes {ttcore.system_desc = #system_desc} {
     %stream = d2m.view_layout %arg0 remapping = #map4 : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
     %cb_in = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
     %cb_a = memref.alloc() {address = 6144 : i64, alignment = 16 : i64} : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
-    // CHECK-LABEL: func.func @fanout_cross_nest
-    // CHECK: d2m.generic
-    // CHECK-SAME: threads = [#d2m.thread<unified>]
-    // CHECK-NOT: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
+    // expected-error @+2 {{circular buffer (port 2) is consumed by compute across distinct loop nests}}
+    // expected-error @+1 {{failed to split unified thread}}
     d2m.generic {block_factors = [], grid = #ttcore.grid<4x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%stream : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%res : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
@@ -30,8 +32,11 @@ module attributes {ttcore.system_desc = #system_desc} {
     ^unified0:
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
-      d2m.remote_load %cb_in %stream[%c0, %c0] : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>, memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
       scf.for %i = %c0 to %c1 step %c1 {
+        // Per-iteration transfer: the CB is refilled on every trip of this
+        // nest, so its wait/pop must live inside the nest -- and therefore
+        // cannot cover the read in the sibling nest below.
+        d2m.remote_load %cb_in %stream[%c0, %c0] : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>, memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
         linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%cb_in : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>) outs(%cb_a : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>) {
         ^bb0(%in: !ttcore.tile<32x32, f32>, %o: !ttcore.tile<32x32, f32>):
           %e = "d2m.tile_exp"(%in) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>

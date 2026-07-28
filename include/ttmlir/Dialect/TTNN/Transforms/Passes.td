@@ -361,7 +361,12 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
             "enable-rope-fusion",
             "bool", /*default=*/"false",
             "Enable RoPE fusion patterns at the TTNN level. Disabled by "
-            "default since RoPE fusion is handled at the TTIR level.">
+            "default since RoPE fusion is handled at the TTIR level.">,
+    Option<"enableSDPAFusion",
+            "enable-sdpa-fusion",
+            "bool", /*default=*/"false",
+            "Enable SDPA fusion patterns at the TTNN level. Disabled by "
+            "default since SDPA fusion is handled at the TTIR level.">
   ];
 }
 

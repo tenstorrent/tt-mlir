@@ -1,13 +1,12 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=1 enable-greedy-optimizer=true override-conv3d-config=conv3d_full=weights_dtype#bf16:t_out_block#1:w_out_block#1:h_out_block#1:c_out_block#32:c_in_block#64,conv3d_partial=c_in_block#64" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=1 override-conv3d-config=conv3d_full=weights_dtype#bf16:t_out_block#1:w_out_block#1:h_out_block#1:c_out_block#32:c_in_block#64,conv3d_partial=c_in_block#64" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// Same as conv3d_config_override.mlir but with the greedy memory-layout
-// optimizer (enable-greedy-optimizer=true, the default at optimization-level>=1)
-// instead of the chain TTNNOptimizer. Regression test for Conv3dRuleBook
-// getOutputHints: without it the greedy path's base getOutputHints emits a null
-// hint that drops the Conv3dConfig, so --override-conv3d-config was silently
-// ignored under greedy. Both paths must pin the same fields.
+// Verifies --override-conv3d-config is honored by the greedy memory-layout
+// optimizer (the default at optimization-level>=1). Regression test for
+// Conv3dRuleBook getOutputHints: without it the greedy path's base
+// getOutputHints emits a null hint that drops the Conv3dConfig, so
+// --override-conv3d-config was silently ignored.
 module {
   // Full override: every field pinned. The emitted conv3d_config must reflect
   // exactly the override values. TTNNPrepareConv3dWeights additionally fills

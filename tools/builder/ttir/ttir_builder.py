@@ -19199,7 +19199,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> Tuple[OpResult, OpResult]:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.topk)
 
         if output_type is None:
@@ -19243,9 +19243,29 @@ class TTIRBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
+        # The ttir.topk op is dual-result: it produces both values and indices.
+        # topk() returns only the values result; topk_indices() recovers the
+        # indices result of the same op without emitting a duplicate op.
         self._set_golden_tensor(op_values, golden_values)
+        self._set_golden_tensor(op.indices, golden_indices)
 
         return op_values
+
+    def topk_indices(self, topk_values: OpResult) -> OpResult:
+        """Return the indices result of the ttir.topk op that produced ``topk_values``.
+
+        ``topk`` yields only the values result; the op itself is dual-result
+        (values, indices). This recovers the sibling indices result from the
+        same op, so no second topk op is emitted.
+        """
+        owner = topk_values.owner
+        op_view = owner.opview if isinstance(owner, Operation) else owner
+        if not isinstance(op_view, ttir.TopKOp):
+            raise TypeError(
+                "topk_indices expects a value produced by builder.topk; got "
+                f"{type(op_view).__name__}"
+            )
+        return op_view.indices
 
     @parse(ttir.TopKOp)
     def topk_parser(

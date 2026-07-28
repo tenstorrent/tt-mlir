@@ -2023,6 +2023,7 @@ TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
       /*cur_pos_tensor=*/curPos,
       /*attention_sink=*/nullptr,
       /*scale=*/nullptr,
+      /*sliding_window_size=*/nullptr,
       /*program_config=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttentionDecode.getOperation());
@@ -2106,7 +2107,8 @@ TEST_F(OpModelBase,
       /*is_causal=*/false,
       /*attention_mask=*/attentionMask,
       /*cur_pos_tensor=*/curPos, /*attention_sink=*/nullptr,
-      /*scale=*/nullptr, /*program_config=*/nullptr);
+      /*scale=*/nullptr, /*sliding_window_size=*/nullptr,
+      /*program_config=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttentionDecode.getOperation());
   auto constraintsExp = backend.getOpConstraints(

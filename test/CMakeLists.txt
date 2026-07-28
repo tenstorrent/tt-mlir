@@ -44,6 +44,9 @@ endif()
 if(TTMLIR_ENABLE_TTNN_JIT AND MLIR_ENABLE_BINDINGS_PYTHON AND TTMLIR_ENABLE_BINDINGS_PYTHON)
     list(APPEND TTMLIR_TEST_DEPENDS ttnn-jit)
 endif()
+if(TTMLIR_ENABLE_D2M_JIT AND MLIR_ENABLE_BINDINGS_PYTHON AND TTMLIR_ENABLE_BINDINGS_PYTHON)
+    list(APPEND TTMLIR_TEST_DEPENDS d2m-jit)
+endif()
 
 # Add custom target to compile everything needed for tests but not execute it
 add_custom_target(compile-ttmlir-tests DEPENDS ${TTMLIR_TEST_DEPENDS})

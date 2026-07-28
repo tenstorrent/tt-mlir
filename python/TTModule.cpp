@@ -274,6 +274,17 @@ void populateTTModule(nb::module_ &m) {
       .def_prop_ro("y", &tt::ttcore::CoreCoordAttr::getY)
       .def_prop_ro("x", &tt::ttcore::CoreCoordAttr::getX);
 
+  tt_attribute_class<tt::ttcore::CoreRangeAttr>(m, "CoreRangeAttr")
+      .def_static("get",
+                  [](MlirContext ctx, MlirAttribute start, MlirAttribute end) {
+                    return wrap(tt::ttcore::CoreRangeAttr::get(
+                        unwrap(ctx),
+                        mlir::cast<tt::ttcore::CoreCoordAttr>(unwrap(start)),
+                        mlir::cast<tt::ttcore::CoreCoordAttr>(unwrap(end))));
+                  })
+      .def_prop_ro("start_coord", &tt::ttcore::CoreRangeAttr::getStartCoord)
+      .def_prop_ro("end_coord", &tt::ttcore::CoreRangeAttr::getEndCoord);
+
   tt_attribute_class<tt::ttcore::ChipCoordAttr>(m, "ChipCoordAttr")
       .def_static("get",
                   [](MlirContext ctx, unsigned rack, unsigned shelf, unsigned y,
