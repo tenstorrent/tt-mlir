@@ -458,6 +458,11 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   }
 
   if (perf::Env::get().enablePerfTrace) {
+    // Associate the next device profiler operation with this command.
+    if (loc) {
+      perf::Env::get().tracyLogOpLocation(std::string(loc));
+    }
+
     auto devices = meshDevice->get_devices();
     auto meshShape = meshDevice->shape();
 
