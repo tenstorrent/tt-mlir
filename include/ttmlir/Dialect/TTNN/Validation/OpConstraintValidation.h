@@ -177,14 +177,14 @@ validateWithMultipleAttributes(Operation *op,
                                llvm::ArrayRef<OpConfig> opConfigs,
                                llvm::ArrayRef<OpConfig> referenceConfigs);
 
-// Validate an OpConstraints result against the L1 memory budget derived from
-// the given context operation (used to look up device attributes and module-
-// level tensorL1UsageCap).  This is the shared L1 budget check used by both
-// the Operation*-based validateOperation and the template overload below.
-ValidationResult
-checkConstraintsResult(Operation *contextOp,
-                       llvm::Expected<op_model::OpConstraints> constraints,
-                       uint64_t additionalL1Usage = 0);
+// Validate an OpConstraints result against the L1 budget (looked up from
+// |contextOp|'s device/module attributes). |statefulQuery| skips the peak-usage
+// byte check: on the stateful path tt-metal itself checks fit, while the
+// stateless path has to check it here. The byte budget is enforced by
+// MockAllocatorL1Tracker::validate.
+ValidationResult checkConstraintsResult(
+    Operation *contextOp, llvm::Expected<op_model::OpConstraints> constraints,
+    uint64_t additionalL1Usage = 0, bool statefulQuery = false);
 
 // Op-less validation: calls OpModel<OpType>::getOpConstraints directly with
 // the forwarded arguments, then validates the result against the L1 memory

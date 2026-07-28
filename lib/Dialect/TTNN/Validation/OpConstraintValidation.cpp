@@ -117,7 +117,7 @@ validateWithMultipleAttributes(Operation *op,
 ValidationResult
 checkConstraintsResult(Operation *contextOp,
                        llvm::Expected<op_model::OpConstraints> constraints,
-                       uint64_t additionalL1Usage) {
+                       uint64_t additionalL1Usage, bool statefulQuery) {
   if (!constraints) {
     ValidationResult result;
     llvm::handleAllErrors(
@@ -168,18 +168,24 @@ checkConstraintsResult(Operation *contextOp,
         outputTensorUsagePerCore, outputLayouts, outputAllocations] =
       constraints.get();
 
-  uint64_t effectiveL1Limit = utils::getUsableL1PerCore(contextOp);
-  uint64_t totalL1Usage = overallPeakL1Usage + additionalL1Usage;
+  // Stateless-only L1 capacity model: both graph captures run NO_DISPATCH, so
+  // nothing is allocated and only this comparison keeps the beam search off
+  // illegal L1 layouts. The stateful path skips it -- tt-metal decides fit
+  // there, and MockAllocatorL1Tracker::validate's ceiling owns the byte budget.
+  if (!statefulQuery) {
+    uint64_t effectiveL1Limit = utils::getUsableL1PerCore(contextOp);
+    uint64_t totalL1Usage = overallPeakL1Usage + additionalL1Usage;
 
-  if (totalL1Usage > effectiveL1Limit) {
-    TTMLIR_DEBUG(
-        ttmlir::LogComponent::OpValidation,
-        "Not enough L1 memory. "
-        "totalL1Usage: {} [overallPeakL1Usage={}, additionalL1Usage={}]"
-        " [cbPeakUsage={}, l1BuffersPeakUsage={}] limit: {}",
-        totalL1Usage, overallPeakL1Usage, additionalL1Usage, cbPeakUsage,
-        l1BuffersPeakUsage, effectiveL1Limit);
-    return ValidationResult::outOfMemoryError("Not enough L1 memory");
+    if (totalL1Usage > effectiveL1Limit) {
+      TTMLIR_DEBUG(
+          ttmlir::LogComponent::OpValidation,
+          "Not enough L1 memory. "
+          "totalL1Usage: {} [overallPeakL1Usage={}, additionalL1Usage={}]"
+          " [cbPeakUsage={}, l1BuffersPeakUsage={}] limit: {}",
+          totalL1Usage, overallPeakL1Usage, additionalL1Usage, cbPeakUsage,
+          l1BuffersPeakUsage, effectiveL1Limit);
+      return ValidationResult::outOfMemoryError("Not enough L1 memory");
+    }
   }
 
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
@@ -251,7 +257,8 @@ static ValidationResult validateConstraints(
           ? backend.getOpConstraintsWithState(inputLayouts, config, liveRecords)
           : backend.getOpConstraints(inputLayouts, config);
 
-  return checkConstraintsResult(op, std::move(l1UsageExp), additionalL1Usage);
+  return checkConstraintsResult(op, std::move(l1UsageExp), additionalL1Usage,
+                                useState);
 }
 
 } // namespace op_constraint_validation
