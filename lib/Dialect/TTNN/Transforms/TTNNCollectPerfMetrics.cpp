@@ -133,8 +133,7 @@ inline uint64_t roundUpToTiles(uint64_t x) {
 //
 //===----------------------------------------------------------------------===//
 
-// Cost of one 32x32x32 tile matmul on the matrix engine, in cycles. Shared by
-// the roofline below and the FLOP report's peak calculation.
+// Cycles for one 32x32x32 tile matmul.
 uint64_t getCyclesPerTileMatmul(MathFidelity mathFidelity) {
   switch (mathFidelity) {
   case MathFidelity::LoFi:
@@ -152,9 +151,7 @@ uint64_t getCyclesPerTileMatmul(MathFidelity mathFidelity) {
 struct PerfTargets {
   ttcore::Arch arch = ttcore::Arch::WormholeB0;
   unsigned numChips = 0;
-  // Mesh extents, used only to size CCL reductions: a collective over the
-  // cluster_axis'th mesh dim combines that many values per element. Never
-  // emitted -- the report stays per-chip.
+  // Only used to size CCL reductions; never emitted.
   SmallVector<int64_t, 2> meshShape;
   uint64_t dramBandwidthBytesPerSec = 0;
   uint64_t aiclkHz = 0;
@@ -500,12 +497,7 @@ uint64_t getNumTileMatmuls(Value lhs, Value result, bool transposeA) {
 }
 
 //===----------------------------------------------------------------------===//
-// FLOP accounting
-//
-// FLOPs are counted on LOGICAL, un-padded shapes (2*M*K*N for a matmul), so the
-// count does not depend on tiling / layout / padding / sharding: the same op is
-// the same FLOPs however it is realized. Convention follows tt-metal's model
-// FLOP counters (tt-metal tech_reports/GEMM_FLOPS).
+// FLOP accounting, on logical un-padded shapes.
 //===----------------------------------------------------------------------===//
 
 constexpr double kFlopsPerTileMul = 2.0 * kTileHeight * kTileWidth * kTileWidth;
@@ -525,8 +517,7 @@ uint64_t numScalars(Value v) {
   return t ? static_cast<uint64_t>(t.getNumElements()) : 0;
 }
 
-// 2*M*K*N over the logical (un-padded) shapes. K is the last dim of A, or the
-// second-to-last when A is transposed.
+// 2*M*K*N. K is A's last dim, or second-to-last when A is transposed.
 uint64_t matmulFlops(Value lhs, Value result, bool transposeA) {
   ArrayRef<int64_t> lhsShape =
       mlir::cast<RankedTensorType>(lhs.getType()).getShape();
@@ -547,13 +538,8 @@ uint64_t matmulFlops(Value lhs, Value result, bool transposeA) {
          static_cast<uint64_t>(N);
 }
 
-// Convolution FLOPs from the op's *logical* attributes (not the weight tensor,
-// which gets padded/reblocked during weight preparation). Every output scalar
-// costs (in_channels / groups) * prod(kernel) MACs, so
-// flops = 2 * output_scalars * (in_channels / groups) * prod(kernel).
-// Only the result's element count matters, which is N * spatial_out *
-// out_channels whether or not the result is in the flattened
-// (1, 1, N*spatial_out, O) form.
+// 2 * output_scalars * (in_channels / groups) * prod(kernel). Taken from the
+// op's attributes, not the weight tensor, which gets padded during preparation.
 uint64_t convFlopsFromAttrs(int64_t inChannels, int64_t groups,
                             uint64_t kernelProduct, Value result) {
   if (groups <= 0) {
@@ -564,10 +550,8 @@ uint64_t convFlopsFromAttrs(int64_t inChannels, int64_t groups,
   return 2ULL * numScalars(result) * macsPerOutputScalar;
 }
 
-// Core scaled-dot-product attention (prefill) FLOP formula shared by the
-// prefill attention variants: the QK^T and the scores*V matmuls.
-// QK^T = 2*B*Hq*Sq*Sk*Dk, scores*V = 2*B*Hq*Sq*Sk*Dv. Halved (rough) for a
-// plain causal mask. A sliding window caps the effective key length.
+// QK^T plus scores*V: 2*B*Hq*Sq*Sk*(Dk+Dv). Halved (rough) for a plain causal
+// mask; a sliding window caps the effective key length instead.
 uint64_t sdpaFlopsFromDims(int64_t B, int64_t Hq, int64_t Sq, int64_t Sk,
                            int64_t Dk, int64_t Dv, bool isCausal,
                            std::optional<int32_t> slidingWindowSize) {
@@ -584,7 +568,7 @@ uint64_t sdpaFlopsFromDims(int64_t B, int64_t Hq, int64_t Sq, int64_t Sk,
   return flops;
 }
 
-// SDPA (prefill) FLOPs from Q/K/V tensors laid out as [B, H, S, D].
+// Q/K/V are [B, H, S, D].
 uint64_t sdpaFlops(Value query, Value key, Value value, bool isCausal,
                    std::optional<int32_t> slidingWindowSize) {
   auto qType = mlir::dyn_cast<RankedTensorType>(query.getType());
@@ -600,10 +584,7 @@ uint64_t sdpaFlops(Value query, Value key, Value value, bool isCausal,
                            slidingWindowSize);
 }
 
-// Flash MLA prefill FLOPs. Q is [B, Hq, Sq, Dk], K is [B, Hkv, Sk, Dk]; V is
-// optional (taken from the first head_dim_v features of K when absent), so Dv
-// comes from the head_dim_v attribute rather than a value tensor. No sliding
-// window on this op.
+// V is optional here, so Dv comes from the head_dim_v attribute.
 uint64_t flashMlaPrefillFlops(Value query, Value key, int64_t headDimV,
                               bool isCausal) {
   auto qType = mlir::dyn_cast<RankedTensorType>(query.getType());
@@ -618,16 +599,8 @@ uint64_t flashMlaPrefillFlops(Value query, Value key, int64_t headDimV,
                            /*slidingWindowSize=*/std::nullopt);
 }
 
-// Per-chip FLOPs of a CCL reduction over `clusterAxis` of the mesh.
-//
-// Combining D copies of an element costs D-1 arithmetic ops, and a ring
-// collective spreads those evenly across the D chips, so each chip does
-// numel * (D-1) / D. all_reduce and reduce_scatter cost the same per chip: a
-// ring all_reduce is a reduce_scatter followed by an all_gather, and the gather
-// phase moves data without doing arithmetic. D == 1 (a collective along a mesh
-// axis of extent one, or an unknown mesh) makes the op a no-op, hence 0.
-//
-// all_gather has no reduce_type and so contributes nothing at all.
+// Per-chip cost of a CCL reduction: combining D copies costs D-1 ops, which a
+// ring spreads over the D chips. Same for all_reduce and reduce_scatter.
 uint64_t cclReduceFlops(Value input, ArrayRef<int64_t> meshShape,
                         uint32_t clusterAxis) {
   if (clusterAxis >= meshShape.size()) {
@@ -639,23 +612,16 @@ uint64_t cclReduceFlops(Value input, ArrayRef<int64_t> meshShape,
   return n - n / devices;
 }
 
-// Logical FLOPs for one op. Only matrix-engine (GEMM-class) ops are counted:
-// matmul/linear/sparse_matmul, conv and prefill attention. SFPU / vector-engine
-// ops (elementwise, softmax, norm, pooling, reduction) run on a different
-// engine at a much lower peak, so counting them would inflate the numerator
-// with work that does not belong against the matrix-engine peak. Returns 0 for
-// everything else, which the caller drops from the report.
+// Matrix-engine ops only; SFPU ops run against a different peak. 0 means
+// uncounted, and the caller drops those.
 uint64_t opFlops(Operation *op, ArrayRef<int64_t> meshShape) {
   return llvm::TypeSwitch<Operation *, uint64_t>(op)
       .Case<MatmulOp, LinearOp>([](auto m) {
         return matmulFlops(m.getA(), m.getResult(), m.getTransposeA());
       })
       .Case<SparseMatmulOp>([](SparseMatmulOp m) {
-        // Dense-equivalent 2*M*K*N over all E expert blocks (no transpose
-        // on this op). The block dim E is result[-3]; only `nnz` of those
-        // blocks actually participate, so scale the count down when nnz is
-        // known. matmulFlops's batch product already includes the E factor,
-        // and it divides evenly, so `/ E * nnz` stays exact.
+        // Dense-equivalent over all E blocks at result[-3], scaled down to the
+        // nnz that participate. E divides the batch product exactly.
         uint64_t flops =
             matmulFlops(m.getA(), m.getResult(), /*transposeA=*/false);
         ArrayRef<int64_t> rShape =
@@ -670,7 +636,6 @@ uint64_t opFlops(Operation *op, ArrayRef<int64_t> meshShape) {
         return flops;
       })
       .Case<Conv2dOp, Conv3dOp>([](auto c) {
-        // kernel_size is a DenseI32Array on 2d/3d convs.
         uint64_t kernelProduct = 1;
         for (int32_t k : c.getKernelSize()) {
           kernelProduct *= static_cast<uint64_t>(k);
@@ -679,15 +644,14 @@ uint64_t opFlops(Operation *op, ArrayRef<int64_t> meshShape) {
                                   kernelProduct, c.getResult());
       })
       .Case<Conv1dOp>([](Conv1dOp c) {
-        // conv1d's kernel_size is a scalar i32.
+        // conv1d's kernel_size is a scalar, not an array.
         return convFlopsFromAttrs(c.getInChannels(), c.getGroups(),
                                   static_cast<uint64_t>(c.getKernelSize()),
                                   c.getResult());
       })
       .Case<ConvTranspose2dOp>([](ConvTranspose2dOp c) {
-        // Transposed conv is input-driven: each input scalar scatters to
-        // prod(kernel) positions * out_channels/groups. Charging the (larger)
-        // output volume instead would over-count by prod(stride).
+        // Input-driven: each input scalar scatters to prod(kernel) positions.
+        // Charging the larger output volume over-counts by prod(stride).
         uint64_t kernelProduct = 1;
         for (int32_t k : c.getKernelSize()) {
           kernelProduct *= static_cast<uint64_t>(k);
@@ -706,17 +670,13 @@ uint64_t opFlops(Operation *op, ArrayRef<int64_t> meshShape) {
                                     static_cast<int64_t>(m.getHeadDimV()),
                                     m.getIsCausal());
       })
-      // The CCL reductions -- the collectives that carry a reduce_type. Their
-      // combine step is the same arithmetic on the same engine as a matmul, so
-      // it counts against the same peak. all_gather / point_to_point / the
-      // all_to_all family move data without reducing and are left uncounted.
+      // The collectives that carry a reduce_type; the rest only move data.
       .Case<AllReduceOp, AllReduceAsyncOp, ReduceScatterOp>([&](auto c) {
         return cclReduceFlops(c.getInput(), meshShape, c.getClusterAxis());
       })
       .Default([](Operation *) { return uint64_t{0}; });
 }
 
-// One accounted op.
 struct FlopRecord {
   std::string opName;
   std::string location;
@@ -724,13 +684,10 @@ struct FlopRecord {
   MathFidelity mathFidelity = MathFidelity::HiFi4;
 };
 
-// Aggregate FLOP report for one function.
 struct FlopSummary {
   uint64_t totalFlops = 0;
-  // Σ flops_i / peak_i, i.e. the seconds this graph would take at 100% matrix-
-  // engine utilization. Not emitted; only used to derive the flops-weighted
-  // peak (totalFlops / this), which is correct even when the graph mixes math
-  // fidelities the way a single named fidelity would not be.
+  // Sum of flops_i / peak_i. Not emitted; only used to derive the
+  // flops-weighted peak, which holds when the graph mixes fidelities.
   double idealComputeSeconds = 0.0;
   std::vector<FlopRecord> perOp;
 };
@@ -876,15 +833,11 @@ private:
     assert(systemDescAttr &&
            "system_desc presence must be checked by the caller");
     auto chipDescs = systemDescAttr.getChipDescs();
-    // The system chip count gates only the legacy weight-streaming perf_targets
-    // roofline, which needs tensor-parallel-aware accounting we don't have. The
-    // FLOP report does not need it: it is per-chip for one graph invocation, so
-    // it is emitted regardless of chip count. Hardware limits always come from
-    // chip 0 (all chips share an arch here).
+    // Chip count gates only the legacy roofline; the FLOP report is per-chip
+    // and emitted regardless. Hardware limits come from chip 0.
     perfTargets.numChips = chipDescs.size();
-    // Mesh extents, needed to size CCL reductions. Use the null-safe
-    // lookupDeviceOp; lookupDevice asserts when the module has no device op, as
-    // hand-written test modules may not.
+    // lookupDeviceOp is the null-safe form; lookupDevice asserts when the
+    // module has no device op.
     if (ttcore::DeviceOp deviceOp = ttcore::lookupDeviceOp(module)) {
       llvm::append_range(perfTargets.meshShape,
                          deviceOp.getDeviceAttr().getMeshShape());
@@ -919,15 +872,12 @@ private:
     jsonOutput["perf_targets"] = std::move(pt);
   }
 
-  // Walk the function and build the per-op FLOP report using the hardware
-  // limits already populated on `t` (cores, clock, DRAM bandwidth).
   FlopSummary computeFlopSummary(func::FuncOp funcOp, const PerfTargets &t) {
     FlopSummary summary;
 
     funcOp->walk([&](Operation *op) {
       uint64_t flops = opFlops(op, t.meshShape);
       if (flops == 0) {
-        // No matrix-engine arithmetic: skip.
         return;
       }
 
@@ -936,12 +886,8 @@ private:
       rec.location = getLocationString(op);
       rec.flops = flops;
 
-      // Use the op's explicit compute-kernel config when present. The HiFi4
-      // default is not a guess: with a non-sharded output and no program
-      // config, tt-metal's runtime lands a matmul on
-      // MatmulMultiCoreProgramConfig{}, which hardcodes HiFi4 (see
-      // lib/Dialect/TTNN/Analysis/OpRules/ MatmulRules.cpp). Assuming the
-      // faster HiFi2 would overstate the peak and understate MFU ~2x.
+      // A config-less matmul really does run HiFi4 in tt-metal, via
+      // MatmulMultiCoreProgramConfig{} (see OpRules/MatmulRules.cpp).
       if (auto ckc = mlir::dyn_cast<TTNNComputeKernelConfigOpInterface>(op)) {
         if (auto cfg = ckc.getComputeConfigAttr()) {
           if (auto mf = cfg.getMathFidelity()) {
@@ -962,9 +908,7 @@ private:
     return summary;
   }
 
-  // Emit the FLOP report: MFU = total_flops / (measured_s *
-  // peak_flops_per_sec). Both are per-chip, for one graph invocation. Peaks are
-  // rounded to integers to drop division noise.
+  // MFU = total_flops / (measured_s * peak_flops_per_sec), both per-chip.
   void addFlopsToJson(llvm::json::Object &jsonOutput, const PerfTargets &t,
                       const FlopSummary &summary, bool verbose) {
     auto roundedPeak = [&](MathFidelity mf) {
@@ -975,9 +919,6 @@ private:
     llvm::json::Object flops;
     flops["total_flops"] = static_cast<int64_t>(summary.totalFlops);
 
-    // The MFU denominator: the flops-weighted peak this graph actually ran at,
-    // so it holds whether the matmuls ran LoFi or HiFi4 rather than assuming
-    // one fidelity.
     double weightedPeak = summary.idealComputeSeconds > 0.0
                               ? static_cast<double>(summary.totalFlops) /
                                     summary.idealComputeSeconds
@@ -985,7 +926,6 @@ private:
     flops["peak_flops_per_sec"] =
         static_cast<int64_t>(std::llround(weightedPeak));
 
-    // Raw hardware matrix-engine peaks, for reference only.
     llvm::json::Object byFidelity;
     byFidelity["lofi"] = roundedPeak(MathFidelity::LoFi);
     byFidelity["hifi2"] = roundedPeak(MathFidelity::HiFi2);
@@ -1244,14 +1184,11 @@ public:
     llvm::json::Object jsonOutput;
     addSummaryToJson(jsonOutput, aggregatedMetrics);
 
-    // The legacy weight-streaming roofline is single-chip only (its
-    // tensor-parallel accounting isn't implemented), so it stays gated on the
-    // system chip count.
+    // The legacy weight-streaming roofline is single-chip only.
     if (perfTargets.numChips == 1) {
       addPerfTargetsToJson(jsonOutput, perfTargets);
     }
 
-    // The FLOP report is per-chip; emit it regardless of the system chip count.
     FlopSummary flopSummary = computeFlopSummary(perfTargetFunc, perfTargets);
     addFlopsToJson(jsonOutput, perfTargets, flopSummary,
                    ttnnPerfMetricsVerboseOutputEnabled);

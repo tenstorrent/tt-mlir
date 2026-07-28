@@ -619,30 +619,19 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
     - system_memory_ops: Operations with system_memory buffer type
     - Percentages: All counts as percentage of total_shardable_ops
 
-    FLOP report ("flops" section), for computing MFU:
+    FLOP report ("flops" section), per-chip, for one graph invocation:
 
       MFU = total_flops / (measured_seconds * peak_flops_per_sec)
 
-    Both values are per-chip, for one graph invocation.
-    - total_flops: logical, un-padded FLOPs (2*M*K*N for matmul) over the
-      matrix-engine ops only: matmul/linear/sparse_matmul, conv, SDPA /
-      flash-MLA prefill, and the CCL reductions (all_reduce, all_reduce_async,
-      reduce_scatter). A collective over D devices along its cluster_axis
-      combines D values per element, which a ring spreads evenly across the D
-      chips, so it costs numel(input) * (D-1) / D per chip -- the same for
-      all_reduce and reduce_scatter, since the all_gather half of a ring
-      all_reduce does no arithmetic. all_gather and the other pure data-movement
-      collectives are not counted. SFPU / vector-engine ops (elementwise,
-      softmax, norm, pooling, reduction) run against a different peak, so
-      counting them would inflate the numerator. Decode / chunked / paged
-      attention is not counted either: its effective key length is a runtime
-      value (past-sequence length / paged cache), so it can't be derived from the
-      static op shapes.
-    - peak_flops_per_sec: the MFU denominator. The flops-weighted matrix-engine
-      peak, which folds in each op's own math fidelity, so it holds whether the
-      matmuls ran LoFi or HiFi4.
-    - peak_flops_per_sec_by_fidelity: raw hardware peak per math fidelity, for
-      reference only.
+    - total_flops: logical, un-padded FLOPs over the matrix-engine ops:
+      matmul/linear/sparse_matmul (2*M*K*N), conv, SDPA / flash-MLA prefill, and
+      the CCL reductions (numel(input) * (D-1) / D, D = mesh extent along
+      cluster_axis). Not counted: SFPU ops, all_gather and the other
+      data-movement collectives, and decode / chunked / paged attention, whose
+      effective key length is a runtime value.
+    - peak_flops_per_sec: the MFU denominator, flops-weighted across each op's
+      math fidelity.
+    - peak_flops_per_sec_by_fidelity: raw hardware peak per fidelity.
 
     Verbose output (--ttnn-perf-metrics-verbose-output-enabled) includes:
     - Detailed per-operation analysis with sharding and memory layout information for shardable ops

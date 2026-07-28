@@ -2,26 +2,22 @@
 // RUN: ttmlir-opt --ttnn-collect-perf-metrics="ttnn-perf-metrics-output-file=%t.dir/out.json ttnn-perf-metrics-verbose-output-enabled=true" %s -o /dev/null
 // RUN: cat %t.dir/out.json | FileCheck %s
 
-// FLOP accounting for the prefill-attention and sparse-matmul formulas. None of
-// these ops accepts a compute_config, so all of them are accounted at HiFi4 --
-// which is what tt-metal's runtime actually runs a config-less matmul at -- and
-// peak_flops_per_sec must come out equal to the hifi4 hardware peak.
+// Prefill-attention and sparse-matmul FLOP formulas. None of these ops takes a
+// compute_config, so all are accounted at the HiFi4 default.
 //
-// Base attention shapes: B=1, Hq=8, Sq=Sk=512, Dk=Dv=128, so the unmasked
+// Base shapes B=1, Hq=8, Sq=Sk=512, Dk=Dv=128, so unmasked
 // 2*B*Hq*Sq*Sk*(Dk+Dv) = 1,073,741,824.
-//   sdpa                      no mask                        = 1,073,741,824
-//   sdpa      is_causal       halved (rough)                 =   536,870,912
-//   sdpa      sliding_window=128, is_causal: the window caps the effective key
-//             length at min(128, 512) and replaces the causal halving, so
-//             2*1*8*512*128*256                              =   268,435,456
+//   sdpa                                                   = 1,073,741,824
+//   sdpa  is_causal        halved                          =   536,870,912
+//   sdpa  sliding_window=128, is_causal: the window caps Sk at min(128,512)
+//         and replaces the halving -> 2*1*8*512*128*256     =   268,435,456
 //   flash_mla_prefill  Q=[1,16,32,128], Sk=32, head_dim_v=64, causal:
-//             Dv comes from the attribute, not a V tensor.
-//             2*1*16*32*32*(128+64) / 2                      =     3,145,728
-//   sparse_matmul  a=[1,1,32,64], b=[1,4,64,32], out E=4 blocks, nnz=2:
-//             dense 2*4*32*64*32 = 524,288, scaled by nnz/E   =       262,144
-//   total                                                    = 1,882,456,064
+//         2*1*16*32*32*(128+64) / 2                        =     3,145,728
+//   sparse_matmul  a=[1,1,32,64], b=[1,4,64,32], E=4, nnz=2:
+//         dense 2*4*32*64*32 = 524,288, scaled by nnz/E    =       262,144
+//   total                                                  = 1,882,456,064
 //
-// Peak (WH B0, 64 cores, 1.0 GHz): hifi4 = 64 * 1e9 * 2*32^3 / 64 = 6.5536e13.
+// hifi4 peak (WH B0, 64 cores, 1.0 GHz) = 64 * 1e9 * 2*32^3 / 64 = 6.5536e13.
 
 #dram = #ttnn.buffer_type<dram>
 #system_desc = #ttcore.system_desc<[{
@@ -75,31 +71,26 @@ module attributes {ttcore.system_desc = #system_desc} {
       %ss: tensor<1x1x1x4xbf16, #sp_s>       {ttcore.argument_type = #ttcore.argument_type<input>}
   ) -> tensor<1x1x1x4x32x32xbf16, #sp_o>
       attributes {tt.function_type = "forward_device"} {
-    // Unmasked: 2*B*Hq*Sq*Sk*(Dk+Dv) = 1,073,741,824
     %0 = "ttnn.scaled_dot_product_attention"(%q, %k, %v)
         <{is_causal = false, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>}>
         : (tensor<1x8x512x128xbf16, #qkv>, tensor<1x8x512x128xbf16, #qkv>,
            tensor<1x8x512x128xbf16, #qkv>) -> tensor<1x8x512x128xbf16, #qkv>
 
-    // Causal: halved = 536,870,912
     %1 = "ttnn.scaled_dot_product_attention"(%q, %k, %v)
         <{is_causal = true, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>}>
         : (tensor<1x8x512x128xbf16, #qkv>, tensor<1x8x512x128xbf16, #qkv>,
            tensor<1x8x512x128xbf16, #qkv>) -> tensor<1x8x512x128xbf16, #qkv>
 
-    // Sliding window caps the effective key length instead of halving = 268,435,456
     %2 = "ttnn.scaled_dot_product_attention"(%q, %k, %v)
         <{is_causal = true, sliding_window_size = 128 : ui32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>}>
         : (tensor<1x8x512x128xbf16, #qkv>, tensor<1x8x512x128xbf16, #qkv>,
            tensor<1x8x512x128xbf16, #qkv>) -> tensor<1x8x512x128xbf16, #qkv>
 
-    // Dv from head_dim_v, causal = 3,145,728
     %3 = "ttnn.flash_mla_prefill"(%mq, %mk)
         <{operandSegmentSizes = array<i32: 1, 1, 0, 0>, head_dim_v = 64 : ui32, is_causal = true}>
         : (tensor<1x16x32x128xbf16, #mla_q>, tensor<1x1x32x128xbf16, #mla_k>)
         -> tensor<1x16x32x64xbf16, #mla_o>
 
-    // Dense-equivalent scaled by nnz/E = 262,144
     %4 = "ttnn.sparse_matmul"(%sa, %sb, %ss)
         <{is_input_a_sparse = false, is_input_b_sparse = true, nnz = 2 : i64}>
         : (tensor<1x1x32x64xbf16, #sp_a>, tensor<1x4x64x32xbf16, #sp_b>,
@@ -109,7 +100,7 @@ module attributes {ttcore.system_desc = #system_desc} {
   }
 }
 
-// JSON keys are emitted in alphabetical order.
+// Keys are emitted alphabetically.
 // CHECK:      "flops": {
 // CHECK:        "peak_flops_per_sec": 65536000000000
 // CHECK:        "peak_flops_per_sec_by_fidelity": {

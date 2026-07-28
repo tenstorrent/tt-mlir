@@ -2,25 +2,22 @@
 // RUN: ttmlir-opt --ttnn-collect-perf-metrics="ttnn-perf-metrics-output-file=%t.dir/out.json ttnn-perf-metrics-verbose-output-enabled=true" %s -o /dev/null
 // RUN: cat %t.dir/out.json | FileCheck %s
 
-// FLOP accounting for the matmul and conv formulas. Every counted op here
-// carries an explicit compute_config with math_fidelity = lofi, so the report
-// must read the fidelity off the op (not use its HiFi4 default) and
-// peak_flops_per_sec must come out equal to the lofi hardware peak.
+// Matmul and conv FLOP formulas. Every counted op sets math_fidelity = lofi, so
+// peak_flops_per_sec must come out as the lofi peak rather than the HiFi4
+// default.
 //
-//   matmul       M=2048, K=128, N=128     -> 2*M*K*N            = 67,108,864
-//   matmul       transpose_a, A=[64,512], B=[64,32] -> [512,32]:
-//                K is A[-2]=64, not A[-1]  -> 2*512*64*32       =  2,097,152
-//   conv2d       in_ch=8, groups=4, kernel 3x3 -> macs/out = (8/4)*9 = 18,
-//                output scalars = 1024*8 = 8192 -> 2*8192*18    =    294,912
-//   conv_t2d     stride 2, input scalars = 256*8 = 2048, out_ch=8, groups=1,
-//                kernel 2x2. Transposed conv is INPUT-driven:
-//                2*2048*(8/1)*4                                 =    131,072
-//                Charging the output volume (1024*8) instead would give
-//                524,288, i.e. 4x too high = prod(stride).
-//   relu / add   vector-engine ops, NOT counted
-//   total                                                       = 69,632,000
+//   matmul    M=2048, K=128, N=128           -> 2*M*K*N          = 67,108,864
+//   matmul    transpose_a, A=[64,512], B=[64,32] -> [512,32]:
+//             K is A[-2]=64                  -> 2*512*64*32      =  2,097,152
+//   conv2d    in_ch=8, groups=4, kernel 3x3, out scalars 1024*8:
+//             2*8192*(8/4)*9                                     =    294,912
+//   conv_t2d  stride 2, in scalars 256*8, out_ch=8, kernel 2x2:
+//             2*2048*8*4                                         =    131,072
+//             Input-driven; the output volume would give 524,288 = 4x = stride^2.
+//   relu/add  not counted
+//   total                                                        = 69,632,000
 //
-// Peak (WH B0, 64 cores, 1.0 GHz): lofi = 64 * 1e9 * 2*32^3 / 16 = 2.62144e14.
+// lofi peak (WH B0, 64 cores, 1.0 GHz) = 64 * 1e9 * 2*32^3 / 16 = 2.62144e14.
 
 #dram = #ttnn.buffer_type<dram>
 #sysmem = #ttnn.buffer_type<system_memory>
@@ -79,23 +76,21 @@ module attributes {ttcore.system_desc = #system_desc} {
       attributes {tt.function_type = "forward_device"} {
     %d = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
-    // 2*M*K*N = 67,108,864
     %0 = "ttnn.matmul"(%a, %b) <{
         transpose_a = false, transpose_b = false,
         compute_config = #ttnn.device_compute_kernel_config<math_fidelity = lofi>
       }> : (tensor<2048x128xbf16, #mm_a>, tensor<128x128xbf16, #mm_b>) -> tensor<2048x128xbf16, #mm_a>
 
-    // Vector-engine ops: must not appear in the report.
+    // Not counted.
     %1 = "ttnn.relu"(%0) : (tensor<2048x128xbf16, #mm_a>) -> tensor<2048x128xbf16, #mm_a>
     %2 = "ttnn.add"(%1, %0) : (tensor<2048x128xbf16, #mm_a>, tensor<2048x128xbf16, #mm_a>) -> tensor<2048x128xbf16, #mm_a>
 
-    // transpose_a: K comes from A[-2] = 64, so 2*512*64*32 = 2,097,152.
+    // transpose_a: K comes from A[-2] = 64.
     %3 = "ttnn.matmul"(%ta, %tb) <{
         transpose_a = true, transpose_b = false,
         compute_config = #ttnn.device_compute_kernel_config<math_fidelity = lofi>
       }> : (tensor<64x512xbf16, #ta_a>, tensor<64x32xbf16, #ta_b>) -> tensor<512x32xbf16, #ta_o>
 
-    // Grouped conv2d: 2 * 8192 * (8/4)*3*3 = 294,912.
     %4 = "ttnn.conv2d"(%ci, %cw, %d) <{
         batch_size = 1 : i32,
         compute_config = #ttnn.device_compute_kernel_config<math_fidelity = lofi>,
@@ -110,7 +105,6 @@ module attributes {ttcore.system_desc = #system_desc} {
         stride = array<i32: 1, 1>
       }> : (tensor<1x1x1024x8xbf16, #c_in>, tensor<8x2x3x3xbf16, #c_w>, !ttnn.device) -> tensor<1x1x1024x8xbf16, #c_out>
 
-    // Stride-2 transposed conv: input-driven, 2 * 2048 * 8 * 4 = 131,072.
     %5 = "ttnn.conv_transpose2d"(%ti, %tw, %d) <{
         batch_size = 1 : i32,
         compute_config = #ttnn.device_compute_kernel_config<math_fidelity = lofi>,
@@ -130,7 +124,7 @@ module attributes {ttcore.system_desc = #system_desc} {
   }
 }
 
-// JSON keys are emitted in alphabetical order.
+// Keys are emitted alphabetically.
 // CHECK:      "flops": {
 // CHECK:        "peak_flops_per_sec": 262144000000000
 // CHECK:        "peak_flops_per_sec_by_fidelity": {
@@ -143,9 +137,6 @@ module attributes {ttcore.system_desc = #system_desc} {
 // CHECK:          "flops": 67108864
 // CHECK:          "math_fidelity": "lofi"
 // CHECK:          "operation": "ttnn.matmul"
-// The relu / add that follow the first matmul in program order must not have
-// been counted, so the next entry is the second matmul. (total_flops below is
-// the other half of that check: it is exactly the sum of the four ops.)
 // CHECK-NOT:      "ttnn.relu"
 // CHECK-NOT:      "ttnn.add"
 // CHECK:          "flops": 2097152
