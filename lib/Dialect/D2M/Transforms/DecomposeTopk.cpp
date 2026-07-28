@@ -9,6 +9,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -27,8 +28,8 @@ static int32_t floorLog2(T n) {
   return result;
 }
 
-// Decomposes TopkBlockOp into arange_block and
-// tile_topk_{local_sort,merge,rebuild} ops.
+// Decomposes TopkBlockOp into tile_topk_{local_sort,merge,rebuild} ops with
+// scf.for loops over tile pairs.
 struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
   using OpRewritePattern<TopkBlockOp>::OpRewritePattern;
 
@@ -47,130 +48,281 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
     TT_assertv(inputShape.size() >= 2ul,
                "input must have at least 2 dimensions");
 
-    int64_t numElements = op.getNumElements();
-    int32_t dim = op.getDim();
     int32_t k = op.getK();
 
-    auto tileType = cast<ttcore::TileType>(inputType.getElementType());
-    Type si32Type =
-        IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed);
-    auto idxTileType = ttcore::TileType::get(si32Type, tileType.getShape());
-    auto l1MemorySpace = ttcore::MemorySpaceAttr::get(
-        rewriter.getContext(), ttcore::MemorySpace::DeviceL1);
-
-    auto allocScratch = [&](ArrayRef<int64_t> shape,
-                            ttcore::TileType elemType) -> Value {
-      auto memrefType = MemRefType::get(
-          shape, elemType, MemRefLayoutAttrInterface{}, l1MemorySpace);
-      return rewriter.create<memref::AllocOp>(loc, memrefType).getResult();
-    };
-
-    Value bufIdx = allocScratch(inputShape, idxTileType);
-    Value bufIdxFilled =
-        rewriter
-            .create<ArangeBlockOp>(loc, scratchIdxTile, bufIdx, numElements,
-                                   /*start=*/0,
-                                   /*step=*/1)
-            .getResult();
+    // The index buffer is pre-filled upstream (in TTIRToD2M via arange +
+    // broadcast generics) and passed in as scratch_idx_tile.
+    Value bufIdxFilled = scratchIdxTile;
 
     int32_t logk = floorLog2(k);
 
-    int64_t numTilesInner = inputShape[dim];
-    // logWt is the number of merge-tree iterations. Each iteration doubles the
-    // distance between paired tiles, so numTilesInner must be a power of 2.
-    int32_t logWt = floorLog2(numTilesInner);
-
-    // When k>32 the result spans 2 tiles, requiring a 3-sub-merge reduction.
+    // When k>32 the result spans 2 tiles. The large-k path left-folds over
+    // the reduction tiles, so it handles any tile count without padding.
     bool useLargeK = (k > 32);
+    int64_t dimIdx = op.getDim();
+    int64_t numTilesInner = inputShape[dimIdx];
+    // logWt is the merge-tree depth; ceilLog2 ensures the final fold always
+    // runs for non-power-of-2 tile counts.
+    bool numTilesPow2 =
+        (numTilesInner > 0 && (numTilesInner & (numTilesInner - 1)) == 0);
+    int32_t fl = floorLog2(numTilesInner);
+    int32_t logWt = numTilesPow2 ? fl : fl + 1;
+    bool ragged = !numTilesPow2;
+
+    // Shard is row-major [htShard, wtShard] with flat index r*reductionStride +
+    // nt*ntStride; strides depend on which dim is the reduction dim.
+    int64_t ntDimIdx = (dimIdx == static_cast<int64_t>(inputShape.size()) - 1)
+                           ? static_cast<int64_t>(inputShape.size()) - 2
+                           : static_cast<int64_t>(inputShape.size()) - 1;
+    int64_t nonTargetCount = inputShape[ntDimIdx];
+    int64_t reductionStride =
+        (dimIdx == static_cast<int64_t>(inputShape.size()) - 1)
+            ? 1
+            : nonTargetCount;
+    int64_t ntStride = (dimIdx == static_cast<int64_t>(inputShape.size()) - 1)
+                           ? numTilesInner
+                           : 1;
 
     auto i32Attr = [&](int32_t v) { return rewriter.getI32IntegerAttr(v); };
-    auto i64Attr = [&](int64_t v) { return rewriter.getI64IntegerAttr(v); };
     auto boolAttr = [&](bool v) { return rewriter.getBoolAttr(v); };
 
-    // Emit the local_sort, merge, and rebuild stages.
-    auto emitSortMergeRebuild = [&](int64_t tA, int64_t tB, int32_t mK,
-                                    int32_t mLogk, int32_t mIter,
-                                    int32_t skipSecond, bool rfo) {
-      rewriter.create<TileTopkLocalSortOp>(
-          loc, inputValues, bufIdxFilled, outValues, outIndices, i32Attr(0),
-          i32Attr(mLogk - 1), i32Attr(0), i64Attr(tA), i64Attr(tB),
-          boolAttr(true), boolAttr(false), boolAttr(rfo));
-      rewriter.create<TileTopkMergeOp>(
-          loc, inputValues, bufIdxFilled, outValues, outIndices, i32Attr(mIter),
-          i32Attr(mK), i64Attr(tA), i64Attr(tB), boolAttr(false),
-          boolAttr(false), boolAttr(rfo));
-      rewriter.create<TileTopkRebuildOp>(
-          loc, inputValues, bufIdxFilled, outValues, outIndices, i32Attr(0),
-          i32Attr(mIter), i32Attr(mK), i32Attr(mLogk), i32Attr(skipSecond),
-          i64Attr(tA), i64Attr(tB), boolAttr(false), boolAttr(true),
-          boolAttr(rfo));
+    // Helper to create index-typed SSA constants.
+    auto idxVal = [&](int64_t v) -> Value {
+      return rewriter.create<arith::ConstantIndexOp>(loc, v);
+    };
+    // Helper to create i32-typed SSA constants.
+    auto i32Val = [&](int32_t v) -> Value {
+      return rewriter.create<arith::ConstantOp>(loc,
+                                                rewriter.getI32IntegerAttr(v));
+    };
+    // Helper to create i1-typed SSA constants.
+    auto i1Val = [&](bool v) -> Value {
+      return rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIntegerAttr(rewriter.getI1Type(), v ? 1 : 0));
     };
 
-    for (int32_t mIter = 0; mIter < logWt; ++mIter) {
-      bool isFirst = (mIter == 0);
-      bool isLast = (mIter == logWt - 1);
-      int64_t distance = 1LL << mIter;
-      bool readFromOutput = !isFirst;
+    Value zeroIdx = idxVal(0);
+    Value oneIdx = idxVal(1);
+    Value zeroI32 = i32Val(0);
+    Value trueVal = i1Val(true);
+    Value falseVal = i1Val(false);
+    Value numTilesIdx = idxVal(numTilesInner);
 
-      for (int64_t base = 0; base + distance < numTilesInner;
-           base += 2 * distance) {
-        int64_t tileA = base;
-        int64_t tileB = base + distance;
+    Value reductionStrideIdx = idxVal(reductionStride);
+    Value ntStrideIdx = idxVal(ntStride);
 
-        if (useLargeK) {
-          if (isFirst) {
-            emitSortMergeRebuild(tileA, tileB, k, logk, /*mIter=*/mIter,
-                                 /*skipSecond=*/0, /*rfo=*/false);
-          } else {
-            // DST only holds 2 tiles at a time, so we cannot merge all 4 tiles
-            // directly. Instead, we use 3 sub-merges to compute the top-k.
-            int64_t prevDist = distance / 2;
+    // Each non-target row runs an independent merge tree with its tile indices
+    // offset by ntOffset.
+    auto ntLoop = rewriter.create<scf::ForOp>(loc, zeroIdx,
+                                              idxVal(nonTargetCount), oneIdx);
+    rewriter.setInsertionPointToStart(ntLoop.getBody());
+    Value ntIdxVar = ntLoop.getInductionVar();
+    Value ntOffset = rewriter.create<arith::MulIOp>(loc, ntIdxVar, ntStrideIdx);
 
-            // Step 1: Merge the winner tiles (tileA, tileB) from the previous
-            // iteration; tileA holds the best-k across both afterward.
-            emitSortMergeRebuild(tileA, tileB, k, logk, /*mIter=*/0,
-                                 /*skipSecond=*/0, /*rfo=*/true);
+    auto flat = [&](Value r) -> Value {
+      Value scaled = rewriter.create<arith::MulIOp>(loc, r, reductionStrideIdx);
+      return rewriter.create<arith::AddIOp>(loc, scaled, ntOffset);
+    };
 
-            // Step 2: Merge the loser tiles; (tileA+prevDist) holds the best-k
-            // across both losers afterward.
-            emitSortMergeRebuild(tileA + prevDist, tileB + prevDist, k, logk,
-                                 /*mIter=*/0, /*skipSecond=*/0, /*rfo=*/true);
+    // Emit local_sort + merge + rebuild for the large-k path. The rebuild
+    // always runs here (is_group_end=true), so the merge never packs
+    // (is_group_end=false).
+    auto emitSortMergeRebuild = [&](Value tA, Value tB, int32_t mergeK,
+                                    int32_t rebuildK, int32_t mLogk,
+                                    Value sortStartPhase, int32_t sortEndPhase,
+                                    Value mergeIter, int32_t skipSecond,
+                                    Value rfo) {
+      rewriter.create<TileTopkLocalSortOp>(
+          loc, inputValues, bufIdxFilled, outValues, outIndices,
+          /*idir=*/i32Attr(0), /*i_end_phase=*/i32Attr(sortEndPhase),
+          /*i_start_phase=*/sortStartPhase, tA, tB, boolAttr(true),
+          i1Val(false), rfo);
+      rewriter.create<TileTopkMergeOp>(loc, inputValues, bufIdxFilled,
+                                       outValues, outIndices, mergeIter,
+                                       i32Attr(mergeK), tA, tB, boolAttr(false),
+                                       /*is_group_end=*/i1Val(false), rfo);
+      rewriter.create<TileTopkRebuildOp>(
+          loc, inputValues, bufIdxFilled, outValues, outIndices, i32Attr(0),
+          mergeIter, i32Attr(rebuildK), i32Attr(mLogk), i32Attr(skipSecond), tA,
+          tB, boolAttr(false), /*is_group_end=*/i1Val(true), rfo);
+    };
 
-            // Step 3: Merge winners against losers; tileB holds the final top-k
-            // across all four tiles afterward.
-            emitSortMergeRebuild(tileB, tileA + prevDist, k, logk,
-                                 /*mIter=*/0, /*skipSecond=*/0, /*rfo=*/true);
-          }
-        } else {
-          // K=32/logk=5 is used so that sorting spans both tiles; a smaller K
-          // would confine it to a single tile, preventing cross-tile merges.
+    if (useLargeK) {
+      // Left-fold: keeps a running 2-tile accumulator, with the winner always
+      // in tile 0 and the loser always in tile 1, so extraction never needs
+      // to track which tile is which. This works for any tile count without
+      // power-of-2 padding, at ~2 sort-merge-rebuilds per tile: folding in a
+      // complete pair takes a 3-sort-merge-rebuild, folding in a lone tail tile
+      // takes a 2-sort-merge-rebuild.
+      Value accWin = zeroIdx;
+      Value accLos = oneIdx;
 
-          // Rebuild only on the last iteration. Skip it when k==32 with a
-          // single iteration since the merge output is already exactly k
-          // elements. The !isFirst check handles the case when logWt = 1.
-          bool needsRebuild = isLast && (!isFirst || k < 32);
+      // Build the initial accumulator from reduction tiles 0 and 1.
+      emitSortMergeRebuild(flat(accWin), flat(accLos), /*mergeK=*/k,
+                           /*rebuildK=*/k, logk, /*sortStartPhase=*/zeroI32,
+                           /*sortEndPhase=*/logk - 1, /*mergeIter=*/zeroI32,
+                           /*skipSecond=*/0, /*rfo=*/falseVal);
 
+      // Fold in every COMPLETE right pair (t, t+1) for t = 2, 4, ... The upper
+      // bound excludes an odd trailing tile, which is handled after the loop.
+      int64_t completeUB = numTilesInner - (numTilesInner % 2);
+      if (completeUB > 2) {
+        auto foldLoop = rewriter.create<scf::ForOp>(
+            loc, idxVal(2), idxVal(completeUB), idxVal(2));
+        rewriter.setInsertionPointToStart(foldLoop.getBody());
+        Value tIdx = foldLoop.getInductionVar();
+        Value tPlus1 = rewriter.create<arith::AddIOp>(loc, tIdx, oneIdx);
+
+        // Build the complete right block q = (t, t+1) from raw input.
+        emitSortMergeRebuild(flat(tIdx), flat(tPlus1), /*mergeK=*/k,
+                             /*rebuildK=*/k, logk, /*sortStartPhase=*/zeroI32,
+                             /*sortEndPhase=*/logk - 1, /*mergeIter=*/zeroI32,
+                             /*skipSecond=*/0, /*rfo=*/falseVal);
+
+        // 3-sub-merge combine of acc=(0, 1) with q=(t, t+1). All operands were
+        // previously packed, so rfo=true.
+        // Step 1: winners (0, t) -> tile 0 holds the global top-k; t holds the
+        // losers of the winner tiles.
+        emitSortMergeRebuild(flat(accWin), flat(tIdx), /*mergeK=*/k,
+                             /*rebuildK=*/k, logk, /*sortStartPhase=*/zeroI32,
+                             /*sortEndPhase=*/logk - 1, /*mergeIter=*/zeroI32,
+                             /*skipSecond=*/0, /*rfo=*/trueVal);
+        // Step 2: losers (1, t+1) -> tile 1 holds the best of the loser tiles.
+        emitSortMergeRebuild(flat(accLos), flat(tPlus1), /*mergeK=*/k,
+                             /*rebuildK=*/k, logk, /*sortStartPhase=*/zeroI32,
+                             /*sortEndPhase=*/logk - 1, /*mergeIter=*/zeroI32,
+                             /*skipSecond=*/0, /*rfo=*/trueVal);
+        // Step 3: (1, t) -> tile 1 holds the final rank-(k/2..k). Writing the
+        // winner back to tile 1 (not t) keeps the accumulator canonical at
+        // (0, 1).
+        emitSortMergeRebuild(flat(accLos), flat(tIdx), /*mergeK=*/k,
+                             /*rebuildK=*/k, logk, /*sortStartPhase=*/zeroI32,
+                             /*sortEndPhase=*/logk - 1, /*mergeIter=*/zeroI32,
+                             /*skipSecond=*/0, /*rfo=*/trueVal);
+
+        rewriter.setInsertionPointAfter(foldLoop);
+      }
+
+      // Odd tile count: fold in the lone trailing tile with a winner-only
+      // 2-sub-merge. This keeps the accumulator canonical at (0, 1).
+      if (numTilesInner % 2 == 1) {
+        Value tailIdx = idxVal(numTilesInner - 1);
+        // Prime the raw tail tile into a valid sorted run (sorts one tile;
+        // tileA==tileB is harmless).
+        rewriter.create<TileTopkLocalSortOp>(
+            loc, inputValues, bufIdxFilled, outValues, outIndices,
+            /*idir=*/i32Attr(0), /*i_end_phase=*/i32Attr(logk - 1),
+            /*i_start_phase=*/zeroI32, /*tileA=*/flat(tailIdx),
+            /*tileB=*/flat(tailIdx), /*is_group_start=*/boolAttr(true),
+            /*is_group_end=*/i1Val(true), /*rfo=*/falseVal);
+        // Step A: winners (0, tail) -> tile 0 holds the global top-k.
+        emitSortMergeRebuild(flat(accWin), flat(tailIdx), /*mergeK=*/k,
+                             /*rebuildK=*/k, logk, /*sortStartPhase=*/zeroI32,
+                             /*sortEndPhase=*/logk - 1, /*mergeIter=*/zeroI32,
+                             /*skipSecond=*/0, /*rfo=*/trueVal);
+        // Step B: (1, tail) -> tile 1 holds the final rank-(k/2..k).
+        emitSortMergeRebuild(flat(accLos), flat(tailIdx), /*mergeK=*/k,
+                             /*rebuildK=*/k, logk, /*sortStartPhase=*/zeroI32,
+                             /*sortEndPhase=*/logk - 1, /*mergeIter=*/zeroI32,
+                             /*skipSecond=*/0, /*rfo=*/trueVal);
+      }
+    } else {
+      // Level 0 is emitted unrolled, levels [1,logWt-1) run in a middle
+      // scf.for loop (if logWt > 1), and level logWt-1 is emitted unrolled
+      // (if logWt > 1). Each level's behavior is determined by the isLevelZero
+      // and isLastLevel parameters.
+      bool tailSortNeeded = ragged && (numTilesInner % 2 == 1);
+
+      auto emitLevelBody = [&](Value mIterIdx, bool isLevelZero,
+                               bool isLastLevel) {
+        Value mIterI32 = rewriter.create<arith::IndexCastOp>(
+            loc, rewriter.getI32Type(), mIterIdx);
+
+        Value distanceIdx =
+            rewriter.create<arith::ShLIOp>(loc, oneIdx, mIterIdx);
+        Value innerUB =
+            rewriter.create<arith::SubIOp>(loc, numTilesIdx, distanceIdx);
+        Value innerStep =
+            rewriter.create<arith::MulIOp>(loc, distanceIdx, idxVal(2));
+        auto innerLoop =
+            rewriter.create<scf::ForOp>(loc, zeroIdx, innerUB, innerStep);
+        rewriter.setInsertionPointToStart(innerLoop.getBody());
+
+        // rA/rB are raw reduction indices; tileA/tileB are flat after adding
+        // ntOffset.
+        Value baseIdx = innerLoop.getInductionVar();
+        Value rA = baseIdx;
+        Value rB = rewriter.create<arith::AddIOp>(loc, baseIdx, distanceIdx);
+        Value tileA = flat(rA);
+        Value tileB = flat(rB);
+
+        // K=32/logk=5 ensures sorting spans both tiles for cross-tile merges.
+        Value readFromOutput = isLevelZero ? falseVal : trueVal;
+
+        // Rebuild only on the last level. Skip it when k==32 with a single
+        // level since the merge output is already exactly k elements.
+        bool needsRebuild = isLastLevel && ((k < 32) || !isLevelZero);
+
+        // On the ragged path, always use sortStartPhase=0 since carried
+        // tiles may have skipped levels and need a full sort.
+        Value sortStartPhase = ragged ? i32Val(0) : mIterI32;
+
+        rewriter.create<TileTopkLocalSortOp>(
+            loc, inputValues, bufIdxFilled, outValues, outIndices,
+            /*idir=*/i32Attr(0), /*i_end_phase=*/i32Attr(4),
+            /*i_start_phase=*/sortStartPhase, tileA, tileB, boolAttr(true),
+            i1Val(false), /*rfo=*/readFromOutput);
+        rewriter.create<TileTopkMergeOp>(
+            loc, inputValues, bufIdxFilled, outValues, outIndices,
+            /*mergeIter=*/mIterI32, i32Attr(32), tileA, tileB, boolAttr(false),
+            /*is_group_end=*/i1Val(!needsRebuild), /*rfo=*/readFromOutput);
+
+        if (needsRebuild) {
+          rewriter.create<TileTopkRebuildOp>(
+              loc, inputValues, bufIdxFilled, outValues, outIndices, i32Attr(0),
+              /*mergeIter=*/mIterI32, i32Attr(k), i32Attr(5), i32Attr(1), tileA,
+              tileB, boolAttr(false), /*is_group_end=*/trueVal,
+              /*rfo=*/readFromOutput);
+        }
+
+        // For ragged N with an odd tile count, tile (N-1) is skipped by the
+        // even-indexed level-0 loop. Emit a standalone local_sort for it at
+        // level 0 using tileB=tileA (sorts the same tile twice, harmlessly)
+        // so it is a valid sorted run before level 1 tries to pair it.
+        if (isLevelZero && tailSortNeeded) {
+          Value tailRawIdx = idxVal(numTilesInner - 1);
+          Value tailTileIdx = flat(tailRawIdx);
           rewriter.create<TileTopkLocalSortOp>(
               loc, inputValues, bufIdxFilled, outValues, outIndices,
-              i32Attr(mIter), i32Attr(4), i32Attr(0), i64Attr(tileA),
-              i64Attr(tileB), boolAttr(true), boolAttr(false),
-              boolAttr(readFromOutput));
-          rewriter.create<TileTopkMergeOp>(
-              loc, inputValues, bufIdxFilled, outValues, outIndices,
-              i32Attr(mIter), i32Attr(32), i64Attr(tileA), i64Attr(tileB),
-              boolAttr(false), boolAttr(!needsRebuild),
-              boolAttr(readFromOutput));
-
-          if (needsRebuild) {
-            rewriter.create<TileTopkRebuildOp>(
-                loc, inputValues, bufIdxFilled, outValues, outIndices,
-                i32Attr(0), i32Attr(mIter), i32Attr(k), i32Attr(5), i32Attr(1),
-                i64Attr(tileA), i64Attr(tileB), boolAttr(false), boolAttr(true),
-                boolAttr(readFromOutput));
-          }
+              /*idir=*/i32Attr(0), /*i_end_phase=*/i32Attr(4),
+              /*i_start_phase=*/i32Val(0), /*tileA=*/tailTileIdx,
+              /*tileB=*/tailTileIdx, /*is_group_start=*/boolAttr(true),
+              /*is_group_end=*/i1Val(true), /*rfo=*/falseVal);
         }
+
+        rewriter.setInsertionPointAfter(innerLoop);
+      };
+
+      // Level 0: exactly one iteration, run unrolled.
+      emitLevelBody(zeroIdx, /*isLevelZero=*/true,
+                    /*isLastLevel=*/(logWt == 1));
+
+      if (logWt > 1) {
+        // Middle levels [1, logWt-1): no rebuild, no tail-sort.
+        auto midLoop =
+            rewriter.create<scf::ForOp>(loc, oneIdx, idxVal(logWt - 1), oneIdx);
+        rewriter.setInsertionPointToStart(midLoop.getBody());
+        emitLevelBody(midLoop.getInductionVar(), /*isLevelZero=*/false,
+                      /*isLastLevel=*/false);
+        rewriter.setInsertionPointAfter(midLoop);
+
+        // Last level: exactly one iteration, run unrolled.
+        emitLevelBody(idxVal(logWt - 1), /*isLevelZero=*/false,
+                      /*isLastLevel=*/true);
       }
     }
+
+    rewriter.setInsertionPointAfter(ntLoop);
 
     rewriter.replaceOp(op, {outValues, outIndices});
     return success();

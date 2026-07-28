@@ -73,6 +73,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static SliceRuleBook slice;
   static ReshapeRuleBook reshape;
   static PadRuleBook pad;
+  static RepeatRuleBook repeat;
   static ConcatenateHeadsRuleBook concatHeads;
   static SDPARuleBook sdpa;
   static SDPADecodeRuleBook sdpaDecode;
@@ -109,6 +110,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     // https://github.com/tenstorrent/tt-mlir/issues/7988
     reg(PermuteOp::getOperationName(), &reshape);
     reg(PadOp::getOperationName(), &pad);
+    reg(RepeatOp::getOperationName(), &repeat);
     reg(ConcatenateHeadsOp::getOperationName(), &concatHeads);
     reg(NLPConcatHeadsDecodeOp::getOperationName(), &sdpa);
     reg(ScaledDotProductAttentionOp::getOperationName(), &sdpa);

@@ -1404,15 +1404,36 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
   l1ShardedBf16Workaround.tensorBufferTypeWorkaround = BufferType::L1;
   l1ShardedBf16Workaround.tensorMemoryLayoutWorkaround = heightSharded;
 
-  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(l1InterleavedBf16Workaround) // input_tensor
-      .addInputOperandWorkaround(
-          l1InterleavedUint16Workaround)                      // expert_indices
-      .addInputOperandWorkaround(l1InterleavedBf16Workaround) // expert_scores
-      .addInputOperandWorkaround(rowMajorUint16Workaround)    // expert_mapping
-      .addOutputOperandWorkaround(rowMajorBf16Workaround)     // dispatched
-      .addOutputOperandWorkaround(l1ShardedUint16Workaround)  // indices
-      .addOutputOperandWorkaround(l1ShardedBf16Workaround);   // scores
+  TTNNOperandWorkarounds none;
+
+  TTNNOperandsWorkarounds w =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+          .addInputOperandWorkaround(
+              l1InterleavedBf16Workaround) // input_tensor
+          .addInputOperandWorkaround(
+              l1InterleavedUint16Workaround) // expert_indices
+          .addInputOperandWorkaround(
+              l1InterleavedBf16Workaround) // expert_scores
+          .addInputOperandWorkaround(
+              rowMajorUint16Workaround); // expert_mapping
+
+  // No-op workarounds for the bound persistent buffers (they are being
+  // allocated with the correct layouts inside DistributedOpInterface hooks).
+  auto a2aOp = cast<ttnn::AllToAllDispatchMetadataOp>(op);
+  if (a2aOp.getDispatchedBuffer()) {
+    w = w.addInputOperandWorkaround(none); // dispatched_buffer
+  }
+  if (a2aOp.getIndicesBuffer()) {
+    w = w.addInputOperandWorkaround(none); // indices_buffer
+  }
+  if (a2aOp.getScoresBuffer()) {
+    w = w.addInputOperandWorkaround(none); // scores_buffer
+  }
+
+  return w
+      .addOutputOperandWorkaround(rowMajorBf16Workaround)    // dispatched
+      .addOutputOperandWorkaround(l1ShardedUint16Workaround) // indices
+      .addOutputOperandWorkaround(l1ShardedBf16Workaround);  // scores
 }
 
 // Factory method to create workarounds for moe_gpt op operands.

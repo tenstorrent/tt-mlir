@@ -1,22 +1,15 @@
 add_mlir_dialect_library(MLIRTTNNAnalysis
-        BFInterleavedPolicy.cpp
         Conv2dConfigSearchSpace.cpp
         Conv3dConfigHeuristic.cpp
-        DFShardingPolicy.cpp
         MatmulProgramConfig.cpp
-        GreedyL1InterleavedPolicy.cpp
-        L1ChainConfig.cpp
-        L1InterleavedFallbackAnalysis.cpp
         L1SpillManagement.cpp
         MemoryLayoutPropagation.cpp
         LegalOpConfigAnalysis.cpp
         LegalOpLayoutAnalysis.cpp
         LegalTensorLayoutAnalysis.cpp
-        MemoryLayoutAnalysis.cpp
         OpConfigAnalysis.cpp
         OpModelStrategy.cpp
         ScalarDataTypeAnalysis.cpp
-        ShardSolver.cpp
         TensorLayouts.cpp
 
         ADDITIONAL_HEADER_DIRS

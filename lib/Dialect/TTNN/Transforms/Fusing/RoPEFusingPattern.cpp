@@ -1081,6 +1081,32 @@ applyRoPEDecodeRewrite(mlir::Operation *layoutOp, RotaryEmbeddingOp ropeOp,
     return failure();
   }
 
+  // QK-Norm (Qwen3): a per-head RMSNorm (q_norm / k_norm) can sit directly on
+  // the RoPE input, between the head split and the rotary. Rather than bail
+  // (which leaves the whole decode chain on the slow, unfused generic rotary
+  // and costs ~20% on Qwen3 decode, tt-mlir #9110), fold the norm into the
+  // decode rewrite: the rewrite below permutes the RoPE input to reach decode
+  // layout, so we push that pre-permute *through* the norm and re-emit the norm
+  // on the permuted input. This keeps the norm on the head/last axis (RMSNorm
+  // normalizes the last dim, and the decode perm preserves it), so the decode
+  // RoPE consumes rms_norm(permute(x)). Only a plain RMSNorm applied directly
+  // to the RoPE input, single-use, with a last-dim-preserving perm is folded;
+  // anything else (distributed norm, norm behind transforms, or a perm that
+  // moves the normalized last dim) still bails and stays unfused (#9042).
+  RMSNormOp qkNorm = ropeOp.getInput().getDefiningOp<RMSNormOp>();
+  const bool foldNorm = qkNorm && qkNorm.getResult().hasOneUse() &&
+                        !perm.empty() &&
+                        perm.back() == static_cast<int64_t>(perm.size()) - 1;
+  if (!foldNorm) {
+    qkNorm = nullptr;
+    Value ropeInputSrc =
+        skipTMs<TypecastOp, PermuteOp, ReshapeOp, RepeatOp>(ropeOp.getInput());
+    if (isa_and_nonnull<RMSNormOp, DistributedRMSNormOp>(
+            ropeInputSrc.getDefiningOp())) {
+      return failure();
+    }
+  }
+
   // cos/sin must be single-position (dim -2 == 1).
   auto cosType = mlir::cast<RankedTensorType>(ropeOp.getCosCache().getType());
   if (cosType.getShape()[cosType.getRank() - 2] != 1) {
@@ -1089,16 +1115,36 @@ applyRoPEDecodeRewrite(mlir::Operation *layoutOp, RotaryEmbeddingOp ropeOp,
 
   op_model::ScopedSingletonDeviceGuard deviceGuard(layoutOp);
 
-  // Create pre-permute on the original RoPE input: BHSD -> permuted order.
-  auto prePermute = ttir_to_ttnn::utils::generatePermute(
-      mlir::cast<TypedValue<RankedTensorType>>(ropeOp.getInput()),
-      llvm::ArrayRef(perm), rewriter, ropeOp.getLoc());
+  // Create the pre-permute (BHSD -> decode order) that the decode RoPE
+  // consumes. With a folded QK-norm, permute the norm's *input* and re-emit the
+  // norm on the permuted tensor (last/head dim preserved) so the RoPE sees
+  // rms_norm(permute(x)); otherwise permute the RoPE input directly.
+  Value decodeRopeInput;
+  // Ops created to produce decodeRopeInput, erased (consumer-first) if the
+  // fused RoPE fails validation below.
+  llvm::SmallVector<Operation *, 2> createdInputOps;
+  if (qkNorm) {
+    auto normPrePermute = ttir_to_ttnn::utils::generatePermute(
+        mlir::cast<TypedValue<RankedTensorType>>(qkNorm.getInput()),
+        llvm::ArrayRef(perm), rewriter, qkNorm.getLoc());
+    auto newNorm = rewriter.create<RMSNormOp>(
+        qkNorm.getLoc(), normPrePermute.getType(), normPrePermute.getResult(),
+        qkNorm.getWeight(), qkNorm.getBias(), qkNorm.getEpsilon());
+    decodeRopeInput = newNorm.getResult();
+    createdInputOps = {newNorm.getOperation(), normPrePermute.getOperation()};
+  } else {
+    auto prePermute = ttir_to_ttnn::utils::generatePermute(
+        mlir::cast<TypedValue<RankedTensorType>>(ropeOp.getInput()),
+        llvm::ArrayRef(perm), rewriter, ropeOp.getLoc());
+    decodeRopeInput = prePermute.getResult();
+    createdInputOps = {prePermute.getOperation()};
+  }
 
   auto tokenIndex = rewriter.getIntegerAttr(
       rewriter.getIntegerType(32, /*isSigned=*/false), 0);
 
   auto newRope = rewriter.create<RotaryEmbeddingOp>(
-      ropeOp.getLoc(), prePermute.getType(), prePermute.getResult(),
+      ropeOp.getLoc(), decodeRopeInput.getType(), decodeRopeInput,
       ropeOp.getCosCache(), ropeOp.getSinCache(), tokenIndex,
       ropeOp.getComputeConfigAttr());
 
@@ -1128,7 +1174,9 @@ applyRoPEDecodeRewrite(mlir::Operation *layoutOp, RotaryEmbeddingOp ropeOp,
 
     if (!validationResult.isSuccess()) {
       rewriter.eraseOp(newRope);
-      rewriter.eraseOp(prePermute);
+      for (Operation *op : createdInputOps) {
+        rewriter.eraseOp(op);
+      }
       return failure();
     }
   }
