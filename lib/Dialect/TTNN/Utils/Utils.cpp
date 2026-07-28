@@ -25,9 +25,21 @@
 
 namespace mlir::tt::ttnn::utils {
 
+// Resolve the module carrying the optimizer's L1 policy attributes.
+// getParentOfType starts from getParentOp(), so it returns null when called on
+// the ModuleOp itself -- and callers legitimately pass the module (e.g. the L1
+// spill pass computing its per-core budget). Without this the lookup silently
+// falls back to the defaults, dropping both `ttnn.tensor_l1_usage_cap` and
+// `ttnn.l1_const_eval_usage`.
+static ModuleOp getPolicyModule(Operation *op) {
+  if (auto moduleOp = mlir::dyn_cast<ModuleOp>(op)) {
+    return moduleOp;
+  }
+  return op->getParentOfType<ModuleOp>();
+}
+
 float getTensorL1UsageCap(Operation *op, float defaultValue) {
-  // Walk up to find the module operation that has the attribute
-  ModuleOp moduleOp = op->getParentOfType<ModuleOp>();
+  ModuleOp moduleOp = getPolicyModule(op);
 
   if (moduleOp) {
     if (auto attr =
@@ -40,7 +52,7 @@ float getTensorL1UsageCap(Operation *op, float defaultValue) {
 }
 
 uint64_t getReservedL1Usage(Operation *op) {
-  ModuleOp moduleOp = op->getParentOfType<ModuleOp>();
+  ModuleOp moduleOp = getPolicyModule(op);
 
   if (moduleOp) {
     if (auto attr =

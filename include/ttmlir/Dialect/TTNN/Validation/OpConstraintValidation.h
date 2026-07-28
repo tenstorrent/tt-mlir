@@ -181,10 +181,12 @@ validateWithMultipleAttributes(Operation *op,
 // the given context operation (used to look up device attributes and module-
 // level tensorL1UsageCap).  This is the shared L1 budget check used by both
 // the Operation*-based validateOperation and the template overload below.
-ValidationResult
-checkConstraintsResult(Operation *contextOp,
-                       llvm::Expected<op_model::OpConstraints> constraints,
-                       uint64_t additionalL1Usage = 0);
+// |statefulQuery| tells whether |constraints| came from the stateful
+// (build-from-records) query; if so the peak-usage byte check is skipped --
+// see the comment on the check itself.
+ValidationResult checkConstraintsResult(
+    Operation *contextOp, llvm::Expected<op_model::OpConstraints> constraints,
+    uint64_t additionalL1Usage = 0, bool statefulQuery = false);
 
 // Op-less validation: calls OpModel<OpType>::getOpConstraints directly with
 // the forwarded arguments, then validates the result against the L1 memory

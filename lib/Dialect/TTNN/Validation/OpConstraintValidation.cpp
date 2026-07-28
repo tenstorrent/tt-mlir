@@ -117,7 +117,7 @@ validateWithMultipleAttributes(Operation *op,
 ValidationResult
 checkConstraintsResult(Operation *contextOp,
                        llvm::Expected<op_model::OpConstraints> constraints,
-                       uint64_t additionalL1Usage) {
+                       uint64_t additionalL1Usage, bool statefulQuery) {
   if (!constraints) {
     ValidationResult result;
     llvm::handleAllErrors(
@@ -168,18 +168,40 @@ checkConstraintsResult(Operation *contextOp,
         outputTensorUsagePerCore, outputLayouts, outputAllocations] =
       constraints.get();
 
-  uint64_t effectiveL1Limit = utils::getUsableL1PerCore(contextOp);
-  uint64_t totalL1Usage = overallPeakL1Usage + additionalL1Usage;
+  // Peak-usage byte check -- the stateless path's *only* L1 capacity model.
+  // There both of tt-metal's graph captures run under NO_DISPATCH: nothing is
+  // allocated, no program is created, so neither an allocator OOM nor a
+  // CB-vs-L1 clash can ever be reported, and this comparison is the sole thing
+  // keeping the beam search off illegal L1 layouts.
+  //
+  // On the stateful (build-from-records) path it is skipped. There the second
+  // capture runs in NORMAL mode on an allocator pre-seeded with the live set,
+  // so fit / fragmentation / CB-vs-L1 overlap are decided by tt-metal itself
+  // and surface as an exception classified above -- a strictly stronger
+  // verdict than this byte sum, which knows neither the live set's addresses
+  // nor the op's real input placement (phase 1 materializes the inputs
+  // weightless at address 0, so `overallPeakL1Usage` covers only the op's own
+  // trace-local allocations). It is also not always a measured quantity: the
+  // phase-2 trace carries deallocations for pre-seeded buffers it never saw
+  // allocated, so tt-metal's unsigned running counters can wrap. The
+  // optimizer's own byte budget -- the 0.95 tensorL1UsageCap and the
+  // const-eval L1 reservation -- is enforced by MockAllocatorL1Tracker's
+  // budget ceiling instead, which applies them to a base that does contain the
+  // live set.
+  if (!statefulQuery) {
+    uint64_t effectiveL1Limit = utils::getUsableL1PerCore(contextOp);
+    uint64_t totalL1Usage = overallPeakL1Usage + additionalL1Usage;
 
-  if (totalL1Usage > effectiveL1Limit) {
-    TTMLIR_DEBUG(
-        ttmlir::LogComponent::OpValidation,
-        "Not enough L1 memory. "
-        "totalL1Usage: {} [overallPeakL1Usage={}, additionalL1Usage={}]"
-        " [cbPeakUsage={}, l1BuffersPeakUsage={}] limit: {}",
-        totalL1Usage, overallPeakL1Usage, additionalL1Usage, cbPeakUsage,
-        l1BuffersPeakUsage, effectiveL1Limit);
-    return ValidationResult::outOfMemoryError("Not enough L1 memory");
+    if (totalL1Usage > effectiveL1Limit) {
+      TTMLIR_DEBUG(
+          ttmlir::LogComponent::OpValidation,
+          "Not enough L1 memory. "
+          "totalL1Usage: {} [overallPeakL1Usage={}, additionalL1Usage={}]"
+          " [cbPeakUsage={}, l1BuffersPeakUsage={}] limit: {}",
+          totalL1Usage, overallPeakL1Usage, additionalL1Usage, cbPeakUsage,
+          l1BuffersPeakUsage, effectiveL1Limit);
+      return ValidationResult::outOfMemoryError("Not enough L1 memory");
+    }
   }
 
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
@@ -251,7 +273,8 @@ static ValidationResult validateConstraints(
           ? backend.getOpConstraintsWithState(inputLayouts, config, liveRecords)
           : backend.getOpConstraints(inputLayouts, config);
 
-  return checkConstraintsResult(op, std::move(l1UsageExp), additionalL1Usage);
+  return checkConstraintsResult(op, std::move(l1UsageExp), additionalL1Usage,
+                                useState);
 }
 
 } // namespace op_constraint_validation

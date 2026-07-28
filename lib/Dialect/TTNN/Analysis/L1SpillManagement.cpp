@@ -1994,12 +1994,26 @@ MockAllocatorL1Tracker::validate(Operation *op,
     // L1, but the optimizer budget reserves headroom below that (a ~0.95 cap
     // minus reserved). Enforce that byte ceiling here so the optimizer does not
     // pack up to the full device L1: projected peak = currently-live L1 (which
-    // includes this op's inputs) + this op's output.
-    uint64_t projected = getOccupiedL1() + result.outputL1Usage;
+    // includes this op's inputs) + this op's output + the op's static CB
+    // region, which is co-resident with both while the op runs.
+    //
+    // This ceiling is the *only* place the optimizer's L1 policy (the
+    // tensorL1UsageCap fraction and the const-eval L1 reservation) is applied
+    // on the stateful path -- the validation-layer peak byte check is skipped
+    // for stateful queries, and tt-metal's allocator honours neither. Unlike
+    // that check, this one is applied to a base that actually contains the
+    // live set. The const-eval reservation in particular is invisible to
+    // tt-metal: const-eval'd tensors live in another function, so they never
+    // enter liveRecords and the query's allocator never sees them.
+    uint64_t projected =
+        getOccupiedL1() + result.outputL1Usage + result.cbPeakUsage;
     if (l1Budget > 0 && projected > l1Budget) {
       return op_constraint_validation::ValidationResult::outOfMemoryError(
-          "stateful: projected L1 (" + std::to_string(projected) +
-          "B) exceeds optimizer budget (" + std::to_string(l1Budget) + "B)");
+          "stateful: projected L1 (" + std::to_string(projected) + "B = live " +
+          std::to_string(getOccupiedL1()) + "B + output " +
+          std::to_string(result.outputL1Usage) + "B + CB peak " +
+          std::to_string(result.cbPeakUsage) + "B) exceeds optimizer budget (" +
+          std::to_string(l1Budget) + "B)");
     }
     // Static-CB headroom floor (multi-device only; see
     // `cbHeadroomFloorEnabled`). The query answers "does THIS op fit", but

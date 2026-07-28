@@ -856,6 +856,66 @@ TEST_F(FragmentationTrackerTest, WouldAllocateAtReportsNoFitAndRoundTrips) {
 }
 
 //===----------------------------------------------------------------------===//
+// StatefulBudgetCeiling tests
+//
+// On the stateful path the validation-layer peak-L1 byte check is skipped: the
+// query really allocates on a pre-seeded allocator, so tt-metal itself decides
+// fit and throws. But tt-metal allocates against the device's *physical* L1 and
+// honours neither the optimizer's tensorL1UsageCap fraction nor the const-eval
+// L1 reservation. MockAllocatorL1Tracker::validate's byte ceiling is where that
+// policy now lives, and it charges each op live L1 + its output + its own
+// static CB region -- the three things co-resident while the op runs.
+//===----------------------------------------------------------------------===//
+
+class StatefulBudgetCeilingTest : public L1SpillTestFixture {};
+
+// opA (600 KiB) is live when opB (600 KiB output, 300 KiB CB) is validated.
+// The synthetic backend -- standing in for tt-metal, which sees only the
+// physical L1 -- reports success. Buffers alone would fit the optimizer budget
+// (1200 KiB <= 1300 KiB); adding opB's CB region does not (1500 KiB), so the
+// ceiling must report OOM and the pass must evict opA.
+TEST_F(StatefulBudgetCeilingTest, CBPeakCountsAgainstOptimizerBudget) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+  auto tt = tensorType(shape, makeL1Sharded(shape));
+
+  auto args = beginFunc({tt});
+  auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/600 * kKiB);
+  auto *opB = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/600 * kKiB);
+  setL1Usage(opB, /*l1=*/600 * kKiB, /*cb=*/300 * kKiB);
+  finishFunc({opB->getResult(0)});
+
+  auto [obs] = runStateful();
+
+  EXPECT_FALSE(obs->ooms.empty())
+      << "live + output + CB peak exceeds the optimizer budget";
+  ASSERT_FALSE(obs->evictions.empty());
+  EXPECT_EQ(obs->evictions[0].victim, opA);
+  EXPECT_EQ(countSpills(), 1u);
+  EXPECT_TRUE(wasSpilled(opA->getResult(0)));
+}
+
+// Same graph with no CB region: 1200 KiB <= 1300 KiB, so the ceiling passes and
+// nothing is spilled. Pins that the CB term above is what binds, not the
+// buffers.
+TEST_F(StatefulBudgetCeilingTest, BuffersAloneStayUnderBudget) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+  auto tt = tensorType(shape, makeL1Sharded(shape));
+
+  auto args = beginFunc({tt});
+  auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/600 * kKiB);
+  auto *opB = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/600 * kKiB);
+  finishFunc({opB->getResult(0)});
+
+  auto [obs] = runStateful();
+
+  EXPECT_TRUE(obs->ooms.empty());
+  EXPECT_EQ(countSpills(), 0u);
+  EXPECT_TRUE(resultIsL1(opA->getResult(0)));
+}
+
+//===----------------------------------------------------------------------===//
 // StatefulCBHeadroomFloor tests
 //
 // Regression coverage for the multi-device static-CB headroom floor. On QB2
@@ -881,11 +941,19 @@ class StatefulMeshHeadroomTest : public L1SpillTestFixture {
 // Same graph, single device: the floor is disarmed and behavior is unchanged.
 class StatefulSingleDeviceHeadroomTest : public L1SpillTestFixture {};
 
-// opA (600 KiB) stays live across opB, so opB's own 600 KiB output is placed
-// low -- at base + 102400, below opB's own 300 KiB static CB region. Both fit
-// the byte budget (1200 KiB <= 1300 KiB), so only the address-level floor can
-// catch it. Expect the floor to report OOM, evict opA and spill it to DRAM,
-// after which opB is placed high enough to clear its CB region.
+// opA (600 KiB, and the function's 300 KiB CB high-water) stays live across
+// opB, so opB's own 600 KiB output is placed low -- at base + 102400, below the
+// static CB region the function is known to need. Everything fits the byte
+// budget (600 + 600 + opB's own 0 CB <= 1300 KiB), so only the address-level
+// floor can catch it. Expect the floor to report OOM, evict opA and spill it to
+// DRAM, after which opB is placed high enough to clear the CB region.
+//
+// The CB high-water deliberately comes from opA, not opB: the byte ceiling in
+// MockAllocatorL1Tracker::validate charges each op its *own* CB peak on top of
+// the live set, so an op whose own CB does not fit is rejected there first.
+// What the floor uniquely catches is a low-placed buffer versus the largest CB
+// region *any* program in the function needs -- including programs the model
+// never queried, which is the QB2 failure above.
 TEST_F(StatefulMeshHeadroomTest, LowAddressOutputBelowCBFloorEvicts) {
   l1BudgetPerCore = 1300 * kKiB;
   llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
@@ -893,8 +961,8 @@ TEST_F(StatefulMeshHeadroomTest, LowAddressOutputBelowCBFloorEvicts) {
 
   auto args = beginFunc({tt});
   auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/600 * kKiB);
+  setL1Usage(opA, /*l1=*/600 * kKiB, /*cb=*/300 * kKiB);
   auto *opB = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/600 * kKiB);
-  setL1Usage(opB, /*l1=*/600 * kKiB, /*cb=*/300 * kKiB);
   finishFunc({opB->getResult(0)});
 
   auto [obs] = runStateful();
@@ -916,8 +984,8 @@ TEST_F(StatefulSingleDeviceHeadroomTest, FloorDisarmedOnSingleDevice) {
 
   auto args = beginFunc({tt});
   auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/600 * kKiB);
+  setL1Usage(opA, /*l1=*/600 * kKiB, /*cb=*/300 * kKiB);
   auto *opB = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/600 * kKiB);
-  setL1Usage(opB, /*l1=*/600 * kKiB, /*cb=*/300 * kKiB);
   finishFunc({opB->getResult(0)});
 
   auto [obs] = runStateful();
