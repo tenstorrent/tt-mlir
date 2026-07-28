@@ -290,4 +290,21 @@ def TTCore_RoutingMode : I32EnumAttr<"RoutingMode", "TT RoutingMode",
   let cppNamespace = "::mlir::tt::ttcore";
 }
 
+// ThreadType classifies a generic op region / kernel thread. Used by
+// ThreadAttr. Lives in TTCore so that lower layers (e.g. fabric connection
+// config serialization) can reason about the assigned DM core without
+// depending on the D2M dialect.
+def TTCore_ThreadTypeCompute : I32EnumAttrCase<"Compute", 0, "compute">;
+def TTCore_ThreadTypeDatamovement : I32EnumAttrCase<"Datamovement", 1, "datamovement">;
+def TTCore_ThreadTypeUnified : I32EnumAttrCase<"Unified", 2, "unified">;
+
+def TTCore_ThreadType : I32EnumAttr<"ThreadType", "TT ThreadType", [
+                                  TTCore_ThreadTypeCompute,
+                                  TTCore_ThreadTypeDatamovement,
+                                  TTCore_ThreadTypeUnified,
+                                ]> {
+  let genSpecializedAttr = 1;
+  let cppNamespace = "::mlir::tt::ttcore";
+}
+
 #endif // TTMLIR_DIALECT_TTCORE_IR_TTCOREOPSENUMS_TD

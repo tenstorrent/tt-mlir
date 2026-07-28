@@ -407,8 +407,9 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
       if (command->fabric_connection_config() &&
           kernelConfig->type_type() ==
               target::metal::KernelConfigType::NocConfig &&
-          command->fabric_connection_config()->noc_index() ==
-              kernelConfig->type_as_NocConfig()->noc_index()) {
+          command->fabric_connection_config()->dm_core() ==
+              static_cast<uint32_t>(
+                  kernelConfig->type_as_NocConfig()->processor())) {
         auto fabricConfigArgs = common::appendFabricConfigArgs(
             command->fabric_connection_config(), kernelConfig, program, handle,
             deviceCoord, meshDevice, rtArgsVec, coreRangeSet);

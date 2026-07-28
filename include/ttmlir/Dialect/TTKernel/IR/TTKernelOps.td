@@ -4280,6 +4280,22 @@ def TTKernel_FabricMulticastSemIncOp : TTKernel_Op<"experimental.fabric_mcast_se
   }];
 }
 
+def TTKernel_GetFabricNocAddrFromBankIDOp : TTKernel_Op<"experimental.get_fabric_noc_addr_from_bank_id", [Pure]> {
+  let summary = "GetFabricNocAddrFromBankID";
+  let description = [{
+    Get a fabric-deliverable NOC address from a DRAM bank id and bank address
+    offset. Mirrors get_noc_addr_from_bank_id, but flips Wormhole coordinates
+    into the noc0 system expected by fabric APIs.
+  }];
+
+  let arguments = (ins I32:$bank_id, I32:$bankAddressOffset);
+  let results = (outs TTKernel_NocAddr:$nocAddr);
+
+  let assemblyFormat = [{
+    `(` $bank_id `,` $bankAddressOffset `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
 def TTKernel_CreateFabricConnectionManagerOp : TTKernel_Op<"experimental.create_fabric_connection_manager"> {
   let summary = "CreateFabricConnectionManager";
   let description = [{

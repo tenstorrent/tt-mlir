@@ -2386,11 +2386,11 @@ static NocEndpoint buildNocEndpoint(OpBuilder &rewriter, Location loc, Value cb,
   return endpoint;
 }
 
-static Value materializeTranslatedNocAddr(OpBuilder &rewriter, Location loc,
+static Value materializeFabricNocAddr(OpBuilder &rewriter, Location loc,
                                           const NocEndpoint &endpoint,
                                           Value nocId) {
   if (endpoint.memorySpace == ttcore::MemorySpace::DeviceDRAM) {
-    return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(
+    return rewriter.create<ttkernel::GetFabricNocAddrFromBankIDOp>(
         loc, endpoint.bankId, endpoint.address);
   }
 
@@ -2792,7 +2792,7 @@ public:
       auto dstEndpoint = buildNocEndpoint(rewriter, op.getLoc(),
                                           adaptor.getDst(), op.getDstIndices(),
                                           chipDesc, op.getDstMemorySpace());
-      auto dstNocAddr = materializeTranslatedNocAddr(rewriter, op.getLoc(),
+      auto dstNocAddr = materializeFabricNocAddr(rewriter, op.getLoc(),
                                                      dstEndpoint, nocId);
       auto size =
           intConstant<int32_t>(rewriter, op->getLoc(), op.getSizeBytes());

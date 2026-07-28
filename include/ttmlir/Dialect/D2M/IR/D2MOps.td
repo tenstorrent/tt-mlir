@@ -284,7 +284,7 @@ def D2M_GenericOp
                        TTCore_GridAttr:$grid,
                        I64ArrayAttr:$block_factors, AffineMapArrayAttr:$indexing_maps,
                        TTCore_IteratorTypeArrayAttr:$iterator_types,
-                       D2M_ThreadArrayAttr:$threads,
+                       TTCore_ThreadArrayAttr:$threads,
                        OptionalAttr<TTCore_FabricConnectionConfigAttr>:$fabricConnectionConfig);
   let results = (outs Variadic<AnyRankedTensor>:$results);
   let regions = (region VariadicRegion<AnyRegion>:$regions);

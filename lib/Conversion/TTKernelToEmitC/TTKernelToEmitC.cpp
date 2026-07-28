@@ -865,7 +865,10 @@ public:
           op.getContext(), getBroadcastType(op.getBcastType())));
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp,
-                                        ttkernel::GetNocAddrFromBankIDOp>) {
+                                        ttkernel::GetNocAddrFromBankIDOp> ||
+                         std::is_same_v<
+                             SourceOp,
+                             ttkernel::GetFabricNocAddrFromBankIDOp>) {
       SmallVector<Attribute, 1> template_args;
 
       template_args.push_back(
@@ -2875,6 +2878,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricMulticastWriteOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricSemIncOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricMulticastSemIncOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GetFabricNocAddrFromBankIDOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::CreateFabricConnectionManagerOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SetupFabricConnectionsOp>,

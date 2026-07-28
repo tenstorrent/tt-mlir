@@ -399,7 +399,7 @@ def _build_all_gather_region(
     def _build():
         ctx = builder.context
         fabric_connection_config = Attribute.parse(
-            "#ttcore.fabric_connection_config<noc_index = noc0, topology = ring, cluster_axis = 1, routing_mode = unidir_ring_torus, num_links = 1>",
+            "#ttcore.fabric_connection_config<thread = #d2m.thread<unified>, topology = ring, cluster_axis = 1, routing_mode = unidir_ring_torus, num_links = 1>",
             ctx,
         )
         d0 = AffineDimExpr.get(0, ctx)
