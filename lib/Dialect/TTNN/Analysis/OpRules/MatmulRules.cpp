@@ -19,6 +19,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <cmath>
+#include <optional>
 
 namespace mlir::tt::ttnn {
 
@@ -28,16 +29,34 @@ namespace mlir::tt::ttnn {
 //
 // The shard geometry, layout, and config *generation* lives in
 // MatmulProgramConfig.{h,cpp} (computeShardParams, buildDRAMSharded*). These
-// constants are the rule book's policy inputs: they drive eligibility and are
-// passed into computeShardParams as numBanks / numIn0Cores.
+// are the rule book's policy inputs: they drive eligibility and are passed into
+// computeShardParams as numBanks / numIn0Cores.
 
 static constexpr int64_t kTileSize = 32;
-static constexpr int64_t kNumDRAMBanks = 12;
 // Single source of truth for how many cores the DS-matmul activation (in0) is
 // width-sharded across. Drives the in0 shard width, the K-divisibility
 // eligibility gate, and the in0 L1 tensor-buffer reservation in
 // computeShardParams. Keep these uses consistent.
 static constexpr int64_t kNumIn0Cores = 8;
+
+// Number of DRAM banks the weight is width-sharded across: every bank the
+// device exposes. Deliberately the same source deriveCanonicalDramCoreRangeSet
+// reads to build the layout's core range set, so the bank count and the
+// placement cannot disagree.
+//
+// Returns nullopt when the grid is not a shape canonical DRAM placement can
+// express (it requires a single row), so the DS path declines instead of
+// tripping the assert inside deriveCanonicalDramCoreRangeSet.
+static std::optional<int64_t> getNumDRAMBanks(ttcore::DeviceAttr deviceAttr) {
+  if (!deviceAttr) {
+    return std::nullopt;
+  }
+  llvm::ArrayRef<int64_t> dramGrid = deviceAttr.getDramGrid().getShape();
+  if (dramGrid.size() != 2 || dramGrid[0] != 1 || dramGrid[1] < 1) {
+    return std::nullopt;
+  }
+  return dramGrid[1];
+}
 
 // ============================================================================
 // Eligibility helpers
@@ -197,11 +216,15 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
   auto weightDataType = getWeightDataType(matmulOp.getB());
 
   ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+  std::optional<int64_t> numDRAMBanks = getNumDRAMBanks(deviceAttr);
+  if (!numDRAMBanks) {
+    return std::nullopt;
+  }
   int64_t numAvailableCores =
       ttmlir::utils::volume(deviceAttr.getWorkerGrid().getShape());
 
   auto pOpt =
-      computeShardParams(M, K, N, kNumDRAMBanks, kNumIn0Cores,
+      computeShardParams(M, K, N, *numDRAMBanks, kNumIn0Cores,
                          numAvailableCores, weightDataType, l1Available);
   if (!pOpt) {
     return std::nullopt;
@@ -242,9 +265,9 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
 void MatmulRuleBook::applyDRAMShardedTransformation(
     MatmulOp matmulOp, const MatmulAttrs &matmulAttrs) const {
   auto *ctx = matmulOp.getContext();
-  // Input reshards (activation → L1 1×kNumIn0Cores, weight → DRAM 1×numBanks) handled by
-  // pass-2 in applyToIR via reshardLayouts populated from the input candidates
-  // injected by getExtraInputReshardCandidates.
+  // Input reshards (activation → L1 1×kNumIn0Cores, weight → DRAM 1×numBanks)
+  // handled by pass-2 in applyToIR via reshardLayouts populated from the input
+  // candidates injected by getExtraInputReshardCandidates.
 
   OpBuilder builder(matmulOp);
 
@@ -261,9 +284,9 @@ void MatmulRuleBook::applyDRAMShardedTransformation(
   // Fusing the activation into the DS matmul kernel is significantly slower
   // (measured: the 12-core DS matmul applies silu much slower than an op on all
   // 64 cores). So strip it off the matmul and either (a) fold it into a
-  // consuming multiply as its operand-A activation — SwiGLU: multiply(silu(gate),
-  // up) — which runs on the full grid (cheapest), or (b) fall back to a separate
-  // elementwise op.
+  // consuming multiply as its operand-A activation — SwiGLU:
+  // multiply(silu(gate), up) — which runs on the full grid (cheapest), or (b)
+  // fall back to a separate elementwise op.
   auto activationAttr = matmulOp.getActivationAttr();
   if (activationAttr) {
     matmulOp.removeActivationAttr();
@@ -296,9 +319,10 @@ void MatmulRuleBook::applyDRAMShardedTransformation(
     if (fuseInto && !fuseInto.getLhsActivation() &&
         (fuseInto.getLhs() == matmulResult ||
          fuseInto.getRhs() == matmulResult)) {
-      // Normalize the silu'd (matmul) value to operand A, then tag lhs_activation.
+      // Normalize the silu'd (matmul) value to operand A, then tag
+      // lhs_activation.
       Value other = fuseInto.getLhs() == matmulResult ? fuseInto.getRhs()
-                                                       : fuseInto.getLhs();
+                                                      : fuseInto.getLhs();
       fuseInto.getLhsMutable().assign(matmulResult);
       fuseInto.getRhsMutable().assign(other);
       fuseInto.setLhsActivationAttr(StringAttr::get(ctx, "silu"));
@@ -531,8 +555,7 @@ MatmulRuleBook::adjustScore(Operation * /*op*/, LayoutScore base,
       auto ml = in0.getMemLayoutOpt();
       if (ml && *ml == TensorMemoryLayout::WidthSharded) {
         auto shape = in0.getGridShape();
-        if (shape.size() == 2 && shape[0] == 1 &&
-            shape[1] == kNumIn0Cores) {
+        if (shape.size() == 2 && shape[0] == 1 && shape[1] == kNumIn0Cores) {
           base.hasCanonicalDSIn0 = true;
         }
       }
@@ -573,9 +596,13 @@ MatmulRuleBook::getExtraInputReshardCandidates(Operation *op,
   auto weightDataType = getWeightDataType(matmulOp.getB());
 
   ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+  std::optional<int64_t> numBanks = getNumDRAMBanks(deviceAttr);
+  if (!numBanks) {
+    return {};
+  }
   int64_t numAvailCores =
       ttmlir::utils::volume(deviceAttr.getWorkerGrid().getShape());
-  auto pOpt = computeShardParams(M, K, N, kNumDRAMBanks, kNumIn0Cores,
+  auto pOpt = computeShardParams(M, K, N, *numBanks, kNumIn0Cores,
                                  numAvailCores, weightDataType, l1Available);
   if (!pOpt) {
     return {};

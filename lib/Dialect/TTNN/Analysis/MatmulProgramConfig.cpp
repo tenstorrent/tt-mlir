@@ -412,15 +412,15 @@ TTNNLayoutAttr buildDRAMShardedWeightLayout(MLIRContext *ctx,
       TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::WidthSharded);
   // Built via TTNNLayoutAttr::get rather than the Builder on purpose: the shard
   // width per bank must stay exactly p.shardWTiles, and Builder::build() would
-  // re-derive it (and the core range set) from the grid. Note the linear map is
-  // carried over from the producer, so it describes the producer's grid rather
-  // than {1, numBanks}. That is inert: the memref is authoritative for shard
-  // shape (getShardShape() reads it directly) and the CRS for placement, and
-  // linear reaches neither tt-metal (Conversion.cpp builds ShardSpec from
-  // CRS + memref) nor the flatbuffer. Its only reader is
-  // TTNNLayoutAttr::getTiledShape(), used solely by LegalTensorLayoutAnalysis,
-  // which never sees this layout — it is injected via
-  // getExtraInputReshardCandidates.
+  // re-derive it (and the core range set) from the grid.
+  //
+  // Reusing the producer's linear map is exact, not an approximation. The map
+  // is only the logical-to-collapsed-2D flatten rule; collapsedLinearAffineMap
+  // derives its expressions from the shape and collapse intervals, and uses
+  // gridShape only for the result count. The weight is rank 2 (enforced by
+  // isDRAMShardEligible) against a rank-2 grid, so the map is (d0, d1) ->
+  // (d0, d1) whether the grid is the producer's {1, 1} or this layout's
+  // {1, numBanks} — the same uniqued attribute the Builder would have produced.
   return TTNNLayoutAttr::get(ctx, origLayout.getLinear(),
                              llvm::ArrayRef<int64_t>{1, p.numBanks}, memrefType,
                              memLayout, origLayout.getTensorMesh(),
