@@ -177,19 +177,12 @@ validateWithMultipleAttributes(Operation *op,
                                llvm::ArrayRef<OpConfig> opConfigs,
                                llvm::ArrayRef<OpConfig> referenceConfigs);
 
-// Validate an OpConstraints result against the L1 memory budget derived from
-// the given context operation (used to look up device attributes and module-
-// level tensorL1UsageCap).  This is the shared L1 budget check used by both
-// the Operation*-based validateOperation and the template overload below.
-// |statefulQuery| tells whether |constraints| came from the stateful
-// (build-from-records) query. If so the peak-usage byte check is skipped: that
-// query really allocates on an allocator pre-seeded with the live set, so
-// tt-metal itself decides fit / fragmentation / CB-vs-L1 overlap and throws,
-// while the reported peak knows neither the live set's addresses nor the op's
-// real input placement (phase 1 materializes inputs weightless at address 0)
-// and can even wrap on the phase-2 trace's unmatched deallocations. The
-// optimizer's own byte budget is enforced by MockAllocatorL1Tracker::validate's
-// budget ceiling instead, which applies it to a base containing the live set.
+// Validate an OpConstraints result against the optimizer's L1 budget (looked up
+// from |contextOp|'s device/module attributes). |statefulQuery| skips the
+// peak-usage byte check: the stateful query really allocates so tt-metal
+// decides fit, and its reported peak is unreliable (weightless inputs at
+// address 0, and it can wrap on the trace's unmatched deallocations). The byte
+// budget is enforced by MockAllocatorL1Tracker::validate instead.
 ValidationResult checkConstraintsResult(
     Operation *contextOp, llvm::Expected<op_model::OpConstraints> constraints,
     uint64_t additionalL1Usage = 0, bool statefulQuery = false);

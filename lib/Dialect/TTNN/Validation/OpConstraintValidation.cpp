@@ -168,16 +168,10 @@ checkConstraintsResult(Operation *contextOp,
         outputTensorUsagePerCore, outputLayouts, outputAllocations] =
       constraints.get();
 
-  // Peak-usage byte check -- the stateless path's *only* L1 capacity model.
-  // There both of tt-metal's graph captures run under NO_DISPATCH: nothing is
-  // allocated, no program is created, so neither an allocator OOM nor a
-  // CB-vs-L1 clash can ever be reported, and this comparison is the sole thing
-  // keeping the beam search off illegal L1 layouts.
-  //
-  // The stateful (build-from-records) path skips it: tt-metal decides fit there
-  // itself, and the optimizer's own byte budget is owned by
-  // MockAllocatorL1Tracker::validate's budget ceiling instead -- see that
-  // ceiling for what it enforces and why.
+  // Stateless-only L1 capacity model: both graph captures run NO_DISPATCH, so
+  // nothing is allocated and only this comparison keeps the beam search off
+  // illegal L1 layouts. The stateful path skips it -- tt-metal decides fit
+  // there, and MockAllocatorL1Tracker::validate's ceiling owns the byte budget.
   if (!statefulQuery) {
     uint64_t effectiveL1Limit = utils::getUsableL1PerCore(contextOp);
     uint64_t totalL1Usage = overallPeakL1Usage + additionalL1Usage;

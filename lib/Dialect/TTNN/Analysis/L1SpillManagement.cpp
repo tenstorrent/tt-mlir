@@ -1990,34 +1990,13 @@ MockAllocatorL1Tracker::validate(Operation *op,
   }();
 
   if (result.isSuccess()) {
-    // The query decides fit / fragmentation / CB-clash on the device's physical
-    // L1, but the optimizer budget reserves headroom below that (a ~0.95 cap
-    // minus reserved). Enforce that byte ceiling here so the optimizer does not
-    // pack up to the full device L1: projected peak = currently-live L1 (which
-    // includes this op's inputs) + this op's output.
-    //
-    // This ceiling carries exactly the optimizer's *tensor* L1 policy -- the
-    // tensorL1UsageCap fraction and the const-eval L1 reservation -- and it is
-    // the only place that policy is applied on the stateful path: the
-    // validation-layer peak byte check is skipped for stateful queries, and
-    // tt-metal's allocator honours neither. Unlike that check, this one is
-    // applied to a base that actually contains the live set. The const-eval
-    // reservation in particular is invisible to tt-metal: const-eval'd tensors
-    // live in another function, so they never enter liveRecords and the
-    // query's allocator never sees them.
-    //
-    // The op's static CB region is deliberately *not* summed in here. Whether
-    // it collides with the live set is a question of addresses, not bytes: the
-    // CB region grows up from l1UnreservedBase while buffers are placed from
-    // the top down, so the two only clash once the lowest occupied address
-    // drops into the CB region. On this path that comparison is made for real
-    // -- phase 2 runs in NORMAL mode against an allocator seeded with the live
-    // set, so ProgramImpl::validate_circular_buffer_region checks the CB region
-    // end against the allocator's true lowest occupied address and throws
-    // ("clash with L1 buffers"), which is classified as an OOM verdict. The
-    // floor below inspects the same allocator state for the programs that
-    // check cannot see. Charging the CB bytes against a tensor budget on top of
-    // that would only over-penalize ops with large CBs that never overlap.
+    // Enforce the optimizer's tensor-L1 budget (the ~0.95 tensorL1UsageCap plus
+    // the const-eval reservation) against live + output. This is the only place
+    // that policy is applied on the stateful path -- the validation-layer byte
+    // check is skipped there and tt-metal honours neither. The op's static CB
+    // region is intentionally not added: a CB-vs-L1 clash is an address
+    // question that tt-metal's real allocation and the floor below already
+    // catch.
     uint64_t projected = getOccupiedL1() + result.outputL1Usage;
     if (l1Budget > 0 && projected > l1Budget) {
       return op_constraint_validation::ValidationResult::outOfMemoryError(
