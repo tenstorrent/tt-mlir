@@ -174,20 +174,10 @@ checkConstraintsResult(Operation *contextOp,
   // CB-vs-L1 clash can ever be reported, and this comparison is the sole thing
   // keeping the beam search off illegal L1 layouts.
   //
-  // On the stateful (build-from-records) path it is skipped. There the second
-  // capture runs in NORMAL mode on an allocator pre-seeded with the live set,
-  // so fit / fragmentation / CB-vs-L1 overlap are decided by tt-metal itself
-  // and surface as an exception classified above -- a strictly stronger
-  // verdict than this byte sum, which knows neither the live set's addresses
-  // nor the op's real input placement (phase 1 materializes the inputs
-  // weightless at address 0, so `overallPeakL1Usage` covers only the op's own
-  // trace-local allocations). It is also not always a measured quantity: the
-  // phase-2 trace carries deallocations for pre-seeded buffers it never saw
-  // allocated, so tt-metal's unsigned running counters can wrap. The
-  // optimizer's own byte budget -- the 0.95 tensorL1UsageCap and the
-  // const-eval L1 reservation -- is enforced by MockAllocatorL1Tracker's
-  // budget ceiling instead, which applies them to a base that does contain the
-  // live set.
+  // The stateful (build-from-records) path skips it: tt-metal decides fit there
+  // itself, and the optimizer's own byte budget is owned by
+  // MockAllocatorL1Tracker::validate's budget ceiling instead -- see that
+  // ceiling for what it enforces and why.
   if (!statefulQuery) {
     uint64_t effectiveL1Limit = utils::getUsableL1PerCore(contextOp);
     uint64_t totalL1Usage = overallPeakL1Usage + additionalL1Usage;
