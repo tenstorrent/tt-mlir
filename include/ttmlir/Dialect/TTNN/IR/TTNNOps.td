@@ -1511,7 +1511,7 @@ def TTNN_DitMatmulAddcmulFusedOp : TTNN_Op<"dit_matmul_addcmul_fused",
     let summary = "Fused matmul + bias + gated residual (adaLN addcmul epilogue).";
 
     let description = [{
-      Computes `result = residual + (a * b + bias) * gate` in a single
+      Computes `result = residual + (a @ b + bias) * gate` in a single
       kernel, folding the DiT adaLN gated-residual epilogue into the output
       projection matmul. Mirrors tt-metal
       `ttnn.experimental.dit_minimal_matmul_addcmul_fused`.

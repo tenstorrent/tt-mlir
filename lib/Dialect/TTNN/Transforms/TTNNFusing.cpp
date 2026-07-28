@@ -188,7 +188,7 @@ private:
 // activation/transposed operands the fused op does not model.
 template <typename MatmulLikeOp>
 class TTNNDitMatmulAddcmulFusing : public mlir::OpRewritePattern<AddOp> {
-  using TTNNDitMatmulAddcmulFusing::OpRewritePattern<AddOp>::OpRewritePattern;
+  using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
 
 public:
   mlir::LogicalResult

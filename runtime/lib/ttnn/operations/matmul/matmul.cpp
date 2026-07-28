@@ -157,13 +157,14 @@ void run(const ::tt::target::ttnn::DitMatmulAddcmulFusedOp *op,
   // NOTE: the MinimalMatmulConfig (`config`) is left as nullopt for now, so the
   // op derives a default schedule. Threading a tuned config from the compiler
   // is a follow-up (perf-only, not correctness).
-  ::ttnn::Tensor output = ::ttnn::experimental::dit_minimal_matmul_addcmul_fused(
-      input, weight, /*scalar=*/1.0f, residual, gate,
-      /*bias_tensor=*/bias,
-      /*config=*/std::nullopt,
-      /*memory_config=*/outputMemoryConfig,
-      /*dtype=*/outputDataType,
-      /*compute_kernel_config=*/computeConfig);
+  ::ttnn::Tensor output =
+      ::ttnn::experimental::dit_minimal_matmul_addcmul_fused(
+          input, weight, /*scalar=*/1.0f, residual, gate,
+          /*bias_tensor=*/bias,
+          /*config=*/std::nullopt,
+          /*memory_config=*/outputMemoryConfig,
+          /*dtype=*/outputDataType,
+          /*compute_kernel_config=*/computeConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
