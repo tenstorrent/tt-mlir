@@ -49,9 +49,18 @@ module @sparse_sdpa attributes {} {
   // CHECK-DAG: "ttir.slice_static"
   // The mask index arithmetic runs in f32, not the bf16 element type, so that
   // key positions past bf16's exact-integer range (256) are not conflated. The
-  // typecast of `indices`, the key-position arange, the equality test and the
-  // slot-count reduction are all f32; only the additive 0/-inf mask is bf16.
-  // CHECK-DAG: "ttir.arange"{{.*}} -> tensor<{{.*}}xf32>
-  // CHECK-DAG: "ttir.eq"{{.*}}(tensor<{{.*}}xf32>, tensor<{{.*}}xf32>) -> tensor<{{.*}}xf32>
+  // typecast of `indices` and the in-range predicate are f32; only the additive
+  // 0/-inf mask is bf16.
+  //
+  // The membership test is a scatter-accumulate into a [B, S, T] hit-count
+  // buffer, NOT a one-hot [B, S, TOPK, T] compare-and-reduce: the latter needs
+  // O(S * TOPK * T) memory (1.07e9 elements at S = T = TOPK = 1024) and does not
+  // fit. Reduction must be `sum` so that a masked slot redirected onto key 0
+  // (contributing 0.0) cannot clear a genuine hit on key 0 in the same row.
+  // CHECK-DAG: "ttir.lt"{{.*}}(tensor<{{.*}}xf32>, tensor<{{.*}}xf32>) -> tensor<{{.*}}xf32>
+  // CHECK-DAG: "ttir.ge"{{.*}}(tensor<{{.*}}xf32>, tensor<{{.*}}xf32>) -> tensor<{{.*}}xf32>
+  // CHECK-DAG: "ttir.scatter"{{.*}}scatter_reduce_type = #ttcore.reduce_type<sum>
   // CHECK-DAG: "ttir.where"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}) {{.*}}: (tensor<{{.*}}xf32>, tensor<{{.*}}xbf16>, tensor<{{.*}}xbf16>) -> tensor<{{.*}}xbf16>
+  // No one-hot slot tensor may reappear.
+  // CHECK-NOT: "ttir.eq"
 }
