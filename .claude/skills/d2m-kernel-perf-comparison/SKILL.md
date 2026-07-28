@@ -105,6 +105,10 @@ Treat a full-graph comparison as the start of a study, not its bottleneck
 analysis. Use `references/one_to_one_protocol.md` and keep a machine-readable
 study file based on `references/study_template.json`.
 
+For attribution across backends that emit different program or kernel counts,
+use the existing-location semantic profiling design recorded in
+`references/semantic_region_profiling_handoff.md`.
+
 The following claims require different evidence:
 
 - **API latency:** exact semantic boundary and source IR hash, matching
