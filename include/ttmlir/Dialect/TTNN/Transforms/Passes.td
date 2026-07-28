@@ -545,7 +545,7 @@ def TTNNCCLActivationDtypeLowering: Pass<"ttnn-ccl-activation-dtype-lowering", "
         residual add. The residual add's result encoding stays bf16 (it was
         constructed from the bf16 residual operand), so TTNN restores bf16
         at the block output by combining the bfp_bf8 CCL output with the
-        bf16 residual - no exit-side cast needed.
+        bf16 residual — no exit-side cast needed.
       - MLP up / gate matmuls -> [view / CCL]* -> silu / multiply. The
         multiply's result encoding is rewritten to bfp_bf8 so the downstream
         FF2 matmul receives bfp_bf8 input; the FF2 residual add then
@@ -619,45 +619,29 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
     - system_memory_ops: Operations with system_memory buffer type
     - Percentages: All counts as percentage of total_shardable_ops
 
-    FLOP report ("flops" section):
-    - total_flops: sum of logical, un-padded FLOPs (2*M*K*N for matmul, etc.)
-      over the matrix-engine (GEMM-class) ops only: matmul/linear/sparse_matmul,
-      conv, and SDPA & flash-MLA prefill. SFPU / vector-engine ops (elementwise,
-      softmax, norm, pooling, reduction) are not counted - they run at a
-      different peak and are negligible next to the matmuls. All decode /
-      chunked / paged attention variants (chunked-prefill SDPA, non-paged and
-      paged SDPA decode, paged flash-MLA decode) are not counted either: their
-      effective key length is a runtime value (past-sequence length / paged
-      cache), so it can't be derived from the static op shapes.
-      This is per-chip: one device's SPMD program for one graph invocation.
-      Every chip in the mesh runs that same program, so model-wide counted FLOPs
-      are total_flops * num_chips_used. That holds under data parallelism, where
-      each chip's share is distinct work. Under tensor parallelism an op left out
-      of the sharding spec is recomputed identically on several chips, and the
-      product then counts it once per chip - the report cannot distinguish the
-      two cases, because the only sharding information reaching TTNN is a binary
-      ttcore.shard_status per argument with no per-axis shard dims. Use an
-      analytical (parameter-count) numerator when that matters.
-    - effective_peak_flops_per_sec: the MFU denominator, per-chip. The
-      flops-weighted peak this graph actually ran at
-      (total_flops / ideal_compute_s), which folds in each op's own math
-      fidelity - so it is right whether the matmuls ran LoFi or HiFi4, and a
-      single peak_flops_per_sec entry cannot stand in for it when the graph mixes
-      fidelities. Emitted so consumers need not re-derive it.
-    - mesh_peak_flops_per_sec: the same peak times num_chips_used, to pair with a
-      mesh-wide numerator.
-    - mesh_shape: per-axis mesh extents; its volume is num_chips_used.
-    - peak_flops_per_sec: raw hardware matrix-engine peak per math fidelity, for
-      reference, not the MFU denominator.
-    - flops_by_category and a secondary per-chip roofline (ideal_compute_ms /
-      ideal_memory_ms / ideal_roofline_ms). The roofline has no communication
-      term, so on a multi-chip mesh it understates the achievable floor.
+    FLOP report ("flops" section), for computing MFU:
+
+      MFU = total_flops / (measured_seconds * peak_flops_per_sec)
+
+    Both values are per-chip, for one graph invocation.
+    - total_flops: logical, un-padded FLOPs (2*M*K*N for matmul) over the
+      matrix-engine ops only: matmul/linear/sparse_matmul, conv, and SDPA /
+      flash-MLA prefill. SFPU / vector-engine ops (elementwise, softmax, norm,
+      pooling, reduction) run against a different peak, so counting them would
+      inflate the numerator. Decode / chunked / paged attention is not counted
+      either: its effective key length is a runtime value (past-sequence length /
+      paged cache), so it can't be derived from the static op shapes.
+    - peak_flops_per_sec: the MFU denominator. The flops-weighted matrix-engine
+      peak, which folds in each op's own math fidelity, so it holds whether the
+      matmuls ran LoFi or HiFi4.
+    - peak_flops_per_sec_by_fidelity: raw hardware peak per math fidelity, for
+      reference only.
 
     Verbose output (--ttnn-perf-metrics-verbose-output-enabled) includes:
     - Detailed per-operation analysis with sharding and memory layout information for shardable ops
     - Complete operation type breakdown with counts for all operation types (excluding const-eval functions)
-    - A per-op FLOP array ("flops"/"per_op") with logical flops, dram bytes,
-      math fidelity and the per-op roofline breakdown.
+    - A per-op FLOP array ("flops"/"per_op"): operation, location, flops and
+      math_fidelity.
   }];
 
   let options = [
@@ -790,7 +774,7 @@ def TTNNResolveComposites : Pass<"ttnn-resolve-composites", "::mlir::ModuleOp"> 
     Resolution mode is controlled by the `composite-resolution` option:
 
     - `inline` (default): All composites are unconditionally inlined (decomposed
-      into primitives). This is the safe default - downstream TTNN fusing
+      into primitives). This is the safe default — downstream TTNN fusing
       patterns can still create typed ops from the inlined primitives.
 
     - `validate`: The typed op is validated via OpModel before promotion. If
