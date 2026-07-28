@@ -9595,6 +9595,12 @@ static Value buildSparseSdpaDecompositionBody(
   auto indexTensorType = [&](ArrayRef<int64_t> shape) {
     return RankedTensorType::get(shape, rewriter.getF32Type(), encoding);
   };
+  // ttir.scatter requires an integer-typed index operand (see
+  // TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds), so the
+  // f32 slot positions are cast to i32 just before the scatter.
+  auto intIndexTensorType = [&](ArrayRef<int64_t> shape) {
+    return RankedTensorType::get(shape, rewriter.getI32Type(), encoding);
+  };
 
   // Fold the query heads into the sequence dim so a single batched matmul
   // against kv's single latent head works without broadcasting kv across
@@ -9637,42 +9643,89 @@ static Value buildSparseSdpaDecompositionBody(
       rewriter.create<ttir::MultiplyOp>(loc, scoresType, scores, scaleConst)
           .getResult();
 
-  // Sparsity mask. `selected[b, s, t] != 0` iff key t appears in
-  // indices[b, 0, s, :]; built by comparing every (query, slot) index against
-  // every key position and reducing the slot axis away.
-  auto slotType = indexTensorType({batch, querySeqLen, topK, keySeqLen});
+  // Sparsity mask. `selected[b, 0, s, t] != 0` iff key t appears in
+  // indices[b, 0, s, :], accumulated with a single scatter into a per-(query,
+  // key) hit-count buffer.
+  //
+  // The direct formulation -- broadcast the indices to [B, S, TOPK, T], compare
+  // against an arange of key positions, and reduce the slot axis away -- needs
+  // an O(S * TOPK * T) intermediate. At DeepSeek-V3.2 prefill shapes (S = T =
+  // TOPK = 1024) that is 1.07e9 elements (~4.3 GB in f32), which does not fit;
+  // scattering needs only O(S * T) (1.05e6 for the same shapes), which leaves
+  // the [B, H, S, T] score tensor as the peak -- i.e. the same footprint as
+  // ordinary dense attention.
+  auto slotType = indexTensorType({batch, querySeqLen, topK});
+  auto slotIndexType = intIndexTensorType({batch, querySeqLen, topK});
+  auto hitType = indexTensorType({batch, querySeqLen, keySeqLen});
+
   Value indicesF32 =
       rewriter
           .create<ttir::TypecastOp>(
               loc, indexTensorType({batch, 1, querySeqLen, topK}), indices)
           .getResult();
-  Value indicesSlot =
-      ttir::utils::createReshapeOp(rewriter, loc, indicesF32,
-                                   {batch, querySeqLen, topK, 1})
-          .getResult();
-  Value indicesBcast =
+  Value indicesSlot = ttir::utils::createReshapeOp(rewriter, loc, indicesF32,
+                                                   {batch, querySeqLen, topK})
+                          .getResult();
+
+  // Masked slots must not scatter. Producers mark them with the 0xFFFFFFFF
+  // sentinel, which arrives here as ~4.29e9 from a uint32 index tensor or as -1
+  // from an int32 one, so both bounds are tested: a slot counts only when its
+  // index lies in [0, T). Invalid slots are redirected onto key 0 carrying a
+  // zero contribution, which is why the reduction below must be SUM and not an
+  // overwrite -- a genuine hit on key 0 elsewhere in the same row must not be
+  // cleared by a neighbouring sentinel slot.
+  Value slotZeros =
       rewriter
-          .create<ttir::BroadcastOp>(loc, slotType, indicesSlot,
-                                     SmallVector<int64_t>{1, 1, 1, keySeqLen})
+          .create<ttir::FullOp>(loc, slotType, rewriter.getF32FloatAttr(0.0f))
           .getResult();
-  Value keyPos = rewriter
-                     .create<ttir::ArangeOp>(loc, slotType, /*start=*/0,
-                                             /*end=*/keySeqLen, /*step=*/1,
-                                             /*arange_dimension=*/3)
-                     .getResult();
-  Value slotHit =
-      rewriter.create<ttir::EqualOp>(loc, slotType, indicesBcast, keyPos)
-          .getResult();
-  // Sum over the top-k slot axis: [B, S, 1, T] -> [B, 1, S, T]. A key selected
-  // more than once in a row still yields a nonzero count, so the > 0 test below
-  // does not depend on the producer emitting distinct indices.
-  Value hitCount =
+  Value slotOnes =
       rewriter
-          .create<ttir::SumOp>(
-              loc, indexTensorType({batch, querySeqLen, 1, keySeqLen}), slotHit,
-              rewriter.getBoolAttr(/*keep_dim=*/true),
-              rewriter.getI32ArrayAttr({2}))
+          .create<ttir::FullOp>(loc, slotType, rewriter.getF32FloatAttr(1.0f))
           .getResult();
+  Value keyLimit = rewriter
+                       .create<ttir::FullOp>(loc, slotType,
+                                             rewriter.getF32FloatAttr(
+                                                 static_cast<float>(keySeqLen)))
+                       .getResult();
+  Value belowLimit =
+      rewriter.create<ttir::LessThanOp>(loc, slotType, indicesSlot, keyLimit)
+          .getResult();
+  Value nonNegative =
+      rewriter
+          .create<ttir::GreaterEqualOp>(loc, slotType, indicesSlot, slotZeros)
+          .getResult();
+  Value validSlot =
+      rewriter.create<ttir::MultiplyOp>(loc, slotType, belowLimit, nonNegative)
+          .getResult();
+  Value scatterSource =
+      rewriter
+          .create<ttir::WhereOp>(loc, slotType, validSlot, slotOnes, slotZeros)
+          .getResult();
+  Value safeIndexF32 = rewriter
+                           .create<ttir::WhereOp>(loc, slotType, validSlot,
+                                                  indicesSlot, slotZeros)
+                           .getResult();
+  // The scatter index must be integer-typed. f32 -> i32 is exact here because
+  // every surviving value is an in-range key position and T is far below 2^24.
+  Value scatterIndex =
+      rewriter.create<ttir::TypecastOp>(loc, slotIndexType, safeIndexF32)
+          .getResult();
+
+  Value hitZeros =
+      rewriter
+          .create<ttir::FullOp>(loc, hitType, rewriter.getF32FloatAttr(0.0f))
+          .getResult();
+  // A key selected more than once in a row just accumulates a larger count, so
+  // the `> 0` test below does not depend on the producer emitting distinct
+  // indices.
+  Value hitCount = rewriter
+                       .create<ttir::ScatterOp>(
+                           loc, hitType, hitZeros, scatterIndex, scatterSource,
+                           rewriter.getI32IntegerAttr(/*dim=*/2),
+                           ttcore::ReduceTypeAttr::get(rewriter.getContext(),
+                                                       ttcore::ReduceType::Sum))
+                       .getResult();
+
   auto maskIndexType = indexTensorType({batch, 1, querySeqLen, keySeqLen});
   Value selected =
       ttir::utils::createReshapeOp(rewriter, loc, hitCount,
