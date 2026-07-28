@@ -330,7 +330,6 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   p.shardWTiles = p.shardW / kTileSize;
   p.perCoreM = M / kTileSize;
   p.perCoreN = (N / kTileSize + numOutCores - 1) / numOutCores; // div_up
-  p.in0ShardW = K / numIn0Cores;
   p.weightDataType = weightDataType;
 
   static constexpr int64_t kBf16Tile = 2048; // 32×32 × 2 B
@@ -411,9 +410,20 @@ TTNNLayoutAttr buildDRAMShardedWeightLayout(MLIRContext *ctx,
                                     MemRefLayoutAttrInterface{}, dramSpace);
   auto memLayout =
       TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::WidthSharded);
+  // Built via TTNNLayoutAttr::get rather than the Builder on purpose: the shard
+  // width per bank must stay exactly p.shardWTiles, and Builder::build() would
+  // re-derive it (and the core range set) from the grid. Note the linear map is
+  // carried over from the producer, so it describes the producer's grid rather
+  // than {1, numBanks}. That is inert: the memref is authoritative for shard
+  // shape (getShardShape() reads it directly) and the CRS for placement, and
+  // linear reaches neither tt-metal (Conversion.cpp builds ShardSpec from
+  // CRS + memref) nor the flatbuffer. Its only reader is
+  // TTNNLayoutAttr::getTiledShape(), used solely by LegalTensorLayoutAnalysis,
+  // which never sees this layout — it is injected via
+  // getExtraInputReshardCandidates.
   return TTNNLayoutAttr::get(ctx, origLayout.getLinear(),
                              llvm::ArrayRef<int64_t>{1, p.numBanks}, memrefType,
-                             memLayout, /*tensorMesh=*/nullptr,
+                             memLayout, origLayout.getTensorMesh(),
                              /*ignorePhysicalLayout=*/false, crs);
 }
 

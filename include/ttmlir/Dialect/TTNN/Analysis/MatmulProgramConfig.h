@@ -53,7 +53,6 @@ struct DRAMShardParams {
   int64_t in0BlockW;
   int64_t perCoreM;
   int64_t perCoreN;
-  int64_t in0ShardW;
   ttcore::DataType weightDataType;
 };
 
