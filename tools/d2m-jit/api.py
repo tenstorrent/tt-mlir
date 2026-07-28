@@ -91,31 +91,9 @@ permute = _dispatch("permute")
 to_host = _dispatch("to_host")
 
 
-def _device_only(name, device_fn):
-    """Wrap a host function the simulator has no implementation for.
-
-    Without this the device implementation runs under `backend="sim"` and fails
-    somewhere inside itself on a SimTensor it never expected ("reshape expected
-    a LazyTensor, got SimTensor"). Fail at the call with the actual reason
-    instead. `reduction_layout` needs no wrapper -- it is pure descriptor math
-    and is shared by both backends.
-    """
-
-    @functools.wraps(device_fn)
-    def wrapper(*args, **kwargs):
-        if _use_sim():
-            raise NotImplementedError(
-                f"d2m_jit.{name}() has no simulator implementation and runs on "
-                f"the device backend only; got config.backend='sim'"
-            )
-        return device_fn(*args, **kwargs)
-
-    return wrapper
-
-
 arange = _dispatch("arange")
 reshape = _dispatch("reshape")
-spatial = _device_only("spatial", spatial)
+spatial = _dispatch("spatial")
 
 
 class _DispatchKernel:

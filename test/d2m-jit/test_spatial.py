@@ -12,15 +12,8 @@ Each test covers one expression axis (not spatial-op functional coverage):
   5. three regions in one spatial
 """
 
-import pytest
 import torch
 import d2m_jit as d2m
-
-pytestmark = pytest.mark.device_only(
-    reason="d2m.spatial() is device-only: the config.backend switch does not "
-    "dispatch it, so it raises NotImplementedError under the simulator "
-    "(SIMULATOR_SPEC.md §2)"
-)
 
 
 @d2m.kernel

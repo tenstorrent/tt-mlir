@@ -188,6 +188,60 @@ def reshape(lt: SimTensor, *shape) -> SimTensor:
     return to_layout(host, dst_layout)
 
 
+def spatial(inputs, outputs, grid_ranges, region_builders):
+    """Sim analog of `builder.spatial`.
+
+    On device this emits a `d2m.spatial` op and lays each region's kernel onto
+    a distinct core range. Physical placement carries no values in the sim
+    (SIMULATOR_SPEC.md §3), so `grid_ranges` is only length-checked, not
+    applied: running each region builder is enough. A sim kernel call executes
+    eagerly and mutates its output SimTensors in place (via `remote_store`), so
+    after every region has run the outputs already hold their results.
+
+    `core_index` inside a region is local to that region's `grid=` (0-based),
+    exactly as on device -- the region's grid offset is a placement detail, not
+    part of the logical block addressing the kernels use.
+    """
+    builders = list(region_builders)
+    ranges = list(grid_ranges)
+    if len(ranges) != len(builders):
+        raise ValueError(
+            f"grid_ranges has {len(ranges)} entries but region_builders has "
+            f"{len(builders)}"
+        )
+    if not builders:
+        raise ValueError("d2m.spatial requires at least one region")
+    for i, builder_fn in enumerate(builders):
+        if not callable(builder_fn):
+            raise TypeError(
+                f"region_builders[{i}] must be callable, got "
+                f"{type(builder_fn).__name__}"
+            )
+
+    for i, v in enumerate(inputs):
+        if not isinstance(v, SimTensor):
+            raise TypeError(
+                f"d2m.spatial inputs[{i}] is {type(v).__name__}, expected " f"SimTensor"
+            )
+    output_lts = list(outputs)
+    if not output_lts:
+        raise ValueError("d2m.spatial outputs= must be non-empty")
+    for i, v in enumerate(output_lts):
+        if not isinstance(v, SimTensor):
+            raise TypeError(
+                f"d2m.spatial outputs[{i}] is {type(v).__name__}, expected "
+                f"SimTensor"
+            )
+
+    # The region builders close over their input/output SimTensors and call a
+    # sim kernel, which runs immediately and writes into the outputs. The
+    # device's post-hoc check that the emitted region kernels wrote exactly
+    # outputs= is an MLIR-graph invariant with no value analog here.
+    for build_region in builders:
+        build_region()
+    return tuple(output_lts)
+
+
 # --- views -------------------------------------------------------------------
 
 
