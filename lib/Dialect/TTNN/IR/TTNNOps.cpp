@@ -3266,17 +3266,6 @@ void MoeComputeOp::allocateSemaphores(::mlir::RewriterBase &rewriter) {}
   return success();
 }
 
-bool MinimalMatmulStridedReduceScatterAsyncOp::hasUnboundBuffers() {
-  return false;
-}
-
-void MinimalMatmulStridedReduceScatterAsyncOp::allocateBuffers(
-    ::mlir::RewriterBase &rewriter) {}
-
-bool MinimalMatmulStridedReduceScatterAsyncOp::hasUnboundSemaphores() {
-  return getMultiDeviceSemaphore().empty() || !getBarrierSemaphore();
-}
-
 // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
 void MinimalMatmulStridedReduceScatterAsyncOp::allocateSemaphores(
     ::mlir::RewriterBase &rewriter) {

@@ -3332,9 +3332,11 @@ def TTNN_MinimalMatmulStridedReduceScatterAsyncOp: TTNN_Op<"minimal_matmul_strid
     let results = (outs Variadic<AnyRankedTensor>:$results);
 
     let extraClassDeclaration = [{
-      bool hasUnboundBuffers();
-      void allocateBuffers(::mlir::RewriterBase &rewriter);
-      bool hasUnboundSemaphores();
+      bool hasUnboundBuffers() { return false; }
+      void allocateBuffers(::mlir::RewriterBase &rewriter) {}
+      bool hasUnboundSemaphores() {
+        return getMultiDeviceSemaphore().empty() || !getBarrierSemaphore();
+      }
       void allocateSemaphores(::mlir::RewriterBase &rewriter);
     }];
 
