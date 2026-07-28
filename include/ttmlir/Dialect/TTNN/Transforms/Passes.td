@@ -625,12 +625,19 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
 
     Both values are per-chip, for one graph invocation.
     - total_flops: logical, un-padded FLOPs (2*M*K*N for matmul) over the
-      matrix-engine ops only: matmul/linear/sparse_matmul, conv, and SDPA /
-      flash-MLA prefill. SFPU / vector-engine ops (elementwise, softmax, norm,
-      pooling, reduction) run against a different peak, so counting them would
-      inflate the numerator. Decode / chunked / paged attention is not counted
-      either: its effective key length is a runtime value (past-sequence length /
-      paged cache), so it can't be derived from the static op shapes.
+      matrix-engine ops only: matmul/linear/sparse_matmul, conv, SDPA /
+      flash-MLA prefill, and the CCL reductions (all_reduce, all_reduce_async,
+      reduce_scatter). A collective over D devices along its cluster_axis
+      combines D values per element, which a ring spreads evenly across the D
+      chips, so it costs numel(input) * (D-1) / D per chip -- the same for
+      all_reduce and reduce_scatter, since the all_gather half of a ring
+      all_reduce does no arithmetic. all_gather and the other pure data-movement
+      collectives are not counted. SFPU / vector-engine ops (elementwise,
+      softmax, norm, pooling, reduction) run against a different peak, so
+      counting them would inflate the numerator. Decode / chunked / paged
+      attention is not counted either: its effective key length is a runtime
+      value (past-sequence length / paged cache), so it can't be derived from the
+      static op shapes.
     - peak_flops_per_sec: the MFU denominator. The flops-weighted matrix-engine
       peak, which folds in each op's own math fidelity, so it holds whether the
       matmuls ran LoFi or HiFi4.

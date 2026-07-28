@@ -152,6 +152,10 @@ uint64_t getCyclesPerTileMatmul(MathFidelity mathFidelity) {
 struct PerfTargets {
   ttcore::Arch arch = ttcore::Arch::WormholeB0;
   unsigned numChips = 0;
+  // Mesh extents, used only to size CCL reductions: a collective over the
+  // cluster_axis'th mesh dim combines that many values per element. Never
+  // emitted -- the report stays per-chip.
+  SmallVector<int64_t, 2> meshShape;
   uint64_t dramBandwidthBytesPerSec = 0;
   uint64_t aiclkHz = 0;
   uint64_t numTensixCores = 0;
@@ -614,13 +618,34 @@ uint64_t flashMlaPrefillFlops(Value query, Value key, int64_t headDimV,
                            /*slidingWindowSize=*/std::nullopt);
 }
 
+// Per-chip FLOPs of a CCL reduction over `clusterAxis` of the mesh.
+//
+// Combining D copies of an element costs D-1 arithmetic ops, and a ring
+// collective spreads those evenly across the D chips, so each chip does
+// numel * (D-1) / D. all_reduce and reduce_scatter cost the same per chip: a
+// ring all_reduce is a reduce_scatter followed by an all_gather, and the gather
+// phase moves data without doing arithmetic. D == 1 (a collective along a mesh
+// axis of extent one, or an unknown mesh) makes the op a no-op, hence 0.
+//
+// all_gather has no reduce_type and so contributes nothing at all.
+uint64_t cclReduceFlops(Value input, ArrayRef<int64_t> meshShape,
+                        uint32_t clusterAxis) {
+  if (clusterAxis >= meshShape.size()) {
+    return 0;
+  }
+  uint64_t devices =
+      static_cast<uint64_t>(std::max<int64_t>(1, meshShape[clusterAxis]));
+  uint64_t n = numScalars(input);
+  return n - n / devices;
+}
+
 // Logical FLOPs for one op. Only matrix-engine (GEMM-class) ops are counted:
 // matmul/linear/sparse_matmul, conv and prefill attention. SFPU / vector-engine
 // ops (elementwise, softmax, norm, pooling, reduction) run on a different
 // engine at a much lower peak, so counting them would inflate the numerator
 // with work that does not belong against the matrix-engine peak. Returns 0 for
 // everything else, which the caller drops from the report.
-uint64_t opFlops(Operation *op) {
+uint64_t opFlops(Operation *op, ArrayRef<int64_t> meshShape) {
   return llvm::TypeSwitch<Operation *, uint64_t>(op)
       .Case<MatmulOp, LinearOp>([](auto m) {
         return matmulFlops(m.getA(), m.getResult(), m.getTransposeA());
@@ -680,6 +705,13 @@ uint64_t opFlops(Operation *op) {
         return flashMlaPrefillFlops(m.getQuery(), m.getKey(),
                                     static_cast<int64_t>(m.getHeadDimV()),
                                     m.getIsCausal());
+      })
+      // The CCL reductions -- the collectives that carry a reduce_type. Their
+      // combine step is the same arithmetic on the same engine as a matmul, so
+      // it counts against the same peak. all_gather / point_to_point / the
+      // all_to_all family move data without reducing and are left uncounted.
+      .Case<AllReduceOp, AllReduceAsyncOp, ReduceScatterOp>([&](auto c) {
+        return cclReduceFlops(c.getInput(), meshShape, c.getClusterAxis());
       })
       .Default([](Operation *) { return uint64_t{0}; });
 }
@@ -850,6 +882,13 @@ private:
     // it is emitted regardless of chip count. Hardware limits always come from
     // chip 0 (all chips share an arch here).
     perfTargets.numChips = chipDescs.size();
+    // Mesh extents, needed to size CCL reductions. Use the null-safe
+    // lookupDeviceOp; lookupDevice asserts when the module has no device op, as
+    // hand-written test modules may not.
+    if (ttcore::DeviceOp deviceOp = ttcore::lookupDeviceOp(module)) {
+      llvm::append_range(perfTargets.meshShape,
+                         deviceOp.getDeviceAttr().getMeshShape());
+    }
     if (failed(populateHardwareLimits(perfTargets, chipDescs[0], module))) {
       return failure();
     }
@@ -886,7 +925,7 @@ private:
     FlopSummary summary;
 
     funcOp->walk([&](Operation *op) {
-      uint64_t flops = opFlops(op);
+      uint64_t flops = opFlops(op, t.meshShape);
       if (flops == 0) {
         // No matrix-engine arithmetic: skip.
         return;
