@@ -38,8 +38,8 @@ def test_round_trip_multi():
 
 
 @pytest.mark.device_only(
-    reason="staleness after to_host is a device-builder artifact; the simulator "
-    "has no builder generation to spend, so tensor reuse just works "
+    reason="stale-tensor error is a device builder-generation artifact the "
+    "simulator has no analog for, so tensor reuse just works "
     "(SIMULATOR_SPEC.md §8)"
 )
 def test_spent_tensor_raises():

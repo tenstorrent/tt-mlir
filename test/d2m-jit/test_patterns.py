@@ -26,10 +26,8 @@ from runner import (
 
 
 @pytest.mark.device_only(
-    reason="compiler-path test (TTIR rewrite + FileCheck) driven through runner, "
-    "which builds device LazyTensors directly; the dispatched to_layout rejects "
-    "those under the sim backend. Nothing here exercises a backend, so there is "
-    "nothing for the simulator to check"
+    reason="compiler-path test (TTIR rewrite + FileCheck); exercises no backend, "
+    "so there is nothing for the simulator to check"
 )
 def test_pattern_rewrite(pattern_test):
     """Apply the pattern file's rewrites and FileCheck the resulting IR."""

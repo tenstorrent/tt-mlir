@@ -18,12 +18,10 @@ from utils import assert_pcc
     ],
 )
 @pytest.mark.device_only(
-    reason="the RoPE kernel derives its half-roll view_layout from the device "
-    "physical rank-4 shape [grid_y, grid_x, block_y, block_x] via "
-    "LazyTensor.value, and rolls feature tiles across the grid/block split. A "
-    "SimTensor has no .value and stores only a logical tile-padded buffer, since "
-    "physical placement is value-neutral (SIMULATOR_SPEC.md §3); the roll is also "
-    "not the paired grid/tile permutation sim's view_layout supports (§7)"
+    reason="the RoPE half-roll view_layout rolls feature tiles across the device "
+    "physical grid/block split (via LazyTensor.value); the simulator is "
+    "value-neutral about placement and supports only paired grid/tile "
+    "permutations (SIMULATOR_SPEC.md §3/§7)"
 )
 def test_rope_matches_torch(seq_len, head_dim, grid_shape, block_shape):
     """Test rope at various workload shapes and execution configs."""

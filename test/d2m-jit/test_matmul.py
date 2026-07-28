@@ -370,19 +370,14 @@ def mcast_overwrite_kernel(lhs, rhs, out, K, M, N, GY, GX):
 
 @pytest.mark.device_only(
     reason="multicast is an intended divergence: the simulator ignores the mcast "
-    "arguments (every core reads the shared global buffer) and resolves store "
-    "indices globally, so the output pattern differs by design "
-    "(SIMULATOR_SPEC.md §5.1/§9)"
+    "args and resolves store indices globally, so the output pattern differs by "
+    "design (SIMULATOR_SPEC.md §5.1/§9)"
 )
 def test_mcast_overwrite_grid_2x2():
     """Run mcast_overwrite_kernel on a 2x2 grid with K=M=N=1 -- single
     iteration per core, multicast from (cy, 0) across the row and from
     (0, cx) down the column. Verifies multicast routing dispatches
-    correctly on >1x1 grid.
-
-    Device-only: the simulator ignores the mcast arguments (every core reads the
-    shared global buffer) and resolves store indices globally, so multicast is an
-    intended divergence rather than a parity case -- SIMULATOR_SPEC.md §5.1/§9."""
+    correctly on >1x1 grid."""
     GY, GX = 2, 2
     K, M, N = 1, 1, 1
 
