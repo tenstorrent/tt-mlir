@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -135,6 +136,8 @@ struct PerfTargets {
   ttcore::Arch arch = ttcore::Arch::WormholeB0;
   unsigned numChips = 0;
   unsigned numChipsUsed = 1;
+  // Per-axis mesh shape; numChipsUsed is its volume.
+  SmallVector<int64_t, 2> meshShape;
   uint64_t dramBandwidthBytesPerSec = 0;
   uint64_t aiclkHz = 0;
   uint64_t numTensixCores = 0;
@@ -924,6 +927,7 @@ private:
     if (ttcore::DeviceOp deviceOp = ttcore::lookupDeviceOp(module)) {
       uint64_t meshVolume = 1;
       for (int64_t d : deviceOp.getDeviceAttr().getMeshShape()) {
+        perfTargets.meshShape.push_back(d);
         meshVolume *= static_cast<uint64_t>(d);
       }
       perfTargets.numChipsUsed =
@@ -1026,11 +1030,12 @@ private:
   }
 
   // Emit the FLOP report. `total_flops` and `ideal_compute_ms` are the
-  // graph-invariant MFU inputs (MFU = ideal_compute_ms / measured_time, i.e.
-  // total_flops over the ideal_compute-derived effective peak, which folds in
-  // per-op math fidelity). `peak_flops_per_sec` lists the raw per-fidelity
-  // hardware peaks for reference; the ideal_*_ms fields and per-op array are a
-  // secondary roofline view of this specific graph.
+  // graph-invariant MFU inputs. `effective_peak_flops_per_sec` is the MFU
+  // denominator, pre-derived so consumers need not recompute it or pick a
+  // fidelity; `mesh_peak_flops_per_sec` is it times num_chips_used.
+  // `peak_flops_per_sec` lists the raw per-fidelity hardware peaks for
+  // reference; the ideal_*_ms fields and per-op array are a secondary roofline
+  // view of this specific graph.
   void addFlopsToJson(llvm::json::Object &jsonOutput, const PerfTargets &t,
                       const FlopSummary &summary, bool verbose) {
     llvm::json::Object flops;
@@ -1041,6 +1046,24 @@ private:
     // concurrently. num_chips_in_system is what the system descriptor reports.
     flops["num_chips_used"] = static_cast<int64_t>(t.numChipsUsed);
     flops["num_chips_in_system"] = static_cast<int64_t>(t.numChips);
+    llvm::json::Array meshShape;
+    for (int64_t dim : t.meshShape) {
+      meshShape.push_back(dim);
+    }
+    flops["mesh_shape"] = std::move(meshShape);
+
+    // The flops-weighted peak the graph actually ran at, so it holds whether
+    // the matmuls ran LoFi or HiFi4 instead of assuming one fidelity. Also
+    // scaled by the mesh, and rounded to drop division noise.
+    double idealComputeS = summary.idealComputeMs / 1000.0;
+    double effectivePeak =
+        idealComputeS > 0.0
+            ? static_cast<double>(summary.totalFlops) / idealComputeS
+            : 0.0;
+    flops["effective_peak_flops_per_sec"] =
+        static_cast<int64_t>(std::llround(effectivePeak));
+    flops["mesh_peak_flops_per_sec"] =
+        static_cast<int64_t>(std::llround(effectivePeak * t.numChipsUsed));
 
     llvm::json::Object peak;
     peak["lofi"] =

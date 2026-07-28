@@ -19,7 +19,11 @@ it, so bugs like the earlier peak contamination get caught:
      wildly-off number is obvious to the eye.
   3. Internal invariant: sum(per_op[].flops) == total_flops (needs a report
      produced with ttnn-perf-metrics-verbose-output-enabled=true).
-  4. Physical bound: with a measured step time, exact MFU must be <= 100%.
+  4. Emitted-peak agreement: effective_peak_flops_per_sec must equal
+     total_flops / ideal_compute_s, and mesh_peak_flops_per_sec that times
+     num_chips_used. Catches drift between the emitted peak and the ideal_*_ms
+     fields it is derived from.
+  5. Physical bound: with a measured step time, exact MFU must be <= 100%.
      Exceeding it means the peak is wrong or the graph ran a faster precision
      than the reference.
 
@@ -126,12 +130,33 @@ def verify_report(path, args, chk):
     else:
         print("  (no per_op array - rerun with verbose to check the FLOP sum)")
 
-    # 4. MFU <= 100% physical bound.
+    # 4. The emitted peak must agree with the ideal_compute floor it comes from.
+    total = flops.get("total_flops", 0)
+    ideal_compute_s = flops.get("ideal_compute_ms", 0.0) / 1000.0
+    emitted_peak = flops.get("effective_peak_flops_per_sec")
+    if emitted_peak is not None and ideal_compute_s > 0 and total > 0:
+        derived = total / ideal_compute_s
+        rel = abs(emitted_peak - derived) / derived
+        chk.check(
+            rel < 1e-9,
+            f"effective_peak={emitted_peak / 1e12:.2f} TFLOP/s == "
+            f"total_flops/ideal_compute_s={derived / 1e12:.2f} TFLOP/s",
+        )
+        mesh_peak = flops.get("mesh_peak_flops_per_sec")
+        chips = max(1, flops.get("num_chips_used", 1))
+        if mesh_peak is not None:
+            expected_mesh = round(derived * chips)
+            chk.check(
+                abs(mesh_peak - expected_mesh) <= 1,
+                f"mesh_peak={mesh_peak / 1e12:.2f} TFLOP/s == "
+                f"effective_peak * {chips}",
+            )
+
+    # 5. MFU <= 100% physical bound.
     if args.step_time_s:
         fid = args.fidelity
         peak = report_peak.get(fid) or peak_flops(cores, clock_hz, fid)
         chips = max(1, flops.get("num_chips_used", 1))
-        total = flops.get("total_flops", 0)
         # per-chip counted flops / (step * per-chip peak)
         mfu = total / (args.step_time_s * peak) * 100.0 if peak else 0.0
         achieved = total * chips / args.step_time_s / 1e12

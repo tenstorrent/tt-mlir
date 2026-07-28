@@ -629,17 +629,29 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
       paged SDPA decode, paged flash-MLA decode) are not counted either: their
       effective key length is a runtime value (past-sequence length / paged
       cache), so it can't be derived from the static op shapes.
-      This is graph-invariant model work - the MFU numerator. Downstream
-      tooling computes MFU = total_flops / (measured_time * effective_peak),
-      where effective_peak = total_flops / ideal_compute_s folds in the per-op
-      math fidelity; equivalently MFU = ideal_compute_ms / measured_time. A
-      single peak_flops_per_sec entry cannot stand in for effective_peak when
-      the graph mixes fidelities. A better-compiled graph reports a higher MFU.
+      This is per-chip: one device's SPMD program for one graph invocation.
+      Every chip in the mesh runs that same program, so model-wide counted FLOPs
+      are total_flops * num_chips_used. That holds under data parallelism, where
+      each chip's share is distinct work. Under tensor parallelism an op left out
+      of the sharding spec is recomputed identically on several chips, and the
+      product then counts it once per chip - the report cannot distinguish the
+      two cases, because the only sharding information reaching TTNN is a binary
+      ttcore.shard_status per argument with no per-axis shard dims. Use an
+      analytical (parameter-count) numerator when that matters.
+    - effective_peak_flops_per_sec: the MFU denominator, per-chip. The
+      flops-weighted peak this graph actually ran at
+      (total_flops / ideal_compute_s), which folds in each op's own math
+      fidelity - so it is right whether the matmuls ran LoFi or HiFi4, and a
+      single peak_flops_per_sec entry cannot stand in for it when the graph mixes
+      fidelities. Emitted so consumers need not re-derive it.
+    - mesh_peak_flops_per_sec: the same peak times num_chips_used, to pair with a
+      mesh-wide numerator.
+    - mesh_shape: per-axis mesh extents; its volume is num_chips_used.
     - peak_flops_per_sec: raw hardware matrix-engine peak per math fidelity, for
-      reference; the MFU denominator uses the ideal_compute-derived effective
-      peak above, not a single one of these entries.
-    - flops_by_category and a secondary per-op roofline (ideal_compute_ms /
-      ideal_memory_ms / ideal_roofline_ms) for this specific graph.
+      reference, not the MFU denominator.
+    - flops_by_category and a secondary per-chip roofline (ideal_compute_ms /
+      ideal_memory_ms / ideal_roofline_ms). The roofline has no communication
+      term, so on a multi-chip mesh it understates the achievable floor.
 
     Verbose output (--ttnn-perf-metrics-verbose-output-enabled) includes:
     - Detailed per-operation analysis with sharding and memory layout information for shardable ops
