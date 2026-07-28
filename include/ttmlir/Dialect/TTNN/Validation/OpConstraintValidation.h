@@ -177,12 +177,11 @@ validateWithMultipleAttributes(Operation *op,
                                llvm::ArrayRef<OpConfig> opConfigs,
                                llvm::ArrayRef<OpConfig> referenceConfigs);
 
-// Validate an OpConstraints result against the optimizer's L1 budget (looked up
-// from |contextOp|'s device/module attributes). |statefulQuery| skips the
-// peak-usage byte check: the stateful query really allocates so tt-metal
-// decides fit, and its reported peak is unreliable (weightless inputs at
-// address 0, and it can wrap on the trace's unmatched deallocations). The byte
-// budget is enforced by MockAllocatorL1Tracker::validate instead.
+// Validate an OpConstraints result against the L1 budget (looked up from
+// |contextOp|'s device/module attributes). |statefulQuery| skips the peak-usage
+// byte check: on the stateful path tt-metal itself checks fit, while the
+// stateless path has to check it here. The byte budget is enforced by
+// MockAllocatorL1Tracker::validate.
 ValidationResult checkConstraintsResult(
     Operation *contextOp, llvm::Expected<op_model::OpConstraints> constraints,
     uint64_t additionalL1Usage = 0, bool statefulQuery = false);

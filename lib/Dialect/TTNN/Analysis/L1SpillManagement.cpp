@@ -1990,19 +1990,15 @@ MockAllocatorL1Tracker::validate(Operation *op,
   }();
 
   if (result.isSuccess()) {
-    // Enforce the optimizer's tensor-L1 budget (the ~0.95 tensorL1UsageCap plus
-    // the const-eval reservation) against live + output. This is the only place
-    // that policy is applied on the stateful path -- the validation-layer byte
-    // check is skipped there and tt-metal honours neither. The op's static CB
-    // region is intentionally not added: a CB-vs-L1 clash is an address
-    // question that tt-metal's real allocation and the floor below already
-    // catch.
+    // The query decides fit / fragmentation / CB-clash on the device's physical
+    // L1, but the optimizer budget reserves headroom below that (a ~0.95 cap
+    // minus reserved). Enforce that byte ceiling here so the optimizer does not
+    // pack up to the full device L1: projected peak = currently-live L1 (which
+    // includes this op's inputs) + this op's output.
     uint64_t projected = getOccupiedL1() + result.outputL1Usage;
     if (l1Budget > 0 && projected > l1Budget) {
       return op_constraint_validation::ValidationResult::outOfMemoryError(
-          "stateful: projected L1 (" + std::to_string(projected) + "B = live " +
-          std::to_string(getOccupiedL1()) + "B + output " +
-          std::to_string(result.outputL1Usage) +
+          "stateful: projected L1 (" + std::to_string(projected) +
           "B) exceeds optimizer budget (" + std::to_string(l1Budget) + "B)");
     }
     // Static-CB headroom floor (multi-device only; see
