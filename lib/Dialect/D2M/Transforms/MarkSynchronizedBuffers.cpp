@@ -13,6 +13,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLExtras.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MMARKSYNCHRONIZEDBUFFERS
@@ -81,15 +82,18 @@ public:
           allocOp->setAttr("d2m.synchronized_buffer",
                            rewriter.getI32IntegerAttr(bufferCount));
 
-          if (!forceHoistedCB && usageInfo.consumers.size() == 1 &&
-              usageInfo.producers.size() == 1) {
-            auto *consumer = usageInfo.consumers.front();
-            auto *producer = usageInfo.producers.front();
-            if (mlir::isa<linalg::GenericOp>(consumer) &&
-                mlir::isa<linalg::GenericOp>(producer)) {
-              allocOp->setAttr("d2m.compute_intermediate",
-                               rewriter.getUnitAttr());
-            }
+          bool isComputeLocal =
+              !usageInfo.producers.empty() && !usageInfo.consumers.empty() &&
+              llvm::all_of(usageInfo.producers,
+                           [](Operation *producer) {
+                             return mlir::isa<linalg::GenericOp>(producer);
+                           }) &&
+              llvm::all_of(usageInfo.consumers, [](Operation *consumer) {
+                return mlir::isa<linalg::GenericOp>(consumer);
+              });
+          if (!forceHoistedCB && isComputeLocal) {
+            allocOp->setAttr("d2m.compute_intermediate",
+                             rewriter.getUnitAttr());
           }
         }
       }

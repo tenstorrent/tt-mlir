@@ -72,10 +72,13 @@ module {
   // CHECK-LABEL: func.func @test_fanout_consumer_buffer()
   // CHECK: %[[CB_IN:.*]] = memref.alloc() {d2m.synchronized_buffer = 2 : i32} : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
   // CHECK: d2m.remote_load %[[CB_IN]]
+  // CHECK: %[[COMPUTE_TMP:.*]] = memref.alloc() {d2m.compute_intermediate, d2m.synchronized_buffer = 2 : i32} : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
   // CHECK: linalg.generic
   // CHECK-SAME: %[[CB_IN]]
   // CHECK: linalg.generic
-  // CHECK-SAME: %[[CB_IN]]
+  // CHECK-SAME: %[[COMPUTE_TMP]]
+  // CHECK: linalg.generic
+  // CHECK-SAME: %[[COMPUTE_TMP]], %[[CB_IN]]
   func.func @test_fanout_consumer_buffer() {
     %in = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram>
     %out = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram>
@@ -92,12 +95,49 @@ module {
       ^bb0(%in_tile: !ttcore.tile<32x32, f32>, %out_tile: !ttcore.tile<32x32, f32>):
         linalg.yield %in_tile : !ttcore.tile<32x32, f32>
       }
+      %buffer_side = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} ins(%buffer_tmp : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) outs(%buffer_side : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
+      ^bb0(%tmp_tile: !ttcore.tile<32x32, f32>, %side_tile: !ttcore.tile<32x32, f32>):
+        linalg.yield %tmp_tile : !ttcore.tile<32x32, f32>
+      }
       %buffer_out = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
       linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} ins(%buffer_tmp, %buffer_in : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>) outs(%buffer_out : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
       ^bb0(%tmp_tile: !ttcore.tile<32x32, f32>, %in_tile: !ttcore.tile<32x32, f32>, %out_tile: !ttcore.tile<32x32, f32>):
         linalg.yield %tmp_tile : !ttcore.tile<32x32, f32>
       }
       d2m.remote_store %out[%c0, %c0] %buffer_out : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+    }
+    return
+  }
+
+  // CHECK-LABEL: func.func @test_loop_carried_compute_buffer()
+  // CHECK: %[[STATE:.*]] = memref.alloc() {d2m.compute_intermediate, d2m.synchronized_buffer = 2 : i32} : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+  // CHECK: scf.for
+  // CHECK-SAME: iter_args(%{{.*}} = %[[STATE]])
+  func.func @test_loop_carried_compute_buffer() {
+    %out = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+        ins()
+        outs(%out : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      %c4 = arith.constant 4 : index
+      %state = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} outs(%state : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
+      ^bb0(%out_tile: !ttcore.tile<32x32, f32>):
+        linalg.yield %out_tile : !ttcore.tile<32x32, f32>
+      }
+      %result = scf.for %i = %c0 to %c4 step %c1 iter_args(%iter_state = %state) -> (memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
+        linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} ins(%iter_state : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) outs(%iter_state : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
+        ^bb0(%in_tile: !ttcore.tile<32x32, f32>, %out_tile: !ttcore.tile<32x32, f32>):
+          linalg.yield %in_tile : !ttcore.tile<32x32, f32>
+        }
+        scf.yield %iter_state : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      }
+      linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} outs(%result : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
+      ^bb0(%out_tile: !ttcore.tile<32x32, f32>):
+        linalg.yield %out_tile : !ttcore.tile<32x32, f32>
+      }
     }
     return
   }
