@@ -532,11 +532,26 @@ getFlashMlaPrefillShardingRule(mlir::stablehlo::CustomCallOp op) {
 //       the key's single shared head stays replicated (kNullDim). Sharding it
 //       makes each device compute a partial per-head sum; Shardy inserts an
 //       all_reduce(sum) to combine them, giving tensor parallelism over heads.
-//   - Query seq (kNeedReplication, size Sq): query/weights dim 2, out dim 2.
-//       Cannot shard: the causal mask uses absolute query positions the fused
-//       op recomputes locally, so a sharded Sq would mis-mask.
-//   - Key seq   (kNeedReplication, size T) : key dim 2, out dim 3. Same
-//       absolute-position reasoning as Sq.
+//   - Query seq (kPassThrough,     size Sq): query/weights dim 2, out dim 2.
+//       Shardable, and on a multi-device mesh it MUST be sharded. The kernel
+//       models the query as sequence-parallel: it reads a per-device rank off
+//       q's device coords and requires T >= (max_rank + 1) * Sq
+//       (indexer_score_device_operation.cpp: max_chunk_start /
+//       validate_chunk_start). A replicated Sq on N devices therefore reports
+//       rank N-1 with Sq == T and aborts with "fullest-device chunk window ...
+//       exceeds T", so marking this kNeedReplication made the op unusable on
+//       any mesh whose flat device rank is nonzero.
+//
+//       The absolute-position concern this factor used to carry is handled by
+//       the op itself, not by replication: each device's causal window starts
+//       at chunk_start_idx + rank * Sq, so a CONTIGUOUS row-major split with
+//       chunk_start_idx == 0 (what a compound-axis sharding over the whole mesh
+//       produces, matching the op's cluster_axis=None flat linearization) masks
+//       correctly on every device. Any other split would not -- see the caveat
+//       in docs/dsa_blackhole_tt-mlir_changes.md.
+//   - Key seq   (kNeedReplication, size T) : key dim 2, out dim 3. Still cannot
+//       be sharded: every query row scores against all T keys, and the op reads
+//       T to derive the per-rank window.
 //   - Head dim  (kNeedReplication, size D) : query/key dim 3. Contracted
 //       internally by the q.k dot product.
 static mlir::sdy::OpShardingRuleAttr
@@ -615,9 +630,9 @@ getIndexerScoreDsaShardingRule(mlir::stablehlo::CustomCallOp op) {
   builder.addFactor({1, sdy::kNullDim, 1}, {sdy::kNullDim}, Hi,
                     sdy::FactorType::kReduction);
 
-  // Query sequence (query/weights dim 2, out dim 2): kNeedReplication.
+  // Query sequence (query/weights dim 2, out dim 2): kPassThrough.
   builder.addFactor({2, sdy::kNullDim, 2}, {2}, Sq,
-                    sdy::FactorType::kNeedReplication);
+                    sdy::FactorType::kPassThrough);
 
   // Key sequence (key dim 2, out dim 3): kNeedReplication.
   builder.addFactor({sdy::kNullDim, 2, sdy::kNullDim}, {3}, T,
