@@ -10091,7 +10091,8 @@ public:
         ++outCount;
       } else {
         return rewriter.notifyMatchFailure(
-            srcOp, "tt.tt_lang_op `arg_roles` token must be \"in\" or \"out\".");
+            srcOp,
+            "tt.tt_lang_op `arg_roles` token must be \"in\" or \"out\".");
       }
     }
     if (outCount == 0 || outCount != resultTypes.size()) {

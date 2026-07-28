@@ -6,6 +6,7 @@
 #include "shardy/dialect/sdy/transforms/propagation/op_sharding_rule_builder.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -1811,6 +1812,21 @@ private:
     auto shardOpFunc = customCallShardingRules.lookup(target);
     if (shardOpFunc) {
       return shardOpFunc(op);
+    }
+
+    // Check if xla.sdy.custom_sharding_rule is present and parse it.
+    // ShardingRuleOpInterface is invoked whenever createOpShardingRule is
+    // called. Since shardy sometimes drop sharding rules and rematerializes it
+    // later, for example insert-explicit-reshards, we need a way to restore
+    // custom user-provided sharding rules.
+    if (llvm::StringRef ruleStr = shardy_utils::getUserShardingRuleStr(op);
+        !ruleStr.empty()) {
+      // The rule string was already validated by
+      // RegisterUserShardingRulePass, so a parse failure here is not possible.
+      if (auto rule =
+              shardy_utils::parseUserShardingRule(ruleStr, op.getContext())) {
+        return rule;
+      }
     }
 
     op.getOperation()->emitWarning()
