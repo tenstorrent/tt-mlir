@@ -11,9 +11,9 @@ Python on top of torch -- no MLIR context, no pass pipeline, no device:
 
 The kernel-authoring surface (`@d2m.kernel`, `core_index`, `remote_load`,
 eltwise / reduction / matmul ops) and the host surface (`Layout`,
-`to_layout`, `empty`, `zeros`, `full`, `tilize`, `untilize`, `view`,
-`view_layout`, `permute`, `reduction_layout`, `to_host`) match the device
-package. See SIMULATOR_SPEC.md.
+`to_layout`, `empty`, `zeros`, `full`, `tilize`, `untilize`, `arange`,
+`reshape`, `view`, `view_layout`, `permute`, `reduction_layout`, `to_host`)
+match the device package. See SIMULATOR_SPEC.md.
 
 Unlike the device package this module *requires* neither the `ttmlir` bindings
 nor the `_ttmlir_runtime` extension, so it works in environments with no
@@ -42,6 +42,8 @@ from d2m_jit._src.sim import (  # noqa: F401
     full,
     tilize,
     untilize,
+    arange,
+    reshape,
     view,
     view_layout,
     permute,
@@ -64,6 +66,8 @@ __all__ = [
     "full",
     "tilize",
     "untilize",
+    "arange",
+    "reshape",
     "view",
     "view_layout",
     "permute",

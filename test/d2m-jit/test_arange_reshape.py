@@ -17,15 +17,8 @@ cover the shapes most relevant to the SDPA pipeclean:
     - Round-trip through reshape to verify values aren't reordered.
 """
 
-import pytest
 import torch
 import d2m_jit as d2m
-
-pytestmark = pytest.mark.device_only(
-    reason="d2m.arange() / d2m.reshape() are device-only host constructors: the "
-    "config.backend switch does not dispatch them, so they raise "
-    "NotImplementedError under the simulator (SIMULATOR_SPEC.md §2)"
-)
 
 
 def test_arange_2d_fp32():

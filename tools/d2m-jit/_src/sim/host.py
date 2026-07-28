@@ -88,6 +88,106 @@ def untilize(lt: SimTensor, dtype=None) -> SimTensor:
     return to_layout(lt, lt.layout.replace(**overrides))
 
 
+# --- host constructors / reshape --------------------------------------------
+#
+# Sim mirrors of the host constructors in `_src/builder.py`. Both back the same
+# `torch.arange`/`torch.reshape` semantics the device path lowers to (host
+# roundtrip + to_layout). Physical tiling/grid carry no values in the sim
+# (SIMULATOR_SPEC.md §3), so only the logical fill/shape matters here.
+
+
+def arange(layout: Layout, start: int = 0, step: int = 1) -> SimTensor:
+    """Sim analog of `builder.arange`: row-major `torch.arange` over
+    `layout.logical_shape`, then `to_layout`."""
+    dtype = torch_dtype(layout)
+    numel = 1
+    for d in layout.logical_shape:
+        numel *= d
+    flat = torch.arange(start, start + numel * step, step, dtype=dtype)
+    return to_layout(flat.reshape(list(layout.logical_shape)), layout)
+
+
+def reshape(lt: SimTensor, *shape) -> SimTensor:
+    """Sim analog of `builder.reshape`: a host roundtrip (`to_host` ->
+    `torch.reshape` -> `to_layout`).
+
+    The shape resolution below (list/positional forms, single `-1` inference,
+    element-count check, destination block/grid pick) mirrors `builder.reshape`
+    verbatim so the error messages the negative tests assert stay identical."""
+    if not isinstance(lt, SimTensor):
+        raise TypeError(f"reshape expected a SimTensor, got {type(lt).__name__}")
+
+    # Accept reshape(lt, 32, 128) and reshape(lt, [32, 128]).
+    if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
+        new_shape = tuple(shape[0])
+    else:
+        new_shape = tuple(shape)
+
+    src_numel = 1
+    for d in lt.layout.logical_shape:
+        src_numel *= d
+
+    # A single `-1` dim is inferred from the remaining dims (torch idiom).
+    neg_axes = [i for i, d in enumerate(new_shape) if d == -1]
+    if len(neg_axes) > 1:
+        raise ValueError(
+            f"reshape: only one dimension may be inferred (-1), got {new_shape}"
+        )
+    if any(d < -1 for d in new_shape):
+        raise ValueError(f"reshape: dimensions must be >= -1, got {new_shape}")
+    if neg_axes:
+        known = 1
+        for d in new_shape:
+            if d != -1:
+                known *= d
+        if known == 0 or src_numel % known != 0:
+            raise ValueError(
+                f"reshape: cannot infer -1 dimension: src has {src_numel} "
+                f"elements which is not divisible by the product of the "
+                f"known dims {known} (from {new_shape})"
+            )
+        inferred = src_numel // known
+        new_shape = tuple(inferred if d == -1 else d for d in new_shape)
+
+    dst_numel = 1
+    for d in new_shape:
+        dst_numel *= d
+    if src_numel != dst_numel:
+        raise ValueError(
+            f"reshape: total element count must match: "
+            f"src {tuple(lt.layout.logical_shape)} ({src_numel}) "
+            f"!= dst {new_shape} ({dst_numel})"
+        )
+
+    # Keep src's block/grid if they still divide the new shape, else fall back
+    # to a trivial single-block single-grid layout.
+    rank = len(new_shape)
+    src_block = list(lt.layout.block_shape)
+    src_grid = list(lt.layout.grid_shape)
+    if (
+        len(src_block) == rank
+        and len(src_grid) == rank
+        and all(
+            d % (b * g * (32 if lt.layout.tiled else 1)) == 0
+            for d, b, g in zip(new_shape, src_block, src_grid)
+        )
+    ):
+        block_shape = src_block
+        grid_shape = src_grid
+    else:
+        block_shape = [1] * rank
+        grid_shape = [1] * rank
+
+    dst_layout = lt.layout.replace(
+        shape=new_shape,
+        block_shape=block_shape,
+        grid_shape=grid_shape,
+    )
+
+    host = lt.to_host().reshape(new_shape)
+    return to_layout(host, dst_layout)
+
+
 # --- views -------------------------------------------------------------------
 
 

@@ -113,8 +113,8 @@ def _device_only(name, device_fn):
     return wrapper
 
 
-arange = _device_only("arange", arange)
-reshape = _device_only("reshape", reshape)
+arange = _dispatch("arange")
+reshape = _dispatch("reshape")
 spatial = _device_only("spatial", spatial)
 
 
