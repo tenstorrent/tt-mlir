@@ -79,12 +79,19 @@ private:
    */
   void readProfilerDataIfNeeded(bool force = false);
 
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   /**
    * Synchronizes all devices after each op when TT_RUNTIME_SYNC_AFTER_OP is set
    */
   void syncAfterOpIfNeeded();
-#endif
+
+  /**
+   * Synchronizes all devices after each trace replay (ExecuteTraceOp) when
+   * TT_RUNTIME_SYNC_AFTER_TRACE is set. Distinct from syncAfterOpIfNeeded()
+   * so it can be enabled without forcing a sync after every eager op --
+   * capture never reaches the ExecuteTraceOp case, so this only fires on
+   * actual trace replay, never during capture.
+   */
+  void syncAfterTraceExecuteIfNeeded();
 };
 
 } // namespace tt::runtime::ttnn
