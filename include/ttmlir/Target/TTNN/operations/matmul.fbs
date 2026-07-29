@@ -85,6 +85,16 @@ table LinearOp {
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
 
+table DitMatmulAddcmulFusedOp {
+  a: tt.target.ttnn.TensorRef;
+  b: tt.target.ttnn.TensorRef;
+  residual: tt.target.ttnn.TensorRef;
+  gate: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+}
+
 table SparseMatmulOp {
   a: tt.target.ttnn.TensorRef;
   b: tt.target.ttnn.TensorRef;

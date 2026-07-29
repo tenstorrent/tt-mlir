@@ -176,6 +176,96 @@ private:
   }
 };
 
+// Fuse the DiT adaLN gated-residual epilogue on TTNN ops:
+//
+//   proj = matmul(a, b)          (or linear(a, b, bias))
+//   out  = residual + gate * proj
+//
+// into a single ttnn.dit_matmul_addcmul_fused, mirroring tt-metal's
+// experimental fused kernel. Anchors on ttnn.AddOp and handles the commuted
+// operand orders of both the add and the multiply. Requires single uses of the
+// projection and the multiply so nothing is duplicated, and bails on
+// activation/transposed operands the fused op does not model.
+template <typename MatmulLikeOp>
+class TTNNDitMatmulAddcmulFusing : public mlir::OpRewritePattern<AddOp> {
+  using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
+    // add: one operand is the `gate * proj` multiply, the other the residual.
+    MultiplyOp gateMulOp = addOp.getLhs().getDefiningOp<MultiplyOp>();
+    mlir::Value residual = addOp.getRhs();
+    if (!gateMulOp) {
+      gateMulOp = addOp.getRhs().getDefiningOp<MultiplyOp>();
+      residual = addOp.getLhs();
+    }
+    if (!gateMulOp || !gateMulOp.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // multiply: one operand is the matmul/linear projection, the other the
+    // gate.
+    MatmulLikeOp projOp = gateMulOp.getLhs().getDefiningOp<MatmulLikeOp>();
+    mlir::Value gate = gateMulOp.getRhs();
+    if (!projOp) {
+      projOp = gateMulOp.getRhs().getDefiningOp<MatmulLikeOp>();
+      gate = gateMulOp.getLhs();
+    }
+    if (!projOp || !projOp.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // The fused op models neither a fused activation nor transposed operands.
+    if (projOp.getActivation() || projOp.getTransposeA() ||
+        projOp.getTransposeB()) {
+      return mlir::failure();
+    }
+
+    // The device kernel enforces shape constraints on the addcmul operands
+    // (see tt-metal minimal_matmul_device_operation.cpp): with the matmul
+    // output being [M, N], the residual (ternary_a) must match it exactly and
+    // the gate (ternary_b) must be [1, N] (row broadcast) or [M, N]. Bail on
+    // broadcast/scalar operands the fused op cannot handle so we never emit an
+    // op that fails to compile or run.
+    auto outputType = mlir::dyn_cast<RankedTensorType>(addOp.getType());
+    auto residualType = mlir::dyn_cast<RankedTensorType>(residual.getType());
+    auto gateType = mlir::dyn_cast<RankedTensorType>(gate.getType());
+    if (!outputType || !residualType || !gateType || outputType.getRank() < 2 ||
+        residualType.getRank() < 2 || gateType.getRank() < 2) {
+      return mlir::failure();
+    }
+    ArrayRef<int64_t> outShape = outputType.getShape();
+    ArrayRef<int64_t> resShape = residualType.getShape();
+    ArrayRef<int64_t> gateShape = gateType.getShape();
+    const int64_t m = outShape[outShape.size() - 2];
+    const int64_t n = outShape[outShape.size() - 1];
+    // residual (ternary_a) must match the output [M, N] exactly.
+    if (resShape[resShape.size() - 2] != m ||
+        resShape[resShape.size() - 1] != n) {
+      return mlir::failure();
+    }
+    // gate (ternary_b) must be [1, N] (row broadcast) or [M, N].
+    const int64_t gateRows = gateShape[gateShape.size() - 2];
+    if ((gateRows != 1 && gateRows != m) ||
+        gateShape[gateShape.size() - 1] != n) {
+      return mlir::failure();
+    }
+
+    mlir::Value bias;
+    if constexpr (std::is_same_v<MatmulLikeOp, LinearOp>) {
+      bias = projOp.getBias();
+    }
+
+    // Operand order matches ttnn.dit_matmul_addcmul_fused:
+    //   a, b, residual, gate, [bias].
+    rewriter.replaceOpWithNewOp<DitMatmulAddcmulFusedOp>(
+        addOp, addOp.getType(), projOp.getA(), projOp.getB(), residual, gate,
+        bias, /*compute_config=*/nullptr);
+    return mlir::success();
+  }
+};
+
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 // ============================================================================
@@ -443,7 +533,9 @@ public:
         TTNNMatmulAndLinearWithActivation<MatmulOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, GeluOp>,
-        TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>>(&getContext());
+        TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>,
+        TTNNDitMatmulAddcmulFusing<MatmulOp>,
+        TTNNDitMatmulAddcmulFusing<LinearOp>>(&getContext());
 
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {

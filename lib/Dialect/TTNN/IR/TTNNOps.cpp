@@ -2658,6 +2658,62 @@ std::optional<int64_t> getMatmulInnerDim(::mlir::RankedTensorType inputA,
 
 // ANCHOR: adding_an_op_matmul_ttnn_verify
 // MatmulOp verification
+::mlir::LogicalResult mlir::tt::ttnn::DitMatmulAddcmulFusedOp::verify() {
+  ::mlir::RankedTensorType inputAType = getA().getType();
+  ::mlir::RankedTensorType inputBType = getB().getType();
+
+  if (inputAType.getRank() < 2 || inputBType.getRank() < 2) {
+    return emitOpError("Inputs a and b must be at least 2D tensors");
+  }
+
+  llvm::ArrayRef<int64_t> aShape = inputAType.getShape();
+  llvm::ArrayRef<int64_t> bShape = inputBType.getShape();
+  if (aShape[aShape.size() - 1] != bShape[bShape.size() - 2]) {
+    return emitOpError("Input a[-1](")
+           << aShape[aShape.size() - 1] << ") and b[-2]("
+           << bShape[bShape.size() - 2]
+           << ") must have matching inner dimensions";
+  }
+
+  // The device kernel enforces shape constraints on the addcmul operands
+  // (see tt-metal minimal_matmul_device_operation.cpp): with the matmul
+  // output being [M, N], the residual (ternary_a) must match it exactly and
+  // the gate (ternary_b) must be [1, N] (row broadcast) or [M, N].
+  ::mlir::RankedTensorType outputType = getResult().getType();
+  ::mlir::RankedTensorType residualType = getResidual().getType();
+  ::mlir::RankedTensorType gateType = getGate().getType();
+  if (outputType.getRank() < 2 || residualType.getRank() < 2 ||
+      gateType.getRank() < 2) {
+    return emitOpError("Output, residual and gate must be at least 2D tensors");
+  }
+
+  llvm::ArrayRef<int64_t> outShape = outputType.getShape();
+  llvm::ArrayRef<int64_t> resShape = residualType.getShape();
+  llvm::ArrayRef<int64_t> gateShape = gateType.getShape();
+  const int64_t m = outShape[outShape.size() - 2];
+  const int64_t n = outShape[outShape.size() - 1];
+
+  // residual (ternary_a) must match the output [M, N] exactly.
+  if (resShape[resShape.size() - 2] != m ||
+      resShape[resShape.size() - 1] != n) {
+    return emitOpError("Residual[-2:](")
+           << resShape[resShape.size() - 2] << ", "
+           << resShape[resShape.size() - 1] << ") must match output [M, N] = ("
+           << m << ", " << n << ")";
+  }
+
+  // gate (ternary_b) must be [1, N] (row broadcast) or [M, N].
+  const int64_t gateRows = gateShape[gateShape.size() - 2];
+  if ((gateRows != 1 && gateRows != m) ||
+      gateShape[gateShape.size() - 1] != n) {
+    return emitOpError("Gate[-2:](")
+           << gateRows << ", " << gateShape[gateShape.size() - 1]
+           << ") must be [1, N] or [M, N] = (1 or " << m << ", " << n << ")";
+  }
+
+  return success();
+}
+
 ::mlir::LogicalResult mlir::tt::ttnn::MatmulOp::verify() {
   ::mlir::RankedTensorType inputAType = getA().getType();
   ::mlir::RankedTensorType inputBType = getB().getType();

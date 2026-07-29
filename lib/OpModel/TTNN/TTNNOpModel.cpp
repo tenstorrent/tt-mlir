@@ -16,6 +16,7 @@
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttnn/operations/experimental/ccl/moe_compute/moe_compute.hpp"
 #include "ttnn/operations/experimental/ccl/moe_compute/moe_compute_utils.hpp"
+#include "ttnn/operations/experimental/transformer/dit_minimal_matmul_addcmul_fused/dit_minimal_matmul_addcmul_fused.hpp"
 
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
@@ -4657,6 +4658,120 @@ llvm::Expected<size_t> OpModel<MatmulOp>::getOpRuntime(
   };
 
   return operation::getOpRuntime(matmulOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// DitMatmulAddcmulFusedOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints>
+OpModel<DitMatmulAddcmulFusedOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> residualShape, TTNNLayoutAttr residualLayout,
+    llvm::ArrayRef<int64_t> gateShape, TTNNLayoutAttr gateLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, TTNNLayoutAttr outputLayout,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecA,
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecB,
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec residualSpec,
+      detail::convertToTensorSpec(device, residualShape, residualLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec gateSpec,
+                   detail::convertToTensorSpec(device, gateShape, gateLayout));
+
+  std::optional<::ttnn::TensorSpec> biasSpec;
+  if (biasShape && biasLayout) {
+    biasSpec = conversion::getTensorSpec(biasShape.value(), biasLayout.value());
+  }
+
+  std::optional<::tt::tt_metal::DataType> outputDType =
+      detail::getNullableDataType(outputLayout);
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      computeKernelConfigConverted =
+          conversion::getDeviceComputeKernelConfig(computeKernelConfig);
+
+  auto ditOpQuery = [=]() {
+    // scalar is metal's addcmul multiplier; this op models the identity case
+    // (scalar=1), so the query matches the configuration the runtime executes
+    // (see matmul.cpp). scalar does not affect constraints/runtime anyway.
+    return QUERY_OP_CONSTRAINTS(
+        ::ttnn::experimental::dit_minimal_matmul_addcmul_fused, device,
+        inputSpecA, inputSpecB, /*scalar=*/1.0f, residualSpec, gateSpec,
+        biasSpec, /*config=*/std::nullopt, outputMemoryConfig, outputDType,
+        computeKernelConfigConverted);
+  };
+
+  return operation::getOpConstraints(inputLayoutA.getContext(), ditOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<DitMatmulAddcmulFusedOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
+    llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<int64_t> residualShape, TTNNLayoutAttr residualLayout,
+    llvm::ArrayRef<int64_t> gateShape, TTNNLayoutAttr gateLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, TTNNLayoutAttr outputLayout,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecA,
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecB,
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec residualSpec,
+      detail::convertToTensorSpec(device, residualShape, residualLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec gateSpec,
+                   detail::convertToTensorSpec(device, gateShape, gateLayout));
+
+  std::optional<::ttnn::TensorSpec> biasSpec;
+  if (biasShape && biasLayout) {
+    biasSpec = conversion::getTensorSpec(biasShape.value(), biasLayout.value());
+  }
+
+  std::optional<::tt::tt_metal::DataType> outputDType =
+      detail::getNullableDataType(outputLayout);
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      computeKernelConfigConverted =
+          conversion::getDeviceComputeKernelConfig(computeKernelConfig);
+
+  auto ditOpQuery = [=]() {
+    // scalar is metal's addcmul multiplier; this op models the identity case
+    // (scalar=1), so the query matches the configuration the runtime executes
+    // (see matmul.cpp). scalar does not affect constraints/runtime anyway.
+    return QUERY_OP_RUNTIME(
+        ::ttnn::experimental::dit_minimal_matmul_addcmul_fused, device,
+        inputSpecA, inputSpecB, /*scalar=*/1.0f, residualSpec, gateSpec,
+        biasSpec, /*config=*/std::nullopt, outputMemoryConfig, outputDType,
+        computeKernelConfigConverted);
+  };
+
+  return operation::getOpRuntime(ditOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

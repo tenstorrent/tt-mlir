@@ -352,6 +352,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::matmul::run(op->type_as_MatmulOp(), getContext());
   }
   // ANCHOR_END: adding_an_op_matmul_runtime_program
+  case ::tt::target::ttnn::OpType::DitMatmulAddcmulFusedOp: {
+    return operations::matmul::run(op->type_as_DitMatmulAddcmulFusedOp(),
+                                   getContext());
+  }
   case ::tt::target::ttnn::OpType::SparseMatmulOp: {
     return operations::matmul::run(op->type_as_SparseMatmulOp(), getContext());
   }

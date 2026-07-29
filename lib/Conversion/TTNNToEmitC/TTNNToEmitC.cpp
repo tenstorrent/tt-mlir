@@ -705,6 +705,53 @@ public:
 } // namespace
 // ANCHOR_END: adding_an_op_matmul_op_rewriter_emitc
 
+// DitMatmulAddcmulFused op conversion pattern
+//
+namespace {
+class DitMatmulAddcmulFusedOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::DitMatmulAddcmulFusedOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.dit_matmul_addcmul_fused";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::dit_minimal_matmul_addcmul_fused";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::DitMatmulAddcmulFusedOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::DitMatmulAddcmulFusedOp srcOp,
+                  mlir::tt::ttnn::DitMatmulAddcmulFusedOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::DitMatmulAddcmulFusedOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getA()),
+        emitter.emit(srcOp.getB()),
+        /*scalar=*/rewriter.getAttr<emitc::OpaqueAttr>("1.0f"),
+        emitter.emit(srcOp.getResidual()),
+        emitter.emit(srcOp.getGate()),
+        emitter.emit(srcOp.getBias()),
+        /*config=*/emitter.emit(std::nullopt),
+        /*memory_config=*/emitter.emit(std::nullopt),
+        emitter.emit(emitter.getOutputDtype(srcOp.getResult())),
+        emitter.emit(srcOp.getComputeConfig()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // SparseMatmul op conversion pattern
 //
 namespace {
@@ -5666,6 +5713,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Matmul ops
   //
   patterns.add<LinearOpConversionPattern, MatmulOpConversionPattern,
+               DitMatmulAddcmulFusedOpConversionPattern,
                SparseMatmulOpConversionPattern>(typeConverter, ctx);
 
   // Reduction ops
