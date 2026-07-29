@@ -7122,10 +7122,25 @@ private:
 
     // Checks that apply to single dimensional scatter.
 
-    if (!multiDimensionalScatter && indexShape.size() > updateShape.size()) {
+    // extractElementWiseScatterIndices drops the index_vector_dim and maps the
+    // remaining (scatter-batch) dims onto the update tensor's non-window dims,
+    // so require batch rank <= non-window rank. Here index_vector_dim has
+    // length 1 (StableHLO ties it to scatter_dims_to_operand_dims.size(), which
+    // is 1 in this branch), so dropping it preserves volume. This admits e.g.
+    // indices <256x1> into updates <256>.
+    int64_t indexBatchRank = static_cast<int64_t>(indexShape.size());
+    if (indexVectorDim < static_cast<uint32_t>(indexShape.size())) {
+      --indexBatchRank;
+    }
+    ArrayRef<int64_t> updateWindowDims =
+        adaptor.getScatterDimensionNumbers().getUpdateWindowDims();
+    int64_t nonWindowUpdateRank = static_cast<int64_t>(updateShape.size()) -
+                                  static_cast<int64_t>(updateWindowDims.size());
+    if (!multiDimensionalScatter && indexBatchRank > nonWindowUpdateRank) {
       return rewriter.notifyMatchFailure(
-          op, "TTIR scatter requires indices.rank <= updates.rank. Please add "
-              "support for rank promotion if needed.");
+          op, "TTIR single-dimensional scatter requires the index scatter-batch "
+              "rank (index rank excluding index_vector_dim) to not exceed the "
+              "update non-window rank.");
     }
 
     if (!multiDimensionalScatter && indexVectorDim != 1u) {
