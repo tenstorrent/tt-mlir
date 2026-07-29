@@ -9,7 +9,6 @@
 #include <tracy/Tracy.hpp>
 #include <tt/runtime/runtime.h>
 #include <tt/runtime/utils.h>
-#include <utility>
 
 namespace tt::kurbla {
 
@@ -48,7 +47,9 @@ CompiledProgram &ExecutionPayload::compiled_program() const {
     return *impl_->program;
 }
 
-void ExecutionPayload::bind_tensor(tt::runtime::Tensor &tensor, std::uint32_t index) {
+// Binds runtime tensor to input slot at index.
+// Since tensor layout can be changed, resulting tensor is returned back to caller.
+tt::runtime::Tensor ExecutionPayload::bind_tensor(tt::runtime::Tensor tensor, std::uint32_t index) {
     TT_FATAL(index < impl_->input_slots.size(), "bind_tensor: index {} out of range (program has {} input(s))", index,
              impl_->input_slots.size());
 
@@ -74,11 +75,12 @@ void ExecutionPayload::bind_tensor(tt::runtime::Tensor &tensor, std::uint32_t in
         if (!tt::runtime::hasLayout(tensor, layout)) {
             tensor = tt::runtime::toLayout(tensor, runtime_device(), layout, /*retain=*/true);
         }
-
-        impl_->input_slots[index] = tensor;
     } catch (const std::exception &e) {
         TT_THROW("bind_tensor: toLayout failed: {}", e.what());
     }
+
+    impl_->input_slots[index] = tensor;
+    return tensor;
 }
 
 std::vector<tt::runtime::Tensor> ExecutionPayload::run() {

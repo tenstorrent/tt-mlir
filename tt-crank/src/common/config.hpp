@@ -38,6 +38,12 @@ FS_WITH_ENABLER(log_fallback, false, "TT_KURBLA_LOG_FALLBACK_ENABLED");
 // Enables compiler consteval.
 FS_WITH_DISABLER(comp_consteval, true, "TT_KURBLA_COMP_CONSTEVAL_DISABLED");
 
+// Enables tensor borrowing.
+FS_WITH_DISABLER(tensor_borrowing, true, "TT_KURBLA_TENSOR_BORROWING_DISABLED");
+
+// Warns user that forward is run with inference mode.
+FS_WITH_DISABLER(warn_on_inference, true, "TT_KURBLA_WARN_ON_INFERENCE_DISABLED");
+
 // Config section.
 
 constexpr size_t cfg_monitor_max_slots = 64;

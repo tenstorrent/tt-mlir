@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ATen/core/TensorBody.h>
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -8,11 +9,27 @@
 #include <utility>
 #include <vector>
 
+#include "assert.hpp"
+#include "engine/device.hpp"
 #include <ATen/core/Tensor.h>
 #include <c10/util/Exception.h>
 #include <tt/runtime/types.h>
 
 namespace tt::kurbla::torch_backend {
+
+// Tensor pin that prevents torch tensor deallocation.
+struct TensorPin {
+    static constexpr std::int64_t invalid_tensor_version = -1;
+
+    explicit TensorPin(at::Tensor torch_tensor)
+        : tensor{std::move(torch_tensor)},
+          version{!tensor.is_inference() ? tensor._version() : TensorPin::invalid_tensor_version} {}
+
+    at::Tensor tensor;
+
+    // Tensor version from pinned tensor.
+    std::int64_t version;
+};
 
 // Heap-owned object hung off a "tt" tensor's DataPtr context. Holds the
 // tt::runtime::Tensor: a (possibly multi-device) tensor that spans the
@@ -27,10 +44,35 @@ public:
     const ::tt::runtime::Tensor &tensor() const { return tensor_; }
     ::tt::runtime::Tensor &tensor() { return tensor_; }
 
-    void replace(::tt::runtime::Tensor tensor) { tensor_ = std::move(tensor); }
+    void replace(::tt::runtime::Tensor tensor);
+    void replace(const at::Tensor &other);
+    void check_version();
+    std::vector<::tt::runtime::Tensor> to_host(bool untilize);
+
+    bool borrowed() { return pin_.has_value(); }
+
+    const at::Tensor &pinned_tensor() {
+        TORCH_CHECK(borrowed(), "Tensor is not borrowed.");
+        return pin_->tensor;
+    }
+
+    std::int64_t pinned_tensor_version() {
+        TORCH_CHECK(borrowed(), "Tensor is not borrowed.");
+        return pin_->version;
+    }
+
+    bool pin_version_match() {
+        TORCH_CHECK(borrowed(), "Tensor is not borrowed.");
+        return (pin_->version == TensorPin::invalid_tensor_version && pin_->tensor.is_inference()) ||
+               (pin_->version == pin_->tensor._version());
+    }
 
 private:
+    // Runtime tensor that represents tensor storage.
     ::tt::runtime::Tensor tensor_;
+
+    // Tensor pin, preventing torch tensor deallocations when out tensor is borrowed from torch tensor.
+    std::optional<TensorPin> pin_;
 };
 
 // Returns the storage attached to `t`. Caller must hold a reference to `t`.
@@ -48,14 +90,17 @@ at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef 
 // the empty/copy paths to wrap host buffers as tt::runtime::Tensors.
 ::tt::runtime::TensorDesc make_contiguous_desc(at::IntArrayRef sizes, c10::ScalarType dtype);
 
-// Creates a runtime tensor from provided host buffers (shards).
-// This API is used for creating both single and multi device tensors.
-::tt::runtime::Tensor runtime_from_host_shards(std::vector<const void *> shards, at::IntArrayRef sizes,
-                                               c10::ScalarType dtype);
+// Creates a runtime tensor from provided host buffer shards (one shard per chip,
+// or a single shard replicated across the mesh). Used for both single- and
+// multi-device tensors. `borrow` selects a view over the caller's buffers
+// (caller keeps them alive) vs. an owned private copy.
+::tt::runtime::Tensor runtime_from_host_shards(std::vector<void *> shards, at::IntArrayRef sizes, c10::ScalarType dtype,
+                                               bool borrow = false);
 
-// Convenience wrapper over `runtime_from_host_buffer` for the common
-// CPU-torch-tensor source: pulls data_ptr/sizes/dtype off `cpu_src`.
-::tt::runtime::Tensor runtime_from_torch_tensor(const at::Tensor &cpu_src);
+// Borrows tensor storage (if possible) and makes runtime tensor from it.
+// If borrowing is not possible, creates owned host tensor.
+// Returns pair of runtime tensor, and bool that represents whether runtime tensor is borrowed from ``t``.
+std::pair<::tt::runtime::Tensor, bool> runtime_from_torch_tensor(const at::Tensor &t, bool try_borrow = false);
 
 // True iff `d` is a tt (PrivateUse1) device.
 bool is_tt(const at::Device &d);

@@ -14,9 +14,13 @@
 #include <c10/core/TensorImpl.h>
 #include <c10/util/Exception.h>
 #include <c10/util/irange.h>
+#include <tt-logger/tt-logger.hpp>
 #include <tt/runtime/runtime.h>
+#include <tt/runtime/types.h>
+#include <tt/runtime/utils.h>
 
 #include "cast.hpp"
+#include "config.hpp"
 #include "engine/device.hpp"
 #include "torch/backend.hpp"
 #include "torch/ops/builders.hpp"
@@ -24,9 +28,14 @@
 
 namespace tt::kurbla::torch_backend {
 
-TensorStorage::TensorStorage(::tt::runtime::Tensor tensor) : tensor_(std::move(tensor)) {}
-
 namespace {
+
+bool borrowable(const at::Tensor &t) {
+    if (!tensor_borrowing_enabled()) {
+        return false;
+    }
+    return ::tt::runtime::utils::isSupportedDataType(to_runtime_dtype(t.scalar_type())) && t.is_contiguous();
+}
 
 void delete_storage(void *p) {
     delete as<TensorStorage *>(p);
@@ -44,7 +53,66 @@ std::unordered_map<std::string, std::string> shard_strategy(std::size_t num_shar
     return {{"strategy", "shard"}, {"shard_dim", std::to_string(mesh_size)}, {"tensor_shard_dim", "0"}};
 }
 
+// Creates single device (borrowed/owned) host tensor from provided shard.
+::tt::runtime::Tensor create_host_tensor(void *shard, const ::tt::runtime::TensorDesc &desc, bool borrow) {
+    if (borrow) {
+        return ::tt::runtime::createBorrowedHostTensor(shard, desc);
+    }
+    return ::tt::runtime::createOwnedHostTensor(shard, desc);
+}
+
+// Creates multi device (borrowed/owned) host tensor from provided shards.
+::tt::runtime::Tensor
+create_multi_device_host_tensor(std::vector<void *> &shards, const ::tt::runtime::TensorDesc &desc,
+                                const std::unordered_map<std::string, std::string> &shard_strategy, bool borrow) {
+    const auto mesh_shape = ::tt::kurbla::runtime_device_mesh_shape();
+    if (borrow) {
+        return ::tt::runtime::createMultiDeviceBorrowedHostTensor(shards, desc.shape, desc.stride, desc.elementSize(),
+                                                                  desc.dataType, shard_strategy, mesh_shape);
+    }
+    return ::tt::runtime::createMultiDeviceHostTensor({shards.begin(), shards.end()}, desc, shard_strategy, mesh_shape);
+}
+
 } // namespace
+
+TensorStorage::TensorStorage(::tt::runtime::Tensor tensor) : tensor_(std::move(tensor)) {}
+
+void TensorStorage::replace(::tt::runtime::Tensor tensor) {
+    tensor_ = std::move(tensor);
+    pin_.reset();
+}
+
+// Replaces this tensor by borrowing other's storage if possible. Copies it otherwise.
+void TensorStorage::replace(const at::Tensor &other) {
+    auto [tensor, borrowed] = runtime_from_torch_tensor(other, /*try_borrow=*/true);
+    tensor_ = std::move(tensor);
+
+    if (borrowed) {
+        pin_ = TensorPin{other};
+    } else {
+        pin_.reset();
+    }
+}
+
+void TensorStorage::check_version() {
+    if (borrowed() && pinned_tensor().is_inference() && warn_on_inference_enabled()) {
+        if (static uint64_t c = 0; c++ == 0) {
+            log_warning(tt::LogAlways, "User is running program in inference mode, which disables tensor version "
+                                       "checking.");
+            log_warning(tt::LogAlways, "This check ensures that tensors are not modified in-place. To verify that such "
+                                       "ops does not exist, run forward without inference mode.");
+            log_warning(tt::LogAlways, "Once assured that inference is safe, you can disable this warning with: "
+                                       "TT_KURBLA_WARN_ON_INFERENCE_DISABLED=1");
+        }
+    }
+
+    TORCH_CHECK(!borrowed() || pin_version_match(), "Tensor modified in-place.");
+}
+
+std::vector<::tt::runtime::Tensor> TensorStorage::to_host(bool untilize) {
+    check_version();
+    return ::tt::runtime::toHost(tensor_, untilize);
+}
 
 TensorStorage &storage_of(const at::Tensor &t) {
     TORCH_CHECK(is_tt(t), "tt-kurbla storage_of: tensor is not on the tt backend (device: ", t.device(), ")");
@@ -85,23 +153,23 @@ at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef 
     return {shape, to_runtime_dtype(dtype)};
 }
 
-::tt::runtime::Tensor runtime_from_host_shards(std::vector<const void *> shards, at::IntArrayRef sizes,
-                                               c10::ScalarType dtype) {
+::tt::runtime::Tensor runtime_from_host_shards(std::vector<void *> shards, at::IntArrayRef sizes, c10::ScalarType dtype,
+                                               bool borrow) {
     const size_t num_shards = shards.size();
     const auto mesh_size = ::tt::kurbla::runtime_device_mesh_size();
 
     TORCH_CHECK(num_shards == 1 || num_shards == mesh_size,
-                "tt-kurbla runtime_from_host_buffer: invalid number of shards ", num_shards);
+                "tt-kurbla runtime_from_host_shards: invalid number of shards ", num_shards);
 
     const auto desc = make_contiguous_desc(sizes, dtype);
 
     if (mesh_size <= 1) {
-        return ::tt::runtime::createOwnedHostTensor(shards.front(), desc);
+        return create_host_tensor(shards.front(), desc, borrow);
     }
 
-    shards.resize(mesh_size, shards.front());
-    return ::tt::runtime::createMultiDeviceHostTensor(shards, desc, shard_strategy(num_shards, mesh_size),
-                                                      ::tt::kurbla::runtime_device_mesh_shape());
+    void *first = shards.front();
+    shards.resize(mesh_size, first);
+    return create_multi_device_host_tensor(shards, desc, shard_strategy(num_shards, mesh_size), borrow);
 }
 
 // Build a sharded multi-device tensor straight from per-chip host tensor shards
@@ -109,7 +177,7 @@ at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef 
 // ownership of each shard's host buffer, so the shards may be released after
 // this returns. On a 1x1 mesh there's a single chip - return its shard as-is.
 ::tt::runtime::Tensor runtime_from_host_shards(std::vector<::tt::runtime::Tensor> shards) {
-    TORCH_CHECK(!shards.empty(), "tt-kurbla runtime_from_host_shards: no shards");
+    TORCH_CHECK(!shards.empty(), "tt-kurbla runtime_from_tensor_shards: no shards");
     const auto mesh_size = ::tt::kurbla::runtime_device_mesh_size();
     if (mesh_size <= 1) {
         return std::move(shards.front());
@@ -118,11 +186,15 @@ at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef 
                                                       ::tt::kurbla::runtime_device_mesh_shape());
 }
 
-::tt::runtime::Tensor runtime_from_torch_tensor(const at::Tensor &cpu_src) {
-    TORCH_CHECK(cpu_src.is_cpu(), "tt-kurbla runtime_from_torch_tensor: source must be a CPU tensor, got ",
-                cpu_src.device());
-    TORCH_CHECK(cpu_src.is_contiguous(), "tt-kurbla runtime_from_torch_tensor: source must be contiguous");
-    return runtime_from_host_shards({cpu_src.data_ptr()}, cpu_src.sizes(), cpu_src.scalar_type());
+// Creates runtime tensor from torch tensor ``t``.
+// If try_borrow is true and borrowing is supported, tensor will be borrowed. Otherwise, new tensor is made.
+// Returns pair of runtime tensor, and bool that represents whether tensor is borrowed from ``t``.
+std::pair<::tt::runtime::Tensor, bool> runtime_from_torch_tensor(const at::Tensor &t, bool try_borrow) {
+    TORCH_CHECK(t.is_cpu(), "tt-kurbla runtime_from_torch_tensor: source must be a CPU tensor, got ", t.device());
+    TORCH_CHECK(t.is_contiguous(), "tt-kurbla runtime_from_torch_tensor: source must be contiguous");
+
+    bool borrow = try_borrow && borrowable(t);
+    return {runtime_from_host_shards({t.data_ptr()}, t.sizes(), t.scalar_type(), /*borrow=*/borrow), borrow};
 }
 
 bool is_tt(const at::Device &d) {
@@ -163,7 +235,7 @@ void scatter_into(const at::Tensor &output, const std::vector<at::Tensor> &chunk
                     output.sizes());
         TORCH_CHECK(c.scalar_type() == output.scalar_type(), "scatter_into: chunk dtype must match output dtype");
         if (is_tt(c)) {
-            host_chunks.push_back(::tt::runtime::toHost(storage_of(c).tensor(), /*untilize=*/true));
+            host_chunks.push_back(storage_of(c).to_host(/*untilize=*/true));
             // toHost yields one host shard per physical mesh shard, so a chunk
             // is either a full-mesh multi-device tensor (mesh_size shards) or a
             // single host slab (1 shard: a 1x1 mesh, or the CPU branch below). A
@@ -175,7 +247,7 @@ void scatter_into(const at::Tensor &output, const std::vector<at::Tensor> &chunk
                         mesh_size);
         } else {
             TORCH_CHECK(c.is_contiguous(), "scatter_into: chunk must be contiguous");
-            host_chunks.push_back({runtime_from_torch_tensor(c)});
+            host_chunks.push_back({runtime_from_torch_tensor(c).first});
         }
     }
 
