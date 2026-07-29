@@ -446,7 +446,9 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
   TT_assert(compositeSource != nullptr);
 
   SmallVector<Value> compositeInputs = compositeView.getCompositeInputs();
-  TT_assert(compositeInputs.size() > 1u);
+  // One input is legal and expands to the degenerate if-else chain: every
+  // destination tile resolves against that single input's grid x shard extent.
+  TT_assert(!compositeInputs.empty());
 
   int64_t extraNumInputs = static_cast<int64_t>(compositeInputs.size() - 1);
 

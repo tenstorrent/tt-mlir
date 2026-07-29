@@ -1422,8 +1422,11 @@ mlir::LogicalResult d2m::CompositeViewOp::verify() {
     return emitOpError("dim out of range.");
   }
 
-  if (this->getInputs().size() < 2) {
-    return emitOpError("must have at least two inputs.");
+  // A single input is meaningful when that input is itself distributed: the
+  // view then re-splits its grid x shard extent along `dim` onto the consuming
+  // generic's grid, i.e. a pure gather/reblock rather than a concatenation.
+  if (this->getInputs().empty()) {
+    return emitOpError("must have at least one input.");
   }
 
   int64_t accum = 0;
