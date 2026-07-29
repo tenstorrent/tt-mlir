@@ -178,9 +178,11 @@ module {
   //
   // When the reduction dim needs more tiles than one core's budget
   // (kMaxTilesPerCore / nonTargetTiles), the lowering splits it into numShards
-  // bands (one per core), runs a local topk_block per band, then merges the
-  // per-band partials via a composite_view + a final topk_block. A wide
-  // non-target dim (4 tiles here) shrinks the per-core reduction budget to
+  // bands (one per core) and runs a local topk_block per band. The bands stay
+  // distributed: each merge round gathers them with a single composite_view
+  // over the whole grid-wide result, which re-splits that grid x shard extent
+  // onto the merge grid, then runs one topk_block for every group at once. A
+  // wide non-target dim (4 tiles here) shrinks the per-core reduction budget to
   // 43/4 = 10 tiles, so a 16-reduction-tile input needs >= 2 cores.
 
   // dim=1 multi-core: 128x512, k=16. Rows=128 (4 non-target tiles), cols=512
@@ -221,3 +223,4 @@ module {
     %values, %indices = "ttir.topk"(%arg0) <{k = 16 : i32, dim = 0 : i32, largest = true, sorted = false}> : (tensor<512x128xf32>) -> (tensor<16x128xf32>, tensor<16x128xsi32>)
     return %values, %indices : tensor<16x128xf32>, tensor<16x128xsi32>
   }
+}
