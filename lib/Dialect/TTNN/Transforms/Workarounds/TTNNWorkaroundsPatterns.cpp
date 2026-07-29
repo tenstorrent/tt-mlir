@@ -10,7 +10,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllGatherOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CollectiveReshapeOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dEnableKernelStrideFoldingRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dRewritePattern.h"
@@ -475,8 +474,6 @@ public:
               DistributedRMSNormWidthShardInputRewritePattern,
           workarounds::decomposition::ReduceScatterConfigRewritePattern,
           workarounds::decomposition::TopKRouterGptDecompositionRewritePattern,
-          workarounds::decomposition::
-              AllToAllDispatchMetadataDrainCoreRewritePattern,
           workarounds::decomposition::SliceStaticOpRewritePattern,
           workarounds::decomposition::MoeGptLayoutRewritePattern>(
           &getContext());
@@ -553,6 +550,14 @@ const std::set<mlir::StringRef>
         // tt-metal SDPA-supported dtype (bf16). Without it, opt_level>=1 leaves
         // f32 operands
         ttnn::FlashMlaPrefillOp::getOperationName(),
+        // SDPA prefill/decode kernels TT_FATAL on non-bf16 inputs
+        // (sdpa_device_operation.cpp). Their operands workaround narrows
+        // Q/K/V/mask/output f32->bf16. Without it at opt_level>=1 the f32 op
+        // reaches the layout optimizer, whose op-model queries reject every
+        // f32 candidate -> a huge failing-query search. See #8141 (TopK has
+        // the same rationale).
+        ttnn::ScaledDotProductAttentionOp::getOperationName(),
+        ttnn::ScaledDotProductAttentionDecodeOp::getOperationName(),
         // The moe_compute weight packers and the op itself require
         // layout and data type workarounds.
         ttnn::PrepareMoEComputeW0W1WeightsOp::getOperationName(),

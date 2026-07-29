@@ -172,17 +172,34 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
   if (initValueOp.getResult().getType().getElementType().isF64()) {
     return *initValueOp.getValue().value_begin<double>() == desiredF64;
   }
-  if (initValueOp.getResult().getType().getElementType().isInteger(32)) {
-    return *initValueOp.getValue().value_begin<int32_t>() == desiredI32;
-  }
-  if (initValueOp.getResult().getType().getElementType().isInteger(64)) {
-    return *initValueOp.getValue().value_begin<int64_t>() == desiredI64;
-  }
-  if (initValueOp.getResult().getType().getElementType().isInteger(8)) {
-    return *initValueOp.getValue().value_begin<uint8_t>() == desiredI8;
-  }
-  if (initValueOp.getResult().getType().getElementType().isInteger(1)) {
-    return *initValueOp.getValue().value_begin<bool>() == desiredI1;
+  // Integer element types: read the constant as an APInt so both signed and
+  // unsigned attributes work. value_begin<int32_t>()/<int64_t>() assert with
+  // "ElementsAttr does not provide iteration facilities for type `int`" on
+  // unsigned (ui32/ui64) attributes -- e.g. the dense<4294967295> :
+  // tensor<ui32> sentinel that torch 2.11's max_pool2d_with_indices lowering
+  // emits (#9031).
+  if (auto intType = mlir::dyn_cast<mlir::IntegerType>(
+          initValueOp.getResult().getType().getElementType())) {
+    unsigned width = intType.getWidth();
+    // Restrict to the widths the original signed-typed reads handled
+    // (i1/i8/i32/i64). Other widths previously fell through to `return false`,
+    // and desiredI8/I32/I64 are only defined for these; reading as APInt merely
+    // avoids the unsigned-iteration assert without changing which widths match.
+    if (width != 1 && width != 8 && width != 32 && width != 64) {
+      return false;
+    }
+    const llvm::APInt &value =
+        *initValueOp.getValue().value_begin<llvm::APInt>();
+    if (width == 1) {
+      return value.getBoolValue() == desiredI1;
+    }
+    int64_t desiredInt =
+        width == 8 ? desiredI8 : (width == 32 ? desiredI32 : desiredI64);
+    // Compare raw bit patterns at the attribute's width, so an unsigned init
+    // matches the signed sentinel with the same bits (e.g. for NEG_INF,
+    // ui32 2147483648 == i32 INT32_MIN).
+    return value == llvm::APInt(width, static_cast<uint64_t>(desiredInt),
+                                /*isSigned=*/true);
   }
 
   return false;
@@ -1925,17 +1942,24 @@ private:
     auto kernelSpatialDims = dn.getKernelSpatialDimensions();
     auto outputSpatialDims = dn.getOutputSpatialDimensions();
 
-    // Find the degenerate spatial index (input and kernel extent both 1).
+    // A framework conv1d lowered to 2D has exactly one size-1 spatial dim; the
+    // other carries the sequence. Count them to distinguish that from a genuine
+    // pointwise 2D conv (both dims size-1, e.g. a 1x1 conv on a [N,C,1,1]
+    // squeeze-excite tensor), which has no 1D axis and must stay conv2d --
+    // rerouting it would needlessly host-move the weight and break trace hoist.
     int degIdx = -1;
+    int numDegenerate = 0;
     for (int i = 0; i < static_cast<int>(NUM_SPATIAL_DIMS); ++i) {
       if (inputType.getShape()[inputSpatialDims[i]] == 1 &&
           weightType.getShape()[kernelSpatialDims[i]] == 1) {
-        degIdx = i;
-        break;
+        if (degIdx < 0) {
+          degIdx = i;
+        }
+        ++numDegenerate;
       }
     }
-    if (degIdx < 0) {
-      return Value(); // genuine 2D conv.
+    if (degIdx < 0 || numDegenerate == static_cast<int>(NUM_SPATIAL_DIMS)) {
+      return Value(); // no 1D axis, or genuinely pointwise 2D -> keep conv2d.
     }
     int realIdx = 1 - degIdx; // the other of the two spatial dims.
 
@@ -6689,21 +6713,19 @@ public:
               rewriter.getI32ArrayAttr(sliceStarts),
               rewriter.getI32ArrayAttr(sliceEnds),
               rewriter.getI32ArrayAttr(sliceSteps));
-          // create fill cache op for this batch.
-          cache = rewriter.create<mlir::tt::ttir::FillCacheOp>(
+          // Fill the cache in place for this batch.
+          rewriter.create<mlir::tt::ttir::FillCacheOp>(
               scatterOp.getLoc(),
-              scatterOp.getResult(0).getType(), // Result type
-              cache,                            // Cache tensor
-              slicedUpdates,                    // Updates tensor
-              batchOffsetAttr                   // Batch offset
+              cache,          // Cache tensor
+              slicedUpdates,  // Updates tensor
+              batchOffsetAttr // Batch offset
           );
         }
       } else {
-        cache = rewriter.create<mlir::tt::ttir::FillCacheOp>(
-            scatterOp.getLoc(), scatterOp.getResult(0).getType(), // Result type
-            cache,   // Cache tensor
-            updates, // Updates tensor
-            0        // Batch offset
+        rewriter.create<mlir::tt::ttir::FillCacheOp>(scatterOp.getLoc(),
+                                                     cache,   // Cache tensor
+                                                     updates, // Updates tensor
+                                                     0        // Batch offset
         );
       }
     } else {
@@ -6724,13 +6746,12 @@ public:
             scatterOp.getLoc(), permutedUpdatesType, updates,
             rewriter.getDenseI64ArrayAttr({2, 1, 0, 3}));
       }
-      cache = rewriter.create<mlir::tt::ttir::UpdateCacheOp>(
+      rewriter.create<mlir::tt::ttir::UpdateCacheOp>(
           scatterOp.getLoc(),
-          scatterOp.getResult(0).getType(), // Result type
-          cache,                            // Cache tensor
-          updates,                          // Updates tensor
-          *CachePositions,                  // Cache Idx
-          0                                 // Batch offset
+          cache,           // Cache tensor
+          updates,         // Updates tensor
+          *CachePositions, // Cache Idx
+          0                // Batch offset
       );
     }
 
@@ -8203,8 +8224,11 @@ public:
     auto cache = adaptor.getOperands()[0];
     auto input = adaptor.getOperands()[1];
 
-    rewriter.replaceOpWithNewOp<ttir::FillCacheOp>(
-        srcOp, cache.getType(), cache, input, batchOffsetInt);
+    // ttir.fill_cache mutates the cache in place and has no result; rewire the
+    // custom_call result to the cache operand.
+    rewriter.create<ttir::FillCacheOp>(srcOp.getLoc(), cache, input,
+                                       batchOffsetInt);
+    rewriter.replaceOp(srcOp, cache);
 
     return success();
   }
@@ -8273,8 +8297,11 @@ public:
     auto input = adaptor.getOperands()[1];
     auto updateIndex = adaptor.getOperands()[2];
 
-    rewriter.replaceOpWithNewOp<ttir::UpdateCacheOp>(
-        srcOp, cache.getType(), cache, input, updateIndex, batchOffsetInt);
+    // ttir.update_cache mutates the cache in place and has no result; rewire
+    // the custom_call result to the cache operand.
+    rewriter.create<ttir::UpdateCacheOp>(srcOp.getLoc(), cache, input,
+                                         updateIndex, batchOffsetInt);
+    rewriter.replaceOp(srcOp, cache);
 
     return success();
   }
@@ -8326,9 +8353,11 @@ public:
       }
     }
 
-    rewriter.replaceOpWithNewOp<ttir::PagedUpdateCacheOp>(
-        srcOp, cache.getType(), cache, input, updateIndex, shareCache,
-        pageTable);
+    // ttir.paged_update_cache mutates the cache in place and has no result;
+    // rewire the custom_call result to the cache operand.
+    rewriter.create<ttir::PagedUpdateCacheOp>(
+        srcOp.getLoc(), cache, input, updateIndex, shareCache, pageTable);
+    rewriter.replaceOp(srcOp, cache);
 
     return success();
   }
@@ -8429,8 +8458,11 @@ public:
     Value batchIdxTensor =
         adaptor.getOperands().size() == 4 ? adaptor.getOperands()[3] : nullptr;
 
-    rewriter.replaceOpWithNewOp<ttir::PagedFillCacheOp>(
-        srcOp, cache.getType(), cache, input, pageTable, batchIdxTensor);
+    // ttir.paged_fill_cache mutates the cache in place and has no result;
+    // rewire the custom_call result to the cache operand.
+    rewriter.create<ttir::PagedFillCacheOp>(srcOp.getLoc(), cache, input,
+                                            pageTable, batchIdxTensor);
+    rewriter.replaceOp(srcOp, cache);
 
     return success();
   }
@@ -9979,6 +10011,12 @@ namespace {
 // `mhlo.frontend_attributes` onto the op so it survives the TTIR pipeline
 // (in particular Shardy / shape refinement on adjacent ops) with the right
 // number of typed operands and results.
+//
+// The SHLO custom_call is functional: operands are the "in"-tagged tensors
+// only (so Shardy can refine result types without a DPS init mismatch).
+// TTIR requires destination-passing style (`arg_roles == in* out+`), so this
+// pattern reintroduces one `ttir.empty` per result — typed from the
+// *post-Shardy* result — as the trailing DPS init operands.
 class StableHLOTTLangOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
   using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
@@ -9993,11 +10031,9 @@ public:
       return failure();
     }
 
-    if (adaptor.getOperands().empty() || srcOp.getResults().empty()) {
+    if (srcOp.getResults().empty()) {
       return rewriter.notifyMatchFailure(
-          srcOp,
-          "tt.tt_lang_op custom call must have at least one operand and one "
-          "result.");
+          srcOp, "tt.tt_lang_op custom call must have at least one result.");
     }
 
     mlir::DictionaryAttr frontendAttributes =
@@ -10048,8 +10084,66 @@ public:
       resultTypes.push_back(converted);
     }
 
+    // Parse logical DPS roles. SHLO is functional: operands must be exactly
+    // the "in"-tagged tensors. DPS "out" buffers are synthesized below from
+    // post-Shardy result types.
+    SmallVector<StringRef> roleTokens;
+    argRolesAttr.getValue().split(roleTokens, ',');
+    size_t inCount = 0;
+    size_t outCount = 0;
+    for (StringRef token : roleTokens) {
+      StringRef trimmed = token.trim();
+      if (trimmed == "in") {
+        ++inCount;
+      } else if (trimmed == "out") {
+        ++outCount;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "tt.tt_lang_op `arg_roles` token must be \"in\" or \"out\".");
+      }
+    }
+    if (outCount == 0 || outCount != resultTypes.size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tt.tt_lang_op number of \"out\" roles must be non-zero and "
+                 "match number of results.");
+    }
+
+    auto shloOperands = adaptor.getOperands();
+    if (shloOperands.size() == inCount + outCount) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tt.tt_lang_op legacy DPS-on-SHLO form is not supported: custom "
+          "call operands must be the \"in\" tensors only (#operands == "
+          "#in); DPS \"out\" inits are synthesized during conversion.");
+    }
+    if (shloOperands.size() != inCount) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tt.tt_lang_op operand count must equal number of \"in\" "
+                 "roles in `arg_roles`.");
+    }
+    if (inCount == 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tt.tt_lang_op requires at least one \"in\" role; pure-out "
+                 "kernels are not supported on the functional SHLO path.");
+    }
+
+    SmallVector<Value> ttirOperands;
+    ttirOperands.append(shloOperands.begin(), shloOperands.end());
+    for (Type resultType : resultTypes) {
+      auto ranked = dyn_cast<RankedTensorType>(resultType);
+      if (!ranked) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "tt.tt_lang_op result must be a ranked tensor to "
+                   "synthesize a DPS init.");
+      }
+      ttirOperands.push_back(rewriter.create<ttir::EmptyOp>(
+          srcOp.getLoc(), ranked.getShape(), ranked.getElementType(),
+          ranked.getEncoding()));
+    }
+
     rewriter.replaceOpWithNewOp<ttir::TTLangOp>(srcOp, resultTypes,
-                                                adaptor.getOperands(),
+                                                ttirOperands,
                                                 /*kernel_id=*/kernelIdAttr,
                                                 /*version_tag=*/versionTagAttr,
                                                 /*arg_roles=*/argRolesAttr,

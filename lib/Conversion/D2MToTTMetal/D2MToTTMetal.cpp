@@ -782,7 +782,8 @@ private:
                                       size_t mergedCbSlotBase) {
     size_t operandIndex = kernelArg.getOperandIndex();
     if (kernelArg.getType() == ttkernel::ArgType::BufferAddress ||
-        kernelArg.getType() == ttkernel::ArgType::Scalar) {
+        kernelArg.getType() == ttkernel::ArgType::Scalar ||
+        kernelArg.getType() == ttkernel::ArgType::TensorAccessorArgs) {
       if (auto unified = remapTable.lookupIO(enqueueProgram, operandIndex)) {
         operandIndex = *unified;
       }

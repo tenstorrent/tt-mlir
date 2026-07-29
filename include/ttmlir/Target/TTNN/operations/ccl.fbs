@@ -103,7 +103,10 @@ table AllToAllDispatchMetadataOp {
   num_devices: uint32;
   cluster_axis: uint32;
   memory_config: tt.target.ttnn.MemoryConfig;
-  drain_core: tt.target.ttnn.CoreCoord;
+  dispatched_buffer: tt.target.ttnn.TensorRef;
+  indices_buffer: tt.target.ttnn.TensorRef;
+  scores_buffer: tt.target.ttnn.TensorRef;
+  cross_device_semaphore: tt.target.ttnn.GlobalSemaphoreRef;
 }
 
 table AllToAllCombineOp {

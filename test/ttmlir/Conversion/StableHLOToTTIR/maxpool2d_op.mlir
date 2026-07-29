@@ -135,3 +135,20 @@ func.func public @test_maxpool2d_pad_no_fusion_batch_pad(%arg0: tensor<1x112x112
   }) : (tensor<2x112x112x64xbf16>, tensor<bf16>) -> tensor<2x55x55x64xbf16>
   return %result : tensor<2x55x55x64xbf16>
 }
+
+// -----
+
+// Test maxpool2d op conversion with ui32 init value.
+func.func public @test_maxpool2d_ui32(%arg0: tensor<1x128x128x32xui32>) -> tensor<1x64x64x32xui32> {
+  %0 = stablehlo.constant dense<2147483648> : tensor<ui32>
+  // CHECK: %{{[0-9]+}} = "ttir.max_pool2d"(%arg0)
+  // CHECK-SAME: kernel = array<i32: 3, 3>
+  // CHECK-SAME: stride = array<i32: 2, 2>
+  // CHECK-SAME: (tensor<1x128x128x32xui32>) -> tensor<1x64x64x32xui32>
+  %2 = "stablehlo.reduce_window"(%arg0, %0) <{padding = dense<[[0, 0], [1, 1], [1, 1], [0, 0]]> : tensor<4x2xi64>, window_dimensions = array<i64: 1, 3, 3, 1>, window_strides = array<i64: 1, 2, 2, 1>}> ({
+  ^bb0(%arg2: tensor<ui32>, %arg3: tensor<ui32>):
+    %3 = stablehlo.maximum %arg2, %arg3 : tensor<ui32>
+    stablehlo.return %3 : tensor<ui32>
+  }) : (tensor<1x128x128x32xui32>, tensor<ui32>) -> tensor<1x64x64x32xui32>
+  return %2 : tensor<1x64x64x32xui32>
+}

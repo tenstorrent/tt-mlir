@@ -2024,14 +2024,21 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
           "GenericOp virtual grid affine map must have 2 inputs, or be empty.");
     }
 
-    // Verify that the grid volume fits within the device's worker grid.
-    auto device = ttcore::lookupDevice(*this);
-    int64_t gridVolume = getGrid().getGridVolume();
-    int64_t deviceVolume = device.getWorkerGrid().getGridVolume();
-    if (gridVolume > deviceVolume) {
-      return emitOpError("grid volume (")
-             << gridVolume << ") exceeds device worker grid capacity ("
-             << deviceVolume << ")";
+    // This op may be verified before an enclosing device has been registered
+    // (e.g. d2m-jit early verify before ttcore-register-device). Device-
+    // dependent checks are deferred until a device op is available, matching
+    // CreateGlobalSemaphoreOp::verify, rather than asserting in lookupDevice.
+    auto deviceOp = ttcore::lookupDeviceOp(getOperation());
+    if (deviceOp) {
+      // Verify that the grid volume fits within the device's worker grid.
+      ttcore::DeviceAttr device = deviceOp.getDeviceAttr();
+      int64_t gridVolume = getGrid().getGridVolume();
+      int64_t deviceVolume = device.getWorkerGrid().getGridVolume();
+      if (gridVolume > deviceVolume) {
+        return emitOpError("grid volume (")
+               << gridVolume << ") exceeds device worker grid capacity ("
+               << deviceVolume << ")";
+      }
     }
 
     auto isDRAM = [](Value output) {
@@ -2066,6 +2073,10 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
         if (!outputInvMap && !gridInvMap.isEmpty()) {
           return emitOpError("grid has an inverse map but output operand "
                              "does not have a VGM");
+        }
+
+        if (!deviceOp) {
+          continue;
         }
 
         SmallVector<int64_t> physicalGridShape =

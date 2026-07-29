@@ -1,7 +1,9 @@
 // RUN: ttmlir-opt --ttcore-register-device --convert-d2m-to-ttkernel %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --convert-d2m-to-ttkernel="force-compile-time-args=true" %s | FileCheck %s --check-prefix=FORCE-CTA
 
 #l1 = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
+#page_map = affine_map<(d0, d1, d2, d3) -> (d0 * 8 + d1 * 2 + d2 * 4 + d3)>
 
 module {
   func.func private @fabric_dma_write_to_dram_uses_bank_noc_addr() attributes {d2m.thread = #d2m.thread<datamovement>} {
@@ -79,6 +81,57 @@ module {
     // CHECK: %[[VIRT_X:[0-9]+]] = ttkernel.experimental.convert_logical_x_to_translated(%[[MY_X]]) : (index) -> index
     // CHECK: ttkernel.noc_async_write %[[SRC_ADDR]], core[%[[VIRT_X]], %[[VIRT_Y]]], %[[DST_ADDR]],
     %tx = d2m.dma_write %src[%c0], %dst[%c0], <1> : (memref<1x!ttcore.tile<32x32, f32>, #l1>, memref<1x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<write>
+    d2m.dma_wait %tx : !d2m.mem_tx<write>
+    return
+  }
+
+  // CHECK-LABEL: func.func private @tensor_accessor_dma_reads
+  // CHECK-SAME: ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = buffer_address, operand_index = 0>, <arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = tensor_accessor_args, operand_index = 0>, <arg_type = tensor_accessor_args, operand_index = 1>]>
+  // CHECK: %[[ARGS0:.*]] = ttkernel.TensorAccessorArgs(%{{.*}}, %{{.*}})
+  // CHECK-NEXT: %[[ARGS1:.*]] = ttkernel.TensorAccessorArgs(prev = %[[ARGS0]])
+  // CHECK: %[[SRC0:.*]] = ttkernel.get_common_arg_val
+  // CHECK: %[[SRC1:.*]] = ttkernel.get_common_arg_val
+  // CHECK: %[[LOCAL:.*]] = ttkernel.get_write_ptr
+  // CHECK: %[[TA0:.*]] = ttkernel.TensorAccessor(%[[ARGS0]], %[[SRC0]])
+  // CHECK: scf.for
+  // CHECK: scf.for
+  // CHECK: ttkernel.noc_async_read_tile({{.*}}, %[[TA0]], {{.*}})
+  // CHECK: %[[TA1:.*]] = ttkernel.TensorAccessor(%[[ARGS1]], %[[SRC1]])
+  // CHECK: ttkernel.noc_async_read_tile({{.*}}, %[[TA1]], {{.*}})
+  // FORCE-CTA-LABEL: func.func private @tensor_accessor_dma_reads
+  // FORCE-CTA-SAME: ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = buffer_address, operand_index = 0>, <arg_type = buffer_address, operand_index = 1>, <arg_type = tensor_accessor_args, operand_index = 0>, <arg_type = tensor_accessor_args, operand_index = 1>]
+  // FORCE-CTA: %[[C3:.*]] = arith.constant 3 : i32
+  // FORCE-CTA: %[[FARGS0:.*]] = ttkernel.TensorAccessorArgs(%[[C3]], %{{.*}})
+  // FORCE-CTA-NEXT: %[[FARGS1:.*]] = ttkernel.TensorAccessorArgs(prev = %[[FARGS0]])
+  func.func private @tensor_accessor_dma_reads() attributes {d2m.thread = #d2m.thread<datamovement>} {
+    %src0 = d2m.get_arg(0) resolution_stage = runtime : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #dram>
+    %src1 = d2m.get_arg(1) resolution_stage = runtime : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #dram>
+    %cb = d2m.get_cb(2) : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %local0 = d2m.reserve %cb : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+    %tx0 = d2m.dma_read %src0[%c0, %c1], %local0, <0> {tensorAccessorPageMap = #page_map} : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #dram>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<read>
+    d2m.dma_wait %tx0 : !d2m.mem_tx<read>
+    %local1 = d2m.reserve %cb : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+    %tx1 = d2m.dma_read %src1[%c0, %c1], %local1, <0> {tensorAccessorPageMap = #page_map} : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #dram>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<read>
+    d2m.dma_wait %tx1 : !d2m.mem_tx<read>
+    return
+  }
+
+  // CHECK-LABEL: func.func private @tensor_accessor_dma_write
+  // CHECK: %[[ARGS:.*]] = ttkernel.TensorAccessorArgs
+  // CHECK: %[[DST:.*]] = ttkernel.get_common_arg_val
+  // CHECK: %[[LOCAL:.*]] = ttkernel.get_read_ptr
+  // CHECK: %[[TA:.*]] = ttkernel.TensorAccessor(%[[ARGS]], %[[DST]])
+  // CHECK: ttkernel.noc_async_write_tile({{.*}}, %[[TA]], {{.*}})
+  // CHECK: ttkernel.noc_async_write_barrier
+  func.func private @tensor_accessor_dma_write() attributes {d2m.thread = #d2m.thread<datamovement>} {
+    %dst = d2m.get_arg(0) resolution_stage = runtime : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #dram>
+    %cb = d2m.get_cb(1) : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %local = d2m.wait %cb : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+    %tx = d2m.dma_write %local, %dst[%c0, %c1], <0> {tensorAccessorPageMap = #page_map} : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #dram>) -> !d2m.mem_tx<write>
     d2m.dma_wait %tx : !d2m.mem_tx<write>
     return
   }

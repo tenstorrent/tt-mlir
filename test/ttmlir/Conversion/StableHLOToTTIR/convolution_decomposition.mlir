@@ -74,4 +74,23 @@ module @test_convolution {
       } : (tensor<1x8x1x20xbf16>, tensor<8x1x1x4xbf16>) -> tensor<1x8x1x23xbf16>
     return %0 : tensor<1x8x1x23xbf16>
   }
+
+  // A genuine 2D pointwise (1x1) conv on a [N,C,1,1] tensor (both spatial dims
+  // size 1) must stay a conv2d and NOT be routed to conv1d. See
+  // https://github.com/tenstorrent/tt-mlir/issues/9076.
+  func.func @test_pointwise_2d_not_conv1d(%arg0: tensor<1x8x1x1xbf16>, %arg1: tensor<16x8x1x1xbf16>) -> tensor<1x16x1x1xbf16> {
+    // CHECK-LABEL: @test_pointwise_2d_not_conv1d
+    // CHECK: "ttir.conv2d"
+    // CHECK-NOT: "ttir.conv1d"
+    %0 = stablehlo.convolution(%arg0, %arg1)
+      dim_numbers = [b, f, 0, 1]x[o, i, 0, 1]->[b, f, 0, 1],
+      window = {
+        stride = [1, 1],
+        pad = [[0, 0], [0, 0]]
+      } {
+        feature_group_count = 1 : i64,
+        batch_group_count = 1 : i64
+      } : (tensor<1x8x1x1xbf16>, tensor<16x8x1x1xbf16>) -> tensor<1x16x1x1xbf16>
+    return %0 : tensor<1x16x1x1xbf16>
+  }
 }

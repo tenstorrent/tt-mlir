@@ -31,6 +31,7 @@
 
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
+#include <cmath>
 #include <cstdint>
 #include <numeric>
 #include <optional>
@@ -683,29 +684,9 @@ public:
   matchAndRewrite(ttir::UpdateCacheOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // The TTIR version of this op is pure. In TTNN this op is in-place.
-    // We need to replace uses of the result ot the TTIR op with uses
-    // of the cache argument.
-    //
-    // The presence of the MemWrite trait of this op should preserve
-    // the order of this op relative to the cache arguments uses, preserving
-    // program correctness.
-
-    // This op can only work if it is the final use of the cache tensor in the
-    // order of execution. For now, checking that there is only one user (this
-    // op) of the cache tensor will suffice.
-    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
-                                         op.getCache().getUsers().end());
-    if (users.size() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "UpdateCacheOp cache argument must have exactly one user");
-    }
-
-    rewriter.create<ttnn::UpdateCacheOp>(
-        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
-        adaptor.getUpdateIndex(), adaptor.getBatchOffset());
-
-    rewriter.replaceOp(op, adaptor.getCache());
+    rewriter.replaceOpWithNewOp<ttnn::UpdateCacheOp>(
+        op, adaptor.getCache(), adaptor.getInput(), adaptor.getUpdateIndex(),
+        adaptor.getBatchOffset());
     return success();
   }
 };
@@ -720,19 +701,9 @@ public:
   LogicalResult
   matchAndRewrite(ttir::PagedUpdateCacheOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
-                                         op.getCache().getUsers().end());
-    if (users.size() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "PagedUpdateCacheOp cache argument must have exactly one user");
-    }
-
-    rewriter.create<ttnn::PagedUpdateCacheOp>(
-        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
-        adaptor.getUpdateIndex(), adaptor.getShareCache(),
-        adaptor.getPageTable());
-
-    rewriter.replaceOp(op, adaptor.getCache());
+    rewriter.replaceOpWithNewOp<ttnn::PagedUpdateCacheOp>(
+        op, adaptor.getCache(), adaptor.getInput(), adaptor.getUpdateIndex(),
+        adaptor.getShareCache(), adaptor.getPageTable());
     return success();
   }
 };
@@ -763,18 +734,9 @@ public:
   LogicalResult
   matchAndRewrite(ttir::PagedFillCacheOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
-                                         op.getCache().getUsers().end());
-    if (users.size() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "PagedFillCacheOp cache argument must have exactly one user");
-    }
-
-    rewriter.create<ttnn::PagedFillCacheOp>(
-        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
-        adaptor.getPageTable(), adaptor.getBatchIdxTensor());
-
-    rewriter.replaceOp(op, adaptor.getCache());
+    rewriter.replaceOpWithNewOp<ttnn::PagedFillCacheOp>(
+        op, adaptor.getCache(), adaptor.getInput(), adaptor.getPageTable(),
+        adaptor.getBatchIdxTensor());
     return success();
   }
 };
@@ -825,29 +787,8 @@ public:
   matchAndRewrite(ttir::FillCacheOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // The TTIR version of this op is pure. In TTNN this op is in-place.
-    // We need to replace uses of the result ot the TTIR op with uses
-    // of the cache argument.
-    //
-    // The presence of the MemWrite trait of this op should preserve
-    // the order of this op relative to the cache arguments uses, preserving
-    // program correctness.
-
-    // This op can only work if it is the final use of the cache tensor in the
-    // order of execution. For now, checking that there is only one user (this
-    // op) of the cache tensor will suffice.
-    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
-                                         op.getCache().getUsers().end());
-    if (users.size() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "FillCacheOp must have exactly one user");
-    }
-
-    rewriter.create<ttnn::FillCacheOp>(op.getLoc(), adaptor.getCache(),
-                                       adaptor.getInput(),
-                                       adaptor.getBatchOffset());
-
-    rewriter.replaceOp(op, adaptor.getCache());
+    rewriter.replaceOpWithNewOp<ttnn::FillCacheOp>(
+        op, adaptor.getCache(), adaptor.getInput(), adaptor.getBatchOffset());
     return success();
   }
 };
@@ -1690,8 +1631,9 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::AllToAllDispatchMetadataOp>(
         op, dispatched3D, indices3D, scores3D, adaptor.getInputTensor(),
         adaptor.getExpertIndices(), adaptor.getExpertScores(), expertMapping,
-        op.getNumDevicesAttr(), op.getClusterAxisAttr(),
-        /*drain_core=*/nullptr);
+        /*dispatched_buffer=*/Value(), /*indices_buffer=*/Value(),
+        /*scores_buffer=*/Value(), /*cross_device_semaphore=*/Value(),
+        op.getNumDevicesAttr(), op.getClusterAxisAttr());
     return success();
   }
 };
@@ -3318,7 +3260,8 @@ public:
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
         adaptor.getIsCausal(), adaptor.getAttentionMask(),
         adaptor.getCurPosTensor(), adaptor.getAttentionSink(),
-        adaptor.getScaleAttr(), /*program_config=*/nullptr);
+        adaptor.getScaleAttr(), /*sliding_window_size=*/IntegerAttr(),
+        /*program_config=*/nullptr);
     return success();
   }
 };
@@ -3456,6 +3399,38 @@ private:
     return rewriter.create<ttnn::RepeatOp>(loc, broadcastType, mask, shapeAttr);
   }
 
+  // Pre-divide the attention sink by `scale` so the tt-metal kernel reproduces
+  // the faithful sink logit.
+  //
+  // Workaround for https://github.com/tenstorrent/tt-metal/issues/40470: the
+  // SDPA prefill and decode kernels apply `scale` inside the exp path to BOTH
+  // the QK scores and the attention sink (exp((sink - max) * scale)).
+  Value
+  compensateAttentionSinkForScale(ttir::ScaledDotProductAttentionOp op,
+                                  Value sink,
+                                  ConversionPatternRewriter &rewriter) const {
+    if (!sink) {
+      return sink;
+    }
+    // The effective scale must match what the kernel applies: the explicit
+    // scale attribute, else the default 1 / sqrt(head_dim).
+    auto queryType = mlir::cast<RankedTensorType>(op.getQuery().getType());
+    int64_t headDim = queryType.getShape().back();
+    float scale = op.getScaleAttr()
+                      ? static_cast<float>(op.getScaleAttr().getValueAsDouble())
+                      : 1.0f / std::sqrt(static_cast<float>(headDim));
+    // scale == 1 (or the degenerate 0) needs no compensation.
+    if (scale == 1.0f || scale == 0.0f) {
+      return sink;
+    }
+    auto sinkType = mlir::cast<RankedTensorType>(sink.getType());
+    Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    Value invScale = rewriter.create<ttnn::FullOp>(
+        op.getLoc(), sinkType, rewriter.getF32FloatAttr(1.0f / scale), device);
+    return rewriter.create<ttnn::MultiplyOp>(op.getLoc(), sinkType, sink,
+                                             invScale);
+  }
+
   // Lower to SDPA decode op. Operand layout transitions:
   //   Q:      [B, Hq, 1, D]      -> [1, B, Hq, D]  (permute {2,0,1,3})
   //   K, V:   [B, Hkv, Sk, D]    -> unchanged (TTIR generic and TTNN decode
@@ -3484,11 +3459,15 @@ private:
                                              op.getLoc());
     }
 
+    Value attentionSink = compensateAttentionSinkForScale(
+        op, adaptor.getAttentionSink(), rewriter);
+
     auto decodeOp = rewriter.create<ttnn::ScaledDotProductAttentionDecodeOp>(
         op.getLoc(), permutedQuery.getType(), permutedQuery, adaptor.getKey(),
         adaptor.getValue(), op.getIsCausal(), attentionMask,
-        /*cur_pos_tensor=*/Value(), /*attention_sink=*/Value(),
-        adaptor.getScaleAttr(),
+        /*cur_pos_tensor=*/Value(),
+        /*attention_sink=*/attentionSink, adaptor.getScaleAttr(),
+        adaptor.getSlidingWindowSizeAttr(),
         /*program_config=*/nullptr);
 
     // Permute result back: [1, B, H, D] -> [B, H, 1, D].
@@ -3526,11 +3505,14 @@ private:
       }
     }
 
+    Value attentionSink = compensateAttentionSinkForScale(
+        op, adaptor.getAttentionSink(), rewriter);
+
     rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(), mask,
         op.getIsCausal(), adaptor.getScaleAttr(),
-        adaptor.getSlidingWindowSizeAttr(), adaptor.getAttentionSink());
+        adaptor.getSlidingWindowSizeAttr(), attentionSink);
 
     return success();
   }
