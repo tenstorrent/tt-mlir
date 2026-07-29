@@ -47,6 +47,7 @@
 #include "operations/creation/full_with.h"
 #include "operations/data_movement/assign.h"
 #include "operations/data_movement/concat.h"
+#include "operations/data_movement/copy.h"
 #include "operations/data_movement/gather.h"
 #include "operations/data_movement/pad.h"
 #include "operations/data_movement/permute.h"
@@ -436,6 +437,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::WriteTensorOp: {
     return operations::data_movement::run(op->type_as_WriteTensorOp(),
                                           getContext());
+  }
+  case ::tt::target::ttnn::OpType::CopyOp: {
+    return operations::data_movement::run(op->type_as_CopyOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::PermuteOp: {
     return operations::data_movement::run(op->type_as_PermuteOp(),

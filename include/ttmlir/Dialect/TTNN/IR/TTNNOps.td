@@ -3578,6 +3578,23 @@ def TTNN_WriteTensorOp : TTNN_InplaceOp<"write_tensor", [OpModelExempt]> {
   let hasVerifier = 1;
 }
 
+def TTNN_CopyOp : TTNN_InplaceOp<"copy", [OpModelExempt]> {
+  let summary = "Device to device copy op.";
+  let description = [{
+    Copies `src` into the pre-allocated device tensor `dst`. Both tensors must be
+    on device and have identical types.
+
+    Inputs:
+      - `src` AnyRankedTensor: The device tensor to copy from.
+      - `dst` AnyRankedTensor: The pre-allocated device tensor to copy into.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$src,
+                       Arg<AnyRankedTensor, "destination tensor", [MemWrite]>:$dst);
+
+  let hasVerifier = 1;
+}
+
 def TTNN_BeginTraceCaptureOp : TTNN_MemoryEffectOp<"begin_trace_capture", [OpModelExempt]> {
   let summary = "Begin trace capture.";
   let description = [{
@@ -3644,10 +3661,23 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   let description = [{
     Captures or executes the trace. Will have read/write memory effects on the cached trace data.
     If the trace data exists (meaning the trace was captured previously), it will be executed with
-    the execute_callee function. Otherwise, the trace will be captured with the capture_callee function.
+    the execute_callee function. Otherwise, the trace is captured.
+
+    Capturing is split across two functions so that the persistent input/output slots are
+    allocated only once - on the very first capture - and reused for every recapture:
+      - `allocate_slots_callee` allocates the persistent device input/output slots. It runs
+        exactly once per trace.
+      - `capture_callee` takes those slots as arguments and captures the trace against them.
+
+    A cached trace that has gone stale is recaptured by invoking `capture_callee` again with the
+    same slots. Because the slots are never reallocated, a recapture leaves the device allocator
+    state untouched and therefore cannot invalidate any other cached trace. The initial capture and
+    every recapture run the identical program, so anything established by the first capture (compiled
+    programs, program cache entries) holds for every recapture by construction.
 
     Inputs:
       - `device` TTNN_Device: The device where the trace was captured.
+      - `allocate_slots_callee` FlatSymbolRefAttr: The symbol of the slot allocation function.
       - `capture_callee` FlatSymbolRefAttr: The symbol of the capture trace function.
       - `execute_callee` FlatSymbolRefAttr: The symbol of the execute trace function.
       - `inputs` Variadic<AnyRankedTensor>: The input tensors to the trace function.
@@ -3657,12 +3687,22 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   }];
 
   let arguments = (ins TTNN_Device:$device,
+                       FlatSymbolRefAttr:$allocate_slots_callee,
                        FlatSymbolRefAttr:$capture_callee,
                        FlatSymbolRefAttr:$execute_callee,
                        Variadic<AnyRankedTensor>:$inputs,
                        Variadic<TTNN_GlobalSemaphore>:$semaphore_inputs);
 
   let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let extraClassDeclaration = [{
+    // Partitions the trace input indices into device-resident inputs (already
+    // in device memory, acting as their own persistent slots) and host-staged
+    // inputs. The runtime makes the same split from the storage type recorded
+    // in the flatbuffer, so the two must agree.
+    std::pair<llvm::SmallVector<size_t>, llvm::SmallVector<size_t>>
+    partitionInputIndices();
+  }];
 
   let hasVerifier = 1;
 }
