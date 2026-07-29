@@ -164,6 +164,7 @@ union OpType {
   CreateGlobalSemaphoreOp,
   ResetGlobalSemaphoreOp,
   AllocateMoeComputeSemaphoreOp,
+  CopyOp,
 }
 
 table Operation {

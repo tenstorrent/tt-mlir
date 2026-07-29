@@ -1600,6 +1600,9 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   case ::tt::target::ttnn::OpType::UpdateCacheOp:
   case ::tt::target::ttnn::OpType::PagedUpdateCacheOp:
   case ::tt::target::ttnn::OpType::WriteTensorOp:
+  // ttnn.copy writes into a caller-provided destination and has no result of
+  // its own, so it contributes no output tensor refs.
+  case ::tt::target::ttnn::OpType::CopyOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
   case ::tt::target::ttnn::OpType::DeallocateOp:
   case ::tt::target::ttnn::OpType::EndTraceCaptureOp:
@@ -2206,6 +2209,11 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   case ::tt::target::ttnn::OpType::WriteTensorOp: {
     tensorRefs = {opContext.type_as_WriteTensorOp()->host_tensor(),
                   opContext.type_as_WriteTensorOp()->device_tensor()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CopyOp: {
+    tensorRefs = {opContext.type_as_CopyOp()->src(),
+                  opContext.type_as_CopyOp()->dst()};
     break;
   }
   case ::tt::target::ttnn::OpType::BeginTraceCaptureOp: {

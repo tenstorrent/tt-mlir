@@ -80,8 +80,11 @@ def test_trace_memory_overwrite_multi_graph(helper: Helper, request, trace_regio
 
     We handle this case in runtime by tracking all of the captures - whenever we have a new capture, we bump
     trace cache generation id. Then, when we want to replay a cached trace, we check the generation id of the cached trace
-    against the current generation id of the cache. In case of mismatch, we re-capture & re-cache the trace to ensure that
+    against the current generation id of the cache. In case of mismatch, we re-capture the trace to ensure that
     we won't overlap with any of the new allocations that happened since the last time we captured the trace.
+    The cache entry and its persistent input/output slots stay in place across a re-capture; only the
+    device-side trace is replaced. That is what keeps a re-capture from moving any buffer, and therefore
+    from invalidating the other graph's trace and triggering an endless re-capture cycle.
     """
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "matmul_multiply_consteval.mlir.tmp.ttnn"
@@ -93,7 +96,7 @@ def test_trace_memory_overwrite_multi_graph(helper: Helper, request, trace_regio
     first_bin_config = ProgramTestConfig(
         name="first_graph",
         expected_num_inputs=3,
-        compute_golden=None,
+        compute_golden=lambda inputs: ((inputs[0] @ inputs[1]) * inputs[2]),
         description="Graph whose trace replay can corrupt victim memory",
     )
     first_bin_runner = ProgramTestRunner(first_bin_config, helper.binary, 0)
@@ -118,7 +121,7 @@ def test_trace_memory_overwrite_multi_graph(helper: Helper, request, trace_regio
         # Execute & capture the first graph.
         (
             pressure_inputs,
-            _,
+            pressure_golden,
             _pressure_inputs_torch,
         ) = first_bin_runner.get_inputs_and_golden(device)
         first_bin_runner.run_program(device, pressure_inputs)
@@ -157,12 +160,91 @@ def test_trace_memory_overwrite_multi_graph(helper: Helper, request, trace_regio
                 device, victim_inputs, victim_golden
             )
 
-        # The first graph should have been recaptured once.
+        # The first graph should have been recaptured once, and exactly once: a
+        # recapture reuses its persistent slots, so it cannot invalidate the
+        # victim graph's trace and force it to be recaptured in turn.
         assert debug_stats.get_stat("TraceStaleRecapture") == 1
-        # We have two misses, one for the initial capture of the victim graph and one for the re-capture of the first graph.
-        assert debug_stats.get_stat("TraceCacheMiss") == 2
+        # Only one miss: the initial capture of the victim graph. A stale
+        # recapture is not a cache miss - the entry (and its slots) stay in the
+        # cache and only the device-side trace is replaced.
+        assert debug_stats.get_stat("TraceCacheMiss") == 1
         # We should hit the cache for both graphs each time we run the loop, except for the first recapture.
         assert debug_stats.get_stat("ExecutedTrace") == 2 * loop_count - 1
+
+    ttrt.runtime.DebugStats.get().clear()
+    helper.teardown()
+
+
+@pytest.mark.parametrize("trace_region_size", [0, 80000])
+def test_trace_recapture_uses_fresh_inputs(helper: Helper, request, trace_region_size):
+    """
+    Verifies that a re-capture consumes freshly supplied inputs and publishes its
+    output slots. The first graph's trace is made stale by capturing a second
+    graph (which bumps the trace cache generation), then the first graph is run
+    with inputs it has never seen: a re-capture that failed to refresh the input
+    slots, or failed to publish the output slots, would produce a stale result
+    and fail the golden check.
+    """
+    binary_path = os.path.join(
+        FLATBUFFER_BASE_PATH, "matmul_multiply_consteval.mlir.tmp.ttnn"
+    )
+    assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
+    helper.initialize(request.node.name, binary_path)
+    helper.check_constraints()
+
+    first_config = ProgramTestConfig(
+        name="first_graph",
+        expected_num_inputs=3,
+        compute_golden=lambda inputs: ((inputs[0] @ inputs[1]) * inputs[2]),
+        description="Graph whose stale trace gets re-captured",
+    )
+    first_runner = ProgramTestRunner(first_config, helper.binary, 0)
+
+    second_binary = Binary(Logger(), FileManager(Logger()), binary_path)
+    second_config = ProgramTestConfig(
+        name="second_graph",
+        expected_num_inputs=3,
+        compute_golden=lambda inputs: ((inputs[0] @ inputs[1]) * inputs[2]),
+        description="Graph whose capture makes the first graph's trace stale",
+    )
+    second_runner = ProgramTestRunner(second_config, second_binary, 0)
+
+    debug_stats = ttrt.runtime.DebugStats.get()
+
+    with DeviceContext(
+        mesh_shape=[1, 1],
+        enable_program_cache=True,
+        trace_region_size=trace_region_size,
+    ) as device:
+        # Capture the first graph's trace.
+        inputs, golden, _ = first_runner.get_inputs_and_golden(device)
+        first_runner.run_program_and_compare_golden(device, inputs, golden)
+
+        # Capture the second graph's trace; this bumps the cache generation and
+        # makes the first graph's trace stale.
+        (
+            second_inputs,
+            second_golden,
+            _second_inputs_torch,
+        ) = second_runner.get_inputs_and_golden(device)
+        second_runner.run_program_and_compare_golden(
+            device, second_inputs, second_golden
+        )
+
+        # Run the first graph with brand-new inputs. This takes the re-capture
+        # path, so the golden check fails unless the re-capture refreshed the
+        # input slots and published the output slots.
+        (
+            fresh_inputs,
+            fresh_golden,
+            _fresh_inputs_torch,
+        ) = first_runner.get_inputs_and_golden(device)
+        first_runner.run_program_and_compare_golden(device, fresh_inputs, fresh_golden)
+
+        assert debug_stats.get_stat("TraceStaleRecapture") == 1
+        # Two misses: the initial capture of each graph. The re-capture is not a
+        # miss - the entry and its slots stay in the cache.
+        assert debug_stats.get_stat("TraceCacheMiss") == 2
 
     ttrt.runtime.DebugStats.get().clear()
     helper.teardown()

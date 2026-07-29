@@ -8,7 +8,9 @@ module {
 
   // CHECK-LABEL: func.func private @run_and_capture_trace_0_matmul_with_multiply
   // CHECK: "ttnn.write_tensor"
-  // CHECK: "ttnn.deallocate"
+  // The capture function emits no copies and no deallocations of its own.
+  // CHECK-NOT: "ttnn.copy"
+  // CHECK-NOT: "ttnn.deallocate"
   // CHECK: "ttnn.begin_trace_capture"
   // CHECK: "ttnn.end_trace_capture"
   // CHECK: "ttnn.execute_trace"
@@ -19,7 +21,7 @@ module {
   // CHECK-LABEL: func.func @matmul_with_multiply(
   func.func @matmul_with_multiply(%arg0: tensor<64x32xbf16>, %arg1: tensor<32x64xbf16>, %arg2: tensor<64x64xbf16>) -> tensor<64x64xbf16> {
     // CHECK: %[[GET_DEVICE:.+]] = "ttnn.get_device"()
-    // CHECK-NEXT: %[[TRACE_RESULT:.+]] = "ttnn.capture_or_execute_trace"(%[[GET_DEVICE]], %arg0, %arg1, %arg2) <{capture_callee = @run_and_capture_trace_0_matmul_with_multiply, execute_callee = @execute_trace_0_matmul_with_multiply, operandSegmentSizes = array<i32: 1, 3, 0>}>
+    // CHECK-NEXT: %[[TRACE_RESULT:.+]] = "ttnn.capture_or_execute_trace"(%[[GET_DEVICE]], %arg0, %arg1, %arg2) <{allocate_slots_callee = @allocate_slots_trace_0_matmul_with_multiply, capture_callee = @run_and_capture_trace_0_matmul_with_multiply, execute_callee = @execute_trace_0_matmul_with_multiply, operandSegmentSizes = array<i32: 1, 3, 0>}>
     // CHECK-NOT: "ttnn.multiply"
     // CHECK-NOT: "ttnn.matmul"
     // CHECK: return %[[TRACE_RESULT]]

@@ -133,3 +133,8 @@ table WriteTensorOp {
   blocking: bool;
   cq_id: uint32;
 }
+
+table CopyOp {
+  src: tt.target.ttnn.TensorRef;
+  dst: tt.target.ttnn.TensorRef;
+}

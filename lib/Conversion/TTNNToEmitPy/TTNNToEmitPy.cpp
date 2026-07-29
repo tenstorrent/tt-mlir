@@ -5038,6 +5038,40 @@ public:
 };
 } // namespace
 
+// CopyOp conversion pattern
+//
+namespace {
+class CopyOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::CopyOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return mlir::tt::ttnn::CopyOp::getOperationName().str();
+  }
+  std::string getPrefixSwapPattern() const override { return "ttnn.copy"; }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::CopyOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::CopyOp copyOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::CopyOp> emitter(
+        copyOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(copyOp.getSrc()),
+        emitter.emit(copyOp.getDst()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // BeginTraceCaptureOp conversion pattern
 //
 namespace {
@@ -5286,28 +5320,35 @@ public:
           loc, rewriter.getStringAttr(firstCallGlobalName),
           falseVal.getResult());
 
-      // result = capture_callee(input_0_arg, ..., input_n_arg)
+      // Slot allocation and capture are separate programs: allocation runs once
+      // and yields the persistent slots, then capture is invoked against them.
+      // Standalone code has no trace cache, so it only ever captures once, but
+      // it follows the same two-step shape as the runtime.
+      //
+      // slots = allocate_slots_callee(device-resident args...)
+      auto [deviceResidentIndices, hostStagedIndices] =
+          captureOrExecuteOp.partitionInputIndices();
+      llvm::SmallVector<mlir::Value> deviceResidentArgs;
+      llvm::SmallVector<mlir::Value> hostStagedArgs;
+      for (size_t i : deviceResidentIndices) {
+        deviceResidentArgs.push_back(block->getArgument(i));
+      }
+      for (size_t i : hostStagedIndices) {
+        hostStagedArgs.push_back(block->getArgument(i));
+      }
+
       auto tensorListType = emitpy::OpaqueType::get(ctx, "[ttnn.Tensor]");
-      auto captureResult = rewriter.create<emitpy::CallOpaqueOp>(
-          loc, tensorListType, captureOrExecuteOp.getCaptureCallee().str(),
-          block->getArguments());
+      auto slotsResult = rewriter.create<emitpy::CallOpaqueOp>(
+          loc, tensorListType,
+          captureOrExecuteOp.getAllocateSlotsCallee().str(),
+          deviceResidentArgs);
 
-      // trace_id = result[0]
-      auto idx0 =
-          rewriter.create<emitpy::LiteralOp>(loc, rewriter.getIndexType(), "0");
-      auto traceIdVal = rewriter.create<emitpy::SubscriptOp>(
-          loc, intType, captureResult.getResult(0), idx0.getResult());
-      rewriter.create<emitpy::AssignGlobalOp>(
-          loc, rewriter.getStringAttr(traceIdGlobalName),
-          traceIdVal.getResult());
-
-      // input_i = result[1 + i]
-      const size_t inputBaseIndex = 1;
+      // input_i = slots[i]
       for (size_t i = 0; i < inputGlobals.size(); ++i) {
         auto idx = rewriter.create<emitpy::LiteralOp>(
-            loc, rewriter.getIndexType(), std::to_string(inputBaseIndex + i));
+            loc, rewriter.getIndexType(), std::to_string(i));
         auto inputVal = rewriter.create<emitpy::SubscriptOp>(
-            loc, inputTypes[i], captureResult.getResult(0), idx.getResult());
+            loc, inputTypes[i], slotsResult.getResult(0), idx.getResult());
         rewriter.create<emitpy::AssignGlobalOp>(
             loc,
             rewriter.getStringAttr(inputGlobalPrefix + std::to_string(i) +
@@ -5315,19 +5356,32 @@ public:
             inputVal.getResult());
       }
 
-      // output_i = result[1 + numInputs + i]
-      const size_t outputBaseIndex = inputBaseIndex + inputGlobals.size();
+      // output_i = slots[numInputs + i]
+      const size_t outputBaseIndex = inputGlobals.size();
       for (size_t i = 0; i < outputGlobals.size(); ++i) {
         auto idx = rewriter.create<emitpy::LiteralOp>(
             loc, rewriter.getIndexType(), std::to_string(outputBaseIndex + i));
         auto outputVal = rewriter.create<emitpy::SubscriptOp>(
-            loc, resultTypes[i], captureResult.getResult(0), idx.getResult());
+            loc, resultTypes[i], slotsResult.getResult(0), idx.getResult());
         rewriter.create<emitpy::AssignGlobalOp>(
             loc,
             rewriter.getStringAttr(outputGlobalPrefix + std::to_string(i) +
                                    traceNameSuffix),
             outputVal.getResult());
       }
+
+      // trace_id = capture_callee(host-staged args..., slots...)
+      // The global references are already in scope, and reading them after the
+      // assignments above yields the freshly allocated slots.
+      llvm::SmallVector<mlir::Value> captureArgs(hostStagedArgs);
+      llvm::append_range(captureArgs, inputRefs);
+      llvm::append_range(captureArgs, outputRefs);
+      auto captureResult = rewriter.create<emitpy::CallOpaqueOp>(
+          loc, intType, captureOrExecuteOp.getCaptureCallee().str(),
+          captureArgs);
+      rewriter.create<emitpy::AssignGlobalOp>(
+          loc, rewriter.getStringAttr(traceIdGlobalName),
+          captureResult.getResult(0));
     }
 
     // ELSE block: execute path.
@@ -5662,6 +5716,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Trace ops
   //
   patterns.add<WriteTensorOpConversionPattern>(typeConverter, ctx);
+  patterns.add<CopyOpConversionPattern>(typeConverter, ctx);
   patterns.add<BeginTraceCaptureOpConversionPattern>(typeConverter, ctx);
   patterns.add<EndTraceCaptureOpConversionPattern>(typeConverter, ctx);
   patterns.add<ExecuteTraceOpConversionPattern>(typeConverter, ctx);
