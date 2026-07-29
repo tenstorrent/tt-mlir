@@ -9,8 +9,8 @@ func.func @update_cache_permute_and_repeat(%cache: tensor<4x8x64x128xbf16>, %inp
   // CHECK: "ttnn.permute"{{.*}}permutation = array<i64: 0, 2, 1, 3>
   // CHECK: "ttnn.repeat"{{.*}}repeat_dims = #ttnn.shape<4>
   // CHECK: "ttnn.paged_update_cache"
-  %0 = "ttir.update_cache"(%cache, %input, %update_index) <{batch_offset = 0 : i32}> : (tensor<4x8x64x128xbf16>, tensor<1x8x4x128xbf16>, tensor<1xi32>) -> tensor<4x8x64x128xbf16>
-  return %0 : tensor<4x8x64x128xbf16>
+  "ttir.update_cache"(%cache, %input, %update_index) <{batch_offset = 0 : i32}> : (tensor<4x8x64x128xbf16>, tensor<1x8x4x128xbf16>, tensor<1xi32>) -> ()
+  return %cache : tensor<4x8x64x128xbf16>
 }
 
 // -----
@@ -22,8 +22,8 @@ func.func @update_cache_permute_only(%cache: tensor<4x8x64x128xbf16>, %input: te
   // CHECK: "ttnn.permute"{{.*}}permutation = array<i64: 0, 2, 1, 3>
   // CHECK-NOT: "ttnn.repeat"
   // CHECK: "ttnn.paged_update_cache"
-  %0 = "ttir.update_cache"(%cache, %input, %update_index) <{batch_offset = 0 : i32}> : (tensor<4x8x64x128xbf16>, tensor<1x8x4x128xbf16>, tensor<4xi32>) -> tensor<4x8x64x128xbf16>
-  return %0 : tensor<4x8x64x128xbf16>
+  "ttir.update_cache"(%cache, %input, %update_index) <{batch_offset = 0 : i32}> : (tensor<4x8x64x128xbf16>, tensor<1x8x4x128xbf16>, tensor<4xi32>) -> ()
+  return %cache : tensor<4x8x64x128xbf16>
 }
 
 // -----
@@ -35,6 +35,6 @@ func.func @update_cache_scalar_index(%cache: tensor<4x8x64x128xbf16>, %input: te
   // CHECK: "ttnn.reshape"{{.*}}shape = [1 : i32]
   // CHECK: "ttnn.repeat"{{.*}}repeat_dims = #ttnn.shape<4>
   // CHECK: "ttnn.paged_update_cache"
-  %0 = "ttir.update_cache"(%cache, %input, %update_index) <{batch_offset = 0 : i32}> : (tensor<4x8x64x128xbf16>, tensor<1x8x4x128xbf16>, tensor<i32>) -> tensor<4x8x64x128xbf16>
-  return %0 : tensor<4x8x64x128xbf16>
+  "ttir.update_cache"(%cache, %input, %update_index) <{batch_offset = 0 : i32}> : (tensor<4x8x64x128xbf16>, tensor<1x8x4x128xbf16>, tensor<i32>) -> ()
+  return %cache : tensor<4x8x64x128xbf16>
 }

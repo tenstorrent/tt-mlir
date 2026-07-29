@@ -52,7 +52,9 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         pytest.param(
             (32, 128 * 500),
             [1, 0],
-            marks=pytest.mark.skip_config(["n150", "sim"]),
+            marks=pytest.mark.xfail_config(
+                ["n150", "sim"], reason="ttsim WH grid is 9×8", strict=True
+            ),
         ),
         pytest.param(
             (32, 128 * 501),
@@ -372,8 +374,8 @@ def shapes_to_id(shapes) -> str:
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
-        torch.int64 | SkipIf("sim"),
+        torch.int32 | SkipIf(["n150", "sim"]),
+        torch.int64 | SkipIf(["n150", "sim"]),
         torch.bool,
     ],
     ids=["f32", "bf16", "i32", "i64", "i1"],
@@ -722,13 +724,18 @@ def test_uncollapsed_tensors(
 
     pipeline_options = f"{{collapse-tensors-2d={str(collapse_tensors).lower()}}}"
     pipeline = f"ttir-to-ttmetal-pipeline{pipeline_options}"
+    request_kwargs = get_request_kwargs(request)
+    request_kwargs["test_base"] = (
+        f"{request.node.name}_{test_name}_"
+        f"{'collapsed' if collapse_tensors else 'non_collapsed'}"
+    )
 
     compile_and_execute_ttir(
         test_func,
         target=target,
         custom_pipeline=pipeline,
-        test_base=f"{request.node.name}_{test_name}_{'collapsed' if collapse_tensors else 'non_collapsed'}",
         device=device,
+        **request_kwargs,
     )
 
 
@@ -812,6 +819,7 @@ def test_rearrange(
 # Data-movement op mirrors (concat/slice/transpose/typecast/pad,
 # previously test_data_movement.py).
 # ============================================================
+
 
 # Concat tests
 @pytest.mark.parametrize(
@@ -943,7 +951,7 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     )
 
 
-# Skipping WH sim due to issue https://github.com/tenstorrent/ttsim-private/issues/291
+# Skipping i32 WH sim due to issue https://github.com/tenstorrent/ttsim-private/issues/291
 @pytest.mark.parametrize(
     "shape,repeat_dims",
     [
@@ -957,9 +965,15 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     ],
 )
 @pytest.mark.parametrize(
-    "dtype", [torch.float32, torch.int32, torch.bfloat16], ids=["f32", "i32", "bf16"]
+    "dtype",
+    [
+        torch.float32,
+        torch.int32 | SkipIf(["n150", "sim"]),
+        torch.bfloat16,
+    ],
+    ids=["f32", "i32", "bf16"],
 )
-@pytest.mark.parametrize("target", ["ttmetal" | SkipIf(["n150", "sim"])])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_repeat(shape: Shape, repeat_dims: List[int], dtype, target, request, device):
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
