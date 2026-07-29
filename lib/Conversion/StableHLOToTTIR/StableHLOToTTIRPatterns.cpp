@@ -7138,9 +7138,10 @@ private:
                                   static_cast<int64_t>(updateWindowDims.size());
     if (!multiDimensionalScatter && indexBatchRank > nonWindowUpdateRank) {
       return rewriter.notifyMatchFailure(
-          op, "TTIR single-dimensional scatter requires the index scatter-batch "
-              "rank (index rank excluding index_vector_dim) to not exceed the "
-              "update non-window rank.");
+          op,
+          "TTIR single-dimensional scatter requires the index scatter-batch "
+          "rank (index rank excluding index_vector_dim) to not exceed the "
+          "update non-window rank.");
     }
 
     if (!multiDimensionalScatter && indexVectorDim != 1u) {
