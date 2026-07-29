@@ -8524,18 +8524,23 @@ def ttir_paged_sdpa_decode_golden(
     )
 
 
-def ttir_chunked_scaled_dot_product_attention_golden(
+def chunked_scaled_dot_product_attention_golden(
     query: GoldenMapTensor,
     key: GoldenMapTensor,
     value: GoldenMapTensor,
     page_table: GoldenMapTensor,
     chunk_start_idx: GoldenMapTensor,
-    output: GoldenMapTensor,
-    scale_attr: Optional[FloatAttr] = None,
-    output_type_mlir: Optional[Type] = None,
+    scale: Optional[float] = None,
 ) -> GoldenMapTensor:
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    scale_val = unpack_mlir_attr(scale_attr) if scale_attr is not None else None
+    """
+    Golden for the tt.chunked_scaled_dot_product_attention custom_call.
+
+    A prefill chunk of `query` ([B, H, chunk_len, D]) attends causally over the
+    prefix tokens [0, chunk_start_idx + chunk_len) resident in the paged K/V
+    cache (read via `page_table`). `chunk_start_idx` ([1] int32) is the runtime
+    prefix offset.
+    """
+    output_dtype = query.dtype
 
     query_t = _gmt_leaf_torch(query)
     key_t = _gmt_leaf_torch(key)
@@ -8584,7 +8589,7 @@ def ttir_chunked_scaled_dot_product_attention_golden(
     )
 
     out = torch.nn.functional.scaled_dot_product_attention(
-        q, k_unpaged, v_unpaged, attn_mask=attn_mask, scale=scale_val, is_causal=False
+        q, k_unpaged, v_unpaged, attn_mask=attn_mask, scale=scale, is_causal=False
     )
 
     # Output mirrors query shape [B, H, S, D].
@@ -8890,7 +8895,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Attention operations
     ttir.PagedFlashMultiLatentAttentionDecodeOp: ttir_paged_flash_multi_latent_attention_decode_golden,
     ttir.PagedScaledDotProductAttentionDecodeOp: ttir_paged_sdpa_decode_golden,
-    ttir.ChunkedScaledDotProductAttentionOp: ttir_chunked_scaled_dot_product_attention_golden,
+    # chunked_scaled_dot_product_attention is a ttcore.composite (built from the
+    # StableHLO custom_call); its golden is registered in
+    # STABLEHLO_CUSTOM_CALL_GOLDEN_MAPPINGS, not here (issue #8843).
     ttir.SamplingOp: ttir_sampling_golden,
     # ----- D2M OPS -----
     # D2M Layout operations (identity functions)
@@ -9082,6 +9089,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
 # StableHLO custom_call goldens
 STABLEHLO_CUSTOM_CALL_GOLDEN_MAPPINGS: Dict[str, Callable] = {
     "tt.flash_mla_prefill": flash_mla_prefill_golden,
+    "tt.chunked_scaled_dot_product_attention": chunked_scaled_dot_product_attention_golden,
 }
 
 

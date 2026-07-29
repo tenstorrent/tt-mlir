@@ -208,6 +208,58 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
       ->getResult(0);
 }
 
+// Returns true when the given operand of `op` must be in ROW_MAJOR layout
+// because the backing tt-metal kernel reads it as a raw (row-major) index /
+// page-table tensor.
+//
+// This is a permanent kernel ABI, not a temporary workaround: the paged-cache
+// kernels (chunked-prefill SDPA and paged SDPA decode) consume `page_table`,
+// `chunk_start_idx`, and `cur_pos_tensor` as row-major index tensors. The
+// coercion used to live in TTNNWorkaroundsPass (see issue #8842); it now lives
+// here in TTNNLayout so the constraint is expressed at layout-assignment time.
+//
+// Matching is done op-specifically (mirroring the Conv3dOp / MeshShardOp
+// precedents in this file) so that it fires regardless of whether the
+// producing function argument is marked `ttcore.argument_type<input>`.
+//
+// At TTNNLayout time the chunked-prefill op is still a
+// `ttcore.composite "chunked_scaled_dot_product_attention"`
+// (TTNNResolveComposites runs later), so it is matched by composite name with
+// fixed operand indices (3 = page_table, 4 = chunk_start_idx). The paged SDPA
+// decode op is a real ttir op with AttrSizedOperandSegments, so its row-major
+// operands are matched by value identity against the named accessors.
+//
+// Note on embedding: the embedding index also needs ROW_MAJOR, but the
+// embedding workaround couples that with an Int32 dtype coercion (a genuine
+// workaround). That combined coercion is intentionally left in the workaround
+// factory rather than split across two passes.
+static bool operandRequiresRowMajor(Operation *op, OpOperand &operand) {
+  if (auto compositeOp = mlir::dyn_cast<ttcore::CompositeOp>(op)) {
+    if (compositeOp.getCompositeName() ==
+        "chunked_scaled_dot_product_attention") {
+      unsigned idx = operand.getOperandNumber();
+      // 3 = page_table, 4 = chunk_start_idx.
+      return idx == 3 || idx == 4;
+    }
+    return false;
+  }
+
+  if (auto pagedDecodeOp =
+          mlir::dyn_cast<ttir::PagedScaledDotProductAttentionDecodeOp>(op)) {
+    Value v = operand.get();
+    if (v == pagedDecodeOp.getPageTable()) {
+      return true;
+    }
+    if (pagedDecodeOp.getCurPosTensor() &&
+        v == pagedDecodeOp.getCurPosTensor()) {
+      return true;
+    }
+    return false;
+  }
+
+  return false;
+}
+
 // Updates the layout of the operands of a TTIR ops which have DPS operands.
 // This function rewrites the operands and result to have the correct layout
 // with respect to operand constraints.
@@ -239,10 +291,13 @@ public:
       Location newLoc =
           appendInputSuffix(op->getLoc(), operand.getOperandNumber());
 
+      // Index / page-table operands of paged-cache kernels must stay ROW_MAJOR
+      // (permanent kernel ABI, see operandRequiresRowMajor / issue #8842).
+      bool tiled = !operandRequiresRowMajor(op, operand);
+
       // Given the operand constraint, create the desired layout for the operand
       std::optional<Value> desiredLayout = createToLayoutOp(
-          rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
-          /*tiled=*/true);
+          rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice, tiled);
 
       // If layout changed update the operand
       if (desiredLayout) {
@@ -413,10 +468,53 @@ public:
     // differs from the decomposition function's parameter layout. This can
     // happen when e.g. a main-function `input`-typed argument is forced to
     // row-major while the decomp function's internal ops prefer tiled layout.
-    for (auto [idx, input] : llvm::enumerate(compositeOp.getInputs())) {
+    for (OpOperand &opOperand : compositeOp->getOpOperands()) {
+      unsigned idx = opOperand.getOperandNumber();
       if (idx >= funcOp.getNumArguments()) {
         break;
       }
+      Value input = opOperand.get();
+      Location newLoc = appendInputSuffix(compositeOp->getLoc(), idx);
+
+      // Some composite operands feed a paged-cache kernel that reads them as
+      // raw ROW_MAJOR index / page-table tensors (permanent kernel ABI; see
+      // operandRequiresRowMajor / issue #8842). The composite is promoted to
+      // the typed ttnn op by TTNNResolveComposites whose build path consumes
+      // these operands directly, so force them ROW_MAJOR here and skip the
+      // generic decomp-arg layout sync (which would otherwise tilize them and
+      // oscillate against this forcing).
+      if (operandRequiresRowMajor(compositeOp, opOperand)) {
+        std::optional<Value> rowMajorLayout = createToLayoutOp(
+            rewriter, newLoc, input, g_defaultMemorySpaceDevice,
+            /*tiled=*/false);
+        if (rowMajorLayout) {
+          compositeOp->setOperand(idx, *rowMajorLayout);
+          modified = true;
+        }
+        // The ttcore.composite verifier requires each input type to match the
+        // decomposition function's parameter type. The generic sync below
+        // pushes operand -> param, but here the operand's ROW_MAJOR layout is a
+        // hard kernel-ABI constraint, so sync the other way: force the
+        // decomposition parameter (and block argument) to the row-major operand
+        // type. Safe for the lean decomposition, whose body never consumes
+        // page_table / chunk_start_idx. Each composite has its own uniquely
+        // named decomposition function, so this cannot collide.
+        Type rowMajorType = compositeOp->getOperand(idx).getType();
+        if (funcOp.getArgumentTypes()[idx] != rowMajorType) {
+          SmallVector<Type> argTypes(funcOp.getArgumentTypes());
+          argTypes[idx] = rowMajorType;
+          rewriter.modifyOpInPlace(funcOp, [&] {
+            funcOp.setFunctionType(
+                rewriter.getFunctionType(argTypes, funcOp.getResultTypes()));
+            if (!funcOp.getBody().empty()) {
+              funcOp.getArgument(idx).setType(rowMajorType);
+            }
+          });
+          modified = true;
+        }
+        continue;
+      }
+
       auto funcArgType =
           mlir::cast<RankedTensorType>(funcOp.getArgumentTypes()[idx]);
       if (input.getType() == funcArgType) {
@@ -427,7 +525,6 @@ public:
       if (!funcArgLayout) {
         continue;
       }
-      Location newLoc = appendInputSuffix(compositeOp->getLoc(), idx);
       std::optional<Value> desiredLayout = createToLayoutOp(
           rewriter, newLoc, input, funcArgLayout.getBufferType(),
           mlir::isa<ttcore::TileType>(funcArgLayout.getElementType()));

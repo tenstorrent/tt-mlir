@@ -3921,11 +3921,9 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
 
   let results = (outs AnyRankedTensor:$result);
 
-  let extraClassDeclaration = [{
-    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-      return wa::TTNNOperandsWorkaroundsFactory::createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(getOperation());
-    }
-  }];
+  // page_table / cur_pos_tensor are forced to ROW_MAJOR (a permanent tt-metal
+  // kernel ABI, not a workaround) in TTNNLayout, so this op carries no operands
+  // workarounds.
 
   let hasVerifier = 1;
 }
@@ -3954,11 +3952,9 @@ def TTNN_ChunkedScaledDotProductAttentionOp : TTNN_Op<"chunked_scaled_dot_produc
 
   let results = (outs AnyRankedTensor:$result);
 
-  let extraClassDeclaration = [{
-    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-      return wa::TTNNOperandsWorkaroundsFactory::createChunkedScaledDotProductAttentionOpOperandsWorkarounds(getOperation());
-    }
-  }];
+  // page_table / chunk_start_idx are forced to ROW_MAJOR (a permanent tt-metal
+  // kernel ABI, not a workaround) in TTNNLayout, so this op carries no operands
+  // workarounds.
 
   let hasVerifier = 1;
 }
