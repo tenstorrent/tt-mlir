@@ -4,6 +4,9 @@
 
 #include "operations/trace/capture_or_execute_trace.h"
 #include "tt/runtime/detail/common/logger.h"
+
+#include <cstdio>
+#include <cstdlib>
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
@@ -245,8 +248,34 @@ void run(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
               "), invalidating and recapturing");
 
     // Remove the stale trace from the cache and recapture it.
+    //
+    // Debug logging below is a raw stderr write, deliberately bypassing the
+    // LOG_INFO level gate: enabling info-level runtime logging to see these
+    // lines would also unmask the very verbose per-op prints that are known
+    // to perturb/mask this race's timing window (see
+    // FALCON3_SINGLE_LAYER_HANG_DEBUG.md "Important confound").
+    const bool traceAllocDebug =
+        std::getenv("TT_RUNTIME_TRACE_ALLOC_DEBUG") != nullptr;
+    if (traceAllocDebug) {
+      // Snapshot before erase(): traceData is a pointer into the cache map
+      // and is invalidated by erase().
+      fprintf(stderr,
+              "[TRACE_ALLOC_DEBUG] EVICT_TRACE traceId=%u genAtCapture=%llu genNow=%llu\n",
+              *traceData->traceId,
+              static_cast<unsigned long long>(traceData->generationId),
+              static_cast<unsigned long long>(traceCache->getGenerationId()));
+    }
     traceCache->erase(mainProgramKey, captureExecuteKey);
     runTraceProgramAndCaptureTrace(op, context, *traceCache);
+    if (traceAllocDebug) {
+      fprintf(stderr,
+              "[TRACE_ALLOC_DEBUG] RECAPTURE_DONE binaryId=%llu mainProgramId=%zu "
+              "captureProgramId=%zu executeProgramId=%zu\n",
+              static_cast<unsigned long long>(mainProgramKey.binaryId),
+              mainProgramKey.mainProgramId,
+              captureExecuteKey.captureProgramId,
+              captureExecuteKey.executeProgramId);
+    }
 
     debug::Stats::get().incrementStat("TraceCacheMiss");
     debug::Stats::get().incrementStat("TraceStaleRecapture");
