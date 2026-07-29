@@ -447,6 +447,36 @@ static LogicalResult insertCBOpsForCompute(
     }
 
     auto [first, last] = bracket(sync, anchorBlock);
+
+    // When this CB is also produced in the same compute region, hoisted
+    // CB-view ops (collapse_shape / subview) that feed the consumer can sit
+    // above the producer. Letting them set `first` places wait before that
+    // producer's reserve and deadlocks single-page CBs. Prefer the earliest
+    // real consumer access as the wait point instead.
+    const bool alsoProduced = producers.count(cb) != 0;
+    if (alsoProduced) {
+      SmallVector<Operation *> accessBoundary;
+      for (Operation *anchor : sync.anchors) {
+        if (Operation *a = anchorBlock->findAncestorOpInBlock(*anchor)) {
+          accessBoundary.push_back(a);
+        }
+        if (isa<memref::LoadOp>(anchor)) {
+          for (Operation *user : anchor->getUsers()) {
+            if (Operation *u = anchorBlock->findAncestorOpInBlock(*user)) {
+              accessBoundary.push_back(u);
+            }
+          }
+        }
+      }
+      if (!accessBoundary.empty()) {
+        llvm::sort(accessBoundary, byProgramOrder);
+        first = accessBoundary.front();
+        if (byProgramOrder(last, accessBoundary.back())) {
+          last = accessBoundary.back();
+        }
+      }
+    }
+
     rewriter.setInsertionPoint(first);
     auto cbHandle =
         d2m::getOrCreateCB(rewriter, generic, computeBlock, cbOperandIdx);
@@ -460,7 +490,60 @@ static LogicalResult insertCBOpsForCompute(
     rewriter.setInsertionPointAfter(last);
     rewriter.create<PopOp>(last->getLoc(), cbHandle);
 
+    auto isBeforeWait = [&](Operation *op) -> bool {
+      if (op->getBlock() == waitOp->getBlock()) {
+        return op->isBeforeInBlock(waitOp);
+      }
+      if (Operation *anc = waitOp->getBlock()->findAncestorOpInBlock(*op)) {
+        return anc->isBeforeInBlock(waitOp);
+      }
+      if (Operation *anc = op->getBlock()->findAncestorOpInBlock(*waitOp)) {
+        return op->isBeforeInBlock(anc);
+      }
+      return false;
+    };
+
     for (OpOperand *use : sync.uses) {
+      Operation *owner = use->getOwner();
+
+      // Hoisted views shared by a same-CB producer (early stores) and this
+      // consumer (late loads) must not be moved: moving them past the
+      // producer stores breaks dominance. Clone a post-wait view for the
+      // late users instead and leave the original for the producer.
+      if (alsoProduced && isBeforeWait(owner) &&
+          isa<memref::CollapseShapeOp, memref::SubViewOp, memref::CastOp>(
+              owner) &&
+          owner->getNumResults() == 1) {
+        Value viewResult = owner->getResult(0);
+        SmallVector<OpOperand *> lateUsers;
+        bool hasEarlyUser = false;
+        for (OpOperand &userOp : viewResult.getUses()) {
+          if (isBeforeWait(userOp.getOwner())) {
+            hasEarlyUser = true;
+          } else {
+            lateUsers.push_back(&userOp);
+          }
+        }
+        if (hasEarlyUser && !lateUsers.empty()) {
+          rewriter.setInsertionPointAfter(waitOp);
+          Operation *cloned = rewriter.clone(*owner);
+          cloned->setOperand(0, waitOp.getResult());
+          Value clonedResult = cloned->getResult(0);
+          for (OpOperand *lateUse : lateUsers) {
+            lateUse->set(clonedResult);
+          }
+          // Leave the original view's CB operand for the producer rewrite.
+          continue;
+        }
+        if (!hasEarlyUser) {
+          owner->moveAfter(waitOp);
+          use->set(waitOp.getResult());
+          continue;
+        }
+        // View only feeds the producer; nothing to rewrite for the consumer.
+        continue;
+      }
+
       use->set(waitOp.getResult());
     }
   }

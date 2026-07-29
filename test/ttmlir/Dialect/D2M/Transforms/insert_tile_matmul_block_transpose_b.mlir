@@ -4,6 +4,9 @@
 // Verify that D2MInsertTileMatmulBlock infers transpose_b from the transposed
 // B affine indexing pattern and sets it on the lowered `d2m.tile_matmul_block`.
 // The block-level RHS shape here is (N=2, K=3) instead of the usual (K, N).
+// acquire_dst and the DST->L1 store must survive (matmul_block writes DST;
+// the store packs to L1). L1->DST reloads must not (they cause CB wait
+// deadlocks in InsertComputeCB).
 
 #l1_ = #ttcore.memory_space<l1>
 module {
@@ -24,8 +27,7 @@ module {
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<2x3x!ttcore.tile<32x32, f16>, #l1_>> -> memref<2x3x!ttcore.tile<32x32, f16>, #l1_>
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<3x2x!ttcore.tile<32x32, f16>, #l1_>> -> memref<3x2x!ttcore.tile<32x32, f16>, #l1_>
 
-      // The compute loop below is replaced by a single `d2m.tile_matmul_block`
-      // that carries `transpose_b = true`.
+      // CHECK: d2m.acquire_dst
       // CHECK: "d2m.tile_matmul_block"(%[[A:.*]], %[[B:.*]], %[[OUT:.*]]) {{<\{transpose_b = true\}>}}
       // CHECK-NOT: "d2m.tile_matmul"
       // CHECK-NOT: transpose_b = false
