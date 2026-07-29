@@ -8,9 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/Block.h"
 
@@ -101,25 +99,6 @@ static bool isAffineStoreFromDstToL1(affine::AffineStoreOp storeOp,
   return loadOp.getMemRef() == dstValue;
 }
 
-// True if `op` (transitively) stores an L1-loaded tile into `dstValue`.
-static bool opLoadsL1IntoDst(Operation *op, Value dstValue) {
-  bool found = false;
-  op->walk([&](affine::AffineStoreOp storeOp) {
-    if (storeOp.getMemRef() != dstValue) {
-      return WalkResult::advance();
-    }
-    auto loadOp =
-        storeOp.getValueToStore().getDefiningOp<affine::AffineLoadOp>();
-    if (!loadOp || ttcore::getMemorySpace(loadOp.getMemRef()) !=
-                       ttcore::MemorySpace::DeviceL1) {
-      return WalkResult::advance();
-    }
-    found = true;
-    return WalkResult::interrupt();
-  });
-  return found;
-}
-
 // Find the output C memref: scan siblings after the compute loop for a nest
 // that performs DST -> L1 (stored value must be defined by affine.load from
 // dstValue, store target must be L1).
@@ -141,42 +120,6 @@ static Value findOutputMemrefFromStoreCopyLoop(Operation *computeLoop,
     }
   }
   return nullptr;
-}
-
-// Erase only the L1->DST reload scaffolding that InsertDstRegisterAccess left
-// before the former tile_matmul nest. Those loads make InsertComputeCB emit a
-// consumer wait on the output CB before any producer push, which deadlocks
-// single-page CBs.
-//
-// Keep acquire_dst and the DST->L1 store copy: tile_matmul_block accumulates
-// into DST and the store is what lowers to pack_tile into the output CB.
-static void eraseDstReloadScaffolding(Operation *matmulBlockOp,
-                                      Value dstValue) {
-  SmallVector<Operation *> toErase;
-
-  // Erase L1->DST reload scaffolding immediately before the matmul block.
-  // Keep SetL1AccumulateOps (packer L1-acc guards for multi-K). Skip past
-  // cmpi/constants that guard a reload `scf.if`; canonicalize removes them.
-  for (Operation *op = matmulBlockOp->getPrevNode(); op;
-       op = op->getPrevNode()) {
-    if (isa<d2m::AcquireDstOp>(op)) {
-      break;
-    }
-    if (isa<d2m::SetL1AccumulateOp, arith::CmpIOp, arith::ConstantOp>(op)) {
-      continue;
-    }
-    // Guarded reload is typically `scf.if (k != 0) { ... load L1 -> DST }`.
-    if (opLoadsL1IntoDst(op, dstValue)) {
-      toErase.push_back(op);
-      continue;
-    }
-    // Stop at unrelated ops (e.g. input/output subviews).
-    break;
-  }
-
-  for (Operation *op : llvm::reverse(toErase)) {
-    op->erase();
-  }
 }
 
 // When canonicalization folds memref.cast / memref.subview into a load or
@@ -347,11 +290,10 @@ private:
     // does not carry a transpose attribute.
     OpBuilder builder(computeLoop->getContext());
     builder.setInsertionPointAfter(computeLoop);
-    auto matmulBlock = builder.create<d2m::TileMatmulBlockOp>(
+    builder.create<d2m::TileMatmulBlockOp>(
         computeLoop->getLoc(), inputA, inputB, outputC,
         /*transpose_b=*/inferTransposeB(matmulOp));
     computeLoop->erase();
-    eraseDstReloadScaffolding(matmulBlock, dstValue);
 
     return success();
   }

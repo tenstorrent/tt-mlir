@@ -417,10 +417,6 @@ def D2MInsertTileMatmulBlock : Pass<"d2m-insert-tile-matmul-block", "::mlir::Mod
     memrefs by tracing operands through affine.load ops and a verified
     DST-to-L1 store copy chain (store value must come from affine.load of
     the DST memref), and verifies shape eligibility before replacement.
-    After inserting tile_matmul_block, it erases the L1->DST reload
-    scaffolding so later CB sync insertion does not treat the output CB as a
-    consumer before it is produced. The acquire_dst and DST->L1 store copy are
-    kept: matmul_block accumulates into DST and the store lowers to pack.
 
     When memref.cast or memref.subview has been folded into those loads or
     stores, recovery scans the block before the compute loop for cast/subview
@@ -429,8 +425,7 @@ def D2MInsertTileMatmulBlock : Pass<"d2m-insert-tile-matmul-block", "::mlir::Mod
   }];
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
-    "::mlir::affine::AffineDialect",
-    "::mlir::scf::SCFDialect"
+    "::mlir::affine::AffineDialect"
   ];
   let options = [
     Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"false",
