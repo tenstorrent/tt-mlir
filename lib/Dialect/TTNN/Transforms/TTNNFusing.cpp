@@ -222,6 +222,36 @@ public:
       return mlir::failure();
     }
 
+    // The device kernel enforces shape constraints on the addcmul operands
+    // (see tt-metal minimal_matmul_device_operation.cpp): with the matmul
+    // output being [M, N], the residual (ternary_a) must match it exactly and
+    // the gate (ternary_b) must be [1, N] (row broadcast) or [M, N]. Bail on
+    // broadcast/scalar operands the fused op cannot handle so we never emit an
+    // op that fails to compile or run.
+    auto outputType = mlir::dyn_cast<RankedTensorType>(addOp.getType());
+    auto residualType = mlir::dyn_cast<RankedTensorType>(residual.getType());
+    auto gateType = mlir::dyn_cast<RankedTensorType>(gate.getType());
+    if (!outputType || !residualType || !gateType || outputType.getRank() < 2 ||
+        residualType.getRank() < 2 || gateType.getRank() < 2) {
+      return mlir::failure();
+    }
+    ArrayRef<int64_t> outShape = outputType.getShape();
+    ArrayRef<int64_t> resShape = residualType.getShape();
+    ArrayRef<int64_t> gateShape = gateType.getShape();
+    const int64_t m = outShape[outShape.size() - 2];
+    const int64_t n = outShape[outShape.size() - 1];
+    // residual (ternary_a) must match the output [M, N] exactly.
+    if (resShape[resShape.size() - 2] != m ||
+        resShape[resShape.size() - 1] != n) {
+      return mlir::failure();
+    }
+    // gate (ternary_b) must be [1, N] (row broadcast) or [M, N].
+    const int64_t gateRows = gateShape[gateShape.size() - 2];
+    if ((gateRows != 1 && gateRows != m) ||
+        gateShape[gateShape.size() - 1] != n) {
+      return mlir::failure();
+    }
+
     mlir::Value bias;
     if constexpr (std::is_same_v<MatmulLikeOp, LinearOp>) {
       bias = projOp.getBias();
