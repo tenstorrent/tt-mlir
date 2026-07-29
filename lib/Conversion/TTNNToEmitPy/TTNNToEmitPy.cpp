@@ -4557,6 +4557,49 @@ public:
 };
 } // namespace
 
+// SparseSdpaOp conversion pattern
+//
+namespace {
+class SparseSdpaOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::SparseSdpaOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.sparse_sdpa";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.transformer.sparse_sdpa";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::SparseSdpaOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SparseSdpaOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::SparseSdpaOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKv()),
+        emitter.emit(srcOp.getIndices()),
+        emitter.emit(srcOp.getVDim()),
+        emitter.emit<float>(srcOp.getScaleAttr(), "scale"),
+        emitter.emit(srcOp.getKChunkSize(), "k_chunk_size"),
+    };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // ScaledDotProductAttentionDecodeOp conversion pattern
 //
 namespace {
@@ -5604,6 +5647,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
                                                              ctx);
   patterns.add<FlashMlaPrefillOpConversionPattern>(typeConverter, ctx);
+  patterns.add<SparseSdpaOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);
   patterns.add<PagedScaledDotProductAttentionDecodeOpConversionPattern>(

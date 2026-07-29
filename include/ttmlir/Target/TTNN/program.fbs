@@ -133,6 +133,7 @@ union OpType {
   ScaledDotProductAttentionOp,
   ScaledDotProductAttentionDecodeOp,
   FlashMlaPrefillOp,
+  SparseSdpaOp,
   ScatterOp,
   SelectiveReduceCombineOp,
   SliceOp,

@@ -63,6 +63,7 @@
 #include "operations/trace.hpp"
 #include "operations/transformer/concatenate_heads/concatenate_heads.hpp"
 #include "operations/transformer/sdpa/sdpa.hpp"
+#include "operations/transformer/sdpa/sparse_sdpa.hpp"
 #include "operations/transformer/sdpa_decode/sdpa_decode.hpp"
 #include "operations/transformer/split_query_key_value_and_split_heads/split_query_key_value_and_split_heads.hpp"
 #include "tt-metalium/bfloat16.hpp"

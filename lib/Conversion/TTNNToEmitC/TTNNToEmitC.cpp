@@ -2429,6 +2429,43 @@ private:
 };
 } // namespace
 
+// Arange op conversion pattern
+//
+namespace {
+class ArangeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::ArangeOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ArangeOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ArangeOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ArangeOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // ttnn::arange has no single-argument overload, so the generic
+    // DefaultOpConversionPattern (which would emit only the operands, and
+    // arange has none besides the optional device) cannot be used: the trailing
+    // defaults have to be spelled out.
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getStart()),
+        emitter.emit(srcOp.getEnd()),
+        emitter.emit(srcOp.getStep()),
+        emitter.emit(srcOp.getDtypeAttr()),
+        emitter.emit<::ttnn::operations::creation::detail::OptionalMeshDevice>(
+            srcOp.getDevice()),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
+        emitter.emit(srcOp.getLayoutAttr().getValue()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Rand op conversion pattern
 //
 namespace {
@@ -3784,6 +3821,45 @@ public:
         emitter.emit(srcOp.getIsCausal()),
         emitter.emit(srcOp.getScale()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
+    };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// SparseSdpaOp conversion pattern
+//
+namespace {
+class SparseSdpaOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::SparseSdpaOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.sparse_sdpa";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::transformer::sparse_sdpa";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SparseSdpaOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SparseSdpaOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SparseSdpaOp> emitter(
+        srcOp, adaptor, rewriter);
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),   emitter.emit(srcOp.getKv()),
+        emitter.emit(srcOp.getIndices()), emitter.emit(srcOp.getVDim()),
+        emitter.emit(srcOp.getScale()),   emitter.emit(srcOp.getKChunkSize()),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
@@ -5546,7 +5622,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                NamedFullOpConversionPattern<mlir::tt::ttnn::ZerosOp>,
                NamedFullOpConversionPattern<mlir::tt::ttnn::OnesOp>,
                FullOpConversionPattern,
-               DefaultOpConversionPattern<mlir::tt::ttnn::ArangeOp>,
+               ArangeOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::ConstantOp>,
                RandOpConversionPattern,
                AssignOpConversionPattern>(typeConverter, ctx);
@@ -5791,6 +5867,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
                                                              ctx);
   patterns.add<FlashMlaPrefillOpConversionPattern>(typeConverter, ctx);
+  patterns.add<SparseSdpaOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPCreateQKVHeadsDecodeOpConversionPattern>(typeConverter, ctx);
 }
 // ANCHOR_END: op_rewriter_pattern_set_emitc

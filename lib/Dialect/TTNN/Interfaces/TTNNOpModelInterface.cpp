@@ -2525,6 +2525,40 @@ FlashMlaPrefillOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// SparseSdpaOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+SparseSdpaOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
+  assert(inputs.size() == 3);
+
+  auto queryShape = getQuery().getType().getShape();
+  auto kvShape = getKv().getType().getShape();
+  auto indicesShape = getIndices().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<SparseSdpaOp>::getOpConstraints, *this, queryShape,
+      inputs[0], kvShape, inputs[1], indicesShape, inputs[2], getVDim(),
+      getScale(), getKChunkSize(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+SparseSdpaOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  assert(inputs.size() == 3);
+
+  auto queryShape = getQuery().getType().getShape();
+  auto kvShape = getKv().getType().getShape();
+  auto indicesShape = getIndices().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<SparseSdpaOp>::getOpRuntime, *this, queryShape,
+      inputs[0], kvShape, inputs[1], indicesShape, inputs[2], getVDim(),
+      getScale(), getKChunkSize(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp - TTNN Op Model Interface
 // ===----------------------------------------------------------------------===//
 
