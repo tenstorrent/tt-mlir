@@ -223,4 +223,43 @@ module {
     %values, %indices = "ttir.topk"(%arg0) <{k = 16 : i32, dim = 0 : i32, largest = true, sorted = false}> : (tensor<512x128xf32>) -> (tensor<16x128xf32>, tensor<16x128xsi32>)
     return %values, %indices : tensor<16x128xf32>, tensor<16x128xsi32>
   }
+
+  // ---- Multi-core (non-target dim split, data-parallel) ----
+  //
+  // When the NON-TARGET dim alone overflows the per-core budget (64 tiles here
+  // against kMaxTilesPerCore = 43), banding the reduction dim cannot help: the
+  // whole non-target dim lives on every band core. topk is independent per
+  // slice, so the lowering splits the non-target dim across cores instead and
+  // each one runs the entire reduction locally. Nothing to merge, so no
+  // composite_view and a single topk_block.
+
+  // dim=1 data-parallel: 2048x128, k=8. Rows=2048 (64 non-target tiles) split
+  // across cores, cols=128 (4 reduction tiles) kept whole on each.
+  // CHECK-LABEL: func @topk_dim1_data_parallel
+  func.func @topk_dim1_data_parallel(%arg0: tensor<2048x128xf32>) -> (tensor<2048x8xf32>, tensor<2048x8xsi32>) {
+    // The value input is still pre-transposed for dim=1 ...
+    // CHECK: d2m.tile_transpose
+    // ... and a lone local topk produces the final answer per slice.
+    // CHECK: d2m.topk_block
+    // CHECK-SAME: dim = 1
+    // CHECK-SAME: k = 8
+    // CHECK-NOT: d2m.composite_view
+    %values, %indices = "ttir.topk"(%arg0) <{k = 8 : i32, dim = -1 : i32, largest = true, sorted = false}> : (tensor<2048x128xf32>) -> (tensor<2048x8xf32>, tensor<2048x8xsi32>)
+    return %values, %indices : tensor<2048x8xf32>, tensor<2048x8xsi32>
+  }
+
+  // dim=0 data-parallel: the transpose of the above. Cols=2048 (64 non-target
+  // tiles) split across cores, rows=128 (4 reduction tiles) kept whole.
+  // CHECK-LABEL: func @topk_dim0_data_parallel
+  func.func @topk_dim0_data_parallel(%arg0: tensor<128x2048xf32>) -> (tensor<8x2048xf32>, tensor<8x2048xsi32>) {
+    // The index buffer's full-transpose emits a tile_transpose ...
+    // CHECK: d2m.tile_transpose
+    // ... then the per-slice topk.
+    // CHECK: d2m.topk_block
+    // CHECK-SAME: dim = 0
+    // CHECK-SAME: k = 8
+    // CHECK-NOT: d2m.composite_view
+    %values, %indices = "ttir.topk"(%arg0) <{k = 8 : i32, dim = 0 : i32, largest = true, sorted = false}> : (tensor<128x2048xf32>) -> (tensor<8x2048xf32>, tensor<8x2048xsi32>)
+    return %values, %indices : tensor<8x2048xf32>, tensor<8x2048xsi32>
+  }
 }
