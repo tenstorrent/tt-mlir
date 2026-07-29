@@ -796,11 +796,11 @@ bool L1SpillManagement<MemoryTracker>::replayFrom(size_t startIdx) {
 //===----------------------------------------------------------------------===//
 
 // A DRAM-sharded matmul requires its in0 activation to be L1 width-sharded and
-// its output to stay sharded. Spilling either to DRAM is never a legal state for
-// this op, and probing it through the op-model backend hits an uncatchable
-// tt-metal abort rather than returning a catchable error. Callers must therefore
-// recognize this op up front (reshard in0 / keep output sharded) instead of
-// validating or demoting it.
+// its output to stay sharded. Spilling either to DRAM is never a legal state
+// for this op, and probing it through the op-model backend hits an uncatchable
+// tt-metal abort rather than returning a catchable error. Callers must
+// therefore recognize this op up front (reshard in0 / keep output sharded)
+// instead of validating or demoting it.
 static bool isDRAMShardedMatmul(Operation *op) {
   auto matmulOp = mlir::dyn_cast<MatmulOp>(op);
   if (!matmulOp) {
@@ -1188,27 +1188,28 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
         // ship a clashing layout or leave an address-less tensor in the tracker
         // (allocateAddress llvm_unreachable's on a no-fit).
         op->emitError(
-            "L1SpillManagement: DRAM-sharded matmul output has no contiguous L1 "
+            "L1SpillManagement: DRAM-sharded matmul output has no contiguous "
+            "L1 "
             "placement after evicting every spillable tensor, and cannot be "
             "demoted to DRAM (tt-metal requires a sharded output config)");
         compilationFailed = true;
         return 0;
       }
       // The output has a slot, so what evictUntil could not satisfy is the
-      // CB/tensor overlap check. Spill the output to DRAM: that ends its L1 live
-      // range at the spill op and raises the lowest occupied address, giving the
-      // CB region room. Whether that is enough depends on how much of the
-      // overshoot was the cbFragCushion safety margin rather than real CB
-      // demand, which we cannot tell apart here — take the spill and accept the
-      // residual runtime risk, since demoting is not an option.
-      uint64_t freshEffectiveLowest =
-          std::min(*freshOutputAddr, memoryTracker.getLowestOccupiedAddress());
+      // CB/tensor overlap check. Spill the output to DRAM: that ends its L1
+      // live range at the spill op and raises the lowest occupied address,
+      // giving the CB region room. Whether that is enough depends on how much
+      // of the overshoot was the cbFragCushion safety margin rather than real
+      // CB demand, which we cannot tell apart here — take the spill and accept
+      // the residual runtime risk, since demoting is not an option.
       spillToDram(op->getResult(0));
-      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                   "    DS_SPILL_OUTPUT: CB overlap after eviction (cushioned "
-                   "cb={0}, raw cb={1}, lowest={2}); matmul output kept sharded "
-                   "and spilled to DRAM",
-                   cushionedCBUsage, cbPeakUsage, freshEffectiveLowest);
+      TTMLIR_DEBUG(
+          ttmlir::LogComponent::GreedyOptimizer,
+          "    DS_SPILL_OUTPUT: CB overlap after eviction (cushioned "
+          "cb={0}, raw cb={1}, lowest={2}); matmul output kept sharded "
+          "and spilled to DRAM",
+          cushionedCBUsage, cbPeakUsage,
+          std::min(*freshOutputAddr, memoryTracker.getLowestOccupiedAddress()));
       return 0;
     }
     demoteToDram(op);
@@ -1240,9 +1241,10 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
   // the DS config. Its in0 is restored to L1 by the eviction reshard path, and
   // its raw CB fits, so keep it L1-sharded.
   if (isDRAMShardedMatmul(op)) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    DS_KEEP_SHARDED: not applying homogeneous-spill/demote to "
-                 "DS matmul; keeping L1-sharded");
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::GreedyOptimizer,
+        "    DS_KEEP_SHARDED: not applying homogeneous-spill/demote to "
+        "DS matmul; keeping L1-sharded");
     return outputL1Size;
   }
 
