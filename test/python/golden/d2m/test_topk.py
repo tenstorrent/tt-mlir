@@ -51,11 +51,11 @@ def _verify_topk_outputs(
     check_gathered=True additionally validates the device's indices by
     gathering the values they point to from the original input and
     PCC-comparing those against the device's topk values. This is
-    order-robust (doesn't depend on positional/tie-break ordering). Used on
-    single-core tests.
+    order-robust (doesn't depend on positional/tie-break ordering). Used by
+    both single-core and multi-core tests in this file.
 
     check_indices=True instead PCC-compares the device's indices positionally
-    against the golden indices. Used on multi-core tests.
+    against the golden indices. Not currently exercised by any test here.
     """
     d = dim % input_tensor.ndim
     prog = output_tensors["program_0"]
@@ -104,16 +104,16 @@ def _verify_topk_outputs(
 
 
 SINGLE_CORE_TOPK_SHAPES = [
-    # Single-tile reduction dim (exactly 32 elements): no merge/rebuild, just
-    # local_sort.
+    # Single-tile non-target dim (exactly 32 elements); reduction dim (256,
+    # 8 tiles) still goes through merge/rebuild.
     pytest.param((32, 256), 64, -1, id="32x256_k64_dim1"),
     pytest.param((256, 32), 64, 0, id="256x32_k64_dim0"),
     # Large target dim (many tiles in reduction), k > 32.
     pytest.param((32, 1376), 64, -1, id="32x1376_k64_dim1"),
-    pytest.param((1760, 32), 64, 0, id="1760x32_k64_dim0"),
+    pytest.param((1376, 32), 64, 0, id="1376x32_k64_dim0"),
     # Ragged (non-power-of-2 tile count)
     pytest.param((32, 96), 16, -1, id="32x96_k16_dim1"),
-    pytest.param((1536, 32), 16, 0, id="1536x32_k16_dim0"),
+    pytest.param((1208, 32), 16, 0, id="1208x32_k16_dim0"),
     # Multi-tile non-target dim (ht>1 for dim=1, wt>1 for dim=0)
     pytest.param((96, 446), 32, -1, id="96x446_k32_dim1"),
     pytest.param((383, 96), 63, 0, id="383x96_k63_dim0"),
