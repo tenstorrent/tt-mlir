@@ -63,6 +63,7 @@ def default_configs() -> Dict[Type[OpView], ChiselOpConfig]:
         ttnn.ResetGlobalSemaphoreOp: ChiselOpConfig(no_golden=True),
         # In-place ops with no golden.
         ttnn.WriteTensorOp: ChiselOpConfig(no_golden=True),
+        ttnn.CopyOp: ChiselOpConfig(no_golden=True),
         ttnn.PointToPointOp: ChiselOpConfig(no_golden=True),
         # Quantization ops not currently supported.
         ttnn.QuantizeOp: ChiselOpConfig(no_golden=True),

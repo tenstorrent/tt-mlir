@@ -14,6 +14,8 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Utils.h"
+#include "llvm/ADT/Sequence.h"
+#include <algorithm>
 #include <atomic>
 
 namespace mlir::tt::ttnn {
@@ -77,12 +79,20 @@ private:
     return traceFuncName;
   }
 
+  TraceSmallString getAllocateSlotsTraceFuncName(func::FuncOp funcOp,
+                                                 uint64_t traceFuncIndex) {
+    TraceSmallString allocateSlotsTraceFuncName;
+    allocateSlotsTraceFuncName.append(g_TTNNAllocateSlotsTracePrefix);
+    allocateSlotsTraceFuncName.append(getTraceFuncName(funcOp, traceFuncIndex));
+    return allocateSlotsTraceFuncName;
+  }
+
   TraceSmallString getCaptureTraceFuncName(func::FuncOp funcOp,
                                            uint64_t traceFuncIndex) {
-    TraceSmallString runAndCaptureTraceFuncName;
-    runAndCaptureTraceFuncName.append(g_TTNNCaptureTracePrefix);
-    runAndCaptureTraceFuncName.append(getTraceFuncName(funcOp, traceFuncIndex));
-    return runAndCaptureTraceFuncName;
+    TraceSmallString captureTraceFuncName;
+    captureTraceFuncName.append(g_TTNNCaptureTracePrefix);
+    captureTraceFuncName.append(getTraceFuncName(funcOp, traceFuncIndex));
+    return captureTraceFuncName;
   }
 
   TraceSmallString getExecuteTraceFuncName(func::FuncOp funcOp,
@@ -244,8 +254,79 @@ private:
     return inputAttrs;
   }
 
-  // Creates the trace function
-  ::mlir::LogicalResult
+  // Describes the trace-main function: the hoisted computation's boundary
+  // values, the device-resident/host-staged partition of its tensor inputs,
+  // and the persistent slot types derived from them. Computed once when the
+  // trace-main function is created; the slot allocation, capture, and execute
+  // functions - and the trace op itself - all derive their signatures from
+  // it, which is what keeps them mutually consistent. All indices refer to
+  // trace-main's [tensor inputs][output slots][semaphores] argument order,
+  // with device-resident tensors grouped before host-staged ones.
+  struct TraceMainFuncInfo {
+    // The trace-main function itself.
+    func::FuncOp traceFunc;
+    // Values of the original function feeding the trace, device-resident
+    // tensors first, then host-staged tensors, then semaphores.
+    llvm::SmallVector<mlir::Value> boundaryInputs;
+    // Values of the original function that the trace produces.
+    llvm::SmallVector<mlir::Value> boundaryOutputs;
+    // Number of leading tensor input arguments.
+    size_t numTensorInputs = 0;
+    // Split point of the tensor input indices [0, numTensorInputs):
+    // [0, numDeviceResident) is device-resident, the rest is host-staged. A
+    // device-resident input (constant/parameter/KV cache, or a
+    // prelude-allocated scratch buffer) needs no host staging and acts as its
+    // own persistent input slot; everything else is staged from host into a
+    // freshly allocated slot. This partition is the compile-time twin of the
+    // runtime's storage-type test on the trace op's inputs:
+    // insertCaptureOrExecuteTraceOp forwards device-resident inputs on device
+    // and converts the rest to system memory, and the runtime uses the
+    // resulting storage type to decide which inputs to pass to which program.
+    size_t numDeviceResident = 0;
+    // Persistent slot type per tensor input argument: a device-resident
+    // argument is its own slot and keeps its type; a host-staged argument
+    // gets a DRAM slot to be written into.
+    llvm::SmallVector<mlir::Type> inputSlotTypes;
+    // Original arg attrs per tensor input argument, as set on trace-main's
+    // arguments. Never null: missing attrs are normalized to empty dicts.
+    // Slot arguments derived from these follow one rule: a device-resident
+    // slot is the original argument and keeps its attrs; a host-staged slot
+    // is a fresh buffer and gets none.
+    llvm::SmallVector<mlir::DictionaryAttr> inputArgAttrs;
+    // Types of the output slot arguments (also the trace op's result types).
+    llvm::SmallVector<mlir::Type> outputSlotTypes;
+    // Types of the trailing semaphore arguments.
+    llvm::SmallVector<mlir::Type> semaphoreTypes;
+
+    // Contiguous views over the two halves of the tensor-input partition.
+    auto deviceResidentIndices() const {
+      return llvm::seq<size_t>(0, numDeviceResident);
+    }
+    auto hostStagedIndices() const {
+      return llvm::seq(numDeviceResident, numTensorInputs);
+    }
+    llvm::ArrayRef<mlir::Type> deviceResidentSlotTypes() const {
+      return llvm::ArrayRef<mlir::Type>(inputSlotTypes)
+          .take_front(numDeviceResident);
+    }
+    llvm::ArrayRef<mlir::Type> hostStagedSlotTypes() const {
+      return llvm::ArrayRef<mlir::Type>(inputSlotTypes)
+          .drop_front(numDeviceResident);
+    }
+    llvm::ArrayRef<mlir::DictionaryAttr> deviceResidentSlotArgAttrs() const {
+      return llvm::ArrayRef<mlir::DictionaryAttr>(inputArgAttrs)
+          .take_front(numDeviceResident);
+    }
+  };
+
+  // Creates the trace-main function and returns the TraceMainFuncInfo
+  // describing it, from which the slot allocation and capture functions are
+  // derived.
+  //
+  // Results are written into persistent output slots passed in as trailing
+  // arguments rather than returned. Argument order is
+  // [tensor inputs][output slots][semaphores].
+  ::mlir::FailureOr<TraceMainFuncInfo>
   createTraceFunction(func::FuncOp funcOp,
                       llvm::ArrayRef<Operation *> opsToHoist,
                       uint64_t traceFuncIndex) {
@@ -254,25 +335,55 @@ private:
     mlir::IRRewriter rewriter(builder);
 
     llvm::SmallVector<mlir::Value> inputs;
-    llvm::SmallVector<mlir::Type> inputTypes;
     llvm::SmallVector<mlir::Value> outputs;
     llvm::SmallVector<mlir::Type> outputTypes;
 
     collectFunctionBoundary(opsToHoist, inputs, outputs);
 
-    for (mlir::Value input : inputs) {
-      inputTypes.push_back(input.getType());
+    // collectFunctionBoundary sorts tensors before semaphores; split there so
+    // the output slots can be inserted between the two groups.
+    size_t numTensorInputs = 0;
+    while (numTensorInputs < inputs.size() &&
+           !isSemaphoreValue(inputs[numTensorInputs])) {
+      numTensorInputs++;
     }
+
+    // Group device-resident tensor inputs ahead of host-staged ones, so each
+    // partition is a contiguous range and the downstream builders can slice
+    // rather than gather.
+    size_t numDeviceResident =
+        std::stable_partition(
+            inputs.begin(), inputs.begin() + numTensorInputs,
+            [&](mlir::Value input) { return isDeviceResidentValue(input); }) -
+        inputs.begin();
+
     for (mlir::Value output : outputs) {
       outputTypes.push_back(output.getType());
     }
 
     llvm::SmallVector<mlir::DictionaryAttr> inputAttrs =
         getInputAttrs(context, inputs);
+    // Types and attributes for all arguments of the new trace main function,
+    // in signature order: [input tensors][output slots][semaphores].
+    llvm::SmallVector<mlir::Type> argTypes;
+    llvm::SmallVector<mlir::DictionaryAttr> newArgAttrs;
+
+    for (size_t i = 0; i < numTensorInputs; i++) {
+      argTypes.push_back(inputs[i].getType());
+      newArgAttrs.push_back(inputAttrs[i]);
+    }
+    for (mlir::Type outputType : outputTypes) {
+      argTypes.push_back(outputType);
+      newArgAttrs.push_back(mlir::DictionaryAttr::get(context));
+    }
+    for (size_t i = numTensorInputs; i < inputs.size(); i++) {
+      argTypes.push_back(inputs[i].getType());
+      newArgAttrs.push_back(inputAttrs[i]);
+    }
 
     TraceSmallString traceFuncName = getTraceFuncName(funcOp, traceFuncIndex);
 
-    auto traceFuncType = builder.getFunctionType(inputTypes, outputTypes);
+    auto traceFuncType = builder.getFunctionType(argTypes, /*results=*/{});
 
     // Create the function
     builder.setInsertionPoint(funcOp);
@@ -281,7 +392,7 @@ private:
     ttmlir::utils::setFunctionType(traceFuncOp,
                                    ttmlir::utils::FunctionType::TraceMain);
 
-    traceFuncOp.setAllArgAttrs(inputAttrs);
+    traceFuncOp.setAllArgAttrs(newArgAttrs);
     traceFuncOp.setPrivate();
 
     // Build the body of the new function
@@ -291,8 +402,12 @@ private:
     // maps original input values to trace function input
     // arguments/intermediates
     llvm::DenseMap<mlir::Value, mlir::Value> valueMap;
-    for (size_t i = 0; i < inputs.size(); i++) {
+    for (size_t i = 0; i < numTensorInputs; i++) {
       valueMap.insert({inputs[i], traceFuncOp.getArgument(i)});
+    }
+    for (size_t i = numTensorInputs; i < inputs.size(); i++) {
+      valueMap.insert(
+          {inputs[i], traceFuncOp.getArgument(outputTypes.size() + i)});
     }
 
     for (Operation *op : opsToHoist) {
@@ -325,233 +440,239 @@ private:
       }
     }
 
-    // Finally, we need to add a return operation to the trace function
-    llvm::SmallVector<mlir::Value> returnValues;
-    for (mlir::Value output : outputs) {
+    // Store each result into its persistent output slot. These stores are part
+    // of the traced computation, so replaying the trace lands results in the
+    // slots, and the capture function's uncaptured call compiles them.
+    for (auto [i, output] : llvm::enumerate(outputs)) {
       auto it = valueMap.find(output);
-      if (it != valueMap.end()) {
-        returnValues.push_back(it->second);
-      } else {
+      if (it == valueMap.end()) {
         return funcOp.emitError(
             "Could not map output value in hoisted function");
       }
+      builder.create<ttnn::CopyOp>(
+          funcOp.getLoc(), it->second,
+          traceFuncOp.getArgument(numTensorInputs + i));
     }
-    builder.create<func::ReturnOp>(funcOp.getLoc(), returnValues);
+    builder.create<func::ReturnOp>(funcOp.getLoc());
 
-    return mlir::success();
+    TraceMainFuncInfo info;
+    info.traceFunc = traceFuncOp;
+    info.numTensorInputs = numTensorInputs;
+    info.numDeviceResident = numDeviceResident;
+    for (size_t i = 0; i < numTensorInputs; i++) {
+      auto tensorType = mlir::cast<RankedTensorType>(inputs[i].getType());
+      info.inputArgAttrs.push_back(
+          inputAttrs[i] ? inputAttrs[i] : mlir::DictionaryAttr::get(context));
+      if (i < numDeviceResident) {
+        info.inputSlotTypes.push_back(tensorType);
+      } else {
+        info.inputSlotTypes.push_back(utils::RankedTensorTypeFactory::create(
+            tensorType, BufferType::DRAM));
+      }
+    }
+    for (size_t i = numTensorInputs; i < inputs.size(); i++) {
+      info.semaphoreTypes.push_back(inputs[i].getType());
+    }
+    info.outputSlotTypes = std::move(outputTypes);
+    info.boundaryInputs = std::move(inputs);
+    info.boundaryOutputs = std::move(outputs);
+    return info;
   }
 
-  // Creates the run and capture function that wraps the trace function and
-  // manages trace capture.
+  // Creates the slot allocation function.
+  //
+  // This function allocates the persistent device buffers that every capture of
+  // this trace reads from and writes to, and it is the ONLY place they are
+  // allocated. It runs exactly once per trace, on the first capture. Keeping
+  // allocation out of the capture function is what lets a stale trace be
+  // recaptured without allocating anything that outlives its own capture
+  // window, so a recapture cannot perturb the device allocator state that other
+  // cached traces have baked into their command streams.
+  //
+  // Signature: (device-resident tensor args) -> (input slots..., output
+  // slots...) Device-resident arguments are passed through as their own slots;
+  // host-staged inputs and all outputs get freshly allocated DRAM slots.
   mlir::LogicalResult
-  createRunAndCaptureTraceFunction(func::FuncOp funcOp,
-                                   uint64_t traceFuncIndex) {
+  createAllocateSlotsTraceFunction(func::FuncOp funcOp, uint64_t traceFuncIndex,
+                                   const TraceMainFuncInfo &info) {
     mlir::MLIRContext *context = &this->getContext();
     mlir::OpBuilder builder(context);
     mlir::IRRewriter rewriter(builder);
 
-    TraceSmallString traceFuncName = getTraceFuncName(funcOp, traceFuncIndex);
-    ModuleOp moduleOp = funcOp->getParentOfType<ModuleOp>();
-    func::FuncOp traceFunc = moduleOp.lookupSymbol<func::FuncOp>(traceFuncName);
-    if (!traceFunc) {
-      return funcOp.emitError("Could not find trace function with name: " +
-                              traceFuncName);
+    // Results: every input slot, then every output slot.
+    llvm::SmallVector<mlir::Type> outputTypes(info.inputSlotTypes);
+    llvm::append_range(outputTypes, info.outputSlotTypes);
+
+    TraceSmallString allocateSlotsFuncName =
+        getAllocateSlotsTraceFuncName(funcOp, traceFuncIndex);
+
+    builder.setInsertionPoint(funcOp);
+    // Inputs: only the device-resident arguments, which pass through as slots.
+    auto allocateSlotsFunc = builder.create<func::FuncOp>(
+        funcOp.getLoc(), allocateSlotsFuncName,
+        builder.getFunctionType(info.deviceResidentSlotTypes(), outputTypes));
+    ttmlir::utils::setFunctionType(
+        allocateSlotsFunc, ttmlir::utils::FunctionType::TraceAllocateSlots);
+    allocateSlotsFunc.setAllArgAttrs(info.deviceResidentSlotArgAttrs());
+    allocateSlotsFunc.setPrivate();
+
+    auto *entryBlock = allocateSlotsFunc.addEntryBlock();
+    builder.setInsertionPointToStart(entryBlock);
+
+    auto deviceOp = utils::getOrInsertDevice(rewriter, entryBlock);
+
+    llvm::SmallVector<mlir::Value> slots(
+        allocateSlotsFunc.getArguments().begin(),
+        allocateSlotsFunc.getArguments().end());
+    for (mlir::Type slotType : info.hostStagedSlotTypes()) {
+      slots.push_back(createSlot(builder, allocateSlotsFunc.getLoc(), deviceOp,
+                                 mlir::cast<RankedTensorType>(slotType)));
+    }
+    for (mlir::Type outputSlotType : info.outputSlotTypes) {
+      slots.push_back(createSlot(builder, allocateSlotsFunc.getLoc(), deviceOp,
+                                 mlir::cast<RankedTensorType>(outputSlotType)));
     }
 
-    // Build input types for the capture function and corresponding device slot
-    // types. The capture function accepts:
-    // - Regular inputs from host memory that need to be transferred to device
-    // - Constants/parameters that are already on device (persisted)
-    // - KV cache tensors that are device-native and updated in-place
-    // - Global semaphores: pass-through, no slot, no host staging
-    // For each argument, we determine the appropriate input type and slot
-    // allocation strategy.
-    llvm::SmallVector<mlir::Type> inputTypes;
-    llvm::SmallVector<mlir::Type> traceInputSlotTypes;
-    for (size_t i = 0; i < traceFunc.getNumArguments(); i++) {
-      mlir::Value traceFuncArg = traceFunc.getArgument(i);
+    builder.create<func::ReturnOp>(allocateSlotsFunc.getLoc(), slots);
 
-      if (isSemaphoreValue(traceFuncArg)) {
-        inputTypes.push_back(traceFuncArg.getType());
-        continue;
-      }
+    return mlir::success();
+  }
 
-      RankedTensorType originalRankedTensorType =
-          mlir::cast<RankedTensorType>(traceFuncArg.getType());
+  // Allocates one persistent device buffer of the given type.
+  mlir::Value createSlot(mlir::OpBuilder &builder, mlir::Location loc,
+                         mlir::Value deviceOp, RankedTensorType slotType) {
+    mlir::MLIRContext *context = &this->getContext();
+    return builder
+        .create<ttnn::EmptyOp>(
+            loc, slotType, deviceOp,
+            ttnn::ShapeAttr::get(context, slotType.getShape()))
+        .getResult();
+  }
 
-      // Device-resident arguments (constants, parameters, KV cache) bypass host
-      // transfer. These are already on device and will be used directly as
-      // trace input slots.
-      if (shouldKeepArgOnDevice(traceFunc, i)) {
-        if (!utils::isTensorOnDevice(originalRankedTensorType)) {
-          return funcOp.emitError("Device-resident argument ")
-                 << i << " must already be in device memory";
-        }
-        inputTypes.push_back(traceFuncArg.getType());
-        traceInputSlotTypes.push_back(traceFuncArg.getType());
-        continue;
-      }
+  // Creates the capture function.
+  //
+  // Captures the trace against slots that the allocation function already
+  // created and that are passed in as arguments. This is the single capture
+  // path: the runtime invokes it for the initial capture and again, with the
+  // very same slots, to recapture a stale trace. Because it allocates no
+  // persistent buffer of its own, a recapture leaves the allocator untouched.
+  //
+  // Signature:
+  //   (host-staged inputs..., input slots..., output slots..., semaphores...)
+  //     -> trace id
+  mlir::LogicalResult
+  createRunAndCaptureTraceFunction(func::FuncOp funcOp, uint64_t traceFuncIndex,
+                                   const TraceMainFuncInfo &info) {
+    mlir::MLIRContext *context = &this->getContext();
+    mlir::OpBuilder builder(context);
+    mlir::IRRewriter rewriter(builder);
 
-      // Regular input arguments require host-to-device transfer during trace
-      // capture. We create two types for each regular input:
-      // 1. Host-side type (system memory) for the function signature
-      // 2. Device-side slot type (DRAM) for persistent trace storage
-      RankedTensorType inputArgType = utils::RankedTensorTypeFactory::create(
-          originalRankedTensorType, BufferType::SystemMemory);
+    func::FuncOp traceFunc = info.traceFunc;
+    llvm::SmallVector<mlir::Type> argTypes;
+    llvm::SmallVector<mlir::DictionaryAttr> argAttrs;
 
-      inputTypes.push_back(inputArgType);
-
-      // Create the device-side trace input slot type (DRAM) for this argument.
-      // This slot persists on device across trace executions.
-      RankedTensorType dramTraceInputSlotType =
-          utils::RankedTensorTypeFactory::create(originalRankedTensorType,
-                                                 BufferType::DRAM);
-
-      traceInputSlotTypes.push_back(dramTraceInputSlotType);
+    // Host-staged inputs, in system memory, to be written into their slots.
+    for (size_t argIndex : info.hostStagedIndices()) {
+      auto originalType =
+          mlir::cast<RankedTensorType>(info.boundaryInputs[argIndex].getType());
+      argTypes.push_back(utils::RankedTensorTypeFactory::create(
+          originalType, BufferType::SystemMemory));
+      argAttrs.push_back(info.inputArgAttrs[argIndex]);
+    }
+    // Input slots, then output slots, then semaphores. A device-resident slot
+    // is the original argument and keeps its attrs; a host-staged slot is a
+    // fresh buffer and gets none.
+    for (size_t argIndex : info.deviceResidentIndices()) {
+      argTypes.push_back(info.inputSlotTypes[argIndex]);
+      argAttrs.push_back(info.inputArgAttrs[argIndex]);
+    }
+    for (size_t argIndex : info.hostStagedIndices()) {
+      argTypes.push_back(info.inputSlotTypes[argIndex]);
+      argAttrs.push_back(mlir::DictionaryAttr::get(context));
+    }
+    for (mlir::Type outputSlotType : info.outputSlotTypes) {
+      argTypes.push_back(outputSlotType);
+      argAttrs.push_back(mlir::DictionaryAttr::get(context));
+    }
+    for (mlir::Type semaphoreType : info.semaphoreTypes) {
+      argTypes.push_back(semaphoreType);
+      argAttrs.push_back(mlir::DictionaryAttr::get(context));
     }
 
-    // The capture function returns multiple values for trace management:
-    // 1. traceId - Identifier for the captured trace
-    // 2. trace input slots - Persistent device memory for input data
-    // 3. trace output slots - Persistent device memory for output data
-
-    llvm::SmallVector<mlir::Type> outputTypes;
-
-    // Trace ID for the captured trace, used for correlation between capture and
-    // execution.
-    outputTypes.push_back(utils::getTraceIdType(context));
-
-    // Trace input slots for all tensor inputs (including constants/parameters
-    // and KV cache) that are persisted on device.
-    for (mlir::Type traceInputSlotType : traceInputSlotTypes) {
-      outputTypes.push_back(traceInputSlotType);
-    }
-
-    // Trace output slots for all outputs that will be captured on device.
-    // These are also used as the actual outputs for the first invocation.
-    for (mlir::Type outputType : traceFunc.getFunctionType().getResults()) {
-      outputTypes.push_back(outputType);
-    }
-
-    // Create and insert function.
-    auto runAndCaptureTraceFuncType =
-        builder.getFunctionType(inputTypes, outputTypes);
-
-    TraceSmallString runAndCaptureTraceFuncName =
+    TraceSmallString captureFuncName =
         getCaptureTraceFuncName(funcOp, traceFuncIndex);
 
     builder.setInsertionPoint(funcOp);
-    auto runAndCaptureTraceFunc = builder.create<func::FuncOp>(
-        funcOp.getLoc(), runAndCaptureTraceFuncName,
-        runAndCaptureTraceFuncType);
+    auto captureFunc = builder.create<func::FuncOp>(
+        funcOp.getLoc(), captureFuncName,
+        builder.getFunctionType(argTypes, {utils::getTraceIdType(context)}));
     ttmlir::utils::setFunctionType(
-        runAndCaptureTraceFunc,
-        ttmlir::utils::FunctionType::TraceRunAndCapture);
-    if (traceFunc.getAllArgAttrs()) {
-      runAndCaptureTraceFunc.setAllArgAttrs(traceFunc.getAllArgAttrs());
-    }
-    runAndCaptureTraceFunc.setPrivate();
+        captureFunc, ttmlir::utils::FunctionType::TraceRunAndCapture);
+    captureFunc.setAllArgAttrs(argAttrs);
+    captureFunc.setPrivate();
 
-    // Build the body of the function.
-    auto *runAndCaptureTraceFuncEntryBlock =
-        runAndCaptureTraceFunc.addEntryBlock();
-    builder.setInsertionPointToStart(runAndCaptureTraceFuncEntryBlock);
+    auto *entryBlock = captureFunc.addEntryBlock();
+    builder.setInsertionPointToStart(entryBlock);
 
-    auto deviceOp =
-        utils::getOrInsertDevice(rewriter, runAndCaptureTraceFuncEntryBlock);
+    auto deviceOp = utils::getOrInsertDevice(rewriter, entryBlock);
 
-    // Create or reuse trace input slots on device, and build the operand list
-    // for the inner func.call to the trace function.
-    // - Device-resident tensor args (constants/parameters/KV cache): use
-    //   directly as slots.
-    // - Regular tensor inputs: allocate new empty tensors on device for data
-    //   transfer; these become persistent slots.
-    // - Semaphores: pass-through into the inner call only, not slots.
-    llvm::SmallVector<mlir::Value> traceInputSlots;
-    llvm::SmallVector<mlir::Value> traceCallArgs;
-    llvm::SmallVector<std::pair<mlir::Value, mlir::Value>> hostToSlotTransfers;
-    for (size_t i = 0; i < runAndCaptureTraceFunc.getNumArguments(); i++) {
-      mlir::Value funcArg = runAndCaptureTraceFunc.getArgument(i);
+    const size_t inputSlotBase = info.hostStagedIndices().size();
+    const size_t outputSlotBase = inputSlotBase + info.numTensorInputs;
+    const size_t semaphoreBase = outputSlotBase + info.outputSlotTypes.size();
 
-      if (isSemaphoreValue(funcArg)) {
-        traceCallArgs.push_back(funcArg);
-        continue;
-      }
-
-      if (shouldKeepArgOnDevice(traceFunc, i)) {
-        traceInputSlots.push_back(funcArg);
-        traceCallArgs.push_back(funcArg);
-        continue;
-      }
-
-      // Regular inputs need device memory allocation for host-to-device
-      // transfer. Create empty tensors on device that will serve as persistent
-      // slots for trace input data during capture and replay.
-      mlir::Type traceInputSlotType =
-          traceInputSlotTypes[traceInputSlots.size()];
-
-      RankedTensorType deviceTensorType =
-          mlir::cast<RankedTensorType>(traceInputSlotType);
-
-      auto emptyOp = builder.create<ttnn::EmptyOp>(
-          runAndCaptureTraceFunc.getLoc(), deviceTensorType, deviceOp,
-          ttnn::ShapeAttr::get(context, deviceTensorType.getShape()));
-
-      traceInputSlots.push_back(emptyOp.getResult());
-      traceCallArgs.push_back(emptyOp.getResult());
-      hostToSlotTransfers.push_back({funcArg, emptyOp.getResult()});
+    // Each trace function tensor argument's input slot, in argument order.
+    llvm::SmallVector<mlir::Value> inputSlots;
+    for (size_t i = 0; i < info.numTensorInputs; i++) {
+      inputSlots.push_back(captureFunc.getArgument(inputSlotBase + i));
     }
 
-    // Transfer host inputs to their corresponding device slots.
-    for (auto [hostInput, deviceSlot] : hostToSlotTransfers) {
-      builder.create<ttnn::WriteTensorOp>(runAndCaptureTraceFunc.getLoc(),
-                                          hostInput, deviceSlot,
-                                          /*blocking=*/false, /*cq_id=*/0);
+    llvm::SmallVector<mlir::Value> traceOutputSlots;
+    for (size_t i = 0; i < info.outputSlotTypes.size(); i++) {
+      traceOutputSlots.push_back(captureFunc.getArgument(outputSlotBase + i));
+    }
+
+    // Transfer the host-staged inputs into their device slots. This has to
+    // happen before the capture window opens: tt-metal rejects host writes
+    // while a capture is active.
+    for (auto [h, argIndex] : llvm::enumerate(info.hostStagedIndices())) {
+      builder.create<ttnn::WriteTensorOp>(
+          captureFunc.getLoc(), captureFunc.getArgument(h),
+          inputSlots[argIndex], /*blocking=*/false, /*cq_id=*/0);
+    }
+
+    // Rebuild the trace function's call arguments in its own argument order:
+    // [tensor inputs from their slots][output slots][semaphores].
+    llvm::SmallVector<mlir::Value> traceCallArgs(inputSlots);
+    llvm::append_range(traceCallArgs, traceOutputSlots);
+    for (size_t i = 0; i < info.semaphoreTypes.size(); i++) {
+      traceCallArgs.push_back(captureFunc.getArgument(semaphoreBase + i));
     }
 
     // Execute the trace function once without capture to compile programs and
     // populate program cache.
-    builder.create<func::CallOp>(runAndCaptureTraceFunc.getLoc(), traceFunc,
+    builder.create<func::CallOp>(captureFunc.getLoc(), traceFunc,
                                  traceCallArgs);
 
-    // Start capturing the trace.
     auto beginTraceCaptureOp = builder.create<ttnn::BeginTraceCaptureOp>(
-        runAndCaptureTraceFunc.getLoc(), utils::getTraceIdType(context),
-        deviceOp,
+        captureFunc.getLoc(), utils::getTraceIdType(context), deviceOp,
         /*cq_id=*/0);
 
-    // Execute the trace on device and capture it.
-    auto captureTraceCall = builder.create<func::CallOp>(
-        runAndCaptureTraceFunc.getLoc(), traceFunc, traceCallArgs);
+    // Execute the trace function again and capture it.
+    builder.create<func::CallOp>(captureFunc.getLoc(), traceFunc,
+                                 traceCallArgs);
 
-    // Complete the trace capture.
-    builder.create<ttnn::EndTraceCaptureOp>(runAndCaptureTraceFunc.getLoc(),
-                                            deviceOp, beginTraceCaptureOp,
+    builder.create<ttnn::EndTraceCaptureOp>(captureFunc.getLoc(), deviceOp,
+                                            beginTraceCaptureOp,
                                             /*cq_id=*/0);
 
-    // Execute the trace once to fill output slots with real computed values.
-    builder.create<ttnn::ExecuteTraceOp>(runAndCaptureTraceFunc.getLoc(),
-                                         deviceOp, beginTraceCaptureOp,
+    // Replay once so the output slots hold valid results for this invocation.
+    builder.create<ttnn::ExecuteTraceOp>(captureFunc.getLoc(), deviceOp,
+                                         beginTraceCaptureOp,
                                          /*cq_id=*/0, /*blocking=*/false);
 
-    // Assemble return values: trace ID and persistent slots.
-    llvm::SmallVector<mlir::Value> returnValues;
-
-    // Return the trace ID for correlation with execution.
-    returnValues.push_back(beginTraceCaptureOp.getTraceId());
-    // Return the trace input slots for all tensor inputs (including
-    // constants/parameters and KV cache) that are persisted on device.
-    for (mlir::Value inputSlot : traceInputSlots) {
-      returnValues.push_back(inputSlot);
-    }
-    // Return the trace output slots. After the execute_trace above, these
-    // contain valid computed results for the first invocation.
-    for (mlir::Value outputSlot : captureTraceCall.getResults()) {
-      returnValues.push_back(outputSlot);
-    }
-
-    builder.create<func::ReturnOp>(runAndCaptureTraceFunc.getLoc(),
-                                   returnValues);
+    builder.create<func::ReturnOp>(
+        captureFunc.getLoc(),
+        mlir::ValueRange{beginTraceCaptureOp.getTraceId()});
 
     return mlir::success();
   }
@@ -561,14 +682,6 @@ private:
     mlir::MLIRContext *context = &this->getContext();
     mlir::OpBuilder builder(context);
     mlir::IRRewriter rewriter(builder);
-
-    TraceSmallString traceFuncName = getTraceFuncName(funcOp, traceFuncIndex);
-    ModuleOp moduleOp = funcOp->getParentOfType<ModuleOp>();
-    func::FuncOp traceFunc = moduleOp.lookupSymbol<func::FuncOp>(traceFuncName);
-    if (!traceFunc) {
-      return funcOp.emitError("Could not find trace function with name: " +
-                              traceFuncName);
-    }
 
     llvm::SmallVector<mlir::Type> inputTypes;
     inputTypes.push_back(utils::getTraceIdType(context));
@@ -705,10 +818,9 @@ private:
     return mlir::success();
   }
 
-  mlir::LogicalResult
-  insertCaptureOrExecuteTraceOp(func::FuncOp funcOp,
-                                llvm::ArrayRef<Operation *> opsToHoist,
-                                uint64_t traceFuncIndex) {
+  mlir::LogicalResult insertCaptureOrExecuteTraceOp(
+      func::FuncOp funcOp, llvm::ArrayRef<Operation *> opsToHoist,
+      uint64_t traceFuncIndex, const TraceMainFuncInfo &info) {
     mlir::MLIRContext *context = &this->getContext();
     mlir::OpBuilder builder(context);
     mlir::IRRewriter rewriter(builder);
@@ -724,6 +836,16 @@ private:
           captureTraceFuncName);
     }
 
+    TraceSmallString allocateSlotsTraceFuncName =
+        getAllocateSlotsTraceFuncName(funcOp, traceFuncIndex);
+    func::FuncOp allocateSlotsTraceFunc =
+        moduleOp.lookupSymbol<func::FuncOp>(allocateSlotsTraceFuncName);
+    if (!allocateSlotsTraceFunc) {
+      return funcOp.emitError(
+          "Could not find slot allocation trace function with name: " +
+          allocateSlotsTraceFuncName);
+    }
+
     TraceSmallString executeTraceFuncName =
         getExecuteTraceFuncName(funcOp, traceFuncIndex);
     func::FuncOp executeTraceFunc =
@@ -734,18 +856,10 @@ private:
           executeTraceFuncName);
     }
 
-    llvm::SmallVector<mlir::Value> inputs;
-    llvm::SmallVector<mlir::Value> outputs;
-    llvm::SmallVector<mlir::Type> outputTypes;
-
-    collectFunctionBoundary(opsToHoist, inputs, outputs);
-
-    for (mlir::Value output : outputs) {
-      outputTypes.push_back(output.getType());
-    }
-
     auto captureTraceSymbolAttr =
         mlir::SymbolRefAttr::get(context, captureTraceFuncName);
+    auto allocateSlotsTraceSymbolAttr =
+        mlir::SymbolRefAttr::get(context, allocateSlotsTraceFuncName);
     auto executeTraceSymbolAttr =
         mlir::SymbolRefAttr::get(context, executeTraceFuncName);
 
@@ -755,43 +869,32 @@ private:
 
     auto device = utils::getOrInsertDevice(rewriter, firstOp);
 
-    // Split inputs into the two operand groups expected by the op.
-    llvm::SmallVector<mlir::Value> tensorInputs;
-    llvm::SmallVector<mlir::Value> semaphoreInputs;
+    // Split inputs into the two operand groups expected by the op; the
+    // boundary inputs hold the tensors first and the semaphores after them.
+    llvm::SmallVector<mlir::Value> tensorInputs(info.numTensorInputs);
+    llvm::SmallVector<mlir::Value> semaphoreInputs(info.boundaryInputs.begin() +
+                                                       info.numTensorInputs,
+                                                   info.boundaryInputs.end());
 
-    for (size_t i = 0; i < inputs.size(); i++) {
-      mlir::Value input = inputs[i];
-
-      if (isSemaphoreValue(input)) {
-        semaphoreInputs.push_back(input);
-        continue;
-      }
-
-      if (!mlir::isa<RankedTensorType>(input.getType())) {
-        return funcOp.emitError(
-            "Trace input must be a ranked tensor or global semaphore");
-      }
-
-      // Check if this value should remain on device during trace capture.
-      // Handles direct BlockArguments and LoadCachedOp results.
-      bool keepOnDevice = isDeviceResidentValue(input);
-
-      RankedTensorType tensorType =
-          mlir::cast<RankedTensorType>(input.getType());
+    // Device-resident values (constants, parameters, KV cache) can be
+    // captured directly without moving to system memory.
+    for (size_t argIndex : info.deviceResidentIndices()) {
+      mlir::Value input = info.boundaryInputs[argIndex];
+      auto tensorType = mlir::cast<RankedTensorType>(input.getType());
       auto layout = mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
-
-      // Device-resident values (constants, parameters, KV cache) can be
-      // captured directly without moving to system memory.
-      if (keepOnDevice) {
-        if (layout.getBufferType() == ttnn::BufferType::SystemMemory) {
-          return funcOp.emitError(
-              "Device-resident input must be on device, but found on "
-              "system memory");
-        }
-        tensorInputs.push_back(input);
+      if (layout.getBufferType() == ttnn::BufferType::SystemMemory) {
+        return funcOp.emitError(
+            "Device-resident input must be on device, but found on "
+            "system memory");
       }
-      // For inputs, convert them to system memory/row major if needed
-      else if (layout.getBufferType() != ttnn::BufferType::SystemMemory) {
+      tensorInputs[argIndex] = input;
+    }
+    // Host-staged inputs are converted to system memory if needed.
+    for (size_t argIndex : info.hostStagedIndices()) {
+      mlir::Value input = info.boundaryInputs[argIndex];
+      auto tensorType = mlir::cast<RankedTensorType>(input.getType());
+      auto layout = mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+      if (layout.getBufferType() != ttnn::BufferType::SystemMemory) {
         // Convert to system memory using ToTensorSpecOp
         RankedTensorType systemMemoryTileType =
             utils::RankedTensorTypeFactory::create(
@@ -799,20 +902,22 @@ private:
 
         auto toTensorSpecOp = builder.create<ttnn::ToTensorSpecOp>(
             funcOp.getLoc(), systemMemoryTileType, input);
-        tensorInputs.push_back(toTensorSpecOp.getResult());
+        tensorInputs[argIndex] = toTensorSpecOp.getResult();
       } else {
         // Already on system memory
-        tensorInputs.push_back(input);
+        tensorInputs[argIndex] = input;
       }
     }
 
     auto traceOp = builder.create<ttnn::CaptureOrExecuteTraceOp>(
-        funcOp.getLoc(), outputTypes, device, captureTraceSymbolAttr,
+        funcOp.getLoc(), info.outputSlotTypes, device,
+        allocateSlotsTraceSymbolAttr, captureTraceSymbolAttr,
         executeTraceSymbolAttr, tensorInputs, semaphoreInputs);
 
     // Replace uses of original outputs with the output of the trace op function
-    for (size_t i = 0; i < outputs.size(); i++) {
-      outputs[i].replaceAllUsesWith(traceOp->getResult(i));
+    for (size_t i = 0; i < info.boundaryOutputs.size(); i++) {
+      mlir::Value output = info.boundaryOutputs[i];
+      output.replaceAllUsesWith(traceOp->getResult(i));
     }
 
     // Remove the original ops in reverse order (to avoid dependency issues)
@@ -827,14 +932,21 @@ private:
   performHoistTransform(func::FuncOp funcOp,
                         llvm::ArrayRef<Operation *> opsToHoist) {
     uint64_t traceFuncIndex = getUniqueTraceFuncIndex();
-    // Create trace function and trace op if there are ops to hoist
-    ::mlir::LogicalResult result =
+    // Create the trace function. Everything the downstream builders need to
+    // know about it is computed here, once.
+    mlir::FailureOr<TraceMainFuncInfo> info =
         createTraceFunction(funcOp, opsToHoist, traceFuncIndex);
+    if (failed(info)) {
+      return mlir::failure();
+    }
+
+    mlir::LogicalResult result =
+        createAllocateSlotsTraceFunction(funcOp, traceFuncIndex, *info);
     if (failed(result)) {
       return result;
     }
 
-    result = createRunAndCaptureTraceFunction(funcOp, traceFuncIndex);
+    result = createRunAndCaptureTraceFunction(funcOp, traceFuncIndex, *info);
     if (failed(result)) {
       return result;
     }
@@ -844,7 +956,8 @@ private:
       return result;
     }
 
-    result = insertCaptureOrExecuteTraceOp(funcOp, opsToHoist, traceFuncIndex);
+    result = insertCaptureOrExecuteTraceOp(funcOp, opsToHoist, traceFuncIndex,
+                                           *info);
     if (failed(result)) {
       return result;
     }
