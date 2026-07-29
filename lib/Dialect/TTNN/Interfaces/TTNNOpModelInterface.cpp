@@ -1762,57 +1762,24 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 //===----------------------------------------------------------------------===//
 // ToTensorSpecOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
-//
+
 // to_tensor_spec is the aggregate op that ttir.to_layout lowers to and that
-// TTNNDecomposeLayouts breaks down into a ::ttnn::to_layout (plus to_device /
-// to_memory_config / typecast). Its cost is therefore modeled as the same
-// ::ttnn::to_layout query, so it reuses the ToLayoutOp op-model backend.
+// TTNNDecomposeLayouts breaks down into to_layout, to_device, to_memory_config
+// and typecast ops. It is always decomposed before reaching a backend, so there
+// is no need to model it via the constraint API.
 
 llvm::Expected<op_model::OpConstraints>
 ToTensorSpecOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                  const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-  assert(opConfig.outputLayout && "ToTensorSpecOp requires output layout");
-  assert(opConfig.outputLayout.getLayout() == getLayoutAttr().getValue());
-
-  const auto inputShape = getInput().getType().getShape();
-
-  // Only signal a dtype conversion to the op model when this op is genuinely
-  // changing dtype. Use the resolved (candidate or intrinsic) output dtype,
-  // and compare it against the input dtype.
-  std::optional<ttcore::DataType> outputDtype = std::nullopt;
-  if (ttcore::DataTypeAttr dtype =
-          detail::resolveOutputDtype(getOperation(), opConfig.outputLayout)) {
-    if (dtype.getValue() != inputs[0].getDataType()) {
-      outputDtype = dtype.getValue();
-    }
-  }
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ToLayoutOp>::getOpConstraints, *this, inputShape,
-      inputs[0], outputDtype, opConfig.outputLayout);
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
 }
 
 llvm::Expected<size_t>
 ToTensorSpecOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-  assert(opConfig.outputLayout && "ToTensorSpecOp requires output layout");
-  assert(opConfig.outputLayout.getLayout() == getLayoutAttr().getValue());
-
-  const auto inputShape = getInput().getType().getShape();
-
-  std::optional<ttcore::DataType> outputDtype = std::nullopt;
-  if (ttcore::DataTypeAttr dtype =
-          detail::resolveOutputDtype(getOperation(), opConfig.outputLayout)) {
-    if (dtype.getValue() != inputs[0].getDataType()) {
-      outputDtype = dtype.getValue();
-    }
-  }
-
-  return opRuntimeCache().getOrCompute(
-      op_model::OpModel<ToLayoutOp>::getOpRuntime, *this, inputShape, inputs[0],
-      outputDtype, opConfig.outputLayout);
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
 }
 
 //===----------------------------------------------------------------------===//
