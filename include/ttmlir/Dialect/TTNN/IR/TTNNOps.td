@@ -2623,6 +2623,49 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_Compute
     let hasVerifier = 1;
 }
 
+def TTNN_DitRMSNormUnaryFusedOp : TTNN_Op<"dit_rms_norm_unary_fused",
+    [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    let summary = "Fused RMSNorm + unary activation op.";
+    let description = [{
+      Fused RMS (Root Mean Square) normalization followed by an optional unary
+      activation (e.g. SiLU, GELU), computed in a single kernel pass. This is
+      equivalent to:
+
+        y = <activation>(rms_norm(input + residual_input, weight, bias, epsilon))
+
+      but avoids materializing the intermediate normalized tensor. Targets DiT
+      (Diffusion Transformer) blocks. Maps to
+      `ttnn::experimental::dit_rms_norm_unary_fused` at runtime.
+
+      Normalization is performed over the last dimension of the input tensor,
+      matching the TTNN runtime implementation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         Optional<AnyRankedTensor>:$residual_input,
+                         DefaultValuedAttr<F32Attr, "1e-5">:$epsilon,
+                         OptionalAttr<StrAttr>:$activation,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let builders = [
+      OpBuilder<(ins "Type":$result, "Value":$input, "Value":$weight,
+                     "Value":$bias, "Value":$residual_input,
+                     "llvm::APFloat":$epsilon, "StringAttr":$activation),
+      [{
+        build($_builder, $_state, result, input, weight, bias, residual_input,
+              epsilon, activation, /*memory_config=*/nullptr,
+              /*compute_config=*/nullptr);
+      }]>
+    ];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
     [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface, TTNN_DistributedOpInterface, OpModelExempt]> {
     let summary = "Distributed RMS normalization with all-gather op.";

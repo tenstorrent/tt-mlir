@@ -1222,6 +1222,44 @@ def ttir_rms_norm_golden(
     return rms_norm.to(output_dtype)
 
 
+def dit_rms_norm_unary_fused_golden(
+    input: GoldenMapTensor,
+    weight: Optional[GoldenMapTensor] = None,
+    bias: Optional[GoldenMapTensor] = None,
+    residual_input: Optional[GoldenMapTensor] = None,
+    normalized_shape: List[int] = None,
+    epsilon: float = 1e-5,
+    activation: Optional[Union[str, "StringAttr"]] = None,
+) -> GoldenMapTensor:
+    """
+    Custom golden function for fused RMS normalization + unary activation.
+
+    Computes ``activation(rms_norm(input + residual_input, weight, bias, eps))``.
+    """
+    x = input.float()
+    if residual_input is not None:
+        x = torch.add(x, residual_input.float())
+
+    if normalized_shape is None:
+        normalized_shape = [x.shape[-1]]
+
+    result = torch.nn.functional.rms_norm(
+        x,
+        normalized_shape=normalized_shape,
+        weight=weight,
+        eps=epsilon,
+    )
+
+    if bias is not None:
+        result = torch.add(result, bias.float())
+
+    activation_fn = _get_fused_activation_fn(activation)
+    if activation_fn is not None:
+        result = activation_fn(result)
+
+    return result.to(input.dtype)
+
+
 def ttir_distributed_rms_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
@@ -9046,6 +9084,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.LayerNormPostAllGatherOp: ttnn_layer_norm_post_all_gather_golden,
     ttnn.GroupNormOp: ttnn_group_norm_golden,
     ttnn.RMSNormOp: rms_norm_golden,
+    ttnn.DitRMSNormUnaryFusedOp: dit_rms_norm_unary_fused_golden,
     ttnn.PagedFlashMultiLatentAttentionDecodeOp: ttir_paged_flash_multi_latent_attention_decode_golden,
     ttnn.RMSNormPreAllGatherOp: ttnn_rms_norm_pre_all_gather_golden,
     # Tensor manipulation
@@ -9335,6 +9374,25 @@ def chisel_ttnn_rms_norm(op, inputs):
         bias=inputs["bias"],
         normalized_shape=normalized_shape,
         epsilon=unpack_mlir_attr(op.attributes["epsilon"]),
+    )
+
+
+def chisel_ttnn_dit_rms_norm_unary_fused(op, inputs):
+    input_tensor = inputs["input"]
+    normalized_shape = [input_tensor.shape[-1]]
+    activation = (
+        unpack_mlir_attr(op.attributes["activation"])
+        if "activation" in op.attributes
+        else None
+    )
+    return dit_rms_norm_unary_fused_golden(
+        input=input_tensor,
+        weight=inputs.get("weight"),
+        bias=inputs.get("bias"),
+        residual_input=inputs.get("residual_input"),
+        normalized_shape=normalized_shape,
+        epsilon=unpack_mlir_attr(op.attributes["epsilon"]),
+        activation=activation,
     )
 
 
@@ -10272,6 +10330,7 @@ CHISEL_GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.LayerNormPreAllGatherOp: chisel_ttnn_layer_norm_pre_all_gather,
     ttnn.LayerNormPostAllGatherOp: chisel_ttnn_layer_norm_post_all_gather,
     ttnn.RMSNormOp: chisel_ttnn_rms_norm,
+    ttnn.DitRMSNormUnaryFusedOp: chisel_ttnn_dit_rms_norm_unary_fused,
     # CCL ops
     ttnn.DistributeTensorOp: chisel_ttnn_distribute_tensor,
     ttnn.AggregateTensorOp: chisel_ttnn_aggregate_tensor,

@@ -4060,6 +4060,52 @@ public:
 };
 } // namespace
 
+// DitRMSNormUnaryFusedOp conversion pattern
+//
+namespace {
+class DitRMSNormUnaryFusedOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::DitRMSNormUnaryFusedOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.dit_rms_norm_unary_fused";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.dit_rms_norm_unary_fused";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::DitRMSNormUnaryFusedOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::DitRMSNormUnaryFusedOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::DitRMSNormUnaryFusedOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getEpsilon(), "epsilon"),
+        emitter.emit(srcOp.getWeight(), "weight"),
+        emitter.emit(srcOp.getBias(), "bias"),
+        emitter.emit(srcOp.getResidualInput(), "residual_input_tensor"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.emit(std::nullopt, "program_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+        emitter.emit(srcOp.getActivation(), "activation"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // RMSNormPreAllGatherOp conversion pattern
 //
 namespace {
@@ -5492,6 +5538,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns
       .add<BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
+           DitRMSNormUnaryFusedOpConversionPattern,
            DistributedRMSNormOpConversionPattern,
            RMSNormPreAllGatherOpConversionPattern, LayerNormOpConversionPattern,
            LayerNormPreAllGatherOpConversionPattern,

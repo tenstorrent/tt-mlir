@@ -14,8 +14,10 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#include "ttnn/operations/eltwise/unary/common/unary_op_utils.hpp"
 #include "ttnn/operations/experimental/ccl/moe_compute/moe_compute.hpp"
 #include "ttnn/operations/experimental/ccl/moe_compute/moe_compute_utils.hpp"
+#include "ttnn/operations/experimental/transformer/dit_rms_norm_unary_fused/dit_rms_norm_unary_fused.hpp"
 
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
@@ -6623,6 +6625,117 @@ llvm::Expected<size_t> OpModel<BatchNormTrainingOp>::getOpRuntime(
   };
 
   return operation::getOpRuntime(batchNormQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// DitRMSNormUnaryFusedOp
+//===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+static std::optional<::ttnn::operations::unary::UnaryWithParam>
+convertActivation(mlir::StringAttr activation) {
+  if (!activation) {
+    return std::nullopt;
+  }
+  return ::ttnn::operations::unary::utils::string_to_unary_with_param(
+      activation.getValue().str());
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
+llvm::Expected<OpConstraints> OpModel<DitRMSNormUnaryFusedOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout,
+    std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+    std::optional<TTNNLayoutAttr> residualInputLayout, llvm::APFloat epsilon,
+    mlir::StringAttr activation, TTNNLayoutAttr outputLayout,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> biasSpec =
+      detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
+  std::optional<::ttnn::TensorSpec> residualInputSpec =
+      detail::convertToOptionalTensorSpec(device, residualInputShape,
+                                          residualInputLayout);
+
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      computeKernelConfigConverted =
+          conversion::getDeviceComputeKernelConfig(computeKernelConfig);
+
+  std::optional<::ttnn::operations::unary::UnaryWithParam> activationParam =
+      convertActivation(activation);
+
+  auto query = [=]() {
+    return QUERY_OP_CONSTRAINTS(::ttnn::experimental::dit_rms_norm_unary_fused,
+                                device, inputSpec, epsilon.convertToFloat(),
+                                weightSpec, biasSpec, residualInputSpec,
+                                detail::getNullableMemoryConfig(outputLayout),
+                                /*program_config=*/std::nullopt,
+                                computeKernelConfigConverted, activationParam);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<DitRMSNormUnaryFusedOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout,
+    std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+    std::optional<TTNNLayoutAttr> residualInputLayout, llvm::APFloat epsilon,
+    mlir::StringAttr activation, TTNNLayoutAttr outputLayout,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> biasSpec =
+      detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
+  std::optional<::ttnn::TensorSpec> residualInputSpec =
+      detail::convertToOptionalTensorSpec(device, residualInputShape,
+                                          residualInputLayout);
+
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      computeKernelConfigConverted =
+          conversion::getDeviceComputeKernelConfig(computeKernelConfig);
+
+  std::optional<::ttnn::operations::unary::UnaryWithParam> activationParam =
+      convertActivation(activation);
+
+  auto query = [=]() {
+    return QUERY_OP_RUNTIME(::ttnn::experimental::dit_rms_norm_unary_fused,
+                            device, inputSpec, epsilon.convertToFloat(),
+                            weightSpec, biasSpec, residualInputSpec,
+                            detail::getNullableMemoryConfig(outputLayout),
+                            /*program_config=*/std::nullopt,
+                            computeKernelConfigConverted, activationParam);
+  };
+
+  return operation::getOpRuntime(query);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
