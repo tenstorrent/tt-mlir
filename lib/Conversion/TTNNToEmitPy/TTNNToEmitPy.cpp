@@ -4919,6 +4919,37 @@ public:
   }
 };
 
+class TopKLargeIndicesOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<tt::ttnn::TopKLargeIndicesOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.topk_large_indices";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.topk_large_indices";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      tt::ttnn::TopKLargeIndicesOp>::TTNNToEmitPyBaseOpConversionPattern;
+  LogicalResult
+  matchAndRewrite(tt::ttnn::TopKLargeIndicesOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::TopKLargeIndicesOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getK(), "k"),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+
 class SamplingOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<tt::ttnn::SamplingOp> {
 public:
@@ -5543,6 +5574,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                DistributeTensorOpConversionPattern,
                AggregateTensorOpConversionPattern,
                TopKOpConversionPattern,
+               TopKLargeIndicesOpConversionPattern,
                AllToAllDispatchOpConversionPattern,
                AllToAllDispatchMetadataOpConversionPattern,
                AllToAllCombineOpConversionPattern,

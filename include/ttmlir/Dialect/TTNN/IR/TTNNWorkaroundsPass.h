@@ -23,6 +23,7 @@ class SliceStaticOp;
 class RotaryEmbeddingOp;
 class Conv3dOp;
 class TopKOp;
+class TopKLargeIndicesOp;
 class TopKRouterGptOp;
 class MoeComputeOp;
 class PrepareMoEComputeW0W1WeightsOp;
@@ -440,6 +441,12 @@ public:
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/40086
   static TTNNOperandsWorkarounds
   createTopKOpOperandsWorkarounds(ttnn::TopKOp op);
+
+  // Create workarounds for topk_large_indices op.
+  // The tt-metal kernel requires a ROW_MAJOR BFloat16 input and produces a
+  // ROW_MAJOR UInt32 indices output.
+  static TTNNOperandsWorkarounds
+  createTopKLargeIndicesOpOperandsWorkarounds(ttnn::TopKLargeIndicesOp op);
 
   // Create workarounds for topk_router_gpt op.
   // The kernel always returns both outputs (expert_indices, expert_weights) in

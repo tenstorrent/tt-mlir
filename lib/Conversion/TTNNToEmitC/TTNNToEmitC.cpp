@@ -5487,6 +5487,39 @@ public:
   }
 };
 
+class TTNNToEmitCTopKLargeIndicesOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::TopKLargeIndicesOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.topk_large_indices";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::topk_large_indices";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::TopKLargeIndicesOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::TopKLargeIndicesOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::TopKLargeIndicesOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getK()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+
 class TTNNToEmitCSamplingOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::SamplingOp> {
 public:
@@ -5654,6 +5687,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            SliceDynamicOpConversionPattern, SortOpConversionPattern,
            PermuteOpConversionPattern, PadOpConversionPattern,
            TTNNToEmitCTopKOpConversionPattern,
+           TTNNToEmitCTopKLargeIndicesOpConversionPattern,
            TTNNToEmitCSamplingOpConversionPattern, GatherOpConversionPattern>(
           typeConverter, ctx);
 
