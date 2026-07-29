@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <string>
 #include <vector>
 
 #include <ATen/ATen.h>
@@ -21,7 +20,6 @@
 #include <mlir/IR/BuiltinTypes.h>
 
 #include "cast.hpp"
-#include "engine/device.hpp"
 #include "torch/backend.hpp"
 #include "torch/ops/builders.hpp"
 #include "torch/tensor.hpp"
@@ -43,8 +41,7 @@ at::Tensor make_tt_tensor_from_host(void *data, at::IntArrayRef sizes, c10::Scal
 // `to_local` semantic `.cpu()` / `.item()` want; the global cross-chip view is
 // reconstructed by DTensor's `full_tensor()` via a collective, not here.
 void read_local_shard_to_host(const at::Tensor &self, void *dst, const char *who) {
-    auto &storage = storage_of(self);
-    auto host_shards = ::tt::runtime::toHost(storage.tensor(), /*untilize=*/true);
+    auto host_shards = storage_of(self).to_host(/*untilize=*/true);
     TORCH_CHECK(!host_shards.empty(), "tt-kurbla ", who, ": runtime returned no shards");
     ::tt::runtime::memcpy(dst, host_shards[0], to_runtime_dtype(self.scalar_type()));
 }
@@ -77,7 +74,7 @@ at::Tensor empty_memory_format(at::IntArrayRef size, std::optional<at::ScalarTyp
 // chip's bytes.
 std::vector<std::vector<std::byte>> read_per_shard_to_host(const at::Tensor &self, const char *who) {
     auto &storage = storage_of(self);
-    auto host_shards = ::tt::runtime::toHost(storage.tensor(), /*untilize=*/true);
+    auto host_shards = storage.to_host(/*untilize=*/true);
     TORCH_CHECK(!host_shards.empty(), "tt-kurbla ", who, ": runtime returned no shards");
     const auto element_dtype = to_runtime_dtype(self.scalar_type());
     const auto element_size = as<std::size_t>(self.element_size());
@@ -100,10 +97,10 @@ std::vector<std::vector<std::byte>> read_per_shard_to_host(const at::Tensor &sel
 // for replicated tensors.
 ::tt::runtime::Tensor rebuild_at_shape(const at::Tensor &src, at::IntArrayRef sizes, c10::ScalarType dtype,
                                        const char *who) {
-    const auto per_shard = read_per_shard_to_host(src, who);
-    std::vector<const void *> ptrs;
+    auto per_shard = read_per_shard_to_host(src, who);
+    std::vector<void *> ptrs;
     ptrs.reserve(per_shard.size());
-    for (const auto &b : per_shard) {
+    for (auto &b : per_shard) {
         ptrs.push_back(b.data());
     }
     return runtime_from_host_shards(std::move(ptrs), sizes, dtype);
@@ -129,17 +126,7 @@ at::Tensor copy_from(const at::Tensor &self, const at::Tensor &dst, bool /*non_b
     }
 
     if (self.is_cpu() && is_tt(dst)) {
-        // Upload the single local-shaped CPU buffer to every chip. Unlike real
-        // multi-process SPMD (where each rank copies its own shard), the
-        // single-process backend receives one host buffer and cannot
-        // reconstruct N distinct shards — so broadcasting is the only coherent
-        // behaviour, and also the only case we have observed so far on this
-        // path.
-        // TODO: investigate createBorrowedHostTensor over self.data_ptr() to avoid
-        //       the buffer copy here. Need to confirm tt-mlir runtime's borrowed-
-        //       tensor lifetime rules vs. how long PyTorch keeps `self` alive.
-        auto runtime_tensor = runtime_from_torch_tensor(self);
-        storage_of(dst).replace(std::move(runtime_tensor));
+        storage_of(dst).replace(self);
         return dst;
     }
 
@@ -295,7 +282,7 @@ at::Tensor as_strided(const at::Tensor &self, at::IntArrayRef size, at::IntArray
     const auto opts = at::TensorOptions().dtype(self.scalar_type()).device(at::kCPU);
     std::vector<at::Tensor> strided; // owns the contiguous buffers until upload
     strided.reserve(per_shard.size());
-    std::vector<const void *> ptrs;
+    std::vector<void *> ptrs;
     ptrs.reserve(per_shard.size());
     for (auto &shard : per_shard) {
         auto cpu_full = at::from_blob(shard.data(), self.sizes(), opts);

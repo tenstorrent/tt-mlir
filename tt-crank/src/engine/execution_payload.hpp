@@ -30,8 +30,8 @@ public:
     CompiledProgram &compiled_program() const;
 
     // Calls tt::runtime::toLayout if tensor is in wrong layout and stores the device tensor in
-    // slot `index`.
-    void bind_tensor(tt::runtime::Tensor &tensor, std::uint32_t index);
+    // slot `index`. Returns bound tensor.
+    tt::runtime::Tensor bind_tensor(tt::runtime::Tensor tensor, std::uint32_t index);
 
     // Returns device-resident outputs; caller does toHost.
     std::vector<tt::runtime::Tensor> run();

@@ -13,6 +13,9 @@ import torch
 
 from tt_kurbla.torch.testing import strict_no_fallback
 
+# Not borrow-eligible in the runtime, so cpu→tt falls back to an owned copy.
+OWNED_COPY_DTYPE = torch.float16
+
 
 # -----------------------------------------------------------------------------
 # empty.memory_format
@@ -75,19 +78,66 @@ def test_cpu_tt_cpu_round_trip_preserves_data(shape: tuple[int, ...]) -> None:
     torch.testing.assert_close(round_trip, src, atol=0, rtol=0)
 
 
-def test_cpu_to_tt_survives_source_deletion() -> None:
-    # Probes the ownership contract of _copy_from(cpu→tt): the tt-side runtime
-    # tensor is built via createOwnedHostTensor — "Owned" should mean it copies
-    # the source bytes at upload time. If it secretly borrows the cpu pointer,
-    # dropping `src` before the readback is a use-after-free and the round-trip
-    # values will be garbage (or asan will fire).
-    src = torch.randn((32, 32), dtype=torch.bfloat16)
-    expected = src.clone()  # independent cpu copy that survives `del src`
-    tt_tensor = src.to("tt")
+def test_tensor_borrowing() -> None:
+    # Tests various tensor borrowing behaviour.
+    x = torch.tensor(1, dtype=torch.bfloat16)
+
+    borrowed = torch.arange(1024, dtype=torch.int32)  # borrow-eligible
+    tt_borrowed = borrowed.to("tt")
+    borrowed.numpy()[0] = 4242  # out-of-band write (no version bump) seen via the alias
+    assert tt_borrowed.cpu()[0].item() == 4242
+    owned = torch.ones(1024, dtype=OWNED_COPY_DTYPE)  # owned copy, not aliased
+    tt_owned = owned.to("tt")
+    owned.numpy()[0] = 42.0
+    assert tt_owned.cpu()[0].item() == 1.0
+
+    with pytest.raises(RuntimeError, match="source must be contiguous"):
+        torch.ones((32, 32), dtype=torch.bfloat16).transpose(0, 1).to("tt") # raises
+
+    src = torch.randn((32, 32), dtype=torch.bfloat16)  # survives del src via pin_
+    expected = src.clone()
+    tt = src.to("tt")
     del src
     gc.collect()
-    round_trip = tt_tensor.cpu()
-    torch.testing.assert_close(round_trip, expected, atol=0, rtol=0)
+    torch.testing.assert_close(tt.cpu(), expected, atol=0, rtol=0)
+
+    src = torch.ones((32, 32), dtype=torch.bfloat16)  # survives del src through upload
+    expected = src.clone()
+    tt = src.to("tt")
+    del src
+    gc.collect()
+    torch.testing.assert_close((tt + x).cpu(), expected + x, atol=0, rtol=0)
+
+    indep = torch.ones((32, 32), dtype=torch.bfloat16)  # release-on-upload de-aliases
+    tt_indep = indep.to("tt")
+    _ = (tt_indep + x).cpu()
+    indep[0, 0] = 999.0
+    torch.testing.assert_close(tt_indep.cpu(), torch.ones((32, 32), dtype=torch.bfloat16), atol=0, rtol=0)
+
+    mutated = torch.ones((32, 32), dtype=torch.bfloat16)  # mutation rejected at readback
+    tt_mutated = mutated.to("tt")
+    mutated.mul_(0)
+    with pytest.raises(RuntimeError, match="modified in-place"):
+        tt_mutated.cpu()
+
+    mutated = torch.ones((32, 32), dtype=torch.bfloat16)  # mutation rejected at device use
+    tt_mutated = mutated.to("tt")
+    mutated.add_(1.0)
+    with pytest.raises(RuntimeError, match="modified in-place"):
+        _ = (tt_mutated + x).cpu()
+
+    over = torch.ones((32, 32), dtype=torch.bfloat16)  # overwrite discards the stale borrow
+    tt_over = over.to("tt")
+    over.mul_(0)
+    tt_over.zero_()
+    torch.testing.assert_close(tt_over.cpu(), torch.zeros((32, 32), dtype=torch.bfloat16), atol=0, rtol=0)
+
+    with torch.inference_mode():  # unversioned tensors: guard steps aside, no crash
+        inf = torch.ones((32, 32), dtype=torch.bfloat16)
+        expected_inf = inf.clone()
+        tt_inf = inf.to("tt")
+        torch.testing.assert_close(tt_inf.cpu(), expected_inf, atol=0, rtol=0)
+        torch.testing.assert_close((tt_inf + x).cpu(), expected_inf + 1, atol=0, rtol=0)
 
 
 def test_tt_to_tt_copy_preserves_data() -> None:

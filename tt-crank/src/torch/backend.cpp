@@ -105,12 +105,24 @@ static bool register_hooks_flag [[maybe_unused]] = []() {
     return ::tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get(), options);
 }
 
+// Binds input tensors to execution payload.
+// Since bind_tensor can change tensor layout, we must update tensor storage with new runtime tensor.
+// Tensor version is checked before binding, which ensures that tensor is not modified in-place.
+void bind_inputs(::tt::kurbla::ExecutionPayload &payload, const llvm::ArrayRef<at::Tensor> &inputs) {
+    for (std::uint32_t i = 0; i < inputs.size(); ++i) {
+        TensorStorage &storage = storage_of(inputs[i]);
+        storage.check_version();
+        tt::runtime::Tensor bound = payload.bind_tensor(storage.tensor(), i);
+        if (bound.handle != storage.tensor().handle) {
+            storage.replace(bound);
+        }
+    }
+}
+
 std::vector<at::Tensor> run_compiled_program(::tt::kurbla::CompiledProgram &program, llvm::ArrayRef<at::Tensor> inputs,
                                              llvm::ArrayRef<::tt::target::DataType> logical_output_dtypes) {
     ::tt::kurbla::ExecutionPayload payload(program);
-    for (std::uint32_t i = 0; i < inputs.size(); ++i) {
-        payload.bind_tensor(storage_of(inputs[i]).tensor(), i);
-    }
+    bind_inputs(payload, inputs);
 
     std::vector<::tt::runtime::Tensor> raw_outputs = payload.run();
     const auto &output_descs = program.output_descs;
@@ -138,9 +150,7 @@ std::vector<::tt::runtime::Tensor> compile_and_run(mlir::OwningOpRef<mlir::Modul
                                                    llvm::ArrayRef<at::Tensor> inputs) {
     ::tt::kurbla::CompiledProgram &program = compile_module(std::move(module_op));
     ::tt::kurbla::ExecutionPayload payload(program);
-    for (std::uint32_t i = 0; i < inputs.size(); ++i) {
-        payload.bind_tensor(storage_of(inputs[i]).tensor(), i);
-    }
+    bind_inputs(payload, inputs);
     return payload.run();
 }
 
