@@ -119,14 +119,50 @@ MeshFabricConfig computeMeshFabricConfig(
 
   std::vector<FabricConfig> perAxisConfig = {rowAxisConfig, colAxisConfig};
 
-  // Global config is the best of the two axes: if at least one axis supports
-  // a topology, the fabric can use it.
+  // Choose the single fabric mode that metal is programmed with. It must
+  // preserve the per-axis distinction: metal's 1D fabric derives wraparound
+  // globally (get_axis_topology: axis_can_wrap == (config == FABRIC_1D_RING)),
+  // so collapsing a mixed mesh to FABRIC_1D_RING makes every extent>2 axis --
+  // including linear ones -- wrap-capable and produces "no forwarding
+  // direction" fatals on the linear axis. Only the 2D-torus variants encode
+  // wraparound per axis (X == row/horizontal axis, Y == col/vertical axis).
+  //
+  // A wraparound is only a genuine ring when it reaches a device distinct from
+  // the ordinary neighbor, i.e. the axis extent is > 2. On a two-device axis
+  // the wrap peer is the adjacent neighbor, so metal treats it as a mesh edge
+  // (get_boundary_mode returns NONE for extent==2); programming a torus/ring
+  // there is pointless and, for 2D torus, corrupts routing. So a degenerate
+  // two-device "ring" is demoted to a linear axis here.
+  const uint32_t rowAxisExtent = numCols; // row lines span the columns (X)
+  const uint32_t colAxisExtent = numRows; // col lines span the rows (Y)
+
+  const bool rowIsRing =
+      rowAxisConfig == FabricConfig::FABRIC_1D_RING && rowAxisExtent > 2;
+  const bool colIsRing =
+      colAxisConfig == FabricConfig::FABRIC_1D_RING && colAxisExtent > 2;
+
+  // An axis is a real second dimension for CCL when it is connected and spans
+  // more than one device. Only then does a mixed (ring + linear) mesh require a
+  // 2D-torus mode; otherwise the mesh is effectively 1D and we keep the leaner
+  // 1D fabric mode that the common single-axis meshes rely on.
+  const bool rowIsRealLinear = rowAxisConfig != FabricConfig::DISABLED &&
+                               rowAxisExtent > 1 && !rowIsRing;
+  const bool colIsRealLinear = colAxisConfig != FabricConfig::DISABLED &&
+                               colAxisExtent > 1 && !colIsRing;
+
   FabricConfig globalConfig = FabricConfig::DISABLED;
-  if (rowAxisConfig == FabricConfig::FABRIC_1D_RING ||
-      colAxisConfig == FabricConfig::FABRIC_1D_RING) {
+  if (rowIsRing && colIsRealLinear) {
+    // Ring on the X axis, genuine linear Y axis: keep Y linear.
+    globalConfig = FabricConfig::FABRIC_2D_TORUS_X;
+  } else if (colIsRing && rowIsRealLinear) {
+    // Ring on the Y axis, genuine linear X axis.
+    globalConfig = FabricConfig::FABRIC_2D_TORUS_Y;
+  } else if (rowIsRing || colIsRing) {
+    // A genuine ring with no competing linear axis (the other axis is also a
+    // ring or is trivial/absent): the mesh is 1D-ring shaped.
     globalConfig = FabricConfig::FABRIC_1D_RING;
-  } else if (rowAxisConfig == FabricConfig::FABRIC_1D ||
-             colAxisConfig == FabricConfig::FABRIC_1D) {
+  } else if (rowAxisConfig != FabricConfig::DISABLED ||
+             colAxisConfig != FabricConfig::DISABLED) {
     globalConfig = FabricConfig::FABRIC_1D;
   }
 
