@@ -152,10 +152,13 @@ ValidationResult validateOperation(Operation *op,
                                    const OpConfig &config,
                                    uint64_t additionalL1Usage = 0);
 
-// Stateful (build-from-records) validation for the L1 spill path. Routes to the
-// uncached getOpConstraintsWithState, evaluating the op against `liveRecords`
-// (the allocations already live in L1). An empty liveRecords is equivalent to
-// the stateless query.
+// Stateful (build-from-records) validation for the L1 spill path. Issues an
+// uncached getOpConstraints query that evaluates the op against `liveRecords`
+// (the allocations already live in L1) and reports outputAllocations. Selecting
+// this overload -- not the contents of `liveRecords` -- is what makes the query
+// stateful: an EMPTY liveRecords is still a stateful query, which is how the
+// spill path bootstraps its record set off the first op. Use the overload above
+// for a stateless query.
 ValidationResult
 validateOperation(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                   const OpConfig &config,
@@ -190,7 +193,8 @@ ValidationResult checkConstraintsResult(
 // the forwarded arguments, then validates the result against the L1 memory
 // budget.  |contextOp| is any operation in the module (e.g. the consumer) and
 // is used only to look up device/module attributes — it is NOT the operation
-// being validated.
+// being validated. Stateless by construction: no allocator state is forwarded,
+// so getOpConstraints takes its defaulted null state.
 template <typename OpType, typename... Args>
 ValidationResult validateOperation(Operation *contextOp,
                                    uint64_t additionalL1Usage, Args &&...args) {

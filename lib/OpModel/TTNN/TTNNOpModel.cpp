@@ -1241,20 +1241,6 @@ OpModel<PrepareMoEComputeW0W1WeightsOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> bias0Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
     std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize) {
-  return getOpConstraintsWithState(
-      w0Shape, w0Layout, w1Shape, w1Layout, bias0Shape, bias0Layout, bias1Shape,
-      bias1Layout, hiddenSize, intermediateSize, /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<PrepareMoEComputeW0W1WeightsOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> w0Shape, TTNNLayoutAttr w0Layout,
-    llvm::ArrayRef<int64_t> w1Shape, TTNNLayoutAttr w1Layout,
-    std::optional<llvm::ArrayRef<int64_t>> bias0Shape,
-    std::optional<TTNNLayoutAttr> bias0Layout,
-    std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
-    std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
     uint32_t intermediateSize, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -1290,17 +1276,6 @@ OpModel<PrepareMoEComputeW2WeightsOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
     std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize) {
-  return getOpConstraintsWithState(w2Shape, w2Layout, bias2Shape, bias2Layout,
-                                   hiddenSize, intermediateSize,
-                                   /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<PrepareMoEComputeW2WeightsOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
-    std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
-    std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
     uint32_t intermediateSize, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -1330,24 +1305,12 @@ OpModel<PrepareMoEComputeW2WeightsOp>::getOpConstraintsWithState(
 // Unary Eltwise Ops
 //===----------------------------------------------------------------------===//
 
-// Cache-facing stateless entry. Its signature must stay exactly as the op-model
-// cache's getOrCompute invokes it (by function pointer), so it cannot grow
-// params; it forwards to the shared stateful body with a null state. The null
-// path runs query_op_constraints_with_optional_state(nullopt), which metal
-// dispatches straight to the stateless query.
+// Single constraint entry; `initialState` selects the query flavour. Both
+// flavours go through query_op_constraints_with_optional_state, which metal
+// dispatches on the optional: nullopt -> the stateless query, a value -> the
+// build-from-records query. See the convention comment in TTNNOpModel.h.
 template <typename OpTy>
-llvm::Expected<OpConstraints>
-UnaryEltwiseOpModel<OpTy>::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                                            TTNNLayoutAttr inputLayout,
-                                            TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, outputLayout,
-                                   /*initialState=*/nullptr);
-}
-
-// Shared body. Stateful entry (L1 spill path); bypasses the op-model cache.
-template <typename OpTy>
-llvm::Expected<OpConstraints>
-UnaryEltwiseOpModel<OpTy>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> UnaryEltwiseOpModel<OpTy>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -1405,15 +1368,6 @@ UnaryEltwiseOpModel<OpTy>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 template <typename OpTy>
 llvm::Expected<OpConstraints>
 UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, outputLayout,
-                                   /*initialState=*/nullptr);
-}
-
-template <typename OpTy>
-llvm::Expected<OpConstraints>
-UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpConstraintsWithState(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -1508,15 +1462,8 @@ template struct UnaryEltwiseWithFastApproxModeOpModel<GeluOp>;
 //===----------------------------------------------------------------------===//
 // SigmoidOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints>
-OpModel<SigmoidOp>::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                                     TTNNLayoutAttr inputLayout,
-                                     TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, outputLayout,
-                                   /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<SigmoidOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<SigmoidOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -1582,14 +1529,8 @@ OpModel<SigmoidOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // LeakyReluOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<LeakyReluOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::APFloat slope, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, slope, outputLayout,
-                                   /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<LeakyReluOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<LeakyReluOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::APFloat slope, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
@@ -1649,17 +1590,6 @@ llvm::Expected<size_t> OpModel<LeakyReluOp>::getOpRuntime(
 
 template <typename OpTy>
 llvm::Expected<OpConstraints> BinaryEltwiseOpModel<OpTy>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
-    llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
-    TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr) {
-  return getOpConstraintsWithState(inputShapeA, inputLayoutA, inputShapeB,
-                                   inputLayoutB, outputLayout, opDtypeAttr,
-                                   /*initialState=*/nullptr);
-}
-
-template <typename OpTy>
-llvm::Expected<OpConstraints>
-BinaryEltwiseOpModel<OpTy>::getOpConstraintsWithState(
     llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
     llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
     TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr,
@@ -1738,17 +1668,6 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
 
 template <typename OpTy>
 llvm::Expected<OpConstraints> BinaryCompositeOpModel<OpTy>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
-    llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
-    TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr) {
-  return getOpConstraintsWithState(inputShapeA, inputLayoutA, inputShapeB,
-                                   inputLayoutB, outputLayout, opDtypeAttr,
-                                   /*initialState=*/nullptr);
-}
-
-template <typename OpTy>
-llvm::Expected<OpConstraints>
-BinaryCompositeOpModel<OpTy>::getOpConstraintsWithState(
     llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
     llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
     TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr /*opDtypeAttr*/,
@@ -1851,16 +1770,6 @@ template struct BinaryCompositeOpModel<Atan2Op>;
 llvm::Expected<OpConstraints> OpModel<GeluBackwardOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
     llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
-    std::string approximate, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShapeA, inputLayoutA, inputShapeB,
-                                   inputLayoutB, approximate, outputLayout,
-                                   /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<GeluBackwardOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
-    llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
     std::string approximate, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -1930,14 +1839,8 @@ llvm::Expected<size_t> OpModel<GeluBackwardOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // PowScalar
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    mlir::Attribute exponent, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, exponent,
-                                   outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     mlir::Attribute exponent, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
@@ -2031,18 +1934,6 @@ llvm::Expected<OpConstraints> TernaryEltwiseOpModel<OpTy>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
     llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
     llvm::ArrayRef<int64_t> inputShapeC, TTNNLayoutAttr inputLayoutC,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShapeA, inputLayoutA, inputShapeB,
-                                   inputLayoutB, inputShapeC, inputLayoutC,
-                                   outputLayout, /*initialState=*/nullptr);
-}
-
-template <typename OpTy>
-llvm::Expected<OpConstraints>
-TernaryEltwiseOpModel<OpTy>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
-    llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
-    llvm::ArrayRef<int64_t> inputShapeC, TTNNLayoutAttr inputLayoutC,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -2127,15 +2018,6 @@ template struct TernaryEltwiseOpModel<WhereOp>;
 
 template <typename OpTy>
 llvm::Expected<OpConstraints> ReductionOpModel<OpTy>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<llvm::ArrayRef<int64_t>> dimArg, bool keepDim,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, dimArg, keepDim,
-                                   outputLayout, /*initialState=*/nullptr);
-}
-
-template <typename OpTy>
-llvm::Expected<OpConstraints> ReductionOpModel<OpTy>::getOpConstraintsWithState(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> dimArg, bool keepDim,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
@@ -2266,15 +2148,8 @@ template struct NamedFullOpModel<OnesOp>;
 //===----------------------------------------------------------------------===//
 // SoftmaxOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    const int dimArg, bool numericStable, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, dimArg,
-                                   numericStable, outputLayout,
-                                   /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     const int dimArg, bool numericStable, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
@@ -2334,18 +2209,8 @@ llvm::Expected<size_t> OpModel<SoftmaxOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // ScatterOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<ScatterOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout,
-    llvm::ArrayRef<int64_t> sourceShape, TTNNLayoutAttr sourceLayout,
-    int32_t dim, std::optional<ttcore::ReduceTypeAttr> optReduction,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      inputShape, inputLayout, indexShape, indexLayout, sourceShape,
-      sourceLayout, dim, optReduction, outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<ScatterOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<ScatterOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout,
     llvm::ArrayRef<int64_t> sourceShape, TTNNLayoutAttr sourceLayout,
@@ -2431,14 +2296,8 @@ llvm::Expected<size_t> OpModel<ScatterOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // ReshapeOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<ReshapeOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> outputShape, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, outputShape,
-                                   outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<ReshapeOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<ReshapeOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> outputShape, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
@@ -2496,15 +2355,8 @@ llvm::Expected<size_t> OpModel<ReshapeOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // SliceStaticOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<SliceStaticOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> begins, llvm::ArrayRef<int64_t> ends,
-    llvm::ArrayRef<int64_t> step, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, begins, ends, step,
-                                   outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<SliceStaticOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<SliceStaticOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> begins, llvm::ArrayRef<int64_t> ends,
     llvm::ArrayRef<int64_t> step, TTNNLayoutAttr outputLayout,
@@ -2591,18 +2443,6 @@ llvm::Expected<size_t> OpModel<SliceStaticOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<OpConstraints> OpModel<SliceDynamicOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> beginsShape, TTNNLayoutAttr beginsLayout,
-    llvm::ArrayRef<int64_t> endsShape, TTNNLayoutAttr endsLayout,
-    std::optional<llvm::SmallVector<int64_t>> step,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, beginsShape,
-                                   beginsLayout, endsShape, endsLayout, step,
-                                   outputLayout, /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<SliceDynamicOp>::getOpConstraintsWithState(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> beginsShape, TTNNLayoutAttr beginsLayout,
     llvm::ArrayRef<int64_t> endsShape, TTNNLayoutAttr endsLayout,
@@ -2701,15 +2541,8 @@ llvm::Expected<size_t> OpModel<SliceDynamicOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // BitcastConvertOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<BitcastConvertOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    ttcore::DataTypeAttr dtype, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, dtype, outputLayout,
-                                   /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints>
-OpModel<BitcastConvertOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<BitcastConvertOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     ttcore::DataTypeAttr dtype, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
@@ -2767,14 +2600,8 @@ llvm::Expected<size_t> OpModel<BitcastConvertOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // TypecastOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<TypecastOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    ttcore::DataTypeAttr dtype, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, dtype, outputLayout,
-                                   /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<TypecastOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<TypecastOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     ttcore::DataTypeAttr dtype, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
@@ -2832,14 +2659,8 @@ llvm::Expected<size_t> OpModel<TypecastOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<ToLayoutOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<ttcore::DataType> outputDtype, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, outputDtype,
-                                   outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<ToLayoutOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<ToLayoutOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<ttcore::DataType> outputDtype, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
@@ -2911,16 +2732,8 @@ llvm::Expected<size_t> OpModel<ToLayoutOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // ToMemoryConfigOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints>
-OpModel<ToMemoryConfigOp>::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                                            TTNNLayoutAttr inputLayout,
-                                            TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, outputLayout,
-                                   /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints>
-OpModel<ToMemoryConfigOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<ToMemoryConfigOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -2976,15 +2789,8 @@ OpModel<ToMemoryConfigOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // ConcatOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<ConcatOp>::getOpConstraints(
-    std::vector<llvm::ArrayRef<int64_t>> inputShapes,
-    std::vector<TTNNLayoutAttr> inputLayouts, const int dim,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShapes, inputLayouts, dim, outputLayout,
-                                   /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<ConcatOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<ConcatOp>::getOpConstraints(
     std::vector<llvm::ArrayRef<int64_t>> inputShapes,
     std::vector<TTNNLayoutAttr> inputLayouts, const int dim,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
@@ -3055,14 +2861,8 @@ llvm::Expected<size_t> OpModel<ConcatOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // TransposeOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<TransposeOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    const int dim0, const int dim1, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, dim0, dim1,
-                                   outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<TransposeOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<TransposeOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     const int dim0, const int dim1, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
@@ -3121,15 +2921,8 @@ llvm::Expected<size_t> OpModel<TransposeOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // CumSumOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<CumSumOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    const int32_t dim, std::optional<ttcore::DataType> dtype,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, dim, dtype,
-                                   outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<CumSumOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<CumSumOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     const int32_t dim, std::optional<ttcore::DataType> dtype,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
@@ -3198,15 +2991,8 @@ OpModel<CumSumOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // CumProdOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<CumProdOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    const int32_t dim, std::optional<ttcore::DataType> dtype,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, dim, dtype,
-                                   outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<CumProdOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<CumProdOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     const int32_t dim, std::optional<ttcore::DataType> dtype,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
@@ -3279,14 +3065,6 @@ OpModel<CumProdOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 
 llvm::Expected<OpConstraints> OpModel<ConcatenateHeadsOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, outputLayout,
-                                   /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<ConcatenateHeadsOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -3342,29 +3120,9 @@ OpModel<ConcatenateHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionDecodeOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints>
-OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
-    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
-    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
-    bool isCausal, std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
-    std::optional<TTNNLayoutAttr> attentionMaskLayout,
-    std::optional<llvm::ArrayRef<int64_t>> curPosTensorShape,
-    std::optional<TTNNLayoutAttr> curPosTensorLayout,
-    std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
-    std::optional<TTNNLayoutAttr> attentionSinkLayout,
-    std::optional<llvm::APFloat> scale,
-    std::optional<SDPAProgramConfigAttr> programConfig,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      queryShape, queryLayout, keyShape, keyLayout, valueShape, valueLayout,
-      isCausal, attentionMaskShape, attentionMaskLayout, curPosTensorShape,
-      curPosTensorLayout, attentionSinkShape, attentionSinkLayout, scale,
-      programConfig, outputLayout, /*initialState=*/nullptr);
-}
 
 llvm::Expected<OpConstraints>
-OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraintsWithState(
+OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
     llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
     llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
@@ -3501,30 +3259,6 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
 
 llvm::Expected<OpConstraints>
 OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
-    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
-    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
-    llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
-    bool isCausal, std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
-    std::optional<TTNNLayoutAttr> attentionMaskLayout,
-    std::optional<llvm::ArrayRef<int64_t>> curPosTensorShape,
-    std::optional<TTNNLayoutAttr> curPosTensorLayout,
-    std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
-    std::optional<TTNNLayoutAttr> attentionSinkLayout,
-    std::optional<llvm::APFloat> scale,
-    std::optional<uint32_t> slidingWindowSize,
-    std::optional<SDPAProgramConfigAttr> programConfig,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      queryShape, queryLayout, keyShape, keyLayout, valueShape, valueLayout,
-      pageTableShape, pageTableLayout, isCausal, attentionMaskShape,
-      attentionMaskLayout, curPosTensorShape, curPosTensorLayout,
-      attentionSinkShape, attentionSinkLayout, scale, slidingWindowSize,
-      programConfig, outputLayout, /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraintsWithState(
     llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
     llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
     llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
@@ -3687,28 +3421,6 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> curPosTensorLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
     std::optional<TTNNLayoutAttr> attentionSinkLayout,
-    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      queryShape, queryLayout, keyShape, keyLayout, valueShape, valueLayout,
-      headDimV, pageTableShape, pageTableLayout, isCausal, attentionMaskShape,
-      attentionMaskLayout, curPosTensorShape, curPosTensorLayout,
-      attentionSinkShape, attentionSinkLayout, scale, outputLayout,
-      /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
-    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
-    std::optional<llvm::ArrayRef<int64_t>> valueShape,
-    std::optional<TTNNLayoutAttr> valueLayout, uint32_t headDimV,
-    llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
-    bool isCausal, std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
-    std::optional<TTNNLayoutAttr> attentionMaskLayout,
-    std::optional<llvm::ArrayRef<int64_t>> curPosTensorShape,
-    std::optional<TTNNLayoutAttr> curPosTensorLayout,
-    std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
-    std::optional<TTNNLayoutAttr> attentionSinkLayout,
     std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -3838,22 +3550,6 @@ OpModel<ChunkedScaledDotProductAttentionOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> chunkStartIdxShape,
     TTNNLayoutAttr chunkStartIdxLayout, std::optional<llvm::APFloat> scale,
     std::optional<SDPAProgramConfigAttr> programConfig,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      queryShape, queryLayout, keyShape, keyLayout, valueShape, valueLayout,
-      pageTableShape, pageTableLayout, chunkStartIdxShape, chunkStartIdxLayout,
-      scale, programConfig, outputLayout, /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<ChunkedScaledDotProductAttentionOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
-    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
-    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
-    llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
-    llvm::ArrayRef<int64_t> chunkStartIdxShape,
-    TTNNLayoutAttr chunkStartIdxLayout, std::optional<llvm::APFloat> scale,
-    std::optional<SDPAProgramConfigAttr> programConfig,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -3962,24 +3658,6 @@ OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
     std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
     std::optional<TTNNLayoutAttr> attentionSinkLayout, bool isCausal,
     std::optional<llvm::APFloat> scale,
-    std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      queryShape, queryLayout, keyShape, keyLayout, valueShape, valueLayout,
-      attentionMaskShape, attentionMaskLayout, attentionSinkShape,
-      attentionSinkLayout, isCausal, scale, slidingWindowSize, outputLayout,
-      /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<ScaledDotProductAttentionOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
-    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
-    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
-    std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
-    std::optional<TTNNLayoutAttr> attentionMaskLayout,
-    std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
-    std::optional<TTNNLayoutAttr> attentionSinkLayout, bool isCausal,
-    std::optional<llvm::APFloat> scale,
     std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -4080,22 +3758,6 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<OpConstraints> OpModel<FlashMlaPrefillOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
-    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
-    std::optional<llvm::ArrayRef<int64_t>> valueShape,
-    std::optional<TTNNLayoutAttr> valueLayout,
-    std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
-    std::optional<TTNNLayoutAttr> attentionMaskLayout, uint32_t headDimV,
-    bool isCausal, std::optional<llvm::APFloat> scale,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      queryShape, queryLayout, keyShape, keyLayout, valueShape, valueLayout,
-      attentionMaskShape, attentionMaskLayout, headDimV, isCausal, scale,
-      outputLayout, /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<FlashMlaPrefillOp>::getOpConstraintsWithState(
     llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
     llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
     std::optional<llvm::ArrayRef<int64_t>> valueShape,
@@ -4256,20 +3918,8 @@ llvm::Expected<size_t> OpModel<IndexerScoreDsaOp>::getOpRuntime(
 //===-----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp
 // ===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingLlamaOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
-    llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
-    llvm::ArrayRef<int64_t> transMatShape, TTNNLayoutAttr transMatLayout,
-    bool isDecodeMode, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, cosShape, cosLayout,
-                                   sinShape, sinLayout, transMatShape,
-                                   transMatLayout, isDecodeMode, outputLayout,
-                                   /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints>
-OpModel<RotaryEmbeddingLlamaOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingLlamaOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
     llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
@@ -4352,17 +4002,6 @@ llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
     llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
-    std::optional<uint32_t> tokenIndex, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, cosShape, cosLayout,
-                                   sinShape, sinLayout, tokenIndex,
-                                   outputLayout, /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<RotaryEmbeddingOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
-    llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
     std::optional<uint32_t> tokenIndex, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -4428,21 +4067,9 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // NLPCreateQKVHeadsDecodeOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<op_model::OpConstraints>
-OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
-    std::optional<TTNNLayoutAttr> batchOffsetLayout, uint32_t numHeads,
-    std::optional<uint32_t> numKVHeads, std::optional<bool> overlapQKCoregrid,
-    std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, batchOffsetShape,
-                                   batchOffsetLayout, numHeads, numKVHeads,
-                                   overlapQKCoregrid, sliceSize, outputLayout,
-                                   /*initialState=*/nullptr);
-}
 
 llvm::Expected<op_model::OpConstraints>
-OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraintsWithState(
+OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
     std::optional<TTNNLayoutAttr> batchOffsetLayout, uint32_t numHeads,
@@ -4526,20 +4153,9 @@ llvm::Expected<size_t> OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // SplitQueryKeyValueAndSplitHeadsOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints>
-OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<llvm::ArrayRef<int64_t>> inputKVShape,
-    std::optional<TTNNLayoutAttr> inputKVLayout, uint32_t numHeads,
-    std::optional<uint32_t> numKVHeads, bool transposeKey,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      inputShape, inputLayout, inputKVShape, inputKVLayout, numHeads,
-      numKVHeads, transposeKey, outputLayout, /*initialState=*/nullptr);
-}
 
 llvm::Expected<OpConstraints>
-OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraintsWithState(
+OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> inputKVShape,
     std::optional<TTNNLayoutAttr> inputKVLayout, uint32_t numHeads,
@@ -4617,16 +4233,8 @@ llvm::Expected<size_t> OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // NLPConcatHeadsOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints>
-OpModel<NLPConcatHeadsOp>::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                                            TTNNLayoutAttr inputLayout,
-                                            TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, outputLayout,
-                                   /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints>
-OpModel<NLPConcatHeadsOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -4683,15 +4291,8 @@ OpModel<NLPConcatHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // NLPConcatHeadsDecodeOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    uint32_t numHeads, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, numHeads,
-                                   outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints>
-OpModel<NLPConcatHeadsDecodeOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     uint32_t numHeads, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
@@ -4779,15 +4380,8 @@ llvm::Expected<size_t> OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // RepeatInterleaveOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<RepeatInterleaveOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    const unsigned int repeats, const int dim, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, repeats, dim,
-                                   outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints>
-OpModel<RepeatInterleaveOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<RepeatInterleaveOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     const unsigned int repeats, const int dim, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
@@ -4844,14 +4438,8 @@ llvm::Expected<size_t> OpModel<RepeatInterleaveOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // RepeatOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<RepeatOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> repeats, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, repeats,
-                                   outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<RepeatOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<RepeatOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> repeats, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
@@ -4961,15 +4549,6 @@ convertPadding(llvm::ArrayRef<int32_t> padding) {
 llvm::Expected<OpConstraints> OpModel<PadOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int32_t> padding, llvm::APFloat padValue, bool multicore,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, padding, padValue,
-                                   multicore, outputLayout,
-                                   /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints> OpModel<PadOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int32_t> padding, llvm::APFloat padValue, bool multicore,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -5032,15 +4611,8 @@ llvm::Expected<size_t> OpModel<PadOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // SortOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<SortOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout, int dim,
-    bool descending, bool stable, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, dim, descending,
-                                   stable, outputLayout,
-                                   /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<SortOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<SortOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout, int dim,
     bool descending, bool stable, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
@@ -5099,18 +4671,6 @@ llvm::Expected<size_t> OpModel<SortOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<OpConstraints> OpModel<TopKRouterGptOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
-    llvm::ArrayRef<int64_t> biasShape, TTNNLayoutAttr biasLayout, uint32_t k,
-    uint32_t numExperts, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, weightShape,
-                                   weightLayout, biasShape, biasLayout, k,
-                                   numExperts, outputLayout,
-                                   /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<TopKRouterGptOp>::getOpConstraintsWithState(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
     llvm::ArrayRef<int64_t> biasShape, TTNNLayoutAttr biasLayout, uint32_t k,
@@ -5182,14 +4742,8 @@ llvm::Expected<size_t> OpModel<TopKRouterGptOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // ArgMaxOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<ArgMaxOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<int32_t> dim, bool keepDim, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, dim, keepDim,
-                                   outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<ArgMaxOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<ArgMaxOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<int32_t> dim, bool keepDim, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
@@ -5247,14 +4801,8 @@ llvm::Expected<size_t> OpModel<ArgMaxOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // ProdOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<ProdOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<int64_t> dim, bool keepDim, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, dim, keepDim,
-                                   outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<ProdOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<ProdOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<int64_t> dim, bool keepDim, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
@@ -5399,21 +4947,6 @@ llvm::Expected<OpConstraints> OpModel<RequantizeOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> outScaleShape, TTNNLayoutAttr outScaleLayout,
     llvm::ArrayRef<int64_t> outZeroPointShape,
     TTNNLayoutAttr outZeroPointLayout, std::optional<int32_t> axis,
-    std::optional<ttcore::DataType> outputDtype, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      inputShape, inputLayout, inScaleShape, inScaleLayout, inZeroPointShape,
-      inZeroPointLayout, outScaleShape, outScaleLayout, outZeroPointShape,
-      outZeroPointLayout, axis, outputDtype, outputLayout,
-      /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints> OpModel<RequantizeOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> inScaleShape, TTNNLayoutAttr inScaleLayout,
-    llvm::ArrayRef<int64_t> inZeroPointShape, TTNNLayoutAttr inZeroPointLayout,
-    llvm::ArrayRef<int64_t> outScaleShape, TTNNLayoutAttr outScaleLayout,
-    llvm::ArrayRef<int64_t> outZeroPointShape,
-    TTNNLayoutAttr outZeroPointLayout, std::optional<int32_t> axis,
     std::optional<ttcore::DataType> outputDtype, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -5531,21 +5064,8 @@ llvm::Expected<size_t> OpModel<RequantizeOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
-    llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
-    std::optional<llvm::ArrayRef<int64_t>> biasShape,
-    std::optional<TTNNLayoutAttr> biasLayout, TTNNLayoutAttr outputLayout,
-    bool transposeA, bool transposeB, std::optional<llvm::StringRef> activation,
-    std::optional<mlir::Attribute> programConfigAttr,
-    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
-  return getOpConstraintsWithState(
-      inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, biasShape,
-      biasLayout, outputLayout, transposeA, transposeB, activation,
-      programConfigAttr, computeKernelConfig, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
     llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
@@ -5665,25 +5185,7 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // MatmulOp
 //===----------------------------------------------------------------------===//
-// Cache-facing stateless entry; signature fixed for getOrCompute. Forwards to
-// the shared stateful body with a null state (metal dispatches nullopt to the
-// stateless query).
 llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
-    llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
-    TTNNLayoutAttr outputLayout, bool transposeA, bool transposeB,
-    std::optional<llvm::StringRef> activation,
-    std::optional<mlir::Attribute> programConfigAttr,
-    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
-  return getOpConstraintsWithState(inputShapeA, inputLayoutA, inputShapeB,
-                                   inputLayoutB, outputLayout, transposeA,
-                                   transposeB, activation, programConfigAttr,
-                                   computeKernelConfig,
-                                   /*initialState=*/nullptr);
-}
-
-// Shared body. Stateful entry (L1 spill path); bypasses the op-model cache.
-llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraintsWithState(
     llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
     llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
     TTNNLayoutAttr outputLayout, bool transposeA, bool transposeB,
@@ -5817,15 +5319,6 @@ OpModel<DeallocateOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 llvm::Expected<OpConstraints> OpModel<FillCacheOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    uint32_t batchOffset, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(cacheShape, cacheLayout, inputShape,
-                                   inputLayout, batchOffset, outputLayout,
-                                   /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints> OpModel<FillCacheOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     uint32_t batchOffset, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -5888,16 +5381,6 @@ llvm::Expected<size_t> OpModel<FillCacheOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<OpConstraints> OpModel<UpdateCacheOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> updateIndexShape, TTNNLayoutAttr updateIndexLayout,
-    uint32_t batchOffset, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      cacheShape, cacheLayout, inputShape, inputLayout, updateIndexShape,
-      updateIndexLayout, batchOffset, outputLayout, /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints> OpModel<UpdateCacheOp>::getOpConstraintsWithState(
     llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> updateIndexShape, TTNNLayoutAttr updateIndexLayout,
@@ -5985,21 +5468,8 @@ llvm::Expected<size_t> OpModel<UpdateCacheOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // PagedUpdateCacheOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<PagedUpdateCacheOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> updateIndexShape, TTNNLayoutAttr updateIndexLayout,
-    std::optional<llvm::ArrayRef<int64_t>> pageTableShape,
-    std::optional<TTNNLayoutAttr> pageTableLayout, bool shareCache,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      cacheShape, cacheLayout, inputShape, inputLayout, updateIndexShape,
-      updateIndexLayout, pageTableShape, pageTableLayout, shareCache,
-      outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints>
-OpModel<PagedUpdateCacheOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<PagedUpdateCacheOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> updateIndexShape, TTNNLayoutAttr updateIndexLayout,
@@ -6103,19 +5573,6 @@ llvm::Expected<OpConstraints> OpModel<PagedFillCacheOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
     std::optional<llvm::ArrayRef<int64_t>> batchIdxShape,
-    std::optional<TTNNLayoutAttr> batchIdxLayout, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(cacheShape, cacheLayout, inputShape,
-                                   inputLayout, pageTableShape, pageTableLayout,
-                                   batchIdxShape, batchIdxLayout, outputLayout,
-                                   /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<PagedFillCacheOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
-    std::optional<llvm::ArrayRef<int64_t>> batchIdxShape,
     std::optional<TTNNLayoutAttr> batchIdxLayout, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -6204,28 +5661,8 @@ llvm::Expected<size_t> OpModel<PagedFillCacheOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
-    std::optional<llvm::ArrayRef<int64_t>> biasShape,
-    std::optional<TTNNLayoutAttr> biasLayout, uint32_t in_channels,
-    uint32_t out_channels, uint32_t batch_size, uint32_t input_height,
-    uint32_t input_width, llvm::ArrayRef<int32_t> kernel_size,
-    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
-    llvm::ArrayRef<int32_t> dilation, uint32_t groups,
-    std::optional<Conv2dConfigAttr> conv2dConfig,
-    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
-    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      inputShape, inputLayout, weightShape, weightLayout, biasShape, biasLayout,
-      in_channels, out_channels, batch_size, input_height, input_width,
-      kernel_size, stride, padding, dilation, groups, conv2dConfig,
-      deviceComputeKernelConfig, conv2dSliceConfig, outputLayout,
-      /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
@@ -6734,28 +6171,6 @@ llvm::Expected<OpConstraints> OpModel<Conv3dOp>::getOpConstraints(
     std::optional<ttcore::DataTypeAttr> outputDtype,
     std::optional<Conv3dConfigAttr> conv3dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      inputShape, inputLayout, weightShape, weightLayout, biasShape, biasLayout,
-      in_channels, out_channels, batch_size, input_depth, input_height,
-      input_width, kernel_size, stride, padding, groups, padding_mode,
-      outputDtype, conv3dConfig, deviceComputeKernelConfig, outputLayout,
-      /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints> OpModel<Conv3dOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
-    std::optional<llvm::ArrayRef<int64_t>> biasShape,
-    std::optional<TTNNLayoutAttr> biasLayout, uint32_t in_channels,
-    uint32_t out_channels, uint32_t batch_size, uint32_t input_depth,
-    uint32_t input_height, uint32_t input_width,
-    llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
-    llvm::ArrayRef<int32_t> padding, uint32_t groups,
-    llvm::StringRef padding_mode,
-    std::optional<ttcore::DataTypeAttr> outputDtype,
-    std::optional<Conv3dConfigAttr> conv3dConfig,
-    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -6842,27 +6257,8 @@ llvm::Expected<size_t> OpModel<Conv3dOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // ConvTranspose2dOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
-    std::optional<llvm::ArrayRef<int64_t>> biasShape,
-    std::optional<TTNNLayoutAttr> biasLayout, uint32_t in_channels,
-    uint32_t out_channels, uint32_t batch_size, uint32_t input_height,
-    uint32_t input_width, llvm::ArrayRef<int32_t> kernel_size,
-    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
-    llvm::ArrayRef<int32_t> output_padding, llvm::ArrayRef<int32_t> dilation,
-    uint32_t groups, std::optional<Conv2dConfigAttr> conv2dConfig,
-    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      inputShape, inputLayout, weightShape, weightLayout, biasShape, biasLayout,
-      in_channels, out_channels, batch_size, input_height, input_width,
-      kernel_size, stride, padding, output_padding, dilation, groups,
-      conv2dConfig, conv2dSliceConfig, outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints>
-OpModel<ConvTranspose2dOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
@@ -7045,28 +6441,6 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
     std::optional<Conv2dConfigAttr> conv2dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
     std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      weightLayout, weightShape, inputMemConfig, inputTensorLayout,
-      weightsFormat, inChannels, outChannels, batchSize, inputHeight,
-      inputWidth, kernelSize, stride, padding, dilation, hasBias, groups,
-      inputDtype, outputDtype, conv2dConfig, deviceComputeKernelConfig,
-      conv2dSliceConfig, outputLayout, /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<PrepareConv2dWeightsOp>::getOpConstraintsWithState(
-    TTNNLayoutAttr weightLayout, llvm::ArrayRef<int64_t> weightShape,
-    MemoryConfigAttr inputMemConfig, ::mlir::tt::ttnn::Layout inputTensorLayout,
-    llvm::StringRef weightsFormat, int32_t inChannels, int32_t outChannels,
-    int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
-    llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
-    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
-    bool hasBias, int32_t groups, ttcore::DataType inputDtype,
-    std::optional<ttcore::DataType> outputDtype,
-    std::optional<Conv2dConfigAttr> conv2dConfig,
-    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
-    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7130,25 +6504,6 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dBiasOp>::getOpConstraints(
     ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
     std::optional<Conv2dConfigAttr> conv2dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      biasLayout, biasShape, inputMemConfig, inputTensorLayout, inChannels,
-      outChannels, batchSize, inputHeight, inputWidth, kernelSize, stride,
-      padding, dilation, groups, inputDtype, outputDtype, conv2dConfig,
-      deviceComputeKernelConfig, outputLayout, /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<PrepareConv2dBiasOp>::getOpConstraintsWithState(
-    TTNNLayoutAttr biasLayout, llvm::ArrayRef<int64_t> biasShape,
-    MemoryConfigAttr inputMemConfig, ::mlir::tt::ttnn::Layout inputTensorLayout,
-    int32_t inChannels, int32_t outChannels, int32_t batchSize,
-    int32_t inputHeight, int32_t inputWidth, llvm::ArrayRef<int32_t> kernelSize,
-    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
-    llvm::ArrayRef<int32_t> dilation, int32_t groups,
-    ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
-    std::optional<Conv2dConfigAttr> conv2dConfig,
-    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7203,29 +6558,6 @@ OpModel<PrepareConv2dBiasOp>::getOpConstraintsWithState(
 
 llvm::Expected<OpConstraints>
 OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraints(
-    TTNNLayoutAttr weightLayout, llvm::ArrayRef<int64_t> weightShape,
-    MemoryConfigAttr inputMemConfig, ::mlir::tt::ttnn::Layout inputTensorLayout,
-    llvm::StringRef weightsFormat, int32_t inChannels, int32_t outChannels,
-    int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
-    llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
-    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> output_padding,
-    llvm::ArrayRef<int32_t> dilation, bool hasBias, int32_t groups,
-    ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
-    std::optional<Conv2dConfigAttr> conv2dConfig,
-    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
-    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig, bool mirrorKernel,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      weightLayout, weightShape, inputMemConfig, inputTensorLayout,
-      weightsFormat, inChannels, outChannels, batchSize, inputHeight,
-      inputWidth, kernelSize, stride, padding, output_padding, dilation,
-      hasBias, groups, inputDtype, outputDtype, conv2dConfig,
-      deviceComputeKernelConfig, conv2dSliceConfig, mirrorKernel, outputLayout,
-      /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraintsWithState(
     TTNNLayoutAttr weightLayout, llvm::ArrayRef<int64_t> weightShape,
     MemoryConfigAttr inputMemConfig, ::mlir::tt::ttnn::Layout inputTensorLayout,
     llvm::StringRef weightsFormat, int32_t inChannels, int32_t outChannels,
@@ -7301,27 +6633,6 @@ OpModel<PrepareConvTranspose2dBiasOp>::getOpConstraints(
     std::optional<Conv2dConfigAttr> conv2dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
     std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      biasLayout, biasShape, inputMemConfig, inputTensorLayout, inChannels,
-      outChannels, batchSize, inputHeight, inputWidth, kernelSize, stride,
-      padding, dilation, groups, inputDtype, outputDtype, conv2dConfig,
-      deviceComputeKernelConfig, conv2dSliceConfig, outputLayout,
-      /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<PrepareConvTranspose2dBiasOp>::getOpConstraintsWithState(
-    TTNNLayoutAttr biasLayout, llvm::ArrayRef<int64_t> biasShape,
-    MemoryConfigAttr inputMemConfig, ::mlir::tt::ttnn::Layout inputTensorLayout,
-    int32_t inChannels, int32_t outChannels, int32_t batchSize,
-    int32_t inputHeight, int32_t inputWidth, llvm::ArrayRef<int32_t> kernelSize,
-    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
-    llvm::ArrayRef<int32_t> dilation, int32_t groups,
-    ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
-    std::optional<Conv2dConfigAttr> conv2dConfig,
-    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
-    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7372,21 +6683,8 @@ OpModel<PrepareConvTranspose2dBiasOp>::getOpConstraintsWithState(
 //===----------------------------------------------------------------------===//
 // MaxPool2D
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
-    int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
-    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
-    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
-    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      inputShape, inputLayout, batchSize, inputHeight, inputWidth,
-      inputChannels, kernelSize, stride, padding, dilation, ceilMode,
-      reallocateHaloOutput, configTensorsInDram, outputLayout,
-      /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
     int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
@@ -7488,23 +6786,8 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // MaxPool2DWithIndices
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
-    int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
-    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
-    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
-    bool deallocateInput, bool returnIndices,
-    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      inputShape, inputLayout, batchSize, inputHeight, inputWidth,
-      inputChannels, kernelSize, stride, padding, dilation, ceilMode,
-      reallocateHaloOutput, deallocateInput, returnIndices, configTensorsInDram,
-      outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints>
-OpModel<MaxPool2dWithIndicesOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
     int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
@@ -7608,21 +6891,8 @@ llvm::Expected<size_t> OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // AvgPool2D
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
-    int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
-    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
-    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
-    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      inputShape, inputLayout, batchSize, inputHeight, inputWidth,
-      inputChannels, kernelSize, stride, padding, dilation, ceilMode,
-      reallocateHaloOutput, configTensorsInDram, outputLayout,
-      /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
     int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
@@ -7736,16 +7006,8 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // GlobalAvgPool2dOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<GlobalAvgPool2dOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<mlir::tt::ttcore::DataType> dtype,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, dtype, outputLayout,
-                                   /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints>
-OpModel<GlobalAvgPool2dOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<GlobalAvgPool2dOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<mlir::tt::ttcore::DataType> dtype,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
@@ -7871,24 +7133,6 @@ llvm::Expected<OpConstraints> OpModel<BatchNormInferenceOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      inputShape, inputLayout, runningMeanShape, runningMeanLayout,
-      runningVarShape, runningVarLayout, weightShape, weightLayout, biasShape,
-      biasLayout, epsilon, outputLayout, /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<BatchNormInferenceOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
-    std::optional<TTNNLayoutAttr> runningMeanLayout,
-    std::optional<llvm::ArrayRef<int64_t>> runningVarShape,
-    std::optional<TTNNLayoutAttr> runningVarLayout,
-    std::optional<llvm::ArrayRef<int64_t>> weightShape,
-    std::optional<TTNNLayoutAttr> weightLayout,
-    std::optional<llvm::ArrayRef<int64_t>> biasShape,
-    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7996,24 +7240,6 @@ llvm::Expected<size_t> OpModel<BatchNormInferenceOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<OpConstraints> OpModel<BatchNormTrainingOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
-    std::optional<TTNNLayoutAttr> runningMeanLayout,
-    std::optional<llvm::ArrayRef<int64_t>> runningVarShape,
-    std::optional<TTNNLayoutAttr> runningVarLayout,
-    std::optional<llvm::ArrayRef<int64_t>> weightShape,
-    std::optional<TTNNLayoutAttr> weightLayout,
-    std::optional<llvm::ArrayRef<int64_t>> biasShape,
-    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-    llvm::APFloat momentum, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      inputShape, inputLayout, runningMeanShape, runningMeanLayout,
-      runningVarShape, runningVarLayout, weightShape, weightLayout, biasShape,
-      biasLayout, epsilon, momentum, outputLayout, /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<BatchNormTrainingOp>::getOpConstraintsWithState(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
     std::optional<TTNNLayoutAttr> runningMeanLayout,
@@ -8135,20 +7361,6 @@ llvm::Expected<OpConstraints> OpModel<RMSNormOp>::getOpConstraints(
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
     TTNNLayoutAttr outputLayout,
-    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
-  return getOpConstraintsWithState(inputShape, inputLayout, weightShape,
-                                   weightLayout, biasShape, biasLayout, epsilon,
-                                   outputLayout, computeKernelConfig,
-                                   /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints> OpModel<RMSNormOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<llvm::ArrayRef<int64_t>> weightShape,
-    std::optional<TTNNLayoutAttr> weightLayout,
-    std::optional<llvm::ArrayRef<int64_t>> biasShape,
-    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-    TTNNLayoutAttr outputLayout,
     std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
     const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -8243,18 +7455,6 @@ llvm::Expected<OpConstraints> OpModel<RMSNormPreAllGatherOp>::getOpConstraints(
     std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
     std::optional<TTNNLayoutAttr> residualInputLayout,
     std::optional<ttcore::DataType> dtype, std::optional<bool> use2DCoreGrid,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, residualInputShape,
-                                   residualInputLayout, dtype, use2DCoreGrid,
-                                   outputLayout, /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<RMSNormPreAllGatherOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
-    std::optional<TTNNLayoutAttr> residualInputLayout,
-    std::optional<ttcore::DataType> dtype, std::optional<bool> use2DCoreGrid,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -8344,19 +7544,6 @@ llvm::Expected<OpConstraints> OpModel<LayerNormOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, weightShape,
-                                   weightLayout, biasShape, biasLayout, epsilon,
-                                   outputLayout,
-                                   /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints> OpModel<LayerNormOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<llvm::ArrayRef<int64_t>> weightShape,
-    std::optional<TTNNLayoutAttr> weightLayout,
-    std::optional<llvm::ArrayRef<int64_t>> biasShape,
-    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -8437,20 +7624,6 @@ llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
 
 llvm::Expected<OpConstraints>
 OpModel<LayerNormPreAllGatherOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
-    std::optional<TTNNLayoutAttr> residualInputLayout,
-    std::optional<llvm::ArrayRef<int64_t>> recipShape,
-    std::optional<TTNNLayoutAttr> recipLayout,
-    std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, residualInputShape,
-                                   residualInputLayout, recipShape, recipLayout,
-                                   dtype, outputLayout,
-                                   /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<LayerNormPreAllGatherOp>::getOpConstraintsWithState(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
     std::optional<TTNNLayoutAttr> residualInputLayout,
@@ -8553,21 +7726,6 @@ OpModel<LayerNormPostAllGatherOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, statsShape,
-                                   statsLayout, weightShape, weightLayout,
-                                   biasShape, biasLayout, epsilon, outputLayout,
-                                   /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<LayerNormPostAllGatherOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> statsShape, TTNNLayoutAttr statsLayout,
-    std::optional<llvm::ArrayRef<int64_t>> weightShape,
-    std::optional<TTNNLayoutAttr> weightLayout,
-    std::optional<llvm::ArrayRef<int64_t>> biasShape,
-    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -8652,21 +7810,6 @@ llvm::Expected<size_t> OpModel<LayerNormPostAllGatherOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<llvm::ArrayRef<int64_t>> inputMaskShape,
-    std::optional<TTNNLayoutAttr> inputMaskLayout,
-    std::optional<llvm::ArrayRef<int64_t>> weightShape,
-    std::optional<TTNNLayoutAttr> weightLayout,
-    std::optional<llvm::ArrayRef<int64_t>> biasShape,
-    std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
-    llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, inputMaskShape,
-                                   inputMaskLayout, weightShape, weightLayout,
-                                   biasShape, biasLayout, numGroups, epsilon,
-                                   outputLayout, /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraintsWithState(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> inputMaskShape,
     std::optional<TTNNLayoutAttr> inputMaskLayout,
@@ -8791,13 +7934,6 @@ clampAttrToVariant(mlir::Attribute attr) {
 
 llvm::Expected<OpConstraints> OpModel<ClampScalarOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    mlir::Attribute min, mlir::Attribute max, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, min, max,
-                                   outputLayout, /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints> OpModel<ClampScalarOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     mlir::Attribute min, mlir::Attribute max, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
 
@@ -8860,17 +7996,8 @@ llvm::Expected<size_t> OpModel<ClampScalarOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // ClampTensor
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<ClampTensorOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> minShape, TTNNLayoutAttr minLayout,
-    llvm::ArrayRef<int64_t> maxShape, TTNNLayoutAttr maxLayout,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, minShape, minLayout,
-                                   maxShape, maxLayout, outputLayout,
-                                   /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<ClampTensorOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<ClampTensorOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> minShape, TTNNLayoutAttr minLayout,
     llvm::ArrayRef<int64_t> maxShape, TTNNLayoutAttr maxLayout,
@@ -8943,16 +8070,8 @@ llvm::Expected<size_t> OpModel<ClampTensorOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // Permute
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<PermuteOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> permutation, llvm::APFloat padValue,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, permutation,
-                                   padValue, outputLayout,
-                                   /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<PermuteOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<PermuteOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> permutation, llvm::APFloat padValue,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
@@ -9023,15 +8142,8 @@ llvm::Expected<size_t> OpModel<PermuteOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // Upsample
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    mlir::Attribute scaleFactor, llvm::StringRef mode,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, scaleFactor, mode,
-                                   outputLayout, /*initialState=*/nullptr);
-}
 
-llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraintsWithState(
+llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     mlir::Attribute scaleFactor, llvm::StringRef mode,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
@@ -9154,15 +8266,6 @@ llvm::Expected<EmbeddingOpArgs> getEmbeddingOpArgs(
 llvm::Expected<OpConstraints> OpModel<EmbeddingOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, weightShape,
-                                   weightLayout, outputLayout,
-                                   /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints> OpModel<EmbeddingOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -9257,18 +8360,6 @@ llvm::Expected<OpConstraints> OpModel<EmbeddingBackwardOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
     llvm::ArrayRef<int64_t> inGradientShape, TTNNLayoutAttr inGradientLayout,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, weightShape,
-                                   weightLayout, inGradientShape,
-                                   inGradientLayout, outputLayout,
-                                   /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<EmbeddingBackwardOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
-    llvm::ArrayRef<int64_t> inGradientShape, TTNNLayoutAttr inGradientLayout,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -9345,15 +8436,6 @@ OpModel<mlir::tt::ttnn::EmbeddingBackwardOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<OpConstraints> OpModel<GatherOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout, int32_t dim,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, indexShape,
-                                   indexLayout, dim, outputLayout,
-                                   /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints> OpModel<GatherOp>::getOpConstraintsWithState(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout, int32_t dim,
     TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
@@ -9740,14 +8822,8 @@ auto dispatchGetRawData(mlir::ElementsAttr value, Func &&func)
 
 llvm::Expected<OpConstraints>
 OpModel<ConstantOp>::getOpConstraints(mlir::ElementsAttr value,
-                                      TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(value, outputLayout,
-                                   /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints> OpModel<ConstantOp>::getOpConstraintsWithState(
-    mlir::ElementsAttr value, TTNNLayoutAttr outputLayout,
-    const MockAllocatorState *initialState) {
+                                      TTNNLayoutAttr outputLayout,
+                                      const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -9853,14 +8929,6 @@ llvm::Expected<size_t> OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime(
 
 llvm::Expected<OpConstraints> OpModel<TopKOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout, int32_t k,
-    int32_t dim, bool largest, bool sorted, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, k, dim, largest,
-                                   sorted, outputLayout,
-                                   /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints> OpModel<TopKOp>::getOpConstraintsWithState(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout, int32_t k,
     int32_t dim, bool largest, bool sorted, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -9924,20 +8992,6 @@ llvm::Expected<size_t> OpModel<TopKOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<OpConstraints> OpModel<SamplingOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputValuesShape, TTNNLayoutAttr inputValuesLayout,
-    llvm::ArrayRef<int64_t> inputIndicesShape,
-    TTNNLayoutAttr inputIndicesLayout, llvm::ArrayRef<int64_t> kShape,
-    TTNNLayoutAttr kLayout, llvm::ArrayRef<int64_t> pShape,
-    TTNNLayoutAttr pLayout, llvm::ArrayRef<int64_t> tempShape,
-    TTNNLayoutAttr tempLayout, std::optional<uint32_t> seed,
-    TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(
-      inputValuesShape, inputValuesLayout, inputIndicesShape,
-      inputIndicesLayout, kShape, kLayout, pShape, pLayout, tempShape,
-      tempLayout, seed, outputLayout, /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints> OpModel<SamplingOp>::getOpConstraintsWithState(
     llvm::ArrayRef<int64_t> inputValuesShape, TTNNLayoutAttr inputValuesLayout,
     llvm::ArrayRef<int64_t> inputIndicesShape,
     TTNNLayoutAttr inputIndicesLayout, llvm::ArrayRef<int64_t> kShape,
@@ -10051,14 +9105,6 @@ llvm::Expected<size_t> OpModel<SamplingOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<OpConstraints> OpModel<MeshPartitionOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout, int32_t dim,
-    std::optional<uint32_t> clusterAxis, TTNNLayoutAttr outputLayout) {
-  return getOpConstraintsWithState(inputShape, inputLayout, dim, clusterAxis,
-                                   outputLayout, /*initialState=*/nullptr);
-}
-
-llvm::Expected<OpConstraints>
-OpModel<MeshPartitionOp>::getOpConstraintsWithState(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout, int32_t dim,
     std::optional<uint32_t> clusterAxis, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {

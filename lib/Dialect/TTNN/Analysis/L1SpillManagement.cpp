@@ -1971,8 +1971,10 @@ MockAllocatorL1Tracker::validate(Operation *op,
   // Flatten the currently-live L1 allocations into the stateful query's initial
   // state. Aliases share their owner's record (no separate entry), so there is
   // no duplication. additionalL1Usage is 0: the live set is encoded in the
-  // records. Ops that don't override the stateful interface method fall back to
-  // the (cached) stateless query and return no records.
+  // records. Note that `flat` is empty on the first op of a run -- that is
+  // still a STATEFUL query (this overload selects the flavour), which is how
+  // the record set below bootstraps. Ops that are intentionally stateless
+  // ignore the records and return none.
   llvm::SmallVector<op_model::OpModelAllocationRecord> flat;
   for (const auto &entry : liveRecords) {
     flat.append(entry.second.begin(), entry.second.end());

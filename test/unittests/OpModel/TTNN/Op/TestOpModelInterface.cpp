@@ -4337,8 +4337,12 @@ TEST_F(OpModelBase, EmbeddingOpNullOutputLayout) {
   auto embedding = builder.create<EmbeddingOp>(
       builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input, weight});
 
-  // Test EmbeddingOp interface constraints
-  auto constraintsExp = embedding.getOpConstraints(
+  // Test EmbeddingOp interface constraints. The stateless 2-argument
+  // convenience overload lives on the interface class, so go through the
+  // interface handle rather than the concrete op (which only declares the
+  // 3-argument form).
+  OpModel backend = dyn_cast<OpModel>(embedding.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
       getInputLayouts(embedding), OpConfig(/*outputLayout=*/nullptr));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();

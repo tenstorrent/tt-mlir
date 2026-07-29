@@ -34,31 +34,44 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
                    - The fourth value is the actual TTNNLayoutAttr of the output tensor, as returned by the operation. For
                      some operations this may be different from the requested output layout
                 If the op is illegal, returns an Error with a string describing the failure.
+
+                `liveRecords` selects the query flavour and is TRI-STATE -- do not
+                collapse it to "is the record set empty":
+                   - std::nullopt: stateless query. Nothing is allocated
+                     (NO_DISPATCH), `outputAllocations` comes back empty, and the
+                     result is cached by the op-model constraint cache.
+                   - engaged, EVEN IF EMPTY: stateful query. The records describe
+                     the allocations already live in L1; the op is evaluated on
+                     top of that state by a query that really allocates, reports
+                     per-output `outputAllocations`, and bypasses the cache (the
+                     live set is deliberately not part of the cache key). An
+                     empty-but-engaged live set is a real state the L1 spill path
+                     depends on: it is how the record set bootstraps off the
+                     first op, so treating it as stateless would silently degrade
+                     the whole feature.
+                Use the 2-argument overload below for a plain stateless query.
             }],
             /*retTy=*/"llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>",
             /*methodName=*/"getOpConstraints",
-            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const OpConfig&":$config),
+            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const OpConfig&":$config, "std::optional<llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>>":$liveRecords),
             /*methodBody=*/"",
             /*defaultImplementation=*/"return llvm::createStringError(\"Not Implemented\");"
         >,
-        InterfaceMethod<
-            /*desc=*/[{
-                Stateful variant of getOpConstraints used by the L1 spill path.
-                `liveRecords` describes the allocations already live in L1 (a
-                build-from-records snapshot); the op is evaluated on top of that
-                state via a query that bypasses the op-model constraint cache.
-                The default implementation ignores the state and delegates to the
-                (cached) stateless getOpConstraints, so ops become state-aware by
-                overriding this method. Passing an empty `liveRecords` is
-                equivalent to the stateless query.
-            }],
-            /*retTy=*/"llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>",
-            /*methodName=*/"getOpConstraintsWithState",
-            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const OpConfig&":$config, "llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>":$liveRecords),
-            /*methodBody=*/"",
-            /*defaultImplementation=*/"return $_op.getOpConstraints(inputs, config);"
-        >,
         ];
+
+    // Declared on the interface class only (NOT extraSharedClassDeclaration):
+    // ODS declares the 3-argument getOpConstraints inside every implementing op
+    // class, which would hide a 2-argument overload inherited from the Trait.
+    // Every caller of the convenience form goes through an interface handle.
+    let extraClassDeclaration = [{
+        // Convenience overload for a stateless constraint query; equivalent to
+        // passing std::nullopt.
+        llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+        getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &config) {
+          return getOpConstraints(inputs, config, /*liveRecords=*/std::nullopt);
+        }
+    }];
 }
 
 #endif // TTMLIR_DIALECT_TTNN_INTERFACES_TTNNOPMODELINTERFACE_TD

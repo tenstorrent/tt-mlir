@@ -41,8 +41,9 @@ llvm::StringRef validationStatusToString(ValidationStatus status) {
 
 static ValidationResult validateConstraints(
     Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-    const OpConfig &config, uint64_t additionalL1Usage, bool useState = false,
-    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords = {});
+    const OpConfig &config, uint64_t additionalL1Usage,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords = std::nullopt);
 
 //----------- Public API implementations ----------
 
@@ -59,7 +60,7 @@ validateOperation(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                   llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords,
                   uint64_t additionalL1Usage) {
   return validateConstraints(op, inputLayouts, config, additionalL1Usage,
-                             /*useState=*/true, liveRecords);
+                             liveRecords);
 }
 
 std::vector<ValidationResult>
@@ -206,8 +207,9 @@ checkConstraintsResult(Operation *contextOp,
 
 static ValidationResult validateConstraints(
     Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-    const OpConfig &config, uint64_t additionalL1Usage, bool useState,
-    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
+    const OpConfig &config, uint64_t additionalL1Usage,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
 
   // Check that operation supports OpModel interface.
   auto backend = mlir::dyn_cast<OpModel>(op);
@@ -249,16 +251,17 @@ static ValidationResult validateConstraints(
   }
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation, "Output config {}", config);
 
-  // Stateful path (L1 spill): route through the uncached
-  // getOpConstraintsWithState so the query is evaluated against the live
-  // allocation set. Stateless path (beam search): the cached getOpConstraints.
+  // One query, one selector: an engaged `liveRecords` (L1 spill) evaluates the
+  // op against the live allocation set through an uncached query; std::nullopt
+  // (beam search) takes the cached stateless query. `statefulQuery` is DERIVED
+  // from the same optional rather than passed alongside it, so the two can
+  // never disagree -- a stateful capacity model paired with a stateless query
+  // would leave the L1 byte budget unchecked on both sides.
   llvm::Expected<ttnn::op_model::OpConstraints> l1UsageExp =
-      useState
-          ? backend.getOpConstraintsWithState(inputLayouts, config, liveRecords)
-          : backend.getOpConstraints(inputLayouts, config);
+      backend.getOpConstraints(inputLayouts, config, liveRecords);
 
   return checkConstraintsResult(op, std::move(l1UsageExp), additionalL1Usage,
-                                useState);
+                                /*statefulQuery=*/liveRecords.has_value());
 }
 
 } // namespace op_constraint_validation

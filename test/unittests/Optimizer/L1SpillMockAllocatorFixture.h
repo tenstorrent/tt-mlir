@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Fixture for exercising the *real* stateful path of MockAllocatorL1Tracker:
-// liveRecords -> buildInitialState -> getOpConstraintsWithState ->
+// liveRecords -> buildInitialState -> getOpConstraints(..., state) ->
 // tt-metal build-from-records -> output_allocations -> pendingRecords/Snapshot.
 //
 // Unlike L1SpillTestFixture (which injects a synthetic backendValidator and

@@ -7,7 +7,7 @@
 // configured once per binary by MockDeviceEnvironment, and exercise the real
 // op-model query path end to end:
 //
-//   liveRecords -> buildInitialState -> getOpConstraintsWithState
+//   liveRecords -> buildInitialState -> getOpConstraints(..., state)
 //     -> tt-metal build-from-records -> output_allocations
 //     -> pendingRecords -> addTensor association -> Snapshot on eviction.
 //
@@ -471,13 +471,13 @@ TEST_F(MockAllocatorViewTripwireTest, RealPadIsNotAView) {
 //===----------------------------------------------------------------------===//
 // StatelessUnchangedByStatefulRouting
 //
-// The stateful op-model routing must not perturb the stateless result: a query
-// with an EMPTY live-record set has to be byte-for-byte equivalent to the plain
-// stateless query (buildInitialState({}) -> null state -> constraintsDispatch
-// takes the cached stateless path). This is the invariant the whole
-// stateless-through-the-stateful-API design and the interface
-// constraintsDispatch helper rely on; assert it directly so a future change to
-// buildInitialState or the dispatch cannot silently diverge the two paths.
+// The stateful op-model routing must not perturb the *numbers* the stateless
+// query reports: an EMPTY live set describes an empty L1, so the fit decision
+// and the usage figures have to match the plain stateless query. Note this is
+// value equivalence only -- the two take DIFFERENT query branches (see
+// EmptyRecordsStillReportsAllocations below). Assert it directly so a future
+// change to buildInitialState or to constraintsDispatch cannot silently diverge
+// the two paths.
 //===----------------------------------------------------------------------===//
 class MockAllocatorStatelessEquivalenceTest
     : public L1SpillMockAllocatorFixture {};
@@ -508,6 +508,56 @@ TEST_F(MockAllocatorStatelessEquivalenceTest, EmptyRecordsMatchesStateless) {
   EXPECT_EQ(stateless.cbPeakUsage, statefulEmpty.cbPeakUsage);
   EXPECT_EQ(stateless.getFirstActualOutputLayout(),
             statefulEmpty.getFirstActualOutputLayout());
+}
+
+//===----------------------------------------------------------------------===//
+// EmptyRecordsStillReportsAllocations
+//
+// Tri-state selector tripwire. Both flavours of the constraint query now share
+// ONE entry point, selected by whether `liveRecords` is engaged -- NEVER by
+// whether it is empty. An empty-but-engaged live set must keep taking the
+// STATEFUL branch, because that branch is the only one that reports
+// output_allocations, and the spill path bootstraps its record set off the very
+// first op of a run, where the live set is necessarily empty.
+//
+// If someone "simplifies" the selector to `liveRecords.empty()` -- in
+// buildInitialState, constraintsDispatch, validateConstraints, or the interface
+// method -- the first op reports no allocations, so the record set never seeds,
+// every later query also sees an empty set, and the whole stateful feature
+// degrades silently to stateless. This test fails loudly instead: same op, same
+// layouts, empty live set, allocations required. Its counterpart above pins
+// that the reported values still match the stateless query.
+//===----------------------------------------------------------------------===//
+TEST_F(MockAllocatorStatelessEquivalenceTest,
+       EmptyRecordsStillReportsAllocations) {
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+  auto layout = makeL1Sharded(shape);
+  auto tt = tensorType(shape, layout);
+  auto args = beginFunc({tt});
+  auto *op = addUnary(args[0], tt, 0);
+  finishFunc({op->getResult(0)});
+
+  const mlir::tt::ttnn::OpConfig config(layout);
+  const auto statefulEmpty =
+      mlir::tt::ttnn::op_constraint_validation::validateOperation(
+          op, /*inputLayouts=*/{layout}, config,
+          /*liveRecords=*/
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>{});
+  ASSERT_TRUE(statefulEmpty.isSuccess())
+      << "stateful query with an empty live set must succeed";
+  EXPECT_FALSE(statefulEmpty.outputAllocations.empty())
+      << "an EMPTY-but-engaged live set is a STATEFUL query and must report "
+         "outputAllocations; reporting none means the selector degraded to "
+         "keying on liveRecords.empty()";
+
+  // ...and the stateless query (no live set at all) must keep reporting none:
+  // that is what makes its result cacheable.
+  const auto stateless =
+      mlir::tt::ttnn::op_constraint_validation::validateOperation(
+          op, /*inputLayouts=*/{layout}, config);
+  ASSERT_TRUE(stateless.isSuccess());
+  EXPECT_TRUE(stateless.outputAllocations.empty())
+      << "the stateless query must not report allocations";
 }
 
 } // namespace
