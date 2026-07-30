@@ -4583,13 +4583,23 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::IndexerScoreDsaOp>
         emitter(srcOp, adaptor, rewriter);
 
+    // ttnn takes the query-sequence shard as `seq_shard_axes`, a list of mesh
+    // axes; forward the single cluster_axis as its sole element (unset ->
+    // None).
+    llvm::SmallVector<uint32_t, 1> seqShardAxesStorage;
+    std::optional<llvm::ArrayRef<uint32_t>> seqShardAxes;
+    if (std::optional<uint32_t> clusterAxis = srcOp.getClusterAxis()) {
+      seqShardAxesStorage.push_back(*clusterAxis);
+      seqShardAxes = llvm::ArrayRef<uint32_t>(seqShardAxesStorage);
+    }
+
     // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
         emitter.emit(srcOp.getKey()),
         emitter.emit(srcOp.getWeights()),
         emitter.emit(srcOp.getChunkStartIdx(), "chunk_start_idx"),
-        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(seqShardAxes, "seq_shard_axes"),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 

@@ -12,7 +12,7 @@
 // TTNNResolveComposites and then emitted to C++ as
 // ttnn::experimental::indexer_score_dsa.
 
-// cluster_axis is the 9th positional parameter, so the four intervening
+// seq_shard_axes is the 9th positional parameter, so the four intervening
 // parameters are emitted at their ttnn defaults. An unset cluster_axis becomes
 // std::nullopt, which is what the kernel treats as "flat device enumeration".
 
@@ -29,11 +29,11 @@ module {
     return %0 : tensor<1x1x32x32xbf16>
   }
 
-  // A named mesh axis lands in the last argument slot.
+  // A named mesh axis lands in the last argument slot as a one-element vector.
   func.func @indexer_score_dsa_cluster_axis(%q: tensor<1x8x32x128xbf16>, %k: tensor<1x1x64x128xbf16>, %w: tensor<1x8x32x1xbf16>) -> tensor<1x1x32x64xbf16> {
     // CHECK: ttnn::experimental::indexer_score_dsa
     // CHECK-SAME: ::ttnn::operations::experimental::indexer_score::IndexerScoreProgramConfig{}
-    // CHECK-SAME: ::std::nullopt, ::std::nullopt, ::std::nullopt, 1)
+    // CHECK-SAME: ::std::nullopt, ::std::nullopt, ::std::nullopt, ::std::vector<uint32_t>{1})
     %0 = "ttcore.composite"(%q, %k, %w) <{composite_name = "indexer_score_dsa", decomposition = @decomp_cluster_axis, composite_attributes = {chunk_start_idx = 32 : ui32, cluster_axis = 1 : ui32}}> : (tensor<1x8x32x128xbf16>, tensor<1x1x64x128xbf16>, tensor<1x8x32x1xbf16>) -> tensor<1x1x32x64xbf16>
     return %0 : tensor<1x1x32x64xbf16>
   }
