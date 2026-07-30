@@ -10009,15 +10009,6 @@ def chisel_ttnn_fill_cache(op, inputs):
     return fill_cache_golden(cache_tensor=inputs["cache"], input_tensor=inputs["input"])
 
 
-def chisel_ttnn_update_cache(op, inputs):
-    return update_cache_golden(
-        cache_tensor=inputs["cache"],
-        update_tensor=inputs["input"],
-        indices_tensor=inputs["update_index"],
-        batch_offset=op.attributes["batch_offset"],
-    )
-
-
 def chisel_ttnn_paged_fill_cache(op, inputs):
     cache = inputs["cache"]
     if cache.device.type == "meta":
@@ -10385,7 +10376,6 @@ CHISEL_GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.PagedScaledDotProductAttentionDecodeOp: chisel_ttnn_paged_scaled_dot_product_attention_decode,
     # Cache ops
     ttnn.FillCacheOp: chisel_ttnn_fill_cache,
-    ttnn.UpdateCacheOp: chisel_ttnn_update_cache,
     ttnn.PagedFillCacheOp: chisel_ttnn_paged_fill_cache,
     ttnn.PagedUpdateCacheOp: chisel_ttnn_paged_update_cache,
     # CCL ops

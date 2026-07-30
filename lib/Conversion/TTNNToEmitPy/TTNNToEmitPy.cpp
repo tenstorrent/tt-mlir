@@ -2710,46 +2710,6 @@ public:
 };
 } // namespace
 
-// UpdateCacheOp
-//
-namespace {
-class UpdateCacheOpConversionPattern
-    : public TTNNToEmitPyBaseOpConversionPattern<
-          mlir::tt::ttnn::UpdateCacheOp> {
-public:
-  using TTNNToEmitPyBaseOpConversionPattern<
-      mlir::tt::ttnn::UpdateCacheOp>::TTNNToEmitPyBaseOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::UpdateCacheOp srcOp, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::UpdateCacheOp> emitter(
-        srcOp, adaptor, rewriter);
-
-    // The `update_index` is modeled as a tensor in the IR, but the
-    // `ttnn.update_cache` expects a `int` scalar.
-    auto updateIndex = rewriter
-                           .create<emitpy::CallOpaqueOp>(
-                               srcOp.getLoc(), rewriter.getI32Type(),
-                               ttnn_to_emitpy::kGetScalarFromTensorFunctionName,
-                               adaptor.getUpdateIndex(),
-                               /*args=*/nullptr,
-                               /*keyword_args=*/nullptr)
-                           .getResult(0);
-
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getCache()), emitter.emit(srcOp.getInput()),
-        emitter.emit(updateIndex, /*attrName=*/"", /*index=*/2),
-        emitter.emit(srcOp.getBatchOffset(), "batch_offset")};
-
-    emitter.replaceOp(*this, args);
-
-    return success();
-  }
-};
-} // namespace
-
 // PagedUpdateCacheOp
 //
 namespace {
@@ -5597,7 +5557,6 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // KV Cache ops
   //
   patterns.add<FillCacheOpConversionPattern>(typeConverter, ctx);
-  patterns.add<UpdateCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<PagedUpdateCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<PagedFillCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<SamplingOpConversionPattern>(typeConverter, ctx);

@@ -563,8 +563,8 @@ def TTNNKVCacheDtypeConversion: Pass<"ttnn-kv-cache-dtype-conversion", "::mlir::
   let summary = "Convert KV cache tensors to a lower precision dtype.";
   let description = [{
     This pass changes KV cache function argument types to a target dtype and inserts
-    ttnn.typecast ops on the input operands of ttnn.fill_cache and
-    ttnn.update_cache so written data matches the new cache format.
+    ttnn.typecast ops on the input operands of ttnn.fill_cache so written data
+    matches the new cache format.
   }];
 
   list<Option> options = [

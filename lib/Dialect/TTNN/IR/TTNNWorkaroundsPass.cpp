@@ -426,26 +426,6 @@ TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(
       .addOutputOperandWorkaround(typeWorkarounds);
 }
 
-// Factory method to create a set of workarounds for UpdateCache operation
-// operands. Update index of UpdateCacheOp must be unsigned
-TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createUpdateCacheOpOperandsWorkarounds(
-    RankedTensorType updateIndex) {
-  mlir::Type updateIndexElementType = updateIndex.getElementType();
-  TTNNOperandWorkarounds nullWorkarounds;
-  TTNNOperandWorkarounds typeWorkarounds;
-  mlir::tt::ttcore::DataType dataType =
-      mlir::tt::ttcore::elementTypeToDataType(updateIndexElementType);
-  if (dataType == mlir::tt::ttcore::DataType::Int32) {
-    typeWorkarounds.tensorDataTypeWorkaround =
-        mlir::tt::ttcore::DataType::UInt32;
-  }
-  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(nullWorkarounds)
-      .addInputOperandWorkaround(nullWorkarounds)
-      .addInputOperandWorkaround(typeWorkarounds);
-}
-
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
     Operation *op) {
