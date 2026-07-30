@@ -1963,15 +1963,11 @@ public:
           srcOp, "tenstorrent.adamw must have 4 or 5 operands (param, grad, "
                  "exp_avg, exp_avg_sq, [max_exp_avg_sq]).");
     }
-
-    // One result per updated operand; grad is the only one not updated. Emitted
-    // as an error rather than a match failure: stablehlo is neither legal nor
-    // illegal in this pass, so declining here would leave the composite in the
-    // IR to fail somewhere less obvious.
+    
     if (srcOp.getNumResults() != numOperands - 1) {
-      return srcOp.emitOpError(
-          "tenstorrent.adamw must have one result per updated operand "
-          "(param, exp_avg, exp_avg_sq, [max_exp_avg_sq])");
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.adamw must have one result per updated operand "
+                 "(param, exp_avg, exp_avg_sq, [max_exp_avg_sq]).");
     }
 
     DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
