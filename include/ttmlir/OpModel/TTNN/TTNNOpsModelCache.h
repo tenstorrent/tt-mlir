@@ -16,7 +16,10 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <optional>
+#include <string>
 #include <type_traits>
 
 namespace mlir::tt::ttnn {
@@ -28,6 +31,64 @@ class TTNNOpModelCache;
 // Singleton accessor functions.
 TTNNOpModelCache<op_model::OpConstraints> &opConstraintsCache();
 TTNNOpModelCache<size_t> &opRuntimeCache();
+
+// Memoize failed queries too, not just successful ones. A layout search rejects
+// far more candidates than it accepts, and the rejected ones repeat (a decoder
+// stack re-queries the same failing tuples once per identical layer), so without
+// this every rejection is recomputed. Opt-in while it is being evaluated: a
+// cached rejection that was not reproducible would silently drop a legal layout
+// out of the search.
+inline bool opModelCacheFailuresEnabled() {
+  static const bool enabled = [] {
+    const char *env = std::getenv("TTMLIR_OPMODEL_CACHE_FAILURES");
+    return env != nullptr && std::string(env) != "0";
+  }();
+  return enabled;
+}
+
+// Report hit/miss/rejection counts on the way out, so a compile can be measured
+// without a pass having to reach into the cache.
+inline bool opModelCacheStatsEnabled() {
+  static const bool enabled = [] {
+    const char *env = std::getenv("TTMLIR_OPMODEL_CACHE_STATS");
+    return env != nullptr && std::string(env) != "0";
+  }();
+  return enabled;
+}
+
+// TODO: enforce the mock-device precondition. It cannot be checked from here:
+// TTMLIR_ENABLE_OPMODEL is a PUBLIC compile definition on the OpModel library
+// alone (lib/OpModel/TTNN/CMakeLists.txt) and is NOT defined for
+// MLIRTTNNInterfaces, the only target that instantiates getOrCompute, so
+// SingletonDeviceContext is not even declared here. (The same #ifdef silently
+// disables the device-generation invalidation below, which is a separate bug.)
+// Enforcing it needs an accessor declared outside that guard and defined in the
+// OpModel library. Until then this is env-gated and off by default.
+inline bool opModelCacheRejectionsAllowed() { return true; }
+
+// This message means the rejection did not come from ttnn: an exception escaped
+// and executeConstraintQuery lost it, because the assert meant to stop us is
+// compiled out in a release build. A host bad_alloc or a broken invariant lands
+// here, so the verdict is not a property of the key and must not be replayed.
+inline bool isUncacheableRejection(const std::string &message) {
+  return message.find("<error message not set>") != std::string::npos;
+}
+
+// Rejections are only ever displayed truncated, and a six-figure rejection count
+// makes the untruncated metal text worth dropping.
+inline std::string truncateRejection(std::string message) {
+  constexpr int keptLines = 8;
+  size_t pos = 0;
+  for (int i = 0; i < keptLines; ++i) {
+    pos = message.find('\n', pos);
+    if (pos == std::string::npos) {
+      return message;
+    }
+    ++pos;
+  }
+  message.resize(pos);
+  return message;
+}
 
 // A cache for TTNN operation model results. This cache stores the results of
 // getOpConstraints and getOpRuntime calls to avoid redundant computations.
@@ -48,6 +109,13 @@ public:
     size_t hits = 0;    // Number of cache hits
     size_t misses = 0;  // Number of cache misses
     size_t entries = 0; // Total number of entries in the cache
+    // Rejection accounting. `failedComputes` counts backend queries that ran and
+    // came back rejected; `failureHits` counts the ones a cached rejection stood
+    // in for. The ratio between them is the whole value of caching failures.
+    size_t failedComputes = 0;
+    size_t failureEntries = 0;
+    size_t failureHits = 0;
+    size_t clears = 0; // invalidations, so a low hit count can be explained
   };
 
   // Get current cache statistics.
@@ -56,7 +124,14 @@ public:
   // Clear the cache and reset statistics.
   void clear() {
     cache.clear();
+    // Query counters describe work already spent rather than what is currently
+    // cached, so they outlive an invalidation: a mid-compile clear would
+    // otherwise hide most of the compile from the stats dump.
+    const CacheStats prev = stats;
     stats = CacheStats{};
+    stats.failedComputes = prev.failedComputes;
+    stats.failureHits = prev.failureHits;
+    stats.clears = prev.clears + 1;
   }
 
   // Get the total number of cached items.
@@ -67,7 +142,7 @@ public:
   // Get cache statistics as a string.
   std::string statsToString() const {
     const size_t total = stats.hits + stats.misses;
-    if (total == 0) {
+    if (total == 0 && stats.failedComputes == 0 && stats.failureHits == 0) {
       return "  No cache statistics available (no accesses recorded)\n";
     }
 
@@ -81,7 +156,14 @@ public:
                            std::to_string(hitRatio) + "%)\n" +
                            "    Misses: " + std::to_string(stats.misses) +
                            " (" + std::to_string(missRatio) + "%)\n" +
-                           "    Size: " + std::to_string(size()) + "\n";
+                           "    Size: " + std::to_string(size()) + "\n" +
+                           "    Failed computes: " +
+                           std::to_string(stats.failedComputes) + "\n" +
+                           "    Failure entries: " +
+                           std::to_string(stats.failureEntries) + "\n" +
+                           "    Failure hits: " +
+                           std::to_string(stats.failureHits) + "\n" +
+                           "    Clears: " + std::to_string(stats.clears) + "\n";
     return statsStr;
   }
 
@@ -120,27 +202,71 @@ public:
     llvm::hash_code hashValue = llvm::hash_combine(std::forward<Args>(args)...);
 
     // Try to read from cache first.
-    if (auto cached = tryGetFromCache(op, hashValue)) {
-      return *cached;
+    if (std::optional<Entry> cached = tryGetFromCache(op, hashValue)) {
+      if (cached->rejected) {
+        stats.failureHits++;
+        return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                       cached->message);
+      }
+      return cached->value;
     }
 
     // Not in cache, compute the value.
     llvm::Expected<ValueT> result =
         std::forward<Callable>(computeFunc)(std::forward<Args>(args)...);
 
-    // If computation was successful, store the result.
     if (result) {
-      storeInCache(op, hashValue, *result);
+      Entry accepted;
+      accepted.value = *result;
+      storeInCache(op, hashValue, accepted);
+      return result;
     }
 
-    return result;
+    stats.failedComputes++;
+    if (!cacheRejections || !opModelCacheFailuresEnabled() ||
+        !opModelCacheRejectionsAllowed()) {
+      return result;
+    }
+    // takeError() consumes the error, so hand back an equivalent one. Callers
+    // treat a rejection as a boolean plus a message for diagnostics.
+    std::string message = llvm::toString(result.takeError());
+    if (isUncacheableRejection(message)) {
+      return llvm::createStringError(llvm::inconvertibleErrorCode(), message);
+    }
+    Entry entry;
+    entry.rejected = true;
+    entry.message = truncateRejection(std::move(message));
+    storeInCache(op, hashValue, entry);
+    stats.failureEntries++;
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   entry.message);
   }
 
 private:
   // Private constructor - only accessible by friend functions.
-  TTNNOpModelCache() = default;
+  explicit TTNNOpModelCache(const char *name, bool cacheRejections)
+      : name(name), cacheRejections(cacheRejections) {}
 
-  std::optional<ValueT> tryGetFromCache(Operation *op, llvm::hash_code hash) {
+  // Reports on the way out. Uses fprintf rather than llvm::errs(): this is a
+  // function-local static whose destruction order against llvm's own stream
+  // statics is unspecified.
+  ~TTNNOpModelCache() {
+    if (opModelCacheStatsEnabled()) {
+      std::fprintf(stderr, "TTNNOpModelCache<%s> [failures cached: %s]\n%s",
+                   name, opModelCacheFailuresEnabled() ? "yes" : "no",
+                   statsToString().c_str());
+    }
+  }
+
+  // A cached query outcome: either a value the backend accepted, or the message
+  // it was rejected with.
+  struct Entry {
+    ValueT value{};
+    bool rejected = false;
+    std::string message;
+  };
+
+  std::optional<Entry> tryGetFromCache(Operation *op, llvm::hash_code hash) {
     mlir::TypeID opTypeID = op->getName().getTypeID();
     typename Cache::iterator cacheIt = cache.find(opTypeID);
     if (cacheIt == cache.end()) {
@@ -159,9 +285,9 @@ private:
     return opCacheIt->second;
   }
 
-  void storeInCache(Operation *op, llvm::hash_code hash, const ValueT &value) {
+  void storeInCache(Operation *op, llvm::hash_code hash, const Entry &entry) {
     mlir::TypeID opTypeID = op->getName().getTypeID();
-    cache[opTypeID][hash] = value;
+    cache[opTypeID][hash] = entry;
     stats.entries++;
   }
 
@@ -172,9 +298,13 @@ private:
   // According to llvm docs, mlir::TypeID is unique for each Operation*
   // (https://mlir.llvm.org/doxygen/classmlir_1_1TypeID.html), so it is safe and
   // efficient to use it as a key in the cache.
-  using OpCache = llvm::DenseMap<llvm::hash_code, ValueT>;
+  using OpCache = llvm::DenseMap<llvm::hash_code, Entry>;
   using Cache = llvm::DenseMap<mlir::TypeID, OpCache>;
 
+  const char *name;
+  // getOpRuntime rejects unconditionally under a mock device and otherwise
+  // executes for real, so only constraint rejections are memoizable.
+  const bool cacheRejections;
   Cache cache;
   CacheStats stats;
   // MLIR context that owns any attributes/types stored in cached values.
@@ -189,12 +319,14 @@ inline TTNNOpModelCache<op_model::OpConstraints> &opConstraintsCache() {
   //  §6.7 [stmt.dcl] p4 If control enters the declaration concurrently while
   //  the variable is being initialized, the concurrent execution shall wait for
   //  completion of the initialization.
-  static TTNNOpModelCache<op_model::OpConstraints> instance;
+  static TTNNOpModelCache<op_model::OpConstraints> instance(
+      "constraints", /*cacheRejections=*/true);
   return instance;
 }
 
 inline TTNNOpModelCache<size_t> &opRuntimeCache() {
-  static TTNNOpModelCache<size_t> instance;
+  static TTNNOpModelCache<size_t> instance("runtime",
+                                           /*cacheRejections=*/false);
   return instance;
 }
 
