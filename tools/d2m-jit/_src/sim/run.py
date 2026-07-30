@@ -40,7 +40,9 @@ def _drive_async(result):
         # `async def` bodies that use `yield` model a producer/consumer split
         # across concurrently-scheduled threads; faithfully interleaving them
         # needs an ordering model the functional sim deliberately omits.
-        result.aclose()
+        # Calling the async-generator function only constructs the generator
+        # (the body never runs), so there is nothing to `aclose()` -- and its
+        # coroutine would be discarded un-awaited anyway.
         raise NotImplementedError(
             "async-generator kernels (`async def` with `yield` for multi-thread "
             "producer/consumer handoff) are not supported by the simulator; use "

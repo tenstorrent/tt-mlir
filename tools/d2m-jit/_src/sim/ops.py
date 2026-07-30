@@ -125,13 +125,25 @@ def remote_store(dst, indices, src):
 # --- elementwise helpers -----------------------------------------------------
 
 
+def _common_reduced_axes(*blocks):
+    # Mirror the device eltwise rule (api.py `_common_reduced_axes`): keep the
+    # reduced-axes set only when every operand carries the exact same one,
+    # otherwise clear it. The sim never branches on this field (reduction
+    # results are eagerly broadcast to full block shape, so eltwise is correct
+    # without it -- see SIMULATOR_SPEC.md §5.3); it is kept aligned with the
+    # device purely for parity/diagnostics.
+    axes = [b.reduced_axes for b in blocks]
+    if axes and all(a == axes[0] for a in axes):
+        return axes[0]
+    return frozenset()
+
+
 def _unary(fn, x):
     return SimBlock(fn(x.tiles), x.reduced_axes)
 
 
 def _binary(fn, lhs, rhs):
-    reduced = lhs.reduced_axes & rhs.reduced_axes
-    return SimBlock(fn(lhs.tiles, rhs.tiles), reduced)
+    return SimBlock(fn(lhs.tiles, rhs.tiles), _common_reduced_axes(lhs, rhs))
 
 
 def _predicate(pred, x):
@@ -141,8 +153,10 @@ def _predicate(pred, x):
 def _compare(cmp, lhs, rhs):
     # Comparisons write 1/0 into each tile lane in the operands' element type,
     # matching d2m.tile_eq / tile_gt / ... (which take the lhs tile type).
-    reduced = lhs.reduced_axes & rhs.reduced_axes
-    return SimBlock(cmp(lhs.tiles, rhs.tiles).to(lhs.tiles.dtype), reduced)
+    return SimBlock(
+        cmp(lhs.tiles, rhs.tiles).to(lhs.tiles.dtype),
+        _common_reduced_axes(lhs, rhs),
+    )
 
 
 # Plain unary ops backed directly by a torch callable.
@@ -282,7 +296,7 @@ def tile_bcast_2d(x):
 
 def where(cond, true_value, false_value):
     out = torch.where(cond.tiles != 0, true_value.tiles, false_value.tiles)
-    return SimBlock(out)
+    return SimBlock(out, _common_reduced_axes(cond, true_value, false_value))
 
 
 def zeros(shape):
