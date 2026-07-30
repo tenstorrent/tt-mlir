@@ -23,6 +23,13 @@ from ...utils import (
     assert_pcc,
 )
 
+# Skipped after the 2026-07-08 tt-metal uplift: multi-process device open hangs in
+# UMD's multimesh remote-IO flush (wait_for_non_mmio_flush timeout). Single-process
+# llmbox paths are unaffected. See https://github.com/tenstorrent/tt-mlir/issues/9004.
+pytestmark = pytest.mark.skip(
+    reason="tt-metal uplift: multi-process device open hangs in UMD multimesh remote-IO flush (tt-mlir#9004)"
+)
+
 FLATBUFFER_BASE_PATH = (
     f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/llmbox/binary/Output"
 )

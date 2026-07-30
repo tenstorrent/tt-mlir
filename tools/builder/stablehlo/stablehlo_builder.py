@@ -9864,6 +9864,77 @@ class StableHLOBuilder(Builder):
 
         return op.result
 
+    ############### stablehlo.CustomCallOp @tt.indexer_score_dsa ###############
+
+    @tag(stablehlo.CustomCallOp)
+    def indexer_score_dsa(
+        self,
+        query: Operand,
+        key: Operand,
+        weights: Operand,
+        chunk_start_idx: int = 0,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Emit a `stablehlo.custom_call @tt.indexer_score_dsa`.
+
+        DeepSeek Sparse Attention lightning-indexer scorer. Operands are passed
+        in canonical order: query [B, Hi, Sq, D], key [B, 1, T, D],
+        weights [B, Hi, Sq, 1] -> score [B, 1, Sq, T]. The `chunk_start_idx`
+        causal offset is carried as a string-valued frontend attribute (defaults
+        to 0).
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.indexer_score_dsa)
+
+        inputs = [query, key, weights]
+
+        # Output is [B, 1, Sq, T]: query batch, single (summed) head, query seq
+        # length, key seq length.
+        query_shape = list(self.get_shape(query))
+        key_shape = list(self.get_shape(key))
+        output_shape = [query_shape[0], 1, query_shape[2], key_shape[2]]
+        output_type = self._create_ranked_tensor_type(
+            output_shape, self.get_type(query)
+        )
+
+        # tt.indexer_score_dsa carries chunk_start_idx as a string-valued
+        # attribute.
+        frontend_attrs = {
+            "chunk_start_idx": StringAttr.get(str(chunk_start_idx)),
+        }
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            [output_type],
+            inputs,
+            "tt.indexer_score_dsa",
+            api_version=IntegerAttr.get(IntegerType.get_signless(32), 0),
+            loc=loc,
+        )
+        op.operation.attributes["mhlo.frontend_attributes"] = DictAttr.get(
+            frontend_attrs, self._ctx
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        op_golden_function = get_custom_call_golden_function("tt.indexer_score_dsa")
+        golden_output = op_golden_function(
+            self._get_golden_tensor(query),
+            self._get_golden_tensor(key),
+            self._get_golden_tensor(weights),
+            chunk_start_idx,
+        )
+        self._set_golden_tensor(op.result, golden_output)
+
+        return op.result
+
     # ----- Public Shardy Attribute Generators ----
 
     def mesh_axis_attr(

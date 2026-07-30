@@ -286,6 +286,7 @@ static void addRemainingStableHLOPasses(OpPassManager &pm) {
   pm.addPass(createDecoupleConstFanoutPass());
   pm.addPass(createFlattenOrConvertCompositesPass());
   pm.addPass(createRegisterCustomShardingRulePass());
+  pm.addPass(createRegisterUserShardingRulePass());
 
   mlir::sdy::PropagationOptions propagationOptions;
   propagationOptions.conservativePropagation = true;

@@ -75,6 +75,10 @@ void createStableHLOPipeline(OpPassManager &pm,
   // Register custom sharding rules for unsupported ops in Shardy.
   pm.addPass(createRegisterCustomShardingRulePass());
 
+  // Promote user-provided xla.sdy.custom_sharding_rule frontend attributes to
+  // sdy.sharding_rule op attributes. Must run before propagation.
+  pm.addPass(createRegisterUserShardingRulePass());
+
   // Apply sharding constraints.
   pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
 

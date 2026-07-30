@@ -12,12 +12,11 @@ from ttmlir import optimizer_overrides
 OVERRIDE_PARAMETER_DISABLED_STR = "None"
 
 OPTIMIZER_DISABLED_POLICY = "Optimizer Disabled"
+OPTIMIZER_ENABLED_POLICY = "Optimizer Enabled"
 
 OPTIMIZATION_POLICIES = {
     OPTIMIZER_DISABLED_POLICY: False,
-    "DF Sharding": optimizer_overrides.MemoryLayoutAnalysisPolicyType.DFSharding,
-    # "Greedy L1 Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.GreedyL1Interleaved,
-    # "BF Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.BFInterleaved,
+    OPTIMIZER_ENABLED_POLICY: True,
 }
 
 
@@ -40,10 +39,6 @@ def settings_to_overrides(settings, artifacts_dir):
     else:
         override_handler.set_enable_optimizer(True)
         override_handler.set_enable_memory_layout_analysis(False)
-        override_handler.set_enable_l1_interleaved_fallback_analysis(False)
-        override_handler.set_memory_layout_analysis_policy(
-            OPTIMIZATION_POLICIES[optimization_policy]
-        )
 
     # Convert settings to output layout overrides.
     if settings.get("overrides"):

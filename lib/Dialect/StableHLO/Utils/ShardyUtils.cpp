@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
+#include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/IRMapping.h"
 #include "llvm/Support/Error.h"
 
@@ -1238,6 +1239,40 @@ bool opHasShardySharding(mlir::Operation *op) {
   }
 
   return false;
+}
+
+llvm::StringRef getUserShardingRuleStr(mlir::Operation *op) {
+  auto frontendAttrs = op->getAttrOfType<mlir::DictionaryAttr>(
+      gspmd_utils::kFrontendAttributesAttr);
+  if (!frontendAttrs) {
+    return {};
+  }
+
+  auto ruleStrAttr = frontendAttrs.getAs<mlir::StringAttr>(
+      sharding_utils::kXlaSdyCustomShardingRuleAttr);
+  if (!ruleStrAttr) {
+    return {};
+  }
+
+  llvm::StringRef ruleStr = ruleStrAttr.getValue().trim();
+  return ruleStr.empty() ? llvm::StringRef() : ruleStr;
+}
+
+mlir::sdy::OpShardingRuleAttr
+parseUserShardingRule(llvm::StringRef ruleStr, mlir::MLIRContext *context) {
+  auto rule = mlir::dyn_cast_or_null<mlir::sdy::OpShardingRuleAttr>(
+      mlir::parseAttribute(ruleStr, context));
+  if (!rule || !rule.isCustom()) {
+    return rule;
+  }
+
+  // Rebuild through the builder that omits `is_custom_rule`, which defaults it
+  // to false.
+  return mlir::sdy::OpShardingRuleAttr::get(
+      context, rule.getFactorSizes(), rule.getOperandMappings(),
+      rule.getResultMappings(), rule.getReductionFactors(),
+      rule.getNeedReplicationFactors(), rule.getPermutationFactors(),
+      rule.getBlockedPropagationFactors());
 }
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO

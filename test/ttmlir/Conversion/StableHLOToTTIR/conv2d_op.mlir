@@ -17,10 +17,10 @@ module @jit_convolution attributes {} {
     return %0 : tensor<1x128x128x64xf32>
   }
 
-  // Tests 1d convolution that gets translated to 2d.
+  // Tests 1d convolution, which is routed to a native ttir.conv1d.
   func.func @test_convolution_1d(%arg0: tensor<1x256x512xf32>, %arg1: tensor<1024x256x1xf32>) -> tensor<1x1024x512xf32> {
     // CHECK-COUNT-2: = "ttir.reshape"
-    // CHECK: = "ttir.conv2d"
+    // CHECK: = "ttir.conv1d"
     // CHECK: = "ttir.reshape"
     %0 = stablehlo.convolution(%arg0, %arg1)
       dim_numbers = [b, f, 0]x[o, i, 0]->[b, f, 0],

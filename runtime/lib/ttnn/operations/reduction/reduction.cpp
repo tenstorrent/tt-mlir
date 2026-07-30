@@ -57,7 +57,20 @@ void run(const ::tt::target::ttnn::ReductionOp *op, ProgramContext &context) {
     break;
   }
   case ::tt::target::ttnn::ReductionOpType::Mean: {
-    runReductionOp(op, tensorPool, ::ttnn::mean);
+    runReductionOp(
+        op, tensorPool,
+        [](const ::ttnn::Tensor &input,
+           const std::optional<
+               std::variant<int, int64_t, ::ttsl::SmallVector<int>>> &dimArg,
+           const bool keepDim,
+           const std::optional<::ttnn::MemoryConfig> &memoryConfig,
+           const std::optional<::ttnn::DeviceComputeKernelConfig>
+               &computeConfig,
+           float scalar, bool correction,
+           const std::optional<::ttnn::CoreRangeSet> &subCoreGrids) {
+          return ::ttnn::mean(input, dimArg, keepDim, memoryConfig,
+                              computeConfig, scalar, correction, subCoreGrids);
+        });
     break;
   }
   case ::tt::target::ttnn::ReductionOpType::Max: {

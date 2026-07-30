@@ -34,6 +34,13 @@ _D2M_POST_GRID_WITH_VIEW_PIPELINE = (
 )
 
 
+def _with_tensor_accessor_dma(pipeline: str, enabled: bool) -> str:
+    return pipeline.replace(
+        "d2m-be-pipeline,",
+        f"d2m-be-pipeline{{use-tensor-accessor-dma={int(enabled)}}},",
+    )
+
+
 @pytest.mark.parametrize("input_grid_y", [1, 2, 3])
 @pytest.mark.parametrize("input_grid_x", [1, 2, 3])
 @pytest.mark.parametrize("output_grid_y", [2, 3, 4])
@@ -407,17 +414,20 @@ def test_multiple_grid_reblocks(
 
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
-    "input_grid,output_grid",
+    "shape,input_grid,output_grid",
     [
-        ((1, 1), (2, 2)),  # 1x1 -> 2x2 tiled reblock
-        ((2, 2), (4, 4)),  # 2x2 -> 4x4 tiled reblock
-        ((4, 4), (2, 2)),  # 4x4 -> 2x2 tiled downscale
+        ((192, 384), (1, 3), (2, 2)),  # Non-square cross-grid reblock
+        ((256, 256), (2, 2), (4, 4)),  # 2x2 -> 4x4 tiled reblock
+        ((256, 256), (4, 4), (2, 2)),  # 4x4 -> 2x2 tiled downscale
     ],
 )
+@pytest.mark.parametrize("use_tensor_accessor_dma", [False, True])
 def test_tiled_grid_reblocking(
     target: str,
+    shape: tuple,
     input_grid: tuple,
     output_grid: tuple,
+    use_tensor_accessor_dma: bool,
     request,
     device,
 ):
@@ -426,11 +436,9 @@ def test_tiled_grid_reblocking(
     Verifies that buildLayoutTransformMap correctly handles tile units vs scalar units
     when computing affine maps for grid reblocking with tiled tensors.
     """
-    # Shape must be divisible by tile size (32) and grid dimensions
-    shape = (256, 256)
 
     def module(builder: D2MBuilder):
-        golden = torch.randn(shape)
+        golden = torch.arange(shape[0] * shape[1], dtype=torch.float32).reshape(shape)
 
         @builder.func([shape], [torch.float32])
         def tiled_reblock(
@@ -493,7 +501,9 @@ def test_tiled_grid_reblocking(
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline=_D2M_POST_GRID_PIPELINE,
+        custom_pipeline=_with_tensor_accessor_dma(
+            _D2M_POST_GRID_PIPELINE, use_tensor_accessor_dma
+        ),
         device=device,
         **get_request_kwargs(request),
     )

@@ -62,6 +62,7 @@ table ScaledDotProductAttentionDecodeOp {
   cur_pos_tensor: tt.target.ttnn.TensorRef;
   attention_sink: tt.target.ttnn.TensorRef;
   scale: float = null;
+  sliding_window_size: uint32 = null;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
   program_config: tt.target.ttnn.SDPAConfig;
@@ -90,6 +91,19 @@ table FlashMlaPrefillOp {
   scale: float = null;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
+}
+
+table IndexerScoreDsaOp {
+  query: tt.target.ttnn.TensorRef;
+  key: tt.target.ttnn.TensorRef;
+  weights: tt.target.ttnn.TensorRef;
+  chunk_start_idx: uint32;
+  out: tt.target.ttnn.TensorRef;
+  // Mesh axis carrying the query sequence shard. Unset = the op falls back to a
+  // flat row-major enumeration over ALL of q's devices, which is only correct
+  // when the sequence is sharded across every device. Appended after `out` so
+  // existing flatbuffers keep their field ids.
+  cluster_axis: uint32 = null;
 }
 
 table NLPCreateQKVHeadsDecodeOp {

@@ -26,11 +26,11 @@ void OpConfigAnalysis::analysisImplementation() {
   // Placeholder: pick the first legal config.
   //
   for (auto opConfigs : analysisInput.legalConfigs) {
-    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Picking op config for op {}",
-                 opConfigs.first->getName());
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                 "Picking op config for op {}", opConfigs.first->getName());
     for ([[maybe_unused]] auto config : opConfigs.second) {
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "\tCandidate config {}",
-                   config.outputLayout);
+      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                   "\tCandidate config {}", config.outputLayout);
     }
     OpConfig chosenConfig = opConfigs.second[0];
 
@@ -43,9 +43,9 @@ void OpConfigAnalysis::analysisImplementation() {
     // Try to keep tiledeness of existing layout.
     for (auto config : opConfigs.second) {
       if (config.outputLayout.isTiled() == existingLayout.isTiled()) {
-        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "  Picking {} layout {}",
-                     existingLayout.isTiled() ? "tiled" : "RM",
-                     config.outputLayout);
+        TTMLIR_TRACE(
+            ttmlir::LogComponent::GreedyOptimizer, "  Picking {} layout {}",
+            existingLayout.isTiled() ? "tiled" : "RM", config.outputLayout);
         chosenConfig = config;
         break;
       }

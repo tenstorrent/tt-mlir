@@ -255,7 +255,12 @@ void createD2MBackendPipeline(OpPassManager &pm,
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
   pm.addPass(d2m::createD2MOptimizeDMA());
   pm.addPass(d2m::createD2MExpandDMAReadCompositeView());
-  pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
+  d2m::D2MLowerDMAToFullyIndexedFormOptions dmaOptions;
+  {
+    dmaOptions.debugCoalescingInference = options.debugD2mCoalescingInference;
+    dmaOptions.useTensorAccessorDMA = options.useTensorAccessorDMA;
+  }
+  pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm(dmaOptions));
 
   // Normalize thread argument access by inserting d2m.get_arg ops for any
   // remaining additional arguments and setting resolution_stage on

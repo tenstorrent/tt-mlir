@@ -20,6 +20,7 @@ import functools
 import inspect
 import os
 import threading
+from collections import Counter
 from typing import Optional
 
 try:
@@ -38,7 +39,7 @@ from ttmlir.passmanager import PassManager
 from ttmlir.dialects import d2m, func, arith, linalg, ttcore
 from ttmlir.passes import ttmetal_to_flatbuffer_bin
 
-from .ast import D2MCompiler
+from .ast import D2MCompiler, SEMAPHORE_ARG
 from .config import config
 from .errors import D2mJitError
 from .tensor_layout import Layout
@@ -57,6 +58,7 @@ def _ttcore_to_torch_dtype(dt):
             ttcore.DataType.Float32: torch.float32,
             ttcore.DataType.Float16: torch.float16,
             ttcore.DataType.BFloat16: torch.bfloat16,
+            ttcore.DataType.UInt32: torch.uint32,
         }
     if dt not in _TTCORE_TO_TORCH:
         raise ValueError(f"No torch dtype for ttcore.DataType {dt}")
@@ -173,9 +175,16 @@ def _pipeline_passes():
 # A `RewriteScope` (defined alongside the pattern-rewrite framework) plugs
 # in a `PatternRewriter`'s context + insertion point so that calling a
 # `@d2m.kernel` from inside a rewrite emits the GenericOp at the matched
-# op's site rather than into a fresh module. From the perspective of the
-# emission helpers, all scopes quack the same: they expose `ctx`, `loc`,
-# `insert_point`, `generation`, `add_host_input`, `add_scalar_input`.
+# op's site rather than into a fresh module.
+#
+# `_SpatialRegionScope` is pushed for each `d2m.spatial` region so nested
+# kernel calls emit into that region's block (and apply spatial-only policy
+# such as grid offset / VGM remap). `d2m.spatial()` itself requires the
+# lazy `_Builder` scope; nested spatial is not supported.
+#
+# From the perspective of the emission helpers, all scopes quack the same:
+# they expose `ctx`, `loc`, `insert_point`, `generation`, `add_host_input`,
+# `add_scalar_input`.
 #
 # `_get_scope()` returns the top of a thread-local stack, falling back to
 # the lazy `_Builder` singleton when nothing is pushed. Push/pop is done
@@ -246,15 +255,69 @@ class _Builder:
         # Parallel arrays: MLIR arg types and the torch tensor that backs each.
         self._input_types: list = []
         self._input_tensors: list = []
+        # The shape is represented by the module's ttcore.meshes attribute.
+        # Topology is a register-device pass option.
+        self._mesh_shape = None
+        self._mesh_topology = None
+        self._mesh_name = None
+
+    def set_mesh(self, shape, topology=None):
+        """Declare the device mesh used by this graph."""
+        shape = tuple(shape)
+        if not shape or any(
+            not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0
+            for dim in shape
+        ):
+            raise ValueError(f"mesh shape must contain positive integers, got {shape}")
+        if len(shape) != 2:
+            raise ValueError(f"TTMetal requires a rank-2 mesh, got shape {shape}")
+        if topology is not None:
+            topology = tuple(topology)
+            if len(topology) != len(shape):
+                raise ValueError(
+                    "mesh topology must have one entry per mesh dimension, "
+                    f"got shape {shape} and topology {topology}"
+                )
+            invalid = [
+                value
+                for value in topology
+                if value not in {"disabled", "linear", "ring"}
+            ]
+            if invalid:
+                raise ValueError(
+                    "mesh topology entries must be 'disabled', 'linear', or "
+                    f"'ring', got {invalid}"
+                )
+        requested_topology = list(topology) if topology is not None else None
+        if self._mesh_shape is not None:
+            if (
+                self._mesh_shape == list(shape)
+                and self._mesh_topology == requested_topology
+            ):
+                return
+            raise RuntimeError(
+                "the current graph already declares mesh "
+                f"{tuple(self._mesh_shape)} with topology "
+                f"{self._mesh_topology}; it cannot be redefined"
+            )
+
+        dims = "x".join(str(dim) for dim in shape)
+        with self.ctx, self.loc:
+            meshes = Attribute.parse(f'#ttcore.meshes<[<"mesh" = {dims}>]>', self.ctx)
+        self.module.operation.attributes["ttcore.meshes"] = meshes
+        self._mesh_shape = list(shape)
+        self._mesh_topology = requested_topology
+        self._mesh_name = "mesh"
 
     def _refresh_function_type(self, results=None):
         with self.ctx, self.loc:
             ft = FunctionType.get(self._input_types, results or [])
             self.func_op.attributes["function_type"] = TypeAttr.get(ft)
 
-    def add_host_input(self, layout: Layout, host_tensor):
+    def add_host_input(self, layout: Layout, host_tensor, host_ty=None):
         """Append a host-typed func arg and return its BlockArgument."""
-        host_ty = layout.build_host_tensor_type(self.ctx)
+        if host_ty is None:
+            host_ty = layout.build_host_tensor_type(self.ctx)
         bb_arg = self.entry_block.add_argument(host_ty, self.loc)
         self._input_types.append(host_ty)
         self._input_tensors.append(host_tensor)
@@ -326,6 +389,174 @@ class RewriteScope:
             return arith.ConstantOp(idx_ty, IntegerAttr.get(idx_ty, int(value))).result
 
 
+class _SpatialRegionScope:
+    """Build scope for one `d2m.spatial` region (exactly one nested generic)."""
+
+    def __init__(self, parent, insert_point, spatial_op, grid_shape, offset):
+        self.parent = parent
+        self.ctx = parent.ctx
+        self.loc = parent.loc
+        self.insert_point = insert_point
+        self.generation = parent.generation
+        self.spatial_op = spatial_op
+        self.grid_shape = list(grid_shape)
+        self.offset = list(offset)
+        if len(self.offset) != 2:
+            raise ValueError(f"d2m.spatial grid offset must be 2D, got {self.offset}")
+        self._emitted_generic = None
+        self._finished = False
+
+    def add_host_input(self, layout, host_tensor):
+        raise RuntimeError(
+            "Cannot lift a host tensor from inside d2m.spatial. Spatial "
+            "regions operate on device tensors only; prepare inputs/outputs "
+            "outside the spatial op and pass them via inputs=/outputs=."
+        )
+
+    def add_scalar_input(self, value: int):
+        return self.parent.add_scalar_input(value)
+
+    def finish(self):
+        """Emit `d2m.spatial_yield` of the nested generic results; return its
+        output operands for matching against SpatialOp outs=."""
+        if self._finished:
+            raise RuntimeError("d2m.spatial region already finished")
+        if self._emitted_generic is None:
+            raise ValueError(
+                "each d2m.spatial region must emit exactly one @d2m.kernel call"
+            )
+        # TODO (hkwon): Allow yielding values other than the nested generic results.
+        with self.ctx, self.loc, self.insert_point:
+            d2m.spatial_yield(list(self._emitted_generic.results))
+        self._finished = True
+        return list(self._emitted_generic.outputs)
+
+    def _validate_grid(self, grid):
+        """Validate nested generic grid; return normalized 2D list."""
+        grid = list(grid)
+        if len(grid) != 2:
+            raise ValueError(
+                f"d2m.spatial only supports 2D nested generic grids, got {grid}"
+            )
+        if grid[0] > self.grid_shape[0] or grid[1] > self.grid_shape[1]:
+            raise ValueError(
+                f"nested generic grid {grid} exceeds spatial region shape "
+                f"{self.grid_shape}"
+            )
+        return grid
+
+    def _make_offset_vgm_maps(self):
+        oy, ox = self.offset
+        d0 = AffineDimExpr.get(0)
+        d1 = AffineDimExpr.get(1)
+        zero = AffineExpr.get_constant(0, self.ctx)
+
+        def add_const(expr, value):
+            if value == 0:
+                return expr
+            return AffineExpr.get_add(expr, AffineExpr.get_constant(value, self.ctx))
+
+        inverse = AffineMap.get(2, 0, [zero, add_const(d0, -oy), add_const(d1, -ox)])
+        dims = [AffineDimExpr.get(i) for i in range(4)]
+        forward = AffineMap.get(
+            4,
+            0,
+            [
+                add_const(dims[0], oy),
+                add_const(dims[1], ox),
+                dims[2],
+                dims[3],
+            ],
+        )
+        return inverse, forward
+
+    def _remap_spatial_output(self, lt: "LazyTensor"):
+        # Replace the matching SpatialOp out with a VGM empty so L1 lands on
+        # this region's physical cores.
+        output_idx = next(
+            (i for i, v in enumerate(self.spatial_op.outputs) if v == lt.value), None
+        )
+        if output_idx is None:
+            raise ValueError("kernel output not listed in d2m.spatial(outputs=...)")
+
+        inverse, forward = self._make_offset_vgm_maps()
+        with self.ctx, self.loc, InsertionPoint(self.spatial_op.operation):
+            remapped_value = d2m.empty(
+                lt.value.type,
+                virtual_grid_inverse_mapping=inverse,
+                virtual_grid_forward_mapping=forward,
+            )
+        self.spatial_op.operation.operands[
+            len(self.spatial_op.inputs) + output_idx
+        ] = remapped_value
+        lt.value = remapped_value
+        return lt
+
+    def _remap_output_args(self, args, num_outs):
+        """Remap trailing num_outs LazyTensors; return prepared args."""
+        args = list(args)
+        num_tensors = next(
+            (i for i, a in enumerate(args) if not isinstance(a, LazyTensor)),
+            len(args),
+        )
+        if num_outs < 1 or num_tensors < num_outs:
+            raise ValueError(
+                f"need at least {num_outs} tensor args for outputs, got {num_tensors}"
+            )
+        tensors, rest = args[:num_tensors], args[num_tensors:]
+        inputs = tensors[:-num_outs]
+        outputs = [lt._resolve() for lt in tensors[-num_outs:]]
+        remapped = [self._remap_spatial_output(lt) for lt in outputs]
+        return tuple(inputs + remapped + rest)
+
+    def _emit_kernel_for_spatial(
+        self,
+        kernel: "CompiledKernel",
+        args,
+        grid,
+        num_outs: int,
+        block_factors,
+        indexing_maps,
+        iterator_types,
+        kernel_io_in_dram=None,
+    ):
+        """Emit one nested generic for this spatial region."""
+        if self._emitted_generic is not None:
+            raise ValueError(
+                "each d2m.spatial region must emit exactly one @d2m.kernel call"
+            )
+
+        grid = self._validate_grid(grid)
+
+        # TODO (hkwon): Support kernel_io_in_dram inside d2m.spatial by
+        # updating SpatialOp outs/result types to the DRAM destination,
+        # similar to _remap_spatial_output's VGM operand rewrite.
+        resolved_dram = (
+            config.kernel_io_in_dram if kernel_io_in_dram is None else kernel_io_in_dram
+        )
+        if resolved_dram is True:
+            raise ValueError(
+                "kernel_io_in_dram is not currently supported inside "
+                "d2m.spatial; pass kernel_io_in_dram=False or disable "
+                "d2m.config.kernel_io_in_dram"
+            )
+
+        if self.offset[0] != 0 or self.offset[1] != 0:
+            args = self._remap_output_args(args, num_outs)
+
+        self._emitted_generic = _emit_kernel_generic(
+            kernel,
+            args,
+            grid=grid,
+            num_outs=num_outs,
+            block_factors=block_factors,
+            indexing_maps=indexing_maps,
+            iterator_types=iterator_types,
+            kernel_io_in_dram=kernel_io_in_dram,
+            grid_offset=self.offset,
+        )
+
+
 # --- LazyTensor --------------------------------------------------------------
 
 
@@ -337,7 +568,7 @@ class LazyTensor:
       - a materialised torch.Tensor (after to_host).
     """
 
-    __slots__ = ("layout", "value", "generation", "materialized", "is_view")
+    __slots__ = ("layout", "value", "generation", "materialized", "is_view", "mesh")
 
     def __init__(
         self,
@@ -346,6 +577,7 @@ class LazyTensor:
         generation,
         materialized=None,
         is_view: bool = False,
+        mesh=None,
     ):
         self.layout = layout
         self.value = value
@@ -356,6 +588,8 @@ class LazyTensor:
         # data is not in the view's logical form -- so we refuse it and
         # ask the user to materialise via to_layout first.
         self.is_view = is_view
+        # Optional metadata describing this tensor's per-device mesh shard.
+        self.mesh = mesh
 
     def to_host(self):
         return to_host(self)[0]
@@ -371,6 +605,13 @@ class LazyTensor:
         if self.generation == b.generation:
             return self
         if self.materialized is not None:
+            if self.mesh is not None:
+                return mesh_shard(
+                    self.materialized,
+                    self.layout,
+                    self.mesh.shard_dims,
+                    self.mesh.shard_shape,
+                )
             return to_layout(self.materialized, layout=self.layout)
         raise RuntimeError(
             "Stale LazyTensor: produced by a prior builder that was reset "
@@ -410,7 +651,7 @@ def to_layout(input_, layout: Layout) -> LazyTensor:
             dst_empty = d2m.empty(dst_unblocked_ty)
             converted = d2m.ToLayoutOp([dst_unblocked_ty], src_val, dst_empty).result
             val = layout.build_blocked_view(b.ctx, converted)
-        return LazyTensor(layout, val, b.generation)
+        return LazyTensor(layout, val, b.generation, mesh=src.mesh)
 
     if torch is not None and isinstance(input_, torch.Tensor):
         assert list(input_.shape) == list(layout.logical_shape), (
@@ -652,6 +893,300 @@ def arange(layout: Layout, start: int = 0, step: int = 1) -> LazyTensor:
     return to_layout(flat.reshape(list(layout.logical_shape)), layout)
 
 
+# --- Global semaphores -------------------------------------------------------
+
+
+def _semaphore_backing_type(ctx, grid_shape):
+    """Build a 1x1-sharded ui32 backing tensor over the worker grid."""
+    rank = len(grid_shape)
+    i64_type = IntegerType.get_signless(64, ctx)
+    interval_type = RankedTensorType.get([rank, 2], i64_type)
+    interval_values = [
+        IntegerAttr.get(i64_type, endpoint)
+        for i in range(rank)
+        for endpoint in (i, i + 1)
+    ]
+    collapse = DenseIntElementsAttr.get(interval_values, type=interval_type)
+    metal_layout = ttcore.ir.MetalLayoutAttr.get(
+        ctx,
+        list(grid_shape),
+        int(ttcore.MemorySpace.DeviceL1),
+        int(ttcore.TensorMemoryLayout.Sharded),
+        collapse,
+        [1] * rank,
+    )
+    device_shape = ttcore.ir.MetalLayoutAttr.maybe_downcast(
+        metal_layout
+    ).getDeviceShape(list(grid_shape), [])
+    return RankedTensorType.get(
+        device_shape, IntegerType.get_unsigned(32, ctx), encoding=metal_layout
+    )
+
+
+class GlobalSemaphore:
+    """Host handle for a `!d2m.global_semaphore` kernel argument."""
+
+    __slots__ = ("value", "generation", "grid_shape", "init", "_consumed")
+
+    def __init__(self, value, generation, grid_shape, init):
+        self.value = value
+        self.generation = generation
+        self.grid_shape = tuple(grid_shape)
+        self.init = init
+        self._consumed = False
+
+    def _resolve_value(self):
+        b = _get_scope()
+        if self.generation != b.generation:
+            raise RuntimeError(
+                "Stale GlobalSemaphore: create it in the same builder "
+                "generation as the kernel call."
+            )
+        if self._consumed:
+            raise RuntimeError(
+                "GlobalSemaphore has already been consumed by a kernel call. "
+                "Create a separate semaphore for each call."
+            )
+        return self.value
+
+
+_g_worker_grid = None
+_g_worker_grid_source = None
+
+
+def _device_worker_grid():
+    """Return the worker grid as `(rows, cols)` from the system descriptor."""
+    import json
+    import re
+
+    global _g_worker_grid, _g_worker_grid_source
+    system_desc_path = _get_system_desc_path()
+    source = system_desc_path or "<runtime>"
+    if _g_worker_grid is not None and _g_worker_grid_source == source:
+        return _g_worker_grid
+
+    if binary is not None and system_desc_path:
+        system_desc = binary.load_system_desc_from_path(system_desc_path)
+    elif runtime is not None:
+        system_desc = runtime.get_current_system_desc()
+    else:
+        raise RuntimeError(
+            "global_semaphore() needs a system descriptor to size the worker "
+            "grid; set SYSTEM_DESC_PATH or pass grid_shape explicitly."
+        )
+
+    desc_json = re.sub(r"\bnan\b", "NaN", system_desc.as_json())
+    desc_json = re.sub(r"\binf\b", "Infinity", desc_json)
+    desc = json.loads(desc_json)
+    root = desc.get("system_desc", desc)
+    grid = root["chip_descs"][0]["grid_size"]
+    _g_worker_grid = (int(grid["y"]), int(grid["x"]))
+    _g_worker_grid_source = source
+    return _g_worker_grid
+
+
+def global_semaphore(grid_shape=None, init=0) -> GlobalSemaphore:
+    """Create a global semaphore backed by the device worker grid."""
+    b = _get_scope()
+    if not isinstance(b, _Builder):
+        raise RuntimeError("global_semaphore() requires the lazy builder scope")
+    if grid_shape is None:
+        grid_shape = _device_worker_grid()
+    grid_shape = tuple(grid_shape)
+    if len(grid_shape) != 2 or any(
+        not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0
+        for dim in grid_shape
+    ):
+        raise ValueError(
+            "global semaphore grid_shape must contain two positive integers, "
+            f"got {grid_shape}"
+        )
+    if not isinstance(init, int) or isinstance(init, bool) or not 0 <= init < 2**32:
+        raise ValueError(f"global semaphore init must be a ui32 value, got {init!r}")
+
+    with b.ctx, b.loc, b.insert_point:
+        backing_ty = _semaphore_backing_type(b.ctx, grid_shape)
+        backing = d2m.empty(backing_ty)
+        sem_ty = d2m.ir.GlobalSemaphoreType.get(b.ctx)
+        sem = d2m.create_global_semaphore(backing, value=init, results=[sem_ty])
+    return GlobalSemaphore(sem, b.generation, grid_shape, init)
+
+
+# --- Device meshes -----------------------------------------------------------
+
+
+def mesh(shape, topology=None):
+    """Declare the device mesh used by the current lazy graph."""
+    b = _get_scope()
+    if not isinstance(b, _Builder):
+        raise RuntimeError("mesh() requires the lazy builder scope")
+    b.set_mesh(shape, topology)
+
+
+class MeshShard:
+    """Metadata needed to gather a per-device shard back to its full tensor."""
+
+    __slots__ = ("full_shape", "shard_dims", "shard_shape")
+
+    def __init__(self, full_shape, shard_dims, shard_shape):
+        self.full_shape = list(full_shape)
+        self.shard_dims = list(shard_dims)
+        self.shard_shape = list(shard_shape)
+
+
+def _validate_mesh_mapping(mesh_shape, tensor_rank, shard_dims, shard_shape):
+    if len(shard_dims) != len(mesh_shape):
+        raise ValueError(
+            "mesh shard_dims must have one entry per mesh dimension, "
+            f"got mesh {mesh_shape} and shard_dims {shard_dims}"
+        )
+    if len(shard_shape) != tensor_rank:
+        raise ValueError(
+            "mesh shard_shape must have one entry per tensor dimension, "
+            f"got tensor rank {tensor_rank} and shard_shape {shard_shape}"
+        )
+
+    for dim in shard_dims:
+        if (
+            not isinstance(dim, int)
+            or isinstance(dim, bool)
+            or dim < -1
+            or dim >= tensor_rank
+        ):
+            raise ValueError(
+                f"mesh shard dimension {dim!r} is invalid for rank {tensor_rank}"
+            )
+    for factor in shard_shape:
+        if not isinstance(factor, int) or isinstance(factor, bool) or factor <= 0:
+            raise ValueError(f"mesh shard factor must be positive, got {factor!r}")
+
+    expected_shape = [1] * tensor_rank
+    for mesh_axis, tensor_dim in enumerate(shard_dims):
+        if tensor_dim >= 0:
+            expected_shape[tensor_dim] *= mesh_shape[mesh_axis]
+    if list(shard_shape) != expected_shape:
+        raise ValueError(
+            f"mesh shard_shape {shard_shape} does not match mesh {mesh_shape} "
+            f"mapped by shard_dims {shard_dims}; expected {expected_shape}"
+        )
+
+
+def _shard_logical_shape(mesh_shape, full_shape, shard_dims, shard_shape):
+    _validate_mesh_mapping(mesh_shape, len(full_shape), shard_dims, shard_shape)
+    shard = list(full_shape)
+    for dim, factor in enumerate(shard_shape):
+        if shard[dim] % factor != 0:
+            raise ValueError(
+                f"mesh shard: full dim {dim} ({shard[dim]}) is not divisible "
+                f"by shard factor {factor}"
+            )
+        shard[dim] //= factor
+    return shard
+
+
+def _emit_mesh_shard(b, value, dst_ty, direction, shard_dims, shard_shape):
+    shard_type = Attribute.parse("#ttcore.shard_type<devices>", b.ctx)
+    shard_direction = Attribute.parse(f"#ttcore.shard_direction<{direction}>", b.ctx)
+    return d2m.mesh_shard(
+        dst_ty,
+        value,
+        shard_type,
+        shard_direction,
+        list(shard_shape),
+        list(shard_dims),
+    )
+
+
+def _tensor_mesh_attr(b):
+    if b._mesh_name is None:
+        raise RuntimeError("mesh_shard() requires a preceding mesh() declaration")
+    with b.ctx, b.loc:
+        return Attribute.parse(f'#ttcore.tensor_mesh<"{b._mesh_name}">', b.ctx)
+
+
+def mesh_shard(input_, layout: Layout, shard_dims, shard_shape) -> LazyTensor:
+    """Distribute a full host tensor into one `layout` shard per device.
+
+    `shard_dims` maps each mesh axis to a tensor dimension (`-1` replicates
+    that mesh axis). `shard_shape` has tensor rank and records the resulting
+    factor for each tensor dimension.
+    """
+    if torch is None or not isinstance(input_, torch.Tensor):
+        raise TypeError("mesh_shard expects a torch.Tensor containing the full tensor")
+    b = _get_scope()
+    if not isinstance(b, _Builder):
+        raise RuntimeError("mesh_shard() requires the lazy builder scope")
+    if b._mesh_name is None:
+        raise RuntimeError("mesh_shard() requires a preceding mesh() declaration")
+
+    shard_dims = list(shard_dims)
+    shard_shape = list(shard_shape)
+    full_shape = list(input_.shape)
+    expected_shape = _shard_logical_shape(
+        b._mesh_shape, full_shape, shard_dims, shard_shape
+    )
+    if list(layout.logical_shape) != expected_shape:
+        raise ValueError(
+            f"mesh_shard layout shape {list(layout.logical_shape)} does not "
+            f"match expected per-device shape {expected_shape}"
+        )
+
+    with b.ctx, b.loc, b.insert_point:
+        elem_type = layout.get_host_elem_type(b.ctx)
+        full_ty = RankedTensorType.get(full_shape, elem_type)
+        shard_ty = RankedTensorType.get(
+            expected_shape, elem_type, encoding=_tensor_mesh_attr(b)
+        )
+        host = b.add_host_input(layout, input_, host_ty=full_ty)
+        shard = _emit_mesh_shard(
+            b, host, shard_ty, "full_to_shard", shard_dims, shard_shape
+        )
+        device = layout.build_to_device(b.ctx, shard)
+    return LazyTensor(
+        layout,
+        device,
+        b.generation,
+        mesh=MeshShard(full_shape, shard_dims, shard_shape),
+    )
+
+
+def mesh_gather(lt: LazyTensor, shard_dims=None, shard_shape=None) -> LazyTensor:
+    """Mark a per-device tensor for a `shard_to_full` gather in `to_host`.
+
+    Tensors returned by `mesh_shard` already carry the mapping. Other tensors,
+    such as kernel outputs, require `shard_dims` and `shard_shape`.
+    """
+    if not isinstance(lt, LazyTensor):
+        raise TypeError(f"mesh_gather expected a LazyTensor, got {type(lt).__name__}")
+    b = _get_scope()
+    if not isinstance(b, _Builder) or b._mesh_name is None:
+        raise RuntimeError("mesh_gather() requires a preceding mesh() declaration")
+
+    if lt.mesh is not None:
+        if shard_dims is not None and list(shard_dims) != lt.mesh.shard_dims:
+            raise ValueError("mesh_gather shard_dims do not match existing metadata")
+        if shard_shape is not None and list(shard_shape) != lt.mesh.shard_shape:
+            raise ValueError("mesh_gather shard_shape does not match existing metadata")
+        return lt._resolve()
+    if shard_dims is None or shard_shape is None:
+        raise ValueError(
+            "mesh_gather needs shard_dims and shard_shape for a tensor not "
+            "produced by mesh_shard"
+        )
+
+    shard_dims = list(shard_dims)
+    shard_shape = list(shard_shape)
+    _validate_mesh_mapping(
+        b._mesh_shape, len(lt.layout.logical_shape), shard_dims, shard_shape
+    )
+    lt = lt._resolve()
+    full_shape = [
+        dim * factor for dim, factor in zip(lt.layout.logical_shape, shard_shape)
+    ]
+    lt.mesh = MeshShard(full_shape, shard_dims, shard_shape)
+    return lt
+
+
 def reshape(lt: LazyTensor, *shape) -> LazyTensor:
     """torch.reshape-style logical-shape change.
 
@@ -679,6 +1214,11 @@ def reshape(lt: LazyTensor, *shape) -> LazyTensor:
     """
     if not isinstance(lt, LazyTensor):
         raise TypeError(f"reshape expected a LazyTensor, got {type(lt).__name__}")
+    if lt.mesh is not None:
+        raise ValueError(
+            "reshape does not yet define how to remap mesh sharding; gather "
+            "and create a new mesh_shard explicitly"
+        )
     if torch is None:
         raise RuntimeError("torch is required for d2m_jit.reshape()")
 
@@ -791,6 +1331,11 @@ def _emit_view_layout(lt: LazyTensor, affine_map, spec) -> LazyTensor:
     """Lower form: take an already-built AffineMap + spec and emit
     `d2m.view_layout`. Used by both view_layout (with a user lambda)
     and view (with a lifted blocked-rank spec built in Python)."""
+    if lt.mesh is not None:
+        raise ValueError(
+            "view operations do not yet remap mesh sharding; materialize a "
+            "gathered tensor and create a new mesh_shard explicitly"
+        )
     b = _get_scope()
     with b.ctx, b.loc, b.insert_point:
         src_type = lt.value.type
@@ -840,6 +1385,13 @@ def view_layout(lt: LazyTensor, remapping_fn) -> LazyTensor:
     paired (grid, tile) permutation. Arithmetic remappings preserve the source
     physical shape and inherit the source Layout unchanged.
     """
+    if not isinstance(lt, LazyTensor):
+        raise TypeError(f"view_layout expected a LazyTensor, got {type(lt).__name__}")
+    if lt.mesh is not None:
+        raise ValueError(
+            "view_layout does not yet remap mesh sharding; materialize a "
+            "gathered tensor and create a new mesh_shard explicitly"
+        )
     lt = lt._resolve()
     b = _get_scope()
     with b.ctx, b.loc:
@@ -879,6 +1431,13 @@ def view(lt: LazyTensor, remapping_fn) -> LazyTensor:
     permutations (no constants) are supported here -- use `view_layout`
     for richer remappings.
     """
+    if not isinstance(lt, LazyTensor):
+        raise TypeError(f"view expected a LazyTensor, got {type(lt).__name__}")
+    if lt.mesh is not None:
+        raise ValueError(
+            "view does not yet remap mesh sharding; materialize a gathered "
+            "tensor and create a new mesh_shard explicitly"
+        )
     lt = lt._resolve()
     b = _get_scope()
     with b.ctx, b.loc:
@@ -905,6 +1464,11 @@ def permute(lt: LazyTensor, *dims) -> LazyTensor:
     """
     if not isinstance(lt, LazyTensor):
         raise TypeError(f"permute expected a LazyTensor, got {type(lt).__name__}")
+    if lt.mesh is not None:
+        raise ValueError(
+            "permute does not yet remap mesh sharding; materialize a gathered "
+            "tensor and create a new mesh_shard explicitly"
+        )
     lt = lt._resolve()
     n_logical = len(lt.layout.logical_shape)
     if len(dims) != n_logical:
@@ -913,6 +1477,124 @@ def permute(lt: LazyTensor, *dims) -> LazyTensor:
             f"{n_logical}, got {len(dims)}: {dims}"
         )
     return _emit_perm_view(lt, list(dims))
+
+
+def _parse_grid_ranges(grid_ranges):
+    """Parse grid_ranges into inclusive ((start_y, start_x), (end_y, end_x))."""
+    parsed = []
+    for i, grid_range in enumerate(grid_ranges):
+        try:
+            start_yx, end_yx = grid_range
+            sy, sx = start_yx
+            ey, ex = end_yx
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "grid_ranges entries must be ((start_y, start_x), "
+                f"(end_y, end_x)) pairs, got {grid_range!r} at index {i}"
+            ) from exc
+        if ey < sy or ex < sx:
+            raise ValueError(
+                f"grid_ranges[{i}] end ({ey}, {ex}) must be greater than "
+                f"or equal to start ({sy}, {sx})"
+            )
+        parsed.append(((sy, sx), (ey, ex)))
+    return parsed
+
+
+def spatial(inputs, outputs, grid_ranges, region_builders):
+    """Emit a `d2m.spatial` op around one kernel call per region.
+
+    Only supported under the lazy `_Builder` scope (not RewriteScope).
+
+    Args:
+      inputs: Device tensors referenced by the nested kernels.
+      outputs: Device tensors written by the nested kernels, in spatial
+        result order.
+      grid_ranges: One inclusive `((start_y, start_x), (end_y, end_x))` core
+        range per region.
+      region_builders: One zero-argument callable per region. Each must emit
+        exactly one `@d2m.kernel` call on device LazyTensors from
+        inputs=/outputs= (no host tensor lifts).
+
+    Returns a tuple of the output LazyTensors.
+    """
+    b = _get_scope()
+    if isinstance(b, _SpatialRegionScope):
+        raise RuntimeError("nested d2m.spatial is not supported")
+    if not isinstance(b, _Builder):
+        raise RuntimeError("d2m.spatial() requires the lazy builder scope")
+
+    builders = list(region_builders)
+    ranges = list(grid_ranges)
+    if len(ranges) != len(builders):
+        raise ValueError(
+            f"grid_ranges has {len(ranges)} entries but region_builders has "
+            f"{len(builders)}"
+        )
+    if not builders:
+        raise ValueError("d2m.spatial requires at least one region")
+    for i, builder_fn in enumerate(builders):
+        if not callable(builder_fn):
+            raise TypeError(
+                f"region_builders[{i}] must be callable, got "
+                f"{type(builder_fn).__name__}"
+            )
+
+    input_lts = [v._resolve() for v in inputs]
+    output_lts = [v._resolve() for v in outputs]
+    if not output_lts:
+        raise ValueError("d2m.spatial outputs= must be non-empty")
+
+    emitted_output_values = []
+    with b.ctx, b.loc, b.insert_point:
+        parsed_ranges = _parse_grid_ranges(ranges)
+        grid_ranges_attr = ArrayAttr.get(
+            [
+                ttcore.ir.CoreRangeAttr.get(
+                    b.ctx,
+                    ttcore.ir.CoreCoordAttr.get(b.ctx, sy, sx),
+                    ttcore.ir.CoreCoordAttr.get(b.ctx, ey, ex),
+                )
+                for (sy, sx), (ey, ex) in parsed_ranges
+            ]
+        )
+        result_types = [lt.value.type for lt in output_lts]
+        spatial_op = d2m.SpatialOp(
+            result_types,
+            [lt.value for lt in input_lts],
+            [lt.value for lt in output_lts],
+            grid_ranges_attr,
+            len(builders),
+        )
+
+        for region_idx, build_region in enumerate(builders):
+            block = Block.create_at_start(spatial_op.regions[region_idx], [], [])
+            (sy, sx), (ey, ex) = parsed_ranges[region_idx]
+            region_scope = _SpatialRegionScope(
+                b,
+                InsertionPoint(block),
+                spatial_op,
+                grid_shape=[ey - sy + 1, ex - sx + 1],
+                offset=[sy, sx],
+            )
+            with _push_scope(region_scope):
+                build_region()
+            emitted_output_values.extend(region_scope.finish())
+
+    # Counter compares as a multiset: same Values/counts, order ignored.
+    # Check that region-kernel dst operands match SpatialOp outs=.
+    if Counter(emitted_output_values) != Counter(spatial_op.outputs):
+        raise ValueError(
+            "d2m.spatial outputs= must list the same tensors written by the "
+            "region kernels"
+        )
+
+    for i, lt in enumerate(output_lts):
+        lt.value = spatial_op.results[i]
+        lt.generation = b.generation
+        lt.materialized = None
+        lt.is_view = False
+    return tuple(output_lts)
 
 
 # --- Materialisation ---------------------------------------------------------
@@ -926,18 +1608,44 @@ def _emit_returns_and_finalise(b: _Builder, lts):
     with b.ctx, b.loc, b.insert_point:
         for lt in lts:
             dev = lt.layout.build_device_view(b.ctx, lt.value)
-            host = lt.layout.build_from_device(b.ctx, dev)
+            if lt.mesh is not None:
+                elem_type = lt.layout.get_host_elem_type(b.ctx)
+                host_shard_ty = RankedTensorType.get(
+                    lt.layout.logical_shape,
+                    elem_type,
+                    encoding=_tensor_mesh_attr(b),
+                )
+                host_shard = d2m.ToLayoutOp(
+                    [host_shard_ty], dev, d2m.empty(host_shard_ty)
+                ).result
+                host_ty = RankedTensorType.get(lt.mesh.full_shape, elem_type)
+                host = _emit_mesh_shard(
+                    b,
+                    host_shard,
+                    host_ty,
+                    "shard_to_full",
+                    lt.mesh.shard_dims,
+                    lt.mesh.shard_shape,
+                )
+            else:
+                host = lt.layout.build_from_device(b.ctx, dev)
+                host_ty = lt.layout.build_host_tensor_type(b.ctx)
             host_values.append(host)
-            host_types.append(lt.layout.build_host_tensor_type(b.ctx))
+            host_types.append(host_ty)
         func.ReturnOp(host_values)
     b._refresh_function_type(results=host_types)
 
 
 def _run_pipeline(b: _Builder):
     system_desc = _get_system_desc_path()
-    register = "ttcore-register-device"
+    register_options = []
     if system_desc:
-        register += f"{{system-desc-path={system_desc}}}"
+        register_options.append(f"system-desc-path={system_desc}")
+    if b._mesh_topology:
+        register_options.append("mesh-topology=" + ",".join(b._mesh_topology))
+    register = "ttcore-register-device"
+    if register_options:
+        register += "{" + " ".join(register_options) + "}"
     pipeline_str = f"builtin.module({register},{','.join(_pipeline_passes())})"
 
     if config.print_pipeline:
@@ -1031,7 +1739,10 @@ def _execute(b: _Builder, lts):
     rt_outputs = []
     for lt in lts:
         torch_dtype = _ttcore_to_torch_dtype(lt.layout.dtype)
-        t_out = torch.empty(list(lt.layout.logical_shape), dtype=torch_dtype)
+        output_shape = (
+            lt.mesh.full_shape if lt.mesh is not None else lt.layout.logical_shape
+        )
+        t_out = torch.empty(list(output_shape), dtype=torch_dtype)
         out_torch.append(t_out)
         rt_outputs.append(
             runtime.create_borrowed_host_tensor(
@@ -1213,6 +1924,36 @@ def _to_dram_kernel_arg(lt: LazyTensor) -> LazyTensor:
     return to_layout(lt, lt.layout.replace(mem_space=ttcore.MemorySpace.DeviceDRAM))
 
 
+def _make_grid_attr(ctx, grid, grid_offset=(0, 0)):
+    """Build a GridAttr from grid shape and an optional virtual-grid offset.
+
+    Zero offset yields a plain shape-only GridAttr. Nonzero offset attaches
+    virt_to_physical / physical_to_virt maps (2D, leading zero pad) so the
+    nested generic's virtual cores land on the region's physical cores.
+    """
+    grid = list(grid)
+    offset = list(grid_offset)
+    if len(offset) != 2:
+        raise ValueError(f"grid_offset must be 2D, got {offset}")
+    if offset[0] == 0 and offset[1] == 0:
+        return ttcore.ir.GridAttr.get(ctx, grid)
+
+    oy, ox = offset
+
+    def add_const(expr, value):
+        if value == 0:
+            return expr
+        return AffineExpr.get_add(expr, AffineExpr.get_constant(value, ctx))
+
+    d0 = AffineDimExpr.get(0)
+    d1 = AffineDimExpr.get(1)
+    zero = AffineExpr.get_constant(0, ctx)
+    # 2D GridAttr maps: leading zero pad, then y/x with +/- offset.
+    grid_forward = AffineMap.get(2, 0, [zero, add_const(d0, oy), add_const(d1, ox)])
+    offset_inverse = AffineMap.get(2, 0, [zero, add_const(d0, -oy), add_const(d1, -ox)])
+    return ttcore.ir.GridAttr.get(ctx, grid, grid_forward, offset_inverse)
+
+
 def _emit_kernel_generic(
     kernel: "CompiledKernel",
     args,
@@ -1222,6 +1963,7 @@ def _emit_kernel_generic(
     indexing_maps,
     iterator_types,
     kernel_io_in_dram=None,
+    grid_offset=(0, 0),
 ):
     """Append a d2m.GenericOp to the open host func that invokes `kernel`."""
     b = _get_scope()
@@ -1245,30 +1987,51 @@ def _emit_kernel_generic(
             cause=cause,
         )
 
-    # Split args, preserving "all LazyTensors precede all scalars" ordering.
+    # Split args while preserving the GenericOp contract: all tensors precede
+    # all additional args (runtime scalars and global semaphores).
     lazy_args = []
-    scalar_args = []
-    saw_scalar = False
+    extras = []
+    seen_semaphores = set()
+    saw_extra = False
     for i, a in enumerate(args):
         if isinstance(a, LazyTensor):
-            if saw_scalar:
+            if saw_extra:
                 raise _call_error(
                     f"argument {i} to kernel '{kernel.fn.__name__}' is a "
-                    f"LazyTensor but a scalar was already seen; tensor "
-                    f"arguments must precede scalars",
+                    f"LazyTensor but an additional argument was already seen; "
+                    f"tensor arguments must precede scalars and semaphores",
                     cause=TypeError(),
                 )
             lazy_args.append(a._resolve())
+        elif isinstance(a, GlobalSemaphore):
+            if not isinstance(b, _Builder):
+                raise _call_error(
+                    "global semaphore arguments require the top-level lazy "
+                    "builder and are not supported inside a pattern rewrite "
+                    "or d2m.spatial",
+                    cause=TypeError(),
+                )
+            if id(a) in seen_semaphores:
+                raise _call_error(
+                    "the same GlobalSemaphore cannot be passed more than once "
+                    "to a kernel call",
+                    cause=ValueError(),
+                )
+            a._resolve_value()
+            seen_semaphores.add(id(a))
+            saw_extra = True
+            extras.append(("semaphore", a))
         elif isinstance(a, int) and not isinstance(a, bool):
-            saw_scalar = True
-            scalar_args.append(a)
+            saw_extra = True
+            extras.append(("scalar", a))
         else:
             raise _call_error(
                 f"argument {i} to kernel '{kernel.fn.__name__}' has "
                 f"unsupported type {type(a).__name__}: {a!r}",
                 hint=(
-                    "kernel arguments must be d2m_jit.LazyTensor or int. "
-                    "Use d2m.to_layout(t, L) to lift a torch tensor."
+                    "kernel arguments must be d2m_jit.LazyTensor, int, or "
+                    "d2m_jit.GlobalSemaphore. Use d2m.to_layout(t, L) to "
+                    "lift a torch tensor."
                 ),
                 cause=TypeError(),
             )
@@ -1316,23 +2079,27 @@ def _emit_kernel_generic(
     # captures (in-region constants) and emit no additionalArgs for them. The
     # lazy `_Builder` keeps the runtime-arg form: scalars stay index func args
     # (see add_scalar_input) so the binary remains parameterised.
-    bake_scalars = not isinstance(b, _Builder)
-    if bake_scalars and scalar_args:
+    bake_scalars = not isinstance(b, (_Builder, _SpatialRegionScope))
+    if bake_scalars and extras:
         formal_names = [a.arg for a in kernel._ast.body[0].args.args]
-        scalar_names = formal_names[len(lazy_args) : len(lazy_args) + len(scalar_args)]
+        scalar_names = formal_names[len(lazy_args) : len(lazy_args) + len(extras)]
         effective_captures = dict(kernel._captures)
         effective_captures.update(
-            {n: int(v) for n, v in zip(scalar_names, scalar_args)}
+            {name: int(value) for name, (_, value) in zip(scalar_names, extras)}
         )
-        runtime_scalars = []
+        runtime_extras = []
     else:
         effective_captures = kernel._captures
-        runtime_scalars = list(scalar_args)
+        runtime_extras = list(extras)
 
     # Compile the kernel body in the current builder's context. D2MCompiler
     # picks up b.ctx via get_default_loc_context.
     with b.ctx, b.loc:
-        compiler_args = [lt.layout for lt in lazy_args] + runtime_scalars
+        extra_compiler_args = [
+            value if kind == "scalar" else SEMAPHORE_ARG
+            for kind, value in runtime_extras
+        ]
+        compiler_args = [lt.layout for lt in lazy_args] + extra_compiler_args
         compiler = D2MCompiler(
             kernel.fn.__name__,
             "unified",
@@ -1347,11 +2114,12 @@ def _emit_kernel_generic(
 
     # Emit the GenericOp + splice the kernel body.
     with b.ctx, b.loc, b.insert_point:
-        # Scalars are sourced from func args (not host-scope constants) so the
-        # GenericOp's region stays isolated-from-above. In a rewrite scope the
-        # scalars were baked into the kernel body above, so runtime_scalars is
-        # empty and no additionalArgs are emitted for them.
-        additional = [b.add_scalar_input(s) for s in runtime_scalars]
+        # Scalars come from func args; semaphores reuse their host-scope
+        # create_global_semaphore results.
+        additional = [
+            (b.add_scalar_input(value) if kind == "scalar" else value._resolve_value())
+            for kind, value in runtime_extras
+        ]
         inputs = [lt.value for lt in input_lts]
         outputs = [lt.value for lt in output_lts]
         output_types = [v.type for v in outputs]
@@ -1359,7 +2127,7 @@ def _emit_kernel_generic(
         threads = ArrayAttr.get(
             [compiler.func_entry.attributes[d2m.ir.ThreadAttr.name]]
         )
-        grid_attr = ttcore.ir.GridAttr.get(b.ctx, list(grid))
+        grid_attr = _make_grid_attr(b.ctx, grid, grid_offset)
 
         bf = list(block_factors or [])
         if bf and isinstance(bf[0], tuple):
@@ -1400,6 +2168,13 @@ def _emit_kernel_generic(
         for _ in range(len(block.arguments)):
             block.erase_argument(0)
 
+        # Reset closes the semaphore's lifetime and allows its backing buffer
+        # to be deallocated. A handle is intentionally single-use.
+        for kind, value in runtime_extras:
+            if kind == "semaphore":
+                d2m.reset_global_semaphore(value._resolve_value(), value.init)
+                value._consumed = True
+
     # Rebind output LazyTensors to the GenericOp's results.
     for i, lt in enumerate(output_lts):
         lt.value = generic.results[i]
@@ -1411,6 +2186,7 @@ def _emit_kernel_generic(
             user_lt.generation = b.generation
             user_lt.materialized = None
             user_lt.is_view = kernel_lt.is_view
+    return generic
 
 
 class CompiledKernel:
@@ -1439,16 +2215,29 @@ class CompiledKernel:
         iterator_types=None,
         kernel_io_in_dram=None,
     ):
-        _emit_kernel_generic(
-            self,
-            args,
-            grid=grid,
-            num_outs=num_outs,
-            block_factors=block_factors,
-            indexing_maps=indexing_maps,
-            iterator_types=iterator_types,
-            kernel_io_in_dram=kernel_io_in_dram,
-        )
+        b = _get_scope()
+        if not isinstance(b, _SpatialRegionScope):
+            _emit_kernel_generic(
+                self,
+                args,
+                grid=grid,
+                num_outs=num_outs,
+                block_factors=block_factors,
+                indexing_maps=indexing_maps,
+                iterator_types=iterator_types,
+                kernel_io_in_dram=kernel_io_in_dram,
+            )
+        else:
+            b._emit_kernel_for_spatial(
+                self,
+                args,
+                grid=grid,
+                num_outs=num_outs,
+                block_factors=block_factors,
+                indexing_maps=indexing_maps,
+                iterator_types=iterator_types,
+                kernel_io_in_dram=kernel_io_in_dram,
+            )
 
 
 def kernel(fn):
