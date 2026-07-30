@@ -53,3 +53,4 @@
   - [Tensor Layout](./specs/tensor-layout.md)
   - [Device](./specs/device.md)
   - [TTNN Optimizer](./specs/ttnn-optimizer.md)
+  - [While Op Buffer Lifetime](./specs/while-op-buffer-lifetime.md)
