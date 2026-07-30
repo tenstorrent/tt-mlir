@@ -10,7 +10,6 @@
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTNN/Utils/BFPDtypeParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/CompositeResolution.h"
-#include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOptionParsers.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
@@ -186,28 +185,6 @@ struct TTIRToTTNNCommonPipelineOptions
       *this, OptionNames::memoryLayoutAnalysisEnabled,
       llvm::cl::desc("Enable memory layout optimization."),
       llvm::cl::init(false)};
-
-  // If this option is true, run L1 interleaved layout analysis.
-  //
-  Option<bool> l1InterleavedFallbackAnalysisEnabled{
-      *this, OptionNames::l1InterleavedFallbackAnalysisEnabled,
-      llvm::cl::desc("Enable DRAM to L1 interleaved fallback optimization."),
-      llvm::cl::init(false)};
-
-  // If this option is true, insert memory reconfiguration ops.
-  //
-  Option<bool> memReconfigEnabled{
-      *this, OptionNames::memReconfigEnabled,
-      llvm::cl::desc("Memory layout reconfiguration pass."),
-      llvm::cl::init(true)};
-
-  // Specify policy for memory layout analysis.
-  //
-  Option<MemoryLayoutAnalysisPolicyType, MemoryLayoutAnalysisPolicyTypeParser>
-      memoryLayoutAnalysisPolicy{
-          *this, OptionNames::memoryLayoutAnalysisPolicy,
-          llvm::cl::desc("Specify policy for memory layout analysis."),
-          llvm::cl::init(MemoryLayoutAnalysisPolicyType::DFSharding)};
 
   // Option to provide a system descriptor flatbuffer file to compile
   // against.
@@ -540,17 +517,6 @@ struct TTIRToTTNNCommonPipelineOptions
   // This allows frontends to pass in an active device without closing it.
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 
-  // Enable the greedy optimizer (GreedyLayoutPropagation + L1SpillManagement)
-  // instead of the chain-based TTNNOptimizer. Enabled by default when
-  // optimization level >= 1.
-  mutable Option<bool> enableGreedyOptimizer{
-      *this, "enable-greedy-optimizer",
-      llvm::cl::desc(
-          "Use the greedy layout propagation optimizer instead of the "
-          "chain-based TTNNOptimizer. If not explicitly set, enabled when "
-          "optimization level >= 1."),
-      llvm::cl::init(false)};
-
   // Enable decision trace JSON output from the greedy optimizer passes.
   Option<bool> enableDecisionTrace{
       *this, "enable-decision-trace",
@@ -603,9 +569,6 @@ struct TTIRToTTNNCommonPipelineOptions
     }
     if (memoryLayoutAnalysisEnabled.getNumOccurrences() == 0) {
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
-    }
-    if (enableGreedyOptimizer.getNumOccurrences() == 0) {
-      enableGreedyOptimizer = (optimizationLevel >= 1);
     }
     if (computeCfgMathFidelity.getNumOccurrences() == 0 &&
         optimizationLevel > 0) {

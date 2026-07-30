@@ -81,6 +81,13 @@ class Builder(metaclass=BuilderMeta):
         self._goldens: Dict[Operand, GoldenMapTensor] = {}
         self._deallocated_goldens: Dict[Operand, str] = {}
 
+        # Snapshot of each function input's golden, captured at binding time.
+        # In-place ops (e.g. ttir.update_cache) mutate their cache operand and
+        # overwrite that operand's golden so later reads observe the post-mutation
+        # value. This snapshot preserves the original value so it can still be
+        # reported as the function's input golden.
+        self._input_golden_snapshot: Dict[Operand, GoldenMapTensor] = {}
+
         # Shard dims for presharded function args, keyed by BlockArgument. The
         # block arg's MLIR type is already the per-device (local) shape; this
         # dict lets the golden machinery shard incoming global-shape tensors
@@ -237,11 +244,15 @@ class Builder(metaclass=BuilderMeta):
             input_output_golden_info[program_index] = {}
             ordered_inputs, ordered_outputs = ordered_values
 
-            # Always store inputs into golden map.
+            # Always store inputs into golden map. Prefer the value snapshotted at
+            # binding time so in-place ops that overwrite a mutated operand's golden
+            # do not corrupt the reported input golden.
             for index, input in enumerate(ordered_inputs):
                 loc = f"input_{index}"
-                input_output_golden_info[program_index][loc] = self._get_golden_tensor(
-                    input
+                input_output_golden_info[program_index][
+                    loc
+                ] = self._input_golden_snapshot.get(
+                    input, self._get_golden_tensor(input)
                 )
 
             # Store outputs into golden map if they are marked to be stored.
@@ -775,6 +786,20 @@ class Builder(metaclass=BuilderMeta):
         for operand, golden in goldens.items():
             self._set_golden_tensor(operand, golden)
 
+    def _snapshot_input_goldens(self, operands: List[Operand]):
+        # Capture the current golden of each operand so it can still be reported
+        # as the function's input golden after an in-place op overwrites it. This
+        # is called by in-place op handlers immediately before they mutate the
+        # operand's golden, so it records the pre-mutation value (which already
+        # reflects any explicit input-golden assignment made before the op).
+        # Idempotent: the first capture wins, so repeated in-place writes to the
+        # same operand keep reporting the original input. Operands that are never
+        # mutated in place are never snapshotted; golden_map then falls back to
+        # their live golden, so explicit input overrides are honored unchanged.
+        for operand in operands:
+            if operand not in self._input_golden_snapshot and operand in self._goldens:
+                self._input_golden_snapshot[operand] = self._goldens[operand]
+
     def _get_golden_tensor(
         self,
         operand: Operand,
@@ -1027,7 +1052,6 @@ class Builder(metaclass=BuilderMeta):
 
                 self._set_goldens(input_goldens)
                 ordered_inputs.extend(inputs)
-
                 result = nested_func(*inputs, self)
 
                 outputs = result if hasattr(result, "__iter__") else [result]
@@ -1348,7 +1372,6 @@ class Builder(metaclass=BuilderMeta):
             ] = self._create_builder_golden_from_torch_tensor(golden_dict)
             self._set_goldens(input_goldens)
             ordered_inputs.extend(inputs)
-
             global_dict = {}
             for i, arg in enumerate(parsed_func.arguments):
                 global_dict[arg] = inputs[i]
@@ -1432,7 +1455,6 @@ class Builder(metaclass=BuilderMeta):
 
             self._set_goldens(input_goldens)
             ordered_inputs.extend(inputs)
-
             global_dict = {}
             for i, arg in enumerate(parsed_func.arguments):
                 global_dict[arg] = inputs[i]
@@ -1682,7 +1704,6 @@ class Builder(metaclass=BuilderMeta):
                     )
                 self._set_goldens(input_goldens)
                 ordered_inputs.extend(inputs)
-
                 result = fn(*inputs, self)
 
                 outputs = result if hasattr(result, "__iter__") else [result]

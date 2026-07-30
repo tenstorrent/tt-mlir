@@ -33,6 +33,7 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
@@ -4094,6 +4095,102 @@ public:
   }
 };
 
+// Frontend legalization may flatten embedding indices even when surrounding
+// reshapes retain a rank-2 logical shape. D2M needs that shape to distribute
+// indices across both grid dimensions, so recover it before grid selection.
+class ExpandFlattenedEmbeddingIndicesForD2M
+    : public OpRewritePattern<ttir::EmbeddingOp> {
+public:
+  using OpRewritePattern<ttir::EmbeddingOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttir::EmbeddingOp op,
+                                PatternRewriter &rewriter) const override {
+    RankedTensorType flattenedIndicesType = op.getInput().getType();
+    RankedTensorType flattenedResultType = op.getType();
+    if (!flattenedIndicesType.hasStaticShape() ||
+        flattenedIndicesType.getRank() != 1 ||
+        !flattenedResultType.hasStaticShape()) {
+      return rewriter.notifyMatchFailure(
+          op, "embedding indices are not a static rank-1 tensor");
+    }
+
+    auto findExpandedSource = [&](Value value, bool requireTypecast) -> Value {
+      while (auto reshape = value.getDefiningOp<ttir::ReshapeOp>()) {
+        value = reshape.getInput();
+        auto type = mlir::dyn_cast<RankedTensorType>(value.getType());
+        if (type && type.hasStaticShape() && type.getRank() == 2 &&
+            type.getNumElements() == flattenedIndicesType.getNumElements() &&
+            (!requireTypecast ||
+             value.getDefiningOp<ttir::TypecastOp>() != nullptr)) {
+          return value;
+        }
+      }
+      return {};
+    };
+
+    // Frontends can place the index typecast before or after the flattening
+    // reshape, so recover the same logical shape from either ordering.
+    Value expandedIndices;
+    if (auto typecast = op.getInput().getDefiningOp<ttir::TypecastOp>()) {
+      Value expandedInput =
+          findExpandedSource(typecast.getInput(), /*requireTypecast=*/false);
+      if (!expandedInput) {
+        return rewriter.notifyMatchFailure(
+            op, "embedding typecast has no expanded reshape source");
+      }
+
+      auto expandedInputType =
+          mlir::cast<RankedTensorType>(expandedInput.getType());
+      auto expandedCastType = RankedTensorType::get(
+          expandedInputType.getShape(), flattenedIndicesType.getElementType(),
+          expandedInputType.getEncoding());
+      expandedIndices = rewriter.create<ttir::TypecastOp>(
+          typecast.getLoc(), expandedCastType, expandedInput,
+          typecast.getConservativeFolding());
+    } else {
+      expandedIndices =
+          findExpandedSource(op.getInput(), /*requireTypecast=*/true);
+      if (!expandedIndices ||
+          mlir::cast<RankedTensorType>(expandedIndices.getType())
+                  .getElementType() != flattenedIndicesType.getElementType()) {
+        return rewriter.notifyMatchFailure(
+            op, "embedding indices have no expanded typecast source");
+      }
+    }
+
+    RankedTensorType expandedIndicesType =
+        mlir::cast<RankedTensorType>(expandedIndices.getType());
+    RankedTensorType weightType = op.getWeight().getType();
+    SmallVector<int64_t> expandedResultShape(expandedIndicesType.getShape());
+    expandedResultShape.push_back(weightType.getShape().back());
+    auto expandedResultType = RankedTensorType::get(
+        expandedResultShape, flattenedResultType.getElementType(),
+        flattenedResultType.getEncoding());
+    Value expandedEmbedding = rewriter.create<ttir::EmbeddingOp>(
+        op.getLoc(), expandedResultType, expandedIndices, op.getWeight());
+
+    if (op->hasOneUse()) {
+      if (auto restoringReshape =
+              mlir::dyn_cast<ttir::ReshapeOp>(*op->getUsers().begin())) {
+        if (restoringReshape.getType().getShape() ==
+            expandedResultType.getShape()) {
+          rewriter.replaceOp(restoringReshape, expandedEmbedding);
+          rewriter.eraseOp(op);
+          return success();
+        }
+      }
+    }
+
+    SmallVector<int32_t> flattenedResultShape(
+        flattenedResultType.getShape().begin(),
+        flattenedResultType.getShape().end());
+    rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+        op, flattenedResultType, expandedEmbedding,
+        rewriter.getI32ArrayAttr(flattenedResultShape));
+    return success();
+  }
+};
+
 class D2MEmbeddingOpRewriter : public OpConversionPattern<ttir::EmbeddingOp>,
                                D2MNamedRewriterCommon {
 public:
@@ -5958,6 +6055,26 @@ public:
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type t) { return t; });
+
+    // Keep this normalization local to embeddings present at pass entry. A
+    // module-wide greedy walk can otherwise rewrite unrelated TTIR before
+    // dialect conversion.
+    SmallVector<Operation *> embeddingOps;
+    module.walk([&](ttir::EmbeddingOp op) {
+      embeddingOps.push_back(op.getOperation());
+    });
+
+    RewritePatternSet d2mNormalizationPatterns(ctx);
+    d2mNormalizationPatterns.add<ExpandFlattenedEmbeddingIndicesForD2M>(ctx);
+    FrozenRewritePatternSet frozenPatterns(std::move(d2mNormalizationPatterns));
+    GreedyRewriteConfig config;
+    config.setStrictness(GreedyRewriteStrictness::ExistingOps)
+        .enableFolding(false)
+        .enableConstantCSE(false);
+    if (failed(applyOpPatternsGreedily(embeddingOps, frozenPatterns, config))) {
+      signalPassFailure();
+      return;
+    }
 
     RewritePatternSet patterns(ctx);
     populateTTIRToD2MPatterns(ctx, patterns, typeConverter,
