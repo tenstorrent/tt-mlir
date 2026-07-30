@@ -86,10 +86,16 @@ def test_tensor_borrowing() -> None:
     tt_borrowed = borrowed.to("tt")
     borrowed.numpy()[0] = 4242  # out-of-band write (no version bump) seen via the alias
     assert tt_borrowed.cpu()[0].item() == 4242
+
     owned = torch.ones(1024, dtype=OWNED_COPY_DTYPE)  # owned copy, not aliased
     tt_owned = owned.to("tt")
     owned.numpy()[0] = 42.0
     assert tt_owned.cpu()[0].item() == 1.0
+
+    owned = torch.tensor(7, dtype=torch.bfloat16)  # scalars can not be borrowed
+    tt_owned = owned.to("tt")
+    owned.fill_(99)
+    assert tt_owned.cpu().item() == 7
 
     with pytest.raises(RuntimeError, match="source must be contiguous"):
         torch.ones((32, 32), dtype=torch.bfloat16).transpose(0, 1).to("tt") # raises
