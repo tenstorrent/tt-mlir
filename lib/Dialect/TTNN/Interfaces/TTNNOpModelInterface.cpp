@@ -45,21 +45,28 @@ namespace mlir::tt::ttnn {
 // fragmentation-aware if it ever appears in the spill window.
 //
 // Since the signature no longer distinguishes them, the ops below are the
-// INTENTIONALLY stateless ones as of this change (they are creation /
-// structural ops, or their stateful body has not been needed by the models this
-// pass targets); `grep -n 'liveRecords=\*/std::nullopt'` finds them in code.
-// This list exists so future readers can distinguish "intentionally stateless"
-// from "accidentally forgot" -- migrating any of them just means threading
-// `liveRecords` through instead (see ChunkedScaledDotProductAttentionOp for the
-// pattern) and changes no existing behavior:
-//   * Creation / no-activation-input ops: ArangeOp, EmptyOp, FullOp, OnesOp,
-//     ZerosOp, RandOp.
-//   * Structural / bookkeeping ops: AssignOp, DeallocateOp, D2MSubgraphOp,
-//     DropoutOp, PrepareConv3dWeightsOp.
-//   * Elementwise binary-composite / bitwise binaries: Atan2Op, MaximumOp,
-//     MinimumOp, PowTensorOp, RemainderOp, BitwiseAndOp, BitwiseOrOp,
-//     BitwiseXorOp.
-//   * QuantizeOp, DequantizeOp, Conv1dOp, MoeGptOp, TanhOp.
+// INTENTIONALLY stateless ones as of this change;
+// `grep -n 'liveRecords=\*/std::nullopt'` (plus the unnamed-parameter bodies)
+// finds them in code. This list exists so future readers can distinguish
+// "intentionally stateless" from "accidentally forgot". Each entry states the
+// reason it produces nothing worth tracking, or what blocks it:
+//   * Creation / no-activation-input ops -- const-evaluated or DRAM-resident in
+//     the graphs this pass sees, so they hold no L1 buffer across the spill
+//     window: ArangeOp, EmptyOp, FullOp, OnesOp, ZerosOp, RandOp.
+//   * Structural / bookkeeping ops -- no device compute and no L1 output buffer
+//     of their own (DeallocateOp is getOpRuntime-only by design; DropoutOp and
+//     PrepareConv3dWeightsOp do not appear in inference graphs): AssignOp,
+//     DeallocateOp, D2MSubgraphOp, DropoutOp, PrepareConv3dWeightsOp.
+//   * MoeGptOp -- getOpConstraints is not implemented at all (no tt-metal
+//     definition); there is no query to hand a state to.
+//   * QuantizeOp, DequantizeOp, Conv1dOp -- compute ops that *would* benefit,
+//     but blocked one level down: their op_model::OpModel<> entry points have
+//     no `initialState` parameter and their queries use QUERY_OP_CONSTRAINTS
+//     rather than QUERY_OP_CONSTRAINTS_WITH_STATE. Migrating them is a backend
+//     change in lib/OpModel/TTNN/TTNNOpModel.cpp, not a thread-through here.
+// Migrating an op that is only blocked here means threading `liveRecords`
+// through instead (see ReluOp / ChunkedScaledDotProductAttentionOp for the
+// pattern), which changes no existing behavior for stateless callers.
 //===----------------------------------------------------------------------===//
 
 namespace detail {
@@ -839,10 +846,9 @@ AcosOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<op_model::OpConstraints> TanhOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
-    std::optional<
-        llvm::ArrayRef<op_model::OpModelAllocationRecord>> /*liveRecords*/) {
-  return detail::getUnaryOpConstraints(*this, inputs, opConfig,
-                                       /*liveRecords=*/std::nullopt);
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  return detail::getUnaryOpConstraints(*this, inputs, opConfig, liveRecords);
 }
 
 llvm::Expected<size_t>
@@ -1106,10 +1112,9 @@ SubtractOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<op_model::OpConstraints> MaximumOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
-    std::optional<
-        llvm::ArrayRef<op_model::OpModelAllocationRecord>> /*liveRecords*/) {
-  return detail::getBinaryOpConstraints(*this, inputs, opConfig,
-                                        /*liveRecords=*/std::nullopt);
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  return detail::getBinaryOpConstraints(*this, inputs, opConfig, liveRecords);
 }
 
 llvm::Expected<size_t>
@@ -1124,10 +1129,9 @@ MaximumOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<op_model::OpConstraints> MinimumOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
-    std::optional<
-        llvm::ArrayRef<op_model::OpModelAllocationRecord>> /*liveRecords*/) {
-  return detail::getBinaryOpConstraints(*this, inputs, opConfig,
-                                        /*liveRecords=*/std::nullopt);
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  return detail::getBinaryOpConstraints(*this, inputs, opConfig, liveRecords);
 }
 
 llvm::Expected<size_t>
@@ -1142,10 +1146,9 @@ MinimumOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<op_model::OpConstraints> BitwiseAndOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
-    std::optional<
-        llvm::ArrayRef<op_model::OpModelAllocationRecord>> /*liveRecords*/) {
-  return detail::getBinaryOpConstraints(*this, inputs, opConfig,
-                                        /*liveRecords=*/std::nullopt);
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  return detail::getBinaryOpConstraints(*this, inputs, opConfig, liveRecords);
 }
 
 llvm::Expected<size_t>
@@ -1160,10 +1163,9 @@ BitwiseAndOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<op_model::OpConstraints> BitwiseOrOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
-    std::optional<
-        llvm::ArrayRef<op_model::OpModelAllocationRecord>> /*liveRecords*/) {
-  return detail::getBinaryOpConstraints(*this, inputs, opConfig,
-                                        /*liveRecords=*/std::nullopt);
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  return detail::getBinaryOpConstraints(*this, inputs, opConfig, liveRecords);
 }
 
 llvm::Expected<size_t>
@@ -1178,10 +1180,9 @@ BitwiseOrOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<op_model::OpConstraints> BitwiseXorOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
-    std::optional<
-        llvm::ArrayRef<op_model::OpModelAllocationRecord>> /*liveRecords*/) {
-  return detail::getBinaryOpConstraints(*this, inputs, opConfig,
-                                        /*liveRecords=*/std::nullopt);
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  return detail::getBinaryOpConstraints(*this, inputs, opConfig, liveRecords);
 }
 
 llvm::Expected<size_t>
@@ -1277,10 +1278,9 @@ GatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<op_model::OpConstraints> Atan2Op::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
-    std::optional<
-        llvm::ArrayRef<op_model::OpModelAllocationRecord>> /*liveRecords*/) {
-  return detail::getBinaryOpConstraints(*this, inputs, opConfig,
-                                        /*liveRecords=*/std::nullopt);
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  return detail::getBinaryOpConstraints(*this, inputs, opConfig, liveRecords);
 }
 
 llvm::Expected<size_t>
@@ -1330,10 +1330,9 @@ GeluBackwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<op_model::OpConstraints> RemainderOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
-    std::optional<
-        llvm::ArrayRef<op_model::OpModelAllocationRecord>> /*liveRecords*/) {
-  return detail::getBinaryOpConstraints(*this, inputs, opConfig,
-                                        /*liveRecords=*/std::nullopt);
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  return detail::getBinaryOpConstraints(*this, inputs, opConfig, liveRecords);
 }
 
 llvm::Expected<size_t>
@@ -1348,10 +1347,9 @@ RemainderOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<op_model::OpConstraints> PowTensorOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
-    std::optional<
-        llvm::ArrayRef<op_model::OpModelAllocationRecord>> /*liveRecords*/) {
-  return detail::getBinaryOpConstraints(*this, inputs, opConfig,
-                                        /*liveRecords=*/std::nullopt);
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  return detail::getBinaryOpConstraints(*this, inputs, opConfig, liveRecords);
 }
 
 llvm::Expected<size_t>
