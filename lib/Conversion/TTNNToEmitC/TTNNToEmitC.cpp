@@ -3931,6 +3931,16 @@ public:
 
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::IndexerScoreDsaOp> emitter(
         srcOp, adaptor, rewriter);
+
+    // ttnn's seq_shard_axes names the mesh axes the query sequence is sharded
+    // over, outermost (SP ring) first. This op only models the single SP axis,
+    // so the cluster axis becomes a one-element list; unset stays std::nullopt
+    // (the flat row-major enumeration over all of the query's devices).
+    llvm::SmallVector<uint32_t, 1> seqShardAxes;
+    if (std::optional<uint32_t> clusterAxis = srcOp.getClusterAxis()) {
+      seqShardAxes.push_back(*clusterAxis);
+    }
+
     // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
@@ -3943,7 +3953,10 @@ public:
         /*compute_kernel_config=*/emitter.emit(std::nullopt),
         /*cache_batch_idx=*/emitter.emit(std::nullopt),
         /*kv_len=*/emitter.emit(std::nullopt),
-        emitter.emit(srcOp.getClusterAxis()),
+        /*seq_shard_axes=*/
+        seqShardAxes.empty() ? emitter.emit(std::nullopt)
+                             : emitter.emit<std::vector<uint32_t>>(
+                                   llvm::ArrayRef<uint32_t>(seqShardAxes)),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 

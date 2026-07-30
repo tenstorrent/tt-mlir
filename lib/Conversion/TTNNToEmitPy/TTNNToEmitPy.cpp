@@ -4583,13 +4583,24 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::IndexerScoreDsaOp>
         emitter(srcOp, adaptor, rewriter);
 
+    // ttnn's seq_shard_axes names the mesh axes the query sequence is sharded
+    // over, outermost (SP ring) first. This op only models the single SP axis,
+    // so the cluster axis becomes a one-element list; unset leaves the
+    // attribute null, which emits None (the flat row-major enumeration over
+    // all of the query's devices).
+    mlir::Attribute seqShardAxesAttr;
+    if (std::optional<uint32_t> clusterAxis = srcOp.getClusterAxis()) {
+      seqShardAxesAttr =
+          rewriter.getDenseI32ArrayAttr({static_cast<int32_t>(*clusterAxis)});
+    }
+
     // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
         emitter.emit(srcOp.getKey()),
         emitter.emit(srcOp.getWeights()),
         emitter.emit(srcOp.getChunkStartIdx(), "chunk_start_idx"),
-        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit<std::vector<uint32_t>>(seqShardAxesAttr, "seq_shard_axes"),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
