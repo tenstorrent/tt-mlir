@@ -30,11 +30,14 @@ namespace tt::kurbla::torch_backend {
 
 namespace {
 
+// Returns whether tensor is borrowable.
+// It must not be a scalar (dim must be > 0), runtime must support it's data type and tensor data must be contiguous.
 bool borrowable(const at::Tensor &t) {
     if (!tensor_borrowing_enabled()) {
         return false;
     }
-    return ::tt::runtime::utils::isSupportedDataType(to_runtime_dtype(t.scalar_type())) && t.is_contiguous();
+    return t.dim() > 0 && ::tt::runtime::utils::isSupportedDataType(to_runtime_dtype(t.scalar_type())) &&
+           t.is_contiguous();
 }
 
 void delete_storage(void *p) {
@@ -85,12 +88,10 @@ void TensorStorage::replace(::tt::runtime::Tensor tensor) {
 // Replaces this tensor by borrowing other's storage if possible. Copies it otherwise.
 void TensorStorage::replace(const at::Tensor &other) {
     auto [tensor, borrowed] = runtime_from_torch_tensor(other, /*try_borrow=*/true);
-    tensor_ = std::move(tensor);
+    replace(std::move(tensor));
 
     if (borrowed) {
         pin_ = TensorPin{other};
-    } else {
-        pin_.reset();
     }
 }
 
