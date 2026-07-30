@@ -901,6 +901,25 @@ struct OpModel<FlashMlaPrefillOp> {
                std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// IndexerScoreDsaOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<IndexerScoreDsaOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+      llvm::ArrayRef<int64_t> weightsShape, TTNNLayoutAttr weightsLayout,
+      uint32_t chunkStartIdx, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+               llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+               llvm::ArrayRef<int64_t> weightsShape,
+               TTNNLayoutAttr weightsLayout, uint32_t chunkStartIdx,
+               TTNNLayoutAttr outputLayout);
+};
+
 //===-----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp
 // ===----------------------------------------------------------------------===//

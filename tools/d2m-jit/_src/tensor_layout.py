@@ -87,9 +87,15 @@ class _DataType(enum.IntEnum):
     Float32 = 0
     Float16 = 1
     BFloat16 = 2
+    UInt32 = 9
 
     def __str__(self):
-        return {"Float32": "f32", "Float16": "f16", "BFloat16": "bf16"}[self.name]
+        return {
+            "Float32": "f32",
+            "Float16": "f16",
+            "BFloat16": "bf16",
+            "UInt32": "u32",
+        }[self.name]
 
 
 class _MemorySpace(enum.IntEnum):
@@ -120,6 +126,8 @@ def _data_type_name(dtype):
         return "Float16"
     if s in {"torch.bfloat16", "bf16"}:
         return "BFloat16"
+    if s in {"torch.uint32", "uint32", "u32"}:
+        return "UInt32"
     return None
 
 
@@ -159,6 +167,7 @@ def _to_mem_space(mem_space):
 float32 = _to_data_type("fp32")
 float16 = _to_data_type("fp16")
 bfloat16 = _to_data_type("bf16")
+uint32 = _to_data_type("u32")
 
 
 def _derive_blocked_grid_shape(logical_shape, block_shape, tiled):
@@ -232,6 +241,8 @@ class Layout:
             return mlir.F16Type.get(ctx)
         if self.dtype.name == "BFloat16":
             return mlir.BF16Type.get(ctx)
+        if self.dtype.name == "UInt32":
+            return mlir.IntegerType.get_unsigned(32, ctx)
         raise TypeError(f"Unsupported data type {self.dtype}")
 
     def get_host_elem_type(self, ctx):

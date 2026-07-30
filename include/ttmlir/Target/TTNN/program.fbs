@@ -86,6 +86,7 @@ union OpType {
   GetDeviceOp,
   GlobalAvgPool2dOp,
   GroupNormOp,
+  IndexerScoreDsaOp,
   LayerNormOp,
   LayerNormPreAllGatherOp,
   LayerNormPostAllGatherOp,

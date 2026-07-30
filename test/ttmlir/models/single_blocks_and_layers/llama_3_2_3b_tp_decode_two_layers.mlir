@@ -1,233 +1,520 @@
-module @SyncTensorsGraph.6845 attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false, ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x2>]>} {
+#loc1 = loc("p0.3")
+#loc2 = loc("p1.12")
+#loc3 = loc("p2.21")
+#loc4 = loc("p3.29")
+#loc5 = loc("p4.37")
+#loc6 = loc("p5.49")
+#loc7 = loc("p6.54")
+#loc8 = loc("p7.117")
+#loc9 = loc("p8.131")
+#loc10 = loc("p9.148")
+#loc11 = loc("p10.190")
+#loc12 = loc("p11.198")
+#loc13 = loc("p12.206")
+#loc14 = loc("p13.219")
+#loc15 = loc("p14.227")
+#loc16 = loc("p15.235")
+#loc17 = loc("p16.248")
+#loc18 = loc("p17.314")
+#loc19 = loc("p18.452")
+#loc20 = loc("p19.527")
+#loc21 = loc("p20.537")
+#loc22 = loc("p21.574")
+#loc23 = loc("p22.582")
+#loc24 = loc("p23.590")
+#loc25 = loc("p24.603")
+#loc26 = loc("p25.611")
+#loc27 = loc("p26.619")
+#loc28 = loc("p27.632")
+#loc29 = loc("p28.675")
+#loc30 = loc("p29.813")
+module @SyncTensorsGraph.906 attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false, ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x2>]>} {
   ttcore.device_module {
-    builtin.module @SyncTensorsGraph.6845 attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false, ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x2>]>} {
-      func.func @main(%arg0: tensor<1x1xi32> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1x1xi32>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "args_3"}, %arg1: tensor<1xi32> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1xi32>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "args_2"}, %arg2: tensor<64xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<64xf32>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_0_self_attn_rotary_emb_inv_freq"}, %arg3: tensor<1x1xi32> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1x1xi32>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "args_1"}, %arg4: tensor<512x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<512x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_0_self_attn_qkv_proj_v_weight"}, %arg5: tensor<3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_0_input_layernorm_weight"}, %arg6: tensor<1x1xi32> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1x1xi32>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "args_0"}, %arg7: tensor<128256x1536xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<128256x1536xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_embed_tokens__forward_method___self___weight"}, %arg8: tensor<512x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<512x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_0_self_attn_qkv_proj_k_weight"}, %arg9: tensor<1536x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1536x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_0_self_attn_qkv_proj_q_weight"}, %arg10: tensor<7x4x32x128xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<7x4x32x128xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "sub__import_vllm_dot_forward_context____forward_context_no_compile_layers__model_layers_0_self_attn_attn___kv_cache_0"}, %arg11: tensor<7x4x32x128xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<7x4x32x128xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "sub__import_vllm_dot_forward_context____forward_context_no_compile_layers__model_layers_0_self_attn_attn___kv_cache_1"}, %arg12: tensor<64xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<64xf32>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_1_self_attn_rotary_emb_inv_freq"}, %arg13: tensor<512x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<512x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_1_self_attn_qkv_proj_v_weight"}, %arg14: tensor<3072x1536xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072x1536xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_0_self_attn_o_proj_weight"}, %arg15: tensor<3072x4096xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072x4096xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_0_mlp_down_proj_weight"}, %arg16: tensor<4096x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<4096x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "self___model_model_layers_0_mlp_gate_up_proj_weights_1"}, %arg17: tensor<3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_0_post_attention_layernorm_weight"}, %arg18: tensor<4096x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<4096x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "self___model_model_layers_0_mlp_gate_up_proj_weights_0"}, %arg19: tensor<3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_1_input_layernorm_weight"}, %arg20: tensor<512x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<512x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_1_self_attn_qkv_proj_k_weight"}, %arg21: tensor<1536x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1536x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_1_self_attn_qkv_proj_q_weight"}, %arg22: tensor<7x4x32x128xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<7x4x32x128xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "sub__import_vllm_dot_forward_context____forward_context_no_compile_layers__model_layers_1_self_attn_attn___kv_cache_0"}, %arg23: tensor<7x4x32x128xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<7x4x32x128xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "sub__import_vllm_dot_forward_context____forward_context_no_compile_layers__model_layers_1_self_attn_attn___kv_cache_1"}, %arg24: tensor<3072x1536xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072x1536xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_1_self_attn_o_proj_weight"}, %arg25: tensor<3072x4096xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072x4096xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_1_mlp_down_proj_weight"}, %arg26: tensor<4096x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<4096x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "self___model_model_layers_1_mlp_gate_up_proj_weights_1"}, %arg27: tensor<3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_1_post_attention_layernorm_weight"}, %arg28: tensor<4096x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<4096x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "self___model_model_layers_1_mlp_gate_up_proj_weights_0"}, %arg29: tensor<3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "L__self___model_model_layers_2_input_layernorm_weight"}) -> (tensor<7x4x32x128xbf16>, tensor<7x4x32x128xbf16>, tensor<7x4x32x128xbf16>, tensor<7x4x32x128xbf16>, tensor<1x1x3072xbf16>) {
-        %0 = "ttir.constant"() <{value = dense<9.99999974E-6> : tensor<1x1x1xf32>}> : () -> tensor<1x1x1xf32>
-        %1 = "ttir.constant"() <{value = dense<3.25520843E-4> : tensor<1x1xf32>}> : () -> tensor<1x1xf32>
-        %2 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<f32>}> : () -> tensor<f32>
-        %3 = "ttir.reshape"(%2) <{shape = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<f32>) -> tensor<1x1x1xf32>
-        %4 = "ttir.broadcast"(%3) <{broadcast_dimensions = array<i64: 1, 1, 3072>}> : (tensor<1x1x1xf32>) -> tensor<1x1x3072xf32>
-        %5 = "ttir.typecast"(%arg6) <{conservative_folding = false}> : (tensor<1x1xi32>) -> tensor<1x1xi64>
-        %6 = "ttir.reshape"(%5) <{shape = [1 : i32]}> : (tensor<1x1xi64>) -> tensor<1xi64>
-        %7 = "ttir.typecast"(%6) <{conservative_folding = false}> : (tensor<1xi64>) -> tensor<1xui32>
-        %8 = "ttir.permute"(%arg7) <{permutation = array<i64: 0, 1>}> : (tensor<128256x1536xbf16>) -> tensor<128256x1536xbf16>
-        %9 = "ttir.reshape"(%8) <{shape = [128256 : i32, 1536 : i32]}> : (tensor<128256x1536xbf16>) -> tensor<128256x1536xbf16>
-        %10 = "ttir.reshape"(%7) <{shape = [1 : i32, 1 : i32]}> : (tensor<1xui32>) -> tensor<1x1xui32>
-        %11 = "ttir.embedding"(%10, %9) : (tensor<1x1xui32>, tensor<128256x1536xbf16>) -> tensor<1x1x1536xbf16>
-        %12 = "ttir.reshape"(%11) <{shape = [1 : i32, 1536 : i32]}> : (tensor<1x1x1536xbf16>) -> tensor<1x1536xbf16>
-        %13 = "ttir.permute"(%12) <{permutation = array<i64: 0, 1>}> : (tensor<1x1536xbf16>) -> tensor<1x1536xbf16>
-        %14 = "ttir.reshape"(%13) <{shape = [1 : i32, 1 : i32, 1536 : i32]}> : (tensor<1x1536xbf16>) -> tensor<1x1x1536xbf16>
-        %15 = "ttir.all_gather"(%14) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32}> : (tensor<1x1x1536xbf16>) -> tensor<1x1x3072xbf16>
-        %16 = "ttir.rms_norm"(%15, %arg5) <{epsilon = 9.99999974E-6 : f32, normalized_shape = array<i64: 3072>, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<1x1x3072xbf16>, tensor<3072xbf16>) -> tensor<1x1x3072xbf16>
-        %17 = "ttir.reshape"(%16) <{shape = [1 : i32, 3072 : i32]}> : (tensor<1x1x3072xbf16>) -> tensor<1x3072xbf16>
-        %18 = "ttir.permute"(%arg9) <{permutation = array<i64: 1, 0>}> : (tensor<1536x3072xbf16>) -> tensor<3072x1536xbf16>
-        %19 = "ttir.dot_general"(%17, %18) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1x3072xbf16>, tensor<3072x1536xbf16>) -> tensor<1x1536xbf16>
-        %20 = "ttir.permute"(%arg8) <{permutation = array<i64: 1, 0>}> : (tensor<512x3072xbf16>) -> tensor<3072x512xbf16>
-        %21 = "ttir.dot_general"(%17, %20) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1x3072xbf16>, tensor<3072x512xbf16>) -> tensor<1x512xbf16>
-        %22 = "ttir.permute"(%arg4) <{permutation = array<i64: 1, 0>}> : (tensor<512x3072xbf16>) -> tensor<3072x512xbf16>
-        %23 = "ttir.dot_general"(%17, %22) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1x3072xbf16>, tensor<3072x512xbf16>) -> tensor<1x512xbf16>
-        %24 = "ttir.reshape"(%21) <{shape = [1 : i32, 4 : i32, 128 : i32]}> : (tensor<1x512xbf16>) -> tensor<1x4x128xbf16>
-        %25 = "ttir.slice_static"(%24) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 4 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x4x128xbf16>) -> tensor<1x4x64xbf16>
-        %26 = "ttir.reshape"(%arg3) <{shape = [1 : i32]}> : (tensor<1x1xi32>) -> tensor<1xi32>
-        %27 = "ttir.typecast"(%26) <{conservative_folding = false}> : (tensor<1xi32>) -> tensor<1xf32>
-        %28 = "ttir.reshape"(%27) <{shape = [1 : i32, 1 : i32]}> : (tensor<1xf32>) -> tensor<1x1xf32>
-        %29 = "ttir.broadcast"(%28) <{broadcast_dimensions = array<i64: 1, 64>}> : (tensor<1x1xf32>) -> tensor<1x64xf32>
-        %30 = "ttir.reshape"(%arg2) <{shape = [1 : i32, 64 : i32]}> : (tensor<64xf32>) -> tensor<1x64xf32>
-        %31 = "ttir.multiply"(%29, %30) : (tensor<1x64xf32>, tensor<1x64xf32>) -> tensor<1x64xf32>
-        %32 = "ttir.cos"(%31) : (tensor<1x64xf32>) -> tensor<1x64xf32>
-        %33 = "ttir.typecast"(%32) <{conservative_folding = false}> : (tensor<1x64xf32>) -> tensor<1x64xbf16>
-        %34 = "ttir.reshape"(%33) <{shape = [1 : i32, 1 : i32, 64 : i32]}> : (tensor<1x64xbf16>) -> tensor<1x1x64xbf16>
-        %35 = "ttir.broadcast"(%34) <{broadcast_dimensions = array<i64: 1, 4, 1>}> : (tensor<1x1x64xbf16>) -> tensor<1x4x64xbf16>
-        %36 = "ttir.multiply"(%25, %35) : (tensor<1x4x64xbf16>, tensor<1x4x64xbf16>) -> tensor<1x4x64xbf16>
-        %37 = "ttir.slice_static"(%24) <{begins = [0 : i32, 0 : i32, 64 : i32], ends = [1 : i32, 4 : i32, 128 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x4x128xbf16>) -> tensor<1x4x64xbf16>
-        %38 = "ttir.sin"(%31) : (tensor<1x64xf32>) -> tensor<1x64xf32>
-        %39 = "ttir.typecast"(%38) <{conservative_folding = false}> : (tensor<1x64xf32>) -> tensor<1x64xbf16>
-        %40 = "ttir.reshape"(%39) <{shape = [1 : i32, 1 : i32, 64 : i32]}> : (tensor<1x64xbf16>) -> tensor<1x1x64xbf16>
-        %41 = "ttir.broadcast"(%40) <{broadcast_dimensions = array<i64: 1, 4, 1>}> : (tensor<1x1x64xbf16>) -> tensor<1x4x64xbf16>
-        %42 = "ttir.multiply"(%37, %41) : (tensor<1x4x64xbf16>, tensor<1x4x64xbf16>) -> tensor<1x4x64xbf16>
-        %43 = "ttir.subtract"(%36, %42) : (tensor<1x4x64xbf16>, tensor<1x4x64xbf16>) -> tensor<1x4x64xbf16>
-        %44 = "ttir.multiply"(%37, %35) : (tensor<1x4x64xbf16>, tensor<1x4x64xbf16>) -> tensor<1x4x64xbf16>
-        %45 = "ttir.multiply"(%25, %41) : (tensor<1x4x64xbf16>, tensor<1x4x64xbf16>) -> tensor<1x4x64xbf16>
-        %46 = "ttir.add"(%44, %45) : (tensor<1x4x64xbf16>, tensor<1x4x64xbf16>) -> tensor<1x4x64xbf16>
-        %47 = "ttir.concat"(%43, %46) <{dim = 2 : si32}> : (tensor<1x4x64xbf16>, tensor<1x4x64xbf16>) -> tensor<1x4x128xbf16>
-        %48 = "ttir.reshape"(%47) <{shape = [1 : i32, 1 : i32, 4 : i32, 128 : i32]}> : (tensor<1x4x128xbf16>) -> tensor<1x1x4x128xbf16>
-        %49 = "ttir.paged_update_cache"(%arg10, %48, %arg1, %arg0) <{share_cache = false}> : (tensor<7x4x32x128xbf16>, tensor<1x1x4x128xbf16>, tensor<1xi32>, tensor<1x1xi32>) -> tensor<7x4x32x128xbf16>
-        %50 = "ttir.reshape"(%23) <{shape = [1 : i32, 1 : i32, 4 : i32, 128 : i32]}> : (tensor<1x512xbf16>) -> tensor<1x1x4x128xbf16>
-        %51 = "ttir.paged_update_cache"(%arg11, %50, %arg1, %arg0) <{share_cache = false}> : (tensor<7x4x32x128xbf16>, tensor<1x1x4x128xbf16>, tensor<1xi32>, tensor<1x1xi32>) -> tensor<7x4x32x128xbf16>
-        %52 = "ttir.reshape"(%arg19) <{shape = [1 : i32, 1 : i32, 3072 : i32]}> : (tensor<3072xbf16>) -> tensor<1x1x3072xbf16>
-        %53 = "ttir.reshape"(%arg17) <{shape = [1 : i32, 1 : i32, 3072 : i32]}> : (tensor<3072xbf16>) -> tensor<1x1x3072xbf16>
-        %54 = "ttir.reshape"(%19) <{shape = [1 : i32, 12 : i32, 128 : i32]}> : (tensor<1x1536xbf16>) -> tensor<1x12x128xbf16>
-        %55 = "ttir.slice_static"(%54) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 12 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x12x128xbf16>) -> tensor<1x12x64xbf16>
-        %56 = "ttir.broadcast"(%34) <{broadcast_dimensions = array<i64: 1, 12, 1>}> : (tensor<1x1x64xbf16>) -> tensor<1x12x64xbf16>
-        %57 = "ttir.multiply"(%55, %56) : (tensor<1x12x64xbf16>, tensor<1x12x64xbf16>) -> tensor<1x12x64xbf16>
-        %58 = "ttir.slice_static"(%54) <{begins = [0 : i32, 0 : i32, 64 : i32], ends = [1 : i32, 12 : i32, 128 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x12x128xbf16>) -> tensor<1x12x64xbf16>
-        %59 = "ttir.broadcast"(%40) <{broadcast_dimensions = array<i64: 1, 12, 1>}> : (tensor<1x1x64xbf16>) -> tensor<1x12x64xbf16>
-        %60 = "ttir.multiply"(%58, %59) : (tensor<1x12x64xbf16>, tensor<1x12x64xbf16>) -> tensor<1x12x64xbf16>
-        %61 = "ttir.subtract"(%57, %60) : (tensor<1x12x64xbf16>, tensor<1x12x64xbf16>) -> tensor<1x12x64xbf16>
-        %62 = "ttir.multiply"(%58, %56) : (tensor<1x12x64xbf16>, tensor<1x12x64xbf16>) -> tensor<1x12x64xbf16>
-        %63 = "ttir.multiply"(%55, %59) : (tensor<1x12x64xbf16>, tensor<1x12x64xbf16>) -> tensor<1x12x64xbf16>
-        %64 = "ttir.add"(%62, %63) : (tensor<1x12x64xbf16>, tensor<1x12x64xbf16>) -> tensor<1x12x64xbf16>
-        %65 = "ttir.concat"(%61, %64) <{dim = 2 : si32}> : (tensor<1x12x64xbf16>, tensor<1x12x64xbf16>) -> tensor<1x12x128xbf16>
-        %66 = "ttir.reshape"(%65) <{shape = [1 : i32, 1 : i32, 12 : i32, 128 : i32]}> : (tensor<1x12x128xbf16>) -> tensor<1x1x12x128xbf16>
-        %67 = ttir.empty() : tensor<1x1x12x128xbf16>
-        %68 = "ttir.paged_scaled_dot_product_attention_decode"(%66, %49, %51, %arg0, %67, %arg1) <{is_causal = true, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 0, 1, 0>, scale = 0.0883883461 : f32}> : (tensor<1x1x12x128xbf16>, tensor<7x4x32x128xbf16>, tensor<7x4x32x128xbf16>, tensor<1x1xi32>, tensor<1x1x12x128xbf16>, tensor<1xi32>) -> tensor<1x1x12x128xbf16>
-        %69 = "ttir.reshape"(%68) <{shape = [1 : i32, 1536 : i32]}> : (tensor<1x1x12x128xbf16>) -> tensor<1x1536xbf16>
-        %70 = "ttir.permute"(%arg14) <{permutation = array<i64: 1, 0>}> : (tensor<3072x1536xbf16>) -> tensor<1536x3072xbf16>
-        %71 = "ttir.dot_general"(%69, %70) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1x1536xbf16>, tensor<1536x3072xbf16>) -> tensor<1x3072xbf16>
-        %72 = "ttir.all_reduce"(%71) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x3072xbf16>) -> tensor<1x3072xbf16>
-        %73 = "ttir.reshape"(%72) <{shape = [1 : i32, 1 : i32, 3072 : i32]}> : (tensor<1x3072xbf16>) -> tensor<1x1x3072xbf16>
-        %74 = "ttir.typecast"(%73) <{conservative_folding = false}> : (tensor<1x1x3072xbf16>) -> tensor<1x1x3072xf32>
-        %75 = "ttir.typecast"(%15) <{conservative_folding = false}> : (tensor<1x1x3072xbf16>) -> tensor<1x1x3072xf32>
-        %76 = "ttir.add"(%74, %75) : (tensor<1x1x3072xf32>, tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32>
-        %77 = "ttir.pow"(%76, %4) : (tensor<1x1x3072xf32>, tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32>
-        %78 = "ttir.sum"(%77) <{dim_arg = [2 : i32], keep_dim = false}> : (tensor<1x1x3072xf32>) -> tensor<1x1xf32>
-        %79 = "ttir.multiply"(%78, %1) : (tensor<1x1xf32>, tensor<1x1xf32>) -> tensor<1x1xf32>
-        %80 = "ttir.reshape"(%79) <{shape = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1xf32>) -> tensor<1x1x1xf32>
-        %81 = "ttir.add"(%80, %0) : (tensor<1x1x1xf32>, tensor<1x1x1xf32>) -> tensor<1x1x1xf32>
-        %82 = "ttir.rsqrt"(%81) : (tensor<1x1x1xf32>) -> tensor<1x1x1xf32>
-        %83 = "ttir.reshape"(%82) <{shape = [1 : i32, 1 : i32]}> : (tensor<1x1x1xf32>) -> tensor<1x1xf32>
-        %84 = "ttir.reshape"(%83) <{shape = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1xf32>) -> tensor<1x1x1xf32>
-        %85 = "ttir.broadcast"(%84) <{broadcast_dimensions = array<i64: 1, 1, 3072>}> : (tensor<1x1x1xf32>) -> tensor<1x1x3072xf32>
-        %86 = "ttir.multiply"(%76, %85) : (tensor<1x1x3072xf32>, tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32>
-        %87 = "ttir.typecast"(%86) <{conservative_folding = false}> : (tensor<1x1x3072xf32>) -> tensor<1x1x3072xbf16>
-        %88 = "ttir.multiply"(%53, %87) : (tensor<1x1x3072xbf16>, tensor<1x1x3072xbf16>) -> tensor<1x1x3072xbf16>
-        %89 = "ttir.reshape"(%88) <{shape = [1 : i32, 3072 : i32]}> : (tensor<1x1x3072xbf16>) -> tensor<1x3072xbf16>
-        %90 = "ttir.permute"(%arg18) <{permutation = array<i64: 1, 0>}> : (tensor<4096x3072xbf16>) -> tensor<3072x4096xbf16>
-        %91 = "ttir.dot_general"(%89, %90) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1x3072xbf16>, tensor<3072x4096xbf16>) -> tensor<1x4096xbf16>
-        %92 = "ttir.reshape"(%91) <{shape = [1 : i32, 1 : i32, 4096 : i32]}> : (tensor<1x4096xbf16>) -> tensor<1x1x4096xbf16>
-        %93 = "ttir.permute"(%arg16) <{permutation = array<i64: 1, 0>}> : (tensor<4096x3072xbf16>) -> tensor<3072x4096xbf16>
-        %94 = "ttir.dot_general"(%89, %93) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1x3072xbf16>, tensor<3072x4096xbf16>) -> tensor<1x4096xbf16>
-        %95 = "ttir.reshape"(%94) <{shape = [1 : i32, 1 : i32, 4096 : i32]}> : (tensor<1x4096xbf16>) -> tensor<1x1x4096xbf16>
-        %96 = "ttir.typecast"(%92) <{conservative_folding = false}> : (tensor<1x1x4096xbf16>) -> tensor<1x1x4096xf32>
-        %97 = "ttir.sigmoid"(%96) : (tensor<1x1x4096xf32>) -> tensor<1x1x4096xf32>
-        %98 = "ttir.multiply"(%96, %97) : (tensor<1x1x4096xf32>, tensor<1x1x4096xf32>) -> tensor<1x1x4096xf32>
-        %99 = "ttir.typecast"(%98) <{conservative_folding = false}> : (tensor<1x1x4096xf32>) -> tensor<1x1x4096xbf16>
-        %100 = "ttir.multiply"(%99, %95) : (tensor<1x1x4096xbf16>, tensor<1x1x4096xbf16>) -> tensor<1x1x4096xbf16>
-        %101 = "ttir.reshape"(%100) <{shape = [1 : i32, 4096 : i32]}> : (tensor<1x1x4096xbf16>) -> tensor<1x4096xbf16>
-        %102 = "ttir.permute"(%arg15) <{permutation = array<i64: 1, 0>}> : (tensor<3072x4096xbf16>) -> tensor<4096x3072xbf16>
-        %103 = "ttir.dot_general"(%101, %102) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1x4096xbf16>, tensor<4096x3072xbf16>) -> tensor<1x3072xbf16>
-        %104 = "ttir.all_reduce"(%103) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x3072xbf16>) -> tensor<1x3072xbf16>
-        %105 = "ttir.reshape"(%104) <{shape = [1 : i32, 1 : i32, 3072 : i32]}> : (tensor<1x3072xbf16>) -> tensor<1x1x3072xbf16>
-        %106 = "ttir.typecast"(%105) <{conservative_folding = false}> : (tensor<1x1x3072xbf16>) -> tensor<1x1x3072xf32>
-        %107 = "ttir.typecast"(%76) <{conservative_folding = false}> : (tensor<1x1x3072xf32>) -> tensor<1x1x3072xbf16>
-        %108 = "ttir.typecast"(%107) <{conservative_folding = false}> : (tensor<1x1x3072xbf16>) -> tensor<1x1x3072xf32>
-        %109 = "ttir.add"(%106, %108) : (tensor<1x1x3072xf32>, tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32>
-        %110 = "ttir.pow"(%109, %4) : (tensor<1x1x3072xf32>, tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32>
-        %111 = "ttir.sum"(%110) <{dim_arg = [2 : i32], keep_dim = false}> : (tensor<1x1x3072xf32>) -> tensor<1x1xf32>
-        %112 = "ttir.multiply"(%111, %1) : (tensor<1x1xf32>, tensor<1x1xf32>) -> tensor<1x1xf32>
-        %113 = "ttir.reshape"(%112) <{shape = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1xf32>) -> tensor<1x1x1xf32>
-        %114 = "ttir.add"(%113, %0) : (tensor<1x1x1xf32>, tensor<1x1x1xf32>) -> tensor<1x1x1xf32>
-        %115 = "ttir.rsqrt"(%114) : (tensor<1x1x1xf32>) -> tensor<1x1x1xf32>
-        %116 = "ttir.reshape"(%115) <{shape = [1 : i32, 1 : i32]}> : (tensor<1x1x1xf32>) -> tensor<1x1xf32>
-        %117 = "ttir.reshape"(%116) <{shape = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1xf32>) -> tensor<1x1x1xf32>
-        %118 = "ttir.broadcast"(%117) <{broadcast_dimensions = array<i64: 1, 1, 3072>}> : (tensor<1x1x1xf32>) -> tensor<1x1x3072xf32>
-        %119 = "ttir.multiply"(%109, %118) : (tensor<1x1x3072xf32>, tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32>
-        %120 = "ttir.typecast"(%119) <{conservative_folding = false}> : (tensor<1x1x3072xf32>) -> tensor<1x1x3072xbf16>
-        %121 = "ttir.multiply"(%52, %120) : (tensor<1x1x3072xbf16>, tensor<1x1x3072xbf16>) -> tensor<1x1x3072xbf16>
-        %122 = "ttir.reshape"(%121) <{shape = [1 : i32, 3072 : i32]}> : (tensor<1x1x3072xbf16>) -> tensor<1x3072xbf16>
-        %123 = "ttir.permute"(%arg21) <{permutation = array<i64: 1, 0>}> : (tensor<1536x3072xbf16>) -> tensor<3072x1536xbf16>
-        %124 = "ttir.dot_general"(%122, %123) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1x3072xbf16>, tensor<3072x1536xbf16>) -> tensor<1x1536xbf16>
-        %125 = "ttir.permute"(%arg20) <{permutation = array<i64: 1, 0>}> : (tensor<512x3072xbf16>) -> tensor<3072x512xbf16>
-        %126 = "ttir.dot_general"(%122, %125) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1x3072xbf16>, tensor<3072x512xbf16>) -> tensor<1x512xbf16>
-        %127 = "ttir.permute"(%arg13) <{permutation = array<i64: 1, 0>}> : (tensor<512x3072xbf16>) -> tensor<3072x512xbf16>
-        %128 = "ttir.dot_general"(%122, %127) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1x3072xbf16>, tensor<3072x512xbf16>) -> tensor<1x512xbf16>
-        %129 = "ttir.reshape"(%126) <{shape = [1 : i32, 4 : i32, 128 : i32]}> : (tensor<1x512xbf16>) -> tensor<1x4x128xbf16>
-        %130 = "ttir.slice_static"(%129) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 4 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x4x128xbf16>) -> tensor<1x4x64xbf16>
-        %131 = "ttir.reshape"(%arg12) <{shape = [1 : i32, 64 : i32]}> : (tensor<64xf32>) -> tensor<1x64xf32>
-        %132 = "ttir.multiply"(%29, %131) : (tensor<1x64xf32>, tensor<1x64xf32>) -> tensor<1x64xf32>
-        %133 = "ttir.cos"(%132) : (tensor<1x64xf32>) -> tensor<1x64xf32>
-        %134 = "ttir.typecast"(%133) <{conservative_folding = false}> : (tensor<1x64xf32>) -> tensor<1x64xbf16>
-        %135 = "ttir.reshape"(%134) <{shape = [1 : i32, 1 : i32, 64 : i32]}> : (tensor<1x64xbf16>) -> tensor<1x1x64xbf16>
-        %136 = "ttir.broadcast"(%135) <{broadcast_dimensions = array<i64: 1, 4, 1>}> : (tensor<1x1x64xbf16>) -> tensor<1x4x64xbf16>
-        %137 = "ttir.multiply"(%130, %136) : (tensor<1x4x64xbf16>, tensor<1x4x64xbf16>) -> tensor<1x4x64xbf16>
-        %138 = "ttir.slice_static"(%129) <{begins = [0 : i32, 0 : i32, 64 : i32], ends = [1 : i32, 4 : i32, 128 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x4x128xbf16>) -> tensor<1x4x64xbf16>
-        %139 = "ttir.sin"(%132) : (tensor<1x64xf32>) -> tensor<1x64xf32>
-        %140 = "ttir.typecast"(%139) <{conservative_folding = false}> : (tensor<1x64xf32>) -> tensor<1x64xbf16>
-        %141 = "ttir.reshape"(%140) <{shape = [1 : i32, 1 : i32, 64 : i32]}> : (tensor<1x64xbf16>) -> tensor<1x1x64xbf16>
-        %142 = "ttir.broadcast"(%141) <{broadcast_dimensions = array<i64: 1, 4, 1>}> : (tensor<1x1x64xbf16>) -> tensor<1x4x64xbf16>
-        %143 = "ttir.multiply"(%138, %142) : (tensor<1x4x64xbf16>, tensor<1x4x64xbf16>) -> tensor<1x4x64xbf16>
-        %144 = "ttir.subtract"(%137, %143) : (tensor<1x4x64xbf16>, tensor<1x4x64xbf16>) -> tensor<1x4x64xbf16>
-        %145 = "ttir.multiply"(%138, %136) : (tensor<1x4x64xbf16>, tensor<1x4x64xbf16>) -> tensor<1x4x64xbf16>
-        %146 = "ttir.multiply"(%130, %142) : (tensor<1x4x64xbf16>, tensor<1x4x64xbf16>) -> tensor<1x4x64xbf16>
-        %147 = "ttir.add"(%145, %146) : (tensor<1x4x64xbf16>, tensor<1x4x64xbf16>) -> tensor<1x4x64xbf16>
-        %148 = "ttir.concat"(%144, %147) <{dim = 2 : si32}> : (tensor<1x4x64xbf16>, tensor<1x4x64xbf16>) -> tensor<1x4x128xbf16>
-        %149 = "ttir.reshape"(%148) <{shape = [1 : i32, 1 : i32, 4 : i32, 128 : i32]}> : (tensor<1x4x128xbf16>) -> tensor<1x1x4x128xbf16>
-        %150 = "ttir.paged_update_cache"(%arg22, %149, %arg1, %arg0) <{share_cache = false}> : (tensor<7x4x32x128xbf16>, tensor<1x1x4x128xbf16>, tensor<1xi32>, tensor<1x1xi32>) -> tensor<7x4x32x128xbf16>
-        %151 = "ttir.reshape"(%128) <{shape = [1 : i32, 1 : i32, 4 : i32, 128 : i32]}> : (tensor<1x512xbf16>) -> tensor<1x1x4x128xbf16>
-        %152 = "ttir.paged_update_cache"(%arg23, %151, %arg1, %arg0) <{share_cache = false}> : (tensor<7x4x32x128xbf16>, tensor<1x1x4x128xbf16>, tensor<1xi32>, tensor<1x1xi32>) -> tensor<7x4x32x128xbf16>
-        %153 = "ttir.reshape"(%arg29) <{shape = [1 : i32, 1 : i32, 3072 : i32]}> : (tensor<3072xbf16>) -> tensor<1x1x3072xbf16>
-        %154 = "ttir.reshape"(%arg27) <{shape = [1 : i32, 1 : i32, 3072 : i32]}> : (tensor<3072xbf16>) -> tensor<1x1x3072xbf16>
-        %155 = "ttir.reshape"(%124) <{shape = [1 : i32, 12 : i32, 128 : i32]}> : (tensor<1x1536xbf16>) -> tensor<1x12x128xbf16>
-        %156 = "ttir.slice_static"(%155) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 12 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x12x128xbf16>) -> tensor<1x12x64xbf16>
-        %157 = "ttir.broadcast"(%135) <{broadcast_dimensions = array<i64: 1, 12, 1>}> : (tensor<1x1x64xbf16>) -> tensor<1x12x64xbf16>
-        %158 = "ttir.multiply"(%156, %157) : (tensor<1x12x64xbf16>, tensor<1x12x64xbf16>) -> tensor<1x12x64xbf16>
-        %159 = "ttir.slice_static"(%155) <{begins = [0 : i32, 0 : i32, 64 : i32], ends = [1 : i32, 12 : i32, 128 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x12x128xbf16>) -> tensor<1x12x64xbf16>
-        %160 = "ttir.broadcast"(%141) <{broadcast_dimensions = array<i64: 1, 12, 1>}> : (tensor<1x1x64xbf16>) -> tensor<1x12x64xbf16>
-        %161 = "ttir.multiply"(%159, %160) : (tensor<1x12x64xbf16>, tensor<1x12x64xbf16>) -> tensor<1x12x64xbf16>
-        %162 = "ttir.subtract"(%158, %161) : (tensor<1x12x64xbf16>, tensor<1x12x64xbf16>) -> tensor<1x12x64xbf16>
-        %163 = "ttir.multiply"(%159, %157) : (tensor<1x12x64xbf16>, tensor<1x12x64xbf16>) -> tensor<1x12x64xbf16>
-        %164 = "ttir.multiply"(%156, %160) : (tensor<1x12x64xbf16>, tensor<1x12x64xbf16>) -> tensor<1x12x64xbf16>
-        %165 = "ttir.add"(%163, %164) : (tensor<1x12x64xbf16>, tensor<1x12x64xbf16>) -> tensor<1x12x64xbf16>
-        %166 = "ttir.concat"(%162, %165) <{dim = 2 : si32}> : (tensor<1x12x64xbf16>, tensor<1x12x64xbf16>) -> tensor<1x12x128xbf16>
-        %167 = "ttir.reshape"(%166) <{shape = [1 : i32, 1 : i32, 12 : i32, 128 : i32]}> : (tensor<1x12x128xbf16>) -> tensor<1x1x12x128xbf16>
-        %168 = ttir.empty() : tensor<1x1x12x128xbf16>
-        %169 = "ttir.paged_scaled_dot_product_attention_decode"(%167, %150, %152, %arg0, %168, %arg1) <{is_causal = true, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 0, 1, 0>, scale = 0.0883883461 : f32}> : (tensor<1x1x12x128xbf16>, tensor<7x4x32x128xbf16>, tensor<7x4x32x128xbf16>, tensor<1x1xi32>, tensor<1x1x12x128xbf16>, tensor<1xi32>) -> tensor<1x1x12x128xbf16>
-        %170 = "ttir.reshape"(%169) <{shape = [1 : i32, 1536 : i32]}> : (tensor<1x1x12x128xbf16>) -> tensor<1x1536xbf16>
-        %171 = "ttir.permute"(%arg24) <{permutation = array<i64: 1, 0>}> : (tensor<3072x1536xbf16>) -> tensor<1536x3072xbf16>
-        %172 = "ttir.dot_general"(%170, %171) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1x1536xbf16>, tensor<1536x3072xbf16>) -> tensor<1x3072xbf16>
-        %173 = "ttir.all_reduce"(%172) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x3072xbf16>) -> tensor<1x3072xbf16>
-        %174 = "ttir.reshape"(%173) <{shape = [1 : i32, 1 : i32, 3072 : i32]}> : (tensor<1x3072xbf16>) -> tensor<1x1x3072xbf16>
-        %175 = "ttir.typecast"(%174) <{conservative_folding = false}> : (tensor<1x1x3072xbf16>) -> tensor<1x1x3072xf32>
-        %176 = "ttir.typecast"(%109) <{conservative_folding = false}> : (tensor<1x1x3072xf32>) -> tensor<1x1x3072xbf16>
-        %177 = "ttir.typecast"(%176) <{conservative_folding = false}> : (tensor<1x1x3072xbf16>) -> tensor<1x1x3072xf32>
-        %178 = "ttir.add"(%175, %177) : (tensor<1x1x3072xf32>, tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32>
-        %179 = "ttir.pow"(%178, %4) : (tensor<1x1x3072xf32>, tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32>
-        %180 = "ttir.sum"(%179) <{dim_arg = [2 : i32], keep_dim = false}> : (tensor<1x1x3072xf32>) -> tensor<1x1xf32>
-        %181 = "ttir.multiply"(%180, %1) : (tensor<1x1xf32>, tensor<1x1xf32>) -> tensor<1x1xf32>
-        %182 = "ttir.reshape"(%181) <{shape = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1xf32>) -> tensor<1x1x1xf32>
-        %183 = "ttir.add"(%182, %0) : (tensor<1x1x1xf32>, tensor<1x1x1xf32>) -> tensor<1x1x1xf32>
-        %184 = "ttir.rsqrt"(%183) : (tensor<1x1x1xf32>) -> tensor<1x1x1xf32>
-        %185 = "ttir.reshape"(%184) <{shape = [1 : i32, 1 : i32]}> : (tensor<1x1x1xf32>) -> tensor<1x1xf32>
-        %186 = "ttir.reshape"(%185) <{shape = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1xf32>) -> tensor<1x1x1xf32>
-        %187 = "ttir.broadcast"(%186) <{broadcast_dimensions = array<i64: 1, 1, 3072>}> : (tensor<1x1x1xf32>) -> tensor<1x1x3072xf32>
-        %188 = "ttir.multiply"(%178, %187) : (tensor<1x1x3072xf32>, tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32>
-        %189 = "ttir.typecast"(%188) <{conservative_folding = false}> : (tensor<1x1x3072xf32>) -> tensor<1x1x3072xbf16>
-        %190 = "ttir.multiply"(%154, %189) : (tensor<1x1x3072xbf16>, tensor<1x1x3072xbf16>) -> tensor<1x1x3072xbf16>
-        %191 = "ttir.reshape"(%190) <{shape = [1 : i32, 3072 : i32]}> : (tensor<1x1x3072xbf16>) -> tensor<1x3072xbf16>
-        %192 = "ttir.permute"(%arg28) <{permutation = array<i64: 1, 0>}> : (tensor<4096x3072xbf16>) -> tensor<3072x4096xbf16>
-        %193 = "ttir.dot_general"(%191, %192) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1x3072xbf16>, tensor<3072x4096xbf16>) -> tensor<1x4096xbf16>
-        %194 = "ttir.reshape"(%193) <{shape = [1 : i32, 1 : i32, 4096 : i32]}> : (tensor<1x4096xbf16>) -> tensor<1x1x4096xbf16>
-        %195 = "ttir.permute"(%arg26) <{permutation = array<i64: 1, 0>}> : (tensor<4096x3072xbf16>) -> tensor<3072x4096xbf16>
-        %196 = "ttir.dot_general"(%191, %195) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1x3072xbf16>, tensor<3072x4096xbf16>) -> tensor<1x4096xbf16>
-        %197 = "ttir.reshape"(%196) <{shape = [1 : i32, 1 : i32, 4096 : i32]}> : (tensor<1x4096xbf16>) -> tensor<1x1x4096xbf16>
-        %198 = "ttir.typecast"(%194) <{conservative_folding = false}> : (tensor<1x1x4096xbf16>) -> tensor<1x1x4096xf32>
-        %199 = "ttir.sigmoid"(%198) : (tensor<1x1x4096xf32>) -> tensor<1x1x4096xf32>
-        %200 = "ttir.multiply"(%198, %199) : (tensor<1x1x4096xf32>, tensor<1x1x4096xf32>) -> tensor<1x1x4096xf32>
-        %201 = "ttir.typecast"(%200) <{conservative_folding = false}> : (tensor<1x1x4096xf32>) -> tensor<1x1x4096xbf16>
-        %202 = "ttir.multiply"(%201, %197) : (tensor<1x1x4096xbf16>, tensor<1x1x4096xbf16>) -> tensor<1x1x4096xbf16>
-        %203 = "ttir.reshape"(%202) <{shape = [1 : i32, 4096 : i32]}> : (tensor<1x1x4096xbf16>) -> tensor<1x4096xbf16>
-        %204 = "ttir.permute"(%arg25) <{permutation = array<i64: 1, 0>}> : (tensor<3072x4096xbf16>) -> tensor<4096x3072xbf16>
-        %205 = "ttir.dot_general"(%203, %204) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1x4096xbf16>, tensor<4096x3072xbf16>) -> tensor<1x3072xbf16>
-        %206 = "ttir.all_reduce"(%205) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x3072xbf16>) -> tensor<1x3072xbf16>
-        %207 = "ttir.reshape"(%206) <{shape = [1 : i32, 1 : i32, 3072 : i32]}> : (tensor<1x3072xbf16>) -> tensor<1x1x3072xbf16>
-        %208 = "ttir.typecast"(%207) <{conservative_folding = false}> : (tensor<1x1x3072xbf16>) -> tensor<1x1x3072xf32>
-        %209 = "ttir.typecast"(%178) <{conservative_folding = false}> : (tensor<1x1x3072xf32>) -> tensor<1x1x3072xbf16>
-        %210 = "ttir.typecast"(%209) <{conservative_folding = false}> : (tensor<1x1x3072xbf16>) -> tensor<1x1x3072xf32>
-        %211 = "ttir.add"(%208, %210) : (tensor<1x1x3072xf32>, tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32>
-        %212 = "ttir.pow"(%211, %4) : (tensor<1x1x3072xf32>, tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32>
-        %213 = "ttir.sum"(%212) <{dim_arg = [2 : i32], keep_dim = false}> : (tensor<1x1x3072xf32>) -> tensor<1x1xf32>
-        %214 = "ttir.multiply"(%213, %1) : (tensor<1x1xf32>, tensor<1x1xf32>) -> tensor<1x1xf32>
-        %215 = "ttir.reshape"(%214) <{shape = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1xf32>) -> tensor<1x1x1xf32>
-        %216 = "ttir.add"(%215, %0) : (tensor<1x1x1xf32>, tensor<1x1x1xf32>) -> tensor<1x1x1xf32>
-        %217 = "ttir.rsqrt"(%216) : (tensor<1x1x1xf32>) -> tensor<1x1x1xf32>
-        %218 = "ttir.reshape"(%217) <{shape = [1 : i32, 1 : i32]}> : (tensor<1x1x1xf32>) -> tensor<1x1xf32>
-        %219 = "ttir.reshape"(%218) <{shape = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1xf32>) -> tensor<1x1x1xf32>
-        %220 = "ttir.broadcast"(%219) <{broadcast_dimensions = array<i64: 1, 1, 3072>}> : (tensor<1x1x1xf32>) -> tensor<1x1x3072xf32>
-        %221 = "ttir.multiply"(%211, %220) : (tensor<1x1x3072xf32>, tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32>
-        %222 = "ttir.typecast"(%221) <{conservative_folding = false}> : (tensor<1x1x3072xf32>) -> tensor<1x1x3072xbf16>
-        %223 = "ttir.multiply"(%153, %222) : (tensor<1x1x3072xbf16>, tensor<1x1x3072xbf16>) -> tensor<1x1x3072xbf16>
-        return %49, %51, %150, %152, %223 : tensor<7x4x32x128xbf16>, tensor<7x4x32x128xbf16>, tensor<7x4x32x128xbf16>, tensor<7x4x32x128xbf16>, tensor<1x1x3072xbf16>
-      }
-    }
-  }
-}
+    builtin.module @SyncTensorsGraph.906 attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false, ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x2>]>} {
+      func.func @main(%arg0: tensor<1xi64> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1xi64>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "arg24_1"} loc("p0.3"), %arg1: tensor<1xi64> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1xi64>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "arg27_1"} loc("p1.12"), %arg2: tensor<1xi64> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1xi64>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "arg22_1"} loc("p2.21"), %arg3: tensor<1024x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1024x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.0.self_attn.v_proj.parametrizations.weight.original"} loc("p3.29"), %arg4: tensor<3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.0.input_layernorm.parametrizations.weight.original"} loc("p4.37"), %arg5: tensor<32x1xi64> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<32x1xi64>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "arg23_1"} loc("p5.49"), %arg6: tensor<128256x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<128256x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.embed_tokens.parametrizations.weight.original"} loc("p6.54"), %arg7: tensor<32x4x128x128xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<32x4x128x128xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "arg26_1"} loc("p7.117"), %arg8: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<64xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "model.model.rotary_emb.inv_freq"} loc("p8.131"), %arg9: tensor<1024x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1024x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.0.self_attn.k_proj.parametrizations.weight.original"} loc("p9.148"), %arg10: tensor<32x4x128x128xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<32x4x128x128xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "arg25_1"} loc("p10.190"), %arg11: tensor<1024x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1024x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.1.self_attn.v_proj.parametrizations.weight.original"} loc("p11.198"), %arg12: tensor<3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.1.input_layernorm.parametrizations.weight.original"} loc("p12.206"), %arg13: tensor<3072x8192xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072x8192xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.0.mlp.down_proj.parametrizations.weight.original"} loc("p13.219"), %arg14: tensor<8192x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<8192x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.0.mlp.up_proj.parametrizations.weight.original"} loc("p14.227"), %arg15: tensor<3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.0.post_attention_layernorm.parametrizations.weight.original"} loc("p15.235"), %arg16: tensor<3072x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.0.self_attn.o_proj.parametrizations.weight.original"} loc("p16.248"), %arg17: tensor<3072x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.0.self_attn.q_proj.parametrizations.weight.original"} loc("p17.314"), %arg18: tensor<8192x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<8192x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.0.mlp.gate_proj.parametrizations.weight.original"} loc("p18.452"), %arg19: tensor<32x4x128x128xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<32x4x128x128xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "arg29_1"} loc("p19.527"), %arg20: tensor<1024x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1024x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.1.self_attn.k_proj.parametrizations.weight.original"} loc("p20.537"), %arg21: tensor<32x4x128x128xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<32x4x128x128xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttir.name = "arg28_1"} loc("p21.574"), %arg22: tensor<128256x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<128256x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.lm_head.parametrizations.weight.original"} loc("p22.582"), %arg23: tensor<3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.norm.parametrizations.weight.original"} loc("p23.590"), %arg24: tensor<3072x8192xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072x8192xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.1.mlp.down_proj.parametrizations.weight.original"} loc("p24.603"), %arg25: tensor<8192x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<8192x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.1.mlp.up_proj.parametrizations.weight.original"} loc("p25.611"), %arg26: tensor<3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.1.post_attention_layernorm.parametrizations.weight.original"} loc("p26.619"), %arg27: tensor<3072x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.1.self_attn.o_proj.parametrizations.weight.original"} loc("p27.632"), %arg28: tensor<3072x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<3072x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.1.self_attn.q_proj.parametrizations.weight.original"} loc("p28.675"), %arg29: tensor<8192x3072xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<8192x3072xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.weight_dtype = "bfp_bf8", ttir.name = "model.model.layers.1.mlp.gate_proj.parametrizations.weight.original"} loc("p29.813")) -> (tensor<1xi64> {ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1xi64>>, ttcore.shard_status = #ttcore.shard_status<presharded>}, tensor<1xi64> {ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1xi64>>, ttcore.shard_status = #ttcore.shard_status<presharded>}, tensor<1xi64> {ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1xi64>>, ttcore.shard_status = #ttcore.shard_status<presharded>}, tensor<32x4x128x128xbf16> {ttcore.local_shape = #ttcore<local_shape local_shape = tensor<32x4x128x128xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>}, tensor<32x4x128x128xbf16> {ttcore.local_shape = #ttcore<local_shape local_shape = tensor<32x4x128x128xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>}, tensor<32x4x128x128xbf16> {ttcore.local_shape = #ttcore<local_shape local_shape = tensor<32x4x128x128xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>}, tensor<32x4x128x128xbf16> {ttcore.local_shape = #ttcore<local_shape local_shape = tensor<32x4x128x128xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>}, tensor<32x1x128256xbf16> {ttcore.local_shape = #ttcore<local_shape local_shape = tensor<32x1x128256xbf16>>, ttcore.shard_status = #ttcore.shard_status<presharded>}, tensor<32x1xi64> {ttcore.local_shape = #ttcore<local_shape local_shape = tensor<32x1xi64>>, ttcore.shard_status = #ttcore.shard_status<presharded>}) {
+        %0 = "ttir.constant"() <{value = dense<1> : tensor<1xi64>}> : () -> tensor<1xi64> loc(#loc)
+        %1 = "ttir.constant"() <{value = dense<0> : tensor<1xi64>}> : () -> tensor<1xi64> loc(#loc)
+        %2 = "ttir.constant"() <{value = dense<128> : tensor<1xi64>}> : () -> tensor<1xi64> loc(#loc)
+        %3 = "ttir.constant"() <{value = dense<0.297301769> : tensor<f32>}> : () -> tensor<f32> loc(#loc)
+        %4 = "ttir.constant"() <{value = dense<"0x00000000000000000100000000000000020000000000000003000000000000000400000000000000050000000000000006000000000000000700000000000000080000000000000009000000000000000A000000000000000B000000000000000C000000000000000D000000000000000E000000000000000F0000000000000010000000000000001100000000000000120000000000000013000000000000001400000000000000150000000000000016000000000000001700000000000000180000000000000019000000000000001A000000000000001B000000000000001C000000000000001D000000000000001E000000000000001F0000000000000020000000000000002100000000000000220000000000000023000000000000002400000000000000250000000000000026000000000000002700000000000000280000000000000029000000000000002A000000000000002B000000000000002C000000000000002D000000000000002E000000000000002F0000000000000030000000000000003100000000000000320000000000000033000000000000003400000000000000350000000000000036000000000000003700000000000000380000000000000039000000000000003A000000000000003B000000000000003C000000000000003D000000000000003E000000000000003F0000000000000040000000000000004100000000000000420000000000000043000000000000004400000000000000450000000000000046000000000000004700000000000000480000000000000049000000000000004A000000000000004B000000000000004C000000000000004D000000000000004E000000000000004F0000000000000050000000000000005100000000000000520000000000000053000000000000005400000000000000550000000000000056000000000000005700000000000000580000000000000059000000000000005A000000000000005B000000000000005C000000000000005D000000000000005E000000000000005F0000000000000060000000000000006100000000000000620000000000000063000000000000006400000000000000650000000000000066000000000000006700000000000000680000000000000069000000000000006A000000000000006B000000000000006C000000000000006D000000000000006E000000000000006F0000000000000070000000000000007100000000000000720000000000000073000000000000007400000000000000750000000000000076000000000000007700000000000000780000000000000079000000000000007A000000000000007B000000000000007C000000000000007D000000000000007E000000000000007F00000000000000"> : tensor<1x1x1x128xi64>}> : () -> tensor<1x1x1x128xi64> loc(#loc)
+        %5 = "ttir.constant"() <{value = dense<0.000000e+00> : tensor<bf16>}> : () -> tensor<bf16> loc(#loc)
+        %6 = "ttir.constant"() <{value = dense<0xFF80> : tensor<bf16>}> : () -> tensor<bf16> loc(#loc)
+        %7 = "ttir.constant"() <{value = dense<0xFFF0000000000000> : tensor<f64>}> : () -> tensor<f64> loc(#loc)
+        %8 = "ttir.constant"() <{value = dense<0.000000e+00> : tensor<f32>}> : () -> tensor<f32> loc(#loc)
+        %9 = "ttir.reshape"(%8) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<f32>) -> tensor<1x1x1x1xf32> loc(#loc)
+        %10 = "ttir.broadcast"(%9) <{broadcast_dimensions = array<i64: 32, 12, 1, 128>}> : (tensor<1x1x1x1xf32>) -> tensor<32x12x1x128xf32> loc(#loc)
+        %11 = "ttir.reshape"(%7) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<f64>) -> tensor<1x1x1x1xf64> loc(#loc)
+        %12 = "ttir.broadcast"(%11) <{broadcast_dimensions = array<i64: 32, 12, 1, 128>}> : (tensor<1x1x1x1xf64>) -> tensor<32x12x1x128xf64> loc(#loc)
+        %13 = "ttir.reshape"(%6) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<bf16>) -> tensor<1x1x1x1xbf16> loc(#loc)
+        %14 = "ttir.broadcast"(%13) <{broadcast_dimensions = array<i64: 32, 1, 1, 128>}> : (tensor<1x1x1x1xbf16>) -> tensor<32x1x1x128xbf16> loc(#loc)
+        %15 = "ttir.reshape"(%5) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<bf16>) -> tensor<1x1x1x1xbf16> loc(#loc)
+        %16 = "ttir.broadcast"(%15) <{broadcast_dimensions = array<i64: 32, 1, 1, 128>}> : (tensor<1x1x1x1xbf16>) -> tensor<32x1x1x128xbf16> loc(#loc)
+        %17 = "ttir.reshape"(%3) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<f32>) -> tensor<1x1x1x1xf32> loc(#loc)
+        %18 = "ttir.broadcast"(%17) <{broadcast_dimensions = array<i64: 32, 12, 128, 128>}> : (tensor<1x1x1x1xf32>) -> tensor<32x12x128x128xf32> loc(#loc)
+        %19 = "ttir.broadcast"(%17) <{broadcast_dimensions = array<i64: 32, 12, 1, 128>}> : (tensor<1x1x1x1xf32>) -> tensor<32x12x1x128xf32> loc(#loc)
+        %20 = "ttir.reshape"(%arg0) <{shape = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1xi64>) -> tensor<1x1x1xi64> loc(#loc31)
+        %21 = "ttir.add"(%arg0, %0) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64> loc(#loc32)
+        %22 = "ttir.add"(%arg1, %0) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64> loc(#loc33)
+        %23 = "ttir.reshape"(%arg2) <{shape = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1xi64>) -> tensor<1x1x1xi64> loc(#loc34)
+        %24 = "ttir.add"(%arg2, %0) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64> loc(#loc35)
+        %25 = "ttir.lt"(%arg0, %1) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi1> loc(#loc36)
+        %26 = "ttir.add"(%arg0, %2) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64> loc(#loc37)
+        %27 = "ttir.where"(%25, %26, %arg0) : (tensor<1xi1>, tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64> loc(#loc38)
+        %28 = "ttir.reshape"(%arg5) <{shape = [32 : i32]}> : (tensor<32x1xi64>) -> tensor<32xi64> loc(#loc241)
+        %29 = "ttir.typecast"(%28) <{conservative_folding = false}> : (tensor<32xi64>) -> tensor<32xui32> loc(#loc41)
+        %30 = "ttir.permute"(%arg6) <{permutation = array<i64: 0, 1>}> : (tensor<128256x3072xbf16>) -> tensor<128256x3072xbf16> loc(#loc242)
+        %31 = "ttir.reshape"(%30) <{shape = [128256 : i32, 3072 : i32]}> : (tensor<128256x3072xbf16>) -> tensor<128256x3072xbf16> loc(#loc243)
+        %32 = "ttir.reshape"(%29) <{shape = [1 : i32, 32 : i32]}> : (tensor<32xui32>) -> tensor<1x32xui32> loc(#loc244)
+        %33 = "ttir.embedding"(%32, %31) : (tensor<1x32xui32>, tensor<128256x3072xbf16>) -> tensor<1x32x3072xbf16> loc(#loc42)
+        %34 = "ttir.reshape"(%33) <{shape = [32 : i32, 3072 : i32]}> : (tensor<1x32x3072xbf16>) -> tensor<32x3072xbf16> loc(#loc245)
+        %35 = "ttir.permute"(%34) <{permutation = array<i64: 0, 1>}> : (tensor<32x3072xbf16>) -> tensor<32x3072xbf16> loc(#loc246)
+        %36 = "ttir.reshape"(%35) <{shape = [32 : i32, 1 : i32, 3072 : i32]}> : (tensor<32x3072xbf16>) -> tensor<32x1x3072xbf16> loc(#loc43)
+        %37 = "ttir.rms_norm"(%36, %arg4) <{epsilon = 9.99999974E-6 : f32, normalized_shape = array<i64: 3072>, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<32x1x3072xbf16>, tensor<3072xbf16>) -> tensor<32x1x3072xbf16> loc(#loc44)
+        %38 = "ttir.reshape"(%37) <{shape = [32 : i32, 3072 : i32]}> : (tensor<32x1x3072xbf16>) -> tensor<32x3072xbf16> loc(#loc45)
+        %39 = "ttir.mesh_partition"(%arg3) <{cluster_axis = 1 : ui32, dim = 0 : si32}> : (tensor<1024x3072xbf16>) -> tensor<512x3072xbf16> loc(#loc)
+        %40 = "ttir.permute"(%39) <{permutation = array<i64: 1, 0>}> : (tensor<512x3072xbf16>) -> tensor<3072x512xbf16> loc(#loc46)
+        %41 = "ttir.dot_general"(%38, %40) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x3072xbf16>, tensor<3072x512xbf16>) -> tensor<32x512xbf16> loc(#loc47)
+        %42 = "ttir.reshape"(%41) <{shape = [32 : i32, 4 : i32, 1 : i32, 128 : i32]}> : (tensor<32x512xbf16>) -> tensor<32x4x1x128xbf16> loc(#loc48)
+        %43 = "ttir.permute"(%42) <{permutation = array<i64: 2, 1, 0, 3>}> : (tensor<32x4x1x128xbf16>) -> tensor<1x4x32x128xbf16> loc(#loc49)
+        "ttir.update_cache"(%arg7, %43, %arg0) <{batch_offset = 0 : i32}> : (tensor<32x4x128x128xbf16>, tensor<1x4x32x128xbf16>, tensor<1xi64>) -> () loc(#loc49)
+        %44 = "ttir.mesh_partition"(%arg9) <{cluster_axis = 1 : ui32, dim = 0 : si32}> : (tensor<1024x3072xbf16>) -> tensor<512x3072xbf16> loc(#loc)
+        %45 = "ttir.permute"(%44) <{permutation = array<i64: 1, 0>}> : (tensor<512x3072xbf16>) -> tensor<3072x512xbf16> loc(#loc50)
+        %46 = "ttir.dot_general"(%38, %45) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x3072xbf16>, tensor<3072x512xbf16>) -> tensor<32x512xbf16> loc(#loc51)
+        %47 = "ttir.reshape"(%46) <{shape = [32 : i32, 4 : i32, 1 : i32, 128 : i32]}> : (tensor<32x512xbf16>) -> tensor<32x4x1x128xbf16> loc(#loc52)
+        %48 = "ttir.reshape"(%arg8) <{shape = [1 : i32, 64 : i32, 1 : i32]}> : (tensor<64xbf16>) -> tensor<1x64x1xbf16> loc(#loc247)
+        %49 = "ttir.typecast"(%48) <{conservative_folding = false}> : (tensor<1x64x1xbf16>) -> tensor<1x64x1xf32> loc(#loc55)
+        %50 = "ttir.typecast"(%23) <{conservative_folding = false}> : (tensor<1x1x1xi64>) -> tensor<1x1x1xf32> loc(#loc56)
+        %51 = "ttir.dot_general"(%49, %50) <{batch_dims_lhs = array<i64: 0>, batch_dims_rhs = array<i64: 0>, contract_dims_lhs = array<i64: 2>, contract_dims_rhs = array<i64: 1>}> : (tensor<1x64x1xf32>, tensor<1x1x1xf32>) -> tensor<1x64x1xf32> loc(#loc57)
+        %52 = "ttir.reshape"(%51) <{shape = [1 : i32, 1 : i32, 64 : i32]}> : (tensor<1x64x1xf32>) -> tensor<1x1x64xf32> loc(#loc58)
+        %53 = "ttir.concat"(%52, %52) <{dim = 2 : si32}> : (tensor<1x1x64xf32>, tensor<1x1x64xf32>) -> tensor<1x1x128xf32> loc(#loc59)
+        %54 = "ttir.cos"(%53) : (tensor<1x1x128xf32>) -> tensor<1x1x128xf32> loc(#loc60)
+        %55 = "ttir.typecast"(%54) <{conservative_folding = false}> : (tensor<1x1x128xf32>) -> tensor<1x1x128xbf16> loc(#loc61)
+        %56 = "ttir.reshape"(%55) <{shape = [1 : i32, 128 : i32]}> : (tensor<1x1x128xbf16>) -> tensor<1x128xbf16> loc(#loc62)
+        %57 = "ttir.reshape"(%56) <{shape = [1 : i32, 1 : i32, 1 : i32, 128 : i32]}> : (tensor<1x128xbf16>) -> tensor<1x1x1x128xbf16> loc(#loc63)
+        %58 = "ttir.broadcast"(%57) <{broadcast_dimensions = array<i64: 32, 4, 1, 1>}> : (tensor<1x1x1x128xbf16>) -> tensor<32x4x1x128xbf16> loc(#loc63)
+        %59 = "ttir.multiply"(%47, %58) : (tensor<32x4x1x128xbf16>, tensor<32x4x1x128xbf16>) -> tensor<32x4x1x128xbf16> loc(#loc64)
+        %60 = "ttir.slice_static"(%47) <{begins = [0 : i32, 0 : i32, 0 : i32, 64 : i32], ends = [32 : i32, 4 : i32, 1 : i32, 128 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<32x4x1x128xbf16>) -> tensor<32x4x1x64xbf16> loc(#loc65)
+        %61 = "ttir.neg"(%60) : (tensor<32x4x1x64xbf16>) -> tensor<32x4x1x64xbf16> loc(#loc66)
+        %62 = "ttir.slice_static"(%47) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [32 : i32, 4 : i32, 1 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<32x4x1x128xbf16>) -> tensor<32x4x1x64xbf16> loc(#loc67)
+        %63 = "ttir.concat"(%61, %62) <{dim = 3 : si32}> : (tensor<32x4x1x64xbf16>, tensor<32x4x1x64xbf16>) -> tensor<32x4x1x128xbf16> loc(#loc68)
+        %64 = "ttir.sin"(%53) : (tensor<1x1x128xf32>) -> tensor<1x1x128xf32> loc(#loc69)
+        %65 = "ttir.typecast"(%64) <{conservative_folding = false}> : (tensor<1x1x128xf32>) -> tensor<1x1x128xbf16> loc(#loc70)
+        %66 = "ttir.reshape"(%65) <{shape = [1 : i32, 128 : i32]}> : (tensor<1x1x128xbf16>) -> tensor<1x128xbf16> loc(#loc71)
+        %67 = "ttir.reshape"(%66) <{shape = [1 : i32, 1 : i32, 1 : i32, 128 : i32]}> : (tensor<1x128xbf16>) -> tensor<1x1x1x128xbf16> loc(#loc72)
+        %68 = "ttir.broadcast"(%67) <{broadcast_dimensions = array<i64: 32, 4, 1, 1>}> : (tensor<1x1x1x128xbf16>) -> tensor<32x4x1x128xbf16> loc(#loc72)
+        %69 = "ttir.multiply"(%63, %68) : (tensor<32x4x1x128xbf16>, tensor<32x4x1x128xbf16>) -> tensor<32x4x1x128xbf16> loc(#loc73)
+        %70 = "ttir.add"(%59, %69) : (tensor<32x4x1x128xbf16>, tensor<32x4x1x128xbf16>) -> tensor<32x4x1x128xbf16> loc(#loc74)
+        %71 = "ttir.permute"(%70) <{permutation = array<i64: 2, 1, 0, 3>}> : (tensor<32x4x1x128xbf16>) -> tensor<1x4x32x128xbf16> loc(#loc75)
+        "ttir.update_cache"(%arg10, %71, %arg0) <{batch_offset = 0 : i32}> : (tensor<32x4x128x128xbf16>, tensor<1x4x32x128xbf16>, tensor<1xi64>) -> () loc(#loc75)
+        %72 = "ttir.lt"(%arg1, %1) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi1> loc(#loc76)
+        %73 = "ttir.add"(%arg1, %2) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64> loc(#loc77)
+        %74 = "ttir.where"(%72, %73, %arg1) : (tensor<1xi1>, tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64> loc(#loc78)
+        %75 = "ttir.mesh_partition"(%arg17) <{cluster_axis = 1 : ui32, dim = 0 : si32}> : (tensor<3072x3072xbf16>) -> tensor<1536x3072xbf16> loc(#loc)
+        %76 = "ttir.permute"(%75) <{permutation = array<i64: 1, 0>}> : (tensor<1536x3072xbf16>) -> tensor<3072x1536xbf16> loc(#loc79)
+        %77 = "ttir.dot_general"(%38, %76) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x3072xbf16>, tensor<3072x1536xbf16>) -> tensor<32x1536xbf16> loc(#loc80)
+        %78 = "ttir.reshape"(%77) <{shape = [32 : i32, 12 : i32, 1 : i32, 128 : i32]}> : (tensor<32x1536xbf16>) -> tensor<32x12x1x128xbf16> loc(#loc81)
+        %79 = "ttir.broadcast"(%57) <{broadcast_dimensions = array<i64: 32, 12, 1, 1>}> : (tensor<1x1x1x128xbf16>) -> tensor<32x12x1x128xbf16> loc(#loc82)
+        %80 = "ttir.multiply"(%78, %79) : (tensor<32x12x1x128xbf16>, tensor<32x12x1x128xbf16>) -> tensor<32x12x1x128xbf16> loc(#loc83)
+        %81 = "ttir.slice_static"(%78) <{begins = [0 : i32, 0 : i32, 0 : i32, 64 : i32], ends = [32 : i32, 12 : i32, 1 : i32, 128 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<32x12x1x128xbf16>) -> tensor<32x12x1x64xbf16> loc(#loc84)
+        %82 = "ttir.neg"(%81) : (tensor<32x12x1x64xbf16>) -> tensor<32x12x1x64xbf16> loc(#loc85)
+        %83 = "ttir.slice_static"(%78) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [32 : i32, 12 : i32, 1 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<32x12x1x128xbf16>) -> tensor<32x12x1x64xbf16> loc(#loc86)
+        %84 = "ttir.concat"(%82, %83) <{dim = 3 : si32}> : (tensor<32x12x1x64xbf16>, tensor<32x12x1x64xbf16>) -> tensor<32x12x1x128xbf16> loc(#loc87)
+        %85 = "ttir.broadcast"(%67) <{broadcast_dimensions = array<i64: 32, 12, 1, 1>}> : (tensor<1x1x1x128xbf16>) -> tensor<32x12x1x128xbf16> loc(#loc88)
+        %86 = "ttir.multiply"(%84, %85) : (tensor<32x12x1x128xbf16>, tensor<32x12x1x128xbf16>) -> tensor<32x12x1x128xbf16> loc(#loc89)
+        %87 = "ttir.add"(%80, %86) : (tensor<32x12x1x128xbf16>, tensor<32x12x1x128xbf16>) -> tensor<32x12x1x128xbf16> loc(#loc90)
+        %88 = "ttir.typecast"(%87) <{conservative_folding = false}> : (tensor<32x12x1x128xbf16>) -> tensor<32x12x1x128xf32> loc(#loc91)
+        %89 = "ttir.multiply"(%88, %19) : (tensor<32x12x1x128xf32>, tensor<32x12x1x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc92)
+        %90 = "ttir.reshape"(%arg10) <{shape = [32 : i32, 4 : i32, 1 : i32, 128 : i32, 128 : i32]}> : (tensor<32x4x128x128xbf16>) -> tensor<32x4x1x128x128xbf16> loc(#loc93)
+        %91 = "ttir.broadcast"(%90) <{broadcast_dimensions = array<i64: 1, 1, 3, 1, 1>}> : (tensor<32x4x1x128x128xbf16>) -> tensor<32x4x3x128x128xbf16> loc(#loc93)
+        %92 = "ttir.reshape"(%91) <{shape = [32 : i32, 12 : i32, 128 : i32, 128 : i32]}> : (tensor<32x4x3x128x128xbf16>) -> tensor<32x12x128x128xbf16> loc(#loc94)
+        %93 = "ttir.typecast"(%92) <{conservative_folding = false}> : (tensor<32x12x128x128xbf16>) -> tensor<32x12x128x128xf32> loc(#loc95)
+        %94 = "ttir.permute"(%93) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<32x12x128x128xf32>) -> tensor<32x12x128x128xf32> loc(#loc96)
+        %95 = "ttir.multiply"(%94, %18) : (tensor<32x12x128x128xf32>, tensor<32x12x128x128xf32>) -> tensor<32x12x128x128xf32> loc(#loc97)
+        %96 = "ttir.dot_general"(%89, %95) <{batch_dims_lhs = array<i64: 0, 1>, batch_dims_rhs = array<i64: 0, 1>, contract_dims_lhs = array<i64: 3>, contract_dims_rhs = array<i64: 2>}> : (tensor<32x12x1x128xf32>, tensor<32x12x128x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc98)
+        %97 = "ttir.reshape"(%20) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1x1xi64>) -> tensor<1x1x1x1xi64> loc(#loc99)
+        %98 = "ttir.broadcast"(%97) <{broadcast_dimensions = array<i64: 1, 1, 1, 128>}> : (tensor<1x1x1x1xi64>) -> tensor<1x1x1x128xi64> loc(#loc99)
+        %99 = "ttir.le"(%4, %98) : (tensor<1x1x1x128xi64>, tensor<1x1x1x128xi64>) -> tensor<1x1x1x128xi1> loc(#loc100)
+        %100 = "ttir.reshape"(%99) <{shape = [1 : i32, 1 : i32, 128 : i32]}> : (tensor<1x1x1x128xi1>) -> tensor<1x1x128xi1> loc(#loc101)
+        %101 = "ttir.reshape"(%100) <{shape = [1 : i32, 1 : i32, 1 : i32, 128 : i32]}> : (tensor<1x1x128xi1>) -> tensor<1x1x1x128xi1> loc(#loc102)
+        %102 = "ttir.broadcast"(%101) <{broadcast_dimensions = array<i64: 32, 1, 1, 1>}> : (tensor<1x1x1x128xi1>) -> tensor<32x1x1x128xi1> loc(#loc102)
+        %103 = "ttir.where"(%102, %16, %14) : (tensor<32x1x1x128xi1>, tensor<32x1x1x128xbf16>, tensor<32x1x1x128xbf16>) -> tensor<32x1x1x128xbf16> loc(#loc103)
+        %104 = "ttir.typecast"(%103) <{conservative_folding = false}> : (tensor<32x1x1x128xbf16>) -> tensor<32x1x1x128xf32> loc(#loc104)
+        %105 = "ttir.reshape"(%104) <{shape = [32 : i32, 1 : i32, 128 : i32]}> : (tensor<32x1x1x128xf32>) -> tensor<32x1x128xf32> loc(#loc105)
+        %106 = "ttir.reshape"(%105) <{shape = [32 : i32, 1 : i32, 1 : i32, 128 : i32]}> : (tensor<32x1x128xf32>) -> tensor<32x1x1x128xf32> loc(#loc106)
+        %107 = "ttir.broadcast"(%106) <{broadcast_dimensions = array<i64: 1, 12, 1, 1>}> : (tensor<32x1x1x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc106)
+        %108 = "ttir.add"(%96, %107) : (tensor<32x12x1x128xf32>, tensor<32x12x1x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc107)
+        %109 = "ttir.typecast"(%108) <{conservative_folding = false}> : (tensor<32x12x1x128xf32>) -> tensor<32x12x1x128xf64> loc(#loc108)
+        %110 = "ttir.eq"(%109, %12) : (tensor<32x12x1x128xf64>, tensor<32x12x1x128xf64>) -> tensor<32x12x1x128xi1> loc(#loc109)
+        %111 = "ttir.logical_not"(%110) : (tensor<32x12x1x128xi1>) -> tensor<32x12x1x128xi1> loc(#loc110)
+        %112 = "ttir.reduce_or"(%111) <{dim_arg = [3 : i32], keep_dim = false}> : (tensor<32x12x1x128xi1>) -> tensor<32x12x1xi1> loc(#loc111)
+        %113 = "ttir.reshape"(%112) <{shape = [32 : i32, 12 : i32, 1 : i32, 1 : i32]}> : (tensor<32x12x1xi1>) -> tensor<32x12x1x1xi1> loc(#loc112)
+        %114 = "ttir.logical_not"(%113) : (tensor<32x12x1x1xi1>) -> tensor<32x12x1x1xi1> loc(#loc113)
+        %115 = "ttir.reshape"(%114) <{shape = [32 : i32, 12 : i32, 1 : i32]}> : (tensor<32x12x1x1xi1>) -> tensor<32x12x1xi1> loc(#loc114)
+        %116 = "ttir.reshape"(%115) <{shape = [32 : i32, 12 : i32, 1 : i32, 1 : i32]}> : (tensor<32x12x1xi1>) -> tensor<32x12x1x1xi1> loc(#loc115)
+        %117 = "ttir.broadcast"(%116) <{broadcast_dimensions = array<i64: 1, 1, 1, 128>}> : (tensor<32x12x1x1xi1>) -> tensor<32x12x1x128xi1> loc(#loc115)
+        %118 = "ttir.max"(%108) <{dim_arg = [3 : i32], keep_dim = false}> : (tensor<32x12x1x128xf32>) -> tensor<32x12x1xf32> loc(#loc116)
+        %119 = "ttir.reshape"(%118) <{shape = [32 : i32, 12 : i32, 1 : i32, 1 : i32]}> : (tensor<32x12x1xf32>) -> tensor<32x12x1x1xf32> loc(#loc117)
+        %120 = "ttir.broadcast"(%119) <{broadcast_dimensions = array<i64: 1, 1, 1, 128>}> : (tensor<32x12x1x1xf32>) -> tensor<32x12x1x128xf32> loc(#loc117)
+        %121 = "ttir.subtract"(%108, %120) : (tensor<32x12x1x128xf32>, tensor<32x12x1x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc118)
+        %122 = "ttir.exp"(%121) : (tensor<32x12x1x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc119)
+        %123 = "ttir.sum"(%122) <{dim_arg = [3 : i32], keep_dim = false}> : (tensor<32x12x1x128xf32>) -> tensor<32x12x1xf32> loc(#loc120)
+        %124 = "ttir.reshape"(%123) <{shape = [32 : i32, 12 : i32, 1 : i32, 1 : i32]}> : (tensor<32x12x1xf32>) -> tensor<32x12x1x1xf32> loc(#loc121)
+        %125 = "ttir.broadcast"(%124) <{broadcast_dimensions = array<i64: 1, 1, 1, 128>}> : (tensor<32x12x1x1xf32>) -> tensor<32x12x1x128xf32> loc(#loc121)
+        %126 = "ttir.div"(%122, %125) : (tensor<32x12x1x128xf32>, tensor<32x12x1x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc122)
+        %127 = "ttir.where"(%117, %10, %126) : (tensor<32x12x1x128xi1>, tensor<32x12x1x128xf32>, tensor<32x12x1x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc123)
+        %128 = "ttir.reshape"(%arg7) <{shape = [32 : i32, 4 : i32, 1 : i32, 128 : i32, 128 : i32]}> : (tensor<32x4x128x128xbf16>) -> tensor<32x4x1x128x128xbf16> loc(#loc124)
+        %129 = "ttir.broadcast"(%128) <{broadcast_dimensions = array<i64: 1, 1, 3, 1, 1>}> : (tensor<32x4x1x128x128xbf16>) -> tensor<32x4x3x128x128xbf16> loc(#loc124)
+        %130 = "ttir.reshape"(%129) <{shape = [32 : i32, 12 : i32, 128 : i32, 128 : i32]}> : (tensor<32x4x3x128x128xbf16>) -> tensor<32x12x128x128xbf16> loc(#loc125)
+        %131 = "ttir.typecast"(%130) <{conservative_folding = false}> : (tensor<32x12x128x128xbf16>) -> tensor<32x12x128x128xf32> loc(#loc126)
+        %132 = "ttir.dot_general"(%127, %131) <{batch_dims_lhs = array<i64: 0, 1>, batch_dims_rhs = array<i64: 0, 1>, contract_dims_lhs = array<i64: 3>, contract_dims_rhs = array<i64: 2>}> : (tensor<32x12x1x128xf32>, tensor<32x12x128x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc127)
+        %133 = "ttir.typecast"(%132) <{conservative_folding = false}> : (tensor<32x12x1x128xf32>) -> tensor<32x12x1x128xbf16> loc(#loc128)
+        %134 = "ttir.reshape"(%133) <{shape = [32 : i32, 1536 : i32]}> : (tensor<32x12x1x128xbf16>) -> tensor<32x1536xbf16> loc(#loc129)
+        %135 = "ttir.mesh_partition"(%arg16) <{cluster_axis = 1 : ui32, dim = 1 : si32}> : (tensor<3072x3072xbf16>) -> tensor<3072x1536xbf16> loc(#loc)
+        %136 = "ttir.permute"(%135) <{permutation = array<i64: 1, 0>}> : (tensor<3072x1536xbf16>) -> tensor<1536x3072xbf16> loc(#loc130)
+        %137 = "ttir.dot_general"(%134, %136) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x1536xbf16>, tensor<1536x3072xbf16>) -> tensor<32x3072xbf16> loc(#loc131)
+        %138 = "ttir.all_reduce"(%137) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<32x3072xbf16>) -> tensor<32x3072xbf16> loc(#loc131)
+        %139 = "ttir.reshape"(%138) <{shape = [32 : i32, 1 : i32, 3072 : i32]}> : (tensor<32x3072xbf16>) -> tensor<32x1x3072xbf16> loc(#loc132)
+        %140 = "ttir.add"(%36, %139) : (tensor<32x1x3072xbf16>, tensor<32x1x3072xbf16>) -> tensor<32x1x3072xbf16> loc(#loc133)
+        %141 = "ttir.rms_norm"(%140, %arg15) <{epsilon = 9.99999974E-6 : f32, normalized_shape = array<i64: 3072>, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<32x1x3072xbf16>, tensor<3072xbf16>) -> tensor<32x1x3072xbf16> loc(#loc134)
+        %142 = "ttir.reshape"(%141) <{shape = [32 : i32, 3072 : i32]}> : (tensor<32x1x3072xbf16>) -> tensor<32x3072xbf16> loc(#loc135)
+        %143 = "ttir.permute"(%arg18) <{permutation = array<i64: 1, 0>}> : (tensor<8192x3072xbf16>) -> tensor<3072x8192xbf16> loc(#loc136)
+        %144 = "ttir.dot_general"(%142, %143) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x3072xbf16>, tensor<3072x8192xbf16>) -> tensor<32x8192xbf16> loc(#loc137)
+        %145 = "ttir.reshape"(%144) <{shape = [32 : i32, 1 : i32, 8192 : i32]}> : (tensor<32x8192xbf16>) -> tensor<32x1x8192xbf16> loc(#loc138)
+        %146 = "ttir.typecast"(%145) <{conservative_folding = false}> : (tensor<32x1x8192xbf16>) -> tensor<32x1x8192xf32> loc(#loc139)
+        %147 = "ttir.sigmoid"(%146) : (tensor<32x1x8192xf32>) -> tensor<32x1x8192xf32> loc(#loc140)
+        %148 = "ttir.multiply"(%146, %147) : (tensor<32x1x8192xf32>, tensor<32x1x8192xf32>) -> tensor<32x1x8192xf32> loc(#loc141)
+        %149 = "ttir.typecast"(%148) <{conservative_folding = false}> : (tensor<32x1x8192xf32>) -> tensor<32x1x8192xbf16> loc(#loc142)
+        %150 = "ttir.permute"(%arg14) <{permutation = array<i64: 1, 0>}> : (tensor<8192x3072xbf16>) -> tensor<3072x8192xbf16> loc(#loc143)
+        %151 = "ttir.dot_general"(%142, %150) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x3072xbf16>, tensor<3072x8192xbf16>) -> tensor<32x8192xbf16> loc(#loc144)
+        %152 = "ttir.reshape"(%151) <{shape = [32 : i32, 1 : i32, 8192 : i32]}> : (tensor<32x8192xbf16>) -> tensor<32x1x8192xbf16> loc(#loc145)
+        %153 = "ttir.multiply"(%149, %152) : (tensor<32x1x8192xbf16>, tensor<32x1x8192xbf16>) -> tensor<32x1x8192xbf16> loc(#loc146)
+        %154 = "ttir.reshape"(%153) <{shape = [32 : i32, 8192 : i32]}> : (tensor<32x1x8192xbf16>) -> tensor<32x8192xbf16> loc(#loc147)
+        %155 = "ttir.permute"(%arg13) <{permutation = array<i64: 1, 0>}> : (tensor<3072x8192xbf16>) -> tensor<8192x3072xbf16> loc(#loc148)
+        %156 = "ttir.dot_general"(%154, %155) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x8192xbf16>, tensor<8192x3072xbf16>) -> tensor<32x3072xbf16> loc(#loc149)
+        %157 = "ttir.reshape"(%156) <{shape = [32 : i32, 1 : i32, 3072 : i32]}> : (tensor<32x3072xbf16>) -> tensor<32x1x3072xbf16> loc(#loc150)
+        %158 = "ttir.add"(%140, %157) : (tensor<32x1x3072xbf16>, tensor<32x1x3072xbf16>) -> tensor<32x1x3072xbf16> loc(#loc151)
+        %159 = "ttir.rms_norm"(%158, %arg12) <{epsilon = 9.99999974E-6 : f32, normalized_shape = array<i64: 3072>, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<32x1x3072xbf16>, tensor<3072xbf16>) -> tensor<32x1x3072xbf16> loc(#loc152)
+        %160 = "ttir.reshape"(%159) <{shape = [32 : i32, 3072 : i32]}> : (tensor<32x1x3072xbf16>) -> tensor<32x3072xbf16> loc(#loc153)
+        %161 = "ttir.mesh_partition"(%arg11) <{cluster_axis = 1 : ui32, dim = 0 : si32}> : (tensor<1024x3072xbf16>) -> tensor<512x3072xbf16> loc(#loc)
+        %162 = "ttir.permute"(%161) <{permutation = array<i64: 1, 0>}> : (tensor<512x3072xbf16>) -> tensor<3072x512xbf16> loc(#loc154)
+        %163 = "ttir.dot_general"(%160, %162) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x3072xbf16>, tensor<3072x512xbf16>) -> tensor<32x512xbf16> loc(#loc155)
+        %164 = "ttir.reshape"(%163) <{shape = [32 : i32, 4 : i32, 1 : i32, 128 : i32]}> : (tensor<32x512xbf16>) -> tensor<32x4x1x128xbf16> loc(#loc156)
+        %165 = "ttir.permute"(%164) <{permutation = array<i64: 2, 1, 0, 3>}> : (tensor<32x4x1x128xbf16>) -> tensor<1x4x32x128xbf16> loc(#loc157)
+        "ttir.update_cache"(%arg19, %165, %arg1) <{batch_offset = 0 : i32}> : (tensor<32x4x128x128xbf16>, tensor<1x4x32x128xbf16>, tensor<1xi64>) -> () loc(#loc157)
+        %166 = "ttir.mesh_partition"(%arg20) <{cluster_axis = 1 : ui32, dim = 0 : si32}> : (tensor<1024x3072xbf16>) -> tensor<512x3072xbf16> loc(#loc)
+        %167 = "ttir.permute"(%166) <{permutation = array<i64: 1, 0>}> : (tensor<512x3072xbf16>) -> tensor<3072x512xbf16> loc(#loc158)
+        %168 = "ttir.dot_general"(%160, %167) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x3072xbf16>, tensor<3072x512xbf16>) -> tensor<32x512xbf16> loc(#loc159)
+        %169 = "ttir.reshape"(%168) <{shape = [32 : i32, 4 : i32, 1 : i32, 128 : i32]}> : (tensor<32x512xbf16>) -> tensor<32x4x1x128xbf16> loc(#loc160)
+        %170 = "ttir.multiply"(%169, %58) : (tensor<32x4x1x128xbf16>, tensor<32x4x1x128xbf16>) -> tensor<32x4x1x128xbf16> loc(#loc161)
+        %171 = "ttir.slice_static"(%169) <{begins = [0 : i32, 0 : i32, 0 : i32, 64 : i32], ends = [32 : i32, 4 : i32, 1 : i32, 128 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<32x4x1x128xbf16>) -> tensor<32x4x1x64xbf16> loc(#loc162)
+        %172 = "ttir.neg"(%171) : (tensor<32x4x1x64xbf16>) -> tensor<32x4x1x64xbf16> loc(#loc163)
+        %173 = "ttir.slice_static"(%169) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [32 : i32, 4 : i32, 1 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<32x4x1x128xbf16>) -> tensor<32x4x1x64xbf16> loc(#loc164)
+        %174 = "ttir.concat"(%172, %173) <{dim = 3 : si32}> : (tensor<32x4x1x64xbf16>, tensor<32x4x1x64xbf16>) -> tensor<32x4x1x128xbf16> loc(#loc165)
+        %175 = "ttir.multiply"(%174, %68) : (tensor<32x4x1x128xbf16>, tensor<32x4x1x128xbf16>) -> tensor<32x4x1x128xbf16> loc(#loc166)
+        %176 = "ttir.add"(%170, %175) : (tensor<32x4x1x128xbf16>, tensor<32x4x1x128xbf16>) -> tensor<32x4x1x128xbf16> loc(#loc167)
+        %177 = "ttir.permute"(%176) <{permutation = array<i64: 2, 1, 0, 3>}> : (tensor<32x4x1x128xbf16>) -> tensor<1x4x32x128xbf16> loc(#loc168)
+        "ttir.update_cache"(%arg21, %177, %arg1) <{batch_offset = 0 : i32}> : (tensor<32x4x128x128xbf16>, tensor<1x4x32x128xbf16>, tensor<1xi64>) -> () loc(#loc168)
+        %178 = "ttir.mesh_partition"(%arg28) <{cluster_axis = 1 : ui32, dim = 0 : si32}> : (tensor<3072x3072xbf16>) -> tensor<1536x3072xbf16> loc(#loc)
+        %179 = "ttir.permute"(%178) <{permutation = array<i64: 1, 0>}> : (tensor<1536x3072xbf16>) -> tensor<3072x1536xbf16> loc(#loc169)
+        %180 = "ttir.dot_general"(%160, %179) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x3072xbf16>, tensor<3072x1536xbf16>) -> tensor<32x1536xbf16> loc(#loc170)
+        %181 = "ttir.reshape"(%180) <{shape = [32 : i32, 12 : i32, 1 : i32, 128 : i32]}> : (tensor<32x1536xbf16>) -> tensor<32x12x1x128xbf16> loc(#loc171)
+        %182 = "ttir.multiply"(%181, %79) : (tensor<32x12x1x128xbf16>, tensor<32x12x1x128xbf16>) -> tensor<32x12x1x128xbf16> loc(#loc172)
+        %183 = "ttir.slice_static"(%181) <{begins = [0 : i32, 0 : i32, 0 : i32, 64 : i32], ends = [32 : i32, 12 : i32, 1 : i32, 128 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<32x12x1x128xbf16>) -> tensor<32x12x1x64xbf16> loc(#loc173)
+        %184 = "ttir.neg"(%183) : (tensor<32x12x1x64xbf16>) -> tensor<32x12x1x64xbf16> loc(#loc174)
+        %185 = "ttir.slice_static"(%181) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [32 : i32, 12 : i32, 1 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<32x12x1x128xbf16>) -> tensor<32x12x1x64xbf16> loc(#loc175)
+        %186 = "ttir.concat"(%184, %185) <{dim = 3 : si32}> : (tensor<32x12x1x64xbf16>, tensor<32x12x1x64xbf16>) -> tensor<32x12x1x128xbf16> loc(#loc176)
+        %187 = "ttir.multiply"(%186, %85) : (tensor<32x12x1x128xbf16>, tensor<32x12x1x128xbf16>) -> tensor<32x12x1x128xbf16> loc(#loc177)
+        %188 = "ttir.add"(%182, %187) : (tensor<32x12x1x128xbf16>, tensor<32x12x1x128xbf16>) -> tensor<32x12x1x128xbf16> loc(#loc178)
+        %189 = "ttir.typecast"(%188) <{conservative_folding = false}> : (tensor<32x12x1x128xbf16>) -> tensor<32x12x1x128xf32> loc(#loc179)
+        %190 = "ttir.multiply"(%189, %19) : (tensor<32x12x1x128xf32>, tensor<32x12x1x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc180)
+        %191 = "ttir.reshape"(%arg21) <{shape = [32 : i32, 4 : i32, 1 : i32, 128 : i32, 128 : i32]}> : (tensor<32x4x128x128xbf16>) -> tensor<32x4x1x128x128xbf16> loc(#loc181)
+        %192 = "ttir.broadcast"(%191) <{broadcast_dimensions = array<i64: 1, 1, 3, 1, 1>}> : (tensor<32x4x1x128x128xbf16>) -> tensor<32x4x3x128x128xbf16> loc(#loc181)
+        %193 = "ttir.reshape"(%192) <{shape = [32 : i32, 12 : i32, 128 : i32, 128 : i32]}> : (tensor<32x4x3x128x128xbf16>) -> tensor<32x12x128x128xbf16> loc(#loc182)
+        %194 = "ttir.typecast"(%193) <{conservative_folding = false}> : (tensor<32x12x128x128xbf16>) -> tensor<32x12x128x128xf32> loc(#loc183)
+        %195 = "ttir.permute"(%194) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<32x12x128x128xf32>) -> tensor<32x12x128x128xf32> loc(#loc184)
+        %196 = "ttir.multiply"(%195, %18) : (tensor<32x12x128x128xf32>, tensor<32x12x128x128xf32>) -> tensor<32x12x128x128xf32> loc(#loc185)
+        %197 = "ttir.dot_general"(%190, %196) <{batch_dims_lhs = array<i64: 0, 1>, batch_dims_rhs = array<i64: 0, 1>, contract_dims_lhs = array<i64: 3>, contract_dims_rhs = array<i64: 2>}> : (tensor<32x12x1x128xf32>, tensor<32x12x128x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc186)
+        %198 = "ttir.add"(%197, %107) : (tensor<32x12x1x128xf32>, tensor<32x12x1x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc187)
+        %199 = "ttir.typecast"(%198) <{conservative_folding = false}> : (tensor<32x12x1x128xf32>) -> tensor<32x12x1x128xf64> loc(#loc188)
+        %200 = "ttir.eq"(%199, %12) : (tensor<32x12x1x128xf64>, tensor<32x12x1x128xf64>) -> tensor<32x12x1x128xi1> loc(#loc189)
+        %201 = "ttir.logical_not"(%200) : (tensor<32x12x1x128xi1>) -> tensor<32x12x1x128xi1> loc(#loc190)
+        %202 = "ttir.reduce_or"(%201) <{dim_arg = [3 : i32], keep_dim = false}> : (tensor<32x12x1x128xi1>) -> tensor<32x12x1xi1> loc(#loc191)
+        %203 = "ttir.reshape"(%202) <{shape = [32 : i32, 12 : i32, 1 : i32, 1 : i32]}> : (tensor<32x12x1xi1>) -> tensor<32x12x1x1xi1> loc(#loc192)
+        %204 = "ttir.logical_not"(%203) : (tensor<32x12x1x1xi1>) -> tensor<32x12x1x1xi1> loc(#loc193)
+        %205 = "ttir.reshape"(%204) <{shape = [32 : i32, 12 : i32, 1 : i32]}> : (tensor<32x12x1x1xi1>) -> tensor<32x12x1xi1> loc(#loc194)
+        %206 = "ttir.reshape"(%205) <{shape = [32 : i32, 12 : i32, 1 : i32, 1 : i32]}> : (tensor<32x12x1xi1>) -> tensor<32x12x1x1xi1> loc(#loc195)
+        %207 = "ttir.broadcast"(%206) <{broadcast_dimensions = array<i64: 1, 1, 1, 128>}> : (tensor<32x12x1x1xi1>) -> tensor<32x12x1x128xi1> loc(#loc195)
+        %208 = "ttir.max"(%198) <{dim_arg = [3 : i32], keep_dim = false}> : (tensor<32x12x1x128xf32>) -> tensor<32x12x1xf32> loc(#loc196)
+        %209 = "ttir.reshape"(%208) <{shape = [32 : i32, 12 : i32, 1 : i32, 1 : i32]}> : (tensor<32x12x1xf32>) -> tensor<32x12x1x1xf32> loc(#loc197)
+        %210 = "ttir.broadcast"(%209) <{broadcast_dimensions = array<i64: 1, 1, 1, 128>}> : (tensor<32x12x1x1xf32>) -> tensor<32x12x1x128xf32> loc(#loc197)
+        %211 = "ttir.subtract"(%198, %210) : (tensor<32x12x1x128xf32>, tensor<32x12x1x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc198)
+        %212 = "ttir.exp"(%211) : (tensor<32x12x1x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc199)
+        %213 = "ttir.sum"(%212) <{dim_arg = [3 : i32], keep_dim = false}> : (tensor<32x12x1x128xf32>) -> tensor<32x12x1xf32> loc(#loc200)
+        %214 = "ttir.reshape"(%213) <{shape = [32 : i32, 12 : i32, 1 : i32, 1 : i32]}> : (tensor<32x12x1xf32>) -> tensor<32x12x1x1xf32> loc(#loc201)
+        %215 = "ttir.broadcast"(%214) <{broadcast_dimensions = array<i64: 1, 1, 1, 128>}> : (tensor<32x12x1x1xf32>) -> tensor<32x12x1x128xf32> loc(#loc201)
+        %216 = "ttir.div"(%212, %215) : (tensor<32x12x1x128xf32>, tensor<32x12x1x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc202)
+        %217 = "ttir.where"(%207, %10, %216) : (tensor<32x12x1x128xi1>, tensor<32x12x1x128xf32>, tensor<32x12x1x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc203)
+        %218 = "ttir.reshape"(%arg19) <{shape = [32 : i32, 4 : i32, 1 : i32, 128 : i32, 128 : i32]}> : (tensor<32x4x128x128xbf16>) -> tensor<32x4x1x128x128xbf16> loc(#loc204)
+        %219 = "ttir.broadcast"(%218) <{broadcast_dimensions = array<i64: 1, 1, 3, 1, 1>}> : (tensor<32x4x1x128x128xbf16>) -> tensor<32x4x3x128x128xbf16> loc(#loc204)
+        %220 = "ttir.reshape"(%219) <{shape = [32 : i32, 12 : i32, 128 : i32, 128 : i32]}> : (tensor<32x4x3x128x128xbf16>) -> tensor<32x12x128x128xbf16> loc(#loc205)
+        %221 = "ttir.typecast"(%220) <{conservative_folding = false}> : (tensor<32x12x128x128xbf16>) -> tensor<32x12x128x128xf32> loc(#loc206)
+        %222 = "ttir.dot_general"(%217, %221) <{batch_dims_lhs = array<i64: 0, 1>, batch_dims_rhs = array<i64: 0, 1>, contract_dims_lhs = array<i64: 3>, contract_dims_rhs = array<i64: 2>}> : (tensor<32x12x1x128xf32>, tensor<32x12x128x128xf32>) -> tensor<32x12x1x128xf32> loc(#loc207)
+        %223 = "ttir.typecast"(%222) <{conservative_folding = false}> : (tensor<32x12x1x128xf32>) -> tensor<32x12x1x128xbf16> loc(#loc208)
+        %224 = "ttir.reshape"(%223) <{shape = [32 : i32, 1536 : i32]}> : (tensor<32x12x1x128xbf16>) -> tensor<32x1536xbf16> loc(#loc209)
+        %225 = "ttir.mesh_partition"(%arg27) <{cluster_axis = 1 : ui32, dim = 1 : si32}> : (tensor<3072x3072xbf16>) -> tensor<3072x1536xbf16> loc(#loc)
+        %226 = "ttir.permute"(%225) <{permutation = array<i64: 1, 0>}> : (tensor<3072x1536xbf16>) -> tensor<1536x3072xbf16> loc(#loc210)
+        %227 = "ttir.dot_general"(%224, %226) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x1536xbf16>, tensor<1536x3072xbf16>) -> tensor<32x3072xbf16> loc(#loc211)
+        %228 = "ttir.all_reduce"(%227) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<32x3072xbf16>) -> tensor<32x3072xbf16> loc(#loc211)
+        %229 = "ttir.reshape"(%228) <{shape = [32 : i32, 1 : i32, 3072 : i32]}> : (tensor<32x3072xbf16>) -> tensor<32x1x3072xbf16> loc(#loc212)
+        %230 = "ttir.add"(%158, %229) : (tensor<32x1x3072xbf16>, tensor<32x1x3072xbf16>) -> tensor<32x1x3072xbf16> loc(#loc213)
+        %231 = "ttir.rms_norm"(%230, %arg26) <{epsilon = 9.99999974E-6 : f32, normalized_shape = array<i64: 3072>, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<32x1x3072xbf16>, tensor<3072xbf16>) -> tensor<32x1x3072xbf16> loc(#loc214)
+        %232 = "ttir.reshape"(%231) <{shape = [32 : i32, 3072 : i32]}> : (tensor<32x1x3072xbf16>) -> tensor<32x3072xbf16> loc(#loc215)
+        %233 = "ttir.permute"(%arg29) <{permutation = array<i64: 1, 0>}> : (tensor<8192x3072xbf16>) -> tensor<3072x8192xbf16> loc(#loc216)
+        %234 = "ttir.dot_general"(%232, %233) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x3072xbf16>, tensor<3072x8192xbf16>) -> tensor<32x8192xbf16> loc(#loc217)
+        %235 = "ttir.reshape"(%234) <{shape = [32 : i32, 1 : i32, 8192 : i32]}> : (tensor<32x8192xbf16>) -> tensor<32x1x8192xbf16> loc(#loc218)
+        %236 = "ttir.typecast"(%235) <{conservative_folding = false}> : (tensor<32x1x8192xbf16>) -> tensor<32x1x8192xf32> loc(#loc219)
+        %237 = "ttir.sigmoid"(%236) : (tensor<32x1x8192xf32>) -> tensor<32x1x8192xf32> loc(#loc220)
+        %238 = "ttir.multiply"(%236, %237) : (tensor<32x1x8192xf32>, tensor<32x1x8192xf32>) -> tensor<32x1x8192xf32> loc(#loc221)
+        %239 = "ttir.typecast"(%238) <{conservative_folding = false}> : (tensor<32x1x8192xf32>) -> tensor<32x1x8192xbf16> loc(#loc222)
+        %240 = "ttir.permute"(%arg25) <{permutation = array<i64: 1, 0>}> : (tensor<8192x3072xbf16>) -> tensor<3072x8192xbf16> loc(#loc223)
+        %241 = "ttir.dot_general"(%232, %240) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x3072xbf16>, tensor<3072x8192xbf16>) -> tensor<32x8192xbf16> loc(#loc224)
+        %242 = "ttir.reshape"(%241) <{shape = [32 : i32, 1 : i32, 8192 : i32]}> : (tensor<32x8192xbf16>) -> tensor<32x1x8192xbf16> loc(#loc225)
+        %243 = "ttir.multiply"(%239, %242) : (tensor<32x1x8192xbf16>, tensor<32x1x8192xbf16>) -> tensor<32x1x8192xbf16> loc(#loc226)
+        %244 = "ttir.reshape"(%243) <{shape = [32 : i32, 8192 : i32]}> : (tensor<32x1x8192xbf16>) -> tensor<32x8192xbf16> loc(#loc227)
+        %245 = "ttir.permute"(%arg24) <{permutation = array<i64: 1, 0>}> : (tensor<3072x8192xbf16>) -> tensor<8192x3072xbf16> loc(#loc228)
+        %246 = "ttir.dot_general"(%244, %245) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x8192xbf16>, tensor<8192x3072xbf16>) -> tensor<32x3072xbf16> loc(#loc229)
+        %247 = "ttir.reshape"(%246) <{shape = [32 : i32, 1 : i32, 3072 : i32]}> : (tensor<32x3072xbf16>) -> tensor<32x1x3072xbf16> loc(#loc230)
+        %248 = "ttir.add"(%230, %247) : (tensor<32x1x3072xbf16>, tensor<32x1x3072xbf16>) -> tensor<32x1x3072xbf16> loc(#loc231)
+        %249 = "ttir.rms_norm"(%248, %arg23) <{epsilon = 9.99999974E-6 : f32, normalized_shape = array<i64: 3072>, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<32x1x3072xbf16>, tensor<3072xbf16>) -> tensor<32x1x3072xbf16> loc(#loc232)
+        %250 = "ttir.reshape"(%249) <{shape = [32 : i32, 3072 : i32]}> : (tensor<32x1x3072xbf16>) -> tensor<32x3072xbf16> loc(#loc233)
+        %251 = "ttir.permute"(%arg22) <{permutation = array<i64: 1, 0>}> : (tensor<128256x3072xbf16>) -> tensor<3072x128256xbf16> loc(#loc234)
+        %252 = "ttir.dot_general"(%250, %251) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x3072xbf16>, tensor<3072x128256xbf16>) -> tensor<32x128256xbf16> loc(#loc235)
+        %253 = "ttir.reshape"(%252) <{shape = [32 : i32, 1 : i32, 128256 : i32]}> : (tensor<32x128256xbf16>) -> tensor<32x1x128256xbf16> loc(#loc236)
+        %254 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 128256 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<128256xi32> loc(#loc237)
+        %255 = "ttir.reshape"(%254) <{shape = [1 : i32, 128256 : i32]}> : (tensor<128256xi32>) -> tensor<1x128256xi32> loc(#loc237)
+        %256 = "ttir.argmax"(%252) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<32x128256xbf16>) -> tensor<32xi32> loc(#loc238)
+        %257 = "ttir.typecast"(%256) <{conservative_folding = false}> : (tensor<32xi32>) -> tensor<32xi64> loc(#loc239)
+        %258 = "ttir.reshape"(%257) <{shape = [32 : i32, 1 : i32]}> : (tensor<32xi64>) -> tensor<32x1xi64> loc(#loc240)
+        return %21, %22, %24, %arg7, %arg10, %arg19, %arg21, %253, %258 : tensor<1xi64>, tensor<1xi64>, tensor<1xi64>, tensor<32x4x128x128xbf16>, tensor<32x4x128x128xbf16>, tensor<32x4x128x128xbf16>, tensor<32x4x128x128xbf16>, tensor<32x1x128256xbf16>, tensor<32x1xi64> loc(#loc)
+      } loc(#loc)
+    } loc(#loc)
+  } loc(#loc)
+} loc(#loc)
+#loc = loc(unknown)
+#loc31 = loc("reshape.4")
+#loc32 = loc("add.9")
+#loc33 = loc("add.18")
+#loc34 = loc("reshape.22")
+#loc35 = loc("add.28")
+#loc36 = loc("compare.113")
+#loc37 = loc("add.110")
+#loc38 = loc("select.114")
+#loc39 = loc("reshape.53")
+#loc40 = loc("reshape.50")
+#loc41 = loc("convert.61")
+#loc42 = loc("gather.62")
+#loc43 = loc("reshape.63")
+#loc44 = loc("custom-call.96")
+#loc45 = loc("reshape.97")
+#loc46 = loc("transpose.36")
+#loc47 = loc("dot.98")
+#loc48 = loc("transpose.101")
+#loc49 = loc("scatter.123")
+#loc50 = loc("transpose.155")
+#loc51 = loc("dot.157")
+#loc52 = loc("transpose.160")
+#loc53 = loc("reshape.136")
+#loc54 = loc("reshape.132")
+#loc55 = loc("convert.137")
+#loc56 = loc("convert.129")
+#loc57 = loc("dot.140")
+#loc58 = loc("transpose.141")
+#loc59 = loc("concatenate.142")
+#loc60 = loc("cosine.169")
+#loc61 = loc("convert.172")
+#loc62 = loc("reshape.174")
+#loc63 = loc("broadcast.175")
+#loc64 = loc("multiply.176")
+#loc65 = loc("slice.162")
+#loc66 = loc("negate.163")
+#loc67 = loc("slice.161")
+#loc68 = loc("concatenate.164")
+#loc69 = loc("sine.143")
+#loc70 = loc("convert.146")
+#loc71 = loc("reshape.165")
+#loc72 = loc("broadcast.166")
+#loc73 = loc("multiply.167")
+#loc74 = loc("add.179")
+#loc75 = loc("scatter.196")
+#loc76 = loc("compare.523")
+#loc77 = loc("add.520")
+#loc78 = loc("select.524")
+#loc79 = loc("transpose.321")
+#loc80 = loc("dot.323")
+#loc81 = loc("transpose.326")
+#loc82 = loc("broadcast.335")
+#loc83 = loc("multiply.336")
+#loc84 = loc("slice.328")
+#loc85 = loc("negate.329")
+#loc86 = loc("slice.327")
+#loc87 = loc("concatenate.330")
+#loc88 = loc("broadcast.332")
+#loc89 = loc("multiply.333")
+#loc90 = loc("add.339")
+#loc91 = loc("convert.340")
+#loc92 = loc("multiply.342")
+#loc93 = loc("broadcast.305")
+#loc94 = loc("reshape.306")
+#loc95 = loc("convert.307")
+#loc96 = loc("transpose.308")
+#loc97 = loc("multiply.310")
+#loc98 = loc("dot.344")
+#loc99 = loc("broadcast.294")
+#loc100 = loc("compare.295")
+#loc101 = loc("reshape.297")
+#loc102 = loc("broadcast.298")
+#loc103 = loc("select.300")
+#loc104 = loc("convert.346")
+#loc105 = loc("reshape.349")
+#loc106 = loc("broadcast.350")
+#loc107 = loc("add.351")
+#loc108 = loc("convert.377")
+#loc109 = loc("compare.379")
+#loc110 = loc("not.381")
+#loc111 = loc("reduce.393")
+#loc112 = loc("reshape.397")
+#loc113 = loc("not.399")
+#loc114 = loc("reshape.401")
+#loc115 = loc("broadcast.402")
+#loc116 = loc("reduce.357")
+#loc117 = loc("broadcast.358")
+#loc118 = loc("subtract.359")
+#loc119 = loc("exponential.360")
+#loc120 = loc("reduce.366")
+#loc121 = loc("broadcast.367")
+#loc122 = loc("divide.368")
+#loc123 = loc("select.403")
+#loc124 = loc("broadcast.259")
+#loc125 = loc("reshape.260")
+#loc126 = loc("convert.261")
+#loc127 = loc("dot.405")
+#loc128 = loc("convert.407")
+#loc129 = loc("reshape.410")
+#loc130 = loc("transpose.255")
+#loc131 = loc("dot.411")
+#loc132 = loc("reshape.412")
+#loc133 = loc("add.415")
+#loc134 = loc("custom-call.448")
+#loc135 = loc("reshape.460")
+#loc136 = loc("transpose.459")
+#loc137 = loc("dot.461")
+#loc138 = loc("reshape.462")
+#loc139 = loc("convert.463")
+#loc140 = loc("logistic.464")
+#loc141 = loc("multiply.465")
+#loc142 = loc("convert.466")
+#loc143 = loc("transpose.234")
+#loc144 = loc("dot.450")
+#loc145 = loc("reshape.451")
+#loc146 = loc("multiply.467")
+#loc147 = loc("reshape.468")
+#loc148 = loc("transpose.226")
+#loc149 = loc("dot.469")
+#loc150 = loc("reshape.470")
+#loc151 = loc("add.473")
+#loc152 = loc("custom-call.506")
+#loc153 = loc("reshape.507")
+#loc154 = loc("transpose.205")
+#loc155 = loc("dot.508")
+#loc156 = loc("transpose.511")
+#loc157 = loc("scatter.533")
+#loc158 = loc("transpose.544")
+#loc159 = loc("dot.546")
+#loc160 = loc("transpose.549")
+#loc161 = loc("multiply.560")
+#loc162 = loc("slice.551")
+#loc163 = loc("negate.552")
+#loc164 = loc("slice.550")
+#loc165 = loc("concatenate.553")
+#loc166 = loc("multiply.556")
+#loc167 = loc("add.563")
+#loc168 = loc("scatter.580")
+#loc169 = loc("transpose.682")
+#loc170 = loc("dot.684")
+#loc171 = loc("transpose.687")
+#loc172 = loc("multiply.697")
+#loc173 = loc("slice.689")
+#loc174 = loc("negate.690")
+#loc175 = loc("slice.688")
+#loc176 = loc("concatenate.691")
+#loc177 = loc("multiply.694")
+#loc178 = loc("add.700")
+#loc179 = loc("convert.701")
+#loc180 = loc("multiply.703")
+#loc181 = loc("broadcast.666")
+#loc182 = loc("reshape.667")
+#loc183 = loc("convert.668")
+#loc184 = loc("transpose.669")
+#loc185 = loc("multiply.671")
+#loc186 = loc("dot.705")
+#loc187 = loc("add.712")
+#loc188 = loc("convert.738")
+#loc189 = loc("compare.740")
+#loc190 = loc("not.742")
+#loc191 = loc("reduce.754")
+#loc192 = loc("reshape.758")
+#loc193 = loc("not.760")
+#loc194 = loc("reshape.762")
+#loc195 = loc("broadcast.763")
+#loc196 = loc("reduce.718")
+#loc197 = loc("broadcast.719")
+#loc198 = loc("subtract.720")
+#loc199 = loc("exponential.721")
+#loc200 = loc("reduce.727")
+#loc201 = loc("broadcast.728")
+#loc202 = loc("divide.729")
+#loc203 = loc("select.764")
+#loc204 = loc("broadcast.643")
+#loc205 = loc("reshape.644")
+#loc206 = loc("convert.645")
+#loc207 = loc("dot.766")
+#loc208 = loc("convert.768")
+#loc209 = loc("reshape.771")
+#loc210 = loc("transpose.639")
+#loc211 = loc("dot.772")
+#loc212 = loc("reshape.773")
+#loc213 = loc("add.776")
+#loc214 = loc("custom-call.809")
+#loc215 = loc("reshape.821")
+#loc216 = loc("transpose.820")
+#loc217 = loc("dot.822")
+#loc218 = loc("reshape.823")
+#loc219 = loc("convert.824")
+#loc220 = loc("logistic.825")
+#loc221 = loc("multiply.826")
+#loc222 = loc("convert.827")
+#loc223 = loc("transpose.618")
+#loc224 = loc("dot.811")
+#loc225 = loc("reshape.812")
+#loc226 = loc("multiply.828")
+#loc227 = loc("reshape.829")
+#loc228 = loc("transpose.610")
+#loc229 = loc("dot.830")
+#loc230 = loc("reshape.831")
+#loc231 = loc("add.834")
+#loc232 = loc("custom-call.867")
+#loc233 = loc("reshape.868")
+#loc234 = loc("transpose.589")
+#loc235 = loc("dot.869")
+#loc236 = loc("reshape.870")
+#loc237 = loc("iota.876")
+#loc238 = loc("reduce.901")
+#loc239 = loc("convert.903")
+#loc240 = loc("reshape.904")
+#loc241 = loc(fused[#loc39, #loc40])
+#loc242 = loc("gather.62_permuteInput"(#loc42))
+#loc243 = loc("gather.62_reshapeInput"(#loc42))
+#loc244 = loc("gather.62_reshapeStartIndices"(#loc42))
+#loc245 = loc("gather.62_reshapeOutput"(#loc42))
+#loc246 = loc("gather.62_permuteOutput"(#loc42))
+#loc247 = loc(fused[#loc53, #loc54])

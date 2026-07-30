@@ -88,8 +88,11 @@ def test_every_device_syntax_name_has_a_sim_backing():
     missing = []
     for qualified in registry:
         name = qualified.rsplit(".", 1)[-1]
-        if qualified.startswith("!d2m.semaphore."):
+        if qualified.startswith(("!d2m.semaphore.", "!d2m.global_semaphore.")):
             # Backed as methods on the Semaphore class injected into SIM_OPS.
+            # The sim has a single Semaphore: local and global differ only in
+            # who can observe them, which a single-threaded sim cannot see, and
+            # both device forms lower to the same `d2m.semaphore_wait`.
             if not hasattr(SIM_OPS["Semaphore"], name):
                 missing.append(qualified)
         elif name.startswith("__") and name.endswith("__"):

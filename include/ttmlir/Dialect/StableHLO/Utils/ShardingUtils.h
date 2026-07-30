@@ -14,6 +14,9 @@ namespace mlir::tt::sharding_utils {
 // SDY sharding related string definitions.
 inline constexpr llvm::StringRef kXlaSdyShardingAttr = "xla.sdy.sharding";
 inline constexpr llvm::StringRef kXlaSdyMeshesAttr = "xla.sdy.meshes";
+// NOTE: This attribute is used to store custom user-provided sharding rules.
+// and used for rematerializing sharding rules after shardy drops them.
+// Do not delete this attribute until after shardy has finished.
 inline constexpr llvm::StringRef kXlaSdyCustomShardingRuleAttr =
     "xla.sdy.custom_sharding_rule";
 inline constexpr llvm::StringRef kDefaultMeshName = "mesh";
