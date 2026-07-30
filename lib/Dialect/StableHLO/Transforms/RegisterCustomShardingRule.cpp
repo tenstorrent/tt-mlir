@@ -503,26 +503,6 @@ getFlashMlaPrefillShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
-static mlir::sdy::OpShardingRuleAttr buildHeadShardedCustomCallRule(
-    mlir::stablehlo::CustomCallOp op, llvm::ArrayRef<int64_t> operandHeadDims,
-    llvm::ArrayRef<int64_t> resultHeadDims, int64_t headSize) {
-  assert(static_cast<int64_t>(operandHeadDims.size()) == op.getNumOperands() &&
-         "operandHeadDims size must match number of operands");
-  assert(static_cast<int64_t>(resultHeadDims.size()) == op.getNumResults() &&
-         "resultHeadDims size must match number of results");
-
-  mlir::sdy::OpShardingRuleBuilder builder(op);
-
-  SmallVector<int64_t> resolvedOperandDims(operandHeadDims.begin(),
-                                           operandHeadDims.end());
-  SmallVector<int64_t> resolvedResultDims(resultHeadDims.begin(),
-                                          resultHeadDims.end());
-
-  builder.addFactor(resolvedOperandDims, resolvedResultDims, headSize,
-                    mlir::sdy::FactorType::kPassThrough);
-  return builder.build();
-}
-
 // Dispatch function for paged attention CustomCall sharding rules.
 static mlir::sdy::OpShardingRuleAttr
 getChunkedSdpaShardingRule(mlir::stablehlo::CustomCallOp op) {
@@ -569,8 +549,39 @@ getChunkedSdpaShardingRule(mlir::stablehlo::CustomCallOp op) {
   operandHeadDims[2] = headDim; // value
   resultHeadDims[0] = headDim;  // output
 
-  return buildHeadShardedCustomCallRule(op, operandHeadDims, resultHeadDims,
-                                        headSize);
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+  builder.addFactor(operandHeadDims, resultHeadDims, headSize,
+                    mlir::sdy::FactorType::kPassThrough);
+
+  // Users factor. Query and output are [num_users, num_heads, chunk_len,
+  // head_size] and page_table is [num_users, max_blocks_per_seq], so dim 0 of
+  // those three is num_users.
+  //
+  // K/V are the paged cache [num_blocks_total, num_kv_heads, block_size,
+  // head_size], so their dim 0 is num_blocks_total and must stay kNullDim:
+  // mapping it here would tie pool partitioning to user partitioning and read
+  // blocks owned by another shard. chunk_start_idx is [1] and has no users dim.
+  //
+  // Without this factor, query dim 0 gets a synthetic size-1 factor, so a
+  // query sharded on the batch axis does not propagate that sharding to the
+  // result and ttir.chunked_scaled_dot_product_attention fails its verifier
+  // with "Result shape must match query shape".
+  const int64_t usersDim = 0;
+  int64_t numUsers = queryType.getShape()[usersDim];
+
+  SmallVector<int64_t> operandUsersDims(op.getNumOperands(),
+                                        mlir::sdy::kNullDim);
+  SmallVector<int64_t> resultUsersDims(op.getNumResults(), mlir::sdy::kNullDim);
+  operandUsersDims[0] = usersDim; // query
+  constexpr int64_t pageTableIdx = 3;
+  if (op.getNumOperands() > pageTableIdx) {
+    operandUsersDims[pageTableIdx] = usersDim; // page_table
+  }
+  resultUsersDims[0] = usersDim; // output
+  builder.addFactor(operandUsersDims, resultUsersDims, numUsers,
+                    mlir::sdy::FactorType::kPassThrough);
+
+  return builder.build();
 }
 
 static mlir::sdy::OpShardingRuleAttr
