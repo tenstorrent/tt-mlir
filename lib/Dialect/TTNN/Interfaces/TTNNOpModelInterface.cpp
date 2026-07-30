@@ -59,11 +59,6 @@ namespace mlir::tt::ttnn {
 //     DeallocateOp, D2MSubgraphOp, DropoutOp, PrepareConv3dWeightsOp.
 //   * MoeGptOp -- getOpConstraints is not implemented at all (no tt-metal
 //     definition); there is no query to hand a state to.
-//   * QuantizeOp, DequantizeOp, Conv1dOp -- compute ops that *would* benefit,
-//     but blocked one level down: their op_model::OpModel<> entry points have
-//     no `initialState` parameter and their queries use QUERY_OP_CONSTRAINTS
-//     rather than QUERY_OP_CONSTRAINTS_WITH_STATE. Migrating them is a backend
-//     change in lib/OpModel/TTNN/TTNNOpModel.cpp, not a thread-through here.
 // Migrating an op that is only blocked here means threading `liveRecords`
 // through instead (see ReluOp / ChunkedScaledDotProductAttentionOp for the
 // pattern), which changes no existing behavior for stateless callers.
@@ -402,18 +397,18 @@ getNamedFullOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 template <typename OpT>
-llvm::Expected<op_model::OpConstraints>
-getQuantizationOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
-                             const OpConfig &opConfig) {
+llvm::Expected<op_model::OpConstraints> getQuantizationOpConstraints(
+    OpT op, const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
   assert(inputs.size() == 3);
   const auto inputShape = op.getInput().getType().getShape();
   const auto scaleShape = op.getScale().getType().getShape();
   const auto zeroPointShape = op.getZeroPoint().getType().getShape();
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpConstraints, op, inputShape, inputs[0],
-      scaleShape, inputs[1], zeroPointShape, inputs[2], op.getAxis(),
-      op.getOutputDtype(), opConfig.outputLayout);
+  return constraintsDispatch(op, liveRecords, inputShape, inputs[0], scaleShape,
+                             inputs[1], zeroPointShape, inputs[2], op.getAxis(),
+                             op.getOutputDtype(), opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -3105,9 +3100,10 @@ ProdOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<op_model::OpConstraints> QuantizeOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
-    std::optional<
-        llvm::ArrayRef<op_model::OpModelAllocationRecord>> /*liveRecords*/) {
-  return detail::getQuantizationOpConstraints(*this, inputs, opConfig);
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  return detail::getQuantizationOpConstraints(*this, inputs, opConfig,
+                                              liveRecords);
 }
 
 llvm::Expected<size_t>
@@ -3122,9 +3118,10 @@ QuantizeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<op_model::OpConstraints> DequantizeOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
-    std::optional<
-        llvm::ArrayRef<op_model::OpModelAllocationRecord>> /*liveRecords*/) {
-  return detail::getQuantizationOpConstraints(*this, inputs, opConfig);
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  return detail::getQuantizationOpConstraints(*this, inputs, opConfig,
+                                              liveRecords);
 }
 
 llvm::Expected<size_t>
@@ -3647,8 +3644,8 @@ static Conv2dAttrs unpackConv1dAttrs(const OpConfig::OpSpecificAttrs &attrs,
 
 llvm::Expected<op_model::OpConstraints> Conv1dOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
-    std::optional<
-        llvm::ArrayRef<op_model::OpModelAllocationRecord>> /*liveRecords*/) {
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
   assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
 
   const auto inputShape = getInput().getType().getShape();
@@ -3662,11 +3659,11 @@ llvm::Expected<op_model::OpConstraints> Conv1dOp::getOpConstraints(
 
   Conv2dAttrs attr = unpackConv1dAttrs(opConfig.opSpecificAttrs, *this);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<Conv1dOp>::getOpConstraints, getOperation(), inputShape,
-      inputs[0], weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
-      getOutChannels(), getBatchSize(), getInputLength(), getKernelSize(),
-      getStride(), getPadding(), getDilation(), getGroups(), attr.conv2dConfig,
+  return detail::constraintsDispatch(
+      *this, liveRecords, inputShape, inputs[0], weightShape, inputs[1],
+      biasShape, biasLayout, getInChannels(), getOutChannels(), getBatchSize(),
+      getInputLength(), getKernelSize(), getStride(), getPadding(),
+      getDilation(), getGroups(), attr.conv2dConfig,
       attr.deviceComputeKernelConfig, getConv2dSliceConfigAttr(),
       opConfig.outputLayout);
 }

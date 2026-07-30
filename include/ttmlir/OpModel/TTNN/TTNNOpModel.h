@@ -502,7 +502,8 @@ struct QuantizationOpModel {
       llvm::ArrayRef<int64_t> scaleShape, TTNNLayoutAttr scaleLayout,
       llvm::ArrayRef<int64_t> zeroPointShape, TTNNLayoutAttr zeroPointLayout,
       std::optional<int32_t> axis, std::optional<ttcore::DataType> outputDtype,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1437,7 +1438,8 @@ struct OpModel<Conv1dOp> {
       std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
       std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,

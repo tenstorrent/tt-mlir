@@ -4842,7 +4842,7 @@ llvm::Expected<OpConstraints> QuantizationOpModel<OpTy>::getOpConstraints(
     llvm::ArrayRef<int64_t> scaleShape, TTNNLayoutAttr scaleLayout,
     llvm::ArrayRef<int64_t> zeroPointShape, TTNNLayoutAttr zeroPointLayout,
     std::optional<int32_t> axis, std::optional<ttcore::DataType> outputDtype,
-    TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -4870,15 +4870,19 @@ llvm::Expected<OpConstraints> QuantizationOpModel<OpTy>::getOpConstraints(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
   // Create query closure
   auto quantizationOpQuery = [=]() {
-    return ::ttnn::graph::query_op_constraints(
-        detail::getOpSymbol<OpTy>(), device, inputSpec, scaleSpec,
-        zeroPointSpec, axis, outputDType, outputMemoryConfig);
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        detail::getOpSymbol<OpTy>(), device, initialStateOpt, inputSpec,
+        scaleSpec, zeroPointSpec, axis, outputDType, outputMemoryConfig);
   };
 
-  return operation::getOpConstraints(inputLayout.getContext(),
-                                     quantizationOpQuery);
+  return operation::getOpConstraintsWithState(inputLayout.getContext(),
+                                              quantizationOpQuery);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -5890,7 +5894,7 @@ llvm::Expected<OpConstraints> OpModel<Conv1dOp>::getOpConstraints(
     std::optional<Conv2dConfigAttr> conv2dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
     std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
-    TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   Conv1dConv2dPrepParams prep = getConv1dConv2dPrepParams(
       inputShape, weightShape, kernel_size, stride, padding, dilation);
@@ -5948,18 +5952,23 @@ llvm::Expected<OpConstraints> OpModel<Conv1dOp>::getOpConstraints(
   std::variant<std::array<uint32_t, 2>, uint32_t> conv1dPadding =
       conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding);
 
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
   auto conv1dOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::conv1d, device, inputSpec, weightSpec, device, in_channels,
-        out_channels, batch_size, input_length, kernel_size, stride,
-        conv1dPadding, dilation, groups, outputDtype, biasSpec,
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        ::ttnn::conv1d, device, initialStateOpt, inputSpec, weightSpec, device,
+        in_channels, out_channels, batch_size, input_length, kernel_size,
+        stride, conv1dPadding, dilation, groups, outputDtype, biasSpec,
         conv2dConfigConverted, deviceComputeKernelConfigConverted,
         detail::getNullableMemoryConfig(outputLayout), sliceConfigConverted,
         /*return_output_dim=*/false,
         /*return_weights_and_bias=*/false);
   };
 
-  return operation::getOpConstraints(inputLayout.getContext(), conv1dOpQuery);
+  return operation::getOpConstraintsWithState(inputLayout.getContext(),
+                                              conv1dOpQuery);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
