@@ -5909,12 +5909,7 @@ def ttir_topk_golden(
         input_tensor, k=k, dim=dim, largest=largest, sorted=True
     )
 
-    # Index output dtype is size-dependent, mirroring the TTNN topk workaround
-    # (createTopKOpOperandsWorkarounds): the largest index is bounded by the
-    # tile-padded reduction dim, so UInt16 suffices while that padded size fits
-    # in a uint16, else UInt32. The D2M topk lowering computes indices in i32
-    # internally and narrows to whatever dtype this declared result type says,
-    # so this choice drives the final index element type end-to-end.
+    # Index dtype is UInt16 if the tile-padded reduction dim fits, else UInt32.
     TILE_SIZE = 32
     reduction_dim = dim if dim >= 0 else dim + input_tensor.ndim
     reduction_size = input_tensor.shape[reduction_dim]
