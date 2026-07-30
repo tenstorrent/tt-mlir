@@ -29,14 +29,11 @@ void run(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context) {
       op->stochastic_rounding() ? ::ttml::metal::StochasticRounding::Enabled
                                 : ::ttml::metal::StochasticRounding::Disabled;
 
-  // exp_avg / exp_avg_sq (and max_exp_avg_sq) are updated in place on device;
-  // the returned tensor is the updated parameter.
-  ::ttnn::Tensor out = ::ttml::metal::adamw(
-      param, grad, expAvg, expAvgSq, maxExpAvgSq, op->lr(), op->beta1(),
-      op->beta2(), op->beta1_pow(), op->beta2_pow(), op->epsilon(),
-      op->weight_decay(), stochasticRounding);
-
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  // param, exp_avg, exp_avg_sq (and max_exp_avg_sq) are all updated in place.
+  ::ttml::metal::adamw(param, grad, expAvg, expAvgSq, maxExpAvgSq, op->lr(),
+                       op->beta1(), op->beta2(), op->beta1_pow(),
+                       op->beta2_pow(), op->epsilon(), op->weight_decay(),
+                       stochasticRounding);
 }
 
 } // namespace tt::runtime::ttnn::operations::ttml

@@ -214,6 +214,45 @@ def test_adamw(shape: Shape, target: str, request, device):
     )
 
 
+@pytest.mark.parametrize("shape", [(1, 1, 64, 64)], ids=shape_str)
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_adamw_fused_forward(shape: Shape, target: str, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [shape, shape, shape, shape],
+            [torch.float32, torch.bfloat16, torch.float32, torch.float32],
+        )
+        def adamw_fused_forward(
+            param: Operand,
+            grad: Operand,
+            exp_avg: Operand,
+            exp_avg_sq: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            exp_avg_sq_t = builder._get_golden_tensor(exp_avg_sq).apply_shardwise(
+                lambda s: s.abs()
+            )
+            builder.set_goldens_from_builder_tensor({exp_avg_sq: exp_avg_sq_t}, {})
+            act = builder.abs(param)
+            param_out, _, _ = builder.adamw(
+                param,
+                grad,
+                exp_avg,
+                exp_avg_sq,
+                lr=1.0,
+                weight_decay=1e-2,
+            )
+            return builder.add(param_out, act)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 @x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])

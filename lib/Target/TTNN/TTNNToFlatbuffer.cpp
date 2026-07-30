@@ -1641,16 +1641,12 @@ createOp(FlatbufferObjectCache &cache, AdamWOp op) {
         getOperandThroughDPSOps(op.getMaxExpAvgSq()));
   }
 
-  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
-      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
-                                  /*local_shape=*/std::nullopt);
-
   return ::tt::target::ttnn::CreateAdamWOp(
       *cache.fbb, param, grad, expAvg, expAvgSq, maxExpAvgSq,
       op.getLr().convertToFloat(), op.getBeta1().convertToFloat(),
       op.getBeta2().convertToFloat(), op.getBeta1Pow().convertToFloat(),
       op.getBeta2Pow().convertToFloat(), op.getEpsilon().convertToFloat(),
-      op.getWeightDecay().convertToFloat(), op.getStochasticRounding(), output);
+      op.getWeightDecay().convertToFloat(), op.getStochasticRounding());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RMSNormOp>

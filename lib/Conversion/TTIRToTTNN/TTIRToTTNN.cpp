@@ -1277,13 +1277,33 @@ public:
   LogicalResult
   matchAndRewrite(ttir::AdamWOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::AdamWOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getParam(), adaptor.getGrad(), adaptor.getExpAvg(),
+    SmallVector<Value> updated{op.getParam(), op.getExpAvg(), op.getExpAvgSq()};
+    if (op.getMaxExpAvgSq()) {
+      updated.push_back(op.getMaxExpAvgSq());
+    }
+    for (Value operand : updated) {
+      if (llvm::any_of(operand.getUsers(), [&](Operation *user) {
+            return user != op && (user->getBlock() != op->getBlock() ||
+                                  !user->isBeforeInBlock(op));
+          })) {
+        return rewriter.notifyMatchFailure(
+            op, "an in-place operand is read after the step");
+      }
+    }
+
+    rewriter.create<ttnn::AdamWOp>(
+        op.getLoc(), adaptor.getParam(), adaptor.getGrad(), adaptor.getExpAvg(),
         adaptor.getExpAvgSq(), adaptor.getMaxExpAvgSq(), adaptor.getLr(),
         adaptor.getBeta1(), adaptor.getBeta2(), adaptor.getBeta1Pow(),
         adaptor.getBeta2Pow(), adaptor.getEpsilon(), adaptor.getWeightDecay(),
         adaptor.getStochasticRounding());
+
+    SmallVector<Value> replacements{adaptor.getParam(), adaptor.getExpAvg(),
+                                    adaptor.getExpAvgSq()};
+    if (adaptor.getMaxExpAvgSq()) {
+      replacements.push_back(adaptor.getMaxExpAvgSq());
+    }
+    rewriter.replaceOp(op, replacements);
     return success();
   }
 };

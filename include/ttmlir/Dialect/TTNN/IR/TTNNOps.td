@@ -2623,16 +2623,16 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_Compute
     let hasVerifier = 1;
 }
 
-def TTNN_AdamWOp : TTNN_Op<"adamw", [OpModelExempt]> {
+def TTNN_AdamWOp : TTNN_InplaceOp<"adamw", [OpModelExempt]> {
     let summary = "AdamW optimizer step (ttml).";
     let description = [{
       Fused AdamW optimizer step, backed by the ttml metal op
       `ttml::metal::adamw`. Updates the parameter tensor from its gradient and the
       first/second moment estimates, and updates the moments in place.
 
-      The first and second moments (`exp_avg`, `exp_avg_sq`, and the optional
-      `max_exp_avg_sq` used for AMSGrad) are mutated in place. `amsgrad` is implied
-      by the presence of `max_exp_avg_sq`. The updated parameter is returned.
+      `param`, `exp_avg`, `exp_avg_sq` and the optional `max_exp_avg_sq` (used for
+      AMSGrad) are all mutated in place, so the op has no results. `amsgrad` is
+      implied by the presence of `max_exp_avg_sq`.
     }];
 
     let arguments = (ins Arg<AnyRankedTensor, "parameter tensor (updated in place)", [MemWrite]>:$param,
@@ -2649,17 +2649,15 @@ def TTNN_AdamWOp : TTNN_Op<"adamw", [OpModelExempt]> {
                          F32Attr:$weight_decay,
                          DefaultValuedAttr<BoolAttr, "false">:$stochastic_rounding);
 
-    let results = (outs AnyRankedTensor:$result);
-
     let builders = [
-      OpBuilder<(ins "Type":$result, "Value":$param, "Value":$grad,
+      OpBuilder<(ins "Value":$param, "Value":$grad,
                      "Value":$exp_avg, "Value":$exp_avg_sq,
                      "llvm::APFloat":$lr, "llvm::APFloat":$beta1,
                      "llvm::APFloat":$beta2, "llvm::APFloat":$beta1_pow,
                      "llvm::APFloat":$beta2_pow, "llvm::APFloat":$epsilon,
                      "llvm::APFloat":$weight_decay),
       [{
-        build($_builder, $_state, result, param, grad, exp_avg, exp_avg_sq,
+        build($_builder, $_state, param, grad, exp_avg, exp_avg_sq,
               /*max_exp_avg_sq=*/nullptr, lr, beta1, beta2, beta1_pow, beta2_pow,
               epsilon, weight_decay, /*stochastic_rounding=*/false);
       }]>

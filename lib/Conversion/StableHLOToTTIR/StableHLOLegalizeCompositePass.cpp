@@ -1957,15 +1957,21 @@ public:
     if (srcOp.getName() != "tenstorrent.adamw") {
       return failure();
     }
-    if (srcOp.getNumResults() != 1) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "tenstorrent.adamw must have exactly one result.");
-    }
     size_t numOperands = adaptor.getOperands().size();
     if (numOperands != 4 && numOperands != 5) {
       return rewriter.notifyMatchFailure(
           srcOp, "tenstorrent.adamw must have 4 or 5 operands (param, grad, "
                  "exp_avg, exp_avg_sq, [max_exp_avg_sq]).");
+    }
+
+    // One result per updated operand; grad is the only one not updated. Emitted
+    // as an error rather than a match failure: stablehlo is neither legal nor
+    // illegal in this pass, so declining here would leave the composite in the
+    // IR to fail somewhere less obvious.
+    if (srcOp.getNumResults() != numOperands - 1) {
+      return srcOp.emitOpError(
+          "tenstorrent.adamw must have one result per updated operand "
+          "(param, exp_avg, exp_avg_sq, [max_exp_avg_sq])");
     }
 
     DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
@@ -2001,10 +2007,8 @@ public:
     namedAttrs.push_back(rewriter.getNamedAttr(
         "stochastic_rounding", rewriter.getBoolAttr(stochasticRounding)));
 
-    auto outputType =
-        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
     rewriter.replaceOpWithNewOp<ttir::AdamWOp>(
-        srcOp, outputType, adaptor.getOperands(), namedAttrs);
+        srcOp, srcOp.getResultTypes(), adaptor.getOperands(), namedAttrs);
     return success();
   }
 };

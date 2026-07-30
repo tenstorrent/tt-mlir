@@ -1176,7 +1176,7 @@ def adamw_golden(
       param = param - lr*(m/(1-beta1_pow))/denom - lr*weight_decay*param
 
     Uses torch.* ops only (GoldenMapTensor does not support python operators).
-    Returns the updated parameter; moment updates are in place on device.
+    Returns the updated parameter and moments, one per op result.
     """
     lr = unpack_mlir_attr(lr)
     beta1 = unpack_mlir_attr(beta1)
@@ -1212,7 +1212,10 @@ def adamw_golden(
 
     if output_type_mlir is not None:
         result = result.to(mlir_type_to_torch_dtype(output_type_mlir))
-    return result
+
+    if max_exp_avg_sq is not None:
+        return result, new_exp_avg, new_exp_avg_sq, new_max
+    return result, new_exp_avg, new_exp_avg_sq
 
 
 def rms_norm_golden(

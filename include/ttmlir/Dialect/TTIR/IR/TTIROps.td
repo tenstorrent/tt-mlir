@@ -2341,16 +2341,17 @@ def TTIR_RMSNormOp : TTIR_NamedOp<"rms_norm", [AttrSizedOperandSegments]> {
 def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
   let summary = "AdamW optimizer step";
   let description = [{
-    Fused AdamW optimizer step. Updates `param` from its gradient and the first/second
-    moment estimates, updating the moments in place. The updated parameter is returned.
+    Fused AdamW optimizer step. Returns the updated parameter and moment estimates.
+    `ttnn.adamw` writes all of them in place, so `TTIRToTTNN` maps each result back
+    onto the operand it updates.
 
     Inputs:
     - `param` (Tensor): parameter tensor being optimized.
     - `grad` (Tensor): gradient of the parameter.
-    - `exp_avg` (Tensor): first moment estimate; updated in place.
-    - `exp_avg_sq` (Tensor): second moment estimate; updated in place.
-    - `max_exp_avg_sq` (Optional Tensor): max second moment for AMSGrad; updated in place
-      when present. Its presence implies amsgrad.
+    - `exp_avg` (Tensor): first moment estimate.
+    - `exp_avg_sq` (Tensor): second moment estimate.
+    - `max_exp_avg_sq` (Optional Tensor): max second moment for AMSGrad. Its
+      presence implies amsgrad, and requires the matching result.
 
     Attributes:
     - `lr`: learning rate.
@@ -2360,15 +2361,15 @@ def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
     - `weight_decay`: decoupled weight-decay coefficient.
     - `stochastic_rounding`: enable stochastic rounding (default false).
 
-    Output:
-    - `result` (Tensor): the updated parameter tensor.
+    Outputs: the updated `param`, `exp_avg`, `exp_avg_sq` and, when
+    `max_exp_avg_sq` is given, the updated `max_exp_avg_sq`.
   }];
 
-  let arguments = (ins Arg<AnyRankedTensor, "parameter tensor (updated in place)", [MemWrite]>:$param,
+  let arguments = (ins AnyRankedTensor:$param,
                        AnyRankedTensor:$grad,
-                       Arg<AnyRankedTensor, "first moment estimate", [MemWrite]>:$exp_avg,
-                       Arg<AnyRankedTensor, "second moment estimate", [MemWrite]>:$exp_avg_sq,
-                       Arg<Optional<AnyRankedTensor>, "max second moment estimate (amsgrad)", [MemWrite]>:$max_exp_avg_sq,
+                       AnyRankedTensor:$exp_avg,
+                       AnyRankedTensor:$exp_avg_sq,
+                       Optional<AnyRankedTensor>:$max_exp_avg_sq,
                        F32Attr:$lr,
                        F32Attr:$beta1,
                        F32Attr:$beta2,
@@ -2378,7 +2379,10 @@ def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
                        F32Attr:$weight_decay,
                        DefaultValuedAttr<BoolAttr, "false">:$stochastic_rounding);
 
-  let results = (outs AnyRankedTensor:$result);
+  let results = (outs AnyRankedTensor:$param_out,
+                      AnyRankedTensor:$exp_avg_out,
+                      AnyRankedTensor:$exp_avg_sq_out,
+                      Optional<AnyRankedTensor>:$max_exp_avg_sq_out);
 
   let hasVerifier = 1;
 }

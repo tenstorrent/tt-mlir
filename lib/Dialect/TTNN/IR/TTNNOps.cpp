@@ -3698,9 +3698,6 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
   if (getMaxExpAvgSq() && !sameShape(getMaxExpAvgSq().getType())) {
     return emitOpError("max_exp_avg_sq must have the same shape as param");
   }
-  if (!sameShape(getResult().getType())) {
-    return emitOpError("result must have the same shape as param");
-  }
   return success();
 }
 

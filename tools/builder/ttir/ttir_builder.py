@@ -7646,7 +7646,14 @@ class TTIRBuilder(Builder):
             mlir_output_type,
         )
 
-        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+        param_out = self._create_ranked_tensor_type(
+            golden_output[0].shape, mlir_output_type
+        )
+        exp_avg_out = self._get_type(exp_avg)
+        exp_avg_sq_out = self._get_type(exp_avg_sq)
+        max_exp_avg_sq_out = (
+            self._get_type(max_exp_avg_sq) if max_exp_avg_sq is not None else None
+        )
 
         if loc is None:
             loc = self._get_location()
@@ -7654,7 +7661,10 @@ class TTIRBuilder(Builder):
             loc = Location.name(loc)
 
         op = ttir_op(
-            result,
+            param_out,
+            exp_avg_out,
+            exp_avg_sq_out,
+            max_exp_avg_sq_out,
             param,
             grad,
             exp_avg,
@@ -7670,15 +7680,16 @@ class TTIRBuilder(Builder):
             stochastic_rounding=stochastic_rounding,
             loc=loc,
         )
-        op_result = op.result
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        self._set_golden_tensor(op_result, golden_output)
+        op_results = list(op.operation.results)
+        for op_result, golden in zip(op_results, golden_output):
+            self._set_golden_tensor(op_result, golden)
 
-        return op_result
+        return tuple(op_results)
 
     ############### ttir.BatchNormInferenceOp ###############
 

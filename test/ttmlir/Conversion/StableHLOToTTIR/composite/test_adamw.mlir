@@ -12,9 +12,9 @@ module {
     // CHECK-SAME: lr = 1.000000e-03 : f32
     // CHECK-SAME: stochastic_rounding = false
     // CHECK-SAME: weight_decay = 0.00999999977 : f32
-    // CHECK-SAME: (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>) -> tensor<64x64xf32>
+    // CHECK-SAME: (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>) -> (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>)
     // CHECK-NOT: stablehlo.composite
-    %0 = stablehlo.composite "tenstorrent.adamw" %param, %grad, %exp_avg, %exp_avg_sq {
+    %0:3 = stablehlo.composite "tenstorrent.adamw" %param, %grad, %exp_avg, %exp_avg_sq {
       composite_attributes = {
         lr = 1.000000e-03 : f32,
         beta1 = 0.899999976 : f32,
@@ -25,11 +25,11 @@ module {
         weight_decay = 1.000000e-02 : f32
       },
       decomposition = @tenstorrent.adamw.impl
-    } : (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>) -> tensor<64x64xf32>
-    return %0 : tensor<64x64xf32>
+    } : (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>) -> (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>)
+    return %0#0 : tensor<64x64xf32>
   }
-  func.func private @tenstorrent.adamw.impl(%param: tensor<64x64xf32>, %grad: tensor<64x64xf32>, %exp_avg: tensor<64x64xf32>, %exp_avg_sq: tensor<64x64xf32>) -> tensor<64x64xf32> {
-    return %param : tensor<64x64xf32>
+  func.func private @tenstorrent.adamw.impl(%param: tensor<64x64xf32>, %grad: tensor<64x64xf32>, %exp_avg: tensor<64x64xf32>, %exp_avg_sq: tensor<64x64xf32>) -> (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>) {
+    return %param, %exp_avg, %exp_avg_sq : tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>
   }
 }
 
@@ -42,9 +42,9 @@ module {
                            %max_exp_avg_sq: tensor<64x64xf32>) -> tensor<64x64xf32> {
     // CHECK: "ttir.adamw"
     // CHECK-SAME: stochastic_rounding = true
-    // CHECK-SAME: (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>) -> tensor<64x64xf32>
+    // CHECK-SAME: (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>) -> (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>)
     // CHECK-NOT: stablehlo.composite
-    %0 = stablehlo.composite "tenstorrent.adamw" %param, %grad, %exp_avg, %exp_avg_sq, %max_exp_avg_sq {
+    %0:4 = stablehlo.composite "tenstorrent.adamw" %param, %grad, %exp_avg, %exp_avg_sq, %max_exp_avg_sq {
       composite_attributes = {
         lr = 1.000000e-03 : f32,
         beta1 = 0.899999976 : f32,
@@ -56,10 +56,10 @@ module {
         stochastic_rounding = true
       },
       decomposition = @tenstorrent.adamw.impl
-    } : (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>) -> tensor<64x64xf32>
-    return %0 : tensor<64x64xf32>
+    } : (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>) -> (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>)
+    return %0#0 : tensor<64x64xf32>
   }
-  func.func private @tenstorrent.adamw.impl(%param: tensor<64x64xf32>, %grad: tensor<64x64xf32>, %exp_avg: tensor<64x64xf32>, %exp_avg_sq: tensor<64x64xf32>, %max_exp_avg_sq: tensor<64x64xf32>) -> tensor<64x64xf32> {
-    return %param : tensor<64x64xf32>
+  func.func private @tenstorrent.adamw.impl(%param: tensor<64x64xf32>, %grad: tensor<64x64xf32>, %exp_avg: tensor<64x64xf32>, %exp_avg_sq: tensor<64x64xf32>, %max_exp_avg_sq: tensor<64x64xf32>) -> (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>) {
+    return %param, %exp_avg, %exp_avg_sq, %max_exp_avg_sq : tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>
   }
 }

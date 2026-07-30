@@ -17,5 +17,4 @@ table AdamWOp {
   epsilon: float;
   weight_decay: float;
   stochastic_rounding: bool = false;
-  out: tt.target.ttnn.TensorRef;
 }

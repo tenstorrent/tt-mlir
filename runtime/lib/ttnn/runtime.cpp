@@ -1502,10 +1502,6 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_BatchNormTrainingOp()->out()};
     break;
   }
-  case ::tt::target::ttnn::OpType::AdamWOp: {
-    tensorRefs = {opContext.type_as_AdamWOp()->out()};
-    break;
-  }
   case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp: {
     tensorRefs = {opContext.type_as_MaxPool2dWithIndicesOp()->result(),
                   opContext.type_as_MaxPool2dWithIndicesOp()->result_indices()};
@@ -1591,6 +1587,7 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {op->expert_indices(), op->expert_weights()};
     break;
   }
+  case ::tt::target::ttnn::OpType::AdamWOp:
   case ::tt::target::ttnn::OpType::FillCacheOp:
   case ::tt::target::ttnn::OpType::PagedFillCacheOp:
   case ::tt::target::ttnn::OpType::UpdateCacheOp:
