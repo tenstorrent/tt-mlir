@@ -53,6 +53,8 @@ static constexpr llvm::StringLiteral flashMlaPrefillTargetName =
 static constexpr llvm::StringLiteral indexerScoreDsaTargetName =
     "tt.indexer_score_dsa";
 
+static constexpr llvm::StringLiteral samplingTargetName = "tt.sampling";
+
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   mlir::Operation::operand_range inputs = scatterOp.getInputs();
@@ -1766,6 +1768,61 @@ getArgMaxShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// Sharding rule for the `tt.sampling` custom_call.
+//
+// Operands: 0: input_values  [batch, candidates]
+//           1: input_indices [batch, candidates]
+//           2: k             [batch]
+//           3: p             [batch]
+//           4: temp          [batch]
+// Result:                    [batch]
+//
+// Batch dim: kPassThrough, so under data parallelism each device samples its
+//   own rows. The ttnn kernel assigns one Tensix core per user and takes at
+//   most 32 rows per invocation, so the batch must shard rather than gather.
+// Candidate dim: kNeedReplication. A row's candidate set has to stay whole for
+//   softmax, top-k and multinomial.
+static mlir::sdy::OpShardingRuleAttr
+getSamplingShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 5 || op.getNumResults() != 1) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto valuesType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto resultType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+  if (!valuesType || !resultType || valuesType.getRank() != 2 ||
+      resultType.getRank() != 1) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Operands 1..4 must agree with input_values on the batch dim.
+  for (int64_t i = 1; i < 5; ++i) {
+    auto operandType =
+        llvm::dyn_cast<RankedTensorType>(op.getOperand(i).getType());
+    int64_t expectedRank = (i == 1) ? 2 : 1;
+    if (!operandType || operandType.getRank() != expectedRank ||
+        operandType.getShape()[0] != valuesType.getShape()[0]) {
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+  }
+
+  int64_t batchSize = valuesType.getShape()[0];
+  int64_t candidateSize = valuesType.getShape()[1];
+
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+
+  builder.addFactor({0, 0, 0, 0, 0}, {0}, batchSize,
+                    mlir::sdy::FactorType::kPassThrough);
+
+  builder.addFactor(
+      {1, 1, mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+      {mlir::sdy::kNullDim}, candidateSize,
+      mlir::sdy::FactorType::kNeedReplication);
+
+  return builder.build();
+}
+
 // Sharding rule for RMS norm custom_call (converted from composite).
 //
 // Operands:
@@ -2004,6 +2061,7 @@ private:
           {utils::kTTArgMaxCustomCallTargetName, getArgMaxShardingRule},
           {utils::kTTGatherDimCustomCallTargetName, getGatherDimShardingRule},
           {utils::kTTGatherCustomCallTargetName, getGatherDimShardingRule},
+          {samplingTargetName, getSamplingShardingRule},
       };
 };
 
