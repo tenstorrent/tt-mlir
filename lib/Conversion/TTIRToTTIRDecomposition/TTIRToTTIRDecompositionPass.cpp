@@ -114,6 +114,11 @@ struct TTIRToTTIRDecompositionPass
                   meanType.getRank() == 4 && varType.getRank() == 4);
         });
 
+    // ttml::metal::adamw only accepts 4D tensors.
+    target.addDynamicallyLegalOp<ttir::AdamWOp>([&](ttir::AdamWOp op) {
+      return op.getParam().getType().getRank() == 4;
+    });
+
     target.addDynamicallyLegalOp<ttir::ProdOp>([&](ttir::ProdOp op) {
       auto dimArg = op.getDimArg();
       if (!dimArg) {

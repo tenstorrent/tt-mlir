@@ -25,16 +25,16 @@ void run(const ::tt::target::ttnn::IndexerScoreDsaOp *op,
   // when the sequence is sharded across every device -- naming the axis is what
   // makes a partial split (e.g. heads on one axis, sequence on another)
   // correct.
-  std::optional<uint32_t> clusterAxis = std::nullopt;
+  std::optional<std::vector<uint32_t>> seqShardAxes = std::nullopt;
   if (op->cluster_axis()) {
-    clusterAxis = *op->cluster_axis();
+    seqShardAxes = std::vector<uint32_t>{*op->cluster_axis()};
   }
 
   // program_config and compute_kernel_config fall back to the ttnn defaults.
   ::ttnn::Tensor out = ::ttnn::experimental::indexer_score_dsa(
       query, key, weights, op->chunk_start_idx(),
       /*program_config=*/{}, /*compute_kernel_config=*/std::nullopt,
-      /*cache_batch_idx=*/std::nullopt, /*kv_len=*/std::nullopt, clusterAxis);
+      /*cache_batch_idx=*/std::nullopt, /*kv_len=*/std::nullopt, seqShardAxes);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

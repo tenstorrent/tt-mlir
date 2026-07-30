@@ -74,7 +74,7 @@ function(add_runtime_gtest test_name)
   set_property(TARGET ${test_name} PROPERTY CXX_STANDARD 20)
   add_dependencies(${test_name} TTRuntimeGTestLib)
   target_link_libraries(${test_name} PRIVATE TTRuntimeGTestLib)
-  gtest_discover_tests(${test_name})
+  gtest_discover_tests(${test_name} DISCOVERY_MODE PRE_TEST)
 endfunction()
 
 add_subdirectory(common)
