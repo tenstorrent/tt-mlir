@@ -34,6 +34,7 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/RegionUtils.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
@@ -10573,7 +10574,131 @@ public:
   }
 };
 
+// Converts `stablehlo.while` into `ttir.while`.
+//
+// Unlike every other region-carrying StableHLO op handled in this file, the
+// regions are preserved rather than pattern-matched into an attribute. Two
+// things need fixing up along the way:
+//
+//   - `ttir.while` is IsolatedFromAbove, so values the regions use but that
+//     are defined outside the op must be promoted to explicit `captures`
+//     operands and appended to both regions' block arguments. This is not
+//     cosmetic: each region becomes its own program at runtime, with its own
+//     tensor pool, and can only see tensors bound through its own inputs.
+//   - The `stablehlo.return` terminators must become `ttir.yield`. No pattern
+//     covers them, and StableHLO is fully illegal after this pass, so they are
+//     rewritten here rather than left to the driver.
+class StableHLOToTTIRWhileOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::WhileOp> {
+  using OpConversionPattern<mlir::stablehlo::WhileOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::WhileOp srcOp,
+                  mlir::stablehlo::WhileOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    const TypeConverter *typeConverter = getTypeConverter();
+
+    llvm::SmallVector<Type> resultTypes;
+    if (failed(typeConverter->convertTypes(srcOp.getResultTypes(),
+                                           resultTypes))) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "could not convert result types");
+    }
+
+    // Both regions are given the same signature, so collect the captures of
+    // the two together.
+    llvm::SetVector<Value> capturedValues;
+    mlir::getUsedValuesDefinedAbove(srcOp->getRegions(), capturedValues);
+
+    llvm::SmallVector<Value> captures;
+    captures.reserve(capturedValues.size());
+    for (Value captured : capturedValues) {
+      if (!mlir::isa<RankedTensorType>(captured.getType())) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "loop body captures a value that is not a ranked tensor");
+      }
+      captures.push_back(rewriter.getRemappedValue(captured));
+    }
+
+    auto whileOp = rewriter.create<ttir::WhileOp>(
+        srcOp.getLoc(), resultTypes, adaptor.getOperand(), captures,
+        /*trip_count=*/nullptr);
+
+    // Move the StableHLO regions over wholesale; the driver then converts the
+    // ops inside them with the regular patterns.
+    rewriter.inlineRegionBefore(srcOp.getCond(), whileOp.getCond(),
+                                whileOp.getCond().end());
+    rewriter.inlineRegionBefore(srcOp.getBody(), whileOp.getBody(),
+                                whileOp.getBody().end());
+
+    for (Region *region : {&whileOp.getCond(), &whileOp.getBody()}) {
+      if (failed(appendCapturesAndRewriteTerminator(*region, capturedValues,
+                                                    rewriter))) {
+        return failure();
+      }
+    }
+
+    rewriter.replaceOp(srcOp, whileOp.getResults());
+    return success();
+  }
+
+private:
+  // Appends one block argument per captured value, redirects the region's uses
+  // of those values to the new arguments, and turns `stablehlo.return` into
+  // `ttir.yield`.
+  LogicalResult appendCapturesAndRewriteTerminator(
+      Region &region, const llvm::SetVector<Value> &capturedValues,
+      ConversionPatternRewriter &rewriter) const {
+    const TypeConverter *typeConverter = getTypeConverter();
+    Block &block = region.front();
+    const unsigned numOriginalArgs = block.getNumArguments();
+
+    TypeConverter::SignatureConversion signatureConv(numOriginalArgs);
+    for (auto [index, argType] : llvm::enumerate(block.getArgumentTypes())) {
+      Type convertedType = typeConverter->convertType(argType);
+      if (!convertedType) {
+        return rewriter.notifyMatchFailure(
+            region.getParentOp(), "could not convert region argument type");
+      }
+      signatureConv.addInputs(index, convertedType);
+    }
+    // Captures become brand-new trailing arguments with no original counterpart.
+    for (Value captured : capturedValues) {
+      Type convertedType = typeConverter->convertType(captured.getType());
+      if (!convertedType) {
+        return rewriter.notifyMatchFailure(region.getParentOp(),
+                                           "could not convert capture type");
+      }
+      signatureConv.addInputs(convertedType);
+    }
+
+    Block *newBlock =
+        rewriter.applySignatureConversion(&block, signatureConv, typeConverter);
+
+    for (auto [index, captured] : llvm::enumerate(capturedValues)) {
+      BlockArgument replacement = newBlock->getArgument(numOriginalArgs + index);
+      rewriter.replaceUsesWithIf(captured, replacement, [&](OpOperand &use) {
+        return region.isAncestor(use.getOwner()->getParentRegion());
+      });
+    }
+
+    auto returnOp =
+        mlir::cast<mlir::stablehlo::ReturnOp>(newBlock->getTerminator());
+    rewriter.setInsertionPoint(returnOp);
+    rewriter.replaceOpWithNewOp<ttir::YieldOp>(returnOp, returnOp.getOperands());
+
+    return success();
+  }
+};
+
 } // namespace
+
+static void addWhileOpConversionPattern(MLIRContext *ctx,
+                                        RewritePatternSet &patterns,
+                                        TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRWhileOpConversionPattern>(typeConverter, ctx);
+}
 
 static void addSparseMatmulOpConversionPattern(MLIRContext *ctx,
                                                RewritePatternSet &patterns,
@@ -10634,6 +10759,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addSparseMatmulOpConversionPattern(ctx, patterns, typeConverter);
   addAllToAllOpsConversionPattern(ctx, patterns, typeConverter);
   addTTLangOpConversionPattern(ctx, patterns, typeConverter);
+  addWhileOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

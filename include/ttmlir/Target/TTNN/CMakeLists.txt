@@ -5,6 +5,7 @@ set(TTNN_OPERATIONS_FBS_GEN_SOURCES
   operations/ccl.fbs
   operations/get_device.fbs
   operations/configs.fbs
+  operations/control_flow.fbs
   operations/conv.fbs
   operations/cpu.fbs
   operations/creation.fbs

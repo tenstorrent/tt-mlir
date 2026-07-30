@@ -98,12 +98,15 @@ def EmitPy_LiteralOp : EmitPy_Op<"literal", [Pure, PyExpressionInterface]> {
 
     ```mlir
     %0 = emitpy.literal "0" : index
+    // A literal also serves as a reference to a named Python variable, which
+    // is how mutable loop-carried state is modelled (see `emitpy.while`).
+    %v = emitpy.literal "acc" : !emitpy.opaque<"ttnn.Tensor">
     ```
   }];
 
   let arguments = (ins StrAttr:$value);
 
-  let results = (outs Index:$result);
+  let results = (outs AnyTypeOf<[Index, EmitPy_Type]>:$result);
 
   let hasVerifier = 1;
   let assemblyFormat = "$value attr-dict `:` type($result)";
@@ -400,6 +403,47 @@ def EmitPy_IfOp : EmitPy_Op<"if", [NoTerminator]> {
   let assemblyFormat = [{
     $condition (`args` $cond_args^ `:` `(` type($cond_args) `)`)? $thenRegion
     (`else` $elseRegion^)? attr-dict
+  }];
+}
+
+def EmitPy_WhileOp : EmitPy_Op<"while", [NoTerminator]> {
+  let summary = "While statement";
+  let description = [{
+    The `emitpy.while` operation represents a Python `while` statement. Like
+    `emitpy.if`, the condition is a format string with `{}` placeholders that
+    are replaced by the condition arguments.
+
+    The region carries no values in or out: loop-carried state is expressed as
+    ordinary Python variables that the body reassigns with `emitpy.assign`.
+
+    Example:
+
+    ```mlir
+    emitpy.while "{} < {}" args %i, %n : (index, index) {
+      // body
+    }
+    ```
+    ```python
+    # Code emitted:
+    while i < n:
+        # body
+    ```
+  }];
+
+  let arguments = (ins
+    StrAttr:$condition,
+    Variadic<AnyType>:$cond_args
+  );
+
+  let regions = (region SizedRegion<1>:$body);
+
+  let extraClassDeclaration = [{
+    FailureOr<SmallVector<::mlir::tt::emitpy::ReplacementItem>> parseFormatString();
+  }];
+
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $condition (`args` $cond_args^ `:` `(` type($cond_args) `)`)? $body attr-dict
   }];
 }
 

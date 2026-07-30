@@ -974,6 +974,63 @@ static LogicalResult printOperation(PythonEmitter &emitter, IfOp ifOp) {
 }
 
 static LogicalResult printOperation(PythonEmitter &emitter,
+                                    VerbatimOp verbatimOp) {
+  raw_indented_ostream &os = emitter.ostream();
+
+  auto items = verbatimOp.parseFormatString();
+  if (failed(items)) {
+    return failure();
+  }
+
+  size_t idx = 0;
+  for (auto &item : *items) {
+    if (auto *str = std::get_if<StringRef>(&item)) {
+      os << *str;
+    } else {
+      if (failed(emitter.emitOperand(verbatimOp.getFmtArgs()[idx++], ""))) {
+        return failure();
+      }
+    }
+  }
+
+  return success();
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter, WhileOp whileOp) {
+  raw_indented_ostream &os = emitter.ostream();
+
+  os << "while ";
+
+  auto items = whileOp.parseFormatString();
+  if (failed(items)) {
+    return failure();
+  }
+
+  size_t idx = 0;
+  for (auto &item : *items) {
+    if (auto *str = std::get_if<StringRef>(&item)) {
+      os << *str;
+    } else {
+      if (failed(emitter.emitOperand(whileOp.getCondArgs()[idx++], ""))) {
+        return failure();
+      }
+    }
+  }
+
+  os << ":\n";
+
+  os.indent();
+  for (Operation &bodyOp : whileOp.getBody().front().getOperations()) {
+    if (failed(emitter.emitOperation(bodyOp))) {
+      return failure();
+    }
+  }
+  os.unindent();
+
+  return success();
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
                                     ExpressionOp expressionOp) {
 
   Block *bodyBlock = expressionOp.getBodyBlock();
@@ -1045,7 +1102,7 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           .Case<CallOpaqueOp, ImportOp, AssignOp, GetAttrOp, SetAttrOp,
                 ConstantOp, SubscriptOp, ClassOp, GlobalOp, AssignGlobalOp,
                 GlobalStatementOp, CreateDictOp, ExpressionOp, YieldOp, IfOp,
-                NestedFuncOp, NestedFuncReturnOp, FileOp>(
+                WhileOp, VerbatimOp, NestedFuncOp, NestedFuncReturnOp, FileOp>(
               [&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             registerDeferredValue(op.getResult(), op.getValue());
@@ -1066,7 +1123,7 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
     return success();
   }
 
-  if (!isa<IfOp>(op)) {
+  if (!isa<IfOp, WhileOp>(op)) {
     os << "\n";
   }
 

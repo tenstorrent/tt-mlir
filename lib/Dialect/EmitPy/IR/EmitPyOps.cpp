@@ -687,6 +687,43 @@ FailureOr<SmallVector<ReplacementItem>> IfOp::parseFormatString() {
 }
 
 //===----------------------------------------------------------------------===//
+// WhileOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult WhileOp::verify() {
+  if (getCondition().empty()) {
+    return emitOpError() << "condition string must not be empty";
+  }
+
+  if (getBody().front().empty()) {
+    return emitOpError() << "body block must contain at least one operation";
+  }
+
+  auto errorCallback = [&]() -> InFlightDiagnostic {
+    return this->emitOpError();
+  };
+  FailureOr<SmallVector<ReplacementItem>> fmt =
+      ::parseFormatString(getCondition(), getCondArgs(), errorCallback);
+  if (failed(fmt)) {
+    return failure();
+  }
+  size_t numPlaceholders = llvm::count_if(*fmt, [](ReplacementItem &item) {
+    return std::holds_alternative<Placeholder>(item);
+  });
+
+  if (numPlaceholders != getCondArgs().size()) {
+    return emitOpError()
+           << "requires operands for each placeholder in the condition string";
+  }
+  return success();
+}
+
+FailureOr<SmallVector<ReplacementItem>> WhileOp::parseFormatString() {
+  // Error checking is done in verify.
+  return ::parseFormatString(getCondition(), getCondArgs());
+}
+
+//===----------------------------------------------------------------------===//
 // ConstantOp
 //===----------------------------------------------------------------------===//
 

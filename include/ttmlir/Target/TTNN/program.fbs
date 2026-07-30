@@ -4,6 +4,7 @@ include "ttmlir/Target/TTNN/types.fbs";
 include "ttmlir/Target/TTNN/operations/debug.fbs";
 include "ttmlir/Target/TTNN/operations/ccl.fbs";
 include "ttmlir/Target/TTNN/operations/get_device.fbs";
+include "ttmlir/Target/TTNN/operations/control_flow.fbs";
 include "ttmlir/Target/TTNN/operations/conv.fbs";
 include "ttmlir/Target/TTNN/operations/cpu.fbs";
 include "ttmlir/Target/TTNN/operations/creation.fbs";
@@ -160,6 +161,7 @@ union OpType {
   CreateGlobalSemaphoreOp,
   ResetGlobalSemaphoreOp,
   AllocateMoeComputeSemaphoreOp,
+  WhileOp,
 }
 
 table Operation {

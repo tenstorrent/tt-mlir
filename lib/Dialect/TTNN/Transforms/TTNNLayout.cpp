@@ -791,6 +791,100 @@ private:
 } // namespace
 
 namespace {
+// Brings a `ttir.while` into the shape the runtime and the `ttnn.while`
+// verifier require:
+//
+//   - the condition is read back to host every iteration to decide whether to
+//     keep looping, so the value yielded by the `cond` region is forced to a
+//     row-major `uint32` tensor in system memory;
+//   - each region's inputs are rebound from the values yielded by `body` on
+//     the next iteration, so every loop-carried value must keep the layout of
+//     the matching block argument across the yield.
+class TTNNLayoutWhileOpRewriter : public OpRewritePattern<ttir::WhileOp> {
+public:
+  TTNNLayoutWhileOpRewriter(MLIRContext *ctx)
+      : OpRewritePattern<ttir::WhileOp>(ctx) {}
+
+  LogicalResult matchAndRewrite(ttir::WhileOp op,
+                                PatternRewriter &rewriter) const final {
+    bool modified = false;
+    modified |= rewriteCondition(op, rewriter);
+    modified |= rewriteBodyYield(op, rewriter);
+    return modified ? success() : failure();
+  }
+
+private:
+  bool rewriteCondition(ttir::WhileOp op, PatternRewriter &rewriter) const {
+    ttir::YieldOp yieldOp = op.getCondYield();
+    Value condition = yieldOp.getOperands().front();
+    auto conditionType = mlir::cast<RankedTensorType>(condition.getType());
+
+    Type uint32Type = rewriter.getIntegerType(32, /*isSigned=*/false);
+    bool modified = false;
+
+    rewriter.setInsertionPoint(yieldOp);
+
+    // Typecast happens first, while the tensor is still tiled and on device.
+    if (conditionType.getElementType() != uint32Type) {
+      auto castType = RankedTensorType::get(
+          conditionType.getShape(), uint32Type,
+          TTNNLayoutAttr::Builder(
+              mlir::cast<TTNNLayoutAttr>(conditionType.getEncoding()),
+              conditionType.getShape())
+              .setElementType(ttcore::TileType::get(uint32Type))
+              .build());
+      condition = rewriter.create<ttir::TypecastOp>(
+          appendInputSuffix(yieldOp.getLoc(), 0), castType, condition,
+          /*conservative_folding=*/false);
+      modified = true;
+    }
+
+    std::optional<Value> onHost =
+        createToLayoutOp(rewriter, appendInputSuffix(yieldOp.getLoc(), 0),
+                         condition, BufferType::SystemMemory, /*tiled=*/false);
+    if (onHost) {
+      condition = *onHost;
+      modified = true;
+    }
+
+    if (modified) {
+      rewriter.modifyOpInPlace(yieldOp, [&]() { yieldOp.setOperand(0, condition); });
+    }
+    return modified;
+  }
+
+  bool rewriteBodyYield(ttir::WhileOp op, PatternRewriter &rewriter) const {
+    ttir::YieldOp yieldOp = op.getBodyYield();
+    Block &block = op.getBodyBlock();
+    bool modified = false;
+
+    rewriter.setInsertionPoint(yieldOp);
+    for (OpOperand &operand : yieldOp->getOpOperands()) {
+      Type expectedType = block.getArgument(operand.getOperandNumber()).getType();
+      if (operand.get().getType() == expectedType) {
+        continue;
+      }
+      auto expectedTensorType = mlir::cast<RankedTensorType>(expectedType);
+      auto layout =
+          mlir::cast<TTNNLayoutAttr>(expectedTensorType.getEncoding());
+      std::optional<Value> relaidOut = createToLayoutOp(
+          rewriter, appendInputSuffix(yieldOp.getLoc(), operand.getOperandNumber()),
+          operand.get(), layout.getBufferType(),
+          mlir::isa<ttcore::TileType>(layout.getElementType()));
+      if (!relaidOut) {
+        continue;
+      }
+      rewriter.modifyOpInPlace(yieldOp, [&]() {
+        yieldOp.setOperand(operand.getOperandNumber(), *relaidOut);
+      });
+      modified = true;
+    }
+    return modified;
+  }
+};
+} // namespace
+
+namespace {
 class TTNNLayout : public impl::TTNNLayoutBase<TTNNLayout> {
 public:
   using impl::TTNNLayoutBase<TTNNLayout>::TTNNLayoutBase;
@@ -835,6 +929,10 @@ public:
       // been updated.
       patterns.add<TTNNLayoutLoadCachedOpTypeRewriter>(&getContext());
       patterns.add<TTNNLayoutCompositeOpTypeRewriter>(&getContext());
+
+      // Force the loop condition to host and restore layout invariance across
+      // the loop back-edge.
+      patterns.add<TTNNLayoutWhileOpRewriter>(&getContext());
 
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();

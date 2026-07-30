@@ -3632,6 +3632,83 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   let hasVerifier = 1;
 }
 
+//===----------------------------------------------------------------------===//
+// TTNN control flow ops
+//===----------------------------------------------------------------------===//
+
+def TTNN_YieldOp : TTNN_Op<"yield", [Pure, Terminator, OpModelExempt]> {
+  let summary = "Terminator for TTNN control flow regions.";
+  let description = [{
+    Terminates a region of a TTNN control flow op. The meaning of the yielded
+    values is defined by the parent op; see `ttnn.while`.
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$operands);
+
+  // Nullary builder required by SingleBlockImplicitTerminator on the parent.
+  let builders = [OpBuilder<(ins), [{ /* nothing to do */ }]>];
+
+  let assemblyFormat = [{ attr-dict ($operands^ `:` type($operands))? }];
+}
+
+def TTNN_WhileOp : TTNN_Op<"while", [
+    AttrSizedOperandSegments,
+    IsolatedFromAbove,
+    RecursiveMemoryEffects,
+    SingleBlockImplicitTerminator<"::mlir::tt::ttnn::YieldOp">,
+    OpModelExempt]> {
+  let summary = "While loop.";
+  let description = [{
+    Repeatedly executes `body` while `cond` yields true, threading the
+    loop-carried values from one iteration to the next. Lowered from
+    `ttir.while`; see that op for the full semantics.
+
+    Both regions take `inits ++ captures` as block arguments. Each region is
+    serialized as its own flatbuffer program, and the runtime binds the
+    region's inputs from `inits ++ captures` on the first iteration and from
+    `body`'s yielded values thereafter. Consequently every loop-carried value
+    must keep the same layout across the yield, which the verifier enforces by
+    comparing types exactly.
+
+    `cond` must yield a single-element `uint32` tensor resident in system
+    memory: the runtime reads it back to host to decide whether to continue.
+    `TTNNLayout` is responsible for materializing that form.
+
+    `trip_count`, when present, is the statically known number of iterations
+    and lets the runtime skip the `cond` program entirely, avoiding a
+    device-to-host synchronization per iteration.
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inits,
+                       Variadic<AnyRankedTensor>:$captures,
+                       OptionalAttr<I64Attr>:$trip_count);
+
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let regions = (region SizedRegion<1>:$cond, SizedRegion<1>:$body);
+
+  let assemblyFormat = [{
+    `inits` `(` $inits `:` type($inits) `)`
+    (`captures` `(` $captures^ `:` type($captures) `)`)?
+    attr-dict
+    `cond` $cond
+    `do` $body
+    `->` `(` type($results) `)`
+  }];
+
+  let extraClassDeclaration = [{
+    ::mlir::Block &getCondBlock() { return getCond().front(); }
+    ::mlir::Block &getBodyBlock() { return getBody().front(); }
+
+    // Defined out-of-line: YieldOp is only forward declared at this point in
+    // the generated header.
+    ::mlir::tt::ttnn::YieldOp getCondYield();
+    ::mlir::tt::ttnn::YieldOp getBodyYield();
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTNN_GenericOp : TTNN_Op<"generic", [AttrSizedOperandSegments, MemoryEffects<[MemRead, MemWrite]>, TTCore_NonCacheableTrait, OpModelExempt]> {
     let summary = "Generic operation.";
     let description = [{
