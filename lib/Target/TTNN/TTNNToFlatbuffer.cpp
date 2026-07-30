@@ -3554,12 +3554,16 @@ createOp(FlatbufferObjectCache &cache, IndexerScoreDsaOp op) {
   auto weights = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getWeights()));
   auto chunkStartIdx = op.getChunkStartIdx();
+  ::flatbuffers::Optional<uint32_t> clusterAxis;
+  if (auto axis = op.getClusterAxis()) {
+    clusterAxis = *axis;
+  }
   auto out =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
 
   return ::tt::target::ttnn::CreateIndexerScoreDsaOp(
-      *cache.fbb, query, key, weights, chunkStartIdx, out);
+      *cache.fbb, query, key, weights, chunkStartIdx, out, clusterAxis);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::SparseSdpaOp>

@@ -4130,7 +4130,8 @@ def TTNN_IndexerScoreDsaOp : TTNN_Op<"indexer_score_dsa"> {
     let arguments = (ins AnyRankedTensor:$query,
                          AnyRankedTensor:$key,
                          AnyRankedTensor:$weights,
-                         DefaultValuedAttr<UI32Attr, "0">:$chunk_start_idx);
+                         DefaultValuedAttr<UI32Attr, "0">:$chunk_start_idx,
+                         OptionalAttr<UI32Attr>:$cluster_axis);
 
     let results = (outs AnyRankedTensor:$result);
 

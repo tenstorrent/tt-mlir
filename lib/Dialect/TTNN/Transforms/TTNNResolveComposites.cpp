@@ -123,6 +123,20 @@ getIndexerScoreDsaChunkStartIdx(ttcore::CompositeOp compositeOp) {
                            : 0;
 }
 
+// Recover the optional cluster_axis attribute from an "indexer_score_dsa"
+// composite. Returns a NULL attribute when absent, which is what the op's
+// OptionalAttr builder parameter expects; absent leaves the kernel on its flat
+// row-major enumeration over all of q's devices, which is only correct when the
+// query sequence is sharded across every device.
+static mlir::IntegerAttr
+getIndexerScoreDsaClusterAxis(ttcore::CompositeOp compositeOp) {
+  DictionaryAttr attrs = compositeOp.getCompositeAttributes().value_or(nullptr);
+  if (!attrs) {
+    return {};
+  }
+  return attrs.getAs<mlir::IntegerAttr>("cluster_axis");
+}
+
 // Attributes recovered from a "sparse_sdpa" composite, shared by its validate,
 // build and promotion-guard callbacks.
 struct SparseSdpaCompositeArgs {
@@ -267,20 +281,24 @@ static void registerBuiltinComposites() {
         TT_assert(compositeOp.getInputs().size() == 3u);
 
         uint32_t chunkStartIdx = getIndexerScoreDsaChunkStartIdx(compositeOp);
+        mlir::IntegerAttr clusterAxis =
+            getIndexerScoreDsaClusterAxis(compositeOp);
         SmallVector<Type> resultTypes(compositeOp.getResultTypes());
         IsolatedIRValidationWrapper validator(compositeOp.getContext());
         return validator.validateOp<IndexerScoreDsaOp>(
             compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
             compositeOp.getInputs()[0], compositeOp.getInputs()[1],
-            compositeOp.getInputs()[2], chunkStartIdx);
+            compositeOp.getInputs()[2], chunkStartIdx, clusterAxis);
       },
       // Build
       [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
         uint32_t chunkStartIdx = getIndexerScoreDsaChunkStartIdx(compositeOp);
+        mlir::IntegerAttr clusterAxis =
+            getIndexerScoreDsaClusterAxis(compositeOp);
         return builder.create<IndexerScoreDsaOp>(
             compositeOp.getLoc(), compositeOp.getResultTypes(),
             compositeOp.getInputs()[0], compositeOp.getInputs()[1],
-            compositeOp.getInputs()[2], chunkStartIdx);
+            compositeOp.getInputs()[2], chunkStartIdx, clusterAxis);
       },
       // Promotion guard: ttnn.experimental.indexer_score_dsa is
       // Blackhole-only. On any other architecture, veto promotion so the

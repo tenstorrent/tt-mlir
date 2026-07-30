@@ -99,6 +99,11 @@ table IndexerScoreDsaOp {
   weights: tt.target.ttnn.TensorRef;
   chunk_start_idx: uint32;
   out: tt.target.ttnn.TensorRef;
+  // Mesh axis carrying the query sequence shard. Unset = the op falls back to a
+  // flat row-major enumeration over ALL of q's devices, which is only correct
+  // when the sequence is sharded across every device. Appended after `out` so
+  // existing flatbuffers keep their field ids.
+  cluster_axis: uint32 = null;
 }
 
 table SparseSdpaOp {
