@@ -4288,9 +4288,15 @@ createOp(FlatbufferObjectCache &cache, WhileOp op,
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
       semaphoreInputs;
 
+  ::flatbuffers::Optional<uint64_t> tripCount = ::flatbuffers::nullopt;
+  if (std::optional<int64_t> attr = op.getTripCount()) {
+    assert(*attr >= 0 && "verifier rejects a negative trip_count");
+    tripCount = static_cast<uint64_t>(*attr);
+  }
+
   return ::tt::target::ttnn::CreateWhileOpDirect(
       *cache.fbb, condProgramId, bodyProgramId, &inits, &captures, &outputs,
-      op.getTripCount().value_or(-1), &semaphoreInputs);
+      tripCount, &semaphoreInputs);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>

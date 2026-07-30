@@ -26,10 +26,10 @@ table WhileOp {
   // Loop-carried tensors after the final iteration.
   outputs: [tt.target.ttnn.TensorRef];
 
-  // Statically known iteration count. When non-negative the runtime skips the
+  // Statically known iteration count. When present the runtime skips the
   // condition program entirely, which avoids a device-to-host synchronization
-  // per iteration. -1 means the loop is data-dependent.
-  trip_count: int64 = -1;
+  // per iteration. Absent means the loop is data-dependent.
+  trip_count: uint64 = null;
 
   semaphore_inputs: [tt.target.ttnn.GlobalSemaphoreRef];
 }
