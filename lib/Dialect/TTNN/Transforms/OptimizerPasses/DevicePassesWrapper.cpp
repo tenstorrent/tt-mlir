@@ -8,6 +8,8 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#include "ttmlir/OpModel/TTNN/TTNNOpsModelCache.h"
+#include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
@@ -65,6 +67,12 @@ public:
     op->setAttr(utils::g_TensorL1UsageCapAttrName,
                 builder.getF32FloatAttr(tensorL1UsageCap));
 
+    // Scoped, so a failing nested pass does not leave the attribute behind on
+    // the module it dumps.
+    auto attrGuard = llvm::make_scope_exit([&]() noexcept {
+      op->removeAttr(utils::g_TensorL1UsageCapAttrName);
+    });
+
     // Create nested pass manager and populate it.
     OpPassManager nestedPm(getOperation()->getName());
     populatePipeline(nestedPm);
@@ -91,13 +99,20 @@ public:
 
     // Run the nested pipeline.
     auto pipelineResult = runPipeline(nestedPm, getOperation());
+
+    // The op-model caches are process-wide and have no pass of their own, so
+    // this is the only scope that knows a batch of backend queries just
+    // finished. Reported unconditionally: a failed pipeline is exactly when the
+    // hit/rejection breakdown is worth seeing.
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "OpModel constraints cache:\n{0}OpModel runtime cache:\n{1}",
+                 opConstraintsCache().statsToString(),
+                 opRuntimeCache().statsToString());
+
     if (failed(pipelineResult) || nestedPassEmittedError) {
       signalPassFailure();
       return;
     }
-
-    // Clean up the attribute after the nested passes complete.
-    op->removeAttr(utils::g_TensorL1UsageCapAttrName);
   }
 
 private:

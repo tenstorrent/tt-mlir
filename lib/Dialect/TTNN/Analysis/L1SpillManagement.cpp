@@ -1796,6 +1796,11 @@ void AddressSimSpillManagement<MemoryTracker>::evictForDramCBGrowth(
   auto config = extractOpConfigFromIR(op);
   auto result = memoryTracker.validateBackendDirect(op, inputLayouts, config,
                                                     /*additionalL1Usage=*/0);
+  // This is the one place that treats a non-success as impossible rather than as
+  // information, so it is the one place where a wrong memoized rejection is
+  // strictly worse than a wrong memoized success: it fails the compile
+  // unconditionally, where a bad success only fails if its numbers happen to
+  // bust the budget. Relevant to failure memoization; see TTNNOpModelCache.
   if (!result.isSuccess()) {
     // The op's demoted (DRAM-interleaved) output config does not validate given
     // its current inputs. This is expected for layout-constrained ops: e.g.
