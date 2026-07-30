@@ -9,6 +9,8 @@
 
 #include "llvm/ADT/SmallVector.h"
 
+#include <cstdint>
+
 namespace mlir::tt::ttnn::op_model {
 
 // tt-mlir-side mirror of tt-metal's experimental::AllocationRecord. Kept as a
@@ -21,6 +23,18 @@ struct OpModelAllocationRecord {
   uint64_t address = 0;
   uint64_t sizePerBank = 0;
 };
+
+// Monotonic counter bumped whenever the active device's compute grid changes;
+// 0 when no device is open or when OpModel support is compiled out.
+//
+// Declared here rather than taken from SingletonDeviceContext.h because that
+// header self-guards on TTMLIR_ENABLE_OPMODEL, which is a PUBLIC compile
+// definition on the OpModel library alone and is therefore NOT defined for
+// MLIRTTNNInterfaces -- the only target that instantiates TTNNOpModelCache.
+// Routing through a declaration that is unconditional, and a definition that
+// exists in both configurations, keeps cache invalidation from silently
+// depending on which target the header happens to be compiled into.
+uint64_t getDeviceGeneration();
 
 /*
  * OpConstraints struct is used to store the constraints of an operation.

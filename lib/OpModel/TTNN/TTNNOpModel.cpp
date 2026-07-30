@@ -796,6 +796,15 @@ void restoreMockAllocatorState() {
 #endif
 }
 
+// See the declaration in TTNNOpConstraints.h for why this indirection exists.
+uint64_t getDeviceGeneration() {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return SingletonDeviceContext::getInstance().getDeviceGeneration();
+#else
+  return 0;
+#endif
+}
+
 bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
                                  TTNNLayoutAttr layout,
                                  ttcore::GridAttr maxGrid) {
