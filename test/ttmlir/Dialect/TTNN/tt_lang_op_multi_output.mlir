@@ -80,4 +80,46 @@ module {
         -> (tensor<32x32xf32, #dram_layout>, tensor<32x32xf32, #dram_layout>)
     return %0, %1 : tensor<32x32xf32, #dram_layout>, tensor<32x32xf32, #dram_layout>
   }
+
+  // CSE folds identical `ttir.empty` inits across the whole module, so two
+  // chained kernels with same-shaped outputs reach this pass sharing one
+  // destination for all four "out" slots. Only the very first slot may keep it:
+  // the second kernel writing there would overwrite the first kernel's result,
+  // which it is also reading as its input.
+  // CHECK-LABEL: func.func @tt_lang_chained_shared_out
+  func.func @tt_lang_chained_shared_out(%arg0: tensor<32x32xf32, #dram_layout>,
+                                        %arg1: tensor<32x32xf32, #dram_layout>,
+                                        %arg2: tensor<32x32xf32, #dram_layout>)
+      -> (tensor<32x32xf32, #dram_layout>, tensor<32x32xf32, #dram_layout>,
+          tensor<32x32xf32, #dram_layout>, tensor<32x32xf32, #dram_layout>)
+      attributes {tt.function_type = "forward_device"} {
+    // CHECK-NOT: ttnn.tt_lang_op
+    // CHECK: %[[E1:[0-9a-zA-Z_]+]] = "ttnn.empty"
+    // CHECK: "ttnn.generic"(%arg0, %arg1, %arg2, %[[E1]])
+    // CHECK: %[[E2:[0-9a-zA-Z_]+]] = "ttnn.empty"
+    // CHECK: %[[E3:[0-9a-zA-Z_]+]] = "ttnn.empty"
+    // The second kernel reads %arg2 and must write somewhere else entirely.
+    // CHECK: "ttnn.generic"(%arg2, %arg1, %[[E2]], %[[E3]])
+    // CHECK: return %arg2, %[[E1]], %[[E2]], %[[E3]]
+    %0, %1 = "ttnn.tt_lang_op"(%arg0, %arg1, %arg2, %arg2) <{
+      kernel_id = "test.dual::v1",
+      version_tag = "1.0",
+      arg_roles = "in,in,out,out",
+      shard_spec = "",
+      kernel_artifact = "{\"format_version\": 1, \"kernels\": [{\"thread_type\": \"compute\", \"cpp_source\": \"// compute kernel stub\", \"tensor_indices\": [0, 1, 2, 3], \"kernel_config\": {\"type\": \"ComputeKernelConfig\", \"math_fidelity\": \"HiFi4\", \"fp32_dest_acc_en\": false, \"dst_full_sync_en\": false, \"bfp8_pack_precise\": false, \"math_approx_mode\": false}}, {\"thread_type\": \"noc\", \"cpp_source\": \"// reader kernel stub\", \"tensor_indices\": [0, 1], \"kernel_config\": {\"type\": \"ReaderKernelConfig\"}}, {\"thread_type\": \"noc\", \"cpp_source\": \"// writer kernel stub\", \"tensor_indices\": [2, 3], \"kernel_config\": {\"type\": \"WriterKernelConfig\"}}], \"core_range\": {\"start\": [0, 0], \"end\": [0, 0]}, \"cb_configs\": [{\"buffer_index\": 0, \"data_format\": \"Float32\", \"page_size\": 4096, \"total_size\": 8192, \"num_tiles\": 2, \"block_count\": 2}, {\"buffer_index\": 1, \"data_format\": \"Float32\", \"page_size\": 4096, \"total_size\": 8192, \"num_tiles\": 2, \"block_count\": 2}, {\"buffer_index\": 2, \"data_format\": \"Float32\", \"page_size\": 4096, \"total_size\": 8192, \"num_tiles\": 2, \"block_count\": 2}, {\"buffer_index\": 3, \"data_format\": \"Float32\", \"page_size\": 4096, \"total_size\": 8192, \"num_tiles\": 2, \"block_count\": 2}], \"num_tensors\": 4, \"num_pipe_nets\": 0}"
+    }> : (tensor<32x32xf32, #dram_layout>, tensor<32x32xf32, #dram_layout>,
+          tensor<32x32xf32, #dram_layout>, tensor<32x32xf32, #dram_layout>)
+        -> (tensor<32x32xf32, #dram_layout>, tensor<32x32xf32, #dram_layout>)
+    %2, %3 = "ttnn.tt_lang_op"(%0, %arg1, %arg2, %arg2) <{
+      kernel_id = "test.dual::v1",
+      version_tag = "1.0",
+      arg_roles = "in,in,out,out",
+      shard_spec = "",
+      kernel_artifact = "{\"format_version\": 1, \"kernels\": [{\"thread_type\": \"compute\", \"cpp_source\": \"// compute kernel stub\", \"tensor_indices\": [0, 1, 2, 3], \"kernel_config\": {\"type\": \"ComputeKernelConfig\", \"math_fidelity\": \"HiFi4\", \"fp32_dest_acc_en\": false, \"dst_full_sync_en\": false, \"bfp8_pack_precise\": false, \"math_approx_mode\": false}}, {\"thread_type\": \"noc\", \"cpp_source\": \"// reader kernel stub\", \"tensor_indices\": [0, 1], \"kernel_config\": {\"type\": \"ReaderKernelConfig\"}}, {\"thread_type\": \"noc\", \"cpp_source\": \"// writer kernel stub\", \"tensor_indices\": [2, 3], \"kernel_config\": {\"type\": \"WriterKernelConfig\"}}], \"core_range\": {\"start\": [0, 0], \"end\": [0, 0]}, \"cb_configs\": [{\"buffer_index\": 0, \"data_format\": \"Float32\", \"page_size\": 4096, \"total_size\": 8192, \"num_tiles\": 2, \"block_count\": 2}, {\"buffer_index\": 1, \"data_format\": \"Float32\", \"page_size\": 4096, \"total_size\": 8192, \"num_tiles\": 2, \"block_count\": 2}, {\"buffer_index\": 2, \"data_format\": \"Float32\", \"page_size\": 4096, \"total_size\": 8192, \"num_tiles\": 2, \"block_count\": 2}, {\"buffer_index\": 3, \"data_format\": \"Float32\", \"page_size\": 4096, \"total_size\": 8192, \"num_tiles\": 2, \"block_count\": 2}], \"num_tensors\": 4, \"num_pipe_nets\": 0}"
+    }> : (tensor<32x32xf32, #dram_layout>, tensor<32x32xf32, #dram_layout>,
+          tensor<32x32xf32, #dram_layout>, tensor<32x32xf32, #dram_layout>)
+        -> (tensor<32x32xf32, #dram_layout>, tensor<32x32xf32, #dram_layout>)
+    return %0, %1, %2, %3 : tensor<32x32xf32, #dram_layout>, tensor<32x32xf32, #dram_layout>,
+                            tensor<32x32xf32, #dram_layout>, tensor<32x32xf32, #dram_layout>
+  }
 }
