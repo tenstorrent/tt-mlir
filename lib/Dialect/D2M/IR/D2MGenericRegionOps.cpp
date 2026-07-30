@@ -1534,6 +1534,158 @@ TopkBlockOp::bufferize(mlir::RewriterBase &rewriter,
 }
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
+//===----------------------------------------------------------------------===//
+// SortBlockOp Implementation
+//===----------------------------------------------------------------------===//
+
+mlir::LogicalResult SortBlockOp::verify() {
+  Type inputType = getInputValues().getType();
+  Type outValsType = getOutValues().getType();
+  Type outIdxType = getOutIndices().getType();
+
+  bool inputIsTensor = mlir::isa<mlir::RankedTensorType>(inputType);
+  bool outValsIsTensor = mlir::isa<mlir::RankedTensorType>(outValsType);
+  bool outIdxIsTensor = mlir::isa<mlir::RankedTensorType>(outIdxType);
+
+  if (inputIsTensor != outValsIsTensor || inputIsTensor != outIdxIsTensor) {
+    return emitOpError("all operands must be tensors or all must be memrefs");
+  }
+
+  auto shaped = mlir::dyn_cast<mlir::ShapedType>(inputType);
+  if (shaped && shaped.hasRank()) {
+    int64_t rank = shaped.getRank();
+    int64_t dim = getDim();
+    if (dim < 0 || dim >= rank) {
+      return emitOpError("dim ") << dim << " is out of range for rank " << rank;
+    }
+    // The bitonic network pairs tiles as `i ^ dist`, which only covers the
+    // whole reduction extent when it is a power of two, and needs at least the
+    // two tiles that `topk_local_sort` operates on.
+    int64_t reductionTiles = shaped.getDimSize(dim);
+    if (reductionTiles < 2 || (reductionTiles & (reductionTiles - 1)) != 0) {
+      return emitOpError("reduction dimension must be a power-of-two tile "
+                         "count of at least 2, got ")
+             << reductionTiles;
+    }
+  }
+  return mlir::success();
+}
+
+void SortBlockOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(),
+                       &getInputValuesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(),
+                       &getScratchIdxTileMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getScratchIdxTileMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getOutValuesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getOutIndicesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+}
+
+bool SortBlockOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getInputValues() ||
+         operand.get() == getScratchIdxTile();
+}
+
+bool SortBlockOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getOutValues() || operand.get() == getOutIndices() ||
+         operand.get() == getScratchIdxTile();
+}
+
+mlir::bufferization::AliasingValueList
+SortBlockOp::getAliasingValues(mlir::OpOperand &operand,
+                               const mlir::bufferization::AnalysisState &) {
+  if (operand.get() == getOutValues()) {
+    return {{getResultValues(), mlir::bufferization::BufferRelation::Equivalent,
+             /*isDefinite=*/true}};
+  }
+  if (operand.get() == getOutIndices()) {
+    return {{getResultIndices(),
+             mlir::bufferization::BufferRelation::Equivalent,
+             /*isDefinite=*/true}};
+  }
+  return {};
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+SortBlockOp::getBufferType(mlir::Value value,
+                           const mlir::bufferization::BufferizationOptions &,
+                           const mlir::bufferization::BufferizationState &,
+                           ::llvm::SmallVector<mlir::Value> &) {
+  // Determine which output tensor this value corresponds to.
+  mlir::RankedTensorType tensorType;
+  if (value == getResultValues()) {
+    tensorType =
+        mlir::dyn_cast<mlir::RankedTensorType>(getOutValues().getType());
+  } else if (value == getResultIndices()) {
+    tensorType =
+        mlir::dyn_cast<mlir::RankedTensorType>(getOutIndices().getType());
+  }
+  if (!tensorType) {
+    return mlir::bufferization::BufferLikeType(
+        mlir::cast<mlir::MemRefType>(getOutValues().getType()));
+  }
+  auto memrefType =
+      mlir::bufferization::getMemRefTypeWithStaticIdentityLayout(tensorType);
+  return mlir::bufferization::BufferLikeType(memrefType);
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+mlir::LogicalResult
+SortBlockOp::bufferize(mlir::RewriterBase &rewriter,
+                       const mlir::bufferization::BufferizationOptions &options,
+                       mlir::bufferization::BufferizationState &state) {
+  if (!mlir::isa<mlir::RankedTensorType>(getOutValues().getType())) {
+    return mlir::failure();
+  }
+
+  auto maybeInputBuffer = mlir::bufferization::getBuffer(
+      rewriter, getInputValues(), options, state);
+  if (failed(maybeInputBuffer)) {
+    return maybeInputBuffer;
+  }
+
+  auto maybeScratchBuffer = mlir::bufferization::getBuffer(
+      rewriter, getScratchIdxTile(), options, state);
+  if (failed(maybeScratchBuffer)) {
+    return maybeScratchBuffer;
+  }
+
+  auto maybeOutValsBuffer =
+      mlir::bufferization::getBuffer(rewriter, getOutValues(), options, state);
+  if (failed(maybeOutValsBuffer)) {
+    return maybeOutValsBuffer;
+  }
+
+  auto maybeOutIdxBuffer =
+      mlir::bufferization::getBuffer(rewriter, getOutIndices(), options, state);
+  if (failed(maybeOutIdxBuffer)) {
+    return maybeOutIdxBuffer;
+  }
+
+  rewriter.create<SortBlockOp>(getLoc(), *maybeInputBuffer, *maybeScratchBuffer,
+                               *maybeOutValsBuffer, *maybeOutIdxBuffer,
+                               getNumElements(), getDescending(), getDim());
+
+  mlir::bufferization::replaceOpWithBufferizedValues(
+      rewriter, getOperation(),
+      mlir::ValueRange{*maybeOutValsBuffer, *maybeOutIdxBuffer});
+  return mlir::success();
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
 bool RemoteLoadOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   // Only result-form (no CB) operations should exist during bufferization

@@ -127,25 +127,25 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
     // Emit local_sort + merge + rebuild for the large-k path. The rebuild
     // always runs here (is_group_end=true), so the merge never packs
     // (is_group_end=false).
-    auto emitSortMergeRebuild = [&](Value tA, Value tB, int32_t mergeK,
-                                    int32_t rebuildK, int32_t mLogk,
-                                    Value sortStartPhase, int32_t sortEndPhase,
-                                    Value mergeIter, int32_t skipSecond,
-                                    Value rfo) {
-      rewriter.create<TileTopkLocalSortOp>(
-          loc, inputValues, bufIdxFilled, outValues, outIndices,
-          /*idir=*/i32Attr(0), /*i_end_phase=*/i32Attr(sortEndPhase),
-          /*i_start_phase=*/sortStartPhase, tA, tB, boolAttr(true),
-          i1Val(false), rfo);
-      rewriter.create<TileTopkMergeOp>(loc, inputValues, bufIdxFilled,
-                                       outValues, outIndices, mergeIter,
-                                       i32Attr(mergeK), tA, tB, boolAttr(false),
-                                       /*is_group_end=*/i1Val(false), rfo);
-      rewriter.create<TileTopkRebuildOp>(
-          loc, inputValues, bufIdxFilled, outValues, outIndices, i32Attr(0),
-          mergeIter, i32Attr(rebuildK), i32Attr(mLogk), i32Attr(skipSecond), tA,
-          tB, boolAttr(false), /*is_group_end=*/i1Val(true), rfo);
-    };
+    auto emitSortMergeRebuild =
+        [&](Value tA, Value tB, int32_t mergeK, int32_t rebuildK, int32_t mLogk,
+            Value sortStartPhase, int32_t sortEndPhase, Value mergeIter,
+            int32_t skipSecond, Value rfo) {
+          rewriter.create<TileTopkLocalSortOp>(
+              loc, inputValues, bufIdxFilled, outValues, outIndices,
+              /*idir=*/zeroI32, /*i_end_phase=*/i32Attr(sortEndPhase),
+              /*i_start_phase=*/sortStartPhase, tA, tB, boolAttr(true),
+              i1Val(false), rfo);
+          rewriter.create<TileTopkMergeOp>(
+              loc, inputValues, bufIdxFilled, outValues, outIndices, mergeIter,
+              i32Attr(mergeK), tA, tB, /*store_tile_a=*/tA, /*store_tile_b=*/tB,
+              boolAttr(false),
+              /*is_group_end=*/i1Val(false), rfo);
+          rewriter.create<TileTopkRebuildOp>(
+              loc, inputValues, bufIdxFilled, outValues, outIndices, i32Attr(0),
+              mergeIter, i32Attr(rebuildK), i32Attr(mLogk), i32Attr(skipSecond),
+              tA, tB, boolAttr(false), /*is_group_end=*/i1Val(true), rfo);
+        };
 
     if (useLargeK) {
       // Left-fold: keeps a running 2-tile accumulator, with the winner always
@@ -211,7 +211,7 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
         // tileA==tileB is harmless).
         rewriter.create<TileTopkLocalSortOp>(
             loc, inputValues, bufIdxFilled, outValues, outIndices,
-            /*idir=*/i32Attr(0), /*i_end_phase=*/i32Attr(logk - 1),
+            /*idir=*/zeroI32, /*i_end_phase=*/i32Attr(logk - 1),
             /*i_start_phase=*/zeroI32, /*tileA=*/flat(tailIdx),
             /*tileB=*/flat(tailIdx), /*is_group_start=*/boolAttr(true),
             /*is_group_end=*/i1Val(true), /*rfo=*/falseVal);
@@ -269,12 +269,13 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
 
         rewriter.create<TileTopkLocalSortOp>(
             loc, inputValues, bufIdxFilled, outValues, outIndices,
-            /*idir=*/i32Attr(0), /*i_end_phase=*/i32Attr(4),
+            /*idir=*/zeroI32, /*i_end_phase=*/i32Attr(4),
             /*i_start_phase=*/sortStartPhase, tileA, tileB, boolAttr(true),
             i1Val(false), /*rfo=*/readFromOutput);
         rewriter.create<TileTopkMergeOp>(
             loc, inputValues, bufIdxFilled, outValues, outIndices,
-            /*mergeIter=*/mIterI32, i32Attr(32), tileA, tileB, boolAttr(false),
+            /*mergeIter=*/mIterI32, i32Attr(32), tileA, tileB,
+            /*store_tile_a=*/tileA, /*store_tile_b=*/tileB, boolAttr(false),
             /*is_group_end=*/i1Val(!needsRebuild), /*rfo=*/readFromOutput);
 
         if (needsRebuild) {
@@ -294,7 +295,7 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
           Value tailTileIdx = flat(tailRawIdx);
           rewriter.create<TileTopkLocalSortOp>(
               loc, inputValues, bufIdxFilled, outValues, outIndices,
-              /*idir=*/i32Attr(0), /*i_end_phase=*/i32Attr(4),
+              /*idir=*/zeroI32, /*i_end_phase=*/i32Attr(4),
               /*i_start_phase=*/i32Val(0), /*tileA=*/tailTileIdx,
               /*tileB=*/tailTileIdx, /*is_group_start=*/boolAttr(true),
               /*is_group_end=*/i1Val(true), /*rfo=*/falseVal);

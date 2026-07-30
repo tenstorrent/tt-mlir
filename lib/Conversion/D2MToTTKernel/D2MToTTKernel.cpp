@@ -2113,6 +2113,9 @@ static void emitTopkGroupStart(OpBuilder &rewriter, Location loc,
   rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcIdx, tileB, dst3);
 }
 
+// `tileA`/`tileB` are the *pack destinations*, which are not always the tiles
+// the group loaded from: `tile_topk_merge` swaps them to flip the direction of
+// its compare-exchange.
 static void emitTopkGroupEnd(OpBuilder &rewriter, Location loc, Value cbOutVals,
                              Value cbOutIdx, Value tileA, Value tileB) {
   Value dst0 = index(rewriter, loc, 0);
@@ -2166,13 +2169,14 @@ static void emitTopkGroupStartIfNeeded(ConversionPatternRewriter &rewriter,
 
 template <typename OpTy>
 static void emitTopkGroupEndIfNeeded(ConversionPatternRewriter &rewriter,
-                                     Location loc, OpTy op, Value tileA,
-                                     Value tileB) {
+                                     Location loc, OpTy op, Value storeTileA,
+                                     Value storeTileB) {
   Value isGroupEnd = op.getIsGroupEnd();
   std::optional<int64_t> isGroupEndConst = getConstantIntValue(isGroupEnd);
   if (isGroupEndConst && *isGroupEndConst != 0) {
     emitTopkGroupEnd(rewriter, loc, getCB(rewriter, op.getOutValues()),
-                     getCB(rewriter, op.getOutIndices()), tileA, tileB);
+                     getCB(rewriter, op.getOutIndices()), storeTileA,
+                     storeTileB);
     return;
   }
   if (isGroupEndConst) {
@@ -2195,7 +2199,7 @@ public:
 
     emitTopkGroupStartIfNeeded(rewriter, loc, op, tileA, tileB);
     rewriter.create<ttkernel::TopkLocalSortOp>(
-        loc, index(rewriter, loc, 0), i32(op.getIdir()), i32(op.getIEndPhase()),
+        loc, index(rewriter, loc, 0), op.getIdir(), i32(op.getIEndPhase()),
         op.getIStartPhase());
     emitTopkGroupEndIfNeeded(rewriter, loc, op, tileA, tileB);
 
@@ -2218,7 +2222,10 @@ public:
     emitTopkGroupStartIfNeeded(rewriter, loc, op, tileA, tileB);
     rewriter.create<ttkernel::TopkMergeOp>(loc, index(rewriter, loc, 0),
                                            op.getMIter(), i32(op.getK()));
-    emitTopkGroupEndIfNeeded(rewriter, loc, op, tileA, tileB);
+    // The pack destinations may be swapped relative to the loaded tiles; that
+    // is how a bitonic sort flips the direction of this compare-exchange.
+    emitTopkGroupEndIfNeeded(rewriter, loc, op, op.getStoreTileA(),
+                             op.getStoreTileB());
 
     rewriter.eraseOp(op);
     return success();

@@ -976,6 +976,39 @@ def D2MDecomposeTopk : Pass<"d2m-decompose-topk", "::mlir::ModuleOp"> {
   ];
 }
 
+def D2MDecomposeSort : Pass<"d2m-decompose-sort", "::mlir::ModuleOp"> {
+  let summary = "Decompose sort_block ops into low-level tile operations";
+  let description = [{
+    This pass decomposes high-level `sort_block` operations into the tile ops
+    of a bitonic merge sort: `tile_topk_local_sort` and `tile_topk_merge`.
+
+    Unlike the topk decomposition, no `tile_topk_rebuild` is emitted. The
+    `topk_merge` LLK is a plain compare-exchange that writes the loser to the
+    first DST tile and the winner to the second, so both halves survive and the
+    network keeps every element. Sort direction per comparison block is
+    obtained by swapping the merge's pack destinations.
+
+    The decomposition, per independent non-target row:
+    1. Form the initial bitonic sequence: one `tile_topk_local_sort` over each
+       adjacent tile pair, with the direction alternating between pairs.
+    2. Run the bitonic merge network: for each stage, compare-exchange tiles
+       `2^(sub-1)` apart via `tile_topk_merge`, finishing each stage with a
+       full `tile_topk_local_sort` over the adjacent pair.
+
+    The reduction dimension must be a power-of-two number of tiles (at least
+    two); `TTIRToD2M` pads and masks the input to guarantee this.
+
+    This pass should run after bufferization and before
+    MarkSynchronizedBuffers.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::scf::SCFDialect"
+  ];
+}
+
 def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::ModuleOp"> {
   let summary = "Scalarize uses of splat fills produced inside d2m.generic (tile_fill pattern)";
   let description = [{

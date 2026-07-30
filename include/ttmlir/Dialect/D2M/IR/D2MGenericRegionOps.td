@@ -1096,7 +1096,9 @@ def D2M_TileTopkLocalSortOp : D2M_GenericRegionComputeOp<"tile_topk_local_sort",
         - `values`/`indices`: input value/index tensors or memrefs.
         - `out_values`/`out_indices`: output value/index tensors or memrefs;
           the op's DPS inits (`getDpsInitsMutable` = operands 2-3).
-        - `idir`: sort direction (0 = descending).
+        - `idir`: sort direction (0 = descending). A runtime value, because a
+          bitonic sort network alternates direction between neighbouring tile
+          pairs and between blocks of a merge stage.
         - `i_end_phase`: last bitonic-network phase (0-indexed) to run; a full
           64-element sort runs phases 0..5.
         - `i_start_phase`: first bitonic-network phase (0-indexed) to run;
@@ -1117,7 +1119,7 @@ def D2M_TileTopkLocalSortOp : D2M_GenericRegionComputeOp<"tile_topk_local_sort",
                          AnyRankedTensorOrMemRef:$indices,
                          AnyRankedTensorOrMemRef:$out_values,
                          AnyRankedTensorOrMemRef:$out_indices,
-                         I32Attr:$idir,
+                         I32:$idir,
                          I32Attr:$i_end_phase,
                          I32:$i_start_phase,
                          Index:$tile_a,
@@ -1164,6 +1166,12 @@ def D2M_TileTopkMergeOp : D2M_GenericRegionComputeOp<"tile_topk_merge",
         - `tile_a`, `tile_b`: flat tile indices of the pair being merged;
           after the merge, `tile_a` holds the combined top-K result, `tile_b`
           the losers.
+        - `store_tile_a`, `store_tile_b`: flat tile indices the two result
+          tiles are packed back to. Normally these equal `tile_a`/`tile_b`,
+          but a full bitonic sort swaps them to flip the compare-exchange
+          direction: the LLK always writes the loser to the first DST tile and
+          the winner to the second, so an ascending block is obtained by
+          swapping the pack destinations rather than by re-running the merge.
         - `is_group_start`: whether this op is responsible for acquiring the
           DST tile registers and copying `tile_a`/`tile_b` in from the source
           CB.
@@ -1182,6 +1190,8 @@ def D2M_TileTopkMergeOp : D2M_GenericRegionComputeOp<"tile_topk_merge",
                          I32Attr:$k,
                          Index:$tile_a,
                          Index:$tile_b,
+                         Index:$store_tile_a,
+                         Index:$store_tile_b,
                          BoolAttr:$is_group_start,
                          I1:$is_group_end,
                          I1:$read_from_output);
@@ -3400,6 +3410,81 @@ def D2M_TopkBlockOp : D2M_GenericRegionComputeOp<"topk_block",
             $_builder.getI32IntegerAttr(k),
             $_builder.getI64IntegerAttr(numElements),
             $_builder.getBoolAttr(stableSort),
+            $_builder.getI32IntegerAttr(dim));
+    }]>
+  ];
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() {
+      return MutableOperandRange(getOperation(), 2, 2);
+    }
+    bool isProducer(mlir::OpOperand &operand) {
+      return &operand == &getOutValuesMutable() ||
+             &operand == &getOutIndicesMutable();
+    }
+    bool isConsumer(mlir::OpOperand &operand) {
+      return &operand == &getInputValuesMutable() ||
+             &operand == &getScratchIdxTileMutable();
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
+def D2M_SortBlockOp : D2M_GenericRegionComputeOp<"sort_block",
+  [DestinationStyleOpInterface,
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+  DeclareOpInterfaceMethods<BufferizableOpInterface,
+    ["bufferizesToMemoryRead", "bufferizesToMemoryWrite", "bufferize",
+    "getAliasingValues", "getBufferType"]>,
+  D2M_SkipOpEltwiseFusionTrait,
+  D2M_SynchronizableOpInterface]> {
+  let summary = "D2M Sort Block Op";
+  let description = [{
+      The `sort_block` operation performs a full bitonic sort of a transposed
+      input shard along its reduction dimension, producing the sorted values
+      and the original indices of each element.
+
+      This op operates at the block level (memref of tiles) and is decomposed
+      post-bufferization by `d2m-decompose-sort` into `tile_topk_local_sort`
+      and `tile_topk_merge`. Unlike `topk_block`, no `tile_topk_rebuild` is
+      emitted: the underlying `topk_merge` LLK is a plain compare-exchange
+      that preserves both halves, so the bitonic network keeps every element.
+
+      The reduction dimension must be a power-of-two number of tiles (at least
+      two), which the sort network's `j = i ^ dist` partner indexing requires.
+      The producing rewriter pads and masks up to that size, with the mask
+      value chosen so padding always sorts to the tail.
+
+      The scratch_idx_tile is a pre-filled full-shape index buffer containing
+      the arange of original element indices (generated upstream in TTIRToD2M
+      via arange + broadcast generics). `d2m-decompose-sort` consumes this
+      buffer directly.
+  }];
+
+  let arguments = (ins
+      AnyRankedTensorOrMemRef:$input_values,
+      AnyRankedTensorOrMemRef:$scratch_idx_tile,
+      AnyRankedTensorOrMemRef:$out_values,
+      AnyRankedTensorOrMemRef:$out_indices,
+      I64Attr:$num_elements,
+      BoolAttr:$descending,
+      I32Attr:$dim);
+
+  let results = (outs
+      AnyRankedTensorOrMemRef:$result_values,
+      AnyRankedTensorOrMemRef:$result_indices);
+
+  let builders = [
+    OpBuilder<(ins "Value":$inputValues, "Value":$scratchIdxTile,
+                    "Value":$outValues, "Value":$outIndices,
+                    "int64_t":$numElements, "bool":$descending,
+                    "int32_t":$dim), [{
+      build($_builder, $_state,
+            outValues.getType(), outIndices.getType(),
+            inputValues, scratchIdxTile, outValues, outIndices,
+            $_builder.getI64IntegerAttr(numElements),
+            $_builder.getBoolAttr(descending),
             $_builder.getI32IntegerAttr(dim));
     }]>
   ];

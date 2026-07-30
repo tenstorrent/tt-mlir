@@ -134,6 +134,7 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   createTTIRBufferizationPipeline(pm, options);
   pm.addPass(d2m::createD2MInsertScratchBuffers());
   pm.addPass(d2m::createD2MDecomposeTopk());
+  pm.addPass(d2m::createD2MDecomposeSort());
 
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
