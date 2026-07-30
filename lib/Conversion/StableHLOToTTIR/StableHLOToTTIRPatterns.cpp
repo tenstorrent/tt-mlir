@@ -9728,6 +9728,26 @@ public:
     }
     IntegerAttr chunkStartIdxAttr = rewriter.getUI32IntegerAttr(chunkStartIdx);
 
+    // cluster_axis is optional. Absent leaves the kernel on its flat row-major
+    // enumeration over all of q's devices, which is only correct when the query
+    // sequence is sharded across every device. Naming the axis is what makes a
+    // partial split (e.g. heads on one mesh axis, sequence on another) correct.
+    IntegerAttr clusterAxisAttr;
+    if (auto frontendAttributes = mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"))) {
+      if (auto clusterAxisStringAttr =
+              frontendAttributes.getAs<mlir::StringAttr>("cluster_axis")) {
+        uint32_t clusterAxis = 0;
+        if (!llvm::to_integer(clusterAxisStringAttr.getValue(), clusterAxis)) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "cluster_axis attribute must be a non-negative integer. "
+                     "Received \"" +
+                         clusterAxisStringAttr.getValue() + "\".");
+        }
+        clusterAxisAttr = rewriter.getUI32IntegerAttr(clusterAxis);
+      }
+    }
+
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult(0).getType()));
 
@@ -9764,6 +9784,11 @@ public:
     SmallVector<NamedAttribute> compositeAttrList;
     compositeAttrList.push_back(
         rewriter.getNamedAttr("chunk_start_idx", chunkStartIdxAttr));
+    // Only carried when the caller named an axis; absent means "flat".
+    if (clusterAxisAttr) {
+      compositeAttrList.push_back(
+          rewriter.getNamedAttr("cluster_axis", clusterAxisAttr));
+    }
 
     rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
         srcOp, TypeRange{outputType}, ValueRange(compositeInputs),

@@ -7078,7 +7078,7 @@ TEST_F(OpModelBase, IndexerScoreDsaOpInterface) {
 
   auto indexerOp = builder.create<IndexerScoreDsaOp>(
       builder.getUnknownLoc(), outputType, query, key, weights,
-      /*chunk_start_idx=*/0);
+      /*chunk_start_idx=*/0, /*cluster_axis=*/mlir::IntegerAttr());
 
   indexerOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 

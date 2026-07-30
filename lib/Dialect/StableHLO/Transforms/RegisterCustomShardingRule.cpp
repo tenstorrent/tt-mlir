@@ -527,13 +527,28 @@ getFlashMlaPrefillShardingRule(mlir::stablehlo::CustomCallOp op) {
 //       the key's single shared head stays replicated (kNullDim). Sharding it
 //       makes each device compute a partial per-head sum; Shardy inserts an
 //       all_reduce(sum) to combine them, giving tensor parallelism over heads.
-//   - Query seq (kNeedReplication, size Sq): query/weights dim 2, out dim 2.
-//       Cannot shard: the causal mask uses absolute query positions the fused
-//       op recomputes locally, so a sharded Sq would mis-mask.
-//   - Key seq   (kNeedReplication, size T) : key dim 2, out dim 3. Same
-//       absolute-position reasoning as Sq.
+//   - Query seq (kPassThrough,     size Sq): query/weights dim 2, out dim 2.
+//       Sequence parallelism. The fused op is SP-aware: it takes
+//       `chunk_start_idx` to be the absolute position of rank 0's first query
+//       row and masks device `rank` against `chunk_start_idx + rank * Sq_local
+//       + s`, deriving `rank` from that device's position in the mesh. So a
+//       sharded Sq still masks causally against the full, replicated key
+//       sequence. No collective is needed: the output's query dim carries the
+//       same sharding.
+//   - Key seq   (kNeedReplication, size T) : key dim 2, out dim 3. The whole
+//       key history must be resident on every device for the causal mask over
+//       absolute key positions to be exact.
 //   - Head dim  (kNeedReplication, size D) : query/key dim 3. Contracted
 //       internally by the q.k dot product.
+//
+// Sharding Sq alongside Batch or Heads requires the caller to set the
+// `cluster_axis` frontend attribute, naming the mesh axis Sq is sharded on.
+// Without it the op guesses the rank from a flat index over all of the query's
+// devices, which only matches when Sq is the one sharded factor.
+//
+// Sharding Sq also needs Blackhole, where the composite promotes to
+// ttnn.indexer_score_dsa. Elsewhere it falls back to a decomposition whose
+// causal mask is the same on every device, so ranks past 0 mask wrongly.
 static mlir::sdy::OpShardingRuleAttr
 getIndexerScoreDsaShardingRule(mlir::stablehlo::CustomCallOp op) {
   if (op.getNumOperands() != 3 || op.getNumResults() != 1) {
@@ -610,9 +625,12 @@ getIndexerScoreDsaShardingRule(mlir::stablehlo::CustomCallOp op) {
   builder.addFactor({1, sdy::kNullDim, 1}, {sdy::kNullDim}, Hi,
                     sdy::FactorType::kReduction);
 
-  // Query sequence (query/weights dim 2, out dim 2): kNeedReplication.
+  // Query sequence (query/weights dim 2, out dim 2): kPassThrough — sequence
+  // parallelism. The fused op reconstructs each device's absolute query offset
+  // from its SP rank, so the local causal mask stays correct against the full
+  // (replicated) key sequence.
   builder.addFactor({2, sdy::kNullDim, 2}, {2}, Sq,
-                    sdy::FactorType::kNeedReplication);
+                    sdy::FactorType::kPassThrough);
 
   // Key sequence (key dim 2, out dim 3): kNeedReplication.
   builder.addFactor({sdy::kNullDim, 2, sdy::kNullDim}, {3}, T,

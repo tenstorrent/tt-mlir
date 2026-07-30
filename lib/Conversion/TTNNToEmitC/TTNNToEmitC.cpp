@@ -3858,6 +3858,13 @@ public:
         emitter.emit(srcOp.getKey()),
         emitter.emit(srcOp.getWeights()),
         emitter.emit(srcOp.getChunkStartIdx()),
+        /*program_config=*/
+        emitter.emit<::ttnn::operations::experimental::indexer_score::
+                         IndexerScoreProgramConfig>(std::nullopt),
+        /*compute_kernel_config=*/emitter.emit(std::nullopt),
+        /*cache_batch_idx=*/emitter.emit(std::nullopt),
+        /*kv_len=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getClusterAxis()),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 

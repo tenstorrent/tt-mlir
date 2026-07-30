@@ -42,3 +42,44 @@ module @IndexerScoreDsa_Sharding_Batch attributes {mhlo.cross_program_prefetches
     return %0 : tensor<2x1x32x32xbf16>
   }
 }
+
+// -----
+
+// Sequence parallelism over the query sequence. query/weights shard on the
+// query seq dim (Sq); the key keeps its full sequence (T) on every device so
+// the causal mask over absolute key positions stays exact. The fused op derives
+// each device's absolute query offset from its SP rank, so the result simply
+// inherits the shard on its query dim -- no collective.
+// CHECK-LABEL: module @IndexerScoreDsa_Sharding_QuerySeq
+module @IndexerScoreDsa_Sharding_QuerySeq attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_attributes = {xla.sdy.meshes = "{mesh = #sdy.mesh<[\22_axis_0\22=2]>}"}, mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+  func.func @main(%arg0: tensor<1x8x64x128xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {}, {\22_axis_0\22}, {}]>"}, mhlo.sharding = "{devices=[1,1,2,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "query"}, %arg1: tensor<1x1x64x128xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "key"}, %arg2: tensor<1x8x64x1xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {}, {\22_axis_0\22}, {}]>"}, mhlo.sharding = "{devices=[1,1,2,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "weights"}) -> tensor<1x1x64x64xbf16> {
+    // The custom call runs on the local query-seq shard; the key is not
+    // sharded and the query seq is not all-gathered before the op.
+    // CHECK-NOT: stablehlo.all_gather
+    // CHECK-NOT: stablehlo.all_reduce
+    // CHECK: stablehlo.custom_call @tt.indexer_score_dsa
+    // CHECK-SAME: tensor<1x8x32x128xbf16>, tensor<1x1x64x128xbf16>, tensor<1x8x32x1xbf16>
+    // CHECK-SAME: -> tensor<1x1x32x64xbf16>
+    %0 = stablehlo.custom_call @tt.indexer_score_dsa(%arg0, %arg1, %arg2) {api_version = 0 : i32} : (tensor<1x8x64x128xbf16>, tensor<1x1x64x128xbf16>, tensor<1x8x64x1xbf16>) -> tensor<1x1x64x64xbf16>
+    return %0 : tensor<1x1x64x64xbf16>
+  }
+}
+
+// -----
+
+// The KEY sequence (T) stays kNeedReplication: annotating the key's seq dim
+// forces the partitioner to all-gather it back to the full T before the op,
+// while the query seq shard is unaffected.
+// CHECK-LABEL: module @IndexerScoreDsa_Sharding_KeySeq_Replicated
+module @IndexerScoreDsa_Sharding_KeySeq_Replicated attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_attributes = {xla.sdy.meshes = "{mesh = #sdy.mesh<[\22_axis_0\22=2]>}"}, mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+  func.func @main(%arg0: tensor<1x8x64x128xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "query"}, %arg1: tensor<1x1x64x128xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {}, {\22_axis_0\22}, {}]>"}, mhlo.sharding = "{devices=[1,1,2,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "key"}, %arg2: tensor<1x8x64x1xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "weights"}) -> tensor<1x1x64x64xbf16> {
+    // CHECK: stablehlo.all_gather
+    // CHECK-SAME: all_gather_dim = 2
+    // CHECK-SAME: (tensor<1x1x32x128xbf16>) -> tensor<1x1x64x128xbf16>
+    // CHECK: stablehlo.custom_call @tt.indexer_score_dsa
+    // CHECK-SAME: tensor<1x8x64x128xbf16>, tensor<1x1x64x128xbf16>, tensor<1x8x64x1xbf16>
+    // CHECK-SAME: -> tensor<1x1x64x64xbf16>
+    %0 = stablehlo.custom_call @tt.indexer_score_dsa(%arg0, %arg1, %arg2) {api_version = 0 : i32} : (tensor<1x8x64x128xbf16>, tensor<1x1x64x128xbf16>, tensor<1x8x64x1xbf16>) -> tensor<1x1x64x64xbf16>
+    return %0 : tensor<1x1x64x64xbf16>
+  }
+}

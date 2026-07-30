@@ -4589,6 +4589,7 @@ public:
         emitter.emit(srcOp.getKey()),
         emitter.emit(srcOp.getWeights()),
         emitter.emit(srcOp.getChunkStartIdx(), "chunk_start_idx"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 

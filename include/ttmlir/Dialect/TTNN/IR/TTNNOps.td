@@ -4120,6 +4120,12 @@ def TTNN_IndexerScoreDsaOp : TTNN_Op<"indexer_score_dsa"> {
           weights (AnyRankedTensor): `[B x Hi x Sq x 1]` per-head gate scales.
           chunk_start_idx (uint): Causal offset of the first query within the
               full key sequence. Defaults to `0`.
+          cluster_axis (optional uint): Mesh axis carrying the query sequence
+              shard. On a mesh, the op offsets each device's causal window by
+              `rank * Sq`, where `rank` is that device's index along this axis.
+              Unset leaves the op on a flat row-major enumeration over all of
+              the query's devices, which is only correct when the query
+              sequence is sharded across every device.
 
       Returns:
           AnyRankedTensor: `[B x 1 x Sq x T]` scores.
@@ -4130,7 +4136,8 @@ def TTNN_IndexerScoreDsaOp : TTNN_Op<"indexer_score_dsa"> {
     let arguments = (ins AnyRankedTensor:$query,
                          AnyRankedTensor:$key,
                          AnyRankedTensor:$weights,
-                         DefaultValuedAttr<UI32Attr, "0">:$chunk_start_idx);
+                         DefaultValuedAttr<UI32Attr, "0">:$chunk_start_idx,
+                         OptionalAttr<UI32Attr>:$cluster_axis);
 
     let results = (outs AnyRankedTensor:$result);
 

@@ -11,6 +11,9 @@ module {
     // CHECK-LABEL: @indexer_score_dsa
     // CHECK: "ttnn.indexer_score_dsa"
     // CHECK-SAME: chunk_start_idx = 0 : ui32
+    // A composite without cluster_axis promotes to an op without it, leaving
+    // the kernel on its flat device enumeration.
+    // CHECK-NOT: cluster_axis
     // CHECK-NOT: "ttcore.composite"
     %0 = "ttcore.composite"(%q, %k, %w) <{composite_name = "indexer_score_dsa", decomposition = @decomp, composite_attributes = {chunk_start_idx = 0 : ui32}}> : (tensor<1x8x32x128xbf16>, tensor<1x1x32x128xbf16>, tensor<1x8x32x1xbf16>) -> tensor<1x1x32x32xbf16>
     return %0 : tensor<1x1x32x32xbf16>
@@ -31,5 +34,34 @@ module {
   func.func private @decomp_chunked(%q: tensor<1x8x32x128xbf16>, %k: tensor<1x1x64x128xbf16>, %w: tensor<1x8x32x1xbf16>) -> tensor<1x1x32x64xbf16> {
     %0 = "ttir.slice_static"(%k) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1 : i32, 32 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1x64x128xbf16>) -> tensor<1x1x32x64xbf16>
     return %0 : tensor<1x1x32x64xbf16>
+  }
+
+  // cluster_axis names the mesh axis carrying the query sequence shard and is
+  // threaded through both the validate and build callbacks, so it survives
+  // promotion onto the typed op.
+  func.func @indexer_score_dsa_cluster_axis(%q: tensor<1x8x32x128xbf16>, %k: tensor<1x1x64x128xbf16>, %w: tensor<1x8x32x1xbf16>) -> tensor<1x1x32x64xbf16> {
+    // CHECK-LABEL: @indexer_score_dsa_cluster_axis
+    // CHECK: "ttnn.indexer_score_dsa"
+    // CHECK-SAME: chunk_start_idx = 32 : ui32
+    // CHECK-SAME: cluster_axis = 1 : ui32
+    %0 = "ttcore.composite"(%q, %k, %w) <{composite_name = "indexer_score_dsa", decomposition = @decomp_cluster_axis, composite_attributes = {chunk_start_idx = 32 : ui32, cluster_axis = 1 : ui32}}> : (tensor<1x8x32x128xbf16>, tensor<1x1x64x128xbf16>, tensor<1x8x32x1xbf16>) -> tensor<1x1x32x64xbf16>
+    return %0 : tensor<1x1x32x64xbf16>
+  }
+  func.func private @decomp_cluster_axis(%q: tensor<1x8x32x128xbf16>, %k: tensor<1x1x64x128xbf16>, %w: tensor<1x8x32x1xbf16>) -> tensor<1x1x32x64xbf16> {
+    %0 = "ttir.slice_static"(%k) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1 : i32, 32 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1x64x128xbf16>) -> tensor<1x1x32x64xbf16>
+    return %0 : tensor<1x1x32x64xbf16>
+  }
+
+  // Axis 0 is a real axis, not "unset": it must appear on the promoted op.
+  func.func @indexer_score_dsa_cluster_axis_zero(%q: tensor<1x8x32x128xbf16>, %k: tensor<1x1x32x128xbf16>, %w: tensor<1x8x32x1xbf16>) -> tensor<1x1x32x32xbf16> {
+    // CHECK-LABEL: @indexer_score_dsa_cluster_axis_zero
+    // CHECK: "ttnn.indexer_score_dsa"
+    // CHECK-SAME: cluster_axis = 0 : ui32
+    %0 = "ttcore.composite"(%q, %k, %w) <{composite_name = "indexer_score_dsa", decomposition = @decomp_cluster_axis_zero, composite_attributes = {chunk_start_idx = 0 : ui32, cluster_axis = 0 : ui32}}> : (tensor<1x8x32x128xbf16>, tensor<1x1x32x128xbf16>, tensor<1x8x32x1xbf16>) -> tensor<1x1x32x32xbf16>
+    return %0 : tensor<1x1x32x32xbf16>
+  }
+  func.func private @decomp_cluster_axis_zero(%q: tensor<1x8x32x128xbf16>, %k: tensor<1x1x32x128xbf16>, %w: tensor<1x8x32x1xbf16>) -> tensor<1x1x32x32xbf16> {
+    %0 = "ttir.slice_static"(%q) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1 : i32, 32 : i32, 32 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x8x32x128xbf16>) -> tensor<1x1x32x32xbf16>
+    return %0 : tensor<1x1x32x32xbf16>
   }
 }

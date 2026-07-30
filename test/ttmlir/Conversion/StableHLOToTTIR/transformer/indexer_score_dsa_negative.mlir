@@ -21,3 +21,27 @@ module {
     return %0 : tensor<1x1x32x32xbf16>
   }
 }
+
+// -----
+
+// cluster_axis is parsed the same way and rejects a non-integer value rather
+// than silently falling back to the flat device enumeration.
+module {
+  func.func public @indexer_score_dsa_bad_cluster_axis(%q: tensor<1x8x32x128xbf16>, %k: tensor<1x1x32x128xbf16>, %w: tensor<1x8x32x1xbf16>) -> tensor<1x1x32x32xbf16> {
+    // CHECK: error: failed to legalize operation 'stablehlo.custom_call'
+    %0 = stablehlo.custom_call @tt.indexer_score_dsa(%q, %k, %w) {api_version = 0 : i32, mhlo.frontend_attributes = {cluster_axis = "model"}} : (tensor<1x8x32x128xbf16>, tensor<1x1x32x128xbf16>, tensor<1x8x32x1xbf16>) -> tensor<1x1x32x32xbf16>
+    return %0 : tensor<1x1x32x32xbf16>
+  }
+}
+
+// -----
+
+// A negative cluster_axis is not a valid mesh axis; llvm::to_integer into an
+// unsigned type rejects it.
+module {
+  func.func public @indexer_score_dsa_negative_cluster_axis(%q: tensor<1x8x32x128xbf16>, %k: tensor<1x1x32x128xbf16>, %w: tensor<1x8x32x1xbf16>) -> tensor<1x1x32x32xbf16> {
+    // CHECK: error: failed to legalize operation 'stablehlo.custom_call'
+    %0 = stablehlo.custom_call @tt.indexer_score_dsa(%q, %k, %w) {api_version = 0 : i32, mhlo.frontend_attributes = {cluster_axis = "-1"}} : (tensor<1x8x32x128xbf16>, tensor<1x1x32x128xbf16>, tensor<1x8x32x1xbf16>) -> tensor<1x1x32x32xbf16>
+    return %0 : tensor<1x1x32x32xbf16>
+  }
+}

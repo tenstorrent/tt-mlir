@@ -10,6 +10,9 @@ module @indexer_score_dsa attributes {} {
     // CHECK-SAME: chunk_start_idx = 0 : ui32
     // CHECK-SAME: composite_name = "indexer_score_dsa"
     // CHECK-SAME: decomposition = @indexer_score_dsa_decomp
+    // cluster_axis is only carried when the caller names an axis, so an
+    // unannotated call must produce a composite without it.
+    // CHECK-NOT: cluster_axis
     %0 = stablehlo.custom_call @tt.indexer_score_dsa(%q, %k, %w) {api_version = 0 : i32} : (tensor<1x8x32x128xbf16>, tensor<1x1x32x128xbf16>, tensor<1x8x32x1xbf16>) -> tensor<1x1x32x32xbf16>
     return %0 : tensor<1x1x32x32xbf16>
   }
@@ -21,6 +24,29 @@ module @indexer_score_dsa attributes {} {
     // CHECK-SAME: chunk_start_idx = 32 : ui32
     // CHECK-SAME: composite_name = "indexer_score_dsa"
     %0 = stablehlo.custom_call @tt.indexer_score_dsa(%q, %k, %w) {api_version = 0 : i32, mhlo.frontend_attributes = {chunk_start_idx = "32"}} : (tensor<1x8x32x128xbf16>, tensor<1x1x64x128xbf16>, tensor<1x8x32x1xbf16>) -> tensor<1x1x32x64xbf16>
+    return %0 : tensor<1x1x32x64xbf16>
+  }
+
+  // cluster_axis names the mesh axis carrying the query sequence shard; it is
+  // parsed from mhlo.frontend_attributes alongside chunk_start_idx and lands on
+  // the composite as a ui32.
+  func.func public @indexer_score_dsa_cluster_axis(%q: tensor<1x8x32x128xbf16>, %k: tensor<1x1x64x128xbf16>, %w: tensor<1x8x32x1xbf16>) -> tensor<1x1x32x64xbf16> {
+    // CHECK-LABEL: @indexer_score_dsa_cluster_axis
+    // CHECK: "ttcore.composite"(%arg0, %arg1, %arg2)
+    // CHECK-SAME: chunk_start_idx = 0 : ui32
+    // CHECK-SAME: cluster_axis = 1 : ui32
+    // CHECK-SAME: composite_name = "indexer_score_dsa"
+    %0 = stablehlo.custom_call @tt.indexer_score_dsa(%q, %k, %w) {api_version = 0 : i32, mhlo.frontend_attributes = {cluster_axis = "1"}} : (tensor<1x8x32x128xbf16>, tensor<1x1x64x128xbf16>, tensor<1x8x32x1xbf16>) -> tensor<1x1x32x64xbf16>
+    return %0 : tensor<1x1x32x64xbf16>
+  }
+
+  // Axis 0 must stay distinguishable from "unset": both attributes together.
+  func.func public @indexer_score_dsa_cluster_axis_zero(%q: tensor<1x8x32x128xbf16>, %k: tensor<1x1x64x128xbf16>, %w: tensor<1x8x32x1xbf16>) -> tensor<1x1x32x64xbf16> {
+    // CHECK-LABEL: @indexer_score_dsa_cluster_axis_zero
+    // CHECK: "ttcore.composite"(%arg0, %arg1, %arg2)
+    // CHECK-SAME: chunk_start_idx = 32 : ui32
+    // CHECK-SAME: cluster_axis = 0 : ui32
+    %0 = stablehlo.custom_call @tt.indexer_score_dsa(%q, %k, %w) {api_version = 0 : i32, mhlo.frontend_attributes = {chunk_start_idx = "32", cluster_axis = "0"}} : (tensor<1x8x32x128xbf16>, tensor<1x1x64x128xbf16>, tensor<1x8x32x1xbf16>) -> tensor<1x1x32x64xbf16>
     return %0 : tensor<1x1x32x64xbf16>
   }
 
