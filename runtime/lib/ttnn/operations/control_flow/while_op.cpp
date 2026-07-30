@@ -54,6 +54,9 @@ uint64_t getMaxIterations() {
 ::tt::runtime::Tensor retainedView(const ::tt::runtime::Tensor &tensor) {
   const ::tt::runtime::ttnn::TTNNTensorWrapper &wrapper =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+  // Copied once here, so the view's event and the source's are independent from
+  // this point on. Harmless while the field is mostly unset, but revisit it if
+  // non-blocking readbacks or multiple command queues become widely used.
   std::optional<::ttnn::MeshEvent> meshEvent = wrapper.getMeshEvent();
 
   ::tt::runtime::Tensor view =
@@ -176,8 +179,8 @@ void run(const ::tt::target::ttnn::WhileOp *op, ProgramContext &context) {
         break;
       }
     } else {
-      LOG_ASSERT(iteration < maxIterations,
-                 "While loop exceeded ", maxIterations,
+      LOG_ASSERT(iteration < maxIterations, "While loop exceeded ",
+                 maxIterations,
                  " iterations; set TT_RUNTIME_WHILE_MAX_ITERATIONS to raise "
                  "the limit");
       if (!evaluateCondition(op, context, carried, captures, semaphores)) {
@@ -187,9 +190,8 @@ void run(const ::tt::target::ttnn::WhileOp *op, ProgramContext &context) {
 
     std::vector<::tt::runtime::Tensor> next = runSubProgram(
         op->body_program_id(), context, carried, captures, semaphores);
-    LOG_ASSERT(next.size() == carried.size(),
-               "While body program returned ", next.size(),
-               " values but the loop carries ", carried.size());
+    LOG_ASSERT(next.size() == carried.size(), "While body program returned ",
+               next.size(), " values but the loop carries ", carried.size());
 
     // Dropping the previous iteration's values here releases the last
     // reference to any that the body did not carry forward, which frees them.
