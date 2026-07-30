@@ -7,14 +7,12 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpsModelCache.h"
 #include "ttmlir/OpModel/TTNN/TTNNOutputTensorInference.h"
 
 #include "Constants.h"
 #include "testing/DeviceUtils.h"
 
-#include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -2554,7 +2552,7 @@ TEST_F(OpModelBase, repeatInterleaveOp) {
         l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
-    EXPECT_EQ(outputSize, 0);
+    EXPECT_GT(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;

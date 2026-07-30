@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -2842,6 +2841,34 @@ public:
 };
 } // namespace
 
+namespace {
+// Use CallOpaqueOp for generated function calls so we can spell callees as
+// `::foo(...)`. Tensor operands live in the ttnn namespace, so an unqualified
+// call like `add(v1, v2)` would also consider `ttnn::add` via ADL.
+class FuncCallOpConversionPattern : public OpConversionPattern<func::CallOp> {
+public:
+  using OpConversionPattern<func::CallOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(func::CallOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    for (Type resultType : srcOp.getResultTypes()) {
+      Type convertedType = getTypeConverter()->convertType(resultType);
+      if (!convertedType) {
+        return rewriter.notifyMatchFailure(srcOp, "type conversion failed");
+      }
+      resultTypes.push_back(convertedType);
+    }
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, resultTypes, ("::" + srcOp.getCallee()).str(), nullptr, nullptr,
+        adaptor.getOperands());
+    return success();
+  }
+};
+} // namespace
+
 // DistributeTensorOp conversion pattern
 //
 namespace {
@@ -3065,9 +3092,10 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getAllGatherDim()),
         emitter.emit(srcOp.getClusterAxis()),
-        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
-        emitter.emit(/* optional_output_tensor= */ std::nullopt),
+        emitter.emit(/* persistent_output_tensor= */ std::nullopt),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
+        emitter.emit(/* sub_core_grid= */ std::nullopt),
         emitter.emit(srcOp.getNumLinks()),
         emitter.emit(srcOp.getTopology()),
     };
@@ -4854,7 +4882,7 @@ private:
     return mlir::tt::ttnn::WriteTensorOp::getOperationName().str();
   }
   std::string getPrefixSwapPattern() const override {
-    return "tt::tt_metal::copy_to_device";
+    return "ttnn::copy_to_device";
   }
 
 public:
@@ -5330,7 +5358,7 @@ private:
   }
 
   std::string getPrefixSwapPattern() const override {
-    return "::tt::tt_metal::dump_tensor_flatbuffer";
+    return "::ttnn::dump_tensor_flatbuffer";
   }
 
 public:
@@ -5852,6 +5880,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // FuncOp
   //
   patterns.add<FuncOpConversionPattern>(typeConverter, ctx);
+  patterns.add<FuncCallOpConversionPattern>(typeConverter, ctx,
+                                            PatternBenefit(2));
 
   // Transformers ops
   //

@@ -3685,8 +3685,8 @@ public:
         emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getAllGatherDim(), "dim"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
-        emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
     };
