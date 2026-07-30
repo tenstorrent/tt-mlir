@@ -13,6 +13,10 @@
 
 namespace mlir::tt {
 
+// Pre-pass for ConvertTTIRCPUToEmitPy: stamps the device mesh shape onto the
+// CPU-hoisted functions.
+std::unique_ptr<OperationPass<ModuleOp>> createCaptureMeshShapePass();
+
 std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRCPUToEmitPyPass();
 
 } // namespace mlir::tt

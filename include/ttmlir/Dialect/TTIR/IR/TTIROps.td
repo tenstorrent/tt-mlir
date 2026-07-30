@@ -215,6 +215,14 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 class TTIR_NamedOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, [TTIROpInterface, Pure] # traits>;
 
+// Base class for TTIR operations that mutate one of their operands in place
+// (e.g. KV-cache ops). Mirrors `TTNN_InplaceOp`: instead of producing a new
+// SSA result, the op carries a `MemWrite` side effect so that its ordering
+// relative to other uses of the mutated tensor is preserved. The mutated
+// operand should additionally be tagged `Arg<..., [MemWrite]>`.
+class TTIR_InplaceOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_Op<mnemonic, [TTIROpInterface, MemoryEffects<[MemWrite]>] # traits>;
+
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
     TTIR_NamedOp<mnemonic, [TTIR_Broadcastable] # traits> {
 
@@ -3563,7 +3571,7 @@ def TTIR_RepeatInterleaveOp : TTIR_NamedOp<"repeat_interleave"> {
     let hasFolder = 1;
 }
 
-def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache", [TTIR_CacheOpInterface]> {
+def TTIR_UpdateCacheOp : TTIR_InplaceOp<"update_cache", [TTIR_CacheOpInterface]> {
   let summary = "Cache update operation.";
   let description = [{
     The `update_cache` operation updates a cache tensor with values from an input tensor at specific indices.
@@ -3578,39 +3586,32 @@ def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache", [TTIR_CacheOpInterface]> {
     %cache = ... : tensor<2x16x64xf32>  // Batch size 2, sequence length 16, hidden dim 64
     %input = ... : tensor<2x1x64xf32>   // New token embeddings
     %update_index = ... : tensor<1xi32> // Update at position [15]
-    %result = ttir.update_cache(%cache, %input, %update_index) {batch_offset = 0 : i32} :
-        tensor<2x16x64xf32>, tensor<2x1x64xf32>, tensor<1xi32> -> tensor<2x16x64xf32>
-    // The cache tensor is updated at position 15 for both batches with the values from input
+    ttir.update_cache(%cache, %input, %update_index) {batch_offset = 0 : i32} :
+        tensor<2x16x64xf32>, tensor<2x1x64xf32>, tensor<1xi32>
+    // The cache tensor is updated in place at position 15 for both batches with the values from input
     ```
 
+    This op mutates `cache` in place and produces no result.
+
     Inputs:
-    - `cache` (Tensor): The cache tensor to be updated.
+    - `cache` (Tensor): The cache tensor to be updated in place.
     - `input` (Tensor): The input tensor containing new values.
     - `update_index` (Tensor): Indices specifying where to update the cache.
 
     Attributes:
     - `batch_offset` (Integer): Offset in the batch dimension.
-
-    Output:
-    - `result` (Tensor): The updated cache tensor.
   }];
 
-  let arguments = (ins AnyRankedTensor:$cache,
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
                        AnyRankedTensor:$input,
                        AnyRankedTensor:$update_index,
                        I32Attr:$batch_offset);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
-  }];
 
   let hasCanonicalizer = 1;
   let hasVerifier = 1;
 }
 
-def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache", [TTIR_CacheOpInterface]> {
+def TTIR_PagedUpdateCacheOp : TTIR_InplaceOp<"paged_update_cache", [TTIR_CacheOpInterface]> {
   let summary = "Paged update cache op.";
   let description = [{
       Inputs:
@@ -3620,26 +3621,19 @@ def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache", [TTIR_CacheOpIn
         - `share_cache`: Whether the cache tensors share memory regions. Defaults to False.
         - `page_table`: The page table for managing memory regions during updates. [num_users, max_num_blocks_per_seq]
 
-      Outputs:
-        - `result`: The updated cache tensor.
+      This op mutates `cache` in place and produces no result.
   }];
 
-  let arguments = (ins AnyRankedTensor:$cache,
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
                        AnyRankedTensor:$input,
                        AnyRankedTensor:$update_index,
                        DefaultValuedAttr<BoolAttr, "false">:$share_cache,
                        Optional<AnyRankedTensor>:$page_table);
 
-  let results = (outs AnyRankedTensor:$result);
-
-  let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
-  }];
-
   let hasVerifier = 1;
 }
 
-def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache", [TTIR_CacheOpInterface]> {
+def TTIR_FillCacheOp : TTIR_InplaceOp<"fill_cache", [TTIR_CacheOpInterface]> {
   let summary = "Cache filling operation.";
   let description = [{
       The `fill_cache` operation fills a cache tensor with values from an input tensor.
@@ -3653,59 +3647,45 @@ def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache", [TTIR_CacheOpInterface]> {
     // Fill cache with input values
     %cache = ... : tensor<2x16x64xf32>  // Batch size 2, sequence length 16, hidden dim 64
     %input = ... : tensor<2x16x64xf32>  // Initial values for the entire cache
-    %result = ttir.fill_cache(%cache, %input) {batch_offset = 0 : i32} :
-        tensor<2x16x64xf32>, tensor<2x16x64xf32> -> tensor<2x16x64xf32>
-    // The entire cache tensor is filled with values from input
+    ttir.fill_cache(%cache, %input) {batch_offset = 0 : i32} :
+        tensor<2x16x64xf32>, tensor<2x16x64xf32>
+    // The entire cache tensor is filled in place with values from input
 
     // Fill a portion of the cache
     %cache = ... : tensor<2x16x64xf32>  // Batch size 2, sequence length 16, hidden dim 64
     %input = ... : tensor<2x8x64xf32>   // Values for half of the cache
-    %result = ttir.fill_cache(%cache, %input) {batch_offset = 0 : i32} :
-        tensor<2x16x64xf32>, tensor<2x8x64xf32> -> tensor<2x16x64xf32>
-    // The first 8 positions of the cache are filled with values from input
+    ttir.fill_cache(%cache, %input) {batch_offset = 0 : i32} :
+        tensor<2x16x64xf32>, tensor<2x8x64xf32>
+    // The first 8 positions of the cache are filled in place with values from input
     ```
 
+    This op mutates `cache` in place and produces no result.
+
     Inputs:
-    - `cache` (Tensor): The cache tensor to be filled.
+    - `cache` (Tensor): The cache tensor to be filled in place.
     - `input` (Tensor): The input tensor containing the values to fill the cache with.
 
     Attributes:
     - `batch_offset` (Integer): Offset in the batch dimension.
-
-    Output:
-    - `result` (Tensor): The filled cache tensor.
   }];
 
-  let arguments = (ins AnyRankedTensor:$cache,
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
                        AnyRankedTensor:$input,
                        I32Attr:$batch_offset);
 
-  let results = (outs AnyRankedTensor:$result);
-
   let hasVerifier = 1;
-
-  let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
-  }];
 }
 
-def TTIR_PagedFillCacheOp : TTIR_NamedOp<"paged_fill_cache", [TTIR_CacheOpInterface]> {
+def TTIR_PagedFillCacheOp : TTIR_InplaceOp<"paged_fill_cache", [TTIR_CacheOpInterface]> {
   let summary = "Paged fill cache op.";
   let description = [{
     Fills the `cache` tensor in-place with values from `input` at `batch_idx_tensor`.
   }];
 
-  let arguments = (ins AnyRankedTensor:$cache,
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
                        AnyRankedTensor:$input,
                        AnyRankedTensor:$page_table,
                        Optional<AnyRankedTensor>:$batch_idx_tensor);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  // The cache tensor is modified in place by this operation, thus it acts as the DPS output of this operation.
-  let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
-  }];
 
   let hasVerifier = 1;
 }
@@ -3754,6 +3734,86 @@ def TTIR_BroadcastOp : TTIR_NamedOp<"broadcast"> {
     let hasVerifier = 1;
 
     let hasFolder = 1;
+}
+
+def TTIR_Conv1dOp : TTIR_NamedOp<"conv1d"> {
+    let summary = "Conv1d operation.";
+    let description = [{
+      Applies a 1D convolution over an input signal composed of several input planes.
+
+      This operation performs a 1D convolution on the input tensor using the provided weight tensor
+      and optional bias. It supports configurable stride, padding, dilation, and grouping parameters
+      to control the convolution behavior.
+
+      Example:
+      ```mlir
+      // Basic 1D convolution
+      %input = ... : tensor<1x32x32xf32>    // Batch size 1, length 32, 32 channels
+      %weight = ... : tensor<32x32x3xf32>   // 32 output channels, 32 input channels, kernel 3
+      %bias = ... : tensor<1x1x32xf32>      // Bias for 32 output channels
+      %result = ttir.conv1d(%input, %weight, %bias) {
+          stride = 1,
+          padding = 1,
+          dilation = 1,
+          groups = 1
+      } : (tensor<1x32x32xf32>, tensor<32x32x3xf32>, tensor<1x1x32xf32>) -> tensor<1x32x32xf32>
+      ```
+
+      Inputs:
+      - `input` (AnyRankedTensor): 3D tensor where dimension indices are controlled by `batch_dim`,
+        `length_dim`, and `channel_dim` attributes. Default layout is NLC (N, L_in, C) where:
+        - N is the batch size
+        - L_in is the length of the input signal
+        - C is the number of channels
+      - `weight` (AnyRankedTensor): expected in the following format (O, C/G, K) where:
+        - C is the number of input channels
+        - O is the number of output channels
+        - G is the number of groups
+        - K is the length of the kernel
+      - `bias` Optional<AnyRankedTensor>: bias tensor with output channels at position specified by `channel_dim`.
+        Default format is (1, 1, O).
+
+      Attributes:
+      - `stride` (i32 | array<1xi32>): The stride of the kernel window.
+      - `padding` (i32 | array<1xi32> | array<2xi32>):
+        - i32: Same padding for both sides (pL = pR = value).
+        - array<1xi32>: [p] symmetric padding (pL = pR = p).
+        - array<2xi32>: [pL, pR] for left and right padding respectively.
+      - `dilation` (i32 | array<1xi32>): Spacing between kernel elements.
+      - `groups` (i32): Number of blocked connections from input channels to output channels. Input and output channels must both be divisible by groups.
+      - `batch_dim` (i64): Index of the batch dimension in input/output tensors. Default: 0.
+      - `length_dim` (i64): Index of the length dimension in input/output tensors. Default: 1.
+      - `channel_dim` (i64): Index of the channel dimension in input/output tensors. Default: 2.
+
+      Output:
+      - `result` AnyRankedTensor: 3D tensor with same layout as input (controlled by dimension attributes).
+        Default format is (N, L_out, O) where:
+        - `L_out = (L_in + pL + pR - dilation * (K - 1) - 1) / stride + 1`
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
+                         I32Attr:$groups,
+                         DefaultValuedAttr<I64Attr, "0">:$batch_dim,
+                         DefaultValuedAttr<I64Attr, "1">:$length_dim,
+                         DefaultValuedAttr<I64Attr, "2">:$channel_dim);
+
+    let extraClassDeclaration = [{
+      // Get number of output channels
+      int64_t getOutputChannelSize();
+      bool isNLC() {
+        return getBatchDim() == 0 && getLengthDim() == 1 &&
+               getChannelDim() == 2;
+      }
+    }];
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
 }
 
 def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable", "rewriteWithQuantizedInputs"]>]> {
@@ -6681,14 +6741,13 @@ def TTIR_MoeComputeOp : TTIR_NamedOp<"moe_compute", [TTIR_CCL, AttrSizedOperandS
       - `w0` / `w1` / `w2`: raw per-expert gate / up / down weights.
       - `bias_0` / `bias_1` / `bias_2`: optional per-expert biases.
 
-      Outputs (6, in declaration order):
-        0. `per_expert_total_tokens`     routing metadata: per-expert token counts
-        1. `expert_activation`           routing metadata: per-token activation records
-        2. `expert_to_token`             routing metadata: per-expert token lists
-        3. `tilize_output`               selective-tilize staging buffer
-        4. `matmul_output`               expert-FFN result (final output in compute_only)
-        5. `combine_output`              A2A-combined result (aliases matmul_output
-           in compute_only)
+      Output:
+        `combine_output`                 A2A selective-reduce-combined result.
+
+      The op always runs the full (combine) path; `cluster_axis` selects the
+      mesh axis the A2A combine reduces over. The metal kernel internally
+      allocates and frees its routing/tilize/matmul intermediates; only the
+      combine result is exposed in the IR.
     }];
 
     let arguments = (ins AnyRankedTensor:$tilize_input_tensor,
@@ -6706,18 +6765,9 @@ def TTIR_MoeComputeOp : TTIR_NamedOp<"moe_compute", [TTIR_CCL, AttrSizedOperandS
                          UI32Attr:$intermediate_size,
                          DefaultValuedAttr<TTCore_MoEActivationFunctionAttr,
                              "::mlir::tt::ttcore::MoEActivationFunction::Silu">:$activation_function,
-                         OptionalAttr<UI32Attr>:$bh_ring_size,
-                         DefaultValuedAttr<BoolAttr, "true">:$compute_only,
+                         UI32Attr:$cluster_axis);
 
-                         // Full-path-only inputs, unused when compute_only == true.
-                         OptionalAttr<UI32Attr>:$cluster_axis);
-
-    let results = (outs AnyRankedTensor:$per_expert_total_tokens,
-                        AnyRankedTensor:$expert_activation,
-                        AnyRankedTensor:$expert_to_token,
-                        AnyRankedTensor:$tilize_output,
-                        AnyRankedTensor:$matmul_output,
-                        AnyRankedTensor:$combine_output);
+    let results = (outs AnyRankedTensor:$combine_output);
 
     let hasVerifier = 1;
 }

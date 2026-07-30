@@ -5,62 +5,58 @@
 import pytest
 import torch
 
-import d2m_jit as d2m
-from kernels.prefill.rope import apply_rope, build_rope_tables
+from kernels.prefill.rope import KERNEL_BENCHES, build_rope_tables
+from runner import TensorSpec, run_bench
 from utils import assert_pcc
 
 
-def rotate_half(x):
-    x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
-
-
-def _unsigned_sin(sin_signed):
-    half = sin_signed.shape[-1] // 2
-    return torch.cat([-sin_signed[..., :half], sin_signed[..., half:]], dim=-1)
-
-
 @pytest.mark.parametrize(
-    "seq_len,head_dim,block_shape,grid_shape,grid",
+    "seq_len,head_dim,grid_shape,block_shape",
     [
-        (64, 64, [2, 2], [1, 1], (1, 1)),
-        (64, 128, [2, 2], [1, 2], (1, 2)),
+        (64, 64, (1, 1), [2, 2]),
+        (64, 128, (1, 2), [2, 2]),
     ],
 )
-def test_rope_matches_torch(seq_len, head_dim, block_shape, grid_shape, grid):
-    x = torch.randn(seq_len, head_dim, dtype=torch.float32)
-    cos, sin_signed = build_rope_tables(
-        seq_len, head_dim, start_pos=7, dtype=torch.float32
+def test_rope_matches_torch(seq_len, head_dim, grid_shape, block_shape):
+    """Test rope at various workload shapes and execution configs."""
+
+    def _cos_dist(shape, td, gen):
+        cos, _ = build_rope_tables(shape[0], shape[1], start_pos=7, dtype=td)
+        return cos
+
+    def _sin_dist(shape, td, gen):
+        _, sin_signed = build_rope_tables(shape[0], shape[1], start_pos=7, dtype=td)
+        return sin_signed
+
+    tensors = [
+        TensorSpec(
+            shape=(seq_len, head_dim),
+            block_shape=block_shape,
+            dtype=torch.float32,
+            dist="uniform(-1,1)",
+        ),
+        TensorSpec(
+            shape=(seq_len, head_dim),
+            block_shape=block_shape,
+            dtype=torch.float32,
+            dist=_cos_dist,
+        ),
+        TensorSpec(
+            shape=(seq_len, head_dim),
+            block_shape=block_shape,
+            dtype=torch.float32,
+            dist=_sin_dist,
+        ),
+    ]
+    actual, expected = run_bench(
+        KERNEL_BENCHES["rope"], tensors=tensors, grid_shape=grid_shape
     )
-    sin = _unsigned_sin(sin_signed)
-
-    layout = d2m.Layout(
-        shape=x.shape,
-        dtype=x.dtype,
-        block_shape=block_shape,
-        grid_shape=grid_shape,
-    )
-    x_lt = d2m.to_layout(x, layout)
-    cos_lt = d2m.to_layout(cos, layout)
-    sin_signed_lt = d2m.to_layout(sin_signed, layout)
-
-    out = apply_rope(
-        x_lt,
-        cos_lt,
-        sin_signed_lt,
-        layout,
-        grid,
-        m_blocks=1,
-        n_blocks=1,
-    ).to_host()
-
-    golden = x * cos + rotate_half(x) * sin
-    assert_pcc(golden, out)
-    assert torch.allclose(golden, out, atol=0.05, rtol=0.05)
+    assert_pcc(expected, actual, threshold=0.99)
+    assert torch.allclose(expected, actual, atol=0.05, rtol=0.05)
 
 
 def test_build_rope_tables_start_pos_and_signed_sin():
+    """Test rope table generation with start_pos."""
     cos, sin_signed = build_rope_tables(
         seq_len=2, head_dim=4, start_pos=3, theta=10000.0, dtype=torch.float32
     )

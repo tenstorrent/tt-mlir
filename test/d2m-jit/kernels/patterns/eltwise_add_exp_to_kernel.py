@@ -18,7 +18,7 @@ keep working — the add stays alive in that case.
 import torch
 
 import d2m_jit as d2m
-from runner import InputSpec, KernelBench, PatternTest, eltwise_block_run
+from runner import InputSpec, KernelBench, PatternTest, TensorSpec, eltwise_block_run
 from ttmlir import ir
 from ttmlir.dialects import ttir
 
@@ -130,13 +130,25 @@ PATTERN_TESTS = [
 ]
 
 # On-device numerics (replaces test_pattern_add_exp_kernel_on_device).
-KERNEL_BENCHES = [
-    KernelBench(
-        name="add_exp",
+KERNEL_BENCHES = {
+    "add_exp": KernelBench(
         kernel=add_exp_fused,
         golden=_golden,
-        input_shapes=[(32, 32), (32, 32)],
         run=eltwise_block_run,
-        inputs=InputSpec("uniform(-1,1)"),
-    ),
-]
+        tensors=[
+            TensorSpec(
+                shape=(32, 32),
+                block_shape=[1, 1],
+                dtype=torch.float32,
+                dist="uniform(-1,1)",
+            ),
+            TensorSpec(
+                shape=(32, 32),
+                block_shape=[1, 1],
+                dtype=torch.float32,
+                dist="uniform(-1,1)",
+            ),
+        ],
+        grid_shape=(1, 1),
+    )
+}

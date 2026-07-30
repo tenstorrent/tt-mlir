@@ -93,26 +93,16 @@ private:
           auto newAllocOp = attachCBLayoutAttribute(rewriter, allocOp, 1);
           allocsToHoist.push_back(newAllocOp);
         } else if (allocOp->getAttr("d2m.synchronized_buffer")) {
-          if (allocOp->getAttr("d2m.compute_intermediate")) {
-            // Skip hoisting, these are fake buffers added by fusion that are
-            // guaranteed to not be used
-            if (allocOp->getAttrOfType<IntegerAttr>("address")) {
-              allocOp.emitError("compute intermediate buffer must not have "
-                                "address attribute");
-              return WalkResult::interrupt();
-            }
-          } else {
-            if (!allocOp->getAttrOfType<IntegerAttr>("address")) {
-              allocOp.emitError(
-                  "synchronized buffer must have address attribute");
-              return WalkResult::interrupt();
-            }
-            auto newAllocOp = attachCBLayoutAttribute(
-                rewriter, allocOp,
-                allocOp->getAttrOfType<IntegerAttr>("d2m.synchronized_buffer")
-                    .getInt());
-            allocsToHoist.push_back(newAllocOp);
+          if (!allocOp->getAttrOfType<IntegerAttr>("address")) {
+            allocOp.emitError(
+                "synchronized buffer must have address attribute");
+            return WalkResult::interrupt();
           }
+          auto newAllocOp = attachCBLayoutAttribute(
+              rewriter, allocOp,
+              allocOp->getAttrOfType<IntegerAttr>("d2m.synchronized_buffer")
+                  .getInt());
+          allocsToHoist.push_back(newAllocOp);
         } else {
           allocOp.emitError("unexpected alloc op: expected d2m.scratch_buffer "
                             "or d2m.synchronized_buffer attribute");

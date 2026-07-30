@@ -24,7 +24,7 @@ func.func @topk_dim1_k16(%arg0: tensor<32x64xf32>) -> (tensor<32x16xf32>, tensor
 
 // -----
 
-// ---- dim=1, k=32, 2-tile input: no rebuild ----
+// ---- dim=1, k=32, 2-tile input ----
 
 // 32x64 with k=32: the merge output is exactly k elements, so no rebuild is emitted.
 // CHECK-LABEL: func.func @topk_k32_no_rebuild

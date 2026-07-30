@@ -118,6 +118,25 @@ static bool isShardedLayout(TTNNLayoutAttr layout) {
   return memLayout && isShardedMemoryLayout(memLayout.getValue());
 }
 
+/// Build the DRAM-interleaved ROW_MAJOR sibling of a tiled candidate (same
+/// dtype). Deliberately DRAM-interleaved, not L1: the reshard that feeds it is
+/// materialized as a ttnn.to_layout the optimizer can't validate for L1 usage,
+/// so keeping the retiled tensor in DRAM leaves no L1 footprint for the spill
+/// pass to miss. Returns null if the candidate is already row-major.
+static TTNNLayoutAttr getRowMajorSibling(TTNNLayoutAttr tiledLayout,
+                                         llvm::ArrayRef<int64_t> tensorShape) {
+  if (tiledLayout.getLayout() == Layout::RowMajor) {
+    return nullptr;
+  }
+  Type rmElementType = ttnn::utils::getElementType(
+      tiledLayout.getContext(), Layout::RowMajor, tiledLayout.getDataType());
+  return TTNNLayoutAttr::Builder(tiledLayout, tensorShape)
+      .setBufferType(BufferType::DRAM)
+      .setMemoryLayout(TensorMemoryLayout::Interleaved)
+      .setElementType(rmElementType)
+      .build();
+}
+
 /// Compute total bytes transferred from DRAM across all inputs.
 static uint64_t
 computeInputDramBytes(const std::vector<TTNNLayoutAttr> &inputLayouts) {
@@ -955,6 +974,25 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
                          currentLayout, tensorType, producerBeam, producerOp,
                          resultIdx, maxInputCandidatesPerOperand);
 
+    // Row-major input siblings: clone each tiled candidate into an RM sibling
+    // (isReshard=true) for ops whose kernel requires a RowMajor input; the
+    // require-RM filter below then drops the tiled originals.
+    if (generatesRowMajorInputSiblings(op, operandIdx)) {
+      std::vector<InputCandidate> rmSiblings;
+      for (const auto &ic : candidatesForOperand) {
+        if (TTNNLayoutAttr rmLayout =
+                getRowMajorSibling(ic.layout, tensorType.getShape())) {
+          InputCandidate rmIc;
+          rmIc.layout = rmLayout;
+          rmIc.producerCandidateIndex = ic.producerCandidateIndex;
+          rmIc.isReshard = true;
+          rmSiblings.push_back(rmIc);
+        }
+      }
+      candidatesForOperand.insert(candidatesForOperand.end(),
+                                  rmSiblings.begin(), rmSiblings.end());
+    }
+
     // Filter after all candidates (producer beam + reshards) are collected.
     // This rejects layouts the op cannot consume (e.g., any sharded RHS for
     // matmul) while preserving producer beam entries as reshard sources
@@ -1430,8 +1468,12 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
         producerLayout.getBufferType() == reshardLayout.getBufferType();
     bool sameMemLayout =
         producerLayout.getMemLayout() == reshardLayout.getMemLayout();
+    // A tile <-> row-major page-layout change is a real reshard, even when
+    // buffer type and memory layout are unchanged (RowMajor input siblings).
+    bool samePageLayout =
+        producerLayout.getLayout() == reshardLayout.getLayout();
 
-    if (sameBufferType && sameMemLayout) {
+    if (sameBufferType && sameMemLayout && samePageLayout) {
       // For sharded layouts, also require matching grids.
       bool bothSharded =
           isShardedMemoryLayout(producerLayout.getMemLayout().getValue()) &&
@@ -1443,15 +1485,20 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
     }
   }
 
-  // Build the output layout by taking the producer's current layout and
-  // applying the target buffer type, memory layout, and grid.
+  // Take the producer's layout and apply the reshard target's buffer type,
+  // memory layout, grid, and page layout (element type). Tracking the element
+  // type is what lets a tile -> row-major sibling reshard materialize.
   TTNNLayoutAttr producerLayout =
       utils::getLayoutAttrFromTensor(producerTensorType);
+  Type reshardElementType = ttnn::utils::getElementType(
+      reshardLayout.getContext(), reshardLayout.getLayout(),
+      reshardLayout.getDataType());
   TTNNLayoutAttr outputLayout =
       TTNNLayoutAttr::Builder(producerLayout, producerTensorType.getShape())
           .setBufferType(reshardLayout.getBufferType())
           .setMemoryLayout(reshardLayout.getMemLayout())
           .setGridShape(reshardLayout.getGridShape())
+          .setElementType(reshardElementType)
           .buildWithCanonicalCorePlacement(deviceAttr);
   RankedTensorType newTensorType =
       utils::RankedTensorTypeFactory::create(producerTensorType, outputLayout);
@@ -1460,13 +1507,24 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
   Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
                                                      "_mem_reconfig");
 
-  ToMemoryConfigOp memoryReconfigOp =
-      builder.create<ToMemoryConfigOp>(loc, newTensorType, operand);
+  // A tile <-> row-major page-layout change (RowMajor input siblings) is a
+  // retile, which ttnn.to_memory_config does not do -- emit a ttnn.to_layout,
+  // which TTNNDecomposeLayouts lowers into the untilize/tilize + memory-config
+  // sequence. Pure memory-config reshards stay ttnn.to_memory_config.
+  bool pageLayoutChanges =
+      utils::getLayoutAttrFromTensor(producerTensorType).getLayout() !=
+      outputLayout.getLayout();
+  Operation *reshardOp =
+      pageLayoutChanges
+          ? builder.create<ToLayoutOp>(loc, newTensorType, operand)
+                .getOperation()
+          : builder.create<ToMemoryConfigOp>(loc, newTensorType, operand)
+                .getOperation();
 
-  consumerOp->setOperand(operandIndex, memoryReconfigOp->getResult(0));
+  consumerOp->setOperand(operandIndex, reshardOp->getResult(0));
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-               "Inserted memory reconfig op: {0}", memoryReconfigOp);
+               "Inserted reshard op: {0}", *reshardOp);
 }
 
 void MemoryLayoutPropagation::updateFunctionReturnTypes() {

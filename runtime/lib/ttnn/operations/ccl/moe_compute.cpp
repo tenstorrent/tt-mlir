@@ -3,7 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/ccl/moe_compute.h"
+#include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 
 #include "ttnn/operations/experimental/ccl/moe_compute/moe_compute.hpp"
 
@@ -41,41 +45,51 @@ void run(const ::tt::target::ttnn::MoeComputeOp *op, ProgramContext &context) {
   const ::ttnn::Tensor &w2 =
       tensorPool.getTTNNTensorAndValidate(op->matmul_w2_tensor());
 
-  // Only the compute_only path is supported (compiler verifier enforces it):
-  // the A2A combine is bypassed, the combine-path inputs stay unset, tt-metal
-  // returns only the first five tensors, and matmul_output is the final output.
-  LOG_ASSERT(op->compute_only(),
-             "moe_compute runtime only supports compute_only=true");
-
-  std::optional<uint32_t> bhRingSize;
-  if (op->bh_ring_size()) {
-    bhRingSize = op->bh_ring_size().value();
+  // Full A2A path: cluster_axis and mux_core_range_set are required;
+  // num_links/topology auto-resolve from the fabric when null. The combine
+  // output buffer and cross-device semaphore are bound below (leaving either
+  // unbound takes tt-metal's use_init_semaphore path, which deadlocks).
+  LOG_ASSERT(op->cluster_axis(), "moe_compute requires cluster_axis");
+  uint32_t clusterAxis = op->cluster_axis().value();
+  std::optional<::tt::tt_fabric::Topology> topology;
+  if (op->topology()) {
+    topology = ::tt::runtime::common::toMetalTopology(op->topology().value());
   }
+  std::optional<uint32_t> numLinks = op->num_links();
+  LOG_ASSERT(op->mux_core_range_set(),
+             "moe_compute requires mux_core_range_set");
+  ::ttnn::CoreRangeSet muxCoreRangeSet =
+      ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*op->mux_core_range_set());
 
-  // compute_only: every combine-path input stays unset; tt-metal returns the
-  // first five tensors and matmul_output is the final output.
+  // The combine semaphore and output buffer are allocated by IR ops and passed
+  // in as operands; read them from the pools. Both must be bound or tt-metal
+  // deadlocks the A2A combine.
+  LOG_ASSERT(op->cross_device_semaphore(),
+             "moe_compute requires cross_device_semaphore operand");
+  ::ttnn::GlobalSemaphore &combineSemaphore =
+      context.getGlobalSemaphorePool().getTTNNGlobalSemaphoreAndValidate(
+          op->cross_device_semaphore());
+  LOG_ASSERT(op->optional_output_tensor(),
+             "moe_compute requires optional_output_tensor operand");
+  const ::ttnn::Tensor &combineOutput =
+      tensorPool.getTTNNTensorAndValidate(op->optional_output_tensor());
+
   std::vector<::ttnn::Tensor> results = ::ttnn::experimental::moe_compute(
       tilizeInput, tilizeIndices, tilizeScores, tilizeMapping, w0w1, w2,
       op->layer_id(), op->output_height_shard_dim(), op->intermediate_size(),
-      op->has_bias(), /*cluster_axis=*/std::nullopt, /*topology=*/std::nullopt,
-      /*num_links=*/std::nullopt, /*mux_core_range_set=*/std::nullopt,
-      /*output_memory_config=*/std::nullopt,
-      /*optional_output_tensor=*/std::nullopt,
-      /*cross_device_semaphore=*/std::nullopt,
-      toMetalActivation(op->activation_function()), /*compute_only=*/true,
-      bhRingSize);
+      op->has_bias(), clusterAxis, topology, numLinks, muxCoreRangeSet,
+      /*output_memory_config=*/std::nullopt, combineOutput, combineSemaphore,
+      toMetalActivation(op->activation_function()),
+      /*compute_only=*/false);
 
-  LOG_ASSERT(results.size() == 5, "moe_compute returned ", results.size(),
-             " tensors; expected 5 (compute_only)");
+  LOG_ASSERT(results.size() == 6, "moe_compute returned ", results.size(),
+             " tensors; expected 6");
 
-  tensorPool.insertTTNNTensorAndValidate(op->per_expert_total_tokens(),
-                                         results[0]);
-  tensorPool.insertTTNNTensorAndValidate(op->expert_activation(), results[1]);
-  tensorPool.insertTTNNTensorAndValidate(op->expert_to_token(), results[2]);
-  tensorPool.insertTTNNTensorAndValidate(op->tilize_output(), results[3]);
-  tensorPool.insertTTNNTensorAndValidate(op->matmul_output(), results[4]);
-  // In compute_only there is no combine output; the flatbuffer's
-  // combine_output ref aliases matmul_output (results[4]).
-  tensorPool.insertTTNNTensorAndValidate(op->combine_output(), results[4]);
+  // Only the combine output (results[5]) is exposed; free tt-metal's
+  // routing/tilize/matmul intermediates (results[0..4]).
+  tensorPool.insertTTNNTensorAndValidate(op->combine_output(), results[5]);
+  for (size_t i = 0; i < 5; ++i) {
+    ::ttnn::deallocate(results[i]);
+  }
 }
 } // namespace tt::runtime::ttnn::operations::ccl

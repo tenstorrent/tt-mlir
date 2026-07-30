@@ -21,6 +21,7 @@ from test_utils import shape_str
 
 pytestmark = pytest.mark.frontend("ttir")
 
+
 DRAM_PIPELINE_OPTIONS = [
     "default-input-memspace=dram",
     "default-output-memspace=dram",
@@ -527,7 +528,6 @@ DRAM_EMBEDDING_CASES = [
         (1024, 32),
         torch.uint32,
         torch.int32,
-        marks=pytest.mark.skip_config(["n150", "sim"]),
         id="ui32_indices_i32_table_1x32_1024x32",
     ),
     pytest.param(

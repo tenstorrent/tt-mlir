@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/FunctionTypes.h"
 
@@ -170,6 +171,7 @@ public:
       materializeCoreCoordinateOperandsInPhysicalSpace(generic, builder);
 
       SmallVector<Attribute> threads;
+      Attribute physicalCBPortMap = getPhysicalCBPortMap(generic);
       auto origThreads = generic.getThreadsAttr().getValue();
       const auto chipDesc = ttcore::getOpChipDescAttr(generic);
       int unassignedDmCoreCounter = 0;
@@ -197,6 +199,9 @@ public:
                               {}));
         func.setPrivate();
         func->setAttr(d2m::ThreadAttr::name, threadAttrWithoutSym);
+        if (physicalCBPortMap) {
+          func->setAttr(getPhysicalCBPortMapAttrName(), physicalCBPortMap);
+        }
         func.getBody().takeBody(region);
         materializeCapturedConstants(func);
         ttmlir::utils::setFunctionType(func,

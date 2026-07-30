@@ -168,13 +168,14 @@ binary_ops = [
     add,
     atan2,
     div,
-    gelu_backward | Marks(pytest.mark.skip_config(["ttmetal"])),
-    gelu_backward_tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
+    gelu_backward | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
+    gelu_backward_tanh
+    | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
     maximum,
     minimum,
     multiply,
     pow,
-    remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
+    remainder | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
     subtract,
 ]
 
@@ -216,7 +217,7 @@ def test_binary_ops(
             "TODO(dloke): int32 div is not supported on ttmetal yet, need to support floor or truncate division"
         )
     if test_fn.__name__ == "atan2" and (dtype == torch.int32 or dtype == torch.int64):
-        pytest.skip("atan2 with integer inputs is not supported on ttmetal")
+        pytest.xfail("atan2 with integer inputs is not supported on ttmetal")
 
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [dtype, dtype])
@@ -466,7 +467,7 @@ def test_scalar_binary_ops(
     is_fractional = scalar_value != int(scalar_value)
 
     if is_int and test_fn.__name__ in float_only_ops:
-        pytest.skip(f"{test_fn.__name__} not supported for {dtype}")
+        pytest.xfail(f"{test_fn.__name__} not supported for {dtype}")
     if is_int and is_fractional:
         pytest.skip(f"fractional scalar {scalar_value} not valid for {dtype}")
 

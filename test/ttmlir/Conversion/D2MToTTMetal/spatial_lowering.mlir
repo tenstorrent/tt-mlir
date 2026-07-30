@@ -181,8 +181,8 @@ module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
   // CHECK-LABEL: func.func @spatial_two_regions_buffer_address_remap
   // CHECK-COUNT-1: "ttmetal.enqueue_program"
-  // CHECK: kernelConfigs = [#ttmetal.noc_config<@dm_b0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args<common_rt_args = [<buffer_address[0]>]  ct_args = [<cb_port[0]>, <cb_port[1]>]>, dm_core = 1, noc0>
-  // CHECK-SAME: #ttmetal.noc_config<@dm_b1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args<common_rt_args = [<buffer_address[2]>]  ct_args = [<cb_port[2]>, <cb_port[3]>]>, dm_core = 1, noc0>]
+  // CHECK: kernelConfigs = [#ttmetal.noc_config<@dm_b0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args<common_rt_args = [<buffer_address[0]>]  ct_args = [<cb_port[0]>, <cb_port[1]>, <tensor_accessor_args[0]>]>, dm_core = 1, noc0>
+  // CHECK-SAME: #ttmetal.noc_config<@dm_b1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args<common_rt_args = [<buffer_address[2]>]  ct_args = [<cb_port[2]>, <cb_port[3]>, <tensor_accessor_args[2]>]>, dm_core = 1, noc0>]
   // CHECK-NOT: d2m.spatial
   func.func @spatial_two_regions_buffer_address_remap(
       %arg0: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>,
@@ -213,10 +213,10 @@ module {
     return %out0, %out1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>
   }
 
-  func.func private @dm_b0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @dm_b0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>, <arg_type = tensor_accessor_args, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
-  func.func private @dm_b1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @dm_b1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>, <arg_type = tensor_accessor_args, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
 }

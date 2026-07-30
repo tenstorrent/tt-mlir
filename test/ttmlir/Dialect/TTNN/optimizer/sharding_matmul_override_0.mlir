@@ -1,11 +1,12 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-greedy-optimizer=false max-legal-layouts=0" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 max-legal-layouts=0" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// CHECK-NOT: #ttnn.ttnn_layout<{{.*}}, memref<{{.*}}, #l1>, {{.*}}>
+// With max-legal-layouts=0 no sharded output layouts are generated, so both
+// matmul results stay in DRAM interleaved (the greedy optimizer may still
+// shard matmul inputs).
 // CHECK-DAG: #[[LAYOUT_0:.*]] = #ttnn.ttnn_layout<{{.*}}, memref<2x3x!ttcore.tile<32x32, bf16>, #dram>, {{.*}}>
 // CHECK-DAG: #[[LAYOUT_1:.*]] = #ttnn.ttnn_layout<{{.*}}, memref<2x2x!ttcore.tile<32x32, bf16>, #dram>, {{.*}}>
-// CHECK-NOT: #ttnn.ttnn_layout<{{.*}}, memref<{{.*}}, #l1>, {{.*}}>
 
 module attributes {} {
   func.func @forward(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x96xbf16>, %arg2: tensor<96x64xbf16>) -> tensor<64x64xbf16> {

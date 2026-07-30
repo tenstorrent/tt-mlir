@@ -101,8 +101,8 @@ module {
   //   dm_ns1   | (0,0)       | 0,1     | address<1>     | [*]
   //   cp_ns0   | (0,0)       | 0,1     | []             | [*]
   //
-  // CHECK-SAME: {{.*}}#ttnn.data_movement_kernel<symbol_ref = @dm_ns0{{.*}}core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>{{.*}}#ttnn.kernel_arg_address_of_tensor<0>], rt_args = [{{[^]]*}}]>,
-  // CHECK-SAME:{{.*}}#ttnn.data_movement_kernel<symbol_ref = @dm_ns1{{.*}}core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>{{.*}}#ttnn.kernel_arg_address_of_tensor<1>], rt_args = [{{[^]]*}}]>,
+  // CHECK-SAME: {{.*}}#ttnn.data_movement_kernel<symbol_ref = @dm_ns0{{.*}}core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>, #ttnn.kernel_arg_tensor_accessor_args<0>{{.*}}#ttnn.kernel_arg_address_of_tensor<0>], rt_args = [{{[^]]*}}]>,
+  // CHECK-SAME:{{.*}}#ttnn.data_movement_kernel<symbol_ref = @dm_ns1{{.*}}core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>, #ttnn.kernel_arg_tensor_accessor_args<1>{{.*}}#ttnn.kernel_arg_address_of_tensor<1>], rt_args = [{{[^]]*}}]>,
   // CHECK-SAME:{{.*}}#ttnn.compute_kernel<symbol_ref = @cp_ns0{{.*}}core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>{{.*}}common_rt_args = [], rt_args = [{{[^]]*}}]>,
   //
   //     Region1 (core (1,1)): local cb 0,1 (same ids as region0; different core); address 2,3
@@ -112,8 +112,8 @@ module {
   //   dm_ns3   | (1,1)       | 0,1     | address<3>     | [*]
   //   cp_ns1   | (1,1)       | 0,1     | []             | [*]
   //
-  // CHECK-SAME:{{.*}}#ttnn.data_movement_kernel<symbol_ref = @dm_ns2{{.*}}core_ranges = <[#ttnn.core_range<(1,1), (1,1)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>{{.*}}#ttnn.kernel_arg_address_of_tensor<2>], rt_args = [{{[^]]*}}]>,
-  // CHECK-SAME:{{.*}}#ttnn.data_movement_kernel<symbol_ref = @dm_ns3{{.*}}core_ranges = <[#ttnn.core_range<(1,1), (1,1)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>{{.*}}#ttnn.kernel_arg_address_of_tensor<3>], rt_args = [{{[^]]*}}]>,
+  // CHECK-SAME:{{.*}}#ttnn.data_movement_kernel<symbol_ref = @dm_ns2{{.*}}core_ranges = <[#ttnn.core_range<(1,1), (1,1)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>, #ttnn.kernel_arg_tensor_accessor_args<2>{{.*}}#ttnn.kernel_arg_address_of_tensor<2>], rt_args = [{{[^]]*}}]>,
+  // CHECK-SAME:{{.*}}#ttnn.data_movement_kernel<symbol_ref = @dm_ns3{{.*}}core_ranges = <[#ttnn.core_range<(1,1), (1,1)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>, #ttnn.kernel_arg_tensor_accessor_args<3>{{.*}}#ttnn.kernel_arg_address_of_tensor<3>], rt_args = [{{[^]]*}}]>,
   // CHECK-SAME:{{.*}}#ttnn.compute_kernel<symbol_ref = @cp_ns1{{.*}}core_ranges = <[#ttnn.core_range<(1,1), (1,1)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>{{.*}}common_rt_args = [], rt_args = [{{[^]]*}}]>], cbs =
   //
   //     cbs: kernel_cb 2, 3; semaphores
@@ -150,19 +150,19 @@ module {
     %cast_4 = ttir.ttnn_metal_layout_cast %cast_2 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1> -> tensor<64x64xf32, #ttnn_layout3>
     return %cast_3, %cast_4 : tensor<64x64xf32, #ttnn_layout2>, tensor<64x64xf32, #ttnn_layout3>
   }
-  func.func private @dm_ns0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @dm_ns0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>, <arg_type = tensor_accessor_args, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
-  func.func private @dm_ns1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @dm_ns1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>, <arg_type = tensor_accessor_args, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
   func.func private @cp_ns0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     return
   }
-  func.func private @dm_ns2() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @dm_ns2() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>, <arg_type = tensor_accessor_args, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
-  func.func private @dm_ns3() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @dm_ns3() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>, <arg_type = tensor_accessor_args, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
   func.func private @cp_ns1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<compute>} {
