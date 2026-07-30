@@ -275,7 +275,7 @@ createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
       systemDesc.getChipDescs().front().getNumDramChannels();
   uint64_t numDRAMBanksUsed = std::min(numDramBanks, gridVolume);
   // Important: the DRAM cores are distributed along the X dim on WH & BH.
-  // Dim2dRange stores a location and size.
+  // CoreRange(Set) is inclusive, but Dim2dRange is exclusive.
   std::vector<target::Dim2dRange> coreRangeSet = {target::Dim2dRange(
       target::Dim2d(0, 0), target::Dim2d(1, numDRAMBanksUsed))};
 
