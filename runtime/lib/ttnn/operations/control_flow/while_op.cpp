@@ -36,46 +36,36 @@ uint64_t getMaxIterations() {
   return maxIterations;
 }
 
-// A tensor whose retain flag this op raised, together with the value it had
-// beforehand.
-struct SavedRetain {
-  ::tt::runtime::Tensor tensor;
-  bool previous;
-};
-
-// Keeps tensors alive across a nested program boundary. Without this the
-// callee's ttnn.deallocate ops would free values the loop still needs: the
-// captures on every subsequent iteration, and the carried values that feed the
-// next one.
+// Returns a private, retained view of `tensor`: a fresh wrapper over the same
+// underlying ttnn tensor, with its own retain flag already raised.
 //
-// The previous value has to be put back rather than forced to false, because
-// the loop is not the only owner of this flag. Const-eval keeps its cached
-// outputs retained, trace keeps its input and output slots retained, and a
-// host caller can retain a tensor it passes in as a program argument. Any of
-// those can show up as a loop init or capture -- in the common case where the
-// loop bounds are const-eval'd, they do. Clearing their claim would let a
-// later deallocate free a tensor that is still live.
-std::vector<SavedRetain> retain(std::vector<::tt::runtime::Tensor> &tensors) {
-  std::vector<SavedRetain> saved;
-  saved.reserve(tensors.size());
-  for (::tt::runtime::Tensor &tensor : tensors) {
-    ::tt::runtime::ttnn::TTNNTensorWrapper &wrapper =
-        tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
-    saved.push_back({tensor, wrapper.shouldRetain()});
-    wrapper.setRetain(true);
-  }
-  return saved;
-}
+// A nested program must not deallocate the values the loop hands it, and retain
+// is the flag that prevents that -- but it is not this op's flag to touch.
+// Const-eval keeps its cached outputs retained, trace keeps its input and
+// output slots retained, and a host caller can retain a tensor it passes in as
+// a program argument. Those are not hypothetical: when the loop bounds are
+// const-eval'd, every init and most captures arrive already retained and
+// registered in GlobalTensorCache. Raising the flag on a private view leaves
+// theirs untouched by construction, instead of relying on this op to correctly
+// restore what it found.
+//
+// No data is copied. The view shares the underlying buffer, which also bumps
+// its refcount and so makes any non-forced deallocation of it a no-op.
+::tt::runtime::Tensor retainedView(const ::tt::runtime::Tensor &tensor) {
+  const ::tt::runtime::ttnn::TTNNTensorWrapper &wrapper =
+      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+  std::optional<::ttnn::MeshEvent> meshEvent = wrapper.getMeshEvent();
 
-// Undoes a `retain`. Nested sets must be released in reverse order of
-// acquisition, since the same tensor can appear in more than one of them (an
-// init is frequently also a capture).
-void release(std::vector<SavedRetain> &saved) {
-  for (SavedRetain &entry : saved) {
-    entry.tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-        .setRetain(entry.previous);
-  }
-  saved.clear();
+  ::tt::runtime::Tensor view =
+      ::tt::runtime::ttnn::utils::createRuntimeTensorFromTTNN(
+          wrapper.getTensor(), meshEvent, /*retain=*/true);
+
+  // Keep the version aligned with the source so consumers that key off it (the
+  // const-eval cache, trace input-slot staleness) cannot mistake the view for a
+  // newer value. Trace does the same for its input slots.
+  view.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
+      .syncVersion(wrapper);
+  return view;
 }
 
 std::vector<::tt::runtime::Tensor>
@@ -83,19 +73,53 @@ runSubProgram(uint32_t programId, ProgramContext &context,
               const std::vector<::tt::runtime::Tensor> &carried,
               const std::vector<::tt::runtime::Tensor> &captures,
               const std::vector<::tt::runtime::GlobalSemaphore> &semaphores) {
+  // Retained views, not the tensors themselves: the sub-program must not
+  // deallocate what the loop still needs, and this is the only scope in which
+  // that protection is required. The views die with this vector, so no retain
+  // state outlives the call and there is nothing to unwind on an early exit.
+  //
   // ProgramExecutor's tensor pool holds raw pointers into this vector, so it
   // has to be a distinct, stable object for the executor's whole lifetime.
   // Never reuse or reassign one across iterations.
   std::vector<::tt::runtime::Tensor> inputs;
   inputs.reserve(carried.size() + captures.size());
-  inputs.insert(inputs.end(), carried.begin(), carried.end());
-  inputs.insert(inputs.end(), captures.begin(), captures.end());
+  for (const ::tt::runtime::Tensor &tensor : carried) {
+    inputs.push_back(retainedView(tensor));
+  }
+  for (const ::tt::runtime::Tensor &tensor : captures) {
+    inputs.push_back(retainedView(tensor));
+  }
 
   ProgramExecutor executor(context.getDeviceHandle(),
                            context.getExecutableHandle(), programId, inputs,
                            /*constEvalProgram=*/false, semaphores);
   executor.execute();
-  return executor.gatherOutputTensors();
+  std::vector<::tt::runtime::Tensor> outputs = executor.gatherOutputTensors();
+
+  // A body that yields one of its arguments unchanged hands back the very view
+  // that was passed in, because the pool resolves that output id straight to
+  // the input slot. Map those back to the tensor the view was made from, so no
+  // view escapes this function: a view's retain flag is raised, and publishing
+  // one as a loop result would stop the enclosing program from ever freeing it.
+  auto sourceOf = [&](size_t index) -> const ::tt::runtime::Tensor & {
+    return index < carried.size() ? carried[index]
+                                  : captures[index - carried.size()];
+  };
+  for (::tt::runtime::Tensor &output : outputs) {
+    const void *outputWrapper =
+        &output.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+    for (size_t i = 0; i < inputs.size(); i++) {
+      const void *inputWrapper =
+          &inputs[i].as<::tt::runtime::ttnn::TTNNTensorWrapper>(
+              DeviceRuntime::TTNN);
+      if (inputWrapper == outputWrapper) {
+        output = sourceOf(i);
+        break;
+      }
+    }
+  }
+
+  return outputs;
 }
 
 // Evaluates the condition program and reads its result back to host.
@@ -143,11 +167,6 @@ void run(const ::tt::target::ttnn::WhileOp *op, ProgramContext &context) {
   std::vector<::tt::runtime::GlobalSemaphore> semaphores =
       utils::collectSemaphoreInputs(op->semaphore_inputs(), context);
 
-  // Captures are read by every iteration, and the initial carried values are
-  // owned by the enclosing program, so neither may be freed by a sub-program.
-  std::vector<SavedRetain> capturesRetained = retain(captures);
-  std::vector<SavedRetain> carriedRetained = retain(carried);
-
   const ::flatbuffers::Optional<uint64_t> tripCount = op->trip_count();
   const uint64_t maxIterations = getMaxIterations();
 
@@ -172,24 +191,14 @@ void run(const ::tt::target::ttnn::WhileOp *op, ProgramContext &context) {
                "While body program returned ", next.size(),
                " values but the loop carries ", carried.size());
 
-    // Release the outgoing values before retaining the incoming ones. A body
-    // that passes a value straight through yields the tensor it was given, so
-    // doing it the other way round would snapshot the retain flag this op had
-    // already raised and then clear it again when the old set is released.
-    // Nothing executes in between, so the values are never unprotected.
-    release(carriedRetained);
-    carriedRetained = retain(next);
+    // Dropping the previous iteration's values here releases the last
+    // reference to any that the body did not carry forward, which frees them.
     carried = std::move(next);
   }
 
-  // Reverse order of acquisition: a tensor is frequently both an init and a
-  // capture, and only the outermost release should have the last word.
-  release(carriedRetained);
-  release(capturesRetained);
-
-  // The enclosing program owns the results from here on, exactly as it would
-  // the results of a func call, so their retain flags are left as `release`
-  // restored them.
+  // `carried` is either the inits, still owned by the enclosing program, or the
+  // body's own outputs -- never a view -- so the results are published exactly
+  // as a func call would publish them, with retain untouched.
   LOG_ASSERT(carried.size() == op->outputs()->size(),
              "Number of outputs does not match");
   for (size_t i = 0; i < op->outputs()->size(); i++) {
