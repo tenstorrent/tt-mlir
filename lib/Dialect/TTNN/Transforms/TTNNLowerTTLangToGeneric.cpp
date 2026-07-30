@@ -37,6 +37,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -447,15 +448,61 @@ mlir::LogicalResult lowerTTLangOpToGeneric(TTLangOp op) {
     return mlir::failure();
   }
 
+  // Give every DPS "out" init operand its own freshly-allocated device buffer.
+  //
+  // `ttnn.generic` writes each output in place, so distinct outputs must be
+  // backed by distinct buffers; if two outputs share one buffer, the kernel's
+  // writes clobber each other and only the last survives (all such results
+  // read back identical). The operands reaching this pass do NOT satisfy that:
+  // the frontend passes a separate `torch.empty_like()` placeholder per
+  // output, but XLA folds identical uninitialised placeholders into a single
+  // constant, tt-mlir CSE merges the resulting `ttnn.full` / `ttnn.empty` ops
+  // (neither carries a memory effect), and const-eval hoisting then pulls the
+  // shared constant into one `main_const_eval_0` whose `ttcore.load_cached`
+  // call sites the runtime memoises by (function, args) -- so same-shaped
+  // outputs collapse onto one device buffer.
+  //
+  // Rebuild each "out" operand as a fresh `ttnn.empty` here, in the last pass
+  // before flatbuffer emission. `ttnn.empty` is the correct op for a
+  // write-only DPS destination (uninitialised, no wasteful zero-fill), it
+  // carries `TTCoreNonCacheableTrait` so const-eval never hoists/dedupes it,
+  // and creating a separate op per output keeps the buffers distinct with no
+  // later CSE pass to merge them back.
   OpBuilder builder(op);
+  mlir::IRRewriter rewriter(op->getContext());
+  llvm::SmallVector<Value> operands(op.getInputs().begin(),
+                                    op.getInputs().end());
+  for (unsigned r = 0; r < numResults; ++r) {
+    unsigned outIdx = numIns + r;
+    auto outType = mlir::cast<RankedTensorType>(operands[outIdx].getType());
+    auto layoutAttr = mlir::cast<TTNNLayoutAttr>(outType.getEncoding());
+    ShapeAttr shapeAttr = ShapeAttr::get(ctx, outType.getShape());
+
+    Value freshOut;
+    if (isSystemBufferType(layoutAttr.getBufferType())) {
+      // Host-memory destination: EmptyOp requires a device, so fall back to a
+      // ZerosOp (matches the ttir.empty -> ttnn lowering for system buffers).
+      rewriter.setInsertionPoint(op);
+      freshOut = rewriter.create<ZerosOp>(op.getLoc(), outType,
+                                          /*device=*/nullptr, shapeAttr);
+    } else {
+      GetDeviceOp device = utils::getOrInsertDevice(rewriter, op);
+      rewriter.setInsertionPoint(op);
+      freshOut =
+          rewriter.create<EmptyOp>(op.getLoc(), outType, device, shapeAttr);
+    }
+    operands[outIdx] = freshOut;
+  }
+
   // `ttnn.generic` writes in place into its "out" operands and has no
   // results; downstream IR references the out operands directly. Replace
-  // each tt_lang_op result with its tied "out" operand before erasing.
-  builder.create<GenericOp>(op.getLoc(), op.getInputs(),
+  // each tt_lang_op result with its tied (now distinct) "out" operand
+  // before erasing.
+  builder.create<GenericOp>(op.getLoc(), operands,
                             /*additional_args=*/ValueRange{}, program);
 
   for (unsigned r = 0; r < numResults; ++r) {
-    op.getResult(r).replaceAllUsesWith(op.getInputs()[numIns + r]);
+    op.getResult(r).replaceAllUsesWith(operands[numIns + r]);
   }
   op.erase();
   return mlir::success();
