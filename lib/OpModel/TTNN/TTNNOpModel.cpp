@@ -3408,12 +3408,12 @@ llvm::Expected<OpConstraints> OpModel<IndexerScoreDsaOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
+      ::tt::tt_metal::TensorSpec querySpec,
       detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
                    detail::convertToTensorSpec(device, keyShape, keyLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec weightsSpec,
+      ::tt::tt_metal::TensorSpec weightsSpec,
       detail::convertToTensorSpec(device, weightsShape, weightsLayout));
 
   // ttnn::experimental::indexer_score_dsa has no output memory-config
@@ -3442,12 +3442,12 @@ llvm::Expected<size_t> OpModel<IndexerScoreDsaOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
+      ::tt::tt_metal::TensorSpec querySpec,
       detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
                    detail::convertToTensorSpec(device, keyShape, keyLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec weightsSpec,
+      ::tt::tt_metal::TensorSpec weightsSpec,
       detail::convertToTensorSpec(device, weightsShape, weightsLayout));
 
   auto indexerScoreDsaOpQuery = [=]() {

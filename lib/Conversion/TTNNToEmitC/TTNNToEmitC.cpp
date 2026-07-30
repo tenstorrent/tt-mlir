@@ -3495,6 +3495,57 @@ public:
 } // namespace
 
 //
+// AdamWOp conversion pattern (emits ::ttml::metal::adamw)
+//
+namespace {
+class AdamWOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::AdamWOp> {
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.adamw"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttml::metal::adamw";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::AdamWOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = mlir::tt::ttnn::AdamWOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AdamWOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AdamWOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // Arg order matches ttml::metal::adamw(param, grad, exp_avg, exp_avg_sq,
+    // max_exp_avg_sq, lr, beta1, beta2, beta1_pow, beta2_pow, epsilon,
+    // weight_decay, stochastic_rounding).
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getParam()),
+        emitter.emit(srcOp.getGrad()),
+        emitter.emit(srcOp.getExpAvg()),
+        emitter.emit(srcOp.getExpAvgSq()),
+        emitter.emit(srcOp.getMaxExpAvgSq()),
+        emitter.emit(srcOp.getLr()),
+        emitter.emit(srcOp.getBeta1()),
+        emitter.emit(srcOp.getBeta2()),
+        emitter.emit(srcOp.getBeta1Pow()),
+        emitter.emit(srcOp.getBeta2Pow()),
+        emitter.emit(srcOp.getEpsilon()),
+        emitter.emit(srcOp.getWeightDecay()),
+        rewriter.getAttr<emitc::OpaqueAttr>(
+            srcOp.getStochasticRounding()
+                ? "::ttml::metal::StochasticRounding::Enabled"
+                : "::ttml::metal::StochasticRounding::Disabled"),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+//
 // BatchNormTrainingOp conversion pattern
 //
 namespace {
@@ -3880,6 +3931,17 @@ public:
 
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::IndexerScoreDsaOp> emitter(
         srcOp, adaptor, rewriter);
+
+    // ttnn takes the query-sequence shard as `seq_shard_axes`, a
+    // std::vector<uint32_t> of mesh axes; forward the single cluster_axis as
+    // its sole element (unset -> std::nullopt).
+    llvm::SmallVector<uint32_t, 1> seqShardAxesStorage;
+    std::optional<llvm::ArrayRef<uint32_t>> seqShardAxes;
+    if (std::optional<uint32_t> clusterAxis = srcOp.getClusterAxis()) {
+      seqShardAxesStorage.push_back(*clusterAxis);
+      seqShardAxes = llvm::ArrayRef<uint32_t>(seqShardAxesStorage);
+    }
+
     // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
@@ -3892,7 +3954,7 @@ public:
         /*compute_kernel_config=*/emitter.emit(std::nullopt),
         /*cache_batch_idx=*/emitter.emit(std::nullopt),
         /*kv_len=*/emitter.emit(std::nullopt),
-        emitter.emit(srcOp.getClusterAxis()),
+        /*seq_shard_axes=*/emitter.emit<std::vector<uint32_t>>(seqShardAxes),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
@@ -5814,7 +5876,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       .add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
            DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
            CumSumOpConversionPattern, CumProdOpConversionPattern,
-           BatchNormInferenceOpConversionPattern,
+           BatchNormInferenceOpConversionPattern, AdamWOpConversionPattern,
            BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
            RMSNormPreAllGatherOpConversionPattern,
            DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,

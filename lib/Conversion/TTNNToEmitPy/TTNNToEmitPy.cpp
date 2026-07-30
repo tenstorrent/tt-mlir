@@ -4583,13 +4583,23 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::IndexerScoreDsaOp>
         emitter(srcOp, adaptor, rewriter);
 
+    // ttnn takes the query-sequence shard as `seq_shard_axes`, a list of mesh
+    // axes; forward the single cluster_axis as its sole element (unset ->
+    // None).
+    llvm::SmallVector<uint32_t, 1> seqShardAxesStorage;
+    std::optional<llvm::ArrayRef<uint32_t>> seqShardAxes;
+    if (std::optional<uint32_t> clusterAxis = srcOp.getClusterAxis()) {
+      seqShardAxesStorage.push_back(*clusterAxis);
+      seqShardAxes = llvm::ArrayRef<uint32_t>(seqShardAxesStorage);
+    }
+
     // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
         emitter.emit(srcOp.getKey()),
         emitter.emit(srcOp.getWeights()),
         emitter.emit(srcOp.getChunkStartIdx(), "chunk_start_idx"),
-        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(seqShardAxes, "seq_shard_axes"),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
@@ -5347,6 +5357,29 @@ public:
     return success();
   }
 };
+
+// AdamW conversion pattern.
+//
+// TODO(pglusac): EmitPy lowering for ttnn.adamw is intentionally unsupported.
+// The emitted Python would need to call the low-level ttml::metal::adamw
+// primitive, but tt-train's nanobind bindings only expose the high-level
+// AdamW optimizer class. We need to upstream those Python bindings.
+// See https://github.com/tenstorrent/tt-mlir/issues/9118.
+class AdamWOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::AdamWOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::AdamWOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AdamWOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        "EmitPy lowering for ttnn.adamw is not supported: ttml does not "
+        "expose the metal::adamw primitive through its Python bindings.");
+  }
+};
 } // namespace
 
 namespace mlir::tt {
@@ -5656,6 +5689,9 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       typeConverter, ctx);
   patterns.add<PagedFlashMultiLatentAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);
+
+  // AdamW: deliberately declines conversion (see TODO(pglusac) above).
+  patterns.add<AdamWOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
