@@ -122,13 +122,32 @@ std::optional<float> extractConstant(Value v) {
     break;
   }
 
-  auto fullOp = v.getDefiningOp<FullOp>();
-  if (!fullOp) {
+  // ttir.full carries the scalar directly as its fill value.
+  if (auto fullOp = v.getDefiningOp<FullOp>()) {
+    if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
+      return attr.getValue().convertToFloat();
+    }
     return std::nullopt;
   }
-  if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
-    return attr.getValue().convertToFloat();
+
+  // ttir.constant with a splat dense attribute. This is the form
+  // framework-traced models arrive in: a splat `stablehlo.constant` lowers to
+  // ttir.constant, never to ttir.full, so accepting only FullOp above silently
+  // declined the scale peel for every StableHLO-sourced attention (the
+  // ttir.full form is what hand-written tests use). Mirrors
+  // getSplatConstantValue in TTIRFusing.cpp; kept local because
+  // extractConstant is deliberately a narrow, one-direction look-through.
+  if (auto constOp = v.getDefiningOp<ConstantOp>()) {
+    auto elements = mlir::dyn_cast<mlir::ElementsAttr>(constOp.getValue());
+    if (!elements || !elements.isSplat() ||
+        !mlir::isa<mlir::FloatType>(elements.getElementType())) {
+      return std::nullopt;
+    }
+    // Safe for bf16/f16/f32 splats: every one of those semantics is
+    // representable by IEEEsingle, which is what convertToFloat requires.
+    return elements.getSplatValue<mlir::APFloat>().convertToFloat();
   }
+
   return std::nullopt;
 }
 
