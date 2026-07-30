@@ -128,7 +128,10 @@ public:
         }
 
         std::string path = cache_dir + key;
-        TT_FATAL(!std::filesystem::exists(path), "Binary already stored on disk: {}", path);
+        if (std::filesystem::exists(path)) {
+            log_info(tt::LogAlways, "Binary already stored on disk: {}", path);
+            return;
+        }
 
         log_info(tt::LogAlways, "Storing binary on disk: {}", path);
         cp.binary.store(path.c_str());
