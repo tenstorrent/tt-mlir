@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/OpModel/TTNN/MetalHeaders.h"
 
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/ErrorHandling.h"
 
@@ -271,10 +272,31 @@ void SingletonDeviceContext::openDevice(
     numChips = m_systemDesc.getChipDescIndices().size();
   }
 
-  // Build into locals; commit to members only on success so a throw leaves
-  // m_env/m_device null and the context reusable.
-  auto env = std::make_unique<::tt::tt_metal::MetalEnv>(
-      makeEnvDescriptor(isMock, arch, numChips));
+  std::unique_ptr<::tt::tt_metal::MetalEnv> env;
+  if (isMock) {
+    // Unset TT_VISIBLE_DEVICES to force tt-umd to enumerate reading
+    // devices starting from id 0.
+    const char *prevVisibleDevices = std::getenv("TT_VISIBLE_DEVICES");
+    const bool hadVisibleDevices = prevVisibleDevices != nullptr;
+    std::string savedVisibleDevices =
+        prevVisibleDevices ? prevVisibleDevices : "";
+    if (hadVisibleDevices) {
+      ::unsetenv("TT_VISIBLE_DEVICES");
+    }
+    // Restore the pin on any exit path, including a throw from
+    // makeEnvDescriptor/MetalEnv construction, so we never leave the
+    // process-global env var cleared.
+    auto restoreVisibleDevices = llvm::make_scope_exit([&]() noexcept {
+      if (hadVisibleDevices) {
+        ::setenv("TT_VISIBLE_DEVICES", savedVisibleDevices.c_str(), 1);
+      }
+    });
+    env = std::make_unique<::tt::tt_metal::MetalEnv>(
+        makeEnvDescriptor(isMock, arch, numChips));
+  } else {
+    env = std::make_unique<::tt::tt_metal::MetalEnv>(
+        makeEnvDescriptor(isMock, arch, numChips));
+  }
 
   ::tt::tt_metal::distributed::MeshShape shape{
       meshShape ? static_cast<unsigned int>(meshShape->first) : 1,
