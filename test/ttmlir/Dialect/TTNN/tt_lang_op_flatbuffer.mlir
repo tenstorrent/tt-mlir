@@ -85,14 +85,16 @@ module {
       -> tensor<32x32xf32, #dram_layout>
       attributes {tt.function_type = "forward_device"} {
     // The tt_lang_op is gone; lowering produced a ttnn.generic carrying an
-    // inline-source program, and the result was rewired to the "out"
-    // operand (%arg2).
+    // inline-source program. Every DPS "out" init is rebuilt as a fresh
+    // ttnn.empty, so the destination is that new buffer rather than the
+    // incoming %arg2, and the result is rewired to it.
     // CHECK-NOT: ttnn.tt_lang_op
-    // CHECK: "ttnn.generic"(%arg0, %arg1, %arg2)
+    // CHECK: %[[OUT:.*]] = "ttnn.empty"
+    // CHECK: "ttnn.generic"(%arg0, %arg1, %[[OUT]])
     // CHECK-SAME: #ttnn.source_compute_kernel<source = "// compute kernel stub"
     // CHECK-SAME: #ttnn.source_read_kernel<source = "// reader kernel stub"
     // CHECK-SAME: #ttnn.source_write_kernel<source = "// writer kernel stub"
-    // CHECK: return %arg2
+    // CHECK: return %[[OUT]]
     %0 = "ttnn.tt_lang_op"(%arg0, %arg1, %arg2) <{
       kernel_id = "test.add::v1",
       version_tag = "1.0",
