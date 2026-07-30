@@ -1963,7 +1963,7 @@ public:
           srcOp, "tenstorrent.adamw must have 4 or 5 operands (param, grad, "
                  "exp_avg, exp_avg_sq, [max_exp_avg_sq]).");
     }
-    
+
     if (srcOp.getNumResults() != numOperands - 1) {
       return rewriter.notifyMatchFailure(
           srcOp, "tenstorrent.adamw must have one result per updated operand "
