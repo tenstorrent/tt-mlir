@@ -81,6 +81,35 @@ table ScaledDotProductAttentionOp {
   memcfg: tt.target.ttnn.MemoryConfig;
 }
 
+table ExpRingJointScaledDotProductAttentionOp {
+  query: tt.target.ttnn.TensorRef;
+  key: tt.target.ttnn.TensorRef;
+  value: tt.target.ttnn.TensorRef;
+  joint_query: tt.target.ttnn.TensorRef;   // optional (0 if absent)
+  joint_key: tt.target.ttnn.TensorRef;     // optional (0 if absent)
+  joint_value: tt.target.ttnn.TensorRef;   // optional (0 if absent)
+  // Ring scratch, bound in the function prelude. Required at runtime.
+  persistent_output_buffer_k: tt.target.ttnn.TensorRef;
+  persistent_output_buffer_v: tt.target.ttnn.TensorRef;
+  // Passed straight through to tt-metal as a std::vector<GlobalSemaphore>.
+  multi_device_global_semaphore: [tt.target.ttnn.GlobalSemaphoreRef];
+  joint_strategy: string;
+  logical_n: uint64;
+  dim: int32;
+  cluster_axis: uint32;
+  program_config: tt.target.ttnn.SDPAConfig;
+  num_links: uint32 = null;
+  topology: tt.target.Topology = null;
+  sub_device_id: uint8 = null;
+  scale: float = null;
+  num_workers_per_link: uint32;
+  num_buffers_per_channel: uint32;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+  out: tt.target.ttnn.TensorRef;
+  joint_out: tt.target.ttnn.TensorRef;
+  lse: tt.target.ttnn.TensorRef;
+}
+
 table FlashMlaPrefillOp {
   query: tt.target.ttnn.TensorRef;
   key: tt.target.ttnn.TensorRef;
