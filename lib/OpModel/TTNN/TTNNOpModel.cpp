@@ -56,6 +56,14 @@ namespace mlir::tt::ttnn::op_model {
   ::ttnn::graph::query_op_runtime(WRAP_OP(op), device, __VA_ARGS__)
 // clang-format on
 
+// Forward-declared here so operation::getOpConstraints can call it;
+// definition is in namespace detail below.
+namespace detail {
+llvm::Expected<::ttnn::TensorSpec>
+convertToTensorSpec(::tt::tt_metal::distributed::MeshDevice *device,
+                    llvm::ArrayRef<int64_t> shape, TTNNLayoutAttr layout);
+} // namespace detail
+
 namespace operation {
 
 /// RAII helper to preserve and restore the program cache state.
@@ -156,10 +164,36 @@ llvm::Expected<OpConstraints> getOpConstraints(MLIRContext *context,
   const llvm::ArrayRef<int64_t> deviceGrid =
       SingletonDeviceContext::getInstance().getComputeGridShape();
 
+  // isDeviceInitialized() guards getDevice(), which asserts non-null.
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().isDeviceInitialized()
+          ? SingletonDeviceContext::getInstance().getDevice()
+          : nullptr;
+
   llvm::SmallVector<TTNNLayoutAttr> layoutAttrs;
   for (const auto &outputTensorSpec : response.output_tensor_specs.value()) {
-    layoutAttrs.push_back(conversion::getLayoutAttrFromTensorSpec(
-        context, outputTensorSpec, deviceGrid));
+    TTNNLayoutAttr layoutAttr = conversion::getLayoutAttrFromTensorSpec(
+        context, outputTensorSpec, deviceGrid);
+
+    // On harvested boards the logical compute grid reported by TTNN can exceed
+    // the number of physically usable cores. Reject any sharded L1 layout
+    // whose shard count doesn't fit the physical device so MemoryLayout-
+    // Propagation falls back to a valid layout (e.g. DRAM interleaved).
+    if (device != nullptr && layoutAttr.hasShardedL1TensorMemoryLayout()) {
+      llvm::SmallVector<int64_t> shape =
+          outputTensorSpec.logical_shape().size() > 0
+              ? conversion::getShape(outputTensorSpec.logical_shape())
+              : llvm::SmallVector<int64_t>{1, 1};
+      if (auto err =
+              detail::convertToTensorSpec(device, shape, layoutAttr).takeError()) {
+        llvm::consumeError(std::move(err));
+        return llvm::createStringError(
+            "OpModel output layout invalid for this device: shard count "
+            "exceeds physical cores (harvested device).");
+      }
+    }
+
+    layoutAttrs.push_back(layoutAttr);
   }
 
   return OpConstraints(response.resource_usage.cb_peak_size_per_core,
@@ -204,14 +238,19 @@ namespace detail {
 llvm::Expected<::ttnn::TensorSpec>
 convertToTensorSpec(::tt::tt_metal::distributed::MeshDevice *device,
                     llvm::ArrayRef<int64_t> shape, TTNNLayoutAttr layout) {
-  const ::ttnn::TensorSpec spec = conversion::getTensorSpec(shape, layout);
-  if (conversion::validateTensorSpec(
-          spec, device->compute_with_storage_grid_size())) {
-    return spec;
+  // getTensorSpec can throw via TT_FATAL when the layout is physically invalid.
+  // Catch and convert to llvm::Error so callers can fall back gracefully.
+  try {
+    const ::ttnn::TensorSpec spec = conversion::getTensorSpec(shape, layout);
+    if (conversion::validateTensorSpec(
+            spec, device->compute_with_storage_grid_size())) {
+      return spec;
+    }
+    return llvm::createStringError(
+        "Unable to create TensorSpec out of given shape and layout");
+  } catch (const std::runtime_error &e) {
+    return llvm::createStringError(e.what());
   }
-
-  return llvm::createStringError(
-      "Unable to create TensorSpec out of given shape and layout");
 }
 
 std::optional<::ttnn::TensorSpec>
@@ -223,7 +262,7 @@ convertToOptionalTensorSpec(::tt::tt_metal::distributed::MeshDevice *device,
     auto retExp =
         detail::convertToTensorSpec(device, shape.value(), layout.value());
     if (!retExp) {
-      assert(false && "Failed to convert to TensorSpec");
+      llvm::consumeError(retExp.takeError());
       return std::nullopt;
     }
     ret = retExp.get();

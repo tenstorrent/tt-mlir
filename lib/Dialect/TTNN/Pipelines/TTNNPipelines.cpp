@@ -770,11 +770,6 @@ void createTTIRToTTNNRuntimePipeline(
 //
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options) {
-  if (options.enableTrace) {
-    llvm::report_fatal_error(
-        "Trace currently not supported in createTTIRToEmitCPipeline");
-  }
-
   createTTIRToTTNNCommonPipeline(pm, options);
 
   createTTNNCommonToEmitCPipeline(pm, options);

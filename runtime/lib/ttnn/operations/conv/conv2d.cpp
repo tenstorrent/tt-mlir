@@ -24,9 +24,13 @@ struct CachedConv2dPrepare {
   ::ttnn::Tensor weight;
   std::optional<::ttnn::Tensor> bias;
 };
+// Heap-allocated and never freed. Prevents Tensor dtors from running as static
+// dtors after libtt_metal.so is unloaded (issue #7414). Normal cleanup goes
+// through clearConv2dPrepareCache() while all libraries are still loaded.
 static std::unordered_map<const ::tt::target::ttnn::Conv2dOp *,
-                           CachedConv2dPrepare>
-    conv2dPrepareCache;
+                           CachedConv2dPrepare> *conv2dPrepareCache =
+    new std::unordered_map<const ::tt::target::ttnn::Conv2dOp *,
+                            CachedConv2dPrepare>();
 
 using ::ttnn::Conv2dResultWithOptions;
 void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
@@ -104,8 +108,8 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   // prepares the weights and causes PCC regressions. Check the runtime storage
   // type of the weight tensor: if it is already on device, skip requesting
   // weight return (no preparation needed).
-  auto cacheIt = conv2dPrepareCache.find(op);
-  if (cacheIt != conv2dPrepareCache.end()) {
+  auto cacheIt = conv2dPrepareCache->find(op);
+  if (cacheIt != conv2dPrepareCache->end()) {
     weight = cacheIt->second.weight;
     if (cacheIt->second.bias) {
       bias = cacheIt->second.bias;
@@ -117,7 +121,7 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   // a DRAM slot (raw/unprepared) before the first run; requesting weights here
   // ensures TTNN prepares and returns them so they can be cached. On subsequent
   // calls the cache hit avoids re-preparation. (issue #7414 / trace workaround)
-  bool requestWeights = (cacheIt == conv2dPrepareCache.end());
+  bool requestWeights = (cacheIt == conv2dPrepareCache->end());
 
   Conv2dResultWithOptions result = ::ttnn::conv2d(
       input, weight, &targetDevice, op->in_channels(), op->out_channels(),
@@ -138,7 +142,7 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
                  std::get_if<std::tuple<::ttnn::Tensor, WeightBias>>(&result)) {
     out = std::get<0>(*v);
     auto &[w, b] = std::get<1>(*v);
-    conv2dPrepareCache[op] = {w, b};
+    (*conv2dPrepareCache)[op] = {w, b};
   } else if (auto *v =
                  std::get_if<std::tuple<::ttnn::Tensor, OutHW>>(&result)) {
     out = std::get<0>(*v);
@@ -146,7 +150,7 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
                  std::tuple<::ttnn::Tensor, OutHW, WeightBias>>(&result)) {
     out = std::get<0>(*v);
     auto &[w, b] = std::get<2>(*v);
-    conv2dPrepareCache[op] = {w, b};
+    (*conv2dPrepareCache)[op] = {w, b};
   } else {
     LOG_ASSERT(false, "Unexpected Conv2dResultWithOptions variant");
   }
@@ -154,6 +158,6 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
-void clearConv2dPrepareCache() { conv2dPrepareCache.clear(); }
+void clearConv2dPrepareCache() { conv2dPrepareCache->clear(); }
 
 } // namespace tt::runtime::ttnn::operations::conv

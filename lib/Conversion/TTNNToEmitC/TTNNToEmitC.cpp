@@ -1683,6 +1683,16 @@ public:
   using TTNNToEmitCBaseOpConversionPattern<
       mlir::tt::ttnn::Conv2dOp>::TTNNToEmitCBaseOpConversionPattern;
 
+  // Emit conv2d_cached instead of ttnn::conv2d. The wrapper caches prepared
+  // DRAM weights after the pre-trace warmup so the trace body never issues an
+  // EnqueueWriteBuffer when weights arrive as raw SystemMemory tensors.
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.conv2d";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "tt::runtime::ttnn::emitc::conv2d_cached";
+  }
+
   LogicalResult
   matchAndRewrite(mlir::tt::ttnn::Conv2dOp srcOp,
                   mlir::tt::ttnn::Conv2dOp::Adaptor adaptor,

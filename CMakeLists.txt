@@ -107,7 +107,7 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_definitions(TT_BUILD_DEBUG TTMLIR_ENABLE_DEBUG_LOGS)
 endif()
 
-add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=ENV{TTMLIR_TOOLCHAIN_DIR})
+add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter -Wno-deprecated-declarations -Wno-deprecated-literal-operator --system-header-prefix=ENV{TTMLIR_TOOLCHAIN_DIR})
 
 set(CMAKE_LINKER_TYPE DEFAULT)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")

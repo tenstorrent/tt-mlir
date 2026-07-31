@@ -88,6 +88,9 @@
 #include "workarounds.hpp"
 // ANCHOR_END: standalone_includes
 
+// conv2d weight cache for trace-safe EmitC execution (see conv2d_cache.hpp).
+#include "conv2d_cache.hpp"
+
 #include <array>
 #include <cassert>
 #include <cstddef>
