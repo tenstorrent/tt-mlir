@@ -36,6 +36,51 @@ AllGatherOp RingSDPAFusing::matchPairedGather(Value v, AllGatherOp keyGather) {
   return gather;
 }
 
+Value RingSDPAFusing::peelPaddingSlice(Value v, int64_t seqDim,
+                                       SliceStaticOp &slice) {
+  slice = nullptr;
+  auto candidate = v.getDefiningOp<SliceStaticOp>();
+  if (!candidate || !candidate->hasOneUse()) {
+    return v;
+  }
+
+  RankedTensorType inputType = candidate.getInput().getType();
+  const int64_t rank = inputType.getRank();
+  llvm::ArrayRef<mlir::Attribute> begins = candidate.getBegins().getValue();
+  llvm::ArrayRef<mlir::Attribute> ends = candidate.getEnds().getValue();
+  llvm::ArrayRef<mlir::Attribute> step = candidate.getStep().getValue();
+  if (static_cast<int64_t>(begins.size()) != rank ||
+      static_cast<int64_t>(ends.size()) != rank ||
+      static_cast<int64_t>(step.size()) != rank) {
+    return v;
+  }
+
+  auto asInt = [](mlir::Attribute a) {
+    return mlir::cast<mlir::IntegerAttr>(a).getInt();
+  };
+  for (int64_t d = 0; d < rank; ++d) {
+    if (asInt(step[d]) != 1 || asInt(begins[d]) != 0) {
+      return v;
+    }
+    // Every dim other than the sequence axis must be left whole; a slice that
+    // trims heads or the head dim is not a padding trim.
+    if (d != seqDim && asInt(ends[d]) != inputType.getShape()[d]) {
+      return v;
+    }
+  }
+  if (asInt(ends[seqDim]) > inputType.getShape()[seqDim]) {
+    return v;
+  }
+
+  slice = candidate;
+  return candidate.getInput();
+}
+
+bool RingSDPAFusing::slicesAgree(SliceStaticOp a, SliceStaticOp b) {
+  return a.getBegins() == b.getBegins() && a.getEnds() == b.getEnds() &&
+         a.getStep() == b.getStep();
+}
+
 // Largest tile-aligned power of two in [32, 512] that divides `extent`.
 static uint64_t chooseChunkSize(int64_t extent) {
   for (uint64_t chunk = 512; chunk > 32; chunk /= 2) {
@@ -83,12 +128,34 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
         srcOp, "ring SDPA supports only unmasked, non-causal attention");
   }
 
-  auto keyGather = srcOp.getKey().getDefiningOp<AllGatherOp>();
+  RankedTensorType queryType = srcOp.getQuery().getType();
+  const int64_t rank = queryType.getRank();
+  if (rank != 4) {
+    return rewriter.notifyMatchFailure(srcOp, "expected a rank-4 query");
+  }
+  const int64_t seqDim = rank - 2;
+
+  // Peel the frontend's padding trim, if present, so the all-gather underneath
+  // it is still matchable. Its length becomes logical_n further down.
+  SliceStaticOp keySlice;
+  SliceStaticOp valueSlice;
+  Value gatheredKey = peelPaddingSlice(srcOp.getKey(), seqDim, keySlice);
+  Value gatheredValue = peelPaddingSlice(srcOp.getValue(), seqDim, valueSlice);
+  if (static_cast<bool>(keySlice) != static_cast<bool>(valueSlice)) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "only one of key/value carries a padding slice");
+  }
+  if (keySlice && !slicesAgree(keySlice, valueSlice)) {
+    return rewriter.notifyMatchFailure(srcOp,
+                                       "key and value padding slices disagree");
+  }
+
+  auto keyGather = gatheredKey.getDefiningOp<AllGatherOp>();
   if (!keyGather || !keyGather->hasOneUse()) {
     return rewriter.notifyMatchFailure(
         srcOp, "key is not produced by a single-use all_gather");
   }
-  AllGatherOp valueGather = matchPairedGather(srcOp.getValue(), keyGather);
+  AllGatherOp valueGather = matchPairedGather(gatheredValue, keyGather);
   if (!valueGather) {
     return rewriter.notifyMatchFailure(
         srcOp, "value is not produced by a matching single-use all_gather");
@@ -98,16 +165,9 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
                                        "key and value share one all_gather");
   }
 
-  RankedTensorType queryType = srcOp.getQuery().getType();
-  const int64_t rank = queryType.getRank();
-  if (rank != 4) {
-    return rewriter.notifyMatchFailure(srcOp, "expected a rank-4 query");
-  }
-
   // The gather must be on the sequence axis: that is what makes this a
   // sequence-parallel attention rather than some other collective that happens
   // to feed K/V.
-  const int64_t seqDim = rank - 2;
   if (keyGather.getAllGatherDim() != seqDim) {
     return rewriter.notifyMatchFailure(
         srcOp, "all_gather is not on the sequence axis");
@@ -161,6 +221,20 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
         srcOp, "ring SDPA requires bf16 query/key/value of a single dtype");
   }
 
+  // The absorbed slice, if any, is the true unpadded length; otherwise the
+  // whole gathered sequence is real. tt-metal also requires the padding delta
+  // to fit inside one shard, so a trim that would leave some device holding
+  // only padding is rejected rather than silently widened.
+  const int64_t logicalN =
+      keySlice
+          ? mlir::cast<mlir::IntegerAttr>(keySlice.getEnds().getValue()[seqDim])
+                .getInt()
+          : gatheredSeqLen;
+  if (gatheredSeqLen - logicalN >= localSeqLen) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "padding slice would leave a device with only padded tokens");
+  }
+
   SDPAProgramConfigAttr programConfig =
       buildProgramConfig(srcOp, localSeqLen, gatheredSeqLen);
 
@@ -191,9 +265,7 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
       /*persistent_output_buffer_v=*/Value(),
       /*multi_device_global_semaphore=*/ValueRange(),
       /*joint_strategy=*/rewriter.getStringAttr(kJointStrategy),
-      // No padding slice absorbed yet, so the true length is the whole gathered
-      // sequence. Phase 4 narrows this by folding the frontend's K/V slice in.
-      /*logical_n=*/rewriter.getI64IntegerAttr(gatheredSeqLen),
+      /*logical_n=*/rewriter.getI64IntegerAttr(logicalN),
       /*dim=*/rewriter.getSI32IntegerAttr(seqDim),
       /*cluster_axis=*/rewriter.getUI32IntegerAttr(clusterAxis), programConfig,
       /*num_links=*/keyGather.getNumLinksAttr(),

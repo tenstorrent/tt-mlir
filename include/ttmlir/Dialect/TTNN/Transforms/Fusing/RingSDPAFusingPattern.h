@@ -42,6 +42,22 @@ private:
   // with `keyGather` on every CCL attribute. Null otherwise.
   static AllGatherOp matchPairedGather(Value v, AllGatherOp keyGather);
 
+  // Peels an optional padding slice off `v`, returning the value behind it.
+  //
+  // Frontends that pad the sequence to `TILE_SIZE * SP` have to slice the
+  // gathered K/V back to the true length before every block, because plain SDPA
+  // cannot tell padded keys from real ones. The ring op takes `logical_n`
+  // instead, so the slice becomes the carrier of the true length rather than
+  // something to delete separately.
+  //
+  // Sets `slice` to the peeled op (null when there is none) and only accepts a
+  // pure prefix on the sequence axis: `begins` all zero, unit `step`, and every
+  // non-sequence dim full. Anything else is some other slice and is left alone.
+  static Value peelPaddingSlice(Value v, int64_t seqDim, SliceStaticOp &slice);
+
+  // True when two peeled padding slices describe the same trim.
+  static bool slicesAgree(SliceStaticOp a, SliceStaticOp b);
+
   // Builds the program config the ring kernel requires. Unlike plain SDPA,
   // tt-metal takes this by value with no default, so the compiler has to
   // choose one.
