@@ -6662,6 +6662,159 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// ExpRingJointScaledDotProductAttentionOp
+//===----------------------------------------------------------------------===//
+
+// Enforces the ring SDPA layout and the prelude-binding contract:
+//   Q, K, V: [B, H, N, E]   all sequence-sharded on `dim`, so all three carry
+//                           the same per-device sequence length
+//   dim:     must be the sequence axis (rank - 2)
+//   buffers: [B, H, N * ring_size, E] — the gathered length
+// `joint_*` are all-or-none. The persistent buffers and the semaphore pair are
+// each all-or-none because the prelude passes bind them as a group, and because
+// buffers are bound before the optimizer while semaphores are bound after, a
+// bound semaphore with unbound buffers is out of order.
+//
+// `joint_result` and `lse` are deliberately unconstrained here: their shapes
+// are set by the tt-metal kernel and are not derivable from the operands alone.
+::mlir::LogicalResult
+mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::verify() {
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType valueType = getValue().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  const int64_t queryRank = queryType.getRank();
+  if (queryRank != 4) {
+    return emitOpError("Query must be a 4D tensor");
+  }
+  if (keyType.getRank() != 4) {
+    return emitOpError("Key/Value must be a 4D tensor");
+  }
+  if (keyType.getShape() != valueType.getShape()) {
+    return emitOpError("Key and value must have the same shape");
+  }
+  if (keyType.getElementType() != valueType.getElementType()) {
+    return emitOpError("Key and value must have the same element type");
+  }
+  if (queryType.getShape() != resultType.getShape()) {
+    return emitOpError("Query and result must have the same shape");
+  }
+  if (queryType.getElementType() != resultType.getElementType()) {
+    return emitOpError("Query and result must have the same element type");
+  }
+
+  const int64_t seqDim = queryRank - 2;
+  if (getDim() != seqDim) {
+    return emitOpError("dim must be the sequence axis (")
+           << seqDim << " for a rank-" << queryRank << " query), got "
+           << getDim();
+  }
+
+  if (keyType.getShape()[0] != queryType.getShape()[0]) {
+    return emitOpError("Key/Value batch size must match query batch size");
+  }
+  if (keyType.getShape()[queryRank - 1] !=
+      queryType.getShape()[queryRank - 1]) {
+    return emitOpError("Key/Value head size must match query head size");
+  }
+  const int64_t nQueryHeads = queryType.getShape()[queryRank - 3];
+  const int64_t nKVHeads = keyType.getShape()[queryRank - 3];
+  if (nKVHeads == 0 || nQueryHeads % nKVHeads != 0) {
+    return emitOpError(
+        "Query num heads must be divisible by key/value num heads");
+  }
+  // Every rank holds the same slice of the sequence, so the per-device K/V
+  // sequence length must match Q's. A K/V that is already at the gathered
+  // length means an all-gather was left in place and this op should not have
+  // been formed.
+  if (keyType.getShape()[seqDim] != queryType.getShape()[seqDim]) {
+    return emitOpError("Key/Value sequence length must match query sequence "
+                       "length (both are sequence-sharded)");
+  }
+
+  // joint_* are all-or-none.
+  const unsigned numJoint = static_cast<unsigned>(!!getJointQuery()) +
+                            static_cast<unsigned>(!!getJointKey()) +
+                            static_cast<unsigned>(!!getJointValue());
+  if (numJoint != 0 && numJoint != 3) {
+    return emitOpError("joint_query, joint_key and joint_value must all be "
+                       "present or all be absent");
+  }
+
+  const bool hasBufferK = static_cast<bool>(getPersistentOutputBufferK());
+  const bool hasBufferV = static_cast<bool>(getPersistentOutputBufferV());
+  if (hasBufferK != hasBufferV) {
+    return emitOpError("persistent_output_buffer_k and "
+                       "persistent_output_buffer_v must both be present or "
+                       "both be absent");
+  }
+
+  // tt-metal's ring all-gather rotates a two-deep semaphore pool, so a bound
+  // op needs at least two. Empty means the prelude pass has not run yet.
+  const size_t numSemaphores = getMultiDeviceGlobalSemaphore().size();
+  if (numSemaphores == 1) {
+    return emitOpError("multi_device_global_semaphore must be empty (before "
+                       "prelude allocation) or hold at least 2 semaphores for "
+                       "the ping-pong pool, got 1");
+  }
+  if (numSemaphores > 0 && !hasBufferK) {
+    return emitOpError("semaphores are bound but the persistent buffers are "
+                       "not; buffers are allocated before the optimizer and "
+                       "semaphores after, so this ordering is invalid");
+  }
+
+  int64_t gatheredSeqLen = 0;
+  if (hasBufferK) {
+    RankedTensorType bufferKType =
+        mlir::cast<RankedTensorType>(getPersistentOutputBufferK().getType());
+    RankedTensorType bufferVType =
+        mlir::cast<RankedTensorType>(getPersistentOutputBufferV().getType());
+    if (bufferKType.getShape() != bufferVType.getShape()) {
+      return emitOpError("persistent K and V buffers must have the same shape");
+    }
+    if (bufferKType.getRank() != queryRank) {
+      return emitOpError("persistent buffers must have the same rank as query");
+    }
+    for (int64_t i = 0; i < queryRank; ++i) {
+      if (i == seqDim) {
+        continue;
+      }
+      if (bufferKType.getShape()[i] != keyType.getShape()[i]) {
+        return emitOpError("persistent buffer dim ")
+               << i << " must match key dim " << i << " ("
+               << keyType.getShape()[i] << "), got "
+               << bufferKType.getShape()[i];
+      }
+    }
+    // The buffer holds the gathered sequence, so its sequence extent is the
+    // per-device length times the ring size.
+    gatheredSeqLen = bufferKType.getShape()[seqDim];
+    const int64_t localSeqLen = keyType.getShape()[seqDim];
+    if (localSeqLen == 0 || gatheredSeqLen % localSeqLen != 0 ||
+        gatheredSeqLen / localSeqLen < 2) {
+      return emitOpError("persistent buffer sequence length (")
+             << gatheredSeqLen
+             << ") must be the key sequence length times the ring size (>= 2), "
+                "key sequence length is "
+             << localSeqLen;
+    }
+  }
+
+  // logical_n is unsigned, so it cannot be negative; only the upper bound is
+  // checkable, and only once the buffers reveal the gathered length.
+  if (gatheredSeqLen != 0 &&
+      getLogicalN() > static_cast<uint64_t>(gatheredSeqLen)) {
+    return emitOpError("logical_n (")
+           << getLogicalN()
+           << ") must not exceed the gathered sequence length ("
+           << gatheredSeqLen << ")";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // FlashMlaPrefillOp
 //===----------------------------------------------------------------------===//
 

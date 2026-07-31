@@ -4050,6 +4050,118 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
     let hasVerifier = 1;
 }
 
+// TODO(#ring-attention phase 2): attach TTNN_DistributedOpInterface and
+// implement allocateBuffers / allocateSemaphores so
+// TTNNAllocateDistributedOpBuffers and TTNNAllocateDistributedOpSemaphores
+// materialize the persistent buffers and the semaphore pair in the function
+// prelude. Until then the operands below must be bound by the producer.
+def TTNN_ExpRingJointScaledDotProductAttentionOp : TTNN_Op<"exp_ring_joint_scaled_dot_product_attention",
+    [AttrSizedOperandSegments, OpModelExempt,
+     TTNN_ComputeKernelConfigOpInterface]> {
+    let summary = "Ring (sequence-parallel) joint scaled dot product attention.";
+    let description = [{
+      Sequence-parallel attention. Mirrors
+      `ttnn::transformer::exp_ring_joint_scaled_dot_product_attention`.
+
+      Q stays sharded on the sequence axis across `cluster_axis`; K/V blocks are
+      streamed around the ring and folded into the running attention as they
+      arrive, so the communication overlaps compute instead of being an exposed
+      all-gather. This op therefore *replaces* an
+      `all_gather` + `scaled_dot_product_attention` pair, not just the SDPA.
+
+      Shapes use `B` (batch), `H` (heads), `N` (per-device sequence length),
+      `E` (head size). The gathered sequence length is `N * mesh[cluster_axis]`.
+
+      Args:
+          query (AnyRankedTensor): `[B x H x N x E]`, sequence-sharded.
+          key (AnyRankedTensor): `[B x H x N x E]`, sequence-sharded.
+          value (AnyRankedTensor): `[B x H x N x E]`, sequence-sharded.
+          joint_query/joint_key/joint_value (AnyRankedTensor, optional): joint
+              (cross-attention) inputs. All three or none. For plain
+              self-attention tt-metal is called with dummy joint tensors, so
+              these are absent and the joint result is unused.
+          persistent_output_buffer_k (AnyRankedTensor, optional): ring scratch
+              for the gathered K, `[B x H x (N * mesh[cluster_axis]) x E]`.
+          persistent_output_buffer_v (AnyRankedTensor, optional): same for V.
+          multi_device_global_semaphore (TTNN_GlobalSemaphore, variadic): the
+              global-semaphore pool, passed straight through to tt-metal as a
+              `std::vector<GlobalSemaphore>`. Empty until the prelude pass runs;
+              tt-metal's ring all-gather uses a two-deep ping-pong pool, so a
+              bound op carries at least two.
+          joint_strategy (str): tt-metal joint layout, e.g. `"rear"`.
+          logical_n (int): true (unpadded) gathered sequence length. Lets the
+              kernel mask padded keys instead of the caller slicing K/V before
+              every block. `0` means "no padding", i.e. the full gathered
+              length.
+          dim (int): sequence axis being gathered. Matches the `all_gather_dim`
+              of the all-gather this op subsumes.
+          cluster_axis (uint): mesh axis the ring runs on.
+          program_config (TTNN_SDPAProgramConfigAttr): required — unlike plain
+              SDPA, tt-metal takes this by value with no default.
+          num_links (uint, optional), topology (optional),
+          sub_device_id (uint, optional): CCL configuration, lifted from the
+              all-gather this op replaces.
+          scale (float, optional): Softmax scale. Defaults to `1 / sqrt(E)`.
+          num_workers_per_link (uint), num_buffers_per_channel (uint): ring
+              fabric tuning. Defaults mirror tt-metal (`1`, `8`); the Wan
+              configuration uses `5` and `32`.
+
+      The persistent buffers and the semaphore pool are materialized in the
+      function prelude by the `DistributedOpInterface` hooks. The buffers are
+      modeled as `Optional` and the semaphores as `Variadic` only because the
+      rewrite emits them unbound and the prelude passes bind them later; a
+      finalized op always has the buffers bound and a non-empty pool.
+
+      tt-metal also takes a `mesh_device`; the runtime supplies it from the
+      program context, so it is not modeled as an operand.
+
+      TODO(#ring-attention): no EmitC / EmitPy emitters yet. Emitting the
+      tt-metal call needs `mesh_device` as a value, and the EmitC emitter
+      resolves argument positions by source-operand index, which breaks once the
+      variadic semaphore group is collapsed into a single `std::vector` operand
+      (`EmitCTTNNEmitter::emit`/`emitVector` and the
+      `TypedValue<DeviceType>` overload all return the source index). Fixing
+      that is a change to shared emitter infrastructure, separate from this op.
+
+      Returns:
+          result (AnyRankedTensor): `[B x H x N x E]` (same type as `query`).
+          joint_result (AnyRankedTensor): joint branch output.
+          lse (AnyRankedTensor): log-sum-exp of the attention weights.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$query,
+                         AnyRankedTensor:$key,
+                         AnyRankedTensor:$value,
+
+                         Optional<AnyRankedTensor>:$joint_query,
+                         Optional<AnyRankedTensor>:$joint_key,
+                         Optional<AnyRankedTensor>:$joint_value,
+
+                         Optional<AnyRankedTensor>:$persistent_output_buffer_k,
+                         Optional<AnyRankedTensor>:$persistent_output_buffer_v,
+
+                         Variadic<TTNN_GlobalSemaphore>:$multi_device_global_semaphore,
+
+                         StrAttr:$joint_strategy,
+                         I64Attr:$logical_n,
+                         SI32Attr:$dim,
+                         UI32Attr:$cluster_axis,
+                         TTNN_SDPAProgramConfigAttr:$program_config,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology,
+                         OptionalAttr<UI32Attr>:$sub_device_id,
+                         OptionalAttr<F32Attr>:$scale,
+                         DefaultValuedAttr<UI32Attr, "1">:$num_workers_per_link,
+                         DefaultValuedAttr<UI32Attr, "8">:$num_buffers_per_channel,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+    let results = (outs AnyRankedTensor:$result,
+                        AnyRankedTensor:$joint_result,
+                        AnyRankedTensor:$lse);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_FlashMlaPrefillOp : TTNN_Op<"flash_mla_prefill", [AttrSizedOperandSegments]> {
     let summary = "Flash Multi-head Latent Attention prefill operation.";
     let description = [{

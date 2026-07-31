@@ -1490,6 +1490,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_ScaledDotProductAttentionOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::ExpRingJointScaledDotProductAttentionOp: {
+    auto *op = opContext.type_as_ExpRingJointScaledDotProductAttentionOp();
+    tensorRefs = {op->out(), op->joint_out(), op->lse()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::FlashMlaPrefillOp: {
     tensorRefs = {opContext.type_as_FlashMlaPrefillOp()->out()};
     break;
@@ -2251,6 +2256,21 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     }
     if (op->attention_sink()) {
       tensorRefs.push_back(op->attention_sink());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ExpRingJointScaledDotProductAttentionOp: {
+    auto *op = opContext.type_as_ExpRingJointScaledDotProductAttentionOp();
+    tensorRefs = {op->query(), op->key(), op->value()};
+    // joint_* are all-or-none. The persistent K/V buffers are deliberately
+    // excluded: they are ring scratch materialized by the prelude passes, not
+    // data inputs, matching how AllToAllDispatchMetadataOp omits its
+    // dispatched/indices/scores buffers here.
+    for (const ::tt::target::ttnn::TensorRef *ref :
+         {op->joint_query(), op->joint_key(), op->joint_value()}) {
+      if (ref) {
+        tensorRefs.push_back(ref);
+      }
     }
     break;
   }

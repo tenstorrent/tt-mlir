@@ -112,6 +112,7 @@
 #include "operations/trace/execute_trace.h"
 #include "operations/transformer/chunked_scaled_dot_product_attention.h"
 #include "operations/transformer/concatenate_heads.h"
+#include "operations/transformer/exp_ring_joint_scaled_dot_product_attention.h"
 #include "operations/transformer/flash_mla_prefill.h"
 #include "operations/transformer/indexer_score_dsa.h"
 #include "operations/transformer/nlp_concat_heads.h"
@@ -675,6 +676,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
     return operations::transformer::run(
         op->type_as_ScaledDotProductAttentionOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::ExpRingJointScaledDotProductAttentionOp: {
+    return operations::transformer::run(
+        op->type_as_ExpRingJointScaledDotProductAttentionOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::FlashMlaPrefillOp: {
     return operations::transformer::run(op->type_as_FlashMlaPrefillOp(),
