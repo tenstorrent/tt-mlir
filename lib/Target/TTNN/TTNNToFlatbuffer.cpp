@@ -1746,6 +1746,20 @@ createOp(FlatbufferObjectCache &cache, SDPABackwardOp op) {
       gradValue);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::CrossEntropyForwardOp>
+createOp(FlatbufferObjectCache &cache, CrossEntropyForwardOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto target = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getTarget()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateCrossEntropyForwardOp(*cache.fbb, input,
+                                                         target, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::RMSNormOp>
 createOp(FlatbufferObjectCache &cache, RMSNormOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -5131,6 +5145,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto layerNormForwardOp = dyn_cast<LayerNormForwardOp>(op);
       layerNormForwardOp) {
     return createOperation(cache, createOp(cache, layerNormForwardOp),
+                           debugString, locInfo);
+  }
+  if (auto crossEntropyFwOp = dyn_cast<CrossEntropyForwardOp>(op);
+      crossEntropyFwOp) {
+    return createOperation(cache, createOp(cache, crossEntropyFwOp),
                            debugString, locInfo);
   }
   if (auto rmsNormOp = dyn_cast<RMSNormOp>(op); rmsNormOp) {

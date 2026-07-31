@@ -130,6 +130,7 @@
 #include "operations/ttml/layernorm_fw.h"
 #include "operations/ttml/sdpa_bw.h"
 #include "operations/ttml/sdpa_fw.h"
+#include "operations/ttml/cross_entropy_fw.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -657,6 +658,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
     return operations::ttml::run(op->type_as_LayerNormForwardOp(),
+                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {
+    return operations::ttml::run(op->type_as_CrossEntropyForwardOp(),
                                  getContext());
   }
   case ::tt::target::ttnn::OpType::DumpTensorOp: {
