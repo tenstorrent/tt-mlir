@@ -1558,13 +1558,16 @@ mlir::LogicalResult SortBlockOp::verify() {
     if (dim < 0 || dim >= rank) {
       return emitOpError("dim ") << dim << " is out of range for rank " << rank;
     }
-    // The bitonic network pairs tiles as `i ^ dist`, which only covers the
-    // whole reduction extent when it is a power of two, and needs at least the
-    // two tiles that `topk_local_sort` operates on.
+    // `d2m-decompose-sort` uses an odd-even transposition network, which is
+    // correct for any tile count -- but its only comparator sorts a tile
+    // *pair*, and the first pass has to pair every tile exactly once to copy
+    // it out of the input CB. That perfect matching requires an even count, so
+    // the producing rewriter rounds up; a lone tile is covered by the same
+    // rule.
     int64_t reductionTiles = shaped.getDimSize(dim);
-    if (reductionTiles < 2 || (reductionTiles & (reductionTiles - 1)) != 0) {
-      return emitOpError("reduction dimension must be a power-of-two tile "
-                         "count of at least 2, got ")
+    if (reductionTiles < 2 || reductionTiles % 2 != 0) {
+      return emitOpError("reduction dimension must span an even number of "
+                         "tiles of at least 2, got ")
              << reductionTiles;
     }
   }

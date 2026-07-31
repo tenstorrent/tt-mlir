@@ -3441,20 +3441,28 @@ def D2M_SortBlockOp : D2M_GenericRegionComputeOp<"sort_block",
   D2M_SynchronizableOpInterface]> {
   let summary = "D2M Sort Block Op";
   let description = [{
-      The `sort_block` operation performs a full bitonic sort of a transposed
-      input shard along its reduction dimension, producing the sorted values
-      and the original indices of each element.
+      The `sort_block` operation performs a full sort of a transposed input
+      shard along its reduction dimension, producing the sorted values and the
+      original indices of each element.
 
       This op operates at the block level (memref of tiles) and is decomposed
-      post-bufferization by `d2m-decompose-sort` into `tile_topk_local_sort`
-      and `tile_topk_merge`. Unlike `topk_block`, no `tile_topk_rebuild` is
-      emitted: the underlying `topk_merge` LLK is a plain compare-exchange
-      that preserves both halves, so the bitonic network keeps every element.
+      post-bufferization by `d2m-decompose-sort` into an odd-even transposition
+      network built solely from `tile_topk_local_sort`, which fully sorts the
+      64 values spanning an adjacent tile pair. Neither `tile_topk_merge` nor
+      `tile_topk_rebuild` is emitted: `topk_merge` is lane-preserving and so
+      cannot move a value between lanes, which a general sort requires.
 
-      The reduction dimension must be a power-of-two number of tiles (at least
-      two), which the sort network's `j = i ^ dist` partner indexing requires.
-      The producing rewriter pads and masks up to that size, with the mask
-      value chosen so padding always sorts to the tail.
+      The reduction dimension must span an even number of tiles, at least two.
+      Transposition needs no power-of-two extent, so at most one pad tile is
+      ever materialized -- a deliberate trade of comparator work (O(N^2) rather
+      than a bitonic network's O(N log^2 N)) for L1 capacity, which is the
+      binding constraint for this op.
+
+      The even requirement comes from the comparator: it sorts a tile *pair*
+      and cannot sort 32 datums standalone, so the first pass must pair every
+      tile exactly once to copy it out of the input CB. That perfect matching
+      exists only for an even tile count. The producing rewriter rounds up and
+      masks the pad tile with the value that sorts last.
 
       The scratch_idx_tile is a pre-filled full-shape index buffer containing
       the arange of original element indices (generated upstream in TTIRToD2M

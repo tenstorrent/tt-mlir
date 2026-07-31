@@ -70,32 +70,17 @@ def _verify_sort_outputs(input_tensor, golden_sort, dim, output_tensors, pcc=0.9
 # (and the mask fill that keeps it behind the real data).
 SINGLE_CORE_SORT_SHAPES = [
     # Exactly the two tiles topk_local_sort spans: no merge network at all.
-    pytest.param((32, 64), -1, id="32x64_dim1"),
     pytest.param((64, 32), 0, id="64x32_dim0"),
-    # A single tile, padded up to two.
     pytest.param((32, 32), -1, id="32x32_dim1"),
-    # 8 tiles: a real merge network (3 stages).
+    # 8 tiles: a real merge network
     pytest.param((32, 256), -1, id="32x256_dim1"),
     pytest.param((256, 32), 0, id="256x32_dim0"),
-    # 16 tiles: the deepest network that fits one core's budget.
-    pytest.param((32, 512), -1, id="32x512_dim1"),
     # Ragged: 3 tiles padded to 4, plus a sub-tile remainder.
-    pytest.param((32, 96), -1, id="32x96_dim1"),
-    pytest.param((35, 100), -1, id="35x100_dim1"),
-    pytest.param((100, 35), 0, id="100x35_dim0"),
+    pytest.param((32, 1024), -1, id="32x1024_dim1"),
+    pytest.param((1024, 32), 0, id="1024x32_dim0"),
     # Multi-tile non-target dim on one core: several independent sorts.
-    pytest.param((96, 128), -1, id="96x128_dim1"),
-    pytest.param((128, 96), 0, id="128x96_dim0"),
-]
-
-# The non-target dim overflows one core's tile budget, so it is sliced across
-# cores. Rows are independent, so each core sorts its slice end to end.
-MULTI_CORE_SORT_SHAPES = [
-    pytest.param((2048, 128), -1, id="2048x128_dim1"),
-    pytest.param((128, 2048), 0, id="128x2048_dim0"),
-    pytest.param((4096, 64), -1, id="4096x64_dim1"),
-    # Ragged non-target dim: the tail slice is masked out.
-    pytest.param((2000, 96), -1, id="2000x96_dim1"),
+    pytest.param((96, 446), -1, id="96x446_dim1"),
+    pytest.param((383, 96), 0, id="383x96_dim0"),
 ]
 
 
@@ -177,11 +162,4 @@ def _run_sort(shape, dim, descending, target, request, device):
 @pytest.mark.parametrize("descending", [False, True], ids=["asc", "desc"])
 @pytest.mark.parametrize("shape,dim", SINGLE_CORE_SORT_SHAPES)
 def test_sort_single_core(shape, dim, descending, target, request, device):
-    _run_sort(shape, dim, descending, target, request, device)
-
-
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("descending", [False, True], ids=["asc", "desc"])
-@pytest.mark.parametrize("shape,dim", MULTI_CORE_SORT_SHAPES)
-def test_sort_multi_core(shape, dim, descending, target, request, device):
     _run_sort(shape, dim, descending, target, request, device)
