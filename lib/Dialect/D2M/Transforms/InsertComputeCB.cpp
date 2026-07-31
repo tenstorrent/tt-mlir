@@ -449,11 +449,7 @@ static LogicalResult insertCBOpsForCompute(
   };
 
   // Consumers: wait once before the first consumer, pop once after the last.
-  // Self-produced CBs (same region both writes and later reads the CB) are
-  // emitted after the producer loop so the wait lands after the push, and
-  // their bracket ignores hoisted views.
-  auto emitConsumer = [&](Value cb, CBSync &sync,
-                          bool selfProduced) -> LogicalResult {
+  for (auto &[cb, sync] : consumers) {
     llvm::sort(sync.anchors, byProgramOrder);
 
     unsigned cbOperandIdx = generic.getOperandIndex(cb);
@@ -467,8 +463,10 @@ static LogicalResult insertCBOpsForCompute(
                 "cadence mismatch)";
     }
 
-    auto [first, last] =
-        bracket(sync, anchorBlock, /*includeViewOwners=*/!selfProduced);
+    // If this region also produces `cb`, ignore hoisted views so the wait
+    // lands at the real read (after the push), not at the shared view.
+    auto [first, last] = bracket(sync, anchorBlock,
+                                 /*includeViewOwners=*/!producers.count(cb));
     if (!first) {
       std::tie(first, last) = bracket(sync, anchorBlock, true);
     }
@@ -510,16 +508,6 @@ static LogicalResult insertCBOpsForCompute(
       }
       use->set(waitOp.getResult());
     }
-    return success();
-  };
-
-  for (auto &[cb, sync] : consumers) {
-    if (producers.count(cb)) {
-      continue;
-    }
-    if (failed(emitConsumer(cb, sync, /*selfProduced=*/false))) {
-      return failure();
-    }
   }
 
   // Producers: reserve once before the first producer, push once after the
@@ -559,16 +547,6 @@ static LogicalResult insertCBOpsForCompute(
             reserveOp); // sink the hoisted view next to the reserve
       }
       use->set(reserveOp.getResult());
-    }
-  }
-
-  // CBs this region both produces and consumes, now that the pushes exist.
-  for (auto &[cb, sync] : consumers) {
-    if (!producers.count(cb)) {
-      continue;
-    }
-    if (failed(emitConsumer(cb, sync, /*selfProduced=*/true))) {
-      return failure();
     }
   }
 
