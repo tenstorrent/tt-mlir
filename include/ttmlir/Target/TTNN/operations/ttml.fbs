@@ -45,3 +45,9 @@ table SDPABackwardOp {
   grad_key: tt.target.ttnn.TensorRef;
   grad_value: tt.target.ttnn.TensorRef;
 }
+
+table CrossEntropyForwardOp {
+  input: tt.target.ttnn.TensorRef;
+  target: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+}

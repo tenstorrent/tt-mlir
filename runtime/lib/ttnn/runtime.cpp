@@ -1603,6 +1603,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {op->grad_query(), op->grad_key(), op->grad_value()};
     break;
   }
+  case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {
+    tensorRefs = {opContext.type_as_CrossEntropyForwardOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::AdamWOp:
   case ::tt::target::ttnn::OpType::FillCacheOp:
   case ::tt::target::ttnn::OpType::PagedFillCacheOp:
@@ -1984,6 +1988,11 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     if (op->attention_mask()) {
       tensorRefs.push_back(op->attention_mask());
     }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {
+    tensorRefs = {opContext.type_as_CrossEntropyForwardOp()->input(),
+                  opContext.type_as_CrossEntropyForwardOp()->target()};
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {
