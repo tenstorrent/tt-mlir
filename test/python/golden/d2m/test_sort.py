@@ -65,10 +65,14 @@ def _verify_sort_outputs(input_tensor, golden_sort, dim, output_tensors, pcc=0.9
     )
 
 
-# The bitonic network needs a power-of-two tile count along the sort dim, and
-# TTIRToD2M pads up to one. Ragged and single-tile cases exercise that padding
+# The odd-even network needs an EVEN tile count along the sort dim, and
+# TTIRToD2M rounds up to one. Ragged and single-tile cases exercise that padding
 # (and the mask fill that keeps it behind the real data).
-SINGLE_CORE_SORT_SHAPES = [
+#
+# These have a non-target dim spanning few enough tiles that the greedy split
+# lands on one or a couple of cores, so they cover the sort network itself
+# rather than the sharding.
+SMALL_SORT_SHAPES = [
     # Exactly the two tiles topk_local_sort spans: no merge network at all.
     pytest.param((64, 32), 0, id="64x32_dim0"),
     pytest.param((32, 32), -1, id="32x32_dim1"),
@@ -160,6 +164,6 @@ def _run_sort(shape, dim, descending, target, request, device):
 
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("descending", [False, True], ids=["asc", "desc"])
-@pytest.mark.parametrize("shape,dim", SINGLE_CORE_SORT_SHAPES)
-def test_sort_single_core(shape, dim, descending, target, request, device):
+@pytest.mark.parametrize("shape,dim", SMALL_SORT_SHAPES)
+def test_sort_small(shape, dim, descending, target, request, device):
     _run_sort(shape, dim, descending, target, request, device)

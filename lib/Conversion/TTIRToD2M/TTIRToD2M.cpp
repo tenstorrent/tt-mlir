@@ -4995,7 +4995,9 @@ public:
 //
 // Multicore is data-parallel over the non-target dimension: rows of the sort
 // dimension are completely independent, so each core owns a slice and there is
-// no cross-core merge at all.
+// no cross-core merge at all. The split is greedy down to one non-target tile
+// per core -- unlike topk, which only shards once a core overflows, sort has no
+// merge tree to pay for, so more cores is strictly better.
 class D2MSortRewriter : public OpConversionPattern<ttir::SortOp>,
                         D2MBitonicRewriterCommon {
 public:
@@ -5075,13 +5077,69 @@ public:
 
     Type idxElemType = rewriter.getI32Type();
 
-    // Single-core only: the whole tensor is sorted on one core. Every buffer
-    // (input, values result, indices result, index arange) lives at the full
-    // extent on that core. There is no tile-budget rejection here: L1 capacity
-    // is enforced downstream by allocation, so an oversized shard fails there
-    // rather than silently falling back.
-    constexpr int64_t ntShards = 1;
-    int64_t paddedNonTargetTiles = nonTargetTiles;
+    // ---- data-parallel split over the non-target dimension -----------------
+    // Each non-target row is an independent sort, so slicing that dimension
+    // needs no merge and no cross-core communication at all. Shard as greedily
+    // as the worker grid allows, down to a single non-target tile per core.
+    //
+    // Greedy is the right policy here (topk instead shards only under tile
+    // pressure): every extra core cuts the odd-even network's O(N^2)
+    // comparator work per core proportionally, and the only cost is the index
+    // arange being broadcast to more readers.
+    //
+    // There is no tile-budget rejection: L1 capacity is enforced downstream by
+    // allocation, so an oversized shard fails there rather than silently
+    // falling back.
+    auto device = ttcore::lookupDevice(op);
+    SmallVector<int64_t> workerGridShape =
+        llvm::to_vector(device.getWorkerGrid().getShape());
+    assert(workerGridShape.size() == 2 && "expected a 2D worker grid");
+    int64_t maxGridCores = workerGridShape[0] * workerGridShape[1];
+
+    // Walk down from the greediest split (one tile per core, capped by the
+    // grid) and take the first count with a legal 2D worker-grid factorization.
+    // Descending because more cores is the goal, and the walk always
+    // terminates: 1 factors trivially.
+    //
+    // An even divisor is preferred over a ragged split at the same per-core
+    // shard size. A ragged split pads every core out to the ceiling, so 9 tiles
+    // over 8 cores carries the same 2-tile shard as 9 over 5 while occupying
+    // three more cores for no gain. So the greediest legal count is recorded
+    // first, then the walk continues only while the shard stays that same size,
+    // taking an even divisor if one turns up. That leaves the greedy ragged
+    // count as the fallback when nothing divides (a prime tile count above the
+    // grid).
+    int64_t ntShards = 1;
+    int64_t ntTilesPerCore = nonTargetTiles;
+    for (int64_t cand = std::min(nonTargetTiles, maxGridCores); cand >= 2;
+         --cand) {
+      if (d2m::utils::findLegalPhysicalGridForVolume(cand, workerGridShape)
+              .empty()) {
+        continue;
+      }
+      int64_t candTiles = (nonTargetTiles + cand - 1) / cand;
+      bool divides = (nonTargetTiles % cand == 0);
+      // First legal count seen is the greediest one; record it, then keep
+      // descending only while a shard of the same size can be had evenly.
+      if (ntShards == 1) {
+        ntShards = cand;
+        ntTilesPerCore = candTiles;
+        if (divides) {
+          break;
+        }
+        continue;
+      }
+      if (candTiles > ntTilesPerCore) {
+        break;
+      }
+      if (divides) {
+        ntShards = cand;
+        ntTilesPerCore = candTiles;
+        break;
+      }
+    }
+    bool dataParallel = ntShards > 1;
+    int64_t paddedNonTargetTiles = ntShards * ntTilesPerCore;
 
     // Logical shape the index arange must cover: the full reduction extent
     // rounded to whole tiles, so every lane of every tile gets a defined index
@@ -5113,8 +5171,31 @@ public:
     SmallVector<int64_t> shardedDeviceShape =
         shardedLayout.getDeviceShape(shardedGrid, tileShapeVec);
 
+    // The shard grid is 1D along whichever axis the non-target dim occupies, so
+    // it needs folding onto the 2D worker grid. Attached to every buffer in the
+    // chain that carries the value-buffer grid.
+    AffineMapAttr foldForwardMapAttr, foldInverseMapAttr;
+    if (dataParallel) {
+      SmallVector<int64_t> physicalGrid =
+          d2m::utils::findLegalPhysicalGridForVolume(ntShards, workerGridShape);
+      assert(!physicalGrid.empty() &&
+             "shard count has no legal worker-grid factorization");
+      auto [forwardMap, inverseMap] =
+          ttmlir::d2m::utils::grids::createCoreVirtMaps(ctx, shardedGrid,
+                                                        physicalGrid);
+      foldForwardMapAttr = AffineMapAttr::get(forwardMap);
+      foldInverseMapAttr = AffineMapAttr::get(inverseMap);
+    }
+    auto attachFold = [&](d2m::EmptyOp emptyOp) {
+      if (foldForwardMapAttr) {
+        emptyOp.setVirtualGridForwardMappingAttr(foldForwardMapAttr);
+        emptyOp.setVirtualGridInverseMappingAttr(foldInverseMapAttr);
+      }
+    };
+
     auto shardedEmpty = rewriter.create<d2m::EmptyOp>(
         loc, shardedDeviceShape, tileElemType, shardedLayout);
+    attachFold(shardedEmpty);
     Value tilized =
         rewriter.create<d2m::ToLayoutOp>(loc, adaptor.getInput(), shardedEmpty)
             .getResult(0);
@@ -5132,6 +5213,7 @@ public:
         paddedNonTargetTiles * kTileWidth > nonTargetElems) {
       auto maskOutput = rewriter.create<d2m::EmptyOp>(
           loc, shardedDeviceShape, tileElemType, shardedLayout);
+      attachFold(maskOutput);
       layoutedInput =
           rewriter
               .create<d2m::MaskOp>(
@@ -5152,15 +5234,36 @@ public:
     SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
     AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
 
-    // Everything lives on one core, so the index buffer shares the value
-    // buffers' layout exactly.
+    // Grid axis the non-target slices spread over; the reduction dim keeps the
+    // other, which stays unsplit (extent 1) since sort never bands it.
+    std::size_t ntGridDim =
+        (dim == 1) ? (physicalRank - 2) : (physicalRank - 1);
+
+    // Every non-target slice sorts against the SAME reduction index range, so
+    // the index buffer is built once at slice-grid extent 1 and broadcast to
+    // all slices by the zeroed grid map on the sort generic below. Building it
+    // per-core instead would waste L1 and, worse, make DecomposeArange derive a
+    // slice-offset index from the core position.
+    SmallVector<int64_t> idxDeviceShape(deviceShape.begin(), deviceShape.end());
     ttcore::MetalLayoutAttr idxMetalLayout = metalLayout;
+    if (dataParallel) {
+      idxDeviceShape[ntGridDim] = 1;
+      SmallVector<int64_t> idxLogicalShape;
+      for (std::size_t i = 0; i < physicalRank; ++i) {
+        idxLogicalShape.push_back(idxDeviceShape[i] *
+                                  deviceShape[physicalRank + i] * kTileWidth);
+      }
+      idxMetalLayout = ttcore::MetalLayoutAttr::get(
+          ctx, idxLogicalShape, metalLayout.getMemorySpace(),
+          ttcore::TensorMemoryLayout::Sharded);
+    }
 
     auto wrapInToLayout = [&](Value genericResult) -> Value {
       auto resultType = cast<RankedTensorType>(genericResult.getType());
       auto emptyOp = rewriter.create<d2m::EmptyOp>(loc, resultType.getShape(),
                                                    resultType.getElementType(),
                                                    resultType.getEncoding());
+      attachFold(emptyOp);
       return rewriter.create<d2m::ToLayoutOp>(loc, genericResult, emptyOp)
           .getResult(0);
     };
@@ -5223,6 +5326,7 @@ public:
           loc, srcType.getShape(),
           cast<ttcore::TileType>(srcType.getElementType()),
           cast<ttcore::MetalLayoutAttr>(srcType.getEncoding()));
+      attachFold(empty);
       return wrapInToLayout(emitUnaryGeneric(src, empty.getResult(),
                                              identityMap, /*shardMap=*/nullptr,
                                              tileTranspose));
@@ -5241,6 +5345,7 @@ public:
       auto empty = rewriter.create<d2m::EmptyOp>(
           loc, dstDevShape, cast<ttcore::TileType>(srcType.getElementType()),
           idxMetalLayout);
+      attachFold(empty);
       return wrapInToLayout(emitUnaryGeneric(src, empty.getResult(),
                                              permuteLast2(physicalRank),
                                              permuteLast2, tileTranspose));
@@ -5265,12 +5370,45 @@ public:
     auto idxInputType = RankedTensorType::get(arangeLogicalShape, idxElemType,
                                               inputType.getEncoding());
 
-    // Laid out for the arange's own logical shape, the same optimal-layout path
-    // topk takes for a non-sharded input.
-    auto arangeOrigOutputs = createDpsOutputs(loc, rewriter, {idxInputType});
-    auto [arangeIns, arangeOutputs] = toLayoutOperandsAndResults(
-        rewriter, {SmallVector<Value>{}, arangeOrigOutputs}, true,
-        /*noCollapse=*/false);
+    // dim==0 keeps the arange/bcast buffers shape-swapped until fullTranspose,
+    // so their device shape and logical shape swap too.
+    SmallVector<int64_t> arangeDeviceShape(idxDeviceShape.begin(),
+                                           idxDeviceShape.end());
+    ttcore::MetalLayoutAttr arangeMetalLayout = idxMetalLayout;
+    if (dim == 0) {
+      std::swap(arangeDeviceShape[physicalRank - 2],
+                arangeDeviceShape[physicalRank - 1]);
+      std::swap(arangeDeviceShape[2 * physicalRank - 2],
+                arangeDeviceShape[2 * physicalRank - 1]);
+      SmallVector<int64_t> swappedLogical(
+          idxMetalLayout.getLogicalShape().begin(),
+          idxMetalLayout.getLogicalShape().end());
+      std::swap(swappedLogical[swappedLogical.size() - 2],
+                swappedLogical[swappedLogical.size() - 1]);
+      arangeMetalLayout = ttcore::MetalLayoutAttr::get(
+          ctx, swappedLogical, idxMetalLayout.getDimAlignments(),
+          idxMetalLayout.getCollapsedIntervals(),
+          idxMetalLayout.getMemorySpace(), idxMetalLayout.getMemoryLayout());
+    }
+
+    // When sharded, allocate directly at the collapsed index device shape: the
+    // optimal-layout path would pick its own grid for the arange's logical
+    // shape, which need not match the slice grid the sort reads it from.
+    SmallVector<Value> arangeOutputs;
+    if (dataParallel) {
+      auto arangeEmpty = rewriter.create<d2m::EmptyOp>(
+          loc, arangeDeviceShape, ttcore::TileType::get(idxElemType),
+          arangeMetalLayout);
+      arangeOutputs.push_back(arangeEmpty.getResult());
+    } else {
+      // Laid out for the arange's own logical shape, the same optimal-layout
+      // path topk takes for a non-sharded input.
+      auto arangeOrigOutputs = createDpsOutputs(loc, rewriter, {idxInputType});
+      auto [arangeIns, laidOut] = toLayoutOperandsAndResults(
+          rewriter, {SmallVector<Value>{}, arangeOrigOutputs}, true,
+          /*noCollapse=*/false);
+      arangeOutputs = std::move(laidOut);
+    }
 
     auto arangeTensorType = cast<RankedTensorType>(arangeOutputs[0].getType());
     auto arangeLayout =
@@ -5323,10 +5461,19 @@ public:
     // down the rows. For dim==0 the buffer is shape-swapped, so this fills each
     // row with the reduction sequence and fullTranspose reorients it.
     // Allocated to match the arange above.
-    auto bcastOrigOutputs = createDpsOutputs(loc, rewriter, {idxInputType});
-    auto [bcastIns, bcastOutputs] = toLayoutOperandsAndResults(
-        rewriter, {SmallVector<Value>{}, bcastOrigOutputs}, true,
-        /*noCollapse=*/false);
+    SmallVector<Value> bcastOutputs;
+    if (dataParallel) {
+      auto bcastEmpty = rewriter.create<d2m::EmptyOp>(
+          loc, arangeDeviceShape, ttcore::TileType::get(idxElemType),
+          arangeMetalLayout);
+      bcastOutputs.push_back(bcastEmpty.getResult());
+    } else {
+      auto bcastOrigOutputs = createDpsOutputs(loc, rewriter, {idxInputType});
+      auto [bcastIns, laidOut] = toLayoutOperandsAndResults(
+          rewriter, {SmallVector<Value>{}, bcastOrigOutputs}, true,
+          /*noCollapse=*/false);
+      bcastOutputs = std::move(laidOut);
+    }
 
     // Zeroing the broadcast axis is required: an identity map would make linalg
     // infer that axis's extent from the iteration domain, mismatching the
@@ -5355,8 +5502,17 @@ public:
         loc, deviceShape, valTileType, metalLayout);
     auto sortIdxEmpty = rewriter.create<d2m::EmptyOp>(loc, deviceShape,
                                                       idxTileType, metalLayout);
+    attachFold(sortValsEmpty);
+    attachFold(sortIdxEmpty);
 
+    // Drops the axis the slices spread over, so every slice reads the one
+    // shared index buffer instead of a per-core one.
     AffineMap idxGridMap = identityMap;
+    if (dataParallel) {
+      mlir::MutableAffineMap broadcastMap(identityMap);
+      broadcastMap.setResult(ntGridDim, rewriter.getAffineConstantExpr(0));
+      idxGridMap = broadcastMap.getAffineMap();
+    }
 
     SmallVector<Value> sortInputs = {sortInput, idxBuf};
     SmallVector<Value> sortOutputs = {sortValsEmpty.getResult(),
@@ -5405,6 +5561,7 @@ public:
       auto emptyOp = rewriter.create<d2m::EmptyOp>(
           loc, layout.getDeviceShape(shardedGrid, tileShapeVec), outTileType,
           layout);
+      attachFold(emptyOp);
       return emptyOp.getResult();
     };
 
@@ -5431,6 +5588,7 @@ public:
       auto idxCastEmpty = rewriter.create<d2m::EmptyOp>(
           loc, extractedIdxType.getShape(), idxCastTileType,
           extractedIdxType.getEncoding());
+      attachFold(idxCastEmpty);
       SmallVector<Value> castInputs = {idxFinal};
       SmallVector<Value> castOutputs = {idxCastEmpty.getResult()};
       std::size_t castRank = extractedIdxType.getShape().size() / 2;
