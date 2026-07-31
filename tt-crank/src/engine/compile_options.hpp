@@ -19,8 +19,6 @@ namespace tt::kurbla {
 // Default values are only set for options that we want to override by default.
 // For other values, we will take default mlir values.
 struct TT_KURBLA_API CompileOptions {
-    enum class MockArch { WormholeB0, Blackhole };
-
     // Block-float dtype for weight / KV-cache conversion. Maps to tt-mlir's
     // ttnn::BFPDtype.
     enum class BfpDtype { BfpBf8, BfpBf4 };
@@ -28,23 +26,6 @@ struct TT_KURBLA_API CompileOptions {
     // Math fidelity for ops exposing a compute-kernel config. Maps to tt-mlir's
     // ttnn::OptionalMathFidelity.
     enum class MathFidelity { LoFi, HiFi2, HiFi3, HiFi4 };
-
-    //////////////////////
-    // Internal options //
-    //////////////////////
-
-    // System descriptor.
-    std::optional<tt::runtime::SystemDesc> system_desc;
-
-    // Mock arhitecture.
-    std::optional<MockArch> mock_arch;
-
-    // System descriptior path for system descriptor override.
-    std::optional<std::string> system_desc_path;
-
-    /////////////////////////
-    // User facing options //
-    /////////////////////////
 
     // 0=all optimizer passes off (fastest), 1=optimizer on without sharding,
     // 2=optimizer on with memory layout analysis (sharding).

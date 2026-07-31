@@ -158,16 +158,22 @@ private:
 CompilerCache cache; // NOLINT
 
 // Calculates sha256 compilation key.
-// Key is computed by hashing all functions in module, hashing all pipeline options, and hashing mlir git worktree.
+// Key is computed by hashing system descriptor, hashing all functions in module, hashing all pipeline options, and
+// hashing mlir git worktree.
 std::string calc_compilation_key(mlir::ModuleOp module_op,
                                  const mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &pm_opts) {
     llvm::SHA256 sha;
-    module_op->walk([&](mlir::func::FuncOp func) { sha.update(llvm::StringRef(mlir::tt::hashFuncOp(func))); });
+
+    std::vector<std::uint8_t> sys_desc_bytes;
+    ::tt::kurbla::sys_desc().storeToMemory(sys_desc_bytes);
+    sha.update(sys_desc_bytes);
+
+    module_op->walk([&](mlir::func::FuncOp func) { sha.update(mlir::tt::hashFuncOp(func)); });
 
     std::string opts;
     llvm::raw_string_ostream os(opts);
     pm_opts.print(os);
-    sha.update(llvm::StringRef(opts));
+    sha.update(opts);
 
     sha.update(ttmlir_git_worktree_hash());
     return llvm::toHex(sha.final());
@@ -176,13 +182,11 @@ std::string calc_compilation_key(mlir::ModuleOp module_op,
 void set_pipeline_options(const CompileOptions &options, mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &pm_opts) {
     options.set_options_on(pm_opts);
 
-    const auto mesh_shape = ::tt::kurbla::runtime_device_mesh_shape();
-    const auto &mesh_fabric = ::tt::kurbla::runtime_mesh_fabric_config(mesh_shape);
-
-    // Pass in the currently opened device mesh shape - otherwise the CCL ops will hit issues during compilation.
+    const auto &mesh_shape = ::tt::kurbla::runtime_device_mesh_shape();
     pm_opts.meshShape = std::vector<std::int64_t>(mesh_shape.begin(), mesh_shape.end());
 
     // Match CCL topology to what the fabric actually supports per mesh axis.
+    const auto &mesh_fabric = ::tt::kurbla::runtime_mesh_fabric_config();
     std::vector<mlir::tt::ttcore::Topology> mesh_topology;
     mesh_topology.reserve(mesh_fabric.perAxisConfig.size());
     for (const auto axis : mesh_fabric.perAxisConfig) {
@@ -192,6 +196,15 @@ void set_pipeline_options(const CompileOptions &options, mlir::tt::ttnn::TTIRToT
     }
 
     pm_opts.meshTopology = mesh_topology;
+}
+
+// Attaches system descriptor attribute to module op.
+void attach_sys_desc_attr(mlir::ModuleOp module_op, const std::string &diag_buffer) {
+    void *sys_desc_handle = tt::kurbla::sys_desc().handle.get();
+    auto diag_fn = [&]() -> mlir::InFlightDiagnostic { return module_op->emitOpError(); };
+    auto attr_or = mlir::tt::ttcore::SystemDescAttr::getFromBuffer(module_op.getContext(), sys_desc_handle, diag_fn);
+    TT_FATAL(mlir::succeeded(attr_or), "{}", make_error_message("failed to attach system desc", diag_buffer));
+    module_op->setAttr(mlir::tt::ttcore::SystemDescAttr::name, attr_or.value());
 }
 
 // Opt-in dump of the TTIR — useful when debugging.
@@ -242,18 +255,7 @@ CompiledProgram &run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compi
         return *entry;
     }
 
-    // Pre-attach lets TTCoreRegisterDevicePass take the mockArch branch and
-    // keep our attr; the path overload would overwrite it.
-    if (options.system_desc.has_value()) {
-        auto diag_fn = [&]() -> mlir::InFlightDiagnostic { return module_op->emitOpError(); };
-        auto attr_or = mlir::tt::ttcore::SystemDescAttr::getFromBuffer(module_op.getContext(),
-                                                                       options.system_desc->handle.get(), diag_fn);
-        TT_FATAL(mlir::succeeded(attr_or), "{}",
-                 make_error_message("failed to attach in-memory system desc", diag_buffer));
-        // FailureOr hides has_value()/operator bool, so clang-tidy can't see the gate above.
-        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-        module_op->setAttr(mlir::tt::ttcore::SystemDescAttr::name, attr_or.value());
-    }
+    attach_sys_desc_attr(module_op, diag_buffer);
 
     mlir::PassManager pm(module_op.getContext(), mlir::ModuleOp::getOperationName());
     mlir::tt::ttnn::createTTIRToTTNNRuntimePipeline(pm, pm_opts);
