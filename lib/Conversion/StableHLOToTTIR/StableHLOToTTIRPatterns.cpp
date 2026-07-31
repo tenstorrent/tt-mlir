@@ -7075,6 +7075,10 @@ private:
     // Whether the scattered dimension carries the scatter-batch dimension, i.e.
     // whether there is more than one window to write.
     bool scatterDimCarriesBatch = false;
+    // Whether the scatter indexes the operand at all. With no
+    // scatter_dims_to_operand_dims there is nothing to read a position from and
+    // every window starts at the operand's origin.
+    bool hasIndexValue = false;
   };
 
   // Lowers a scatter that addresses at most one operand dimension onto
@@ -7107,12 +7111,6 @@ private:
         computeOperandAlignedLayout(srcOp, adaptor, rewriter);
     if (failed(layout)) {
       return failure();
-    }
-
-    if (layout->scatterDimIsWindow) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "TTIR scatter does not yet support scattering along a "
-                 "dimension the update window spans");
     }
 
     Value updates = srcOp.getUpdates()[0];
@@ -7231,6 +7229,7 @@ private:
       }
       layout.scatterDim = 0;
     } else {
+      layout.hasIndexValue = true;
       layout.scatterDim = scatterDimsToOperandDims[0];
       if (!updateScatterDims.empty()) {
         if (layout.updateShape[layout.scatterDim] != 1) {
@@ -7277,37 +7276,61 @@ private:
         layout.updateShape, indicesType.getElementType(),
         indicesType.getEncoding());
 
-    // One index value per window, so the only dimension the index varies along
-    // is the one carrying the scatter batch.
-    llvm::SmallVector<int64_t> alignedShape(layout.updateShape.size(), 1);
-    if (layout.scatterDimCarriesBatch) {
-      alignedShape[layout.scatterDim] = layout.updateShape[layout.scatterDim];
-    }
+    // Where each window starts along the scattered dimension.
+    Value windowStart;
+    if (layout.hasIndexValue) {
+      // One index value per window, so the only dimension the index varies
+      // along is the one carrying the scatter batch.
+      llvm::SmallVector<int64_t> alignedShape(layout.updateShape.size(), 1);
+      if (layout.scatterDimCarriesBatch) {
+        alignedShape[layout.scatterDim] = layout.updateShape[layout.scatterDim];
+      }
 
-    Value aligned = indices;
-    if (indicesType.getShape() != ArrayRef<int64_t>(alignedShape)) {
-      aligned = ttir::utils::createReshapeOp(
-          rewriter,
-          ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_index_align"),
-          indices, alignedShape);
-    }
+      windowStart = indices;
+      if (indicesType.getShape() != ArrayRef<int64_t>(alignedShape)) {
+        windowStart = ttir::utils::createReshapeOp(
+            rewriter,
+            ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_index_align"),
+            indices, alignedShape);
+      }
 
-    // Stretch the index over the window, so every element of a window is
-    // written to the position that window's index picked out.
-    llvm::SmallVector<int64_t> repeatDims(layout.updateShape.size(), 1);
-    bool needsRepeat = false;
-    for (auto [dim, size] : llvm::enumerate(layout.updateShape)) {
-      if (alignedShape[dim] != size) {
-        repeatDims[dim] = size;
-        needsRepeat = true;
+      // Stretch it over the window, so every element of a window is written
+      // relative to the position that window's index picked out.
+      llvm::SmallVector<int64_t> repeatDims(layout.updateShape.size(), 1);
+      bool needsRepeat = false;
+      for (auto [dim, size] : llvm::enumerate(layout.updateShape)) {
+        if (alignedShape[dim] != size) {
+          repeatDims[dim] = size;
+          needsRepeat = true;
+        }
+      }
+      if (needsRepeat) {
+        windowStart = rewriter.create<ttir::RepeatOp>(
+            srcOp.getLoc(), targetType, windowStart,
+            rewriter.getDenseI64ArrayAttr(repeatDims));
       }
     }
-    if (!needsRepeat) {
-      return aligned;
+
+    // An index only says where a window starts. When the window spans the
+    // scattered dimension, each of its elements lands at its own offset from
+    // that start, so the within-window position has to be added on.
+    //
+    // With no index at all the start is the origin, and this iota is the whole
+    // answer - degenerating to a constant 0 when the scattered dimension has
+    // extent 1.
+    if (!layout.scatterDimIsWindow && windowStart) {
+      return windowStart;
     }
-    return rewriter.create<ttir::RepeatOp>(
-        srcOp.getLoc(), targetType, aligned,
-        rewriter.getDenseI64ArrayAttr(repeatDims));
+
+    Value withinWindow = rewriter.create<ttir::ArangeOp>(
+        srcOp.getLoc(), targetType, /*start=*/0,
+        /*end=*/layout.updateShape[layout.scatterDim],
+        /*step=*/1, /*arange_dimension=*/layout.scatterDim);
+    if (!windowStart) {
+      return withinWindow;
+    }
+    return rewriter.create<ttir::AddOp>(srcOp.getLoc(), targetType, windowStart,
+                                        withinWindow);
   }
 
   // Folds away a scatter that overwrites the operand in its entirety, which
