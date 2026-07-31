@@ -1004,7 +1004,8 @@ struct OpModel<IndexerScoreDsaOp> {
       llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
       llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
       llvm::ArrayRef<int64_t> weightsShape, TTNNLayoutAttr weightsLayout,
-      uint32_t chunkStartIdx, TTNNLayoutAttr outputLayout);
+      uint32_t chunkStartIdx, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,

@@ -3859,10 +3859,15 @@ llvm::Expected<OpConstraints> OpModel<IndexerScoreDsaOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
     llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
     llvm::ArrayRef<int64_t> weightsShape, TTNNLayoutAttr weightsLayout,
-    uint32_t chunkStartIdx, TTNNLayoutAttr outputLayout) {
+    uint32_t chunkStartIdx, TTNNLayoutAttr outputLayout,
+    const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
+
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
 
   ASSIGN_OR_RETURN(
       ::tt::tt_metal::TensorSpec querySpec,
@@ -3878,12 +3883,13 @@ llvm::Expected<OpConstraints> OpModel<IndexerScoreDsaOp>::getOpConstraints(
   // forwarded and program_config / compute_kernel_config fall back to the
   // ttnn defaults.
   auto indexerScoreDsaOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::experimental::indexer_score_dsa, device,
-                                querySpec, keySpec, weightsSpec, chunkStartIdx);
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        ::ttnn::experimental::indexer_score_dsa, device, initialStateOpt,
+        querySpec, keySpec, weightsSpec, chunkStartIdx);
   };
 
-  return operation::getOpConstraints(queryLayout.getContext(),
-                                     indexerScoreDsaOpQuery);
+  return operation::getOpConstraintsWithState(queryLayout.getContext(),
+                                              indexerScoreDsaOpQuery);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
