@@ -24,8 +24,6 @@ func.func @add(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<6
 // Feel free to test new code here.
 int main([[maybe_unused]] int argc, [[maybe_unused]] char **argv) {
     tt::kurbla::CompileOptions opts;
-    opts.mock_arch = tt::kurbla::CompileOptions::MockArch::WormholeB0;
-
     tt::kurbla::CompiledProgram program = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, opts);
 
     log_debug(tt::LogAlways, "log_debug");
@@ -35,10 +33,6 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char **argv) {
     log_critical(tt::LogAlways, "log_critical");
     log_fatal(tt::LogAlways, "log_fatal");
 
-    // TT_ASSERT(false, "Arch: {}", tt::kurbla::CompileOptions::MockArch::WormholeB0);
-    // TT_FATAL(false, "Arch: {}", tt::kurbla::CompileOptions::MockArch::WormholeB0);
-    TT_THROW("Failed something: {}", "something");
-    // TT_ASSERT(false, "false");
     return as<int>(std::numeric_limits<uint32_t>::max());
 }
 

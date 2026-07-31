@@ -12,16 +12,6 @@ namespace tt::kurbla {
 
 namespace {
 
-mlir::tt::ttcore::Arch to_ttcore_arch(CompileOptions::MockArch arch) {
-    switch (arch) {
-        case CompileOptions::MockArch::WormholeB0:
-            return mlir::tt::ttcore::Arch::WormholeB0;
-        case CompileOptions::MockArch::Blackhole:
-            return mlir::tt::ttcore::Arch::Blackhole;
-    }
-    return mlir::tt::ttcore::Arch::WormholeB0;
-}
-
 // Maps the kurbla-facing block-float dtype enum to tt-mlir's BFPDtype.
 mlir::tt::ttnn::BFPDtype to_bfp_dtype(CompileOptions::BfpDtype dtype) {
     switch (dtype) {
@@ -109,12 +99,6 @@ std::string CompileOptions::to_string() const {
 }
 
 void CompileOptions::set_options_on(mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &opts) const {
-    if (mock_arch.has_value()) {
-        opts.mockSystemDescArch = to_ttcore_arch(*mock_arch);
-    }
-    if (system_desc_path.has_value()) {
-        opts.systemDescPath = *system_desc_path;
-    }
     if (optimization_level.has_value()) {
         opts.optimizationLevel = *optimization_level;
     }

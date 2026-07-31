@@ -39,9 +39,7 @@ bool device_available() {
 // Returns the cached CompiledProgram by reference; sibling payloads compiled
 // from the same TTIR share one program instance (the compile cache dedupes).
 tt::kurbla::CompiledProgram &compile_for_current_device() {
-    tt::kurbla::CompileOptions opts;
-    opts.system_desc = tt::kurbla::runtime_system_desc();
-    return tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, opts);
+    return tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
 }
 
 // bf16 has the same sign+exponent encoding as f32; truncating the low 16 bits

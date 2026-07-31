@@ -3,8 +3,12 @@
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
+#include <functional>
 #include <map>
+#include <numeric>
 #include <optional>
+#include <tt/runtime/types.h>
+#include <ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h>
 #include <utility>
 #include <vector>
 
@@ -14,141 +18,189 @@
 #include <ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h>
 
 #include "assert.hpp"
-#include "cast.hpp"
 
 namespace tt::kurbla {
 
 namespace {
 
-struct DeviceState {
-    // IMPORTANT: declaration order is load-bearing. `system_desc` is probed
-    // against `device`, so `device` must be initialized first. C++ guarantees
-    // non-static members init in declaration order regardless of mem-init list
-    // order (-Wreorder catches accidental skews).
-    std::vector<std::uint32_t> mesh_shape;
-    ::tt::runtime::Device device;
-    ::tt::runtime::SystemDesc system_desc;
+mlir::tt::ttcore::Arch to_ttcore_arch(tt::target::Arch arch) {
+    switch (arch) {
+        case tt::target::Arch::Wormhole_b0:
+            return mlir::tt::ttcore::Arch::WormholeB0;
+        case tt::target::Arch::Blackhole:
+            return mlir::tt::ttcore::Arch::Blackhole;
+        case tt::target::Arch::Quasar:
+            return mlir::tt::ttcore::Arch::Quasar;
+    }
+    return mlir::tt::ttcore::Arch::WormholeB0;
+}
 
-    explicit DeviceState(std::vector<std::uint32_t> shape)
-        : mesh_shape(std::move(shape)), device(open_device(mesh_shape)), system_desc(probe_system_desc(device)) {}
+// Computes mesh fabric config.
+// computeMeshFabricConfig is always the same, so we will cache it.
+const ::tt::runtime::MeshFabricConfig &compute_mesh_fabric_config(const std::vector<std::uint32_t> &mesh_shape,
+                                                                  const ::tt::runtime::SystemDesc &sys_desc) {
+    static std::map<std::vector<std::uint32_t>, ::tt::runtime::MeshFabricConfig> cache;
+    auto it = cache.find(mesh_shape);
+    if (it == cache.end()) {
+        it = cache.emplace(mesh_shape, ::tt::runtime::computeMeshFabricConfig(sys_desc, mesh_shape)).first;
+    }
+    return it->second;
+}
+
+} // namespace
+
+class DeviceState {
+public:
+    DeviceState() = default;
 
     ~DeviceState() {
-        // Best-effort cleanup at process shutdown — never let an exception out
-        // of a destructor.
         try {
-            ::tt::runtime::closeMeshDevice(device);
+            close_device();
         } catch (const std::exception &e) {
             log_error(tt::LogAlways, "tt-kurbla: closeMeshDevice failed during shutdown: {}", e.what());
         } catch (...) {
             log_error(tt::LogAlways, "tt-kurbla: closeMeshDevice failed during shutdown: unknown exception");
         }
     }
+
     DeviceState(const DeviceState &) = delete;
     DeviceState &operator=(const DeviceState &) = delete;
     DeviceState(DeviceState &&) = delete;
     DeviceState &operator=(DeviceState &&) = delete;
 
-    // Close the current MeshDevice and reopen it with a new shape.
-    // TODO: make this safe:
-    // Any tensors existing on the old device are invalidated - so accessing
-    // them will cause a fatal error.
-    void reopen(std::vector<std::uint32_t> new_shape) {
-        ::tt::runtime::closeMeshDevice(device);
-        mesh_shape = std::move(new_shape);
-        device = open_device(mesh_shape);
-        system_desc = probe_system_desc(device);
+    const ::tt::runtime::Device &device() {
+        if (!m_device.has_value()) {
+            m_device = open_device(mesh_shape());
+        }
+        return *m_device;
+    }
+
+    std::uint32_t num_chips() { return sys_desc()->chip_desc_indices()->size(); }
+    mlir::tt::ttcore::Arch arch() { return to_ttcore_arch(sys_desc()->chip_descs()->Get(0)->arch()); }
+
+    const std::vector<std::uint32_t> &mesh_shape() {
+        if (!m_mesh_shape.has_value()) {
+            m_mesh_shape = std::vector<std::uint32_t>{1U, 1U};
+        }
+        return *m_mesh_shape;
+    }
+
+    std::uint32_t mesh_size() {
+        return std::accumulate(mesh_shape().begin(), mesh_shape().end(), std::uint32_t{1}, std::multiplies<>{});
+    }
+
+    const ::tt::runtime::MeshFabricConfig &mesh_fabric_config() {
+        if (!m_mesh_fabric_config.has_value()) {
+            m_mesh_fabric_config = compute_mesh_fabric_config(mesh_shape(), sys_desc());
+        }
+        return *m_mesh_fabric_config;
+    }
+
+    const ::tt::runtime::SystemDesc &sys_desc() {
+        if (!m_sys_desc.has_value()) {
+            m_sys_desc = ::tt::runtime::getCurrentSystemDesc();
+        }
+        return *m_sys_desc;
+    }
+
+    void set_mesh_shape(const std::vector<std::uint32_t> &mesh_shape) {
+        if (!m_mesh_shape.has_value() || *m_mesh_shape != mesh_shape) {
+            m_mesh_shape = mesh_shape;
+        }
+    }
+
+    void set_fabric_config(const ::tt::runtime::MeshFabricConfig &mesh_fabric_config) {
+        if (!m_mesh_fabric_config.has_value() ||
+            m_mesh_fabric_config->globalConfig != mesh_fabric_config.globalConfig ||
+            m_mesh_fabric_config->perAxisConfig != mesh_fabric_config.perAxisConfig) {
+            m_mesh_fabric_config = mesh_fabric_config;
+        }
+    }
+
+    const tt::runtime::Device &open_device(const std::vector<std::uint32_t> &new_mesh_shape) {
+        if (m_device.has_value()) {
+            if (mesh_shape() == new_mesh_shape) {
+                return *m_device;
+            }
+            close_device();
+        }
+
+        set_mesh_shape(new_mesh_shape);
+
+        ::tt::runtime::MeshFabricConfig cfg = compute_mesh_fabric_config(new_mesh_shape, sys_desc());
+        ::tt::runtime::setFabricConfig(cfg.globalConfig);
+        set_fabric_config(cfg);
+
+        m_device = ::tt::runtime::openMeshDevice(::tt::runtime::MeshDeviceOptions{.meshShape = new_mesh_shape});
+
+        return *m_device;
+    }
+
+    const tt::runtime::Device &open_device(std::uint32_t rows, std::uint32_t cols) {
+        const auto available = num_chips();
+        TT_FATAL(rows >= 1 && cols >= 1 && rows * cols <= available,
+                 "tt-kurbla open_device: rows*cols ({}*{} = {}) must be in [1, "
+                 "getNumAvailableDevices() ({})]",
+                 rows, cols, rows * cols, available);
+
+        return open_device(std::vector<std::uint32_t>{rows, cols});
+    }
+
+    // Opens device with current mesh shape (which is default mesh shape if device is not already open).
+    const tt::runtime::Device &open_device() { return open_device(mesh_shape()); }
+
+    void close_device() {
+        if (!m_device.has_value()) {
+            return;
+        }
+
+        ::tt::runtime::closeMeshDevice(*m_device);
+        m_device.reset();
     }
 
 private:
-    static ::tt::runtime::Device open_device(const std::vector<std::uint32_t> &mesh_shape) {
-        // Configure the fabric for this mesh before opening the devices.
-        // setFabricConfig writes a process-global, so it must run on every open
-        // to stay in sync with the mesh we're about to open.
-        ::tt::runtime::setFabricConfig(runtime_mesh_fabric_config(mesh_shape).globalConfig);
-
-        return ::tt::runtime::openMeshDevice(::tt::runtime::MeshDeviceOptions{.meshShape = mesh_shape});
-    }
-    static ::tt::runtime::SystemDesc probe_system_desc(::tt::runtime::Device &d) {
-        return ::tt::runtime::getCurrentSystemDesc(/*dispatchCoreType=*/std::nullopt, d);
-    }
+    std::optional<::tt::runtime::Device> m_device;
+    std::optional<std::vector<std::uint32_t>> m_mesh_shape;
+    std::optional<::tt::runtime::MeshFabricConfig> m_mesh_fabric_config;
+    std::optional<::tt::runtime::SystemDesc> m_sys_desc;
 };
 
-// The process-wide device, opened lazily on first access.
-std::optional<DeviceState> &device_slot() {
-    static std::optional<DeviceState> slot;
-    return slot;
-}
+static DeviceState device_state;
 
-DeviceState &device_state() {
-    auto &slot = device_slot();
-    if (!slot.has_value()) {
-        slot.emplace(default_mesh_shape());
-    }
-    return *slot;
-}
-
-} // namespace
-
-::tt::runtime::Device &runtime_device() {
-    return device_state().device;
-}
-
-const ::tt::runtime::SystemDesc &runtime_system_desc() {
-    return device_state().system_desc;
+const ::tt::runtime::Device &runtime_device() {
+    return device_state.device();
 }
 
 std::uint32_t runtime_device_num_chips() {
-    static const auto n = as<std::uint32_t>(::tt::runtime::getNumAvailableDevices());
-    return n;
+    return device_state.num_chips();
 }
 
 void open_runtime_device_mesh(std::uint32_t rows, std::uint32_t cols) {
-    const auto available = runtime_device_num_chips();
-    TT_FATAL(rows >= 1 && cols >= 1 && rows * cols <= available,
-             "tt-kurbla open_runtime_device_mesh: rows*cols ({}*{} = {}) must be in [1, "
-             "getNumAvailableDevices() ({})]",
-             rows, cols, rows * cols, available);
-    std::vector<std::uint32_t> new_shape{rows, cols};
-
-    auto &slot = device_slot();
-    if (!slot.has_value()) {
-        // Not open yet — open now with the requested shape.
-        slot.emplace(std::move(new_shape));
-        return;
-    }
-    // Already open: reopen only if the layout actually changes.
-    if (slot->mesh_shape != new_shape) {
-        slot->reopen(std::move(new_shape));
-    }
+    device_state.open_device(rows, cols);
 }
 
-std::vector<std::uint32_t> runtime_device_mesh_shape() {
-    auto &slot = device_slot();
-    return slot.has_value() ? slot->mesh_shape : default_mesh_shape();
+const std::vector<std::uint32_t> &runtime_device_mesh_shape() {
+    return device_state.mesh_shape();
 }
 
 std::uint32_t runtime_device_mesh_size() {
-    std::uint32_t n = 1;
-    for (auto d : runtime_device_mesh_shape()) {
-        n *= d;
-    }
-    return n;
+    return device_state.mesh_size();
 }
 
-const ::tt::runtime::MeshFabricConfig &runtime_mesh_fabric_config(const std::vector<std::uint32_t> &mesh_shape) {
-    // computeMeshFabricConfig is pure for a given machine + mesh shape, so
-    // memoize per shape.
-    static std::map<std::vector<std::uint32_t>, ::tt::runtime::MeshFabricConfig> cache;
-    auto it = cache.find(mesh_shape);
-    if (it == cache.end()) {
-        const auto system_desc = ::tt::runtime::getCurrentSystemDesc();
-        it = cache.emplace(mesh_shape, ::tt::runtime::computeMeshFabricConfig(system_desc, mesh_shape)).first;
-    }
-    return it->second;
+const ::tt::runtime::MeshFabricConfig &runtime_mesh_fabric_config() {
+    return device_state.mesh_fabric_config();
 }
 
 void close_runtime_device_mesh() {
-    device_slot().reset();
+    device_state.close_device();
+}
+
+mlir::tt::ttcore::Arch arch() {
+    return device_state.arch();
+}
+
+const ::tt::runtime::SystemDesc &sys_desc() {
+    return device_state.sys_desc();
 }
 
 } // namespace tt::kurbla

@@ -1,8 +1,3 @@
-// v1 tests rely on CompileOptions::mock_arch (no system descriptor),
-// so they do not require a real Tenstorrent device to run. Device-backed
-// tests will arrive alongside the runtime/execute API and may opt into a
-// real system_desc_path.
-
 #include "engine/compile.hpp"
 
 #include <gtest/gtest.h>
@@ -23,10 +18,7 @@ func.func @add(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<6
 } // namespace
 
 TEST(EngineCompileTest, CompilesTrivialModule) {
-    tt::kurbla::CompileOptions opts;
-    opts.mock_arch = tt::kurbla::CompileOptions::MockArch::WormholeB0;
-
-    tt::kurbla::CompiledProgram program = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, opts);
+    tt::kurbla::CompiledProgram program = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
 
     EXPECT_GE(program.num_programs(), 1U);
 }
@@ -43,11 +35,8 @@ TEST(EngineCompileTest, ThrowsOnParseError) {
 }
 
 TEST(EngineCompileTest, ReusesEngineAcrossCalls) {
-    tt::kurbla::CompileOptions opts;
-    opts.mock_arch = tt::kurbla::CompileOptions::MockArch::WormholeB0;
-
-    auto program_a = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, opts);
-    auto program_b = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, opts);
+    auto program_a = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
+    auto program_b = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
 
     EXPECT_GE(program_a.num_programs(), 1U);
     EXPECT_GE(program_b.num_programs(), 1U);
@@ -63,10 +52,7 @@ TEST(EngineCompileTest, CompilesPreBuiltModule) {
     mlir::OwningOpRef<mlir::ModuleOp> module_op = mlir::parseSourceString<mlir::ModuleOp>(k_trivial_add_ttir, &ctx);
     ASSERT_TRUE(module_op);
 
-    tt::kurbla::CompileOptions opts;
-    opts.mock_arch = tt::kurbla::CompileOptions::MockArch::WormholeB0;
-
-    tt::kurbla::CompiledProgram program = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get(), opts);
+    tt::kurbla::CompiledProgram program = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get());
 
     EXPECT_GE(program.num_programs(), 1U);
 }
@@ -74,10 +60,7 @@ TEST(EngineCompileTest, CompilesPreBuiltModule) {
 // ttnn_ir() recovers the post-pipeline module from the compiled flatbuffer.
 // Confirm it recovers the real lowered module, not an empty or partial buffer.
 TEST(EngineCompileTest, RecoversTtnnIrFromFlatbuffer) {
-    tt::kurbla::CompileOptions opts;
-    opts.mock_arch = tt::kurbla::CompileOptions::MockArch::WormholeB0;
-
-    auto program = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, opts);
+    auto program = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
 
     std::string_view ir = program.ttnn_ir();
     EXPECT_FALSE(ir.empty());
