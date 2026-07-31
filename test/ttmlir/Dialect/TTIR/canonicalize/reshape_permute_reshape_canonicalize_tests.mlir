@@ -44,10 +44,7 @@ module {
     return %2 : tensor<3x2xbf16>
   }
 
-  // Interior unit dim. The permutation moves a non-unit dim past the unit dim,
-  // which the leading-unit-dims-only version of this pattern rejected; deleting
-  // dim 1 of 4x1x6 is still nothing but a unit-dim deletion, and the rewrite to
-  // permute[1,0] moves the same data.
+  // Interior unit dim. The permutation moves a non-unit dim past the unit dim.
   func.func @reshape_permute_reshape_interior_unit_dim(%arg0: tensor<6x4xbf16>) -> tensor<4x6xbf16> {
     // CHECK-LABEL: @reshape_permute_reshape_interior_unit_dim
     // CHECK-NOT: "ttir.reshape"
@@ -59,10 +56,7 @@ module {
     return %2 : tensor<4x6xbf16>
   }
 
-  // The DeepSeek-V3.2 MLA Q-absorption sandwich, which is what motivated
-  // generalizing this pattern. XLA emits it while canonicalizing dot_general
-  // operands. The two TRAILING unit dims are the expensive part: tiling the last
-  // two dims at 32x32 pads 32x4096x128x1x1 from 32 MiB to 32 GiB.
+  // MLA Q-absorption pattern emitted by XLA.
   func.func @reshape_permute_reshape_mla_q_absorption(%arg0: tensor<4096x32x128xbf16>) -> tensor<32x4096x128xbf16> {
     // CHECK-LABEL: @reshape_permute_reshape_mla_q_absorption
     // CHECK-NOT: "ttir.reshape"

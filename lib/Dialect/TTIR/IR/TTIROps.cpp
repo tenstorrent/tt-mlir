@@ -2815,13 +2815,17 @@ static mlir::OpFoldResult constFoldReshape(mlir::tt::ttir::ReshapeOp op,
 // is one of the deleted unit dims; std::nullopt when `outShape` cannot be
 // obtained from `inShape` by deleting unit dims alone.
 //
-// Non-unit dims must correspond in order, so the greedy walk is forced there.
-// Adjacent unit dims are ambiguous -- which of the two was deleted? -- but
-// interchangeable: an extent-1 dim holds no data and contributes nothing to a
-// linear index, so either reading describes the same rewrite.
+// Example: inShape = [1, 4, 1, 1, 5], outShape = [4, 5]
+//   inDim 0 (extent 1) doesn't match outShape[0]=4, so it's a deleted unit dim
+//     -> inToOut[0] = -1
+//   inDim 1 (extent 4) matches outShape[0]=4 -> inToOut[1] = 0
+//   inDim 2 (extent 1) doesn't match outShape[1]=5, deleted -> inToOut[2] = -1
+//   inDim 3 (extent 1) doesn't match outShape[1]=5, deleted -> inToOut[3] = -1
+//   inDim 4 (extent 5) matches outShape[1]=5 -> inToOut[4] = 1
+// Result: inToOut = [-1, 0, -1, -1, 1]
 static std::optional<llvm::SmallVector<int64_t>>
-matchShapeByDeletingUnitDims(llvm::ArrayRef<int64_t> inShape,
-                             llvm::ArrayRef<int64_t> outShape) {
+matchShapeByDeletingUnitDims(const llvm::ArrayRef<int64_t> &inShape,
+                             const llvm::ArrayRef<int64_t> &outShape) {
   llvm::SmallVector<int64_t> inToOut(inShape.size(), -1);
   size_t outDim = 0;
   for (size_t inDim = 0; inDim < inShape.size(); ++inDim) {
@@ -2846,16 +2850,7 @@ matchShapeByDeletingUnitDims(llvm::ArrayRef<int64_t> inShape,
 // wherever in the shape they sit. The permutation is rebuilt over the surviving
 // dims and the leading reshape is retargeted, so the rewrite never adds an op.
 //
-// This matters because tt-mlir tiles the last two dimensions at 32x32, so a
-// unit dim in either of those positions is padded out to a whole tile: a result
-// typed 32x4096x128x1x1 carries 32 MiB of bf16 in a 32 GiB buffer, a 1024x
-// amplification that exhausts a device rather than merely wasting space. XLA
-// emits precisely this shape when canonicalizing dot_general operands -- it
-// inserts degenerate dims, then picks a non-default result layout that makes
-// the transpose a bitcast, an intent StableHLO has no way to carry -- so the
-// sandwich turns up in any graph lowered from einsum.
-//
-// Example (DeepSeek-V3.2 MLA Q absorption, the 1024x case above):
+// Example:
 //   reshape: 4096x32x128 → 1x4096x32x1x128
 //   permute [2,1,4,0,3]: → 32x4096x128x1x1
 //   reshape: → 32x4096x128
