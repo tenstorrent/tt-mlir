@@ -27,6 +27,12 @@
 #include "tt/runtime/detail/distributed/distributed.h"
 #endif
 
+#if defined(DEVICE_RUNTIME_ENABLED)
+#include <tt-metalium/experimental/mock_device.hpp>
+#include <tt-metalium/tt_metal.hpp>
+#include <umd/device/types/arch.hpp>
+#endif
+
 #if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
 #define IF_TTNN_ENABLED(code) code
 #else
@@ -1281,6 +1287,62 @@ void setFabricConfig(tt::runtime::FabricConfig config) {
       [&]() -> RetType {
         return ::tt::runtime::distributed::setFabricConfig(config);
       });
+}
+
+#if defined(DEVICE_RUNTIME_ENABLED)
+namespace {
+tt::ARCH toUmdArch(tt::target::Arch arch) {
+  switch (arch) {
+  case tt::target::Arch::Wormhole_b0:
+    return tt::ARCH::WORMHOLE_B0;
+  case tt::target::Arch::Blackhole:
+    return tt::ARCH::BLACKHOLE;
+  case tt::target::Arch::Quasar:
+    return tt::ARCH::QUASAR;
+  }
+  return tt::ARCH::Invalid;
+}
+} // namespace
+#endif
+
+void configureMockMode(tt::target::Arch arch, uint32_t numChips) {
+#if defined(DEVICE_RUNTIME_ENABLED)
+  tt::tt_metal::experimental::configure_mock_mode(toUmdArch(arch), numChips);
+#else
+  LOG_FATAL("Runtime is not enabled");
+#endif
+}
+
+void configureMockModeFromHw() {
+#if defined(DEVICE_RUNTIME_ENABLED)
+  tt::tt_metal::experimental::configure_mock_mode_from_hw();
+#else
+  LOG_FATAL("Runtime is not enabled");
+#endif
+}
+
+void disableMockMode() {
+#if defined(DEVICE_RUNTIME_ENABLED)
+  tt::tt_metal::experimental::disable_mock_mode();
+#else
+  LOG_FATAL("Runtime is not enabled");
+#endif
+}
+
+bool isMockModeEnabled() {
+#if defined(DEVICE_RUNTIME_ENABLED)
+  return tt::tt_metal::experimental::is_mock_mode_registered();
+#else
+  LOG_FATAL("Runtime is not enabled");
+#endif
+}
+
+void releaseDeviceOwnership() {
+#if defined(DEVICE_RUNTIME_ENABLED)
+  tt::tt_metal::detail::ReleaseOwnership();
+#else
+  LOG_FATAL("Runtime is not enabled");
+#endif
 }
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
