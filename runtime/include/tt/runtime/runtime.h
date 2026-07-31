@@ -158,6 +158,31 @@ tt::target::Arch getArch();
 
 size_t getNumAvailableDevices();
 
+// Mock/emulated device mode. Lets compilation run without physical hardware: once
+// configured, opt>=1 OpModel op-constraint queries, computeMeshFabricConfig's
+// SystemMesh lookup, and getCurrentSystemDesc all resolve against the mock. Configure
+// before any device or system-descriptor access.
+
+// Configure mock mode for an explicit arch + chip count. numChips must be a mock-
+// supported count (1/2/4/8/32 for Wormhole/Blackhole, 1 for Quasar), otherwise the
+// underlying mock cluster fails to load.
+void configureMockMode(tt::target::Arch arch, uint32_t numChips = 1);
+
+// Configure mock mode using the arch auto-detected from local hardware (1 chip).
+// Requires TT hardware to be present to detect the arch.
+void configureMockModeFromHw();
+
+// Disable mock mode and return to real-hardware mode.
+void disableMockMode();
+
+// Whether mock mode is currently configured.
+bool isMockModeEnabled();
+
+// Fully releases the physical device(s) this process holds by tearing down the
+// device manager, so another process can acquire them. closeMeshDevice() alone only
+// closes the mesh abstraction and keeps the process's device ownership.
+void releaseDeviceOwnership();
+
 Device openMeshDevice(const MeshDeviceOptions &options = {});
 
 void closeMeshDevice(Device parentMesh);
