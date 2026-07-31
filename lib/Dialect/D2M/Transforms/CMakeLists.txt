@@ -35,6 +35,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         AssignThreads.cpp
         SplitThreads.cpp
         InsertComputeCB.cpp
+        InsertScalarAccessCB.cpp
         SplitUnifiedThread.cpp
         PreallocateMcastSemaphores.cpp
         ScheduleDMA.cpp

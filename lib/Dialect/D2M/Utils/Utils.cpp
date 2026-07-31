@@ -1016,4 +1016,19 @@ int32_t getNocElementAlignmentL1(
   return getNocElementAlignment(op, ttcore::MemorySpace::DeviceL1, type);
 }
 
+Value getScalarL1AccessMemref(Operation *op) {
+  MemRefType memrefType;
+  Value memref;
+  if (auto load = mlir::dyn_cast<memref::LoadOp>(op)) {
+    memrefType = load.getMemRefType();
+    memref = load.getMemRef();
+  } else if (auto store = mlir::dyn_cast<memref::StoreOp>(op)) {
+    memrefType = store.getMemRefType();
+    memref = store.getMemRef();
+  } else {
+    return nullptr;
+  }
+  return isScalarL1AccessType(memrefType) ? memref : nullptr;
+}
+
 } // namespace mlir::tt::d2m::utils

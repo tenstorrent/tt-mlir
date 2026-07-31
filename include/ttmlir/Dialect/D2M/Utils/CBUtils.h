@@ -18,6 +18,17 @@ class GenericOp;
 Value getOrCreateCB(RewriterBase &rewriter, GenericOp generic, Block *block,
                     unsigned cbOperandIndex);
 
+/// The CB port a scalar L1 access touches (see
+/// d2m::utils::isScalarL1AccessType), or nullopt if `op` is not such an access
+/// or the buffer it names is not an operand of the enclosing generic -- a
+/// region-local scratch allocation, say.
+///
+/// Scalar accesses name the operand buffer directly rather than going through a
+/// `d2m.wait`/`d2m.reserve` on a CB handle, so they cannot be matched against a
+/// CB by value; the buffer is traced through any views back to the generic's
+/// operand list, whose index is the CB port.
+std::optional<unsigned> getScalarL1AccessPort(Operation *op);
+
 /// Optional op attribute mapping logical generic operand indices to physical CB
 /// ports. Consumers default to identity when the attribute is absent.
 StringRef getPhysicalCBPortMapAttrName();

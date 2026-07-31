@@ -252,6 +252,9 @@ void createD2MBackendPipeline(OpPassManager &pm,
   pm.addPass(d2m::createD2MPreallocateMcastSemaphores());
   pm.addPass(d2m::createD2MScheduleDMA());
   pm.addPass(mlir::createCanonicalizerPass());
+  // After schedule-dma, so each datamovement region is final and the scalar
+  // reader's wait/pop lands only on the thread that owns the CB.
+  pm.addPass(d2m::createD2MInsertScalarAccessCB());
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
   pm.addPass(d2m::createD2MOptimizeDMA());
   pm.addPass(d2m::createD2MExpandDMAReadCompositeView());

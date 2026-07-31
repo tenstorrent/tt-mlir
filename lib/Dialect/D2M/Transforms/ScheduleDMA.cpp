@@ -7,13 +7,19 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/Interfaces/LoopLikeInterface.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
+#include "llvm/ADT/MapVector.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MSCHEDULEDMA
@@ -51,6 +57,96 @@ collectDMAOps(Block *block,
     }
   }
 }
+
+// Collect all scalar L1 accesses from a block, recursively walking into nested
+// scf.for loops.
+static void collectScalarL1Accesses(Block *block,
+                                    SmallVectorImpl<Operation *> &accesses) {
+  for (Operation &op : block->getOperations()) {
+    if (auto forOp = mlir::dyn_cast<scf::ForOp>(&op)) {
+      collectScalarL1Accesses(forOp.getBody(), accesses);
+      continue;
+    }
+    if (utils::getScalarL1AccessMemref(&op)) {
+      accesses.push_back(&op);
+    }
+  }
+}
+
+// Forward-propagate from `value` to every DMA op that transitively consumes it,
+// following op results and loop-carried values.
+static void collectDependentDMAOps(Value value, DenseSet<Value> &seen,
+                                   DenseSet<Operation *> &dmaOps) {
+  if (!seen.insert(value).second) {
+    return;
+  }
+  for (OpOperand &use : value.getUses()) {
+    Operation *user = use.getOwner();
+    if (mlir::isa<ShardDMAOpInterface>(user)) {
+      dmaOps.insert(user);
+      continue;
+    }
+    if (auto loop = mlir::dyn_cast<LoopLikeOpInterface>(user)) {
+      // An init operand flows to the matching region iter arg and loop result.
+      if (BlockArgument iterArg = loop.getTiedLoopRegionIterArg(&use)) {
+        collectDependentDMAOps(iterArg, seen, dmaOps);
+      }
+      if (OpResult result = loop.getTiedLoopResult(&use)) {
+        collectDependentDMAOps(result, seen, dmaOps);
+      }
+      continue;
+    }
+    // A yielded value flows out to the loop result and round to the matching
+    // iter arg. Without this a value read inside a loop and accumulated across
+    // iterations -- the shape a dependent load in a loop takes -- looks like it
+    // reaches no transfer at all.
+    if (auto yield = mlir::dyn_cast<scf::YieldOp>(user)) {
+      if (auto forOp = mlir::dyn_cast<scf::ForOp>(yield->getParentOp())) {
+        unsigned idx = use.getOperandNumber();
+        collectDependentDMAOps(forOp.getResult(idx), seen, dmaOps);
+        collectDependentDMAOps(forOp.getRegionIterArg(idx), seen, dmaOps);
+      }
+      continue;
+    }
+    for (Value result : user->getResults()) {
+      collectDependentDMAOps(result, seen, dmaOps);
+    }
+  }
+}
+
+// Groups of CBs that must be scheduled onto the same data movement thread.
+//
+// A scalar L1 read of a CB is a dependent load: the value it produces feeds the
+// address of a later transfer. Nothing couples the two -- the reader takes no
+// part in the CB wait/pop protocol -- so the only thing that orders the read
+// after the transfer that fills the CB is being on the same thread, where
+// program order plus that transfer's own barrier applies. So the CB holding the
+// data and the CBs of the transfers consuming the loaded value form one
+// indivisible scheduling unit.
+class CBAffinityGroups {
+public:
+  void unite(unsigned a, unsigned b) {
+    unsigned rootA = find(a);
+    unsigned rootB = find(b);
+    if (rootA != rootB) {
+      parent[rootB] = rootA;
+    }
+  }
+
+  unsigned find(unsigned port) {
+    auto [it, inserted] = parent.try_emplace(port, port);
+    if (inserted || it->second == port) {
+      return port;
+    }
+    unsigned root = find(it->second);
+    // Path compression. Re-look-up: the recursion may have rehashed the map.
+    parent[port] = root;
+    return root;
+  }
+
+private:
+  DenseMap<unsigned, unsigned> parent;
+};
 
 // Score for deciding which thread gets which NoC.
 // Priority is given to the thread that has the larger mcast shards.
@@ -143,23 +239,53 @@ static void assignDmCoreIndices(
   assignDmCoreIndicesForSingleNoC(assignments);
 }
 
-// Assign CBs to threads to balance workload.
+// A set of CBs that must land on the same thread, with their combined workload.
+struct CBGroup {
+  SmallVector<unsigned> cbs;
+  size_t workload = 0;
+};
+
+// Partition the CBs into co-scheduling groups. CBs with no affinity constraint
+// each form a singleton group, which is the common case.
+//
+// Iterates cbWorkloads directly and keys by union-find root in a MapVector, so
+// with no affinity constraints the groups come out as singletons in exactly the
+// order the CBs were previously enumerated -- keeping the greedy assignment,
+// and therefore the NoC choice, unchanged for every existing schedule.
+static SmallVector<CBGroup>
+buildCBGroups(const DenseMap<unsigned, size_t> &cbWorkloads,
+              CBAffinityGroups &affinity) {
+  llvm::MapVector<unsigned, CBGroup> groupsByRoot;
+  for (const auto &[cbIdx, workload] : cbWorkloads) {
+    CBGroup &group = groupsByRoot[affinity.find(cbIdx)];
+    group.cbs.push_back(cbIdx);
+    group.workload += workload;
+  }
+
+  SmallVector<CBGroup> groups;
+  for (auto &[root, group] : groupsByRoot) {
+    groups.push_back(std::move(group));
+  }
+  return groups;
+}
+
+// Assign CB groups to threads to balance workload.
 // Returns a vector of DMAThreadAssignment, one per hardware thread.
 static SmallVector<DMAThreadAssignment>
-assignCBsToThreads(const DenseMap<unsigned, size_t> &cbWorkloads,
-                   unsigned numThreads) {
+assignCBsToThreads(ArrayRef<CBGroup> groups, unsigned numThreads) {
   SmallVector<DMAThreadAssignment> assignments(numThreads);
 
-  // Sort CBs by workload (descending) for greedy assignment.
-  SmallVector<std::pair<unsigned, size_t>> sortedCBs;
-  for (const auto &[cbIdx, workload] : cbWorkloads) {
-    sortedCBs.push_back({cbIdx, workload});
+  // Sort groups by workload (descending) for greedy assignment.
+  SmallVector<const CBGroup *> sortedGroups;
+  for (const CBGroup &group : groups) {
+    sortedGroups.push_back(&group);
   }
-  llvm::sort(sortedCBs,
-             [](const auto &a, const auto &b) { return a.second > b.second; });
+  llvm::sort(sortedGroups, [](const CBGroup *a, const CBGroup *b) {
+    return a->workload > b->workload;
+  });
 
-  // Greedy assignment: assign each CB to the thread with smallest workload.
-  for (const auto &[cbIdx, workload] : sortedCBs) {
+  // Greedy assignment: assign each group to the thread with smallest workload.
+  for (const CBGroup *group : sortedGroups) {
     // Find thread with minimum workload.
     unsigned minThreadIdx = 0;
     size_t minWorkload = assignments[0].workload;
@@ -170,8 +296,9 @@ assignCBsToThreads(const DenseMap<unsigned, size_t> &cbWorkloads,
       }
     }
 
-    assignments[minThreadIdx].assignedCBs.insert(cbIdx);
-    assignments[minThreadIdx].workload += workload;
+    assignments[minThreadIdx].assignedCBs.insert(group->cbs.begin(),
+                                                 group->cbs.end());
+    assignments[minThreadIdx].workload += group->workload;
   }
 
   return assignments;
@@ -184,11 +311,19 @@ static bool shouldKeepOpForThread(Operation *op,
   if (auto dmaOp = mlir::dyn_cast<ShardDMAOpInterface>(op)) {
     return assignedCBs.contains(dmaOp.getCBPort());
   }
+  if (std::optional<unsigned> port = getScalarL1AccessPort(op)) {
+    return assignedCBs.contains(*port);
+  }
   return false;
 }
 
-// Recursively erase DMA ops not assigned to this thread.
+// Recursively erase DMA ops and scalar L1 accesses not assigned to this thread.
 // Also removes ops that become dead as a result.
+//
+// Scalar accesses are filtered alongside DMA ops rather than left to a later
+// DCE pass: a scalar *store* has write side effects, so it is not trivially
+// dead and would otherwise be replicated into -- and executed by -- every DM
+// thread the region was cloned into.
 static void filterOpsForThread(PatternRewriter &rewriter, Block *block,
                                const DenseSet<unsigned> &assignedCBs) {
   bool changed = true;
@@ -207,8 +342,9 @@ static void filterOpsForThread(PatternRewriter &rewriter, Block *block,
         continue;
       }
 
-      // Check if this is a DMA op.
-      if (mlir::isa<ShardDMAOpInterface>(&op)) {
+      // Check if this is a DMA op or a scalar L1 access.
+      if (mlir::isa<ShardDMAOpInterface>(&op) ||
+          utils::getScalarL1AccessMemref(&op)) {
         if (!shouldKeepOpForThread(&op, assignedCBs)) {
           if (op.use_empty()) {
             toErase.push_back(&op);
@@ -273,13 +409,46 @@ public:
       cbWorkloads[cbIdx]++;
     }
 
-    // Determine number of threads to use.
-    unsigned numThreadsToUse = std::min(
-        static_cast<unsigned>(cbWorkloads.size()), numDatamovementThreads);
+    // Constrain the schedule so a dependent load and the transfer feeding it
+    // share a thread. An access we cannot attribute to a CB port -- a
+    // region-local scratch allocation, say -- cannot be filtered per thread and
+    // would be replicated into all of them, so refuse to split at all.
+    SmallVector<Operation *> scalarAccesses;
+    collectScalarL1Accesses(dmBlock, scalarAccesses);
 
-    // Not enough CBs to warrant splitting but still need to assign a DM core on
-    // the existing single DM thread before returning failure.
-    if (numThreadsToUse <= 1 || cbWorkloads.size() <= 1) {
+    CBAffinityGroups affinity;
+    bool hasUnattributableAccess = false;
+    for (Operation *access : scalarAccesses) {
+      std::optional<unsigned> port = getScalarL1AccessPort(access);
+      if (!port) {
+        hasUnattributableAccess = true;
+        break;
+      }
+      if (access->getNumResults() == 0) {
+        continue;
+      }
+      DenseSet<Value> seen;
+      DenseSet<Operation *> dependentDMAOps;
+      collectDependentDMAOps(access->getResult(0), seen, dependentDMAOps);
+      for (Operation *dmaOp : dependentDMAOps) {
+        affinity.unite(*port,
+                       mlir::cast<ShardDMAOpInterface>(dmaOp).getCBPort());
+      }
+    }
+
+    SmallVector<CBGroup> cbGroups = buildCBGroups(cbWorkloads, affinity);
+
+    // Determine number of threads to use.
+    unsigned numThreadsToUse =
+        hasUnattributableAccess
+            ? 1
+            : std::min(static_cast<unsigned>(cbGroups.size()),
+                       numDatamovementThreads);
+
+    // Not enough independent CB groups to warrant splitting but still need to
+    // assign a DM core on the existing single DM thread before returning
+    // failure.
+    if (numThreadsToUse <= 1 || cbGroups.size() <= 1) {
       bool writesDRAM = llvm::any_of(dmaOps, [](const auto &entry) {
         auto store = mlir::dyn_cast_or_null<RemoteStoreOp>(entry.first);
         return store && ttcore::getMemorySpace(store.getMemref()) ==
@@ -301,7 +470,7 @@ public:
 
     // Assign CBs to threads.
     SmallVector<DMAThreadAssignment> assignments =
-        assignCBsToThreads(cbWorkloads, numThreadsToUse);
+        assignCBsToThreads(cbGroups, numThreadsToUse);
 
     assignDmCoreIndices(assignments, dmaOps, numDatamovementThreads);
 
@@ -343,7 +512,10 @@ public:
         rewriter.clone(op, mapping);
       }
 
-      // Filter to keep only DMA ops for this thread's assigned CBs.
+      // Filter to keep only DMA ops and scalar accesses for this thread's
+      // assigned CBs. Port attribution works on the clones directly: the new
+      // generic carries the same operand values, and a scalar access names a
+      // buffer defined outside the region, which cloning leaves untouched.
       filterOpsForThread(rewriter, newDMBlock, assignments[i].assignedCBs);
     }
 

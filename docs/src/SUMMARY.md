@@ -53,3 +53,4 @@
   - [Tensor Layout](./specs/tensor-layout.md)
   - [Device](./specs/device.md)
   - [TTNN Optimizer](./specs/ttnn-optimizer.md)
+  - [D2M Dependent Loads](./specs/d2m-dependent-loads.md)

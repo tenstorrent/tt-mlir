@@ -43,6 +43,59 @@ namespace mlir::tt::d2m {
 
 namespace {
 
+// Diagnose the shapes that look like a scalar L1 access -- an integer or index
+// element type in L1, the dependent-load primitive -- but cannot be lowered.
+// Without this they fail deep in the conversion with an unresolved
+// materialization, an invalid arith cast, or a ttkernel op verifier message,
+// none of which name the actual problem.
+static LogicalResult checkScalarL1AccessSupport(func::FuncOp funcOp) {
+  auto threadAttr =
+      funcOp->getAttrOfType<d2m::ThreadAttr>(d2m::ThreadAttr::name);
+  if (!threadAttr) {
+    // Not a kernel thread; host command functions keep their own semantics.
+    return success();
+  }
+  const bool isDatamovement =
+      threadAttr.getThreadType() == d2m::ThreadType::Datamovement;
+
+  auto check = [&](Operation *op, MemRefType memrefType,
+                   bool isStore) -> LogicalResult {
+    if (!d2m::utils::isScalarL1AccessType(memrefType)) {
+      return success();
+    }
+    if (isStore) {
+      return op->emitOpError()
+             << "scalar stores to L1 are not supported; only scalar loads (the "
+                "dependent-load primitive) are";
+    }
+    if (!isDatamovement) {
+      return op->emitOpError()
+             << "scalar L1 access is only supported on a datamovement thread; "
+                "in a compute region memref.load is tile-granular and does not "
+                "read a value";
+    }
+    if (!d2m::utils::isSupportedScalarL1ElementType(
+            memrefType.getElementType())) {
+      return op->emitOpError()
+             << "unsupported element type " << memrefType.getElementType()
+             << " for a scalar L1 access; expected a signless integer of 8, 16 "
+                "or 32 bits";
+    }
+    return success();
+  };
+
+  WalkResult result = funcOp.walk([&](Operation *op) {
+    LogicalResult status = success();
+    if (auto load = mlir::dyn_cast<memref::LoadOp>(op)) {
+      status = check(load, load.getMemRefType(), /*isStore=*/false);
+    } else if (auto store = mlir::dyn_cast<memref::StoreOp>(op)) {
+      status = check(store, store.getMemRefType(), /*isStore=*/true);
+    }
+    return failed(status) ? WalkResult::interrupt() : WalkResult::advance();
+  });
+  return failure(result.wasInterrupted());
+}
+
 struct ConvertD2MToTTKernel
     : public d2m::impl::ConvertD2MToTTKernelBase<ConvertD2MToTTKernel> {
 
@@ -105,11 +158,30 @@ struct ConvertD2MToTTKernel
              !mlir::isa<ttcore::TileType>(memrefType.getElementType());
     };
 
+    // A scalar read of an L1 buffer inside a datamovement thread is a real read
+    // performed by the RISC-V core; it lowers to ttkernel.load_from_l1 and so
+    // must be illegal here. checkScalarL1AccessSupport has already rejected
+    // every other shape that would land in this predicate.
+    auto isScalarL1Load = [](memref::LoadOp op) {
+      auto func = op->getParentOfType<func::FuncOp>();
+      if (!func) {
+        return false;
+      }
+      auto threadAttr =
+          func->getAttrOfType<d2m::ThreadAttr>(d2m::ThreadAttr::name);
+      return threadAttr &&
+             threadAttr.getThreadType() == d2m::ThreadType::Datamovement &&
+             d2m::utils::isScalarL1AccessType(op.getMemRefType());
+    };
+
     // Allow loads and stores to integer element types, i.e. riscv accesses to
     // L1. Host command-function scalar load/stores are also legal; those are
     // CPU-side buffer operations and must not be lowered as circular-buffer
     // tile accesses.
     target.addDynamicallyLegalOp<memref::LoadOp>([&](memref::LoadOp op) {
+      if (isScalarL1Load(op)) {
+        return false;
+      }
       return op.getMemRefType().getElementType().isIntOrIndex() ||
              isHostScalarLoadStore(op, op.getMemRefType());
     });
@@ -127,6 +199,11 @@ struct ConvertD2MToTTKernel
       return !op->hasAttr(d2m::ThreadAttr::name) ||
              op->hasAttr(ttkernel::ThreadTypeAttr::name);
     });
+
+    if (failed(checkScalarL1AccessSupport(funcOp))) {
+      signalPassFailure();
+      return;
+    }
 
     if (failed(
             d2m::utils::checkBackendDmCoreSupport(funcOp, "D2MToTTKernel"))) {

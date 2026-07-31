@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -61,6 +62,17 @@ static Value getCBForOp(Operation *op) {
 
 static bool areDifferentValues(Value a, Value b) { return a && b && a != b; }
 
+// The CB port (parent generic operand index) a !d2m.cb handle refers to.
+static std::optional<unsigned> getCBPortForCBValue(Value cb) {
+  if (!cb) {
+    return std::nullopt;
+  }
+  if (auto getCBOp = cb.getDefiningOp<GetCBOp>()) {
+    return static_cast<unsigned>(getCBOp.getCbOperandIdx());
+  }
+  return std::nullopt;
+}
+
 static bool isReadBarrier(DMAWaitOp waitOp) {
   return mlir::cast<MemTxType>(waitOp.getMemTx().getType()).getDmaType() ==
          DMAType::Read;
@@ -84,6 +96,7 @@ static bool isWriteBarrier(DMAWaitOp waitOp) {
 
 // Barrier (dma_wait) can't sink past:
 //   - another dma_wait
+//   - a scalar L1 access of the same CB
 //   - read barrier: any wait or write (reads must complete before writes), read
 //   of same CB, push of same CB,
 //     any semaphore op
@@ -93,6 +106,15 @@ static bool canBarrierSinkPast(DMAWaitOp dmaWait, Operation *sinkOver,
                                Value sinkCB) {
   if (mlir::isa<DMAWaitOp>(sinkOver)) {
     return false;
+  }
+  // A scalar L1 access reads or writes the buffer directly, taking no part in
+  // the CB wait/pop handshake, so this barrier is the only thing ordering it
+  // against the transfer. Sinking past it would let a dependent load observe
+  // data that has not landed yet, or let a scalar write clobber a transfer
+  // still in flight.
+  if (std::optional<unsigned> accessPort = getScalarL1AccessPort(sinkOver)) {
+    std::optional<unsigned> barrierPort = getCBPortForCBValue(sinkCB);
+    return barrierPort.has_value() && *barrierPort != *accessPort;
   }
   if (isReadBarrier(dmaWait)) {
     if (mlir::isa<WaitOp, DMAWriteOp>(sinkOver)) {

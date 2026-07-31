@@ -1124,6 +1124,33 @@ def D2MSplitThreads : Pass<"d2m-split-threads", "::mlir::ModuleOp"> {
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
 
+def D2MInsertScalarAccessCB
+    : Pass<"d2m-insert-scalar-access-cb", "::mlir::ModuleOp"> {
+  let summary = "Insert CB synchronization around scalar L1 reads on the "
+                "datamovement thread.";
+  let description = [{
+    A scalar L1 read -- the dependent-load primitive, where a RISC-V data
+    movement core dereferences a circular buffer to compute a later transfer's
+    address -- is a CB *consumer*, but unlike compute it is not discovered by
+    `d2m-insert-compute-cb`. Without a `wait`/`pop` pair the CB's transfer half
+    reserves and pushes with nothing ever popping, so the read addresses the
+    front of the buffer rather than the page just written, and a loop exhausts
+    the CB's pages and then blocks forever in `reserve`.
+
+    This pass brackets the scalar reads of each CB with a single `d2m.wait` /
+    `d2m.pop` pair and rewires the reads onto the `wait` result, giving the
+    reserve/push/wait/pop sequence that `d2m.indexed_row_copy` already lowers to
+    by hand. It runs after `d2m-schedule-dma`, so each datamovement region is
+    final and the pair is inserted only into the thread that owns the CB.
+
+    Only CBs with a producing transfer in the same region are bracketed: waiting
+    on a CB nothing pushes would hang. Scalar *writes* are left alone -- making
+    the datamovement thread a scalar producer needs the read/write pointer
+    question settled first.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
 def D2MInsertComputeCB : Pass<"d2m-insert-compute-cb", "::mlir::ModuleOp"> {
   let summary = "Insert compute-side circular-buffer synchronization ops.";
   let description = [{

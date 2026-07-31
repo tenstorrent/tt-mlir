@@ -190,6 +190,37 @@ getNocElementAlignment(Operation *op, ttcore::MemorySpace memorySpace,
 int32_t getNocElementAlignmentL1(
     Operation *op, const std::variant<RankedTensorType, MemRefType> &type);
 
+// Does this memref describe a scalar (non-tile) view of an L1 buffer?
+//
+// Accesses to such a memref are real reads/writes performed by a RISC-V data
+// movement core -- a pointer dereference into L1 -- as opposed to the
+// tile-granular circular-buffer operations that make up the rest of a generic
+// region. This is what makes a dependent load, whose address is computed from
+// data resident in L1, expressible.
+//
+// This identifies the *shape*; isSupportedScalarL1ElementType says what can
+// actually be lowered. The gap between them is diagnosed in
+// ConvertD2MToTTKernel rather than left to fail deep in the conversion.
+inline bool isScalarL1AccessType(MemRefType memrefType) {
+  return memrefType.getElementType().isIntOrIndex() &&
+         ttcore::getMemorySpace(memrefType) == ttcore::MemorySpace::DeviceL1;
+}
+
+// Element types a scalar L1 access can be lowered for: the widths tt-metal
+// exposes a tt_l1_ptr flavor for, and signless only because the arith ops a
+// loaded value feeds are signless.
+inline bool isSupportedScalarL1ElementType(Type elementType) {
+  if (!elementType.isSignlessInteger()) {
+    return false;
+  }
+  unsigned width = elementType.getIntOrFloatBitWidth();
+  return width == 8 || width == 16 || width == 32;
+}
+
+// The memref accessed by `op` if it is a scalar L1 access (see
+// isScalarL1AccessType), null otherwise. Handles memref.load / memref.store.
+Value getScalarL1AccessMemref(Operation *op);
+
 } // namespace mlir::tt::d2m::utils
 
 #endif

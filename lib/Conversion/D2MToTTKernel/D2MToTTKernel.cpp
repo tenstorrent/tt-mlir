@@ -720,6 +720,67 @@ static Value computeLinearIndex(Location loc, ArrayRef<int64_t> shape,
   return linearIdx;
 }
 
+// A scalar (non-tile) read of an L1 buffer, which is only meaningful on the
+// RISC-V data movement cores where it is a plain pointer dereference into the
+// buffer's L1 address. Everything else in a thread region is tile-granular: a
+// memref.load in a compute region does not read anything, it merely
+// materializes a CB slot index (see MemrefLoadRewriter below).
+//
+// Anything with the shape of a scalar L1 access that this returns false for has
+// already been rejected by checkScalarL1AccessSupport in the pass, so the
+// unsupported cases cannot reach the pattern.
+static bool isSupportedScalarL1Load(memref::LoadOp op) {
+  auto func = op->getParentOfType<func::FuncOp>();
+  if (!func) {
+    return false;
+  }
+  auto threadAttr = func->getAttrOfType<d2m::ThreadAttr>(d2m::ThreadAttr::name);
+  if (!threadAttr ||
+      threadAttr.getThreadType() != d2m::ThreadType::Datamovement) {
+    return false;
+  }
+  MemRefType memrefType = op.getMemRefType();
+  return d2m::utils::isScalarL1AccessType(memrefType) &&
+         d2m::utils::isSupportedScalarL1ElementType(
+             memrefType.getElementType());
+}
+
+namespace {
+
+class MemrefScalarL1LoadRewriter : public OpConversionPattern<memref::LoadOp> {
+public:
+  using OpConversionPattern<memref::LoadOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(memref::LoadOp op, memref::LoadOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (!isSupportedScalarL1Load(op)) {
+      return rewriter.notifyMatchFailure(op, "not a scalar L1 load");
+    }
+    Location loc = op.getLoc();
+    Type elementType = op.getMemRefType().getElementType();
+    unsigned width = elementType.getIntOrFloatBitWidth();
+
+    // The read pointer is the acquired page: d2m-insert-scalar-access-cb has
+    // bracketed this read with the CB wait that makes it the page the transfer
+    // filled.
+    Value baseAddr =
+        rewriter.create<ttkernel::GetReadPtrOp>(loc, adaptor.getMemref());
+    Value l1Ptr = rewriter.create<ttkernel::CastToL1PtrOp>(
+        loc, ttkernel::L1AddrPtrType::get(rewriter.getContext(), width),
+        baseAddr);
+    Value offset = computeLinearIndex(loc, op.getMemRefType().getShape(),
+                                      adaptor.getIndices(), rewriter);
+    Value offsetI32 =
+        rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), offset);
+
+    rewriter.replaceOpWithNewOp<ttkernel::LoadFromL1Op>(op, elementType, l1Ptr,
+                                                        offsetI32);
+    return success();
+  };
+};
+} // namespace
+
 namespace {
 class MemrefLoadRewriter : public OpConversionPattern<memref::LoadOp> {
 public:
@@ -4004,6 +4065,11 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,
                ttkernel::D2MSemaphoreWaitRewriter,
                ttkernel::D2MDeviceSynchronizeRewriter>(typeConverter, ctx);
+
+  // A scalar L1 read must win over the tile-index interpretation of
+  // memref.load.
+  patterns.add<ttkernel::MemrefScalarL1LoadRewriter>(typeConverter, ctx,
+                                                     /*benefit=*/2);
 
   patterns.add<ttkernel::D2MGetArgRewriter>(typeConverter, ctx,
                                             forceCompileTimeArgs);
