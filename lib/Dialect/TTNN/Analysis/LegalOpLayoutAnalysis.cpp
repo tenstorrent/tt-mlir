@@ -38,7 +38,7 @@ static bool cantChangeOutputLayout(Operation *op) {
     return true;
   }
 
-  if (llvm::isa<ToLayoutOp>(op)) {
+  if (llvm::isa<ToTensorSpecOp>(op)) {
     return true;
   }
 

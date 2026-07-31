@@ -58,10 +58,15 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
 def TTNN_ToLayoutOp : TTNN_Op<"to_layout", [TTNN_LayoutOpInterface]> {
     let summary = "ToLayout op.";
     let description = [{
-      This op wraps all layout information gathered from ttir.toLayout. It is used/updated by the optimizer
-      to perform optimizations, and later broken down into specific memory/layout operations (toDevice, toMemoryConfig etc.).
-      Currently in the TTNN backend, we use this op solely for tilize/untilize, therefore marking all other attrs as optional.
-      Once ttnn::to_layout supports other attrs, we can remove the optional tag.
+      This is the narrow layout op: it may only change the page layout
+      (tile <-> row-major) of the input tensor and, optionally, its data type.
+      It doesn't change the memory config (buffer type / tensor memory layout /
+      grid) or device placement - those aggregate changes belong to
+      ttnn.to_tensor_spec.
+
+      ttnn.to_layout is produced by the TTNNDecomposeLayouts pass (alongside
+      to_device / to_memory_config / typecast) when it breaks down an aggregate
+      ttnn.to_tensor_spec.
 
       The output data type is derived from the result tensor's TTNNLayoutAttr
       encoding via the TTNN_DtypeOpInterface. The target page layout (tile vs
@@ -73,13 +78,43 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout", [TTNN_LayoutOpInterface]> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasFolder = 1;
-    let hasCanonicalizer = 1;
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
       // Returns true iff the input and result element data types differ,
       // i.e. this to_layout actually performs a dtype conversion as part of
       // the layout change.
+      bool hasDtypeChange();
+    }];
+}
+
+def TTNN_ToTensorSpecOp : TTNN_Op<"to_tensor_spec", [TTNN_TensorSpecInterface, TTNN_LayoutOpInterface]> {
+    let summary = "ToTensorSpec op.";
+    let description = [{
+      This op wraps all layout information gathered from ttir.toLayout (data type,
+      page layout, memory config and device placement). It is the aggregate op
+      that ttir.to_layout lowers to; it is used/updated by the optimizer to perform
+      optimizations, and later broken down into specific memory/layout operations
+      (to_layout, to_device, to_memory_config, typecast) by the TTNNDecomposeLayouts
+      pass. It never reaches flatbuffer serialization.
+
+      The output data type, target page layout (tile vs row-major) and memory config
+      are all derived from the result tensor's TTNNLayoutAttr encoding via the
+      TTNN_TensorSpecInterface. Whether this op actually changes dtype can be queried
+      via `hasDtypeChange()`.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input);
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasFolder = 1;
+    let hasCanonicalizer = 1;
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      // Returns true iff the input and result element data types differ,
+      // i.e. this to_tensor_spec actually performs a dtype conversion as part
+      // of the layout change.
       bool hasDtypeChange();
     }];
 }

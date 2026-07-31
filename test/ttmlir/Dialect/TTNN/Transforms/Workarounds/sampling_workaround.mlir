@@ -33,17 +33,17 @@ module attributes {} {
     // CHECK-LABEL: func.func @sampling_rank2_input_decomposes_to_rank4
     // CHECK-DAG: "ttnn.reshape"
     // CHECK-DAG-SAME: shape = [1 : i32, 1 : i32, 1 : i32, 32 : i32]
-    // CHECK-DAG: "ttnn.to_layout"{{.*}}memref<{{[0-9x]+}}si32,
-    // CHECK-DAG: "ttnn.to_layout"{{.*}}memref<{{[0-9x]+}}ui32,
-    // CHECK-DAG: "ttnn.to_layout"{{.*}}memref<{{[0-9x]+}}bf16,
-    // CHECK-DAG: "ttnn.to_layout"{{.*}}memref<{{[0-9x]+}}bf16,
+    // CHECK-DAG: "ttnn.to_tensor_spec"{{.*}}memref<{{[0-9x]+}}si32,
+    // CHECK-DAG: "ttnn.to_tensor_spec"{{.*}}memref<{{[0-9x]+}}ui32,
+    // CHECK-DAG: "ttnn.to_tensor_spec"{{.*}}memref<{{[0-9x]+}}bf16,
+    // CHECK-DAG: "ttnn.to_tensor_spec"{{.*}}memref<{{[0-9x]+}}bf16,
     // ttnn.sampling now operates on the kernel-true rank-4 shape and yields ui32.
     // CHECK: "ttnn.sampling"
     // CHECK-SAME: (tensor<1x1x1x32xbf16{{.*}}>, tensor<1x1x1x32xsi32{{.*}}>, tensor<1xui32{{.*}}>, tensor<1xbf16{{.*}}>, tensor<1xbf16{{.*}}>)
     // CHECK-SAME: -> tensor<1x1x1x1xui32
     // Result is converted from ui32 -> si32 (dtype workaround) and reshaped
     // from [1,1,1,batch] -> [batch] (rank-2 decomposition's trailing reshape).
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK-SAME: -> tensor<1x1x1x1xsi32
     // CHECK: "ttnn.reshape"
     // CHECK-SAME: shape = [1 : i32]
@@ -71,7 +71,7 @@ module attributes {} {
       %arg4: tensor<1xbf16, #ttnn_layout_p_tile>)
       -> tensor<1xsi32, #ttnn_layout_out> {
     // CHECK-LABEL: func.func @sampling_k_si32_gets_retyped_to_ui32
-    // CHECK: "ttnn.to_layout"(%arg2)
+    // CHECK: "ttnn.to_tensor_spec"(%arg2)
     // CHECK-SAME: (tensor<1xsi32{{.*}}>) -> tensor<1xui32
     // CHECK: "ttnn.sampling"
     %0 = "ttnn.sampling"(%arg0, %arg1, %arg2, %arg3, %arg4)

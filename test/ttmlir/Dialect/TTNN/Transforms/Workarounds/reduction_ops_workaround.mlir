@@ -6,7 +6,7 @@
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x4x!ttcore.tile<32x32, si32>, #dram>, <interleaved>>
 func.func public @test_reduce_max(%arg0: tensor<128x32xsi32, #ttnn_layout>) -> tensor<128xsi32, #ttnn_layout1> {
   // CHECK-LABEL: @test_reduce_max
-  // CHECK: %[[ARG0:[0-9]+]] = "ttnn.to_layout"(%arg0)
+  // CHECK: %[[ARG0:[0-9]+]] = "ttnn.to_tensor_spec"(%arg0)
   // CHECK-SAME: tensor<128x32xsi32,
   // CHECK-SAME: -> tensor<128x32xf32,
   // CHECK: %[[MAX:[0-9]+]] = "ttnn.max"(%[[ARG0]])
@@ -14,7 +14,7 @@ func.func public @test_reduce_max(%arg0: tensor<128x32xsi32, #ttnn_layout>) -> t
   // CHECK-SAME: tensor<128x32xf32,
   // CHECK-SAME: -> tensor<128xf32,
   %0 = "ttnn.max"(%arg0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<128x32xsi32, #ttnn_layout>) -> tensor<128xsi32, #ttnn_layout1>
-  // CHECK: %{{[0-9]+}} = "ttnn.to_layout"(%[[MAX]])
+  // CHECK: %{{[0-9]+}} = "ttnn.to_tensor_spec"(%[[MAX]])
   // CHECK-SAME: tensor<128xf32,
   // CHECK-SAME: -> tensor<128xsi32,
   return %0 : tensor<128xsi32, #ttnn_layout1>
@@ -22,7 +22,7 @@ func.func public @test_reduce_max(%arg0: tensor<128x32xsi32, #ttnn_layout>) -> t
 
 func.func public @test_reduce_sum(%arg0: tensor<128x10xsi32, #ttnn_layout>) -> tensor<128xsi32, #ttnn_layout1> {
   // CHECK-LABEL: @test_reduce_sum
-  // CHECK: %[[ARG0:[0-9]+]] = "ttnn.to_layout"(%arg0)
+  // CHECK: %[[ARG0:[0-9]+]] = "ttnn.to_tensor_spec"(%arg0)
   // CHECK-SAME: tensor<128x10xsi32,
   // CHECK-SAME: -> tensor<128x10xf32,
   // CHECK: %[[SUM:[0-9]+]] = "ttnn.sum"(%[[ARG0]])
@@ -30,7 +30,7 @@ func.func public @test_reduce_sum(%arg0: tensor<128x10xsi32, #ttnn_layout>) -> t
   // CHECK-SAME: tensor<128x10xf32,
   // CHECK-SAME: -> tensor<128xf32,
   %0 = "ttnn.sum"(%arg0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<128x10xsi32, #ttnn_layout>) -> tensor<128xsi32, #ttnn_layout1>
-  // CHECK: %{{[0-9]+}} = "ttnn.to_layout"(%[[SUM]])
+  // CHECK: %{{[0-9]+}} = "ttnn.to_tensor_spec"(%[[SUM]])
   // CHECK-SAME: tensor<128xf32,
   // CHECK-SAME: -> tensor<128xsi32,
   return %0 : tensor<128xsi32, #ttnn_layout1>

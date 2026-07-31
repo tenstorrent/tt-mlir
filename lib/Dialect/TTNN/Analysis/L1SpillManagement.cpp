@@ -456,7 +456,7 @@ void L1SpillManagement<MemoryTracker>::revalidateConsumers(
       if (!mlir::dyn_cast<OpModel>(consumer)) {
         continue;
       }
-      if (isa<ToLayoutOp>(consumer)) {
+      if (isa<ToTensorSpecOp>(consumer)) {
         continue;
       }
 
@@ -862,7 +862,7 @@ bool L1SpillManagement<MemoryTracker>::evictValue(
       if (!mlir::dyn_cast<OpModel>(consumer)) {
         continue;
       }
-      if (isa<ToLayoutOp>(consumer)) {
+      if (isa<ToTensorSpecOp>(consumer)) {
         continue;
       }
 
@@ -1339,10 +1339,10 @@ void L1SpillManagement<MemoryTracker>::run() {
       continue;
     }
 
-    // ToLayoutOp requires special handling due to the fact it is a complex op
-    // which decomposes into few real TTNN ops. MemoryLayoutPropagation skips
+    // ToTensorSpecOp requires special handling due to the fact it is a complex
+    // op which decomposes into few real TTNN ops. MemoryLayoutPropagation skips
     // these, and pre-decomposition OpModel is impossible.
-    if (isa<ToLayoutOp>(op)) {
+    if (isa<ToTensorSpecOp>(op)) {
       auto resultType =
           mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
       auto lo =
