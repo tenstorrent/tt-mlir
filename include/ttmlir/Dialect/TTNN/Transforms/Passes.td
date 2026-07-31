@@ -371,6 +371,14 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
             "enable-eltwise-activation-fusion",
             "bool", /*default=*/"false",
             "Fuse unary activation ops into eltwise binary ops.">
+    Option<"enableRingSDPAFusion",
+            "enable-ring-sdpa",
+            "bool", /*default=*/"false",
+            "Rewrite an exposed sequence-parallel K/V all-gather feeding a "
+            "plain SDPA into the ring variant, which overlaps the K/V "
+            "transfer with the attention compute. Disabled by default: the "
+            "ring kernel needs a multi-chip mesh and has not been validated "
+            "on silicon yet.">
   ];
 }
 
