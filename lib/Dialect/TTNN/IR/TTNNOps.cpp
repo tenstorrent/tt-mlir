@@ -3813,6 +3813,68 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// CrossEntropyForwardOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::CrossEntropyForwardOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType targetType = getTarget().getType();
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("input must be a 4D tensor (N, 1, H, W), got rank ")
+           << inputType.getRank();
+  }
+  if (targetType.getRank() != 2) {
+    return emitOpError("target must be a 2D tensor (N, H), got rank ")
+           << targetType.getRank();
+  }
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> targetShape = targetType.getShape();
+
+  if (inputShape[1] != 1) {
+    return emitOpError("input dim 1 must be 1, got ") << inputShape[1];
+  }
+  if (targetShape[0] != inputShape[0]) {
+    return emitOpError("target dim 0 (")
+           << targetShape[0] << ") must match input dim 0 (" << inputShape[0]
+           << ")";
+  }
+  if (targetShape[1] != inputShape[2]) {
+    return emitOpError("target dim 1 (")
+           << targetShape[1] << ") must match input dim 2 (" << inputShape[2]
+           << ")";
+  }
+
+  llvm::SmallVector<int64_t, 4> expectedShape(inputShape);
+  expectedShape.back() = 1;
+  llvm::ArrayRef<int64_t> resultShape = getResult().getType().getShape();
+  if (resultShape != llvm::ArrayRef<int64_t>(expectedShape)) {
+    return emitOpError("result shape must be input shape with the last "
+                       "dimension set to 1, expected ")
+           << llvm::ArrayRef<int64_t>(expectedShape) << ", got " << resultShape;
+  }
+
+  // Target holds class indices selecting along input's last dimension, so it
+  // must be an integer type.
+  if (!getTarget().getType().getElementType().isIntOrIndex()) {
+    return emitOpError("target must have an integer element type, got ")
+           << getTarget().getType().getElementType();
+  }
+
+  // ttml::metal::cross_entropy_fw hardcodes its circular buffers to Float16_b
+  // and asserts the input data format matches.
+  ::mlir::tt::ttcore::DataType inputDataType =
+      ::mlir::tt::ttcore::elementTypeToDataType(
+          getInput().getType().getElementType());
+  if (inputDataType != ::mlir::tt::ttcore::DataType::BFloat16) {
+    return emitOpError() << "input must have bf16 dtype, got "
+                         << DataTypeEnumToString(inputDataType);
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // DistributedRMSNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::DistributedRMSNormOp::verify() {

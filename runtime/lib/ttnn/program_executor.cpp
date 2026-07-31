@@ -126,6 +126,7 @@
 #include "operations/transformer/split_query_key_value_and_split_heads.h"
 #include "operations/ttml/adamw.h"
 #include "operations/ttml/sdpa_fw.h"
+#include "operations/ttml/cross_entropy_fw.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -634,6 +635,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::SDPAForwardOp: {
     return operations::ttml::run(op->type_as_SDPAForwardOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {
+    return operations::ttml::run(op->type_as_CrossEntropyForwardOp(),
+                                 getContext());
   }
   case ::tt::target::ttnn::OpType::DumpTensorOp: {
     return operations::tensor_serialization::run(op->type_as_DumpTensorOp(),
