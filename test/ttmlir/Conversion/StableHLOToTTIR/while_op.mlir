@@ -8,20 +8,25 @@
 
 module @jit_while {
   // The body reads %arg0, %limit and %step from the enclosing scope. ttir.while
-  // is IsolatedFromAbove, so those have to be promoted to explicit captures and
-  // appended to both regions' block arguments.
+  // is IsolatedFromAbove, so those have to be materialized inside the regions:
+  // %arg0 is promoted to an explicit capture, while the %limit and %step
+  // constants are cloned in (each region gets only the ones it uses).
   //
   // CHECK-LABEL: func.func public @counted
   // CHECK: ttir.while
   // CHECK-SAME: inits(
-  // CHECK-SAME: captures(
+  // CHECK-SAME: captures(%{{.*}} : tensor<32x32xf32>)
   // The regions must have identical signatures: 2 loop-carried values plus the
-  // captures.
+  // single non-constant capture.
   // CHECK: cond {
-  // CHECK-NEXT: ^bb0(%{{.*}}: tensor<i32>, %{{.*}}: tensor<32x32xf32>, %{{.*}}: tensor<i32>, %{{.*}}: tensor<i32>, %{{.*}}: tensor<32x32xf32>)
+  // CHECK-NEXT: ^bb0(%{{.*}}: tensor<i32>, %{{.*}}: tensor<32x32xf32>, %{{.*}}: tensor<32x32xf32>)
+  // %limit is cloned into cond rather than passed in.
+  // CHECK: ttir.constant{{.*}}dense<4>
   // CHECK: ttir.yield
   // CHECK: do {
-  // CHECK-NEXT: ^bb0(%{{.*}}: tensor<i32>, %{{.*}}: tensor<32x32xf32>, %{{.*}}: tensor<i32>, %{{.*}}: tensor<i32>, %{{.*}}: tensor<32x32xf32>)
+  // CHECK-NEXT: ^bb0(%{{.*}}: tensor<i32>, %{{.*}}: tensor<32x32xf32>, %{{.*}}: tensor<32x32xf32>)
+  // ... and %step into the body.
+  // CHECK: ttir.constant{{.*}}dense<1>
   // No stablehlo may survive inside the regions.
   // CHECK-NOT: stablehlo.
   // CHECK: ttir.yield

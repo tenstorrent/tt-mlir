@@ -705,13 +705,20 @@ private:
 
   // Verify that the init value is defined by a constant op and initialize with
   // desired value.
+  //
+  // Every `getDefiningOp()` here can return null: `val` is a block argument
+  // whenever the init value comes from outside the enclosing region (a
+  // function argument, or a loop-carried/captured value of a surrounding
+  // `while`), and walking up a single-operand chain can reach one just the
+  // same. A null defining op simply means the value is not a constant, so
+  // treat it as a non-match rather than dereferencing it.
   bool verifyInitValue(mlir::Value val,
                        TypicalInitReductionValue desired) const {
     Operation *initValue = val.getDefiningOp();
-    while (initValue->getOpOperands().size() == 1) {
+    while (initValue && initValue->getOpOperands().size() == 1) {
       initValue = initValue->getOpOperand(0).get().getDefiningOp();
     }
-    if (!isa<mlir::stablehlo::ConstantOp>(initValue)) {
+    if (!initValue || !isa<mlir::stablehlo::ConstantOp>(initValue)) {
       return false;
     }
 
@@ -10585,6 +10592,8 @@ public:
 //     operands and appended to both regions' block arguments. This is not
 //     cosmetic: each region becomes its own program at runtime, with its own
 //     tensor pool, and can only see tensors bound through its own inputs.
+//     Constants are the exception - they are cloned into the regions instead,
+//     see `materializeRegionInputs`.
 //   - The `stablehlo.return` terminators must become `ttir.yield`. No pattern
 //     covers them, and StableHLO is fully illegal after this pass, so they are
 //     rewritten here rather than left to the driver.
@@ -10606,10 +10615,29 @@ public:
                                          "could not convert result types");
     }
 
-    // Both regions are given the same signature, so collect the captures of
-    // the two together.
+    // Both regions are given the same signature, so collect the values read
+    // from the enclosing scope by the two together.
+    llvm::SetVector<Value> usedAbove;
+    mlir::getUsedValuesDefinedAbove(srcOp->getRegions(), usedAbove);
+
+    // Constants are cloned into the regions rather than threaded through as
+    // captures. Beyond saving a tensor in each region's runtime pool, this
+    // keeps them visible to patterns that inspect the defining op of their
+    // operands. The argmax recognizer in
+    // StableHLOToTTIRReduceOpConversionPattern is one such: it only matches a
+    // reduce whose init values it can see are the constants -inf and 0, and a
+    // loop-nested argmax reads those from outside the loop. Turning them into
+    // block arguments would silently demote the reduce to a non-argmax.
     llvm::SetVector<Value> capturedValues;
-    mlir::getUsedValuesDefinedAbove(srcOp->getRegions(), capturedValues);
+    llvm::SmallVector<Value> sunkConstants;
+    for (Value used : usedAbove) {
+      Operation *definingOp = used.getDefiningOp();
+      if (definingOp && definingOp->hasTrait<mlir::OpTrait::ConstantLike>()) {
+        sunkConstants.push_back(used);
+        continue;
+      }
+      capturedValues.insert(used);
+    }
 
     llvm::SmallVector<Value> captures;
     captures.reserve(capturedValues.size());
@@ -10633,8 +10661,8 @@ public:
                                 whileOp.getBody().end());
 
     for (Region *region : {&whileOp.getCond(), &whileOp.getBody()}) {
-      if (failed(appendCapturesAndRewriteTerminator(*region, capturedValues,
-                                                    rewriter))) {
+      if (failed(materializeRegionInputs(*region, capturedValues, sunkConstants,
+                                         rewriter))) {
         return failure();
       }
     }
@@ -10644,11 +10672,13 @@ public:
   }
 
 private:
-  // Appends one block argument per captured value, redirects the region's uses
-  // of those values to the new arguments, and turns `stablehlo.return` into
-  // `ttir.yield`.
-  LogicalResult appendCapturesAndRewriteTerminator(
+  // Gives `region` its own copy of everything it used to read from the
+  // enclosing scope: constants are cloned in, and the remaining captures
+  // become trailing block arguments whose uses are redirected. Also turns the
+  // region's `stablehlo.return` into `ttir.yield`.
+  LogicalResult materializeRegionInputs(
       Region &region, const llvm::SetVector<Value> &capturedValues,
+      llvm::ArrayRef<Value> sunkConstants,
       ConversionPatternRewriter &rewriter) const {
     const TypeConverter *typeConverter = getTypeConverter();
     Block &block = region.front();
@@ -10676,11 +10706,28 @@ private:
     Block *newBlock =
         rewriter.applySignatureConversion(&block, signatureConv, typeConverter);
 
+    auto usedInThisRegion = [&region](OpOperand &use) {
+      return region.isAncestor(use.getOwner()->getParentRegion());
+    };
+
+    // Clone the constants to the top of the block. The driver legalizes them
+    // along with the rest of the region's ops. `sunkConstants` covers both
+    // regions, so skip the ones this region has no use for rather than leaving
+    // a dead constant to occupy a slot in its runtime tensor pool.
+    rewriter.setInsertionPointToStart(newBlock);
+    for (Value constant : sunkConstants) {
+      if (llvm::none_of(constant.getUses(), usedInThisRegion)) {
+        continue;
+      }
+      Operation *clone = rewriter.clone(*constant.getDefiningOp());
+      Value replacement =
+          clone->getResult(mlir::cast<OpResult>(constant).getResultNumber());
+      rewriter.replaceUsesWithIf(constant, replacement, usedInThisRegion);
+    }
+
     for (auto [index, captured] : llvm::enumerate(capturedValues)) {
       BlockArgument replacement = newBlock->getArgument(numOriginalArgs + index);
-      rewriter.replaceUsesWithIf(captured, replacement, [&](OpOperand &use) {
-        return region.isAncestor(use.getOwner()->getParentRegion());
-      });
+      rewriter.replaceUsesWithIf(captured, replacement, usedInThisRegion);
     }
 
     auto returnOp =
