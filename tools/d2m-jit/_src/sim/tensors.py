@@ -159,12 +159,15 @@ class SimBlock:
 class SimTensor:
     """Host handle wrapping a tile-padded torch buffer + its Layout."""
 
-    __slots__ = ("layout", "buffer", "is_view")
+    __slots__ = ("layout", "buffer", "is_view", "mesh")
 
-    def __init__(self, layout: Layout, buffer, is_view: bool = False):
+    def __init__(self, layout: Layout, buffer, is_view: bool = False, mesh=None):
         self.layout = layout
         self.buffer = buffer
         self.is_view = is_view
+        # MeshShard metadata when this tensor is marked for a mesh gather;
+        # None otherwise (the common single-device case).
+        self.mesh = mesh
 
     def to_logical(self):
         """Slice the device buffer back to the logical shape (a clone)."""

@@ -50,6 +50,7 @@ from d2m_jit._src.sim import (  # noqa: F401
     permute,
     reduction_layout,
     to_host,
+    mesh_gather,
 )
 
 __all__ = [
@@ -75,4 +76,5 @@ __all__ = [
     "permute",
     "reduction_layout",
     "to_host",
+    "mesh_gather",
 ]

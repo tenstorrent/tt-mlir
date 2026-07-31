@@ -43,7 +43,15 @@ from .ast import D2MCompiler, SEMAPHORE_ARG
 from .config import config
 from .errors import D2mJitError
 from .tensor_layout import Layout
-from .layout_math import reduction_layout, resolve_reshape
+from .layout_math import (
+    reduction_layout,
+    resolve_reshape,
+    MeshShard,
+    validate_mesh_mapping as _validate_mesh_mapping,
+    shard_logical_shape as _shard_logical_shape,
+    set_current_mesh as _set_current_mesh,
+    clear_current_mesh as _clear_current_mesh,
+)
 from .utils import _cleanup_source_code
 
 # Reverse of ttcore.DataType for picking output torch dtypes.
@@ -261,6 +269,9 @@ class _Builder:
         self._mesh_shape = None
         self._mesh_topology = None
         self._mesh_name = None
+        # Reset the MLIR-free mesh mirror the simulator reads (a fresh graph
+        # declares its own mesh).
+        _clear_current_mesh()
 
     def set_mesh(self, shape, topology=None):
         """Declare the device mesh used by this graph."""
@@ -309,6 +320,7 @@ class _Builder:
         self._mesh_shape = list(shape)
         self._mesh_topology = requested_topology
         self._mesh_name = "mesh"
+        _set_current_mesh(self._mesh_shape, self._mesh_topology, self._mesh_name)
 
     def _refresh_function_type(self, results=None):
         with self.ctx, self.loc:
@@ -989,67 +1001,6 @@ def mesh(shape, topology=None):
     if not isinstance(b, _Builder):
         raise RuntimeError("mesh() requires the lazy builder scope")
     b.set_mesh(shape, topology)
-
-
-class MeshShard:
-    """Metadata needed to gather a per-device shard back to its full tensor."""
-
-    __slots__ = ("full_shape", "shard_dims", "shard_shape")
-
-    def __init__(self, full_shape, shard_dims, shard_shape):
-        self.full_shape = list(full_shape)
-        self.shard_dims = list(shard_dims)
-        self.shard_shape = list(shard_shape)
-
-
-def _validate_mesh_mapping(mesh_shape, tensor_rank, shard_dims, shard_shape):
-    if len(shard_dims) != len(mesh_shape):
-        raise ValueError(
-            "mesh shard_dims must have one entry per mesh dimension, "
-            f"got mesh {mesh_shape} and shard_dims {shard_dims}"
-        )
-    if len(shard_shape) != tensor_rank:
-        raise ValueError(
-            "mesh shard_shape must have one entry per tensor dimension, "
-            f"got tensor rank {tensor_rank} and shard_shape {shard_shape}"
-        )
-
-    for dim in shard_dims:
-        if (
-            not isinstance(dim, int)
-            or isinstance(dim, bool)
-            or dim < -1
-            or dim >= tensor_rank
-        ):
-            raise ValueError(
-                f"mesh shard dimension {dim!r} is invalid for rank {tensor_rank}"
-            )
-    for factor in shard_shape:
-        if not isinstance(factor, int) or isinstance(factor, bool) or factor <= 0:
-            raise ValueError(f"mesh shard factor must be positive, got {factor!r}")
-
-    expected_shape = [1] * tensor_rank
-    for mesh_axis, tensor_dim in enumerate(shard_dims):
-        if tensor_dim >= 0:
-            expected_shape[tensor_dim] *= mesh_shape[mesh_axis]
-    if list(shard_shape) != expected_shape:
-        raise ValueError(
-            f"mesh shard_shape {shard_shape} does not match mesh {mesh_shape} "
-            f"mapped by shard_dims {shard_dims}; expected {expected_shape}"
-        )
-
-
-def _shard_logical_shape(mesh_shape, full_shape, shard_dims, shard_shape):
-    _validate_mesh_mapping(mesh_shape, len(full_shape), shard_dims, shard_shape)
-    shard = list(full_shape)
-    for dim, factor in enumerate(shard_shape):
-        if shard[dim] % factor != 0:
-            raise ValueError(
-                f"mesh shard: full dim {dim} ({shard[dim]}) is not divisible "
-                f"by shard factor {factor}"
-            )
-        shard[dim] //= factor
-    return shard
 
 
 def _emit_mesh_shard(b, value, dst_ty, direction, shard_dims, shard_shape):

@@ -134,3 +134,103 @@ def resolve_reshape(layout: Layout, shape):
         grid_shape=grid_shape,
     )
     return new_shape, dst_layout
+
+
+# --- mesh sharding descriptor math ------------------------------------------
+#
+# Pure (MLIR-free, torch-free) helpers shared by the device builder and the
+# simulator so both agree on how a mesh shard maps a full tensor to per-device
+# shards. The device path emits `d2m.mesh_shard`; the sim path only tracks the
+# metadata (multi-device data movement is not simulated).
+
+
+class MeshShard:
+    """Metadata needed to gather a per-device shard back to its full tensor."""
+
+    __slots__ = ("full_shape", "shard_dims", "shard_shape")
+
+    def __init__(self, full_shape, shard_dims, shard_shape):
+        self.full_shape = list(full_shape)
+        self.shard_dims = list(shard_dims)
+        self.shard_shape = list(shard_shape)
+
+
+def validate_mesh_mapping(mesh_shape, tensor_rank, shard_dims, shard_shape):
+    if len(shard_dims) != len(mesh_shape):
+        raise ValueError(
+            "mesh shard_dims must have one entry per mesh dimension, "
+            f"got mesh {mesh_shape} and shard_dims {shard_dims}"
+        )
+    if len(shard_shape) != tensor_rank:
+        raise ValueError(
+            "mesh shard_shape must have one entry per tensor dimension, "
+            f"got tensor rank {tensor_rank} and shard_shape {shard_shape}"
+        )
+
+    for dim in shard_dims:
+        if (
+            not isinstance(dim, int)
+            or isinstance(dim, bool)
+            or dim < -1
+            or dim >= tensor_rank
+        ):
+            raise ValueError(
+                f"mesh shard dimension {dim!r} is invalid for rank {tensor_rank}"
+            )
+    for factor in shard_shape:
+        if not isinstance(factor, int) or isinstance(factor, bool) or factor <= 0:
+            raise ValueError(f"mesh shard factor must be positive, got {factor!r}")
+
+    expected_shape = [1] * tensor_rank
+    for mesh_axis, tensor_dim in enumerate(shard_dims):
+        if tensor_dim >= 0:
+            expected_shape[tensor_dim] *= mesh_shape[mesh_axis]
+    if list(shard_shape) != expected_shape:
+        raise ValueError(
+            f"mesh shard_shape {shard_shape} does not match mesh {mesh_shape} "
+            f"mapped by shard_dims {shard_dims}; expected {expected_shape}"
+        )
+
+
+def shard_logical_shape(mesh_shape, full_shape, shard_dims, shard_shape):
+    validate_mesh_mapping(mesh_shape, len(full_shape), shard_dims, shard_shape)
+    shard = list(full_shape)
+    for dim, factor in enumerate(shard_shape):
+        if shard[dim] % factor != 0:
+            raise ValueError(
+                f"mesh shard: full dim {dim} ({shard[dim]}) is not divisible "
+                f"by shard factor {factor}"
+            )
+        shard[dim] //= factor
+    return shard
+
+
+# --- current mesh mirror -----------------------------------------------------
+#
+# The device builder is the source of truth for the declared mesh (it owns the
+# `ttcore.meshes` module attribute), but it lives behind the MLIR bindings. The
+# builder mirrors the declaration here so the simulator can validate mesh ops
+# without importing the device builder (keeping `import d2m_jit.sim` device-free
+# per SIMULATOR_SPEC.md). There is a single builder singleton, so a single
+# mirror suffices; the builder clears it when it starts a fresh graph.
+
+_CURRENT_MESH = None
+
+
+def set_current_mesh(shape, topology, name):
+    global _CURRENT_MESH
+    _CURRENT_MESH = {
+        "shape": list(shape),
+        "topology": list(topology) if topology is not None else None,
+        "name": name,
+    }
+
+
+def clear_current_mesh():
+    global _CURRENT_MESH
+    _CURRENT_MESH = None
+
+
+def current_mesh():
+    """Return the declared mesh mirror ({"shape", "topology", "name"}) or None."""
+    return _CURRENT_MESH

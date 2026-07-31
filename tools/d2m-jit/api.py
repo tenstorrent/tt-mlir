@@ -40,7 +40,6 @@ from ._src.builder import (
     global_semaphore,
     mesh,
     mesh_shard,
-    mesh_gather,
 )
 from ._src.rewrite import (
     pattern,
@@ -115,6 +114,12 @@ reduction_layout = _dispatch("reduction_layout")
 arange = _dispatch("arange")
 reshape = _dispatch("reshape")
 spatial = _dispatch("spatial")
+
+# Mesh declaration (`mesh`) and `mesh_shard` stay on the device builder (they own
+# the `ttcore.meshes` module attribute / emit `d2m.mesh_shard`). `mesh_gather` is
+# pure metadata derivation, so it dispatches and has a sim backing that operates
+# on SimTensors under `backend="sim"`.
+mesh_gather = _dispatch("mesh_gather")
 
 
 class _DispatchKernel:

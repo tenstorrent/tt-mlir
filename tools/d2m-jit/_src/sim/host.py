@@ -15,7 +15,13 @@ import inspect
 import torch
 
 from ..tensor_layout import Layout
-from ..layout_math import reduction_layout, resolve_reshape
+from ..layout_math import (
+    reduction_layout,
+    resolve_reshape,
+    MeshShard,
+    validate_mesh_mapping,
+    current_mesh,
+)
 from .tensors import SimTensor, tile_padded_shape, torch_dtype
 
 
@@ -265,6 +271,56 @@ def view_layout(lt: SimTensor, remapping_fn) -> SimTensor:
                 "sim view_layout supports paired (grid, tile) permutations only"
             )
     return _apply_perm(lt, perm)
+
+
+# --- mesh --------------------------------------------------------------------
+#
+# The mesh *declaration* (`d2m.mesh(...)`) stays on the device builder even under
+# `backend="sim"` (it owns the `ttcore.meshes` module attribute); it mirrors the
+# declared shape into `layout_math` so this backend can validate mesh ops without
+# importing the builder. Multi-device data movement is not simulated, so
+# `mesh_gather` only derives/validates the gather metadata -- exactly the pure
+# descriptor math the device path runs -- so `.mesh.full_shape` matches the
+# device path. `mesh_shard` round-trips need real devices and stay device-only.
+
+
+def mesh_gather(lt: SimTensor, shard_dims=None, shard_shape=None) -> SimTensor:
+    """Sim analog of `builder.mesh_gather`: mark a per-device SimTensor for a
+    `shard_to_full` gather and record the resulting full-tensor metadata.
+
+    A SimTensor is already materialised (no lazy `_resolve()` as on device), so
+    this only attaches the `MeshShard` mapping; the shard math is the shared
+    `validate_mesh_mapping`, so the derived `full_shape` and the errors the
+    negative tests assert match the device path.
+    """
+    if not isinstance(lt, SimTensor):
+        raise TypeError(f"mesh_gather expected a SimTensor, got {type(lt).__name__}")
+    mesh = current_mesh()
+    if mesh is None:
+        raise RuntimeError("mesh_gather() requires a preceding mesh() declaration")
+
+    if lt.mesh is not None:
+        if shard_dims is not None and list(shard_dims) != lt.mesh.shard_dims:
+            raise ValueError("mesh_gather shard_dims do not match existing metadata")
+        if shard_shape is not None and list(shard_shape) != lt.mesh.shard_shape:
+            raise ValueError("mesh_gather shard_shape does not match existing metadata")
+        return lt
+    if shard_dims is None or shard_shape is None:
+        raise ValueError(
+            "mesh_gather needs shard_dims and shard_shape for a tensor not "
+            "produced by mesh_shard"
+        )
+
+    shard_dims = list(shard_dims)
+    shard_shape = list(shard_shape)
+    validate_mesh_mapping(
+        mesh["shape"], len(lt.layout.logical_shape), shard_dims, shard_shape
+    )
+    full_shape = [
+        dim * factor for dim, factor in zip(lt.layout.logical_shape, shard_shape)
+    ]
+    lt.mesh = MeshShard(full_shape, shard_dims, shard_shape)
+    return lt
 
 
 # --- reductions / materialisation -------------------------------------------
