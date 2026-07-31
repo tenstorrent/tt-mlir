@@ -111,6 +111,13 @@ traceCBUse(OpOperand &startUse, GenericOp generic) {
   return std::nullopt;
 }
 
+// Pure address computation on a CB rather than an access. Lowering often
+// hoists these out of the loop nest that uses them, so they are a poor choice
+// of bracket boundary.
+static bool isCBViewOp(Operation *op) {
+  return mlir::isa<memref::CollapseShapeOp, memref::SubViewOp>(op);
+}
+
 // Find the "raw" compute spans in a compute block: the outermost ancestor of
 // each compute op that is not itself a synchronizable op (i.e. a lowered
 // scf.for nest or a bare TileMatmulBlock containing memref.load/store + tile
@@ -401,8 +408,14 @@ static LogicalResult insertCBOpsForCompute(
   // Do NOT seed with the raw anchors: a raw span anchor may be the whole
   // enclosing loop (which lives *outside* `block`), and including it unlifted
   // would drag the bracket out of the transfer-depth block.
-  auto bracket = [&](CBSync &sync,
-                     Block *block) -> std::pair<Operation *, Operation *> {
+  // `includeViewOwners` covers the CB-view ops too, which the producer side
+  // needs (it rewrites them in place next to the reserve). Consumers pass
+  // false: a hoisted view dragging the bracket backwards would place the wait
+  // ahead of the push of a CB this same region produces, and the unpacker
+  // would wait on a tile only a later line can supply.
+  auto bracket =
+      [&](CBSync &sync, Block *block,
+          bool includeViewOwners) -> std::pair<Operation *, Operation *> {
     SmallVector<Operation *> boundary;
     auto lift = [&](Operation *op) {
       if (Operation *a = block->findAncestorOpInBlock(*op)) {
@@ -424,15 +437,26 @@ static LogicalResult insertCBOpsForCompute(
       }
     }
     for (OpOperand *use : sync.uses) {
+      if (!includeViewOwners && isCBViewOp(use->getOwner())) {
+        continue;
+      }
       lift(use->getOwner());
     }
 
+    if (boundary.empty()) {
+      return {nullptr, nullptr};
+    }
     llvm::sort(boundary, byProgramOrder);
     return {boundary.front(), boundary.back()};
   };
 
   // Consumers: wait once before the first consumer, pop once after the last.
-  for (auto &[cb, sync] : consumers) {
+  // `selfProduced` marks a CB this same region also produces: its wait has to
+  // follow the push, so it is emitted in a later pass and brackets only the
+  // real accesses (a hoisted view would otherwise drag the wait back ahead of
+  // the push and stall the unpacker on a tile only a later line can supply).
+  auto emitConsumer = [&](Value cb, CBSync &sync,
+                          bool selfProduced) -> LogicalResult {
     llvm::sort(sync.anchors, byProgramOrder);
 
     unsigned cbOperandIdx = generic.getOperandIndex(cb);
@@ -446,7 +470,12 @@ static LogicalResult insertCBOpsForCompute(
                 "cadence mismatch)";
     }
 
-    auto [first, last] = bracket(sync, anchorBlock);
+    auto [first, last] =
+        bracket(sync, anchorBlock, /*includeViewOwners=*/!selfProduced);
+    if (!first) {
+      std::tie(first, last) = bracket(sync, anchorBlock, true);
+    }
+
     rewriter.setInsertionPoint(first);
     auto cbHandle =
         d2m::getOrCreateCB(rewriter, generic, computeBlock, cbOperandIdx);
@@ -460,8 +489,41 @@ static LogicalResult insertCBOpsForCompute(
     rewriter.setInsertionPointAfter(last);
     rewriter.create<PopOp>(last->getLoc(), cbHandle);
 
+    auto afterWait = [&](Operation *op) {
+      Operation *inBlock = waitOp->getBlock()->findAncestorOpInBlock(*op);
+      return inBlock && waitOp->isBeforeInBlock(inBlock);
+    };
+
     for (OpOperand *use : sync.uses) {
+      Operation *owner = use->getOwner();
+      if (isCBViewOp(owner) && !afterWait(owner)) {
+        // A hoisted view can neither be rewritten to the wait handle (it is
+        // not dominated by it) nor moved (an earlier user -- notably this
+        // CB's producer, addressing its own slot off the reserve -- still
+        // needs it where it is). Clone it onto the wait handle and retarget
+        // only the accesses that follow the wait.
+        rewriter.setInsertionPointAfter(waitOp);
+        Operation *clone = rewriter.clone(*owner);
+        clone->setOperand(use->getOperandNumber(), waitOp.getResult());
+        for (OpOperand &viewUse :
+             llvm::make_early_inc_range(owner->getResult(0).getUses())) {
+          if (viewUse.getOwner() != clone && afterWait(viewUse.getOwner())) {
+            viewUse.set(clone->getResult(0));
+          }
+        }
+        continue;
+      }
       use->set(waitOp.getResult());
+    }
+    return success();
+  };
+
+  for (auto &[cb, sync] : consumers) {
+    if (producers.count(cb)) {
+      continue;
+    }
+    if (failed(emitConsumer(cb, sync, /*selfProduced=*/false))) {
+      return failure();
     }
   }
 
@@ -479,7 +541,7 @@ static LogicalResult insertCBOpsForCompute(
                 "fan-out is not yet supported (would deadlock on a "
                 "reserve/push cadence mismatch)";
     }
-    auto [first, last] = bracket(sync, anchorBlock);
+    auto [first, last] = bracket(sync, anchorBlock, /*includeViewOwners=*/true);
 
     rewriter.setInsertionPoint(first);
     auto cbHandle =
@@ -502,6 +564,16 @@ static LogicalResult insertCBOpsForCompute(
             reserveOp); // sink the hoisted view next to the reserve
       }
       use->set(reserveOp.getResult());
+    }
+  }
+
+  // CBs this region both produces and consumes, now that the pushes exist.
+  for (auto &[cb, sync] : consumers) {
+    if (!producers.count(cb)) {
+      continue;
+    }
+    if (failed(emitConsumer(cb, sync, /*selfProduced=*/true))) {
+      return failure();
     }
   }
 
