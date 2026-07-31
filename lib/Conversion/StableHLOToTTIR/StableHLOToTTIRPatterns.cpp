@@ -7002,6 +7002,18 @@ public:
           srcOp, "ScatterOp cannot specify reduce type.");
     }
 
+    // ReduceType::Invalid only records that the update computation does no
+    // arithmetic - it does not say which of the two arguments comes back out.
+    // `(operand, update) -> update` overwrites, which is what every lowering
+    // below assumes, but `(operand, update) -> operand` keeps the original
+    // value and would be silently turned into an overwrite.
+    if (*scatterReduceType == ttcore::ReduceType::Invalid &&
+        !returnsUpdateValue(srcOp.getUpdateComputation())) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "the scatter's update computation neither combines its "
+                 "arguments nor returns the update value");
+    }
+
     Value inputTensor = srcOp.getInputs()[0];
     Value updateTensor = srcOp.getUpdates()[0];
     auto scatterDimsToOperandDims =
@@ -7402,12 +7414,10 @@ private:
       return failure();
     }
 
-    // ReduceType::Invalid means the update computation does no arithmetic, but
-    // it does not say which of the two arguments comes back out: `(operand,
-    // update) -> operand` discards the update entirely. Check the returned
-    // value rather than trusting the reduce type alone.
-    if (reduceType != ttcore::ReduceType::Invalid ||
-        !returnsUpdateValue(srcOp.getUpdateComputation())) {
+    // Anything that combines the operand with the update has to keep the
+    // operand around, so it cannot fold away. matchAndRewrite has already
+    // established that ReduceType::Invalid here means an overwrite.
+    if (reduceType != ttcore::ReduceType::Invalid) {
       return failure();
     }
 
