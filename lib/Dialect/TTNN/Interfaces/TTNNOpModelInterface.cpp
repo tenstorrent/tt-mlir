@@ -59,6 +59,9 @@ namespace mlir::tt::ttnn {
 //     DeallocateOp, D2MSubgraphOp, DropoutOp, PrepareConv3dWeightsOp.
 //   * MoeGptOp -- getOpConstraints is not implemented at all (no tt-metal
 //     definition); there is no query to hand a state to.
+//   * IndexerScoreDsaOp -- its op-model entry predates this change and takes no
+//     `initialState`, so there is no state to hand down yet; threading
+//     liveRecords means adding the parameter at the op-model layer first.
 // Migrating an op that is only blocked here means threading `liveRecords`
 // through instead (see ReluOp / ChunkedScaledDotProductAttentionOp for the
 // pattern), which changes no existing behavior for stateless callers.
@@ -2672,9 +2675,10 @@ FlashMlaPrefillOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // IndexerScoreDsaOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-IndexerScoreDsaOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                    const OpConfig &opConfig) {
+llvm::Expected<op_model::OpConstraints> IndexerScoreDsaOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<
+        llvm::ArrayRef<op_model::OpModelAllocationRecord>> /*liveRecords*/) {
   assert(inputs.size() == 3);
 
   auto queryShape = getQuery().getType().getShape();

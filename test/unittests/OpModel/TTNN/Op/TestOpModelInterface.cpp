@@ -7115,8 +7115,8 @@ TEST_F(OpModelBase, IndexerScoreDsaOpInterface) {
                     "(Blackhole-only): "
                  << llvm::toString(constraintsExp.takeError());
   }
-  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
-      constraintsExp.get();
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
+               outputAllocations] = constraintsExp.get();
   EXPECT_GE(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
   EXPECT_GE(totalPeakSize, 0);

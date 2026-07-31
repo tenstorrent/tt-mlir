@@ -1251,13 +1251,15 @@ OpModel<PrepareMoEComputeW0W1WeightsOp>::getOpConstraints(
                    : std::nullopt;
 
   auto query = [=]() {
-    ::ttnn::TensorSpec w0Spec = conversion::getTensorSpec(w0Shape, w0Layout);
-    ::ttnn::TensorSpec w1Spec = conversion::getTensorSpec(w1Shape, w1Layout);
-    std::optional<::ttnn::TensorSpec> b0Spec;
+    ::tt::tt_metal::TensorSpec w0Spec =
+        conversion::getTensorSpec(w0Shape, w0Layout);
+    ::tt::tt_metal::TensorSpec w1Spec =
+        conversion::getTensorSpec(w1Shape, w1Layout);
+    std::optional<::tt::tt_metal::TensorSpec> b0Spec;
     if (bias0Shape && bias0Layout) {
       b0Spec = conversion::getTensorSpec(*bias0Shape, *bias0Layout);
     }
-    std::optional<::ttnn::TensorSpec> b1Spec;
+    std::optional<::tt::tt_metal::TensorSpec> b1Spec;
     if (bias1Shape && bias1Layout) {
       b1Spec = conversion::getTensorSpec(*bias1Shape, *bias1Layout);
     }
@@ -1286,8 +1288,9 @@ OpModel<PrepareMoEComputeW2WeightsOp>::getOpConstraints(
                    : std::nullopt;
 
   auto query = [=]() {
-    ::ttnn::TensorSpec w2Spec = conversion::getTensorSpec(w2Shape, w2Layout);
-    std::optional<::ttnn::TensorSpec> b2Spec;
+    ::tt::tt_metal::TensorSpec w2Spec =
+        conversion::getTensorSpec(w2Shape, w2Layout);
+    std::optional<::tt::tt_metal::TensorSpec> b2Spec;
     if (bias2Shape && bias2Layout) {
       b2Spec = conversion::getTensorSpec(*bias2Shape, *bias2Layout);
     }
