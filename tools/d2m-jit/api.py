@@ -682,11 +682,11 @@ def _shape_literal(node):
     )
 
 
-@syntax("zeros", args_as_attr=[_shape_literal])
-def _zeros_op(shape):
-    """Kernel-body zero-initialized tile block."""
+@syntax("zeros", args_as_attr=[_shape_literal], kwargs_as_attr={"dtype": _const_value})
+def _zeros_op(shape, dtype="fp32"):
+    """Kernel-body zero-initialized tile block with selectable dtype."""
     ctx = get_default_loc_context()
-    tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, float32)
+    tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, _to_data_type(dtype))
     block_ty = RankedTensorType.get(list(shape), tile_ty)
     return _zeros_block(block_ty)
 
@@ -714,15 +714,23 @@ def _normalize_bool_literal(value, name):
 
 
 @syntax("matmul", kwargs_as_attr={"transpose_b": _bool_attr_from_ast})
-def matmul(lhs, rhs, transpose_b=False):
+def matmul(lhs, rhs, transpose_b=False, acc=None):
     """Block-level matmul: `C = A @ B` (see _matmul_block).
 
     Set `transpose_b=True` when `rhs` is stored as `(N, K)` and should be
     transposed by the matmul kernel.
     """
     return _matmul_block(
-        lhs, rhs, transpose_b=_normalize_bool_literal(transpose_b, "transpose_b")
+        lhs,
+        rhs,
+        transpose_b=_normalize_bool_literal(transpose_b, "transpose_b"),
+        acc=acc,
     )
+
+
+@syntax("disable_l1_accumulation")
+def disable_l1_accumulation():
+    """Mark the enclosing loop as an explicit recurrence, not a matmul reduction."""
 
 
 @syntax("__matmul_acc__")
@@ -1756,3 +1764,21 @@ def _matmul_block(lhs, rhs, transpose_b=False, acc=None):
             result = result.result
         linalg.yield_([result])
     return generic.result
+
+
+@syntax("untilize_block")
+def untilize_block(input):
+    """Convert a local tile block to its row-major scalar representation."""
+    block_type = RankedTensorType(input.type)
+    if block_type.rank < 2:
+        raise TypeError(f"untilize_block expects rank >= 2, got rank {block_type.rank}")
+    tile_type = _tile_elem_type(input)
+    tile_shape = list(tile_type.shape)
+    scalar_shape = list(block_type.shape)
+    scalar_shape[-2] *= tile_shape[0]
+    scalar_shape[-1] *= tile_shape[1]
+    scalar_type = _float_scalar_type_for_tile(block_type.element_type)
+    output_type = RankedTensorType.get(scalar_shape, scalar_type)
+    output = d2m.empty(output_type)
+    result = d2m.tile_untilize_block(output_type, input, output)
+    return result.result if hasattr(result, "result") else result

@@ -53,6 +53,7 @@ Not implemented yet:
 from __future__ import annotations
 
 import os
+import math
 import shutil
 import subprocess
 import tempfile
@@ -63,7 +64,6 @@ from typing import Callable, Optional, Sequence
 import torch
 
 from ttmlir import ir
-
 
 # ----------------------------------------------------------------------
 # Spec dataclasses (the data an agent emits / tweaks per pattern)
@@ -88,9 +88,8 @@ class PatternTest:
     """Rewrite-correctness spec: one input module -> FileCheck.
 
     The ``ttir`` module's function signature is the single source of truth
-    for input shapes/dtypes (used by the forthcoming e2e device runner, so
-    shapes are not duplicated). ``golden``/``inputs`` are carried for that
-    future e2e path and ignored by today's FileCheck-only runner.
+    for input shapes/dtypes, so shapes are not duplicated in the e2e device
+    runner. ``golden`` and ``inputs`` define deterministic device validation.
     """
 
     name: str
@@ -99,13 +98,29 @@ class PatternTest:
     golden: Optional[Callable] = None
     inputs: InputSpec = field(default_factory=InputSpec)
     pcc: float = 0.99
+    # Optional relative tolerance for the output standard-deviation ratio.
+    # PCC alone cannot detect uniform amplitude errors.
+    std_rtol: Optional[float] = None
     expect_match: bool = True
     # Opt in to true e2e device execution (rewrite -> compile -> in-process run).
     # `golden` is optional: when omitted, the runner cross-checks against the
     # TTNN device baseline of the original (pre-pattern) TTIR.
     e2e: bool = False
+    use_tile_matmul: Optional[bool] = None
+    num_stream_buffers: Optional[int] = None
     tags: tuple = ()
     source_file: str = ""  # set by discovery
+    # Additional pattern files to apply together. Relative paths are resolved
+    # beside source_file so composed tests remain relocatable.
+    pattern_files: tuple[str, ...] = ()
+    # Select which function result is compared in multi-output e2e tests.
+    output_index: int = 0
+    # Optional view applied to the selected runtime result before PCC. The
+    # golden must return the corresponding selected value.
+    output_selector: Optional[Callable] = None
+    # Most goldens use FP32 inputs. Large-model specs can opt out and cast only
+    # the operands their partial-output golden actually consumes.
+    golden_inputs_as_float: bool = True
 
 
 @dataclass
@@ -156,6 +171,11 @@ _MLIR_ELTY_TO_TORCH = {
     "f32": torch.float32,
     "f16": torch.float16,
     "bf16": torch.bfloat16,
+    "i64": torch.int64,
+    "si64": torch.int64,
+    "i32": torch.int32,
+    "si32": torch.int32,
+    "ui32": torch.uint32,
 }
 
 
@@ -202,13 +222,21 @@ def make_inputs(shapes, td, inspec: InputSpec):
 
 
 def parse_func_io(ttir_text: str):
-    """Return ``[(shape, torch_dtype), ...]`` for the first func's args."""
+    """Return ``[(shape, torch_dtype), ...]`` for the first nested func's args."""
+
+    def walk(operation):
+        yield operation
+        for region in operation.regions:
+            for block in region.blocks:
+                for child in block.operations:
+                    yield from walk(child.operation)
+
     ctx = ir.Context()
     ctx.load_all_available_dialects()
     mod = ir.Module.parse(ttir_text, ctx)
-    for op in mod.body.operations:
-        if op.operation.name == "func.func":
-            block = op.regions[0].blocks[0]
+    for operation in walk(mod.operation):
+        if operation.name == "func.func":
+            block = operation.regions[0].blocks[0]
             out = []
             for a in block.arguments:
                 rt = ir.RankedTensorType(a.type)
@@ -222,12 +250,66 @@ def parse_func_io(ttir_text: str):
 # ----------------------------------------------------------------------
 
 
+def calculate_pcc(golden, actual, chunk_elements: int = 1 << 20) -> float:
+    if chunk_elements <= 0:
+        raise ValueError("PCC chunk_elements must be positive")
+    if golden.shape != actual.shape:
+        raise ValueError(
+            f"PCC shape mismatch: golden {golden.shape}, actual {actual.shape}"
+        )
+    golden = golden.flatten().float()
+    actual = actual.flatten().float()
+    if golden.numel() == 0:
+        raise ValueError("PCC requires non-empty tensors")
+
+    golden_sum = 0.0
+    actual_sum = 0.0
+    for begin in range(0, golden.numel(), chunk_elements):
+        end = min(begin + chunk_elements, golden.numel())
+        golden_sum += golden[begin:end].double().sum().item()
+        actual_sum += actual[begin:end].double().sum().item()
+
+    golden_mean = golden_sum / golden.numel()
+    actual_mean = actual_sum / actual.numel()
+    covariance = 0.0
+    golden_variance = 0.0
+    actual_variance = 0.0
+    for begin in range(0, golden.numel(), chunk_elements):
+        end = min(begin + chunk_elements, golden.numel())
+        golden_delta = golden[begin:end].double() - golden_mean
+        actual_delta = actual[begin:end].double() - actual_mean
+        covariance += torch.dot(golden_delta, actual_delta).item()
+        golden_variance += torch.dot(golden_delta, golden_delta).item()
+        actual_variance += torch.dot(actual_delta, actual_delta).item()
+
+    if golden_variance == 0.0 or actual_variance == 0.0:
+        return 1.0 if torch.equal(golden, actual) else 0.0
+    return covariance / (golden_variance * actual_variance) ** 0.5
+
+
+def calculate_std(value, chunk_elements: int = 1 << 20) -> float:
+    if chunk_elements <= 0:
+        raise ValueError("std chunk_elements must be positive")
+    value = value.flatten().float()
+    if value.numel() == 0:
+        raise ValueError("std requires a non-empty tensor")
+
+    total = 0.0
+    square_total = 0.0
+    for begin in range(0, value.numel(), chunk_elements):
+        chunk = value[begin : begin + chunk_elements].double()
+        total += chunk.sum().item()
+        square_total += torch.dot(chunk, chunk).item()
+    mean = total / value.numel()
+    variance = square_total / value.numel() - mean * mean
+    return math.sqrt(max(variance, 0.0))
+
+
 def assert_pcc(golden, actual, threshold: float = 0.99):
-    combined = torch.stack([golden.flatten().float(), actual.flatten().float()])
-    pcc = torch.corrcoef(combined)[0, 1].item()
+    pcc = calculate_pcc(golden, actual)
     assert (
         pcc >= threshold
-    ), f"Expected pcc {pcc} >= {threshold}\ngolden:\n{golden}\nactual:\n{actual}"
+    ), f"Expected pcc {pcc} >= {threshold} for shape {golden.shape}"
 
 
 # ----------------------------------------------------------------------
@@ -248,7 +330,13 @@ def run_rewrite(spec: PatternTest) -> str:
         raise ValueError(
             f"PatternTest {spec.name!r} has no source_file (discovery sets it)"
         )
-    return apply_patterns_text(spec.ttir, [spec.source_file])
+    pattern_files = spec.pattern_files or (spec.source_file,)
+    source_dir = os.path.dirname(spec.source_file)
+    resolved = [
+        path if os.path.isabs(path) else os.path.join(source_dir, path)
+        for path in pattern_files
+    ]
+    return apply_patterns_text(spec.ttir, resolved)
 
 
 def _filecheck_bin() -> str:
@@ -385,11 +473,13 @@ def compile_spec_to_fbb(spec: PatternTest):
     Scalar kernel args are baked into the kernel body as in-region constants by
     the rewrite-scope emitter, so the flatbuffer has no scalar program args.
     """
-    from ttmlir.passes import ttmetal_to_flatbuffer_bin
-    from ttmlir.passmanager import PassManager
+    from ttmlir.passes import (
+        ttir_to_ttmetal_backend_pipeline,
+        ttmetal_to_flatbuffer_bin,
+    )
 
     from _ttmlir_runtime import binary as _rt_binary
-    from d2m_jit._src.builder import _get_system_desc_path, _pipeline_passes
+    from d2m_jit._src.builder import _get_system_desc_path
 
     # run_rewrite already applies *only* this file's pattern(s), in isolation.
     rewritten = run_rewrite(spec)
@@ -398,35 +488,86 @@ def compile_spec_to_fbb(spec: PatternTest):
     module = ir.Module.parse(rewritten, ctx)
 
     sd = _get_system_desc_path()
-    register = "ttcore-register-device"
+    options = [
+        "default-input-memspace=dram",
+        "enable-form-expressions=false",
+        "default-output-memspace=dram",
+    ]
     if sd:
-        register += f"{{system-desc-path={sd}}}"
-    pipeline_str = f"builtin.module({register},{','.join(_pipeline_passes())})"
-    pm = PassManager.parse(pipeline_str, context=ctx)
-    pm.enable_verifier(True)
-    pm.run(module.operation)
+        options.append(f"system-desc-path={sd}")
+    if spec.use_tile_matmul is not None:
+        value = str(spec.use_tile_matmul).lower()
+        options.append(f"use-tile-matmul={value}")
+    if spec.num_stream_buffers is not None:
+        options.append(f"num-stream-buffers={spec.num_stream_buffers}")
+    ttir_to_ttmetal_backend_pipeline(module, " ".join(options))
 
     capsule = ttmetal_to_flatbuffer_bin(module)
     return _rt_binary.load_binary_from_capsule(capsule)
 
 
 class E2EDevice:
-    """Lazily opens a single mesh device and reuses it across all e2e runs.
+    """Lazily opens a mesh device and reuses it across all e2e runs.
 
     The device is opened on first use (with the first flatbuffer's mesh shape)
     and closed at session teardown — one device-open amortized across every
-    pattern, all in-process."""
+    pattern, all in-process. Physical device IDs can be supplied explicitly or
+    through ``TTMLIR_E2E_DEVICE_IDS`` as a comma-separated list. The dispatch
+    core type can be selected with ``TTMLIR_E2E_DISPATCH_CORE_TYPE``."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        device_ids: Optional[Sequence[int]] = None,
+        dispatch_core_type: Optional[str] = None,
+    ):
         self.device = None
+        if device_ids is None:
+            env_device_ids = os.environ.get("TTMLIR_E2E_DEVICE_IDS")
+            if env_device_ids is not None:
+                try:
+                    device_ids = [int(value) for value in env_device_ids.split(",")]
+                except ValueError as error:
+                    raise ValueError(
+                        "TTMLIR_E2E_DEVICE_IDS must be a comma-separated list "
+                        "of integers"
+                    ) from error
+        self.device_ids = None if device_ids is None else list(device_ids)
+        if self.device_ids is not None and not self.device_ids:
+            raise ValueError("device_ids must contain at least one physical device ID")
+        if dispatch_core_type is None:
+            dispatch_core_type = os.environ.get("TTMLIR_E2E_DISPATCH_CORE_TYPE")
+        if dispatch_core_type is not None:
+            dispatch_core_type = dispatch_core_type.upper()
+            if dispatch_core_type not in ("WORKER", "ETH"):
+                raise ValueError("dispatch_core_type must be either 'WORKER' or 'ETH'")
+        self.dispatch_core_type = dispatch_core_type
+
+    def options(self, fbb, program_index: int = 0):
+        runtime = _rt()
+        mesh_shape = list(fbb.get_program_mesh_shape(program_index))
+        opts = runtime.MeshDeviceOptions()
+        opts.mesh_shape = mesh_shape
+        if self.device_ids is not None:
+            mesh_volume = 1
+            for dimension in mesh_shape:
+                mesh_volume *= dimension
+            if len(self.device_ids) != mesh_volume:
+                raise ValueError(
+                    f"program mesh {mesh_shape} requires {mesh_volume} devices, "
+                    f"but device_ids contains {len(self.device_ids)}"
+                )
+            opts.device_ids = self.device_ids
+        if self.dispatch_core_type is not None:
+            opts.dispatch_core_type = getattr(
+                runtime.DispatchCoreType, self.dispatch_core_type
+            )
+        return opts
 
     def get(self, fbb, program_index: int = 0):
         runtime = _rt()
         if self.device is None:
-            opts = runtime.MeshDeviceOptions()
-            opts.mesh_shape = fbb.get_program_mesh_shape(program_index)
             runtime.set_compatible_device_runtime(fbb)
-            self.device = runtime.open_mesh_device(opts)
+            self.device = runtime.open_mesh_device(self.options(fbb, program_index))
         return self.device
 
     def close(self):
@@ -447,10 +588,22 @@ def execute_ttm_in_process(fbb, inputs, device, program_index: int = 0):
     import re
 
     runtime = _rt()
+    in_json = fbb.get_program_inputs_as_json(program_index)
+    input_descs = json.loads(
+        re.sub(r"\binf\b", "Infinity", re.sub(r"\bnan\b", "NaN", in_json))
+    )
 
     rt_inputs = []
+    host_inputs = []
     for t in inputs:
+        desc = input_descs[len(rt_inputs)]["desc"]
+        expected_dtype = _RT_STR_TO_TORCH[desc["layout"]["memory_desc"]["data_type"]]
+        if t.dtype != expected_dtype:
+            t = t.to(expected_dtype)
         t = t.contiguous()
+        # Borrowed host tensors do not own their backing storage. Keep any
+        # converted/contiguous temporaries alive until queued transfers finish.
+        host_inputs.append(t)
         rt_in = runtime.create_borrowed_host_tensor(
             t.data_ptr(),
             list(t.shape),
@@ -560,9 +713,7 @@ def ttnn_baseline_outputs(ttir_text: str, inputs, e2e_device: "E2EDevice"):
     e2e_device.close()
     fbb = compile_ttir_to_ttnn_fbb(ttir_text)
     runtime.set_compatible_device_runtime(fbb)
-    opts = runtime.MeshDeviceOptions()
-    opts.mesh_shape = fbb.get_program_mesh_shape(0)
-    device = runtime.open_mesh_device(opts)
+    device = runtime.open_mesh_device(e2e_device.options(fbb))
     try:
         outs = execute_ttm_in_process(fbb, inputs, device)
     finally:
@@ -574,7 +725,7 @@ def ttnn_baseline_outputs(ttir_text: str, inputs, e2e_device: "E2EDevice"):
 
 def run_e2e(spec: PatternTest, e2e_device: "E2EDevice"):
     """Compile ``spec`` to a flatbuffer, run it in-process, and return
-    ``(pcc, expected, actual)`` for output 0. Inputs are generated
+    ``(pcc, expected, actual)`` for ``spec.output_index``. Inputs are generated
     deterministically from the spec's ttir signature.
 
     The reference (``expected``) is either the spec's ``golden`` evaluated on
@@ -588,19 +739,23 @@ def run_e2e(spec: PatternTest, e2e_device: "E2EDevice"):
     inputs = [_gen_tensor(shape, td, spec.inputs.dist, gen) for shape, td in io]
 
     if spec.golden is not None:
-        expected = spec.golden(*[t.float() for t in inputs])
+        golden_inputs = inputs
+        if spec.golden_inputs_as_float:
+            golden_inputs = [tensor.float() for tensor in inputs]
+        expected = spec.golden(*golden_inputs)
     else:
         # Golden-free cross-check: device reference via the ttnn baseline.
         baseline = ttnn_baseline_outputs(spec.ttir, inputs, e2e_device)
-        expected = baseline[0].float()
+        expected = baseline[spec.output_index].float()
 
     fbb = compile_spec_to_fbb(spec)
     device = e2e_device.get(fbb)
     outputs = execute_ttm_in_process(fbb, inputs, device)
 
-    actual = outputs[0].float()
-    combined = torch.stack([expected.flatten(), actual.flatten()])
-    pcc = torch.corrcoef(combined)[0, 1].item()
+    actual = outputs[spec.output_index].float()
+    if spec.output_selector is not None:
+        actual = spec.output_selector(actual)
+    pcc = calculate_pcc(expected, actual)
     return pcc, expected, actual
 
 

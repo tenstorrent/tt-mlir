@@ -2,9 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from array import array
+
 from ttmlir.ir import *
 from ttmlir.dialects import ttcore, d2m
-
 
 # Public dtype constants. Pass to `dtype=` on Layout / tilize / untilize
 # instead of strings ("fp32", "bf16", ...). The strings are still accepted.
@@ -40,7 +41,7 @@ def _derive_blocked_grid_shape(logical_shape, block_shape, tiled):
     assert len(logical_shape) == len(block_shape)
     s = list(logical_shape)
     if tiled:
-        for i in range(len(s)):
+        for i in range(max(0, len(s) - 2), len(s)):
             s[i] = (s[i] + 31) // 32
 
     out = []
@@ -48,6 +49,37 @@ def _derive_blocked_grid_shape(logical_shape, block_shape, tiled):
         assert ls % bs == 0
         out.append(ls // bs)
     return out
+
+
+def _default_collapse_intervals(rank):
+    if rank <= 1:
+        return [(0, rank)]
+    return [(0, rank - 1), (rank - 1, rank)]
+
+
+def _apply_collapse_intervals(shape, intervals):
+    if not intervals:
+        return list(shape)
+
+    result = []
+    next_dim = 0
+    for start, end in intervals:
+        if start != next_dim or end <= start or end > len(shape):
+            raise ValueError(
+                "collapse_intervals must be a contiguous partition of the "
+                f"layout rank, got {intervals} for rank {len(shape)}"
+            )
+        extent = 1
+        for dim in shape[start:end]:
+            extent *= dim
+        result.append(extent)
+        next_dim = end
+    if next_dim != len(shape):
+        raise ValueError(
+            "collapse_intervals must cover every layout dimension, got "
+            f"{intervals} for rank {len(shape)}"
+        )
+    return result
 
 
 class Layout:
@@ -70,9 +102,15 @@ class Layout:
         self.logical_shape = list(shape)
         self.dtype = _to_data_type(dtype)
         self.block_shape = list(block_shape)
-        self.blocked_grid_shape = _derive_blocked_grid_shape(
+        blocked_grid_shape = _derive_blocked_grid_shape(
             self.logical_shape, self.block_shape, tiled
         )
+        if collapse:
+            blocked_grid_shape = _apply_collapse_intervals(
+                blocked_grid_shape,
+                _default_collapse_intervals(len(blocked_grid_shape)),
+            )
+        self.blocked_grid_shape = blocked_grid_shape
         self.grid_shape = (
             list(self.blocked_grid_shape) if grid_shape is None else list(grid_shape)
         )
@@ -143,14 +181,15 @@ class Layout:
             empty_interval_type = RankedTensorType.get(
                 [0, 2], IntegerType.get_signless(64)
             )
-            empty_collapse_intervals = DenseIntElementsAttr.get(empty_interval_type, [])
+            empty_collapse_intervals = DenseIntElementsAttr.get(
+                array("q"), type=empty_interval_type.element_type, shape=[0, 2]
+            )
             self._cached_layout = ttcore.ir.MetalLayoutAttr.get(
                 ctx,
                 list(self.logical_shape),
                 int(self.mem_space),
                 int(ttcore.TensorMemoryLayout.Sharded),
                 empty_collapse_intervals,
-                [],
             )
 
         return self._cached_layout

@@ -5,6 +5,7 @@
 import ast
 import inspect
 
+from ttmlir import util
 from ttmlir.ir import *
 from ttmlir.dialects import (
     d2m,
@@ -408,7 +409,42 @@ class D2MCompiler(ast.NodeVisitor):
                 carried.append(name)
         init_args = [_as_value(owners[name][name]) for name in carried]
 
+        # A DMA result is a stream buffer owned by the data-movement thread.
+        # Copy it into dedicated compute-local storage before using it as a
+        # writable recurrence, so the two threads never produce the same CB.
+        for i, init in enumerate(init_args):
+            if (
+                isinstance(init.type, RankedTensorType)
+                and isinstance(init, OpResult)
+                and util.is_d2m_local_dma_result(init.owner)
+            ):
+                state = _as_value(d2m.empty(init.type))
+                init_args[i] = Operation.create(
+                    name="bufferization.materialize_in_destination",
+                    results=[init.type],
+                    operands=[init, state],
+                    loc=self.cursor,
+                ).results[0]
+
         for_op = scf.ForOp(lower_bound, upper_bound, step, iter_args=init_args)
+        # A loop that commits output is a stream of independent tasks, not a
+        # matmul reduction loop carrying DST state across its iterations.
+        contains_remote_store = any(
+            isinstance(child, ast.Call)
+            and isinstance(child.func, ast.Name)
+            and child.func.id == "remote_store"
+            for stmt in node.body
+            for child in ast.walk(stmt)
+        )
+        disables_l1_accumulation = any(
+            isinstance(child, ast.Call)
+            and isinstance(child.func, ast.Name)
+            and child.func.id == "disable_l1_accumulation"
+            for stmt in node.body
+            for child in ast.walk(stmt)
+        )
+        if contains_remote_store or disables_l1_accumulation:
+            for_op.operation.attributes["d2m.independent_loop"] = UnitAttr.get()
         with InsertionPoint(for_op.body), Location.unknown():
             self.symbol_tables.append({})
             self.symbol_tables[-1][node.target.id] = for_op.induction_variable
@@ -416,7 +452,56 @@ class D2MCompiler(ast.NodeVisitor):
                 self.symbol_tables[-1][name] = for_op.inner_iter_args[i]
             for stmt in node.body:
                 self.visit(stmt)
-            scf.YieldOp([_as_value(self.symbol_tables[-1][name]) for name in carried])
+            yield_values = []
+            for i, name in enumerate(carried):
+                value = _as_value(self.symbol_tables[-1][name])
+                iter_arg = for_op.inner_iter_args[i]
+                if isinstance(value.type, RankedTensorType):
+                    if value == iter_arg:
+                        yield_values.append(value)
+                        continue
+                    if not isinstance(value, OpResult):
+                        raise ValueError(
+                            f"loop-carried tensor '{name}' must be produced by "
+                            "a destination-style operation"
+                        )
+
+                    producer = value.owner
+                    if producer.name == "scf.for":
+                        yield_values.append(value)
+                        continue
+                    init_index = util.get_dps_init_operand_index(
+                        producer, value.result_number
+                    )
+                    if init_index < 0:
+                        raise ValueError(
+                            f"loop-carried tensor '{name}' must be produced by "
+                            "a destination-style operation"
+                        )
+                    init = producer.operands[init_index]
+                    init_owner = getattr(init, "owner", None)
+                    init_owner_name = getattr(init_owner, "name", "<block argument>")
+                    if init != iter_arg and init_owner_name not in {
+                        "d2m.empty",
+                        "tensor.empty",
+                    }:
+                        raise ValueError(
+                            f"loop-carried tensor '{name}' must reuse an empty "
+                            "destination or its current iter_arg; "
+                            f"got destination from '{init_owner_name}'"
+                        )
+
+                    if not util.retarget_dps_result(
+                        producer, value.result_number, iter_arg
+                    ):
+                        value = Operation.create(
+                            name="bufferization.materialize_in_destination",
+                            results=[iter_arg.type],
+                            operands=[value, iter_arg],
+                            loc=self.cursor,
+                        ).results[0]
+                yield_values.append(value)
+            scf.YieldOp(yield_values)
             self.symbol_tables.pop()
 
         for i, name in enumerate(carried):

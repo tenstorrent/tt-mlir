@@ -58,7 +58,7 @@ import itertools
 from typing import Callable, List, Optional, Sequence, Union
 
 from ttmlir import ir
-from ttmlir.dialects import ttcore
+from ttmlir.dialects import d2m, ttcore
 from ttmlir.rewrite import PDLModule, apply_patterns_and_fold_greedily
 
 from .builder import (
@@ -67,7 +67,6 @@ from .builder import (
     _push_scope,
 )
 from .tensor_layout import Layout
-
 
 # --- PatternRegistry --------------------------------------------------------
 
@@ -215,10 +214,17 @@ def from_value(value: ir.Value, layout: Optional[Layout] = None) -> LazyTensor:
     return LazyTensor(layout, value, scope.generation)
 
 
-def from_device(lt: LazyTensor) -> ir.Value:
+def from_device(
+    lt: LazyTensor, physical_storage: bool = False, output_shape=None
+) -> ir.Value:
     """Emit a `d2m.to_layout` that materializes a device-laid-out `LazyTensor`
     back to a plain host tensor type (no metal-layout encoding).
 
+    Set ``physical_storage=True`` when `lt.value` is already the physical
+    row-major allocation rather than its blocked kernel view.
+
+    Set ``output_shape`` to perform an equal-volume reshape as part of the
+    device-to-host transfer.
     This is the typical final step inside a pattern rewrite that consumes a
     TTIR op whose result type is a plain `tensor<MxNxf32>` — patterns build
     a device subgraph, then call `from_device(...)` to land back on the
@@ -231,8 +237,19 @@ def from_device(lt: LazyTensor) -> ir.Value:
     lt = lt._resolve()
     scope = _get_scope()
     with scope.ctx, scope.loc, scope.insert_point:
-        dev_val = lt.layout.build_device_view(scope.ctx, lt.value)
-        host_val = lt.layout.build_from_device(scope.ctx, dev_val)
+        dev_val = (
+            lt.value
+            if physical_storage
+            else lt.layout.build_device_view(scope.ctx, lt.value)
+        )
+        if output_shape is None:
+            host_val = lt.layout.build_from_device(scope.ctx, dev_val)
+        else:
+            output_type = ir.RankedTensorType.get(
+                list(output_shape), lt.layout.get_host_elem_type(scope.ctx)
+            )
+            output = d2m.empty(output_type)
+            host_val = d2m.ToLayoutOp([output_type], dev_val, output).result
     return host_val
 
 
@@ -307,6 +324,7 @@ def infer_layout(value_or_type, **overrides) -> Layout:
         block_shape=list(shape),
         grid_shape=[1] * len(shape),
         tiled=False,
+        collapse=False,
         mem_space="l1",
     )
     fields.update(overrides)

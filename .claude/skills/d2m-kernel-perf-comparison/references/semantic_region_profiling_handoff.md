@@ -105,6 +105,35 @@ possible.
 10. Run a small capture smoke test and reconcile tagged and untagged device
     totals.
 
+## Prefill Source Snapshot
+
+This handoff branch also carries the experimental D2M-JIT Llama prefill source
+from the bring-up worktree. It includes:
+
+- Full-layer, decoder-block, and attention composed `PatternTest` specs.
+- The projection matmul and fused prefill SDPA patterns.
+- Single-chip full-layer, decoder-block, and attention TTIR inputs.
+- The runner and D2M-JIT Python API changes directly used by those patterns.
+- Host SDPA numerics and full-layer rewrite checks.
+
+The benchmark driver discovers `llama_prefill_layer_composed_e2e` and
+`llama_prefill_decoder_composed_e2e` from these files. Exact-binary profiling
+does not require discovery, which is why the missing sources did not prevent
+the earlier measurements.
+
+This is a WIP source snapshot, not a claim that the branch compiles against its
+base commit without additional compiler work. The current worktree contains
+uncommitted TTIR-to-D2M, DMA scheduling, layout, bufferization, and TTMetal
+changes accumulated during prefill bring-up. They are deliberately not swept
+into this profiling handoff commit. Reconcile those changes with their
+standalone branches or current upstream implementations before rebuilding the
+prefill binary.
+
+The source files pass `python3 -m py_compile` on the handoff machine. The
+configured tt-mlir virtual environment is missing on that machine, so pattern
+discovery, compilation, device execution, and PCC validation must be rerun on
+the destination machine.
+
 ## Scope Boundaries
 
 Do not combine the semantic profiling primitive with:

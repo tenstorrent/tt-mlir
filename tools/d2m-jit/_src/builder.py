@@ -318,7 +318,16 @@ class RewriteScope:
         import numpy as np
 
         host_ty = layout.build_host_tensor_type(self.ctx)
-        arr = np.ascontiguousarray(host_tensor.detach().cpu().numpy())
+        host_tensor = host_tensor.detach().cpu()
+        if BF16Type.isinstance(host_ty.element_type):
+            arr = (
+                host_tensor.to(torch.bfloat16)
+                .view(torch.int16)
+                .numpy()
+                .astype(np.uint16)
+            )
+        else:
+            arr = np.ascontiguousarray(host_tensor.numpy())
         with self.ctx, self.loc, self.insert_point:
             attr = DenseElementsAttr.get(arr, type=host_ty)
             return arith.ConstantOp(host_ty, attr).result
@@ -343,7 +352,14 @@ class LazyTensor:
       - a materialised torch.Tensor (after to_host).
     """
 
-    __slots__ = ("layout", "value", "generation", "materialized", "is_view")
+    __slots__ = (
+        "layout",
+        "value",
+        "generation",
+        "materialized",
+        "is_view",
+        "unblocked_value",
+    )
 
     def __init__(
         self,
@@ -352,6 +368,7 @@ class LazyTensor:
         generation,
         materialized=None,
         is_view: bool = False,
+        unblocked_value=None,
     ):
         self.layout = layout
         self.value = value
@@ -362,6 +379,7 @@ class LazyTensor:
         # data is not in the view's logical form -- so we refuse it and
         # ask the user to materialise via to_layout first.
         self.is_view = is_view
+        self.unblocked_value = unblocked_value
 
     def to_host(self):
         return to_host(self)[0]
@@ -475,7 +493,7 @@ def empty(layout: Layout) -> LazyTensor:
         unblocked_ty = layout.build_device_tensor_type(b.ctx, blocked=False)
         raw = d2m.empty(unblocked_ty)
         val = layout.build_blocked_view(b.ctx, raw)
-    return LazyTensor(layout, val, b.generation)
+    return LazyTensor(layout, val, b.generation, unblocked_value=raw)
 
 
 def full(layout: Layout, value) -> LazyTensor:
