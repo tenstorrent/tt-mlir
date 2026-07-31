@@ -373,12 +373,24 @@ class RewriteScope:
         _Builder._next_generation += 1
 
     def add_host_input(self, layout, host_tensor):
-        raise RuntimeError(
-            "Cannot lift a host tensor from inside a pattern rewrite. The "
-            "graph being built is part of an existing module; use "
-            "d2m.from_value(ir.Value) to wrap an SSA value already present in "
-            "that module."
-        )
+        # Rewrite mode has no host func to add args to, so materialize the host
+        # tensor as an `arith.constant dense<...>` at the rewriter IP and return
+        # its host-typed SSA value. This lets rewrites introduce small constant
+        # operands (e.g. identity / eps tiles a fused kernel needs) that are not
+        # present in the matched graph. `to_layout` then emits the to_device.
+        import numpy as np
+
+        host_ty = layout.build_host_tensor_type(self.ctx)
+        cpu = host_tensor.detach().cpu().contiguous()
+        # PyTorch bfloat16 cannot convert to NumPy directly; pack as uint16
+        # bits and attach the host tensor type explicitly (same as TTIRBuilder).
+        if cpu.dtype == torch.bfloat16:
+            arr = cpu.view(torch.int16).numpy().astype(np.uint16)
+        else:
+            arr = np.ascontiguousarray(cpu.numpy())
+        with self.ctx, self.loc, self.insert_point:
+            attr = DenseElementsAttr.get(arr, type=host_ty)
+            return arith.ConstantOp(host_ty, attr).result
 
     def add_scalar_input(self, value: int):
         # Emit an arith.constant of index type at the rewriter's IP.
