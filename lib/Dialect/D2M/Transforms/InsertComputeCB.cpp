@@ -111,9 +111,8 @@ traceCBUse(OpOperand &startUse, GenericOp generic) {
   return std::nullopt;
 }
 
-// Pure address computation on a CB rather than an access. Lowering often
-// hoists these out of the loop nest that uses them, so they are a poor choice
-// of bracket boundary.
+// collapse_shape / subview compute an address into a CB; they do not wait
+// for or produce tiles. They are often hoisted above the loop that uses them.
 static bool isCBViewOp(Operation *op) {
   return mlir::isa<memref::CollapseShapeOp, memref::SubViewOp>(op);
 }
@@ -408,11 +407,10 @@ static LogicalResult insertCBOpsForCompute(
   // Do NOT seed with the raw anchors: a raw span anchor may be the whole
   // enclosing loop (which lives *outside* `block`), and including it unlifted
   // would drag the bracket out of the transfer-depth block.
-  // `includeViewOwners` covers the CB-view ops too, which the producer side
-  // needs (it rewrites them in place next to the reserve). Consumers pass
-  // false: a hoisted view dragging the bracket backwards would place the wait
-  // ahead of the push of a CB this same region produces, and the unpacker
-  // would wait on a tile only a later line can supply.
+  //
+  // includeViewOwners: producers need views in the bracket so they can be
+  // rewritten next to the reserve. Self-produced consumers must not -- a
+  // hoisted view would pull the wait before this region's own push.
   auto bracket =
       [&](CBSync &sync, Block *block,
           bool includeViewOwners) -> std::pair<Operation *, Operation *> {
@@ -451,10 +449,9 @@ static LogicalResult insertCBOpsForCompute(
   };
 
   // Consumers: wait once before the first consumer, pop once after the last.
-  // `selfProduced` marks a CB this same region also produces: its wait has to
-  // follow the push, so it is emitted in a later pass and brackets only the
-  // real accesses (a hoisted view would otherwise drag the wait back ahead of
-  // the push and stall the unpacker on a tile only a later line can supply).
+  // Self-produced CBs (same region both writes and later reads the CB) are
+  // emitted after the producer loop so the wait lands after the push, and
+  // their bracket ignores hoisted views.
   auto emitConsumer = [&](Value cb, CBSync &sync,
                           bool selfProduced) -> LogicalResult {
     llvm::sort(sync.anchors, byProgramOrder);
@@ -497,11 +494,9 @@ static LogicalResult insertCBOpsForCompute(
     for (OpOperand *use : sync.uses) {
       Operation *owner = use->getOwner();
       if (isCBViewOp(owner) && !afterWait(owner)) {
-        // A hoisted view can neither be rewritten to the wait handle (it is
-        // not dominated by it) nor moved (an earlier user -- notably this
-        // CB's producer, addressing its own slot off the reserve -- still
-        // needs it where it is). Clone it onto the wait handle and retarget
-        // only the accesses that follow the wait.
+        // The view sits before the wait (typically shared with the producer).
+        // Rewriting it would break dominance; moving it would break the
+        // producer. Clone after the wait and retarget only later uses.
         rewriter.setInsertionPointAfter(waitOp);
         Operation *clone = rewriter.clone(*owner);
         clone->setOperand(use->getOperandNumber(), waitOp.getResult());
