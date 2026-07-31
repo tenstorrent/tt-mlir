@@ -4050,13 +4050,8 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
     let hasVerifier = 1;
 }
 
-// TODO(#ring-attention phase 2): attach TTNN_DistributedOpInterface and
-// implement allocateBuffers / allocateSemaphores so
-// TTNNAllocateDistributedOpBuffers and TTNNAllocateDistributedOpSemaphores
-// materialize the persistent buffers and the semaphore pair in the function
-// prelude. Until then the operands below must be bound by the producer.
 def TTNN_ExpRingJointScaledDotProductAttentionOp : TTNN_Op<"exp_ring_joint_scaled_dot_product_attention",
-    [AttrSizedOperandSegments, OpModelExempt,
+    [AttrSizedOperandSegments, OpModelExempt, TTNN_DistributedOpInterface,
      TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Ring (sequence-parallel) joint scaled dot product attention.";
     let description = [{
@@ -4123,10 +4118,19 @@ def TTNN_ExpRingJointScaledDotProductAttentionOp : TTNN_Op<"exp_ring_joint_scale
       `TypedValue<DeviceType>` overload all return the source index). Fixing
       that is a change to shared emitter infrastructure, separate from this op.
 
-      Returns:
-          result (AnyRankedTensor): `[B x H x N x E]` (same type as `query`).
-          joint_result (AnyRankedTensor): joint branch output.
-          lse (AnyRankedTensor): log-sum-exp of the attention weights.
+      Returns (shapes per tt-metal's
+      `ExpRingJointSDPADeviceOperation::compute_output_specs`; all three are
+      BFLOAT16 in TILE layout regardless of the input dtype):
+          result (AnyRankedTensor): `[B x H x N x E]`, the query's shape.
+          joint_result (AnyRankedTensor): the joint branch output —
+              `joint_query`'s shape when the joint inputs are present, and the
+              query's shape with the sequence extent set to `0` when they are
+              not.
+          stats (AnyRankedTensor):
+              `[B x H x ((padded N + padded joint N) * 2) x 1]`. NOT a
+              log-sum-exp: it is the kernel's DRAM scratch, holding the running
+              max in the first half and the running sum in the second, for the
+              deferred-norm round-trips between ring iterations.
     }];
 
     let arguments = (ins AnyRankedTensor:$query,
@@ -4157,7 +4161,14 @@ def TTNN_ExpRingJointScaledDotProductAttentionOp : TTNN_Op<"exp_ring_joint_scale
 
     let results = (outs AnyRankedTensor:$result,
                         AnyRankedTensor:$joint_result,
-                        AnyRankedTensor:$lse);
+                        AnyRankedTensor:$stats);
+
+    let extraClassDeclaration = [{
+      bool hasUnboundBuffers();
+      void allocateBuffers(::mlir::RewriterBase &rewriter);
+      bool hasUnboundSemaphores();
+      void allocateSemaphores(::mlir::RewriterBase &rewriter);
+    }];
 
     let hasVerifier = 1;
 }

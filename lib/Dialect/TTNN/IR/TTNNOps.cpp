@@ -6665,6 +6665,12 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 // ExpRingJointScaledDotProductAttentionOp
 //===----------------------------------------------------------------------===//
 
+// Depth of the global-semaphore ping-pong pool tt-metal's ring all-gather
+// rotates through, so that the set handed to one call is clear of the previous
+// call's in-flight traffic. See
+// tt-metal models/tt_dit/parallel/manager.py:get_ag_ping_pong_semaphore.
+static constexpr unsigned kRingSemaphorePoolDepth = 2;
+
 // Enforces the ring SDPA layout and the prelude-binding contract:
 //   Q, K, V: [B, H, N, E]   all sequence-sharded on `dim`, so all three carry
 //                           the same per-device sequence length
@@ -6718,11 +6724,17 @@ mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::verify() {
       queryType.getShape()[queryRank - 1]) {
     return emitOpError("Key/Value head size must match query head size");
   }
+  // tt-metal's validate has TT_FATAL(NQH == NKH): the ring kernel does not
+  // support GQA/MQA, unlike plain SDPA.
   const int64_t nQueryHeads = queryType.getShape()[queryRank - 3];
   const int64_t nKVHeads = keyType.getShape()[queryRank - 3];
-  if (nKVHeads == 0 || nQueryHeads % nKVHeads != 0) {
-    return emitOpError(
-        "Query num heads must be divisible by key/value num heads");
+  if (nQueryHeads != nKVHeads) {
+    return emitOpError("Query and key/value num heads must be equal (the ring "
+                       "kernel does not support GQA), got ")
+           << nQueryHeads << " and " << nKVHeads;
+  }
+  if (keyType.getElementType() != queryType.getElementType()) {
+    return emitOpError("Query and key/value must have the same element type");
   }
   // Every rank holds the same slice of the sequence, so the per-device K/V
   // sequence length must match Q's. A K/V that is already at the gathered
@@ -6753,10 +6765,11 @@ mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::verify() {
   // tt-metal's ring all-gather rotates a two-deep semaphore pool, so a bound
   // op needs at least two. Empty means the prelude pass has not run yet.
   const size_t numSemaphores = getMultiDeviceGlobalSemaphore().size();
-  if (numSemaphores == 1) {
+  if (numSemaphores > 0 && numSemaphores < kRingSemaphorePoolDepth) {
     return emitOpError("multi_device_global_semaphore must be empty (before "
-                       "prelude allocation) or hold at least 2 semaphores for "
-                       "the ping-pong pool, got 1");
+                       "prelude allocation) or hold at least ")
+           << kRingSemaphorePoolDepth
+           << " semaphores for the ping-pong pool, got " << numSemaphores;
   }
   if (numSemaphores > 0 && !hasBufferK) {
     return emitOpError("semaphores are bound but the persistent buffers are "
@@ -6801,8 +6814,25 @@ mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::verify() {
     }
   }
 
-  // logical_n is unsigned, so it cannot be negative; only the upper bound is
-  // checkable, and only once the buffers reveal the gathered length.
+  // logical_n is unsigned, so it cannot be negative; the bounds below are
+  // checkable only once the buffers reveal the gathered length.
+  //
+  // tt-metal additionally requires the padding delta to fit inside one shard:
+  // TT_FATAL((N_global - logical_n) < N_local). A larger delta means some
+  // device holds nothing but padding.
+  if (gatheredSeqLen != 0 &&
+      getLogicalN() <= static_cast<uint64_t>(gatheredSeqLen)) {
+    const int64_t localSeqLen = keyType.getShape()[seqDim];
+    const int64_t padding =
+        gatheredSeqLen - static_cast<int64_t>(getLogicalN());
+    if (padding >= localSeqLen) {
+      return emitOpError("the gap between the gathered sequence length (")
+             << gatheredSeqLen << ") and logical_n (" << getLogicalN()
+             << ") must be smaller than the per-device sequence length ("
+             << localSeqLen
+             << "); otherwise at least one device holds only padding";
+    }
+  }
   if (gatheredSeqLen != 0 &&
       getLogicalN() > static_cast<uint64_t>(gatheredSeqLen)) {
     return emitOpError("logical_n (")
@@ -6813,6 +6843,123 @@ mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::verify() {
 
   return success();
 }
+
+// Ring size along `cluster_axis`, i.e. how many devices the K/V blocks travel
+// around. Returns nullopt when the enclosing module has no device (the op is
+// then not yet in a state where buffers can be sized).
+static std::optional<int64_t>
+getRingSize(mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp op) {
+  mlir::tt::ttcore::DeviceOp deviceOp = mlir::tt::ttcore::lookupDeviceOp(op);
+  if (!deviceOp) {
+    return std::nullopt;
+  }
+  llvm::SmallVector<int64_t> meshShape{deviceOp.getDeviceAttr().getMeshShape()};
+  if (op.getClusterAxis() >= meshShape.size()) {
+    return std::nullopt;
+  }
+  return meshShape[op.getClusterAxis()];
+}
+
+bool mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::
+    hasUnboundBuffers() {
+  return !getPersistentOutputBufferK() || !getPersistentOutputBufferV();
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+void mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::allocateBuffers(
+    ::mlir::RewriterBase &rewriter) {
+  if (!hasUnboundBuffers()) {
+    return;
+  }
+
+  std::optional<int64_t> ringSize = getRingSize(*this);
+  assert(ringSize.has_value() &&
+         "ExpRingJointScaledDotProductAttentionOp buffer allocation needs a "
+         "device; expected ttcore-register-device to have run.");
+
+  // The ring streams K/V blocks into a buffer holding the whole gathered
+  // sequence, so the sequence extent is the per-device length times the ring
+  // size. Mirrors tt-metal's own sizing (models/tt_dit/parallel/manager.py:
+  // output_buffer_shape[dim] *= mesh_device.shape[mesh_axis]).
+  RankedTensorType keyType = getKey().getType();
+  llvm::SmallVector<int64_t> gatheredShape{keyType.getShape()};
+  gatheredShape[getDim()] *= *ringSize;
+  RankedTensorType bufferType =
+      utils::RankedTensorTypeFactory::create(keyType, gatheredShape);
+
+  auto device = utils::getOrInsertDevice(rewriter, *this);
+
+  auto makeEmpty = [&]() -> ttnn::EmptyOp {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(device);
+    return rewriter.create<ttnn::EmptyOp>(
+        getLoc(), bufferType, device,
+        ShapeAttr::get(rewriter.getContext(), bufferType.getShape()));
+  };
+
+  // Two independent buffers: tt-metal writes gathered K and V separately.
+  ttnn::EmptyOp bufferK = makeEmpty();
+  ttnn::EmptyOp bufferV = makeEmpty();
+
+  rewriter.modifyOpInPlace(*this, [&]() {
+    getPersistentOutputBufferKMutable().assign(bufferK.getResult());
+    getPersistentOutputBufferVMutable().assign(bufferV.getResult());
+  });
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+bool mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::
+    hasUnboundSemaphores() {
+  return getMultiDeviceGlobalSemaphore().empty();
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+void mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::
+    allocateSemaphores(::mlir::RewriterBase &rewriter) {
+  if (!hasUnboundSemaphores()) {
+    return;
+  }
+
+  MLIRContext *ctx = rewriter.getContext();
+
+  // The semaphores must span the cores the kernel actually runs on. This op
+  // has no memory_config to read a shard spec from (unlike
+  // DistributedRMSNormOp), but the program config's compute grid is exactly
+  // that core set, and it is a required attribute.
+  CoreCoordAttr grid = getProgramConfig().getComputeWithStorageGridSize();
+  assert(grid.getX() > 0 && grid.getY() > 0 &&
+         "program_config compute grid must be non-empty");
+  auto coreRange = CoreRangeAttr::get(
+      ctx, CoreCoordAttr::get(ctx, /*x=*/0, /*y=*/0),
+      CoreCoordAttr::get(ctx, grid.getX() - 1, grid.getY() - 1));
+  auto coreRangeSet =
+      CoreRangeSetAttr::get(ctx, llvm::ArrayRef<CoreRangeAttr>{coreRange});
+
+  auto device = utils::getOrInsertDevice(rewriter, *this);
+
+  // tt-metal's ring all-gather rotates a two-deep semaphore pool so the set
+  // handed to a call is clear of the previous call's in-flight traffic
+  // (models/tt_dit/parallel/manager.py: get_ag_ping_pong_semaphore returns 2).
+  // Allocated in the prelude, like the buffers, so trace hoisting sees them as
+  // device-resident block args.
+  llvm::SmallVector<Value> semaphores;
+  for (unsigned i = 0; i < kRingSemaphorePoolDepth; ++i) {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(device);
+    semaphores.push_back(rewriter
+                             .create<ttnn::CreateGlobalSemaphoreOp>(
+                                 getLoc(), GlobalSemaphoreType::get(ctx),
+                                 device.getResult(),
+                                 /*initial_value=*/
+                                 rewriter.getUI32IntegerAttr(0), coreRangeSet)
+                             .getResult());
+  }
+
+  rewriter.modifyOpInPlace(*this, [&]() {
+    getMultiDeviceGlobalSemaphoreMutable().assign(semaphores);
+  });
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
 //===----------------------------------------------------------------------===//
 // FlashMlaPrefillOp

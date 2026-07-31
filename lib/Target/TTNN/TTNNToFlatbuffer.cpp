@@ -3483,8 +3483,9 @@ createOp(FlatbufferObjectCache &cache,
   auto jointOut =
       cache.getOrCreateNoSharding(op.getJointResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
-  auto lse = cache.getOrCreateNoSharding(op.getLse(), tensorValueToFlatbuffer,
-                                         /*local_shape*/ std::nullopt);
+  auto stats =
+      cache.getOrCreateNoSharding(op.getStats(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
   return ::tt::target::ttnn::CreateExpRingJointScaledDotProductAttentionOp(
@@ -3493,7 +3494,7 @@ createOp(FlatbufferObjectCache &cache,
       jointStrategy, static_cast<uint64_t>(op.getLogicalN()), op.getDim(),
       op.getClusterAxis(), programConfig, numLinks, topology, subDeviceId,
       scale, op.getNumWorkersPerLink(), op.getNumBuffersPerChannel(),
-      computeConfig.value_or(0), out, jointOut, lse);
+      computeConfig.value_or(0), out, jointOut, stats);
 }
 
 ::flatbuffers::Offset<

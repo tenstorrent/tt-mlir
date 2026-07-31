@@ -35,11 +35,18 @@
   memref<64x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>
 >
 
-// lse: [1, 8, 128, 32]
-#lse_layout = #ttnn.ttnn_layout<
-  (d0, d1, d2, d3) -> (d0 * 1024 + d1 * 128 + d2, d3),
+// stats: [1, 8, 256, 1]
+#stats_layout = #ttnn.ttnn_layout<
+  (d0, d1, d2, d3) -> (d0 * 2048 + d1 * 256 + d2, d3),
   <1x1>,
-  memref<32x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>
+  memref<64x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>
+>
+
+// joint output with no joint inputs: query shape with a zero sequence extent
+#joint_layout = #ttnn.ttnn_layout<
+  (d0, d1, d2, d3) -> (d2, d3),
+  <1x1>,
+  memref<0x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>
 >
 
 // CHECK: module attributes {ttcore.system_desc = #system_desc}
@@ -78,7 +85,7 @@ module {
       topology = #ttcore.topology<ring>,
       num_workers_per_link = 5 : ui32,
       num_buffers_per_channel = 32 : ui32
-    }> : (tensor<1x8x128x64xbf16, #sharded_layout>, tensor<1x8x128x64xbf16, #sharded_layout>, tensor<1x8x128x64xbf16, #sharded_layout>, tensor<1x8x256x64xbf16, #gathered_layout>, tensor<1x8x256x64xbf16, #gathered_layout>, !ttnn.global_semaphore, !ttnn.global_semaphore) -> (tensor<1x8x128x64xbf16, #sharded_layout>, tensor<1x8x128x64xbf16, #sharded_layout>, tensor<1x8x128x32xf32, #lse_layout>)
+    }> : (tensor<1x8x128x64xbf16, #sharded_layout>, tensor<1x8x128x64xbf16, #sharded_layout>, tensor<1x8x128x64xbf16, #sharded_layout>, tensor<1x8x256x64xbf16, #gathered_layout>, tensor<1x8x256x64xbf16, #gathered_layout>, !ttnn.global_semaphore, !ttnn.global_semaphore) -> (tensor<1x8x128x64xbf16, #sharded_layout>, tensor<1x8x0x64xbf16, #joint_layout>, tensor<1x8x256x1xbf16, #stats_layout>)
 
     return %0 : tensor<1x8x128x64xbf16, #sharded_layout>
   }

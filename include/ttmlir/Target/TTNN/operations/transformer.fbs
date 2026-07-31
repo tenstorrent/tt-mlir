@@ -107,7 +107,7 @@ table ExpRingJointScaledDotProductAttentionOp {
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
   out: tt.target.ttnn.TensorRef;
   joint_out: tt.target.ttnn.TensorRef;
-  lse: tt.target.ttnn.TensorRef;
+  stats: tt.target.ttnn.TensorRef;
 }
 
 table FlashMlaPrefillOp {

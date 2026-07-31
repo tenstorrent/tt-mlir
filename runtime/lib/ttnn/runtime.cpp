@@ -1492,7 +1492,7 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::ExpRingJointScaledDotProductAttentionOp: {
     auto *op = opContext.type_as_ExpRingJointScaledDotProductAttentionOp();
-    tensorRefs = {op->out(), op->joint_out(), op->lse()};
+    tensorRefs = {op->out(), op->joint_out(), op->stats()};
     break;
   }
   case ::tt::target::ttnn::OpType::FlashMlaPrefillOp: {

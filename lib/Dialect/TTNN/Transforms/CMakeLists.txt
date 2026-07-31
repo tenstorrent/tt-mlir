@@ -72,6 +72,9 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp
         TTNNFusing.cpp
+        # Not in OPMODEL_SRCS: the ring SDPA op is OpModelExempt, so this
+        # pattern needs no op-model validation.
+        Fusing/RingSDPAFusingPattern.cpp
         ${OPMODEL_SRCS}
         TTNNLayout.cpp
         TTNNConfigureCCLOps.cpp

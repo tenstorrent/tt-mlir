@@ -366,7 +366,15 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
             "enable-sdpa-fusion",
             "bool", /*default=*/"false",
             "Enable SDPA fusion patterns at the TTNN level. Disabled by "
-            "default since SDPA fusion is handled at the TTIR level.">
+            "default since SDPA fusion is handled at the TTIR level.">,
+    Option<"enableRingSDPAFusion",
+            "enable-ring-sdpa",
+            "bool", /*default=*/"false",
+            "Rewrite an exposed sequence-parallel K/V all-gather feeding a "
+            "plain SDPA into the ring variant, which overlaps the K/V "
+            "transfer with the attention compute. Disabled by default: the "
+            "ring kernel needs a multi-chip mesh and has not been validated "
+            "on silicon yet.">
   ];
 }
 

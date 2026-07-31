@@ -91,7 +91,7 @@ void run(const ::tt::target::ttnn::ExpRingJointScaledDotProductAttentionOp *op,
 
   ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
 
-  auto [out, jointOut, lse] =
+  auto [out, jointOut, stats] =
       ::ttnn::transformer::ExecuteExpRingJointAttention::invoke(
           query, key, value, jointQuery, jointKey, jointValue,
           persistentOutputBufferK, persistentOutputBufferV,
@@ -103,7 +103,7 @@ void run(const ::tt::target::ttnn::ExpRingJointScaledDotProductAttentionOp *op,
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
   tensorPool.insertTTNNTensorAndValidate(op->joint_out(), jointOut);
-  tensorPool.insertTTNNTensorAndValidate(op->lse(), lse);
+  tensorPool.insertTTNNTensorAndValidate(op->stats(), stats);
 }
 
 } // namespace tt::runtime::ttnn::operations::transformer

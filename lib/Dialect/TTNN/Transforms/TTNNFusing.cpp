@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Fusing/RingSDPAFusingPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -444,6 +445,12 @@ public:
         TTNNMatmulAndLinearWithActivation<LinearOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, GeluOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>>(&getContext());
+
+    // Registered outside the op-constraints block: the ring SDPA op is
+    // OpModelExempt, so there is nothing for the validator to check.
+    if (enableRingSDPAFusion) {
+      patterns.add<fusing::RingSDPAFusing>(&getContext());
+    }
 
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {
