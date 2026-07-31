@@ -18,11 +18,13 @@ GetDeviceOp getOrInsertDevice(mlir::RewriterBase &rewriter,
 
 GetDeviceOp getOrInsertDevice(mlir::RewriterBase &rewriter, mlir::Block *block);
 
-// Helper method to insert a ToLayoutOp to convert the input operand to the
-// desired tensor layout, buffer type and memory layout. When targetGrid is
-// provided, the output encoding uses the given grid instead of deriving it
-// from the input layout.
-ToLayoutOp createToLayoutOp(
+// Helper method to insert a ToTensorSpecOp to convert the input operand to the
+// desired tensor layout, buffer type and memory layout. This is the aggregate
+// op that gets broken down by the TTNNDecomposeLayouts pass; use it whenever
+// the conversion changes memory config (buffer type / tensor memory layout /
+// grid) or device placement. When targetGrid is provided, the output encoding
+// uses the given grid instead of deriving it from the input layout.
+ToTensorSpecOp createToTensorSpecOp(
     mlir::Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
     RewriterBase &rewriter, Layout targetTensorLayout,
     BufferType targetTensorBufferType,

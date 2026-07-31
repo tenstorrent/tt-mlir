@@ -15,10 +15,10 @@ module attributes {} {
   // CHECK-LABEL: func.func @merge_lossless_roundtrip
   func.func @merge_lossless_roundtrip(%arg0: tensor<32x32xbf16, #bf16_l1>) -> tensor<32x32xbf16, #bf16_dram> {
     // CHECK-NOT: "ttnn.typecast"
-    // CHECK: "ttnn.to_layout"(%arg0)
+    // CHECK: "ttnn.to_tensor_spec"(%arg0)
     // CHECK-SAME: -> tensor<32x32xbf16,
     %0 = "ttnn.typecast"(%arg0) : (tensor<32x32xbf16, #bf16_l1>) -> tensor<32x32xf32, #f32_l1>
-    %1 = "ttnn.to_layout"(%0) : (tensor<32x32xf32, #f32_l1>) -> tensor<32x32xbf16, #bf16_dram>
+    %1 = "ttnn.to_tensor_spec"(%0) : (tensor<32x32xf32, #f32_l1>) -> tensor<32x32xbf16, #bf16_dram>
     return %1 : tensor<32x32xbf16, #bf16_dram>
   }
 
@@ -27,10 +27,10 @@ module attributes {} {
   // CHECK-LABEL: func.func @merge_lossless_roundtrip_multi_use
   func.func @merge_lossless_roundtrip_multi_use(%arg0: tensor<32x32xbf16, #bf16_l1>) -> (tensor<32x32xbf16, #bf16_dram>, tensor<32x32xf32, #f32_l1>) {
     // CHECK: "ttnn.typecast"(%arg0)
-    // CHECK: "ttnn.to_layout"(%arg0)
+    // CHECK: "ttnn.to_tensor_spec"(%arg0)
     // CHECK-SAME: -> tensor<32x32xbf16,
     %0 = "ttnn.typecast"(%arg0) : (tensor<32x32xbf16, #bf16_l1>) -> tensor<32x32xf32, #f32_l1>
-    %1 = "ttnn.to_layout"(%0) : (tensor<32x32xf32, #f32_l1>) -> tensor<32x32xbf16, #bf16_dram>
+    %1 = "ttnn.to_tensor_spec"(%0) : (tensor<32x32xf32, #f32_l1>) -> tensor<32x32xbf16, #bf16_dram>
     return %1, %0 : tensor<32x32xbf16, #bf16_dram>, tensor<32x32xf32, #f32_l1>
   }
 
@@ -39,9 +39,9 @@ module attributes {} {
   // CHECK-LABEL: func.func @no_merge_lossy_bf16_roundtrip
   func.func @no_merge_lossy_bf16_roundtrip(%arg0: tensor<32x32xf32, #f32_l1>) -> tensor<32x32xf32, #f32_dram> {
     // CHECK: %[[TC:.*]] = "ttnn.typecast"(%arg0)
-    // CHECK: "ttnn.to_layout"(%[[TC]])
+    // CHECK: "ttnn.to_tensor_spec"(%[[TC]])
     %0 = "ttnn.typecast"(%arg0) : (tensor<32x32xf32, #f32_l1>) -> tensor<32x32xbf16, #bf16_l1>
-    %1 = "ttnn.to_layout"(%0) : (tensor<32x32xbf16, #bf16_l1>) -> tensor<32x32xf32, #f32_dram>
+    %1 = "ttnn.to_tensor_spec"(%0) : (tensor<32x32xbf16, #bf16_l1>) -> tensor<32x32xf32, #f32_dram>
     return %1 : tensor<32x32xf32, #f32_dram>
   }
 
@@ -50,9 +50,9 @@ module attributes {} {
   // CHECK-LABEL: func.func @no_merge_lossy_f16_roundtrip
   func.func @no_merge_lossy_f16_roundtrip(%arg0: tensor<32x32xbf16, #bf16_l1>) -> tensor<32x32xbf16, #bf16_dram> {
     // CHECK: %[[TC:.*]] = "ttnn.typecast"(%arg0)
-    // CHECK: "ttnn.to_layout"(%[[TC]])
+    // CHECK: "ttnn.to_tensor_spec"(%[[TC]])
     %0 = "ttnn.typecast"(%arg0) : (tensor<32x32xbf16, #bf16_l1>) -> tensor<32x32xf16, #f16_l1>
-    %1 = "ttnn.to_layout"(%0) : (tensor<32x32xf16, #f16_l1>) -> tensor<32x32xbf16, #bf16_dram>
+    %1 = "ttnn.to_tensor_spec"(%0) : (tensor<32x32xf16, #f16_l1>) -> tensor<32x32xbf16, #bf16_dram>
     return %1 : tensor<32x32xbf16, #bf16_dram>
   }
 
@@ -61,9 +61,9 @@ module attributes {} {
   // CHECK-LABEL: func.func @no_merge_fp_int_fp
   func.func @no_merge_fp_int_fp(%arg0: tensor<32x32xf32, #f32_l1>) -> tensor<32x32xf32, #f32_dram> {
     // CHECK: %[[TC:.*]] = "ttnn.typecast"(%arg0)
-    // CHECK: "ttnn.to_layout"(%[[TC]])
+    // CHECK: "ttnn.to_tensor_spec"(%[[TC]])
     %0 = "ttnn.typecast"(%arg0) : (tensor<32x32xf32, #f32_l1>) -> tensor<32x32xsi32, #si32_l1>
-    %1 = "ttnn.to_layout"(%0) : (tensor<32x32xsi32, #si32_l1>) -> tensor<32x32xf32, #f32_dram>
+    %1 = "ttnn.to_tensor_spec"(%0) : (tensor<32x32xsi32, #si32_l1>) -> tensor<32x32xf32, #f32_dram>
     return %1 : tensor<32x32xf32, #f32_dram>
   }
 }

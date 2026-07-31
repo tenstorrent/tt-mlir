@@ -1760,6 +1760,29 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// ToTensorSpecOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+// to_tensor_spec is the aggregate op that ttir.to_layout lowers to and that
+// TTNNDecomposeLayouts breaks down into to_layout, to_device, to_memory_config
+// and typecast ops. It is always decomposed before reaching a backend, so there
+// is no need to model it via the constraint API.
+
+llvm::Expected<op_model::OpConstraints>
+ToTensorSpecOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
+}
+
+llvm::Expected<size_t>
+ToTensorSpecOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
+}
+
+//===----------------------------------------------------------------------===//
 // ToMemoryConfigOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

@@ -11,11 +11,11 @@ module @NlpCreateQkvHeadsDecode attributes {} {
     // Input is row major which triggers TT_FATAL in backend validation.
     // Fallback should fix the input to tile and insert revert to_layout ops
     // for all 3 outputs.
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK: "ttnn.nlp_create_qkv_heads_decode"
-    // CHECK: "ttnn.to_layout"
-    // CHECK: "ttnn.to_layout"
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
+    // CHECK: "ttnn.to_tensor_spec"
+    // CHECK: "ttnn.to_tensor_spec"
     %query, %key, %value = "ttnn.nlp_create_qkv_heads_decode"(%arg0) <{num_heads = 32 : ui32, num_kv_heads = 8 : ui32}>
       : (tensor<1x1x32x3072xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<32x3072xbf16, #ttnn.buffer_type<dram>>, <interleaved>>>)
       -> (tensor<1x32x32x64xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 32 + d2, d3), <1x1>, memref<32x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>,

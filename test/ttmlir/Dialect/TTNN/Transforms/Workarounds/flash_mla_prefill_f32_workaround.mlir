@@ -15,13 +15,13 @@ module {
   // f32 query + key only (no value, no mask, causal).
   func.func public @flash_mla_prefill_f32_qk(%query: tensor<1x16x32x128xf32>, %key: tensor<1x1x32x128xf32>) -> tensor<1x16x32x64xf32> {
     // CHECK-LABEL: func.func public @flash_mla_prefill_f32_qk
-    // CHECK-DAG: %[[Q_BF16:.*]] = "ttnn.to_layout"(%arg0)
-    // CHECK-DAG: %[[K_BF16:.*]] = "ttnn.to_layout"(%arg1)
+    // CHECK-DAG: %[[Q_BF16:.*]] = "ttnn.to_tensor_spec"(%arg0)
+    // CHECK-DAG: %[[K_BF16:.*]] = "ttnn.to_tensor_spec"(%arg1)
     // CHECK: %[[OUT_BF16:.*]] = "ttnn.flash_mla_prefill"(%{{[0-9]+}}, %{{[0-9]+}})
     // CHECK-SAME: tensor<1x16x32x128xbf16
     // CHECK-SAME: tensor<1x1x32x128xbf16
     // CHECK-SAME: -> tensor<1x16x32x64xbf16
-    // CHECK: %{{[0-9]+}} = "ttnn.to_layout"(%[[OUT_BF16]])
+    // CHECK: %{{[0-9]+}} = "ttnn.to_tensor_spec"(%[[OUT_BF16]])
     // CHECK-SAME: tensor<1x16x32x64xbf16
     // CHECK-SAME: -> tensor<1x16x32x64xf32
     %0 = "ttnn.flash_mla_prefill"(%query, %key) <{operandSegmentSizes = array<i32: 1, 1, 0, 0>, head_dim_v = 64 : ui32, is_causal = true}> : (tensor<1x16x32x128xf32>, tensor<1x1x32x128xf32>) -> tensor<1x16x32x64xf32>
@@ -31,15 +31,15 @@ module {
   // f32 query + key + value (causal).
   func.func public @flash_mla_prefill_f32_qkv(%query: tensor<1x16x32x128xf32>, %key: tensor<1x1x32x128xf32>, %value: tensor<1x1x32x64xf32>) -> tensor<1x16x32x64xf32> {
     // CHECK-LABEL: func.func public @flash_mla_prefill_f32_qkv
-    // CHECK-DAG: "ttnn.to_layout"(%arg0)
-    // CHECK-DAG: "ttnn.to_layout"(%arg1)
-    // CHECK-DAG: "ttnn.to_layout"(%arg2)
+    // CHECK-DAG: "ttnn.to_tensor_spec"(%arg0)
+    // CHECK-DAG: "ttnn.to_tensor_spec"(%arg1)
+    // CHECK-DAG: "ttnn.to_tensor_spec"(%arg2)
     // CHECK: %[[OUT_BF16:.*]] = "ttnn.flash_mla_prefill"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}})
     // CHECK-SAME: tensor<1x16x32x128xbf16
     // CHECK-SAME: tensor<1x1x32x128xbf16
     // CHECK-SAME: tensor<1x1x32x64xbf16
     // CHECK-SAME: -> tensor<1x16x32x64xbf16
-    // CHECK: "ttnn.to_layout"(%[[OUT_BF16]])
+    // CHECK: "ttnn.to_tensor_spec"(%[[OUT_BF16]])
     // CHECK-SAME: -> tensor<1x16x32x64xf32
     %0 = "ttnn.flash_mla_prefill"(%query, %key, %value) <{operandSegmentSizes = array<i32: 1, 1, 1, 0>, head_dim_v = 64 : ui32, is_causal = true}> : (tensor<1x16x32x128xf32>, tensor<1x1x32x128xf32>, tensor<1x1x32x64xf32>) -> tensor<1x16x32x64xf32>
     return %0 : tensor<1x16x32x64xf32>
@@ -48,15 +48,15 @@ module {
   // f32 query + key + mask (non-causal).
   func.func public @flash_mla_prefill_f32_qk_mask(%query: tensor<1x16x32x128xf32>, %key: tensor<1x1x32x128xf32>, %mask: tensor<1x1x32x32xf32>) -> tensor<1x16x32x64xf32> {
     // CHECK-LABEL: func.func public @flash_mla_prefill_f32_qk_mask
-    // CHECK-DAG: "ttnn.to_layout"(%arg0)
-    // CHECK-DAG: "ttnn.to_layout"(%arg1)
-    // CHECK-DAG: "ttnn.to_layout"(%arg2)
+    // CHECK-DAG: "ttnn.to_tensor_spec"(%arg0)
+    // CHECK-DAG: "ttnn.to_tensor_spec"(%arg1)
+    // CHECK-DAG: "ttnn.to_tensor_spec"(%arg2)
     // CHECK: %[[OUT_BF16:.*]] = "ttnn.flash_mla_prefill"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}})
     // CHECK-SAME: tensor<1x16x32x128xbf16
     // CHECK-SAME: tensor<1x1x32x128xbf16
     // CHECK-SAME: tensor<1x1x32x32xbf16
     // CHECK-SAME: -> tensor<1x16x32x64xbf16
-    // CHECK: "ttnn.to_layout"(%[[OUT_BF16]])
+    // CHECK: "ttnn.to_tensor_spec"(%[[OUT_BF16]])
     // CHECK-SAME: -> tensor<1x16x32x64xf32
     %0 = "ttnn.flash_mla_prefill"(%query, %key, %mask) <{operandSegmentSizes = array<i32: 1, 1, 0, 1>, head_dim_v = 64 : ui32, is_causal = false}> : (tensor<1x16x32x128xf32>, tensor<1x1x32x128xf32>, tensor<1x1x32x32xf32>) -> tensor<1x16x32x64xf32>
     return %0 : tensor<1x16x32x64xf32>
@@ -65,13 +65,13 @@ module {
   // f32 query + key + value + mask (non-causal, all optional operands present).
   func.func public @flash_mla_prefill_f32_all(%query: tensor<2x8x64x128xf32>, %key: tensor<2x1x64x128xf32>, %value: tensor<2x1x64x96xf32>, %mask: tensor<2x1x64x64xf32>) -> tensor<2x8x64x96xf32> {
     // CHECK-LABEL: func.func public @flash_mla_prefill_f32_all
-    // CHECK-DAG: "ttnn.to_layout"(%arg0)
-    // CHECK-DAG: "ttnn.to_layout"(%arg1)
-    // CHECK-DAG: "ttnn.to_layout"(%arg2)
-    // CHECK-DAG: "ttnn.to_layout"(%arg3)
+    // CHECK-DAG: "ttnn.to_tensor_spec"(%arg0)
+    // CHECK-DAG: "ttnn.to_tensor_spec"(%arg1)
+    // CHECK-DAG: "ttnn.to_tensor_spec"(%arg2)
+    // CHECK-DAG: "ttnn.to_tensor_spec"(%arg3)
     // CHECK: %[[OUT_BF16:.*]] = "ttnn.flash_mla_prefill"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}})
     // CHECK-SAME: -> tensor<2x8x64x96xbf16
-    // CHECK: "ttnn.to_layout"(%[[OUT_BF16]])
+    // CHECK: "ttnn.to_tensor_spec"(%[[OUT_BF16]])
     // CHECK-SAME: -> tensor<2x8x64x96xf32
     %0 = "ttnn.flash_mla_prefill"(%query, %key, %value, %mask) <{operandSegmentSizes = array<i32: 1, 1, 1, 1>, head_dim_v = 96 : ui32, is_causal = false, scale = 1.250000e-01 : f32}> : (tensor<2x8x64x128xf32>, tensor<2x1x64x128xf32>, tensor<2x1x64x96xf32>, tensor<2x1x64x64xf32>) -> tensor<2x8x64x96xf32>
     return %0 : tensor<2x8x64x96xf32>
