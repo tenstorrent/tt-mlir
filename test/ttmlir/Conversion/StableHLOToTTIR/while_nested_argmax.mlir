@@ -9,16 +9,16 @@
 // constants defined outside the loop (the shape LU pivoting lowers to).
 //
 // `ttir.while` is IsolatedFromAbove, so the region cannot reference those
-// constants directly. They must be cloned into the region rather than promoted
-// to captures: as block arguments they are invisible to the argmax recognizer,
-// which then declines the reduce and fails the whole conversion.
-//
-// %arg0 is a genuine non-constant capture, so both paths are exercised.
+// constants directly and they become captures - block arguments, whose
+// defining op the argmax recognizer cannot see. It has to follow the block
+// argument back out to the operand it is bound to, or it would decline the
+// reduce and fail the whole conversion.
 
 // CHECK-LABEL: func.func @main
 // CHECK: ttir.while
-// The -inf and 0 init values are cloned into the region, not passed in.
-// CHECK: ttir.constant
+// The constants stay outside the region, passed in as captures.
+// CHECK-SAME: captures(
+// CHECK-NOT: ttir.constant
 // CHECK: ttir.argmax
 module @while_nested_argmax {
   func.func @main(%arg0: tensor<2x3xf64>) -> tensor<2xi32> {
