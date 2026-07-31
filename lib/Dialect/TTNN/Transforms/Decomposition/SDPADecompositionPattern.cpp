@@ -24,64 +24,155 @@ static RankedTensorType createResultType(RankedTensorType sourceType,
   return ttnn::utils::RankedTensorTypeFactory::create(sourceType, newShape);
 }
 
-/// Generate a causal mask [1, 1, Sq, Skv] as a compile-time constant.
-/// Lower triangle = 0.0, upper triangle = -inf.
+/// Create a type with `shape` in f32, reusing `referenceType`'s layout.
+static RankedTensorType createF32Type(RankedTensorType referenceType,
+                                      ArrayRef<int64_t> shape) {
+  return ttnn::utils::RankedTensorTypeFactory::create(
+      createResultType(referenceType, shape), ttcore::DataType::Float32);
+}
+
+/// Build an f32 index vector 0..length-1 placed at `axis` of a 4D shape
+/// [1, 1, *, *] (axis 2 -> [1, 1, length, 1], axis 3 -> [1, 1, 1, length]).
+/// f32 is required: bf16 has 8 mantissa bits and cannot exactly represent
+/// indices > 256, which would corrupt the index comparison at large seq_len.
+static Value makeIndexVector(PatternRewriter &rewriter, Location loc,
+                             RankedTensorType referenceType, int64_t length,
+                             int64_t axis, Value device) {
+  // ttnn.arange verifier requires a rank-1 result; reshape to 4D afterwards.
+  auto arange1dType = createF32Type(referenceType, {length});
+  Value indices = rewriter
+                      .create<ArangeOp>(loc, arange1dType, device,
+                                        /*start=*/0, /*end=*/length, /*step=*/1)
+                      .getResult();
+
+  llvm::SmallVector<int64_t> shape4d = {1, 1, 1, 1};
+  shape4d[axis] = length;
+  auto reshapedType = createF32Type(referenceType, shape4d);
+  llvm::SmallVector<int32_t> shape4dI32(shape4d.begin(), shape4d.end());
+  return rewriter
+      .create<ReshapeOp>(loc, reshapedType, indices,
+                         rewriter.getI32ArrayAttr(shape4dI32))
+      .getResult();
+}
+
+/// Generate a causal mask [1, 1, Sq, Skv] on-device.
+/// mask[i, j] = -inf if j > i else 0. Built from arange/compare/where instead
+/// of a dense constant so nothing O(seq^2) is serialized.
 static Value generateCausalMask(PatternRewriter &rewriter, Location loc,
                                 int64_t seqLenQ, int64_t seqLenKV,
                                 RankedTensorType referenceType, Value device) {
-  // Build the mask data at compile time.
-  llvm::SmallVector<float> maskData;
-  maskData.reserve(seqLenQ * seqLenKV);
-  for (int64_t i = 0; i < seqLenQ; i++) {
-    for (int64_t j = 0; j < seqLenKV; j++) {
-      maskData.push_back((i >= j) ? 0.0f
-                                  : -std::numeric_limits<float>::infinity());
-    }
-  }
-
-  // Create dense attribute with f32 type (encoding-free).
   auto maskShape = llvm::SmallVector<int64_t>{1, 1, seqLenQ, seqLenKV};
-  auto plainMaskType = RankedTensorType::get(maskShape, rewriter.getF32Type());
-  auto denseAttr = DenseFPElementsAttr::get(plainMaskType, maskData);
 
+  Value rowIdx = makeIndexVector(rewriter, loc, referenceType, seqLenQ,
+                                 /*axis=*/kSeqLenDim, device); // [1,1,Sq,1]
+  Value colIdx = makeIndexVector(rewriter, loc, referenceType, seqLenKV,
+                                 /*axis=*/kHeadDim, device); // [1,1,1,Skv]
+
+  // Comparison/where in f32; broadcasts to [1, 1, Sq, Skv].
+  auto f32MaskType = createF32Type(referenceType, maskShape);
+
+  // isMasked = colIdx > rowIdx  (i.e. j > i).
+  Value isMasked =
+      rewriter.create<GreaterThanOp>(loc, f32MaskType, colIdx, rowIdx)
+          .getResult();
+
+  // Pre-broadcast branches: ttnn.where does not reliably broadcast scalar
+  // branches against a multi-dim condition.
+  Value zeros = rewriter
+                    .create<FullOp>(loc, f32MaskType,
+                                    rewriter.getF32FloatAttr(0.0f), device)
+                    .getResult();
+  Value negInf =
+      rewriter
+          .create<FullOp>(
+              loc, f32MaskType,
+              rewriter.getF32FloatAttr(-std::numeric_limits<float>::infinity()),
+              device)
+          .getResult();
+
+  Value mask =
+      rewriter.create<WhereOp>(loc, f32MaskType, isMasked, negInf, zeros)
+          .getResult();
+
+  // Typecast the {0, -inf} mask to the reference dtype for the downstream add.
   auto maskType = createResultType(referenceType, maskShape);
-  return rewriter.create<ConstantOp>(loc, maskType, device, denseAttr);
+  return rewriter.create<TypecastOp>(loc, maskType, mask).getResult();
 }
 
-/// Generate a sliding window mask [1, 1, Sq, Skv] as a compile-time constant.
-/// Positions where (row - col) < 0 or (row - col) >= windowSize are -inf.
-/// If isCausal is true, also masks future positions (row < col).
+/// Generate a sliding window mask [1, 1, Sq, Skv] on-device.
+/// Positions outside the window are -inf, others 0. Built from
+/// arange/subtract/compare/where instead of a dense constant.
 static Value generateSlidingWindowMask(PatternRewriter &rewriter, Location loc,
                                        int64_t seqLenQ, int64_t seqLenKV,
                                        uint32_t windowSize, bool isCausal,
                                        RankedTensorType referenceType,
                                        Value device) {
-  // Window topology must match the tt-metal kernel:
-  //   causal:     j in [i - W + 1, i]                  (last W tokens)
-  //   non-causal: j in [i - W/2,   i + W/2] inclusive  (W+1 tokens centered)
+  // Window topology (must match the tt-metal kernel), diff = i - j:
+  //   causal:     in-window iff 0 <= diff < W          (last W tokens)
+  //   non-causal: in-window iff -W/2 <= diff <= W/2    (W+1 tokens centered)
+  // The out-of-window positions are masked (-inf), built on-device.
   int64_t halfWindow = static_cast<int64_t>(windowSize) / 2;
-  llvm::SmallVector<float> maskData;
-  maskData.reserve(seqLenQ * seqLenKV);
-  for (int64_t i = 0; i < seqLenQ; i++) {
-    for (int64_t j = 0; j < seqLenKV; j++) {
-      int64_t diff = i - j;
-      bool inWindow;
-      if (isCausal) {
-        inWindow = diff >= 0 && diff < static_cast<int64_t>(windowSize);
-      } else {
-        inWindow = diff >= -halfWindow && diff <= halfWindow;
-      }
-      maskData.push_back(inWindow ? 0.0f
-                                  : -std::numeric_limits<float>::infinity());
-    }
+  auto maskShape = llvm::SmallVector<int64_t>{1, 1, seqLenQ, seqLenKV};
+
+  Value rowIdx = makeIndexVector(rewriter, loc, referenceType, seqLenQ,
+                                 /*axis=*/kSeqLenDim, device); // [1,1,Sq,1]
+  Value colIdx = makeIndexVector(rewriter, loc, referenceType, seqLenKV,
+                                 /*axis=*/kHeadDim, device); // [1,1,1,Skv]
+
+  auto f32MaskType = createF32Type(referenceType, maskShape);
+
+  // diff = rowIdx - colIdx, broadcasts to [1, 1, Sq, Skv].
+  Value diff =
+      rewriter.create<SubtractOp>(loc, f32MaskType, rowIdx, colIdx).getResult();
+
+  // Bounds and branch tensors as full [1, 1, Sq, Skv] f32 (compare ops and
+  // ttnn.where do not reliably broadcast scalar operands).
+  auto makeConst = [&](float v) {
+    return rewriter
+        .create<FullOp>(loc, f32MaskType, rewriter.getF32FloatAttr(v), device)
+        .getResult();
+  };
+
+  // The zeros tensor is both the causal lower bound (diff < 0) and the
+  // in-window branch of the final where; build it once and reuse.
+  Value zeros = makeConst(0.0f);
+  Value negInf = makeConst(-std::numeric_limits<float>::infinity());
+
+  Value violLow;  // below the window
+  Value violHigh; // above the window
+  if (isCausal) {
+    // out-of-window iff diff < 0  OR  diff >= W
+    violLow =
+        rewriter.create<LessThanOp>(loc, f32MaskType, diff, zeros).getResult();
+    violHigh =
+        rewriter
+            .create<GreaterEqualOp>(loc, f32MaskType, diff,
+                                    makeConst(static_cast<float>(windowSize)))
+            .getResult();
+  } else {
+    // out-of-window iff diff < -halfWindow  OR  diff > halfWindow
+    violLow =
+        rewriter
+            .create<LessThanOp>(loc, f32MaskType, diff,
+                                makeConst(-static_cast<float>(halfWindow)))
+            .getResult();
+    violHigh =
+        rewriter
+            .create<GreaterThanOp>(loc, f32MaskType, diff,
+                                   makeConst(static_cast<float>(halfWindow)))
+            .getResult();
   }
 
-  auto maskShape = llvm::SmallVector<int64_t>{1, 1, seqLenQ, seqLenKV};
-  auto plainMaskType = RankedTensorType::get(maskShape, rewriter.getF32Type());
-  auto denseAttr = DenseFPElementsAttr::get(plainMaskType, maskData);
+  // mask = where(violLow, -inf, where(violHigh, -inf, 0))
+  Value inner =
+      rewriter.create<WhereOp>(loc, f32MaskType, violHigh, negInf, zeros)
+          .getResult();
+  Value mask =
+      rewriter.create<WhereOp>(loc, f32MaskType, violLow, negInf, inner)
+          .getResult();
 
   auto maskType = createResultType(referenceType, maskShape);
-  return rewriter.create<ConstantOp>(loc, maskType, device, denseAttr);
+  return rewriter.create<TypecastOp>(loc, maskType, mask).getResult();
 }
 
 LogicalResult
