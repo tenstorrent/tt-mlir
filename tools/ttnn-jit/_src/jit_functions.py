@@ -282,10 +282,33 @@ class BinaryOpHandler(BaseOpHandler):
         """Infer output layout for binary ops - preserves first operand's encoding."""
         return operand0.type.encoding if CREATE_INTERMEDIATE_LAYOUT else None
 
+    def _infer_broadcast_shape(self, operand0, operand1):
+        """Infer normal right-aligned elementwise broadcast shape."""
+        shape0 = [int(dim) for dim in operand0.type.shape]
+        shape1 = [int(dim) for dim in operand1.type.shape]
+        rank = max(len(shape0), len(shape1))
+        padded0 = [1] * (rank - len(shape0)) + shape0
+        padded1 = [1] * (rank - len(shape1)) + shape1
+        result = []
+
+        for dim0, dim1 in zip(padded0, padded1):
+            if dim0 == dim1:
+                result.append(dim0)
+            elif dim0 == 1:
+                result.append(dim1)
+            elif dim1 == 1:
+                result.append(dim0)
+            else:
+                raise ValueError(
+                    f"{self.op_name} cannot broadcast shapes {shape0} and {shape1}"
+                )
+
+        return result
+
     def _infer_result_type(self, operand0, operand1):
         """Infer result type from operands, preserving encoding from first operand."""
         element_type = operand0.type.element_type
-        shape = list(operand0.type.shape)
+        shape = self._infer_broadcast_shape(operand0, operand1)
         encoding = self._infer_output_layout(operand0, operand1)
 
         with Location.unknown(self.jit_ctx.ctx):
@@ -315,8 +338,9 @@ class BinaryOpHandler(BaseOpHandler):
         if operand1_is_scalar:
             operand1 = self._create_scalar_tensor_constant(operand1, tensor_operand)
 
-        # Infer result type from the tensor operand
-        result_type = self._infer_result_type(tensor_operand, tensor_operand)
+        # Infer result type after scalar materialization so tensor-tensor
+        # operations use normal right-aligned broadcasting.
+        result_type = self._infer_result_type(operand0, operand1)
 
         # Get the TTIR operation constructor (handles name mapping like divide -> div)
         op_constructor = getattr(ttir, get_ttir_name(self.op_name))

@@ -160,6 +160,36 @@ def test_capture_walks_kwargs_and_ignores_non_tensors():
     assert out2 is not None  # memory_config kwarg did not crash
 
 
+def test_binary_ops_infer_right_aligned_broadcast_shape():
+    from ttnn_jit._src.interception_tracer import trace_intercepted
+
+    def broadcast_add(lhs, rhs):
+        return ttnn.add(lhs, rhs)
+
+    module, out_type = trace_intercepted(
+        broadcast_add,
+        _DummyTensor((1024,), ttnn.uint32),
+        _DummyTensor((1, 1), ttnn.uint32),
+    )
+
+    assert tuple(int(d) for d in out_type.shape) == (1, 1024)
+    assert "tensor<1x1024x" in str(module)
+    module.operation.verify()
+
+
+def test_binary_ops_reject_incompatible_broadcast_shapes():
+    from ttnn_jit._src.interception_tracer import trace_intercepted
+
+    with pytest.raises(
+        ValueError, match=r"add cannot broadcast shapes \[2, 3\] and \[4\]"
+    ):
+        trace_intercepted(
+            lambda lhs, rhs: ttnn.add(lhs, rhs),
+            _DummyTensor((2, 3), ttnn.bfloat16),
+            _DummyTensor((4,), ttnn.bfloat16),
+        )
+
+
 def test_common_op_handlers_build_ttir():
     scope = build_trace_scope("f", [((256, 512), ttnn.bfloat16)])
     x = scope.traced_args[0]
