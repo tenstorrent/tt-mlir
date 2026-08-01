@@ -7,6 +7,14 @@
 
 namespace mlir::tt::ttnn {
 
+LayoutFilterFn
+EmbeddingRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
+  if (operandIdx <= 1) {
+    return layout_filter_utils::rejectAllSharded;
+  }
+  return nullptr;
+}
+
 OutputHints EmbeddingRuleBook::getOutputHints(
     Operation * /*op*/, const std::vector<OpConfig> &legalConfigs) const {
   return layout_filter_utils::nonShardedOutputHints(legalConfigs);

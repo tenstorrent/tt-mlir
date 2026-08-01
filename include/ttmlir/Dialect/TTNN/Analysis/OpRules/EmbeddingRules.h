@@ -11,6 +11,8 @@ namespace mlir::tt::ttnn {
 
 /// Embedding outputs non-sharded only.
 struct EmbeddingRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;

@@ -9,12 +9,14 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/EmbeddingRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/MatmulRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/NormalizationRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TransformerRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
@@ -204,32 +206,52 @@ public:
   }
 
   TTNNLayoutAttr
+  createTiledLayoutWithCoreRange(const llvm::ArrayRef<int64_t> &tensorShape,
+                                 TensorMemoryLayout tensorMemoryLayout,
+                                 const llvm::ArrayRef<int64_t> &gridShape,
+                                 uint64_t startX, uint64_t startY,
+                                 uint64_t endX, uint64_t endY) {
+    auto elementType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
+    auto start = CoreCoordAttr::get(&context, startX, startY);
+    auto end = CoreCoordAttr::get(&context, endX, endY);
+    auto ranges = CoreRangeSetAttr::get(
+        &context, {CoreRangeAttr::get(&context, start, end)});
+    return TTNNLayoutAttr::Builder(&context, tensorShape, elementType)
+        .setBufferType(BufferType::L1)
+        .setMemoryLayout(tensorMemoryLayout)
+        .setGridShape(gridShape)
+        .setCoreRangeSet(ranges)
+        .build();
+  }
+
+  TTNNLayoutAttr
   createDRAMInterleavedLayout(const llvm::ArrayRef<int64_t> &tensorShape) {
     return createTiledLayout(tensorShape, BufferType::DRAM,
                              TensorMemoryLayout::Interleaved);
   }
 
   OpConfig createMcast2DHint(TTNNLayoutAttr output, uint64_t in0BlockW,
-                             uint64_t perCoreM) {
+                             uint64_t perCoreM, uint64_t perCoreN = 1) {
     auto grid = CoreCoordAttr::get(&context, 2, 2);
     auto config = MatmulMultiCoreReuseMultiCastProgramConfigAttr::get(
         &context, grid, in0BlockW,
         /*outSubblockH=*/1, /*outSubblockW=*/1,
-        /*outBlockH=*/perCoreM, /*outBlockW=*/1, perCoreM,
-        /*perCoreN=*/1, /*transposeMcast=*/false,
+        /*outBlockH=*/perCoreM, /*outBlockW=*/perCoreN, perCoreM, perCoreN,
+        /*transposeMcast=*/false,
         /*fusedActivation=*/UnaryWithParamAttr(), /*fuseBatch=*/true);
     return OpConfig(output, MatmulAttrs{config, std::nullopt});
   }
 
   OpConfig createMcast1DHint(TTNNLayoutAttr output, uint64_t in0BlockW,
-                             uint64_t perCoreM, bool mcastIn0) {
+                             uint64_t perCoreM, bool mcastIn0,
+                             uint64_t perCoreN = 1) {
     auto grid = CoreCoordAttr::get(&context, 1, 8);
     auto hopCores = CoreRangeSetAttr::get(&context, {});
     auto config = MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::get(
         &context, grid, in0BlockW,
         /*outSubblockH=*/1, /*outSubblockW=*/1,
-        /*outBlockH=*/perCoreM, /*outBlockW=*/1, perCoreM,
-        /*perCoreN=*/1, /*fuseBatch=*/true,
+        /*outBlockH=*/perCoreM, /*outBlockW=*/perCoreN, perCoreM, perCoreN,
+        /*fuseBatch=*/true,
         /*fusedActivation=*/UnaryWithParamAttr(), mcastIn0,
         /*gatherIn0=*/false, hopCores,
         /*numGlobalCbReceivers=*/0, /*untilizeOut=*/false);
@@ -487,6 +509,124 @@ TEST_F(OpRuleBookTest, MatmulMcast1DEnforcesDirectionAndShardGeometry) {
       createMcast1DHint(blockOutput, /*in0BlockW=*/1, widthShard[0],
                         /*mcastIn0=*/true),
       {widthInput}));
+}
+
+TEST_F(OpRuleBookTest, MatmulShardedOutputCBMustFitTensorShard) {
+  llvm::SmallVector<int64_t> shape = {1, 32, 2048};
+  auto interleaved = createDRAMInterleavedLayout(shape);
+  auto widthOutput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 8});
+  auto blockOutput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {2, 4});
+  MatmulRuleBook rules;
+
+  uint64_t widthCapacity =
+      widthOutput.getShardSizeInBytes() / widthOutput.getElementSizeBytes();
+  EXPECT_TRUE(rules.isValidOutputHintForInputs(
+      createMcast1DHint(widthOutput, /*in0BlockW=*/1, /*perCoreM=*/1,
+                        /*mcastIn0=*/true, widthCapacity),
+      {interleaved}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(
+      createMcast1DHint(widthOutput, /*in0BlockW=*/1, /*perCoreM=*/1,
+                        /*mcastIn0=*/true, widthCapacity + 1),
+      {interleaved}));
+
+  uint64_t blockCapacity =
+      blockOutput.getShardSizeInBytes() / blockOutput.getElementSizeBytes();
+  EXPECT_TRUE(rules.isValidOutputHintForInputs(
+      createMcast2DHint(blockOutput, /*in0BlockW=*/1, /*perCoreM=*/1,
+                        blockCapacity),
+      {interleaved}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(
+      createMcast2DHint(blockOutput, /*in0BlockW=*/1, /*perCoreM=*/1,
+                        blockCapacity + 1),
+      {interleaved}));
+}
+
+TEST_F(OpRuleBookTest, MatmulMcast1DBlockOutputRequiresPhysicalRowOrColumn) {
+  llvm::SmallVector<int64_t> shape = {1, 32, 2048};
+  auto interleaved = createDRAMInterleavedLayout(shape);
+  auto singleRow = createTiledLayoutWithCoreRange(
+      shape, TensorMemoryLayout::BlockSharded, {1, 8},
+      /*startX=*/0, /*startY=*/0, /*endX=*/7, /*endY=*/0);
+  auto multiRow = createTiledLayoutWithCoreRange(
+      shape, TensorMemoryLayout::BlockSharded, {1, 8},
+      /*startX=*/0, /*startY=*/0, /*endX=*/3, /*endY=*/1);
+  auto singleColumn = createTiledLayoutWithCoreRange(
+      shape, TensorMemoryLayout::BlockSharded, {8, 1},
+      /*startX=*/0, /*startY=*/0, /*endX=*/0, /*endY=*/7);
+  auto multiColumn = createTiledLayoutWithCoreRange(
+      shape, TensorMemoryLayout::BlockSharded, {8, 1},
+      /*startX=*/0, /*startY=*/0, /*endX=*/1, /*endY=*/3);
+  MatmulRuleBook rules;
+
+  EXPECT_TRUE(rules.isValidOutputHintForInputs(
+      createMcast1DHint(singleRow, /*in0BlockW=*/1, /*perCoreM=*/1,
+                        /*mcastIn0=*/true),
+      {interleaved}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(
+      createMcast1DHint(multiRow, /*in0BlockW=*/1, /*perCoreM=*/1,
+                        /*mcastIn0=*/true),
+      {interleaved}));
+  EXPECT_TRUE(rules.isValidOutputHintForInputs(
+      createMcast1DHint(singleColumn, /*in0BlockW=*/1, /*perCoreM=*/1,
+                        /*mcastIn0=*/false),
+      {interleaved}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(
+      createMcast1DHint(multiColumn, /*in0BlockW=*/1, /*perCoreM=*/1,
+                        /*mcastIn0=*/false),
+      {interleaved}));
+}
+
+TEST_F(OpRuleBookTest, MatmulPartialConfigDedupPreservesOutputGeometry) {
+  llvm::SmallVector<int64_t> shape = {1, 32, 2048};
+  auto interleaved = createDRAMInterleavedLayout(shape);
+  auto output8 = createTiledLayout(shape, BufferType::L1,
+                                   TensorMemoryLayout::WidthSharded, {1, 8});
+  auto output4 = createTiledLayout(shape, BufferType::L1,
+                                   TensorMemoryLayout::WidthSharded, {1, 4});
+  uint64_t capacity8 =
+      output8.getShardSizeInBytes() / output8.getElementSizeBytes();
+  uint64_t capacity4 =
+      output4.getShardSizeInBytes() / output4.getElementSizeBytes();
+
+  std::vector<OpConfig> configs{
+      createMcast1DHint(output8, /*in0BlockW=*/1, /*perCoreM=*/1,
+                        /*mcastIn0=*/true, capacity8),
+      createMcast1DHint(output4, /*in0BlockW=*/1, /*perCoreM=*/1,
+                        /*mcastIn0=*/true, capacity4)};
+  auto partials = optimizer_utils::getUniqueTestConfigsForMatmulLinear(configs);
+
+  ASSERT_EQ(partials.size(), 2u);
+  MatmulRuleBook rules;
+  for (const OpConfig &partial : partials) {
+    EXPECT_TRUE(rules.isValidOutputHintForInputs(partial, {interleaved}));
+  }
+}
+
+TEST_F(OpRuleBookTest, EmbeddingRejectsShardedIndicesAndWeights) {
+  llvm::SmallVector<int64_t> shape = {1, 32, 2048};
+  auto dramInterleaved = createDRAMInterleavedLayout(shape);
+  auto l1Interleaved =
+      createTiledLayout(shape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto widthSharded = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 8});
+  auto heightSharded = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::HeightSharded, {8, 1});
+  auto blockSharded = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {2, 4});
+  EmbeddingRuleBook rules;
+
+  for (unsigned operandIdx = 0; operandIdx < 2; ++operandIdx) {
+    auto filter = rules.getInputLayoutFilter(operandIdx);
+    ASSERT_TRUE(filter);
+    EXPECT_TRUE(filter(dramInterleaved));
+    EXPECT_TRUE(filter(l1Interleaved));
+    EXPECT_FALSE(filter(widthSharded));
+    EXPECT_FALSE(filter(heightSharded));
+    EXPECT_FALSE(filter(blockSharded));
+  }
+  EXPECT_FALSE(rules.getInputLayoutFilter(2));
 }
 
 //===----------------------------------------------------------------------===//

@@ -17,6 +17,8 @@
 
 #include <cstdint>
 #include <map>
+#include <tuple>
+#include <vector>
 
 namespace mlir::tt::ttnn::optimizer_utils {
 
@@ -35,26 +37,51 @@ getUniqueOpSpecificAttrs(const std::vector<OpConfig> &configs) {
 
 llvm::SmallVector<OpConfig> getUniqueTestConfigsForMatmulLinear(
     const std::vector<OpConfig> &consumerConfigs) {
-  struct BufferMemLayoutKey {
+  struct LayoutGeometryKey {
     BufferType bufferType;
     TensorMemoryLayout memLayout;
-    bool operator<(const BufferMemLayoutKey &other) const {
-      if (bufferType != other.bufferType) {
-        return bufferType < other.bufferType;
+    std::vector<int64_t> gridShape;
+    std::vector<int64_t> shardShape;
+    std::vector<uint64_t> coreRangeSignature;
+
+    bool operator<(const LayoutGeometryKey &other) const {
+      return std::tie(bufferType, memLayout, gridShape, shardShape,
+                      coreRangeSignature) <
+             std::tie(other.bufferType, other.memLayout, other.gridShape,
+                      other.shardShape, other.coreRangeSignature);
+    }
+
+    static LayoutGeometryKey get(TTNNLayoutAttr layout) {
+      llvm::ArrayRef<int64_t> gridShape = layout.getGridShape();
+      llvm::SmallVector<int64_t> shardShape = layout.getShardShape();
+      LayoutGeometryKey key{
+          layout.getBufferType(),
+          layout.getMemLayout().getValue(),
+          std::vector<int64_t>(gridShape.begin(), gridShape.end()),
+          std::vector<int64_t>(shardShape.begin(), shardShape.end()),
+          {}};
+      if (CoreRangeSetAttr ranges = layout.getCoreRangeSet()) {
+        key.coreRangeSignature.reserve(ranges.getCoreRanges().size() * 4);
+        for (CoreRangeAttr range : ranges.getCoreRanges()) {
+          key.coreRangeSignature.push_back(range.getStartCoord().getX());
+          key.coreRangeSignature.push_back(range.getStartCoord().getY());
+          key.coreRangeSignature.push_back(range.getEndCoord().getX());
+          key.coreRangeSignature.push_back(range.getEndCoord().getY());
+        }
       }
-      return memLayout < other.memLayout;
+      return key;
     }
   };
 
-  // For each unique (bufferType, memLayout), collect:
+  // For each unique output layout geometry, collect:
   //   - A representative partial layout (with ignorePhysicalLayout=true)
-  //   - The unique opSpecificAttrs from configs with that same memLayout
+  //   - The unique opSpecificAttrs from configs with that same geometry
   //
-  // MatmulProgramConfig depends on the tensor memory layout type
-  // (width_sharded uses mcast_in0=true, height_sharded uses mcast_in0=false,
-  // block_sharded uses a 2D config). Pairing a program config generated for
-  // one memLayout type with a different memLayout would produce invalid
-  // configs.
+  // MatmulProgramConfig depends on both the tensor memory layout type and its
+  // physical grid/shard geometry. In particular, per_core_M/N size dynamic
+  // circular buffers which are backed by the output tensor shard. Pairing
+  // attrs generated for one grid with a representative layout from another
+  // can request a CB larger than that layout's shard bank.
   struct LayoutGroup {
     TTNNLayoutAttr partialLayout;
     std::vector<OpConfig::OpSpecificAttrs> uniqueAttrs;
@@ -65,16 +92,15 @@ llvm::SmallVector<OpConfig> getUniqueTestConfigsForMatmulLinear(
   // (e.g., L1-spill's first-fit walk over fallback configs) commit to
   // the first entry, so a shuffled order produces different IR across
   // processes. std::unordered_map iteration depends on bucket layout
-  // and varies between processes; std::map iterates in key order
-  // (bufferType, then memLayout).
-  std::map<BufferMemLayoutKey, LayoutGroup> groups;
+  // and varies between processes; std::map iterates in deterministic geometry
+  // key order.
+  std::map<LayoutGeometryKey, LayoutGroup> groups;
 
   for (const OpConfig &config : consumerConfigs) {
     assert(config.outputLayout &&
            "Matmul/Linear configs must have valid output layout");
 
-    BufferMemLayoutKey key{config.outputLayout.getBufferType(),
-                           config.outputLayout.getMemLayout().getValue()};
+    LayoutGeometryKey key = LayoutGeometryKey::get(config.outputLayout);
 
     LayoutGroup &group = groups[key];
     if (!group.partialLayout) {
@@ -87,7 +113,7 @@ llvm::SmallVector<OpConfig> getUniqueTestConfigsForMatmulLinear(
   }
 
   // Build test configs: each partial layout is paired only with
-  // opSpecificAttrs from configs of the same (bufferType, memLayout) group.
+  // opSpecificAttrs from configs of the same physical/shard geometry group.
   llvm::SmallVector<OpConfig> testConfigs;
   for (const auto &[layoutKey, group] : groups) {
     for (const OpConfig::OpSpecificAttrs &attrs : group.uniqueAttrs) {

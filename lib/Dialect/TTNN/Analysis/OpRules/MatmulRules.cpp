@@ -19,6 +19,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <cmath>
+#include <limits>
 
 namespace mlir::tt::ttnn {
 
@@ -624,6 +625,26 @@ static bool isMcast2DIn0Compatible(
 static bool isMcast1DIn0Compatible(
     const OpConfig &hint, TTNNLayoutAttr in0,
     MatmulMultiCoreReuseMultiCast1DProgramConfigAttr config) {
+  auto outputMemLayout = hint.outputLayout.getMemLayoutOpt();
+  if (outputMemLayout && *outputMemLayout == TensorMemoryLayout::BlockSharded) {
+    auto outputRanges = hint.outputLayout.getCoreRangeSet();
+    auto outputBBox =
+        outputRanges ? outputRanges.getBoundingBox() : std::nullopt;
+    if (!outputBBox) {
+      return false;
+    }
+    bool movesIn0 = config.getMcastIn0() || config.getGatherIn0();
+    if (movesIn0) {
+      if (outputBBox->getStartCoord().getY() !=
+          outputBBox->getEndCoord().getY()) {
+        return false;
+      }
+    } else if (outputBBox->getStartCoord().getX() !=
+               outputBBox->getEndCoord().getX()) {
+      return false;
+    }
+  }
+
   auto memLayout = in0.getMemLayoutOpt();
   if (!memLayout || !isShardedMemoryLayout(*memLayout)) {
     return true;
@@ -648,6 +669,29 @@ static bool isMcast1DIn0Compatible(
   return shardedInputOutputMemoryConfigsMatch(in0, hint.outputLayout);
 }
 
+static bool shardedOutputCBFits(TTNNLayoutAttr output, uint64_t perCoreM,
+                                uint64_t perCoreN) {
+  if (!output) {
+    return true;
+  }
+  auto memLayout = output.getMemLayoutOpt();
+  if (!memLayout || !isShardedMemoryLayout(*memLayout)) {
+    return true;
+  }
+
+  uint64_t elementSize = output.getElementSizeBytes();
+  if (perCoreM != 0 &&
+      perCoreN > std::numeric_limits<uint64_t>::max() / perCoreM) {
+    return false;
+  }
+  uint64_t requiredTiles = perCoreM * perCoreN;
+  if (elementSize != 0 &&
+      requiredTiles > std::numeric_limits<uint64_t>::max() / elementSize) {
+    return false;
+  }
+  return requiredTiles * elementSize <= output.getShardSizeInBytes();
+}
+
 bool MatmulRuleBook::isValidOutputHintForInputs(
     const OpConfig &hint, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
   const auto *attrs = std::get_if<MatmulAttrs>(&hint.opSpecificAttrs);
@@ -655,6 +699,22 @@ bool MatmulRuleBook::isValidOutputHintForInputs(
     return true;
   }
   mlir::Attribute programConfig = attrs->matmulProgramConfig.value();
+
+  if (auto config =
+          mlir::dyn_cast<MatmulMultiCoreReuseMultiCastProgramConfigAttr>(
+              programConfig)) {
+    if (!shardedOutputCBFits(hint.outputLayout, config.getPerCoreM(),
+                             config.getPerCoreN())) {
+      return false;
+    }
+  } else if (auto config = mlir::dyn_cast<
+                 MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(
+                 programConfig)) {
+    if (!shardedOutputCBFits(hint.outputLayout, config.getPerCoreM(),
+                             config.getPerCoreN())) {
+      return false;
+    }
+  }
 
   if (auto dsConfig =
           mlir::dyn_cast<
