@@ -758,6 +758,114 @@ def _rotary_embedding_llama_handler(
         )
 
 
+def _rotary_embedding_handler(
+    jit_ctx, input, cos_cache, sin_cache, token_index=None, **kwargs
+):
+    """Lower generic split-half RoPE to its exact TTIR decomposition.
+
+    TTIR has no generic rotary-embedding op (only the Llama/transformation-matrix
+    variant), while the TTNN dialect op is introduced later by RoPE fusion.  Emit
+    the documented formula here so interception tracing stays in TTIR:
+
+      input * cos + concat(-input[..., D/2:], input[..., :D/2]) * sin
+
+    The Quetzal prefill path supplies full, already-position-selected cos/sin
+    caches.  A scalar ``token_index`` would require cache indexing semantics not
+    represented by this decomposition, so reject it instead of tracing the wrong
+    graph.
+    """
+    if token_index is not None:
+        raise ValueError(
+            "interception rotary_embedding requires position-selected cos/sin "
+            "caches; token_index is not supported"
+        )
+
+    input_type = input.mlir_value.type
+    input_shape = [int(d) for d in input_type.shape]
+    if not input_shape:
+        raise ValueError("rotary_embedding requires a ranked, non-scalar input")
+    head_dim = input_shape[-1]
+    if head_dim <= 0 or head_dim % 2:
+        raise ValueError(
+            f"rotary_embedding requires a positive even head dimension, got {head_dim}"
+        )
+
+    for name, cache in (("cos_cache", cos_cache), ("sin_cache", sin_cache)):
+        cache_type = cache.mlir_value.type
+        cache_shape = [int(d) for d in cache_type.shape]
+        if cache_type.element_type != input_type.element_type:
+            raise ValueError(
+                f"rotary_embedding {name} dtype must match input dtype"
+            )
+        if len(cache_shape) > len(input_shape):
+            raise ValueError(
+                f"rotary_embedding {name} rank {len(cache_shape)} exceeds "
+                f"input rank {len(input_shape)}"
+            )
+        padded = [1] * (len(input_shape) - len(cache_shape)) + cache_shape
+        if any(cache_dim not in (1, input_dim)
+               for cache_dim, input_dim in zip(padded, input_shape)):
+            raise ValueError(
+                f"rotary_embedding {name} shape {cache_shape} is not "
+                f"broadcastable to input shape {input_shape}"
+            )
+
+    rank = len(input_shape)
+    half = head_dim // 2
+    half_shape = list(input_shape)
+    half_shape[-1] = half
+    lo_begins = [0] * rank
+    lo_ends = list(input_shape)
+    lo_ends[-1] = half
+    hi_begins = [0] * rank
+    hi_begins[-1] = half
+    hi_ends = list(input_shape)
+    steps = [1] * rank
+
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        half_type = RankedTensorType.get(
+            half_shape, input_type.element_type
+        )
+        result_type = RankedTensorType.get(
+            input_shape, input_type.element_type
+        )
+        x_lo = ttir.slice_static(
+            result=half_type,
+            input=input.mlir_value,
+            begins=lo_begins,
+            ends=lo_ends,
+            step=steps,
+        )
+        x_hi = ttir.slice_static(
+            result=half_type,
+            input=input.mlir_value,
+            begins=hi_begins,
+            ends=hi_ends,
+            step=steps,
+        )
+        neg_hi = ttir.neg(result=half_type, input=x_hi)
+        rotated = ttir.concat(
+            result=result_type,
+            inputs=[neg_hi, x_lo],
+            dim=rank - 1,
+        )
+        x_cos = ttir.multiply(
+            result=result_type,
+            lhs=input.mlir_value,
+            rhs=cos_cache.mlir_value,
+        )
+        rotated_sin = ttir.multiply(
+            result=result_type,
+            lhs=rotated,
+            rhs=sin_cache.mlir_value,
+        )
+        return ttir.add(
+            result=result_type,
+            lhs=x_cos,
+            rhs=rotated_sin,
+        )
+
+
 def _paged_update_cache_handler(
     jit_ctx, cache, input, *, update_idxs_tensor, page_table=None, **kwargs
 ):
@@ -795,6 +903,7 @@ _EXPERIMENTAL_VALUE = {
     "nlp_concat_heads_decode": _nlp_concat_heads_decode_handler,
     "paged_fill_cache": _paged_fill_cache_handler,
     "paged_update_cache": _paged_update_cache_handler,
+    "rotary_embedding": _rotary_embedding_handler,
     "rotary_embedding_llama": _rotary_embedding_llama_handler,
 }
 

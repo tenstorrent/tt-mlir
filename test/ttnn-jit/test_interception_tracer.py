@@ -380,3 +380,44 @@ def test_rotary_embedding_llama_handler():
         )
     assert out.shape == (1, 32, 32, 128)
     assert "rotary_embedding_llama" in str(scope.module)
+
+
+def test_rotary_embedding_handler_emits_exact_split_half_decomposition():
+    import ttnn as _ttnn
+    from ttnn_jit.ttmlir.ir import InsertionPoint, Location
+    from ttnn_jit.ttmlir.dialects import func as _func
+
+    scope = build_trace_scope("f", [((1, 16, 1024, 128), _ttnn.bfloat16)])
+    x = scope.traced_args[0]
+    cos = _DummyTensor((1, 1, 1024, 128), _ttnn.bfloat16)
+    sin = _DummyTensor((1, 1, 1024, 128), _ttnn.bfloat16)
+    with patch_ttnn(scope.jit_ctx):
+        out = _ttnn.experimental.rotary_embedding(
+            x, cos, sin, memory_config=_ttnn.DRAM_MEMORY_CONFIG
+        )
+
+    assert out.shape == (1, 16, 1024, 128)
+    ir = str(scope.module)
+    assert ir.count("ttir.slice_static") == 2
+    assert ir.count("ttir.multiply") == 2
+    assert "ttir.neg" in ir
+    assert "ttir.concat" in ir
+    assert "ttir.add" in ir
+
+    with InsertionPoint(scope.func_bb), Location.unknown(scope.ctx):
+        _func.ReturnOp([out.mlir_value])
+    scope.module.operation.verify()
+
+
+def test_rotary_embedding_handler_rejects_unmodeled_token_index():
+    import ttnn as _ttnn
+
+    scope = build_trace_scope("f", [((1, 16, 1, 128), _ttnn.bfloat16)])
+    x = scope.traced_args[0]
+    cos = _DummyTensor((1, 1, 32, 128), _ttnn.bfloat16)
+    sin = _DummyTensor((1, 1, 32, 128), _ttnn.bfloat16)
+    with patch_ttnn(scope.jit_ctx):
+        with pytest.raises(ValueError, match="token_index is not supported"):
+            _ttnn.experimental.rotary_embedding(
+                x, cos, sin, token_index=7
+            )
