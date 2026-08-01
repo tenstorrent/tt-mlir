@@ -124,17 +124,24 @@ def test_trace_intercepted_cross_function_shape_and_weight_capture():
     assert tuple(int(d) for d in out_type.shape) == (256, 512)
 
 
-def test_passthrough_to_memory_config_is_identity_and_emits_no_op():
+def test_passthrough_ops_are_identity_and_emit_no_op():
     scope = build_trace_scope("f", [((256, 512), ttnn.bfloat16)])
     x = scope.traced_args[0]
+    cache = _DummyTensor((1, 8, 1024, 64), ttnn.bfloat16)
     with patch_ttnn(scope.jit_ctx):
         out = ttnn.to_memory_config(x, ttnn.DRAM_MEMORY_CONFIG)
         also = ttnn.sharded_to_interleaved(x, ttnn.DRAM_MEMORY_CONFIG)
+        cloned = ttnn.clone(x, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        updated = ttnn.update_cache(cache, x, 1023)
         dealloc = ttnn.deallocate(x)
     assert out is x  # identity: same proxy back
     assert also is x
+    assert cloned is x
+    assert updated is x
     assert dealloc is None
     assert "to_memory_config" not in str(scope.module)
+    assert "clone" not in str(scope.module)
+    assert "update_cache" not in str(scope.module)
     assert "ttir.empty" not in str(scope.module)  # x not re-materialized
 
 

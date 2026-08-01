@@ -171,10 +171,12 @@ def _restore_patched(module, saved):
 
 
 _PASSTHROUGH_IDENTITY = {
+    "clone",
     "to_memory_config",
     "interleaved_to_sharded",
     "sharded_to_interleaved",
     "to_layout",
+    "update_cache",
 }
 _PASSTHROUGH_NONE = {"deallocate"}
 
