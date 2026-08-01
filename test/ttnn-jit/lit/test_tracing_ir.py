@@ -64,6 +64,11 @@ def permute_4d_func(a):
     return ttnn.permute(a, permutation=[0, 2, 1, 3])
 
 
+def permute_4d_positional_func(a):
+    """4D attention-style transpose using TTNN's positional API."""
+    return ttnn.permute(a, (0, 2, 1, 3))
+
+
 # ============================================================
 # Tensor manipulation (TM) operations - transpose tests
 # ============================================================
@@ -649,6 +654,15 @@ if __name__ == "__main__":
     # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(permute_4d_func, input_4d)
+
+    # Positional permutation uses the same TTIR operation and must not be
+    # mistaken for a second tensor operand by interception tracing.
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @permute_4d_positional_func
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.permute"(%arg0)
+    # CHECK-SAME: permutation = array<i64: 0, 2, 1, 3>
+    # CHECK: return
+    test_ir_generation(permute_4d_positional_func, input_4d)
 
     # ============================================================
     # Tensor manipulation (TM) operations tests - transpose

@@ -530,18 +530,21 @@ class PermuteOpHandler(BaseOpHandler):
         if len(args) < 1:
             raise ValueError("permute requires at least 1 argument (input tensor)")
 
-        operands = self._get_operands(args)
+        # TTNN accepts the permutation either positionally or by keyword.
+        # Only the first argument is a tensor operand; resolving a positional
+        # permutation as a function block argument breaks interception tracing.
+        operands = self._get_operands(args[:1])
         operand = operands[0]
 
-        # Extract permutation from kwargs
-        permutation = kwargs.get("permutation", None)
+        # Extract permutation from either supported calling convention.
+        permutation = kwargs.get("permutation", args[1] if len(args) > 1 else None)
         if permutation is None:
-            raise ValueError("permute requires 'permutation' keyword argument")
+            raise ValueError("permute requires a permutation argument")
 
         # Validate permutation - only check what's needed to prevent Python crash.
         # Semantic validation (length, uniqueness) is handled by MLIR verify().
         input_rank = len(operand.type.shape)
-        if any(p >= input_rank for p in permutation):
+        if any(p < 0 or p >= input_rank for p in permutation):
             raise ValueError(
                 f"Permutation contains out-of-bounds index for tensor with rank {input_rank}"
             )
