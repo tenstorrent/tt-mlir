@@ -257,7 +257,7 @@ setup(
     ext_modules=[ttnn_jit_ext],
     cmdclass={"build_ext": CMakeBuild},
     install_requires=[],
-    python_requires=">=3.12",
+    python_requires=">=3.10",
     zip_safe=False,
     entry_points={
         "console_scripts": [

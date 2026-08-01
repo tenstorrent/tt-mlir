@@ -4,6 +4,9 @@ set(TT_METAL_VERSION "13adda80c119631d18b0bc06163416ba148c25ab")
 
 set(TTMLIR_TTMETAL_SOURCE_DIR "" CACHE PATH
     "Path to a user-managed tt-metal checkout. If empty, ExternalProject clones tt-metal at TT_METAL_VERSION.")
+option(TTMLIR_TTMETAL_PREBUILT
+  "Use an already-built TTMLIR_TTMETAL_SOURCE_DIR without rebuilding or installing it"
+  OFF)
 
 if (TTMLIR_TTMETAL_SOURCE_DIR)
   get_filename_component(TTMETAL_SOURCE_DIR "${TTMLIR_TTMETAL_SOURCE_DIR}" ABSOLUTE)
@@ -141,11 +144,19 @@ endif()
 set(METAL_INSTALL_PREFIX "${TTMETAL_BUILD_DIR}")
 
 if (TTMLIR_TTMETAL_SOURCE_DIR)
+  if (TTMLIR_TTMETAL_PREBUILT)
+    set(_tt_metal_source_args
+      SOURCE_DIR ${TTMETAL_SOURCE_DIR}
+      DOWNLOAD_COMMAND ${CMAKE_COMMAND} -E true
+      UPDATE_COMMAND ${CMAKE_COMMAND} -E true
+    )
+  else()
   set(_tt_metal_source_args
     SOURCE_DIR ${TTMETAL_SOURCE_DIR}
     DOWNLOAD_COMMAND ""
     UPDATE_COMMAND ""
   )
+  endif()
 else()
   set(_tt_metal_source_args
     GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
@@ -154,12 +165,24 @@ else()
   )
 endif()
 
+if (TTMLIR_TTMETAL_PREBUILT)
+  set(_tt_metal_build_args
+    PATCH_COMMAND ${CMAKE_COMMAND} -E true
+    CONFIGURE_COMMAND ${CMAKE_COMMAND} -E true
+    BUILD_COMMAND ${CMAKE_COMMAND} -E true
+    INSTALL_COMMAND ${CMAKE_COMMAND} -E true
+  )
+else()
+  set(_tt_metal_build_args
+    PATCH_COMMAND ${CMAKE_COMMAND} -E make_directory ${TTMETAL_BUILD_DIR}
+  )
+endif()
+
 ExternalProject_Add(
   tt-metal
   PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
   BINARY_DIR ${TTMETAL_BUILD_DIR}
-  # This patch command creates the build dir that otherwise doesn't get created
-  PATCH_COMMAND ${CMAKE_COMMAND} -E make_directory ${TTMETAL_BUILD_DIR}
+  ${_tt_metal_build_args}
   CMAKE_ARGS
     -DCMAKE_INSTALL_MESSAGE=NEVER
   CMAKE_GENERATOR Ninja

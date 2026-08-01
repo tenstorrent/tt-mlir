@@ -823,6 +823,43 @@ def _nlp_concat_heads_handler(jit_ctx, x, **kwargs):
 # --- multi-result handlers (return an OpResultList) -------------------------
 
 
+def _transformer_split_qkv_handler(
+    jit_ctx,
+    input_tensor,
+    kv_input_tensor=None,
+    *,
+    num_heads,
+    num_kv_heads=None,
+    transpose_key=True,
+    **kwargs,
+):
+    t = input_tensor.mlir_value.type
+    b = int(t.shape[0])
+    seq = int(t.shape[-2])
+    qkv_size = int(t.shape[-1])
+    nkv = num_kv_heads if num_kv_heads is not None else num_heads
+    head_dim = qkv_size // (num_heads + 2 * nkv)
+    et = t.element_type
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        reshaped = ttnn.reshape(
+            result=_tt(jit_ctx.ctx, [b, seq, qkv_size], et),
+            input=input_tensor.mlir_value,
+            shape=[b, seq, qkv_size],
+        )
+        qt = _tt(jit_ctx.ctx, [b, num_heads, seq, head_dim], et)
+        kt = _tt(jit_ctx.ctx, [b, nkv, seq, head_dim], et)
+        vt = _tt(jit_ctx.ctx, [b, nkv, seq, head_dim], et)
+        return ttnn.split_query_key_value_and_split_heads(
+            qt,
+            kt,
+            vt,
+            reshaped,
+            num_heads,
+            bool(transpose_key),
+            num_kv_heads=nkv,
+        )
+
+
 def _nlp_create_qkv_heads_handler(
     jit_ctx, xqkv, *, num_heads, num_kv_heads, transpose_k_heads=False, **kwargs
 ):
@@ -1068,6 +1105,10 @@ _TRANSFORMER_VALUE = {
     "scaled_dot_product_attention_decode": _sdpa_decode_handler,
     "chunked_scaled_dot_product_attention": _chunked_sdpa_handler,
     "paged_scaled_dot_product_attention_decode": _paged_sdpa_decode_handler,
+    "concatenate_heads": _nlp_concat_heads_handler,
+}
+_TRANSFORMER_MULTI = {
+    "split_query_key_value_and_split_heads": _transformer_split_qkv_handler,
 }
 
 # Layout ops are no-ops for analysis: return the tensor unchanged (see the TTIR
@@ -1077,6 +1118,8 @@ _PASSTHROUGH_IDENTITY = {
     "to_layout",
     "interleaved_to_sharded",
     "sharded_to_interleaved",
+    "clone",
+    "update_cache",
 }
 _PASSTHROUGH_NONE = {"deallocate"}
 
@@ -1150,6 +1193,9 @@ def patch_ttnn(jit_ctx):
             for name, value_fn in _TRANSFORMER_VALUE.items():
                 tr_originals[name] = getattr(transformer, name, _MISSING)
                 setattr(transformer, name, _make_value_op(value_fn, jit_ctx))
+            for name, value_fn in _TRANSFORMER_MULTI.items():
+                tr_originals[name] = getattr(transformer, name, _MISSING)
+                setattr(transformer, name, _make_multi_op(value_fn, jit_ctx))
         # Stub every allowlist op we don't emit yet so it fails loudly instead of
         # falling through to a real on-device ttnn call on a TracedTensor.
         for name in _ALLOWLIST - set(_VALUE_HANDLERS) - set(_TOPLEVEL_MULTI):

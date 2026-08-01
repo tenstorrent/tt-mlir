@@ -157,7 +157,7 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Gelu: {
-    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::gelu);
+    LOG_FATAL("GELU execution is unavailable in the advisor-only v0.76 build");
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::IsFinite: {

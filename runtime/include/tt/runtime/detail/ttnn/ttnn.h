@@ -73,6 +73,7 @@
 #include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/shape/shape.hpp"
 #include "ttnn/tensor/tensor.hpp"
+#include "ttnn/tensor/tensor_ops.hpp"
 #include "ttnn/tensor/types.hpp"
 
 #include "tt/runtime/types.h"
@@ -80,6 +81,20 @@
 
 #include <optional>
 #include <vector>
+
+namespace ttnn {
+using TensorSpec = ::tt::tt_metal::TensorSpec;
+}
+namespace tt::tt_metal {
+using Storage = ::ttnn::Storage;
+using HostStorage = ::ttnn::HostStorage;
+using DeviceStorage = ::ttnn::DeviceStorage;
+using ::ttnn::copy_to_device;
+using ::ttnn::copy_to_host;
+using ::ttnn::create_device_tensor;
+using ::ttnn::dump_tensor_flatbuffer;
+using ::ttnn::load_tensor_flatbuffer;
+}
 
 namespace tt::runtime::ttnn {
 

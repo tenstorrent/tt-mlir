@@ -16,7 +16,9 @@ def _stamp_ttnn_op_schema():
     import inspect
     from . import _ttnn_ops_gen
 
-    for _, cls in inspect.getmembers_static(_ttnn_ops_gen, inspect.isclass):
+    # inspect.getmembers_static was added in Python 3.11. The generated op
+    # module has no dynamic attributes, so getmembers is equivalent on 3.10.
+    for _, cls in inspect.getmembers(_ttnn_ops_gen, inspect.isclass):
         entry = _OP_SCHEMA.get(getattr(cls, "OPERATION_NAME", None))
         if entry is None:
             continue

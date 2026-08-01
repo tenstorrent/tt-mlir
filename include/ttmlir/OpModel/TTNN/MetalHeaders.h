@@ -15,6 +15,21 @@
 #include "tt-metalium/experimental/mock_device/mock_device.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "ttnn/graph/graph_processor.hpp"
+#include "ttnn/tensor/tensor_ops.hpp"
+#include "ttnn/tensor/tensor.hpp"
+#include "ttnn/tensor/tensor_spec.hpp"
+#include "ttnn/tensor/types.hpp"
+
+// tt-metal v0.76 moved Tensor and tensor construction into ttnn, while
+// downstream tt-mlir still refers to their former namespaces.
+namespace ttnn {
+using TensorSpec = ::tt::tt_metal::TensorSpec;
+}
+namespace tt::tt_metal {
+using Tensor = ::ttnn::Tensor;
+using ::ttnn::create_device_tensor;
+}
+
 // using namespace removed in metal
 // but IDevice cannot be resolved by "ttnn/graph/graph_query_op_constraints.hpp"
 using IDevice = ::tt::tt_metal::IDevice;

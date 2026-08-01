@@ -10,12 +10,8 @@
 #include "tt/runtime/types.h"
 
 // Forward declarations to avoid including heavy tensor headers
-namespace tt::tt_metal {
-class Tensor;
-} // namespace tt::tt_metal
-
 namespace ttnn {
-using Tensor = tt::tt_metal::Tensor;
+class Tensor;
 } // namespace ttnn
 
 namespace mlir::tt::ttnn::jit {
