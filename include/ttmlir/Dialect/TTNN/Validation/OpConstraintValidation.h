@@ -15,6 +15,7 @@
 #include "llvm/Support/Error.h"
 
 #include <cassert>
+#include <optional>
 
 namespace mlir::tt::ttnn {
 
@@ -32,6 +33,15 @@ enum class ValidationStatus {
 
 // Convert ValidationStatus to string for error messages
 llvm::StringRef validationStatusToString(ValidationStatus status);
+
+/// Reject Matmul/Linear layout + program-config combinations which would fail
+/// while constructing a dynamically tensor-backed circular buffer. This runs
+/// before OpModel so tt-metal is never called for known-invalid combinations.
+/// Returns a diagnostic when invalid and std::nullopt when the combination is
+/// safe for backend validation (or is not a relevant Matmul program config).
+std::optional<std::string>
+getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                        const OpConfig &config);
 
 // Result of a single constraint validation test.
 struct ValidationResult {

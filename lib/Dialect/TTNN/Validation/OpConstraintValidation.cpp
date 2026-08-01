@@ -19,6 +19,8 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include <limits>
+
 namespace mlir::tt::ttnn {
 
 namespace op_constraint_validation {
@@ -37,6 +39,106 @@ llvm::StringRef validationStatusToString(ValidationStatus status) {
     return "OutOfMemoryError";
   }
   return "Unknown";
+}
+
+static bool tensorBackedCBFits(TTNNLayoutAttr layout, uint64_t rows,
+                               uint64_t cols) {
+  if (!layout) {
+    return true;
+  }
+  auto memLayout = layout.getMemLayoutOpt();
+  if (!memLayout || !isShardedMemoryLayout(*memLayout)) {
+    return true;
+  }
+
+  uint64_t elementSize = layout.getElementSizeBytes();
+  if (rows != 0 && cols > std::numeric_limits<uint64_t>::max() / rows) {
+    return false;
+  }
+  uint64_t elements = rows * cols;
+  if (elementSize != 0 &&
+      elements > std::numeric_limits<uint64_t>::max() / elementSize) {
+    return false;
+  }
+  return elements * elementSize <= layout.getShardSizeInBytes();
+}
+
+std::optional<std::string>
+getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                        const OpConfig &config) {
+  const auto *attrs = std::get_if<MatmulAttrs>(&config.opSpecificAttrs);
+  if (!attrs || !attrs->matmulProgramConfig || !*attrs->matmulProgramConfig) {
+    return std::nullopt;
+  }
+
+  Attribute programConfig = *attrs->matmulProgramConfig;
+  uint64_t perCoreM = 0;
+  uint64_t perCoreN = 0;
+  bool is1D = false;
+  bool movesIn0 = false;
+  if (auto attr = dyn_cast<MatmulMultiCoreReuseMultiCastProgramConfigAttr>(
+          programConfig)) {
+    perCoreM = attr.getPerCoreM();
+    perCoreN = attr.getPerCoreN();
+  } else if (auto attr =
+                 dyn_cast<MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(
+                     programConfig)) {
+    perCoreM = attr.getPerCoreM();
+    perCoreN = attr.getPerCoreN();
+    is1D = true;
+    movesIn0 = attr.getMcastIn0() || attr.getGatherIn0();
+  } else {
+    return std::nullopt;
+  }
+
+  TTNNLayoutAttr output = config.outputLayout;
+  if (!tensorBackedCBFits(output, perCoreM, perCoreN)) {
+    return "matmul output circular buffer exceeds its tensor shard";
+  }
+
+  if (!inputLayouts.empty() && inputLayouts[0]) {
+    TTNNLayoutAttr in0 = inputLayouts[0];
+    auto memLayout = in0.getMemLayoutOpt();
+    if (memLayout && isShardedMemoryLayout(*memLayout)) {
+      auto shardShape = in0.getShardShape();
+      if (shardShape.size() != 2 ||
+          !tensorBackedCBFits(in0, perCoreM, shardShape[1])) {
+        return "matmul input 0 circular buffer exceeds its tensor shard";
+      }
+    }
+  }
+
+  if (inputLayouts.size() > 1 && inputLayouts[1]) {
+    TTNNLayoutAttr in1 = inputLayouts[1];
+    auto memLayout = in1.getMemLayoutOpt();
+    if (memLayout && isShardedMemoryLayout(*memLayout)) {
+      auto shardShape = in1.getShardShape();
+      if (shardShape.size() != 2 ||
+          !tensorBackedCBFits(in1, shardShape[0], perCoreN)) {
+        return "matmul input 1 circular buffer exceeds its tensor shard";
+      }
+    }
+  }
+
+  auto outputMemLayout = output ? output.getMemLayoutOpt() : std::nullopt;
+  if (is1D && outputMemLayout &&
+      *outputMemLayout == TensorMemoryLayout::BlockSharded) {
+    CoreRangeSetAttr ranges = output.getCoreRangeSet();
+    auto bbox = ranges ? ranges.getBoundingBox() : std::nullopt;
+    if (!bbox) {
+      return "matmul 1D BlockSharded output has no physical core range";
+    }
+    if (movesIn0 &&
+        bbox->getStartCoord().getY() != bbox->getEndCoord().getY()) {
+      return "matmul 1D BlockSharded output is not a physical row";
+    }
+    if (!movesIn0 &&
+        bbox->getStartCoord().getX() != bbox->getEndCoord().getX()) {
+      return "matmul 1D BlockSharded output is not a physical column";
+    }
+  }
+
+  return std::nullopt;
 }
 
 static ValidationResult
@@ -160,6 +262,12 @@ checkConstraintsResult(Operation *contextOp,
 static ValidationResult
 validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                     const OpConfig &config, uint64_t additionalL1Usage) {
+
+  if (isa<MatmulOp, LinearOp>(op)) {
+    if (auto error = getMatmulPreflightError(inputLayouts, config)) {
+      return ValidationResult::metalBackendError(*error);
+    }
+  }
 
   // Check that operation supports OpModel interface.
   auto backend = mlir::dyn_cast<OpModel>(op);

@@ -29,6 +29,7 @@
 #include "gtest/gtest.h"
 
 using namespace mlir::tt::ttnn;
+using namespace mlir::tt::ttnn::op_constraint_validation;
 using namespace mlir::tt;
 
 class OpModelStrategyTest : public ::testing::Test {
@@ -543,6 +544,42 @@ TEST_F(OpRuleBookTest, MatmulShardedOutputCBMustFitTensorShard) {
       {interleaved}));
 }
 
+TEST_F(OpRuleBookTest, MatmulPreflightRejectsTensorBackedCBCapacity) {
+  llvm::SmallVector<int64_t> shape = {1, 32, 2048};
+  llvm::SmallVector<int64_t> largeOutputShape = {1, 64, 2048};
+  auto interleaved = createDRAMInterleavedLayout(shape);
+  auto output = createTiledLayout(largeOutputShape, BufferType::L1,
+                                  TensorMemoryLayout::WidthSharded, {1, 8});
+  auto shardedInput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 8});
+  uint64_t outputCapacity =
+      output.getShardSizeInBytes() / output.getElementSizeBytes();
+
+  EXPECT_FALSE(getMatmulPreflightError(
+      {interleaved, interleaved},
+      createMcast1DHint(output, /*in0BlockW=*/1, /*perCoreM=*/1,
+                        /*mcastIn0=*/true, outputCapacity)));
+  EXPECT_TRUE(getMatmulPreflightError(
+                  {interleaved, interleaved},
+                  createMcast1DHint(output, /*in0BlockW=*/1, /*perCoreM=*/1,
+                                    /*mcastIn0=*/true, outputCapacity + 1))
+                  .value()
+                  .find("output") != std::string::npos);
+
+  EXPECT_TRUE(getMatmulPreflightError(
+                  {shardedInput, interleaved},
+                  createMcast1DHint(output, /*in0BlockW=*/1, /*perCoreM=*/2,
+                                    /*mcastIn0=*/true, /*perCoreN=*/1))
+                  .value()
+                  .find("input 0") != std::string::npos);
+  EXPECT_TRUE(getMatmulPreflightError(
+                  {interleaved, shardedInput},
+                  createMcast1DHint(output, /*in0BlockW=*/1, /*perCoreM=*/1,
+                                    /*mcastIn0=*/true, /*perCoreN=*/9))
+                  .value()
+                  .find("input 1") != std::string::npos);
+}
+
 TEST_F(OpRuleBookTest, MatmulMcast1DBlockOutputRequiresPhysicalRowOrColumn) {
   llvm::SmallVector<int64_t> shape = {1, 32, 2048};
   auto interleaved = createDRAMInterleavedLayout(shape);
@@ -576,6 +613,44 @@ TEST_F(OpRuleBookTest, MatmulMcast1DBlockOutputRequiresPhysicalRowOrColumn) {
       createMcast1DHint(multiColumn, /*in0BlockW=*/1, /*perCoreM=*/1,
                         /*mcastIn0=*/false),
       {interleaved}));
+}
+
+TEST_F(OpRuleBookTest, MatmulPreflightRejectsInvalidPhysical1DBlockGrid) {
+  llvm::SmallVector<int64_t> shape = {1, 32, 2048};
+  auto interleaved = createDRAMInterleavedLayout(shape);
+  auto singleRow = createTiledLayoutWithCoreRange(
+      shape, TensorMemoryLayout::BlockSharded, {1, 8},
+      /*startX=*/0, /*startY=*/0, /*endX=*/7, /*endY=*/0);
+  auto multiRow = createTiledLayoutWithCoreRange(
+      shape, TensorMemoryLayout::BlockSharded, {1, 8},
+      /*startX=*/0, /*startY=*/0, /*endX=*/3, /*endY=*/1);
+  auto singleColumn = createTiledLayoutWithCoreRange(
+      shape, TensorMemoryLayout::BlockSharded, {8, 1},
+      /*startX=*/0, /*startY=*/0, /*endX=*/0, /*endY=*/7);
+  auto multiColumn = createTiledLayoutWithCoreRange(
+      shape, TensorMemoryLayout::BlockSharded, {8, 1},
+      /*startX=*/0, /*startY=*/0, /*endX=*/1, /*endY=*/3);
+
+  EXPECT_FALSE(getMatmulPreflightError(
+      {interleaved},
+      createMcast1DHint(singleRow, /*in0BlockW=*/1, /*perCoreM=*/1,
+                        /*mcastIn0=*/true)));
+  EXPECT_TRUE(getMatmulPreflightError(
+                  {interleaved},
+                  createMcast1DHint(multiRow, /*in0BlockW=*/1, /*perCoreM=*/1,
+                                    /*mcastIn0=*/true))
+                  .value()
+                  .find("physical row") != std::string::npos);
+  EXPECT_FALSE(getMatmulPreflightError(
+      {interleaved},
+      createMcast1DHint(singleColumn, /*in0BlockW=*/1, /*perCoreM=*/1,
+                        /*mcastIn0=*/false)));
+  EXPECT_TRUE(getMatmulPreflightError(
+                  {interleaved}, createMcast1DHint(multiColumn, /*in0BlockW=*/1,
+                                                   /*perCoreM=*/1,
+                                                   /*mcastIn0=*/false))
+                  .value()
+                  .find("physical column") != std::string::npos);
 }
 
 TEST_F(OpRuleBookTest, MatmulPartialConfigDedupPreservesOutputGeometry) {
