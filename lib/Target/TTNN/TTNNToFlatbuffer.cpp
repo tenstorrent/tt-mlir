@@ -3336,10 +3336,12 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
   ::flatbuffers::Optional<uint32_t> slidingWindowSize =
       toFlatbuffer(cache, op.getSlidingWindowSize());
 
+  auto computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
   return ::tt::target::ttnn::CreateScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, isCausal, attentionMask, curPosTensor,
       attentionSink, scale, slidingWindowSize, out, memoryConfig,
-      programConfig.value_or(0));
+      programConfig.value_or(0), computeConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<
@@ -3384,10 +3386,12 @@ createOp(FlatbufferObjectCache &cache,
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::SDPAConfig>>
       programConfig = toFlatbuffer(cache, op.getProgramConfig());
 
+  auto computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
   return ::tt::target::ttnn::CreatePagedScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, pageTable, isCausal, attentionMask,
       curPosTensor, attentionSink, scale, slidingWindowSize, out, memoryConfig,
-      programConfig.value_or(0));
+      programConfig.value_or(0), computeConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ChunkedScaledDotProductAttentionOp>
@@ -3418,9 +3422,11 @@ createOp(FlatbufferObjectCache &cache, ChunkedScaledDotProductAttentionOp op) {
       programConfig = toFlatbuffer(cache, op.getProgramConfig());
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
+  auto computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
   return ::tt::target::ttnn::CreateChunkedScaledDotProductAttentionOp(
       *cache.fbb, query, key, value, pageTable, chunkStartIdx, scale, out,
-      memoryConfig, programConfig.value_or(0));
+      memoryConfig, programConfig.value_or(0), computeConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<
@@ -3465,9 +3471,12 @@ createOp(FlatbufferObjectCache &cache,
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
 
+  auto computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
   return ::tt::target::ttnn::CreatePagedFlashMultiLatentAttentionDecodeOp(
       *cache.fbb, query, key, value, headDimV, pageTable, isCausal,
-      attentionMask, curPosTensor, attentionSink, scale, out, memoryConfig);
+      attentionMask, curPosTensor, attentionSink, scale, out, memoryConfig,
+      computeConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ScaledDotProductAttentionOp>
@@ -3505,10 +3514,13 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionOp op) {
                                  getOperandThroughDPSOps(op.getAttentionSink()))
                            : 0;
 
+  auto computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
   return ::tt::target::ttnn::CreateScaledDotProductAttentionOp(
       *cache.fbb, query, key, value, isCausal, attentionMask, scale,
-      slidingWindowSize, attentionSink, out, memoryConfig);
+      slidingWindowSize, attentionSink, out, memoryConfig,
+      computeConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::FlashMlaPrefillOp>
@@ -3540,9 +3552,11 @@ createOp(FlatbufferObjectCache &cache, FlashMlaPrefillOp op) {
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
 
+  auto computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
   return ::tt::target::ttnn::CreateFlashMlaPrefillOp(
       *cache.fbb, query, key, value, attentionMask, headDimV, isCausal, scale,
-      out, memoryConfig);
+      out, memoryConfig, computeConfig.value_or(0));
 }
 
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>

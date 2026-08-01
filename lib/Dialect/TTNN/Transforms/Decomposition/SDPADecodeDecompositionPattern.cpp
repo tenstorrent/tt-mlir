@@ -53,7 +53,8 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
             op.getOperation(), op.getLoc(), {qType}, op.getQuery(), op.getKey(),
             op.getValue(), op.getIsCausalAttr(), op.getAttentionMask(),
             op.getCurPosTensor(), op.getAttentionSink(), op.getScaleAttr(),
-            op.getSlidingWindowSizeAttr(), op.getProgramConfigAttr());
+            op.getSlidingWindowSizeAttr(), op.getProgramConfigAttr(),
+            op.getComputeConfigAttr());
 
     if (validationResult.isSuccess()) {
       return failure();
@@ -375,7 +376,8 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
       loc, permutedQuery.getType(), permutedQuery, op.getKey(), op.getValue(),
       scaledMask,
       /*is_causal=*/rewriter.getBoolAttr(false), op.getScaleAttr(),
-      /*sliding_window_size=*/IntegerAttr(), attentionSink);
+      /*sliding_window_size=*/IntegerAttr(), attentionSink,
+      op.getComputeConfigAttr());
 
   // Permute result back from [B, H, 1, D] to [1, B, H, D].
   Value finalResult =

@@ -4,6 +4,7 @@
 
 #include "operations/transformer/paged_flash_multi_latent_attention_decode.h"
 
+#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::transformer {
@@ -55,13 +56,19 @@ static void runPagedFlashMultiLatentAttentionDecodeOp(
   programConfig->compute_with_storage_grid_size =
       query.device()->compute_with_storage_grid_size();
 
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   ::ttnn::Tensor out =
       ::ttnn::transformer::paged_flash_multi_latent_attention_decode(
           query, key, value, headDimV, pageTable, isCausal, attentionMask,
           curPosTensor, attentionSink, scale, slidingWindowSize,
           outputMemoryConfig,
           /*program_config=*/programConfig,
-          /*compute_kernel_config=*/std::nullopt);
+          /*compute_kernel_config=*/computeConfig);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 

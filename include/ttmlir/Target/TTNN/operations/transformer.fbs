@@ -66,6 +66,7 @@ table ScaledDotProductAttentionDecodeOp {
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
   program_config: tt.target.ttnn.SDPAConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
 
 table ScaledDotProductAttentionOp {
@@ -79,6 +80,7 @@ table ScaledDotProductAttentionOp {
   attention_sink: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
 
 table FlashMlaPrefillOp {
@@ -91,6 +93,7 @@ table FlashMlaPrefillOp {
   scale: float = null;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
 
 table NLPCreateQKVHeadsDecodeOp {
@@ -132,6 +135,7 @@ table PagedScaledDotProductAttentionDecodeOp {
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
   program_config: tt.target.ttnn.SDPAConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
 
 table ChunkedScaledDotProductAttentionOp {
@@ -144,6 +148,7 @@ table ChunkedScaledDotProductAttentionOp {
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
   program_config: tt.target.ttnn.SDPAConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
 
 table PagedFlashMultiLatentAttentionDecodeOp {
@@ -159,4 +164,5 @@ table PagedFlashMultiLatentAttentionDecodeOp {
   scale: float = null;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }

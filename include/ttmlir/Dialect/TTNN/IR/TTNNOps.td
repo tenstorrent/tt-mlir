@@ -3849,7 +3849,7 @@ def TTNN_LoadTensorOp : TTNN_Op<"load_tensor", [OpModelExempt]> {
 }
 
 
-def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
+def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attention_decode", [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "A version of scaled dot product attention specifically for decode.";
     let description = [{
       Flash-Decode SDPA for single-query-token decode. Supports MQA and GQA.
@@ -3874,6 +3874,9 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
           sliding_window_size (uint, optional): Restrict attention to the last
               N keys, anchored at the decode position (`cur_pos`, defaulting to
               the last kv position when not provided). Defaults to `None`.
+          compute_config (DeviceComputeKernelConfig, optional): Device compute
+              kernel configuration. Controls math fidelity, approximation mode,
+              and accumulation precision. Defaults to `None` (TTNN decides).
 
       Returns:
           AnyRankedTensor: `[1 x B x Hq x D]` (same type as `query`).
@@ -3888,7 +3891,8 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
                          Optional<AnyRankedTensor>:$attention_sink,
                          OptionalAttr<F32Attr>:$scale,
                          OptionalAttr<UI32Attr>:$sliding_window_size,
-                         OptionalAttr<TTNN_SDPAProgramConfigAttr>:$program_config);
+                         OptionalAttr<TTNN_SDPAProgramConfigAttr>:$program_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -3901,10 +3905,15 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
     let hasVerifier = 1;
 }
 
-def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
+def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_product_attention_decode", [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface]> {
   let summary = "Paged scaled dot product attention decode operation.";
   let description = [{
     Paged scaled dot product attention decode operation.
+
+    Args:
+        compute_config (DeviceComputeKernelConfig, optional): Device compute
+            kernel configuration. Controls math fidelity, approximation mode,
+            and accumulation precision. Defaults to `None` (TTNN decides).
   }];
 
   let arguments = (ins AnyRankedTensor:$query,
@@ -3917,7 +3926,8 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
                        Optional<AnyRankedTensor>:$attention_sink,
                        OptionalAttr<F32Attr>:$scale,
                        OptionalAttr<UI32Attr>:$sliding_window_size,
-                       OptionalAttr<TTNN_SDPAProgramConfigAttr>:$program_config);
+                       OptionalAttr<TTNN_SDPAProgramConfigAttr>:$program_config,
+                       OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -3930,7 +3940,7 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
   let hasVerifier = 1;
 }
 
-def TTNN_ChunkedScaledDotProductAttentionOp : TTNN_Op<"chunked_scaled_dot_product_attention"> {
+def TTNN_ChunkedScaledDotProductAttentionOp : TTNN_Op<"chunked_scaled_dot_product_attention", [TTNN_ComputeKernelConfigOpInterface]> {
   let summary = "Chunked prefill scaled dot product attention over a paged KV cache.";
   let description = [{
     Chunked-prefill attention. A prefill chunk of `query` attends
@@ -3942,6 +3952,11 @@ def TTNN_ChunkedScaledDotProductAttentionOp : TTNN_Op<"chunked_scaled_dot_produc
     table is consumed on device, the op holds no host-side state: it can be
     captured inside a trace and replayed across invocations with a different
     `chunk_start_idx` without recompiling.
+
+    Args:
+        compute_config (DeviceComputeKernelConfig, optional): Device compute
+            kernel configuration. Controls math fidelity, approximation mode,
+            and accumulation precision. Defaults to `None` (TTNN decides).
   }];
 
   let arguments = (ins AnyRankedTensor:$query,
@@ -3950,7 +3965,8 @@ def TTNN_ChunkedScaledDotProductAttentionOp : TTNN_Op<"chunked_scaled_dot_produc
                        AnyRankedTensor:$page_table,
                        AnyRankedTensor:$chunk_start_idx,
                        OptionalAttr<F32Attr>:$scale,
-                       OptionalAttr<TTNN_SDPAProgramConfigAttr>:$program_config);
+                       OptionalAttr<TTNN_SDPAProgramConfigAttr>:$program_config,
+                       OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -3963,7 +3979,7 @@ def TTNN_ChunkedScaledDotProductAttentionOp : TTNN_Op<"chunked_scaled_dot_produc
   let hasVerifier = 1;
 }
 
-def TTNN_PagedFlashMultiLatentAttentionDecodeOp : TTNN_Op<"paged_flash_multi_latent_attention_decode", [AttrSizedOperandSegments]> {
+def TTNN_PagedFlashMultiLatentAttentionDecodeOp : TTNN_Op<"paged_flash_multi_latent_attention_decode", [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface]> {
   let summary = "Paged flash multi-latent attention decode operation.";
   let description = [{
     Paged flash Multi-Latent Attention (MLA) for the decode phase. Combines
@@ -3977,6 +3993,11 @@ def TTNN_PagedFlashMultiLatentAttentionDecodeOp : TTNN_Op<"paged_flash_multi_lat
     The key/value cache is laid out as `[max_num_blocks, nkv, block_size,
     head_dim]`. MLA keeps a single compressed latent KV cache shared across all
     query heads, so the number of KV heads `nkv` (dim 1) must be 1.
+
+    Args:
+        compute_config (DeviceComputeKernelConfig, optional): Device compute
+            kernel configuration. Controls math fidelity, approximation mode,
+            and accumulation precision. Defaults to `None` (TTNN decides).
   }];
 
   let arguments = (ins AnyRankedTensor:$query,
@@ -3988,7 +4009,8 @@ def TTNN_PagedFlashMultiLatentAttentionDecodeOp : TTNN_Op<"paged_flash_multi_lat
                        Optional<AnyRankedTensor>:$attention_mask,
                        Optional<AnyRankedTensor>:$cur_pos_tensor,
                        Optional<AnyRankedTensor>:$attention_sink,
-                       OptionalAttr<F32Attr>:$scale);
+                       OptionalAttr<F32Attr>:$scale,
+                       OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -4001,7 +4023,7 @@ def TTNN_PagedFlashMultiLatentAttentionDecodeOp : TTNN_Op<"paged_flash_multi_lat
   let hasVerifier = 1;
 }
 
-def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [AttrSizedOperandSegments]> {
+def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Scaled dot product attention operation.";
     let description = [{
       FlashAttention-2 SDPA. Supports MHA, MQA, and GQA.
@@ -4025,6 +4047,9 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
           attention_sink (AnyRankedTensor, optional): `[1 x Hq x 1 x 1]`, one
               value per query head broadcast across batch and tile dims.
               Defaults to `None`.
+          compute_config (DeviceComputeKernelConfig, optional): Device compute
+              kernel configuration. Controls math fidelity, approximation mode,
+              and accumulation precision. Defaults to `None` (TTNN decides).
 
       Returns:
           AnyRankedTensor: `[B x Hq x Sq x D]` (same type as `query`).
@@ -4037,7 +4062,8 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
                          DefaultValuedAttr<BoolAttr, "true">:$is_causal,
                          OptionalAttr<F32Attr>:$scale,
                          OptionalAttr<UI32Attr>:$sliding_window_size,
-                         Optional<AnyRankedTensor>:$attention_sink);
+                         Optional<AnyRankedTensor>:$attention_sink,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -4050,7 +4076,7 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
     let hasVerifier = 1;
 }
 
-def TTNN_FlashMlaPrefillOp : TTNN_Op<"flash_mla_prefill", [AttrSizedOperandSegments]> {
+def TTNN_FlashMlaPrefillOp : TTNN_Op<"flash_mla_prefill", [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Flash Multi-head Latent Attention prefill operation.";
     let description = [{
       Multi-head Latent Attention (MLA) prefill. Mirrors
@@ -4072,6 +4098,9 @@ def TTNN_FlashMlaPrefillOp : TTNN_Op<"flash_mla_prefill", [AttrSizedOperandSegme
           is_causal (bool): Defaults to `true`. Cannot be `true` when
               `attention_mask` is provided.
           scale (float, optional): Softmax scale. Defaults to `1 / sqrt(dh_qk)`.
+          compute_config (DeviceComputeKernelConfig, optional): Device compute
+              kernel configuration. Controls math fidelity, approximation mode,
+              and accumulation precision. Defaults to `None` (TTNN decides).
 
       Returns:
           AnyRankedTensor: `[B x Hq x Sq x head_dim_v]` (same dtype as `query`).
@@ -4083,7 +4112,8 @@ def TTNN_FlashMlaPrefillOp : TTNN_Op<"flash_mla_prefill", [AttrSizedOperandSegme
                          Optional<AnyRankedTensor>:$attention_mask,
                          UI32Attr:$head_dim_v,
                          DefaultValuedAttr<BoolAttr, "true">:$is_causal,
-                         OptionalAttr<F32Attr>:$scale);
+                         OptionalAttr<F32Attr>:$scale,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
 

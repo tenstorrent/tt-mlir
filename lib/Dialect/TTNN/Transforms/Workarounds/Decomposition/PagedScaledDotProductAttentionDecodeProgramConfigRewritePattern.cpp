@@ -71,7 +71,7 @@ LogicalResult PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern::
       srcOp.getValue(), srcOp.getPageTable(), srcOp.getIsCausalAttr(),
       srcOp.getAttentionMask(), srcOp.getCurPosTensor(),
       srcOp.getAttentionSink(), srcOp.getScaleAttr(),
-      srcOp.getSlidingWindowSizeAttr(), desired);
+      srcOp.getSlidingWindowSizeAttr(), desired, srcOp.getComputeConfigAttr());
   return success();
 }
 

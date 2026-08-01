@@ -11,7 +11,9 @@ module attributes {} {
     // CHECK-DAG: %[[CHUNK_START:.*]] = "ttnn.to_layout"(%arg4){{.*}} -> tensor<1xsi32, #[[CHUNK_START_RM_LAYOUT]]>
     // CHECK: "ttnn.chunked_scaled_dot_product_attention"
     // CHECK-SAME: %[[PAGE_TABLE]], %[[CHUNK_START]]
-    // CHECK-SAME: <{scale = 1.250000e-01 : f32}>
+    // The pipeline's default compute-kernel-config is applied to the op.
+    // CHECK-SAME: compute_config = #ttnn.device_compute_kernel_config<math_fidelity = hifi4, fp32_dest_acc_en = true>
+    // CHECK-SAME: scale = 1.250000e-01 : f32
     %0 = ttir.empty() : tensor<1x12x64x64xf32>
     %1 = "ttir.chunked_scaled_dot_product_attention"(%arg0, %arg1, %arg2, %arg3, %arg4, %0) <{scale = 1.250000e-01 : f32}> : (tensor<1x12x64x64xf32>, tensor<128x12x32x64xf32>, tensor<128x12x32x64xf32>, tensor<1x4xi32>, tensor<1xi32>, tensor<1x12x64x64xf32>) -> tensor<1x12x64x64xf32>
     return %1 : tensor<1x12x64x64xf32>

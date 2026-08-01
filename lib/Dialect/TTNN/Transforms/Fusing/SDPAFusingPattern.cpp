@@ -723,7 +723,8 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             /*is_causal=*/rewriter.getBoolAttr(false), permutedMask,
             /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
             /*sliding_window_size=*/IntegerAttr(),
-            /*program_config=*/SDPAProgramConfigAttr());
+            /*program_config=*/SDPAProgramConfigAttr(),
+            /*compute_config=*/DeviceComputeKernelConfigAttr());
 
     if (!validationResult.isSuccess()) {
       TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
@@ -738,7 +739,8 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         /*is_causal=*/rewriter.getBoolAttr(false), permutedMask,
         /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
         /*sliding_window_size=*/IntegerAttr(),
-        /*program_config=*/SDPAProgramConfigAttr());
+        /*program_config=*/SDPAProgramConfigAttr(),
+        /*compute_config=*/DeviceComputeKernelConfigAttr());
 
     Value finalResult = ttir_to_ttnn::utils::generatePermute(
         decodeOp.getResult(),
@@ -754,7 +756,8 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
         {c.query.getType()}, c.query, c.key, c.value, c.mask,
         /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-        /*sliding_window_size=*/IntegerAttr(), c.attentionSink);
+        /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
+        /*compute_config=*/DeviceComputeKernelConfigAttr());
 
     if (!validationResult.isSuccess()) {
       TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
@@ -767,7 +770,8 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key, c.value,
         c.mask,
         /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-        /*sliding_window_size=*/IntegerAttr(), c.attentionSink);
+        /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
+        /*compute_config=*/DeviceComputeKernelConfigAttr());
 
     Value finalResult =
         squeezeToOriginalRank(sdpaOp.getResult(), originalOutputType, rewriter,

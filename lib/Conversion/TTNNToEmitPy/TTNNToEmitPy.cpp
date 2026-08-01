@@ -4500,7 +4500,7 @@ public:
         emitter.emit(srcOp.getSlidingWindowSize(), "sliding_window_size"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(std::nullopt, "program_config"),
-        emitter.emit(std::nullopt, "compute_kernel_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
         emitter.emit(srcOp.getAttentionSink(), "attention_sink"),
     };
 
@@ -4547,6 +4547,7 @@ public:
         emitter.emit(srcOp.getIsCausal(), "is_causal"),
         emitter.emit<float>(srcOp.getScaleAttr(), "scale"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
@@ -4598,6 +4599,8 @@ public:
         emitter.emit(srcOp.getScale(), "scale"),
         emitter.emit(std::nullopt, "sliding_window_size"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.emit(srcOp.getProgramConfig(), "program_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
@@ -4651,6 +4654,7 @@ public:
         emitter.emit(srcOp.getSlidingWindowSize(), "sliding_window_size"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
         emitter.emit(srcOp.getProgramConfig(), "program_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
@@ -4700,6 +4704,7 @@ public:
         emitter.emit(srcOp.getScale(), "scale"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
         emitter.emit(srcOp.getProgramConfig(), "program_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
@@ -4753,6 +4758,7 @@ public:
         emitter.emit(srcOp.getScale(), "scale"),
         emitter.emit(std::nullopt, "sliding_window_size"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 

@@ -38,11 +38,17 @@ static void runScaledDotProductAttentionOp(
                 tensorPool.getTTNNTensorAndValidate(op->attention_sink()))
           : std::nullopt;
 
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   ::ttnn::Tensor out = ::ttnn::transformer::scaled_dot_product_attention(
       query, key, value, attentionMask, isCausal, scale, slidingWindowSize,
       outputMemoryConfig,
       /*program_config=*/std::nullopt,
-      /*compute_kernel_config=*/std::nullopt, attentionSink);
+      /*compute_kernel_config=*/computeConfig, attentionSink);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 

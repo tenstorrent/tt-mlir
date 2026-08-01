@@ -35,11 +35,17 @@ runFlashMlaPrefillOp(const ::tt::target::ttnn::FlashMlaPrefillOp *op,
   bool isCausal = op->is_causal();
   std::optional<float> scale = op->scale();
 
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   ::ttnn::Tensor out = ::ttnn::transformer::flash_mla_prefill(
       query, key, headDimV, value, attentionMask, isCausal, scale,
       outputMemoryConfig,
       /*program_config=*/std::nullopt,
-      /*compute_kernel_config=*/std::nullopt);
+      /*compute_kernel_config=*/computeConfig);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
