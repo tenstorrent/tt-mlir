@@ -74,6 +74,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static PadRuleBook pad;
   static ConcatenateHeadsRuleBook concatHeads;
   static SDPARuleBook sdpa;
+  static SDPAInterleavedRuleBook sdpaInterleaved;
   static SDPADecodeRuleBook sdpaDecode;
   static EmbeddingRuleBook embedding;
   static TypecastRuleBook typecast;
@@ -109,7 +110,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(PadOp::getOperationName(), &pad);
     reg(ConcatenateHeadsOp::getOperationName(), &concatHeads);
     reg(NLPConcatHeadsDecodeOp::getOperationName(), &sdpa);
-    reg(ScaledDotProductAttentionOp::getOperationName(), &sdpa);
+    reg(ScaledDotProductAttentionOp::getOperationName(), &sdpaInterleaved);
     reg(ScaledDotProductAttentionDecodeOp::getOperationName(), &sdpaDecode);
     reg(PagedScaledDotProductAttentionDecodeOp::getOperationName(),
         &sdpaDecode);

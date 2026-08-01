@@ -46,6 +46,13 @@ struct SDPARuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
+/// Regular/prefill ScaledDotProductAttention: all Q/K/V operands must be
+/// interleaved. Kept separate from SDPARuleBook because
+/// NLPConcatHeadsDecodeOp has a different, height-sharded input contract.
+struct SDPAInterleavedRuleBook : SDPARuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+};
+
 /// ScaledDotProductAttentionDecodeOp / PagedScaledDotProductAttentionDecodeOp:
 /// Per-operand input layout filtering.
 /// - Q (operand 0): DRAM (any) or L1-sharded -- L1-interleaved rejected

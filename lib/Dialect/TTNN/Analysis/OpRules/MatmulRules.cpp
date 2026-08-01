@@ -575,42 +575,130 @@ static bool dsIn0CompatibleWithConfig(
          perCoreK % in0BlockW == 0;
 }
 
+static bool shardedInputOutputMemoryConfigsMatch(TTNNLayoutAttr input,
+                                                 TTNNLayoutAttr output) {
+  if (!output) {
+    return true;
+  }
+  auto outputMemLayout = output.getMemLayoutOpt();
+  if (!outputMemLayout || !isShardedMemoryLayout(*outputMemLayout)) {
+    return true;
+  }
+  return input.getBufferType() == output.getBufferType() &&
+         input.getMemLayoutOpt() == outputMemLayout;
+}
+
+static bool isMcast2DIn0Compatible(
+    const OpConfig &hint, TTNNLayoutAttr in0,
+    MatmulMultiCoreReuseMultiCastProgramConfigAttr config) {
+  auto memLayout = in0.getMemLayoutOpt();
+  if (!memLayout || !isShardedMemoryLayout(*memLayout)) {
+    return true;
+  }
+
+  if (!config.getFuseBatch() ||
+      (*memLayout != TensorMemoryLayout::BlockSharded &&
+       *memLayout != TensorMemoryLayout::HeightSharded)) {
+    return false;
+  }
+
+  auto shardShape = in0.getShardShape();
+  int64_t in0BlockW = static_cast<int64_t>(config.getIn0BlockW());
+  if (shardShape.size() != 2 || in0BlockW == 0 ||
+      static_cast<int64_t>(config.getPerCoreM()) != shardShape[0] ||
+      shardShape[1] % in0BlockW != 0) {
+    return false;
+  }
+
+  if (*memLayout == TensorMemoryLayout::HeightSharded) {
+    // The 2D mcast height-sharded path requires the whole K dimension in one
+    // shard and does not support transpose multicast.
+    return !config.getTransposeMcast() && shardShape[1] == in0BlockW;
+  }
+
+  // For a block-sharded activation, tt-metal requires a sharded output to use
+  // the same buffer type and memory-layout type.
+  return shardedInputOutputMemoryConfigsMatch(in0, hint.outputLayout);
+}
+
+static bool isMcast1DIn0Compatible(
+    const OpConfig &hint, TTNNLayoutAttr in0,
+    MatmulMultiCoreReuseMultiCast1DProgramConfigAttr config) {
+  auto memLayout = in0.getMemLayoutOpt();
+  if (!memLayout || !isShardedMemoryLayout(*memLayout)) {
+    return true;
+  }
+
+  bool movesIn0 = config.getMcastIn0() || config.getGatherIn0();
+  TensorMemoryLayout requiredLayout =
+      movesIn0 ? TensorMemoryLayout::WidthSharded
+               : TensorMemoryLayout::HeightSharded;
+  if (!config.getFuseBatch() || *memLayout != requiredLayout) {
+    return false;
+  }
+
+  auto shardShape = in0.getShardShape();
+  int64_t in0BlockW = static_cast<int64_t>(config.getIn0BlockW());
+  if (shardShape.size() != 2 || in0BlockW == 0 ||
+      static_cast<int64_t>(config.getPerCoreM()) != shardShape[0] ||
+      shardShape[1] % in0BlockW != 0) {
+    return false;
+  }
+
+  return shardedInputOutputMemoryConfigsMatch(in0, hint.outputLayout);
+}
+
 bool MatmulRuleBook::isValidOutputHintForInputs(
     const OpConfig &hint, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
   const auto *attrs = std::get_if<MatmulAttrs>(&hint.opSpecificAttrs);
-  if (!attrs || !attrs->matmulProgramConfig.has_value() ||
-      !mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
-          attrs->matmulProgramConfig.value())) {
+  if (!attrs || !attrs->matmulProgramConfig.has_value()) {
     return true;
   }
-  // DS hint: only the canonical DS input combination is valid — L1
-  // width-sharded in0, DRAM width-sharded in1, with an in0 shard width
-  // compatible with the config's in0_block_w (see dsIn0CompatibleWithConfig).
-  // This runs for every in0 the cross-product pairs with the DS hint, not just
-  // the one we inject in getExtraInputReshardCandidates (that one is valid by
-  // construction).
-  if (inputLayouts.size() < 2) {
-    return false;
+  mlir::Attribute programConfig = attrs->matmulProgramConfig.value();
+
+  if (auto dsConfig =
+          mlir::dyn_cast<
+              MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+              programConfig)) {
+    // DS hint: only the canonical DS input combination is valid — L1
+    // width-sharded in0, DRAM width-sharded in1, with an in0 shard width
+    // compatible with the config's in0_block_w. Preserve this existing
+    // behavior unchanged.
+    if (inputLayouts.size() < 2) {
+      return false;
+    }
+    auto in0 = inputLayouts[0];
+    auto in1 = inputLayouts[1];
+    if (!in0 || !in1) {
+      return false;
+    }
+    auto ml0 = in0.getMemLayoutOpt();
+    if (!in0.hasL1BufferType() || !ml0 ||
+        *ml0 != TensorMemoryLayout::WidthSharded) {
+      return false;
+    }
+    auto ml1 = in1.getMemLayoutOpt();
+    if (in1.hasL1BufferType() || !ml1 ||
+        *ml1 != TensorMemoryLayout::WidthSharded) {
+      return false;
+    }
+    return dsIn0CompatibleWithConfig(in0, in1, dsConfig);
   }
-  auto in0 = inputLayouts[0];
-  auto in1 = inputLayouts[1];
-  if (!in0 || !in1) {
-    return false;
+
+  if (inputLayouts.empty() || !inputLayouts[0]) {
+    return true;
   }
-  auto ml0 = in0.getMemLayoutOpt();
-  if (!in0.hasL1BufferType() || !ml0 ||
-      *ml0 != TensorMemoryLayout::WidthSharded) {
-    return false;
-  }
-  auto ml1 = in1.getMemLayoutOpt();
-  if (in1.hasL1BufferType() || !ml1 ||
-      *ml1 != TensorMemoryLayout::WidthSharded) {
-    return false;
-  }
-  auto dsCfg =
-      mlir::cast<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
-          attrs->matmulProgramConfig.value());
-  return dsIn0CompatibleWithConfig(in0, in1, dsCfg);
+  TTNNLayoutAttr in0 = inputLayouts[0];
+  return llvm::TypeSwitch<mlir::Attribute, bool>(programConfig)
+      .Case<MatmulMultiCoreReuseMultiCastProgramConfigAttr>(
+          [&](auto config) {
+            return isMcast2DIn0Compatible(hint, in0, config);
+          })
+      .Case<MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(
+          [&](auto config) {
+            return isMcast1DIn0Compatible(hint, in0, config);
+          })
+      .Default([](mlir::Attribute) { return true; });
 }
 
 // ============================================================================

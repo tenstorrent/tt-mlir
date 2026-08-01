@@ -9,7 +9,9 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/MatmulRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/NormalizationRules.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/TransformerRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -175,7 +177,7 @@ public:
   }
 };
 
-class RmsNormRuleBookTest : public ::testing::Test {
+class OpRuleBookTest : public ::testing::Test {
 public:
   mlir::MLIRContext context;
   mlir::OwningOpRef<mlir::ModuleOp> module;
@@ -205,6 +207,33 @@ public:
   createDRAMInterleavedLayout(const llvm::ArrayRef<int64_t> &tensorShape) {
     return createTiledLayout(tensorShape, BufferType::DRAM,
                              TensorMemoryLayout::Interleaved);
+  }
+
+  OpConfig createMcast2DHint(TTNNLayoutAttr output, uint64_t in0BlockW,
+                             uint64_t perCoreM) {
+    auto grid = CoreCoordAttr::get(&context, 2, 2);
+    auto config = MatmulMultiCoreReuseMultiCastProgramConfigAttr::get(
+        &context, grid, in0BlockW,
+        /*outSubblockH=*/1, /*outSubblockW=*/1,
+        /*outBlockH=*/perCoreM, /*outBlockW=*/1, perCoreM,
+        /*perCoreN=*/1, /*transposeMcast=*/false,
+        /*fusedActivation=*/UnaryWithParamAttr(), /*fuseBatch=*/true);
+    return OpConfig(output, MatmulAttrs{config, std::nullopt});
+  }
+
+  OpConfig createMcast1DHint(TTNNLayoutAttr output, uint64_t in0BlockW,
+                             uint64_t perCoreM, bool mcastIn0) {
+    auto grid = CoreCoordAttr::get(&context, 1, 8);
+    auto hopCores = CoreRangeSetAttr::get(&context, {});
+    auto config = MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::get(
+        &context, grid, in0BlockW,
+        /*outSubblockH=*/1, /*outSubblockW=*/1,
+        /*outBlockH=*/perCoreM, /*outBlockW=*/1, perCoreM,
+        /*perCoreN=*/1, /*fuseBatch=*/true,
+        /*fusedActivation=*/UnaryWithParamAttr(), mcastIn0,
+        /*gatherIn0=*/false, hopCores,
+        /*numGlobalCbReceivers=*/0, /*untilizeOut=*/false);
+    return OpConfig(output, MatmulAttrs{config, std::nullopt});
   }
 };
 
@@ -295,7 +324,7 @@ TEST_F(OpModelStrategyTest, UnknownOpUsesDefaultStrategy) {
   EXPECT_FALSE(hints.hints[0].outputLayout);
 }
 
-TEST_F(RmsNormRuleBookTest, ShardedInputAcceptsCompatibleOutputHints) {
+TEST_F(OpRuleBookTest, RmsNormShardedInputAcceptsCompatibleOutputHints) {
   llvm::SmallVector<int64_t> shape = {1, 32, 2048};
   auto input = createTiledLayout(shape, BufferType::L1,
                                  TensorMemoryLayout::WidthSharded, {1, 8});
@@ -309,7 +338,7 @@ TEST_F(RmsNormRuleBookTest, ShardedInputAcceptsCompatibleOutputHints) {
       OpConfig(matchingOutput), {input}));
 }
 
-TEST_F(RmsNormRuleBookTest, ShardedInputRejectsIncompatibleOutputs) {
+TEST_F(OpRuleBookTest, RmsNormShardedInputRejectsIncompatibleOutputs) {
   llvm::SmallVector<int64_t> shape = {1, 32, 2048};
   auto input = createTiledLayout(shape, BufferType::L1,
                                  TensorMemoryLayout::WidthSharded, {1, 8});
@@ -330,6 +359,134 @@ TEST_F(RmsNormRuleBookTest, ShardedInputRejectsIncompatibleOutputs) {
       OpConfig(blockSharded), {input}));
   EXPECT_FALSE(rules.isValidOutputHintForInputs(
       OpConfig(dramWidthSharded), {input}));
+}
+
+TEST_F(OpRuleBookTest, SDPAAndPagedFillRequireInterleavedInputs) {
+  llvm::SmallVector<int64_t> shape = {1, 32, 2048};
+  auto dramInterleaved = createDRAMInterleavedLayout(shape);
+  auto l1Interleaved = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto widthSharded = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 8});
+  auto heightSharded = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::HeightSharded, {8, 1});
+  auto blockSharded = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {2, 4});
+
+  SDPAInterleavedRuleBook sdpaRules;
+  for (unsigned operandIdx = 0; operandIdx < 3; ++operandIdx) {
+    auto filter = sdpaRules.getInputLayoutFilter(operandIdx);
+    ASSERT_TRUE(filter);
+    EXPECT_TRUE(filter(dramInterleaved));
+    EXPECT_TRUE(filter(l1Interleaved));
+    EXPECT_FALSE(filter(widthSharded));
+    EXPECT_FALSE(filter(heightSharded));
+    EXPECT_FALSE(filter(blockSharded));
+  }
+
+  // The shared base remains unfiltered for NLPConcatHeadsDecodeOp.
+  SDPARuleBook nlpRules;
+  EXPECT_FALSE(nlpRules.getInputLayoutFilter(0));
+
+  PagedFillCacheRuleBook pagedFillRules;
+  auto inputFilter = pagedFillRules.getInputLayoutFilter(1);
+  ASSERT_TRUE(inputFilter);
+  EXPECT_TRUE(inputFilter(dramInterleaved));
+  EXPECT_TRUE(inputFilter(l1Interleaved));
+  EXPECT_FALSE(inputFilter(widthSharded));
+  EXPECT_FALSE(inputFilter(heightSharded));
+  EXPECT_FALSE(inputFilter(blockSharded));
+}
+
+TEST_F(OpRuleBookTest, MatmulMcast2DFiltersIncompatibleShardedInputs) {
+  llvm::SmallVector<int64_t> shape = {1, 32, 2048};
+  auto blockInput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {2, 4});
+  auto blockOutput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {2, 4});
+  auto heightInput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::HeightSharded, {8, 1});
+  auto heightOutput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::HeightSharded, {8, 1});
+  auto widthInput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 8});
+  auto blockShard = blockInput.getShardShape();
+  auto heightShard = heightInput.getShardShape();
+  ASSERT_EQ(blockShard.size(), 2u);
+  ASSERT_EQ(heightShard.size(), 2u);
+  MatmulRuleBook rules;
+
+  EXPECT_TRUE(rules.isValidOutputHintForInputs(
+      createMcast2DHint(blockOutput, /*in0BlockW=*/1, blockShard[0]),
+      {blockInput}));
+  EXPECT_TRUE(rules.isValidOutputHintForInputs(
+      createMcast2DHint(blockOutput, heightShard[1], heightShard[0]),
+      {heightInput}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(
+      createMcast2DHint(blockOutput, /*in0BlockW=*/1, blockShard[0]),
+      {widthInput}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(
+      createMcast2DHint(blockOutput, /*in0BlockW=*/1, blockShard[0] + 1),
+      {blockInput}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(
+      createMcast2DHint(blockOutput, blockShard[1] + 1, blockShard[0]),
+      {blockInput}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(
+      createMcast2DHint(heightOutput, /*in0BlockW=*/1, blockShard[0]),
+      {blockInput}));
+}
+
+TEST_F(OpRuleBookTest, MatmulMcast1DEnforcesDirectionAndShardGeometry) {
+  llvm::SmallVector<int64_t> shape = {1, 32, 2048};
+  auto widthInput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 8});
+  auto widthOutput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 8});
+  auto heightInput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::HeightSharded, {8, 1});
+  auto heightOutput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::HeightSharded, {8, 1});
+  auto blockInput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {2, 4});
+  auto blockOutput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {1, 8});
+  auto interleaved = createDRAMInterleavedLayout(shape);
+  auto widthShard = widthInput.getShardShape();
+  auto heightShard = heightInput.getShardShape();
+  ASSERT_EQ(widthShard.size(), 2u);
+  ASSERT_EQ(heightShard.size(), 2u);
+  MatmulRuleBook rules;
+
+  auto widthHint =
+      createMcast1DHint(widthOutput, /*in0BlockW=*/1, widthShard[0],
+                        /*mcastIn0=*/true);
+  auto heightHint =
+      createMcast1DHint(heightOutput, /*in0BlockW=*/1, heightShard[0],
+                        /*mcastIn0=*/false);
+  EXPECT_TRUE(
+      rules.isValidOutputHintForInputs(widthHint, {widthInput}));
+  EXPECT_TRUE(
+      rules.isValidOutputHintForInputs(heightHint, {heightInput}));
+  EXPECT_TRUE(
+      rules.isValidOutputHintForInputs(widthHint, {interleaved}));
+  EXPECT_FALSE(
+      rules.isValidOutputHintForInputs(widthHint, {heightInput}));
+  EXPECT_FALSE(
+      rules.isValidOutputHintForInputs(heightHint, {widthInput}));
+  EXPECT_FALSE(
+      rules.isValidOutputHintForInputs(widthHint, {blockInput}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(
+      createMcast1DHint(widthOutput, /*in0BlockW=*/1, widthShard[0] + 1,
+                        /*mcastIn0=*/true),
+      {widthInput}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(
+      createMcast1DHint(widthOutput, widthShard[1] + 1, widthShard[0],
+                        /*mcastIn0=*/true),
+      {widthInput}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(
+      createMcast1DHint(blockOutput, /*in0BlockW=*/1, widthShard[0],
+                        /*mcastIn0=*/true),
+      {widthInput}));
 }
 
 //===----------------------------------------------------------------------===//
