@@ -626,23 +626,29 @@ static bool isMcast1DIn0Compatible(
     const OpConfig &hint, TTNNLayoutAttr in0,
     MatmulMultiCoreReuseMultiCast1DProgramConfigAttr config) {
   auto outputMemLayout = hint.outputLayout.getMemLayoutOpt();
-  if (outputMemLayout && *outputMemLayout == TensorMemoryLayout::BlockSharded) {
-    auto outputRanges = hint.outputLayout.getCoreRangeSet();
-    auto outputBBox =
-        outputRanges ? outputRanges.getBoundingBox() : std::nullopt;
-    if (!outputBBox) {
+  bool movesIn0 = config.getMcastIn0() || config.getGatherIn0();
+  TensorMemoryLayout directionalOutputLayout =
+      movesIn0 ? TensorMemoryLayout::WidthSharded
+               : TensorMemoryLayout::HeightSharded;
+  if (!outputMemLayout ||
+      (*outputMemLayout != directionalOutputLayout &&
+       *outputMemLayout != TensorMemoryLayout::BlockSharded)) {
+    return false;
+  }
+  auto outputRanges = hint.outputLayout.getCoreRangeSet();
+  auto outputBBox =
+      outputRanges ? outputRanges.getBoundingBox() : std::nullopt;
+  if (!outputBBox) {
+    return false;
+  }
+  if (movesIn0) {
+    if (outputBBox->getStartCoord().getY() !=
+        outputBBox->getEndCoord().getY()) {
       return false;
     }
-    bool movesIn0 = config.getMcastIn0() || config.getGatherIn0();
-    if (movesIn0) {
-      if (outputBBox->getStartCoord().getY() !=
-          outputBBox->getEndCoord().getY()) {
-        return false;
-      }
-    } else if (outputBBox->getStartCoord().getX() !=
-               outputBBox->getEndCoord().getX()) {
-      return false;
-    }
+  } else if (outputBBox->getStartCoord().getX() !=
+             outputBBox->getEndCoord().getX()) {
+    return false;
   }
 
   auto memLayout = in0.getMemLayoutOpt();
@@ -650,7 +656,6 @@ static bool isMcast1DIn0Compatible(
     return true;
   }
 
-  bool movesIn0 = config.getMcastIn0() || config.getGatherIn0();
   TensorMemoryLayout requiredLayout =
       movesIn0 ? TensorMemoryLayout::WidthSharded
                : TensorMemoryLayout::HeightSharded;

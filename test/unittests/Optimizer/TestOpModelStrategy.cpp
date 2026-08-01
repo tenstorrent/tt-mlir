@@ -465,10 +465,12 @@ TEST_F(OpRuleBookTest, MatmulMcast1DEnforcesDirectionAndShardGeometry) {
       shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 8});
   auto widthOutput = createTiledLayout(
       shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 8});
-  auto heightInput = createTiledLayout(
-      shape, BufferType::L1, TensorMemoryLayout::HeightSharded, {8, 1});
-  auto heightOutput = createTiledLayout(
-      shape, BufferType::L1, TensorMemoryLayout::HeightSharded, {8, 1});
+  auto heightInput = createTiledLayoutWithCoreRange(
+      shape, TensorMemoryLayout::HeightSharded, {8, 1},
+      /*startX=*/0, /*startY=*/0, /*endX=*/0, /*endY=*/7);
+  auto heightOutput = createTiledLayoutWithCoreRange(
+      shape, TensorMemoryLayout::HeightSharded, {8, 1},
+      /*startX=*/0, /*startY=*/0, /*endX=*/0, /*endY=*/7);
   auto blockInput = createTiledLayout(
       shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {2, 4});
   auto blockOutput = createTiledLayout(
@@ -488,6 +490,7 @@ TEST_F(OpRuleBookTest, MatmulMcast1DEnforcesDirectionAndShardGeometry) {
                         /*mcastIn0=*/false);
   EXPECT_TRUE(
       rules.isValidOutputHintForInputs(widthHint, {widthInput}));
+  EXPECT_FALSE(getMatmulPreflightError({heightInput}, heightHint));
   EXPECT_TRUE(
       rules.isValidOutputHintForInputs(heightHint, {heightInput}));
   EXPECT_TRUE(
@@ -649,6 +652,33 @@ TEST_F(OpRuleBookTest, MatmulPreflightRejectsInvalidPhysical1DBlockGrid) {
                   {interleaved}, createMcast1DHint(multiColumn, /*in0BlockW=*/1,
                                                    /*perCoreM=*/1,
                                                    /*mcastIn0=*/false))
+                  .value()
+                  .find("physical column") != std::string::npos);
+}
+
+TEST_F(OpRuleBookTest,
+       Matmul1DHeightShardedOutputRequiresPhysicalColumn) {
+  llvm::SmallVector<int64_t> shape = {1, 32, 2048};
+  auto interleaved = createDRAMInterleavedLayout(shape);
+  auto physicalColumn = createTiledLayoutWithCoreRange(
+      shape, TensorMemoryLayout::HeightSharded, {8, 1},
+      /*startX=*/0, /*startY=*/0, /*endX=*/0, /*endY=*/7);
+  // This is the geometry produced by the Qwen3 failing candidate: a
+  // height-sharded 1D-column config spread over a 2D 11x3 core rectangle.
+  auto rectangularGrid = createTiledLayoutWithCoreRange(
+      shape, TensorMemoryLayout::HeightSharded, {3, 11},
+      /*startX=*/0, /*startY=*/0, /*endX=*/10, /*endY=*/2);
+  MatmulRuleBook rules;
+
+  auto valid = createMcast1DHint(physicalColumn, /*in0BlockW=*/1,
+                                 /*perCoreM=*/1, /*mcastIn0=*/false);
+  auto invalid = createMcast1DHint(rectangularGrid, /*in0BlockW=*/1,
+                                   /*perCoreM=*/1, /*mcastIn0=*/false);
+
+  EXPECT_TRUE(rules.isValidOutputHintForInputs(valid, {interleaved}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(invalid, {interleaved}));
+  EXPECT_FALSE(getMatmulPreflightError({interleaved}, valid));
+  EXPECT_TRUE(getMatmulPreflightError({interleaved}, invalid)
                   .value()
                   .find("physical column") != std::string::npos);
 }

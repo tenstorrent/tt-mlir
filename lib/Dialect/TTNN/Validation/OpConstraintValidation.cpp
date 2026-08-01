@@ -120,21 +120,31 @@ getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
     }
   }
 
-  auto outputMemLayout = output ? output.getMemLayoutOpt() : std::nullopt;
-  if (is1D && outputMemLayout &&
-      *outputMemLayout == TensorMemoryLayout::BlockSharded) {
+  if (is1D) {
+    auto outputMemLayout = output ? output.getMemLayoutOpt() : std::nullopt;
+    TensorMemoryLayout directionalLayout =
+        movesIn0 ? TensorMemoryLayout::WidthSharded
+                 : TensorMemoryLayout::HeightSharded;
+    if (!outputMemLayout ||
+        (*outputMemLayout != directionalLayout &&
+         *outputMemLayout != TensorMemoryLayout::BlockSharded)) {
+      return movesIn0
+                 ? "matmul 1D row output must be WidthSharded or BlockSharded"
+                 : "matmul 1D column output must be HeightSharded or "
+                   "BlockSharded";
+    }
     CoreRangeSetAttr ranges = output.getCoreRangeSet();
     auto bbox = ranges ? ranges.getBoundingBox() : std::nullopt;
     if (!bbox) {
-      return "matmul 1D BlockSharded output has no physical core range";
+      return "matmul 1D sharded output has no physical core range";
     }
     if (movesIn0 &&
         bbox->getStartCoord().getY() != bbox->getEndCoord().getY()) {
-      return "matmul 1D BlockSharded output is not a physical row";
+      return "matmul 1D output is not a physical row";
     }
     if (!movesIn0 &&
         bbox->getStartCoord().getX() != bbox->getEndCoord().getX()) {
-      return "matmul 1D BlockSharded output is not a physical column";
+      return "matmul 1D output is not a physical column";
     }
   }
 
