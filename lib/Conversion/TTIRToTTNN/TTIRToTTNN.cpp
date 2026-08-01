@@ -3320,7 +3320,7 @@ public:
         adaptor.getIsCausal(), adaptor.getAttentionMask(),
         adaptor.getCurPosTensor(), adaptor.getAttentionSink(),
         adaptor.getScaleAttr(), /*sliding_window_size=*/IntegerAttr(),
-        /*program_config=*/nullptr);
+        /*program_config=*/nullptr, /*compute_config=*/nullptr);
     return success();
   }
 };
@@ -3343,7 +3343,7 @@ public:
         adaptor.getAttentionMask(), adaptor.getCurPosTensor(),
         adaptor.getAttentionSink(), adaptor.getScaleAttr(),
         adaptor.getSlidingWindowSizeAttr(),
-        /*program_config=*/nullptr);
+        /*program_config=*/nullptr, /*compute_config=*/nullptr);
     return success();
   }
 };
@@ -3364,7 +3364,7 @@ public:
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
         adaptor.getPageTable(), adaptor.getChunkStartIdx(),
         adaptor.getScaleAttr(),
-        /*program_config=*/nullptr);
+        /*program_config=*/nullptr, /*compute_config=*/nullptr);
     return success();
   }
 };
@@ -3386,7 +3386,7 @@ public:
         static_cast<uint32_t>(adaptor.getHeadDimV()), adaptor.getPageTable(),
         adaptor.getIsCausal(), adaptor.getAttentionMask(),
         adaptor.getCurPosTensor(), adaptor.getAttentionSink(),
-        adaptor.getScaleAttr());
+        adaptor.getScaleAttr(), /*compute_config=*/nullptr);
     return success();
   }
 };
@@ -3527,7 +3527,7 @@ private:
         /*cur_pos_tensor=*/Value(),
         /*attention_sink=*/attentionSink, adaptor.getScaleAttr(),
         adaptor.getSlidingWindowSizeAttr(),
-        /*program_config=*/nullptr);
+        /*program_config=*/nullptr, /*compute_config=*/nullptr);
 
     // Permute result back: [1, B, H, D] -> [B, H, 1, D].
     rewriter.replaceOp(
@@ -3571,7 +3571,8 @@ private:
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(), mask,
         op.getIsCausal(), adaptor.getScaleAttr(),
-        adaptor.getSlidingWindowSizeAttr(), attentionSink);
+        adaptor.getSlidingWindowSizeAttr(), attentionSink,
+        /*compute_config=*/nullptr);
 
     return success();
   }

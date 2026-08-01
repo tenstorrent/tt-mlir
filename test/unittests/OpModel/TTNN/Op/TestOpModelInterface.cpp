@@ -2024,7 +2024,8 @@ TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
       /*attention_sink=*/nullptr,
       /*scale=*/nullptr,
       /*sliding_window_size=*/nullptr,
-      /*program_config=*/nullptr);
+      /*program_config=*/nullptr,
+      /*compute_config=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttentionDecode.getOperation());
   auto constraintsExp = backend.getOpConstraints(
@@ -2108,7 +2109,8 @@ TEST_F(OpModelBase,
       /*attention_mask=*/attentionMask,
       /*cur_pos_tensor=*/curPos, /*attention_sink=*/nullptr,
       /*scale=*/nullptr, /*sliding_window_size=*/nullptr,
-      /*program_config=*/nullptr);
+      /*program_config=*/nullptr,
+      /*compute_config=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttentionDecode.getOperation());
   auto constraintsExp = backend.getOpConstraints(
@@ -2200,7 +2202,8 @@ TEST_F(OpModelBase, DISABLED_PagedScaledDotProductAttentionDecodeOpInterface) {
           /*attention_sink=*/nullptr,
           /*scale=*/builder.getF32FloatAttr(0.125f),
           /*sliding_window_size=*/nullptr,
-          /*program_config=*/nullptr);
+          /*program_config=*/nullptr,
+          /*compute_config=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttentionDecode.getOperation());
   auto constraintsExp = backend.getOpConstraints(
@@ -2291,7 +2294,8 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
       /*is_causal=*/false,
       /*scale=*/nullptr,
       /*sliding_window_size=*/nullptr,
-      /*attention_sink=*/Value());
+      /*attention_sink=*/Value(),
+      /*compute_config=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttention.getOperation());
   auto constraintsExp = backend.getOpConstraints(getInputLayouts(sdpAttention),
@@ -2371,7 +2375,8 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterfaceWithAttentionSink) {
       /*is_causal=*/false,
       /*scale=*/nullptr,
       /*sliding_window_size=*/nullptr,
-      /*attention_sink=*/attentionSink);
+      /*attention_sink=*/attentionSink,
+      /*compute_config=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttention.getOperation());
   auto constraintsExp = backend.getOpConstraints(getInputLayouts(sdpAttention),
@@ -2457,7 +2462,8 @@ TEST_F(OpModelBase, ChunkedScaledDotProductAttentionOpInterface) {
       builder.getUnknownLoc(), outputType, query, key, value, pageTable,
       chunkStartIdx,
       /*scale=*/builder.getF32FloatAttr(0.125f),
-      /*program_config=*/nullptr);
+      /*program_config=*/nullptr,
+      /*compute_config=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(chunkedSdpAttention.getOperation());
   auto constraintsExp = backend.getOpConstraints(
@@ -6790,7 +6796,8 @@ TEST_F(OpModelBase, PagedFlashMultiLatentAttentionDecodeOpInterface) {
       /*attention_mask=*/nullptr,
       /*cur_pos_tensor=*/curPos,
       /*attention_sink=*/nullptr,
-      /*scale=*/builder.getF32FloatAttr(headDim * 1.0f));
+      /*scale=*/builder.getF32FloatAttr(headDim * 1.0f),
+      /*compute_config=*/nullptr);
 
   mlaOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
@@ -6887,7 +6894,8 @@ TEST_F(OpModelBase, FlashMlaPrefillOpInterface) {
                                                  /*attention_mask=*/nullptr,
                                                  /*head_dim_v=*/s.headDimV,
                                                  /*is_causal=*/true,
-                                                 /*scale=*/nullptr);
+                                                 /*scale=*/nullptr,
+                                                 /*compute_config=*/nullptr);
 
   mlaOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
@@ -6947,7 +6955,8 @@ TEST_F(OpModelBase, FlashMlaPrefillOpInterfaceWithValue) {
                                                  /*attention_mask=*/nullptr,
                                                  /*head_dim_v=*/s.headDimV,
                                                  /*is_causal=*/true,
-                                                 /*scale=*/nullptr);
+                                                 /*scale=*/nullptr,
+                                                 /*compute_config=*/nullptr);
 
   mlaOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
@@ -7008,7 +7017,8 @@ TEST_F(OpModelBase, FlashMlaPrefillOpInterfaceWithMask) {
       /*attention_mask=*/attentionMask,
       /*head_dim_v=*/s.headDimV,
       /*is_causal=*/false,
-      /*scale=*/nullptr);
+      /*scale=*/nullptr,
+      /*compute_config=*/nullptr);
 
   mlaOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 

@@ -164,7 +164,8 @@ static void registerBuiltinComposites() {
             compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
             args.query, args.key, args.value, args.attentionMask,
             static_cast<uint32_t>(args.headDimV.getValue().getZExtValue()),
-            args.isCausal.getValue(), args.scale);
+            args.isCausal.getValue(), args.scale,
+            /*compute_config=*/nullptr);
       },
       // Build
       [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
@@ -174,7 +175,8 @@ static void registerBuiltinComposites() {
             compositeOp.getLoc(), compositeOp.getResultTypes(), args.query,
             args.key, args.value, args.attentionMask,
             static_cast<uint32_t>(args.headDimV.getValue().getZExtValue()),
-            args.isCausal.getValue(), args.scale);
+            args.isCausal.getValue(), args.scale,
+            /*compute_config=*/nullptr);
       }};
 }
 

@@ -3532,6 +3532,8 @@ public:
         emitter.emit(srcOp.getScale()),
         emitter.emit(/*slidingWindowSize=*/std::nullopt),
         emitter.emit(srcOp.getMemoryConfigAttr()),
+        emitter.emit(srcOp.getProgramConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
@@ -3590,7 +3592,7 @@ public:
         emitter.emit(srcOp.getSlidingWindowSize()),
         emitter.emit(srcOp.getMemoryConfig()),
         emitter.emit(srcOp.getProgramConfig()),
-        emitter.emit(/*compute_kernel_config=*/std::nullopt),
+        emitter.emit(srcOp.getComputeConfig()),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
@@ -3638,7 +3640,7 @@ public:
         emitter.emit(srcOp.getScale()),
         emitter.emit(srcOp.getMemoryConfig()),
         emitter.emit(srcOp.getProgramConfig()),
-        emitter.emit(/*compute_kernel_config=*/std::nullopt),
+        emitter.emit(srcOp.getComputeConfig()),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
@@ -3691,7 +3693,7 @@ public:
         emitter.emit(/*slidingWindowSize=*/std::nullopt),
         emitter.emit(srcOp.getMemoryConfigAttr()),
         emitter.emit(/*program_config=*/std::nullopt),
-        emitter.emit(/*compute_kernel_config=*/std::nullopt),
+        emitter.emit(srcOp.getComputeConfig()),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
@@ -3739,6 +3741,8 @@ public:
         emitter.emit(srcOp.getScale()),
         emitter.emit(srcOp.getSlidingWindowSize()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
+        emitter.emit(/*program_config=*/std::nullopt),
+        emitter.emit(srcOp.getComputeConfig()),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
@@ -3784,6 +3788,8 @@ public:
         emitter.emit(srcOp.getIsCausal()),
         emitter.emit(srcOp.getScale()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
+        emitter.emit(/*program_config=*/std::nullopt),
+        emitter.emit(srcOp.getComputeConfig()),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 

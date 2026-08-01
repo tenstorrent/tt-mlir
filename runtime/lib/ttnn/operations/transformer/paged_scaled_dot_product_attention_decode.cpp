@@ -52,12 +52,18 @@ static void runPagedScaledDotProductAttentionDecodeOp(
     programConfig = utils::createSDPAProgramConfig(op->program_config());
   }
 
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   ::ttnn::Tensor out =
       ::ttnn::transformer::paged_scaled_dot_product_attention_decode(
           query, key, value, pageTable, isCausal, attentionMask, curPosTensor,
           attentionSink, scale, slidingWindowSize, outputMemoryConfig,
           /*program_config=*/programConfig,
-          /*compute_kernel_config=*/std::nullopt);
+          /*compute_kernel_config=*/computeConfig);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 

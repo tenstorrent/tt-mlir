@@ -101,7 +101,7 @@ SDPADecompositionPattern::matchAndRewrite(ttnn::ScaledDotProductAttentionOp op,
             op.getOperation(), op.getLoc(), {qType}, op.getQuery(), op.getKey(),
             op.getValue(), op.getAttentionMask(), op.getIsCausalAttr(),
             op.getScaleAttr(), op.getSlidingWindowSizeAttr(),
-            op.getAttentionSink());
+            op.getAttentionSink(), op.getComputeConfigAttr());
 
     if (validationResult.isSuccess()) {
       // Op is valid — keep it as-is.

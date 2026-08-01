@@ -39,12 +39,18 @@ static void runChunkedScaledDotProductAttentionOp(
     programConfig = utils::createSDPAProgramConfig(op->program_config());
   }
 
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   ::ttnn::Tensor out =
       ::ttnn::transformer::chunked_scaled_dot_product_attention(
           query, key, value, pageTable, chunkStartIdx, scale,
           outputMemoryConfig,
           /*program_config=*/programConfig,
-          /*compute_kernel_config=*/std::nullopt);
+          /*compute_kernel_config=*/computeConfig);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
