@@ -703,6 +703,11 @@ bool MatmulRuleBook::isValidOutputHintForInputs(
   if (!attrs || !attrs->matmulProgramConfig.has_value()) {
     return true;
   }
+  if (hint.outputLayout &&
+      hint.outputLayout.hasShardedTensorMemoryLayout() &&
+      hint.outputLayout.getIgnorePhysicalLayout()) {
+    return false;
+  }
   mlir::Attribute programConfig = attrs->matmulProgramConfig.value();
 
   if (auto config =

@@ -92,6 +92,11 @@ getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   }
 
   TTNNLayoutAttr output = config.outputLayout;
+  if (output && output.hasShardedTensorMemoryLayout() &&
+      output.getIgnorePhysicalLayout()) {
+    return "matmul explicit program config requires a physical sharded output "
+           "layout";
+  }
   if (!tensorBackedCBFits(output, perCoreM, perCoreN)) {
     return "matmul output circular buffer exceeds its tensor shard";
   }

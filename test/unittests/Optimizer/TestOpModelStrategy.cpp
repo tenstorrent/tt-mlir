@@ -683,6 +683,35 @@ TEST_F(OpRuleBookTest,
                   .find("physical column") != std::string::npos);
 }
 
+TEST_F(OpRuleBookTest,
+       MatmulExplicitConfigRejectsIgnoredPhysicalShardedOutput) {
+  llvm::SmallVector<int64_t> shape = {1, 32, 2048};
+  auto interleaved = createDRAMInterleavedLayout(shape);
+  auto physicalOutput = createTiledLayoutWithCoreRange(
+      shape, TensorMemoryLayout::BlockSharded, {1, 8},
+      /*startX=*/0, /*startY=*/0, /*endX=*/7, /*endY=*/0);
+  auto ignoredOutput = physicalOutput.withIgnorePhysicalLayout(true);
+  auto shardShape = physicalOutput.getShardShape();
+  ASSERT_EQ(shardShape.size(), 2u);
+  MatmulRuleBook rules;
+
+  auto physicalConfig =
+      createMcast2DHint(physicalOutput, /*in0BlockW=*/1, shardShape[0],
+                        shardShape[1]);
+  auto ignoredConfig =
+      createMcast2DHint(ignoredOutput, /*in0BlockW=*/1, shardShape[0],
+                        shardShape[1]);
+
+  EXPECT_TRUE(
+      rules.isValidOutputHintForInputs(physicalConfig, {interleaved}));
+  EXPECT_FALSE(
+      rules.isValidOutputHintForInputs(ignoredConfig, {interleaved}));
+  EXPECT_FALSE(getMatmulPreflightError({interleaved}, physicalConfig));
+  EXPECT_TRUE(getMatmulPreflightError({interleaved}, ignoredConfig)
+                  .value()
+                  .find("requires a physical") != std::string::npos);
+}
+
 TEST_F(OpRuleBookTest, MatmulPartialConfigDedupPreservesOutputGeometry) {
   llvm::SmallVector<int64_t> shape = {1, 32, 2048};
   auto interleaved = createDRAMInterleavedLayout(shape);
@@ -705,6 +734,7 @@ TEST_F(OpRuleBookTest, MatmulPartialConfigDedupPreservesOutputGeometry) {
   ASSERT_EQ(partials.size(), 2u);
   MatmulRuleBook rules;
   for (const OpConfig &partial : partials) {
+    EXPECT_FALSE(partial.outputLayout.getIgnorePhysicalLayout());
     EXPECT_TRUE(rules.isValidOutputHintForInputs(partial, {interleaved}));
   }
 }

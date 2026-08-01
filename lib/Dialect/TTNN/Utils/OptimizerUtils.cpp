@@ -74,7 +74,7 @@ llvm::SmallVector<OpConfig> getUniqueTestConfigsForMatmulLinear(
   };
 
   // For each unique output layout geometry, collect:
-  //   - A representative partial layout (with ignorePhysicalLayout=true)
+  //   - A representative physical layout
   //   - The unique opSpecificAttrs from configs with that same geometry
   //
   // MatmulProgramConfig depends on both the tensor memory layout type and its
@@ -105,7 +105,11 @@ llvm::SmallVector<OpConfig> getUniqueTestConfigsForMatmulLinear(
     LayoutGroup &group = groups[key];
     if (!group.partialLayout) {
       TTNNLayoutAttr layout = config.outputLayout;
-      group.partialLayout = layout.withIgnorePhysicalLayout(true);
+      // Explicit matmul program configs size tensor-backed circular buffers
+      // against this exact shard placement. Marking the representative as
+      // ignorePhysicalLayout drops its ShardSpec during OpModel conversion and
+      // can defer invalid dynamic-CB failures until after constraints return.
+      group.partialLayout = layout.withIgnorePhysicalLayout(false);
     }
     if (group.seenAttrs.insert(config.opSpecificAttrs).second) {
       group.uniqueAttrs.push_back(config.opSpecificAttrs);
