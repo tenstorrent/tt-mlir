@@ -977,6 +977,7 @@ def _paged_sdpa_decode_handler(
 
 
 _TRANSFORMER_VALUE = {
+    "concatenate_heads": _nlp_concat_heads_handler,
     "scaled_dot_product_attention": _sdpa_handler,
     "chunked_scaled_dot_product_attention": _chunked_sdpa_handler,
     "paged_scaled_dot_product_attention_decode": _paged_sdpa_decode_handler,

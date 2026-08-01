@@ -283,8 +283,10 @@ def test_concat_heads_merges():
     x = scope.traced_args[0]
     with patch_ttnn(scope.jit_ctx):
         out = _ttnn.experimental.nlp_concat_heads(x)
-    assert "concatenate_heads" in str(scope.module)
+        transformer_out = _ttnn.transformer.concatenate_heads(x)
+    assert str(scope.module).count("ttir.concatenate_heads") == 2
     assert out.shape == (1, 32, 4096)  # [b, seq, num_heads * head_dim]
+    assert transformer_out.shape == out.shape
     assert out.shape[0] == 1  # batch preserved
     # build_trace_scope's func body has no terminator, and its pre-declared
     # result type matches x (rank 4), not out (rank 3, per the
