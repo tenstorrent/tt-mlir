@@ -74,6 +74,40 @@ RmsNormRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
   };
 }
 
+bool RmsNormRuleBook::isValidOutputHintForInputs(
+    const OpConfig &hint,
+    llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  if (inputLayouts.empty() || !inputLayouts[0]) {
+    return true;
+  }
+
+  TTNNLayoutAttr input = inputLayouts[0];
+  auto inputMemLayout = input.getMemLayout();
+  if (!inputMemLayout ||
+      !isShardedMemoryLayout(inputMemLayout.getValue())) {
+    return true;
+  }
+
+  // ttnn::rms_norm defaults a missing output memory config to the input's
+  // memory config, which is exactly what the sharded kernel requires.
+  if (!hint.outputLayout) {
+    return true;
+  }
+
+  auto outputMemLayout = hint.outputLayout.getMemLayout();
+  if (!outputMemLayout ||
+      !isShardedMemoryLayout(outputMemLayout.getValue()) ||
+      outputMemLayout.getValue() == TensorMemoryLayout::HeightSharded) {
+    return false;
+  }
+
+  // LayerNormShardedProgramFactory requires the input and output buffer types
+  // and tensor memory-layout types to match. Reject mismatches before calling
+  // OpModel so tt-metal does not emit a TT_FATAL for each search candidate.
+  return hint.outputLayout.getBufferType() == input.getBufferType() &&
+         outputMemLayout == inputMemLayout;
+}
+
 LayoutScore RmsNormRuleBook::adjustScore(
     Operation *op, LayoutScore base, const OpConfig &config,
     llvm::ArrayRef<TTNNLayoutAttr> inputLayouts, bool requiresReshard) const {

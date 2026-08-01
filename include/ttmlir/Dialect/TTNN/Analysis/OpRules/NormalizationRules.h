@@ -35,6 +35,14 @@ struct RmsNormRuleBook : OpRuleBook {
   /// are rejected because the sharded layernorm kernel doesn't support them.
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 
+  /// Prune output hints that violate the sharded layernorm kernel contract.
+  /// A sharded activation requires a sharded, non-height output with the same
+  /// buffer type and tensor memory-layout type. A NULL hint is valid because
+  /// tt-metal defaults it to the activation's memory config.
+  bool isValidOutputHintForInputs(
+      const OpConfig &hint,
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
+
   /// adjustScore reflects kernel-dispatch reality: the generic scorer derives
   /// `coreCount` from the output layout, but for rms_norm with interleaved
   /// input the kernel runs single- or few-core (parallelism = NC*Ht of input)

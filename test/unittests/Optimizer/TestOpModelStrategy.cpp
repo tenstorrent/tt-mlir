@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/NormalizationRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -174,6 +175,39 @@ public:
   }
 };
 
+class RmsNormRuleBookTest : public ::testing::Test {
+public:
+  mlir::MLIRContext context;
+  mlir::OwningOpRef<mlir::ModuleOp> module;
+  mlir::OpBuilder builder = mlir::OpBuilder(&context);
+
+  void SetUp() override {
+    context.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
+    context.loadDialect<mlir::tt::ttnn::TTNNDialect>();
+    module = mlir::ModuleOp::create(builder.getUnknownLoc());
+    mlir::tt::ttcore::registerDevice(module.get());
+  }
+
+  TTNNLayoutAttr createTiledLayout(
+      const llvm::ArrayRef<int64_t> &tensorShape, BufferType bufferType,
+      TensorMemoryLayout tensorMemoryLayout,
+      const llvm::ArrayRef<int64_t> &gridShape = {1, 1}) {
+    auto elementType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
+    auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
+    return TTNNLayoutAttr::Builder(&context, tensorShape, elementType)
+        .setBufferType(bufferType)
+        .setMemoryLayout(tensorMemoryLayout)
+        .setGridShape(gridShape)
+        .buildWithCanonicalCorePlacement(deviceAttr);
+  }
+
+  TTNNLayoutAttr
+  createDRAMInterleavedLayout(const llvm::ArrayRef<int64_t> &tensorShape) {
+    return createTiledLayout(tensorShape, BufferType::DRAM,
+                             TensorMemoryLayout::Interleaved);
+  }
+};
+
 //===----------------------------------------------------------------------===//
 // getOutputHints tests
 //===----------------------------------------------------------------------===//
@@ -259,6 +293,43 @@ TEST_F(OpModelStrategyTest, UnknownOpUsesDefaultStrategy) {
 
   // First hint should be NULL.
   EXPECT_FALSE(hints.hints[0].outputLayout);
+}
+
+TEST_F(RmsNormRuleBookTest, ShardedInputAcceptsCompatibleOutputHints) {
+  llvm::SmallVector<int64_t> shape = {1, 32, 2048};
+  auto input = createTiledLayout(shape, BufferType::L1,
+                                 TensorMemoryLayout::WidthSharded, {1, 8});
+  auto matchingOutput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 8});
+  RmsNormRuleBook rules;
+
+  EXPECT_TRUE(rules.isValidOutputHintForInputs(
+      OpConfig(TTNNLayoutAttr()), {input}));
+  EXPECT_TRUE(rules.isValidOutputHintForInputs(
+      OpConfig(matchingOutput), {input}));
+}
+
+TEST_F(RmsNormRuleBookTest, ShardedInputRejectsIncompatibleOutputs) {
+  llvm::SmallVector<int64_t> shape = {1, 32, 2048};
+  auto input = createTiledLayout(shape, BufferType::L1,
+                                 TensorMemoryLayout::WidthSharded, {1, 8});
+  auto interleaved = createDRAMInterleavedLayout(shape);
+  auto heightSharded = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::HeightSharded, {8, 1});
+  auto blockSharded = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {2, 4});
+  auto dramWidthSharded = createTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::WidthSharded, {1, 8});
+  RmsNormRuleBook rules;
+
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(
+      OpConfig(interleaved), {input}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(
+      OpConfig(heightSharded), {input}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(
+      OpConfig(blockSharded), {input}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(
+      OpConfig(dramWidthSharded), {input}));
 }
 
 //===----------------------------------------------------------------------===//
