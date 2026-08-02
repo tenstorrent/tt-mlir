@@ -6307,7 +6307,9 @@ llvm::Expected<OpConstraints> OpModel<RMSNormOp>::getOpConstraints(
     std::optional<llvm::ArrayRef<int64_t>> weightShape,
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
-    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    std::optional<TTNNLayoutAttr> biasLayout,
+    std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+    std::optional<TTNNLayoutAttr> residualInputLayout, llvm::APFloat epsilon,
     TTNNLayoutAttr outputLayout,
     std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -6323,8 +6325,9 @@ llvm::Expected<OpConstraints> OpModel<RMSNormOp>::getOpConstraints(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
-  // This information is not available in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+  std::optional<::ttnn::TensorSpec> residualInputSpec =
+      detail::convertToOptionalTensorSpec(device, residualInputShape,
+                                          residualInputLayout);
 
   std::optional<::ttnn::DeviceComputeKernelConfig>
       computeKernelConfigConverted =
@@ -6350,7 +6353,9 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
     std::optional<llvm::ArrayRef<int64_t>> weightShape,
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
-    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    std::optional<TTNNLayoutAttr> biasLayout,
+    std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+    std::optional<TTNNLayoutAttr> residualInputLayout, llvm::APFloat epsilon,
     TTNNLayoutAttr outputLayout,
     std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -6366,8 +6371,9 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
-  // This information is not available in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+  std::optional<::ttnn::TensorSpec> residualInputSpec =
+      detail::convertToOptionalTensorSpec(device, residualInputShape,
+                                          residualInputLayout);
 
   std::optional<::ttnn::DeviceComputeKernelConfig>
       computeKernelConfigConverted =

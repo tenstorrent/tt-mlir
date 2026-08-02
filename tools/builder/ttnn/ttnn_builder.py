@@ -8438,6 +8438,7 @@ class TTNNBuilder(Builder):
         input_tensor: Operand,
         weight: Optional[Operand] = None,
         bias: Optional[Operand] = None,
+        residual_input_tensor: Optional[Operand] = None,
         epsilon: float = 1.0e-5,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -8481,6 +8482,8 @@ class TTNNBuilder(Builder):
             ttnn_kwargs["weight"] = weight
         if bias is not None:
             ttnn_kwargs["bias"] = bias
+        if residual_input_tensor is not None:
+            ttnn_kwargs["residual_input_tensor"] = residual_input_tensor
 
         # Determine normalized_shape from weight/bias tensor if available, otherwise use last input dimension
         if weight is not None:
@@ -8495,6 +8498,10 @@ class TTNNBuilder(Builder):
             golden_kwargs["weight"] = self._get_golden_tensor(weight)
         if bias is not None:
             golden_kwargs["bias"] = self._get_golden_tensor(bias)
+        if residual_input_tensor is not None:
+            golden_kwargs["residual_input_tensor"] = self._get_golden_tensor(
+                residual_input_tensor
+            )
 
         if l1_width_sharded:
             return self._op_proxy_l1_sharded_executed_op_with_dram_final_output(

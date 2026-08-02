@@ -4009,7 +4009,7 @@ public:
         emitter.emit(srcOp.getEpsilon(), "epsilon"),
         emitter.emit(srcOp.getWeight(), "weight"),
         emitter.emit(srcOp.getBias(), "bias"),
-        emitter.emit(std::nullopt, "residual_input_tensor"),
+        emitter.emit(srcOp.getResidualInputTensor(), "residual_input_tensor"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(std::nullopt, "program_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),

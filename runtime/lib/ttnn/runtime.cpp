@@ -1924,6 +1924,10 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     if (opContext.type_as_RMSNormOp()->bias()) {
       tensorRefs.push_back(opContext.type_as_RMSNormOp()->bias());
     }
+    if (opContext.type_as_RMSNormOp()->residual_input_tensor()) {
+      tensorRefs.push_back(
+          opContext.type_as_RMSNormOp()->residual_input_tensor());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormPreAllGatherOp: {

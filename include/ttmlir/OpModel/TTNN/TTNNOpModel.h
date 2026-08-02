@@ -1614,7 +1614,9 @@ struct OpModel<RMSNormOp> {
       std::optional<llvm::ArrayRef<int64_t>> weightShape,
       std::optional<TTNNLayoutAttr> weightLayout,
       std::optional<llvm::ArrayRef<int64_t>> biasShape,
-      std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+      std::optional<TTNNLayoutAttr> biasLayout,
+      std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+      std::optional<TTNNLayoutAttr> residualInputLayout, llvm::APFloat epsilon,
       TTNNLayoutAttr outputLayout,
       std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
           std::nullopt);
@@ -1624,7 +1626,9 @@ struct OpModel<RMSNormOp> {
       std::optional<llvm::ArrayRef<int64_t>> weightShape,
       std::optional<TTNNLayoutAttr> weightLayout,
       std::optional<llvm::ArrayRef<int64_t>> biasShape,
-      std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+      std::optional<TTNNLayoutAttr> biasLayout,
+      std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+      std::optional<TTNNLayoutAttr> residualInputLayout, llvm::APFloat epsilon,
       TTNNLayoutAttr outputLayout,
       std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
           std::nullopt);

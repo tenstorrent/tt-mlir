@@ -55,9 +55,21 @@ public:
 
     RMSNormOpT newRmsNorm;
     if constexpr (std::is_same_v<RMSNormOpT, RMSNormOp>) {
+      Value newResidual;
+      if (op.getResidualInputTensor()) {
+        auto residualType =
+            cast<RankedTensorType>(op.getResidualInputTensor().getType());
+        auto newResidualType = RankedTensorType::get(
+            outputReshapeType.getShape(), residualType.getElementType(),
+            residualType.getEncoding());
+        newResidual = rewriter.create<ReshapeOp>(
+            op.getLoc(), newResidualType, op.getResidualInputTensor(),
+            rewriter.getI32ArrayAttr(newInputShape));
+      }
       newRmsNorm = rewriter.create<RMSNormOp>(
           op.getLoc(), outputReshapeType, newInputReshape, op.getWeight(),
-          op.getBias(), op.getNormalizedShapeAttr(), op.getEpsilonAttr());
+          op.getBias(), newResidual, op.getNormalizedShapeAttr(),
+          op.getEpsilonAttr());
     } else {
       Value newResidual;
       if (op.getResidual()) {

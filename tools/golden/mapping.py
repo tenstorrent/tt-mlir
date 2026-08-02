@@ -1075,6 +1075,7 @@ def rms_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor] = None,
     bias: Optional[GoldenMapTensor] = None,
+    residual_input_tensor: Optional[GoldenMapTensor] = None,
     normalized_shape: List[int] = None,
     epsilon: float = 1e-5,
 ) -> GoldenMapTensor:
@@ -1099,6 +1100,8 @@ def rms_norm_golden(
     """
     # Convert to float for computation
     input_float = input.float()
+    if residual_input_tensor is not None:
+        input_float = input_float + residual_input_tensor.float()
 
     rms_norm = torch.nn.functional.rms_norm(
         input_float,
@@ -1122,11 +1125,14 @@ def ttir_rms_norm_golden(
     normalized_shape: ArrayAttr,
     epsilon: FloatAttr,
     output_type_mlir: Type,
+    residual_input_tensor: Optional[GoldenMapTensor] = None,
 ) -> GoldenMapTensor:
     normalized_shape = unpack_mlir_attr(normalized_shape)
     epsilon = unpack_mlir_attr(epsilon)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     input_float = input.float()
+    if residual_input_tensor is not None:
+        input_float = input_float + residual_input_tensor.float()
 
     rms_norm = torch.nn.functional.rms_norm(
         input_float,
@@ -2383,6 +2389,7 @@ def linear_golden(
     bias=None,
     transpose_a=False,
     transpose_b=False,
+    activation=None,
 ) -> GoldenMapTensor:
     """
     Custom golden function for linear transformation.
@@ -2417,7 +2424,15 @@ def linear_golden(
         if bias.shape != output.shape
         else bias
     )
-    return torch.add(output, bias)
+    output = torch.add(output, bias)
+    if activation is not None:
+        if not isinstance(activation, str):
+            activation = unpack_mlir_attr(activation)
+        if activation == "silu":
+            output = torch.nn.functional.silu(output)
+        else:
+            raise ValueError(f"unsupported ttir.linear activation: {activation}")
+    return output
 
 
 def sdpa_decode_golden(
@@ -9424,6 +9439,7 @@ def chisel_ttnn_rms_norm(op, inputs):
         input=input_tensor,
         weight=inputs["weight"],
         bias=inputs["bias"],
+        residual_input_tensor=inputs["residual_input_tensor"],
         normalized_shape=normalized_shape,
         epsilon=unpack_mlir_attr(op.attributes["epsilon"]),
     )

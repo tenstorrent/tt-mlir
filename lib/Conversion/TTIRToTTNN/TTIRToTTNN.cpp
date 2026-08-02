@@ -1140,7 +1140,7 @@ public:
         adaptor.getB(), adaptor.getBias(), adaptor.getTransposeA(),
         adaptor.getTransposeB(),
         /*matmul_program_config=*/nullptr,
-        /*activation=*/nullptr, /*compute_config=*/nullptr);
+        adaptor.getActivationAttr(), /*compute_config=*/nullptr);
     if (auto attr = op->getAttr("ttcore.weight_dtype")) {
       newOp->setAttr("ttcore.weight_dtype", attr);
     }
@@ -1262,7 +1262,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::RMSNormOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
-        adaptor.getEpsilon());
+        adaptor.getResidualInputTensor(), adaptor.getEpsilon());
     return success();
   }
 };

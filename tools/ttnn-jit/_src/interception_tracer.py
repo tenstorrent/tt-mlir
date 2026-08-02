@@ -19,6 +19,7 @@ from ttnn_jit.ttmlir.ir import (
     IntegerType,
     Attribute,
     DictAttr,
+    StringAttr,
 )
 
 import ttnn
@@ -372,9 +373,12 @@ def _linear_handler(
             bias=(bias.mlir_value if bias is not None else None),
             transpose_a=transpose_a,
             transpose_b=transpose_b,
+            activation=(
+                StringAttr.get(activation, jit_ctx.ctx)
+                if activation is not None
+                else None
+            ),
         )
-        if activation == "silu":
-            return ttir.silu(result=result_type, input=linear)
         return linear
 
 
@@ -434,7 +438,6 @@ def _rms_norm_handler(
                 )
             return parameter.mlir_value
 
-        norm_input = x.mlir_value
         if residual_input_tensor is not None:
             residual_type = residual_input_tensor.mlir_value.type
             if (
@@ -445,18 +448,18 @@ def _rms_norm_handler(
                 raise ValueError(
                     "interception rms_norm residual must match input shape and dtype"
                 )
-            norm_input = ttir.add(
-                result=result_type,
-                lhs=norm_input,
-                rhs=residual_input_tensor.mlir_value,
-            )
         eps_attr = FloatAttr.get(F32Type.get(jit_ctx.ctx), float(epsilon))
         return ttir.rms_norm(
             result=result_type,
-            input=norm_input,
+            input=x.mlir_value,
             normalized_shape=[hidden],
             weight=flatten_norm_parameter(weight),
             bias=flatten_norm_parameter(bias),
+            residual_input_tensor=(
+                residual_input_tensor.mlir_value
+                if residual_input_tensor is not None
+                else None
+            ),
             epsilon=eps_attr,
         )
 

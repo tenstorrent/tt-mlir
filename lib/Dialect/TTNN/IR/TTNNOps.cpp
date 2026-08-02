@@ -3364,6 +3364,15 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
     return emitOpError("input and output must have the same shape");
   }
 
+  if (getResidualInputTensor()) {
+    RankedTensorType residualType = getResidualInputTensor().getType();
+    if (residualType.getShape() != inputType.getShape() ||
+        residualType.getElementType() != inputType.getElementType()) {
+      return emitOpError(
+          "residual input tensor must match input shape and element type");
+    }
+  }
+
   // For 0D tensors, weight and bias validation is different.
   if (inputType.getRank() == 0) {
     // For 0D tensors, weight and bias should also be 0D if present.

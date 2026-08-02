@@ -54,6 +54,13 @@ struct DecomposeRMSNormPattern : public OpRewritePattern<RMSNormOp> {
     auto inputType = cast<RankedTensorType>(x.getType());
     int64_t rank = inputType.getRank();
 
+    if (op.getResidualInputTensor()) {
+      x = rewriter
+              .create<AddOp>(loc, inputType, x,
+                             op.getResidualInputTensor())
+              .getResult();
+    }
+
     auto xSquared = rewriter.create<MultiplyOp>(loc, inputType, x, x);
 
     // `normalized_shape` lists the trailing k input dims over which RMS is
