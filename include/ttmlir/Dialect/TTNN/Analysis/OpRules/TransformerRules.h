@@ -23,8 +23,9 @@ namespace mlir::tt::ttnn {
 // Input layout restrictions:
 //   ConcatenateHeads: reject all sharded inputs.
 //     https://github.com/tenstorrent/tt-mlir/issues/7145
+//   SplitQKV: reject all sharded inputs.
 //
-// Reshard exploration: disabled for all transformer ops.
+// Reshard exploration: disabled except where a rule explicitly opts in.
 //===----------------------------------------------------------------------===//
 
 /// ConcatenateHeads: reject all sharded inputs, non-sharded output, no
@@ -76,7 +77,8 @@ struct RotaryEmbeddingRuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
-/// SplitQueryKeyValueAndSplitHeads: NULL hint only, no reshards.
+/// SplitQueryKeyValueAndSplitHeads: reject sharded inputs, NULL hint only, no
+/// reshards.
 /// The sharded create_qkv_heads kernel (BLOCK_SHARDED → HEIGHT_SHARDED)
 /// corrupts data when the sequence dimension is non-tile-aligned (e.g. 197).
 /// https://github.com/tenstorrent/tt-metal/issues/41526
