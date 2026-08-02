@@ -24,6 +24,7 @@ ConcatRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
 bool ConcatRuleBook::shouldExploreReshards() const { return true; }
 
 bool ConcatRuleBook::isValidInputCombination(
+    Operation * /*op*/,
     llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
   if (inputLayouts.size() < 2) {
     return true;

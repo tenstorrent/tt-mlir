@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/NormalizationRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinTypes.h"
@@ -72,6 +73,37 @@ RmsNormRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
     // rectangular bbox.
     return layout_filter_utils::isFullBboxSharded(layout);
   };
+}
+
+bool RmsNormRuleBook::isValidInputCombination(
+    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  auto rmsNorm = dyn_cast<RMSNormOp>(op);
+  if (!rmsNorm || !rmsNorm.getResidualInputTensor()) {
+    return true;
+  }
+
+  if (inputLayouts.empty() || !inputLayouts[0]) {
+    return false;
+  }
+
+  size_t residualIdx = 1;
+  residualIdx += rmsNorm.getWeight() ? 1 : 0;
+  residualIdx += rmsNorm.getBias() ? 1 : 0;
+  if (residualIdx >= inputLayouts.size() || !inputLayouts[residualIdx]) {
+    return false;
+  }
+
+  TTNNLayoutAttr input = inputLayouts[0];
+  auto inputMemLayout = input.getMemLayout();
+  if (!inputMemLayout ||
+      !isShardedMemoryLayout(inputMemLayout.getValue())) {
+    return true;
+  }
+
+  // layernorm_device_operation validates both shard_spec and memory_config
+  // equality for the fused residual. TTNNLayoutAttr equality additionally
+  // keeps page layout and physical placement aligned.
+  return inputLayouts[residualIdx] == input;
 }
 
 bool RmsNormRuleBook::isValidOutputHintForInputs(

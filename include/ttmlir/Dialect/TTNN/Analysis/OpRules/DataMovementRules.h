@@ -37,6 +37,7 @@ struct ConcatRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
   bool isValidInputCombination(
+      Operation *op,
       llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
   bool isValidOutputHintForInputs(
       const OpConfig &hint,
