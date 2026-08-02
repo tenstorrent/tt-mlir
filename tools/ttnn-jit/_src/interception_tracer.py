@@ -337,13 +337,11 @@ def _is_l1_interleaved(memory_config):
     )
 
 
-def _to_l1_interleaved(jit_ctx, value, shape, element_type):
-    """Materialize an explicit L1-interleaved layout boundary in TTIR.
+def _l1_interleaved_type(jit_ctx, shape, element_type):
+    """Build the exact source-authored L1-interleaved result type.
 
-    MemoryLayoutPropagation deliberately preserves ToLayoutOp, so the final
-    TTNN IR either keeps the producer in this layout or contains the required
-    to_memory_config conversion.  Use the traced device's full worker grid:
-    JitContext stores the inclusive maximum x/y coordinates.
+    Use the traced device's compute-with-storage grid; JitContext stores its
+    inclusive maximum x/y coordinates.
     """
     grid_shape = [int(jit_ctx.core_grid[1]) + 1, int(jit_ctx.core_grid[0]) + 1]
     tiled = ttcore.ir.TileType.get(
@@ -358,9 +356,7 @@ def _to_l1_interleaved(jit_ctx, value, shape, element_type):
         None,
         memLayout=ttnn.L1_MEMORY_CONFIG.memory_layout.value,
     )
-    target_type = RankedTensorType.get(list(shape), element_type, layout)
-    output = ttir.EmptyOp(target_type).result
-    return ttir.ToLayoutOp([target_type], value, output).result
+    return RankedTensorType.get(list(shape), element_type, layout)
 
 
 def _linear_handler(
@@ -425,8 +421,15 @@ def _linear_handler(
             linear_kwargs["activation"] = StringAttr.get(activation, jit_ctx.ctx)
         linear = ttir.linear(**linear_kwargs)
         if _is_l1_interleaved(memory_config):
-            return _to_l1_interleaved(
-                jit_ctx, linear, out_shape, result_type.element_type
+            # The destination-style Python builder materializes a ToLayoutOp
+            # when handed an encoded result type.  Assigning the verified
+            # producer result type after construction retains the authored
+            # boundary on the linear itself, so layout propagation cannot
+            # replace it with a sharded producer plus a conversion.
+            linear.set_type(
+                _l1_interleaved_type(
+                    jit_ctx, out_shape, result_type.element_type
+                )
             )
         return linear
 

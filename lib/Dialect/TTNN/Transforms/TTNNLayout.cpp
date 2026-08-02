@@ -253,7 +253,16 @@ public:
       }
     }
 
+    // Interception tracing marks a linear result when source code explicitly
+    // requested L1 interleaved output.  Preserve that encoded producer type;
+    // resetting it to the default device layout here would turn the authored
+    // contract into a downstream conversion before the advisor sees it.
+    const bool preserveExplicitL1Output =
+        op->hasAttr("ttnn_jit.explicit_l1_output");
     for (auto it : llvm::enumerate(op->getResultTypes())) {
+      if (preserveExplicitL1Output) {
+        continue;
+      }
       RankedTensorType ty = mlir::cast<RankedTensorType>(it.value());
       std::optional<RankedTensorType> desiredType =
           createDesiredType(rewriter, ty, g_defaultMemorySpaceDevice,
