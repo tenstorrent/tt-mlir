@@ -156,6 +156,27 @@ getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   return std::nullopt;
 }
 
+static std::optional<std::string>
+getRmsNormPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                         const OpConfig &config) {
+  if (inputLayouts.empty() || !inputLayouts[0]) {
+    return std::nullopt;
+  }
+
+  TTNNLayoutAttr input = inputLayouts[0];
+  auto inputMemLayout = input.getMemLayoutOpt();
+  if (!inputMemLayout || !isShardedMemoryLayout(*inputMemLayout) ||
+      !config.outputLayout) {
+    return std::nullopt;
+  }
+
+  if (config.outputLayout != input) {
+    return "rms_norm sharded input and output require identical physical "
+           "layouts";
+  }
+  return std::nullopt;
+}
+
 static ValidationResult
 validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                     const OpConfig &config, uint64_t additionalL1Usage);
@@ -280,6 +301,11 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
 
   if (isa<MatmulOp, LinearOp>(op)) {
     if (auto error = getMatmulPreflightError(inputLayouts, config)) {
+      return ValidationResult::metalBackendError(*error);
+    }
+  }
+  if (isa<RMSNormOp>(op)) {
+    if (auto error = getRmsNormPreflightError(inputLayouts, config)) {
       return ValidationResult::metalBackendError(*error);
     }
   }

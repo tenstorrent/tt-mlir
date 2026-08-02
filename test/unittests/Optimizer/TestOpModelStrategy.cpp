@@ -384,6 +384,68 @@ TEST_F(OpRuleBookTest, RmsNormShardedInputRejectsIncompatibleOutputs) {
       OpConfig(dramWidthSharded), {input}));
 }
 
+TEST_F(OpRuleBookTest, RmsNormRequiresIdenticalPhysicalShardSpec) {
+  llvm::SmallVector<int64_t> shape = {1, 1024, 16, 128};
+  auto input = createTiledLayout(shape, BufferType::L1,
+                                 TensorMemoryLayout::BlockSharded, {8, 4});
+  auto matchingOutput =
+      createTiledLayout(shape, BufferType::L1,
+                        TensorMemoryLayout::BlockSharded, {8, 4});
+  auto mismatchedOutput =
+      createTiledLayout(shape, BufferType::L1,
+                        TensorMemoryLayout::BlockSharded, {7, 4});
+  RmsNormRuleBook rules;
+
+  ASSERT_EQ(input.getShardShape().size(), 2u);
+  ASSERT_EQ(mismatchedOutput.getShardShape().size(), 2u);
+  EXPECT_EQ(input.getShardShape()[0], 128);
+  EXPECT_EQ(input.getShardShape()[1], 1);
+  EXPECT_EQ(mismatchedOutput.getShardShape()[0], 147);
+  EXPECT_EQ(mismatchedOutput.getShardShape()[1], 1);
+  EXPECT_TRUE(rules.isValidOutputHintForInputs(
+      OpConfig(matchingOutput), {input}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(
+      OpConfig(mismatchedOutput), {input}));
+}
+
+TEST_F(OpRuleBookTest,
+       RmsNormPreflightRejectsMismatchedPhysicalShardSpec) {
+  builder.setInsertionPointToStart(&module->getBodyRegion().front());
+  llvm::SmallVector<int64_t> shape = {1, 1024, 16, 128};
+  llvm::SmallVector<int64_t> weightShape = {128};
+  auto inputLayout = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {8, 4});
+  auto outputLayout = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {7, 4});
+  auto weightLayout = createDRAMInterleavedLayout(weightShape);
+
+  auto inputType =
+      mlir::RankedTensorType::get(shape, builder.getBF16Type(), inputLayout);
+  auto outputType =
+      mlir::RankedTensorType::get(shape, builder.getBF16Type(), outputLayout);
+  auto weightType = mlir::RankedTensorType::get(
+      weightShape, builder.getBF16Type(), weightLayout);
+  auto input = builder.create<OnesOp>(
+      builder.getUnknownLoc(), inputType, /*device=*/nullptr,
+      ShapeAttr::get(&context, shape));
+  auto weight = builder.create<OnesOp>(
+      builder.getUnknownLoc(), weightType, /*device=*/nullptr,
+      ShapeAttr::get(&context, weightShape));
+  auto rmsNorm = builder.create<RMSNormOp>(
+      builder.getUnknownLoc(), outputType, input.getResult(),
+      weight.getResult(), /*bias=*/mlir::Value(),
+      builder.getF32FloatAttr(1.0e-6f),
+      /*compute_config=*/nullptr);
+
+  ValidationResult result = validateOperation(
+      rmsNorm, {inputLayout, weightLayout}, OpConfig(outputLayout),
+      /*additionalL1Usage=*/0);
+  EXPECT_EQ(result.status, ValidationStatus::MetalBackendError);
+  EXPECT_EQ(result.errorMessage,
+            "rms_norm sharded input and output require identical physical "
+            "layouts");
+}
+
 TEST_F(OpRuleBookTest, SDPAAndPagedFillRequireInterleavedInputs) {
   llvm::SmallVector<int64_t> shape = {1, 32, 2048};
   auto dramInterleaved = createDRAMInterleavedLayout(shape);

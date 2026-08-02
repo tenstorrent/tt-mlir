@@ -101,11 +101,11 @@ bool RmsNormRuleBook::isValidOutputHintForInputs(
     return false;
   }
 
-  // LayerNormShardedProgramFactory requires the input and output buffer types
-  // and tensor memory-layout types to match. Reject mismatches before calling
-  // OpModel so tt-metal does not emit a TT_FATAL for each search candidate.
-  return hint.outputLayout.getBufferType() == input.getBufferType() &&
-         outputMemLayout == inputMemLayout;
+  // LayerNormShardedProgramFactory derives its CB geometry from the input
+  // shard and binds the output CB to the output tensor's L1 bank. Therefore
+  // matching only the buffer and tensor-memory-layout enums is insufficient:
+  // the physical core ranges, grid, and shard shape must match as well.
+  return hint.outputLayout == input;
 }
 
 LayoutScore RmsNormRuleBook::adjustScore(

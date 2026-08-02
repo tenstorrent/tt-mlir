@@ -37,8 +37,9 @@ struct RmsNormRuleBook : OpRuleBook {
 
   /// Prune output hints that violate the sharded layernorm kernel contract.
   /// A sharded activation requires a sharded, non-height output with the same
-  /// buffer type and tensor memory-layout type. A NULL hint is valid because
-  /// tt-metal defaults it to the activation's memory config.
+  /// complete physical layout (buffer type, memory-layout type, core ranges,
+  /// grid, and shard shape). A NULL hint is valid because tt-metal defaults it
+  /// to the activation's memory config.
   bool isValidOutputHintForInputs(
       const OpConfig &hint,
       llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
