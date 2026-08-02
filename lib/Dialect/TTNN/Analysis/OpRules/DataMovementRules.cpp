@@ -210,6 +210,14 @@ ReshapeRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   return layout_filter_utils::rejectWidthSharded;
 }
 
+Value ReshapeRuleBook::getLayoutForwardingResult(Operation *op,
+                                                 unsigned operandIdx) const {
+  if (operandIdx != 0 || !canReshapeBeView(op) || op->getNumResults() != 1) {
+    return {};
+  }
+  return op->getResult(0);
+}
+
 bool ReshapeRuleBook::shouldExploreReshards() const { return false; }
 
 OutputHints ReshapeRuleBook::getOutputHints(

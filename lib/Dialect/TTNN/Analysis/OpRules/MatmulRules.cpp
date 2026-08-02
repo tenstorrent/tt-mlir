@@ -16,6 +16,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <cmath>
@@ -262,26 +263,52 @@ static bool hasMatmulProgramConfig(const OpConfig &config) {
   return false;
 }
 
-static bool directConsumerRejectsLayout(Operation *producer,
-                                        TTNNLayoutAttr layout) {
+static bool consumerPathRejectsLayout(
+    Value value, TTNNLayoutAttr layout,
+    llvm::SmallPtrSetImpl<Operation *> &visitedForwarders) {
   if (!layout || !layout.hasShardedTensorMemoryLayout()) {
     return false;
   }
 
-  for (OpResult result : producer->getResults()) {
-    for (OpOperand &use : result.getUses()) {
-      Operation *consumer = use.getOwner();
-      if (isa<DeallocateOp>(consumer)) {
-        continue;
-      }
-      LayoutFilterFn filter =
-          getRuleBook(consumer).getInputLayoutFilter(use.getOperandNumber());
-      if (filter && !filter(layout)) {
+  for (OpOperand &use : value.getUses()) {
+    Operation *consumer = use.getOwner();
+    if (isa<DeallocateOp>(consumer)) {
+      continue;
+    }
+
+    const OpRuleBook &consumerRules = getRuleBook(consumer);
+    unsigned operandIdx = use.getOperandNumber();
+    LayoutFilterFn filter = consumerRules.getInputLayoutFilter(operandIdx);
+    if (filter && !filter(layout)) {
+      return true;
+    }
+
+    Value forwarded =
+        consumerRules.getLayoutForwardingResult(consumer, operandIdx);
+    if (!forwarded || !visitedForwarders.insert(consumer).second) {
+      continue;
+    }
+
+    auto forwardedType = dyn_cast<RankedTensorType>(forwarded.getType());
+    if (forwardedType) {
+      TTNNLayoutAttr forwardedLayout =
+          TTNNLayoutAttr::Builder(layout, forwardedType.getShape()).build();
+      if (consumerPathRejectsLayout(forwarded, forwardedLayout,
+                                    visitedForwarders)) {
         return true;
       }
     }
+    visitedForwarders.erase(consumer);
   }
   return false;
+}
+
+static bool consumerPathRejectsLayout(Operation *producer,
+                                      TTNNLayoutAttr layout) {
+  llvm::SmallPtrSet<Operation *, 4> visitedForwarders;
+  return llvm::any_of(producer->getResults(), [&](Value result) {
+    return consumerPathRejectsLayout(result, layout, visitedForwarders);
+  });
 }
 
 // ============================================================================
@@ -494,7 +521,7 @@ OutputHints MatmulRuleBook::getOutputHints(
   if (ttnn::utils::shouldAvoidGuaranteedOutputReshards(op)) {
     filtered.erase(std::remove_if(filtered.begin(), filtered.end(),
                                   [&](const OpConfig &config) {
-                                    return directConsumerRejectsLayout(
+                                    return consumerPathRejectsLayout(
                                         op, config.outputLayout);
                                   }),
                    filtered.end());

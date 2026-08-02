@@ -44,6 +44,19 @@ struct OpRuleBook {
     return nullptr;
   }
 
+  /// Return the result that transparently forwards an accepted input layout,
+  /// or a null Value when the op does not guarantee layout forwarding.
+  ///
+  /// This contract lets producer policies inspect the first non-transparent
+  /// consumer instead of stopping at view-like data-movement ops. The returned
+  /// result must preserve the input buffer and memory configuration without a
+  /// conversion; callers rebuild only the tensor-shape-dependent parts of the
+  /// TTNN layout for the result type.
+  virtual Value getLayoutForwardingResult(Operation * /*op*/,
+                                          unsigned /*operandIdx*/) const {
+    return {};
+  }
+
   /// Whether to generate reshard candidates for this op's inputs.
   /// This is a compile-time optimization: returning false skips
   /// O(K * reshardCandidates) backend validation calls. Use false when

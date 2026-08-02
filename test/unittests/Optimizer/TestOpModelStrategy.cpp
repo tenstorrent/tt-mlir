@@ -1021,6 +1021,110 @@ TEST_F(OpRuleBookTest,
   }));
 }
 
+TEST_F(OpRuleBookTest,
+       MatmulConsumerContractPolicyLooksThroughViewReshapeChain) {
+  llvm::SmallVector<int64_t> inputShape = {1024, 1152};
+  auto inputLayout = createDRAMInterleavedLayout(inputShape);
+  auto inputType = mlir::RankedTensorType::get(
+      inputShape, builder.getBF16Type(), inputLayout);
+  builder.setInsertionPointToStart(&module->getBodyRegion().front());
+  auto producer = builder.create<OnesOp>(builder.getUnknownLoc(), inputType,
+                                         /*device=*/nullptr,
+                                         ShapeAttr::get(&context, inputShape));
+
+  llvm::SmallVector<int64_t> reshapedShape = {1, 1024, 1152};
+  auto reshapedLayout = createDRAMInterleavedLayout(reshapedShape);
+  auto reshapedType = mlir::RankedTensorType::get(
+      reshapedShape, builder.getBF16Type(), reshapedLayout);
+  llvm::SmallVector<int32_t> reshapedShapeI32(reshapedShape.begin(),
+                                              reshapedShape.end());
+  auto reshape0 = builder.create<ReshapeOp>(
+      builder.getUnknownLoc(), reshapedType, producer.getResult(),
+      builder.getI32ArrayAttr(reshapedShapeI32));
+  auto reshape1 = builder.create<ReshapeOp>(
+      builder.getUnknownLoc(), reshapedType, reshape0.getResult(),
+      builder.getI32ArrayAttr(reshapedShapeI32));
+  ASSERT_TRUE(canReshapeBeView(reshape0.getOperation()));
+  ASSERT_TRUE(canReshapeBeView(reshape1.getOperation()));
+
+  llvm::SmallVector<int64_t> headShape = {1, 14, 1024, 64};
+  auto headLayout = createDRAMInterleavedLayout(headShape);
+  auto headType =
+      mlir::RankedTensorType::get(headShape, builder.getBF16Type(), headLayout);
+  builder.create<SplitQueryKeyValueAndSplitHeadsOp>(
+      builder.getUnknownLoc(), mlir::TypeRange{headType, headType, headType},
+      reshape1.getResult(),
+      /*kvInputTensor=*/mlir::Value(), builder.getUI32IntegerAttr(14),
+      /*numKvHeads=*/mlir::IntegerAttr(), builder.getBoolAttr(false));
+
+  auto shardedOutput = createTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::BlockSharded, {8, 9});
+  LayoutFilterFn reshapeFilter =
+      getRuleBook(reshape0.getOperation())
+          .getInputLayoutFilter(/*operandIdx=*/0);
+  ASSERT_TRUE(reshapeFilter);
+  ASSERT_TRUE(reshapeFilter(shardedOutput));
+
+  std::vector<OpConfig> configs{
+      OpConfig(inputLayout),
+      createMcast2DHint(shardedOutput, /*in0BlockW=*/1, /*perCoreM=*/4,
+                        /*perCoreN=*/4)};
+  module->getOperation()->setAttr(
+      utils::g_AvoidGuaranteedOutputReshardsAttrName,
+      builder.getBoolAttr(true));
+
+  OutputHints enabled =
+      MatmulRuleBook().getOutputHints(producer.getOperation(), configs);
+  EXPECT_TRUE(llvm::none_of(enabled.hints, [](const OpConfig &config) {
+    return config.outputLayout &&
+           config.outputLayout.hasShardedTensorMemoryLayout();
+  }));
+}
+
+TEST_F(OpRuleBookTest,
+       MatmulConsumerContractPolicyPreservesAcceptedViewReshapeChain) {
+  llvm::SmallVector<int64_t> inputShape = {1024, 896};
+  auto inputLayout = createDRAMInterleavedLayout(inputShape);
+  auto inputType = mlir::RankedTensorType::get(
+      inputShape, builder.getBF16Type(), inputLayout);
+  builder.setInsertionPointToStart(&module->getBodyRegion().front());
+  auto producer = builder.create<OnesOp>(builder.getUnknownLoc(), inputType,
+                                         /*device=*/nullptr,
+                                         ShapeAttr::get(&context, inputShape));
+
+  llvm::SmallVector<int64_t> reshapedShape = {1, 1024, 896};
+  auto reshapedLayout = createDRAMInterleavedLayout(reshapedShape);
+  auto reshapedType = mlir::RankedTensorType::get(
+      reshapedShape, builder.getBF16Type(), reshapedLayout);
+  llvm::SmallVector<int32_t> reshapedShapeI32(reshapedShape.begin(),
+                                              reshapedShape.end());
+  auto reshape = builder.create<ReshapeOp>(
+      builder.getUnknownLoc(), reshapedType, producer.getResult(),
+      builder.getI32ArrayAttr(reshapedShapeI32));
+  auto other = builder.create<OnesOp>(
+      builder.getUnknownLoc(), reshapedType,
+      /*device=*/nullptr, ShapeAttr::get(&context, reshapedShape));
+  builder.create<AddOp>(builder.getUnknownLoc(), reshapedType,
+                        reshape.getResult(), other.getResult());
+
+  auto shardedOutput = createTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::BlockSharded, {8, 7});
+  std::vector<OpConfig> configs{
+      OpConfig(inputLayout),
+      createMcast2DHint(shardedOutput, /*in0BlockW=*/1, /*perCoreM=*/4,
+                        /*perCoreN=*/4)};
+  module->getOperation()->setAttr(
+      utils::g_AvoidGuaranteedOutputReshardsAttrName,
+      builder.getBoolAttr(true));
+
+  OutputHints enabled =
+      MatmulRuleBook().getOutputHints(producer.getOperation(), configs);
+  EXPECT_TRUE(llvm::any_of(enabled.hints, [](const OpConfig &config) {
+    return config.outputLayout &&
+           config.outputLayout.hasShardedTensorMemoryLayout();
+  }));
+}
+
 TEST_F(OpRuleBookTest, MatmulPartialConfigDedupPreservesOutputGeometry) {
   llvm::SmallVector<int64_t> shape = {1, 32, 2048};
   auto interleaved = createDRAMInterleavedLayout(shape);

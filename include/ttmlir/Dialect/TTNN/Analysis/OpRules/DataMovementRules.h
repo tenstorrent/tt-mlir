@@ -67,6 +67,8 @@ bool canReshapeBeView(Operation *op);
 /// Non-view reshapes use non-sharded output hints.
 struct ReshapeRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  Value getLayoutForwardingResult(Operation *op,
+                                  unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
   OutputHints
   getOutputHints(Operation *op,
