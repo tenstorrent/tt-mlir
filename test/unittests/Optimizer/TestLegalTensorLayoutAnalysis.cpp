@@ -161,6 +161,20 @@ TEST_P(LegalTensorLayoutAnalysisTest, GenerateAndCategorizeLayouts) {
 
       // Verify that we have layouts for at least one memory layout type
       EXPECT_FALSE(interleavedLayouts.empty() && shardedLayouts.empty());
+
+      // Tiled sharded candidates must map an integral number of tiles to every
+      // core. Otherwise TT-Metal rejects their scalar shard shape during op
+      // model evaluation instead of allowing the optimizer to try the next
+      // legal candidate.
+      for (TTNNLayoutAttr layout : shardedLayouts) {
+        if (!layout.isTiled()) {
+          continue;
+        }
+        llvm::ArrayRef<int64_t> shardShape = layout.getShardShape();
+        ASSERT_GE(shardShape.size(), 2U);
+        EXPECT_EQ(shardShape[shardShape.size() - 2] % 32, 0);
+        EXPECT_EQ(shardShape[shardShape.size() - 1] % 32, 0);
+      }
     }
   }
 }

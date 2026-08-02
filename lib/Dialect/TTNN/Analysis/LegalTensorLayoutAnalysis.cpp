@@ -55,10 +55,13 @@ static bool tensorShapeCompatibleWithShard(RankedTensorType tensorType,
            "Tiled tensor shape and grid shape must have the same rank");
 
     for (size_t i = 0; i < tiledShape.size(); i++) {
-      // We need to have at least as many tiles as the grid size.
-      // Could also experiment with tiledShape[i] % gridShape[i] == 0, but need
-      // more context.
-      if (tiledShape[i] < gridShape[i]) {
+      // Each core's physical shard must contain an integral number of tiles.
+      // Merely having at least as many tiles as cores permits uneven splits
+      // such as 32 tiles over 5 cores.  The resulting scalar shard dimension
+      // is not tile aligned (for example 1024 / 5 -> 205), and TT-Metal rejects
+      // it while evaluating the candidate.
+      if (tiledShape[i] < gridShape[i] ||
+          tiledShape[i] % gridShape[i] != 0) {
         return false;
       }
     }
