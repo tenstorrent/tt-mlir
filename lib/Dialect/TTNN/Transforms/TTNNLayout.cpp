@@ -254,18 +254,18 @@ public:
     }
 
     // Interception tracing marks a linear result when source code explicitly
-    // requested L1 interleaved output.  Preserve that encoded producer type;
-    // resetting it to the default device layout here would turn the authored
-    // contract into a downstream conversion before the advisor sees it.
+    // requested L1 interleaved output.  The uniform type rewrite above has
+    // already normalized every result to the default DRAM layout, so rebuild
+    // the marked result as L1 here instead of merely skipping normalization.
     const bool preserveExplicitL1Output =
         op->hasAttr("ttnn_jit.explicit_l1_output");
     for (auto it : llvm::enumerate(op->getResultTypes())) {
-      if (preserveExplicitL1Output) {
-        continue;
-      }
       RankedTensorType ty = mlir::cast<RankedTensorType>(it.value());
+      BufferType desiredBufferType = preserveExplicitL1Output
+                                         ? BufferType::L1
+                                         : g_defaultMemorySpaceDevice;
       std::optional<RankedTensorType> desiredType =
-          createDesiredType(rewriter, ty, g_defaultMemorySpaceDevice,
+          createDesiredType(rewriter, ty, desiredBufferType,
                             /*tiled=*/shouldTilizeResult(op));
       if (desiredType) {
         rewriter.modifyOpInPlace(op, [&]() {
