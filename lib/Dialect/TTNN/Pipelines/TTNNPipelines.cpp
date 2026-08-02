@@ -817,9 +817,9 @@ void createTTIRToTTNNL1AdvisorPipeline(
 
   // Reuse the optimizer block verbatim: ConfigureCCLOps, UniqueLocations,
   // device-wrapped { GreedyMemoryLayoutPropagation, GreedyL1SpillManagement,
-  // OperationValidationAndFallback } + decision trace. Advisor is analysis-only:
-  // flag ops with no working fallback and keep going, so an agent still gets the
-  // rest of the layout report and can skip the broken op.
+  // OperationValidationAndFallback } + decision trace. Advisor is
+  // analysis-only: flag ops with no working fallback and keep going, so an
+  // agent still gets the rest of the layout report and can skip the broken op.
   createTTNNPipelineAnalysisPasses(devicePm, options,
                                    /*flagUnfixableOps=*/true);
 
@@ -847,8 +847,8 @@ void createTTNNToTTNNL1AdvisorPipeline(
   auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
   // Register device / attach system desc from the pipeline options. Required by
-  // the optimizer's getCurrentScopeSystemDesc(); normally done by the (excluded)
-  // createTTNNPipelineTTIRPasses.
+  // the optimizer's getCurrentScopeSystemDesc(); normally done by the
+  // (excluded) createTTNNPipelineTTIRPasses.
   ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
   registerDeviceOptions.systemDescPath = options.systemDescPath;
   registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;

@@ -71,10 +71,10 @@ static uint64_t getPhysicalCoreCount(TTNNLayoutAttr layout) {
 
   uint64_t count = 0;
   for (CoreRangeAttr range : ranges.getCoreRanges()) {
-    uint64_t width = range.getEndCoord().getX() -
-                     range.getStartCoord().getX() + 1;
-    uint64_t height = range.getEndCoord().getY() -
-                      range.getStartCoord().getY() + 1;
+    uint64_t width =
+        range.getEndCoord().getX() - range.getStartCoord().getX() + 1;
+    uint64_t height =
+        range.getEndCoord().getY() - range.getStartCoord().getY() + 1;
     count += width * height;
   }
   return count;
@@ -101,8 +101,7 @@ getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   }
 
   std::optional<Attribute> programConfig;
-  if (const auto *attrs =
-          std::get_if<MatmulAttrs>(&config.opSpecificAttrs)) {
+  if (const auto *attrs = std::get_if<MatmulAttrs>(&config.opSpecificAttrs)) {
     if (attrs->matmulProgramConfig && *attrs->matmulProgramConfig) {
       programConfig = *attrs->matmulProgramConfig;
     }
@@ -384,8 +383,8 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
     }
   }
   if (isa<RMSNormOp>(op)) {
-    if (auto error = getRmsNormPreflightError(
-            inputLayouts, config, cast<RMSNormOp>(op))) {
+    if (auto error = getRmsNormPreflightError(inputLayouts, config,
+                                              cast<RMSNormOp>(op))) {
       return ValidationResult::metalBackendError(*error);
     }
   }

@@ -66,11 +66,9 @@ public:
     maxReshardCandidatesPerType = opts.maxReshardCandidatesPerType;
     enableL1ShardingLayouts = opts.enableL1ShardingLayouts;
     enableReshardExploration = opts.enableReshardExploration;
-    prioritizeCumulativeReshardCost =
-        opts.prioritizeCumulativeReshardCost;
+    prioritizeCumulativeReshardCost = opts.prioritizeCumulativeReshardCost;
     reshardEdgePenaltyBytes = opts.reshardEdgePenaltyBytes;
-    avoidGuaranteedOutputReshards =
-        opts.avoidGuaranteedOutputReshards;
+    avoidGuaranteedOutputReshards = opts.avoidGuaranteedOutputReshards;
     enableDecisionTrace = opts.enableDecisionTrace;
     decisionTraceDir = std::move(opts.decisionTraceDir);
     enableCompileTimeStats = opts.enableCompileTimeStats;
@@ -87,8 +85,7 @@ public:
 #else
     ModuleOp moduleOp = getOperation();
     if (reshardEdgePenaltyBytes < 0) {
-      moduleOp.emitOpError(
-          "reshard-edge-penalty-bytes must be non-negative");
+      moduleOp.emitOpError("reshard-edge-penalty-bytes must be non-negative");
       signalPassFailure();
       return;
     }
@@ -212,8 +209,7 @@ public:
           func, legalConfigs, &tensorTypePossibleLayouts,
           static_cast<size_t>(beamWidth),
           static_cast<size_t>(maxInputCandidatesPerOperand),
-          static_cast<size_t>(maxReshardCandidatesPerType),
-          std::move(observer),
+          static_cast<size_t>(maxReshardCandidatesPerType), std::move(observer),
           enableReshardExploration && enableL1ShardingLayouts,
           prioritizeCumulativeReshardCost,
           static_cast<uint64_t>(reshardEdgePenaltyBytes));

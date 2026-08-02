@@ -193,10 +193,11 @@ public:
     mlir::tt::ttcore::registerDevice(module.get());
   }
 
-  TTNNLayoutAttr createTiledLayout(
-      const llvm::ArrayRef<int64_t> &tensorShape, BufferType bufferType,
-      TensorMemoryLayout tensorMemoryLayout,
-      const llvm::ArrayRef<int64_t> &gridShape = {1, 1}) {
+  TTNNLayoutAttr createTiledLayout(const llvm::ArrayRef<int64_t> &tensorShape,
+                                   BufferType bufferType,
+                                   TensorMemoryLayout tensorMemoryLayout,
+                                   const llvm::ArrayRef<int64_t> &gridShape = {
+                                       1, 1}) {
     auto elementType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
     auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
     return TTNNLayoutAttr::Builder(&context, tensorShape, elementType)
@@ -245,14 +246,12 @@ public:
 
   OpConfig createMcast1DHint(TTNNLayoutAttr output, uint64_t in0BlockW,
                              uint64_t perCoreM, bool mcastIn0,
-                             uint64_t perCoreN = 1,
-                             uint64_t configGridX = 0,
+                             uint64_t perCoreN = 1, uint64_t configGridX = 0,
                              uint64_t configGridY = 0) {
-    auto [outputGridX, outputGridY] =
-        utils::getPhysicalGridDimensions(output);
-    auto grid = CoreCoordAttr::get(
-        &context, configGridX ? configGridX : outputGridX,
-        configGridY ? configGridY : outputGridY);
+    auto [outputGridX, outputGridY] = utils::getPhysicalGridDimensions(output);
+    auto grid =
+        CoreCoordAttr::get(&context, configGridX ? configGridX : outputGridX,
+                           configGridY ? configGridY : outputGridY);
     auto hopCores = CoreRangeSetAttr::get(&context, {});
     auto config = MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::get(
         &context, grid, in0BlockW,
@@ -348,8 +347,8 @@ TEST_F(OpModelStrategyTest, MatmulPreflightUsesProgramConfigFromOperation) {
                   .value()
                   .find("requires an explicit program config") !=
               std::string::npos);
-  EXPECT_FALSE(getMatmulPreflightError(
-      {shardedInput, interleaved}, candidate, matmulOp.getOperation()));
+  EXPECT_FALSE(getMatmulPreflightError({shardedInput, interleaved}, candidate,
+                                       matmulOp.getOperation()));
 }
 
 TEST_F(OpModelStrategyTest, ReshapeOpSkipsL1Sharding) {
@@ -386,10 +385,10 @@ TEST_F(OpRuleBookTest, RmsNormShardedInputAcceptsCompatibleOutputHints) {
       shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 8});
   RmsNormRuleBook rules;
 
-  EXPECT_TRUE(rules.isValidOutputHintForInputs(
-      OpConfig(TTNNLayoutAttr()), {input}));
-  EXPECT_TRUE(rules.isValidOutputHintForInputs(
-      OpConfig(matchingOutput), {input}));
+  EXPECT_TRUE(
+      rules.isValidOutputHintForInputs(OpConfig(TTNNLayoutAttr()), {input}));
+  EXPECT_TRUE(
+      rules.isValidOutputHintForInputs(OpConfig(matchingOutput), {input}));
 }
 
 TEST_F(OpRuleBookTest, RmsNormShardedInputRejectsIncompatibleOutputs) {
@@ -405,26 +404,24 @@ TEST_F(OpRuleBookTest, RmsNormShardedInputRejectsIncompatibleOutputs) {
       shape, BufferType::DRAM, TensorMemoryLayout::WidthSharded, {1, 8});
   RmsNormRuleBook rules;
 
-  EXPECT_FALSE(rules.isValidOutputHintForInputs(
-      OpConfig(interleaved), {input}));
-  EXPECT_FALSE(rules.isValidOutputHintForInputs(
-      OpConfig(heightSharded), {input}));
-  EXPECT_FALSE(rules.isValidOutputHintForInputs(
-      OpConfig(blockSharded), {input}));
-  EXPECT_FALSE(rules.isValidOutputHintForInputs(
-      OpConfig(dramWidthSharded), {input}));
+  EXPECT_FALSE(
+      rules.isValidOutputHintForInputs(OpConfig(interleaved), {input}));
+  EXPECT_FALSE(
+      rules.isValidOutputHintForInputs(OpConfig(heightSharded), {input}));
+  EXPECT_FALSE(
+      rules.isValidOutputHintForInputs(OpConfig(blockSharded), {input}));
+  EXPECT_FALSE(
+      rules.isValidOutputHintForInputs(OpConfig(dramWidthSharded), {input}));
 }
 
 TEST_F(OpRuleBookTest, RmsNormRequiresIdenticalPhysicalShardSpec) {
   llvm::SmallVector<int64_t> shape = {1, 1024, 16, 128};
   auto input = createTiledLayout(shape, BufferType::L1,
                                  TensorMemoryLayout::BlockSharded, {8, 4});
-  auto matchingOutput =
-      createTiledLayout(shape, BufferType::L1,
-                        TensorMemoryLayout::BlockSharded, {8, 4});
-  auto mismatchedOutput =
-      createTiledLayout(shape, BufferType::L1,
-                        TensorMemoryLayout::BlockSharded, {7, 4});
+  auto matchingOutput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {8, 4});
+  auto mismatchedOutput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {7, 4});
   RmsNormRuleBook rules;
 
   ASSERT_EQ(input.getShardShape().size(), 2u);
@@ -433,14 +430,13 @@ TEST_F(OpRuleBookTest, RmsNormRequiresIdenticalPhysicalShardSpec) {
   EXPECT_EQ(input.getShardShape()[1], 1);
   EXPECT_EQ(mismatchedOutput.getShardShape()[0], 147);
   EXPECT_EQ(mismatchedOutput.getShardShape()[1], 1);
-  EXPECT_TRUE(rules.isValidOutputHintForInputs(
-      OpConfig(matchingOutput), {input}));
-  EXPECT_FALSE(rules.isValidOutputHintForInputs(
-      OpConfig(mismatchedOutput), {input}));
+  EXPECT_TRUE(
+      rules.isValidOutputHintForInputs(OpConfig(matchingOutput), {input}));
+  EXPECT_FALSE(
+      rules.isValidOutputHintForInputs(OpConfig(mismatchedOutput), {input}));
 }
 
-TEST_F(OpRuleBookTest,
-       RmsNormFusedResidualPrunesMismatchedInputCombinations) {
+TEST_F(OpRuleBookTest, RmsNormFusedResidualPrunesMismatchedInputCombinations) {
   builder.setInsertionPointToStart(&module->getBodyRegion().front());
   llvm::SmallVector<int64_t> shape = {1, 1024, 16, 128};
   llvm::SmallVector<int64_t> weightShape = {128};
@@ -456,18 +452,18 @@ TEST_F(OpRuleBookTest,
       mlir::RankedTensorType::get(shape, builder.getBF16Type(), residualLayout);
   auto weightType = mlir::RankedTensorType::get(
       weightShape, builder.getBF16Type(), weightLayout);
-  auto input = builder.create<OnesOp>(
-      builder.getUnknownLoc(), inputType, /*device=*/nullptr,
-      ShapeAttr::get(&context, shape));
-  auto residual = builder.create<OnesOp>(
-      builder.getUnknownLoc(), residualType, /*device=*/nullptr,
-      ShapeAttr::get(&context, shape));
-  auto weight = builder.create<OnesOp>(
-      builder.getUnknownLoc(), weightType, /*device=*/nullptr,
-      ShapeAttr::get(&context, weightShape));
+  auto input = builder.create<OnesOp>(builder.getUnknownLoc(), inputType,
+                                      /*device=*/nullptr,
+                                      ShapeAttr::get(&context, shape));
+  auto residual = builder.create<OnesOp>(builder.getUnknownLoc(), residualType,
+                                         /*device=*/nullptr,
+                                         ShapeAttr::get(&context, shape));
+  auto weight = builder.create<OnesOp>(builder.getUnknownLoc(), weightType,
+                                       /*device=*/nullptr,
+                                       ShapeAttr::get(&context, weightShape));
   auto rmsNorm = builder.create<RMSNormOp>(
-      builder.getUnknownLoc(), inputType, input.getResult(),
-      weight.getResult(), /*bias=*/mlir::Value(), residual.getResult(),
+      builder.getUnknownLoc(), inputType, input.getResult(), weight.getResult(),
+      /*bias=*/mlir::Value(), residual.getResult(),
       builder.getF32FloatAttr(1.0e-6f),
       /*compute_config=*/nullptr);
 
@@ -495,32 +491,31 @@ TEST_F(OpRuleBookTest,
       mlir::RankedTensorType::get(shape, builder.getBF16Type(), residualLayout);
   auto weightType = mlir::RankedTensorType::get(
       weightShape, builder.getBF16Type(), weightLayout);
-  auto input = builder.create<OnesOp>(
-      builder.getUnknownLoc(), inputType, /*device=*/nullptr,
-      ShapeAttr::get(&context, shape));
-  auto residual = builder.create<OnesOp>(
-      builder.getUnknownLoc(), residualType, /*device=*/nullptr,
-      ShapeAttr::get(&context, shape));
-  auto weight = builder.create<OnesOp>(
-      builder.getUnknownLoc(), weightType, /*device=*/nullptr,
-      ShapeAttr::get(&context, weightShape));
+  auto input = builder.create<OnesOp>(builder.getUnknownLoc(), inputType,
+                                      /*device=*/nullptr,
+                                      ShapeAttr::get(&context, shape));
+  auto residual = builder.create<OnesOp>(builder.getUnknownLoc(), residualType,
+                                         /*device=*/nullptr,
+                                         ShapeAttr::get(&context, shape));
+  auto weight = builder.create<OnesOp>(builder.getUnknownLoc(), weightType,
+                                       /*device=*/nullptr,
+                                       ShapeAttr::get(&context, weightShape));
   auto rmsNorm = builder.create<RMSNormOp>(
-      builder.getUnknownLoc(), inputType, input.getResult(),
-      weight.getResult(), /*bias=*/mlir::Value(), residual.getResult(),
+      builder.getUnknownLoc(), inputType, input.getResult(), weight.getResult(),
+      /*bias=*/mlir::Value(), residual.getResult(),
       builder.getF32FloatAttr(1.0e-6f),
       /*compute_config=*/nullptr);
 
-  ValidationResult result = validateOperation(
-      rmsNorm, {inputLayout, weightLayout, residualLayout},
-      OpConfig(inputLayout), /*additionalL1Usage=*/0);
+  ValidationResult result =
+      validateOperation(rmsNorm, {inputLayout, weightLayout, residualLayout},
+                        OpConfig(inputLayout), /*additionalL1Usage=*/0);
   EXPECT_EQ(result.status, ValidationStatus::MetalBackendError);
   EXPECT_EQ(result.errorMessage,
             "rms_norm sharded input and residual require identical physical "
             "layouts");
 }
 
-TEST_F(OpRuleBookTest,
-       RmsNormPreflightRejectsMismatchedPhysicalShardSpec) {
+TEST_F(OpRuleBookTest, RmsNormPreflightRejectsMismatchedPhysicalShardSpec) {
   builder.setInsertionPointToStart(&module->getBodyRegion().front());
   llvm::SmallVector<int64_t> shape = {1, 1024, 16, 128};
   llvm::SmallVector<int64_t> weightShape = {128};
@@ -536,17 +531,16 @@ TEST_F(OpRuleBookTest,
       mlir::RankedTensorType::get(shape, builder.getBF16Type(), outputLayout);
   auto weightType = mlir::RankedTensorType::get(
       weightShape, builder.getBF16Type(), weightLayout);
-  auto input = builder.create<OnesOp>(
-      builder.getUnknownLoc(), inputType, /*device=*/nullptr,
-      ShapeAttr::get(&context, shape));
-  auto weight = builder.create<OnesOp>(
-      builder.getUnknownLoc(), weightType, /*device=*/nullptr,
-      ShapeAttr::get(&context, weightShape));
+  auto input = builder.create<OnesOp>(builder.getUnknownLoc(), inputType,
+                                      /*device=*/nullptr,
+                                      ShapeAttr::get(&context, shape));
+  auto weight = builder.create<OnesOp>(builder.getUnknownLoc(), weightType,
+                                       /*device=*/nullptr,
+                                       ShapeAttr::get(&context, weightShape));
   auto rmsNorm = builder.create<RMSNormOp>(
       builder.getUnknownLoc(), outputType, input.getResult(),
       weight.getResult(), /*bias=*/mlir::Value(),
-      /*residual_input_tensor=*/mlir::Value(),
-      builder.getF32FloatAttr(1.0e-6f),
+      /*residual_input_tensor=*/mlir::Value(), builder.getF32FloatAttr(1.0e-6f),
       /*compute_config=*/nullptr);
 
   ValidationResult result = validateOperation(
@@ -561,8 +555,8 @@ TEST_F(OpRuleBookTest,
 TEST_F(OpRuleBookTest, SDPAAndPagedFillRequireInterleavedInputs) {
   llvm::SmallVector<int64_t> shape = {1, 32, 2048};
   auto dramInterleaved = createDRAMInterleavedLayout(shape);
-  auto l1Interleaved = createTiledLayout(
-      shape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto l1Interleaved =
+      createTiledLayout(shape, BufferType::L1, TensorMemoryLayout::Interleaved);
   auto widthSharded = createTiledLayout(
       shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 8});
   auto heightSharded = createTiledLayout(
@@ -597,16 +591,16 @@ TEST_F(OpRuleBookTest, SDPAAndPagedFillRequireInterleavedInputs) {
 
 TEST_F(OpRuleBookTest, MatmulMcast2DFiltersIncompatibleShardedInputs) {
   llvm::SmallVector<int64_t> shape = {1, 32, 2048};
-  auto blockInput = createTiledLayout(
-      shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {2, 4});
+  auto blockInput = createTiledLayout(shape, BufferType::L1,
+                                      TensorMemoryLayout::BlockSharded, {2, 4});
   auto blockOutput = createTiledLayout(
       shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {2, 4});
   auto heightInput = createTiledLayout(
       shape, BufferType::L1, TensorMemoryLayout::HeightSharded, {8, 1});
   auto heightOutput = createTiledLayout(
       shape, BufferType::L1, TensorMemoryLayout::HeightSharded, {8, 1});
-  auto widthInput = createTiledLayout(
-      shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 8});
+  auto widthInput = createTiledLayout(shape, BufferType::L1,
+                                      TensorMemoryLayout::WidthSharded, {1, 8});
   auto blockShard = blockInput.getShardShape();
   auto heightShard = heightInput.getShardShape();
   ASSERT_EQ(blockShard.size(), 2u);
@@ -635,8 +629,8 @@ TEST_F(OpRuleBookTest, MatmulMcast2DFiltersIncompatibleShardedInputs) {
 
 TEST_F(OpRuleBookTest, MatmulMcast1DEnforcesDirectionAndShardGeometry) {
   llvm::SmallVector<int64_t> shape = {1, 32, 2048};
-  auto widthInput = createTiledLayout(
-      shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 8});
+  auto widthInput = createTiledLayout(shape, BufferType::L1,
+                                      TensorMemoryLayout::WidthSharded, {1, 8});
   auto widthOutput = createTiledLayout(
       shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 8});
   auto heightInput = createTiledLayoutWithCoreRange(
@@ -645,8 +639,8 @@ TEST_F(OpRuleBookTest, MatmulMcast1DEnforcesDirectionAndShardGeometry) {
   auto heightOutput = createTiledLayoutWithCoreRange(
       shape, TensorMemoryLayout::HeightSharded, {8, 1},
       /*startX=*/0, /*startY=*/0, /*endX=*/0, /*endY=*/7);
-  auto blockInput = createTiledLayout(
-      shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {2, 4});
+  auto blockInput = createTiledLayout(shape, BufferType::L1,
+                                      TensorMemoryLayout::BlockSharded, {2, 4});
   auto blockOutput = createTiledLayout(
       shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {1, 8});
   auto interleaved = createDRAMInterleavedLayout(shape);
@@ -662,19 +656,13 @@ TEST_F(OpRuleBookTest, MatmulMcast1DEnforcesDirectionAndShardGeometry) {
   auto heightHint =
       createMcast1DHint(heightOutput, /*in0BlockW=*/1, heightShard[0],
                         /*mcastIn0=*/false);
-  EXPECT_TRUE(
-      rules.isValidOutputHintForInputs(widthHint, {widthInput}));
+  EXPECT_TRUE(rules.isValidOutputHintForInputs(widthHint, {widthInput}));
   EXPECT_FALSE(getMatmulPreflightError({heightInput}, heightHint));
-  EXPECT_TRUE(
-      rules.isValidOutputHintForInputs(heightHint, {heightInput}));
-  EXPECT_TRUE(
-      rules.isValidOutputHintForInputs(widthHint, {interleaved}));
-  EXPECT_FALSE(
-      rules.isValidOutputHintForInputs(widthHint, {heightInput}));
-  EXPECT_FALSE(
-      rules.isValidOutputHintForInputs(heightHint, {widthInput}));
-  EXPECT_FALSE(
-      rules.isValidOutputHintForInputs(widthHint, {blockInput}));
+  EXPECT_TRUE(rules.isValidOutputHintForInputs(heightHint, {heightInput}));
+  EXPECT_TRUE(rules.isValidOutputHintForInputs(widthHint, {interleaved}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(widthHint, {heightInput}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(heightHint, {widthInput}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(widthHint, {blockInput}));
   EXPECT_FALSE(rules.isValidOutputHintForInputs(
       createMcast1DHint(widthOutput, /*in0BlockW=*/1, widthShard[0] + 1,
                         /*mcastIn0=*/true),
@@ -830,8 +818,7 @@ TEST_F(OpRuleBookTest, MatmulPreflightRejectsInvalidPhysical1DBlockGrid) {
                   .find("physical column") != std::string::npos);
 }
 
-TEST_F(OpRuleBookTest,
-       Matmul1DHeightShardedOutputRequiresPhysicalColumn) {
+TEST_F(OpRuleBookTest, Matmul1DHeightShardedOutputRequiresPhysicalColumn) {
   llvm::SmallVector<int64_t> shape = {1, 32, 2048};
   auto interleaved = createDRAMInterleavedLayout(shape);
   auto physicalColumn = createTiledLayoutWithCoreRange(
@@ -859,12 +846,12 @@ TEST_F(OpRuleBookTest,
 
 TEST_F(OpRuleBookTest, Matmul1DShardedInputMustFitProgramGrid) {
   llvm::SmallVector<int64_t> shape = {1, 32, 4864};
-  auto input19 = createTiledLayout(
-      shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 19});
-  auto output7 = createTiledLayout(
-      shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 7});
-  auto output19 = createTiledLayout(
-      shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 19});
+  auto input19 = createTiledLayout(shape, BufferType::L1,
+                                   TensorMemoryLayout::WidthSharded, {1, 19});
+  auto output7 = createTiledLayout(shape, BufferType::L1,
+                                   TensorMemoryLayout::WidthSharded, {1, 7});
+  auto output19 = createTiledLayout(shape, BufferType::L1,
+                                    TensorMemoryLayout::WidthSharded, {1, 19});
   MatmulRuleBook rules;
 
   auto tooSmall = createMcast1DHint(
@@ -895,17 +882,13 @@ TEST_F(OpRuleBookTest,
   ASSERT_EQ(shardShape.size(), 2u);
   MatmulRuleBook rules;
 
-  auto physicalConfig =
-      createMcast2DHint(physicalOutput, /*in0BlockW=*/1, shardShape[0],
-                        shardShape[1]);
-  auto ignoredConfig =
-      createMcast2DHint(ignoredOutput, /*in0BlockW=*/1, shardShape[0],
-                        shardShape[1]);
+  auto physicalConfig = createMcast2DHint(physicalOutput, /*in0BlockW=*/1,
+                                          shardShape[0], shardShape[1]);
+  auto ignoredConfig = createMcast2DHint(ignoredOutput, /*in0BlockW=*/1,
+                                         shardShape[0], shardShape[1]);
 
-  EXPECT_TRUE(
-      rules.isValidOutputHintForInputs(physicalConfig, {interleaved}));
-  EXPECT_FALSE(
-      rules.isValidOutputHintForInputs(ignoredConfig, {interleaved}));
+  EXPECT_TRUE(rules.isValidOutputHintForInputs(physicalConfig, {interleaved}));
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(ignoredConfig, {interleaved}));
   EXPECT_FALSE(getMatmulPreflightError({interleaved}, physicalConfig));
   EXPECT_TRUE(getMatmulPreflightError({interleaved}, ignoredConfig)
                   .value()
@@ -966,11 +949,10 @@ TEST_F(OpRuleBookTest, MatmulRejectsRowMajorShardedInput) {
           .setMemoryLayout(TensorMemoryLayout::HeightSharded)
           .setGridShape({8, 1})
           .buildWithCanonicalCorePlacement(deviceAttr);
-  auto output = createTiledLayout(
-      shape, BufferType::L1, TensorMemoryLayout::HeightSharded, {8, 1});
-  auto config =
-      createMcast2DHint(output, /*in0BlockW=*/1, /*perCoreM=*/1,
-                        /*perCoreN=*/1);
+  auto output = createTiledLayout(shape, BufferType::L1,
+                                  TensorMemoryLayout::HeightSharded, {8, 1});
+  auto config = createMcast2DHint(output, /*in0BlockW=*/1, /*perCoreM=*/1,
+                                  /*perCoreN=*/1);
 
   auto error = getMatmulPreflightError({rowMajorInput}, config);
   ASSERT_TRUE(error);
@@ -994,12 +976,12 @@ TEST_F(OpRuleBookTest,
        MatmulConsumerContractPolicyAvoidsGuaranteedSplitQKVReshard) {
   llvm::SmallVector<int64_t> inputShape = {1, 32, 64};
   auto inputLayout = createDRAMInterleavedLayout(inputShape);
-  auto inputType = RankedTensorType::get(inputShape, builder.getBF16Type(),
-                                         inputLayout);
+  auto inputType =
+      RankedTensorType::get(inputShape, builder.getBF16Type(), inputLayout);
   builder.setInsertionPointToStart(&module->getBodyRegion().front());
-  auto producer = builder.create<OnesOp>(
-      builder.getUnknownLoc(), inputType,
-      /*device=*/nullptr, ShapeAttr::get(&context, inputShape));
+  auto producer = builder.create<OnesOp>(builder.getUnknownLoc(), inputType,
+                                         /*device=*/nullptr,
+                                         ShapeAttr::get(&context, inputShape));
 
   llvm::SmallVector<int64_t> headShape = {1, 1, 32, 32};
   auto headLayout = createDRAMInterleavedLayout(headShape);
@@ -1019,8 +1001,7 @@ TEST_F(OpRuleBookTest,
                         /*mcastIn0=*/true)};
   MatmulRuleBook rules;
 
-  OutputHints disabled =
-      rules.getOutputHints(producer.getOperation(), configs);
+  OutputHints disabled = rules.getOutputHints(producer.getOperation(), configs);
   EXPECT_TRUE(llvm::any_of(disabled.hints, [](const OpConfig &config) {
     return config.outputLayout &&
            config.outputLayout.hasShardedTensorMemoryLayout();

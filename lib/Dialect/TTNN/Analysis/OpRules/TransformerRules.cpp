@@ -46,8 +46,8 @@ OutputHints SDPARuleBook::getOutputHints(
   return layout_filter_utils::nullHintOnly();
 }
 
-LayoutFilterFn SDPAInterleavedRuleBook::getInputLayoutFilter(
-    unsigned /*operandIdx*/) const {
+LayoutFilterFn
+SDPAInterleavedRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   // Regular SDPA validates Q/K/V identically: every operand must be
   // interleaved, in either DRAM or L1.
   return layout_filter_utils::rejectAllSharded;

@@ -42,9 +42,8 @@ inline constexpr llvm::StringLiteral g_AllowBf16DRAMShardedMatmulAttrName =
 
 // Attribute name for the policy that avoids sharded matmul outputs when a
 // direct consumer's input-layout contract rejects them.
-inline constexpr llvm::StringLiteral
-    g_AvoidGuaranteedOutputReshardsAttrName =
-        "ttnn.avoid_guaranteed_output_reshards";
+inline constexpr llvm::StringLiteral g_AvoidGuaranteedOutputReshardsAttrName =
+    "ttnn.avoid_guaranteed_output_reshards";
 
 // Helper function to retrieve tensor L1 usage cap from module attribute.
 // Returns the configured cap if found, otherwise returns the default value.
