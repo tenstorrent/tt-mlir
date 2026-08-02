@@ -3114,7 +3114,7 @@ public:
     } else if constexpr (std::is_same_v<OpType, LinearOp>) {
       newOp = rewriter.replaceOpWithNewOp<LinearOp>(
           op, op.getType(), newA, newB, op.getBias(), newTransposeA,
-          newTransposeB);
+          newTransposeB, op.getActivationAttr());
     } else {
       static_assert(ttmlir::utils::always_false<OpType>(),
                     "Unsupported OpType for PermuteMatmulFusionPattern");
