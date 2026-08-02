@@ -852,13 +852,15 @@ TEST_F(OpRuleBookTest, Matmul1DShardedInputMustFitProgramGrid) {
                                    TensorMemoryLayout::WidthSharded, {1, 7});
   auto output19 = createTiledLayout(shape, BufferType::L1,
                                     TensorMemoryLayout::WidthSharded, {1, 19});
+  auto inputShard = input19.getShardShape();
+  ASSERT_EQ(inputShard.size(), 2u);
   MatmulRuleBook rules;
 
   auto tooSmall = createMcast1DHint(
-      output7, /*in0BlockW=*/1, /*perCoreM=*/1, /*mcastIn0=*/true,
+      output7, /*in0BlockW=*/1, inputShard[0], /*mcastIn0=*/true,
       /*perCoreN=*/1, /*configGridX=*/7, /*configGridY=*/1);
   auto fitting = createMcast1DHint(
-      output19, /*in0BlockW=*/1, /*perCoreM=*/1, /*mcastIn0=*/true,
+      output19, /*in0BlockW=*/1, inputShard[0], /*mcastIn0=*/true,
       /*perCoreN=*/1, /*configGridX=*/19, /*configGridY=*/1);
 
   EXPECT_FALSE(rules.isValidOutputHintForInputs(tooSmall, {input19}));
