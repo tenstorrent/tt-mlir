@@ -14,8 +14,6 @@
 
 namespace mlir::tt::ttnn {
 
-static inline int64_t divUp(int64_t a, int64_t b) { return (a + b - 1) / b; }
-
 // Compute the maximum number of tiles that can fit in the destination register.
 // This depends on the compute kernel config settings:
 //   - Base: 16 tiles (for standard 32x32 tiles)
@@ -109,9 +107,9 @@ generateMatmul1DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
 
   if (mcastIn0) {
     perCoreM = Mt;
-    perCoreN = divUp(Nt, numCores);
+    perCoreN = llvm::divideCeil(Nt, numCores);
   } else {
-    perCoreM = divUp(Mt, numCores);
+    perCoreM = llvm::divideCeil(Mt, numCores);
     perCoreN = Nt;
   }
 
@@ -163,8 +161,8 @@ generateMatmul2DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
                               int64_t maxSubblockSize, bool fuseBatch) {
   auto [gridX, gridY] = utils::getPhysicalGridDimensions(outputLayout);
 
-  int64_t perCoreM = divUp(Mt, gridY);
-  int64_t perCoreN = divUp(Nt, gridX);
+  int64_t perCoreM = llvm::divideCeil(Mt, gridY);
+  int64_t perCoreN = llvm::divideCeil(Nt, gridX);
 
   int64_t in0BlockW = (Kt % 2 == 0) ? 2 : 1;
   int64_t outSubblockH = 1;
@@ -253,9 +251,9 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
   int64_t M = outShape[outShape.size() - 2];
   int64_t N = outShape[outShape.size() - 1];
   int64_t K = aShape[aShape.size() - 1];
-  int64_t Mt = divUp(M, TILE_HEIGHT);
-  int64_t Nt = divUp(N, TILE_WIDTH);
-  int64_t Kt = divUp(K, TILE_WIDTH);
+  int64_t Mt = llvm::divideCeil(M, TILE_HEIGHT);
+  int64_t Nt = llvm::divideCeil(N, TILE_WIDTH);
+  int64_t Kt = llvm::divideCeil(K, TILE_WIDTH);
 
   MLIRContext *ctx = op->getContext();
   UnaryWithParamAttr fusedActivation =
@@ -328,7 +326,10 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   p.shardW = p.nPadded / numBanks;
   p.kTiles = K / kTileSize;
   p.shardWTiles = p.shardW / kTileSize;
-  p.perCoreM = M / kTileSize;
+  // Round up: a sub-tile activation (a decode batch of 1..31) is still one tile
+  // row, and tt-metal pads it to one. Truncating would yield per_core_M = 0 and
+  // a degenerate config.
+  p.perCoreM = llvm::divideCeil(M, kTileSize);
   p.perCoreN = (N / kTileSize + numOutCores - 1) / numOutCores; // div_up
   p.weightDataType = weightDataType;
 

@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/Builders.h"
@@ -62,38 +63,56 @@ static std::optional<int64_t> getNumDRAMBanks(ttcore::DeviceAttr deviceAttr) {
 // Eligibility helpers
 // ============================================================================
 
-static bool isBfpDRAMInterleaved(Value weight) {
+// The weight's TTNN layout, or null when its type does not carry one. The
+// layout is where the on-device tiling and dtype live, so it is the single
+// thing the checks below need.
+static TTNNLayoutAttr getWeightLayout(Value weight) {
   auto rtt = mlir::dyn_cast<RankedTensorType>(weight.getType());
   if (!rtt) {
-    return false;
+    return {};
   }
-  auto elType = rtt.getElementType();
-  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elType)) {
-    auto dt = tileType.getDataType();
-    if (dt != ttcore::DataType::BFP_BFloat8 &&
-        dt != ttcore::DataType::BFP_BFloat4) {
-      return false;
-    }
-  } else {
-    return false;
-  }
-  auto layoutAttr = mlir::dyn_cast_or_null<TTNNLayoutAttr>(rtt.getEncoding());
-  if (!layoutAttr) {
-    return false;
-  }
-  return layoutAttr.hasInterleavedDRAMTensorMemoryLayout();
+  return mlir::dyn_cast_or_null<TTNNLayoutAttr>(rtt.getEncoding());
 }
 
-static ttcore::DataType getWeightDataType(Value weight) {
-  auto rtt = mlir::cast<RankedTensorType>(weight.getType());
-  auto tileType = mlir::cast<ttcore::TileType>(rtt.getElementType());
-  return tileType.getDataType();
+// Whether the weight is a tiled, DRAM-interleaved tensor of a data type the DS
+// kernel is offered for.
+//
+// bfp4/bfp8 only. tt-metal imposes no dtype constraint on the DS config (there
+// is no dtype TT_FATAL in the DRAM-sharded validation block), so this is a
+// heuristic trying to prevent DRAM OOM, not a legality check.
+static bool isBfpDRAMInterleaved(Value weight) {
+  TTNNLayoutAttr layout = getWeightLayout(weight);
+  if (!layout || !layout.isTiled()) {
+    return false;
+  }
+  ttcore::DataType dt = layout.getDataType();
+  if (dt != ttcore::DataType::BFP_BFloat8 &&
+      dt != ttcore::DataType::BFP_BFloat4) {
+    return false;
+  }
+  return layout.hasInterleavedDRAMTensorMemoryLayout();
+}
+
+// A weight is DS-shaped when it is a plain 2-D matrix, possibly carrying
+// leading unit batch dims: ttnn models routinely hold projection weights as [1,
+// 1, K, N], which is the same matrix as [K, N] — same element count, same tile
+// grid, and TTNN already collapses both to a 2-D memref in the layout.
+//
+// A non-unit leading dim is a genuinely batched matmul, which this path does
+// not emit: tt-metal serves that case with a different config,
+// MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig.
+static bool isDSWeightShaped(RankedTensorType rtt) {
+  llvm::ArrayRef<int64_t> shape = rtt.getShape();
+  if (shape.size() < 2) {
+    return false;
+  }
+  return llvm::all_of(shape.drop_back(2), [](int64_t dim) { return dim == 1; });
 }
 
 static std::pair<int64_t, int64_t> getWeightKN(RankedTensorType rtt) {
-  auto shape = rtt.getShape();
-  assert(shape.size() == 2 && "Expected 2D weight tensor");
-  return {shape[0], shape[1]};
+  llvm::ArrayRef<int64_t> shape = rtt.getShape();
+  assert(isDSWeightShaped(rtt) && "Expected a 2-D (or unit-batched) weight");
+  return {shape[shape.size() - 2], shape[shape.size() - 1]};
 }
 
 static int64_t getActivationM(RankedTensorType rtt) {
@@ -104,48 +123,198 @@ static int64_t getActivationM(RankedTensorType rtt) {
   return M;
 }
 
-static bool isDRAMShardEligible(MatmulOp matmulOp) {
+// The (activation, weight) pair for a DS-capable matmul-like op, or nullopt if
+// `op` is not one.
+//
+// The DS path covers ttnn.matmul and ttnn.linear alike: a bias-free linear IS
+// the matmul the DS kernel implements, and ttnn decoders write their
+// projections as ttnn.linear, so both have to be recognized here.
+//
+// A bias is rejected even though tt-metal's DS kernel supports one. The kernel
+// reads the bias per DRAM bank at a bank-local offset
+// (reader_bmm_tile_layout_in1_sender_dram_sharded.cpp, in3) and adds it on the
+// DRAM-bank compute cores, so the bias must be DRAM width-sharded across the
+// same bank grid as the weight. Nothing in this rule book produces such a
+// layout for operand 2 yet, and a DRAM-interleaved bias would be read as a
+// strided subset of itself — wrong results, not a crash, and tt-metal validates
+// no bias memory config for DS. Allow it only together with a bias layout
+// builder. Should check if bias would be bringing perf regression.
+static std::optional<std::pair<Value, Value>> getDSOperands(Operation *op) {
+  if (auto matmulOp = dyn_cast<MatmulOp>(op)) {
+    if (matmulOp.getTransposeA() || matmulOp.getTransposeB()) {
+      return std::nullopt;
+    }
+    return std::make_pair(matmulOp.getA(), matmulOp.getB());
+  }
+  if (auto linearOp = dyn_cast<LinearOp>(op)) {
+    if (linearOp.getBias() || linearOp.getTransposeA() ||
+        linearOp.getTransposeB()) {
+      return std::nullopt;
+    }
+    return std::make_pair(linearOp.getA(), linearOp.getB());
+  }
+  return std::nullopt;
+}
+
+static std::optional<std::pair<Value, Value>>
+getDSEligibleOperands(Operation *op) {
   // Respect the disable-dram-sharded-matmul pipeline option (set as a module
   // attribute by DevicePassesWrapper). This is the single choke point for the
   // DS path: buildDRAMShardingHint and getExtraInputReshardCandidates both gate
   // on it, and getOutputHints reaches DS only through buildDRAMShardingHint.
-  if (ttnn::utils::isDRAMShardedMatmulDisabled(matmulOp)) {
-    return false;
+  if (ttnn::utils::isDRAMShardedMatmulDisabled(op)) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "DS declined ({0}): disabled by disable-dram-sharded-matmul",
+                 op->getName().getStringRef());
+    return std::nullopt;
   }
 
-  Value weight = matmulOp.getB();
+  std::optional<std::pair<Value, Value>> operands = getDSOperands(op);
+  if (!operands) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "DS declined ({0}): not a bias-free, non-transposed "
+                 "matmul/linear",
+                 op->getName().getStringRef());
+    return std::nullopt;
+  }
+  auto [activation, weight] = *operands;
 
   if (!isBfpDRAMInterleaved(weight)) {
-    return false;
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "DS declined ({0}): weight is not a tiled bfp4/bfp8 "
+                 "DRAM-interleaved tensor",
+                 op->getName().getStringRef());
+    return std::nullopt;
   }
   if (!ttcore::valueTracesToConstantArgs(weight)) {
-    return false;
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "DS declined ({0}): weight does not trace to constant args",
+                 op->getName().getStringRef());
+    return std::nullopt;
   }
   auto weightType = mlir::cast<RankedTensorType>(weight.getType());
-  if (weightType.getRank() != 2) {
-    return false;
+  if (!isDSWeightShaped(weightType)) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "DS declined ({0}): weight rank {1} has a non-unit batch dim, "
+                 "so it is not a 2-D (optionally unit-batched) matrix",
+                 op->getName().getStringRef(), weightType.getRank());
+    return std::nullopt;
   }
 
-  auto in0Type = mlir::cast<RankedTensorType>(matmulOp.getA().getType());
+  auto in0Type = mlir::cast<RankedTensorType>(activation.getType());
   int64_t M = getActivationM(in0Type);
   auto [K, N] = getWeightKN(weightType);
 
-  if (M % kTileSize != 0 || K % kTileSize != 0 || N % kTileSize != 0) {
-    return false;
+  if (K % kTileSize != 0 || N % kTileSize != 0) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "DS declined ({0}): K={1} / N={2} not tile-aligned",
+                 op->getName().getStringRef(), K, N);
+    return std::nullopt;
   }
   // K is the contraction dim, width-sharded across the in0 cores, so it must
   // divide evenly by the in0 core count (same requirement computeShardParams
   // enforces via kTiles % numIn0Cores). Gate on it here so an ineligible op is
-  // rejected up front rather than deep in shard-param computation.
+  // rejected up front rather than deep in shard-param computation — and so that
+  // computeShardParams' assert holds by construction rather than by contract.
   if ((K / kTileSize) % kNumIn0Cores != 0) {
-    return false;
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "DS declined ({0}): K tiles {1} not divisible by the in0 core "
+                 "count {2}",
+                 op->getName().getStringRef(), K / kTileSize, kNumIn0Cores);
+    return std::nullopt;
   }
-  // Decode-only: factory asserts per_core_M == 1 when num_blocks_per_shard > 1.
-  if (M / kTileSize > 1) {
-    return false;
+  // Decode-only, and this is tt-metal's constraint rather than a proxy for it:
+  // the DS validation asserts TT_FATAL(M == 1) on the activation height in
+  // tiles, i.e. exactly one tile row. Note M here is the logical row count with
+  // leading dims collapsed, so this accepts a sub-tile batch (1..31, padded up
+  // to one tile row by tt-metal) and rejects anything taller. The assert is
+  // uncatchable, so the rejection has to happen here rather than in the op
+  // model.
+  if (llvm::divideCeil(M, kTileSize) != 1) {
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::GreedyOptimizer,
+        "DS declined ({0}): activation M={1} is more than one tile row",
+        op->getName().getStringRef(), M);
+    return std::nullopt;
   }
 
-  return true;
+  return operands;
+}
+
+// Everything the DS path derives from an op: the operand types and the shard
+// geometry.
+//
+// The output hint and the input reshard candidates are both built from one of
+// these, which is what keeps them consistent: the in0 layout's shard width has
+// to match the config's in0_block_w, and the weight layout's bank count has to
+// match the one the geometry was computed for.
+struct DSPlan {
+  RankedTensorType in0Type;
+  RankedTensorType weightType;
+  DRAMShardParams params;
+  ttcore::DeviceAttr deviceAttr;
+};
+
+// Returns nullopt, having logged the reason, when the op is not DS-eligible or
+// the shard geometry does not fit L1.
+static std::optional<DSPlan> buildDSPlan(Operation *op) {
+  std::optional<std::pair<Value, Value>> operands = getDSEligibleOperands(op);
+  if (!operands) {
+    return std::nullopt;
+  }
+  auto [dsActivation, dsWeight] = *operands;
+
+  auto moduleOp = op->getParentOfType<ModuleOp>();
+  if (!moduleOp) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "DS declined ({0}): op has no parent module",
+                 op->getName().getStringRef());
+    return std::nullopt;
+  }
+  auto systemDescAttr = moduleOp->getAttr(ttcore::SystemDescAttr::name);
+  if (!systemDescAttr) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "DS declined ({0}): module has no system descriptor",
+                 op->getName().getStringRef());
+    return std::nullopt;
+  }
+  auto systemDesc = mlir::cast<ttcore::SystemDescAttr>(systemDescAttr);
+  int64_t l1Available =
+      static_cast<int64_t>(ttnn::utils::getTensorL1UsageCap(moduleOp) *
+                           systemDesc.getChipDescs()[0].getUsableL1Size());
+
+  auto in0Type = mlir::cast<RankedTensorType>(dsActivation.getType());
+  auto weightType = mlir::cast<RankedTensorType>(dsWeight.getType());
+  int64_t M = getActivationM(in0Type);
+  auto [K, N] = getWeightKN(weightType);
+  ttcore::DataType weightDataType = getWeightLayout(dsWeight).getDataType();
+
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+  std::optional<int64_t> numDRAMBanks = getNumDRAMBanks(deviceAttr);
+  if (!numDRAMBanks) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "DS declined ({0}): device DRAM grid is not a single row that "
+                 "canonical DRAM placement can express",
+                 op->getName().getStringRef());
+    return std::nullopt;
+  }
+  int64_t numAvailableCores =
+      ttmlir::utils::volume(deviceAttr.getWorkerGrid().getShape());
+
+  std::optional<DRAMShardParams> params =
+      computeShardParams(M, K, N, *numDRAMBanks, kNumIn0Cores,
+                         numAvailableCores, weightDataType, l1Available);
+  if (!params) {
+    // No in0_block_w dividing K-per-core leaves room for the circular buffers.
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "DS declined ({0}): shard params do not fit L1 (M={1} K={2} "
+                 "N={3} banks={4} in0Cores={5} cores={6} l1Available={7})",
+                 op->getName().getStringRef(), M, K, N, *numDRAMBanks,
+                 kNumIn0Cores, numAvailableCores, l1Available);
+    return std::nullopt;
+  }
+
+  return DSPlan{in0Type, weightType, *params, deviceAttr};
 }
 
 // ============================================================================
@@ -187,49 +356,12 @@ static bool hasMatmulProgramConfig(const OpConfig &config) {
 
 std::optional<OpConfig>
 MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
-  auto matmulOp = dyn_cast<MatmulOp>(op);
-  if (!matmulOp) {
+  std::optional<DSPlan> plan = buildDSPlan(op);
+  if (!plan) {
     return std::nullopt;
   }
-
-  if (!isDRAMShardEligible(matmulOp)) {
-    return std::nullopt;
-  }
-
-  auto moduleOp = op->getParentOfType<ModuleOp>();
-  if (!moduleOp) {
-    return std::nullopt;
-  }
-  auto systemDescAttr = moduleOp->getAttr(ttcore::SystemDescAttr::name);
-  if (!systemDescAttr) {
-    return std::nullopt;
-  }
-  auto systemDesc = mlir::cast<ttcore::SystemDescAttr>(systemDescAttr);
-  int64_t l1Available =
-      static_cast<int64_t>(ttnn::utils::getTensorL1UsageCap(moduleOp) *
-                           systemDesc.getChipDescs()[0].getUsableL1Size());
-
-  auto in0Type = mlir::cast<RankedTensorType>(matmulOp.getA().getType());
-  auto weightType = mlir::cast<RankedTensorType>(matmulOp.getB().getType());
-  int64_t M = getActivationM(in0Type);
-  auto [K, N] = getWeightKN(weightType);
-  auto weightDataType = getWeightDataType(matmulOp.getB());
-
-  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
-  std::optional<int64_t> numDRAMBanks = getNumDRAMBanks(deviceAttr);
-  if (!numDRAMBanks) {
-    return std::nullopt;
-  }
-  int64_t numAvailableCores =
-      ttmlir::utils::volume(deviceAttr.getWorkerGrid().getShape());
-
-  auto pOpt =
-      computeShardParams(M, K, N, *numDRAMBanks, kNumIn0Cores,
-                         numAvailableCores, weightDataType, l1Available);
-  if (!pOpt) {
-    return std::nullopt;
-  }
-  const auto &p = *pOpt;
+  const DRAMShardParams &p = plan->params;
+  ttcore::DeviceAttr deviceAttr = plan->deviceAttr;
 
   auto *ctx = op->getContext();
   auto outLayout = mlir::cast<TTNNLayoutAttr>(
@@ -239,7 +371,7 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
   // numOutputCores = div_up(N_tiles, per_core_N_storage): exactly how many
   // output cores compute_output_specs will allocate, ensuring no assertion
   // fire.
-  int64_t numOutputCores = (N / kTileSize + p.perCoreN - 1) / p.perCoreN;
+  int64_t numOutputCores = llvm::divideCeil(p.N / kTileSize, p.perCoreN);
 
   llvm::SmallVector<int64_t, 2> outputGrid = {1, numOutputCores};
   TTNNLayoutAttr l1OutLayout =
@@ -257,28 +389,42 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
   // a separate op is inserted at apply time.
   UnaryWithParamAttr fusedAct;
   auto progConfig = buildDRAMShardedProgramConfig(ctx, p, fusedAct);
-  auto computeConfig = buildComputeConfig(ctx, weightDataType);
+  auto computeConfig = buildComputeConfig(ctx, p.weightDataType);
 
   return OpConfig(l1OutLayout, MatmulAttrs{progConfig, computeConfig});
 }
 
 void MatmulRuleBook::applyDRAMShardedTransformation(
-    MatmulOp matmulOp, const MatmulAttrs &matmulAttrs) const {
-  auto *ctx = matmulOp.getContext();
+    Operation *op, const MatmulAttrs &matmulAttrs) const {
+  auto *ctx = op->getContext();
   // Input reshards (activation → L1 1×kNumIn0Cores, weight → DRAM 1×numBanks)
   // handled by pass-2 in applyToIR via reshardLayouts populated from the input
   // candidates injected by getExtraInputReshardCandidates.
 
-  OpBuilder builder(matmulOp);
+  OpBuilder builder(op);
 
   // --- 1. Set program config and compute config ---
-  matmulOp.setMatmulProgramConfigAttr(
+  // ttnn.matmul and ttnn.linear both carry matmul_program_config,
+  // compute_config and activation, so the DS rewrite is identical for either
+  // (see getDSOperands).
+  auto dsProgConfig =
       mlir::cast<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
-          matmulAttrs.matmulProgramConfig.value()));
-
-  if (matmulAttrs.computeKernelConfig.has_value()) {
-    matmulOp.setComputeConfigAttr(*matmulAttrs.computeKernelConfig);
-  }
+          matmulAttrs.matmulProgramConfig.value());
+  StringAttr activationAttr =
+      llvm::TypeSwitch<Operation *, StringAttr>(op)
+          .Case<MatmulOp, LinearOp>([&](auto concreteOp) {
+            concreteOp.setMatmulProgramConfigAttr(dsProgConfig);
+            if (matmulAttrs.computeKernelConfig.has_value()) {
+              concreteOp.setComputeConfigAttr(*matmulAttrs.computeKernelConfig);
+            }
+            // Strip the activation here and hand it back; step 2 re-homes it.
+            StringAttr act = concreteOp.getActivationAttr();
+            if (act) {
+              concreteOp.removeActivationAttr();
+            }
+            return act;
+          })
+          .Default([](Operation *) { return StringAttr(); });
 
   // --- 2. Handle the fused activation ---
   // Fusing the activation into the DS matmul kernel is significantly slower
@@ -287,11 +433,9 @@ void MatmulRuleBook::applyDRAMShardedTransformation(
   // consuming multiply as its operand-A activation — SwiGLU:
   // multiply(silu(gate), up) — which runs on the full grid (cheapest), or (b)
   // fall back to a separate elementwise op.
-  auto activationAttr = matmulOp.getActivationAttr();
   if (activationAttr) {
-    matmulOp.removeActivationAttr();
     StringRef actStr = activationAttr.getValue();
-    Value matmulResult = matmulOp.getResult();
+    Value matmulResult = op->getResult(0);
 
     // (a) Try to fold silu into a consuming ttnn.multiply's lhs_activation.
     // Only when the matmul result's sole non-dealloc consumer is a multiply
@@ -337,9 +481,9 @@ void MatmulRuleBook::applyDRAMShardedTransformation(
         opName = "ttnn.gelu";
       }
       if (!opName.empty()) {
-        builder.setInsertionPointAfter(matmulOp);
+        builder.setInsertionPointAfter(op);
         auto *activationOp = builder.create(
-            matmulOp.getLoc(), StringAttr::get(ctx, opName),
+            op->getLoc(), StringAttr::get(ctx, opName),
             ValueRange{matmulResult}, TypeRange{matmulResult.getType()});
         matmulResult.replaceAllUsesExcept(activationOp->getResult(0),
                                           activationOp);
@@ -432,8 +576,8 @@ void MatmulRuleBook::applyOpSpecificAttrs(
   bool isDRAMSharded =
       mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
           programConfig);
-  if (isDRAMSharded && matmulOp) {
-    applyDRAMShardedTransformation(matmulOp, matmulAttrs);
+  if (isDRAMSharded) {
+    applyDRAMShardedTransformation(op, matmulAttrs);
     return;
   }
 
@@ -571,53 +715,21 @@ MatmulRuleBook::adjustScore(Operation * /*op*/, LayoutScore base,
 std::vector<TTNNLayoutAttr>
 MatmulRuleBook::getExtraInputReshardCandidates(Operation *op,
                                                unsigned operandIdx) const {
-  auto matmulOp = dyn_cast<MatmulOp>(op);
-  if (!matmulOp || !isDRAMShardEligible(matmulOp)) {
+  std::optional<DSPlan> plan = buildDSPlan(op);
+  if (!plan) {
     return {};
   }
-
-  auto moduleOp = op->getParentOfType<ModuleOp>();
-  if (!moduleOp) {
-    return {};
-  }
-  auto systemDescAttr = moduleOp->getAttr(ttcore::SystemDescAttr::name);
-  if (!systemDescAttr) {
-    return {};
-  }
-  auto systemDesc = mlir::cast<ttcore::SystemDescAttr>(systemDescAttr);
-  int64_t l1Available =
-      static_cast<int64_t>(ttnn::utils::getTensorL1UsageCap(moduleOp) *
-                           systemDesc.getChipDescs()[0].getUsableL1Size());
-
-  auto in0Type = mlir::cast<RankedTensorType>(matmulOp.getA().getType());
-  auto weightType = mlir::cast<RankedTensorType>(matmulOp.getB().getType());
-  int64_t M = getActivationM(in0Type);
-  auto [K, N] = getWeightKN(weightType);
-  auto weightDataType = getWeightDataType(matmulOp.getB());
-
-  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
-  std::optional<int64_t> numBanks = getNumDRAMBanks(deviceAttr);
-  if (!numBanks) {
-    return {};
-  }
-  int64_t numAvailCores =
-      ttmlir::utils::volume(deviceAttr.getWorkerGrid().getShape());
-  auto pOpt = computeShardParams(M, K, N, *numBanks, kNumIn0Cores,
-                                 numAvailCores, weightDataType, l1Available);
-  if (!pOpt) {
-    return {};
-  }
-  const auto &p = *pOpt;
 
   auto *ctx = op->getContext();
   if (operandIdx == 0) {
-    auto in0Layout = mlir::cast<TTNNLayoutAttr>(in0Type.getEncoding());
-    return {buildL1ShardedLayout(ctx, in0Layout, in0Type.getShape(),
-                                 kNumIn0Cores, deviceAttr)};
+    auto in0Layout = mlir::cast<TTNNLayoutAttr>(plan->in0Type.getEncoding());
+    return {buildL1ShardedLayout(ctx, in0Layout, plan->in0Type.getShape(),
+                                 kNumIn0Cores, plan->deviceAttr)};
   }
   if (operandIdx == 1) {
-    auto weightLayout = mlir::cast<TTNNLayoutAttr>(weightType.getEncoding());
-    return {buildDRAMShardedWeightLayout(ctx, weightLayout, p)};
+    auto weightLayout =
+        mlir::cast<TTNNLayoutAttr>(plan->weightType.getEncoding());
+    return {buildDRAMShardedWeightLayout(ctx, weightLayout, plan->params)};
   }
   return {};
 }

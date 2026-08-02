@@ -801,12 +801,18 @@ bool L1SpillManagement<MemoryTracker>::replayFrom(size_t startIdx) {
 // tt-metal abort rather than returning a catchable error. Callers must
 // therefore recognize this op up front (reshard in0 / keep output sharded)
 // instead of validating or demoting it.
+//
+// MatmulRules assigns the DS config to a bias-free ttnn.linear as well, so both
+// op types are matched here.
 static bool isDRAMShardedMatmul(Operation *op) {
-  auto matmulOp = mlir::dyn_cast<MatmulOp>(op);
-  if (!matmulOp) {
+  std::optional<mlir::Attribute> pc;
+  if (auto matmulOp = mlir::dyn_cast<MatmulOp>(op)) {
+    pc = matmulOp.getMatmulProgramConfig();
+  } else if (auto linearOp = mlir::dyn_cast<LinearOp>(op)) {
+    pc = linearOp.getMatmulProgramConfig();
+  } else {
     return false;
   }
-  std::optional<mlir::Attribute> pc = matmulOp.getMatmulProgramConfig();
   return pc.has_value() && *pc &&
          mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
              *pc);

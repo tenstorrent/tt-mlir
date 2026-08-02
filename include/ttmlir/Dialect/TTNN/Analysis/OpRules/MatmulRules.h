@@ -44,9 +44,9 @@ struct MatmulRuleBook : OpRuleBook {
                             const BeamCandidate &candidate) const override;
 
   /// Reject the DS hint for input combinations that aren't the correct DS
-  /// layouts (L1 width-sharded in0, DRAM width-sharded in1). The tt-metal op model
-  /// crashes (TT_FATAL) rather than returning a failure when given a DS program
-  /// config with incompatible input layouts.
+  /// layouts (L1 width-sharded in0, DRAM width-sharded in1). The tt-metal op
+  /// model crashes (TT_FATAL) rather than returning a failure when given a DS
+  /// program config with incompatible input layouts.
   bool isValidOutputHintForInputs(
       const OpConfig &hint,
       llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
@@ -58,19 +58,22 @@ struct MatmulRuleBook : OpRuleBook {
                           bool requiresReshard) const override;
 
   /// Inject DS-specific input layouts into the candidate pool:
-  ///   operand 0 → L1 width-sharded 1×kNumIn0Cores (canonical DS activation layout)
-  ///   operand 1 → DRAM width-sharded 1×12 (DS weight layout with padding)
+  ///   operand 0 → L1 width-sharded 1×kNumIn0Cores
+  ///   operand 1 → DRAM width-sharded 1×numBanks, padded; numBanks comes
+  ///               from the device's DRAM grid
   std::vector<TTNNLayoutAttr>
   getExtraInputReshardCandidates(Operation *op,
                                  unsigned operandIdx) const override;
 
 private:
-  /// Build the DS output hint (L1 width-sharded 1×kNumIn0Cores + DS program config).
-  /// Returns nullopt if not eligible or params don't fit L1.
+  /// Build the DS output hint (L1 width-sharded 1×kNumIn0Cores + DS program
+  /// config). Returns nullopt if not eligible or params don't fit L1.
   std::optional<OpConfig> buildDRAMShardingHint(Operation *op) const;
 
   /// Set program/compute config and split fused activation for a DS matmul.
-  void applyDRAMShardedTransformation(MatmulOp matmulOp,
+  /// Takes a generic Operation* because the DS path covers both ttnn.matmul and
+  /// bias-free ttnn.linear (see getDSOperands).
+  void applyDRAMShardedTransformation(Operation *op,
                                       const MatmulAttrs &matmulAttrs) const;
 };
 
