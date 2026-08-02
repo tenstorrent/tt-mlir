@@ -13,7 +13,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TypecastRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
-#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/StringMap.h"
 
 #include <mutex>
 
@@ -87,12 +87,14 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static PagedFillCacheRuleBook pagedFillCache;
   static PagedUpdateCacheRuleBook pagedUpdateCache;
 
-  static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
+  // OperationName instances are tied to an MLIRContext. Keep the process-wide
+  // rule registry keyed by the stable operation-name string so lookups remain
+  // valid when tests or embedding clients create more than one context.
+  static llvm::StringMap<const OpRuleBook *> registry;
   static std::once_flag initFlag;
   std::call_once(initFlag, [&] {
-    MLIRContext *ctx = op->getContext();
     auto reg = [&](StringRef name, const OpRuleBook *rb) {
-      registry[OperationName(name, ctx)] = rb;
+      registry[name] = rb;
     };
     reg(Conv2dOp::getOperationName(), &conv2d);
     reg(ConvTranspose2dOp::getOperationName(), &conv2d);
@@ -128,7 +130,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(PagedFillCacheOp::getOperationName(), &pagedFillCache);
     reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
   });
-  auto it = registry.find(op->getName());
+  auto it = registry.find(op->getName().getStringRef());
   return it != registry.end() ? *it->second : defaultRules;
 }
 
