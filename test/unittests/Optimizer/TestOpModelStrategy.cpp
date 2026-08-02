@@ -848,28 +848,30 @@ TEST_F(OpRuleBookTest, Matmul1DShardedInputMustFitProgramGrid) {
   llvm::SmallVector<int64_t> shape = {1, 32, 4864};
   auto input19 = createTiledLayout(shape, BufferType::L1,
                                    TensorMemoryLayout::WidthSharded, {1, 19});
+  auto input7 = createTiledLayout(shape, BufferType::L1,
+                                  TensorMemoryLayout::WidthSharded, {1, 7});
   auto output7 = createTiledLayout(shape, BufferType::L1,
                                    TensorMemoryLayout::WidthSharded, {1, 7});
-  auto output19 = createTiledLayout(shape, BufferType::L1,
-                                    TensorMemoryLayout::WidthSharded, {1, 19});
-  auto inputShard = input19.getShardShape();
-  ASSERT_EQ(inputShard.size(), 2u);
+  auto input19Shard = input19.getShardShape();
+  auto input7Shard = input7.getShardShape();
+  ASSERT_EQ(input19Shard.size(), 2u);
+  ASSERT_EQ(input7Shard.size(), 2u);
   MatmulRuleBook rules;
 
   auto tooSmall = createMcast1DHint(
-      output7, /*in0BlockW=*/1, inputShard[0], /*mcastIn0=*/true,
+      output7, /*in0BlockW=*/1, input19Shard[0], /*mcastIn0=*/true,
       /*perCoreN=*/1, /*configGridX=*/7, /*configGridY=*/1);
   auto fitting = createMcast1DHint(
-      output19, /*in0BlockW=*/1, inputShard[0], /*mcastIn0=*/true,
-      /*perCoreN=*/1, /*configGridX=*/19, /*configGridY=*/1);
+      output7, /*in0BlockW=*/1, input7Shard[0], /*mcastIn0=*/true,
+      /*perCoreN=*/1, /*configGridX=*/7, /*configGridY=*/1);
 
   EXPECT_FALSE(rules.isValidOutputHintForInputs(tooSmall, {input19}));
-  EXPECT_TRUE(rules.isValidOutputHintForInputs(fitting, {input19}));
+  EXPECT_TRUE(rules.isValidOutputHintForInputs(fitting, {input7}));
   EXPECT_NE(getMatmulPreflightError({input19}, tooSmall)
                 .value()
                 .find("shard grid exceeds"),
             std::string::npos);
-  EXPECT_FALSE(getMatmulPreflightError({input19}, fitting));
+  EXPECT_FALSE(getMatmulPreflightError({input7}, fitting));
 }
 
 TEST_F(OpRuleBookTest,
