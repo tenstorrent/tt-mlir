@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+import re
+
 import ttnn
 import pytest
 
@@ -262,7 +264,7 @@ def test_linear_preserves_explicit_l1_interleaved_output():
 
     # Blackhole exposes an 11x10 compute-with-storage grid.  The tracer must use
     # the source device grid instead of its device-free 8x8 fallback when
-    # constructing the L1-interleaved boundary.
+    # constructing the L1-interleaved producer result.
     module, out_type = trace_intercepted(
         l1_linear,
         _DummyTensor((256, 512), ttnn.bfloat16, device=_DummyDevice(x=11, y=10)),
@@ -270,7 +272,8 @@ def test_linear_preserves_explicit_l1_interleaved_output():
 
     ir = str(module)
     assert "ttir.linear" in ir
-    assert "ttir.to_layout" in ir
+    assert "ttir.to_layout" not in ir
+    assert "ttnn_jit.explicit_l1_output" in ir
     assert "<10x11>" in ir
     assert "#ttnn.buffer_type<l1>" in ir
     assert "<interleaved>" in ir
@@ -313,18 +316,31 @@ def test_linear_l1_boundary_survives_o2_advisor_pipeline():
         module,
         "ttir-to-ttnn-l1-advisor",
         "mock-system-desc-arch=wormhole_b0 optimization-level=2 "
-        "enable-decision-trace=false",
+        "enable-decision-trace=false memory-layout-analysis-enabled=false",
     )
 
     ir = str(module)
     assert "ttir." not in ir
     assert '"ttnn.linear"' in ir
     assert '"ttnn.multiply"' in ir
-    # Greedy O2 may make the producer itself L1 or materialize a conversion.
-    # In both cases the authored full-grid L1-interleaved layout must survive.
-    assert "<8x8>" in ir
-    assert "#ttnn.buffer_type<l1>" in ir
-    assert "<interleaved>" in ir
+    linear_match = re.search(
+        r'(?P<ssa>%[0-9]+) = "ttnn\.linear".*'
+        r"-> tensor<[^,\n]+, (?P<layout>#[A-Za-z0-9_]+)>",
+        ir,
+    )
+    assert linear_match is not None
+    assert (
+        f'"ttnn.to_memory_config"({linear_match.group("ssa")})'
+        not in ir
+    )
+    layout_alias = re.search(
+        rf"^{re.escape(linear_match.group('layout'))} = (?P<body>.*)$",
+        ir,
+        re.MULTILINE,
+    )
+    assert layout_alias is not None
+    assert "#l1" in layout_alias.group("body")
+    assert "<interleaved>" in layout_alias.group("body")
     module.operation.verify()
 
 
