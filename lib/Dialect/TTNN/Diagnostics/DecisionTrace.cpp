@@ -55,13 +55,17 @@ std::string layoutToString(TTNNLayoutAttr layout) {
 
 static llvm::json::Object scoreToJSON(bool isL1, bool isSharded,
                                       uint64_t inputDramBytes,
-                                      bool requiresReshard, int64_t coreCount,
+                                      bool requiresReshard,
+                                      uint64_t cumulativeReshardCost,
+                                      int64_t coreCount,
                                       uint64_t outputL1Usage) {
   llvm::json::Object obj;
   obj["isL1"] = isL1;
   obj["isSharded"] = isSharded;
   obj["inputDramBytes"] = static_cast<int64_t>(inputDramBytes);
   obj["requiresReshard"] = requiresReshard;
+  obj["cumulativeReshardCost"] =
+      static_cast<int64_t>(cumulativeReshardCost);
   obj["coreCount"] = coreCount;
   obj["outputL1Usage"] = static_cast<int64_t>(outputL1Usage);
   return obj;
@@ -82,7 +86,8 @@ static llvm::json::Value evalToJSON(const EvaluationRecord &e) {
     obj["failureReason"] = e.failureReason;
   } else {
     obj["score"] = scoreToJSON(e.isL1, e.isSharded, e.inputDramBytes,
-                               e.requiresReshard, e.coreCount, e.outputL1Usage);
+                               e.requiresReshard, e.cumulativeReshardCost,
+                               e.coreCount, e.outputL1Usage);
     obj["output"] = e.output;
   }
   return llvm::json::Value(std::move(obj));
@@ -108,7 +113,8 @@ static llvm::json::Value beamEntryToJSON(const BeamEntryRecord &b) {
   obj["rank"] = static_cast<int64_t>(b.rank);
   obj["outputLayout"] = b.outputLayout;
   obj["score"] = scoreToJSON(b.isL1, b.isSharded, b.inputDramBytes,
-                             b.requiresReshard, b.coreCount, b.outputL1Usage);
+                             b.requiresReshard, b.cumulativeReshardCost,
+                             b.coreCount, b.outputL1Usage);
   return llvm::json::Value(std::move(obj));
 }
 
@@ -431,6 +437,8 @@ void DecisionTraceObserver::onEvaluation(
     eval.isSharded = candidate->score.isSharded;
     eval.inputDramBytes = candidate->score.inputDramBytes;
     eval.requiresReshard = candidate->score.requiresReshard;
+    eval.cumulativeReshardCost =
+        candidate->score.cumulativeReshardCost;
     eval.coreCount = candidate->score.coreCount;
     eval.outputL1Usage = candidate->score.outputL1Usage;
     eval.output = layoutToString(candidate->configHint.outputLayout);
@@ -458,6 +466,7 @@ void DecisionTraceObserver::onBeamResult(Operation *op,
     be.isSharded = c.score.isSharded;
     be.inputDramBytes = c.score.inputDramBytes;
     be.requiresReshard = c.score.requiresReshard;
+    be.cumulativeReshardCost = c.score.cumulativeReshardCost;
     be.coreCount = c.score.coreCount;
     be.outputL1Usage = c.score.outputL1Usage;
     currentOpRecord->beam.push_back(std::move(be));

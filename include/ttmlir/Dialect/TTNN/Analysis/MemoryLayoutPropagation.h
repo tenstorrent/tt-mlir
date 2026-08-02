@@ -42,7 +42,10 @@ public:
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts = nullptr,
       size_t beamWidth = 8, size_t maxInputCandidatesPerOperand = 64,
       size_t maxReshardCandidatesPerType = 4,
-      std::unique_ptr<LayoutPropagationObserver> observer = nullptr);
+      std::unique_ptr<LayoutPropagationObserver> observer = nullptr,
+      bool enableReshardExploration = true,
+      bool prioritizeCumulativeReshardCost = false,
+      uint64_t reshardEdgePenaltyBytes = 0);
 
   /// Destructor defined in .cpp (observer is forward-declared).
   ~MemoryLayoutPropagation();
@@ -80,6 +83,18 @@ private:
 
   /// Max reshard candidates per tensor type.
   size_t maxReshardCandidatesPerType = 4;
+
+  /// Whether to synthesize optional layout-conversion candidates. Conversions
+  /// introduced by input legality filters and explicitly hard-required
+  /// constant operands remain enabled when their target layouts are available.
+  bool enableReshardExploration = true;
+
+  /// Rank candidates by estimated cumulative conversion cost before the
+  /// legacy categorical layout preferences.
+  bool prioritizeCumulativeReshardCost = false;
+
+  /// Fixed cost added for every conversion edge, in byte-equivalent units.
+  uint64_t reshardEdgePenaltyBytes = 0;
 
   /// Final candidate choice per op (set by backward pass, used by applyToIR).
   /// Maps op -> index into beamState[op]. For K=1, always 0.
@@ -136,8 +151,8 @@ private:
   /// Only runs when beamWidth > 1.
   void consolidateBeam();
 
-  /// Resolve fork point: pick the producer candidate that minimizes
-  /// total reshard count across all consumers.
+  /// Resolve a fork point. The default policy minimizes reshard count across
+  /// consumers; cost-first mode minimizes byte-weighted conversion cost.
   size_t resolveForForkPoint(Operation *forkOp,
                              llvm::ArrayRef<Operation *> consumers);
 

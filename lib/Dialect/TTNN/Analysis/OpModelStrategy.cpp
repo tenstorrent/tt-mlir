@@ -28,6 +28,18 @@ bool generatesRowMajorInputSiblings(Operation *op, unsigned operandIdx) {
 //--- Scoring ---
 
 bool LayoutScore::operator>(const LayoutScore &other) const {
+  // Cost-first is an explicit ablation mode. All candidates from one
+  // propagation run use the same mode, but keep the mixed-mode ordering total
+  // for unit tests and diagnostics.
+  if (prioritizeCumulativeReshardCost !=
+      other.prioritizeCumulativeReshardCost) {
+    return prioritizeCumulativeReshardCost;
+  }
+  if (prioritizeCumulativeReshardCost &&
+      cumulativeReshardCost != other.cumulativeReshardCost) {
+    return cumulativeReshardCost < other.cumulativeReshardCost;
+  }
+
   // 1. L1 > DRAM (highest priority).
   if (isL1 != other.isL1) {
     return isL1;
@@ -71,7 +83,13 @@ bool LayoutScore::operator>(const LayoutScore &other) const {
 }
 
 bool LayoutScore::operator==(const LayoutScore &other) const {
-  return isL1 == other.isL1 && isSharded == other.isSharded &&
+  if (prioritizeCumulativeReshardCost !=
+      other.prioritizeCumulativeReshardCost) {
+    return false;
+  }
+  return (!prioritizeCumulativeReshardCost ||
+          cumulativeReshardCost == other.cumulativeReshardCost) &&
+         isL1 == other.isL1 && isSharded == other.isSharded &&
          isDRAMShardedCandidate == other.isDRAMShardedCandidate &&
          hasCanonicalDSIn0 == other.hasCanonicalDSIn0 &&
          inputDramBytes == other.inputDramBytes &&

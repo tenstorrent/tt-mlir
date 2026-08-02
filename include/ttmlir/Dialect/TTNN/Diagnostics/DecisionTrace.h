@@ -40,6 +40,7 @@ struct EvaluationRecord {
   bool isSharded = false;
   uint64_t inputDramBytes = 0;
   bool requiresReshard = false;
+  uint64_t cumulativeReshardCost = 0;
   int64_t coreCount = 0;
   uint64_t outputL1Usage = 0;
 
@@ -65,6 +66,7 @@ struct BeamEntryRecord {
   bool isSharded = false;
   uint64_t inputDramBytes = 0;
   bool requiresReshard = false;
+  uint64_t cumulativeReshardCost = 0;
   int64_t coreCount = 0;
   uint64_t outputL1Usage = 0;
 };

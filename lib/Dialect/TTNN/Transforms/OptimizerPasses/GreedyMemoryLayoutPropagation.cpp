@@ -65,6 +65,10 @@ public:
     maxInputCandidatesPerOperand = opts.maxInputCandidatesPerOperand;
     maxReshardCandidatesPerType = opts.maxReshardCandidatesPerType;
     enableL1ShardingLayouts = opts.enableL1ShardingLayouts;
+    enableReshardExploration = opts.enableReshardExploration;
+    prioritizeCumulativeReshardCost =
+        opts.prioritizeCumulativeReshardCost;
+    reshardEdgePenaltyBytes = opts.reshardEdgePenaltyBytes;
     enableDecisionTrace = opts.enableDecisionTrace;
     decisionTraceDir = std::move(opts.decisionTraceDir);
     enableCompileTimeStats = opts.enableCompileTimeStats;
@@ -80,6 +84,12 @@ public:
         "enabled.");
 #else
     ModuleOp moduleOp = getOperation();
+    if (reshardEdgePenaltyBytes < 0) {
+      moduleOp.emitOpError(
+          "reshard-edge-penalty-bytes must be non-negative");
+      signalPassFailure();
+      return;
+    }
     op_model::ScopedSingletonDeviceGuard deviceGuard(moduleOp);
 
     // Set default L1Full slice config on Conv2d ops before validation.
@@ -198,7 +208,10 @@ public:
           static_cast<size_t>(beamWidth),
           static_cast<size_t>(maxInputCandidatesPerOperand),
           static_cast<size_t>(maxReshardCandidatesPerType),
-          std::move(observer));
+          std::move(observer),
+          enableReshardExploration && enableL1ShardingLayouts,
+          prioritizeCumulativeReshardCost,
+          static_cast<uint64_t>(reshardEdgePenaltyBytes));
       propagation.run();
 
       // Sync D2M subgraph function types to match dispatch op's current inputs

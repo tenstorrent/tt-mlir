@@ -26,6 +26,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 
 #include <algorithm>
+#include <limits>
 #include <map>
 
 namespace mlir::tt::ttnn {
@@ -35,13 +36,18 @@ MemoryLayoutPropagation::MemoryLayoutPropagation(
     const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
     const TensorTypeLayoutsMap *tensorTypePossibleLayouts, size_t beamWidth,
     size_t maxInputCandidatesPerOperand, size_t maxReshardCandidatesPerType,
-    std::unique_ptr<LayoutPropagationObserver> observer)
+    std::unique_ptr<LayoutPropagationObserver> observer,
+    bool enableReshardExploration, bool prioritizeCumulativeReshardCost,
+    uint64_t reshardEdgePenaltyBytes)
     : func(func), deviceAttr(ttcore::lookupDevice(func)),
       legalConfigs(legalConfigs),
       tensorTypePossibleLayouts(tensorTypePossibleLayouts),
       beamWidth(beamWidth),
       maxInputCandidatesPerOperand(maxInputCandidatesPerOperand),
-      maxReshardCandidatesPerType(maxReshardCandidatesPerType) {
+      maxReshardCandidatesPerType(maxReshardCandidatesPerType),
+      enableReshardExploration(enableReshardExploration),
+      prioritizeCumulativeReshardCost(prioritizeCumulativeReshardCost),
+      reshardEdgePenaltyBytes(reshardEdgePenaltyBytes) {
   if (observer) {
     this->observer = std::move(observer);
   } else {
@@ -150,6 +156,29 @@ computeInputDramBytes(const std::vector<TTNNLayoutAttr> &inputLayouts) {
   return dramBytes;
 }
 
+static uint64_t saturatingAdd(uint64_t lhs, uint64_t rhs) {
+  if (rhs > std::numeric_limits<uint64_t>::max() - lhs) {
+    return std::numeric_limits<uint64_t>::max();
+  }
+  return lhs + rhs;
+}
+
+static uint64_t computeLayoutBytes(TTNNLayoutAttr layout) {
+  if (!layout) {
+    return 0;
+  }
+  uint64_t bytes = layout.getShardSizeInBytes();
+  for (int64_t dim : layout.getGridShape()) {
+    if (dim <= 0 ||
+        bytes > std::numeric_limits<uint64_t>::max() /
+                    static_cast<uint64_t>(dim)) {
+      return std::numeric_limits<uint64_t>::max();
+    }
+    bytes *= static_cast<uint64_t>(dim);
+  }
+  return bytes;
+}
+
 /// Format input layouts as a comma-separated "bufType/memLayout" string.
 [[maybe_unused]] static std::string
 formatInputLayouts(const std::vector<TTNNLayoutAttr> &layouts) {
@@ -185,6 +214,61 @@ std::optional<BeamCandidate> MemoryLayoutPropagation::evaluateHint(
     candidate.score =
         scoreCandidate(op, hint, result, anyReshard, inputLayouts);
     candidate.score.inputDramBytes = computeInputDramBytes(inputLayouts);
+    candidate.score.prioritizeCumulativeReshardCost =
+        prioritizeCumulativeReshardCost;
+
+    // Carry predecessor conversion costs through the beam and add this op's
+    // direct conversion edges. This is a dependency-path estimate rather than
+    // a whole-graph cycle model; shared ancestors can be counted more than
+    // once at joins, but all candidates are treated consistently.
+    uint64_t cumulativeReshardCost = 0;
+    size_t tensorOperandIdx = 0;
+    for (Value operand : op->getOperands()) {
+      if (!mlir::isa<RankedTensorType>(operand.getType())) {
+        continue;
+      }
+
+      if (Operation *producer = operand.getDefiningOp()) {
+        auto beamIt = beamState.find(producer);
+        if (beamIt != beamState.end() &&
+            tensorOperandIdx < producerCandidateIndices.size()) {
+          size_t producerIdx = producerCandidateIndices[tensorOperandIdx];
+          if (producerIdx < beamIt->second.size()) {
+            cumulativeReshardCost = saturatingAdd(
+                cumulativeReshardCost,
+                beamIt->second[producerIdx].score.cumulativeReshardCost);
+          }
+        }
+      }
+
+      auto reshardIt = reshardLayouts.find(tensorOperandIdx);
+      if (reshardIt != reshardLayouts.end()) {
+        uint64_t edgeCost = saturatingAdd(
+            computeLayoutBytes(reshardIt->second), reshardEdgePenaltyBytes);
+        cumulativeReshardCost =
+            saturatingAdd(cumulativeReshardCost, edgeCost);
+      }
+      ++tensorOperandIdx;
+    }
+
+    // Returning an L1 tensor creates a conversion to DRAM in
+    // insertReturnDramSpills(). Account for it during search so the cost-first
+    // policy does not hide return conversions outside the scored graph.
+    for (auto [resultIdx, opResult] : llvm::enumerate(op->getResults())) {
+      if (resultIdx >= result.actualOutputLayouts.size() ||
+          !result.actualOutputLayouts[resultIdx].hasL1BufferType()) {
+        continue;
+      }
+      if (llvm::any_of(opResult.getUsers(),
+                       [](Operation *user) { return isa<func::ReturnOp>(user); })) {
+        uint64_t edgeCost =
+            saturatingAdd(computeLayoutBytes(result.actualOutputLayouts[resultIdx]),
+                          reshardEdgePenaltyBytes);
+        cumulativeReshardCost =
+            saturatingAdd(cumulativeReshardCost, edgeCost);
+      }
+    }
+    candidate.score.cumulativeReshardCost = cumulativeReshardCost;
     candidate.validationResult = result;
     candidate.inputLayouts = inputLayouts;
     candidate.producerCandidateIndices = producerCandidateIndices;
@@ -963,7 +1047,7 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
       candidatesForOperand.push_back(ic);
     }
 
-    if (producerBeam) {
+    if (producerBeam && enableReshardExploration) {
       addL1InterleavedFallbacks(candidatesForOperand, op, producerBeam,
                                 currentLayout, tensorType, resultIdx,
                                 maxInputCandidatesPerOperand);
@@ -972,31 +1056,36 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
     // Inject op-specific extra reshard candidates (e.g. DRAM width-sharded
     // weight and L1 1x8 activation for DS matmul) before standard reshards so
     // they are not displaced when the candidate list reaches the cap.
-    for (TTNNLayoutAttr extraLayout :
-         getRuleBook(op).getExtraInputReshardCandidates(op, operandIdx)) {
-      bool alreadyPresent =
-          llvm::any_of(candidatesForOperand, [&](const InputCandidate &ic) {
-            return ic.layout == extraLayout;
-          });
-      if (alreadyPresent) {
-        continue;
-      }
-      size_t producerBeamSize = producerBeam ? producerBeam->size() : 1;
-      for (size_t pIdx = 0; pIdx < producerBeamSize; ++pIdx) {
-        if (candidatesForOperand.size() >= maxInputCandidatesPerOperand) {
-          break;
+    if (enableReshardExploration) {
+      for (TTNNLayoutAttr extraLayout :
+           getRuleBook(op).getExtraInputReshardCandidates(op, operandIdx)) {
+        bool alreadyPresent =
+            llvm::any_of(candidatesForOperand, [&](const InputCandidate &ic) {
+              return ic.layout == extraLayout;
+            });
+        if (alreadyPresent) {
+          continue;
         }
-        InputCandidate ic;
-        ic.layout = extraLayout;
-        ic.producerCandidateIndex = pIdx;
-        ic.isReshard = true;
-        candidatesForOperand.push_back(ic);
+        size_t producerBeamSize = producerBeam ? producerBeam->size() : 1;
+        for (size_t pIdx = 0; pIdx < producerBeamSize; ++pIdx) {
+          if (candidatesForOperand.size() >= maxInputCandidatesPerOperand) {
+            break;
+          }
+          InputCandidate ic;
+          ic.layout = extraLayout;
+          ic.producerCandidateIndex = pIdx;
+          ic.isReshard = true;
+          candidatesForOperand.push_back(ic);
+        }
       }
     }
 
-    addReshardCandidates(candidatesForOperand, op, operandIdx, operand,
-                         currentLayout, tensorType, producerBeam, producerOp,
-                         resultIdx, maxInputCandidatesPerOperand);
+    if (enableReshardExploration ||
+        shouldReshardConstantOperand(op, operandIdx)) {
+      addReshardCandidates(candidatesForOperand, op, operandIdx, operand,
+                           currentLayout, tensorType, producerBeam, producerOp,
+                           resultIdx, maxInputCandidatesPerOperand);
+    }
 
     // Row-major input siblings: for ops whose kernel requires a RowMajor page
     // layout on this operand (e.g. paged_update_cache page_table / update_idxs),
@@ -1296,9 +1385,11 @@ size_t MemoryLayoutPropagation::resolveForForkPoint(
   const auto &forkBeam = beamState[forkOp];
   size_t bestK = 0;
   int bestFreeCount = -1;
+  uint64_t bestExtraCost = std::numeric_limits<uint64_t>::max();
 
   for (size_t k = 0; k < forkBeam.size(); ++k) {
     int freeCount = 0;
+    uint64_t extraCost = 0;
     // All consumers are guaranteed resolved (reverse topo order).
     for (Operation *user : consumers) {
       size_t userChosenIdx = finalChoice[user];
@@ -1312,15 +1403,28 @@ size_t MemoryLayoutPropagation::resolveForForkPoint(
         if (getProducerForOperandIdx(user, opIdx) == forkOp) {
           if (userChosen.producerCandidateIndices[opIdx] == k) {
             ++freeCount;
+          } else if (prioritizeCumulativeReshardCost &&
+                     opIdx < userChosen.inputLayouts.size()) {
+            uint64_t edgeCost = saturatingAdd(
+                computeLayoutBytes(userChosen.inputLayouts[opIdx]),
+                reshardEdgePenaltyBytes);
+            extraCost = saturatingAdd(extraCost, edgeCost);
           }
           break;
         }
       }
     }
-    if (freeCount > bestFreeCount ||
-        (freeCount == bestFreeCount &&
-         forkBeam[k].score > forkBeam[bestK].score)) {
+    bool isBetter =
+        prioritizeCumulativeReshardCost
+            ? (extraCost < bestExtraCost ||
+               (extraCost == bestExtraCost &&
+                forkBeam[k].score > forkBeam[bestK].score))
+            : (freeCount > bestFreeCount ||
+               (freeCount == bestFreeCount &&
+                forkBeam[k].score > forkBeam[bestK].score));
+    if (isBetter) {
       bestFreeCount = freeCount;
+      bestExtraCost = extraCost;
       bestK = k;
     }
   }

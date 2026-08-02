@@ -91,6 +91,15 @@ struct LayoutScore {
   /// Tiebreaker within DS candidates.
   bool hasCanonicalDSIn0 = false;
 
+  /// Estimated cumulative conversion cost along the candidate's input
+  /// dependency paths. Each reshard contributes the tensor transfer size plus
+  /// a configurable fixed per-edge penalty representing launch overhead.
+  uint64_t cumulativeReshardCost = 0;
+
+  /// When set, cumulativeReshardCost is the primary ordering key. This is an
+  /// opt-in latency-policy ablation; the default greedy ordering is unchanged.
+  bool prioritizeCumulativeReshardCost = false;
+
   /// Higher score is better.
   bool operator>(const LayoutScore &other) const;
   bool operator==(const LayoutScore &other) const;

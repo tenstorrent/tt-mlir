@@ -149,6 +149,13 @@ void createTTNNPipelineAnalysisPasses(
       propagationOptions.rowMajorEnabled = options.rowMajorEnabled;
       propagationOptions.enableL1ShardingLayouts =
           options.memoryLayoutAnalysisEnabled;
+      propagationOptions.enableReshardExploration =
+          options.memoryLayoutAnalysisEnabled &&
+          options.enableReshardExploration;
+      propagationOptions.prioritizeCumulativeReshardCost =
+          options.prioritizeCumulativeReshardCost;
+      propagationOptions.reshardEdgePenaltyBytes =
+          options.reshardEdgePenaltyBytes;
       propagationOptions.overrideOutputLayout = options.overrideOutputLayout;
       propagationOptions.overrideConv2dConfig = options.overrideConv2dConfig;
       propagationOptions.overrideConv3dConfig = options.overrideConv3dConfig;
