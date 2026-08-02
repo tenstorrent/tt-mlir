@@ -7028,6 +7028,15 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
     }
   }
 
+  if (getResidualInputTensor()) {
+    RankedTensorType residualType = getResidualInputTensor().getType();
+    if (residualType.getShape() != inputType.getShape() ||
+        residualType.getElementType() != inputType.getElementType()) {
+      return emitOpError(
+          "residual input tensor must match input shape and element type");
+    }
+  }
+
   return success();
 }
 

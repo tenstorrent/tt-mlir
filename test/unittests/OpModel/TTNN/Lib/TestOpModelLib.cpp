@@ -4353,7 +4353,8 @@ TEST_P(OpModelRMSNormParam, RMSNormParam) {
   // Test getOpConstraints
   auto constraintsExp = op_model::OpModel<RMSNormOp>::getOpConstraints(
       inputShape, inputLayout, weightShape, weightLayout, biasShape, biasLayout,
-      epsilon, outputLayout);
+      /*residualInputShape=*/std::nullopt,
+      /*residualInputLayout=*/std::nullopt, epsilon, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
@@ -4370,7 +4371,8 @@ TEST_P(OpModelRMSNormParam, RMSNormParam) {
   // Test getOpRuntime
   auto runtimeExp = op_model::OpModel<RMSNormOp>::getOpRuntime(
       inputShape, inputLayout, weightShape, weightLayout, biasShape, biasLayout,
-      epsilon, outputLayout);
+      /*residualInputShape=*/std::nullopt,
+      /*residualInputLayout=*/std::nullopt, epsilon, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {

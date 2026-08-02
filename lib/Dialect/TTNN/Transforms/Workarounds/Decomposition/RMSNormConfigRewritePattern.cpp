@@ -38,8 +38,8 @@ RMSNormConfigRewritePattern::matchAndRewrite(RMSNormOp srcOp,
   // Create a new operation with the compute config set
   auto newOp = rewriter.create<RMSNormOp>(
       srcOp.getLoc(), srcOp.getResult().getType(), srcOp.getInput(),
-      srcOp.getWeight(), srcOp.getBias(), srcOp.getEpsilonAttr(),
-      computeConfig);
+      srcOp.getWeight(), srcOp.getBias(), srcOp.getResidualInputTensor(),
+      srcOp.getEpsilonAttr(), computeConfig);
 
   rewriter.replaceOp(srcOp, newOp.getResult());
   return success();

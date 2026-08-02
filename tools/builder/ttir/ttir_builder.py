@@ -15712,6 +15712,7 @@ class TTIRBuilder(Builder):
         bias: Optional[Operand] = None,
         transpose_a: bool = False,
         transpose_b: bool = False,
+        activation: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
@@ -15751,11 +15752,15 @@ class TTIRBuilder(Builder):
                 "transpose_a": transpose_a,
                 "transpose_b": transpose_b,
                 "bias": golden_bias,
+                "activation": activation,
             },
             ttir_kwargs={
                 "transpose_a": transpose_a,
                 "transpose_b": transpose_b,
                 "bias": bias,
+                "activation": (
+                    StringAttr.get(activation) if activation is not None else None
+                ),
             },
             unit_attrs=unit_attrs,
         )
@@ -18058,6 +18063,7 @@ class TTIRBuilder(Builder):
         normalized_shape: List[int],
         weight: Optional[Operand] = None,
         bias: Optional[Operand] = None,
+        residual_input_tensor: Optional[Operand] = None,
         epsilon: float = 1e-5,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
@@ -18075,11 +18081,17 @@ class TTIRBuilder(Builder):
         input0 = self._get_golden_tensor(in0)
         weight0 = self._get_golden_tensor(weight) if weight is not None else None
         bias0 = self._get_golden_tensor(bias) if bias is not None else None
+        residual0 = (
+            self._get_golden_tensor(residual_input_tensor)
+            if residual_input_tensor is not None
+            else None
+        )
         op_golden_function = get_golden_function(ttir_op)
         golden_output = op_golden_function(
             input0,
             weight=weight0,
             bias=bias0,
+            residual_input_tensor=residual0,
             normalized_shape=normalized_shape_attr,
             epsilon=epsilon_attr,
             output_type_mlir=mlir_output_type,
@@ -18097,6 +18109,7 @@ class TTIRBuilder(Builder):
             normalized_shape_attr,
             weight=weight,
             bias=bias,
+            residual_input_tensor=residual_input_tensor,
             epsilon=epsilon_attr,
             loc=loc,
         )
@@ -18120,6 +18133,11 @@ class TTIRBuilder(Builder):
         in0 = global_dict[old_op.input]
         weight = global_dict[old_op.weight] if old_op.weight else None
         bias = global_dict[old_op.bias] if old_op.bias else None
+        residual_input_tensor = (
+            global_dict[old_op.residual_input_tensor]
+            if old_op.residual_input_tensor
+            else None
+        )
         normalized_shape_attr = old_op.normalized_shape
         epsilon_attr = old_op.epsilon
         result = old_op.result.type
@@ -18130,6 +18148,7 @@ class TTIRBuilder(Builder):
             normalized_shape_attr,
             weight=weight,
             bias=bias,
+            residual_input_tensor=residual_input_tensor,
             epsilon=epsilon_attr,
             loc=old_op.location,
         )
@@ -18138,6 +18157,11 @@ class TTIRBuilder(Builder):
         input0 = self._get_golden_tensor(in0)
         weight0 = self._get_golden_tensor(weight) if weight is not None else None
         bias0 = self._get_golden_tensor(bias) if bias is not None else None
+        residual0 = (
+            self._get_golden_tensor(residual_input_tensor)
+            if residual_input_tensor is not None
+            else None
+        )
         op_golden_function = get_golden_function(ttir_op)
         golden_output = op_golden_function(
             input0,
@@ -18146,6 +18170,7 @@ class TTIRBuilder(Builder):
             normalized_shape_attr,
             epsilon_attr,
             result.element_type,
+            residual_input_tensor=residual0,
         )
         self._set_golden_tensor(new_op_result, golden_output)
 
@@ -18171,6 +18196,8 @@ class TTIRBuilder(Builder):
                 op_input_types.append(old_op.weight.type)
             if old_op.bias is not None:
                 op_input_types.append(old_op.bias.type)
+            if old_op.residual_input_tensor is not None:
+                op_input_types.append(old_op.residual_input_tensor.type)
 
             with InsertionPoint(rms_norm_module.body):
                 ordered_inputs = []
@@ -18182,11 +18209,15 @@ class TTIRBuilder(Builder):
                     idx = 1
                     weight = None
                     bias = None
+                    residual_input_tensor = None
                     if old_op.weight is not None:
                         weight = inputs[idx]
                         idx += 1
                     if old_op.bias is not None:
                         bias = inputs[idx]
+                        idx += 1
+                    if old_op.residual_input_tensor is not None:
+                        residual_input_tensor = inputs[idx]
                     result = old_op.result.type
 
                     new_op = ttir_op(
@@ -18195,6 +18226,7 @@ class TTIRBuilder(Builder):
                         old_op.normalized_shape,
                         weight=weight,
                         bias=bias,
+                        residual_input_tensor=residual_input_tensor,
                         epsilon=old_op.epsilon,
                         loc=old_op.location,
                     )
@@ -18211,6 +18243,11 @@ class TTIRBuilder(Builder):
                         if old_op.bias is not None
                         else None
                     )
+                    residual0 = (
+                        self._get_golden_tensor(old_op.residual_input_tensor)
+                        if old_op.residual_input_tensor is not None
+                        else None
+                    )
 
                     old_op_result = self._get_golden_tensor(old_op.result)
                     rms_norm_builder._set_golden_tensor(new_op_result, old_op_result)
@@ -18223,6 +18260,11 @@ class TTIRBuilder(Builder):
                     if bias is not None:
                         rms_norm_builder._set_golden_tensor(bias, bias0)
                         ordered_inputs.append(bias)
+                    if residual_input_tensor is not None:
+                        rms_norm_builder._set_golden_tensor(
+                            residual_input_tensor, residual0
+                        )
+                        ordered_inputs.append(residual_input_tensor)
                     ordered_outputs.append(new_op_result)
 
                     return new_op

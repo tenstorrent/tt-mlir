@@ -3934,25 +3934,26 @@ struct RMSNormOptionalArgs {
   std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
   std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
   std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+  std::optional<llvm::ArrayRef<int64_t>> residualInputShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> residualInputLayout = std::nullopt;
 };
 static RMSNormOptionalArgs
 unpackRMSNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
                           RMSNormOp op) {
   RMSNormOptionalArgs ret;
-  if (inputs.size() == 2) {
-    if (op.getWeight()) {
-      ret.weightShape = op.getWeight().getType().getShape();
-      ret.weightLayout = inputs[1];
-    } else if (op.getBias()) {
-      ret.biasShape = op.getBias().getType().getShape();
-      ret.biasLayout = inputs[1];
-    }
-  }
-  if (inputs.size() == 3) {
+  size_t inputIndex = 1;
+  if (op.getWeight()) {
     ret.weightShape = op.getWeight().getType().getShape();
+    ret.weightLayout = inputs.at(inputIndex++);
+  }
+  if (op.getBias()) {
     ret.biasShape = op.getBias().getType().getShape();
-    ret.weightLayout = inputs[1];
-    ret.biasLayout = inputs[2];
+    ret.biasLayout = inputs.at(inputIndex++);
+  }
+  if (op.getResidualInputTensor()) {
+    ret.residualInputShape =
+        op.getResidualInputTensor().getType().getShape();
+    ret.residualInputLayout = inputs.at(inputIndex++);
   }
   return ret;
 }
@@ -3973,8 +3974,9 @@ RMSNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<RMSNormOp>::getOpConstraints, *this, inputShape,
       inputs[0], optionalArgs.weightShape, optionalArgs.weightLayout,
-      optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
-      opConfig.outputLayout, computeKernelConfig);
+      optionalArgs.biasShape, optionalArgs.biasLayout,
+      optionalArgs.residualInputShape, optionalArgs.residualInputLayout,
+      getEpsilon(), opConfig.outputLayout, computeKernelConfig);
 }
 
 llvm::Expected<size_t>
@@ -3992,7 +3994,9 @@ RMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<RMSNormOp>::getOpRuntime, *this, inputShape, inputs[0],
       optionalArgs.weightShape, optionalArgs.weightLayout,
-      optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
+      optionalArgs.biasShape, optionalArgs.biasLayout,
+      optionalArgs.residualInputShape, optionalArgs.residualInputLayout,
+      getEpsilon(),
       opConfig.outputLayout, computeKernelConfig);
 }
 

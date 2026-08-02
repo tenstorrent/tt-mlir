@@ -2301,6 +2301,8 @@ def TTIR_RMSNormOp : TTIR_NamedOp<"rms_norm", [AttrSizedOperandSegments]> {
       result is element-wise multiplied by this weight.
     - `bias` (Optional Tensor): The shift parameter (beta). If provided, this bias is
       added to the scaled result.
+    - `residual_input_tensor` (Optional Tensor): A residual tensor added to the
+      input before normalization.
 
     Attributes:
     - `normalized_shape` specifies the dimensions over which to normalize. Typically
@@ -2328,6 +2330,7 @@ def TTIR_RMSNormOp : TTIR_NamedOp<"rms_norm", [AttrSizedOperandSegments]> {
   let arguments = (ins AnyRankedTensor:$input,
                        Optional<AnyRankedTensor>:$weight,
                        Optional<AnyRankedTensor>:$bias,
+                       Optional<AnyRankedTensor>:$residual_input_tensor,
                        DenseI64ArrayAttr:$normalized_shape,
                        DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
 
@@ -4994,6 +4997,8 @@ def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
       Attributes:
       - `transpose_a` (Boolean, default=false): Whether to transpose tensor `a` before multiplication.
       - `transpose_b` (Boolean, default=false): Whether to transpose tensor `b` before multiplication.
+      - `activation` (Optional String): Activation to fuse into the linear
+        kernel.
 
       Output:
       - `result` (Tensor): The result of the linear transformation.
@@ -5010,7 +5015,8 @@ def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
                          AnyRankedTensor:$b,
                          Optional<AnyRankedTensor>:$bias,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
-                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b,
+                         OptionalAttr<StrAttr>:$activation);
 
     let results = (outs AnyRankedTensor:$result);
 

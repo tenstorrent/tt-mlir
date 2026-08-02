@@ -228,8 +228,8 @@ def test_linear_preserves_silu_activation():
 
     ir = str(module)
     assert "ttir.linear" in ir
-    assert "ttir.silu" in ir
-    assert ir.index("ttir.linear") < ir.index("ttir.silu")
+    assert 'activation = "silu"' in ir
+    assert "ttir.silu" not in ir
     assert tuple(int(d) for d in out_type.shape) == (256, 1024)
     module.operation.verify()
 
@@ -256,9 +256,9 @@ def test_rms_norm_preserves_residual_and_bias():
     )
 
     ir = str(module)
-    assert "ttir.add" in ir
     assert "ttir.rms_norm" in ir
-    assert ir.index("ttir.add") < ir.index("ttir.rms_norm")
+    assert "ttir.add" not in ir
+    assert "operandSegmentSizes = array<i32: 1, 1, 1, 1>" in ir
     assert tuple(int(d) for d in out_type.shape) == (256, 512)
     module.operation.verify()
 

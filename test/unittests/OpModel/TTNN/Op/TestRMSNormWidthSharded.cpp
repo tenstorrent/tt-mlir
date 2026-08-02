@@ -56,8 +56,9 @@ TEST_F(OpModelTest, RMSNormWidthShardedInputCrashTest) {
       {
         auto constraintsExp = op_model::OpModel<RMSNormOp>::getOpConstraints(
             inputShape, inputLayout, weightShape, weightLayout,
-            /*biasShape=*/std::nullopt, /*biasLayout=*/std::nullopt, epsilon,
-            outputLayout);
+            /*biasShape=*/std::nullopt, /*biasLayout=*/std::nullopt,
+            /*residualInputShape=*/std::nullopt,
+            /*residualInputLayout=*/std::nullopt, epsilon, outputLayout);
         if (constraintsExp) {
           (void)*constraintsExp;
         } else {

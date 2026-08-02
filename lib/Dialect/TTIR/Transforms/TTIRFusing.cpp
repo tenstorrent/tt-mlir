@@ -1367,7 +1367,8 @@ public:
 
     LinearOp linearOp = rewriter.create<ttir::LinearOp>(
         addOp.getLoc(), linearOutputType, matmulOp.getA(), matmulOp.getB(),
-        bias, matmulOp.getTransposeA(), matmulOp.getTransposeB());
+        bias, matmulOp.getTransposeA(), matmulOp.getTransposeB(),
+        /*activation=*/nullptr);
 
     // Carry over the per-tensor weight dtype override (lifted from
     // tt.weight_dtype_override) so it survives the matmul->linear rewrite.
@@ -1696,7 +1697,8 @@ public:
                : rewriter
                      .create<LinearOp>(matmulOrLinearLoc, narrowedOutType,
                                        newMatmulAVal, newMatmulBVal, newBias,
-                                       transposeA, transposeB)
+                                       transposeA, transposeB,
+                                       linear.getActivationAttr())
                      .getResult();
 
     // The narrowed output already has the slice's shape, so it replaces it.
@@ -1851,7 +1853,8 @@ private:
           createConcatenatedBias(rewriter, rootOp.getLoc(), candidates);
       auto fusedLinear = rewriter.create<LinearOp>(
           rootOp.getLoc(), fusedOutputType, rootOp.getA(), fusedRHS, fusedBias,
-          rootOp.getTransposeA(), candidates.getTargetTransposeB());
+          rootOp.getTransposeA(), candidates.getTargetTransposeB(),
+          /*activation=*/nullptr);
       return fusedLinear.getResult();
     }
   }
@@ -1950,6 +1953,13 @@ private:
   // for fusion.
   static FusionCandidates collectCandidates(OpType rootOp) {
     FusionCandidates result;
+    if constexpr (std::is_same_v<OpType, LinearOp>) {
+      // Concatenating linears with different post-ops changes semantics, and
+      // slicing after one fused activation cannot recover the unfused outputs.
+      if (rootOp.getActivationAttr()) {
+        return result;
+      }
+    }
     Value sharedLHS = rootOp.getA();
     result.firstTransposeB = rootOp.getTransposeB();
 
@@ -1961,6 +1971,11 @@ private:
       auto op = dyn_cast<OpType>(user);
       if (!op || op.getA() != sharedLHS) {
         continue;
+      }
+      if constexpr (std::is_same_v<OpType, LinearOp>) {
+        if (op.getActivationAttr()) {
+          continue;
+        }
       }
 
       // Transpose A must match across all candidates for valid fusion.
@@ -3008,7 +3023,8 @@ public:
                               inputType.getEncoding());
     auto rmsNorm = rewriter.create<RMSNormOp>(
         outerMul.getLoc(), rmsNormOutputType, x, gamma,
-        /*bias=*/nullptr, rewriter.getDenseI64ArrayAttr(normalizedShape),
+        /*bias=*/nullptr, /*residual_input_tensor=*/nullptr,
+        rewriter.getDenseI64ArrayAttr(normalizedShape),
         rewriter.getF32FloatAttr(epsAttr.getValue().convertToFloat()));
 
     mlir::Value result = rmsNorm;
