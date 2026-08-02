@@ -65,6 +65,19 @@ bool isBf16DRAMShardedMatmulAllowed(Operation *op) {
   return false;
 }
 
+bool shouldAvoidGuaranteedOutputReshards(Operation *op) {
+  ModuleOp moduleOp = op->getParentOfType<ModuleOp>();
+
+  if (moduleOp) {
+    if (auto attr = moduleOp->getAttrOfType<BoolAttr>(
+            g_AvoidGuaranteedOutputReshardsAttrName)) {
+      return attr.getValue();
+    }
+  }
+
+  return false;
+}
+
 uint64_t getReservedL1Usage(Operation *op) {
   ModuleOp moduleOp = op->getParentOfType<ModuleOp>();
 

@@ -261,6 +261,12 @@ struct TTIRToTTNNCommonPipelineOptions
                      "edge in cumulative-cost policy."),
       llvm::cl::init(0)};
 
+  Option<bool> avoidGuaranteedOutputReshards{
+      *this, "avoid-guaranteed-output-reshards",
+      llvm::cl::desc("Suppress sharded matmul outputs when a direct consumer "
+                     "rejects that input layout."),
+      llvm::cl::init(false)};
+
   ListOption<int64_t> meshShape{
       *this, OptionNames::meshShape,
       llvm::cl::desc("Set the multi-device mesh shape.")};

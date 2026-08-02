@@ -879,6 +879,10 @@ def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagat
     Option<"reshardEdgePenaltyBytes", "reshard-edge-penalty-bytes",
            "int64_t", "0",
            "Fixed byte-equivalent launch penalty added to each conversion edge.">,
+    Option<"avoidGuaranteedOutputReshards",
+           "avoid-guaranteed-output-reshards", "bool", "false",
+           "Suppress sharded matmul outputs when a direct consumer's input "
+           "layout contract rejects them.">,
     Option<"enableDecisionTrace", "enable-decision-trace", "bool", "false",
            "Enable decision trace JSON output.">,
     Option<"decisionTraceDir", "decision-trace-dir", "std::string",

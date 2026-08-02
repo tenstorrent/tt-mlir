@@ -40,6 +40,12 @@ inline constexpr llvm::StringLiteral g_DisableDRAMShardedMatmulAttrName =
 inline constexpr llvm::StringLiteral g_AllowBf16DRAMShardedMatmulAttrName =
     "ttnn.allow_bf16_dram_sharded_matmul";
 
+// Attribute name for the policy that avoids sharded matmul outputs when a
+// direct consumer's input-layout contract rejects them.
+inline constexpr llvm::StringLiteral
+    g_AvoidGuaranteedOutputReshardsAttrName =
+        "ttnn.avoid_guaranteed_output_reshards";
+
 // Helper function to retrieve tensor L1 usage cap from module attribute.
 // Returns the configured cap if found, otherwise returns the default value.
 float getTensorL1UsageCap(Operation *op, float defaultValue = 0.95f);
@@ -51,6 +57,10 @@ bool isDRAMShardedMatmulDisabled(Operation *op);
 // Whether bf16 weights may also be offered a DRAM-sharded matmul, per the
 // module attribute set by DevicePassesWrapper. Returns false when absent.
 bool isBf16DRAMShardedMatmulAllowed(Operation *op);
+
+// Whether sharded matmul hints that require an immediate consumer reshard
+// should be suppressed.
+bool shouldAvoidGuaranteedOutputReshards(Operation *op);
 
 // Helper function to retrieve the per-core L1 usage reserved for the retained
 // (permanent) tensors.

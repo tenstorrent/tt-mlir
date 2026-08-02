@@ -156,6 +156,8 @@ void createTTNNPipelineAnalysisPasses(
           options.prioritizeCumulativeReshardCost;
       propagationOptions.reshardEdgePenaltyBytes =
           options.reshardEdgePenaltyBytes;
+      propagationOptions.avoidGuaranteedOutputReshards =
+          options.avoidGuaranteedOutputReshards;
       propagationOptions.overrideOutputLayout = options.overrideOutputLayout;
       propagationOptions.overrideConv2dConfig = options.overrideConv2dConfig;
       propagationOptions.overrideConv3dConfig = options.overrideConv3dConfig;

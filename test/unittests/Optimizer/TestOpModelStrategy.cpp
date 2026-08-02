@@ -245,8 +245,14 @@ public:
 
   OpConfig createMcast1DHint(TTNNLayoutAttr output, uint64_t in0BlockW,
                              uint64_t perCoreM, bool mcastIn0,
-                             uint64_t perCoreN = 1) {
-    auto grid = CoreCoordAttr::get(&context, 1, 8);
+                             uint64_t perCoreN = 1,
+                             uint64_t configGridX = 0,
+                             uint64_t configGridY = 0) {
+    auto [outputGridX, outputGridY] =
+        utils::getPhysicalGridDimensions(output);
+    auto grid = CoreCoordAttr::get(
+        &context, configGridX ? configGridX : outputGridX,
+        configGridY ? configGridY : outputGridY);
     auto hopCores = CoreRangeSetAttr::get(&context, {});
     auto config = MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::get(
         &context, grid, in0BlockW,
@@ -851,6 +857,32 @@ TEST_F(OpRuleBookTest,
                   .find("physical column") != std::string::npos);
 }
 
+TEST_F(OpRuleBookTest, Matmul1DShardedInputMustFitProgramGrid) {
+  llvm::SmallVector<int64_t> shape = {1, 32, 4864};
+  auto input19 = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 19});
+  auto output7 = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 7});
+  auto output19 = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 19});
+  MatmulRuleBook rules;
+
+  auto tooSmall = createMcast1DHint(
+      output7, /*in0BlockW=*/1, /*perCoreM=*/1, /*mcastIn0=*/true,
+      /*perCoreN=*/1, /*configGridX=*/7, /*configGridY=*/1);
+  auto fitting = createMcast1DHint(
+      output19, /*in0BlockW=*/1, /*perCoreM=*/1, /*mcastIn0=*/true,
+      /*perCoreN=*/1, /*configGridX=*/19, /*configGridY=*/1);
+
+  EXPECT_FALSE(rules.isValidOutputHintForInputs(tooSmall, {input19}));
+  EXPECT_TRUE(rules.isValidOutputHintForInputs(fitting, {input19}));
+  EXPECT_NE(getMatmulPreflightError({input19}, tooSmall)
+                .value()
+                .find("shard grid exceeds"),
+            std::string::npos);
+  EXPECT_FALSE(getMatmulPreflightError({input19}, fitting));
+}
+
 TEST_F(OpRuleBookTest,
        MatmulExplicitConfigRejectsIgnoredPhysicalShardedOutput) {
   llvm::SmallVector<int64_t> shape = {1, 32, 2048};
@@ -943,6 +975,64 @@ TEST_F(OpRuleBookTest, MatmulRejectsRowMajorShardedInput) {
   auto error = getMatmulPreflightError({rowMajorInput}, config);
   ASSERT_TRUE(error);
   EXPECT_NE(error->find("requires a tiled layout"), std::string::npos);
+}
+
+TEST_F(OpRuleBookTest, SplitQKVRejectsShardedProducerLayouts) {
+  llvm::SmallVector<int64_t> shape = {1, 1024, 1152};
+  auto interleaved = createDRAMInterleavedLayout(shape);
+  auto blockSharded = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::BlockSharded, {8, 8});
+  SplitQKVRuleBook rules;
+  LayoutFilterFn filter = rules.getInputLayoutFilter(/*operandIdx=*/0);
+
+  ASSERT_TRUE(filter);
+  EXPECT_TRUE(filter(interleaved));
+  EXPECT_FALSE(filter(blockSharded));
+}
+
+TEST_F(OpRuleBookTest,
+       MatmulConsumerContractPolicyAvoidsGuaranteedSplitQKVReshard) {
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 64};
+  auto inputLayout = createDRAMInterleavedLayout(inputShape);
+  auto inputType = RankedTensorType::get(inputShape, builder.getBF16Type(),
+                                         inputLayout);
+  builder.setInsertionPointToStart(&module->getBodyRegion().front());
+  auto producer = builder.create<OnesOp>(
+      builder.getUnknownLoc(), inputType,
+      /*device=*/nullptr, ShapeAttr::get(&context, inputShape));
+
+  llvm::SmallVector<int64_t> headShape = {1, 1, 32, 32};
+  auto headLayout = createDRAMInterleavedLayout(headShape);
+  auto headType =
+      RankedTensorType::get(headShape, builder.getBF16Type(), headLayout);
+  builder.create<SplitQueryKeyValueAndSplitHeadsOp>(
+      builder.getUnknownLoc(), TypeRange{headType, headType, headType},
+      producer.getResult(),
+      /*kvInputTensor=*/Value(), builder.getUI32IntegerAttr(1),
+      /*numKvHeads=*/IntegerAttr(), builder.getBoolAttr(false));
+
+  auto shardedOutput = createTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 2});
+  std::vector<OpConfig> configs{
+      OpConfig(inputLayout),
+      createMcast1DHint(shardedOutput, /*in0BlockW=*/1, /*perCoreM=*/1,
+                        /*mcastIn0=*/true)};
+  MatmulRuleBook rules;
+
+  OutputHints disabled =
+      rules.getOutputHints(producer.getOperation(), configs);
+  EXPECT_TRUE(llvm::any_of(disabled.hints, [](const OpConfig &config) {
+    return config.outputLayout &&
+           config.outputLayout.hasShardedTensorMemoryLayout();
+  }));
+
+  module->setAttr(utils::g_AvoidGuaranteedOutputReshardsAttrName,
+                  builder.getBoolAttr(true));
+  OutputHints enabled = rules.getOutputHints(producer.getOperation(), configs);
+  EXPECT_TRUE(llvm::none_of(enabled.hints, [](const OpConfig &config) {
+    return config.outputLayout &&
+           config.outputLayout.hasShardedTensorMemoryLayout();
+  }));
 }
 
 TEST_F(OpRuleBookTest, MatmulPartialConfigDedupPreservesOutputGeometry) {

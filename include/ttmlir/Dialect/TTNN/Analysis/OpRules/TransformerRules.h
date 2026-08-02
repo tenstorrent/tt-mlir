@@ -81,6 +81,7 @@ struct RotaryEmbeddingRuleBook : OpRuleBook {
 /// corrupts data when the sequence dimension is non-tile-aligned (e.g. 197).
 /// https://github.com/tenstorrent/tt-metal/issues/41526
 struct SplitQKVRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
   OutputHints
   getOutputHints(Operation *op,
