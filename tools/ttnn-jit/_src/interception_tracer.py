@@ -315,7 +315,38 @@ def _broadcast_batch(x, y):
     return [(a if b == 1 else b if a == 1 else max(a, b)) for a, b in zip(xr, yr)]
 
 
-def _linear_handler(jit_ctx, a, b, *, bias=None, dtype=None, **kwargs):
+def _linear_handler(
+    jit_ctx,
+    a,
+    b,
+    *,
+    bias=None,
+    dtype=None,
+    transpose_a=False,
+    transpose_b=False,
+    activation=None,
+    **kwargs,
+):
+    ignored_execution_kwargs = {
+        "memory_config",
+        "program_config",
+        "core_grid",
+        "compute_kernel_config",
+        "output_tile",
+        "optional_output_tensor",
+        "global_cb",
+        "sub_device_id",
+    }
+    unsupported = set(kwargs) - ignored_execution_kwargs
+    if unsupported:
+        raise TypeError(
+            f"interception linear has unsupported semantic kwargs: "
+            f"{sorted(unsupported)}"
+        )
+    if activation not in (None, "silu"):
+        raise ValueError(
+            f"interception linear does not support activation={activation!r}"
+        )
     a_type = a.mlir_value.type
     b_type = b.mlir_value.type
     a_shape = [int(d) for d in a_type.shape]
@@ -324,8 +355,8 @@ def _linear_handler(jit_ctx, a, b, *, bias=None, dtype=None, **kwargs):
     # (matches ttir.LinearOp verifier; naive a[:-1]+[b[-1]] mis-ranks when a/b
     # have different batch-dim counts).
     out_shape = _broadcast_batch(a_shape[:-2], b_shape[:-2]) + [
-        a_shape[-2],
-        b_shape[-1],
+        a_shape[-1] if transpose_a else a_shape[-2],
+        b_shape[-2] if transpose_b else b_shape[-1],
     ]
     elem_type = (
         _traced_element_type(dtype, jit_ctx.ctx)
@@ -334,12 +365,17 @@ def _linear_handler(jit_ctx, a, b, *, bias=None, dtype=None, **kwargs):
     )
     with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
         result_type = RankedTensorType.get(out_shape, elem_type)
-        return ttir.linear(
+        linear = ttir.linear(
             result=result_type,
             a=a.mlir_value,
             b=b.mlir_value,
             bias=(bias.mlir_value if bias is not None else None),
+            transpose_a=transpose_a,
+            transpose_b=transpose_b,
         )
+        if activation == "silu":
+            return ttir.silu(result=result_type, input=linear)
+        return linear
 
 
 def _typecast_handler(jit_ctx, x, dtype, **kwargs):
@@ -352,33 +388,75 @@ def _typecast_handler(jit_ctx, x, dtype, **kwargs):
         return ttir.typecast(result=result_type, input=x.mlir_value)
 
 
-def _rms_norm_handler(jit_ctx, x, *, epsilon=1e-5, weight=None, **kwargs):
+def _rms_norm_handler(
+    jit_ctx,
+    x,
+    *,
+    epsilon=1e-5,
+    weight=None,
+    bias=None,
+    residual_input_tensor=None,
+    **kwargs,
+):
+    ignored_execution_kwargs = {
+        "memory_config",
+        "program_config",
+        "compute_kernel_config",
+    }
+    unsupported = set(kwargs) - ignored_execution_kwargs
+    if unsupported:
+        raise TypeError(
+            f"interception rms_norm has unsupported semantic kwargs: "
+            f"{sorted(unsupported)}"
+        )
     x_type = x.mlir_value.type
     hidden = int(x_type.shape[-1])
     with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
         result_type = RankedTensorType.get(
             [int(d) for d in x_type.shape], x_type.element_type
         )
-        weight_val = None
-        if weight is not None:
-            w_type = weight.mlir_value.type
-            w_shape = [int(d) for d in w_type.shape]
+        def flatten_norm_parameter(parameter):
+            if parameter is None:
+                return None
+            parameter_type = parameter.mlir_value.type
+            parameter_shape = [int(d) for d in parameter_type.shape]
             # The TTIR rms_norm verifier requires weight.shape == normalized_shape
             # == [hidden]. TTNN models tile-pack the norm weight (e.g. [1,1,H/32,32]);
             # flatten it to [hidden] for the analysis graph (values are irrelevant).
-            if w_shape != [hidden]:
-                flat_type = RankedTensorType.get([hidden], w_type.element_type)
-                weight_val = ttir.reshape(
-                    result=flat_type, input=weight.mlir_value, shape=[hidden]
+            if parameter_shape != [hidden]:
+                flat_type = RankedTensorType.get(
+                    [hidden], parameter_type.element_type
                 )
-            else:
-                weight_val = weight.mlir_value
+                return ttir.reshape(
+                    result=flat_type,
+                    input=parameter.mlir_value,
+                    shape=[hidden],
+                )
+            return parameter.mlir_value
+
+        norm_input = x.mlir_value
+        if residual_input_tensor is not None:
+            residual_type = residual_input_tensor.mlir_value.type
+            if (
+                [int(d) for d in residual_type.shape]
+                != [int(d) for d in x_type.shape]
+                or residual_type.element_type != x_type.element_type
+            ):
+                raise ValueError(
+                    "interception rms_norm residual must match input shape and dtype"
+                )
+            norm_input = ttir.add(
+                result=result_type,
+                lhs=norm_input,
+                rhs=residual_input_tensor.mlir_value,
+            )
         eps_attr = FloatAttr.get(F32Type.get(jit_ctx.ctx), float(epsilon))
         return ttir.rms_norm(
             result=result_type,
-            input=x.mlir_value,
+            input=norm_input,
             normalized_shape=[hidden],
-            weight=weight_val,
+            weight=flatten_norm_parameter(weight),
+            bias=flatten_norm_parameter(bias),
             epsilon=eps_attr,
         )
 

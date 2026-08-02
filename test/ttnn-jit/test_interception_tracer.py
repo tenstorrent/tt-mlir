@@ -213,6 +213,73 @@ def test_common_op_handlers_build_ttir():
     assert "ttir.rms_norm" in ir
 
 
+def test_linear_preserves_silu_activation():
+    from ttnn_jit._src.interception_tracer import trace_intercepted
+
+    weight = _DummyTensor((512, 1024), ttnn.bfloat16)
+
+    def activated_linear(x):
+        return ttnn.linear(x, weight, activation="silu")
+
+    module, out_type = trace_intercepted(
+        activated_linear,
+        _DummyTensor((256, 512), ttnn.bfloat16),
+    )
+
+    ir = str(module)
+    assert "ttir.linear" in ir
+    assert "ttir.silu" in ir
+    assert ir.index("ttir.linear") < ir.index("ttir.silu")
+    assert tuple(int(d) for d in out_type.shape) == (256, 1024)
+    module.operation.verify()
+
+
+def test_rms_norm_preserves_residual_and_bias():
+    from ttnn_jit._src.interception_tracer import trace_intercepted
+
+    residual = _DummyTensor((256, 512), ttnn.bfloat16)
+    weight = _DummyTensor((1, 1, 16, 32), ttnn.bfloat16)
+    bias = _DummyTensor((512,), ttnn.bfloat16)
+
+    def residual_rms_norm(x):
+        return ttnn.rms_norm(
+            x,
+            epsilon=1e-5,
+            weight=weight,
+            bias=bias,
+            residual_input_tensor=residual,
+        )
+
+    module, out_type = trace_intercepted(
+        residual_rms_norm,
+        _DummyTensor((256, 512), ttnn.bfloat16),
+    )
+
+    ir = str(module)
+    assert "ttir.add" in ir
+    assert "ttir.rms_norm" in ir
+    assert ir.index("ttir.add") < ir.index("ttir.rms_norm")
+    assert tuple(int(d) for d in out_type.shape) == (256, 512)
+    module.operation.verify()
+
+
+def test_semantic_kwargs_fail_closed():
+    from ttnn_jit._src.interception_tracer import trace_intercepted
+
+    weight = _DummyTensor((512, 1024), ttnn.bfloat16)
+    x = _DummyTensor((256, 512), ttnn.bfloat16)
+    with pytest.raises(ValueError, match="activation='relu'"):
+        trace_intercepted(
+            lambda value: ttnn.linear(value, weight, activation="relu"),
+            x,
+        )
+    with pytest.raises(TypeError, match="unsupported semantic kwargs"):
+        trace_intercepted(
+            lambda value: ttnn.rms_norm(value, unsupported_semantic_flag=True),
+            x,
+        )
+
+
 def test_multi_output_returns_tuple_of_proxies():
     from ttnn_jit._src.interception_tracer import _wrap_results
 
