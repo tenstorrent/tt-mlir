@@ -170,7 +170,7 @@ TEST_P(LegalTensorLayoutAnalysisTest, GenerateAndCategorizeLayouts) {
         if (!layout.isTiled()) {
           continue;
         }
-        llvm::ArrayRef<int64_t> shardShape = layout.getShardShape();
+        llvm::SmallVector<int64_t> shardShape = layout.getShardShape();
         ASSERT_GE(shardShape.size(), 2U);
         EXPECT_EQ(shardShape[shardShape.size() - 2] % 32, 0);
         EXPECT_EQ(shardShape[shardShape.size() - 1] % 32, 0);
