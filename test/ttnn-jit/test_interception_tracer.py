@@ -14,9 +14,23 @@ from ttnn_jit._src.interception_tracer import (
 class _DummyTensor:
     """Stand-in for a ttnn.Tensor in device-free tests (metadata only)."""
 
-    def __init__(self, shape, dtype):
+    def __init__(self, shape, dtype, device=None):
         self.shape = shape
         self.dtype = dtype
+        self._device = device
+
+    def device(self):
+        return self._device
+
+
+class _DummyDevice:
+    """Metadata-only device exposing TTNN's x/y worker-grid interface."""
+
+    def __init__(self, x, y):
+        self.core_grid = type("_Grid", (), {"x": x, "y": y})()
+
+    def compute_with_storage_grid_size(self):
+        return self.core_grid
 
 
 def test_traced_tensor_exposes_shape_and_dtype():
@@ -231,6 +245,86 @@ def test_linear_preserves_silu_activation():
     assert 'activation = "silu"' in ir
     assert "ttir.silu" not in ir
     assert tuple(int(d) for d in out_type.shape) == (256, 1024)
+    module.operation.verify()
+
+
+def test_linear_preserves_explicit_l1_interleaved_output():
+    from ttnn_jit._src.interception_tracer import trace_intercepted
+
+    weight = _DummyTensor((512, 1024), ttnn.bfloat16)
+
+    def l1_linear(x):
+        return ttnn.linear(
+            x,
+            weight,
+            memory_config=ttnn.L1_MEMORY_CONFIG,
+        )
+
+    # Blackhole exposes an 11x10 compute-with-storage grid.  The tracer must use
+    # the source device grid instead of its device-free 8x8 fallback when
+    # constructing the L1-interleaved boundary.
+    module, out_type = trace_intercepted(
+        l1_linear,
+        _DummyTensor((256, 512), ttnn.bfloat16, device=_DummyDevice(x=11, y=10)),
+    )
+
+    ir = str(module)
+    assert "ttir.linear" in ir
+    assert "ttir.to_layout" in ir
+    assert "<10x11>" in ir
+    assert "#ttnn.buffer_type<l1>" in ir
+    assert "<interleaved>" in ir
+    assert tuple(int(d) for d in out_type.shape) == (256, 1024)
+    assert "#ttnn.buffer_type<l1>" in str(out_type)
+    module.operation.verify()
+
+
+def test_linear_keeps_dram_memory_config_advisory():
+    from ttnn_jit._src.interception_tracer import trace_intercepted
+
+    weight = _DummyTensor((512, 1024), ttnn.bfloat16)
+    module, _ = trace_intercepted(
+        lambda x: ttnn.linear(x, weight, memory_config=ttnn.DRAM_MEMORY_CONFIG),
+        _DummyTensor((256, 512), ttnn.bfloat16),
+    )
+
+    # Preserve the advisor's existing search space: only the explicit L1
+    # native-layout boundary is pinned by this interception fix.
+    assert "ttir.to_layout" not in str(module)
+    module.operation.verify()
+
+
+@pytest.mark.forked
+def test_linear_l1_boundary_survives_o2_advisor_pipeline():
+    from ttnn_jit._src.interception_tracer import trace_intercepted
+    from ttnn_jit.ttmlir.passes import run_pipeline
+
+    weight = _DummyTensor((512, 1024), ttnn.bfloat16)
+
+    def l1_linear_then_consume(x):
+        h = ttnn.linear(x, weight, memory_config=ttnn.L1_MEMORY_CONFIG)
+        return ttnn.multiply(h, h)
+
+    module, _ = trace_intercepted(
+        l1_linear_then_consume,
+        _DummyTensor((256, 512), ttnn.bfloat16, device=_DummyDevice(x=8, y=8)),
+    )
+    run_pipeline(
+        module,
+        "ttir-to-ttnn-l1-advisor",
+        "mock-system-desc-arch=wormhole_b0 optimization-level=2 "
+        "enable-decision-trace=false",
+    )
+
+    ir = str(module)
+    assert "ttir." not in ir
+    assert '"ttnn.linear"' in ir
+    assert '"ttnn.multiply"' in ir
+    # Greedy O2 may make the producer itself L1 or materialize a conversion.
+    # In both cases the authored full-grid L1-interleaved layout must survive.
+    assert "<8x8>" in ir
+    assert "#ttnn.buffer_type<l1>" in ir
+    assert "<interleaved>" in ir
     module.operation.verify()
 
 

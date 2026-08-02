@@ -8,6 +8,7 @@ the proxy tensor, and weight capture differ from the source-rewrite tracer.
 """
 
 from ttnn_jit.ttmlir.dialects import func, ttir, ttcore
+from ttnn_jit.ttmlir.dialects import ttnn as ttnn_dialect
 from ttnn_jit.ttmlir.ir import (
     Context,
     Location,
@@ -27,6 +28,7 @@ import ttnn
 from ttnn_jit._src.tracing_compiler import JitContext
 from ttnn_jit._src.conversions import (
     mlir_dtype_from_ttnn_dtype,
+    ttcore_dtype_from_mlir_dtype,
     ttnn_dtype_from_mlir_dtype,
 )
 
@@ -114,7 +116,7 @@ class TraceScope:
         self.input_types = input_types
 
 
-def build_trace_scope(name, input_specs):
+def build_trace_scope(name, input_specs, core_grid=(7, 7)):
     """Create an MLIR module + func skeleton with the given (shape, dtype) inputs.
 
     Inputs carry NO layout encoding (plain RankedTensorType) -- the compiler's
@@ -134,7 +136,7 @@ def build_trace_scope(name, input_specs):
             )
             func_bb = func_op.add_entry_block()
 
-    jit_ctx = JitContext(func_bb, ctx, (1, 1), (7, 7))
+    jit_ctx = JitContext(func_bb, ctx, (1, 1), core_grid)
     jit_ctx.weight_cache = {}
     jit_ctx.cache_alias = {}
     traced_args = [TracedTensor(func_bb.arguments[i]) for i in range(len(input_types))]
@@ -316,6 +318,51 @@ def _broadcast_batch(x, y):
     return [(a if b == 1 else b if a == 1 else max(a, b)) for a, b in zip(xr, yr)]
 
 
+def _is_l1_interleaved(memory_config):
+    """Whether ``memory_config`` is the source-authored L1 default.
+
+    The advisor intentionally treats most execution configs as search hints,
+    but an explicit L1-interleaved linear result is a semantic boundary for
+    fused native-layout model code.  Compare enum values instead of object
+    identity so equivalent user-created MemoryConfig objects are recognized.
+    """
+    if memory_config is None:
+        return False
+    return (
+        memory_config.buffer_type.value
+        == ttnn.L1_MEMORY_CONFIG.buffer_type.value
+        and memory_config.memory_layout.value
+        == ttnn.L1_MEMORY_CONFIG.memory_layout.value
+        and memory_config.shard_spec is None
+    )
+
+
+def _to_l1_interleaved(jit_ctx, value, shape, element_type):
+    """Materialize an explicit L1-interleaved layout boundary in TTIR.
+
+    MemoryLayoutPropagation deliberately preserves ToLayoutOp, so the final
+    TTNN IR either keeps the producer in this layout or contains the required
+    to_memory_config conversion.  Use the traced device's full worker grid:
+    JitContext stores the inclusive maximum x/y coordinates.
+    """
+    grid_shape = [int(jit_ctx.core_grid[1]) + 1, int(jit_ctx.core_grid[0]) + 1]
+    tiled = ttcore.ir.TileType.get(
+        jit_ctx.ctx, 32, 32, ttcore_dtype_from_mlir_dtype(element_type)
+    )
+    layout = ttnn_dialect.ir.TTNNLayoutAttr.get(
+        jit_ctx.ctx,
+        list(shape),
+        tiled,
+        ttnn.L1_MEMORY_CONFIG.buffer_type.value,
+        grid_shape,
+        None,
+        memLayout=ttnn.L1_MEMORY_CONFIG.memory_layout.value,
+    )
+    target_type = RankedTensorType.get(list(shape), element_type, layout)
+    output = ttir.EmptyOp(target_type).result
+    return ttir.ToLayoutOp([target_type], value, output).result
+
+
 def _linear_handler(
     jit_ctx,
     a,
@@ -323,13 +370,13 @@ def _linear_handler(
     *,
     bias=None,
     dtype=None,
+    memory_config=None,
     transpose_a=False,
     transpose_b=False,
     activation=None,
     **kwargs,
 ):
     ignored_execution_kwargs = {
-        "memory_config",
         "program_config",
         "core_grid",
         "compute_kernel_config",
@@ -366,19 +413,21 @@ def _linear_handler(
     )
     with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
         result_type = RankedTensorType.get(out_shape, elem_type)
-        linear = ttir.linear(
+        linear_kwargs = dict(
             result=result_type,
             a=a.mlir_value,
             b=b.mlir_value,
             bias=(bias.mlir_value if bias is not None else None),
             transpose_a=transpose_a,
             transpose_b=transpose_b,
-            activation=(
-                StringAttr.get(activation, jit_ctx.ctx)
-                if activation is not None
-                else None
-            ),
         )
+        if activation is not None:
+            linear_kwargs["activation"] = StringAttr.get(activation, jit_ctx.ctx)
+        linear = ttir.linear(**linear_kwargs)
+        if _is_l1_interleaved(memory_config):
+            return _to_l1_interleaved(
+                jit_ctx, linear, out_shape, result_type.element_type
+            )
         return linear
 
 
@@ -1264,7 +1313,29 @@ def trace_intercepted(fn, *args):
     output_type). Output layout is left unforced so the optimizer chooses it.
     """
     input_specs = [(tuple(int(d) for d in a.shape), a.dtype) for a in args]
-    scope = build_trace_scope(fn.__name__, input_specs)
+    core_grid = (7, 7)
+    for arg in args:
+        device_fn = getattr(arg, "device", None)
+        if not callable(device_fn):
+            continue
+        try:
+            device = device_fn()
+            if device is not None:
+                compute_grid_fn = getattr(
+                    device, "compute_with_storage_grid_size", None
+                )
+                grid = (
+                    compute_grid_fn()
+                    if callable(compute_grid_fn)
+                    else device.core_grid
+                )
+                core_grid = (int(grid.x) - 1, int(grid.y) - 1)
+                break
+        except (AttributeError, RuntimeError):
+            # Metadata-only stand-ins have no device.  Keep the historical
+            # 8x8 fallback used by build_trace_scope's device-free tests.
+            continue
+    scope = build_trace_scope(fn.__name__, input_specs, core_grid=core_grid)
 
     with patch_ttnn(scope.jit_ctx):
         result = fn(*scope.traced_args)
