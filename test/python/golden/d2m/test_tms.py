@@ -24,7 +24,7 @@ from conftest import get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
-from test_utils import Marks, SkipIf, shape_str, shapes_list_str
+from test_utils import Marks, SkipIf, XFail, shape_str, shapes_list_str
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -37,6 +37,34 @@ SLOW_COMPILE_SKIP = pytest.mark.skip(
 NOC_ISSUE_SKIP = pytest.mark.skip(
     reason="NOC read issue, see https://github.com/tenstorrent/tt-mlir/issues/6377"
 )
+
+# Integer types for bit-exact TM checks. The input is a stream of random bits,
+# and comparison uses atol=0 for bit-exact equality. TTCore has no distinct
+# Int8/Int16 DataTypes.
+TM_INT_DTYPES = [
+    torch.uint8 | XFail("Not all shapes pass u8 TMs yet"),
+    torch.uint16,
+    torch.int32
+    | SkipIf(
+        ["n150", "sim"],
+        reason="i32 WH sim issue https://github.com/tenstorrent/ttsim-private/issues/291",
+    ),
+]
+
+
+def _tm_exact_compare_kwargs(dtype: torch.dtype) -> dict:
+    """Exactness kwargs for pure TM ops.
+
+    Integers: atol=0 (bit-exact).
+    bf16: pcc=1.0 (bit-exact).
+    f32: the f32 TM datapath drops low mantissa bits (TF32-like).
+    """
+    if dtype == torch.bfloat16:
+        return {"pcc": 1.0}
+    if dtype == torch.float32:
+        return {"pcc": 0.99999}
+    return {"check_atol": True, "atol": 0}
+
 
 # ============================================================
 # TM pipeline tests (permute/reshape/broadcast etc.).
@@ -78,10 +106,11 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         pytest.param(
             (32, 128 * 801),
             [1, 0],
+            # Non-strict: dtypes narrower than 32 can fit in L1.
             marks=pytest.mark.xfail_config(
                 ["ttmetal"],
                 reason="L1 memory usage exceeds capacity #7559",
-                strict=True,
+                strict=False,
             ),
         ),
         # 3d inner permutes
@@ -160,12 +189,25 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         [(1, 2, 128, 64), [0, 1, 3, 2]],
     ],
 )
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float32, torch.bfloat16, *TM_INT_DTYPES],
+    ids=["f32", "bf16", "u8", "u16", "i32"],
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_permute(shape: Shape, permutation: List[int], target: str, request, device):
+def test_permute(
+    shape: Shape,
+    permutation: List[int],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
     """Test permute operations with abs on TTMetal backend."""
+    use_random_bits = not dtype.is_floating_point
 
     def permute_module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
+        @builder.func([shape], [dtype], random_bits=use_random_bits)
         def permute(
             in0: Operand,
             builder: TTIRBuilder,
@@ -173,24 +215,31 @@ def test_permute(shape: Shape, permutation: List[int], target: str, request, dev
         ):
             return builder.permute(in0, permutation=permutation)
 
-    compile_and_execute_ttir(
-        permute_module,
-        target=target,
-        device=device,
+    kwargs = {
         **get_request_kwargs(request),
-        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '}}}",
-    )
+        "device": device,
+        "target": target,
+        "custom_pipeline": f"ttir-to-ttmetal-pipeline{{{' '}}}",
+    }
+    kwargs.update(_tm_exact_compare_kwargs(dtype))
+    compile_and_execute_ttir(permute_module, **kwargs)
 
 
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float32, torch.bfloat16, *TM_INT_DTYPES],
+    ids=["f32", "bf16", "u8", "u16", "i32"],
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_permute_virtual_grid_1x64(target: str, request, device):
+def test_permute_virtual_grid_1x64(dtype: torch.dtype, target: str, request, device):
     """Test permute host transfers through a 1x64 virtual grid."""
 
     shape = (32, 2048)
     permutation = [1, 0]
+    use_random_bits = not dtype.is_floating_point
 
     def permute_module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
+        @builder.func([shape], [dtype], random_bits=use_random_bits)
         def permute(
             in0: Operand,
             builder: TTIRBuilder,
@@ -198,13 +247,14 @@ def test_permute_virtual_grid_1x64(target: str, request, device):
         ):
             return builder.permute(in0, permutation=permutation)
 
-    compile_and_execute_ttir(
-        permute_module,
-        target=target,
-        device=device,
+    kwargs = {
         **get_request_kwargs(request),
-        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '}}}",
-    )
+        "device": device,
+        "target": target,
+        "custom_pipeline": f"ttir-to-ttmetal-pipeline{{{' '}}}",
+    }
+    kwargs.update(_tm_exact_compare_kwargs(dtype))
+    compile_and_execute_ttir(permute_module, **kwargs)
 
 
 # ==================== CONCATENATE HEADS TESTS ====================
@@ -227,9 +277,18 @@ def test_permute_virtual_grid_1x64(target: str, request, device):
         (1, 12, 256, 64),
     ],
 )
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float32, torch.bfloat16, *TM_INT_DTYPES],
+    ids=["f32", "bf16", "u8", "u16", "i32"],
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_concatenate_heads(
-    input_shape: Tuple[int, int, int, int], target: str, request, device
+    input_shape: Tuple[int, int, int, int],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
 ):
     """Test concatenate_heads operation on TTMetal backend.
 
@@ -237,25 +296,25 @@ def test_concatenate_heads(
     Input: [batch, num_heads, seq_len, head_dim]
     Output: [batch, seq_len, num_heads * head_dim]
     """
-    batch, num_heads, seq_len, head_dim = input_shape
-    output_shape = (batch, seq_len, num_heads * head_dim)
+    use_random_bits = not dtype.is_floating_point
 
     def concatenate_heads_module(builder: TTIRBuilder):
-        @builder.func([input_shape], [torch.float32])
+        @builder.func([input_shape], [dtype], random_bits=use_random_bits)
         def concatenate_heads(
             in0: Operand,
             builder: TTIRBuilder,
             unit_attrs: List[str] = None,
         ):
-            return builder.concatenate_heads(in0, output_type=torch.float32)
+            return builder.concatenate_heads(in0)
 
-    compile_and_execute_ttir(
-        concatenate_heads_module,
-        target=target,
-        device=device,
+    kwargs = {
         **get_request_kwargs(request),
-        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '}}}",
-    )
+        "device": device,
+        "target": target,
+        "custom_pipeline": f"ttir-to-ttmetal-pipeline{{{' '}}}",
+    }
+    kwargs.update(_tm_exact_compare_kwargs(dtype))
+    compile_and_execute_ttir(concatenate_heads_module, **kwargs)
 
 
 # ==================== RESHAPE TESTS ====================
@@ -374,11 +433,11 @@ def shapes_to_id(shapes) -> str:
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf(["n150", "sim"]),
+        *TM_INT_DTYPES,
         torch.int64 | SkipIf(["n150", "sim"]),
         torch.bool,
     ],
-    ids=["f32", "bf16", "i32", "i64", "i1"],
+    ids=["f32", "bf16", "u8", "u16", "i32", "i64", "i1"],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reshape(
@@ -390,19 +449,21 @@ def test_reshape(
 ):
     """Test reshape operation with various input/output shape combinations."""
     input_shape, output_shape = shapes
+    use_random_bits = not dtype.is_floating_point
 
     def reshape_module(builder: TTIRBuilder):
-        @builder.func([input_shape], [dtype])
+        @builder.func([input_shape], [dtype], random_bits=use_random_bits)
         def reshape(in0, builder: TTIRBuilder, unit_attrs: List[str] = None):
             return builder.reshape(in0, output_shape, unit_attrs=unit_attrs)
 
-    compile_and_execute_ttir(
-        reshape_module,
-        target=target,
-        device=device,
-        custom_pipeline="ttir-to-ttmetal-pipeline",
+    kwargs = {
         **get_request_kwargs(request),
-    )
+        "device": device,
+        "target": target,
+        "custom_pipeline": "ttir-to-ttmetal-pipeline",
+    }
+    kwargs.update(_tm_exact_compare_kwargs(dtype))
+    compile_and_execute_ttir(reshape_module, **kwargs)
 
 
 # ==================== ARANGE TESTS ====================
@@ -787,10 +848,17 @@ def _test_pattern_map(pattern, shape, pattern_map):
         ((2, 3, 4, 32), "w z y x -> (y w) (z x)"),
     ],
 )
+@pytest.mark.parametrize(
+    "dtype",
+    # Rearrange golden uses Tensor.numpy(), which rejects bf16.
+    [torch.float32, *TM_INT_DTYPES],
+    ids=["f32", "u8", "u16", "i32"],
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_rearrange(
     shape,
     pattern,
+    dtype: torch.dtype,
     target: str,
     request,
     device,
@@ -801,18 +869,21 @@ def test_rearrange(
         pattern_map = ttir.ir.rearrange_inv_pattern_map(Context(), pattern, shape)
         _test_pattern_map(pattern, shape, pattern_map)
 
+    use_random_bits = not dtype.is_floating_point
+
     def rearrange_module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
+        @builder.func([shape], [dtype], random_bits=use_random_bits)
         def rearrange(in0, builder: TTIRBuilder, unit_attrs: List[str] = None):
             return builder.rearrange(in0, pattern, unit_attrs=unit_attrs)
 
-    compile_and_execute_ttir(
-        rearrange_module,
-        target=target,
-        device=device,
-        custom_pipeline=f"ttir-to-ttmetal-pipeline",
+    kwargs = {
         **get_request_kwargs(request),
-    )
+        "device": device,
+        "target": target,
+        "custom_pipeline": f"ttir-to-ttmetal-pipeline",
+    }
+    kwargs.update(_tm_exact_compare_kwargs(dtype))
+    compile_and_execute_ttir(rearrange_module, **kwargs)
 
 
 # ============================================================
@@ -927,13 +998,22 @@ def test_rearrange(
         ([(1, 32, 16, 32, 1), (1, 32, 16, 32, 1)], 4),
     ],
 )
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float32, torch.bfloat16, *TM_INT_DTYPES],
+    ids=["f32", "bf16", "u8", "u16", "i32"],
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
+def test_concat(
+    shapes: List[Shape], dim: int, dtype: torch.dtype, target: str, request, device
+):
+    use_random_bits = not dtype.is_floating_point
+
     def module(builder: TTIRBuilder):
         # Generate dtypes list dynamically based on number of shapes
-        dtypes = [torch.float32] * len(shapes)
+        dtypes = [dtype] * len(shapes)
 
-        @builder.func(shapes, dtypes)
+        @builder.func(shapes, dtypes, random_bits=use_random_bits)
         def concat_wrapper(
             *args,
             unit_attrs: Optional[List[str]] = None,
@@ -943,12 +1023,13 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
             builder = args[-1]  # Last argument is the builder
             return builder.concat(list(inputs), dim, unit_attrs)
 
-    compile_and_execute_ttir(
-        module,
+    kwargs = {
         **get_request_kwargs(request),
-        device=device,
-        target=target,
-    )
+        "device": device,
+        "target": target,
+    }
+    kwargs.update(_tm_exact_compare_kwargs(dtype))
+    compile_and_execute_ttir(module, **kwargs)
 
 
 # Skipping i32 WH sim due to issue https://github.com/tenstorrent/ttsim-private/issues/291
@@ -966,28 +1047,34 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
 )
 @pytest.mark.parametrize(
     "dtype",
-    [
-        torch.float32,
-        torch.int32 | SkipIf(["n150", "sim"]),
-        torch.bfloat16,
-    ],
-    ids=["f32", "i32", "bf16"],
+    [torch.float32, torch.bfloat16, *TM_INT_DTYPES],
+    ids=["f32", "bf16", "u8", "u16", "i32"],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_repeat(shape: Shape, repeat_dims: List[int], dtype, target, request, device):
+def test_repeat(
+    shape: Shape,
+    repeat_dims: List[int],
+    dtype: torch.dtype,
+    target,
+    request,
+    device,
+):
+    use_random_bits = not dtype.is_floating_point
+
     def module(builder: TTIRBuilder):
-        @builder.func([shape], [dtype])
+        @builder.func([shape], [dtype], random_bits=use_random_bits)
         def repeat(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
             return builder.repeat(in0, repeat_dims, unit_attrs=unit_attrs)
 
-    compile_and_execute_ttir(
-        module,
+    kwargs = {
         **get_request_kwargs(request),
-        device=device,
-        target=target,
-    )
+        "device": device,
+        "target": target,
+    }
+    kwargs.update(_tm_exact_compare_kwargs(dtype))
+    compile_and_execute_ttir(module, **kwargs)
 
 
 # Slice tests
@@ -1087,7 +1174,11 @@ def test_repeat(shape: Shape, repeat_dims: List[int], dtype, target, request, de
         ((3, 20, 14, 64, 64), [1, 5, 6, 31, 32], [2, 6, 7, 32, 33], None),
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float32, torch.bfloat16, *TM_INT_DTYPES],
+    ids=["f32", "bf16", "u8", "u16", "i32"],
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_slice(
     shape: Shape,
@@ -1099,30 +1190,45 @@ def test_slice(
     request,
     device,
 ):
+    use_random_bits = not dtype.is_floating_point
+
     def module(builder: TTIRBuilder):
-        @builder.func([shape], [dtype])
+        @builder.func([shape], [dtype], random_bits=use_random_bits)
         def slice_wrapper(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
             return builder.slice(in0, begins, ends, step, unit_attrs=unit_attrs)
 
-    compile_and_execute_ttir(
-        module,
+    kwargs = {
         **get_request_kwargs(request),
-        device=device,
-        target=target,
-    )
+        "device": device,
+        "target": target,
+    }
+    kwargs.update(_tm_exact_compare_kwargs(dtype))
+    compile_and_execute_ttir(module, **kwargs)
 
 
 # Transpose tests
 @pytest.mark.parametrize("shape", [(64, 32)], ids=shape_str)
 @pytest.mark.parametrize("transpose_dims", [(0, 1)])
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float32, torch.bfloat16, *TM_INT_DTYPES],
+    ids=["f32", "bf16", "u8", "u16", "i32"],
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_transpose(
-    shape: Shape, transpose_dims: List[int], target: str, request, device
+    shape: Shape,
+    transpose_dims: List[int],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
 ):
+    use_random_bits = not dtype.is_floating_point
+
     def module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
+        @builder.func([shape], [dtype], random_bits=use_random_bits)
         def transpose_wrapper(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
@@ -1133,12 +1239,13 @@ def test_transpose(
                 unit_attrs=unit_attrs,
             )
 
-    compile_and_execute_ttir(
-        module,
+    kwargs = {
         **get_request_kwargs(request),
-        device=device,
-        target=target,
-    )
+        "device": device,
+        "target": target,
+    }
+    kwargs.update(_tm_exact_compare_kwargs(dtype))
+    compile_and_execute_ttir(module, **kwargs)
 
 
 # Typecast tests

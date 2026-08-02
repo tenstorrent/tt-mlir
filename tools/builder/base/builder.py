@@ -657,13 +657,22 @@ class Builder(metaclass=BuilderMeta):
         return [self._goldens[inp] for inp in inputs]
 
     def _generate_random_tensor(
-        self, shape: Shape, dtype: Union[torch.dtype, TypeInfo]
+        self,
+        shape: Shape,
+        dtype: Union[torch.dtype, TypeInfo],
+        random_bits: bool = False,
     ) -> torch.Tensor:
         if isinstance(dtype, TypeInfo):
             float_tensor = torch.randn(shape, dtype=torch.float32)
             return torch.quantize_per_tensor(
                 float_tensor, dtype.scale, dtype.zero_point, dtype.dtype
             )
+        if random_bits:
+            # Full-width random bit stream for TM bit-exact accuracy tests.
+            assert not dtype.is_floating_point, "random_bits is for integer types only"
+            tensor = torch.empty(shape, dtype=dtype)
+            tensor.view(torch.uint8).random_()
+            return tensor
         if dtype.is_floating_point:
             return torch.randn(shape, dtype=dtype)
         elif dtype == torch.bool:
@@ -1632,6 +1641,7 @@ class Builder(metaclass=BuilderMeta):
         custom_inputs: Optional[List[dict]] = None,
         presharded_args: Optional[Dict[int, Tuple[int, ...]]] = None,
         presharded_results: Optional[Dict[int, Tuple[int, ...]]] = None,
+        random_bits: bool = False,
     ):
         if ttnn_inputs or custom_inputs:
             encoding_fn = self._create_ttnn_tensor_encoding
@@ -1699,7 +1709,11 @@ class Builder(metaclass=BuilderMeta):
                         else self.get_shape(operand)
                     )
                     input_goldens[operand] = GoldenMapTensor(
-                        {0: self._generate_random_tensor(shape, dtype)},
+                        {
+                            0: self._generate_random_tensor(
+                                shape, dtype, random_bits=random_bits
+                            )
+                        },
                         mesh_shape=self._mesh_shape,
                     )
                 self._set_goldens(input_goldens)
