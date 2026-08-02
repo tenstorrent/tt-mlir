@@ -129,7 +129,7 @@ def ttcore_dtype_from_mlir_dtype(dtype):
             return ttcore.DataType.BFP_BFloat8
         case s if "bfp_bf4" in s.lower():
             return ttcore.DataType.BFP_BFloat4
-        case "i32":
+        case "i32" | "si32":
             return ttcore.DataType.Int32
         case _:
             raise ValueError(f"Unsupported MLIR dtype: {dtype}")
@@ -155,7 +155,7 @@ def ttnn_dtype_from_mlir_dtype(dtype):
             return ttnn.DataType.BFLOAT8_B
         case s if "bfp_bf4" in s.lower():
             return ttnn.DataType.BFLOAT4_B
-        case "i32":
+        case "i32" | "si32":
             return ttnn.DataType.INT32
         case _:
             raise ValueError(f"Unsupported MLIR dtype for TTNN: {dtype}")
