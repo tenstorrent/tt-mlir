@@ -1059,9 +1059,8 @@ TEST_F(OpRuleBookTest,
 
   auto shardedOutput = createTiledLayout(
       inputShape, BufferType::L1, TensorMemoryLayout::BlockSharded, {8, 9});
-  LayoutFilterFn reshapeFilter =
-      getRuleBook(reshape0.getOperation())
-          .getInputLayoutFilter(/*operandIdx=*/0);
+  LayoutFilterFn reshapeFilter = getRuleBook(reshape0.getOperation())
+                                     .getInputLayoutFilter(/*operandIdx=*/0);
   ASSERT_TRUE(reshapeFilter);
   ASSERT_TRUE(reshapeFilter(shardedOutput));
 
@@ -1101,9 +1100,9 @@ TEST_F(OpRuleBookTest,
   auto reshape = builder.create<ReshapeOp>(
       builder.getUnknownLoc(), reshapedType, producer.getResult(),
       builder.getI32ArrayAttr(reshapedShapeI32));
-  auto other = builder.create<OnesOp>(
-      builder.getUnknownLoc(), reshapedType,
-      /*device=*/nullptr, ShapeAttr::get(&context, reshapedShape));
+  auto other = builder.create<OnesOp>(builder.getUnknownLoc(), reshapedType,
+                                      /*device=*/nullptr,
+                                      ShapeAttr::get(&context, reshapedShape));
   builder.create<AddOp>(builder.getUnknownLoc(), reshapedType,
                         reshape.getResult(), other.getResult());
 

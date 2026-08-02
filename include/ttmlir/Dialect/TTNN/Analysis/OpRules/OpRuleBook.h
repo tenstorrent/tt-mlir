@@ -140,9 +140,9 @@ struct OpRuleBook {
     return base;
   }
 
-  /// Extra input reshard candidates that go beyond what generateReshardCandidates
-  /// produces from tensorTypePossibleLayouts. Called per-operand from
-  /// getInputCandidateSets. Default returns nothing.
+  /// Extra input reshard candidates that go beyond what
+  /// generateReshardCandidates produces from tensorTypePossibleLayouts. Called
+  /// per-operand from getInputCandidateSets. Default returns nothing.
   virtual std::vector<TTNNLayoutAttr>
   getExtraInputReshardCandidates(Operation *op, unsigned operandIdx) const {
     return {};
