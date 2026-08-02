@@ -539,6 +539,7 @@ TEST_F(OpRuleBookTest,
   auto rmsNorm = builder.create<RMSNormOp>(
       builder.getUnknownLoc(), outputType, input.getResult(),
       weight.getResult(), /*bias=*/mlir::Value(),
+      /*residual_input_tensor=*/mlir::Value(),
       builder.getF32FloatAttr(1.0e-6f),
       /*compute_config=*/nullptr);
 
