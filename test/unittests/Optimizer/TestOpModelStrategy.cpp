@@ -1059,7 +1059,7 @@ TEST_F(OpRuleBookTest,
       /*numKvHeads=*/mlir::IntegerAttr(), builder.getBoolAttr(false));
 
   auto shardedOutput = createTiledLayout(
-      inputShape, BufferType::L1, TensorMemoryLayout::BlockSharded, {8, 9});
+      inputShape, BufferType::L1, TensorMemoryLayout::BlockSharded, {8, 8});
   LayoutFilterFn reshapeFilter = getRuleBook(reshape0.getOperation())
                                      .getInputLayoutFilter(/*operandIdx=*/0);
   ASSERT_TRUE(reshapeFilter);
