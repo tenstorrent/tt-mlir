@@ -36,8 +36,9 @@ class AdvisorReport:
 
     Attributes:
         trace: parsed greedy-optimizer decision trace (beam candidates, scores,
-            spill accounting) - useful as *rationale*, but it only records the
-            reshards the greedy pass itself decided.
+            spill accounting), or None in compact mode. The trace is useful as
+            *rationale*, but it only records the reshards the greedy pass itself
+            decided and can grow to multiple gigabytes on transformer graphs.
         ttnn_mlir: the final optimized TTNN IR. This is the ground truth: every
             reshard is an explicit ttnn.to_memory_config / ttnn.to_layout op and
             every tensor carries its chosen layout, including reshards inserted
@@ -50,7 +51,7 @@ class AdvisorReport:
 
     def __init__(
         self,
-        trace: DecisionTraceReport,
+        trace: DecisionTraceReport | None,
         text: str,
         ttnn_mlir: str,
         ir_summary: str = "",
@@ -83,6 +84,7 @@ class ShardAdvisor:
         tracer: str = "ttnn",
         pipeline: str = "scoped",
         verbose: bool = True,
+        decision_trace: bool = True,
     ):
         self.func = func
         self.optimization_level = optimization_level
@@ -98,6 +100,7 @@ class ShardAdvisor:
             pipeline = "ttnn"
         self.pipeline = pipeline
         self.verbose = verbose
+        self.decision_trace = decision_trace
         # func may be None when advising an existing .mlir file (no tracing).
         name = getattr(func, "__name__", None) or "advise"
         self.out_dir = out_dir or os.path.join("generated", "ttnn-jit", name, "advisor")
@@ -114,6 +117,7 @@ class ShardAdvisor:
         pipeline: str = "scoped",
         extra_pipeline_options: str = "",
         verbose: bool = True,
+        decision_trace: bool = True,
     ) -> AdvisorReport:
         """Advise on an existing TTIR .mlir file -- no tracing, no ttnn device.
 
@@ -144,6 +148,7 @@ class ShardAdvisor:
             extra_pipeline_options=extra_pipeline_options,
             pipeline=pipeline,
             verbose=verbose,
+            decision_trace=decision_trace,
         )
         with open(path) as f:
             module_text = f.read()
@@ -164,15 +169,21 @@ class ShardAdvisor:
 
     def _build_options(self, system_desc_path: str, trace_dir: str) -> str:
         mem_layout = "true" if self.optimization_level >= 2 else "false"
+        trace_enabled = "true" if self.decision_trace else "false"
         opts = (
             f"system-desc-path={system_desc_path} "
             f"optimization-level={self.optimization_level} "
             f"enable-optimizer=true "
             f"enable-greedy-optimizer=true "
             f"memory-layout-analysis-enabled={mem_layout} "
-            f"enable-decision-trace=true "
-            f"decision-trace-dir={trace_dir}"
+            f"enable-decision-trace={trace_enabled}"
         )
+        if self.decision_trace:
+            opts += f" decision-trace-dir={trace_dir}"
+        else:
+            # Retain lightweight compile-time observability without holding the
+            # full candidate tree in memory or serializing it to JSON.
+            opts += " enable-compile-time-stats=true"
         if self.extra_pipeline_options:
             opts += f" {self.extra_pipeline_options}"
         return opts
@@ -215,7 +226,8 @@ class ShardAdvisor:
         Shared by run() (traced graph) and advise_mlir_file() (existing IR).
         """
         trace_dir = os.path.join(self.out_dir, "decision_trace")
-        os.makedirs(trace_dir, exist_ok=True)
+        if self.decision_trace:
+            os.makedirs(trace_dir, exist_ok=True)
         options = self._build_options(system_desc_path, trace_dir)
         if self.debug:
             print(f"[shard-advisor] pipeline options: {options}")
@@ -250,31 +262,42 @@ class ShardAdvisor:
             if visible_devices is not None:
                 os.environ["TT_VISIBLE_DEVICES"] = visible_devices
 
-        # The pipeline names the trace after the MLIR func symbol, which may not
-        # match `name` (e.g. an existing .mlir file whose func is @main). Prefer
-        # the exact name, else fall back to the single trace this run produced.
-        trace_path = os.path.join(trace_dir, f"{name}_decision_trace.json")
-        if not os.path.exists(trace_path):
-            import glob
+        trace_path = None
+        trace = None
+        if self.decision_trace:
+            # The pipeline names the trace after the MLIR func symbol, which may
+            # not match `name` (e.g. an existing .mlir file whose func is @main).
+            # Prefer the exact name, else fall back to this run's single trace.
+            trace_path = os.path.join(trace_dir, f"{name}_decision_trace.json")
+            if not os.path.exists(trace_path):
+                import glob
 
-            produced = sorted(
-                glob.glob(os.path.join(trace_dir, "*_decision_trace.json"))
-            )
-            if not produced:
-                raise RuntimeError(
-                    f"Decision trace not produced in {trace_dir}. The optimizer "
-                    f"may be disabled or the build may lack OpModel support "
-                    f"(-DTTMLIR_ENABLE_OPMODEL=ON). Pipeline options: {options}"
+                produced = sorted(
+                    glob.glob(os.path.join(trace_dir, "*_decision_trace.json"))
                 )
-            trace_path = produced[-1]
+                if not produced:
+                    raise RuntimeError(
+                        f"Decision trace not produced in {trace_dir}. The optimizer "
+                        f"may be disabled or the build may lack OpModel support "
+                        f"(-DTTMLIR_ENABLE_OPMODEL=ON). Pipeline options: {options}"
+                    )
+                trace_path = produced[-1]
+            trace = load_decision_trace(trace_path)
 
-        trace = load_decision_trace(trace_path)
         ttnn_mlir = str(ir)
         # The final IR is authoritative for layouts + reshards; the decision
         # trace is kept as greedy-phase rationale below it.
         summary = parse_ir_summary(ttnn_mlir)
         ir_summary = render_ir_summary(summary)
-        rationale = render_text_report(trace)
+        rationale = (
+            render_text_report(trace)
+            if trace is not None
+            else (
+                "=== Decision trace disabled (compact mode) ===\n"
+                "Final layouts, reshards, and program configs remain available "
+                "from the authoritative final IR.\n"
+            )
+        )
 
         # Ops the validation-fallback pass could not make valid are flagged in
         # the IR (ttnn.validation_unfixable) rather than failing the compile, so
@@ -335,11 +358,19 @@ class ShardAdvisor:
             "function": name,
             "optimization_level": self.optimization_level,
             "pipeline": self.pipeline,
-            "total_ops": trace.total_ops,
-            "final_choices": len(trace.final_choices),
+            "decision_trace_enabled": self.decision_trace,
+            "total_ops": (
+                trace.total_ops if trace is not None else len(summary.ops)
+            ),
+            "final_choices": (
+                len(trace.final_choices) if trace is not None else None
+            ),
             "spill": {
-                "ran": trace.spill.ran,
-                "total_spills": trace.spill.total_spills,
+                "ran": trace.spill.ran if trace is not None else False,
+                "total_spills": (
+                    trace.spill.total_spills if trace is not None else None
+                ),
+                "available": trace is not None,
             },
             "unfixable_ops": unfixable,
             "ops": [
