@@ -170,10 +170,13 @@ TEST_P(LegalTensorLayoutAnalysisTest, GenerateAndCategorizeLayouts) {
         if (!layout.isTiled()) {
           continue;
         }
-        llvm::SmallVector<int64_t> shardShape = layout.getShardShape();
-        ASSERT_GE(shardShape.size(), 2U);
-        EXPECT_EQ(shardShape[shardShape.size() - 2] % 32, 0);
-        EXPECT_EQ(shardShape[shardShape.size() - 1] % 32, 0);
+        llvm::SmallVector<int64_t> tiledShape =
+            layout.getTiledShape(testTensorType.getShape());
+        llvm::SmallVector<int64_t> gridShape(layout.getGridShape());
+        ASSERT_EQ(tiledShape.size(), gridShape.size());
+        for (size_t i = 0; i < tiledShape.size(); ++i) {
+          EXPECT_EQ(tiledShape[i] % gridShape[i], 0);
+        }
       }
     }
   }
