@@ -1144,6 +1144,9 @@ public:
     if (auto attr = op->getAttr("ttcore.weight_dtype")) {
       newOp->setAttr("ttcore.weight_dtype", attr);
     }
+    if (auto attr = op->getAttr("ttnn_jit.explicit_l1_output")) {
+      newOp->setAttr("ttnn_jit.explicit_l1_output", attr);
+    }
     return success();
   }
 };

@@ -177,7 +177,36 @@ public:
         legalOpConfigAnalysis.init(LegalOpConfigAnalysisInput(
             legalOpLayoutAnalysis.getResult(), &overrideConv2dConfig,
             &overrideConv3dConfig));
-        legalConfigs[op] = legalOpConfigAnalysis.getResult();
+        std::vector<OpConfig> opConfigs = legalOpConfigAnalysis.getResult();
+
+        // An explicit L1 output authored by intercepted TTNN model code is a
+        // producer contract, not a layout candidate for the optimizer to
+        // replace.  This matters in particular when L1 layout search is
+        // disabled: the normal candidate construction removes all L1 layouts
+        // and would otherwise force the marked producer back to DRAM.
+        //
+        // Keep the normal greedy search completely unchanged for unmarked ops.
+        // For a marked op, retain any fully populated config for the existing
+        // layout, or fall back to the source layout with the op's native
+        // defaults when the disabled search did not generate that candidate.
+        if (op->hasAttr("ttnn_jit.explicit_l1_output")) {
+          auto resultType =
+              mlir::cast<RankedTensorType>(op->getResult(0).getType());
+          auto pinnedLayout =
+              mlir::cast<TTNNLayoutAttr>(resultType.getEncoding());
+          std::vector<OpConfig> pinnedConfigs;
+          for (const OpConfig &config : opConfigs) {
+            if (config.outputLayout == pinnedLayout) {
+              pinnedConfigs.push_back(config);
+            }
+          }
+          if (pinnedConfigs.empty()) {
+            pinnedConfigs.emplace_back(pinnedLayout);
+          }
+          opConfigs = std::move(pinnedConfigs);
+        }
+
+        legalConfigs[op] = std::move(opConfigs);
       });
     });
 
