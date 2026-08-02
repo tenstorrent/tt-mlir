@@ -69,6 +69,8 @@ public:
     prioritizeCumulativeReshardCost =
         opts.prioritizeCumulativeReshardCost;
     reshardEdgePenaltyBytes = opts.reshardEdgePenaltyBytes;
+    avoidGuaranteedOutputReshards =
+        opts.avoidGuaranteedOutputReshards;
     enableDecisionTrace = opts.enableDecisionTrace;
     decisionTraceDir = std::move(opts.decisionTraceDir);
     enableCompileTimeStats = opts.enableCompileTimeStats;
@@ -90,6 +92,9 @@ public:
       signalPassFailure();
       return;
     }
+    moduleOp->setAttr(
+        utils::g_AvoidGuaranteedOutputReshardsAttrName,
+        BoolAttr::get(moduleOp.getContext(), avoidGuaranteedOutputReshards));
     op_model::ScopedSingletonDeviceGuard deviceGuard(moduleOp);
 
     // Set default L1Full slice config on Conv2d ops before validation.
@@ -231,6 +236,7 @@ public:
         }
       }
     });
+    moduleOp->removeAttr(utils::g_AvoidGuaranteedOutputReshardsAttrName);
 #endif
   }
 

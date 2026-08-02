@@ -25,6 +25,7 @@ struct TTNNGreedyMemoryLayoutPropagationPipelineOptions {
   bool enableReshardExploration = true;
   bool prioritizeCumulativeReshardCost = false;
   int64_t reshardEdgePenaltyBytes = 0;
+  bool avoidGuaranteedOutputReshards = false;
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
   llvm::StringMap<Conv2dConfigOverrideParams> overrideConv2dConfig;
   llvm::StringMap<Conv3dConfigOverrideParams> overrideConv3dConfig;

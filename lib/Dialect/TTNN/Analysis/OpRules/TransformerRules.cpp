@@ -105,6 +105,14 @@ OutputHints RotaryEmbeddingRuleBook::getOutputHints(
 // SplitQKVRuleBook
 //===----------------------------------------------------------------------===//
 
+LayoutFilterFn
+SplitQKVRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
+  // The sharded create_qkv_heads path is not part of this rule's search space.
+  // Reject producer-beam sharded layouts too, not just newly explored
+  // reshards, so the NULL output hint cannot invoke that backend path.
+  return layout_filter_utils::rejectAllSharded;
+}
+
 bool SplitQKVRuleBook::shouldExploreReshards() const { return false; }
 
 OutputHints SplitQKVRuleBook::getOutputHints(

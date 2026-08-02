@@ -263,6 +263,28 @@ static bool hasMatmulProgramConfig(const OpConfig &config) {
   return false;
 }
 
+static bool directConsumerRejectsLayout(Operation *producer,
+                                        TTNNLayoutAttr layout) {
+  if (!layout || !layout.hasShardedTensorMemoryLayout()) {
+    return false;
+  }
+
+  for (OpResult result : producer->getResults()) {
+    for (OpOperand &use : result.getUses()) {
+      Operation *consumer = use.getOwner();
+      if (isa<DeallocateOp>(consumer)) {
+        continue;
+      }
+      LayoutFilterFn filter =
+          getRuleBook(consumer).getInputLayoutFilter(use.getOperandNumber());
+      if (filter && !filter(layout)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // ============================================================================
 // MatmulRuleBook — private DRAM-sharding helpers
 // ============================================================================
@@ -470,6 +492,16 @@ OutputHints MatmulRuleBook::getOutputHints(
     filtered.insert(filtered.begin(), *dramHint);
   }
 
+  if (ttnn::utils::shouldAvoidGuaranteedOutputReshards(op)) {
+    filtered.erase(
+        std::remove_if(filtered.begin(), filtered.end(),
+                       [&](const OpConfig &config) {
+                         return directConsumerRejectsLayout(
+                             op, config.outputLayout);
+                       }),
+        filtered.end());
+  }
+
   return OutputHints{filtered, {}};
 }
 
@@ -589,12 +621,47 @@ static bool shardedInputOutputMemoryConfigsMatch(TTNNLayoutAttr input,
          input.getMemLayoutOpt() == outputMemLayout;
 }
 
+static uint64_t getPhysicalCoreCount(TTNNLayoutAttr layout) {
+  CoreRangeSetAttr ranges = layout.getCoreRangeSet();
+  if (!ranges) {
+    return 0;
+  }
+
+  uint64_t count = 0;
+  for (CoreRangeAttr range : ranges.getCoreRanges()) {
+    uint64_t width = range.getEndCoord().getX() -
+                     range.getStartCoord().getX() + 1;
+    uint64_t height = range.getEndCoord().getY() -
+                      range.getStartCoord().getY() + 1;
+    count += width * height;
+  }
+  return count;
+}
+
+static bool shardedInputFitsProgramGrid(TTNNLayoutAttr input,
+                                        CoreCoordAttr programGrid) {
+  auto memLayout = input.getMemLayoutOpt();
+  if (!memLayout || !isShardedMemoryLayout(*memLayout)) {
+    return true;
+  }
+
+  uint64_t programCores =
+      static_cast<uint64_t>(programGrid.getX()) * programGrid.getY();
+  uint64_t inputCores = getPhysicalCoreCount(input);
+  return inputCores != 0 && inputCores <= programCores;
+}
+
 static bool isMcast2DIn0Compatible(
     const OpConfig &hint, TTNNLayoutAttr in0,
     MatmulMultiCoreReuseMultiCastProgramConfigAttr config) {
   auto memLayout = in0.getMemLayoutOpt();
   if (!memLayout || !isShardedMemoryLayout(*memLayout)) {
     return true;
+  }
+
+  if (!shardedInputFitsProgramGrid(in0,
+                                   config.getComputeWithStorageGridSize())) {
+    return false;
   }
 
   if (!config.getFuseBatch() ||
@@ -654,6 +721,11 @@ static bool isMcast1DIn0Compatible(
   auto memLayout = in0.getMemLayoutOpt();
   if (!memLayout || !isShardedMemoryLayout(*memLayout)) {
     return true;
+  }
+
+  if (!shardedInputFitsProgramGrid(in0,
+                                   config.getComputeWithStorageGridSize())) {
+    return false;
   }
 
   TensorMemoryLayout requiredLayout =

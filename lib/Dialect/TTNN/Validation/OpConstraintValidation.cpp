@@ -63,6 +63,23 @@ static bool tensorBackedCBFits(TTNNLayoutAttr layout, uint64_t rows,
   return elements * elementSize <= layout.getShardSizeInBytes();
 }
 
+static uint64_t getPhysicalCoreCount(TTNNLayoutAttr layout) {
+  CoreRangeSetAttr ranges = layout.getCoreRangeSet();
+  if (!ranges) {
+    return 0;
+  }
+
+  uint64_t count = 0;
+  for (CoreRangeAttr range : ranges.getCoreRanges()) {
+    uint64_t width = range.getEndCoord().getX() -
+                     range.getStartCoord().getX() + 1;
+    uint64_t height = range.getEndCoord().getY() -
+                      range.getStartCoord().getY() + 1;
+    count += width * height;
+  }
+  return count;
+}
+
 std::optional<std::string>
 getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                         const OpConfig &config, Operation *contextOp) {
@@ -120,10 +137,13 @@ getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   uint64_t perCoreN = 0;
   bool is1D = false;
   bool movesIn0 = false;
+  uint64_t programCores = 0;
   if (auto attr = dyn_cast<MatmulMultiCoreReuseMultiCastProgramConfigAttr>(
           programConfigAttr)) {
     perCoreM = attr.getPerCoreM();
     perCoreN = attr.getPerCoreN();
+    CoreCoordAttr grid = attr.getComputeWithStorageGridSize();
+    programCores = static_cast<uint64_t>(grid.getX()) * grid.getY();
   } else if (auto attr =
                  dyn_cast<MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(
                      programConfigAttr)) {
@@ -131,6 +151,8 @@ getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
     perCoreN = attr.getPerCoreN();
     is1D = true;
     movesIn0 = attr.getMcastIn0() || attr.getGatherIn0();
+    CoreCoordAttr grid = attr.getComputeWithStorageGridSize();
+    programCores = static_cast<uint64_t>(grid.getX()) * grid.getY();
   } else {
     return std::nullopt;
   }
@@ -148,6 +170,10 @@ getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
     TTNNLayoutAttr in0 = inputLayouts[0];
     auto memLayout = in0.getMemLayoutOpt();
     if (memLayout && isShardedMemoryLayout(*memLayout)) {
+      uint64_t inputCores = getPhysicalCoreCount(in0);
+      if (inputCores == 0 || inputCores > programCores) {
+        return "matmul input 0 shard grid exceeds its program grid";
+      }
       auto shardShape = in0.getShardShape();
       if (shardShape.size() != 2 ||
           !tensorBackedCBFits(in0, perCoreM, shardShape[1])) {
