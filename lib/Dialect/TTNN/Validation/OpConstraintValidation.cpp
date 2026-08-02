@@ -75,11 +75,23 @@ getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   if (output && output.hasShardedTensorMemoryLayout() && !output.isTiled()) {
     return "matmul sharded output requires a tiled layout";
   }
+  for (size_t i = 0; i < inputLayouts.size(); ++i) {
+    TTNNLayoutAttr input = inputLayouts[i];
+    if (input && input.hasShardedTensorMemoryLayout() && !input.isTiled()) {
+      return "matmul sharded input " + std::to_string(i) +
+             " requires a tiled layout";
+    }
+  }
 
   const auto *attrs = std::get_if<MatmulAttrs>(&config.opSpecificAttrs);
   if (!attrs || !attrs->matmulProgramConfig || !*attrs->matmulProgramConfig) {
     if (output && output.hasShardedTensorMemoryLayout()) {
       return "matmul sharded output requires an explicit program config";
+    }
+    for (TTNNLayoutAttr input : inputLayouts) {
+      if (input && input.hasShardedTensorMemoryLayout()) {
+        return "matmul sharded input requires an explicit program config";
+      }
     }
     return std::nullopt;
   }

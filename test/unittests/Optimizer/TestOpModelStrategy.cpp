@@ -806,6 +806,39 @@ TEST_F(OpRuleBookTest, MatmulAutoPickerRejectsShardedOutput) {
             std::string::npos);
 }
 
+TEST_F(OpRuleBookTest, MatmulAutoPickerRejectsShardedInput) {
+  llvm::SmallVector<int64_t> shape = {1024, 2048};
+  auto shardedInput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::HeightSharded, {8, 1});
+  auto interleavedOutput = createDRAMInterleavedLayout(shape);
+  OpConfig config(interleavedOutput);
+
+  auto error = getMatmulPreflightError({shardedInput}, config);
+  ASSERT_TRUE(error);
+  EXPECT_NE(error->find("requires an explicit program config"),
+            std::string::npos);
+}
+
+TEST_F(OpRuleBookTest, MatmulRejectsRowMajorShardedInput) {
+  llvm::SmallVector<int64_t> shape = {1024, 2048};
+  auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
+  auto rowMajorInput =
+      TTNNLayoutAttr::Builder(&context, shape, builder.getBF16Type())
+          .setBufferType(BufferType::L1)
+          .setMemoryLayout(TensorMemoryLayout::HeightSharded)
+          .setGridShape({8, 1})
+          .buildWithCanonicalCorePlacement(deviceAttr);
+  auto output = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::HeightSharded, {8, 1});
+  auto config =
+      createMcast2DHint(output, /*in0BlockW=*/1, /*perCoreM=*/1,
+                        /*perCoreN=*/1);
+
+  auto error = getMatmulPreflightError({rowMajorInput}, config);
+  ASSERT_TRUE(error);
+  EXPECT_NE(error->find("requires a tiled layout"), std::string::npos);
+}
+
 TEST_F(OpRuleBookTest, MatmulPartialConfigDedupPreservesOutputGeometry) {
   llvm::SmallVector<int64_t> shape = {1, 32, 2048};
   auto interleaved = createDRAMInterleavedLayout(shape);
