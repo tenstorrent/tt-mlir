@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <algorithm>
 #include <optional>
 #include <variant>
 
@@ -271,6 +272,55 @@ void setTensorRetain(Tensor tensor, bool retain) {
   LOG_FATAL("setTensorRetain not implemented for metal runtime");
 }
 
+bool getTensorReusable(Tensor tensor) {
+  tensor.as<MetalTensor>(DeviceRuntime::TTMetal);
+  if (!tensor.metadata) {
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(tensor.metadata->mutex);
+  return tensor.metadata->reusable;
+}
+
+TensorReuseStats getTensorReuseStats(Tensor tensor) {
+  tensor.as<MetalTensor>(DeviceRuntime::TTMetal);
+  if (!tensor.metadata) {
+    return {};
+  }
+  std::shared_ptr<void> reusableInputCache;
+  {
+    std::lock_guard<std::mutex> lock(tensor.metadata->mutex);
+    reusableInputCache = tensor.metadata->reusableInputCache;
+  }
+  return getReusableInputCacheStats(reusableInputCache);
+}
+
+void setTensorReusable(Tensor &tensor, bool reusable) {
+  const MetalTensor &metalTensor =
+      tensor.as<MetalTensor>(DeviceRuntime::TTMetal);
+  if (!tensor.metadata) {
+    if (!reusable) {
+      return;
+    }
+    tensor.metadata = std::make_shared<TensorMetadata>();
+  }
+  std::lock_guard<std::mutex> lock(tensor.metadata->mutex);
+  LOG_ASSERT(!reusable || !std::holds_alternative<MeshBuffer>(metalTensor),
+             "Device-resident TTMetal tensors are already reusable and must "
+             "not use the host-input reuse cache");
+  LOG_ASSERT(!reusable || !std::holds_alternative<std::uint32_t>(metalTensor),
+             "Scalar TTMetal inputs do not support device-buffer reuse");
+
+  if (tensor.metadata->reusable == reusable) {
+    return;
+  }
+
+  // Releasing the backend cache owns invalidation. Cached MeshBuffers remain
+  // alive until any in-flight executor aliases have also released them.
+  tensor.metadata->reusableInputCache =
+      reusable ? createReusableInputCache() : nullptr;
+  tensor.metadata->reusable = reusable;
+}
+
 tt::target::Arch getArch() {
   return ::tt::runtime::common::toTargetArch(::tt::tt_metal::hal::get_arch());
 }
@@ -342,6 +392,7 @@ void closeMeshDevice(Device parentMesh) {
   ::tt::tt_metal::ReadMeshDeviceProfilerResults(metalMeshDevice);
 #endif
 
+  clearReusableInputCachesForDevice(parentMesh.getGlobalId());
   metalMeshDevice.close();
 }
 
@@ -377,6 +428,7 @@ void releaseSubMeshDevice(Device subMesh) {
   LOG_ASSERT(!metalMeshDevice.is_parent_mesh(),
              "Mesh device must be a submesh");
 
+  clearReusableInputCachesForDevice(subMesh.getGlobalId());
   metalMeshDevice.close();
   subMesh.handle.reset();
 }
@@ -387,6 +439,7 @@ void reshapeMeshDevice(Device meshDevice,
       meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
 
+  clearReusableInputCachesForDevice(meshDevice.getGlobalId());
   metalMeshDevice.reshape(
       ::tt::tt_metal::distributed::MeshShape(meshShape[0], meshShape[1]));
 }
@@ -1045,6 +1098,10 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
   tt_metal::distributed::MeshDevice &meshDevice =
       deviceHandle.as<tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
+  const bool hasReusableInput =
+      std::any_of(inputs.begin(), inputs.end(), getTensorReusable);
+  LOG_ASSERT(!hasReusableInput || meshDevice.num_devices() == 1,
+             "Reusable D2M inputs currently require a single-device handle");
   if (meshDevice.num_rows() != 1 || meshDevice.num_cols() != 1) {
     LOG_WARNING("D2M runtime multi-device support is experimental. mesh = [",
                 meshDevice.num_rows(), ", ", meshDevice.num_cols(), "]");
@@ -1089,10 +1146,10 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::to_string(deviceProgramMeshDevice[i]->id());
     ZoneName(zoneName.c_str(), zoneName.size());
 
-    outputs = executeMeshDeviceProgram(deviceProgramMeshDevice[i].get(),
-                                       deviceProgram, inputs,
-                                       common::DylibManager(fbb.dylibs()),
-                                       executableHandle.id(), programIndex, i);
+    outputs = executeMeshDeviceProgram(
+        deviceProgramMeshDevice[i].get(), deviceProgram, inputs,
+        common::DylibManager(fbb.dylibs()), deviceHandle.getGlobalId(),
+        executableHandle.id(), programIndex, i);
 
     LOG_ASSERT(outputs.size() == program->outputs()->size(),
                "Outputs size mismatch");

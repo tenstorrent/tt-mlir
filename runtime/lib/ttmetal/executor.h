@@ -21,12 +21,17 @@ namespace target = ::tt::target;
 namespace tt_metal = ::tt::tt_metal;
 namespace distributed = ::tt::tt_metal::distributed;
 
+std::shared_ptr<void> createReusableInputCache();
+TensorReuseStats
+getReusableInputCacheStats(const std::shared_ptr<void> &reusableInputCache);
+void clearReusableInputCachesForDevice(std::uint32_t deviceId);
+
 std::vector<Tensor>
 executeMeshDeviceProgram(::tt::tt_metal::distributed::MeshDevice *meshDevice,
                          const ::tt::target::metal::DeviceProgram *program,
                          const std::vector<Tensor> &inputs,
-                         common::DylibManager &&dylibs, std::uint64_t binaryId,
-                         std::uint32_t programIndex,
+                         common::DylibManager &&dylibs, std::uint32_t deviceId,
+                         std::uint64_t binaryId, std::uint32_t programIndex,
                          std::uint32_t deviceProgramIndex);
 
 } // namespace tt::runtime::ttmetal

@@ -74,7 +74,9 @@ std::vector<std::uint32_t> processKernelArgs(
                  target::metal::BufferDetail::MetalBuffer);
       const target::metal::MetalBuffer *metalBuffer =
           bufferDesc->buffer_detail_as_MetalBuffer();
-      argsVec.push_back(deviceAddressValidator(buffer->address(),
+      const tt_metal::Buffer *liveBuffer =
+          meshBuffers.at(buffer->global_id())->get_reference_buffer();
+      argsVec.push_back(deviceAddressValidator(liveBuffer->address(),
                                                metalBuffer->buffer_type()));
       break;
     }

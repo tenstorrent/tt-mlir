@@ -148,6 +148,22 @@ TensorDesc getTensorDesc(Tensor tensor);
 bool getTensorRetain(Tensor tensor);
 void setTensorRetain(Tensor tensor, bool retain);
 
+// Marks a tensor as an immutable input whose device representation may be
+// reused by compatible program submissions. The first submission uploads the
+// tensor normally. Later submissions of the same Tensor bind the retained
+// device buffer directly. Clearing the flag invalidates all retained device
+// representations for the tensor.
+//
+// Callers must not modify the tensor's host storage or submit it to a program
+// that writes or aliases the corresponding device input while reuse is
+// enabled. The Tensor and its copies must also remain alive until all using
+// submissions have completed. Clearing the flag is also forbidden while a
+// using submission is in flight. Currently implemented for single-device
+// programs in the local TTMetal runtime.
+bool getTensorReusable(Tensor tensor);
+void setTensorReusable(Tensor &tensor, bool reusable);
+TensorReuseStats getTensorReuseStats(Tensor tensor);
+
 tt::target::Arch getArch();
 
 size_t getNumAvailableDevices();

@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -417,6 +418,27 @@ struct Event : public detail::RuntimeCheckedObjectImpl {
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
 };
 
+struct TensorReuseStats {
+  // Hits and misses count reusable program-input destinations, not submit
+  // calls. One logical input may feed more than one destination.
+  std::uint64_t cacheHits = 0;
+  std::uint64_t cacheMisses = 0;
+  // Counts the device-buffer bytes uploaded while populating cache entries.
+  std::uint64_t uploadedBytes = 0;
+  std::uint64_t deviceBufferCount = 0;
+};
+
+struct TensorMetadata {
+  // Reusable inputs keep backend-owned device representations across program
+  // submissions. Tensor allocates this metadata only when reuse is enabled,
+  // then copies share it so the cache lifetime follows the logical tensor.
+  // The reusable-input API requires that a sharing Tensor outlive every
+  // submission that uses the retained device representations.
+  mutable std::mutex mutex;
+  bool reusable = false;
+  std::shared_ptr<void> reusableInputCache;
+};
+
 struct Tensor : public detail::RuntimeCheckedObjectImpl {
   std::shared_ptr<void> data;
   Event event;
@@ -430,6 +452,8 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
 
   void setGlobalId(std::uint64_t id) { globalId = id; }
   std::uint64_t getGlobalId() const { return globalId; }
+
+  std::shared_ptr<TensorMetadata> metadata;
 
 private:
   std::uint64_t nextTensorGlobalId();

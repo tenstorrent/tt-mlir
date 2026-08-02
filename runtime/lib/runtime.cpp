@@ -616,6 +616,52 @@ void setTensorRetain(Tensor tensor, bool retain) {
       [&]() { ::tt::runtime::distributed::setTensorRetain(tensor, retain); });
 }
 
+bool getTensorReusable(Tensor tensor) {
+  using RetType = bool;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorReusable", DeviceRuntime::TTNN);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getTensorReusable(tensor);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorReusable",
+                                    HostRuntime::Distributed);
+      });
+}
+
+void setTensorReusable(Tensor &tensor, bool reusable) {
+  using RetType = void;
+  DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() {
+        detail::fatalNotImplemented("setTensorReusable", DeviceRuntime::TTNN);
+      },
+      [&]() { ::tt::runtime::ttmetal::setTensorReusable(tensor, reusable); },
+      [&]() {
+        detail::fatalNotImplemented("setTensorReusable",
+                                    HostRuntime::Distributed);
+      });
+}
+
+TensorReuseStats getTensorReuseStats(Tensor tensor) {
+  using RetType = TensorReuseStats;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorReuseStats", DeviceRuntime::TTNN);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getTensorReuseStats(tensor);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorReuseStats",
+                                    HostRuntime::Distributed);
+      });
+}
+
 tt::target::Arch getArch() {
   using RetType = tt::target::Arch;
   return DISPATCH_TO_CURRENT_RUNTIME(

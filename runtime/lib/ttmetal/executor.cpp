@@ -31,8 +31,11 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace tt::runtime::ttmetal {
 
@@ -82,6 +85,196 @@ bool hasDynamicCompileTimeBindings(
   return false;
 }
 
+struct ReusableInputKey {
+  std::uint32_t deviceId;
+  std::uint64_t binaryId;
+  std::uint32_t programIndex;
+  std::uint32_t deviceProgramIndex;
+  std::uint32_t inputIndex;
+  std::uint32_t destinationGlobalId;
+
+  bool operator==(const ReusableInputKey &other) const = default;
+};
+
+struct ReusableInputKeyHash {
+  std::size_t operator()(const ReusableInputKey &key) const {
+    std::size_t hash = std::hash<std::uint32_t>{}(key.deviceId);
+    auto combine = [&hash](auto value) {
+      hash ^= std::hash<decltype(value)>{}(value) + 0x9e3779b9 + (hash << 6) +
+              (hash >> 2);
+    };
+    combine(key.binaryId);
+    combine(key.programIndex);
+    combine(key.deviceProgramIndex);
+    combine(key.inputIndex);
+    combine(key.destinationGlobalId);
+    return hash;
+  }
+};
+
+struct ReusableInputCache {
+  std::mutex mutex;
+  std::unordered_map<ReusableInputKey, MeshBuffer, ReusableInputKeyHash>
+      buffers;
+  std::uint64_t hits = 0;
+  std::uint64_t misses = 0;
+  std::uint64_t uploadedBytes = 0;
+};
+
+std::uint64_t bufferSpanPerBank(const tt_metal::Buffer *buffer) {
+  const auto &distribution = buffer->buffer_distribution_spec();
+  if (distribution) {
+    return distribution->max_num_dev_pages_per_core() *
+           buffer->aligned_page_size();
+  }
+  return buffer->aligned_size_per_bank();
+}
+
+std::optional<tt_metal::CoreRangeSet>
+getBufferCoreRangeSet(const tt_metal::Buffer *buffer) {
+  if (buffer->buffer_distribution_spec()) {
+    return tt_metal::CoreRangeSet(
+        buffer->buffer_distribution_spec()->cores_with_data());
+  }
+  if (buffer->has_shard_spec()) {
+    return buffer->shard_spec().grid();
+  }
+  return std::nullopt;
+}
+
+bool buffersOverlap(const MeshBuffer &lhs, const MeshBuffer &rhs) {
+  const tt_metal::Buffer *lhsBuffer = lhs->get_reference_buffer();
+  const tt_metal::Buffer *rhsBuffer = rhs->get_reference_buffer();
+  if (lhsBuffer->buffer_type() != rhsBuffer->buffer_type()) {
+    return false;
+  }
+
+  const std::uint64_t lhsBegin = lhsBuffer->address();
+  const std::uint64_t lhsEnd = lhsBegin + bufferSpanPerBank(lhsBuffer);
+  const std::uint64_t rhsBegin = rhsBuffer->address();
+  const std::uint64_t rhsEnd = rhsBegin + bufferSpanPerBank(rhsBuffer);
+  if (lhsBegin >= rhsEnd || rhsBegin >= lhsEnd) {
+    return false;
+  }
+
+  // L1 addresses are core-local. Equal ranges on disjoint shard grids do not
+  // overlap, while an unsharded L1 buffer is conservatively treated as using
+  // every participating core.
+  if (lhsBuffer->is_l1()) {
+    const auto lhsCores = getBufferCoreRangeSet(lhsBuffer);
+    const auto rhsCores = getBufferCoreRangeSet(rhsBuffer);
+    if (lhsCores && rhsCores) {
+      return lhsCores->intersects(*rhsCores);
+    }
+  }
+  return true;
+}
+
+class ReusableInputRegistry {
+public:
+  static ReusableInputRegistry &instance() {
+    static ReusableInputRegistry registry;
+    return registry;
+  }
+
+  void insert(std::uint32_t deviceId, const MeshBuffer &buffer,
+              const std::shared_ptr<ReusableInputCache> &cache) {
+    std::lock_guard<std::mutex> lock(mutex);
+    auto &deviceBuffers = buffers[deviceId];
+    for (auto it = deviceBuffers.begin(); it != deviceBuffers.end();) {
+      auto existing = it->lock();
+      if (!existing) {
+        it = deviceBuffers.erase(it);
+        continue;
+      }
+      if (existing.get() == buffer.get()) {
+        return;
+      }
+      ++it;
+    }
+    deviceBuffers.push_back(buffer);
+
+    auto &deviceCaches = caches[deviceId];
+    for (auto it = deviceCaches.begin(); it != deviceCaches.end();) {
+      auto existing = it->lock();
+      if (!existing) {
+        it = deviceCaches.erase(it);
+        continue;
+      }
+      if (existing.get() == cache.get()) {
+        return;
+      }
+      ++it;
+    }
+    deviceCaches.push_back(cache);
+  }
+
+  void assertNoOverlap(std::uint32_t deviceId, const MeshBuffer &buffer) {
+    std::lock_guard<std::mutex> lock(mutex);
+    auto deviceIt = buffers.find(deviceId);
+    if (deviceIt == buffers.end()) {
+      return;
+    }
+
+    for (auto it = deviceIt->second.begin(); it != deviceIt->second.end();) {
+      auto reusable = it->lock();
+      if (!reusable) {
+        it = deviceIt->second.erase(it);
+        continue;
+      }
+      LOG_ASSERT(reusable.get() == buffer.get() ||
+                     !buffersOverlap(reusable, buffer),
+                 "D2M transient allocation overlaps a reusable input buffer; "
+                 "the compiled memory plan does not leave enough device "
+                 "memory for input reuse");
+      ++it;
+    }
+  }
+
+  void clearDevice(std::uint32_t deviceId) {
+    std::vector<std::shared_ptr<ReusableInputCache>> liveCaches;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      auto cacheIt = caches.find(deviceId);
+      if (cacheIt != caches.end()) {
+        liveCaches.reserve(cacheIt->second.size());
+        for (const auto &cache : cacheIt->second) {
+          if (auto liveCache = cache.lock()) {
+            liveCaches.push_back(std::move(liveCache));
+          }
+        }
+        caches.erase(cacheIt);
+      }
+      buffers.erase(deviceId);
+    }
+
+    for (const auto &cache : liveCaches) {
+      std::lock_guard<std::mutex> lock(cache->mutex);
+      for (auto it = cache->buffers.begin(); it != cache->buffers.end();) {
+        if (it->first.deviceId == deviceId) {
+          it = cache->buffers.erase(it);
+        } else {
+          ++it;
+        }
+      }
+    }
+  }
+
+private:
+  std::mutex mutex;
+  std::unordered_map<std::uint32_t,
+                     std::vector<std::weak_ptr<distributed::MeshBuffer>>>
+      buffers;
+  std::unordered_map<std::uint32_t,
+                     std::vector<std::weak_ptr<ReusableInputCache>>>
+      caches;
+};
+
+struct ProgramInputProvenance {
+  std::uint32_t inputIndex;
+  std::shared_ptr<ReusableInputCache> cache;
+};
+
 class MCQExecutor {
 public:
   MCQExecutor(
@@ -89,14 +282,15 @@ public:
       const flatbuffers::Vector<
           flatbuffers::Offset<tt::target::metal::BufferRef>> *programInputs,
       const std::vector<Tensor> &inputs, common::DylibManager &&dylibManager,
-      bool blockingCQ, std::uint64_t binaryId, std::uint32_t programIndex,
-      std::uint32_t deviceProgramIndex);
+      bool blockingCQ, std::uint32_t deviceId, std::uint64_t binaryId,
+      std::uint32_t programIndex, std::uint32_t deviceProgramIndex);
 
   const std::vector<Tensor> &getOutputs() const { return outputs; }
 
   void execute(const target::metal::CommandQueue *commandQueue);
 
 private:
+  void analyzeReusableInputs(const target::metal::CommandQueue *commandQueue);
   void execute(const target::metal::Command *command);
   void execute(const target::metal::HostAllocCommand *command);
   void execute(const target::metal::ReturnCommand *command);
@@ -126,6 +320,13 @@ private:
   void enqueueMeshWorkload(distributed::MeshWorkload &workload,
                            const char *loc);
 
+  ReusableInputKey
+  createReusableInputKey(const ProgramInputProvenance &input,
+                         std::uint32_t destinationGlobalId) const;
+  void
+  bindReusableInput(const target::metal::EnqueueWriteBufferCommand *command,
+                    const ProgramInputProvenance &input);
+
   std::uint64_t generateUniqueProgramRuntimeId() {
     return nextProgramRuntimeId++;
   }
@@ -144,6 +345,16 @@ private:
 
   // Buffers that live on the host. Indexed by global_id.
   std::unordered_map<std::uint32_t, Tensor> hostBuffers;
+  // Maps host buffers and their derived memref views back to program inputs.
+  std::unordered_map<std::uint32_t, ProgramInputProvenance>
+      hostBufferInputProvenance;
+  // Host buffers and copies that are unnecessary once every device write for
+  // their immutable source input has a reusable cache entry.
+  std::unordered_set<std::uint32_t> skippedHostBufferIds;
+  std::unordered_set<std::uint32_t> skippedHostCopyInputIndices;
+  // Destination aliases that refer to tensor-owned reusable buffers. Their
+  // scheduled deallocation removes the alias without freeing the cache entry.
+  std::unordered_set<std::uint32_t> reusableBufferAliases;
   std::unordered_map<std::uint32_t, std::shared_ptr<distributed::MeshEvent>>
       meshEvents;
   std::vector<Tensor> outputs;
@@ -152,6 +363,7 @@ private:
   const char *currentProgramName;
   DeviceAddressValidator deviceAddressValidator;
   common::DylibManager dylibManager;
+  std::uint32_t deviceId;
   std::uint64_t binaryId;
   std::uint32_t programIndex;
   std::uint32_t deviceProgramIndex;
@@ -160,22 +372,44 @@ private:
 };
 } // namespace
 
+std::shared_ptr<void> createReusableInputCache() {
+  return std::make_shared<ReusableInputCache>();
+}
+
+TensorReuseStats
+getReusableInputCacheStats(const std::shared_ptr<void> &reusableInputCache) {
+  if (!reusableInputCache) {
+    return {};
+  }
+
+  auto cache = std::static_pointer_cast<ReusableInputCache>(reusableInputCache);
+  std::lock_guard<std::mutex> lock(cache->mutex);
+  return TensorReuseStats{cache->hits, cache->misses, cache->uploadedBytes,
+                          static_cast<std::uint64_t>(cache->buffers.size())};
+}
+
+void clearReusableInputCachesForDevice(std::uint32_t deviceId) {
+  ReusableInputRegistry::instance().clearDevice(deviceId);
+}
+
 MCQExecutor::MCQExecutor(
     distributed::MeshDevice *meshDevice,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::BufferRef>>
         *programInputs,
     const std::vector<Tensor> &inputs, common::DylibManager &&dylibManager,
-    bool blockingCQ, std::uint64_t binaryId, std::uint32_t programIndex,
-    std::uint32_t deviceProgramIndex)
+    bool blockingCQ, std::uint32_t deviceId, std::uint64_t binaryId,
+    std::uint32_t programIndex, std::uint32_t deviceProgramIndex)
     : meshDevice(meshDevice), blockingCQ(blockingCQ),
       deviceAddressValidator(meshDevice->get_devices().at(0)),
-      dylibManager(std::move(dylibManager)), binaryId(binaryId),
-      programIndex(programIndex), deviceProgramIndex(deviceProgramIndex) {
+      dylibManager(std::move(dylibManager)), deviceId(deviceId),
+      binaryId(binaryId), programIndex(programIndex),
+      deviceProgramIndex(deviceProgramIndex) {
   initMeshEvents.reserve(inputs.size());
 
   std::uint32_t inputIndex = 0;
   for (const Tensor &input : inputs) {
-    const target::metal::BufferRef *ref = programInputs->Get(inputIndex++);
+    const std::uint32_t currentInputIndex = inputIndex++;
+    const target::metal::BufferRef *ref = programInputs->Get(currentInputIndex);
     std::visit(utils::overloaded{
                    [&](const std::uint32_t &) {
                      auto [_, inserted] =
@@ -205,6 +439,27 @@ MCQExecutor::MCQExecutor(
                },
                input.as<MetalTensor>(DeviceRuntime::TTMetal));
 
+    std::shared_ptr<ReusableInputCache> reusableInputCache;
+    if (input.metadata) {
+      std::lock_guard<std::mutex> lock(input.metadata->mutex);
+      if (input.metadata->reusable) {
+        LOG_ASSERT(input.metadata->reusableInputCache,
+                   "Reusable tensor cache is not initialized");
+        reusableInputCache = std::static_pointer_cast<ReusableInputCache>(
+            input.metadata->reusableInputCache);
+      }
+    }
+    if (reusableInputCache &&
+        hostBuffers.find(ref->global_id()) != hostBuffers.end()) {
+      LOG_ASSERT(meshDevice->num_devices() == 1,
+                 "Reusable D2M inputs currently require a single-device "
+                 "program");
+      hostBufferInputProvenance.try_emplace(
+          ref->global_id(),
+          ProgramInputProvenance{currentInputIndex,
+                                 std::move(reusableInputCache)});
+    }
+
     auto meshEvent =
         input.event.asSharedPtr<distributed::MeshEvent>(DeviceRuntime::TTMetal);
     if (meshEvent) {
@@ -213,9 +468,131 @@ MCQExecutor::MCQExecutor(
   }
 }
 
+void MCQExecutor::analyzeReusableInputs(
+    const target::metal::CommandQueue *commandQueue) {
+  struct ReusePlan {
+    ProgramInputProvenance input;
+    std::unordered_set<std::uint32_t> destinationGlobalIds;
+    std::unordered_set<std::uint32_t> derivedHostBufferIds;
+    bool requiresHostMaterialization = false;
+  };
+
+  auto provenance = hostBufferInputProvenance;
+  std::unordered_map<std::uint32_t, ReusePlan> plans;
+  for (const auto &[globalId, input] : provenance) {
+    plans.try_emplace(input.inputIndex, ReusePlan{input, {}, {}, false});
+  }
+
+  auto markHostUse = [&](const target::metal::BufferRef *ref) {
+    auto source = provenance.find(ref->global_id());
+    if (source != provenance.end()) {
+      plans.at(source->second.inputIndex).requiresHostMaterialization = true;
+    }
+  };
+
+  for (const target::metal::Command *command : *commandQueue->commands()) {
+    switch (command->type_type()) {
+    case target::metal::CommandType::HostAllocCommand: {
+      provenance.erase(command->type_as_HostAllocCommand()->dst()->global_id());
+      break;
+    }
+    case target::metal::CommandType::MemrefCopyCommand: {
+      const auto *copy = command->type_as_MemrefCopyCommand();
+      auto source = provenance.find(copy->src()->global_id());
+      if (source == provenance.end()) {
+        provenance.erase(copy->dst()->global_id());
+        break;
+      }
+      provenance.insert_or_assign(copy->dst()->global_id(), source->second);
+      plans.at(source->second.inputIndex)
+          .derivedHostBufferIds.insert(copy->dst()->global_id());
+      break;
+    }
+    case target::metal::CommandType::EnqueueWriteBufferCommand: {
+      const auto *write = command->type_as_EnqueueWriteBufferCommand();
+      auto source = provenance.find(write->src()->global_id());
+      if (source != provenance.end()) {
+        plans.at(source->second.inputIndex)
+            .destinationGlobalIds.insert(write->dst()->global_id());
+      }
+      break;
+    }
+    case target::metal::CommandType::EnqueueReadBufferCommand: {
+      const auto *read = command->type_as_EnqueueReadBufferCommand();
+      markHostUse(read->dst());
+      provenance.erase(read->dst()->global_id());
+      break;
+    }
+    case target::metal::CommandType::CpuCommand: {
+      const auto *cpu = command->type_as_CpuCommand();
+      for (const target::metal::BufferRef *input : *cpu->ins()) {
+        markHostUse(input);
+      }
+      for (const target::metal::BufferRef *output : *cpu->outs()) {
+        provenance.erase(output->global_id());
+      }
+      break;
+    }
+    case target::metal::CommandType::MeshShardCommand: {
+      const auto *meshShard = command->type_as_MeshShardCommand();
+      markHostUse(meshShard->src());
+      provenance.erase(meshShard->dst()->global_id());
+      break;
+    }
+    case target::metal::CommandType::ReturnCommand: {
+      for (const target::metal::BufferRef *result :
+           *command->type_as_ReturnCommand()->results()) {
+        markHostUse(result);
+      }
+      break;
+    }
+    default:
+      break;
+    }
+  }
+
+  for (const auto &[inputIndex, plan] : plans) {
+    if (!plan.input.cache || plan.requiresHostMaterialization ||
+        plan.destinationGlobalIds.empty()) {
+      continue;
+    }
+
+    const auto &cache = plan.input.cache;
+    std::lock_guard<std::mutex> lock(cache->mutex);
+    const bool fullyCached = std::all_of(
+        plan.destinationGlobalIds.begin(), plan.destinationGlobalIds.end(),
+        [&](std::uint32_t destination) {
+          return cache->buffers.contains(
+              createReusableInputKey(plan.input, destination));
+        });
+    if (!fullyCached) {
+      continue;
+    }
+
+    // Bind cache hits before command execution so the corresponding
+    // CreateBufferCommand becomes a no-op. Otherwise every reuse would still
+    // allocate and immediately release the compiled transient destination
+    // before EnqueueWriteBufferCommand replaced it with the cached buffer.
+    for (std::uint32_t destination : plan.destinationGlobalIds) {
+      const MeshBuffer &buffer =
+          cache->buffers.at(createReusableInputKey(plan.input, destination));
+      auto [existing, inserted] = meshBuffers.try_emplace(destination, buffer);
+      LOG_ASSERT(inserted || existing->second.get() == buffer.get(),
+                 "Reusable input destination is already bound to a different "
+                 "device buffer");
+      reusableBufferAliases.insert(destination);
+    }
+
+    skippedHostCopyInputIndices.insert(inputIndex);
+    skippedHostBufferIds.insert(plan.derivedHostBufferIds.begin(),
+                                plan.derivedHostBufferIds.end());
+  }
+}
+
 void MCQExecutor::execute(const target::metal::CommandQueue *commandQueue) {
   currentProgramName = commandQueue->name()->c_str();
   mcq = &meshDevice->mesh_command_queue(commandQueue->queue_id());
+  analyzeReusableInputs(commandQueue);
 
   for (const auto &mesh_event : initMeshEvents) {
     distributed::EventSynchronize(*mesh_event);
@@ -309,6 +686,10 @@ void MCQExecutor::execute(const target::metal::Command *command) {
 }
 
 void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
+  if (skippedHostBufferIds.contains(command->dst()->global_id())) {
+    return;
+  }
+
   LOG_ASSERT(command->dst()->address() == 0);
   const auto *bufferDesc = command->dst()->desc();
 
@@ -687,9 +1068,81 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   }
 }
 
+ReusableInputKey
+MCQExecutor::createReusableInputKey(const ProgramInputProvenance &input,
+                                    std::uint32_t destinationGlobalId) const {
+  return ReusableInputKey{deviceId,         binaryId,
+                          programIndex,     deviceProgramIndex,
+                          input.inputIndex, destinationGlobalId};
+}
+
+void MCQExecutor::bindReusableInput(
+    const target::metal::EnqueueWriteBufferCommand *command,
+    const ProgramInputProvenance &input) {
+  LOG_ASSERT(input.cache, "Expected reusable input cache");
+  const auto &cache = input.cache;
+
+  const ReusableInputKey key =
+      createReusableInputKey(input, command->dst()->global_id());
+  MeshBuffer reusableBuffer;
+  bool cacheHit = false;
+  {
+    std::lock_guard<std::mutex> lock(cache->mutex);
+    auto cached = cache->buffers.find(key);
+    if (cached != cache->buffers.end()) {
+      reusableBuffer = cached->second;
+      ++cache->hits;
+      cacheHit = true;
+    } else {
+      reusableBuffer = createOwnedMeshBufferFromBufferRef(
+          meshDevice, command->dst(), deviceAddressValidator);
+
+      // Owned reusable allocations and D2M's explicit-address plan are managed
+      // by different allocators. Check all currently-live transient buffers
+      // before publishing the cache entry, then check every future transient
+      // allocation through ReusableInputRegistry.
+      for (const auto &[globalId, liveBuffer] : meshBuffers) {
+        LOG_ASSERT(!buffersOverlap(reusableBuffer, liveBuffer),
+                   "Reusable input allocation overlaps live D2M buffer ",
+                   globalId,
+                   "; the compiled memory plan does not leave "
+                   "enough device memory for input reuse");
+      }
+
+      auto &hostInput = hostBuffers.at(command->src()->global_id());
+      checkHostTensorSizeMatchWithMeshBufferSize(hostInput, reusableBuffer);
+      writeHostTensorToMeshBuffer(mcq, hostInput, reusableBuffer, blockingCQ);
+
+      cache->uploadedBytes += reusableBuffer->size();
+      ++cache->misses;
+      cache->buffers.emplace(key, reusableBuffer);
+      ReusableInputRegistry::instance().insert(deviceId, reusableBuffer, cache);
+    }
+  }
+
+  auto destination = meshBuffers.find(command->dst()->global_id());
+  LOG_ASSERT(destination != meshBuffers.end(),
+             "Reusable input destination was not allocated");
+  destination->second = reusableBuffer;
+  reusableBufferAliases.insert(command->dst()->global_id());
+
+  LOG_DEBUG(logger::LogRuntimeTTMetalBufferCreation, "D2M reusable input ",
+            input.inputIndex, cacheHit ? " cache hit" : " cache miss",
+            ", destination buffer ", command->dst()->global_id(), ", ",
+            reusableBuffer->size(), " bytes at ",
+            logger::Address(reusableBuffer->address()));
+}
+
 void MCQExecutor::execute(
     const target::metal::EnqueueWriteBufferCommand *command) {
   ZoneScopedN("EnqueueWriteBufferCommand");
+
+  const auto provenance =
+      hostBufferInputProvenance.find(command->src()->global_id());
+  if (provenance != hostBufferInputProvenance.end()) {
+    bindReusableInput(command, provenance->second);
+    return;
+  }
 
   auto &input = hostBuffers.at(command->src()->global_id());
   auto meshBuffer = meshBuffers.at(command->dst()->global_id());
@@ -710,8 +1163,10 @@ void MCQExecutor::execute(
 void MCQExecutor::execute(const target::metal::CreateBufferCommand *command) {
   ZoneScopedN("CreateBufferCommand");
   if (meshBuffers.find(command->ref()->global_id()) == meshBuffers.end()) {
-    meshBuffers[command->ref()->global_id()] = createMeshBufferFromBufferRef(
-        meshDevice, command->ref(), deviceAddressValidator);
+    auto meshBuffer = createMeshBufferFromBufferRef(meshDevice, command->ref(),
+                                                    deviceAddressValidator);
+    ReusableInputRegistry::instance().assertNoOverlap(deviceId, meshBuffer);
+    meshBuffers[command->ref()->global_id()] = std::move(meshBuffer);
   }
 }
 
@@ -721,6 +1176,10 @@ void MCQExecutor::execute(
   auto meshBufferIter = meshBuffers.find(command->ref()->global_id());
   LOG_ASSERT(meshBufferIter != meshBuffers.end(), "Buffer not allocated");
   LOG_ASSERT(meshBufferIter->second != nullptr, "Buffer already deallocated");
+  if (reusableBufferAliases.erase(command->ref()->global_id()) != 0) {
+    meshBuffers.erase(meshBufferIter);
+    return;
+  }
   auto meshBuffer = meshBufferIter->second;
   meshBuffer->deallocate();
   meshBuffers.erase(meshBufferIter);
@@ -748,6 +1207,15 @@ void MCQExecutor::execute(
 }
 
 void MCQExecutor::execute(const target::metal::MemrefCopyCommand *command) {
+  const auto input =
+      hostBufferInputProvenance.find(command->src()->global_id());
+  if (input != hostBufferInputProvenance.end() &&
+      skippedHostCopyInputIndices.contains(input->second.inputIndex)) {
+    hostBufferInputProvenance.insert_or_assign(command->dst()->global_id(),
+                                               input->second);
+    return;
+  }
+
   auto srcIt = hostBuffers.find(command->src()->global_id());
   LOG_ASSERT(srcIt != hostBuffers.end());
   auto dstIt = hostBuffers.find(command->dst()->global_id());
@@ -755,6 +1223,13 @@ void MCQExecutor::execute(const target::metal::MemrefCopyCommand *command) {
   ttmetal::memcpy(
       dstIt->second, createTensorDescFromBufferDesc(command->dst()->desc()),
       srcIt->second, createTensorDescFromBufferDesc(command->src()->desc()));
+
+  if (input == hostBufferInputProvenance.end()) {
+    hostBufferInputProvenance.erase(command->dst()->global_id());
+  } else {
+    hostBufferInputProvenance.insert_or_assign(command->dst()->global_id(),
+                                               input->second);
+  }
 }
 
 void MCQExecutor::execute(const target::metal::CpuCommand *command) {
@@ -855,14 +1330,14 @@ std::vector<Tensor>
 executeMeshDeviceProgram(distributed::MeshDevice *meshDevice,
                          const target::metal::DeviceProgram *program,
                          const std::vector<Tensor> &inputs,
-                         common::DylibManager &&dylibs, std::uint64_t binaryId,
-                         std::uint32_t programIndex,
+                         common::DylibManager &&dylibs, std::uint32_t deviceId,
+                         std::uint64_t binaryId, std::uint32_t programIndex,
                          std::uint32_t deviceProgramIndex) {
   LOG_ASSERT(program->command_queues()->size() == 1, "Only one MCQ supported");
 
   MCQExecutor executor(meshDevice, program->inputs(), inputs, std::move(dylibs),
-                       debug::Env::get().blockingCQ, binaryId, programIndex,
-                       deviceProgramIndex);
+                       debug::Env::get().blockingCQ, deviceId, binaryId,
+                       programIndex, deviceProgramIndex);
   for (const target::metal::CommandQueue *cq : *program->command_queues()) {
     FrameMark;
     ZoneScoped;

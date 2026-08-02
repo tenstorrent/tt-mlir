@@ -216,6 +216,25 @@ void registerRuntimeBindings(nb::module_ &m) {
            [](tt::runtime::Tensor self, bool retain) {
              tt::runtime::setTensorRetain(self, retain);
            })
+      .def("get_reusable",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorReusable(self);
+           })
+      .def("set_reusable",
+           [](tt::runtime::Tensor &self, bool reusable) {
+             tt::runtime::setTensorReusable(self, reusable);
+           })
+      .def("get_reuse_stats",
+           [](tt::runtime::Tensor self) {
+             const tt::runtime::TensorReuseStats stats =
+                 tt::runtime::getTensorReuseStats(self);
+             return std::unordered_map<std::string, std::uint64_t>{
+                 {"cache_hits", stats.cacheHits},
+                 {"cache_misses", stats.cacheMisses},
+                 {"uploaded_bytes", stats.uploadedBytes},
+                 {"device_buffer_count", stats.deviceBufferCount},
+             };
+           })
       .def("get_shape",
            [](tt::runtime::Tensor self) {
              return tt::runtime::getTensorShape(self);
