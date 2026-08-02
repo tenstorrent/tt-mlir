@@ -14,7 +14,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TypecastRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
-#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/StringMap.h"
 
 #include <mutex>
 
@@ -89,12 +89,25 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static PagedUpdateCacheRuleBook pagedUpdateCache;
   static ArgMaxRuleBook argMax;
 
-  static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
+  // Keyed by the op's name *string*, not by mlir::OperationName. The registry
+  // is a process-global built once, but an OperationName wraps a pointer
+  // interned in one specific MLIRContext, so keys created here would never
+  // match lookups coming from any other context: in a process that compiles
+  // with more than one context, every context after the first would silently
+  // fall back to defaultRules and lose all op-specific rules (matmul program
+  // configs, DRAM sharding, conv, SDPA...) -- invisible to any tool that uses a
+  // single context per process. Op names are compile-time constants, so a
+  // string key is context-independent and stays correct.
+  //
+  // Regression coverage: DRAMShardedEligibilityTest in
+  // test/unittests/Optimizer/TestDRAMShardedMatmulEligibility.cpp builds a
+  // fresh MLIRContext per test, so it fails on a context-keyed registry. No lit
+  // test can catch this — ttmlir-opt uses one context per process.
+  static llvm::StringMap<const OpRuleBook *> registry;
   static std::once_flag initFlag;
   std::call_once(initFlag, [&] {
-    MLIRContext *ctx = op->getContext();
     auto reg = [&](StringRef name, const OpRuleBook *rb) {
-      registry[OperationName(name, ctx)] = rb;
+      registry[name] = rb;
     };
     reg(Conv2dOp::getOperationName(), &conv2d);
     reg(ConvTranspose2dOp::getOperationName(), &conv2d);
@@ -132,7 +145,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
     reg(ArgMaxOp::getOperationName(), &argMax);
   });
-  auto it = registry.find(op->getName());
+  auto it = registry.find(op->getName().getStringRef());
   return it != registry.end() ? *it->second : defaultRules;
 }
 
