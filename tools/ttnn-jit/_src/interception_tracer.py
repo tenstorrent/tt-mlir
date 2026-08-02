@@ -702,6 +702,43 @@ _EXPERIMENTAL_MULTI = {
 }
 
 
+def _transformer_split_qkv_handler(
+    jit_ctx,
+    input_tensor,
+    kv_input_tensor=None,
+    *,
+    num_heads,
+    num_kv_heads=None,
+    transpose_key=True,
+    **kwargs,
+):
+    """Trace the public transformer QKV split as a three-result TTIR op.
+
+    Quetzal emits the public ``ttnn.transformer`` spelling rather than the
+    experimental NLP alias.  Both operations have the same fused-QKV shape
+    semantics for the single-input form, so share the established handler
+    while translating its keyword names.
+
+    The two-input form represents separately projected Q and KV tensors and
+    cannot be expressed by the current TTIR split op.  Fail explicitly instead
+    of silently dropping ``kv_input_tensor`` and producing a misleading graph.
+    """
+    if kv_input_tensor is not None:
+        raise NotImplementedError(
+            "interception tracing of split_query_key_value_and_split_heads "
+            "does not yet support a separate kv_input_tensor"
+        )
+    nkv = num_heads if num_kv_heads is None else num_kv_heads
+    return _nlp_create_qkv_heads_handler(
+        jit_ctx,
+        input_tensor,
+        num_heads=num_heads,
+        num_kv_heads=nkv,
+        transpose_k_heads=transpose_key,
+        **kwargs,
+    )
+
+
 def _nlp_concat_heads_handler(jit_ctx, x, **kwargs):
     """Merge per-head attention output back into a single hidden dimension.
 
@@ -982,6 +1019,9 @@ _TRANSFORMER_VALUE = {
     "chunked_scaled_dot_product_attention": _chunked_sdpa_handler,
     "paged_scaled_dot_product_attention_decode": _paged_sdpa_decode_handler,
 }
+_TRANSFORMER_MULTI = {
+    "split_query_key_value_and_split_heads": _transformer_split_qkv_handler,
+}
 
 
 @contextmanager
@@ -1036,6 +1076,9 @@ def patch_ttnn(jit_ctx):
             for name, value_fn in _TRANSFORMER_VALUE.items():
                 transformer_originals[name] = getattr(transformer, name, _MISSING)
                 setattr(transformer, name, _make_traced_value_op(value_fn, jit_ctx))
+            for name, value_fn in _TRANSFORMER_MULTI.items():
+                transformer_originals[name] = getattr(transformer, name, _MISSING)
+                setattr(transformer, name, _make_traced_multi_op(value_fn, jit_ctx))
         yield
     finally:
         _restore_patched(ttnn, originals)

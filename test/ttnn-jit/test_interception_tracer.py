@@ -279,6 +279,26 @@ def test_nlp_create_qkv_heads_multi_output():
     scope.module.operation.verify()
 
 
+def test_transformer_split_qkv_heads_multi_output():
+    import ttnn as _ttnn
+    from ttnn_jit.ttmlir.ir import InsertionPoint, Location
+    from ttnn_jit.ttmlir.dialects import func as _func
+
+    scope = build_trace_scope("f", [((1, 1, 32, 6144), _ttnn.bfloat16)])
+    x = scope.traced_args[0]
+    with patch_ttnn(scope.jit_ctx):
+        q, k, v = _ttnn.transformer.split_query_key_value_and_split_heads(
+            x, num_heads=32, num_kv_heads=8, transpose_key=False
+        )
+    assert q.shape == (1, 32, 32, 128)
+    assert k.shape == (1, 8, 32, 128)
+    assert v.shape == (1, 8, 32, 128)
+    assert "split_query_key_value_and_split_heads" in str(scope.module)
+    with InsertionPoint(scope.func_bb), Location.unknown(scope.ctx):
+        _func.ReturnOp([x.mlir_value])
+    scope.module.operation.verify()
+
+
 def test_sdpa_output_matches_query_shape():
     import ttnn as _ttnn
     from ttnn_jit.ttmlir.ir import InsertionPoint, Location
