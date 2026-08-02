@@ -613,7 +613,7 @@ MemoryLayoutPropagation::processOp(Operation *op) {
     }
 
     // Op-specific pruning: skip invalid input combinations early.
-    if (!ruleBook.isValidInputCombination(inputLayouts)) {
+    if (!ruleBook.isValidInputCombination(op, inputLayouts)) {
       advanceIndices();
       continue;
     }

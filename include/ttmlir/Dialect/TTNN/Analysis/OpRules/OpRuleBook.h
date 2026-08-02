@@ -88,9 +88,11 @@ struct OpRuleBook {
   /// Cross-product pruning: reject input layout combinations before expensive
   /// backend validation. Default accepts all. Override for ops that require
   /// homogeneous input layouts (e.g., concat requires all inputs to share the
-  /// same memory layout type).
+  /// same memory layout type). The operation is provided so rules for ops with
+  /// optional operands can identify the semantic role of each layout.
   virtual bool
-  isValidInputCombination(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  isValidInputCombination(Operation *op,
+                          llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
     return true;
   }
 

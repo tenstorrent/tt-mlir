@@ -201,19 +201,29 @@ getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
 
 static std::optional<std::string>
 getRmsNormPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                         const OpConfig &config) {
+                         const OpConfig &config, RMSNormOp op) {
   if (inputLayouts.empty() || !inputLayouts[0]) {
     return std::nullopt;
   }
 
   TTNNLayoutAttr input = inputLayouts[0];
   auto inputMemLayout = input.getMemLayoutOpt();
-  if (!inputMemLayout || !isShardedMemoryLayout(*inputMemLayout) ||
-      !config.outputLayout) {
+  if (!inputMemLayout || !isShardedMemoryLayout(*inputMemLayout)) {
     return std::nullopt;
   }
 
-  if (config.outputLayout != input) {
+  if (op.getResidualInputTensor()) {
+    size_t residualIdx = 1;
+    residualIdx += op.getWeight() ? 1 : 0;
+    residualIdx += op.getBias() ? 1 : 0;
+    if (residualIdx >= inputLayouts.size() ||
+        inputLayouts[residualIdx] != input) {
+      return "rms_norm sharded input and residual require identical physical "
+             "layouts";
+    }
+  }
+
+  if (config.outputLayout && config.outputLayout != input) {
     return "rms_norm sharded input and output require identical physical "
            "layouts";
   }
@@ -348,7 +358,8 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
     }
   }
   if (isa<RMSNormOp>(op)) {
-    if (auto error = getRmsNormPreflightError(inputLayouts, config)) {
+    if (auto error = getRmsNormPreflightError(
+            inputLayouts, config, cast<RMSNormOp>(op))) {
       return ValidationResult::metalBackendError(*error);
     }
   }

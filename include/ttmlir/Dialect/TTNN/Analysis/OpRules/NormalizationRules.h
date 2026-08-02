@@ -35,6 +35,14 @@ struct RmsNormRuleBook : OpRuleBook {
   /// are rejected because the sharded layernorm kernel doesn't support them.
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 
+  /// A fused residual must have the same complete physical layout as a sharded
+  /// activation. TT-Metal validates both the shard spec and memory config with
+  /// TT_FATAL, so reject incompatible cross-product combinations before they
+  /// reach op-model evaluation.
+  bool isValidInputCombination(
+      Operation *op,
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
+
   /// Prune output hints that violate the sharded layernorm kernel contract.
   /// A sharded activation requires a sharded, non-height output with the same
   /// complete physical layout (buffer type, memory-layout type, core ranges,
