@@ -235,7 +235,8 @@ public:
 
   OpConfig createMcast2DHint(TTNNLayoutAttr output, uint64_t in0BlockW,
                              uint64_t perCoreM, uint64_t perCoreN = 1) {
-    auto grid = CoreCoordAttr::get(&context, 2, 2);
+    auto [outputGridX, outputGridY] = utils::getPhysicalGridDimensions(output);
+    auto grid = CoreCoordAttr::get(&context, outputGridX, outputGridY);
     auto config = MatmulMultiCoreReuseMultiCastProgramConfigAttr::get(
         &context, grid, in0BlockW,
         /*outSubblockH=*/1, /*outSubblockW=*/1,
