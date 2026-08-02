@@ -793,6 +793,19 @@ TEST_F(OpRuleBookTest, MatmulExplicitConfigRejectsRowMajorShardedOutput) {
   EXPECT_NE(error->find("requires a tiled layout"), std::string::npos);
 }
 
+TEST_F(OpRuleBookTest, MatmulAutoPickerRejectsShardedOutput) {
+  llvm::SmallVector<int64_t> shape = {1024, 2048};
+  auto interleaved = createDRAMInterleavedLayout(shape);
+  auto shardedOutput = createTiledLayout(
+      shape, BufferType::L1, TensorMemoryLayout::HeightSharded, {8, 1});
+  OpConfig config(shardedOutput);
+
+  auto error = getMatmulPreflightError({interleaved}, config);
+  ASSERT_TRUE(error);
+  EXPECT_NE(error->find("requires an explicit program config"),
+            std::string::npos);
+}
+
 TEST_F(OpRuleBookTest, MatmulPartialConfigDedupPreservesOutputGeometry) {
   llvm::SmallVector<int64_t> shape = {1, 32, 2048};
   auto interleaved = createDRAMInterleavedLayout(shape);

@@ -66,8 +66,21 @@ static bool tensorBackedCBFits(TTNNLayoutAttr layout, uint64_t rows,
 std::optional<std::string>
 getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                         const OpConfig &config) {
+  TTNNLayoutAttr output = config.outputLayout;
+  // TTNN matmul kernels produce tiled outputs.  Passing only a row-major
+  // sharded MemoryConfig makes the backend combine its tiled page layout with
+  // a scalar shard shape (for example 1024 / 5 -> 204 rows), which TT-Metal
+  // rejects because the physical shard is not tile aligned.  Check this before
+  // the optional program config: the auto-picker path has the same constraint.
+  if (output && output.hasShardedTensorMemoryLayout() && !output.isTiled()) {
+    return "matmul sharded output requires a tiled layout";
+  }
+
   const auto *attrs = std::get_if<MatmulAttrs>(&config.opSpecificAttrs);
   if (!attrs || !attrs->matmulProgramConfig || !*attrs->matmulProgramConfig) {
+    if (output && output.hasShardedTensorMemoryLayout()) {
+      return "matmul sharded output requires an explicit program config";
+    }
     return std::nullopt;
   }
 
@@ -91,18 +104,10 @@ getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
     return std::nullopt;
   }
 
-  TTNNLayoutAttr output = config.outputLayout;
   if (output && output.hasShardedTensorMemoryLayout() &&
       output.getIgnorePhysicalLayout()) {
     return "matmul explicit program config requires a physical sharded output "
            "layout";
-  }
-  // TTNN matmul kernels produce tiled outputs.  Passing only a row-major
-  // sharded MemoryConfig makes the backend combine its tiled page layout with
-  // a scalar shard shape (for example 1024 / 5 -> 204 rows), which TT-Metal
-  // rejects because the physical shard is not tile aligned.
-  if (output && output.hasShardedTensorMemoryLayout() && !output.isTiled()) {
-    return "matmul sharded output requires a tiled layout";
   }
   if (!tensorBackedCBFits(output, perCoreM, perCoreN)) {
     return "matmul output circular buffer exceeds its tensor shard";
