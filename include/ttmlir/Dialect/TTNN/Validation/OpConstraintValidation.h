@@ -41,7 +41,8 @@ llvm::StringRef validationStatusToString(ValidationStatus status);
 /// safe for backend validation (or is not a relevant Matmul program config).
 std::optional<std::string>
 getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                        const OpConfig &config);
+                        const OpConfig &config,
+                        Operation *contextOp = nullptr);
 
 // Result of a single constraint validation test.
 struct ValidationResult {

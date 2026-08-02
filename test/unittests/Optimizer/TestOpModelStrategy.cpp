@@ -321,6 +321,31 @@ TEST_F(OpModelStrategyTest, MatmulOpFiltersL1Interleaved) {
   }
 }
 
+TEST_F(OpModelStrategyTest, MatmulPreflightUsesProgramConfigFromOperation) {
+  auto matmulOp = createMockMatmulOp();
+  auto grid = CoreCoordAttr::get(&context, 8, 8);
+  auto nativeConfig = MatmulMultiCoreReuseMultiCastProgramConfigAttr::get(
+      &context, grid, /*in0BlockW=*/1,
+      /*outSubblockH=*/1, /*outSubblockW=*/1,
+      /*outBlockH=*/1, /*outBlockW=*/1,
+      /*perCoreM=*/1, /*perCoreN=*/1,
+      /*transposeMcast=*/false,
+      /*fusedActivation=*/UnaryWithParamAttr(), /*fuseBatch=*/true);
+  matmulOp.setMatmulProgramConfigAttr(nativeConfig);
+
+  llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
+  auto shardedInput = createL1ShardedLayout(shape, {1, 1});
+  auto interleaved = createDRAMInterleavedLayout(shape);
+  OpConfig candidate(interleaved);
+
+  EXPECT_TRUE(getMatmulPreflightError({shardedInput, interleaved}, candidate)
+                  .value()
+                  .find("requires an explicit program config") !=
+              std::string::npos);
+  EXPECT_FALSE(getMatmulPreflightError(
+      {shardedInput, interleaved}, candidate, matmulOp.getOperation()));
+}
+
 TEST_F(OpModelStrategyTest, ReshapeOpSkipsL1Sharding) {
   auto reshapeOp = createMockReshapeOp();
   auto legalConfigs = createElementwiseLegalConfigs();

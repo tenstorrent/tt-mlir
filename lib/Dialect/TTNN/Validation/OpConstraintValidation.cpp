@@ -65,7 +65,7 @@ static bool tensorBackedCBFits(TTNNLayoutAttr layout, uint64_t rows,
 
 std::optional<std::string>
 getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                        const OpConfig &config) {
+                        const OpConfig &config, Operation *contextOp) {
   TTNNLayoutAttr output = config.outputLayout;
   // TTNN matmul kernels produce tiled outputs.  Passing only a row-major
   // sharded MemoryConfig makes the backend combine its tiled page layout with
@@ -83,8 +83,27 @@ getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
     }
   }
 
-  const auto *attrs = std::get_if<MatmulAttrs>(&config.opSpecificAttrs);
-  if (!attrs || !attrs->matmulProgramConfig || !*attrs->matmulProgramConfig) {
+  std::optional<Attribute> programConfig;
+  if (const auto *attrs =
+          std::get_if<MatmulAttrs>(&config.opSpecificAttrs)) {
+    if (attrs->matmulProgramConfig && *attrs->matmulProgramConfig) {
+      programConfig = *attrs->matmulProgramConfig;
+    }
+  }
+  // Match TTNNOpModelInterface::unpackMatmulAttrs: when the candidate does not
+  // override the program config, the backend still receives the config already
+  // attached to the original Matmul/Linear op.
+  if (!programConfig && contextOp) {
+    programConfig =
+        llvm::TypeSwitch<Operation *, std::optional<Attribute>>(contextOp)
+            .Case<MatmulOp, LinearOp>([](auto op) {
+              auto attr = op.getMatmulProgramConfig();
+              return attr ? std::optional<Attribute>(attr) : std::nullopt;
+            })
+            .Default([](Operation *) { return std::nullopt; });
+  }
+
+  if (!programConfig) {
     if (output && output.hasShardedTensorMemoryLayout()) {
       return "matmul sharded output requires an explicit program config";
     }
@@ -96,18 +115,18 @@ getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
     return std::nullopt;
   }
 
-  Attribute programConfig = *attrs->matmulProgramConfig;
+  Attribute programConfigAttr = *programConfig;
   uint64_t perCoreM = 0;
   uint64_t perCoreN = 0;
   bool is1D = false;
   bool movesIn0 = false;
   if (auto attr = dyn_cast<MatmulMultiCoreReuseMultiCastProgramConfigAttr>(
-          programConfig)) {
+          programConfigAttr)) {
     perCoreM = attr.getPerCoreM();
     perCoreN = attr.getPerCoreN();
   } else if (auto attr =
                  dyn_cast<MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(
-                     programConfig)) {
+                     programConfigAttr)) {
     perCoreM = attr.getPerCoreM();
     perCoreN = attr.getPerCoreN();
     is1D = true;
@@ -324,7 +343,7 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                     const OpConfig &config, uint64_t additionalL1Usage) {
 
   if (isa<MatmulOp, LinearOp>(op)) {
-    if (auto error = getMatmulPreflightError(inputLayouts, config)) {
+    if (auto error = getMatmulPreflightError(inputLayouts, config, op)) {
       return ValidationResult::metalBackendError(*error);
     }
   }
