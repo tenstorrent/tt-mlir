@@ -985,11 +985,10 @@ TEST_F(OpRuleBookTest,
 
   llvm::SmallVector<int64_t> headShape = {1, 1, 32, 32};
   auto headLayout = createDRAMInterleavedLayout(headShape);
-  auto headType = mlir::RankedTensorType::get(
-      headShape, builder.getBF16Type(), headLayout);
+  auto headType =
+      mlir::RankedTensorType::get(headShape, builder.getBF16Type(), headLayout);
   builder.create<SplitQueryKeyValueAndSplitHeadsOp>(
-      builder.getUnknownLoc(),
-      mlir::TypeRange{headType, headType, headType},
+      builder.getUnknownLoc(), mlir::TypeRange{headType, headType, headType},
       producer.getResult(),
       /*kvInputTensor=*/Value(), builder.getUI32IntegerAttr(1),
       /*numKvHeads=*/IntegerAttr(), builder.getBoolAttr(false));
