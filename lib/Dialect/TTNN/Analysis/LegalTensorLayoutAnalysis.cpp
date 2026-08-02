@@ -38,10 +38,6 @@ static bool tensorShapeCompatibleWithShard(RankedTensorType tensorType,
 
   llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
-  if (!op_model::isLayoutLegalForTensorShape(tensorShape, layout, maxGrid)) {
-    return false;
-  }
-
   // TODO(rpavlovicTT): Revisit this logic now that we are able to check
   // validity through op model interface. If the check is removed, we create
   // more layouts, but for some reason this introduces test failures. Need to
@@ -65,7 +61,15 @@ static bool tensorShapeCompatibleWithShard(RankedTensorType tensorType,
         return false;
       }
     }
-    return true;
+  }
+
+  // Run the cheap, deterministic tiled-shard checks before asking the op
+  // model to materialize a TensorSpec.  TT-Metal reports invalid physical
+  // shard dimensions with TT_FATAL even though the op-model boundary catches
+  // the exception and returns false.  Besides flooding capture logs, probing
+  // those candidates is needlessly expensive.
+  if (!op_model::isLayoutLegalForTensorShape(tensorShape, layout, maxGrid)) {
+    return false;
   }
 
   // TODO(odjuricic): For row major there are no constraints on how the tensor
