@@ -990,8 +990,8 @@ TEST_F(OpRuleBookTest,
   builder.create<SplitQueryKeyValueAndSplitHeadsOp>(
       builder.getUnknownLoc(), mlir::TypeRange{headType, headType, headType},
       producer.getResult(),
-      /*kvInputTensor=*/Value(), builder.getUI32IntegerAttr(1),
-      /*numKvHeads=*/IntegerAttr(), builder.getBoolAttr(false));
+      /*kvInputTensor=*/mlir::Value(), builder.getUI32IntegerAttr(1),
+      /*numKvHeads=*/mlir::IntegerAttr(), builder.getBoolAttr(false));
 
   auto shardedOutput = createTiledLayout(
       inputShape, BufferType::L1, TensorMemoryLayout::WidthSharded, {1, 2});
