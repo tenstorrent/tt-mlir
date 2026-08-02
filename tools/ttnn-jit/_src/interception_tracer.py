@@ -21,6 +21,7 @@ from ttnn_jit.ttmlir.ir import (
     Attribute,
     DictAttr,
     StringAttr,
+    UnitAttr,
 )
 
 import ttnn
@@ -431,6 +432,9 @@ def _linear_handler(
                     jit_ctx, out_shape, result_type.element_type
                 )
             )
+            linear.owner.attributes[
+                "ttnn_jit.explicit_l1_output"
+            ] = UnitAttr.get(jit_ctx.ctx)
         return linear
 
 
