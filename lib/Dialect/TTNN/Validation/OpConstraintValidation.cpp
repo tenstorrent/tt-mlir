@@ -97,6 +97,13 @@ getMatmulPreflightError(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
     return "matmul explicit program config requires a physical sharded output "
            "layout";
   }
+  // TTNN matmul kernels produce tiled outputs.  Passing only a row-major
+  // sharded MemoryConfig makes the backend combine its tiled page layout with
+  // a scalar shard shape (for example 1024 / 5 -> 204 rows), which TT-Metal
+  // rejects because the physical shard is not tile aligned.
+  if (output && output.hasShardedTensorMemoryLayout() && !output.isTiled()) {
+    return "matmul sharded output requires a tiled layout";
+  }
   if (!tensorBackedCBFits(output, perCoreM, perCoreN)) {
     return "matmul output circular buffer exceeds its tensor shard";
   }

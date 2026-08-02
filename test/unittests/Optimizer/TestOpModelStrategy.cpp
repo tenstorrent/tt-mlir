@@ -774,6 +774,25 @@ TEST_F(OpRuleBookTest,
                   .find("requires a physical") != std::string::npos);
 }
 
+TEST_F(OpRuleBookTest, MatmulExplicitConfigRejectsRowMajorShardedOutput) {
+  llvm::SmallVector<int64_t> shape = {1024, 2560};
+  auto interleaved = createDRAMInterleavedLayout(shape);
+  auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
+  auto rowMajorOutput =
+      TTNNLayoutAttr::Builder(&context, shape, builder.getBF16Type())
+          .setBufferType(BufferType::L1)
+          .setMemoryLayout(TensorMemoryLayout::HeightSharded)
+          .setGridShape({5, 1})
+          .buildWithCanonicalCorePlacement(deviceAttr);
+  auto config =
+      createMcast2DHint(rowMajorOutput, /*in0BlockW=*/1, /*perCoreM=*/1,
+                        /*perCoreN=*/1);
+
+  auto error = getMatmulPreflightError({interleaved}, config);
+  ASSERT_TRUE(error);
+  EXPECT_NE(error->find("requires a tiled layout"), std::string::npos);
+}
+
 TEST_F(OpRuleBookTest, MatmulPartialConfigDedupPreservesOutputGeometry) {
   llvm::SmallVector<int64_t> shape = {1, 32, 2048};
   auto interleaved = createDRAMInterleavedLayout(shape);
