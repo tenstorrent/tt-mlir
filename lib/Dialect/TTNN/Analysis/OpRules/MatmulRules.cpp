@@ -133,8 +133,7 @@ static bool isDSWeightShaped(RankedTensorType rtt) {
   if (shape.size() < 2) {
     return false;
   }
-  return llvm::all_of(shape.drop_back(2),
-                      [](int64_t dim) { return dim == 1; });
+  return llvm::all_of(shape.drop_back(2), [](int64_t dim) { return dim == 1; });
 }
 
 static std::pair<int64_t, int64_t> getWeightKN(RankedTensorType rtt) {
@@ -323,10 +322,9 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
   int64_t numAvailableCores =
       ttmlir::utils::volume(deviceAttr.getWorkerGrid().getShape());
 
-  auto pOpt =
-      computeShardParams(M, K, N, getNumDRAMBanks(systemDesc),
-                         chooseNumIn0Cores(K / kTileSize), numAvailableCores,
-                         weightDataType, l1Available);
+  auto pOpt = computeShardParams(
+      M, K, N, getNumDRAMBanks(systemDesc), chooseNumIn0Cores(K / kTileSize),
+      numAvailableCores, weightDataType, l1Available);
   if (!pOpt) {
     return std::nullopt;
   }
@@ -366,15 +364,16 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
 void MatmulRuleBook::applyDRAMShardedTransformation(
     Operation *matmulLikeOp, const MatmulAttrs &matmulAttrs) const {
   auto *ctx = matmulLikeOp->getContext();
-  // Input reshards (activation → L1 1×kNumIn0Cores, weight → DRAM 1×numBanks) handled by
-  // pass-2 in applyToIR via reshardLayouts populated from the input candidates
-  // injected by getExtraInputReshardCandidates.
+  // Input reshards (activation → L1 1×kNumIn0Cores, weight → DRAM 1×numBanks)
+  // handled by pass-2 in applyToIR via reshardLayouts populated from the input
+  // candidates injected by getExtraInputReshardCandidates.
 
   OpBuilder builder(matmulLikeOp);
 
   // --- 1. Set program config and compute config ---
-  // ttnn.matmul and ttnn.linear both carry matmul_program_config / compute_config
-  // / activation, so the DS rewrite is identical for either (see getDSOperands).
+  // ttnn.matmul and ttnn.linear both carry matmul_program_config /
+  // compute_config / activation, so the DS rewrite is identical for either (see
+  // getDSOperands).
   auto dsProgConfig =
       mlir::cast<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
           matmulAttrs.matmulProgramConfig.value());
@@ -390,11 +389,10 @@ void MatmulRuleBook::applyDRAMShardedTransformation(
   // Fusing the activation into the DS matmul kernel is significantly slower
   // (measured: the 12-core DS matmul applies silu much slower than an op on all
   // 64 cores). So strip it off the matmul and either (a) fold it into a
-  // consuming multiply as its operand-A activation — SwiGLU: multiply(silu(gate),
-  // up) — which runs on the full grid (cheapest), or (b) fall back to a separate
-  // elementwise op.
-  auto activationAttr =
-      matmulLikeOp->getAttrOfType<StringAttr>("activation");
+  // consuming multiply as its operand-A activation — SwiGLU:
+  // multiply(silu(gate), up) — which runs on the full grid (cheapest), or (b)
+  // fall back to a separate elementwise op.
+  auto activationAttr = matmulLikeOp->getAttrOfType<StringAttr>("activation");
   if (activationAttr) {
     matmulLikeOp->removeAttr("activation");
     StringRef actStr = activationAttr.getValue();
@@ -426,9 +424,10 @@ void MatmulRuleBook::applyDRAMShardedTransformation(
     if (fuseInto && !fuseInto.getLhsActivation() &&
         (fuseInto.getLhs() == matmulResult ||
          fuseInto.getRhs() == matmulResult)) {
-      // Normalize the silu'd (matmul) value to operand A, then tag lhs_activation.
+      // Normalize the silu'd (matmul) value to operand A, then tag
+      // lhs_activation.
       Value other = fuseInto.getLhs() == matmulResult ? fuseInto.getRhs()
-                                                       : fuseInto.getLhs();
+                                                      : fuseInto.getLhs();
       fuseInto.getLhsMutable().assign(matmulResult);
       fuseInto.getRhsMutable().assign(other);
       fuseInto.setLhsActivationAttr(StringAttr::get(ctx, "silu"));
@@ -493,13 +492,12 @@ OutputHints MatmulRuleBook::getOutputHints(
   }
 
   if (ttnn::utils::shouldAvoidGuaranteedOutputReshards(op)) {
-    filtered.erase(
-        std::remove_if(filtered.begin(), filtered.end(),
-                       [&](const OpConfig &config) {
-                         return directConsumerRejectsLayout(
-                             op, config.outputLayout);
-                       }),
-        filtered.end());
+    filtered.erase(std::remove_if(filtered.begin(), filtered.end(),
+                                  [&](const OpConfig &config) {
+                                    return directConsumerRejectsLayout(
+                                        op, config.outputLayout);
+                                  }),
+                   filtered.end());
   }
 
   return OutputHints{filtered, {}};
@@ -629,10 +627,10 @@ static uint64_t getPhysicalCoreCount(TTNNLayoutAttr layout) {
 
   uint64_t count = 0;
   for (CoreRangeAttr range : ranges.getCoreRanges()) {
-    uint64_t width = range.getEndCoord().getX() -
-                     range.getStartCoord().getX() + 1;
-    uint64_t height = range.getEndCoord().getY() -
-                      range.getStartCoord().getY() + 1;
+    uint64_t width =
+        range.getEndCoord().getX() - range.getStartCoord().getX() + 1;
+    uint64_t height =
+        range.getEndCoord().getY() - range.getStartCoord().getY() + 1;
     count += width * height;
   }
   return count;
@@ -651,9 +649,9 @@ static bool shardedInputFitsProgramGrid(TTNNLayoutAttr input,
   return inputCores != 0 && inputCores <= programCores;
 }
 
-static bool isMcast2DIn0Compatible(
-    const OpConfig &hint, TTNNLayoutAttr in0,
-    MatmulMultiCoreReuseMultiCastProgramConfigAttr config) {
+static bool
+isMcast2DIn0Compatible(const OpConfig &hint, TTNNLayoutAttr in0,
+                       MatmulMultiCoreReuseMultiCastProgramConfigAttr config) {
   auto memLayout = in0.getMemLayoutOpt();
   if (!memLayout || !isShardedMemoryLayout(*memLayout)) {
     return true;
@@ -703,8 +701,7 @@ static bool isMcast1DIn0Compatible(
     return false;
   }
   auto outputRanges = hint.outputLayout.getCoreRangeSet();
-  auto outputBBox =
-      outputRanges ? outputRanges.getBoundingBox() : std::nullopt;
+  auto outputBBox = outputRanges ? outputRanges.getBoundingBox() : std::nullopt;
   if (!outputBBox) {
     return false;
   }
@@ -728,9 +725,9 @@ static bool isMcast1DIn0Compatible(
     return false;
   }
 
-  TensorMemoryLayout requiredLayout =
-      movesIn0 ? TensorMemoryLayout::WidthSharded
-               : TensorMemoryLayout::HeightSharded;
+  TensorMemoryLayout requiredLayout = movesIn0
+                                          ? TensorMemoryLayout::WidthSharded
+                                          : TensorMemoryLayout::HeightSharded;
   if (!config.getFuseBatch() || *memLayout != requiredLayout) {
     return false;
   }
@@ -775,8 +772,7 @@ bool MatmulRuleBook::isValidOutputHintForInputs(
   if (!attrs || !attrs->matmulProgramConfig.has_value()) {
     return true;
   }
-  if (hint.outputLayout &&
-      hint.outputLayout.hasShardedTensorMemoryLayout() &&
+  if (hint.outputLayout && hint.outputLayout.hasShardedTensorMemoryLayout() &&
       hint.outputLayout.getIgnorePhysicalLayout()) {
     return false;
   }
@@ -798,10 +794,9 @@ bool MatmulRuleBook::isValidOutputHintForInputs(
     }
   }
 
-  if (auto dsConfig =
-          mlir::dyn_cast<
-              MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
-              programConfig)) {
+  if (auto dsConfig = mlir::dyn_cast<
+          MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+          programConfig)) {
     // DS hint: only the canonical DS input combination is valid — L1
     // width-sharded in0, DRAM width-sharded in1, with an in0 shard width
     // compatible with the config's in0_block_w. Preserve this existing
@@ -832,14 +827,12 @@ bool MatmulRuleBook::isValidOutputHintForInputs(
   }
   TTNNLayoutAttr in0 = inputLayouts[0];
   return llvm::TypeSwitch<mlir::Attribute, bool>(programConfig)
-      .Case<MatmulMultiCoreReuseMultiCastProgramConfigAttr>(
-          [&](auto config) {
-            return isMcast2DIn0Compatible(hint, in0, config);
-          })
-      .Case<MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(
-          [&](auto config) {
-            return isMcast1DIn0Compatible(hint, in0, config);
-          })
+      .Case<MatmulMultiCoreReuseMultiCastProgramConfigAttr>([&](auto config) {
+        return isMcast2DIn0Compatible(hint, in0, config);
+      })
+      .Case<MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>([&](auto config) {
+        return isMcast1DIn0Compatible(hint, in0, config);
+      })
       .Default([](mlir::Attribute) { return true; });
 }
 
@@ -874,8 +867,8 @@ MatmulRuleBook::adjustScore(Operation *op, LayoutScore base,
           auto weightType =
               mlir::dyn_cast<RankedTensorType>(operands->second.getType());
           if (weightType && isDSWeightShaped(weightType)) {
-            wantCores = chooseNumIn0Cores(getWeightKN(weightType).first /
-                                          kTileSize);
+            wantCores =
+                chooseNumIn0Cores(getWeightKN(weightType).first / kTileSize);
           }
         }
         auto shape = in0.getGridShape();
@@ -923,8 +916,8 @@ MatmulRuleBook::getExtraInputReshardCandidates(Operation *op,
   int64_t numAvailCores =
       ttmlir::utils::volume(deviceAttr.getWorkerGrid().getShape());
   auto pOpt = computeShardParams(M, K, N, getNumDRAMBanks(systemDesc),
-                                 chooseNumIn0Cores(K / kTileSize), numAvailCores,
-                                 weightDataType, l1Available);
+                                 chooseNumIn0Cores(K / kTileSize),
+                                 numAvailCores, weightDataType, l1Available);
   if (!pOpt) {
     return {};
   }
