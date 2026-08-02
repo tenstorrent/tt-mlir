@@ -22,6 +22,9 @@ struct TTNNGreedyMemoryLayoutPropagationPipelineOptions {
   int64_t maxInputCandidatesPerOperand = 64;
   int64_t maxReshardCandidatesPerType = 4;
   bool enableL1ShardingLayouts = true;
+  bool enableReshardExploration = true;
+  bool prioritizeCumulativeReshardCost = false;
+  int64_t reshardEdgePenaltyBytes = 0;
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
   llvm::StringMap<Conv2dConfigOverrideParams> overrideConv2dConfig;
   llvm::StringMap<Conv3dConfigOverrideParams> overrideConv3dConfig;

@@ -240,6 +240,59 @@ TEST_F(ReshardCandidatesTest, NullTensorLayoutsNoReshardCandidates) {
   }
 }
 
+TEST_F(ReshardCandidatesTest, OptionalReshardExplorationCanBeDisabled) {
+  llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
+  auto layout = createDRAMInterleavedLayout(shape);
+  auto tensorType =
+      mlir::RankedTensorType::get(shape, builder.getBF16Type(), layout);
+
+  createFuncOp({tensorType, tensorType}, {tensorType},
+               "no_optional_reshards");
+  mlir::Value arg0 = func.getBody().front().getArgument(0);
+  mlir::Value arg1 = func.getBody().front().getArgument(1);
+  auto addOp =
+      builder.create<AddOp>(builder.getUnknownLoc(), tensorType, arg0, arg1);
+  auto reluOp = builder.create<ReluOp>(builder.getUnknownLoc(), tensorType,
+                                       addOp.getResult());
+  builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
+                                       reluOp.getResult());
+
+  llvm::DenseMap<mlir::Operation *, std::vector<OpConfig>> legalConfigs;
+  std::vector<OpConfig> interleavedConfigs = {
+      OpConfig(createDRAMInterleavedLayout(shape)),
+      OpConfig(createL1InterleavedLayout(shape))};
+  legalConfigs[addOp.getOperation()] = interleavedConfigs;
+  legalConfigs[reluOp.getOperation()] = interleavedConfigs;
+
+  auto bareType = mlir::RankedTensorType::get(shape, builder.getBF16Type());
+  TensorTypeLayoutsMap tensorLayouts;
+  auto elementType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
+  auto &layoutSlots = tensorLayouts[bareType][elementType];
+  auto &shardedLayouts =
+      layoutSlots[static_cast<size_t>(TensorPageLayout::Tiled)]
+                 [static_cast<size_t>(TensorMemoryLayoutIndex::Sharded)];
+  shardedLayouts.push_back(createL1ShardedLayout(
+      shape, TensorMemoryLayout::HeightSharded, {8, 1}));
+  shardedLayouts.push_back(createL1ShardedLayout(
+      shape, TensorMemoryLayout::BlockSharded, {2, 2}));
+
+  MemoryLayoutPropagation propagation(
+      func, legalConfigs, &tensorLayouts,
+      /*beamWidth=*/8,
+      /*maxInputCandidatesPerOperand=*/64,
+      /*maxReshardCandidatesPerType=*/4,
+      /*observer=*/nullptr,
+      /*enableReshardExploration=*/false);
+  propagation.run();
+
+  for (const auto &[op, candidates] : propagation.getBeamState()) {
+    for (const BeamCandidate &candidate : candidates) {
+      EXPECT_TRUE(candidate.reshardLayouts.empty())
+          << "Optional reshard candidates must be absent when disabled";
+    }
+  }
+}
+
 TEST_F(ReshardCandidatesTest, BeamCandidatesWithTensorLayoutsMoreThanWithout) {
   // With a TensorTypeLayoutsMap, beam search should explore more candidates
   // (reshard candidates from sharded producers create additional combos).

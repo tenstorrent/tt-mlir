@@ -991,6 +991,41 @@ TEST_F(OpModelStrategyTest, ScoreOrderingEquality) {
   EXPECT_FALSE(a < b);
 }
 
+TEST_F(OpModelStrategyTest, CumulativeReshardCostCanOverrideLayoutPreference) {
+  LayoutScore sharded;
+  sharded.coreCount = 64;
+  sharded.isSharded = true;
+  sharded.isL1 = true;
+  sharded.cumulativeReshardCost = 1024;
+  sharded.prioritizeCumulativeReshardCost = true;
+
+  LayoutScore conversionFree;
+  conversionFree.coreCount = 1;
+  conversionFree.isSharded = false;
+  conversionFree.isL1 = false;
+  conversionFree.cumulativeReshardCost = 0;
+  conversionFree.prioritizeCumulativeReshardCost = true;
+
+  EXPECT_TRUE(conversionFree > sharded);
+
+  // The default policy remains categorical and prefers L1 sharding.
+  sharded.prioritizeCumulativeReshardCost = false;
+  conversionFree.prioritizeCumulativeReshardCost = false;
+  EXPECT_TRUE(sharded > conversionFree);
+}
+
+TEST_F(OpModelStrategyTest, CumulativeReshardCostIncludesFixedEdgePenalty) {
+  LayoutScore fewerLargeTransfers;
+  fewerLargeTransfers.prioritizeCumulativeReshardCost = true;
+  fewerLargeTransfers.cumulativeReshardCost = 4096 + 65536;
+
+  LayoutScore manySmallTransfers;
+  manySmallTransfers.prioritizeCumulativeReshardCost = true;
+  manySmallTransfers.cumulativeReshardCost = 8192 + 2 * 65536;
+
+  EXPECT_TRUE(fewerLargeTransfers > manySmallTransfers);
+}
+
 //===----------------------------------------------------------------------===//
 // scoreCandidate tests
 //===----------------------------------------------------------------------===//

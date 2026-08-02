@@ -243,6 +243,24 @@ struct TTIRToTTNNCommonPipelineOptions
                      "layout analysis."),
       llvm::cl::init(64)};
 
+  Option<bool> enableReshardExploration{
+      *this, "enable-reshard-exploration",
+      llvm::cl::desc(
+          "Enable optional reshard candidates in greedy layout propagation."),
+      llvm::cl::init(true)};
+
+  Option<bool> prioritizeCumulativeReshardCost{
+      *this, "prioritize-cumulative-reshard-cost",
+      llvm::cl::desc("Prioritize cumulative conversion cost over categorical "
+                     "layout preferences."),
+      llvm::cl::init(false)};
+
+  Option<int64_t> reshardEdgePenaltyBytes{
+      *this, "reshard-edge-penalty-bytes",
+      llvm::cl::desc("Fixed byte-equivalent launch penalty per conversion "
+                     "edge in cumulative-cost policy."),
+      llvm::cl::init(0)};
+
   ListOption<int64_t> meshShape{
       *this, OptionNames::meshShape,
       llvm::cl::desc("Set the multi-device mesh shape.")};

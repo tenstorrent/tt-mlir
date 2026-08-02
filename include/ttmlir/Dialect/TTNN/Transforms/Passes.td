@@ -868,6 +868,17 @@ def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagat
     Option<"maxReshardCandidatesPerType", "max-reshard-candidates-per-type",
            "int64_t", "4",
            "Maximum reshard candidates per sharding type (block, height, width).">,
+    Option<"enableReshardExploration", "enable-reshard-exploration",
+           "bool", "true",
+           "Enable optional reshard candidate generation. Legality-driven "
+           "conversions remain enabled when their layouts are available.">,
+    Option<"prioritizeCumulativeReshardCost",
+           "prioritize-cumulative-reshard-cost", "bool", "false",
+           "Rank candidates by cumulative conversion cost before categorical "
+           "layout preferences.">,
+    Option<"reshardEdgePenaltyBytes", "reshard-edge-penalty-bytes",
+           "int64_t", "0",
+           "Fixed byte-equivalent launch penalty added to each conversion edge.">,
     Option<"enableDecisionTrace", "enable-decision-trace", "bool", "false",
            "Enable decision trace JSON output.">,
     Option<"decisionTraceDir", "decision-trace-dir", "std::string",
