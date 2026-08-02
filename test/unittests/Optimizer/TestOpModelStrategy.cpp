@@ -976,8 +976,8 @@ TEST_F(OpRuleBookTest,
        MatmulConsumerContractPolicyAvoidsGuaranteedSplitQKVReshard) {
   llvm::SmallVector<int64_t> inputShape = {1, 32, 64};
   auto inputLayout = createDRAMInterleavedLayout(inputShape);
-  auto inputType =
-      RankedTensorType::get(inputShape, builder.getBF16Type(), inputLayout);
+  auto inputType = mlir::RankedTensorType::get(
+      inputShape, builder.getBF16Type(), inputLayout);
   builder.setInsertionPointToStart(&module->getBodyRegion().front());
   auto producer = builder.create<OnesOp>(builder.getUnknownLoc(), inputType,
                                          /*device=*/nullptr,
@@ -985,10 +985,11 @@ TEST_F(OpRuleBookTest,
 
   llvm::SmallVector<int64_t> headShape = {1, 1, 32, 32};
   auto headLayout = createDRAMInterleavedLayout(headShape);
-  auto headType =
-      RankedTensorType::get(headShape, builder.getBF16Type(), headLayout);
+  auto headType = mlir::RankedTensorType::get(
+      headShape, builder.getBF16Type(), headLayout);
   builder.create<SplitQueryKeyValueAndSplitHeadsOp>(
-      builder.getUnknownLoc(), TypeRange{headType, headType, headType},
+      builder.getUnknownLoc(),
+      mlir::TypeRange{headType, headType, headType},
       producer.getResult(),
       /*kvInputTensor=*/Value(), builder.getUI32IntegerAttr(1),
       /*numKvHeads=*/IntegerAttr(), builder.getBoolAttr(false));
@@ -1007,8 +1008,9 @@ TEST_F(OpRuleBookTest,
            config.outputLayout.hasShardedTensorMemoryLayout();
   }));
 
-  module->setAttr(utils::g_AvoidGuaranteedOutputReshardsAttrName,
-                  builder.getBoolAttr(true));
+  module->getOperation()->setAttr(
+      utils::g_AvoidGuaranteedOutputReshardsAttrName,
+      builder.getBoolAttr(true));
   OutputHints enabled = rules.getOutputHints(producer.getOperation(), configs);
   EXPECT_TRUE(llvm::none_of(enabled.hints, [](const OpConfig &config) {
     return config.outputLayout &&
