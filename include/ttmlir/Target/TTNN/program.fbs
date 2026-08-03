@@ -116,6 +116,7 @@ union OpType {
   PagedScaledDotProductAttentionDecodeOp,
   PagedUpdateCacheOp,
   PermuteOp,
+  PixelUnshuffleOp,
   PointToPointOp,
   Pool2dOp,
   PrepareConv2dBiasOp,
