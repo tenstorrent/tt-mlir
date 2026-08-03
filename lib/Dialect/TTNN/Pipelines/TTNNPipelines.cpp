@@ -75,6 +75,15 @@ void createTTNNPipelineTTIRPasses(
   // Propagate per-arg weight_dtype annotations through TM ops to consumers.
   pm.addPass(mlir::tt::ttir::createTTIRPropagateWeightDtype());
 
+  // Spatial row-group packing for narrow-channel 1x1 pointwise conv2d where
+  // IC is coprime to TILE_WIDTH=32 (e.g. IC=3 YUV adapter). Eliminates the
+  // permute→conv2d→permute pattern by replacing it with reshape→linear→reshape.
+  pm.addPass(mlir::tt::ttir::createTTIRSpatialRowGroupPackingOpt());
+  // Spatial packing for narrow-channel depthwise conv2d (e.g. UV AveragePool
+  // IC=2, K=16): eliminates K=2→32 TILE padding waste (93.8%) on NCHW→NHWC
+  // permute. Packed IC=TILE_WIDTH=32 → zero waste, permute writes to L1.
+  pm.addPass(mlir::tt::ttir::createTTIRDepthwiseConvSpatialPackingOpt());
+
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
 
@@ -116,6 +125,8 @@ void createTTNNPipelineAnalysisPasses(
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
 
+    BFPDtype conv2dWeightDtype = options.experimentalConv2dWeightDtype;
+
     // Greedy optimizer: memory layout propagation + L1 spill management.
     TTNNGreedyMemoryLayoutPropagationPipelineOptions propagationOptions;
     propagationOptions.maxLegalLayouts = options.maxLegalLayouts;
@@ -128,6 +139,8 @@ void createTTNNPipelineAnalysisPasses(
     propagationOptions.enableDecisionTrace = options.enableDecisionTrace;
     propagationOptions.decisionTraceDir = options.decisionTraceDir;
     propagationOptions.enableCompileTimeStats = options.enableCompileTimeStats;
+    propagationOptions.enableConv2dSearchExtensions =
+        options.enableConv2dSearchExtensions;
 
     TTNNGreedyL1SpillManagementOptions spillOptions;
     spillOptions.enableDecisionTrace = options.enableDecisionTrace;
@@ -136,7 +149,7 @@ void createTTNNPipelineAnalysisPasses(
     bool memLayoutEnabled = options.memoryLayoutAnalysisEnabled;
     pm.addPass(createDevicePassesWrapper(
         [propagationOptions, spillOptions, validationOptions,
-         memLayoutEnabled](OpPassManager &innerPm) {
+         memLayoutEnabled, conv2dWeightDtype](OpPassManager &innerPm) {
           innerPm.addPass(
               mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
           innerPm.addPass(mlir::tt::ttnn::createTTNNDeduceMoEComputeLayouts());
@@ -151,6 +164,16 @@ void createTTNNPipelineAnalysisPasses(
           innerPm.addPass(
               mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
                   validationOptions));
+          // Post-analysis weight dtype conversion: runs after config
+          // selection so the optimizer always uses BF16 L1 estimates.
+          // Only weight DRAM storage is compressed; output stays BF16.
+          if (conv2dWeightDtype != BFPDtype::None) {
+            TTNNConv2dWeightDtypeConversionOptions conv2dDtypeOpts;
+            conv2dDtypeOpts.targetDtype = conv2dWeightDtype;
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNConv2dWeightDtypeConversion(
+                    conv2dDtypeOpts));
+          }
           innerPm.addPass(
               mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
         },
@@ -300,6 +323,14 @@ void createTTNNPipelineLayoutDecompositionPass(
   pm.addPass(createTTNNGridSampleLayoutOptimizer());
 
   pm.addPass(createTTNNDecomposeLayouts());
+
+  // Move to_layout(TILE) to after the spatial packing chain — always runs.
+  // Handles both NHWC (reshape→permute→reshape→linear) and NCHW (reshape→linear)
+  // paths. For NCHW path: also fuses the bias AddOp into ttnn.linear.
+  pm.addPass(createTTNNSpatialPackActivationRowMajorOpt());
+
+
+
 }
 
 void createTTNNPipelineDeallocPass(

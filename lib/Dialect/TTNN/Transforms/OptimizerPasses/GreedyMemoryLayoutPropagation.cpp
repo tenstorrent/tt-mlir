@@ -71,6 +71,7 @@ public:
     overrideOutputLayout = std::move(opts.overrideOutputLayout);
     overrideConv2dConfig = std::move(opts.overrideConv2dConfig);
     overrideConv3dConfig = std::move(opts.overrideConv3dConfig);
+    enableConv2dSearchExtensions = opts.enableConv2dSearchExtensions;
   }
 
   void runOnOperation() final {
@@ -164,7 +165,7 @@ public:
             getChildAnalysis<LegalOpConfigAnalysis>(op);
         legalOpConfigAnalysis.init(LegalOpConfigAnalysisInput(
             legalOpLayoutAnalysis.getResult(), &overrideConv2dConfig,
-            &overrideConv3dConfig));
+            &overrideConv3dConfig, enableConv2dSearchExtensions));
         legalConfigs[op] = legalOpConfigAnalysis.getResult();
       });
     });
@@ -240,6 +241,11 @@ protected:
           *this, OptionNames::overrideConv3dConfig,
           ::llvm::cl::desc("Override Conv3d configuration for specific ops."),
           ::llvm::cl::init(llvm::StringMap<Conv3dConfigOverrideParams>())};
+  ::mlir::Pass::Option<bool> enableConv2dSearchExtensions{
+      *this, "enable-conv2d-search-extensions",
+      ::llvm::cl::desc("Enable extended Conv2d config search space "
+                       "(actBlockH 384, double-buffer, reshardIfNotOptimal)."),
+      ::llvm::cl::init(false)};
 };
 
 // Pipeline create function.

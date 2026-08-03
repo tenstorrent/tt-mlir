@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Conv2dConfigParams.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Support/Logger.h"
 
 namespace mlir::tt::ttnn {
@@ -64,6 +65,12 @@ void Conv2dRuleBook::applyOpSpecificAttrs(
       convOp.setComputeConfigAttr(
           conv2dAttrs.deviceComputeKernelConfig.value());
     }
+    // Note: outputDtype (if selected) is applied by the outer applyOpConfig
+    // loop via TTNNDtypeOpInterface::setDtypeAttr and result.setType(), using
+    // candidate.outputLayouts[0] which is the metal-backend-validated layout
+    // with the correct shard shape. Do NOT set/rebuild the result type here;
+    // doing so recomputes shard shape with a simplified formula and creates a
+    // mismatch with the memory config shard spec in downstream to_memory_config ops.
   };
 
   if (conv2d) {
@@ -85,10 +92,23 @@ static uint32_t getActBlockHOverride(const BeamCandidate &c) {
   return UINT32_MAX;
 }
 
+static bool getBothDoubleBuffersEnabled(const BeamCandidate &c) {
+  if (auto *conv2d =
+          std::get_if<Conv2dAttrs>(&c.configHint.opSpecificAttrs)) {
+    if (conv2d->conv2dConfig.has_value() && conv2d->conv2dConfig.value()) {
+      auto cfg = conv2d->conv2dConfig.value();
+      auto weightsDB = cfg.getEnableWeightsDoubleBuffer();
+      auto actDB = cfg.getEnableActDoubleBuffer();
+      return weightsDB && weightsDB.getValue() && actDB && actDB.getValue();
+    }
+  }
+  return false;
+}
+
 bool Conv2dRuleBook::preferCandidate(Operation *op, const BeamCandidate &a,
                                      const BeamCandidate &b) const {
   // Prefer act_block_h_override=0 (auto, best), then higher over lower.
-  // Ordering: 0 > 64 > 32 > ...
+  // Ordering: 0 > 384 > 64 > 32 > ...
   uint32_t abhA = getActBlockHOverride(a);
   uint32_t abhB = getActBlockHOverride(b);
   if (abhA != abhB) {
@@ -99,6 +119,12 @@ bool Conv2dRuleBook::preferCandidate(Operation *op, const BeamCandidate &a,
       return false;
     }
     return abhA > abhB;
+  }
+  // Among same act_block_h, prefer both double-buffers enabled.
+  bool dbA = getBothDoubleBuffersEnabled(a);
+  bool dbB = getBothDoubleBuffersEnabled(b);
+  if (dbA != dbB) {
+    return dbA;
   }
   return OpRuleBook::preferCandidate(op, a, b);
 }
@@ -126,10 +152,59 @@ bool Conv2dRuleBook::isValidOutputHintForInputs(
   return true;
 }
 
+// Compute the activation tensor size in bytes when stored as TILE-format bf16
+// and height-sharded across all cores. Used to decide whether L1Full is safe.
+static uint64_t computeActBytesPerCore(Conv2dOp op) {
+  static constexpr uint64_t kTileWidth     = 32;
+  static constexpr uint64_t kBytesPerElem  = 2;  // bf16
+  static constexpr uint64_t kDefaultCores  = 64;  // 8×8 Wormhole grid
+
+  uint64_t inH     = static_cast<uint64_t>(op.getInputHeight());
+  uint64_t inW     = static_cast<uint64_t>(op.getInputWidth());
+  uint64_t inC     = static_cast<uint64_t>(op.getInChannels());
+  uint64_t cPadded = ((inC + kTileWidth - 1) / kTileWidth) * kTileWidth;
+
+  uint64_t totalBytes = inH * inW * cPadded * kBytesPerElem;
+  return totalBytes / kDefaultCores;
+}
+
+// Set the conv2d_slice_config attribute on every Conv2dOp before the
+// OperationValidationAndFallback pass runs.
+//
+// Default: L1Full — the optimizer attempts to fit the entire activation in L1
+// (best performance when it fits).
+//
+// Guard: switch to DramHeight when the activation, if height-sharded across
+// all 64 cores in TILE-format bf16, would exceed the per-core usable L1.
+// Without this guard the mock-device validation in
+// OperationValidationAndFallback may incorrectly mark L1Full as valid, only
+// for the real device to TT_FATAL at runtime.
+//
+// Example that triggers the guard:
+//   UV downsampling depthwise conv2d: in_channels=2, H=1280, W=2304
+//   Activation in TILE: 1280 × 2304 × 32 × 2 B = 188 MB total
+//   Per core (64):      2,949,120 B  >  1,329,888 B (usable L1)  → OOM
 void applyConvSliceConfig(ModuleOp moduleOp) {
   moduleOp->walk([](Conv2dOp conv2dOp) {
-    conv2dOp.setConv2dSliceConfigAttr(Conv2dSliceConfigAttr::get(
-        conv2dOp.getContext(), Conv2dSliceType::L1Full, 0));
+    Conv2dSliceType sliceType = Conv2dSliceType::L1Full;
+
+    if (auto chipDesc = ttcore::getOpChipDescAttr(conv2dOp)) {
+      uint64_t l1PerCore    = chipDesc.getUsableL1Size();
+      uint64_t perCoreBytes = computeActBytesPerCore(conv2dOp);
+
+      if (perCoreBytes > l1PerCore) {
+        sliceType = Conv2dSliceType::DramHeight;
+        TTMLIR_DEBUG(
+            ttmlir::LogComponent::GreedyOptimizer,
+            "applyConvSliceConfig: Conv2d (H={}, W={}, C={}) activation "
+            "{}B/core exceeds L1 {}B — using DramHeight",
+            conv2dOp.getInputHeight(), conv2dOp.getInputWidth(),
+            conv2dOp.getInChannels(), perCoreBytes, l1PerCore);
+      }
+    }
+
+    conv2dOp.setConv2dSliceConfigAttr(
+        Conv2dSliceConfigAttr::get(conv2dOp.getContext(), sliceType, 0));
   });
 }
 
