@@ -545,4 +545,115 @@ def TTIRCPUBooleanNarrowing : Pass<"ttir-cpu-boolean-narrowing", "::mlir::Module
   }];
 }
 
+def TTIRSpatialRowGroupPackingOpt : Pass<"ttir-spatial-row-group-packing-opt", "::mlir::ModuleOp"> {
+  let summary = "Spatial row-group packing for narrow-channel 1x1 pointwise conv2d: "
+                "eliminates permute→conv2d→permute by grouping K input rows into "
+                "super-channels and replacing the conv2d with a ttir.linear.";
+  let description = [{
+    This pass runs after TTIRFusing which folds two consecutive transpose ops
+    into a single permute.  At the point this pass runs, the pattern it matches
+    in TTIR is:
+
+      Before:
+        permute(%input, {0,2,3,1})                [N,IC,H,W] → [N,H,W,IC]
+        conv2d(%0, %weight, %bias) {channel_last}  kernel=1x1, stride=1, pad=0, groups=1
+        permute(%1, {0,3,1,2})                    [N,H,W,OC] → [N,OC,H,W]
+
+    Guard conditions:
+      kernel=1x1, stride=1x1, padding=0, groups=1,
+      IC < TILE_WIDTH=32, gcd(IC, TILE_WIDTH)==1 (IC coprime to 32, e.g. IC=3),
+      H % K == 0   where K = TILE_WIDTH / gcd(IC, TILE_WIDTH) = 32.
+
+    The coprime guard ensures IC*K == TILE_WIDTH, so the packed activation fills
+    a tile column with zero padding waste.  Partial-K cases (gcd(IC,32) > 1,
+    e.g. IC=24 → K=4) are handled by TTIRPointwiseConv2dPartialPackingOpt.
+
+    The key idea is to group K adjacent spatial rows into a single super-channel
+    via a free contiguous reshape, making the channel-last conv2d equivalent to a
+    plain matrix multiply (ttir.linear) with no permutes needed at runtime.
+
+      After:
+        ── Activation packing (runtime) ──────────────────────────────────────
+        reshape(%input, [N, 1, IC*K, H/K*W])
+          Groups K consecutive rows into one super-channel. Free contiguous view
+          of the original tensor — no data movement, no permute.
+
+        ── Weight packing (9 ops on constant parameter, auto const-eval'd) ────
+        broadcast(%weight, [OC,IC,K,K])
+          Expands [OC,IC,1,1] to [OC,IC,K,K].
+        arange([1,1,K,K], dim=2)  → row index grid  val[0,0,k,*] = k
+        arange([1,1,K,K], dim=3)  → col index grid  val[0,0,*,k] = k
+        eq(row_grid, col_grid)    → [1,1,K,K] bool, True only on the diagonal
+        typecast(bool → bf16)     → I_K [1,1,K,K], 1.0 on diagonal, 0.0 off.
+                                    No embedded constant tensor — built from arange+eq.
+        multiply(w_bc, I_K)       → [OC,IC,K,K], zeroes off-diagonal elements.
+        permute([0,2,1,3])        → [OC,K,IC,K]
+                                    Reorders to produce W^T layout:
+                                    result[oc,k,ic,k'] = weight[oc,ic] if k==k'.
+        reshape([OC,K,IC,K]       → [OC*K, IC*K])
+        reshape([OC*K, IC*K]      → [1, 1, OC*K, IC*K])
+                                    Transposed block-diagonal weight, A-operand of linear.
+
+        ── Bias packing (3 ops on constant parameter, auto const-eval'd) ──────
+        reshape(%bias, [OC, 1])
+          Promotes to rank-2 to avoid a tt-metal rank-1 repeat_interleave bug
+          where normalized_dim==input_rank-1 triggers an internal transpose.
+        repeat_interleave([OC,1], K, dim=0)  → [OC*K, 1]
+          Each bias value repeated K times, one per packed row group.
+        reshape([OC*K, 1]  → [1, 1, OC*K, 1])
+          Column bias that broadcasts over the spatial dimension P in the linear.
+
+        ── Linear + output unpack ─────────────────────────────────────────────
+        linear(%w_packed[1,1,OC*K,IC*K], %act[N,1,IC*K,H/K*W], %b_packed)
+          → [N, 1, OC*K, H/K*W].
+          w_packed is operand A (not B).  TTNNWeightDtypeConversion converts
+          operand B that traces to constant args; placing the block-diagonal
+          weight as operand A avoids unintended dtype conversion and preserves
+          the packing structure.
+        reshape([N, 1, OC*K, H/K*W]  → [N, OC, H, W])
+          Free contiguous view unpack.  TTNNSpatialPackActivationRowMajorOpt
+          (TTNN level) inserts an untilize (to_layout ROW_MAJOR) before this
+          reshape so it remains a zero-copy view.
+
+    Weight and bias ops trace to ttcore.argument_type=parameter tensors, so
+    ConstEvalHoistTransform (runs after all TTIR passes) automatically lifts
+    them into const_eval functions — computed once on the host and cached via
+    ttcore.load_cached.  No manual const_eval wiring is required.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
+def TTIRDepthwiseConvSpatialPackingOpt : Pass<"ttir-depthwise-conv-spatial-packing-opt", "::mlir::ModuleOp"> {
+  let summary = "Spatial row-group packing for depthwise conv2d with narrow channel count.";
+  let description = [{
+    Matches the depthwise conv2d pattern (groups == IC, IC < TILE_WIDTH,
+    TILE_WIDTH % IC == 0) after CanonicalizerPass merges the transpose pairs
+    into single permutes:
+
+    Before:
+      permute({0,2,3,1})  [N, IC,   H,  W]  → [N, H,   W,  IC]  NCHW→NHWC
+      conv2d  {channel_last, groups=IC, kernel=[kH,kW], stride=[sH,sW]}
+      permute({0,3,1,2})  [N, H', W', IC]   → [N, IC, H', W']   NHWC→NCHW
+
+    When IC < TILE_WIDTH and TILE_WIDTH % IC == 0, the NCHW→NHWC permute
+    writes (TILE_WIDTH/IC - 1)/TILE_WIDTH of each tile as padding, causing
+    significant DRAM bandwidth waste.
+
+    After (spatial row-group packing, K = TILE_WIDTH / IC):
+      reshape  [N, IC, H, W]     → [N, IC*K, H/K, W]     free view: K rows packed into 1 channel
+      permute({0,2,3,1})         → [N, H/K, W, IC*K]      IC*K == TILE_WIDTH: zero padding waste
+      reshape  → to_layout(TILE) → conv2d(groups=IC*K)    → L1Full
+      permute({0,3,1,2})         → reshape [N, IC, H', W'] unpack to original channel count
+
+    Weight packing: repeat_interleave(K, dim=0) on [IC,1,kH,kW] → [IC*K,1,kH,kW].
+    This is a compile-time constant transformation, hoisted by ConstEvalHoistTransform.
+
+    The packed permute writes IC*K == TILE_WIDTH channels — no tile padding, so
+    the entire permute output fits in L1 HEIGHT_SHARDED rather than DRAM.
+    Activation packing is a free reshape view; all extra memory cost is in the
+    weight constant expanded at compile time.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 #endif
