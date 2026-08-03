@@ -106,13 +106,23 @@ static int insertLoadOps(affine::AffineForOp outerFor, RewriterBase &rewriter) {
           prevOp = prevOp->getPrevNode();
         }
 
-        if (!loadIsOk) {
+        // Only re-materialize *loads* next to their use. Cloning anything else
+        // duplicates real computation, and for a multi-result compute op (e.g.
+        // d2m.tile_argmax, which yields both the reduced value and the reduced
+        // index) it is doubly wrong: the op gets cloned once per operand use
+        // and every clone's uses are rewired to result 0, so the second
+        // result's consumer silently reads the first result. Worse, these SFPU
+        // ops reduce in place, so a duplicated call re-reduces its own output.
+        if (!loadIsOk && loadOpRequired &&
+            isa<affine::AffineLoadOp>(loadOpRequired)) {
           rewriter.setInsertionPoint(&op);
-          Operation *clonedOp = rewriter.clone(*operand.getDefiningOp());
+          Operation *clonedOp = rewriter.clone(*loadOpRequired);
 
           // Rewire the SSA result: replace the operand with the cloned op's
-          // result
-          Value clonedResult = clonedOp->getResult(0); // Assuming single result
+          // matching result. Loads are single-result, but map by result number
+          // rather than assuming 0 so this stays correct if that ever changes.
+          Value clonedResult =
+              clonedOp->getResult(cast<OpResult>(operand).getResultNumber());
           op.replaceUsesOfWith(operand, clonedResult);
 
           ++numInserted;
@@ -129,19 +139,68 @@ static bool fissionAtStore(affine::AffineForOp outerFor,
   // Find the innermost loop to search for triplets.
   affine::AffineForOp innermost = findInnermostLoop(outerFor);
 
+  SmallVector<Operation *> bodyOps;
+  for (Operation &op : *innermost.getBody()) {
+    bodyOps.push_back(&op);
+  }
+
   int storeIdx = -1;
   affine::AffineStoreOp store = nullptr;
-  for (Operation &op : *innermost.getBody()) {
-    store = dyn_cast<affine::AffineStoreOp>(&op);
-    ++storeIdx;
-
-    if (store) {
+  for (auto [idx, op] : llvm::enumerate(bodyOps)) {
+    if (auto candidate = dyn_cast<affine::AffineStoreOp>(op)) {
+      store = candidate;
+      storeIdx = static_cast<int>(idx);
       break;
     }
   }
 
   if (!store || storeIdx < 0) {
     return false;
+  }
+
+  // Do not split between the result-stores of a single multi-result compute op.
+  //
+  // The partitioning below keeps, in the cloned nest, every op before the split
+  // that still has a user after it. A multi-result op (e.g. d2m.tile_argmax,
+  // which yields both the reduced value and the reduced index) stores one
+  // result before the split and another after it, so it satisfies that rule and
+  // is retained in BOTH halves -- i.e. the op gets duplicated. These SFPU ops
+  // reduce in place, so a duplicated call re-reduces its own output and the
+  // result is garbage.
+  //
+  // Advance the boundary past every store that feeds off the same multi-result
+  // op, so all results of one op stay in the same half.
+  //
+  // The stored value is often not the multi-result op itself but a
+  // single-result forwarding op applied to one of its results (e.g.
+  // `dst_reinterpret_cast(out_values)`), so walk back through single-result,
+  // single-operand producers to find the real source.
+  auto multiResultSourceOf = [](Value value) -> Operation * {
+    Operation *def = value.getDefiningOp();
+    while (def && def->getNumResults() == 1 && def->getNumOperands() == 1) {
+      Operation *next = def->getOperand(0).getDefiningOp();
+      if (!next) {
+        break;
+      }
+      def = next;
+    }
+    return (def && def->getNumResults() > 1) ? def : nullptr;
+  };
+
+  if (Operation *storedFrom = multiResultSourceOf(store.getValueToStore())) {
+    for (auto [idx, op] : llvm::enumerate(bodyOps)) {
+      if (static_cast<int>(idx) <= storeIdx) {
+        continue;
+      }
+      auto laterStore = dyn_cast<affine::AffineStoreOp>(op);
+      if (!laterStore) {
+        continue;
+      }
+      if (multiResultSourceOf(laterStore.getValueToStore()) == storedFrom) {
+        store = laterStore;
+        storeIdx = static_cast<int>(idx);
+      }
+    }
   }
 
   // Avoids creating an extra loop nest during the last call to this function,
