@@ -32,6 +32,17 @@ if (TTMLIR_ENABLE_OPMODEL)
     )
 endif()
 
+add_mlir_unittest(PipelineOptionsResolutionTests
+    TestPipelineOptionsResolution.cpp
+    PARTIAL_SOURCES_INTENDED
+)
+
+target_link_libraries(PipelineOptionsResolutionTests
+    PRIVATE
+    MLIRTTNNDialect
+    MLIRTTNNPipelines
+)
+
 add_mlir_unittest(L1SpillManagementTests
     TestL1SpillManagement.cpp
     PARTIAL_SOURCES_INTENDED
