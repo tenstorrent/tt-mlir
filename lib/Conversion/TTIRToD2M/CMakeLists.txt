@@ -7,6 +7,7 @@ add_mlir_conversion_library(TTMLIRTTIRToD2M
   LINK_LIBS PUBLIC
   MLIRTTCoreDialect
   MLIRTTIRDialect
+  MLIRD2MAnalysis
   MLIRD2MDialect
   MLIRIR
   MLIRPass

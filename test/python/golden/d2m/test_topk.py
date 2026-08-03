@@ -137,6 +137,9 @@ MULTI_CORE_TOPK_SHAPES = [
     pytest.param((32, 88064), 64, -1, id="32x88064_k64_dim1"),
     pytest.param((8192, 32), 48, 0, id="8192x32_k48_dim0"),
     pytest.param((88064, 32), 64, 0, id="88064x32_k64_dim0"),
+    # data parallel
+    pytest.param((32, 8192), 16, 0, id="32x8192_k16_dim0"),
+    pytest.param((8192, 32), 16, -1, id="8192x32_k16_dim1"),
 ]
 
 

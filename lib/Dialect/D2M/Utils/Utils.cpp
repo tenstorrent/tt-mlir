@@ -16,6 +16,7 @@
 
 #include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/AffineExpr.h"
 
@@ -144,6 +145,60 @@ ShapedType reblockShapedType(ShapedType oldType,
                          oldMemRefType.getMemorySpace());
 }
 
+ttcore::MetalLayoutAttr
+rebuildLayoutForDeviceShape(ttcore::MetalLayoutAttr layout,
+                            ArrayRef<int64_t> deviceShape) {
+  TT_assert(deviceShape.size() % 2 == 0u);
+  const std::size_t physicalRank = deviceShape.size() / 2;
+  const int64_t tileDim = ttcore::TileType::getDefaultShape()[0];
+
+  SmallVector<int64_t> logicalShape;
+  logicalShape.reserve(physicalRank);
+  for (std::size_t i = 0; i < physicalRank; ++i) {
+    logicalShape.push_back(deviceShape[i] * deviceShape[i + physicalRank] *
+                           tileDim);
+  }
+  return ttcore::MetalLayoutAttr::get(
+      layout.getContext(), logicalShape, layout.getDimAlignments(),
+      layout.getCollapsedIntervals(), layout.getMemorySpace(),
+      layout.getMemoryLayout());
+}
+
+ttcore::MetalLayoutAttr
+buildShardedTileLayout(MLIRContext *ctx, ArrayRef<int64_t> logicalShape,
+                       ArrayRef<int64_t> tilesPerDim,
+                       ttcore::MemorySpace memorySpace) {
+  TT_assert(tilesPerDim.size() == logicalShape.size());
+  const int64_t tileDim = ttcore::TileType::getDefaultShape()[0];
+
+  SmallVector<int64_t> dimAlignments;
+  dimAlignments.reserve(tilesPerDim.size());
+  for (int64_t tiles : tilesPerDim) {
+    dimAlignments.push_back(tiles * tileDim);
+  }
+  return ttcore::MetalLayoutAttr::get(
+      ctx, logicalShape, memorySpace, ttcore::TensorMemoryLayout::Sharded,
+      ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
+          ctx, logicalShape.size()),
+      dimAlignments);
+}
+
+bool deviceShapeNeedsPadding(ArrayRef<int64_t> deviceShape,
+                             ArrayRef<int64_t> logicalShape) {
+  TT_assert(deviceShape.size() == 2 * logicalShape.size());
+  const std::size_t physicalRank = logicalShape.size();
+  const int64_t tileDim = ttcore::TileType::getDefaultShape()[0];
+
+  for (std::size_t i = 0; i < physicalRank; ++i) {
+    int64_t allocatedElems =
+        deviceShape[i] * deviceShape[i + physicalRank] * tileDim;
+    if (allocatedElems > logicalShape[i]) {
+      return true;
+    }
+  }
+  return false;
+}
+
 Type cloneWithShardShape(Value referenceOperand, Type typeToRetype) {
   auto operandShapedType =
       mlir::dyn_cast<ShapedType>(referenceOperand.getType());
@@ -247,6 +302,48 @@ SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
 
   TT_assert(indices.size() == indexingMap.getNumResults());
   return indices;
+}
+
+SmallVector<Value> buildCoreIndices(OpBuilder &builder, Location loc,
+                                    std::size_t gridRank) {
+  SmallVector<Value> indices;
+  indices.reserve(gridRank);
+  for (std::size_t i = 0; i < gridRank; ++i) {
+    indices.push_back(
+        builder.create<CoreIndexOp>(loc, static_cast<int64_t>(i)));
+  }
+  return indices;
+}
+
+void makeExplicitDatamovementForm(OpBuilder &builder, GenericOp generic) {
+  generic.setBlockFactorsAttr(builder.getI64ArrayAttr({}));
+  generic.setIndexingMapsAttr(builder.getAffineMapArrayAttr({}));
+  generic.setIteratorTypesAttr(builder.getArrayAttr({}));
+}
+
+linalg::GenericOp emitLeadingTileCopy(OpBuilder &builder, Location loc,
+                                      Value input, Value output,
+                                      std::optional<std::size_t> shardRedDim) {
+  MLIRContext *ctx = builder.getContext();
+  auto inShardType = cast<RankedTensorType>(input.getType());
+  std::size_t shardRank = cast<RankedTensorType>(output.getType()).getRank();
+  SmallVector<AffineExpr> inExprs;
+  for (std::size_t i = 0; i < shardRank; ++i) {
+    AffineExpr idx = builder.getAffineDimExpr(i);
+    inExprs.push_back(i == shardRedDim ? idx % inShardType.getShape()[i] : idx);
+  }
+  AffineMap shardInMap = AffineMap::get(shardRank, 0, inExprs, ctx);
+  AffineMap shardIdentity = builder.getMultiDimIdentityMap(shardRank);
+  SmallVector<mlir::utils::IteratorType> linalgIters(
+      shardRank, mlir::utils::IteratorType::parallel);
+  return builder.create<linalg::GenericOp>(
+      loc, output.getType(), input, output,
+      SmallVector<AffineMap>{shardInMap, shardIdentity}, linalgIters,
+      [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
+        Value copied =
+            b.create<TileTypecastOp>(bodyLoc, args[1].getType(), args[0]);
+        b.create<linalg::YieldOp>(bodyLoc, copied);
+      });
 }
 
 static llvm::SmallVector<int64_t>

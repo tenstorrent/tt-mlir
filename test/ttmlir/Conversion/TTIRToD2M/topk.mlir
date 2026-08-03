@@ -1,6 +1,15 @@
 // RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-materialize-view-returns -o %t %s
 // RUN: FileCheck %s --input-file=%t
+// RUN: FileCheck %s --input-file=%t --check-prefix=UNPLACED
 // RUN: ttmlir-opt --ttir-to-ttmetal-pipeline -o %t.ttmetal %s
+
+// Grids are emitted unfolded; d2m-grid-selection maps them onto physical cores.
+// The scan starts at the first function so it skips the ttcore.device
+// attribute, whose workerGrid always carries the device's own fold maps.
+// UNPLACED-LABEL: func.func @topk_dim1_k16
+// UNPLACED-NOT: virt_to_physical_map
+// UNPLACED-NOT: physical_to_virt_map
+// UNPLACED-NOT: d2m.skip_grid_selection
 
 module {
 
@@ -55,14 +64,15 @@ module {
   // ---- dim=0, k<=32 ----
 
   // 2D topk along dim 0 with k=16 on a 64x32 input (2 tiles tall).
-  // The value input needs no pre-transpose for dim=0, but the index buffer is
-  // built row-major on a shape-swapped [wt, ht] buffer and full-transposed
-  // (grid + tile) back to [ht, wt], so a tile_transpose DOES appear (on the
-  // index buffer, before topk_block). Extract uses tile_typecast.
+  // Nothing is transposed for dim=0: the value input already reduces down tile
+  // rows, and the index buffer is built inside the topk kernel rather than by
+  // an upstream arange that would need reorienting. Extract uses tile_typecast.
   // CHECK-LABEL: func @topk_dim0_k16
   func.func @topk_dim0_k16(%arg0: tensor<64x32xf32>) -> (tensor<16x32xf32>, tensor<16x32xsi32>) {
-    // The index buffer's full-transpose emits a tile_transpose before topk.
-    // CHECK: d2m.tile_transpose
+    // No index buffer is materialized upstream, so nothing is transposed and
+    // no arange runs before topk_block.
+    // CHECK-NOT: d2m.tile_transpose
+    // CHECK-NOT: d2m.arange_block
 
     // The TopK generic op contains topk_block.
     // CHECK: d2m.generic
@@ -104,12 +114,12 @@ module {
     return %values, %indices : tensor<32x64xf32>, tensor<32x64xsi32>
   }
 
-  // k=64 along dim=0 uses tile_typecast for extract. The index buffer is
-  // built row-major + full-transposed, so a tile_transpose appears before topk.
+  // k=64 along dim=0 uses tile_typecast for extract, and needs no transpose
+  // anywhere: the index buffer is built in-kernel.
   // CHECK-LABEL: func @topk_dim0_k64
   func.func @topk_dim0_k64(%arg0: tensor<256x32xf32>) -> (tensor<64x32xf32>, tensor<64x32xsi32>) {
-    // The index buffer's full-transpose emits a tile_transpose before topk.
-    // CHECK: d2m.tile_transpose
+    // CHECK-NOT: d2m.tile_transpose
+    // CHECK-NOT: d2m.arange_block
     // CHECK: d2m.generic
     // CHECK: d2m.topk_block
     // CHECK-SAME: dim = 0
@@ -132,11 +142,16 @@ module {
     // The input layout is 1x2 tiles of f32.
     // CHECK: d2m.to_layout
     // CHECK-SAME: tensor<1x1x1x2x!ttcore.tile<32x32, f32>
+    // The pre-transpose buffer is 1x2 tiles of f32.
+    // CHECK: d2m.empty() : tensor<1x1x1x2x!ttcore.tile<32x32, f32>
+    // The index input is a single si32 scratch tile per core: the kernel
+    // derives the whole index buffer from it.
+    // CHECK: d2m.empty() : tensor<1x1x1x1x!ttcore.tile<32x32, si32>
     // The TopK values output is 1x2 tiles (full reduction shape before extract).
     // CHECK: d2m.empty() : tensor<1x1x1x2x!ttcore.tile<32x32, f32>
-    // The TopK indices output is 1x2 tiles of f32 (index buffer carried as
-    // fp32; typecast to the si32 user output happens after extract).
-    // CHECK: d2m.empty() : tensor<1x1x1x2x!ttcore.tile<32x32, f32>
+    // The TopK indices output is 1x2 si32 tiles (typecast to the user output
+    // happens after extract).
+    // CHECK: d2m.empty() : tensor<1x1x1x2x!ttcore.tile<32x32, si32>
     %values, %indices = "ttir.topk"(%arg0) <{k = 16 : i32, dim = -1 : i32, largest = true, sorted = false}> : (tensor<32x64xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>)
     return %values, %indices : tensor<32x16xf32>, tensor<32x16xsi32>
   }
@@ -146,10 +161,13 @@ module {
   func.func @topk_dim0_tile_shapes(%arg0: tensor<64x32xf32>) -> (tensor<16x32xf32>, tensor<16x32xsi32>) {
     // CHECK: d2m.to_layout
     // CHECK-SAME: tensor<1x1x2x1x!ttcore.tile<32x32, f32>
+    // The index input is a single si32 scratch tile per core.
+    // CHECK: d2m.empty() : tensor<1x1x1x1x!ttcore.tile<32x32, si32>
+    // Values keep the full 2x1 reduction shape ...
     // CHECK: d2m.empty() : tensor<1x1x2x1x!ttcore.tile<32x32, f32>
-    // Index buffer is carried as fp32 (typecast to si32 user output after
-    // extract).
-    // CHECK: d2m.empty() : tensor<1x1x2x1x!ttcore.tile<32x32, f32>
+    // ... and the indices ride along as si32 (typecast to the user output
+    // after extract).
+    // CHECK: d2m.empty() : tensor<1x1x2x1x!ttcore.tile<32x32, si32>
     %values, %indices = "ttir.topk"(%arg0) <{k = 16 : i32, dim = 0 : i32, largest = true, sorted = false}> : (tensor<64x32xf32>) -> (tensor<16x32xf32>, tensor<16x32xsi32>)
     return %values, %indices : tensor<16x32xf32>, tensor<16x32xsi32>
   }
@@ -204,14 +222,14 @@ module {
   }
 
   // dim=0 multi-core: 512x128, k=16. Rows=512 (16 reduction tiles), cols=128
-  // (4 non-target tiles) -> multi-core band split. Exercises the row-major
-  // arange + full-transpose (grid + tile) index construction under a
-  // gridColsx1 band grid.
+  // (4 non-target tiles) -> multi-core band split. Each band core derives its
+  // own index slice from its grid coordinate, so no index buffer is built or
+  // moved across cores.
   // CHECK-LABEL: func @topk_dim0_multicore
   func.func @topk_dim0_multicore(%arg0: tensor<512x128xf32>) -> (tensor<16x128xf32>, tensor<16x128xsi32>) {
-    // The index buffer's full-transpose emits a tile_transpose ...
-    // CHECK: d2m.tile_transpose
-    // ... the per-band local topk ...
+    // CHECK-NOT: d2m.tile_transpose
+    // CHECK-NOT: d2m.arange_block
+    // The per-band local topk ...
     // CHECK: d2m.topk_block
     // CHECK-SAME: dim = 0
     // CHECK-SAME: k = 16
@@ -252,9 +270,11 @@ module {
   // tiles) split across cores, rows=128 (4 reduction tiles) kept whole.
   // CHECK-LABEL: func @topk_dim0_data_parallel
   func.func @topk_dim0_data_parallel(%arg0: tensor<128x2048xf32>) -> (tensor<8x2048xf32>, tensor<8x2048xsi32>) {
-    // The index buffer's full-transpose emits a tile_transpose ...
-    // CHECK: d2m.tile_transpose
-    // ... then the per-slice topk.
+    // Every slice reduces the whole dim locally and builds its own indices, so
+    // there is no shared index buffer to broadcast across the slice cores.
+    // CHECK-NOT: d2m.tile_transpose
+    // CHECK-NOT: d2m.arange_block
+    // The per-slice topk.
     // CHECK: d2m.topk_block
     // CHECK-SAME: dim = 0
     // CHECK-SAME: k = 8

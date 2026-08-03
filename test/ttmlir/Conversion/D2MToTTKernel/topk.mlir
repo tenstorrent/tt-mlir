@@ -9,8 +9,10 @@
 // 32x64 input: 1 merge iteration (logWt=1), small k, rebuild is emitted.
 // CHECK-LABEL: func.func @topk_dim1_k16
 func.func @topk_dim1_k16(%arg0: tensor<32x64xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>) {
-  // The arange kernel initializes the index CB with sequential tile indices.
+  // The topk kernel builds its own index CB: the lane pattern, shifted right by
+  // 5 to keep the within-tile row index, plus this core's tile offset.
   // CHECK: ttkernel.experimental.fill_arange_tile
+  // CHECK: ttkernel.binary_right_shift_tile
 
   // The sort-merge-rebuild group processes tile pair (0, 1).
   // CHECK: ttkernel.topk_tile_init
