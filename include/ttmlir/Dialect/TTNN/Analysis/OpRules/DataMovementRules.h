@@ -76,6 +76,24 @@ struct SliceRuleBook : OpRuleBook {
 /// condition in tt-metal's reshape.cpp.
 bool canReshapeBeView(Operation *op);
 
+/// True if a `ttnn.pad` returns its input as a view (all-zero padding, same
+/// shape, or the TILE fast-path). Mirrors tt-metal's pad.cpp.
+bool canPadBeView(Operation *op);
+
+/// True if a `ttnn.repeat` with an all-ones repetition returns its input as a
+/// view. Mirrors tt-metal's repeat.cpp:196.
+bool canRepeatBeView(Operation *op);
+
+/// True if a `ttnn.permute` is a no-op (is_permute_nop) whose output memory
+/// config matches its input, so tt-metal returns the input as a view. Mirrors
+/// tt-metal's permute.cpp is_permute_nop.
+bool canPermuteBeView(Operation *op);
+
+/// True if `op` is realized by tt-metal as an input-aliasing (zero-copy) view:
+/// any of the per-op view predicates above. Used by the L1 spill pass to alias
+/// the op onto its source's L1 slot instead of tracking a fresh allocation.
+bool isAliasingViewOp(Operation *op);
+
 /// ReshapeOp, PermuteOp: reject width-sharded inputs, no reshards.
 /// View-eligible reshapes use NULL hint only (inherit input memory config).
 /// Non-view reshapes use non-sharded output hints.

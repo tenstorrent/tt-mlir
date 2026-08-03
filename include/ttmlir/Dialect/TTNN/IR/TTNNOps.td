@@ -135,6 +135,7 @@ def TTNN_TypecastOp : TTNN_Op<"typecast"> {
 
     let hasFolder = 1;
     let hasCanonicalizeMethod = 1;
+
 }
 
 def TTNN_BitcastConvertOp : TTNN_Op<"bitcast_convert"> {
@@ -149,6 +150,7 @@ def TTNN_BitcastConvertOp : TTNN_Op<"bitcast_convert"> {
 
     let arguments = (ins AnyRankedTensor:$input);
     let results = (outs AnyRankedTensor:$result);
+
 }
 
 def TTNN_ToDeviceOp : TTNN_Op<"to_device", [OpModelExempt]> {
@@ -189,6 +191,7 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
         build($_builder, $_state, {input.getType()}, input);
       }]>
     ];
+
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
@@ -730,6 +733,16 @@ def TTNN_LogicalLeftShiftOp: TTNN_ElementwiseBinaryCompositeOp<"logical_left_shi
     on the elements of the first tensor by the corresponding shift amounts in the
     second tensor.
   }];
+
+  // Per-op extraClassDeclaration replaces the composite base's, so re-declare
+  // getOperandsWorkarounds here.
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return
+        wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+    }
+  }];
+
   let hasVerifier = 1;
 }
 
@@ -834,7 +847,7 @@ def TTNN_PowScalarOp : TTNN_ElementwiseBinaryCompositeScalarOp<"pow_scalar"> {
     // Output tensor: [4.0, 9.0, 16.0, 25.0]
     ```
 
-    Restriction: TTNN API supports expoenent ≥ 0 only.
+    Restriction: TTNN API supports exponent ≥ 0 only.
   }];
 
   let hasVerifier = 1;
@@ -895,6 +908,9 @@ class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemo
     }]>
   ];
 
+  // NOTE: a per-op extraClassDeclaration would SHADOW this base block and
+  // silently drop getOperandsWorkarounds (the si32->f32 reduction cast) -- see
+  // https://github.com/tenstorrent/tt-mlir/issues/8279.
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
       return
@@ -987,6 +1003,7 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
       return wa::TTNNOperandsWorkaroundsFactory::
           createArgMaxOpOperandsWorkarounds();
     }
+
   }];
 
   let results = (outs AnyRankedTensor:$result);
@@ -1025,6 +1042,7 @@ def TTNN_ProdOp : TTNN_Op<"prod"> {
       return
         wa::TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds();
     }
+
   }];
 
   let hasVerifier = 1;
@@ -1173,6 +1191,7 @@ def TTNN_CumSumOp : TTNN_Op<"cumsum"> {
                        SI32Attr:$dim);
 
   let results = (outs AnyRankedTensor:$result);
+
 }
 
 def TTNN_CumProdOp : TTNN_Op<"cumprod"> {
@@ -1197,6 +1216,7 @@ def TTNN_CumProdOp : TTNN_Op<"cumprod"> {
                        SI32Attr:$dim);
 
   let results = (outs AnyRankedTensor:$result);
+
 }
 
 def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads"> {
@@ -1572,6 +1592,7 @@ def TTNN_MatmulOp : TTNN_Op<"matmul", [TTNN_ComputeKernelConfigOpInterface]> {
 
     let hasVerifier = 1;
     let hasCanonicalizer = 1;
+
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
@@ -2973,6 +2994,7 @@ def TTNN_GroupNormOp : TTNN_Op<"group_norm", [AttrSizedOperandSegments]> {
         return wa::TTNNOperandsWorkaroundsFactory::
             createGroupNormOpOperandsWorkarounds(this->getOperation());
       }
+
     }];
 
     let hasVerifier = 1;

@@ -258,6 +258,171 @@ bool canReshapeBeView(Operation *op) {
   return true;
 }
 
+//===----------------------------------------------------------------------===//
+// View-op detection (input-aliasing / zero-copy ops)
+//
+// These predicates mirror tt-metal's decision to return the input tensor (or a
+// view built at the input's address) instead of allocating a fresh output.
+// The L1 spill pass uses `isAliasingViewOp` to alias such an op onto its
+// source's L1 slot (see MockAllocatorL1Tracker / addTensorAtAddress) rather
+// than tracking a fresh allocation. Under the stateful op-model query, an
+// aliasing op's output is reported at the weightless input's address 0, which
+// is not a re-installable allocation -- so mis-tracking it crashes
+// `with_allocations` (issue
+// https://github.com/tenstorrent/tt-mlir/issues/9054). Each predicate is
+// guarded by a tripwire unit test asserting that an op it classifies as a view
+// really does return address 0 from the mock op-model; if tt-metal drifts, the
+// tripwire fails and the predicate must be revisited.
+//===----------------------------------------------------------------------===//
+
+/// Check if a `ttnn.pad` returns its input as a view (no new allocation).
+/// Mirrors ttnn::pad: all-zero padding (pad.cpp:451), on-device same shape
+/// (pad.cpp:128), and the TILE fast-path where the padding stays within the
+/// existing tile padding so the tiled buffer is unchanged (pad.cpp:383).
+bool canPadBeView(Operation *op) {
+  auto pad = mlir::dyn_cast<PadOp>(op);
+  if (!pad) {
+    return false;
+  }
+  auto inputType =
+      mlir::dyn_cast<RankedTensorType>(op->getOperand(0).getType());
+  auto outputType =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  if (!inputType || !outputType) {
+    return false;
+  }
+  llvm::ArrayRef<int32_t> padding = pad.getPadding(); // [lo0,hi0,lo1,hi1,...]
+
+  // (A) All-zero padding is a strict no-op regardless of layout/shape.
+  if (llvm::all_of(padding, [](int32_t p) { return p == 0; })) {
+    return true;
+  }
+
+  llvm::ArrayRef<int64_t> inShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outShape = outputType.getShape();
+  if (inShape.size() != outShape.size() || inShape.empty()) {
+    return false;
+  }
+
+  // (B) Same logical shape -> ttnn::pad returns the input.
+  if (inShape == outShape) {
+    return true;
+  }
+
+  // (C) TILE fast-path: only reachable for tiled layout, with zero front
+  // (before) padding, when the change is confined within the tile padding so
+  // the tiled (padded) buffer is byte-identical -- then ttnn::pad returns a
+  // view at the input's address. tt-metal's condition (pad.cpp:383):
+  //   !pad_upper_dims && padded[-1] unchanged && padded[-2] unchanged.
+  auto inputLayout = mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
+  if (!inputLayout || !inputLayout.isTiled()) {
+    return false;
+  }
+  // Front (low) padding must be zero on every dim (tt-metal TT_FATALs
+  // otherwise; certainly not a view).
+  for (size_t d = 0; d < padding.size() / 2; ++d) {
+    if (padding[2 * d] != 0) {
+      return false;
+    }
+  }
+  // Upper dims (everything but the last two) must be unchanged.
+  for (size_t i = 0; i + 2 < inShape.size(); ++i) {
+    if (inShape[i] != outShape[i]) {
+      return false;
+    }
+  }
+  auto roundUpTo = [](int64_t x, int64_t t) {
+    return llvm::divideCeil(x, t) * t;
+  };
+  int64_t inLast = inShape.back(), outLast = outShape.back();
+  int64_t inSecondLast = inShape[inShape.size() - 2];
+  int64_t outSecondLast = outShape[outShape.size() - 2];
+  return roundUpTo(inLast, TILE_WIDTH) == roundUpTo(outLast, TILE_WIDTH) &&
+         roundUpTo(inSecondLast, TILE_HEIGHT) ==
+             roundUpTo(outSecondLast, TILE_HEIGHT);
+}
+
+/// Check if a `ttnn.repeat` returns its input as a view: an all-ones
+/// repetition is a strict no-op (repeat.cpp:196 `return input_tensor`).
+bool canRepeatBeView(Operation *op) {
+  auto repeat = mlir::dyn_cast<RepeatOp>(op);
+  if (!repeat) {
+    return false;
+  }
+  llvm::ArrayRef<int64_t> repeatDims = repeat.getRepeatDims().getShape();
+  return llvm::all_of(repeatDims, [](int64_t r) { return r == 1; });
+}
+
+/// Check if a `ttnn.permute` is a no-op view. Mirrors tt-metal's
+/// `is_permute_nop` (permute.cpp:158): rank<=1, identity permutation, or a
+/// permutation that only moves size-1 dims (layout-aware: TILE fixes the last
+/// two dims, ROW_MAJOR the last). Permute-nop returns
+/// `to_memory_config(input, requested)`, so it aliases the input only when the
+/// requested (output) memory config equals the input's -- hence the extra
+/// buffer-type + memory-layout equality check.
+bool canPermuteBeView(Operation *op) {
+  auto permute = mlir::dyn_cast<PermuteOp>(op);
+  if (!permute) {
+    return false;
+  }
+  auto inputType =
+      mlir::dyn_cast<RankedTensorType>(op->getOperand(0).getType());
+  auto outputType =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  if (!inputType || !outputType) {
+    return false;
+  }
+  llvm::ArrayRef<int64_t> dims = permute.getPermutation();
+  llvm::ArrayRef<int64_t> shape = inputType.getShape();
+  const int64_t rank = static_cast<int64_t>(shape.size());
+
+  bool isNop = false;
+  if (rank <= 1) {
+    isNop = true;
+  } else {
+    // Identity permutation.
+    bool identity = true;
+    for (int64_t i = 0; i < rank; ++i) {
+      if (dims[i] != i) {
+        identity = false;
+        break;
+      }
+    }
+    auto inputLayout = mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
+    bool tiled = inputLayout && inputLayout.isTiled();
+    // TILE: last two dims must stay; ROW_MAJOR: last dim must stay.
+    bool lastDimsFixed =
+        tiled ? (dims[rank - 1] == rank - 1 && dims[rank - 2] == rank - 2)
+              : (dims[rank - 1] == rank - 1);
+    // Only size-1 dims moved (and shape therefore unchanged).
+    bool onlySize1Moved = true;
+    for (int64_t i = 0; i < rank; ++i) {
+      if (i != dims[i] && shape[i] > 1) {
+        onlySize1Moved = false;
+        break;
+      }
+    }
+    isNop = identity || (lastDimsFixed && onlySize1Moved);
+  }
+  if (!isNop) {
+    return false;
+  }
+
+  // Aliases the input only if the output memory config matches the input's.
+  auto inLayout = mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
+  auto outLayout = mlir::dyn_cast<TTNNLayoutAttr>(outputType.getEncoding());
+  if (!inLayout || !outLayout) {
+    return false;
+  }
+  return inLayout.getBufferType() == outLayout.getBufferType() &&
+         inLayout.getMemLayoutOpt() == outLayout.getMemLayoutOpt();
+}
+
+bool isAliasingViewOp(Operation *op) {
+  return canReshapeBeView(op) || canPadBeView(op) || canRepeatBeView(op) ||
+         canPermuteBeView(op);
+}
+
 LayoutFilterFn
 ReshapeRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   // Reshape/Permute: width-sharded inputs round-trip through interleaved
