@@ -23,6 +23,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
+#include <cstdlib>
 
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
@@ -79,10 +80,14 @@ void createTTNNPipelineTTIRPasses(
   // IC is coprime to TILE_WIDTH=32 (e.g. IC=3 YUV adapter). Eliminates the
   // permute→conv2d→permute pattern by replacing it with reshape→linear→reshape.
   pm.addPass(mlir::tt::ttir::createTTIRSpatialRowGroupPackingOpt());
-  // Spatial packing for narrow-channel depthwise conv2d (e.g. UV AveragePool
-  // IC=2, K=16): eliminates K=2→32 TILE padding waste (93.8%) on NCHW→NHWC
-  // permute. Packed IC=TILE_WIDTH=32 → zero waste, permute writes to L1.
+  // Spatial row-group packing for narrow-channel depthwise conv2d (IC < TILE_WIDTH):
+  // packs IC channels to TILE_WIDTH to eliminate TILE padding waste on the
+  // NCHW→NHWC permute, moving the permute output to L1.
   pm.addPass(mlir::tt::ttir::createTTIRDepthwiseConvSpatialPackingOpt());
+  // Fuse 6D reshape->permute{0,3,5,1,2,4}->reshape chain into
+  // ttir.pixel_unshuffle, eliminating 87.5-93.75% DRAM tile-padding waste
+  // from the intermediate 6D TILE reshape.
+  pm.addPass(mlir::tt::ttir::createTTIRPixelUnshuffleOpt());
 
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
@@ -314,6 +319,15 @@ void createTTNNPipelineWorkaroundPass(
 
 void createTTNNPipelineLayoutDecompositionPass(
     OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
+  // Rewrite DRAM-output pixel_unshuffle ops to write directly to L1+TILE.
+  // TTIRPixelUnshuffleOpt fuses the 6D reshape->permute->reshape chain into
+  // pixel_unshuffle, but the TTNN optimizer assigns DRAM output (OpModel not
+  // implemented).  Writing to DRAM lowers the L1 HWM vs. the original manual
+  // chain, causing a CB clash for downstream height_sharded conv2d outputs.
+  // This pass rebuilds each op in-place with memory_config=L1_interleaved and
+  // output_layout=TILE, restoring the HWM without inserting a to_memory_config.
+  pm.addPass(createTTNNPixelUnshuffleL1Opt());
+
   // Remove the unnecessary TILE round-trip for GridSample LUT grid tensors.
   // The LUT arrives ROW_MAJOR; GridSample requires ROW_MAJOR; the TILE
   // detour (tilize → TILE-reshape → untilize) was pure overhead.

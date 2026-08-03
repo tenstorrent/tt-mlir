@@ -20,6 +20,14 @@ def TTIR_ReduceDim : I32EnumAttr<"ReduceDim", "TTIR ReduceDim", [
   let cppNamespace = "::mlir::tt::ttir";
 }
 
+def TTIR_PixelUnshuffleChannelOrder : I32EnumAttr<"PixelUnshuffleChannelOrder", "TTIR pixel unshuffle channel order", [
+                                  I32EnumAttrCase<"ChannelMajor", 0, "channel_major">,
+                                  I32EnumAttrCase<"SpatialMajor", 1, "spatial_major">
+                                ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttir";
+}
+
 def TTIR_ThreadTypeCompute : I32EnumAttrCase<"Compute", 0, "compute">;
 def TTIR_ThreadTypeDatamovement : I32EnumAttrCase<"Datamovement", 1, "datamovement">;
 

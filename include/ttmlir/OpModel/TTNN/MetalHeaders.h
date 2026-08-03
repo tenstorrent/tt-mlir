@@ -49,6 +49,7 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 #include "ttnn/operations/data_movement/gather/gather.hpp"
 #include "ttnn/operations/data_movement/pad/pad.hpp"
 #include "ttnn/operations/data_movement/permute/permute.hpp"
+#include "ttnn/operations/data_movement/pixel_unshuffle/pixel_unshuffle.hpp"
 #include "ttnn/operations/data_movement/repeat/repeat.hpp"
 #include "ttnn/operations/data_movement/repeat_interleave/repeat_interleave.hpp"
 #include "ttnn/operations/data_movement/reshape_view/reshape.hpp"
