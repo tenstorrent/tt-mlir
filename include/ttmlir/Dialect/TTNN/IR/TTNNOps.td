@@ -3466,6 +3466,67 @@ def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
     let hasVerifier = 1;
 }
 
+def TTNN_GridSampleOp : TTNN_Op<"grid_sample"> {
+    let summary = "Grid sample 2D op.";
+
+    let description = [{
+      Grid sample 2D operation. Samples an input tensor at locations defined by a
+      flow-field grid, producing a spatially resampled output.
+
+      Input tensor is in NHWC format with shape (N, H_in, W_in, C).
+      Grid tensor has shape (N, H_out, W_out, 2), where the trailing size-2 dimension holds
+      normalized (x, y) coordinates in [-1, 1] for each output location.
+      Output tensor has shape (N, H_out, W_out, C) in NHWC format.
+
+      Internally dispatches to ttnn::grid_sample. Nearest-neighbor and bilinear
+      interpolation modes are supported. Out-of-bounds coordinates are handled
+      according to padding_mode. Output placement is controlled by memory_config.
+      When batch_output_channels is true, the input encodes multiple feature maps
+      stacked along the batch dimension, and a single op dispatch samples all of
+      them in sequence using the shared grid.
+
+      Attributes:
+      - `mode` (str, default="bilinear"): Interpolation mode. "bilinear" interpolates
+        across the four nearest input pixels. "nearest" snaps to the nearest pixel center.
+      - `padding_mode` (str, default="zeros"): Handling for out-of-bounds coordinates.
+        "zeros" fills out-of-bounds samples with zero.
+      - `align_corners` (bool, default=false): If true, -1 and 1 map to the corner pixel
+        centers, spanning H_in-1 and W_in-1 steps. If false, they map to the outer edges
+        of the corner pixels, spanning H_in and W_in steps.
+      - `batch_output_channels` (bool, default=false): When true, processes multiple
+        feature maps stacked in the batch dimension with a single shared grid, amortizing
+        grid reads across all feature maps.
+      - `memory_config` (MemoryConfig, optional): Output tensor memory placement and layout.
+        Defaults to the device's preferred configuration when not specified.
+
+      Example:
+        // %input: tensor<1x80x144x64xbf16>  [N=1, H_in=80, W_in=144, C=64]
+        // %grid:  tensor<1x128x64x2xbf16>   [N=1, H_out=128, W_out=64, 2]
+        %0 = "ttnn.grid_sample"(%input, %grid) <{mode = "nearest", padding_mode = "zeros", align_corners = true}> :
+            (tensor<1x80x144x64xbf16>, tensor<1x128x64x2xbf16>) -> tensor<1x128x64x64xbf16>
+        // Result: tensor<1x128x64x64xbf16>  [N=1, H_out=128, W_out=64, C=64]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$grid,
+                         DefaultValuedAttr<StrAttr, "\"bilinear\"">:$mode,
+                         DefaultValuedAttr<StrAttr, "\"zeros\"">:$padding_mode,
+                         DefaultValuedAttr<BoolAttr, "false">:$align_corners,
+                         DefaultValuedAttr<BoolAttr, "false">:$batch_output_channels,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createGridSampleOpOperandsWorkarounds(getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+
 def TTNN_QuantizeOp : TTNN_Op<"quantize"> {
     let summary = "Quantize operation.";
     let description = [{

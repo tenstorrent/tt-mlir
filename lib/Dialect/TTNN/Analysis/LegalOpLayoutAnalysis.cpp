@@ -289,6 +289,26 @@ void LegalOpLayoutAnalysis::analysisImplementation() {
 
   fillTTNNLayoutAttrs(layout);
 
+  // PermuteOp: the metal permute and transpose kernels cannot correctly handle
+  // sharded L1 input/output for WH-involving permutations (any permutation
+  // where the last dimension is moved). For BLOCK_SHARDED the transpose_wh
+  // kernel's use_sharded_wh condition requires a full-width shard, which
+  // BLOCK_SHARDED never satisfies; for HEIGHT_SHARDED the intermediate
+  // HC-transpose emits a tensor that the subsequent WH-transpose cannot handle.
+  // Removing sharded L1 layouts here is the correct compile-time constraint —
+  // LegalOpLayoutAnalysis is the canonical place to declare what output layouts
+  // are valid for an op. The tt-metal permute op validates this at runtime via
+  // TT_FATAL in prim::permute's validate_on_program_cache_miss.
+  if (isa<PermuteOp>(op)) {
+    analysisResult.erase(
+        std::remove_if(analysisResult.begin(), analysisResult.end(),
+                       [](const OpConfig &cfg) {
+                         return cfg.outputLayout &&
+                                cfg.outputLayout.hasShardedL1TensorMemoryLayout();
+                       }),
+        analysisResult.end());
+  }
+
   if (analysisResult.empty()) {
     op->emitError("No legal layout found for the operation");
     llvm::llvm_unreachable_internal("No legal layout found for the operation.");

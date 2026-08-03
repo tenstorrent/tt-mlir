@@ -306,6 +306,42 @@ public:
     return globalSemaphorePool;
   }
 
+
+  // Returns a cached GlobalSemaphore for `opKey`, creating it on first use.
+  // Lookups forward to the root context so a semaphore created during warmup
+  // is reused during trace capture (create_global_semaphore writes L1 and
+  // cannot run inside capture).
+  ::ttnn::GlobalSemaphore getOrCreateImplicitGlobalSemaphore(
+      uintptr_t opKey,
+      const std::function<::ttnn::GlobalSemaphore()> &factory) {
+    if (parentContext) {
+      return parentContext->getOrCreateImplicitGlobalSemaphore(opKey, factory);
+    }
+    auto it = implicitOpSemaphores.find(opKey);
+    if (it == implicitOpSemaphores.end()) {
+      it = implicitOpSemaphores.emplace(opKey, factory()).first;
+    }
+    return it->second;
+  }
+
+  // Returns a cached precomputed grid tensor for `opKey`, creating it on first
+  // use.  Lookups forward to the root context so the grid computed during
+  // warmup (where from_device is allowed) is reused during trace capture
+  // (where from_device is forbidden by TTNN trace).
+  ::ttnn::Tensor getOrCreateImplicitPrecomputedGrid(
+      uintptr_t opKey,
+      const std::function<::ttnn::Tensor()> &factory) {
+    if (parentContext) {
+      return parentContext->getOrCreateImplicitPrecomputedGrid(opKey, factory);
+    }
+    auto it = implicitOpPrecomputedGrids.find(opKey);
+    if (it == implicitOpPrecomputedGrids.end()) {
+      it = implicitOpPrecomputedGrids.emplace(opKey, factory()).first;
+    }
+    return it->second;
+  }
+
+
   Binary &getExecutableHandle() { return executableHandle; }
 
   //
@@ -317,6 +353,15 @@ private:
   ProgramTensorPool tensorPool;
 
   ProgramGlobalSemaphorePool globalSemaphorePool;
+
+
+  // Op-implicit GlobalSemaphores keyed by flatbuffer op pointer; root only.
+  std::unordered_map<uintptr_t, ::ttnn::GlobalSemaphore> implicitOpSemaphores;
+
+  // Op-implicit precomputed grid tensors keyed by flatbuffer op pointer; root
+  // only.  Computed during warmup and reused during trace capture.
+  std::unordered_map<uintptr_t, ::ttnn::Tensor> implicitOpPrecomputedGrids;
+
 
   common::DylibManager dylibManager;
 

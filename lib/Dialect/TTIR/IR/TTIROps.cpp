@@ -5233,6 +5233,72 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// GridSampleOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::GridSampleOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType gridType = getGrid().getType();
+  ::mlir::RankedTensorType outputType = getType();
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("input tensor must be 4D, got rank ")
+           << inputType.getRank();
+  }
+  if (gridType.getRank() != 4) {
+    return emitOpError("grid tensor must be 4D (N,2,H_out,W_out), got rank ")
+           << gridType.getRank();
+  }
+  if (outputType.getRank() != 4) {
+    return emitOpError("output tensor must be 4D, got rank ")
+           << outputType.getRank();
+  }
+  // Grid dim 1 is the coordinate channel: 2 for single-camera (K=1),
+  // or 2*K for batched K-camera fusion. Must be a positive even number.
+  int64_t gridCoordDim = gridType.getShape()[1];
+  if (gridCoordDim < 2 || gridCoordDim % 2 != 0) {
+    return emitOpError(
+               "grid coordinate dimension (dim 1) must be 2*K for K>=1, got ")
+           << gridCoordDim;
+  }
+  int64_t K = gridCoordDim / 2;
+
+  llvm::SmallVector<llvm::StringRef> legalModes = {"bilinear", "nearest"};
+  if (std::find(legalModes.begin(), legalModes.end(), getMode()) ==
+      legalModes.end()) {
+    return emitOpError("mode must be one of (")
+           << llvm::join(legalModes, ", ") << "), got \"" << getMode() << "\"";
+  }
+
+  llvm::SmallVector<llvm::StringRef> legalPaddingModes = {"zeros"};
+  if (std::find(legalPaddingModes.begin(), legalPaddingModes.end(),
+                getPaddingMode()) == legalPaddingModes.end()) {
+    return emitOpError("padding_mode must be one of (")
+           << llvm::join(legalPaddingModes, ", ") << "), got \""
+           << getPaddingMode() << "\"";
+  }
+
+  if (inputType.getShape()[0] != outputType.getShape()[0]) {
+    return emitOpError("input and output batch dimension must match: ")
+           << inputType.getShape()[0] << " vs " << outputType.getShape()[0];
+  }
+  if (gridType.getShape()[0] != outputType.getShape()[0]) {
+    return emitOpError("grid and output batch dimension must match: ")
+           << gridType.getShape()[0] << " vs " << outputType.getShape()[0];
+  }
+
+  // Output channels must be K * input_channels.
+  int64_t expectedOutChannels = K * inputType.getShape()[1];
+  if (outputType.getShape()[1] != expectedOutChannels) {
+    return emitOpError("output channel dim must equal K*C = ")
+           << K << " * " << inputType.getShape()[1] << " = "
+           << expectedOutChannels << ", got " << outputType.getShape()[1];
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllocOp
 //===----------------------------------------------------------------------===//
 
