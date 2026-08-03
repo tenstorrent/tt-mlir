@@ -7296,6 +7296,99 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// SDPAForwardOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::SDPAForwardOp::verify() {
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType valueType = getValue().getType();
+
+  auto normalizeTo4D =
+      [](llvm::ArrayRef<int64_t> shape) -> llvm::SmallVector<int64_t, 4> {
+    if (shape.size() == 4) {
+      return {shape[0], shape[1], shape[2], shape[3]};
+    }
+    int64_t height = shape.size() >= 2 ? shape[shape.size() - 2] : 1;
+    int64_t width = shape.empty() ? 1 : shape.back();
+    int64_t leading = 1;
+    for (size_t i = 0; i + 2 < shape.size(); ++i) {
+      leading *= shape[i];
+    }
+    return {1, leading, height, width};
+  };
+
+  if (queryType.getRank() < 2 || keyType.getRank() < 2 ||
+      valueType.getRank() < 2) {
+    return emitOpError("query, key and value must have rank >= 2 (..., S, D)");
+  }
+
+  llvm::SmallVector<int64_t, 4> q = normalizeTo4D(queryType.getShape());
+  llvm::SmallVector<int64_t, 4> k = normalizeTo4D(keyType.getShape());
+  llvm::SmallVector<int64_t, 4> v = normalizeTo4D(valueType.getShape());
+
+  if (q[0] != k[0] || q[0] != v[0]) {
+    return emitOpError("query, key and value must share the same batch size");
+  }
+  if (q[2] != k[2] || q[2] != v[2]) {
+    return emitOpError(
+        "query, key and value must share the same sequence length");
+  }
+  if (q[3] != k[3]) {
+    return emitOpError("query and key must have the same head dimension");
+  }
+  if (k[1] != v[1]) {
+    return emitOpError("key and value must have the same number of heads");
+  }
+  if (k[1] == 0 || q[1] % k[1] != 0) {
+    return emitOpError("number of query heads must be a positive multiple of "
+                       "the number of key/value heads");
+  }
+
+  ttcore::AttentionMaskType maskType = getMaskType();
+  if (maskType == ttcore::AttentionMaskType::Arbitrary) {
+    if (!getAttentionMask()) {
+      return emitOpError(
+          "attention_mask is required when mask_type is 'arbitrary'");
+    }
+  } else if (getAttentionMask()) {
+    return emitOpError(
+        "attention_mask is only allowed when mask_type is 'arbitrary'");
+  }
+
+  if (getAttentionMask()) {
+    llvm::SmallVector<int64_t, 4> m =
+        normalizeTo4D(getAttentionMask().getType().getShape());
+    if (m[0] != 1 || m[1] != 1 || m[2] != q[2] || m[3] != q[2]) {
+      return emitOpError("attention_mask must have shape (1, 1, S, S)");
+    }
+  }
+
+  // Output is (B, Hq, S, Dv): batch/heads/seq from query, inner dim from value.
+  llvm::SmallVector<int64_t, 4> out =
+      normalizeTo4D(getOutput().getType().getShape());
+  if (out[0] != q[0] || out[1] != q[1] || out[2] != q[2] || out[3] != v[3]) {
+    return emitOpError("output must have shape (B, Hq, S, Dv)");
+  }
+
+  if (getReturnIntermediates() != static_cast<bool>(getIntermediates())) {
+    return emitOpError("intermediates result must be present iff "
+                       "return_intermediates is true");
+  }
+  if (getIntermediates()) {
+    llvm::SmallVector<int64_t, 4> inter =
+        normalizeTo4D(getIntermediates().getType().getShape());
+    // Intermediate log-sum-exp is stored as a single fp32 tile per row.
+    constexpr int64_t kIntermediateWidth = 32;
+    if (inter[0] != q[0] || inter[1] != q[1] || inter[2] != q[2] ||
+        inter[3] != kIntermediateWidth) {
+      return emitOpError("intermediates must have shape (B, Hq, S, 32)");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // DistributedRMSNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttir::DistributedRMSNormOp::verify() {

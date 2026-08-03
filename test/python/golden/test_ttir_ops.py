@@ -172,6 +172,31 @@ def test_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
     )
 
 
+@pytest.mark.parametrize("shape", [(1, 8, 64, 64)], ids=shape_str)
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_sdpa_fw(shape: Shape, target: str, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [shape, shape, shape],
+            [torch.bfloat16, torch.bfloat16, torch.bfloat16],
+        )
+        def sdpa_fw(
+            query: Operand,
+            key: Operand,
+            value: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.sdpa_fw(query, key, value)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 @pytest.mark.parametrize("shape", [(1, 1, 64, 64)], ids=shape_str)
 @pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 def test_adamw(shape: Shape, target: str, request, device):

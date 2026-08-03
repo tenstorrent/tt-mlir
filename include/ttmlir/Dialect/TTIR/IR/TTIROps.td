@@ -2395,6 +2395,49 @@ def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
   let hasVerifier = 1;
 }
 
+def TTIR_SDPAForwardOp : TTIR_NamedOp<"sdpa_fw"> {
+  let summary = "Scaled dot-product attention forward (ttml).";
+  let description = [{
+    Training-oriented fused scaled dot-product attention forward pass, backed by
+    the ttml metal op `ttml::metal::sdpa_fw`. Computes
+    `softmax(Q @ K^T / sqrt(D) + mask) @ V` and, optionally, the per-row
+    log-sum-exp intermediates needed by the backward pass.
+
+
+    Inputs:
+    - `query` (Tensor): `[B x Hq x S x D]`.
+    - `key` (Tensor): `[B x Hkv x S x D]`.
+    - `value` (Tensor): `[B x Hkv x S x Dv]`.
+    - `attention_mask` (Optional Tensor): `[1 x 1 x S x S]`, only valid when
+      `mask_type` is `arbitrary`.
+
+    Attributes:
+    - `mask_type`: `none`, `causal` (default) or `arbitrary`. `arbitrary`
+      requires `attention_mask`; `none`/`causal` forbid it.
+    - `dropout_probability`: dropout probability (currently must be 0.0).
+    - `return_intermediates`: when true, also returns the log-sum-exp
+      intermediates.
+
+    Outputs:
+    - `output` (Tensor): `[B x Hq x S x Dv]`.
+    - `intermediates` (Optional Tensor): `[B x Hq x S x 32]` log-sum-exp, present
+      iff `return_intermediates` is true.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       AnyRankedTensor:$value,
+                       Optional<AnyRankedTensor>:$attention_mask,
+                       DefaultValuedAttr<TTCore_AttentionMaskTypeAttr, "::mlir::tt::ttcore::AttentionMaskType::Causal">:$mask_type,
+                       DefaultValuedAttr<F32Attr, "0.0">:$dropout_probability,
+                       DefaultValuedAttr<BoolAttr, "false">:$return_intermediates);
+
+  let results = (outs AnyRankedTensor:$output,
+                      Optional<AnyRankedTensor>:$intermediates);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_DistributedRMSNormOp : TTIR_NamedOp<"distributed_rms_norm", [AttrSizedOperandSegments]> {
   let summary = "Distributed RMS normalization with all-gather operation";
   let description = [{

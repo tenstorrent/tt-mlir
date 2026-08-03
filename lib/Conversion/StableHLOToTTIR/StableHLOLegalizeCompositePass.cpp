@@ -2009,6 +2009,78 @@ public:
   }
 };
 
+class TenstorrentSDPAForwardConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentSDPAForwardConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.sdpa_fw") {
+      return failure();
+    }
+    size_t numOperands = adaptor.getOperands().size();
+    if (numOperands != 3 && numOperands != 4) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.sdpa_fw must have 3 or 4 operands (query, key, "
+                 "value, [attention_mask]).");
+    }
+    size_t numResults = srcOp.getNumResults();
+    if (numResults != 1 && numResults != 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.sdpa_fw must have 1 or 2 results (output, "
+                 "[intermediates]).");
+    }
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+
+    // mask_type is an integer selector (0=None, 1=Causal, 2=Arbitrary),
+    // defaulting to Causal.
+    ttcore::AttentionMaskType maskType = ttcore::AttentionMaskType::Causal;
+    if (compositeAttrs) {
+      if (auto maskAttr = mlir::dyn_cast_or_null<IntegerAttr>(
+              compositeAttrs.get("mask_type"))) {
+        maskType = static_cast<ttcore::AttentionMaskType>(maskAttr.getInt());
+      }
+    }
+
+    // The presence of the attention_mask operand must agree with the mask type.
+    bool hasMask = numOperands == 4;
+    if (hasMask != (maskType == ttcore::AttentionMaskType::Arbitrary)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.sdpa_fw attention_mask operand must be present "
+                 "iff mask_type is arbitrary.");
+    }
+
+    float dropout = 0.0F;
+    if (compositeAttrs) {
+      if (auto dropAttr = mlir::dyn_cast_or_null<FloatAttr>(
+              compositeAttrs.get("dropout_probability"))) {
+        dropout = dropAttr.getValueAsDouble();
+      }
+    }
+
+    bool returnIntermediates = numResults == 2;
+
+    SmallVector<NamedAttribute> namedAttrs;
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "mask_type",
+        ttcore::AttentionMaskTypeAttr::get(rewriter.getContext(), maskType)));
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "dropout_probability", rewriter.getF32FloatAttr(dropout)));
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "return_intermediates", rewriter.getBoolAttr(returnIntermediates)));
+
+    rewriter.replaceOpWithNewOp<ttir::SDPAForwardOp>(
+        srcOp, srcOp.getResultTypes(), adaptor.getOperands(), namedAttrs);
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -2044,6 +2116,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
       context, "tenstorrent.gelu_tanh");
   patterns.add<TenstorrentAdamWConversionPattern>(context);
+  patterns.add<TenstorrentSDPAForwardConversionPattern>(context);
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<CustomCallRMSNormConversionPattern>(context);
   patterns.add<CustomCallDistributedRMSNormConversionPattern>(context);

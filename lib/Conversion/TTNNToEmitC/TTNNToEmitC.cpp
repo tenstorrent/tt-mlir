@@ -3546,6 +3546,91 @@ public:
 } // namespace
 
 //
+// SDPAForwardOp conversion pattern (emits ::ttml::metal::sdpa_fw)
+//
+namespace {
+class SDPAForwardOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::SDPAForwardOp> {
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.sdpa_fw"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttml::metal::sdpa_fw";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SDPAForwardOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = mlir::tt::ttnn::SDPAForwardOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SDPAForwardOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SDPAForwardOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // Map the ttcore mask-type enum onto the mirrored ttml::metal one.
+    llvm::StringRef maskTypeName;
+    switch (srcOp.getMaskType()) {
+    case mlir::tt::ttcore::AttentionMaskType::None:
+      maskTypeName = "::ttml::metal::AttentionMaskType::None";
+      break;
+    case mlir::tt::ttcore::AttentionMaskType::Causal:
+      maskTypeName = "::ttml::metal::AttentionMaskType::Causal";
+      break;
+    case mlir::tt::ttcore::AttentionMaskType::Arbitrary:
+      maskTypeName = "::ttml::metal::AttentionMaskType::Arbitrary";
+      break;
+    }
+
+    // Arg order matches ttml::metal::sdpa_fw(query, key, value, mask_type,
+    // mask, dropout_probability, return_intermediates).
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getValue()),
+        rewriter.getAttr<emitc::OpaqueAttr>(maskTypeName),
+        emitter.emit(srcOp.getAttentionMask()),
+        emitter.emit(srcOp.getDropoutProbability()),
+        emitter.emit(srcOp.getReturnIntermediates()),
+    };
+
+    using ReturnTy = std::vector<std::optional<::ttnn::Tensor>>;
+    auto sdpaForwardOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(ttnn_to_emitc::TypeNameV<ReturnTy>),
+        convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    // Unpack each result: results[i] = util_get_optional_value(vec[i]).
+    auto optionalType = emitc::OpaqueType::get(
+        rewriter.getContext(), ttnn_to_emitc::TypeNameV<ReturnTy::value_type>);
+    auto optionalLValueType = emitc::LValueType::get(optionalType);
+    auto tensorType = rewriter.getType<emitc::OpaqueType>(
+        ttnn_to_emitc::TypeNameV<::ttnn::Tensor>);
+
+    llvm::SmallVector<mlir::Value, 2> results;
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), rewriter.getIndexType(), std::to_string(i));
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), optionalLValueType, sdpaForwardOp.getResult(0),
+          indexOp.getResult());
+      auto loadOp = rewriter.create<emitc::LoadOp>(srcOp.getLoc(), optionalType,
+                                                   subscriptOp.getResult());
+      auto valueOp = rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), tensorType,
+          ttnn_to_emitc::kGetOptionalValueFunctionName, /*args=*/nullptr,
+          /*template_args=*/nullptr, loadOp.getResult());
+      results.push_back(valueOp.getResult(0));
+    }
+
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+};
+} // namespace
+
+//
 // BatchNormTrainingOp conversion pattern
 //
 namespace {
@@ -5877,8 +5962,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
            CumSumOpConversionPattern, CumProdOpConversionPattern,
            BatchNormInferenceOpConversionPattern, AdamWOpConversionPattern,
-           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-           RMSNormPreAllGatherOpConversionPattern,
+           SDPAForwardOpConversionPattern, BatchNormTrainingOpConversionPattern,
+           RMSNormOpConversionPattern, RMSNormPreAllGatherOpConversionPattern,
            DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,
            LayerNormPreAllGatherOpConversionPattern,
            LayerNormPostAllGatherOpConversionPattern,

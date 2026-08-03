@@ -12,6 +12,9 @@ set(TTML_METAL_OP_SRCS
   ${TTML_SOURCE_DIR}/metal/optimizers/adamw/adamw.cpp
   ${TTML_SOURCE_DIR}/metal/optimizers/adamw/device/adamw_device_operation.cpp
   ${TTML_SOURCE_DIR}/metal/optimizers/adamw/device/adamw_program_factory.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/sdpa_fw/sdpa_fw.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/sdpa_fw/device/sdpa_fw_device_operation.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/sdpa_fw/device/sdpa_fw_program_factory.cpp
 )
 set_source_files_properties(${TTML_METAL_OP_SRCS} PROPERTIES GENERATED TRUE)
 
