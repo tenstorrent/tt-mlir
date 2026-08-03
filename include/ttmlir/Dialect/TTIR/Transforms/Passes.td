@@ -565,8 +565,7 @@ def TTIRSpatialRowGroupPackingOpt : Pass<"ttir-spatial-row-group-packing-opt", "
       H % K == 0   where K = TILE_WIDTH / gcd(IC, TILE_WIDTH) = 32.
 
     The coprime guard ensures IC*K == TILE_WIDTH, so the packed activation fills
-    a tile column with zero padding waste.  Partial-K cases (gcd(IC,32) > 1,
-    e.g. IC=24 → K=4) are handled by TTIRPointwiseConv2dPartialPackingOpt.
+    a tile column with zero padding waste.
 
     The key idea is to group K adjacent spatial rows into a single super-channel
     via a free contiguous reshape, making the channel-last conv2d equivalent to a
