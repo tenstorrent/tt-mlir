@@ -26,7 +26,7 @@ module attributes {} {
         // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: -> tensor<32x128xf32, {{.*}}#ttnn.buffer_type<dram>
         // CHECK-NEXT: return %[[CAST]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #dram_il_rm_f32>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #dram_il_rm_f32>
         return %0 : tensor<32x128xf32, #dram_il_rm_f32>
     }
 
@@ -37,7 +37,7 @@ module attributes {} {
         // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: -> tensor<32x128xbf16, {{.*}}#ttnn.buffer_type<dram>
         // CHECK-NEXT: return %[[CAST]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<32x128xf32, #dram_il_rm_f32>) -> tensor<32x128xbf16, #dram_il_rm_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<32x128xf32, #dram_il_rm_f32>) -> tensor<32x128xbf16, #dram_il_rm_bf16>
         return %0 : tensor<32x128xbf16, #dram_il_rm_bf16>
     }
 
@@ -48,7 +48,7 @@ module attributes {} {
         // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: -> tensor<32x128xf32, {{.*}}#ttnn.buffer_type<l1>
         // CHECK-NEXT: return %[[CAST]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<32x128xbf16, #l1_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<32x128xbf16, #l1_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32>
         return %0 : tensor<32x128xf32, #l1_il_rm_f32>
     }
 
@@ -62,7 +62,7 @@ module attributes {} {
         // CHECK-NEXT: %[[MEM:.*]] = "ttnn.to_memory_config"(%[[CAST]])
         // CHECK-SAME: -> tensor<32x128xf32, {{.*}}#ttnn.buffer_type<l1>
         // CHECK-NEXT: return %[[MEM]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32>
         return %0 : tensor<32x128xf32, #l1_il_rm_f32>
     }
 
@@ -77,7 +77,7 @@ module attributes {} {
         // CHECK-NEXT: %[[MEM:.*]] = "ttnn.to_memory_config"(%[[CAST]])
         // CHECK-SAME: -> tensor<32x128xbf16, {{.*}}#ttnn.buffer_type<dram>
         // CHECK-NEXT: return %[[MEM]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<32x128xf32, #l1_il_rm_f32>) -> tensor<32x128xbf16, #dram_il_rm_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<32x128xf32, #l1_il_rm_f32>) -> tensor<32x128xbf16, #dram_il_rm_bf16>
         return %0 : tensor<32x128xbf16, #dram_il_rm_bf16>
     }
 }

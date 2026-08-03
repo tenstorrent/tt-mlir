@@ -18,11 +18,11 @@ module attributes {} {
     // 2. Returns row-major layout
     // Therefore, the pass will insert the necessary type conversion and revert output layout ops.
 
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK-SAME: -> tensor<1x1x16384x32xbf16,
     // CHECK-NEXT: "ttnn.max_pool2d"
     // CHECK-SAME: -> tensor<1x1x4096x32xbf16,
-    // CHECK-NEXT: "ttnn.to_layout"
+    // CHECK-NEXT: "ttnn.to_tensor_spec"
     // CHECK-SAME: -> tensor<1x1x4096x32xbf16,
     // CHECK-SAME: !ttcore.tile<32x32,
 

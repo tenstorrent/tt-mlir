@@ -6,9 +6,7 @@
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 
 #include "llvm/ADT/ArrayRef.h"
 
@@ -413,14 +411,14 @@ getMemoryConfig(const MemoryConfigAttr &memConfigAttr) {
                                       getMemoryConfig(layout));
 }
 
-::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
-                                 const TTNNLayoutAttr &layout) {
+::tt::tt_metal::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
+                                         const TTNNLayoutAttr &layout) {
   assert(!layout.getIgnorePhysicalLayout() &&
          "TensorSpecs cannot be created without physical layouts");
-  return ::ttnn::TensorSpec(getShape(shape), getTensorLayout(layout));
+  return ::tt::tt_metal::TensorSpec(getShape(shape), getTensorLayout(layout));
 }
 
-bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
+bool validateTensorSpec(const ::tt::tt_metal::TensorSpec &tensorSpec,
                         const ::tt::tt_metal::CoreCoord &computeGridSize) {
   // Check the shard bounding box
   auto memoryConfig = tensorSpec.memory_config();
@@ -645,9 +643,10 @@ getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
   return {gridPhyCores[0], gridPhyCores[1]};
 }
 
-TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
-                                           const ::ttnn::TensorSpec &tensorSpec,
-                                           llvm::ArrayRef<int64_t> deviceGrid) {
+TTNNLayoutAttr
+getLayoutAttrFromTensorSpec(MLIRContext *context,
+                            const ::tt::tt_metal::TensorSpec &tensorSpec,
+                            llvm::ArrayRef<int64_t> deviceGrid) {
   llvm::SmallVector<int64_t> shape;
   if (tensorSpec.logical_shape().size() > 0) {
     shape = getShape(tensorSpec.logical_shape());

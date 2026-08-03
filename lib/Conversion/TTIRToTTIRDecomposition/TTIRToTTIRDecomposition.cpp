@@ -982,6 +982,77 @@ static mlir::Value reshapeBatchNorm4DTo1D(PatternRewriter &rewriter,
 } // namespace
 
 //===----------------------------------------------------------------------===//
+// AdamW decomposition pattern
+//===----------------------------------------------------------------------===//
+
+// ttml::metal::adamw only accepts 4D tensors, so reshape every operand up to 4D
+// and every result back down. Only the last two dims are tiled, so leading dims
+// are padded (rank < 4) or collapsed (rank > 4).
+namespace {
+struct AdamWPattern : public OpConversionPattern<ttir::AdamWOp> {
+public:
+  using OpConversionPattern<ttir::AdamWOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AdamWOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto paramType = mlir::cast<RankedTensorType>(op.getParam().getType());
+    if (paramType.getRank() == 4) {
+      return rewriter.notifyMatchFailure(op, "already 4D");
+    }
+
+    llvm::ArrayRef<int64_t> shape = paramType.getShape();
+    int64_t height = shape.size() >= 2 ? shape[shape.size() - 2] : 1;
+    int64_t width = shape.empty() ? 1 : shape.back();
+    int64_t leading = 1;
+    for (size_t i = 0; i + 2 < shape.size(); ++i) {
+      leading *= shape[i];
+    }
+    llvm::SmallVector<int64_t, 4> shape4D = {1, leading, height, width};
+
+    auto reshape = [&](mlir::Value value,
+                       llvm::ArrayRef<int64_t> target) -> mlir::Value {
+      auto valueType = mlir::cast<RankedTensorType>(value.getType());
+      auto resultType = RankedTensorType::get(
+          target, valueType.getElementType(), valueType.getEncoding());
+      llvm::SmallVector<int32_t> targetI32(target.begin(), target.end());
+      return rewriter.create<ttir::ReshapeOp>(
+          op.getLoc(), resultType, value, rewriter.getI32ArrayAttr(targetI32));
+    };
+
+    mlir::Value maxExpAvgSq4D = adaptor.getMaxExpAvgSq()
+                                    ? reshape(adaptor.getMaxExpAvgSq(), shape4D)
+                                    : mlir::Value();
+
+    llvm::SmallVector<mlir::Type> resultTypes4D;
+    for (mlir::Type type : op.getResultTypes()) {
+      auto tensorType = mlir::cast<RankedTensorType>(type);
+      resultTypes4D.push_back(RankedTensorType::get(
+          shape4D, tensorType.getElementType(), tensorType.getEncoding()));
+    }
+
+    auto adamw4D = rewriter.create<ttir::AdamWOp>(
+        op.getLoc(), resultTypes4D, reshape(adaptor.getParam(), shape4D),
+        reshape(adaptor.getGrad(), shape4D),
+        reshape(adaptor.getExpAvg(), shape4D),
+        reshape(adaptor.getExpAvgSq(), shape4D), maxExpAvgSq4D, adaptor.getLr(),
+        adaptor.getBeta1(), adaptor.getBeta2(), adaptor.getBeta1Pow(),
+        adaptor.getBeta2Pow(), adaptor.getEpsilon(), adaptor.getWeightDecay(),
+        adaptor.getStochasticRounding());
+
+    llvm::SmallVector<mlir::Value> restored;
+    for (auto [result4D, originalType] :
+         llvm::zip(adamw4D.getResults(), op.getResultTypes())) {
+      restored.push_back(reshape(
+          result4D, mlir::cast<RankedTensorType>(originalType).getShape()));
+    }
+    rewriter.replaceOp(op, restored);
+    return success();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
 // BatchNorm decomposition patterns
 //===----------------------------------------------------------------------===//
 
@@ -2011,6 +2082,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ReductionAndPattern>(typeConverter, ctx);
   patterns.add<BatchNormInferencePattern>(typeConverter, ctx);
   patterns.add<BatchNormTrainingPattern>(typeConverter, ctx);
+  patterns.add<AdamWPattern>(typeConverter, ctx);
   patterns.add<QuantizeOpPattern>(typeConverter, ctx);
   patterns.add<DequantizeOpPattern>(typeConverter, ctx);
   patterns.add<RequantizeOpPattern>(typeConverter, ctx);

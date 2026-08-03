@@ -20,6 +20,12 @@ import torch
 
 import d2m_jit as d2m
 
+pytestmark = pytest.mark.device_only(
+    reason="asserts the D2mJitError type, file:line header and did-you-mean "
+    "hints; the simulator raises plain Python errors instead "
+    "(SIMULATOR_SPEC.md §8)"
+)
+
 
 _L = d2m.Layout(
     shape=(64, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]

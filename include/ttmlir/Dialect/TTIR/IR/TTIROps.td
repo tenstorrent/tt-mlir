@@ -2346,6 +2346,55 @@ def TTIR_RMSNormOp : TTIR_NamedOp<"rms_norm", [AttrSizedOperandSegments]> {
   let hasVerifier = 1;
 }
 
+def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
+  let summary = "AdamW optimizer step";
+  let description = [{
+    Fused AdamW optimizer step. Returns the updated parameter and moment estimates.
+    `ttnn.adamw` writes all of them in place, so `TTIRToTTNN` maps each result back
+    onto the operand it updates.
+
+    Inputs:
+    - `param` (Tensor): parameter tensor being optimized.
+    - `grad` (Tensor): gradient of the parameter.
+    - `exp_avg` (Tensor): first moment estimate.
+    - `exp_avg_sq` (Tensor): second moment estimate.
+    - `max_exp_avg_sq` (Optional Tensor): max second moment for AMSGrad. Its
+      presence implies amsgrad, and requires the matching result.
+
+    Attributes:
+    - `lr`: learning rate.
+    - `beta1`, `beta2`: exponential decay rates for the moment estimates.
+    - `beta1_pow`, `beta2_pow`: beta1^t and beta2^t bias-correction terms.
+    - `epsilon`: numerical-stability constant.
+    - `weight_decay`: decoupled weight-decay coefficient.
+    - `stochastic_rounding`: enable stochastic rounding (default false).
+
+    Outputs: the updated `param`, `exp_avg`, `exp_avg_sq` and, when
+    `max_exp_avg_sq` is given, the updated `max_exp_avg_sq`.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$param,
+                       AnyRankedTensor:$grad,
+                       AnyRankedTensor:$exp_avg,
+                       AnyRankedTensor:$exp_avg_sq,
+                       Optional<AnyRankedTensor>:$max_exp_avg_sq,
+                       F32Attr:$lr,
+                       F32Attr:$beta1,
+                       F32Attr:$beta2,
+                       F32Attr:$beta1_pow,
+                       F32Attr:$beta2_pow,
+                       F32Attr:$epsilon,
+                       F32Attr:$weight_decay,
+                       DefaultValuedAttr<BoolAttr, "false">:$stochastic_rounding);
+
+  let results = (outs AnyRankedTensor:$param_out,
+                      AnyRankedTensor:$exp_avg_out,
+                      AnyRankedTensor:$exp_avg_sq_out,
+                      Optional<AnyRankedTensor>:$max_exp_avg_sq_out);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_DistributedRMSNormOp : TTIR_NamedOp<"distributed_rms_norm", [AttrSizedOperandSegments]> {
   let summary = "Distributed RMS normalization with all-gather operation";
   let description = [{

@@ -492,8 +492,15 @@ def test_reduce_max_rows_cross_tile_output_layout():
     assert diff < 0.05, f"cross-tile reduce_max(dim=0): max diff {diff}"
 
 
+@pytest.mark.device_only(
+    reason="asserts the D2mJitError type and message; the simulator raises plain "
+    "Python ValueError/TypeError instead, a deliberate divergence "
+    "(SIMULATOR_SPEC.md §8)"
+)
 @pytest.mark.parametrize("bad_dim", [2, -3, True, False])
 def test_reduce_invalid_dim_rejected(bad_dim):
+    """Out-of-range or bool reduce dims must raise `D2mJitError`."""
+
     @d2m.kernel
     def k_bad_dim(in_t, out_t):
         x = remote_load(in_t, [0, 0])

@@ -11,9 +11,9 @@ module attributes {ttcore.system_desc = #system_desc} {
   func.func @main(%arg0: tensor<1x1xsi32, #ttnn_layout> {ttcore.argument_type = #ttcore.argument_type<input>}) -> tensor<1x2xui32, #ttnn_layout1> attributes {tt.function_type = "forward_device"} {
     // CHECK-LABEL: func.func @main
     // CHECK: %[[TC:.*]] = "ttnn.typecast"(%arg0)
-    // CHECK: %[[FIX:.*]] = "ttnn.to_layout"(%[[TC]])
+    // CHECK: %[[FIX:.*]] = "ttnn.to_tensor_spec"(%[[TC]])
     // CHECK: "ttnn.all_gather"(%[[FIX]])
-    %0 = "ttnn.to_layout"(%arg0) : (tensor<1x1xsi32, #ttnn_layout>) -> tensor<1x1xsi32, #ttnn_layout2>
+    %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<1x1xsi32, #ttnn_layout>) -> tensor<1x1xsi32, #ttnn_layout2>
     %1 = "ttnn.typecast"(%0) : (tensor<1x1xsi32, #ttnn_layout2>) -> tensor<1x1xui32, #ttnn_layout1>
     %2 = "ttnn.all_gather"(%1) <{all_gather_dim = 1 : si32, cluster_axis = 1 : ui32}> : (tensor<1x1xui32, #ttnn_layout1>) -> tensor<1x2xui32, #ttnn_layout1>
     return %2 : tensor<1x2xui32, #ttnn_layout1>

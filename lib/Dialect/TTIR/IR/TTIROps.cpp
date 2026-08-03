@@ -7253,6 +7253,49 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// AdamWOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::AdamWOp::verify() {
+  llvm::ArrayRef<int64_t> shape = getParam().getType().getShape();
+  auto sameShape = [&](RankedTensorType t) { return t.getShape() == shape; };
+
+  if (!sameShape(getGrad().getType())) {
+    return emitOpError("grad must have the same shape as param");
+  }
+  if (!sameShape(getExpAvg().getType())) {
+    return emitOpError("exp_avg must have the same shape as param");
+  }
+  if (!sameShape(getExpAvgSq().getType())) {
+    return emitOpError("exp_avg_sq must have the same shape as param");
+  }
+  if (getMaxExpAvgSq() && !sameShape(getMaxExpAvgSq().getType())) {
+    return emitOpError("max_exp_avg_sq must have the same shape as param");
+  }
+
+  // Each result stands for the updated value of the operand it is paired with,
+  // and TTIRToTTNN forwards it to that operand, so the types must match.
+  if (getParamOut().getType() != getParam().getType()) {
+    return emitOpError("param_out type must match param");
+  }
+  if (getExpAvgOut().getType() != getExpAvg().getType()) {
+    return emitOpError("exp_avg_out type must match exp_avg");
+  }
+  if (getExpAvgSqOut().getType() != getExpAvgSq().getType()) {
+    return emitOpError("exp_avg_sq_out type must match exp_avg_sq");
+  }
+  if (static_cast<bool>(getMaxExpAvgSq()) !=
+      static_cast<bool>(getMaxExpAvgSqOut())) {
+    return emitOpError("max_exp_avg_sq and max_exp_avg_sq_out must both be "
+                       "present or both be absent");
+  }
+  if (getMaxExpAvgSqOut() &&
+      getMaxExpAvgSqOut().getType() != getMaxExpAvgSq().getType()) {
+    return emitOpError("max_exp_avg_sq_out type must match max_exp_avg_sq");
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // DistributedRMSNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttir::DistributedRMSNormOp::verify() {

@@ -6,13 +6,10 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/types/trace_cache.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/types.h"
-#include "tt/runtime/workarounds.h"
-#include "ttnn/tensor/tensor_impl.hpp"
 
 namespace tt::runtime::ttnn::operations::trace {
 
@@ -32,7 +29,7 @@ static void copyTensorFromHostToDevice(const ::ttnn::Tensor &srcTensor,
                  dstTensor.storage_type() == ::ttnn::StorageType::DEVICE,
              "srcTensor must be on host and dstTensor must be on device");
 
-  ::tt::tt_metal::copy_to_device(srcTensor, dstTensor);
+  ::ttnn::copy_to_device(srcTensor, dstTensor);
 }
 
 static void copyTensorFromDeviceToDevice(const ::ttnn::Tensor &srcTensor,
@@ -41,7 +38,7 @@ static void copyTensorFromDeviceToDevice(const ::ttnn::Tensor &srcTensor,
                  dstTensor.storage_type() == ::ttnn::StorageType::DEVICE,
              "srcTensor must be on device and dstTensor must be on device");
   ::ttnn::Tensor hostSrcTensor = ::ttnn::from_device(srcTensor);
-  ::tt::tt_metal::copy_to_device(hostSrcTensor, dstTensor);
+  ::ttnn::copy_to_device(hostSrcTensor, dstTensor);
 }
 
 static void runTraceProgramAndCaptureTrace(

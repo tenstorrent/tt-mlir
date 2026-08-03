@@ -11,6 +11,7 @@
 #include "llvm/ADT/ArrayRef.h"
 
 #include <type_traits>
+
 namespace mlir::tt::ttnn::op_model {
 namespace conversion {
 ::tt::tt_metal::DataType getDataType(const ttcore::DataType dataType);
@@ -63,8 +64,8 @@ getMemoryConfig(const MemoryConfigAttr &memConfigAttr);
 
 ::tt::tt_metal::TensorLayout getTensorLayout(const TTNNLayoutAttr &layout);
 
-::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
-                                 const TTNNLayoutAttr &layout);
+::tt::tt_metal::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
+                                         const TTNNLayoutAttr &layout);
 
 /**
  * @brief Perform various validity checks on a converted TensorSpec
@@ -83,7 +84,7 @@ getMemoryConfig(const MemoryConfigAttr &memConfigAttr);
  * @param computeGridSize The compute grid size for the target device.
  * @return false if any check fails
  */
-bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
+bool validateTensorSpec(const ::tt::tt_metal::TensorSpec &tensorSpec,
                         const ::tt::tt_metal::CoreCoord &computeGridSize);
 
 ::ttsl::SmallVector<int>
@@ -128,9 +129,10 @@ llvm::SmallVector<int64_t>
 getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
                     const llvm::ArrayRef<int64_t> &gridPhyCores);
 
-TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
-                                           const ::ttnn::TensorSpec &tensorSpec,
-                                           llvm::ArrayRef<int64_t> deviceGrid);
+TTNNLayoutAttr
+getLayoutAttrFromTensorSpec(MLIRContext *context,
+                            const ::tt::tt_metal::TensorSpec &tensorSpec,
+                            llvm::ArrayRef<int64_t> deviceGrid);
 
 std::optional<::ttnn::DeviceComputeKernelConfig>
 getDeviceComputeKernelConfig(const std::optional<DeviceComputeKernelConfigAttr>

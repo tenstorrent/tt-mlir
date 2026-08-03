@@ -114,6 +114,10 @@ namespace transformer {
 struct SDPAProgramConfig;
 } // namespace transformer
 
+namespace experimental::indexer_score {
+struct IndexerScoreProgramConfig;
+} // namespace experimental::indexer_score
+
 } // namespace operations
 } // namespace ttnn
 
@@ -265,6 +269,14 @@ template <>
 struct TypeName<::ttnn::operations::transformer::SDPAProgramConfig> {
   inline static const std::string value =
       "::ttnn::operations::transformer::SDPAProgramConfig";
+};
+
+template <>
+struct TypeName<::ttnn::operations::experimental::indexer_score::
+                    IndexerScoreProgramConfig> {
+  inline static const std::string value = "::ttnn::operations::experimental::"
+                                          "indexer_score::"
+                                          "IndexerScoreProgramConfig";
 };
 
 // Marker type for MatmulMultiCoreReuseMultiCast1DProgramConfig (used by
