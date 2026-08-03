@@ -5,6 +5,8 @@
 #include "ttmlir/Dialect/D2M/Analysis/GridAnalysis.h"
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/Analysis/TopKShardingStrategy.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/GridSelectionUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
@@ -23,6 +25,82 @@ bool GridAnalysis::isTTNNOperand(Value operand) {
     operand = view.getInput();
   }
   return operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>() != nullptr;
+}
+
+static bool isTopKRelayoutOp(Operation *op) {
+  return mlir::isa<d2m::ToLayoutOp, d2m::ViewLayoutOp, d2m::MaskOp,
+                   d2m::CompositeViewOp>(op);
+}
+
+static bool hasLeftDeviceLayout(Value value) {
+  auto shapedType = mlir::dyn_cast<ShapedType>(value.getType());
+  return !shapedType || !ttcore::getDeviceLayout(shapedType);
+}
+
+llvm::DenseSet<Operation *>
+GridAnalysis::collectTopKPinnedGenerics(Operation *root) {
+  // Seed on the leaf and merge generics; the rest of the expansion is reachable
+  // from them.
+  llvm::SmallVector<Operation *> worklist;
+  llvm::DenseSet<Operation *> pinned;
+  root->walk([&](GenericOp genericOp) {
+    bool holdsTopk = false;
+    genericOp->walk([&](TopkBlockOp) {
+      holdsTopk = true;
+      return WalkResult::interrupt();
+    });
+    if (holdsTopk && pinned.insert(genericOp.getOperation()).second) {
+      worklist.push_back(genericOp.getOperation());
+    }
+  });
+
+  auto visitProducer = [&](Value value) {
+    while (Operation *def = value.getDefiningOp()) {
+      if (mlir::isa<GenericOp>(def)) {
+        if (pinned.insert(def).second) {
+          worklist.push_back(def);
+        }
+        return;
+      }
+      if (!isTopKRelayoutOp(def) || def->getNumOperands() == 0) {
+        return;
+      }
+      value = def->getOperand(0);
+    }
+  };
+
+  // Single-input only, so an unrelated consumer reading topk's result is not
+  // dragged in.
+  auto visitConsumers = [&](Value value, auto &&recurse) -> void {
+    if (hasLeftDeviceLayout(value)) {
+      return;
+    }
+    for (Operation *user : value.getUsers()) {
+      if (auto consumer = mlir::dyn_cast<GenericOp>(user)) {
+        if (consumer.getInputs().size() == 1 && pinned.insert(user).second) {
+          worklist.push_back(user);
+        }
+        continue;
+      }
+      if (!isTopKRelayoutOp(user)) {
+        continue;
+      }
+      for (Value result : user->getResults()) {
+        recurse(result, recurse);
+      }
+    }
+  };
+
+  while (!worklist.empty()) {
+    auto genericOp = mlir::cast<GenericOp>(worklist.pop_back_val());
+    for (Value input : genericOp.getInputs()) {
+      visitProducer(input);
+    }
+    for (Value result : genericOp->getResults()) {
+      visitConsumers(result, visitConsumers);
+    }
+  }
+  return pinned;
 }
 
 // Find the largest value <= maxFactor that divides all the given physical
@@ -373,7 +451,7 @@ computeCompositeInputGridInfos(d2m::CompositeViewOp compositeView,
 
 GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     GenericOp genericOp,
-    const EffectiveTargetGridRange &effectiveTargetGridRange) {
+    const EffectiveTargetGridRange &effectiveTargetGridRange, bool pinned) {
   GenericGridAnalysisResult result;
   result.effectiveTargetGridRange = effectiveTargetGridRange;
   ArrayRef<int64_t> targetGridShape = result.effectiveTargetGridRange.shape;
@@ -384,7 +462,9 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
   // computeGridAwareDimAlignments produces consistent alignments.
   int64_t minGridDim = *llvm::min_element(targetGridShape);
   auto indexingMaps = genericOp.getIndexingMapsValue();
-  unsigned numLoopDims = indexingMaps.front().getNumDims();
+  // Empty only for pinned generics in explicit datamovement form.
+  unsigned numLoopDims =
+      indexingMaps.empty() ? 0 : indexingMaps.front().getNumDims();
 
   // For each loop dim, find which operand-dim positions it maps to. If it
   // appears at different positions across operands, mark those positions as
@@ -459,8 +539,11 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     llvm::SmallVector<int64_t> physShape =
         utils::computePhysicalShape(operand, targetGrid, ttnnMode);
     physicalShapes.push_back(physShape);
+    // A pinned split is dictated by the lowering; only the fold onto physical
+    // cores is left to compute.
     auto optimalGrid =
-        utils::computeOptimalGrid(operandType, physShape, targetGrid);
+        pinned ? llvm::to_vector(operandLayout.getGridShape(operandType))
+               : utils::computeOptimalGrid(operandType, physShape, targetGrid);
     optimalOperandGrids.push_back(optimalGrid);
 
     OperandGridInfo info;
@@ -468,6 +551,7 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     info.setOperandIndex(operandIndex);
     info.selectedGrid = optimalGrid; // Will be updated after normalization.
     info.targetGrid = perOperandTargetGrids[operandIndex];
+    info.forceRebuild = pinned;
 
     unsigned outputBegin = genericOp.getOutputs().getBeginOperandIndex();
     if (operandIndex >= outputBegin &&
@@ -481,8 +565,11 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
 
     // If the operand is a view over a ToLayoutOp (not fronting a TTNN cast),
     // pre-compute the ToLayoutOp's own optimal grid so it can be updated
-    // independently at apply time.
-    if (auto toLayoutOp = utils::getToLayoutProducerBehindViews(operand)) {
+    // independently at apply time. A pinned producer is already at the right
+    // grid.
+    if (auto toLayoutOp =
+            pinned ? d2m::ToLayoutOp()
+                   : utils::getToLayoutProducerBehindViews(operand)) {
       if (!toLayoutOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
         Value toLayoutResult = toLayoutOp.getResult(0);
         auto inputType =
@@ -532,9 +619,13 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     }
   }
 
-  // Normalize the operand grids for the generic operation.
-  result.normalizedOperandGrids = normalizeOperandGridsForGeneric(
-      genericOp, optimalOperandGrids, physicalShapes);
+  // Normalize the operand grids for the generic operation. Pinned operands are
+  // already consistent; normalizing would trade the required split for a
+  // common factor.
+  result.normalizedOperandGrids =
+      pinned ? llvm::to_vector(optimalOperandGrids)
+             : normalizeOperandGridsForGeneric(genericOp, optimalOperandGrids,
+                                               physicalShapes);
 
   // Propagate normalized grids back to non-reinterpret ViewLayout operands
   // only. Other operand kinds use their independently computed optimal
@@ -558,6 +649,17 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     auto compositeView =
         info.getLiveOperand().getDefiningOp<d2m::CompositeViewOp>();
     if (!compositeView) {
+      continue;
+    }
+    if (pinned) {
+      for (Value input : compositeView.getInputs()) {
+        auto inputType = mlir::cast<RankedTensorType>(input.getType());
+        auto inputLayout =
+            mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+        info.compositeInputInfos.push_back(
+            {input, llvm::to_vector(inputLayout.getGridShape(inputType)),
+             inputType});
+      }
       continue;
     }
     info.compositeInputInfos = computeCompositeInputGridInfos(
@@ -594,9 +696,16 @@ GridAnalysis::getTargetGridRange(GenericOp genericOp) const {
 GridAnalysis::GridAnalysis(Operation *moduleOp,
                            ArrayRef<int64_t> deviceGridShape, bool ttnnMode)
     : deviceGridShape(deviceGridShape), ttnnMode(ttnnMode) {
+  // Generics whose split is fixed by their lowering (see D2MTopKRewriter).
+  llvm::DenseSet<Operation *> pinnedGenerics =
+      collectTopKPinnedGenerics(moduleOp);
+
   moduleOp->walk([&](GenericOp genericOp) {
-    // Skip explicit datamovement form — users manage grids manually.
-    if (genericOp.isExplicitDatamovementForm()) {
+    bool pinned = pinnedGenerics.contains(genericOp);
+    // Skip explicit datamovement form — users manage grids manually. Pinned
+    // generics are the exception: the topk narrowings use this form but still
+    // need their buffers folded onto physical cores.
+    if (genericOp.isExplicitDatamovementForm() && !pinned) {
       return;
     }
     if (genericOp->hasAttr("d2m.skip_grid_selection")) {
@@ -605,7 +714,7 @@ GridAnalysis::GridAnalysis(Operation *moduleOp,
 
     EffectiveTargetGridRange targetGridRange = getTargetGridRange(genericOp);
     GenericGridAnalysisResult result =
-        analyzeGenericOp(genericOp, targetGridRange);
+        analyzeGenericOp(genericOp, targetGridRange, pinned);
     results[genericOp.getOperation()] =
         std::make_unique<GenericGridAnalysisResult>(std::move(result));
   });

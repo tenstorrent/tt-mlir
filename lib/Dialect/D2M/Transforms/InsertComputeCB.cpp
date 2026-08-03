@@ -111,6 +111,18 @@ traceCBUse(OpOperand &startUse, GenericOp generic) {
   return std::nullopt;
 }
 
+// Scratch and reduction-scaler buffers are compute-local L1 allocations, not
+// CBs: no datamovement thread ever fills or drains them, so they take part in
+// no wait/push handshake. `traceCBUse` already refuses them on the memref
+// access path; synchronizable compute ops must refuse them on theirs too, or a
+// consumer that names one as an operand (d2m.tile_topk_* naming its index
+// buffer, say) gets a wait that nothing can ever satisfy.
+static bool isComputeLocalBuffer(Value cb) {
+  Operation *definingOp = cb.getDefiningOp();
+  return definingOp && (definingOp->getAttr("d2m.scratch_buffer") ||
+                        utils::isReductionScalerBuffer(definingOp));
+}
+
 // collapse_shape / subview compute an address into a CB; they do not wait
 // for or produce tiles. They are often hoisted above the loop that uses them.
 static bool isCBViewOp(Operation *op) {
@@ -344,6 +356,9 @@ static LogicalResult insertCBOpsForCompute(
       }
     }
     for (OpOperand &operand : op->getOpOperands()) {
+      if (isComputeLocalBuffer(operand.get())) {
+        continue;
+      }
       if (sync.isConsumer(operand)) {
         add(consumers, operand.get(), op, &operand);
       }

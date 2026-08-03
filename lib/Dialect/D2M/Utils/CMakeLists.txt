@@ -17,4 +17,5 @@ add_mlir_library(MLIRD2MUtils
   MLIRIR
   MLIRAffineDialect
   MLIRAffineUtils
+  MLIRLinalgDialect
 )

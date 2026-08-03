@@ -6,6 +6,7 @@
 
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/Analysis/TopKShardingStrategy.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/GridSelectionUtils.h"
@@ -35,7 +36,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
@@ -705,6 +705,119 @@ protected:
     }
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
+  }
+
+  /// Emits a one-in/one-out `d2m.generic` whose region maps every tile of `src`
+  /// through `makeTile`. `gridMap` is the input's grid-level indexing map (the
+  /// output's is identity); `shardMap` builds the input's shard-level map from
+  /// the region's shard rank, or is null for identity.
+  Value emitUnaryGeneric(
+      ConversionPatternRewriter &rewriter, Location loc, Value src, Value out,
+      AffineMap gridMap, ArrayRef<Attribute> iteratorTypes,
+      llvm::function_ref<AffineMap(std::size_t)> shardMap,
+      llvm::function_ref<Value(OpBuilder &, Location, ValueRange)> makeTile)
+      const {
+    std::size_t physicalRank = iteratorTypes.size();
+    AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
+    SmallVector<Value> ins = {src};
+    SmallVector<Value> outs = {out};
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, ins, outs, /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(
+            SmallVector<AffineMap>{gridMap, identityMap}),
+        rewriter.getArrayAttr(iteratorTypes));
+    withD2MGenericRegion(
+        rewriter, loc, generic, ins, outs,
+        [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
+          Value input = blockArgs[0];
+          Value output = blockArgs[1];
+          std::size_t shardRank =
+              cast<RankedTensorType>(output.getType()).getRank();
+          AffineMap shardIdentity = rewriter.getMultiDimIdentityMap(shardRank);
+          AffineMap shardIn = shardMap ? shardMap(shardRank) : shardIdentity;
+          SmallVector<mlir::utils::IteratorType> linalgIters(
+              shardRank, mlir::utils::IteratorType::parallel);
+          auto linalgOp = rewriter.create<linalg::GenericOp>(
+              loc, output.getType(), input, output,
+              SmallVector<AffineMap>{shardIn, shardIdentity}, linalgIters,
+              [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
+                b.create<linalg::YieldOp>(bodyLoc, makeTile(b, bodyLoc, args));
+              });
+          return {linalgOp->getResult(0)};
+        });
+    return generic->getResult(0);
+  }
+
+  /// Narrows `wide` in place to `narrowEmpty`'s shape, every core keeping its
+  /// own shard: each core remote_loads its own tile, copies the leading
+  /// `genRedDim` tiles, and remote_stores back to itself.
+  d2m::GenericOp emitInPlaceNarrowing(
+      ConversionPatternRewriter &rewriter, Location loc, Value wide,
+      d2m::EmptyOp narrowEmpty, std::size_t physicalRank, std::size_t genRedDim,
+      AffineMap identityMap, ArrayRef<Attribute> iteratorTypes) const {
+    MLIRContext *ctx = rewriter.getContext();
+    auto wideType = cast<RankedTensorType>(wide.getType());
+    auto narrowType = cast<RankedTensorType>(narrowEmpty.getType());
+    auto tileType = cast<ttcore::TileType>(wideType.getElementType());
+
+    AffineMap constInMap =
+        AffineMap::get(physicalRank, 0,
+                       SmallVector<AffineExpr>(
+                           physicalRank, rewriter.getAffineConstantExpr(0)),
+                       ctx);
+    SmallVector<Value> ins = {wide};
+    SmallVector<Value> outs = {narrowEmpty.getResult()};
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, ins, outs, /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(
+            SmallVector<AffineMap>{constInMap, identityMap}),
+        rewriter.getArrayAttr(iteratorTypes));
+
+    auto insertPoint = rewriter.saveInsertionPoint();
+    rewriter.startOpModification(generic);
+    mlir::Region &region = generic->getRegions().front();
+    mlir::Block *block = rewriter.createBlock(&region);
+    rewriter.setInsertionPointToStart(block);
+
+    auto inShardType = RankedTensorType::get(
+        wideType.getShape().take_back(physicalRank), tileType);
+    auto outShardType = RankedTensorType::get(
+        narrowType.getShape().take_back(physicalRank), tileType);
+    std::size_t shardRank = outShardType.getRank();
+    std::size_t shardRedDim = shardRank - (physicalRank - genRedDim);
+
+    Value loadBuf = rewriter
+                        .create<tensor::EmptyOp>(loc, inShardType.getShape(),
+                                                 inShardType.getElementType())
+                        .getResult();
+    SmallVector<Value> srcIndices =
+        d2m::utils::buildCoreIndices(rewriter, loc, physicalRank);
+    Value loaded = rewriter
+                       .create<d2m::RemoteLoadOp>(loc, inShardType, loadBuf,
+                                                  wide, srcIndices)
+                       .getResult();
+
+    Value outBuf = rewriter
+                       .create<tensor::EmptyOp>(loc, outShardType.getShape(),
+                                                outShardType.getElementType())
+                       .getResult();
+    auto linalgOp = d2m::utils::emitLeadingTileCopy(rewriter, loc, loaded,
+                                                    outBuf, shardRedDim);
+
+    SmallVector<Value> outIndices =
+        d2m::utils::buildCoreIndices(rewriter, loc, physicalRank);
+    Value storeResult =
+        rewriter
+            .create<d2m::RemoteStoreOp>(loc, narrowEmpty.getType(),
+                                        narrowEmpty.getResult(), outIndices,
+                                        linalgOp->getResult(0))
+            .getResult();
+    rewriter.create<d2m::YieldOp>(loc, ValueRange{storeResult});
+    rewriter.finalizeOpModification(generic);
+    rewriter.restoreInsertionPoint(insertPoint);
+
+    d2m::utils::makeExplicitDatamovementForm(rewriter, generic);
+    return generic;
   }
 
   /// Fills a single tile tensor with `fillValue` (e.g. mean scaler 1/N).
@@ -3597,41 +3710,6 @@ public:
   }
 };
 
-// Picks the smallest legal group count for one merge round (divides `bands`,
-// <= mergeCap bands/group, valid core count); smallest groups keeps the tree
-// shallow
-static int64_t pickMergeGroupCount(int64_t bands, int64_t mergeCap,
-                                   ArrayRef<int64_t> workerGridShape) {
-  for (int64_t groups = 1; groups < bands; ++groups) {
-    if (bands % groups != 0) {
-      continue;
-    }
-    if (bands / groups > mergeCap) {
-      continue;
-    }
-    if (d2m::utils::findLegalPhysicalGridForVolume(groups, workerGridShape)
-            .empty()) {
-      continue;
-    }
-    return groups;
-  }
-  return 0;
-}
-
-// True when repeatedly applying pickMergeGroupCount reduces `bands` to 1.
-// Fails if any level has no divisor in [2, mergeCap] that is also grid-legal.
-static bool mergeChainCloses(int64_t bands, int64_t mergeCap,
-                             ArrayRef<int64_t> workerGridShape) {
-  while (bands > 1) {
-    int64_t groups = pickMergeGroupCount(bands, mergeCap, workerGridShape);
-    if (groups == 0) {
-      return false;
-    }
-    bands = groups;
-  }
-  return true;
-}
-
 class D2MTopKRewriter : public OpConversionPattern<ttir::TopKOp>,
                         D2MNamedRewriterCommon {
 public:
@@ -3643,130 +3721,6 @@ public:
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
                                ttnnMode, collapseTensors,
                                enableMulticastInference) {}
-
-  SmallVector<Value> buildCoreIndices(OpBuilder &builder, Location loc,
-                                      std::size_t gridRank) const {
-    SmallVector<Value> indices;
-    for (std::size_t i = 0; i < gridRank; ++i) {
-      indices.push_back(builder.create<d2m::CoreIndexOp>(
-          loc, builder.getIndexType(), builder.getI64IntegerAttr(i),
-          /*virtual_grid_map=*/nullptr));
-    }
-    return indices;
-  }
-
-  // Opts a generic out of reblocking, which would otherwise read the narrowing
-  // generics' constant input map as a broadcast and rebuild their regions.
-  void makeExplicitDatamovementForm(ConversionPatternRewriter &rewriter,
-                                    d2m::GenericOp generic) const {
-    generic.setBlockFactorsAttr(rewriter.getI64ArrayAttr({}));
-    generic.setIndexingMapsAttr(rewriter.getAffineMapArrayAttr({}));
-    generic.setIteratorTypesAttr(rewriter.getArrayAttr({}));
-  }
-
-  // Emits a linalg.generic copying `input` into `output` tile-by-tile via
-  // TileTypecastOp. With `shardRedDim` set, a non-invertible `dim mod extent`
-  // map on it takes the loop bound from the narrow output, copying only the
-  // leading tiles; without it the map is an identity over the whole shard.
-  linalg::GenericOp
-  emitLeadingTileCopy(OpBuilder &builder, Location loc, MLIRContext *ctx,
-                      Value input, Value output,
-                      std::optional<std::size_t> shardRedDim) const {
-    auto inShardType = cast<RankedTensorType>(input.getType());
-    std::size_t shardRank = cast<RankedTensorType>(output.getType()).getRank();
-    SmallVector<AffineExpr> inExprs;
-    for (std::size_t i = 0; i < shardRank; ++i) {
-      AffineExpr idx = builder.getAffineDimExpr(i);
-      inExprs.push_back(i == shardRedDim ? idx % inShardType.getShape()[i]
-                                         : idx);
-    }
-    AffineMap shardInMap = AffineMap::get(shardRank, 0, inExprs, ctx);
-    AffineMap shardIdentity = builder.getMultiDimIdentityMap(shardRank);
-    SmallVector<mlir::utils::IteratorType> linalgIters(
-        shardRank, mlir::utils::IteratorType::parallel);
-    return builder.create<linalg::GenericOp>(
-        loc, output.getType(), input, output,
-        SmallVector<AffineMap>{shardInMap, shardIdentity}, linalgIters,
-        [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
-          Value copied = b.create<d2m::TileTypecastOp>(
-              bodyLoc, args[1].getType(), args[0]);
-          b.create<linalg::YieldOp>(bodyLoc, copied);
-        });
-  }
-
-  // Narrows `wide` in place to `narrowEmpty`'s shape, every core keeping its
-  // own shard
-  d2m::GenericOp emitInPlaceNarrowing(ConversionPatternRewriter &rewriter,
-                                      Location loc, MLIRContext *ctx,
-                                      Value wide, d2m::EmptyOp narrowEmpty,
-                                      std::size_t physicalRank,
-                                      std::size_t genRedDim,
-                                      AffineMap identityMap,
-                                      ArrayRef<Attribute> iteratorTypes) const {
-    auto wideType = cast<RankedTensorType>(wide.getType());
-    auto narrowType = cast<RankedTensorType>(narrowEmpty.getType());
-    auto tileType = cast<ttcore::TileType>(wideType.getElementType());
-
-    AffineMap constInMap =
-        AffineMap::get(physicalRank, 0,
-                       SmallVector<AffineExpr>(
-                           physicalRank, rewriter.getAffineConstantExpr(0)),
-                       ctx);
-    SmallVector<Value> ins = {wide};
-    SmallVector<Value> outs = {narrowEmpty.getResult()};
-    auto generic = rewriter.create<d2m::GenericOp>(
-        loc, ins, outs, /*additionalArgs=*/ValueRange(),
-        rewriter.getAffineMapArrayAttr(
-            SmallVector<AffineMap>{constInMap, identityMap}),
-        rewriter.getArrayAttr(iteratorTypes));
-    generic->setAttr("d2m.skip_grid_selection", rewriter.getUnitAttr());
-
-    auto insertPoint = rewriter.saveInsertionPoint();
-    rewriter.startOpModification(generic);
-    mlir::Region &region = generic->getRegions().front();
-    mlir::Block *block = rewriter.createBlock(&region);
-    rewriter.setInsertionPointToStart(block);
-
-    auto inShardType = RankedTensorType::get(
-        wideType.getShape().take_back(physicalRank), tileType);
-    auto outShardType = RankedTensorType::get(
-        narrowType.getShape().take_back(physicalRank), tileType);
-    std::size_t shardRank = outShardType.getRank();
-    std::size_t shardRedDim = shardRank - (physicalRank - genRedDim);
-
-    Value loadBuf = rewriter
-                        .create<tensor::EmptyOp>(loc, inShardType.getShape(),
-                                                 inShardType.getElementType())
-                        .getResult();
-    SmallVector<Value> srcIndices =
-        buildCoreIndices(rewriter, loc, physicalRank);
-    Value loaded = rewriter
-                       .create<d2m::RemoteLoadOp>(loc, inShardType, loadBuf,
-                                                  wide, srcIndices)
-                       .getResult();
-
-    Value outBuf = rewriter
-                       .create<tensor::EmptyOp>(loc, outShardType.getShape(),
-                                                outShardType.getElementType())
-                       .getResult();
-    auto linalgOp =
-        emitLeadingTileCopy(rewriter, loc, ctx, loaded, outBuf, shardRedDim);
-
-    SmallVector<Value> outIndices =
-        buildCoreIndices(rewriter, loc, physicalRank);
-    Value storeResult =
-        rewriter
-            .create<d2m::RemoteStoreOp>(loc, narrowEmpty.getType(),
-                                        narrowEmpty.getResult(), outIndices,
-                                        linalgOp->getResult(0))
-            .getResult();
-    rewriter.create<d2m::YieldOp>(loc, ValueRange{storeResult});
-    rewriter.finalizeOpModification(generic);
-    rewriter.restoreInsertionPoint(insertPoint);
-
-    makeExplicitDatamovementForm(rewriter, generic);
-    return generic;
-  }
 
   // Extracts top-k results from topkResult into extractOutput, collapsing
   // extractProjectDim to tile 0. Transposes (dim=1) or typecasts (dim=0)
@@ -3800,9 +3754,6 @@ public:
         rewriter.getAffineMapArrayAttr(
             SmallVector<AffineMap>{inputProjectedMap, extractIdentity}),
         rewriter.getArrayAttr(extractIters));
-    // Keep the output's declared grid; grid selection would otherwise re-place
-    // this against the full topk partial shard it reads.
-    generic->setAttr("d2m.skip_grid_selection", rewriter.getUnitAttr());
 
     withD2MGenericRegion(
         rewriter, loc, generic, extractInputs, extractOutputs,
@@ -3878,325 +3829,84 @@ public:
     }
 
     constexpr int64_t kTileWidth = 32;
-    int64_t outputReductionTiles = (k + kTileWidth - 1) / kTileWidth;
-    // L1-safe tile budget for one core's shard of a single buffer.
-    constexpr int64_t kMaxTilesPerCore = 43;
-    int64_t fullReductionElems = inputType.getShape()[dim];
-    int64_t nonTargetElems = inputType.getShape()[1 - dim];
-    int64_t nonTargetTiles = (nonTargetElems + kTileWidth - 1) / kTileWidth;
     int64_t fullReductionTiles =
-        (fullReductionElems + kTileWidth - 1) / kTileWidth;
-
-    int64_t localReductionTiles = std::max<int64_t>(fullReductionTiles, 2);
+        (inputType.getShape()[dim] + kTileWidth - 1) / kTileWidth;
+    if (fullReductionTiles == 1) {
+      assert(k <= kTileWidth && "single-tile topk input only supports k <= 32");
+    }
     Type idxElemType = rewriter.getI32Type();
 
-    SmallVector<int64_t> workerGridShape;
-    int64_t maxGridCores = 1;
-    auto loadWorkerGrid = [&]() {
-      if (!workerGridShape.empty()) {
-        return;
-      }
-      auto device = ttcore::lookupDevice(op);
-      workerGridShape = llvm::to_vector(device.getWorkerGrid().getShape());
-      assert(workerGridShape.size() == 2 && "expected a 2D worker grid");
-      maxGridCores = workerGridShape[0] * workerGridShape[1];
-    };
+    auto device = ttcore::lookupDevice(op);
+    SmallVector<int64_t> workerGridShape =
+        llvm::to_vector(device.getWorkerGrid().getShape());
+    assert(workerGridShape.size() == 2 && "expected a 2D worker grid");
 
-    // A joint 2D split is the only option left once the non-target dim
-    // overflows a core AND the reduction dim is too big to ride along whole on
-    // every core, which is what the data-parallel split needs.
-    bool twoDim = nonTargetTiles > kMaxTilesPerCore &&
-                  localReductionTiles >= kMaxTilesPerCore;
+    std::string strategyFailure;
+    auto strategyOr = d2m::selectTopKShardingStrategy(
+        k, dim, inputType.getShape(), workerGridShape, strategyFailure);
+    if (failed(strategyOr)) {
+      return rewriter.notifyMatchFailure(op, strategyFailure);
+    }
+    const d2m::TopKShardingStrategy &strategy = *strategyOr;
 
     // Whether each dim is split, and how: `dataParallel` slices the non-target
     // dim ntShards ways (no merge needed), `multiCore` bands the reduction dim
     // numShards ways (merged back by a tree). The 2D split sets both.
-    bool dataParallel = false;
-    bool multiCore = false;
-    int64_t ntShards = 1;
-    int64_t ntTilesPerCore = nonTargetTiles;
-    int64_t paddedNonTargetTiles = nonTargetTiles;
-    // Bands need not divide fullReductionTiles evenly; the padding tail out to
-    // paddedReductionTiles is masked to -inf, as is the non-target tail out to
-    // paddedNonTargetTiles.
-    int64_t numShards = 1;
-    int64_t bandTiles = fullReductionTiles;
-    int64_t paddedReductionTiles = fullReductionTiles;
-    // Bands one merge core can absorb in a round.
-    int64_t mergeCap = 0;
+    const bool dataParallel = strategy.dataParallel;
+    const bool multiCore = strategy.multiCore;
+    const int64_t outputReductionTiles = strategy.outputReductionTiles;
+    const int64_t ntShards = strategy.ntShards;
+    const int64_t paddedNonTargetTiles = strategy.paddedNonTargetTiles;
+    const int64_t numShards = strategy.numShards;
+    const int64_t paddedReductionTiles = strategy.paddedReductionTiles;
+    const int64_t mergeCap = strategy.mergeCap;
 
-    // k > kTileWidth partials span two tiles and fold through the large-k
-    // path, so they get a fraction of the budget.
-    constexpr int64_t kLargeKMergeDivisor = 4;
-    auto mergeCapFor = [&](int64_t reductionTilesPerCore) -> int64_t {
-      int64_t cap = reductionTilesPerCore / outputReductionTiles;
-      return (k > kTileWidth) ? cap / kLargeKMergeDivisor : cap;
-    };
-
-    if (twoDim) {
-      loadWorkerGrid();
-      // Bands occupy the reduction dim's grid axis and non-target slices the
-      // other, placed directly so every core index is a real coordinate.
-      // dim==0 transposes the index grid, so its band count must fit both axes.
-      int64_t bandGridLimit =
-          (dim == 1) ? workerGridShape[1]
-                     : std::min(workerGridShape[0], workerGridShape[1]);
-      int64_t ntGridLimit =
-          (dim == 1) ? workerGridShape[0] : workerGridShape[1];
-
-      // Fewest bands first: non-target slices are independent, while every
-      // extra band level costs a merge round. Powers of two close the
-      // shallowest chains, so try those before any other count.
-      for (int pass = 0; pass < 2 && !multiCore; ++pass) {
-        bool powerOfTwoOnly = (pass == 0);
-        for (int64_t bands = 2; bands <= bandGridLimit; ++bands) {
-          if (powerOfTwoOnly && (bands & (bands - 1)) != 0) {
-            continue;
-          }
-          int64_t candBandTiles = (fullReductionTiles + bands - 1) / bands;
-          // topk_block merges reduction tiles pairwise, so a band needs two.
-          if (candBandTiles < 2) {
-            continue;
-          }
-          int64_t maxNtPerCore = kMaxTilesPerCore / candBandTiles;
-          if (maxNtPerCore < 1) {
-            continue;
-          }
-          int64_t minNtShards =
-              (nonTargetTiles + maxNtPerCore - 1) / maxNtPerCore;
-          if (minNtShards > ntGridLimit) {
-            continue;
-          }
-          // More non-target slices shrink each core's slice, which frees tile
-          // budget for the merge rounds, so walk up until the chain closes.
-          for (int64_t ntSh = minNtShards; ntSh <= ntGridLimit; ++ntSh) {
-            int64_t candNtTiles = (nonTargetTiles + ntSh - 1) / ntSh;
-            int64_t candMergeCap = mergeCapFor(kMaxTilesPerCore / candNtTiles);
-            if (candMergeCap < 2 ||
-                !mergeChainCloses(bands, candMergeCap, workerGridShape)) {
-              continue;
-            }
-            numShards = bands;
-            bandTiles = candBandTiles;
-            ntShards = ntSh;
-            ntTilesPerCore = candNtTiles;
-            mergeCap = candMergeCap;
-            dataParallel = true;
-            multiCore = true;
-            break;
-          }
-          if (multiCore) {
-            break;
-          }
-        }
-      }
-      if (!multiCore) {
-        return rewriter.notifyMatchFailure(
-            op, "D2M topk: no 2D split fits both dimensions within the "
-                "per-core tile budget with a merge tree this worker grid can "
-                "hold");
-      }
-      paddedReductionTiles = numShards * bandTiles;
-      paddedNonTargetTiles = ntShards * ntTilesPerCore;
-    } else {
-      dataParallel = nonTargetTiles > kMaxTilesPerCore;
-      if (dataParallel) {
-        loadWorkerGrid();
-        int64_t maxNtTilesPerCore = kMaxTilesPerCore / localReductionTiles;
-        int64_t minNtShards =
-            (nonTargetTiles + maxNtTilesPerCore - 1) / maxNtTilesPerCore;
-        std::optional<int64_t> legalNtShards;
-        for (int64_t cand = minNtShards; cand <= maxGridCores; ++cand) {
-          if (!d2m::utils::findLegalPhysicalGridForVolume(cand, workerGridShape)
-                   .empty()) {
-            legalNtShards = cand;
-            break;
-          }
-        }
-        if (!legalNtShards) {
-          return rewriter.notifyMatchFailure(
-              op, "D2M topk: no core count splits the non-target dimension "
-                  "within the per-core tile budget on this worker grid");
-        }
-        ntShards = *legalNtShards;
-        ntTilesPerCore = (nonTargetTiles + ntShards - 1) / ntShards;
-        paddedNonTargetTiles = ntShards * ntTilesPerCore;
-      }
-
-      int64_t maxReductionTilesPerCore =
-          dataParallel ? fullReductionTiles : kMaxTilesPerCore / nonTargetTiles;
-
-      mergeCap = mergeCapFor(maxReductionTilesPerCore);
-
-      int64_t minShards = (fullReductionTiles + maxReductionTilesPerCore - 1) /
-                          maxReductionTilesPerCore;
-      multiCore = !dataParallel && minShards > 1;
-
-      if (fullReductionTiles == 1) {
-        assert(k <= kTileWidth &&
-               "single-tile topk input only supports k <= 32");
-      }
-      // Bands are distributed one per core and folded onto the 2D worker grid
-      // by a virtual-grid map attached in emitShardTopk.
-      if (multiCore) {
-        loadWorkerGrid();
-        // Two passes: powers of two first (always close, shallowest tree)
-        // then any count whose chain closes, which
-        // is what reaches past 64 bands on larger grids.
-        for (int pass = 0; pass < 2 && numShards == 1; ++pass) {
-          bool powerOfTwoOnly = (pass == 0);
-          for (int64_t cand = minShards; cand <= maxGridCores; ++cand) {
-            if (powerOfTwoOnly && (cand & (cand - 1)) != 0) {
-              continue;
-            }
-            if (d2m::utils::findLegalPhysicalGridForVolume(cand,
-                                                           workerGridShape)
-                    .empty()) {
-              continue;
-            }
-            int64_t candBandTiles = (fullReductionTiles + cand - 1) / cand;
-            if (candBandTiles > maxReductionTilesPerCore) {
-              continue;
-            }
-            if (!mergeChainCloses(cand, mergeCap, workerGridShape)) {
-              continue;
-            }
-            numShards = cand;
-            bandTiles = candBandTiles;
-            break;
-          }
-        }
-        if (numShards == 1) {
-          return rewriter.notifyMatchFailure(
-              op, "D2M topk: no band count fits the reduction dim within the "
-                  "per-core tile budget with a merge tree this worker grid can "
-                  "split evenly");
-        }
-        paddedReductionTiles = numShards * bandTiles;
-      }
-      if (dataParallel) {
-        paddedReductionTiles = localReductionTiles;
-      }
-    }
-
-    AffineMapAttr dataParallelFoldForwardAttr, dataParallelFoldInverseAttr;
-
+    // Buffers below carry logical grid shapes only; GridSelection folds them
+    // onto physical cores.
+    //
     // Emits a topk over a raw input, returning (values, indices) still in
     // device layout. gridCols > 1 bands the topk across that many cores for the
     // caller's merge tree; ntCores > 1 slices the non-target dim instead.
     auto emitShardTopk = [&](Value rawInput, int64_t gridCols = 1,
                              int64_t ntCores = 1) -> std::pair<Value, Value> {
       auto inputType = cast<RankedTensorType>(rawInput.getType());
-      int64_t rank = inputType.getRank();
       int64_t reductionDimSize = inputType.getShape()[dim];
       bool isDataParallel = ntCores > 1;
       bool isBanded = gridCols > 1;
-      bool directGrid = isBanded && isDataParallel;
-
-      SmallVector<int64_t> topkLogicalShape(inputType.getShape().begin(),
-                                            inputType.getShape().end());
 
       Value layoutedInput;
-      AffineMapAttr foldForwardMapAttr, foldInverseMapAttr;
-      auto attachFold = [&](d2m::EmptyOp emptyOp) {
-        if (foldForwardMapAttr) {
-          emptyOp.setVirtualGridForwardMappingAttr(foldForwardMapAttr);
-          emptyOp.setVirtualGridInverseMappingAttr(foldInverseMapAttr);
-        }
-      };
-      // dim==0 index buffers live shape-swapped and so need bands across grid
-      // COLUMNS, not down the value input's ROWS.
-      AffineMapAttr arangeFoldForwardMapAttr, arangeFoldInverseMapAttr;
-      auto attachArangeFold = [&](d2m::EmptyOp emptyOp) {
-        if (arangeFoldForwardMapAttr) {
-          emptyOp.setVirtualGridForwardMappingAttr(arangeFoldForwardMapAttr);
-          emptyOp.setVirtualGridInverseMappingAttr(arangeFoldInverseMapAttr);
-        }
-      };
-      auto attachChainFold = [&](d2m::EmptyOp emptyOp, bool arangeFold) {
-        if (arangeFold) {
-          attachArangeFold(emptyOp);
-        } else {
-          attachFold(emptyOp);
-        }
-      };
+
+      constexpr std::array<int64_t, 2> defaultTileShape =
+          ttcore::TileType::getDefaultShape();
+      SmallVector<int64_t> tileShapeVec(defaultTileShape.begin(),
+                                        defaultTileShape.end());
+      auto tileElemType =
+          ttcore::TileType::get(inputType.getElementType(), tileShapeVec);
+      std::size_t logicalRank = inputType.getShape().size();
+
       if (isBanded || isDataParallel) {
-        constexpr std::array<int64_t, 2> defaultTileShape =
-            ttcore::TileType::getDefaultShape();
-        SmallVector<int64_t> tileShapeVec(defaultTileShape.begin(),
-                                          defaultTileShape.end());
-        auto tileElemType =
-            ttcore::TileType::get(inputType.getElementType(), tileShapeVec);
-        SmallVector<int64_t> shardDimAlignments(inputType.getShape().size(),
-                                                kTileWidth);
-        shardDimAlignments[dim] = paddedReductionTiles * kTileWidth;
-        shardDimAlignments[1 - dim] = paddedNonTargetTiles * kTileWidth;
-        auto shardedLayout = ttcore::MetalLayoutAttr::get(
-            ctx, inputType.getShape(), memorySpaces[0],
-            ttcore::TensorMemoryLayout::Sharded,
-            ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
-                ctx, inputType.getShape().size()),
-            shardDimAlignments);
+        SmallVector<int64_t> shardTiles(logicalRank, 1);
+        shardTiles[dim] = paddedReductionTiles;
+        shardTiles[1 - dim] = paddedNonTargetTiles;
+        auto shardedLayout = d2m::utils::buildShardedTileLayout(
+            ctx, inputType.getShape(), shardTiles, memorySpaces[0]);
         SmallVector<int64_t> shardedGrid =
             (dim == 1) ? SmallVector<int64_t>{ntCores, gridCols}
                        : SmallVector<int64_t>{gridCols, ntCores};
         SmallVector<int64_t> shardedDeviceShape =
             shardedLayout.getDeviceShape(shardedGrid, tileShapeVec);
-
-        std::size_t shardRank = inputType.getShape().size();
-        bool needsPad = false;
-        for (std::size_t i = 0; i < shardRank; ++i) {
-          int64_t allocatedElems = shardedDeviceShape[i] *
-                                   shardedDeviceShape[shardRank + i] *
-                                   kTileWidth;
-          if (allocatedElems > inputType.getShape()[i]) {
-            needsPad = true;
-            break;
-          }
-        }
+        bool needsPad = d2m::utils::deviceShapeNeedsPadding(
+            shardedDeviceShape, inputType.getShape());
 
         auto shardedEmpty = rewriter.create<d2m::EmptyOp>(
             loc, shardedDeviceShape, tileElemType, shardedLayout);
 
-        // A 2D split's virtual grid already IS a physical one, so leave the
-        // fold maps null: the broadcast index read, the in-place narrowings and
-        // the merge gathers all assume d2m.core_index is a real coordinate.
-        if (!directGrid) {
-          SmallVector<int64_t> physicalGrid =
-              d2m::utils::findLegalPhysicalGridForVolume(ntCores * gridCols,
-                                                         workerGridShape);
-          assert(!physicalGrid.empty() &&
-                 "shard count has no legal worker-grid factorization");
-          auto [forwardMap, inverseMap] =
-              ttmlir::d2m::utils::grids::createCoreVirtMaps(ctx, shardedGrid,
-                                                            physicalGrid);
-          foldForwardMapAttr = AffineMapAttr::get(forwardMap);
-          foldInverseMapAttr = AffineMapAttr::get(inverseMap);
-          if (isBanded) {
-            // Swapped for dim==0, matching the arange buffer's orientation.
-            SmallVector<int64_t> arangeGrid =
-                (dim == 1)
-                    ? shardedGrid
-                    : SmallVector<int64_t>{shardedGrid[1], shardedGrid[0]};
-            auto [arangeForwardMap, arangeInverseMap] =
-                ttmlir::d2m::utils::grids::createCoreVirtMaps(ctx, arangeGrid,
-                                                              physicalGrid);
-            arangeFoldForwardMapAttr = AffineMapAttr::get(arangeForwardMap);
-            arangeFoldInverseMapAttr = AffineMapAttr::get(arangeInverseMap);
-          }
-        }
-        if (isDataParallel) {
-          dataParallelFoldForwardAttr = foldForwardMapAttr;
-          dataParallelFoldInverseAttr = foldInverseMapAttr;
-        }
-        attachFold(shardedEmpty);
         Value tilized =
             rewriter.create<d2m::ToLayoutOp>(loc, rawInput, shardedEmpty)
                 .getResult(0);
         if (needsPad) {
           auto maskOutput = rewriter.create<d2m::EmptyOp>(
               loc, shardedDeviceShape, tileElemType, shardedLayout);
-          attachFold(maskOutput);
           layoutedInput =
               rewriter
                   .create<d2m::MaskOp>(loc, tilized, maskOutput,
@@ -4206,30 +3916,15 @@ public:
         } else {
           layoutedInput = tilized;
         }
-        if (isDataParallel && paddedReductionTiles > fullReductionTiles) {
-          // Keeps the arange buffer covering the padded reduction extent.
-          topkLogicalShape[dim] = paddedReductionTiles * kTileWidth;
-        }
       } else if (reductionDimSize <= kTileWidth) {
         // topk_block merges reduction tiles pairwise and so needs >=2, so pad
         // the buffer out via dimAlignments and let the mask below fill the
         // extra tile with -inf.
-        constexpr std::array<int64_t, 2> defaultTileShape =
-            ttcore::TileType::getDefaultShape();
-        SmallVector<int64_t> tileShapeVec(defaultTileShape.begin(),
-                                          defaultTileShape.end());
-        auto tileElemType =
-            ttcore::TileType::get(inputType.getElementType(), tileShapeVec);
-        SmallVector<int64_t> paddedDimAlignments(inputType.getShape().size(),
-                                                 kTileWidth);
-        paddedDimAlignments[dim] = 2 * kTileWidth;
-        auto paddedLayout = ttcore::MetalLayoutAttr::get(
-            ctx, inputType.getShape(), memorySpaces[0],
-            ttcore::TensorMemoryLayout::Sharded,
-            ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
-                ctx, inputType.getShape().size()),
-            paddedDimAlignments);
-        SmallVector<int64_t> unitGrid(inputType.getShape().size(), 1);
+        SmallVector<int64_t> paddedTiles(logicalRank, 1);
+        paddedTiles[dim] = 2;
+        auto paddedLayout = d2m::utils::buildShardedTileLayout(
+            ctx, inputType.getShape(), paddedTiles, memorySpaces[0]);
+        SmallVector<int64_t> unitGrid(logicalRank, 1);
         SmallVector<int64_t> paddedDeviceShape =
             paddedLayout.getDeviceShape(unitGrid, tileShapeVec);
         auto paddedEmpty = rewriter.create<d2m::EmptyOp>(
@@ -4244,7 +3939,6 @@ public:
                                                  paddedLayout.getLogicalShape(),
                                                  ttcore::OOBVal::NegInf)
                             .getResult();
-        topkLogicalShape[dim] = 2 * kTileWidth;
       } else {
         layoutedInput =
             createOptimalLayoutOp(rawInput, memorySpaces[0], /*tiled=*/true,
@@ -4257,39 +3951,11 @@ public:
       ArrayRef<int64_t> deviceShape = layoutedType.getShape();
       std::size_t physicalRank = deviceShape.size() / 2;
 
-      // Grid dim the non-target slices spread over; bands take the other one.
-      std::size_t ntGridDim =
-          (dim == 1) ? (physicalRank - 2) : (physicalRank - 1);
-
-      SmallVector<int64_t> idxDeviceShape(deviceShape.begin(),
-                                          deviceShape.end());
-      ttcore::MetalLayoutAttr idxMetalLayout = metalLayout;
-      if (isDataParallel) {
-        // Slices of a band share an index range, so collapse only the slice
-        // grid dim. Keeping the band dim is what lets the arange derive its
-        // global indices from the core position.
-        idxDeviceShape[ntGridDim] = 1;
-        SmallVector<int64_t> idxLogicalShape;
-        for (std::size_t i = 0; i < physicalRank; ++i) {
-          idxLogicalShape.push_back(idxDeviceShape[i] *
-                                    deviceShape[physicalRank + i] * kTileWidth);
-        }
-        idxMetalLayout = ttcore::MetalLayoutAttr::get(
-            ctx, idxLogicalShape, metalLayout.getMemorySpace(),
-            ttcore::TensorMemoryLayout::Sharded);
-      }
-      bool idxChainFold = (dim == 0) || isDataParallel;
-
-      // useArangeFold selects the swapped (1xgridCols) fold placement for the
-      // dim==0 arange/bcast buffers, which are shape-swapped until
-      // fullTranspose.
-      auto wrapInToLayout = [&](Value genericResult,
-                                bool useArangeFold = false) -> Value {
+      auto wrapInToLayout = [&](Value genericResult) -> Value {
         auto resultType = cast<RankedTensorType>(genericResult.getType());
         auto emptyOp = rewriter.create<d2m::EmptyOp>(
             loc, resultType.getShape(), resultType.getElementType(),
             resultType.getEncoding());
-        attachChainFold(emptyOp, useArangeFold);
         return rewriter.create<d2m::ToLayoutOp>(loc, genericResult, emptyOp)
             .getResult(0);
       };
@@ -4299,90 +3965,28 @@ public:
       SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
       AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
 
-      // One-in/one-out generic mapping every tile through `makeTile`. A null
-      // `shardMap` means identity at the region's shard rank.
-      auto emitUnaryGeneric =
+      auto emitUnary =
           [&](Value src, Value out, AffineMap gridMap,
               llvm::function_ref<AffineMap(std::size_t)> shardMap,
               llvm::function_ref<Value(OpBuilder &, Location, ValueRange)>
                   makeTile) -> Value {
-        SmallVector<Value> ins = {src};
-        SmallVector<Value> outs = {out};
-        auto generic = rewriter.create<d2m::GenericOp>(
-            loc, ins, outs, /*additionalArgs=*/ValueRange(),
-            rewriter.getAffineMapArrayAttr(
-                SmallVector<AffineMap>{gridMap, identityMap}),
-            rewriter.getArrayAttr(iteratorTypes));
-        generic->setAttr("d2m.skip_grid_selection", rewriter.getUnitAttr());
-        withD2MGenericRegion(
-            rewriter, loc, generic, ins, outs,
-            [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
-              Value input = blockArgs[0];
-              Value output = blockArgs[1];
-              std::size_t shardRank =
-                  cast<RankedTensorType>(output.getType()).getRank();
-              AffineMap shardIdentity =
-                  rewriter.getMultiDimIdentityMap(shardRank);
-              AffineMap shardIn =
-                  shardMap ? shardMap(shardRank) : shardIdentity;
-              SmallVector<mlir::utils::IteratorType> linalgIters(
-                  shardRank, mlir::utils::IteratorType::parallel);
-              auto linalgOp = rewriter.create<linalg::GenericOp>(
-                  loc, output.getType(), input, output,
-                  SmallVector<AffineMap>{shardIn, shardIdentity}, linalgIters,
-                  [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
-                    b.create<linalg::YieldOp>(bodyLoc,
-                                              makeTile(b, bodyLoc, args));
-                  });
-              return {linalgOp->getResult(0)};
-            });
-        return generic->getResult(0);
+        return emitUnaryGeneric(rewriter, loc, src, out, gridMap, iteratorTypes,
+                                shardMap, makeTile);
       };
 
       auto tileTranspose = [&](OpBuilder &b, Location l, ValueRange args) {
         return b.create<d2m::TileTransposeOp>(l, args[1].getType(), args[0])
             .getResult();
       };
-      auto permuteLast2 = [&](std::size_t rank) {
-        SmallVector<AffineExpr> exprs;
-        for (std::size_t i = 0; i < rank; ++i) {
-          exprs.push_back(rewriter.getAffineDimExpr(i));
-        }
-        std::swap(exprs[rank - 2], exprs[rank - 1]);
-        return AffineMap::get(rank, 0, exprs, ctx);
-      };
 
-      auto transposeTiles = [&](Value src, bool arangeFold = false) -> Value {
+      auto transposeTiles = [&](Value src) -> Value {
         auto srcType = cast<RankedTensorType>(src.getType());
         auto empty = rewriter.create<d2m::EmptyOp>(
             loc, srcType.getShape(),
             cast<ttcore::TileType>(srcType.getElementType()),
             cast<ttcore::MetalLayoutAttr>(srcType.getEncoding()));
-        attachChainFold(empty, arangeFold);
-        return wrapInToLayout(
-            emitUnaryGeneric(src, empty.getResult(), identityMap,
-                             /*shardMap=*/nullptr, tileTranspose),
-            arangeFold);
-      };
-
-      // Grid + tile transpose: undoes the shape-swapped arange orientation,
-      // moving index data onto the reduction-row axis.
-      auto fullTranspose = [&](Value src) -> Value {
-        auto srcType = cast<RankedTensorType>(src.getType());
-        // Device shape is [grid..., shard...]; swap the last two of each half.
-        SmallVector<int64_t> dstDevShape(srcType.getShape().begin(),
-                                         srcType.getShape().end());
-        std::swap(dstDevShape[physicalRank - 2], dstDevShape[physicalRank - 1]);
-        std::swap(dstDevShape[2 * physicalRank - 2],
-                  dstDevShape[2 * physicalRank - 1]);
-        auto empty = rewriter.create<d2m::EmptyOp>(
-            loc, dstDevShape, cast<ttcore::TileType>(srcType.getElementType()),
-            isDataParallel ? idxMetalLayout : metalLayout);
-        attachChainFold(empty, isDataParallel);
-        return wrapInToLayout(emitUnaryGeneric(src, empty.getResult(),
-                                               permuteLast2(physicalRank),
-                                               permuteLast2, tileTranspose),
-                              isDataParallel);
+        return wrapInToLayout(emitUnary(src, empty.getResult(), identityMap,
+                                        /*shardMap=*/nullptr, tileTranspose));
       };
 
       // TopkBlockOp sorts along tile columns, but dim=1 puts the sort
@@ -4392,191 +3996,54 @@ public:
         topkInput = transposeTiles(layoutedInput);
       }
 
-      bool isShardedInput = isBanded || isDataParallel;
-
       auto idxTileType = ttcore::TileType::get(idxElemType);
-      // dim==0 builds the arange shape-swapped so the reduction lands on the
-      // column axis; fullTranspose reorients it below.
-      SmallVector<int64_t> arangeLogicalShape(topkLogicalShape.begin(),
-                                              topkLogicalShape.end());
-      if (dim == 0) {
-        std::swap(arangeLogicalShape[rank - 2], arangeLogicalShape[rank - 1]);
-      }
-      auto idxInputType = RankedTensorType::get(arangeLogicalShape, idxElemType,
-                                                inputType.getEncoding());
-      SmallVector<int64_t> arangeDeviceShape(idxDeviceShape.begin(),
-                                             idxDeviceShape.end());
-      ttcore::MetalLayoutAttr arangeMetalLayout = idxMetalLayout;
-      if (dim == 0) {
-        std::swap(arangeDeviceShape[physicalRank - 2],
-                  arangeDeviceShape[physicalRank - 1]);
-        std::swap(arangeDeviceShape[2 * physicalRank - 2],
-                  arangeDeviceShape[2 * physicalRank - 1]);
-        SmallVector<int64_t> swappedLogical(
-            idxMetalLayout.getLogicalShape().begin(),
-            idxMetalLayout.getLogicalShape().end());
-        std::swap(swappedLogical[swappedLogical.size() - 2],
-                  swappedLogical[swappedLogical.size() - 1]);
-        arangeMetalLayout = ttcore::MetalLayoutAttr::get(
-            ctx, swappedLogical, idxMetalLayout.getDimAlignments(),
-            idxMetalLayout.getCollapsedIntervals(),
-            idxMetalLayout.getMemorySpace(), idxMetalLayout.getMemoryLayout());
-      }
 
-      SmallVector<Value> arangeOutputs;
-      if (isShardedInput) {
-        auto arangeEmpty = rewriter.create<d2m::EmptyOp>(
-            loc, arangeDeviceShape, idxTileType, arangeMetalLayout);
-        attachArangeFold(arangeEmpty);
-        arangeOutputs.push_back(arangeEmpty.getResult());
-      } else {
-        auto arangeOrigOutputs =
-            createDpsOutputs(loc, rewriter, {idxInputType});
-        auto [arangeins, laidOut] = toLayoutOperandsAndResults(
-            rewriter, {SmallVector<Value>{}, arangeOrigOutputs}, true,
-            /*noCollapse=*/false);
-        arangeOutputs = std::move(laidOut);
-      }
-      auto arangeOutput = arangeOutputs[0];
-      auto arangeTensorType =
-          mlir::cast<RankedTensorType>(arangeOutput.getType());
-      auto arangeLayout =
-          mlir::cast<ttcore::MetalLayoutAttr>(arangeTensorType.getEncoding());
-      auto arangeTileType =
-          mlir::cast<ttcore::TileType>(arangeTensorType.getElementType());
-      Type arangeElemType = arangeTileType.getElementType();
-      ArrayRef<int64_t> arangeGridShape =
-          arangeLayout.getGridShape(arangeTensorType);
-      SmallVector<int64_t> arangeScratchShape(arangeGridShape.begin(),
-                                              arangeGridShape.end());
-      arangeScratchShape.append({1, 1});
-      auto arangeScratchTileType = ttcore::TileType::get(arangeElemType);
-      auto arangeScratchLayout = ttcore::MetalLayoutAttr::get(
+      // The kernel builds its own index tiles from this core's grid
+      // coordinate (see d2m-decompose-topk), so all that has to be handed in
+      // is one scratch tile per core for the lane pattern. A leaf topk's
+      // indices are just the reduction coordinate, so nothing upstream has to
+      // materialize, broadcast or transpose a full arange -- and a banded or
+      // data-parallel shard needs no cross-core index traffic at all.
+      ArrayRef<int64_t> idxGridShape = metalLayout.getGridShape(layoutedType);
+      SmallVector<int64_t> idxScratchShape(idxGridShape.begin(),
+                                           idxGridShape.end());
+      idxScratchShape.append({1, 1});
+      auto idxScratchLayout = ttcore::MetalLayoutAttr::get(
           ctx, SmallVector<int64_t>{1, 1}, ttcore::MemorySpace::DeviceL1,
           ttcore::TensorMemoryLayout::Sharded);
-      Value indexTileTensor =
-          rewriter
-              .create<d2m::EmptyOp>(loc, arangeScratchShape,
-                                    arangeScratchTileType, arangeScratchLayout)
-              .getResult();
-
-      // DecomposeArange derives the global index from tile grid position and
-      // ignores numElements.
-      int64_t numElements = topkLogicalShape[dim];
-
-      AffineExpr zero = rewriter.getAffineConstantExpr(0);
-      AffineMap arangeConstMap =
-          AffineMap::get(physicalRank, 0, {zero, zero}, ctx);
-      AffineMap arangeIdentMap = rewriter.getMultiDimIdentityMap(physicalRank);
-      SmallVector<AffineMap> arangeMaps = {arangeConstMap, arangeIdentMap};
-
-      SmallVector<Attribute> arangeIters(
-          physicalRank,
-          ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
-
-      SmallVector<Value> arangeGenericInputs = {indexTileTensor};
-      auto arange = rewriter.create<d2m::GenericOp>(
-          loc, arangeGenericInputs, arangeOutputs,
-          /*additionalArgs=*/ValueRange(),
-          rewriter.getAffineMapArrayAttr(arangeMaps),
-          rewriter.getArrayAttr(arangeIters));
-      arange->setAttr("d2m.skip_grid_selection", rewriter.getUnitAttr());
-
-      withD2MGenericRegion(
-          rewriter, loc, arange, arangeGenericInputs, arangeOutputs,
-          [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
-            Value idxTile = blockArgs[0];
-            Value outTile = blockArgs[1];
-            Value result = rewriter
-                               .create<d2m::ArangeBlockOp>(loc, idxTile,
-                                                           outTile, numElements,
-                                                           /*start=*/0,
-                                                           /*step=*/1)
-                               .getResult();
-            return {result};
-          });
-
-      // The row-major arange sequences indices along COLUMNS, so broadcast row
-      // 0 down the rows. For dim==0 the buffer is shape-swapped, so this fills
-      // each row with the reduction sequence and fullTranspose reorients it.
-      d2m::TileBcastTypeAttr postArangeBcastTypeAttr =
-          d2m::TileBcastTypeAttr::get(ctx, d2m::TileBcastType::Row);
-      SmallVector<Value> postArangeBcastInputs(arange.getResults().begin(),
-                                               arange.getResults().end());
-      SmallVector<Value> postArangeBcastOutputs;
-      // Allocate at the sharded arange device shape so the L1 buffer splits
-      // across cores and the operand grid matches the sharded arange input.
-      if (isShardedInput) {
-        auto bcastEmpty = rewriter.create<d2m::EmptyOp>(
-            loc, arangeDeviceShape, idxTileType, arangeMetalLayout);
-        attachArangeFold(bcastEmpty);
-        postArangeBcastOutputs.push_back(bcastEmpty.getResult());
-      } else {
-        auto postArangeBcastOrigOutputs =
-            createDpsOutputs(loc, rewriter, {idxInputType});
-        auto [postArangeBcastins, laidOut] = toLayoutOperandsAndResults(
-            rewriter, {SmallVector<Value>{}, postArangeBcastOrigOutputs}, true,
-            /*noCollapse=*/false);
-        postArangeBcastOutputs = std::move(laidOut);
-      }
-
-      // Zeroing the broadcast axis is required: an identity map would make
-      // linalg infer that axis's extent from the iteration domain, mismatching
-      // the collapsed input shard when the non-target dim spans >1 tile.
-      auto zeroLast2 = [&](std::size_t rank) {
-        mlir::MutableAffineMap m(rewriter.getMultiDimIdentityMap(rank));
-        m.setResult(rank - 2, rewriter.getAffineConstantExpr(0));
-        return m.getAffineMap();
-      };
-      Value postArangeBcast = emitUnaryGeneric(
-          postArangeBcastInputs[0], postArangeBcastOutputs[0],
-          zeroLast2(physicalRank), zeroLast2,
-          [&](OpBuilder &b, Location l, ValueRange args) {
-            return b
-                .create<d2m::TileBcastOp>(l, args[1].getType(), args[0],
-                                          postArangeBcastTypeAttr)
-                .getResult();
-          });
-
-      Value idxBuf = wrapInToLayout(postArangeBcast, idxChainFold);
-      if (dim == 1) {
-        idxBuf = transposeTiles(idxBuf, /*arangeFold=*/idxChainFold);
-      } else {
-        idxBuf = fullTranspose(idxBuf);
-      }
+      auto idxScratchEmpty = rewriter.create<d2m::EmptyOp>(
+          loc, idxScratchShape, idxTileType, idxScratchLayout);
+      Value idxBuf = idxScratchEmpty.getResult();
 
       auto topkValsEmpty = rewriter.create<d2m::EmptyOp>(
           loc, deviceShape, f32TileType, metalLayout);
       auto topkIdxEmpty = rewriter.create<d2m::EmptyOp>(
           loc, deviceShape, idxTileType, metalLayout);
-      attachFold(topkValsEmpty);
-      attachFold(topkIdxEmpty);
-
-      // Drops the dim the slices spread over, so every slice of a band reads
-      // that band's one index buffer.
-      AffineMap idxGridMap = identityMap;
-      if (isDataParallel) {
-        mlir::MutableAffineMap broadcastMap(identityMap);
-        broadcastMap.setResult(ntGridDim, rewriter.getAffineConstantExpr(0));
-        idxGridMap = broadcastMap.getAffineMap();
-      }
 
       SmallVector<Value> topkInputs = {topkInput, idxBuf};
       SmallVector<Value> topkOutputs = {topkValsEmpty.getResult(),
                                         topkIdxEmpty.getResult()};
+      // The scratch tile carries no per-core data (the kernel overwrites it
+      // before reading), and a constant map is what lets its 1x1 shard sit
+      // alongside the full-shard operands: an identity map would put it in the
+      // generic's shard-extent comparison and fail verification.
+      SmallVector<AffineExpr> idxConstExprs(physicalRank,
+                                            rewriter.getAffineConstantExpr(0));
+      AffineMap idxConstMap =
+          AffineMap::get(physicalRank, 0, idxConstExprs, ctx);
       auto topkGeneric = rewriter.create<d2m::GenericOp>(
           loc, topkInputs, topkOutputs, /*additionalArgs=*/ValueRange(),
           rewriter.getAffineMapArrayAttr(SmallVector<AffineMap>{
-              identityMap, idxGridMap, identityMap, identityMap}),
+              identityMap, idxConstMap, identityMap, identityMap}),
           rewriter.getArrayAttr(iteratorTypes));
-      topkGeneric->setAttr("d2m.skip_grid_selection", rewriter.getUnitAttr());
 
       withD2MGenericRegion(
           rewriter, loc, topkGeneric, topkInputs, topkOutputs,
           [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
             auto topkBlock = rewriter.create<d2m::TopkBlockOp>(
                 loc, blockArgs[0], blockArgs[1], blockArgs[2], blockArgs[3], k,
-                reductionDimSize, /*stableSort=*/false, dim);
+                reductionDimSize, /*stableSort=*/false, dim,
+                /*generateIndices=*/true);
             return {topkBlock.getResultValues(), topkBlock.getResultIndices()};
           });
 
@@ -4585,41 +4052,27 @@ public:
                 wrapInToLayout(topkGeneric->getResult(1))};
       }
 
-      std::size_t redPhys =
+      std::size_t genRedDim =
           (dim == 1) ? (physicalRank - 1) : (physicalRank - 2);
       std::size_t deviceRedDimLocal =
-          deviceShape.size() - (physicalRank - redPhys);
-      constexpr int64_t kTileDimLocal = 32;
+          deviceShape.size() - (physicalRank - genRedDim);
 
       // Narrow each band in place before the cross-core gather, or the wide
       // leaf result stays live on every core and overflows L1.
       auto compactBands = [&](Value wideResult) -> Value {
         auto wideType = cast<RankedTensorType>(wideResult.getType());
         auto tileType = cast<ttcore::TileType>(wideType.getElementType());
-        auto wideMetalLayout =
-            cast<ttcore::MetalLayoutAttr>(wideType.getEncoding());
         SmallVector<int64_t> narrowShape(wideType.getShape().begin(),
                                          wideType.getShape().end());
         narrowShape[deviceRedDimLocal] = outputReductionTiles;
-        SmallVector<int64_t> narrowLogical;
-        for (std::size_t i = 0; i < physicalRank; ++i) {
-          narrowLogical.push_back(
-              narrowShape[i] * narrowShape[i + physicalRank] * kTileDimLocal);
-        }
-        auto narrowLayout = ttcore::MetalLayoutAttr::get(
-            ctx, narrowLogical, wideMetalLayout.getDimAlignments(),
-            wideMetalLayout.getCollapsedIntervals(),
-            wideMetalLayout.getMemorySpace(),
-            wideMetalLayout.getMemoryLayout());
+        auto narrowLayout = d2m::utils::rebuildLayoutForDeviceShape(
+            cast<ttcore::MetalLayoutAttr>(wideType.getEncoding()), narrowShape);
         auto narrowEmpty = rewriter.create<d2m::EmptyOp>(
             loc, narrowShape, tileType, narrowLayout);
-        attachFold(narrowEmpty);
 
-        std::size_t genRedDim =
-            (dim == 1) ? (physicalRank - 1) : (physicalRank - 2);
         auto generic = emitInPlaceNarrowing(
-            rewriter, loc, ctx, wideResult, narrowEmpty, physicalRank,
-            genRedDim, identityMap, iteratorTypes);
+            rewriter, loc, wideResult, narrowEmpty, physicalRank, genRedDim,
+            identityMap, iteratorTypes);
         return wrapInToLayout(generic->getResult(0));
       };
 
@@ -4629,20 +4082,11 @@ public:
 
     std::size_t physicalRank = static_cast<std::size_t>(rank);
 
-    AffineMapAttr mergeFoldForwardAttr, mergeFoldInverseAttr;
-    auto attachMergeFold = [&](d2m::EmptyOp emptyOp) {
-      if (mergeFoldForwardAttr) {
-        emptyOp.setVirtualGridForwardMappingAttr(mergeFoldForwardAttr);
-        emptyOp.setVirtualGridInverseMappingAttr(mergeFoldInverseAttr);
-      }
-    };
-
     auto relayout = [&](Value genericResult) -> Value {
       auto resultType = cast<RankedTensorType>(genericResult.getType());
       auto emptyOp = rewriter.create<d2m::EmptyOp>(loc, resultType.getShape(),
                                                    resultType.getElementType(),
                                                    resultType.getEncoding());
-      attachMergeFold(emptyOp);
       return rewriter.create<d2m::ToLayoutOp>(loc, genericResult, emptyOp)
           .getResult(0);
     };
@@ -4655,40 +4099,22 @@ public:
     std::size_t deviceRedDim =
         (dim == 1) ? (2 * physicalRank - 1) : (2 * physicalRank - 2);
 
-    // Rebuilds the logical shape as grid x shard so a re-split device shape
-    // keeps the same total extent, which the composite view checks.
-    auto layoutForDeviceShape =
-        [&](ttcore::MetalLayoutAttr layout,
-            ArrayRef<int64_t> deviceShape) -> ttcore::MetalLayoutAttr {
-      constexpr int64_t kTileDim = 32;
-      SmallVector<int64_t> newLogical;
-      for (std::size_t i = 0; i < physicalRank; ++i) {
-        newLogical.push_back(deviceShape[i] * deviceShape[i + physicalRank] *
-                             kTileDim);
-      }
-      return ttcore::MetalLayoutAttr::get(
-          ctx, newLogical, layout.getDimAlignments(),
-          layout.getCollapsedIntervals(), layout.getMemorySpace(),
-          layout.getMemoryLayout());
-    };
-
     // Narrows a merge result back to its leading outputReductionTiles on every
     // core, restoring the one-band-per-core shape the next round consumes.
     auto compactToTile = [&](Value fullPartial) -> Value {
       auto fullType = cast<RankedTensorType>(fullPartial.getType());
       auto tileType = cast<ttcore::TileType>(fullType.getElementType());
-      auto layout = cast<ttcore::MetalLayoutAttr>(fullType.getEncoding());
       SmallVector<int64_t> compactShape(fullType.getShape().begin(),
                                         fullType.getShape().end());
       compactShape[deviceRedDim] = outputReductionTiles;
-      auto compactLayout = layoutForDeviceShape(layout, compactShape);
+      auto compactLayout = d2m::utils::rebuildLayoutForDeviceShape(
+          cast<ttcore::MetalLayoutAttr>(fullType.getEncoding()), compactShape);
       auto outEmpty = rewriter.create<d2m::EmptyOp>(loc, compactShape, tileType,
                                                     compactLayout);
-      attachMergeFold(outEmpty);
       std::size_t genRedDim =
           (dim == 1) ? (physicalRank - 1) : (physicalRank - 2);
-      auto generic = emitInPlaceNarrowing(rewriter, loc, ctx, fullPartial,
-                                          outEmpty, physicalRank, genRedDim,
+      auto generic = emitInPlaceNarrowing(rewriter, loc, fullPartial, outEmpty,
+                                          physicalRank, genRedDim,
                                           mergeIdentity, mergeIters);
       return relayout(generic->getResult(0));
     };
@@ -4735,37 +4161,14 @@ public:
 
         // Re-splitting preserves the grid x shard product, so the wide layout
         // carries the same logical extent as the input's.
-        auto valWideLayout = layoutForDeviceShape(
+        auto valWideLayout = d2m::utils::rebuildLayoutForDeviceShape(
             cast<ttcore::MetalLayoutAttr>(valsInType.getEncoding()), wideShape);
-        auto idxWideLayout = layoutForDeviceShape(
+        auto idxWideLayout = d2m::utils::rebuildLayoutForDeviceShape(
             cast<ttcore::MetalLayoutAttr>(idxInType.getEncoding()), wideShape);
         auto valWideType =
             RankedTensorType::get(wideShape, valTileType, valWideLayout);
         auto idxWideType =
             RankedTensorType::get(wideShape, idxTileType, idxWideLayout);
-
-        // A 2D split already occupies a real ntShards x numGroups grid, so it
-        // stays unfolded like the leaf buffers it re-splits.
-        mergeFoldForwardAttr = nullptr;
-        mergeFoldInverseAttr = nullptr;
-        if (!twoDim && numGroups > 1) {
-          SmallVector<int64_t> roundGrid(physicalRank, 1);
-          roundGrid[deviceGridDim] = numGroups;
-          SmallVector<int64_t> physicalGrid =
-              d2m::utils::findLegalPhysicalGridForVolume(numGroups,
-                                                         workerGridShape);
-          assert(!physicalGrid.empty() &&
-                 "merge group count has no legal worker-grid factorization");
-          auto [fwd, inv] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-              ctx, roundGrid, physicalGrid);
-          mergeFoldForwardAttr = AffineMapAttr::get(fwd);
-          mergeFoldInverseAttr = AffineMapAttr::get(inv);
-        }
-        // Cleared on return so later buffers carry no fold.
-        auto clearFold = llvm::make_scope_exit([&] {
-          mergeFoldForwardAttr = nullptr;
-          mergeFoldInverseAttr = nullptr;
-        });
 
         // Values and indices gather through separate generics, since the
         // DMA-expansion pass supports only one composite view per GenericOp
@@ -4778,7 +4181,6 @@ public:
           auto copyOut = rewriter.create<d2m::EmptyOp>(
               loc, wideType.getShape(), wideType.getElementType(),
               wideType.getEncoding());
-          attachMergeFold(copyOut);
           SmallVector<Value> ins = {composite.getResult()};
           SmallVector<Value> outs = {copyOut.getResult()};
           auto copyGeneric = rewriter.create<d2m::GenericOp>(
@@ -4786,13 +4188,11 @@ public:
               rewriter.getAffineMapArrayAttr(
                   SmallVector<AffineMap>{mergeIdentity, mergeIdentity}),
               rewriter.getArrayAttr(mergeIters));
-          copyGeneric->setAttr("d2m.skip_grid_selection",
-                               rewriter.getUnitAttr());
           withD2MGenericRegion(
               rewriter, loc, copyGeneric, ins, outs,
               [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
-                auto linalgOp = emitLeadingTileCopy(
-                    rewriter, loc, ctx, blockArgs[0], blockArgs[1],
+                auto linalgOp = d2m::utils::emitLeadingTileCopy(
+                    rewriter, loc, blockArgs[0], blockArgs[1],
                     /*shardRedDim=*/std::nullopt);
                 return {linalgOp->getResult(0)};
               });
@@ -4807,8 +4207,6 @@ public:
             loc, wideShape, valTileType, valWideType.getEncoding());
         auto mergeIdxOut = rewriter.create<d2m::EmptyOp>(
             loc, wideShape, idxTileType, idxWideType.getEncoding());
-        attachMergeFold(mergeValsOut);
-        attachMergeFold(mergeIdxOut);
         SmallVector<Value> mergeInputs = {valsMaterialized, idxMaterialized};
         SmallVector<Value> mergeOutputs = {mergeValsOut.getResult(),
                                            mergeIdxOut.getResult()};
@@ -4817,8 +4215,6 @@ public:
             rewriter.getAffineMapArrayAttr(SmallVector<AffineMap>{
                 mergeIdentity, mergeIdentity, mergeIdentity, mergeIdentity}),
             rewriter.getArrayAttr(mergeIters));
-        mergeGeneric->setAttr("d2m.skip_grid_selection",
-                              rewriter.getUnitAttr());
         withD2MGenericRegion(
             rewriter, loc, mergeGeneric, mergeInputs, mergeOutputs,
             [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
@@ -4840,7 +4236,7 @@ public:
       int64_t bands = numShards;
       while (bands > 1) {
         int64_t numGroups =
-            pickMergeGroupCount(bands, mergeCap, workerGridShape);
+            d2m::pickMergeGroupCount(bands, mergeCap, workerGridShape);
         assert(numGroups > 0 &&
                "merge chain was validated during shard selection");
         level = mergeRound(level.first, level.second, bands, numGroups);
@@ -4855,8 +4251,8 @@ public:
     auto extractIdxIndicesType = RankedTensorType::get(
         indicesType.getShape(), fuseIdxCast ? idxOutElemType : idxElemType);
 
-    // Must be split like its input, on the same cores and with the same fold,
-    // or the extract gathers the whole result onto one core.
+    // Must be split like its input, on the same core count, or the extract
+    // gathers the whole result onto one core.
     auto createDataParallelExtractOutput =
         [&](RankedTensorType logicalType) -> Value {
       constexpr std::array<int64_t, 2> defaultTileShape =
@@ -4865,23 +4261,15 @@ public:
                                         defaultTileShape.end());
       auto tileElemType =
           ttcore::TileType::get(logicalType.getElementType(), tileShapeVec);
-      SmallVector<int64_t> alignments(logicalType.getRank(), kTileWidth);
-      alignments[1 - dim] = paddedNonTargetTiles * kTileWidth;
-      auto layout = ttcore::MetalLayoutAttr::get(
-          ctx, logicalType.getShape(), memorySpaces[1],
-          ttcore::TensorMemoryLayout::Sharded,
-          ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
-              ctx, logicalType.getRank()),
-          alignments);
+      SmallVector<int64_t> shardTiles(logicalType.getRank(), 1);
+      shardTiles[1 - dim] = paddedNonTargetTiles;
+      auto layout = d2m::utils::buildShardedTileLayout(
+          ctx, logicalType.getShape(), shardTiles, memorySpaces[1]);
       SmallVector<int64_t> grid = (dim == 1)
                                       ? SmallVector<int64_t>{ntShards, 1}
                                       : SmallVector<int64_t>{1, ntShards};
       auto emptyOp = rewriter.create<d2m::EmptyOp>(
           loc, layout.getDeviceShape(grid, tileShapeVec), tileElemType, layout);
-      if (dataParallelFoldForwardAttr) {
-        emptyOp.setVirtualGridForwardMappingAttr(dataParallelFoldForwardAttr);
-        emptyOp.setVirtualGridInverseMappingAttr(dataParallelFoldInverseAttr);
-      }
       return emptyOp.getResult();
     };
 
@@ -4922,35 +4310,18 @@ public:
       auto idxCastEmpty = rewriter.create<d2m::EmptyOp>(
           loc, extractedIdxType.getShape(), idxCastTileType,
           extractedIdxType.getEncoding());
-      if (dataParallel && dataParallelFoldForwardAttr) {
-        idxCastEmpty.setVirtualGridForwardMappingAttr(
-            dataParallelFoldForwardAttr);
-        idxCastEmpty.setVirtualGridInverseMappingAttr(
-            dataParallelFoldInverseAttr);
-      }
-      SmallVector<Value> castInputs = {idxFinal};
-      SmallVector<Value> castOutputs = {idxCastEmpty.getResult()};
       std::size_t castRank = extractedIdxType.getShape().size() / 2;
       AffineMap castIdentity = rewriter.getMultiDimIdentityMap(castRank);
       SmallVector<Attribute> castIters(
           castRank,
           ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
-      auto idxCastGeneric = rewriter.create<d2m::GenericOp>(
-          loc, castInputs, castOutputs, /*additionalArgs=*/ValueRange(),
-          rewriter.getAffineMapArrayAttr(
-              SmallVector<AffineMap>{castIdentity, castIdentity}),
-          rewriter.getArrayAttr(castIters));
-      idxCastGeneric->setAttr("d2m.skip_grid_selection",
-                              rewriter.getUnitAttr());
-      withD2MGenericRegion(
-          rewriter, loc, idxCastGeneric, castInputs, castOutputs,
-          [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
-            auto linalgOp = emitLeadingTileCopy(rewriter, loc, ctx,
-                                                blockArgs[0], blockArgs[1],
-                                                /*shardRedDim=*/std::nullopt);
-            return {linalgOp->getResult(0)};
+      idxFinal = emitUnaryGeneric(
+          rewriter, loc, idxFinal, idxCastEmpty.getResult(), castIdentity,
+          castIters, /*shardMap=*/nullptr,
+          [&](OpBuilder &b, Location l, ValueRange args) {
+            return b.create<d2m::TileTypecastOp>(l, args[1].getType(), args[0])
+                .getResult();
           });
-      idxFinal = idxCastGeneric->getResult(0);
     }
 
     Operation *valResult =

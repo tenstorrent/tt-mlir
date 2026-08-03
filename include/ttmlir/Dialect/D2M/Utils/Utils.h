@@ -13,12 +13,21 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
 
+#include <optional>
 #include <utility>
 #include <variant>
 
 namespace mlir::tt::ttcore {
 class DeviceAttr;
 } // namespace mlir::tt::ttcore
+
+namespace mlir::linalg {
+class GenericOp;
+} // namespace mlir::linalg
+
+namespace mlir::tt::d2m {
+class GenericOp;
+} // namespace mlir::tt::d2m
 
 namespace mlir::tt::d2m::utils {
 
@@ -40,6 +49,26 @@ inline bool isReductionScalerBuffer(Operation *op) {
 // shape.
 ShapedType reblockShapedType(ShapedType oldType,
                              ArrayRef<int64_t> newGridShape);
+
+// Rebuild `layout`'s logical shape from a [grid..., shard...] device shape, so
+// that a re-split device shape keeps the same total extent (which the composite
+// view and reblocking checks compare against). Every other layout field is
+// carried over unchanged. `deviceShape` must have even rank.
+ttcore::MetalLayoutAttr
+rebuildLayoutForDeviceShape(ttcore::MetalLayoutAttr layout,
+                            ArrayRef<int64_t> deviceShape);
+
+// Build a sharded L1 MetalLayoutAttr for `logicalShape` where dim i is padded
+// out to `tilesPerDim[i]` tiles. Uses default collapsed intervals.
+ttcore::MetalLayoutAttr buildShardedTileLayout(MLIRContext *ctx,
+                                               ArrayRef<int64_t> logicalShape,
+                                               ArrayRef<int64_t> tilesPerDim,
+                                               ttcore::MemorySpace memorySpace);
+
+// True when `deviceShape` allocates more elements than `logicalShape` occupies
+// along any dim, i.e. the shard carries a padding tail that must be masked.
+bool deviceShapeNeedsPadding(ArrayRef<int64_t> deviceShape,
+                             ArrayRef<int64_t> logicalShape);
 
 // Clone a local shard type using the shard shape implied by a reference
 // operand's device layout.
@@ -78,6 +107,28 @@ SmallVector<int64_t> deriveBlockFactorsFromOperandGrids(
 // expressions including binary operations (add, mul, floordiv, ceildiv, mod).
 SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
                                     AffineMap indexingMap);
+
+// Build this core's own coordinate as one `d2m.core_index` per grid dim.
+// Unlike buildGridIndices, which projects loop indices through an indexing map,
+// these address the core itself -- what a remote_load/remote_store wants when
+// the access is local rather than a gather.
+SmallVector<Value> buildCoreIndices(OpBuilder &builder, Location loc,
+                                    std::size_t gridRank);
+
+// Opt `generic` out of reblocking by clearing the attrs that pass keys off of.
+// Needed for hand-built datamovement regions, whose constant operand maps
+// reblocking would otherwise read as broadcasts and rebuild, discarding the
+// hand-built region. Call after the region is fully populated.
+void makeExplicitDatamovementForm(OpBuilder &builder, GenericOp generic);
+
+// Emit a `linalg.generic` copying `input` into `output` tile-by-tile via
+// TileTypecastOp. With `shardRedDim` set, a non-invertible `dim mod extent` map
+// on that dim takes the loop bound from the narrow output while reading the
+// wide input, copying only the leading tiles; without it the map is an identity
+// over the whole shard.
+linalg::GenericOp emitLeadingTileCopy(OpBuilder &builder, Location loc,
+                                      Value input, Value output,
+                                      std::optional<std::size_t> shardRedDim);
 
 // Gets the underlying physical grid shape corresponding to the tensor or
 // memref. For views/streams, this 'physical' grid corresponds to the compute

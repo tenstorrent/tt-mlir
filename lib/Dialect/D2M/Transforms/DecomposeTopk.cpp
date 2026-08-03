@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -26,6 +27,122 @@ static int32_t floorLog2(T n) {
     ++result;
   }
   return result;
+}
+
+// Builds this core's index buffer: the tile at reduction position t holds
+// t * 32 + i at element (i, j), i.e. the reduction coordinate of the value
+// tile's element at the same position, constant along the non-target axis j.
+//
+// The reduction runs down tile ROWS in both orientations -- dim==1 inputs are
+// tile-transposed upstream so their reduction lands on rows too -- so the
+// within-tile term is always the row index i. `fill_arange_tile` writes
+// 32 * i + j, and shifting that right by 5 drops j and leaves i in every
+// column, which keeps the whole computation on the SFPU in Int32.
+//
+// `core_index(dim)` supplies the offset of this core's band, so a banded or
+// data-parallel shard needs no upstream arange and no cross-core broadcast:
+// each core derives exactly the slice it reduces.
+//
+// This must stay the FIRST L1 access in the kernel. D2MToTTKernel derives the
+// startup pack/unpack data format from the first L1 load/store it finds, and
+// these are Int32; the merge tree that follows reconfigures the packer per
+// buffer on its own (emitTopkGroupEnd), but a plain memref.store does not, so
+// moving this fill after the merge tree would pack indices as float.
+static Value buildIndexBuffer(PatternRewriter &rewriter, Location loc,
+                              TopkBlockOp op, MemRefType inputType,
+                              int64_t dimIdx, int64_t numTilesInner) {
+  MLIRContext *ctx = rewriter.getContext();
+  ArrayRef<int64_t> shape = inputType.getShape();
+  TT_assertv(shape.size() == 2ul,
+             "in-kernel index generation expects a 2D shard");
+
+  Value laneScratch = op.getScratchIdxTile();
+  auto idxTileType = mlir::cast<ttcore::TileType>(
+      mlir::cast<MemRefType>(op.getOutIndices().getType()).getElementType());
+  auto elemType = mlir::dyn_cast<IntegerType>(idxTileType.getElementType());
+  TT_assertv(elemType, "topk index tiles must have an integer element type");
+  // arith requires signless integers; tile element types may be si32/ui32.
+  auto scalarType = IntegerType::get(ctx, elemType.getWidth());
+
+  auto l1MemorySpace =
+      ttcore::MemorySpaceAttr::get(ctx, ttcore::MemorySpace::DeviceL1);
+  auto idxBufType = MemRefType::get(shape, idxTileType,
+                                    MemRefLayoutAttrInterface{}, l1MemorySpace);
+  auto idxBuf = rewriter.create<memref::AllocOp>(loc, idxBufType);
+  // Compute-local L1 buffer: no DM thread touches it, so it takes the
+  // single-buffered scratch path (no streaming, no CB handshake).
+  idxBuf->setAttr("d2m.scratch_buffer", rewriter.getUnitAttr());
+
+  // Written once; every tile derives its values from this one lane pattern.
+  rewriter.create<FillArangeTileOp>(loc, laneScratch);
+
+  auto idxVal = [&](int64_t v) -> Value {
+    return rewriter.create<arith::ConstantIndexOp>(loc, v);
+  };
+  Value zeroIdx = idxVal(0);
+  Value oneIdx = idxVal(1);
+  Value const32Idx = idxVal(32);
+  Value shiftVal = rewriter.create<arith::ConstantOp>(
+      loc, scalarType, rewriter.getIntegerAttr(scalarType, 5));
+
+  // Tiles this core's band starts at, in whole tiles of the reduction dim.
+  Value bandOffset = rewriter.create<arith::MulIOp>(
+      loc, rewriter.create<CoreIndexOp>(loc, dimIdx), idxVal(numTilesInner));
+
+  // The reduction dim is iterated innermost so the compute-root tag lands on a
+  // loop that can never be folded away for having a single trip: a shard always
+  // spans at least two reduction tiles, since topk_block merges them pairwise.
+  bool reductionIsRow = (dimIdx == 0);
+  int64_t outerTiles = reductionIsRow ? shape[1] : shape[0];
+  int64_t innerTiles = reductionIsRow ? shape[0] : shape[1];
+
+  auto outerLoop =
+      rewriter.create<scf::ForOp>(loc, zeroIdx, idxVal(outerTiles), oneIdx);
+  rewriter.setInsertionPointToStart(outerLoop.getBody());
+  auto innerLoop =
+      rewriter.create<scf::ForOp>(loc, zeroIdx, idxVal(innerTiles), oneIdx);
+  // Mark the INNER loop as the compute root, since that's where the actual
+  // compute operations are emitted. This ensures DST syncs are placed inside
+  // the inner loop body, not the outer. Since we emit an scf.for directly, we
+  // must tag this here since linalg-to-affine and d2m-op-scheduler won't
+  // process this.
+  innerLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
+  innerLoop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
+  rewriter.setInsertionPointToStart(innerLoop.getBody());
+
+  Value outerIdx = outerLoop.getInductionVar();
+  Value reductionTile = innerLoop.getInductionVar();
+  Value rowIdx = reductionIsRow ? reductionTile : outerIdx;
+  Value colIdx = reductionIsRow ? outerIdx : reductionTile;
+
+  Value laneTile = rewriter.create<memref::LoadOp>(
+      loc, laneScratch, ValueRange{zeroIdx, zeroIdx});
+  // A tile RHS is required: D2MToTTKernel's scalar-RHS dispatch has no branch
+  // for tile_right_shift and would silently drop the shift.
+  Value shiftTile =
+      rewriter.create<TileFillOp>(loc, idxTileType, shiftVal).getResult();
+  Value rowTile =
+      rewriter.create<TileRightShiftOp>(loc, idxTileType, laneTile, shiftTile)
+          .getResult();
+
+  Value tileOffsetIdx = rewriter.create<arith::MulIOp>(
+      loc, rewriter.create<arith::AddIOp>(loc, bandOffset, reductionTile),
+      const32Idx);
+  Value tileOffset =
+      rewriter.create<arith::IndexCastOp>(loc, scalarType, tileOffsetIdx);
+  Value indexTile =
+      rewriter.create<TileAddOp>(loc, idxTileType, rowTile, tileOffset)
+          .getResult();
+
+  rewriter.create<memref::StoreOp>(loc, indexTile, idxBuf.getResult(),
+                                   ValueRange{rowIdx, colIdx});
+
+  rewriter.setInsertionPointAfter(outerLoop);
+  // The merge tree unpacks these tiles straight out of L1, so the packer's
+  // writes must land before the first copy_tile reads them.
+  rewriter.create<UnpackStallOnPackOp>(loc);
+
+  return idxBuf.getResult();
 }
 
 // Decomposes TopkBlockOp into tile_topk_{local_sort,merge,rebuild} ops with
@@ -49,11 +166,6 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
                "input must have at least 2 dimensions");
 
     int32_t k = op.getK();
-
-    // The index buffer is pre-filled upstream (in TTIRToD2M via arange +
-    // broadcast generics) and passed in as scratch_idx_tile.
-    Value bufIdxFilled = scratchIdxTile;
-
     int32_t logk = floorLog2(k);
 
     // When k>32 the result spans 2 tiles. The large-k path left-folds over
@@ -61,6 +173,14 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
     bool useLargeK = (k > 32);
     int64_t dimIdx = op.getDim();
     int64_t numTilesInner = inputShape[dimIdx];
+
+    // A leaf topk builds its index buffer here, one core at a time; a merge
+    // stage is handed the real indices its children produced.
+    Value bufIdxFilled = op.getGenerateIndices()
+                             ? buildIndexBuffer(rewriter, loc, op, inputType,
+                                                dimIdx, numTilesInner)
+                             : scratchIdxTile;
+
     // logWt is the merge-tree depth; ceilLog2 ensures the final fold always
     // runs for non-power-of-2 tile counts.
     bool numTilesPow2 =

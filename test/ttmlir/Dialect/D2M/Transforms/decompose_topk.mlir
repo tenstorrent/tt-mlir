@@ -2,8 +2,8 @@
 // RUN: FileCheck %s --input-file=%t
 // RUN: ttmlir-opt --ttir-to-ttmetal-pipeline -o %t.ttmetal %s
 
-// Verify that d2m-decompose-topk replaces topk_block with arange_block +
-// scf.for loops (one per merge iteration) containing
+// Verify that d2m-decompose-topk replaces topk_block with an in-kernel index
+// buffer fill followed by scf.for loops (one per merge iteration) containing
 // tile_topk_{local_sort,merge,rebuild} ops.
 
 module {
@@ -16,9 +16,12 @@ module {
     // The topk_block must be fully replaced.
     // CHECK-NOT: d2m.topk_block
 
-    // Index initialization is done via arange_block.
-    // CHECK: d2m.arange_block
-    // CHECK-SAME: num_elements = 64
+    // Index generation runs first: the kernel fills its own index buffer from
+    // the lane pattern (>> 5 keeps the within-tile row index) plus this core's
+    // reduction-tile offset.
+    // CHECK: d2m.fill_arange_tile
+    // CHECK: d2m.tile_right_shift
+    // CHECK: d2m.tile_add
 
     // logWt=1, so level 0 is also the last level: emitted unrolled (no outer
     // scf.for), with an inner scf.for over tile pairs and an unconditional
@@ -41,8 +44,12 @@ module {
   func.func @decompose_k16_8tiles(%arg0: tensor<32x256xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>) {
     // CHECK-NOT: d2m.topk_block
 
-    // CHECK: d2m.arange_block
-    // CHECK-SAME: num_elements = 256
+    // Index generation runs first: the kernel fills its own index buffer from
+    // the lane pattern (>> 5 keeps the within-tile row index) plus this core's
+    // reduction-tile offset.
+    // CHECK: d2m.fill_arange_tile
+    // CHECK: d2m.tile_right_shift
+    // CHECK: d2m.tile_add
 
     // Level 0 is emitted unrolled, levels [1,logWt-1) run in a
     // middle scf.for with no rebuild, and the last level is emitted unrolled
@@ -74,8 +81,12 @@ module {
   func.func @decompose_k64_2tiles(%arg0: tensor<32x64xf32>) -> (tensor<32x64xf32>, tensor<32x64xsi32>) {
     // CHECK-NOT: d2m.topk_block
 
-    // CHECK: d2m.arange_block
-    // CHECK-SAME: num_elements = 64
+    // Index generation runs first: the kernel fills its own index buffer from
+    // the lane pattern (>> 5 keeps the within-tile row index) plus this core's
+    // reduction-tile offset.
+    // CHECK: d2m.fill_arange_tile
+    // CHECK: d2m.tile_right_shift
+    // CHECK: d2m.tile_add
 
     // Non-target loop wraps the whole merge tree.
     // CHECK: scf.for
@@ -97,8 +108,12 @@ module {
   func.func @decompose_k64_4tiles(%arg0: tensor<32x128xf32>) -> (tensor<32x64xf32>, tensor<32x64xsi32>) {
     // CHECK-NOT: d2m.topk_block
 
-    // CHECK: d2m.arange_block
-    // CHECK-SAME: num_elements = 128
+    // Index generation runs first: the kernel fills its own index buffer from
+    // the lane pattern (>> 5 keeps the within-tile row index) plus this core's
+    // reduction-tile offset.
+    // CHECK: d2m.fill_arange_tile
+    // CHECK: d2m.tile_right_shift
+    // CHECK: d2m.tile_add
 
     // Non-target loop wraps the whole merge tree.
     // CHECK: scf.for
@@ -139,8 +154,12 @@ module {
   func.func @decompose_k64_6tiles(%arg0: tensor<32x192xf32>) -> (tensor<32x64xf32>, tensor<32x64xsi32>) {
     // CHECK-NOT: d2m.topk_block
 
-    // CHECK: d2m.arange_block
-    // CHECK-SAME: num_elements = 192
+    // Index generation runs first: the kernel fills its own index buffer from
+    // the lane pattern (>> 5 keeps the within-tile row index) plus this core's
+    // reduction-tile offset.
+    // CHECK: d2m.fill_arange_tile
+    // CHECK: d2m.tile_right_shift
+    // CHECK: d2m.tile_add
 
     // Outer scf.for is the non-target-row loop.
     // CHECK: scf.for
@@ -180,8 +199,12 @@ module {
   func.func @decompose_k64_5tiles(%arg0: tensor<32x160xf32>) -> (tensor<32x64xf32>, tensor<32x64xsi32>) {
     // CHECK-NOT: d2m.topk_block
 
-    // CHECK: d2m.arange_block
-    // CHECK-SAME: num_elements = 160
+    // Index generation runs first: the kernel fills its own index buffer from
+    // the lane pattern (>> 5 keeps the within-tile row index) plus this core's
+    // reduction-tile offset.
+    // CHECK: d2m.fill_arange_tile
+    // CHECK: d2m.tile_right_shift
+    // CHECK: d2m.tile_add
 
     // Outer scf.for is the non-target-row loop.
     // CHECK: scf.for
@@ -226,8 +249,12 @@ module {
   func.func @decompose_dim0_k16(%arg0: tensor<64x32xf32>) -> (tensor<16x32xf32>, tensor<16x32xsi32>) {
     // CHECK-NOT: d2m.topk_block
 
-    // CHECK: d2m.arange_block
-    // CHECK-SAME: num_elements = 64
+    // Index generation runs first: the kernel fills its own index buffer from
+    // the lane pattern (>> 5 keeps the within-tile row index) plus this core's
+    // reduction-tile offset.
+    // CHECK: d2m.fill_arange_tile
+    // CHECK: d2m.tile_right_shift
+    // CHECK: d2m.tile_add
 
     // logWt=1: level 0 is also the last level, so rebuild is emitted
     // unconditionally.
@@ -251,7 +278,12 @@ module {
   func.func @decompose_k32_2tiles(%arg0: tensor<32x64xf32>) -> (tensor<32x32xf32>, tensor<32x32xsi32>) {
     // CHECK-NOT: d2m.topk_block
 
-    // CHECK: d2m.arange_block
+    // Index generation runs first: the kernel fills its own index buffer from
+    // the lane pattern (>> 5 keeps the within-tile row index) plus this core's
+    // reduction-tile offset.
+    // CHECK: d2m.fill_arange_tile
+    // CHECK: d2m.tile_right_shift
+    // CHECK: d2m.tile_add
     // CHECK: scf.for
     // CHECK: scf.for
     // CHECK: d2m.tile_topk_local_sort
@@ -270,8 +302,12 @@ module {
   // CHECK-LABEL: func @decompose_k16_3tiles
   func.func @decompose_k16_3tiles(%arg0: tensor<32x96xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>) {
     // CHECK-NOT: d2m.topk_block
-    // CHECK: d2m.arange_block
-    // CHECK-SAME: num_elements = 96
+    // Index generation runs first: the kernel fills its own index buffer from
+    // the lane pattern (>> 5 keeps the within-tile row index) plus this core's
+    // reduction-tile offset.
+    // CHECK: d2m.fill_arange_tile
+    // CHECK: d2m.tile_right_shift
+    // CHECK: d2m.tile_add
     // Level 0 (unrolled): local_sort+merge, plus the odd-tail standalone sort
     // for tile 2 (emitted unconditionally at level 0).
     // CHECK: scf.for
@@ -294,8 +330,12 @@ module {
   // CHECK-LABEL: func @decompose_k16_6tiles
   func.func @decompose_k16_6tiles(%arg0: tensor<32x192xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>) {
     // CHECK-NOT: d2m.topk_block
-    // CHECK: d2m.arange_block
-    // CHECK-SAME: num_elements = 192
+    // Index generation runs first: the kernel fills its own index buffer from
+    // the lane pattern (>> 5 keeps the within-tile row index) plus this core's
+    // reduction-tile offset.
+    // CHECK: d2m.fill_arange_tile
+    // CHECK: d2m.tile_right_shift
+    // CHECK: d2m.tile_add
     // Level 0 (unrolled).
     // CHECK: scf.for
     // CHECK: scf.for
@@ -320,8 +360,12 @@ module {
   // CHECK-LABEL: func @decompose_k16_17tiles
   func.func @decompose_k16_17tiles(%arg0: tensor<32x544xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>) {
     // CHECK-NOT: d2m.topk_block
-    // CHECK: d2m.arange_block
-    // CHECK-SAME: num_elements = 544
+    // Index generation runs first: the kernel fills its own index buffer from
+    // the lane pattern (>> 5 keeps the within-tile row index) plus this core's
+    // reduction-tile offset.
+    // CHECK: d2m.fill_arange_tile
+    // CHECK: d2m.tile_right_shift
+    // CHECK: d2m.tile_add
     // Level 0 (unrolled), plus odd-tail standalone sort for tile 16.
     // CHECK: scf.for
     // CHECK: scf.for
@@ -347,8 +391,12 @@ module {
   // CHECK-LABEL: func @decompose_k16_3tiles_dim0
   func.func @decompose_k16_3tiles_dim0(%arg0: tensor<96x32xf32>) -> (tensor<16x32xf32>, tensor<16x32xsi32>) {
     // CHECK-NOT: d2m.topk_block
-    // CHECK: d2m.arange_block
-    // CHECK-SAME: num_elements = 96
+    // Index generation runs first: the kernel fills its own index buffer from
+    // the lane pattern (>> 5 keeps the within-tile row index) plus this core's
+    // reduction-tile offset.
+    // CHECK: d2m.fill_arange_tile
+    // CHECK: d2m.tile_right_shift
+    // CHECK: d2m.tile_add
     // Level 0 (unrolled), plus odd-tail standalone sort for tile 2.
     // CHECK: scf.for
     // CHECK: scf.for
