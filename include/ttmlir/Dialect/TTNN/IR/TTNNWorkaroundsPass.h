@@ -257,6 +257,23 @@ public:
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
+  // Create workarounds for grid_sample op operands.
+  // Grid is kept float32 when precomputed grid path will be used (nearest or
+  // bilinear+align_corners=True) to preserve coordinate precision.
+  static TTNNOperandsWorkarounds
+  createGridSampleOpOperandsWorkarounds(mlir::Operation *op);
+
+  // Create workarounds for mesh shard op operands.
+  static TTNNOperandsWorkarounds
+  createMeshShardOpOperandsWorkarounds(ttcore::MeshShardType shardType);
+
+  // Create workarounds for mesh partition op operands. The input and output
+  // tensors are always in row-major layout.
+  // TODO (hshah): Remove once
+  // https://github.com/tenstorrent/tt-metal/issues/37676 is fixed.
+  static TTNNOperandsWorkarounds createMeshPartitionOpOperandsWorkarounds();
+
+
   // Create workarounds for gather op operands. The input and index tensors must
   // always be in TILED layout.
   // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/41451

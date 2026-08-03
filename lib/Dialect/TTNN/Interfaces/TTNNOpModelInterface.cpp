@@ -52,7 +52,7 @@ static llvm::Expected<T> issueError(mlir::Operation *op,
   static_assert(std::is_same_v<T, std::size_t> ||
                 std::is_same_v<T, op_model::OpConstraints>);
   auto opName = op->getName().getStringRef();
-  return llvm::make_error<OpNotSupportedError>(opName, reason,
+  return llvm::make_error<detail::OpNotSupportedError>(opName, reason,
                                                getAPITypeStr<T>());
 }
 
@@ -4580,6 +4580,43 @@ PermuteOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// GridSampleOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+GridSampleOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
+  assert(inputs.size() == 2);
+
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto gridShape = getGrid().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<GridSampleOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, gridShape, inputs[0], inputs[1], getMode(), getPaddingMode(),
+      getAlignCorners(), getUsePrecomputedGrid(), getBatchOutputChannels(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+GridSampleOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  assert(inputs.size() == 2);
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto gridShape = getGrid().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<GridSampleOp>::getOpRuntime, *this, inputShape,
+      gridShape, inputs[0], inputs[1], getMode(), getPaddingMode(),
+      getAlignCorners(), getUsePrecomputedGrid(), getBatchOutputChannels(),
+      opConfig.outputLayout);
+}
+
+
 // UpsampleOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

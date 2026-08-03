@@ -3981,6 +3981,7 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d", [DeclareOpInterfaceMethods<TTIR_Quant
     let hasVerifier = 1;
 }
 
+
 def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
     let summary = "Conv3d operation.";
     let description = [{
@@ -5298,6 +5299,65 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
     let hasVerifier = 1;
 }
 
+
+def TTIR_GridSampleOp : TTIR_NamedOp<"grid_sample"> {
+    let summary = "Grid sample 2D operation.";
+
+    let description = [{
+      The `grid_sample` operation samples an input tensor at locations specified by a
+      flow-field grid, producing a spatially resampled output tensor.
+
+      For each output location (h_out, w_out), the grid provides a normalized (x, y)
+      coordinate pair in [-1, 1] that indexes into the input spatial dimensions (H_in, W_in).
+      The sampled value is computed using the specified interpolation mode.
+
+      Input tensor has shape (N, C, H_in, W_in) in NCHW format.
+      Grid tensor has shape (N, 2, H_out, W_out), where the size-2 dimension holds
+      the (x, y) normalized coordinates for each output location.
+      Output tensor has shape (N, C, H_out, W_out).
+
+      Example:
+      ```mlir
+      // Sample a feature map using a pre-computed coordinate grid
+      %input = ... : tensor<1x64x80x144xbf16>   // [N=1, C=64, H_in=80,  W_in=144]
+      %grid  = ... : tensor<1x2x128x64xbf16>    // [N=1, 2,   H_out=128, W_out=64]
+      %result = ttir.grid_sample(%input, %grid) {
+          mode = "nearest", padding_mode = "zeros", align_corners = true
+      } : (tensor<1x64x80x144xbf16>, tensor<1x2x128x64xbf16>) -> tensor<1x64x128x64xbf16>
+      // Result: tensor<1x64x128x64xbf16>  [N=1, C=64, H_out=128, W_out=64]
+      ```
+
+      Inputs:
+      - `input` (Tensor): Feature tensor to sample from, in NCHW format with shape (N, C, H_in, W_in).
+      - `grid`  (Tensor): Flow-field grid of shape (N, 2, H_out, W_out). The size-2 dimension
+        encodes normalized (x, y) coordinates in [-1, 1], where (-1, -1) addresses the top-left
+        corner and (1, 1) the bottom-right corner of the input spatial extent.
+
+      Attributes:
+      - `mode` (str, default="bilinear"): Interpolation mode for sampling.
+        "bilinear" interpolates linearly across the four nearest input pixels.
+        "nearest" snaps to the nearest pixel center via floor rounding.
+      - `padding_mode` (str, default="zeros"): Handling for coordinates that fall outside
+        the input boundary. "zeros" treats out-of-bounds samples as zero.
+      - `align_corners` (bool, default=false): Controls how normalized coordinates map to
+        pixel indices. If true, -1 and 1 map exactly to the corner pixel centers, spanning
+        H_in-1 and W_in-1 steps. If false, they map to the outer edges of the corner pixels,
+        spanning H_in and W_in steps.
+
+      Output:
+      - `result` (Tensor): Resampled output tensor with shape (N, C, H_out, W_out).
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$grid,
+                         DefaultValuedAttr<StrAttr, "\"bilinear\"">:$mode,
+                         DefaultValuedAttr<StrAttr, "\"zeros\"">:$padding_mode,
+                         DefaultValuedAttr<BoolAttr, "false">:$align_corners);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
 
 def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
   let summary = "Scatter operation with simplified dimension attributes";

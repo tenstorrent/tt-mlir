@@ -971,4 +971,40 @@ def TTNNLowerTTLangToGeneric : Pass<"ttnn-lower-tt-lang-to-generic", "::mlir::Mo
   }];
 }
 
+def TTNNGridSampleLayoutOptimizer : Pass<"ttnn-grid-sample-layout-opt", "::mlir::ModuleOp"> {
+  let summary = "Eliminate TILE round-trip for GridSample grid tensors and place grid in L1.";
+  let description = [{
+    Matches GridSampleOp instances whose grid input was subjected to an
+    unnecessary TILE conversion before being fed to grid_sample. Since
+    grid_sample mandates ROW_MAJOR input and the grid arrives as a contiguous
+    ROW_MAJOR tensor, the TILE detour is pure overhead with no benefit.
+
+    Before:
+      BlockArg (ROW_MAJOR DRAM, 5D)
+        to_layout    (TILE DRAM, 5D)              — 16x size inflation
+        reshape      (TILE DRAM, 4D)              — DRAM copy at inflated size
+        to_memory_config (DRAM)                   — optional intermediate step
+        to_layout    (ROW_MAJOR DRAM, 4D)         — untilize back to ROW_MAJOR
+        grid_sample                               — reads grid from DRAM
+
+    After:
+      BlockArg (ROW_MAJOR DRAM, 5D)
+        reshape      (ROW_MAJOR DRAM, 4D)         — zero-copy logical view
+        to_memory_config (L1 HEIGHT_SHARDED, 4D)  — grid resident in L1
+        grid_sample                               — reads grid from L1
+
+    The 5D→4D reshape must precede the L1 shard because the 5D shard page
+    size fails the device L1 alignment requirement (page < 16 B), whereas
+    the 4D shard page satisfies it. The DRAM reshape itself consumes no
+    bandwidth — it is a zero-copy reinterpretation of the same contiguous
+    memory region.
+
+    Per GridSampleOp, this pass eliminates three kernel dispatches:
+      TilizeWithValPadding + ReshapeView(TILE) + Untilize
+    and moves the grid tensor from DRAM to L1 HEIGHT_SHARDED, reducing
+    DRAM traffic for every spatial sampling lookup during inference.
+  }];
+  let dependentDialects = ["mlir::tt::ttnn::TTNNDialect"];
+}
+
 #endif

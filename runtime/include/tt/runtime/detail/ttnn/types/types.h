@@ -306,6 +306,20 @@ public:
     return globalSemaphorePool;
   }
 
+  // Returns a cached GlobalSemaphore for `opKey`, creating it on first use.
+  // Lookups forward to the root context so a semaphore created during warmup
+  // is reused during trace capture (create_global_semaphore writes L1 and
+  // cannot run inside capture).
+  ::ttnn::GlobalSemaphore getOrCreateImplicitGlobalSemaphore(
+      uintptr_t opKey,
+      const std::function<::ttnn::GlobalSemaphore()> &factory) {
+    auto it = implicitOpSemaphores.find(opKey);
+    if (it == implicitOpSemaphores.end()) {
+      it = implicitOpSemaphores.emplace(opKey, factory()).first;
+    }
+    return it->second;
+  }
+
   Binary &getExecutableHandle() { return executableHandle; }
 
   //
@@ -317,6 +331,9 @@ private:
   ProgramTensorPool tensorPool;
 
   ProgramGlobalSemaphorePool globalSemaphorePool;
+
+  // Op-implicit GlobalSemaphores keyed by flatbuffer op pointer; root only.
+  std::unordered_map<uintptr_t, ::ttnn::GlobalSemaphore> implicitOpSemaphores;
 
   common::DylibManager dylibManager;
 
