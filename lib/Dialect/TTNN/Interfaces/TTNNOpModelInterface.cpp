@@ -1908,9 +1908,10 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // and typecast ops. It is always decomposed before reaching a backend, so there
 // is no need to model it via the constraint API.
 
-llvm::Expected<op_model::OpConstraints>
-ToTensorSpecOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                 const OpConfig &opConfig) {
+llvm::Expected<op_model::OpConstraints> ToTensorSpecOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
   return issueErrorForGetOpConstraints(
       getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
 }
