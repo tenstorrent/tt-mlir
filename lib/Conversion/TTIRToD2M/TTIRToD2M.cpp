@@ -6177,11 +6177,61 @@ private:
     // the ordering has to come from the data already being row-major in L1.
     // Outputs stay tiled; only the reduced input needs the row-major order.
     auto [argMaxInputsHead, argMaxOutputs] = toLayoutOperandsAndResults(
-        rewriter, {SmallVector<Value>{}, argMaxOrigOutputs},
+        rewriter, {SmallVector<Value>{adaptor.getInput()}, argMaxOrigOutputs},
         /*tiled=*/true, false, ttcore::OOBVal::NegInf);
     Value rowMajorValues = createOptimalLayoutOp(
         adaptor.getInput(), memorySpaces[0], /*tiled=*/false,
         /*noCollapse=*/false, rewriter, ttcore::OOBVal::NegInf);
+
+    // ===================== BEGIN ROW-MAJOR-AS-TILE RELABEL
+    // ===================== Remove this whole block (and the `rowMajorValues =
+    // ...` reassignment at its end) to go back to feeding the plain untiled
+    // operand.
+    //
+    // Problem: the LLK needs row-major *bytes*, but the d2m.generic /
+    // CB machinery needs a *tile-typed* operand -- an untiled operand makes the
+    // region see scalar elements, not tiles.
+    //
+    // Trick: `ttcore::isTiled()` is `isa<TileType>(elementType)` and nothing
+    // else, so "is this tilized?" is purely a type-level label with no
+    // independent record of the physical byte order. `d2m.view_layout` with
+    // `reinterpretLayout = true` rewrites that label and emits no data
+    // movement, so we can hand the row-major buffer above to a tile-consuming
+    // op. D2MLowerToLayout sees isTiled(input) == isTiled(output) across the
+    // view and therefore emits no TilizeStep to "correct" it.
+    //
+    // This is the same construction test/python/golden/d2m/test_tilize.py uses
+    // to test tilize/untilize (goldens there assert the face permutation), so
+    // the mechanism is exercised in-tree.
+    //
+    // Caveat: nothing in the IR records "these tile-labeled bytes are actually
+    // row-major". Any later pass that inserts a reblock, spill/reload, or DMA
+    // assuming face order will silently corrupt this. Only the LLK below is
+    // expected to consume it.
+    {
+      auto rowMajorTy = mlir::cast<RankedTensorType>(rowMajorValues.getType());
+      auto rowMajorLayout =
+          mlir::cast<ttcore::MetalLayoutAttr>(rowMajorTy.getEncoding());
+
+      // Tile-typed view of the same buffer: same grid, shard shape divided
+      // down to tile counts, element type swapped scalar -> tile.
+      auto viewTileTy = ttcore::TileType::get(rowMajorTy.getElementType());
+      SmallVector<int64_t> viewShape = rowMajorLayout.getDeviceShape(
+          rowMajorLayout.getGridShape(rowMajorTy), viewTileTy.getShape());
+      auto viewTy = RankedTensorType::get(viewShape, viewTileTy,
+                                          rowMajorTy.getEncoding());
+
+      // Identity remapping: this is a pure relabel, no index permutation.
+      AffineMap viewRemap = rewriter.getMultiDimIdentityMap(viewShape.size());
+
+      rowMajorValues =
+          rewriter
+              .create<d2m::ViewLayoutOp>(loc, viewTy, rowMajorValues, viewRemap,
+                                         /*reinterpretLayout=*/true)
+              .getResult();
+    }
+    // ====================== END ROW-MAJOR-AS-TILE RELABEL
+    // ======================
 
     SmallVector<Value> argMaxInputs = {rowMajorValues, arange.getResult(0)};
 
