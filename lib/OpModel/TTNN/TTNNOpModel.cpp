@@ -7441,6 +7441,93 @@ llvm::Expected<size_t> OpModel<PermuteOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// GridSampleOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<GridSampleOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    llvm::ArrayRef<int64_t> gridShape, TTNNLayoutAttr inputLayout,
+    TTNNLayoutAttr gridLayout, llvm::StringRef mode,
+    llvm::StringRef paddingMode, bool alignCorners, bool batchOutputChannels,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto gridSpecExp =
+      detail::convertToTensorSpec(device, gridShape, gridLayout);
+  if (!gridSpecExp) {
+    return gridSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec gridSpec = gridSpecExp.get();
+
+  // Pass std::nullopt for output memory config so the kernel auto-generates the
+  // correct HEIGHT_SHARDED L1 shard spec. batchOutputChannels is forwarded from
+  // the op attribute so batched (K>1) grid_sample uses the correct code path.
+  // Explicit type required: template deduction can't convert nullopt_t to
+  // optional<MemoryConfig> when the argument is passed through a variadic template.
+  std::optional<::ttnn::MemoryConfig> gridSampleOutMemCfg = std::nullopt;
+  auto query = [=]() {
+    return QUERY_OP_CONSTRAINTS(::ttnn::grid_sample, device, inputSpec,
+                                gridSpec, std::string(mode),
+                                std::string(paddingMode), alignCorners,
+                                /*use_precomputed_grid=*/true,
+                                batchOutputChannels,
+                                gridSampleOutMemCfg);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<GridSampleOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, llvm::ArrayRef<int64_t> gridShape,
+    TTNNLayoutAttr inputLayout, TTNNLayoutAttr gridLayout, llvm::StringRef mode,
+    llvm::StringRef paddingMode, bool alignCorners, bool batchOutputChannels,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto gridSpecExp =
+      detail::convertToTensorSpec(device, gridShape, gridLayout);
+  if (!gridSpecExp) {
+    return gridSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec gridSpec = gridSpecExp.get();
+
+  std::optional<::ttnn::MemoryConfig> gridSampleOutMemCfgRt = std::nullopt;
+  auto query = [=]() {
+    return QUERY_OP_RUNTIME(::ttnn::grid_sample, device, inputSpec, gridSpec,
+                            std::string(mode), std::string(paddingMode),
+                            alignCorners,
+                            /*use_precomputed_grid=*/true,
+                            batchOutputChannels,
+                            gridSampleOutMemCfgRt);
+  };
+
+  return operation::getOpRuntime(query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 // Upsample
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
@@ -8418,5 +8505,6 @@ llvm::Expected<size_t> OpModel<MeshPartitionOp>::getOpRuntime(
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
+
 
 } // namespace mlir::tt::ttnn::op_model

@@ -587,5 +587,9 @@ const std::set<mlir::StringRef>
         ttnn::SparseMatmulOp::getOperationName(),
         // ArgMax is intentionally absent: at opt-level >= 1 ArgMaxRuleBook's
         // RowMajor input siblings supply its ROW_MAJOR input (tt-metal #46340).
-};
+        // GridSampleOp requires ROW_MAJOR layout for both data and grid inputs.
+        // Without this, opt_level>=1 MLA assigns HEIGHT_SHARDED to adjacent
+        // permutes, producing non-contiguous sharding that the metal kernel
+        // rejects at runtime.
+        ttnn::GridSampleOp::getOperationName()};
 } // namespace mlir::tt::ttnn
