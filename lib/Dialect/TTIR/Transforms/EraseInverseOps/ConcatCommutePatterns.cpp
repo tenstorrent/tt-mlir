@@ -151,11 +151,52 @@ private:
     return true;
   }
 
-  bool isCommuteUpwardsFavorable(ConcatOp op, PermuteOp) const override {
-    // We should always commute a permute above a concat if all users are an
-    // identical permutation. This includes the case where there is one user.
+  bool isCommuteUpwardsFavorable(ConcatOp op,
+                                 PermuteOp permuteUser) const override {
     SmallVector<Operation *> users(op->getUsers());
-    return !users.empty() && checkAllUsersAreIdenticalTms(users);
+    if (users.empty() || !checkAllUsersAreIdenticalTms(users)) {
+      return false;
+    }
+    // Net TM count change from commuting one group of identical post-concat
+    // permutes upward through an N-input concat:
+    //   +N  new per-input permutes (one per concat input)
+    //   -U  post-concat permutes removed  (U = users.size(), all identical)
+    //   -2K cancellations  (K inputs already carrying the identical permute,
+    //                        or on consteval paths)
+    // Net = N - U - 2K.
+    // When Net <= 0 the commute is always beneficial or neutral — allow it.
+    // When Net > 0 the commute adds ops with no guaranteed cancellation.
+    // Only block it when we can confirm inputs will never gain matching
+    // permutes: specifically when any user feeds directly into a flattened
+    // channel-last conv2d prep chain (permute → reshape → conv2d with
+    // flattenedCompatInfo set).  Those inputs arrive in NCHW layout and will
+    // never already carry the post-flatten NHWC permute.
+    int64_t numOperands = static_cast<int64_t>(op->getNumOperands());
+    int64_t numUsers = static_cast<int64_t>(users.size());
+    int64_t cancelCount = 0;
+    for (Value operand : op->getOperands()) {
+      if (checkIdenticalTms(operand.getDefiningOp(), permuteUser) ||
+          ttcore::valueTracesToConstantArgs(operand)) {
+        ++cancelCount;
+      }
+    }
+    if (numOperands - numUsers - 2 * cancelCount > 0) {
+      for (Operation *user : users) {
+        auto permOp = dyn_cast<PermuteOp>(user);
+        if (!permOp || !permOp->hasOneUse()) {
+          continue;
+        }
+        auto reshapeOp = dyn_cast<ReshapeOp>(*permOp->getUsers().begin());
+        if (!reshapeOp || !reshapeOp->hasOneUse()) {
+          continue;
+        }
+        auto conv2dOp = dyn_cast<Conv2dOp>(*reshapeOp->getUsers().begin());
+        if (conv2dOp && conv2dOp.getFlattenedCompatInfo() != nullptr) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   bool isCommuteDownwardsViable(ConcatOp op, PermuteOp) const override {
@@ -318,8 +359,6 @@ private:
   }
 
   bool isCommuteUpwardsFavorable(ConcatOp op, ReshapeOp) const override {
-    // We should always commute a reshape above a concat if all users are an
-    // identical reshape. This includes the case where there is one user.
     SmallVector<Operation *> users(op->getUsers());
     return !users.empty() && checkAllUsersAreIdenticalTms(users);
   }
