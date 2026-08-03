@@ -88,6 +88,9 @@ HostBuffer getHostBuffer(::tt::runtime::Tensor tensor);
 DistributedHostBuffer getDistributedHostBuffer(::tt::runtime::Tensor tensor);
 bool getTensorRetain(Tensor tensor);
 void setTensorRetain(Tensor tensor, bool retain);
+bool getTensorReusable(Tensor tensor);
+void setTensorReusable(Tensor &tensor, bool reusable);
+TensorReuseStats getTensorReuseStats(Tensor tensor);
 
 tt::target::Arch getArch();
 

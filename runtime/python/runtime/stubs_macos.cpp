@@ -249,6 +249,8 @@ tt::target::DataType getTensorDataType(Tensor tensor) { __builtin_trap(); }
 TensorDesc getTensorDesc(Tensor tensor) { __builtin_trap(); }
 std::uint32_t getTensorElementSize(Tensor tensor) { __builtin_trap(); }
 bool getTensorRetain(Tensor tensor) { __builtin_trap(); }
+bool getTensorReusable(Tensor tensor) { __builtin_trap(); }
+TensorReuseStats getTensorReuseStats(Tensor tensor) { __builtin_trap(); }
 std::vector<std::uint32_t> getTensorShape(Tensor tensor) { __builtin_trap(); }
 std::vector<std::uint32_t> getTensorStride(Tensor tensor) { __builtin_trap(); }
 std::uint32_t getTensorVolume(Tensor tensor) { __builtin_trap(); }
@@ -281,6 +283,7 @@ void setCurrentDeviceRuntime(const DeviceRuntime &runtime) { __builtin_trap(); }
 void setCurrentHostRuntime(const HostRuntime &runtime) { __builtin_trap(); }
 void setFabricConfig(FabricConfig config) { __builtin_trap(); }
 void setTensorRetain(Tensor tensor, bool retain) { __builtin_trap(); }
+void setTensorReusable(Tensor &tensor, bool reusable) { __builtin_trap(); }
 void shutdownDistributedRuntime() { __builtin_trap(); }
 std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
   __builtin_trap();

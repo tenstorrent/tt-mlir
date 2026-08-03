@@ -107,10 +107,11 @@ private:
 
 inline std::shared_ptr<distributed::MeshBuffer>
 createMeshBufferForShardedMetalBuffer(
-    distributed::MeshDevice *meshDevice, uint64_t refAddress,
+    distributed::MeshDevice *meshDevice, std::optional<uint64_t> refAddress,
     const target::metal::ShardedBufferConfig *shardedBufferConfig,
     target::BufferType bufferType,
-    const DeviceAddressValidator &deviceAddressValidator) {
+    const DeviceAddressValidator &deviceAddressValidator,
+    std::optional<bool> bottomUp = std::nullopt) {
   const target::metal::ShardSpecBuffer *shardSpecBuffer =
       shardedBufferConfig->shard_spec_buffer();
   const target::metal::ShardSpec *shardSpec = shardSpecBuffer->shard_spec();
@@ -139,7 +140,10 @@ createMeshBufferForShardedMetalBuffer(
   tt_metal::BufferType metalBufferType = bufferType == target::BufferType::DRAM
                                              ? tt_metal::BufferType::DRAM
                                              : tt_metal::BufferType::L1;
-  uint32_t address = deviceAddressValidator(refAddress, bufferType);
+  std::optional<uint32_t> address;
+  if (refAddress) {
+    address = deviceAddressValidator(*refAddress, bufferType);
+  }
 
   // BufferShardingArgs describes buffer distribution across worker cores within
   // each device.
@@ -170,6 +174,13 @@ createMeshBufferForShardedMetalBuffer(
     tt_metal::BufferDistributionSpec metalDistributionSpec(
         toShape(distributionSpec->tensor_shape_in_pages()),
         toShape(distributionSpec->shard_shape_in_pages()), std::move(cores));
+    if (!refAddress) {
+      // An owning allocation must be sized from the distribution spec. When
+      // both forms are present, Metal's allocation path currently prioritizes
+      // the legacy shard spec, which describes only one shard per core and can
+      // under-allocate buffers that place multiple shards on each core.
+      return tt_metal::BufferShardingArgs(std::move(metalDistributionSpec));
+    }
     return tt_metal::BufferShardingArgs(
         std::move(metalDistributionSpec), metalShardSpecBuffer,
         tt_metal::TensorMemoryLayout::BLOCK_SHARDED);
@@ -181,7 +192,7 @@ createMeshBufferForShardedMetalBuffer(
       .page_size = shardedBufferConfig->page_size(),
       .buffer_type = metalBufferType,
       .sharding_args = std::move(bufferShardingArgs),
-      .bottom_up = std::nullopt,
+      .bottom_up = bottomUp,
       .sub_device_id = std::nullopt};
 
   // ShardedBufferConfig describes buffer distribution across mesh devices.
@@ -222,9 +233,10 @@ createMeshBufferForShardedMetalBuffer(
 
 inline std::shared_ptr<distributed::MeshBuffer>
 createMeshBufferForInterleavedMetalBuffer(
-    distributed::MeshDevice *meshDevice, uint64_t refAddress,
+    distributed::MeshDevice *meshDevice, std::optional<uint64_t> refAddress,
     const target::metal::InterleavedBufferConfig *interleavedBufferConfig,
-    const DeviceAddressValidator &deviceAddressValidator) {
+    const DeviceAddressValidator &deviceAddressValidator,
+    std::optional<bool> bottomUp = std::nullopt) {
 
   auto metalInterleavedBufferConfig = distributed::ShardedBufferConfig{
       .global_size = interleavedBufferConfig->size(),
@@ -241,10 +253,12 @@ createMeshBufferForInterleavedMetalBuffer(
       .page_size = interleavedBufferConfig->page_size(),
       .buffer_type = tt_metal::BufferType::DRAM,
       .sharding_args = std::move(bufferShardingArgs),
-      .bottom_up = std::nullopt};
+      .bottom_up = bottomUp};
 
-  uint32_t address =
-      deviceAddressValidator(refAddress, target::BufferType::DRAM);
+  std::optional<uint32_t> address;
+  if (refAddress) {
+    address = deviceAddressValidator(*refAddress, target::BufferType::DRAM);
+  }
   return distributed::MeshBuffer::create(
       metalInterleavedBufferConfig, localBufferConfig, meshDevice, address);
 }
@@ -286,6 +300,39 @@ inline std::shared_ptr<distributed::MeshBuffer> createMeshBufferFromBufferRef(
         metalBuffer->buffer_config_as_InterleavedBufferConfig(),
         deviceAddressValidator);
   }
+}
+
+inline std::shared_ptr<distributed::MeshBuffer>
+createOwnedMeshBufferFromBufferRef(
+    distributed::MeshDevice *meshDevice,
+    const target::metal::BufferRef *bufferRef,
+    const DeviceAddressValidator &deviceAddressValidator) {
+  const target::metal::BufferDesc *bufferDesc = bufferRef->desc();
+  LOG_ASSERT(bufferDesc->buffer_detail_type() ==
+             target::metal::BufferDetail::MetalBuffer);
+  const target::metal::MetalBuffer *metalBuffer =
+      bufferDesc->buffer_detail_as_MetalBuffer();
+
+  // D2M's static allocation plan grows from the unreserved base address.
+  // Reusable inputs are allocator-owned and grow down from the opposite end,
+  // keeping the transient plan intact while making overlap detectable.
+  constexpr bool bottomUp = false;
+  if (metalBuffer->buffer_config_type() ==
+      target::metal::BufferConfig::ShardedBufferConfig) {
+    return createMeshBufferForShardedMetalBuffer(
+        meshDevice, std::nullopt,
+        metalBuffer->buffer_config_as_ShardedBufferConfig(),
+        metalBuffer->buffer_type(), deviceAddressValidator, bottomUp);
+  }
+
+  LOG_ASSERT(meshDevice->num_rows() == 1 && meshDevice->num_cols() == 1,
+             "Interleaved buffers are only supported for single device");
+  LOG_ASSERT(metalBuffer->buffer_type() == target::BufferType::DRAM,
+             "Interleaved buffers are only supported for DRAM");
+  return createMeshBufferForInterleavedMetalBuffer(
+      meshDevice, std::nullopt,
+      metalBuffer->buffer_config_as_InterleavedBufferConfig(),
+      deviceAddressValidator, bottomUp);
 }
 #pragma clang diagnostic pop
 
