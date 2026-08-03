@@ -29,6 +29,13 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 @dataclass
 class _Config:
+    # Execution backend for the canonical `import d2m_jit` surface:
+    #   "device" -- compile through MLIR and run on silicon (default).
+    #   "sim"    -- run kernels as pure Python on torch, no device / no
+    #               pipeline (see tools/d2m-jit/SIMULATOR_SPEC.md).
+    # The shadow module `import d2m_jit.sim` ignores this and always simulates.
+    # Env override: D2M_JIT_BACKEND=sim.
+    backend: str = os.environ.get("D2M_JIT_BACKEND", "device")
     # Print the full pass-pipeline string before invoking it.
     print_pipeline: bool = _env_bool("D2M_JIT_PRINT_PIPELINE")
     # Dump the constructed module before the pass pipeline runs.

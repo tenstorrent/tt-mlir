@@ -43,6 +43,15 @@ from .ast import D2MCompiler, SEMAPHORE_ARG
 from .config import config
 from .errors import D2mJitError
 from .tensor_layout import Layout
+from .layout_math import (
+    reduction_layout,
+    resolve_reshape,
+    MeshShard,
+    validate_mesh_mapping as _validate_mesh_mapping,
+    shard_logical_shape as _shard_logical_shape,
+    set_current_mesh as _set_current_mesh,
+    clear_current_mesh as _clear_current_mesh,
+)
 from .utils import _cleanup_source_code
 
 # Reverse of ttcore.DataType for picking output torch dtypes.
@@ -260,6 +269,9 @@ class _Builder:
         self._mesh_shape = None
         self._mesh_topology = None
         self._mesh_name = None
+        # Reset the MLIR-free mesh mirror the simulator reads (a fresh graph
+        # declares its own mesh).
+        _clear_current_mesh()
 
     def set_mesh(self, shape, topology=None):
         """Declare the device mesh used by this graph."""
@@ -308,6 +320,7 @@ class _Builder:
         self._mesh_shape = list(shape)
         self._mesh_topology = requested_topology
         self._mesh_name = "mesh"
+        _set_current_mesh(self._mesh_shape, self._mesh_topology, self._mesh_name)
 
     def _refresh_function_type(self, results=None):
         with self.ctx, self.loc:
@@ -848,39 +861,6 @@ def zeros(layout: Layout) -> LazyTensor:
     return full(layout, 0)
 
 
-def reduction_layout(layout: Layout, dim, allow_cross_tile: bool = False) -> Layout:
-    """Return the output layout for a keepdim per-tile reduction.
-
-    The DSL's float reductions can reduce across all tiles contained on one
-    core. Reductions spanning multiple cores in the reduced dimension need a
-    core gather/redistribute op to collect partials and place reduced values on
-    the output-owning cores.
-    """
-    rank = len(layout.logical_shape)
-    if dim < 0:
-        dim += rank
-    if dim < 0 or dim >= rank:
-        raise ValueError(
-            f"reduce dim must be in range [-{rank}, {rank - 1}], got {dim}"
-        )
-    if layout.grid_shape[dim] > 1 and not allow_cross_tile:
-        raise ValueError(
-            "collapsed reductions only support a reduced logical dimension "
-            "that fits on one core; got "
-            f"{layout.grid_shape[dim]} cores along dimension {dim}. "
-            "Pass allow_cross_tile=True only when the kernel has an explicit "
-            "cross-core gather/redistribute strategy for the reduced dimension."
-        )
-
-    shape = list(layout.logical_shape)
-    block_shape = list(layout.block_shape)
-    grid_shape = list(layout.grid_shape)
-    shape[dim] = 1
-    block_shape[dim] = 1
-    grid_shape[dim] = 1
-    return layout.replace(shape=shape, block_shape=block_shape, grid_shape=grid_shape)
-
-
 def arange(layout: Layout, start: int = 0, step: int = 1) -> LazyTensor:
     """Allocate a device tensor filled with arange values.
 
@@ -1035,67 +1015,6 @@ def mesh(shape, topology=None):
     b.set_mesh(shape, topology)
 
 
-class MeshShard:
-    """Metadata needed to gather a per-device shard back to its full tensor."""
-
-    __slots__ = ("full_shape", "shard_dims", "shard_shape")
-
-    def __init__(self, full_shape, shard_dims, shard_shape):
-        self.full_shape = list(full_shape)
-        self.shard_dims = list(shard_dims)
-        self.shard_shape = list(shard_shape)
-
-
-def _validate_mesh_mapping(mesh_shape, tensor_rank, shard_dims, shard_shape):
-    if len(shard_dims) != len(mesh_shape):
-        raise ValueError(
-            "mesh shard_dims must have one entry per mesh dimension, "
-            f"got mesh {mesh_shape} and shard_dims {shard_dims}"
-        )
-    if len(shard_shape) != tensor_rank:
-        raise ValueError(
-            "mesh shard_shape must have one entry per tensor dimension, "
-            f"got tensor rank {tensor_rank} and shard_shape {shard_shape}"
-        )
-
-    for dim in shard_dims:
-        if (
-            not isinstance(dim, int)
-            or isinstance(dim, bool)
-            or dim < -1
-            or dim >= tensor_rank
-        ):
-            raise ValueError(
-                f"mesh shard dimension {dim!r} is invalid for rank {tensor_rank}"
-            )
-    for factor in shard_shape:
-        if not isinstance(factor, int) or isinstance(factor, bool) or factor <= 0:
-            raise ValueError(f"mesh shard factor must be positive, got {factor!r}")
-
-    expected_shape = [1] * tensor_rank
-    for mesh_axis, tensor_dim in enumerate(shard_dims):
-        if tensor_dim >= 0:
-            expected_shape[tensor_dim] *= mesh_shape[mesh_axis]
-    if list(shard_shape) != expected_shape:
-        raise ValueError(
-            f"mesh shard_shape {shard_shape} does not match mesh {mesh_shape} "
-            f"mapped by shard_dims {shard_dims}; expected {expected_shape}"
-        )
-
-
-def _shard_logical_shape(mesh_shape, full_shape, shard_dims, shard_shape):
-    _validate_mesh_mapping(mesh_shape, len(full_shape), shard_dims, shard_shape)
-    shard = list(full_shape)
-    for dim, factor in enumerate(shard_shape):
-        if shard[dim] % factor != 0:
-            raise ValueError(
-                f"mesh shard: full dim {dim} ({shard[dim]}) is not divisible "
-                f"by shard factor {factor}"
-            )
-        shard[dim] //= factor
-    return shard
-
-
 def _emit_mesh_shard(b, value, dst_ty, direction, shard_dims, shard_shape):
     shard_type = Attribute.parse("#ttcore.shard_type<devices>", b.ctx)
     shard_direction = Attribute.parse(f"#ttcore.shard_direction<{direction}>", b.ctx)
@@ -1234,76 +1153,7 @@ def reshape(lt: LazyTensor, *shape) -> LazyTensor:
     if torch is None:
         raise RuntimeError("torch is required for d2m_jit.reshape()")
 
-    # Accept reshape(lt, 1, 2, 256, 64) and reshape(lt, [1, 2, 256, 64]).
-    if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
-        new_shape = tuple(shape[0])
-    else:
-        new_shape = tuple(shape)
-
-    src_numel = 1
-    for d in lt.layout.logical_shape:
-        src_numel *= d
-
-    # Support the torch idiom of a single `-1` dim whose size is inferred
-    # from the remaining dims (e.g. reshape(lt, -1) flattens; reshape(lt,
-    # 2, -1) infers the second dim).
-    neg_axes = [i for i, d in enumerate(new_shape) if d == -1]
-    if len(neg_axes) > 1:
-        raise ValueError(
-            f"reshape: only one dimension may be inferred (-1), " f"got {new_shape}"
-        )
-    if any(d < -1 for d in new_shape):
-        raise ValueError(f"reshape: dimensions must be >= -1, got {new_shape}")
-    if neg_axes:
-        known = 1
-        for d in new_shape:
-            if d != -1:
-                known *= d
-        if known == 0 or src_numel % known != 0:
-            raise ValueError(
-                f"reshape: cannot infer -1 dimension: src has {src_numel} "
-                f"elements which is not divisible by the product of the "
-                f"known dims {known} (from {new_shape})"
-            )
-        inferred = src_numel // known
-        new_shape = tuple(inferred if d == -1 else d for d in new_shape)
-
-    dst_numel = 1
-    for d in new_shape:
-        dst_numel *= d
-    if src_numel != dst_numel:
-        raise ValueError(
-            f"reshape: total element count must match: "
-            f"src {tuple(lt.layout.logical_shape)} ({src_numel}) "
-            f"!= dst {new_shape} ({dst_numel})"
-        )
-
-    # Pick a destination layout: keep src's block/grid if compatible,
-    # otherwise fall back to a trivial single-block single-grid layout
-    # (the user can to_layout to something denser if perf matters).
-    rank = len(new_shape)
-    src_block = list(lt.layout.block_shape)
-    src_grid = list(lt.layout.grid_shape)
-    if (
-        len(src_block) == rank
-        and len(src_grid) == rank
-        and all(
-            d % (b * g * (32 if lt.layout.tiled else 1)) == 0
-            for d, b, g in zip(new_shape, src_block, src_grid)
-        )
-    ):
-        block_shape = src_block
-        grid_shape = src_grid
-    else:
-        block_shape = [1] * rank
-        grid_shape = [1] * rank
-
-    dst_layout = lt.layout.replace(
-        shape=new_shape,
-        block_shape=block_shape,
-        grid_shape=grid_shape,
-    )
-
+    new_shape, dst_layout = resolve_reshape(lt.layout, shape)
     host = lt.to_host().reshape(new_shape)
     return to_layout(host, dst_layout)
 

@@ -17,6 +17,12 @@ from utils import assert_pcc
         (64, 128, (1, 2), [2, 2]),
     ],
 )
+@pytest.mark.device_only(
+    reason="the RoPE half-roll view_layout rolls feature tiles across the device "
+    "physical grid/block split (via LazyTensor.value); the simulator is "
+    "value-neutral about placement and supports only paired grid/tile "
+    "permutations (SIMULATOR_SPEC.md §3/§7)"
+)
 def test_rope_matches_torch(seq_len, head_dim, grid_shape, block_shape):
     """Test rope at various workload shapes and execution configs."""
 

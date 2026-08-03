@@ -14,6 +14,8 @@ hand-written, per-pattern test_pattern_eltwise.py + lit/*_pattern.py files.
                          On silicon (direct-kernel path).
 """
 
+import pytest
+
 from runner import (
     assert_pcc,
     filecheck,
@@ -23,6 +25,10 @@ from runner import (
 )
 
 
+@pytest.mark.device_only(
+    reason="compiler-path test (TTIR rewrite + FileCheck); exercises no backend, "
+    "so there is nothing for the simulator to check"
+)
 def test_pattern_rewrite(pattern_test):
     """Apply the pattern file's rewrites and FileCheck the resulting IR."""
     ir_text = run_rewrite(pattern_test)
@@ -40,6 +46,7 @@ def test_kernel_device(kernel_bench):
     assert_pcc(expected, actual, kernel_bench.pcc)
 
 
+@pytest.mark.device_only(reason="needs silicon: opens a mesh device")
 def test_e2e_device(e2e_spec, e2e_device):
     """True e2e: the rewritten module is compiled to a flatbuffer and run on
     device IN-PROCESS (no ttrt subprocess, no files). PCC the device output
