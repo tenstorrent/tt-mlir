@@ -623,6 +623,29 @@ def TTIRSpatialRowGroupPackingOpt : Pass<"ttir-spatial-row-group-packing-opt", "
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRPixelUnshuffleOpt : Pass<"ttir-pixel-unshuffle-opt", "::mlir::ModuleOp"> {
+  let summary = "Fuse 6D reshape-permute-reshape chains into ttir.pixel_unshuffle.";
+  let description = [{
+    Detects the pattern produced by pixel_unshuffle decomposition:
+      reshape([N,C,H,W] -> [N,C,H/r,r,W/r,r])
+      <any chain of ttir.TransposeOp / ttir.PermuteOp>
+      reshape([N,C*r^2,H/r,W/r])
+    and replaces with ttir.pixel_unshuffle(input, downscale_factor=r,
+                                           channel_order=<detected>).
+
+    The channel_order is determined by composeTransposeChain on the 6D intermediate:
+      SpatialMajor {0,3,5,1,2,4}: ONNX SpaceToDepth convention
+        c_out = h_sub*(r*C) + w_sub*C + c_in
+      ChannelMajor {0,1,3,5,2,4}: PyTorch pixel_unshuffle convention
+        c_out = c_in*r^2 + h_sub*r + w_sub
+
+    The channel_order attribute is forwarded to TTNN and into the kernel
+    compile-time args, so no downstream reorder chain is needed for any C.
+    For C=1 both orderings produce identical results.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRDepthwiseConvSpatialPackingOpt : Pass<"ttir-depthwise-conv-spatial-packing-opt", "::mlir::ModuleOp"> {
   let summary = "Spatial row-group packing for depthwise conv2d with narrow channel count.";
   let description = [{
