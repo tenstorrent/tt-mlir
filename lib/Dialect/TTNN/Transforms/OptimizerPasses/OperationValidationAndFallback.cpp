@@ -26,6 +26,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <cstdlib>
 #include <optional>
 #include <set>
 #include <utility>
@@ -171,6 +172,39 @@ public:
           // there is no point in validating them here.
           return WalkResult::skip();
         }
+
+
+        if (auto sliceOp = mlir::dyn_cast<ttnn::SliceStaticOp>(operation)) {
+          if (auto inputType = mlir::dyn_cast<mlir::RankedTensorType>(
+                  sliceOp.getInput().getType())) {
+            if (auto layout = mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
+                    inputType.getEncoding())) {
+              if (layout.getBufferType() == BufferType::SystemMemory) {
+                return WalkResult::skip();
+              }
+            }
+          }
+        }
+
+        // Skip operations whose first ranked-tensor input is on the host
+        // (SystemMemory).  These appear in const_eval functions where weight/
+        // bias packing ops (e.g. repeat_interleave, multiply, reshape) operate
+        // on parameter tensors before they are moved to device.  Validation
+        // via the op model requires device tensors; host-side ops are
+        // evaluated correctly at const-eval time without device validation.
+        // This mirrors the existing SliceStaticOp skip above.
+        for (Value operand : operation->getOperands()) {
+          if (auto rankedTy =
+                  mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+            if (auto layout = mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
+                    rankedTy.getEncoding())) {
+              if (layout.getBufferType() == BufferType::SystemMemory) {
+                return WalkResult::skip();
+              }
+            }
+          }
+        }
+
 
         // Skip operations that are not OpModel castable (can't be validated)
         // TODO(rpavlovic): we should have all ops implement OpModel interface
@@ -900,9 +934,12 @@ ToTensorSpecOp createToTensorSpecOp(OpBuilder &builder, Location loc,
 
   // Create result type for ToTensorSpecOp, which has the same shape as
   // currentResultType but use scalar element type and encoding from
-  // targetLayout
-  Type scalarElementType = mlir::tt::ttcore::dataTypeToElementType(
-      builder.getContext(), targetLayout.getDataType());
+  // targetLayout. Use getScalarElementType() rather than
+  // dataTypeToElementType(getDataType()) because the latter returns a TileType
+  // for BFP formats (e.g. BFP_BFloat4 → tile<32x32, bfp_bf4>), which violates
+  // CheckTileTypeTrait. getScalarElementType() always unwraps TileType to the
+  // underlying scalar (e.g. bf16 for BFP_BFloat4).
+  Type scalarElementType = targetLayout.getScalarElementType();
   RankedTensorType resultType = RankedTensorType::get(
       currentResultType.getShape(), scalarElementType, targetLayout);
 

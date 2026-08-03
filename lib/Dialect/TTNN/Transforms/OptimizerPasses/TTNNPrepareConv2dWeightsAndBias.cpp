@@ -129,7 +129,13 @@ private:
                             : Conv2dConfigAttr::get(&getContext());
 
     Type inputElementType = inputLayoutAttr.getScalarElementType();
-    conv2dConfig = conv2dConfig.withWeightsDtype(inputDtypeAttr.getValue());
+    // Only default the weights dtype from the input tensor when the optimizer
+    // has not already set an explicit dtype (e.g. BFP_BFloat4 from the search
+    // space). Overwriting here would discard the optimizer's choice and silently
+    // revert every conv2d to bf16 weights regardless of what was selected.
+    if (!conv2dConfig.hasWeightsDtype()) {
+      conv2dConfig = conv2dConfig.withWeightsDtype(inputDtypeAttr.getValue());
+    }
 
     rewriter.setInsertionPoint(convOp);
 
