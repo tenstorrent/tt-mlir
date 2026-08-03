@@ -3611,6 +3611,155 @@ public:
   }
 };
 
+// Fuse K×(index→reshape→transpose→transpose→grid_sample)+concat into a single
+// batched grid_sample using batch_output_channels=true.
+//
+// Before (per camera group, repeated K times with k=0..K-1):
+//   %ik = ttir.index(%lut5d, dim=3, begin=k, end=k+1)  -> (N,H,W,1,2)
+//   %rk = ttir.reshape(%ik)                             -> (N,H,W,2)
+//   %t0k = ttir.transpose(%rk, dim0=-3, dim1=-1)        -> (N,2,W,H)
+//   %t1k = ttir.transpose(%t0k, dim0=-2, dim1=-1)       -> (N,2,H,W)
+//   %gk  = ttir.grid_sample(%img, %t1k)                 -> (N,C,H,W)
+//   %out = ttir.concat(%g0..%gK-1, dim=channel)         -> (N,K*C,H,W)
+//
+// After (what this pattern emits — CanonicalizerPass folds the two transpose
+// ops into a single permute([0,3,1,2]) before TTIRFusing runs):
+//   %r   = ttir.reshape(%lut5d)                             -> (N,H,W,2K)
+//   %p   = ttir.permute(%r, permutation=[0,3,1,2])          -> (N,2K,H,W)
+//   %out = ttir.grid_sample(%img, %p, batch_output_channels) -> (N,K*C,H,W)
+//
+// batch_output_channels=true tells the single grid_sample kernel to aggregate
+// all K camera directions into K×C output channels in one kernel dispatch,
+// eliminating K-1 separate grid_sample launches.
+class GridSampleBatchedFuse : public mlir::OpRewritePattern<ConcatOp> {
+  using mlir::OpRewritePattern<ConcatOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ConcatOp concatOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    auto inputs = concatOp.getInputs();
+    int64_t K = static_cast<int64_t>(inputs.size());
+    if (K < 2)
+      return mlir::failure();
+
+    // All concat inputs must come from GridSampleOp results.
+    SmallVector<GridSampleOp> gridSampleOps;
+    gridSampleOps.reserve(K);
+    for (mlir::Value v : inputs) {
+      auto gsOp = v.getDefiningOp<GridSampleOp>();
+      if (!gsOp)
+        return mlir::failure();
+      gridSampleOps.push_back(gsOp);
+    }
+
+    // Each GridSampleOp result must feed only this concat.
+    for (auto gsOp : gridSampleOps)
+      if (!gsOp.getResult().hasOneUse())
+        return mlir::failure();
+
+    // All GridSampleOps must share the same input image and interpolation attrs.
+    mlir::Value commonInput = gridSampleOps[0].getInput();
+    auto mode0 = gridSampleOps[0].getModeAttr();
+    auto paddingMode0 = gridSampleOps[0].getPaddingModeAttr();
+    auto alignCorners0 = gridSampleOps[0].getAlignCornersAttr();
+    for (int64_t i = 1; i < K; ++i) {
+      if (gridSampleOps[i].getInput() != commonInput ||
+          gridSampleOps[i].getModeAttr() != mode0 ||
+          gridSampleOps[i].getPaddingModeAttr() != paddingMode0 ||
+          gridSampleOps[i].getAlignCornersAttr() != alignCorners0)
+        return mlir::failure();
+    }
+
+    // Match the per-camera grid chain.
+    //
+    // Starting TTIR (transpose ops with negative dims):
+    //   transpose(-2,-1) ← transpose(-3,-1) ← reshape ← index(lut5d, k, dim=3)
+    //
+    // After CanonicalizerPass (which runs before TTIRFusing):
+    //   1. TransposeOp → PermuteOp with positive dims:
+    //      transpose(-3,-1) on rank-4 → permute([0,3,2,1])
+    //      transpose(-2,-1) on rank-4 → permute([0,1,3,2])
+    //   2. foldConsecutivePermute folds two consecutive PermuteOps into one:
+    //      composedPerm[i] = innerPerm[outerPerm[i]]
+    //      [0,3,2,1] ∘ [0,1,3,2] = [0,3,1,2]
+    //
+    // So the canonical chain is:
+    //   permute([0,3,1,2]) ← reshape ← index(lut5d, k, dim=3)
+    //
+    // All K chains must draw from the same LUT source.
+    mlir::Value lut5dSource = nullptr;
+    for (int64_t k = 0; k < K; ++k) {
+      mlir::Value grid = gridSampleOps[k].getGrid();
+
+      // Composed permute([0,3,1,2]) — equivalent to transpose(-3,-1) then
+      // transpose(-2,-1) on a rank-4 tensor, folded into one by canonicalization.
+      // On (N, H, W, 2): output is (N, 2, H, W).
+      auto gridPermOp = grid.getDefiningOp<PermuteOp>();
+      if (!gridPermOp)
+        return mlir::failure();
+      auto perm = gridPermOp.getPermutation();
+      if (perm.size() != 4 || perm[0] != 0 || perm[1] != 3 ||
+          perm[2] != 1 || perm[3] != 2)
+        return mlir::failure();
+
+      auto reshapeOp = gridPermOp.getInput().getDefiningOp<ReshapeOp>();
+      if (!reshapeOp)
+        return mlir::failure();
+      auto indexOp = reshapeOp.getInput().getDefiningOp<IndexOp>();
+      if (!indexOp)
+        return mlir::failure();
+      if (static_cast<int64_t>(indexOp.getDim()) != 3 ||
+          static_cast<int64_t>(indexOp.getBegin()) != k ||
+          static_cast<int64_t>(indexOp.getEnd()) != k + 1 ||
+          static_cast<int64_t>(indexOp.getStep()) != 1)
+        return mlir::failure();
+
+      mlir::Value lut5d = indexOp.getInput();
+      if (!lut5dSource)
+        lut5dSource = lut5d;
+      else if (lut5dSource != lut5d)
+        return mlir::failure();
+    }
+
+    // Validate 5-D LUT shape: (N, H, W, K, 2).
+    auto lut5dType = mlir::cast<RankedTensorType>(lut5dSource.getType());
+    if (lut5dType.getRank() != 5 || lut5dType.getShape()[3] != K ||
+        lut5dType.getShape()[4] != 2)
+      return mlir::failure();
+    int64_t N = lut5dType.getShape()[0];
+    int64_t H_lut = lut5dType.getShape()[1];
+    int64_t W_lut = lut5dType.getShape()[2];
+    mlir::Type elemType = lut5dType.getElementType();
+
+    mlir::Location loc = concatOp.getLoc();
+
+    // Step 1: reshape (N, H, W, K, 2) → (N, H, W, 2K).
+    SmallVector<int32_t> reshape4dI32 = {
+        static_cast<int32_t>(N), static_cast<int32_t>(H_lut),
+        static_cast<int32_t>(W_lut), static_cast<int32_t>(K * 2)};
+    auto reshape4dType = RankedTensorType::get({N, H_lut, W_lut, K * 2}, elemType);
+    auto reshape4d = rewriter.create<ReshapeOp>(loc, reshape4dType, lut5dSource,
+                                                rewriter.getI32ArrayAttr(reshape4dI32));
+
+    // Step 2: permute([0,3,1,2]): (N, H, W, 2K) → (N, 2K, H, W).
+    // This is the composed result of transpose(-3,-1) then transpose(-2,-1) on
+    // rank-4, which foldConsecutivePermute reduces to a single permute.
+    auto gridType = RankedTensorType::get({N, K * 2, H_lut, W_lut}, elemType);
+    SmallVector<int64_t> gridPerm = {0, 3, 1, 2};
+    auto gridPermOp = rewriter.create<PermuteOp>(loc, gridType, reshape4d.getResult(),
+                                                  gridPerm);
+
+    // Step 3: single batched grid_sample — output shape (N, K*C, H_out, W_out).
+    rewriter.replaceOpWithNewOp<GridSampleOp>(
+        concatOp,
+        mlir::cast<RankedTensorType>(concatOp.getResult().getType()),
+        commonInput, gridPermOp.getResult(), mode0, paddingMode0, alignCorners0);
+
+    return mlir::success();
+  }
+};
+
 } // namespace
 
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
@@ -3676,6 +3825,7 @@ public:
       patterns.add<HardsigmoidFusionPattern>(&getContext());
       patterns.add<MishFusingPattern>(&getContext());
       patterns.add<ReshapeBroadcastReshapeToRepeatPattern>(&getContext());
+      patterns.add<GridSampleBatchedFuse>(&getContext());
       patterns.add<fusing::RoPERotateHalfFusingPattern>(&getContext());
       patterns.add<fusing::RoPEComplexRotationFusingPattern>(&getContext());
       patterns.add<fusing::RoPEInterleavedPairFusingPattern>(&getContext());
