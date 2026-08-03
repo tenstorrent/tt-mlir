@@ -4,10 +4,7 @@
 
 #include "operations/data_movement/write_tensor.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
-#include "ttnn/tensor/tensor_impl.hpp"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::WriteTensorOp *op, ProgramContext &context) {
@@ -25,6 +22,6 @@ void run(const ::tt::target::ttnn::WriteTensorOp *op, ProgramContext &context) {
 
   // Note: copy_to_device replaced write_tensor and does not have a blocking
   // parameter. The operation is always blocking.
-  ::tt::tt_metal::copy_to_device(hostTensor, deviceTensor, ttnnCqId);
+  ::ttnn::copy_to_device(hostTensor, deviceTensor, ttnnCqId);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

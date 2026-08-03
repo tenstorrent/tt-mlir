@@ -36,6 +36,9 @@ test/lit.site.cfg.py
 # Builder Test Default Artifact Paths
 /builder-artifacts/
 
+# Autotuner Generated Files
+/autotune-artifacts/
+
 # TTNN and TTMetal flatbuffers
 *.ttnn
 *.ttm

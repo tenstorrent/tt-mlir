@@ -127,7 +127,7 @@ public:
 //  - MLIR context with TTCore + TTNN + Func dialects loaded.
 //  - Helpers to build a func::FuncOp with typed TTNN op graphs.
 //  - Per-op test configuration (setL1Usage, forceOOM, forceNotImplemented).
-//  - run() to construct and drive L1SpillManagement<SumL1MemoryTracker> with
+//  - run() to construct and drive SumL1SpillManagement with
 //    a backend validator lambda built from perOpConfigs.
 //  - Post-run assertion helpers that inspect the mutated IR.
 //===----------------------------------------------------------------------===//
@@ -217,6 +217,15 @@ public:
         .buildWithCanonicalCorePlacement(deviceAttr);
   }
 
+  TTNNLayoutAttr makeL1Interleaved(llvm::ArrayRef<int64_t> shape) {
+    auto elemType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
+    auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
+    return TTNNLayoutAttr::Builder(&context, shape, elemType)
+        .setBufferType(BufferType::L1)
+        .setMemoryLayout(TensorMemoryLayout::Interleaved)
+        .buildWithCanonicalCorePlacement(deviceAttr);
+  }
+
   mlir::RankedTensorType tensorType(llvm::ArrayRef<int64_t> shape,
                                     TTNNLayoutAttr layout) {
     return mlir::RankedTensorType::get(shape, builder.getBF16Type(), layout);
@@ -267,6 +276,35 @@ public:
     auto op = builder.create<ReshapeOp>(builder.getUnknownLoc(), outType, input,
                                         shapeAttr);
     setL1Usage(op.getOperation(), l1UsageBytes);
+    return op.getOperation();
+  }
+
+  /// Add a zero-fill PadOp matching FillCacheInputPadRewritePattern's scrub
+  /// pad. `padding` is low/high per dim (2 * rank), as in ttnn.pad.
+  mlir::Operation *addPad(mlir::Value input, mlir::RankedTensorType outType,
+                          llvm::ArrayRef<int32_t> padding) {
+    auto op = builder.create<PadOp>(builder.getUnknownLoc(), outType, input,
+                                    llvm::SmallVector<int32_t>(padding),
+                                    /*value=*/llvm::APFloat(0.0f),
+                                    /*use_multicore=*/true);
+    return op.getOperation();
+  }
+
+  /// Add a RepeatOp with the given per-dim repetition factors.
+  mlir::Operation *addRepeat(mlir::Value input, mlir::RankedTensorType outType,
+                             llvm::ArrayRef<int64_t> repeatDims) {
+    auto op = builder.create<RepeatOp>(builder.getUnknownLoc(), outType, input,
+                                       ShapeAttr::get(&context, repeatDims));
+    return op.getOperation();
+  }
+
+  /// Add a PermuteOp with the given permutation.
+  mlir::Operation *addPermute(mlir::Value input, mlir::RankedTensorType outType,
+                              llvm::ArrayRef<int64_t> permutation) {
+    auto op =
+        builder.create<PermuteOp>(builder.getUnknownLoc(), outType, input,
+                                  builder.getDenseI64ArrayAttr(permutation),
+                                  /*pad_value=*/mlir::FloatAttr());
     return op.getOperation();
   }
 
@@ -373,13 +411,13 @@ public:
   /// Pass instance kept alive as a fixture member so the observer (owned by
   /// the pass via unique_ptr) outlives run() and stays accessible through
   /// the returned raw pointer.
-  std::unique_ptr<L1SpillManagement<SumL1MemoryTracker>> pass;
+  std::unique_ptr<SumL1SpillManagement> pass;
 
   struct RunResult {
     RecordingObserver *observer;
   };
 
-  /// Run L1SpillManagement<SumL1MemoryTracker> on `func` with the test
+  /// Run SumL1SpillManagement on `func` with the test
   /// validator installed.
   RunResult run() {
     auto obs = std::make_unique<RecordingObserver>();
@@ -388,7 +426,7 @@ public:
     auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
     ttcore::GridAttr deviceGrid = deviceAttr.getWorkerGrid();
 
-    pass = std::make_unique<L1SpillManagement<SumL1MemoryTracker>>(
+    pass = std::make_unique<SumL1SpillManagement>(
         func, deviceGrid, l1BudgetPerCore, std::move(obs));
     pass->getMemoryTracker().backendValidator = makeValidator();
     pass->run();

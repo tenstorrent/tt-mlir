@@ -197,6 +197,19 @@ if enable_runtime:
         dirs_exist_ok=True,
     )
 
+    ttml_metal_src = f"{ttmetalhome}/tt-train/sources/ttml/metal"
+    if os.path.isdir(ttml_metal_src):
+        shutil.copytree(
+            ttml_metal_src,
+            f"{ttmlir_build_dir}/python_packages/ttrt/runtime/tt-train/sources/ttml/metal",
+            dirs_exist_ok=True,
+        )
+    else:
+        print(
+            f"WARNING: ttml metal kernels not found at {ttml_metal_src}; "
+            "ttml ops (e.g. adamw) will be unavailable in this ttrt build"
+        )
+
     import os
 
     def package_files(directory):
@@ -218,11 +231,15 @@ if enable_runtime:
     extra_files_tests = package_files(
         f"{ttmlir_build_dir}/python_packages/ttrt/runtime/tests/"
     )
+    extra_files_ttml = package_files(
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/tt-train/"
+    )
 
     metallibs += extra_files_tt_metal
     metallibs += extra_files_runtime
     metallibs += extra_files_ttnn
     metallibs += extra_files_tests
+    metallibs += extra_files_ttml
 
 dylibs += ["libTTMLIRRuntime.so", runtime_module]
 dylibs += runlibs

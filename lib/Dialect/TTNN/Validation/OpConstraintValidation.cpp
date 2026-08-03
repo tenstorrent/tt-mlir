@@ -39,9 +39,11 @@ llvm::StringRef validationStatusToString(ValidationStatus status) {
   return "Unknown";
 }
 
-static ValidationResult
-validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                    const OpConfig &config, uint64_t additionalL1Usage);
+static ValidationResult validateConstraints(
+    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+    const OpConfig &config, uint64_t additionalL1Usage,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords = std::nullopt);
 
 //----------- Public API implementations ----------
 
@@ -50,6 +52,15 @@ ValidationResult validateOperation(Operation *op,
                                    const OpConfig &config,
                                    uint64_t additionalL1Usage) {
   return validateConstraints(op, inputLayouts, config, additionalL1Usage);
+}
+
+ValidationResult
+validateOperation(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                  const OpConfig &config,
+                  llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords,
+                  uint64_t additionalL1Usage) {
+  return validateConstraints(op, inputLayouts, config, additionalL1Usage,
+                             liveRecords);
 }
 
 std::vector<ValidationResult>
@@ -107,7 +118,7 @@ validateWithMultipleAttributes(Operation *op,
 ValidationResult
 checkConstraintsResult(Operation *contextOp,
                        llvm::Expected<op_model::OpConstraints> constraints,
-                       uint64_t additionalL1Usage) {
+                       uint64_t additionalL1Usage, bool statefulQuery) {
   if (!constraints) {
     ValidationResult result;
     llvm::handleAllErrors(
@@ -120,27 +131,62 @@ checkConstraintsResult(Operation *contextOp,
           TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                        "OpModel constraints failed: {}",
                        ttmlir::utils::firstNLines(errorMsg, 8));
-          result = ValidationResult::metalBackendError(
-              ttmlir::utils::firstNLines(errorMsg, 8));
+          // The stateful (build-from-records) query places the currently-live
+          // tensors at real addresses, so an op that does not fit surfaces as a
+          // tt-metal exception from the backend rather than via the peak-usage
+          // budget check below. Two flavors are really L1-pressure conditions,
+          // both recoverable by the L1 spill pass's evict-and-refit path (the
+          // same path the scalar tracker's soft OOM takes):
+          //   1. Allocator exhaustion: "Out of Memory: Not enough space ...".
+          //   2. A CB-vs-L1 overlap: "Statically allocated circular buffers ...
+          //      clash with L1 buffers ..." -- the op's static circular-buffer
+          //      region collides with a still-live L1 input (e.g. a large
+          //      height-sharded conv activation). Evicting that L1 input to
+          //      DRAM and refitting resolves it.
+          // Classify both as OOM so run() calls handleOOM (which spills the
+          // offending L1 input) instead of the metalBackendError branch, which
+          // only demotes the op's *output* to DRAM -- useless here, since the
+          // clash is with the input -- leaving a layout that throws at runtime
+          // (https://github.com/tenstorrent/tt-mlir/issues/9064). Demoting
+          // straight to DRAM also skips config fallback and can leave a
+          // numerically-wrong op config
+          // (https://github.com/tenstorrent/tt-mlir/issues/9045). A genuine
+          // backend constraint (unsupported config, etc.) carries neither
+          // marker and still routes to metalBackendError.
+          if (errorMsg.find("Out of Memory") != std::string::npos ||
+              errorMsg.find("clash with L1 buffers") != std::string::npos) {
+            result = ValidationResult::outOfMemoryError(
+                ttmlir::utils::firstNLines(errorMsg, 8));
+          } else {
+            result = ValidationResult::metalBackendError(
+                ttmlir::utils::firstNLines(errorMsg, 8));
+          }
         });
     return result;
   }
 
   auto [cbPeakUsage, l1BuffersPeakUsage, overallPeakL1Usage,
-        outputTensorUsagePerCore, outputLayouts] = constraints.get();
+        outputTensorUsagePerCore, outputLayouts, outputAllocations] =
+      constraints.get();
 
-  uint64_t effectiveL1Limit = utils::getUsableL1PerCore(contextOp);
-  uint64_t totalL1Usage = overallPeakL1Usage + additionalL1Usage;
+  // Stateless-only L1 capacity model: both graph captures run NO_DISPATCH, so
+  // nothing is allocated and only this comparison keeps the beam search off
+  // illegal L1 layouts. The stateful path skips it -- tt-metal decides fit
+  // there, and MockAllocatorL1Tracker::validate's ceiling owns the byte budget.
+  if (!statefulQuery) {
+    uint64_t effectiveL1Limit = utils::getUsableL1PerCore(contextOp);
+    uint64_t totalL1Usage = overallPeakL1Usage + additionalL1Usage;
 
-  if (totalL1Usage > effectiveL1Limit) {
-    TTMLIR_DEBUG(
-        ttmlir::LogComponent::OpValidation,
-        "Not enough L1 memory. "
-        "totalL1Usage: {} [overallPeakL1Usage={}, additionalL1Usage={}]"
-        " [cbPeakUsage={}, l1BuffersPeakUsage={}] limit: {}",
-        totalL1Usage, overallPeakL1Usage, additionalL1Usage, cbPeakUsage,
-        l1BuffersPeakUsage, effectiveL1Limit);
-    return ValidationResult::outOfMemoryError("Not enough L1 memory");
+    if (totalL1Usage > effectiveL1Limit) {
+      TTMLIR_DEBUG(
+          ttmlir::LogComponent::OpValidation,
+          "Not enough L1 memory. "
+          "totalL1Usage: {} [overallPeakL1Usage={}, additionalL1Usage={}]"
+          " [cbPeakUsage={}, l1BuffersPeakUsage={}] limit: {}",
+          totalL1Usage, overallPeakL1Usage, additionalL1Usage, cbPeakUsage,
+          l1BuffersPeakUsage, effectiveL1Limit);
+      return ValidationResult::outOfMemoryError("Not enough L1 memory");
+    }
   }
 
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
@@ -151,15 +197,19 @@ checkConstraintsResult(Operation *contextOp,
                overallPeakL1Usage, cbPeakUsage, l1BuffersPeakUsage,
                outputTensorUsagePerCore);
 
-  return ValidationResult::success(0, outputLayouts, outputTensorUsagePerCore,
-                                   cbPeakUsage);
+  ValidationResult result = ValidationResult::success(
+      0, outputLayouts, outputTensorUsagePerCore, cbPeakUsage);
+  result.outputAllocations = std::move(outputAllocations);
+  return result;
 }
 
 // ----------- Core constraint validation implementation ----------
 
-static ValidationResult
-validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                    const OpConfig &config, uint64_t additionalL1Usage) {
+static ValidationResult validateConstraints(
+    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+    const OpConfig &config, uint64_t additionalL1Usage,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
 
   // Check that operation supports OpModel interface.
   auto backend = mlir::dyn_cast<OpModel>(op);
@@ -201,10 +251,17 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   }
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation, "Output config {}", config);
 
+  // One query, one selector: an engaged `liveRecords` (L1 spill) evaluates the
+  // op against the live allocation set through an uncached query; std::nullopt
+  // (beam search) takes the cached stateless query. `statefulQuery` is DERIVED
+  // from the same optional rather than passed alongside it, so the two can
+  // never disagree -- a stateful capacity model paired with a stateless query
+  // would leave the L1 byte budget unchecked on both sides.
   llvm::Expected<ttnn::op_model::OpConstraints> l1UsageExp =
-      backend.getOpConstraints(inputLayouts, config);
+      backend.getOpConstraints(inputLayouts, config, liveRecords);
 
-  return checkConstraintsResult(op, std::move(l1UsageExp), additionalL1Usage);
+  return checkConstraintsResult(op, std::move(l1UsageExp), additionalL1Usage,
+                                /*statefulQuery=*/liveRecords.has_value());
 }
 
 } // namespace op_constraint_validation

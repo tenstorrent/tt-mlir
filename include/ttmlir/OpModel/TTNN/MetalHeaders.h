@@ -68,6 +68,7 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 #include "ttnn/operations/experimental/conv3d/conv3d.hpp"
 #include "ttnn/operations/experimental/conv3d/prepare_conv3d_weights.hpp"
 #include "ttnn/operations/experimental/dropout/dropout.hpp"
+#include "ttnn/operations/experimental/indexer_score/indexer_score.hpp"
 #include "ttnn/operations/experimental/paged_cache/paged_cache.hpp"
 #include "ttnn/operations/experimental/topk_router_gpt/topk_router_gpt.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"

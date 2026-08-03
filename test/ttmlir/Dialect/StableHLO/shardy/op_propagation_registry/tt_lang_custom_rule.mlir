@@ -1,6 +1,7 @@
 // REQUIRES: stablehlo
 // RUN: ttmlir-opt --stablehlo-pipeline -o %t.mlir %s 2>%t.err
 // RUN: FileCheck %s --input-file=%t.mlir
+// RUN: FileCheck %s --check-prefix=NORULE --input-file=%t.mlir
 // RUN: FileCheck %s --check-prefix=ERR --input-file=%t.err
 
 // End-to-end coverage for user-provided `xla.sdy.custom_sharding_rule` rules on a
@@ -18,6 +19,12 @@
 // `tt.tt_lang_op` has no built-in sharding rule, so the custom rule is the only
 // thing that can shard the result: the sharded (4x16) result in @with_rule is
 // what makes the test discriminating.
+//
+// The promoted rule is normalized to non-custom, so propagation strips it from
+// the IR exactly like it strips the built-in rules. Nothing should carry an
+// sdy.sharding_rule attribute into the final output; the rule is instead
+// recreated on demand from the frontend attribute via ShardingRuleOpInterface.
+// NORULE-NOT: sdy.sharding_rule =
 
 sdy.mesh @mesh = <["x"=2]>
 
@@ -30,10 +37,8 @@ sdy.mesh @mesh = <["x"=2]>
 // CHECK: sdy.manual_computation(%arg0, %arg1)
 // CHECK-SAME: in_shardings=[<@mesh, [{"x"}, {}]>, <@mesh, [{"x"}, {}]>]
 // CHECK-SAME: out_shardings=[<@mesh, [{"x"}, {}]>]
-// ...the string rule was parsed into a typed, reprinted sdy.op_sharding_rule...
-// CHECK: stablehlo.custom_call @tt.tt_lang_op
-// CHECK-SAME: sdy.sharding_rule = #sdy.op_sharding_rule<([i, j], [i, j])->([i, j]) {i=8, j=16}, custom>
 // ...and UpdateGlobalToLocalShapes halves dim 0 (8 -> 4) on operands AND result.
+// CHECK: stablehlo.custom_call @tt.tt_lang_op
 // CHECK-SAME: (tensor<4x16xf32>, tensor<4x16xf32>) -> tensor<4x16xf32>
 // CHECK: sdy.return %{{.*}} : tensor<4x16xf32>
 func.func @with_rule(

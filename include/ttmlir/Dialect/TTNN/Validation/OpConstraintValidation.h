@@ -50,6 +50,11 @@ struct ValidationResult {
   // CB peak L1 usage from op_model. Only valid if Success.
   uint64_t cbPeakUsage = 0;
 
+  // Per-output allocation records from a stateful (build-from-records) query.
+  // Empty on the stateless path. The L1 spill path keeps these for still-live
+  // tensors and rebuilds allocator state from them.
+  llvm::SmallVector<op_model::OpModelAllocationRecord> outputAllocations;
+
   // Error message if status != Success.
   std::string errorMessage;
 
@@ -147,6 +152,19 @@ ValidationResult validateOperation(Operation *op,
                                    const OpConfig &config,
                                    uint64_t additionalL1Usage = 0);
 
+// Stateful (build-from-records) validation for the L1 spill path. Issues an
+// uncached getOpConstraints query that evaluates the op against `liveRecords`
+// (the allocations already live in L1) and reports outputAllocations. Selecting
+// this overload -- not the contents of `liveRecords` -- is what makes the query
+// stateful: an EMPTY liveRecords is still a stateful query, which is how the
+// spill path bootstraps its record set off the first op. Use the overload above
+// for a stateless query.
+ValidationResult
+validateOperation(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                  const OpConfig &config,
+                  llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords,
+                  uint64_t additionalL1Usage = 0);
+
 // Test multiple attributes with all layouts.
 // op: Operation to validate.
 // inputLayouts: All input tensor layouts for the operation.
@@ -162,20 +180,21 @@ validateWithMultipleAttributes(Operation *op,
                                llvm::ArrayRef<OpConfig> opConfigs,
                                llvm::ArrayRef<OpConfig> referenceConfigs);
 
-// Validate an OpConstraints result against the L1 memory budget derived from
-// the given context operation (used to look up device attributes and module-
-// level tensorL1UsageCap).  This is the shared L1 budget check used by both
-// the Operation*-based validateOperation and the template overload below.
-ValidationResult
-checkConstraintsResult(Operation *contextOp,
-                       llvm::Expected<op_model::OpConstraints> constraints,
-                       uint64_t additionalL1Usage = 0);
+// Validate an OpConstraints result against the L1 budget (looked up from
+// |contextOp|'s device/module attributes). |statefulQuery| skips the peak-usage
+// byte check: on the stateful path tt-metal itself checks fit, while the
+// stateless path has to check it here. The byte budget is enforced by
+// MockAllocatorL1Tracker::validate.
+ValidationResult checkConstraintsResult(
+    Operation *contextOp, llvm::Expected<op_model::OpConstraints> constraints,
+    uint64_t additionalL1Usage = 0, bool statefulQuery = false);
 
 // Op-less validation: calls OpModel<OpType>::getOpConstraints directly with
 // the forwarded arguments, then validates the result against the L1 memory
 // budget.  |contextOp| is any operation in the module (e.g. the consumer) and
 // is used only to look up device/module attributes — it is NOT the operation
-// being validated.
+// being validated. Stateless by construction: no allocator state is forwarded,
+// so getOpConstraints takes its defaulted null state.
 template <typename OpType, typename... Args>
 ValidationResult validateOperation(Operation *contextOp,
                                    uint64_t additionalL1Usage, Args &&...args) {

@@ -218,6 +218,23 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
 // Check if the operation has Shardy-sharded inputs or outputs.
 bool opHasShardySharding(mlir::Operation *op);
 
+// Return the serialized user-provided sharding rule carried by `op` in its
+// "xla.sdy.custom_sharding_rule" frontend attribute, or an empty StringRef if
+// the op carries no rule. An attribute that is present but empty (or
+// whitespace-only) counts as no rule, so the op falls back to Shardy's default
+// handling rather than being treated as malformed.
+llvm::StringRef getUserShardingRuleStr(mlir::Operation *op);
+
+// Parse `ruleStr` into an OpShardingRuleAttr, returning a null attribute if it
+// does not parse.
+//
+// NOTE: The "is_custom_rule" bit is always set to false on the result. By
+// setting it to false it can be dropped by sdy-user-priority-propagate and
+// rematerialized later, through ShardingRuleOpInterface, by
+// insert-explicit-reshards.
+mlir::sdy::OpShardingRuleAttr parseUserShardingRule(llvm::StringRef ruleStr,
+                                                    mlir::MLIRContext *context);
+
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 
 } // namespace mlir::tt::shardy_utils

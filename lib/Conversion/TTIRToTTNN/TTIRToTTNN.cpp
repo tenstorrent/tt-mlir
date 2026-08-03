@@ -173,7 +173,7 @@ public:
 
     RankedTensorType result = mlir::cast<RankedTensorType>(op.getType(0));
 
-    rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
+    rewriter.replaceOpWithNewOp<ttnn::ToTensorSpecOp>(
         op, this->getTypeConverter()->convertType(result), adaptor.getInput());
 
     return success();
@@ -684,29 +684,9 @@ public:
   matchAndRewrite(ttir::UpdateCacheOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // The TTIR version of this op is pure. In TTNN this op is in-place.
-    // We need to replace uses of the result ot the TTIR op with uses
-    // of the cache argument.
-    //
-    // The presence of the MemWrite trait of this op should preserve
-    // the order of this op relative to the cache arguments uses, preserving
-    // program correctness.
-
-    // This op can only work if it is the final use of the cache tensor in the
-    // order of execution. For now, checking that there is only one user (this
-    // op) of the cache tensor will suffice.
-    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
-                                         op.getCache().getUsers().end());
-    if (users.size() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "UpdateCacheOp cache argument must have exactly one user");
-    }
-
-    rewriter.create<ttnn::UpdateCacheOp>(
-        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
-        adaptor.getUpdateIndex(), adaptor.getBatchOffset());
-
-    rewriter.replaceOp(op, adaptor.getCache());
+    rewriter.replaceOpWithNewOp<ttnn::UpdateCacheOp>(
+        op, adaptor.getCache(), adaptor.getInput(), adaptor.getUpdateIndex(),
+        adaptor.getBatchOffset());
     return success();
   }
 };
@@ -721,19 +701,9 @@ public:
   LogicalResult
   matchAndRewrite(ttir::PagedUpdateCacheOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
-                                         op.getCache().getUsers().end());
-    if (users.size() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "PagedUpdateCacheOp cache argument must have exactly one user");
-    }
-
-    rewriter.create<ttnn::PagedUpdateCacheOp>(
-        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
-        adaptor.getUpdateIndex(), adaptor.getShareCache(),
-        adaptor.getPageTable());
-
-    rewriter.replaceOp(op, adaptor.getCache());
+    rewriter.replaceOpWithNewOp<ttnn::PagedUpdateCacheOp>(
+        op, adaptor.getCache(), adaptor.getInput(), adaptor.getUpdateIndex(),
+        adaptor.getShareCache(), adaptor.getPageTable());
     return success();
   }
 };
@@ -764,18 +734,9 @@ public:
   LogicalResult
   matchAndRewrite(ttir::PagedFillCacheOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
-                                         op.getCache().getUsers().end());
-    if (users.size() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "PagedFillCacheOp cache argument must have exactly one user");
-    }
-
-    rewriter.create<ttnn::PagedFillCacheOp>(
-        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
-        adaptor.getPageTable(), adaptor.getBatchIdxTensor());
-
-    rewriter.replaceOp(op, adaptor.getCache());
+    rewriter.replaceOpWithNewOp<ttnn::PagedFillCacheOp>(
+        op, adaptor.getCache(), adaptor.getInput(), adaptor.getPageTable(),
+        adaptor.getBatchIdxTensor());
     return success();
   }
 };
@@ -826,29 +787,8 @@ public:
   matchAndRewrite(ttir::FillCacheOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // The TTIR version of this op is pure. In TTNN this op is in-place.
-    // We need to replace uses of the result ot the TTIR op with uses
-    // of the cache argument.
-    //
-    // The presence of the MemWrite trait of this op should preserve
-    // the order of this op relative to the cache arguments uses, preserving
-    // program correctness.
-
-    // This op can only work if it is the final use of the cache tensor in the
-    // order of execution. For now, checking that there is only one user (this
-    // op) of the cache tensor will suffice.
-    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
-                                         op.getCache().getUsers().end());
-    if (users.size() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "FillCacheOp must have exactly one user");
-    }
-
-    rewriter.create<ttnn::FillCacheOp>(op.getLoc(), adaptor.getCache(),
-                                       adaptor.getInput(),
-                                       adaptor.getBatchOffset());
-
-    rewriter.replaceOp(op, adaptor.getCache());
+    rewriter.replaceOpWithNewOp<ttnn::FillCacheOp>(
+        op, adaptor.getCache(), adaptor.getInput(), adaptor.getBatchOffset());
     return success();
   }
 };
@@ -1266,6 +1206,44 @@ public:
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
         adaptor.getEpsilon());
+    return success();
+  }
+};
+
+class AdamWOpConversionPattern : public OpConversionPattern<ttir::AdamWOp> {
+public:
+  using OpConversionPattern<ttir::AdamWOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AdamWOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Value> updated{op.getParam(), op.getExpAvg(), op.getExpAvgSq()};
+    if (op.getMaxExpAvgSq()) {
+      updated.push_back(op.getMaxExpAvgSq());
+    }
+    for (Value operand : updated) {
+      if (llvm::any_of(operand.getUsers(), [&](Operation *user) {
+            return user != op && (user->getBlock() != op->getBlock() ||
+                                  !user->isBeforeInBlock(op));
+          })) {
+        return rewriter.notifyMatchFailure(
+            op, "an in-place operand is read after the step");
+      }
+    }
+
+    rewriter.create<ttnn::AdamWOp>(
+        op.getLoc(), adaptor.getParam(), adaptor.getGrad(), adaptor.getExpAvg(),
+        adaptor.getExpAvgSq(), adaptor.getMaxExpAvgSq(), adaptor.getLr(),
+        adaptor.getBeta1(), adaptor.getBeta2(), adaptor.getBeta1Pow(),
+        adaptor.getBeta2Pow(), adaptor.getEpsilon(), adaptor.getWeightDecay(),
+        adaptor.getStochasticRounding());
+
+    SmallVector<Value> replacements{adaptor.getParam(), adaptor.getExpAvg(),
+                                    adaptor.getExpAvgSq()};
+    if (adaptor.getMaxExpAvgSq()) {
+      replacements.push_back(adaptor.getMaxExpAvgSq());
+    }
+    rewriter.replaceOp(op, replacements);
     return success();
   }
 };
@@ -3843,6 +3821,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            LinearOpConversionPattern,
            BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern,
+           AdamWOpConversionPattern,
            RMSNormOpConversionPattern,
            DistributedRMSNormOpConversionPattern,
            DistributedLayerNormOpConversionPattern,

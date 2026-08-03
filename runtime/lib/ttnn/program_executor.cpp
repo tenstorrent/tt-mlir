@@ -113,6 +113,7 @@
 #include "operations/transformer/chunked_scaled_dot_product_attention.h"
 #include "operations/transformer/concatenate_heads.h"
 #include "operations/transformer/flash_mla_prefill.h"
+#include "operations/transformer/indexer_score_dsa.h"
 #include "operations/transformer/nlp_concat_heads.h"
 #include "operations/transformer/nlp_concat_heads_decode.h"
 #include "operations/transformer/nlp_create_qkv_heads_decode.h"
@@ -123,6 +124,7 @@
 #include "operations/transformer/scaled_dot_product_attention.h"
 #include "operations/transformer/scaled_dot_product_attention_decode.h"
 #include "operations/transformer/split_query_key_value_and_split_heads.h"
+#include "operations/ttml/adamw.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -626,6 +628,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::batch_norm::run(op->type_as_BatchNormTrainingOp(),
                                        getContext());
   }
+  case ::tt::target::ttnn::OpType::AdamWOp: {
+    return operations::ttml::run(op->type_as_AdamWOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::DumpTensorOp: {
     return operations::tensor_serialization::run(op->type_as_DumpTensorOp(),
                                                  getContext());
@@ -677,6 +682,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::FlashMlaPrefillOp: {
     return operations::transformer::run(op->type_as_FlashMlaPrefillOp(),
+                                        getContext());
+  }
+  case ::tt::target::ttnn::OpType::IndexerScoreDsaOp: {
+    return operations::transformer::run(op->type_as_IndexerScoreDsaOp(),
                                         getContext());
   }
   case ::tt::target::ttnn::OpType::AggregateTensorOp: {

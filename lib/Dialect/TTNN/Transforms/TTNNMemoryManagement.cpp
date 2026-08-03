@@ -989,7 +989,7 @@ public:
           mlir::dyn_cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
 
       if (inputLayout && inputLayout.isTiled()) {
-        auto rowMajorInput = utils::createToLayoutOp(
+        auto rowMajorInput = utils::createToTensorSpecOp(
             op, mlir::cast<mlir::TypedValue<RankedTensorType>>(permuteInput),
             rewriter, Layout::RowMajor, inputLayout.getBufferType(),
             inputLayout.getMemLayout(), inputLayout.getDataType(),
@@ -1014,7 +1014,7 @@ public:
         reshapeUser.getLoc(), rowMajorReshapeResultType, reshapeInput,
         reshapeUser.getShapeAttr());
 
-    auto restoredLayout = utils::createToLayoutOp(
+    auto restoredLayout = utils::createToTensorSpecOp(
         reshapeUser,
         mlir::cast<mlir::TypedValue<RankedTensorType>>(
             newReshapeOp.getResult()),
@@ -1109,7 +1109,7 @@ public:
           mlir::dyn_cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
 
       if (inputLayout && inputLayout.isTiled()) {
-        auto rowMajorInput = utils::createToLayoutOp(
+        auto rowMajorInput = utils::createToTensorSpecOp(
             op, mlir::cast<mlir::TypedValue<RankedTensorType>>(reshapeInput),
             rewriter, Layout::RowMajor, inputLayout.getBufferType(),
             inputLayout.getMemLayout(), inputLayout.getDataType(),
@@ -1127,7 +1127,7 @@ public:
         newReshapeOp.getResult(), permuteUser.getPermutation(),
         permuteUser.getPadValue());
 
-    auto restoredLayout = utils::createToLayoutOp(
+    auto restoredLayout = utils::createToTensorSpecOp(
         permuteUser,
         mlir::cast<mlir::TypedValue<RankedTensorType>>(
             newPermuteOp.getResult()),

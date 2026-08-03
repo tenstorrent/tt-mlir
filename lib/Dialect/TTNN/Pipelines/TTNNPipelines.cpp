@@ -132,6 +132,7 @@ void createTTNNPipelineAnalysisPasses(
     TTNNGreedyL1SpillManagementOptions spillOptions;
     spillOptions.enableDecisionTrace = options.enableDecisionTrace;
     spillOptions.decisionTraceDir = options.decisionTraceDir;
+    spillOptions.useMockAllocatorState = options.useMockAllocatorState;
 
     bool memLayoutEnabled = options.memoryLayoutAnalysisEnabled;
     pm.addPass(createDevicePassesWrapper(
@@ -620,6 +621,8 @@ void createTTNNCommonToEmitCPipeline(
 //
 void createTTNNCommonToEmitPyPipeline(
     OpPassManager &pm, const TTNNCommonToEmitPyPipelineOptions &options) {
+  pm.addPass(mlir::tt::createCaptureMeshShapePass());
+
   auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
   devicePm.addPass(createTTNNAdjustDeallocs());

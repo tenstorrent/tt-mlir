@@ -6,6 +6,7 @@
 #include "shardy/dialect/sdy/transforms/propagation/op_sharding_rule_builder.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -48,6 +49,9 @@ static constexpr llvm::StringLiteral moeExpertTokenRemapTargetName =
 
 static constexpr llvm::StringLiteral flashMlaPrefillTargetName =
     "tt.flash_mla_prefill";
+
+static constexpr llvm::StringLiteral indexerScoreDsaTargetName =
+    "tt.indexer_score_dsa";
 
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
@@ -499,6 +503,143 @@ getFlashMlaPrefillShardingRule(mlir::stablehlo::CustomCallOp op) {
     builder.addFactor(maskDims, {sdy::kNullDim}, S,
                       sdy::FactorType::kNeedReplication);
   }
+
+  return builder.build();
+}
+
+// Sharding rule for the `tt.indexer_score_dsa` custom_call (DSA
+// lightning-indexer scorer).
+//
+// Tensor layout (matches the StableHLO conversion at
+// StableHLOToTTIRPatterns.cpp:9374):
+//   query   : [B, Hi, Sq, D]   Hi query heads, query seq Sq, head dim D
+//   key      : [B, 1,  T,  D]   single (shared) kv head, key seq T
+//   weights : [B, Hi, Sq, 1]   per-head gate
+//   score   : [B, 1,  Sq, T]   heads summed away
+//
+//   score[b, s, t] = sum_h relu(q[b,h,s,:] . k[b,t,:]) * weights[b,h,s]
+//   masked to -inf where t > chunk_start_idx + s.
+//
+// Factor design:
+//   - Batch    (kPassThrough,     size B)  : q/key/weights/out dim 0. Data
+//       parallel; every batch element is independent.
+//   - Heads    (kReduction,       size Hi) : query dim 1 + weights dim 1. The
+//       head dim is summed away, so it is absent from the output (kNullDim) and
+//       the key's single shared head stays replicated (kNullDim). Sharding it
+//       makes each device compute a partial per-head sum; Shardy inserts an
+//       all_reduce(sum) to combine them, giving tensor parallelism over heads.
+//   - Query seq (kPassThrough,     size Sq): query/weights dim 2, out dim 2.
+//       Sequence parallelism. The fused op is SP-aware: it takes
+//       `chunk_start_idx` to be the absolute position of rank 0's first query
+//       row and masks device `rank` against `chunk_start_idx + rank * Sq_local
+//       + s`, deriving `rank` from that device's position in the mesh. So a
+//       sharded Sq still masks causally against the full, replicated key
+//       sequence. No collective is needed: the output's query dim carries the
+//       same sharding.
+//   - Key seq   (kNeedReplication, size T) : key dim 2, out dim 3. The whole
+//       key history must be resident on every device for the causal mask over
+//       absolute key positions to be exact.
+//   - Head dim  (kNeedReplication, size D) : query/key dim 3. Contracted
+//       internally by the q.k dot product.
+//
+// Sharding Sq alongside Batch or Heads requires the caller to set the
+// `cluster_axis` frontend attribute, naming the mesh axis Sq is sharded on.
+// Without it the op guesses the rank from a flat index over all of the query's
+// devices, which only matches when Sq is the one sharded factor.
+//
+// Sharding Sq also needs Blackhole, where the composite promotes to
+// ttnn.indexer_score_dsa. Elsewhere it falls back to a decomposition whose
+// causal mask is the same on every device, so ranks past 0 mask wrongly.
+static mlir::sdy::OpShardingRuleAttr
+getIndexerScoreDsaShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 3 || op.getNumResults() != 1) {
+    op.getOperation()->emitWarning()
+        << "indexer_score_dsa expects 3 operands (query, key, weights) and 1 "
+           "result";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto qType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto kType = llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto wType = llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
+  auto outType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+
+  if (!qType || !kType || !wType || !outType) {
+    op.getOperation()->emitWarning()
+        << "indexer_score_dsa requires ranked tensor types";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  if (qType.getRank() != 4 || kType.getRank() != 4 || wType.getRank() != 4 ||
+      outType.getRank() != 4) {
+    op.getOperation()->emitWarning() << "indexer_score_dsa requires 4D tensors";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  ArrayRef<int64_t> qShape = qType.getShape();
+  ArrayRef<int64_t> kShape = kType.getShape();
+  ArrayRef<int64_t> wShape = wType.getShape();
+  ArrayRef<int64_t> outShape = outType.getShape();
+
+  int64_t B = qShape[0];
+  int64_t Hi = qShape[1];
+  int64_t Sq = qShape[2];
+  int64_t D = qShape[3];
+  int64_t T = kShape[2];
+
+  auto isStaticPositiveDim = [](int64_t dim) {
+    return !ShapedType::isDynamic(dim) && dim > 0;
+  };
+  if (!isStaticPositiveDim(B) || !isStaticPositiveDim(Hi) ||
+      !isStaticPositiveDim(Sq) || !isStaticPositiveDim(D) ||
+      !isStaticPositiveDim(T)) {
+    op.getOperation()->emitWarning() << "indexer_score_dsa requires static, "
+                                        "positive B/Hi/Sq/D/T dimensions";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Cross-operand shape consistency (see layout above). The key's head dim and
+  // the output's head dim are the summed-away single head, so both must be 1;
+  // the weights gate dim is likewise 1.
+  if (kShape[0] != B || wShape[0] != B || outShape[0] != B || // B
+      wShape[1] != Hi ||                                      // Hi (q, weights)
+      kShape[1] != 1 || outShape[1] != 1 ||                   // single kv head
+      wShape[2] != Sq || outShape[2] != Sq ||                 // Sq
+      kShape[3] != D ||                                       // D (q, key)
+      outShape[3] != T ||                                     // T (key, out)
+      wShape[3] != 1) {                                       // weights gate
+    op.getOperation()->emitWarning()
+        << "indexer_score_dsa shape validation failed";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  sdy::OpShardingRuleBuilder builder(op);
+
+  // Operand order: query(0), key(1), weights(2). Result: score(0).
+
+  // Batch (dim 0): kPassThrough — data parallel across all tensors.
+  builder.addFactor({0, 0, 0}, {0}, B, sdy::FactorType::kPassThrough);
+
+  // Heads (query dim 1 + weights dim 1): kReduction. Summed away, so absent
+  // from the output; the key's single shared head stays replicated. Sharding
+  // yields per-device partial sums combined by an all_reduce(sum).
+  builder.addFactor({1, sdy::kNullDim, 1}, {sdy::kNullDim}, Hi,
+                    sdy::FactorType::kReduction);
+
+  // Query sequence (query/weights dim 2, out dim 2): kPassThrough — sequence
+  // parallelism. The fused op reconstructs each device's absolute query offset
+  // from its SP rank, so the local causal mask stays correct against the full
+  // (replicated) key sequence.
+  builder.addFactor({2, sdy::kNullDim, 2}, {2}, Sq,
+                    sdy::FactorType::kPassThrough);
+
+  // Key sequence (key dim 2, out dim 3): kNeedReplication.
+  builder.addFactor({sdy::kNullDim, 2, sdy::kNullDim}, {3}, T,
+                    sdy::FactorType::kNeedReplication);
+
+  // Head dim (query/key dim 3): kNeedReplication — contracted internally.
+  builder.addFactor({3, 3, sdy::kNullDim}, {sdy::kNullDim}, D,
+                    sdy::FactorType::kNeedReplication);
 
   return builder.build();
 }
@@ -1813,6 +1954,21 @@ private:
       return shardOpFunc(op);
     }
 
+    // Check if xla.sdy.custom_sharding_rule is present and parse it.
+    // ShardingRuleOpInterface is invoked whenever createOpShardingRule is
+    // called. Since shardy sometimes drop sharding rules and rematerializes it
+    // later, for example insert-explicit-reshards, we need a way to restore
+    // custom user-provided sharding rules.
+    if (llvm::StringRef ruleStr = shardy_utils::getUserShardingRuleStr(op);
+        !ruleStr.empty()) {
+      // The rule string was already validated by
+      // RegisterUserShardingRulePass, so a parse failure here is not possible.
+      if (auto rule =
+              shardy_utils::parseUserShardingRule(ruleStr, op.getContext())) {
+        return rule;
+      }
+    }
+
     op.getOperation()->emitWarning()
         << "StableHLO CustomCallOp sharding rule is not defined for target '"
         << target << "'";
@@ -1841,6 +1997,7 @@ private:
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
           {utils::kTTRMSNormCustomCallTargetName, getRMSNormShardingRule},
           {flashMlaPrefillTargetName, getFlashMlaPrefillShardingRule},
+          {indexerScoreDsaTargetName, getIndexerScoreDsaShardingRule},
           {utils::kTTTopKCustomCallTargetName, getTopKShardingRule},
           {utils::kTTTopKValuesCustomCallTargetName, getTopKShardingRule},
           {utils::kTTTopKIndicesCustomCallTargetName, getTopKShardingRule},
