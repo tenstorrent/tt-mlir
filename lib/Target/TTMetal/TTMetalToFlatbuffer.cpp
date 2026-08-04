@@ -49,6 +49,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -443,6 +444,57 @@ createBufferDistributionSpec(
       *cache.fbb, &tensorShapeInPages, &shardShapeInPages, &cores);
 }
 
+// Build a ShardSpec core-range covering the physical cores produced by a
+// virtual-grid forward map. Also returns the logical 2D grid shape that must
+// back ShardSpecBuffer::tensor_shape_in_pages so it agrees with
+// BufferDistributionSpec (which always uses the logical virtual grid).
+static void computeVirtualGridShardSpecGrid(
+    ArrayRef<int64_t> logicalGridShape, AffineMap virtualGridForwardMapping,
+    std::vector<target::Dim2dRange> &coreRangeSet,
+    std::array<int32_t, 2> &logicalGrid2D, uint64_t &numShards) {
+  TT_assertv(virtualGridForwardMapping.getNumDims() >= logicalGridShape.size(),
+             "Expected forward virtual-grid map to accept grid dimensions");
+  TT_assertv(!logicalGridShape.empty(),
+             "Expected non-empty logical virtual grid");
+
+  int64_t minY = std::numeric_limits<int64_t>::max();
+  int64_t minX = std::numeric_limits<int64_t>::max();
+  int64_t maxY = std::numeric_limits<int64_t>::min();
+  int64_t maxX = std::numeric_limits<int64_t>::min();
+  numShards = 0;
+
+  ttmlir::utils::sample(logicalGridShape, [&](ArrayRef<int64_t> coreCoord) {
+    SmallVector<int64_t> operands(virtualGridForwardMapping.getNumDims(), 0);
+    for (size_t i = 0; i < coreCoord.size(); ++i) {
+      operands[i] = coreCoord[i];
+    }
+    SmallVector<int64_t> physicalCoord =
+        virtualGridForwardMapping.compose(operands);
+    TT_assertv(physicalCoord.size() >= 2u,
+               "Expected forward virtual-grid map to produce a 2D core");
+    minY = std::min(minY, physicalCoord[0]);
+    minX = std::min(minX, physicalCoord[1]);
+    maxY = std::max(maxY, physicalCoord[0]);
+    maxX = std::max(maxX, physicalCoord[1]);
+    ++numShards;
+  });
+
+  TT_assertv(numShards >= 1u, "Expected at least one virtual-grid core");
+  coreRangeSet = {target::Dim2dRange(
+      target::Dim2d(static_cast<int32_t>(minY), static_cast<int32_t>(minX)),
+      target::Dim2d(static_cast<int32_t>(maxY - minY + 1),
+                    static_cast<int32_t>(maxX - minX + 1)))};
+
+  // Collapse leading grid dims into Y so ShardSpecBuffer stays 2D while
+  // preserving the same page volume DistSpec uses for the logical grid.
+  int64_t collapsedY = 1;
+  for (size_t i = 0; i + 1 < logicalGridShape.size(); ++i) {
+    collapsedY *= logicalGridShape[i];
+  }
+  logicalGrid2D = {static_cast<int32_t>(collapsedY),
+                   static_cast<int32_t>(logicalGridShape.back())};
+}
+
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
 createShardedBufferConfigForL1Memref(
     FlatbufferObjectCache &cache, MemRefType memref, ttcore::DeviceAttr device,
@@ -461,6 +513,7 @@ createShardedBufferConfigForL1Memref(
 
   ArrayRef<int64_t> stride = shardLayout.getStride();
   int64_t elementSize = stride[stride.size() - 1];
+  ArrayRef<int64_t> logicalGridShape = shardLayout.getGridShape(memref);
   SmallVector<int64_t> memrefGridShape = getPhysicalGridShapeForVirtualGrid(
       shardLayout, device, memref, hasVirtualGridMapping);
 
@@ -468,10 +521,26 @@ createShardedBufferConfigForL1Memref(
   auto extendedMapping = extendMappingForHigherDimGrid(
       device.getWorkerGrid().getVirtToPhysicalMap(), memrefGridShape.size());
 
-  std::vector<target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, memrefGridShape, extendedMapping);
-  std::array<int32_t, 2> gridShapeExtents =
-      calculateCoreRangeSetShapeExtents(coreRangeSet);
+  // For VGM buffers, ShardSpec must cover the forward-mapped physical cores
+  // and use the logical virtual grid for tensor_shape_in_pages. Using
+  // getPhysicalGridExtent() here previously produced an origin-anchored
+  // reshape (e.g. 8x7 -> 7x8) that disagreed with BufferDistributionSpec
+  // (logical 8x7 on cols 1-7), scrambling host place/clear.
+  std::vector<target::Dim2dRange> coreRangeSet;
+  std::array<int32_t, 2> tensorGridShape = {0, 0};
+  uint64_t numShards = 0;
+  if (hasVirtualGridMapping) {
+    TT_assertv(virtualGridForwardMapping.has_value(),
+               "Expected virtual-grid forward mapping");
+    computeVirtualGridShardSpecGrid(logicalGridShape,
+                                    *virtualGridForwardMapping, coreRangeSet,
+                                    tensorGridShape, numShards);
+  } else {
+    coreRangeSet = toFlatbuffer(cache, memrefGridShape, extendedMapping);
+    tensorGridShape = calculateCoreRangeSetShapeExtents(coreRangeSet);
+    numShards = static_cast<uint64_t>(tensorGridShape[0]) *
+                static_cast<uint64_t>(tensorGridShape[1]);
+  }
 
   assert(stride[stride.size() - 1] % elementSize == 0);
   int32_t shardXElements = stride[stride.size() - 2] / elementSize;
@@ -485,11 +554,12 @@ createShardedBufferConfigForL1Memref(
   auto shardSpec = target::metal::CreateShardSpecDirect(
       *cache.fbb, &coreRangeSet, &shardShape);
 
+  // Calculate ShardSpecBuffer.
   const bool isTiled = mlir::isa<ttcore::TileType>(memref.getElementType());
   target::Dim2d pageShape =
       isTiled ? elementShape : target::Dim2d(elementShape.y(), shardShape.x());
-  std::array<int32_t, 2> tensorShape = {gridShapeExtents[0] * shardShape.y(),
-                                        gridShapeExtents[1] * shardShape.x()};
+  std::array<int32_t, 2> tensorShape = {tensorGridShape[0] * shardShape.y(),
+                                        tensorGridShape[1] * shardShape.x()};
   assert(tensorShape[0] % pageShape.y() == 0);
   assert(tensorShape[1] % pageShape.x() == 0);
   target::Dim2d tensorShapeInPages(tensorShape[0] / pageShape.y(),
@@ -513,7 +583,7 @@ createShardedBufferConfigForL1Memref(
   }
   uint64_t shardSize =
       device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
-  uint64_t size = gridShapeExtents[0] * gridShapeExtents[1] * shardSize;
+  uint64_t size = numShards * shardSize;
   return target::metal::CreateShardedBufferConfig(
       *cache.fbb, size, pageSize, shardSpecBuffer, bufferDistributionSpec);
 }
