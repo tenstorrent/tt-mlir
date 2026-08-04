@@ -2014,6 +2014,12 @@ static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
 // `ttnn::Tensor`s.
 inline constexpr const char *kCreateVectorFunctionName = "util_create_vec";
 
+// Name for the function that unwraps a `std::optional<T>` into a `T`. Used to
+// extract tensors from ttml metal ops that return
+// `std::vector<std::optional<ttnn::Tensor>>` (e.g. sdpa_fw).
+inline constexpr const char *kGetOptionalValueFunctionName =
+    "util_get_optional_value";
+
 // Name for the function that gets a scalar (uint32_t) from a `ttnn::Tensor`.
 inline constexpr const char *kGetScalarFromTensorFunctionName =
     "::ttnn::getScalarFromTensor";

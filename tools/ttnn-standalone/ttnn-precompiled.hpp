@@ -94,12 +94,20 @@
 #include <cstddef>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <tuple>
 #include <vector>
 
 template <typename... T>
 std::vector<ttnn::Tensor> util_create_vec(T &&...t) {
   return std::vector<ttnn::Tensor>{std::forward<T>(t)...};
+}
+
+// Unwraps a std::optional<T> into a T. Used to extract tensors from ttml metal
+// ops that return std::vector<std::optional<ttnn::Tensor>>.
+template <typename T>
+T util_get_optional_value(const std::optional<T> &opt) {
+  return opt.value();
 }
 
 namespace ttnn {

@@ -1649,6 +1649,40 @@ createOp(FlatbufferObjectCache &cache, AdamWOp op) {
       op.getWeightDecay().convertToFloat(), op.getStochasticRounding());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SDPAForwardOp>
+createOp(FlatbufferObjectCache &cache, SDPAForwardOp op) {
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+  auto value = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getValue()));
+
+  // Optional attention mask: offset 0 when absent.
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> attentionMask = 0;
+  if (op.getAttentionMask()) {
+    attentionMask = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getAttentionMask()));
+  }
+
+  auto output = cache.getOrCreateNoSharding(
+      op.getOutput(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+
+  // Optional log-sum-exp intermediates: offset 0 when absent.
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> intermediates = 0;
+  if (op.getIntermediates()) {
+    intermediates = cache.getOrCreateNoSharding(op.getIntermediates(),
+                                                tensorValueToFlatbuffer,
+                                                /*local_shape*/ std::nullopt);
+  }
+
+  return ::tt::target::ttnn::CreateSDPAForwardOp(
+      *cache.fbb, query, key, value, attentionMask,
+      static_cast<uint32_t>(op.getMaskType()),
+      op.getDropoutProbability().convertToFloat(), op.getReturnIntermediates(),
+      output, intermediates);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::RMSNormOp>
 createOp(FlatbufferObjectCache &cache, RMSNormOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -4900,6 +4934,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto adamwOp = dyn_cast<AdamWOp>(op); adamwOp) {
     return createOperation(cache, createOp(cache, adamwOp), debugString,
+                           locInfo);
+  }
+  if (auto sdpaForwardOp = dyn_cast<SDPAForwardOp>(op); sdpaForwardOp) {
+    return createOperation(cache, createOp(cache, sdpaForwardOp), debugString,
                            locInfo);
   }
   if (auto rmsNormOp = dyn_cast<RMSNormOp>(op); rmsNormOp) {

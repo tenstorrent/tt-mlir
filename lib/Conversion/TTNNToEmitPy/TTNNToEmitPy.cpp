@@ -5380,6 +5380,30 @@ public:
         "expose the metal::adamw primitive through its Python bindings.");
   }
 };
+
+// SDPAForward conversion pattern.
+//
+// EmitPy lowering for ttnn.sdpa_fw is intentionally unsupported. The emitted
+// Python would need to call the low-level ttml::metal::sdpa_fw primitive, but
+// tt-train's nanobind bindings only expose the high-level
+// AdamW optimizer class. We need to upstream those Python bindings.
+// See https://github.com/tenstorrent/tt-mlir/issues/9118.
+class SDPAForwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::SDPAForwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::SDPAForwardOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SDPAForwardOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        "EmitPy lowering for ttnn.sdpa_fw is not supported: ttml does not "
+        "expose the metal::sdpa_fw primitive through its Python bindings.");
+  }
+};
 } // namespace
 
 namespace mlir::tt {
@@ -5692,6 +5716,9 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // AdamW: deliberately declines conversion (see TODO(pglusac) above).
   patterns.add<AdamWOpConversionPattern>(typeConverter, ctx);
+
+  // SDPAForward: deliberately declines conversion (see comment above).
+  patterns.add<SDPAForwardOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

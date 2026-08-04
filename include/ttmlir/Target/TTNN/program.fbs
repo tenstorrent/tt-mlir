@@ -137,6 +137,7 @@ union OpType {
   ScaledDotProductAttentionDecodeOp,
   FlashMlaPrefillOp,
   ScatterOp,
+  SDPAForwardOp,
   SelectiveReduceCombineOp,
   SliceOp,
   SoftmaxOp,

@@ -1247,6 +1247,28 @@ public:
     return success();
   }
 };
+
+class SDPAForwardOpConversionPattern
+    : public OpConversionPattern<ttir::SDPAForwardOp> {
+public:
+  using OpConversionPattern<ttir::SDPAForwardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SDPAForwardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    if (failed(getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                resultTypes))) {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::SDPAForwardOp>(
+        op, resultTypes, adaptor.getQuery(), adaptor.getKey(),
+        adaptor.getValue(), adaptor.getAttentionMask(), op.getMaskTypeAttr(),
+        op.getDropoutProbabilityAttr(), op.getReturnIntermediatesAttr());
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -3822,6 +3844,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern,
            AdamWOpConversionPattern,
+           SDPAForwardOpConversionPattern,
            RMSNormOpConversionPattern,
            DistributedRMSNormOpConversionPattern,
            DistributedLayerNormOpConversionPattern,

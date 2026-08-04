@@ -3782,6 +3782,37 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// SDPAForwardOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::SDPAForwardOp::verify() {
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType valueType = getValue().getType();
+
+  if (queryType.getRank() != 4 || keyType.getRank() != 4 ||
+      valueType.getRank() != 4) {
+    return emitOpError("query, key and value must be rank 4 (B, H, S, D)");
+  }
+
+  ttcore::AttentionMaskType maskType = getMaskType();
+  if (maskType == ttcore::AttentionMaskType::Arbitrary && !getAttentionMask()) {
+    return emitOpError(
+        "attention_mask is required when mask_type is 'arbitrary'");
+  }
+  if (maskType != ttcore::AttentionMaskType::Arbitrary && getAttentionMask()) {
+    return emitOpError(
+        "attention_mask is only allowed when mask_type is 'arbitrary'");
+  }
+
+  if (getReturnIntermediates() != static_cast<bool>(getIntermediates())) {
+    return emitOpError("intermediates result must be present iff "
+                       "return_intermediates is true");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // DistributedRMSNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::DistributedRMSNormOp::verify() {

@@ -780,6 +780,11 @@ def TTCore_MoEActivationFunctionAttr :
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TTCore_AttentionMaskTypeAttr :
+    EnumAttr<TTCore_Dialect, TTCore_AttentionMaskType, "attention_mask_type"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def TTCore_CoreRangeAttr: TTCore_Attr<"CoreRange", "core_range"> {
   let summary = "A range of cores in the core grid";
   let description = [{

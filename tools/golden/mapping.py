@@ -8455,6 +8455,67 @@ def ttir_sdpa_golden(
     return output.to(output_dtype)
 
 
+def sdpa_fw_golden(
+    query: GoldenMapTensor,
+    key: GoldenMapTensor,
+    value: GoldenMapTensor,
+    attention_mask: Optional[GoldenMapTensor] = None,
+    mask_type: int = 1,
+    dropout_probability: float = 0.0,
+    return_intermediates: bool = False,
+    output_type_mlir: Type = None,
+    **kwargs,
+) -> Tuple[GoldenMapTensor, ...]:
+    """Reference for the fused ttml SDPA forward (ttml::metal::sdpa_fw).
+
+    Computes softmax(Q @ K^T / sqrt(D) + mask) @ V and, when requested, the
+    per-row log-sum-exp intermediates. mask_type: 0=none, 1=causal, 2=arbitrary.
+    Uses torch.* free functions only (GoldenMapTensor does not support python
+    operators). Returns a tuple, one entry per op result.
+    """
+    if not isinstance(mask_type, int):
+        mask_type = int(unpack_mlir_attr(mask_type))
+
+    q_heads = query.shape[1]
+    kv_heads = key.shape[1]
+    k = key
+    v = value
+    if q_heads != kv_heads:
+        assert q_heads % kv_heads == 0
+        num_repeats = q_heads // kv_heads
+        k = torch.repeat_interleave(key, num_repeats, dim=1)
+        v = torch.repeat_interleave(value, num_repeats, dim=1)
+
+    # ttml::metal::sdpa_fw folds a fixed 1/sqrt(D) scale into the kernel.
+    scale = 1.0 / (float(query.shape[-1]) ** 0.5)
+    qk = torch.matmul(query.float(), k.float().transpose(-2, -1))
+    qk = torch.mul(qk, scale)
+
+    if mask_type == 1:  # Causal
+        seq_len_q = qk.shape[-2]
+        seq_len_k = qk.shape[-1]
+        causal_mask = torch.triu(
+            torch.full((seq_len_q, seq_len_k), float("-inf")), diagonal=1
+        )
+        qk = torch.add(qk, causal_mask)
+    elif mask_type == 2 and attention_mask is not None:  # Arbitrary
+        qk = torch.add(qk, attention_mask.float())
+
+    attn_weights = torch.softmax(qk, dim=-1)
+    output = torch.matmul(attn_weights, v.float())
+
+    if output_type_mlir is not None:
+        output = output.to(mlir_type_to_torch_dtype(output_type_mlir))
+
+    if return_intermediates:
+        # Intermediate log-sum-exp is stored one FP32 tile (width 32) per row.
+        lse = torch.logsumexp(qk, dim=-1, keepdim=True)
+        lse = torch.broadcast_to(lse, (lse.shape[0], lse.shape[1], lse.shape[2], 32))
+        return output, lse.float()
+
+    return (output,)
+
+
 def flash_mla_prefill_golden(
     query: GoldenMapTensor,
     key: GoldenMapTensor,
@@ -8939,6 +9000,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
     ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
     ttir.AdamWOp: adamw_golden,
+    ttir.SDPAForwardOp: sdpa_fw_golden,
     ttir.LayerNormOp: ttir_layer_norm_golden,
     ttir.SplitQueryKeyValueAndSplitHeadsOp: ttir_split_query_key_value_and_split_heads_golden,
     ttir.GroupNormOp: ttir_group_norm_golden,
