@@ -62,18 +62,91 @@ inline Value getOperandThroughDPSOps(Value value) {
   return value;
 }
 
+inline OpPrintingFlags getProgramDebugPrintingFlags() {
+  OpPrintingFlags printFlags;
+  return printFlags.elideLargeElementsAttrs()
+      .elideLargeResourceString()
+      .skipRegions()
+      .enableDebugInfo()
+      .assumeVerified();
+}
+
+/// Serializes `region` as an additional top-level flatbuffer program and
+/// returns its index.
+///
+/// Regions of control-flow ops (today only `ttnn.while`) are not flattened
+/// into the enclosing program: at runtime each one is executed by its own
+/// nested `ProgramExecutor` with its own tensor pool, so it needs to be its own
+/// `Program` that the parent references by index. Because the callback runs in
+/// the middle of building the parent program, it must be able to append to the
+/// binary's program vector; the caller owns that state.
+using RegionProgramEmitterFn = std::function<uint32_t(
+    FlatbufferObjectCache &, mlir::Region &, llvm::StringRef name)>;
+
+/// Emits the operations of `block` into `program.ops`, skipping the terminator.
+///
+/// Only the operations directly in `block` are emitted. Anything nested inside
+/// a region belongs to a separate program and is reached through
+/// `emitRegionProgram` instead; a recursive walk here would flatten those ops
+/// into the parent program and, being post-order, emit them before the op that
+/// owns them.
+template <typename OpT, typename FnT>
+void blockOpsToProgram(
+    Program<OpT> &program, FlatbufferObjectCache &cache, mlir::Block &block,
+    FnT fn, mlir::AsmState &printState,
+    const llvm::StringMap<uint32_t> &programIndexMap,
+    const llvm::StringMap<std::string> &constEvalFuncHashes,
+    const RegionProgramEmitterFn &emitRegionProgram) {
+  for (mlir::Operation &op : block.without_terminator()) {
+    std::string debugStr = getOpDebugString(&op, printState);
+    std::string locInfo = getOpLocInfo(&op);
+    program.ops.push_back(fn(cache, &op, programIndexMap, debugStr, locInfo,
+                             constEvalFuncHashes, emitRegionProgram));
+  }
+}
+
+template <typename OpT, typename FnT, typename TensorFnT>
+Program<OpT>
+regionToProgram(FlatbufferObjectCache &cache, mlir::Region &region,
+                llvm::StringRef name, FnT fn,
+                TensorFnT tensorValueToFlatbuffer,
+                const llvm::StringMap<uint32_t> &programIndexMap,
+                const llvm::StringMap<std::string> &constEvalFuncHashes,
+                const RegionProgramEmitterFn &emitRegionProgram) {
+  Program<OpT> program;
+  program.name = name.data();
+
+  mlir::Block &block = region.front();
+
+  // Region arguments carry no shard-status or local-shape attributes, so they
+  // are described like any other intermediate value in a program.
+  for (mlir::BlockArgument arg : block.getArguments()) {
+    program.inputs.push_back(cache.getOrCreateNoSharding(
+        arg, tensorValueToFlatbuffer, /*local_shape=*/std::nullopt));
+  }
+
+  auto printFlags = getProgramDebugPrintingFlags();
+  mlir::AsmState printState(region.getParentOfType<func::FuncOp>(), printFlags);
+  blockOpsToProgram(program, cache, block, fn, printState, programIndexMap,
+                    constEvalFuncHashes, emitRegionProgram);
+
+  for (mlir::Value yielded : block.getTerminator()->getOperands()) {
+    program.outputs.push_back(cache.getOrCreateNoSharding(
+        getOperandThroughDPSOps(yielded), tensorValueToFlatbuffer,
+        /*local_shape=*/std::nullopt));
+  }
+
+  return program;
+}
+
 template <typename OpT, typename FnT, typename TensorFnT>
 Program<OpT>
 funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
                 TensorFnT tensorValueToFlatbuffer,
                 const llvm::StringMap<uint32_t> &programIndexMap,
-                const llvm::StringMap<std::string> &constEvalFuncHashes) {
-  OpPrintingFlags printFlags;
-  printFlags = printFlags.elideLargeElementsAttrs()
-                   .elideLargeResourceString()
-                   .skipRegions()
-                   .enableDebugInfo()
-                   .assumeVerified();
+                const llvm::StringMap<std::string> &constEvalFuncHashes,
+                const RegionProgramEmitterFn &emitRegionProgram) {
+  OpPrintingFlags printFlags = getProgramDebugPrintingFlags();
 
   Program<OpT> program;
   program.name = entry.getSymName().data();
@@ -153,14 +226,19 @@ funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
   }
 
   mlir::AsmState printState(entry, printFlags);
-  entry.getBody().walk([&](mlir::Operation *op) {
-    if (auto returnOp = dyn_cast_if_present<func::ReturnOp>(op); returnOp) {
+  mlir::Block &entryBlock = entry.getBody().front();
+  blockOpsToProgram(program, cache, entryBlock, fn, printState, programIndexMap,
+                    constEvalFuncHashes, emitRegionProgram);
+
+  {
+    auto returnOp = dyn_cast<func::ReturnOp>(entryBlock.getTerminator());
+    if (returnOp) {
       for (auto [i, output] : llvm::enumerate(returnOp.getOperands())) {
         ttcore::ShardStatus shardStatus = ttcore::ShardStatus::Unsharded;
         mlir::RankedTensorType localShape =
             mlir::cast<mlir::RankedTensorType>(output.getType());
 
-        auto resultAttrs = mlir::DictionaryAttr::get(op->getContext(),
+        auto resultAttrs = mlir::DictionaryAttr::get(entry.getContext(),
                                                      entry.getResultAttrs(i));
         if (resultAttrs) {
           auto shardStatusAttr =
@@ -186,13 +264,8 @@ funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
                               tensorValueToFlatbuffer, shardStatus, localShape);
         program.outputs.push_back(tensorRefResult);
       }
-    } else {
-      std::string debugStr = getOpDebugString(op, printState);
-      std::string locInfo = getOpLocInfo(op);
-      program.ops.push_back(fn(cache, op, programIndexMap, debugStr, locInfo,
-                               constEvalFuncHashes));
     }
-  });
+  }
 
   return program;
 }

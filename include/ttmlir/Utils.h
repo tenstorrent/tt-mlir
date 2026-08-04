@@ -819,6 +819,99 @@ inline mlir::Operation *findFirstUserInBlock(mlir::Operation *op) {
   return firstUser;
 }
 
+/// Verifies the structural invariants shared by `ttir.while` and `ttnn.while`.
+///
+/// Both regions take `inits ++ captures` as block arguments, `cond` yields a
+/// single one-element tensor interpreted as a boolean, and `body` yields one
+/// value per loop-carried value.
+///
+/// Types are compared exactly, which at the TTNN level also enforces that
+/// layouts are invariant across iterations. This matters: at runtime each
+/// region is a separate program whose inputs are bound from the values
+/// yielded by `body` on the previous iteration, so a layout change across the
+/// yield would leave iteration 2 disagreeing with the serialized tensor
+/// descriptors.
+inline mlir::LogicalResult
+verifyWhileOpStructure(mlir::Operation *op, mlir::ValueRange inits,
+                       mlir::ValueRange captures, mlir::Region &cond,
+                       mlir::Region &body, mlir::ValueRange condYieldOperands,
+                       mlir::ValueRange bodyYieldOperands) {
+  if (inits.size() != op->getNumResults()) {
+    return op->emitOpError()
+           << "expects one result per loop-carried value, but has "
+           << inits.size() << " inits and " << op->getNumResults()
+           << " results";
+  }
+
+  for (auto [index, init, result] :
+       llvm::enumerate(inits, op->getResults())) {
+    if (init.getType() != result.getType()) {
+      return op->emitOpError()
+             << "init " << index << " has type " << init.getType()
+             << " but the matching result has type " << result.getType()
+             << "; loop-carried types must be invariant";
+    }
+  }
+
+  // Both regions observe the same values, so their signatures are identical.
+  llvm::SmallVector<mlir::Type> expectedArgTypes(inits.getTypes());
+  llvm::append_range(expectedArgTypes, captures.getTypes());
+
+  for (auto [name, region] : {std::make_pair("cond", &cond),
+                              std::make_pair("body", &body)}) {
+    mlir::Block &block = region->front();
+    if (block.getNumArguments() != expectedArgTypes.size()) {
+      return op->emitOpError()
+             << "expects the '" << name << "' region to take "
+             << expectedArgTypes.size()
+             << " arguments (inits followed by captures), but it takes "
+             << block.getNumArguments();
+    }
+    for (auto [index, argType, expectedType] :
+         llvm::enumerate(block.getArgumentTypes(), expectedArgTypes)) {
+      if (argType != expectedType) {
+        return op->emitOpError()
+               << "argument " << index << " of the '" << name
+               << "' region has type " << argType << " but " << expectedType
+               << " was expected";
+      }
+    }
+  }
+
+  if (condYieldOperands.size() != 1) {
+    return op->emitOpError()
+           << "expects the 'cond' region to yield exactly one value, but it "
+              "yields "
+           << condYieldOperands.size();
+  }
+  auto conditionType =
+      mlir::cast<mlir::RankedTensorType>(condYieldOperands.front().getType());
+  if (conditionType.getNumElements() != 1) {
+    return op->emitOpError()
+           << "expects the 'cond' region to yield a single-element tensor, "
+              "but it yields "
+           << conditionType;
+  }
+
+  if (bodyYieldOperands.size() != inits.size()) {
+    return op->emitOpError()
+           << "expects the 'body' region to yield one value per loop-carried "
+              "value ("
+           << inits.size() << "), but it yields " << bodyYieldOperands.size();
+  }
+  for (auto [index, yielded, init] :
+       llvm::enumerate(bodyYieldOperands, inits)) {
+    if (yielded.getType() != init.getType()) {
+      return op->emitOpError()
+             << "value " << index << " yielded by the 'body' region has type "
+             << yielded.getType() << " but init " << index << " has type "
+             << init.getType() << "; loop-carried types must be invariant";
+    }
+  }
+
+  return mlir::success();
+}
+
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_UTILS_H
