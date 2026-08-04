@@ -67,6 +67,11 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
         const SmallVector<int64_t> accumOperandIndices =
             getAccumClassificationOperandIndices(computeOp);
 
+        // Ops whose LLK addresses hidden slices relative to an operand slot
+        // need their DST inputs spread apart (see `getDstInputSliceStride`).
+        const unsigned inputSliceStride =
+            static_cast<unsigned>(computeOp.getDstInputSliceStride());
+
         for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
           if (computeOp.isScalarOperand(operandIdx)) {
             continue;
@@ -79,13 +84,15 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
               affineLoad && notDstMemspace(affineLoad)) {
             collectDstLoadWithAccumAnalysis(
                 affineLoad, operandIdx, carriedOutputRegions,
-                accumOperandIndices, copyInfos, dstAllocator.allocateInput(),
+                accumOperandIndices, copyInfos,
+                dstAllocator.allocateInputStrided(inputSliceStride),
                 outermostInnerComputeLoop, noAccumGuardForLoads);
           } else if (auto memrefLoad = operand.getDefiningOp<memref::LoadOp>();
                      memrefLoad && notDstMemspace(memrefLoad)) {
             collectDstLoadWithAccumAnalysis(
                 memrefLoad, operandIdx, carriedOutputRegions,
-                accumOperandIndices, copyInfos, dstAllocator.allocateInput(),
+                accumOperandIndices, copyInfos,
+                dstAllocator.allocateInputStrided(inputSliceStride),
                 outermostInnerComputeLoop, noAccumGuardForLoads);
           }
         }

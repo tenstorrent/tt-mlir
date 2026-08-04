@@ -745,6 +745,7 @@ def TTKernel_MaxReduceWithIndicesTileOp : TTKernel_SFPUOp<"max_reduce_with_indic
 
     let arguments = (ins IndexLike:$idst,
                          IndexLike:$idst_idx,
+                         IndexLike:$chunk,
                          DefaultValuedAttr<I32Attr, "32">:$num_rows,
                          DefaultValuedAttr<BoolAttr, "false">:$accumulate);
 }

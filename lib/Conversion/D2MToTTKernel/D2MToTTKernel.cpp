@@ -3148,6 +3148,22 @@ public:
 
 namespace {
 class D2MArgMaxRewriter : public OpConversionPattern<d2m::TileArgMaxOp> {
+private:
+  // The reduction loop's IV, i.e. the enclosing loop whose iterations
+  // accumulate into the same DST slot (the DST index does not vary with it).
+  // This is the `chunk` counter the MPWI LLK uses to decide whether to seed its
+  // accumulator slices (chunk == 0) or fold into them (chunk > 0).
+  static Value findReductionLoopIV(Operation *op, Value dstIndex) {
+    for (Operation *loop : getEnclosingLoops(op)) {
+      Value loopIV = getSingleBlockLoopIV(loop);
+      if (!loopIV || valueDependsOn(dstIndex, loopIV)) {
+        continue;
+      }
+      return loopIV;
+    }
+    return {};
+  }
+
 public:
   using OpConversionPattern<d2m::TileArgMaxOp>::OpConversionPattern;
 
@@ -3207,12 +3223,20 @@ public:
     // TTIRToD2M lowering transposes ReduceDim::C inputs so this op always sees
     // a row reduction of a full 32-row tile.
     constexpr int32_t kNumRows = 32;
+
+    Value chunk = findReductionLoopIV(op, idst);
+    const bool accumulate = static_cast<bool>(chunk);
+    if (!chunk) {
+      // No reduction loop: single-tile case, chunk is unused by the LLK.
+      chunk = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+    }
+
     // accumulate=false: cross-tile reduction is done in the D2M region (the
     // compose-and-gather path), not via the LLK's in-kernel chunk accumulator.
     llvm::errs() << "emitting max_reduce_with_indices_tile\n";
     rewriter.create<ttkernel::MaxReduceWithIndicesTileOp>(
-        loc, idst, idstIdx, rewriter.getI32IntegerAttr(kNumRows),
-        rewriter.getBoolAttr(false));
+        loc, idst, idstIdx, chunk, rewriter.getI32IntegerAttr(kNumRows),
+        rewriter.getBoolAttr(accumulate));
 
     rewriter.eraseOp(op);
     return success();
