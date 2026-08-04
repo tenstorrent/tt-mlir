@@ -1268,6 +1268,8 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
 
         std::vector<flatbuffers::Offset<target::FabricConnectionConfig>>
             fabricConnectionConfigs;
+        const std::vector<flatbuffers::Offset<target::FabricConnectionConfig>>
+            *fabricConnectionConfigsPtr = nullptr;
         if (ArrayAttr fabricConfigsAttr =
                 enqueueProgramOp.getFabricConnectionConfigsAttr()) {
           fabricConnectionConfigs.reserve(fabricConfigsAttr.size());
@@ -1277,13 +1279,14 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                     cache, mlir::cast<ttcore::FabricConnectionConfigAttr>(
                                fabricConfigAttr)));
           }
+          fabricConnectionConfigsPtr = &fabricConnectionConfigs;
         }
 
         cqBuilder.appendCommand(
             target::metal::CreateEnqueueProgramCommandDirect(
                 fbb, &argTypes, &args, &cbs,
                 target::metal::CreateProgramDescDirect(fbb, &kernelConfigs),
-                &fabricConnectionConfigs),
+                fabricConnectionConfigsPtr),
             op);
       } else if (auto createBufferOp =
                      dyn_cast_if_present<tt::ttmetal::CreateBufferOp>(op);
