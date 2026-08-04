@@ -286,7 +286,15 @@ public:
                             ttcore::MemorySpace::DeviceDRAM;
       });
       int32_t dmCoreIndex;
-      if (numDatamovementThreads == 2) {
+      // Runtime only attaches fabric connection args when
+      // fabric_connection_config.noc_index matches the kernel's NocConfig
+      // (see ttmetal executor). Prefer the DM core whose default NOC matches
+      // the fabric config so CCL kernels do not hang waiting on unset fabric.
+      // Inverse of ttcore::getDmCoreDefaultNoc for WH/BH: Noc0 -> dm 1, Noc1
+      // -> dm 0.
+      if (auto fabricCfg = generic.getFabricConnectionConfigAttr()) {
+        dmCoreIndex = fabricCfg.getNocIndex() == ttcore::NocIndex::Noc0 ? 1 : 0;
+      } else if (numDatamovementThreads == 2) {
         dmCoreIndex = writesDRAM ? 0 : 1;
       } else {
         dmCoreIndex = 0;
