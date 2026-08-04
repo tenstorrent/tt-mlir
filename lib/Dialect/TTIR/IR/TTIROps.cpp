@@ -7496,30 +7496,35 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
   RankedTensorType inputType = getInput().getType();
   RankedTensorType targetType = getTarget().getType();
 
-  if (inputType.getRank() != 4) {
-    return emitOpError("input must be a 4D tensor (N, 1, H, W), got rank ")
+  if (inputType.getRank() < 2) {
+    return emitOpError("input must have rank at least 2 (..., H, W), got rank ")
            << inputType.getRank();
   }
-  if (targetType.getRank() != 2) {
-    return emitOpError("target must be a 2D tensor (N, H), got rank ")
+  if (targetType.getRank() < 1) {
+    return emitOpError("target must have rank at least 1 (..., H), got rank ")
            << targetType.getRank();
   }
 
   llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
   llvm::ArrayRef<int64_t> targetShape = targetType.getShape();
 
-  if (inputShape[1] != 1) {
-    return emitOpError("input dim 1 must be 1, got ") << inputShape[1];
+  // Compare collapsed batch extents rather than dimension by dimension, so that
+  // any rank pairing the decomposition can normalize is accepted.
+  int64_t inputN = std::accumulate(inputShape.begin(), inputShape.end() - 2,
+                                   1ll, std::multiplies<int64_t>());
+  int64_t targetN = std::accumulate(targetShape.begin(), targetShape.end() - 1,
+                                    1ll, std::multiplies<int64_t>());
+
+  if (inputN != targetN) {
+    return emitOpError("target batch extent (")
+           << targetN << ") must match input batch extent (" << inputN << ")";
   }
-  if (targetShape[0] != inputShape[0]) {
-    return emitOpError("target dim 0 (")
-           << targetShape[0] << ") must match input dim 0 (" << inputShape[0]
-           << ")";
-  }
-  if (targetShape[1] != inputShape[2]) {
-    return emitOpError("target dim 1 (")
-           << targetShape[1] << ") must match input dim 2 (" << inputShape[2]
-           << ")";
+
+  int64_t inputH = inputShape[inputShape.size() - 2];
+  int64_t targetH = targetShape.back();
+  if (targetH != inputH) {
+    return emitOpError("target last dimension (")
+           << targetH << ") must match input dimension -2 (" << inputH << ")";
   }
 
   // The result is input with the class dimension reduced away.

@@ -1240,6 +1240,68 @@ public:
 } // namespace
 
 //===----------------------------------------------------------------------===//
+// CrossEntropyForward decomposition pattern
+//===----------------------------------------------------------------------===//
+
+// ttml::metal::cross_entropy_fw only accepts a 4D (N, 1, H, W) input paired
+// with a 2D (N, H) target, so collapse the leading dimensions into N and
+// reshape the result back. The channel dimension must be 1 because the reader
+// walks N*C*Ht rows and reads one target page per row.
+namespace {
+struct CrossEntropyForwardPattern
+    : public OpConversionPattern<ttir::CrossEntropyForwardOp> {
+public:
+  using OpConversionPattern<ttir::CrossEntropyForwardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CrossEntropyForwardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType inputType = op.getInput().getType();
+    RankedTensorType targetType = op.getTarget().getType();
+
+    llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+    int64_t height = inputShape[inputShape.size() - 2];
+    int64_t width = inputShape.back();
+    int64_t batch = 1;
+    for (int64_t dim : inputShape.drop_back(2)) {
+      batch *= dim;
+    }
+
+    llvm::SmallVector<int64_t, 4> inputShape4D = {batch, 1, height, width};
+    llvm::SmallVector<int64_t, 2> targetShape2D = {batch, height};
+
+    if (inputShape == llvm::ArrayRef<int64_t>(inputShape4D) &&
+        targetType.getShape() == llvm::ArrayRef<int64_t>(targetShape2D)) {
+      return rewriter.notifyMatchFailure(op, "already (N, 1, H, W) / (N, H)");
+    }
+
+    auto reshape = [&](mlir::Value value,
+                       llvm::ArrayRef<int64_t> target) -> mlir::Value {
+      auto valueType = mlir::cast<RankedTensorType>(value.getType());
+      auto resultType = RankedTensorType::get(
+          target, valueType.getElementType(), valueType.getEncoding());
+      llvm::SmallVector<int32_t> targetI32(target.begin(), target.end());
+      return rewriter.create<ttir::ReshapeOp>(
+          op.getLoc(), resultType, value, rewriter.getI32ArrayAttr(targetI32));
+    };
+
+    auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    auto resultType4D = RankedTensorType::get({batch, 1, height, 1},
+                                              resultType.getElementType(),
+                                              resultType.getEncoding());
+
+    auto normalized = rewriter.create<ttir::CrossEntropyForwardOp>(
+        op.getLoc(), resultType4D, reshape(adaptor.getInput(), inputShape4D),
+        reshape(adaptor.getTarget(), targetShape2D));
+
+    rewriter.replaceOp(op,
+                       reshape(normalized.getResult(), resultType.getShape()));
+    return success();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
 // BatchNorm decomposition patterns
 //===----------------------------------------------------------------------===//
 
@@ -2272,6 +2334,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<AdamWPattern>(typeConverter, ctx);
   patterns.add<SDPAForwardPattern>(typeConverter, ctx);
   patterns.add<SDPABackwardPattern>(typeConverter, ctx);
+  patterns.add<CrossEntropyForwardPattern>(typeConverter, ctx);
   patterns.add<QuantizeOpPattern>(typeConverter, ctx);
   patterns.add<DequantizeOpPattern>(typeConverter, ctx);
   patterns.add<RequantizeOpPattern>(typeConverter, ctx);
