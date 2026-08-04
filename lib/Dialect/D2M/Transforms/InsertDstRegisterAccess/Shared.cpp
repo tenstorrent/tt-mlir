@@ -165,6 +165,33 @@ unsigned DstSliceAllocator::allocateInput() {
   return id;
 }
 
+unsigned DstSliceAllocator::allocateInputStrided(unsigned stride) {
+  TT_assertv(stride >= 1u, "Stride must be at least 1");
+  if (stride == 1u) {
+    return allocateInput();
+  }
+
+  TT_assertv(sliceStack.size() >= stride,
+             "Out of dst slices for strided input allocation");
+
+  // The reserved slices are addressed by the LLK as `base + k`, so they must be
+  // physically consecutive.  `initSliceStack` pushes descending ids, making
+  // `pop_back_val` yield them in ascending order; assert rather than assume it.
+  unsigned base = sliceStack.pop_back_val();
+  for (unsigned k = 1; k < stride; ++k) {
+    unsigned reserved = sliceStack.pop_back_val();
+    TT_assertv(reserved == base + k,
+               "Strided input allocation requires consecutive dst slices");
+  }
+
+  currSliceIndex = base;
+  inputStack.push_back(base);
+
+  debugDumpDstSliceAllocator("== ALLOCATE INPUT (strided) ==", sliceStack,
+                             inputStack, scratchSlots, base);
+  return base;
+}
+
 unsigned DstSliceAllocator::allocateOutput() {
   TT_assertv(!sliceStack.empty(), "Out of dst slices");
 
@@ -199,6 +226,15 @@ unsigned DstSliceAllocator::getCurrSliceIndex() const {
 unsigned DstSliceAllocator::getFirstInputSliceIndex() const {
   TT_assertv(!inputStack.empty(), "No input slots allocated");
   return inputStack.front();
+}
+
+unsigned DstSliceAllocator::getNumInputSlices() const {
+  return static_cast<unsigned>(inputStack.size());
+}
+
+unsigned DstSliceAllocator::getInputSliceIndex(unsigned n) const {
+  TT_assertv(n < inputStack.size(), "Input slice index out of range");
+  return inputStack[n];
 }
 
 void DstSliceAllocator::deallocateIntermediate(unsigned id) {

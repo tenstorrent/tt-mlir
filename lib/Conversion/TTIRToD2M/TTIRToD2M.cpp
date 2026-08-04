@@ -6304,9 +6304,51 @@ private:
     // functioning.
     auto reducedHostType = RankedTensorType::get(reducedValTy.getShape(),
                                                  reducedValTy.getElementType());
+
+    // ====================== BEGIN ROW-MAJOR-AS-TILE UNDO
+    // ====================== Inverse of the relabel applied to the input above.
+    // The generic's result is labeled tile-typed, but `max_reduce_with_indices`
+    // consumed and produced pseudo row-major bytes, so the label does not
+    // describe the buffer.  Relabel it back to the untiled row-major type
+    // *before* `unLayoutResult`, so the genuine `d2m.to_layout` conversion it
+    // emits reads the buffer with the same convention the LLK wrote it in.
+    //
+    // Placement matters: reinterpreting after `unLayoutResult` would be too
+    // late, since that `to_layout` would already have read the bytes as face
+    // ordered.  `reinterpretLayout` only forbids changing the grid shape
+    // (D2MOps.cpp ViewLayoutOp::verify), and shard shape is allowed to change
+    // exactly so tiled<->untiled relabels like this one are expressible.
+    //
+    // Remove this block together with the input-side relabel above.
+    Value reducedValues = argMaxGeneric->getResult(0);
+    {
+      auto tiledTy = mlir::cast<RankedTensorType>(reducedValues.getType());
+      auto tiledLayout =
+          mlir::cast<ttcore::MetalLayoutAttr>(tiledTy.getEncoding());
+      auto tileTy = mlir::cast<ttcore::TileType>(tiledTy.getElementType());
+
+      // Untiled view of the same buffer: same grid, shard shape scaled back up
+      // from tile counts to scalars, element type swapped tile -> scalar.
+      Type scalarTy = tileTy.getElementType();
+      SmallVector<int64_t> viewShape = tiledLayout.getDeviceShape(
+          tiledLayout.getGridShape(tiledTy), /*tileShape=*/{});
+      auto viewTy =
+          RankedTensorType::get(viewShape, scalarTy, tiledTy.getEncoding());
+
+      // Identity remapping: this is a pure relabel, no index permutation.
+      AffineMap viewRemap = rewriter.getMultiDimIdentityMap(viewShape.size());
+
+      reducedValues =
+          rewriter
+              .create<d2m::ViewLayoutOp>(loc, viewTy, reducedValues, viewRemap,
+                                         /*reinterpretLayout=*/true)
+              .getResult();
+    }
+    // ======================= END ROW-MAJOR-AS-TILE UNDO
+    // =======================
+
     Value reducedHost =
-        unLayoutResult(rewriter, argMaxGeneric->getResult(0), reducedHostType)
-            ->getResult(0);
+        unLayoutResult(rewriter, reducedValues, reducedHostType)->getResult(0);
     Value result = buildTypecastGeneric(rewriter, loc, reducedHost, outputTy);
 
     rewriter.replaceOp(op, result);

@@ -892,6 +892,17 @@ def D2M_TileArgMaxOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_argmax", D2
     bool getDstRegInPlace() {
       return true;
     }
+    // The `max_reduce_with_indices` LLK addresses its value/index accumulators
+    // implicitly at `idst + 1` / `idst_idx + 1`, so the index tile must land
+    // two slices above the value tile rather than adjacent to it.
+    int64_t getDstInputSliceStride() {
+      return 2;
+    }
+    // Those same implicit slices hold the running maxima across chunks, so the
+    // DST section must span the whole reduction loop rather than one iteration.
+    bool getAccumulatesInDstAcrossReductionLoop() {
+      return true;
+    }
   }];
 }
 

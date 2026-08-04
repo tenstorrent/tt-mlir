@@ -154,6 +154,48 @@ def D2M_OperandLoadStoreRegisterOpInterface : OpInterface<"OperandLoadStoreRegis
       /*methodBody=*/"",
       /*defaultImplementation=*/"return 0;"
     >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns the stride, in DST slices, between consecutive operands that
+        are loaded from the DST register. The default of 1 packs them into
+        adjacent slices.
+
+        A stride greater than 1 means the LLK implicitly touches the slices
+        between the operands, so the allocator must reserve them even though
+        they are never named in the IR. `d2m.tile_argmax` returns 2 because
+        `max_reduce_with_indices` derives its value/index accumulators from
+        `idst + 1` and `idst_idx + 1`; placing the index tile at `idst + 1`
+        would alias the value accumulator.
+      }],
+      /*retTy=*/"int64_t",
+      /*methodName=*/"getDstInputSliceStride",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return 1;"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns whether this op carries its reduction accumulator in DST across
+        iterations of the enclosing reduction loop, rather than round-tripping
+        the partial result through L1 each iteration.
+
+        Ops that return true need their whole DST section -- the `acquire_dst`
+        and the stores draining it -- placed *outside* the reduction loop: the
+        DST section handshake flips the MATH thread's DST bank in SyncHalf mode
+        (`_llk_math_dest_section_done_` -> `dest_section_flip`), so a commit
+        between two iterations moves the accumulator out from under the next
+        one. Only the compute call itself belongs inside the loop.
+
+        `d2m.tile_argmax` returns true when lowered onto
+        `max_reduce_with_indices` in accumulate mode; the default is false so
+        every other op keeps the existing per-iteration section.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"getAccumulatesInDstAcrossReductionLoop",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return false;"
+    >,
   ];
 }
 

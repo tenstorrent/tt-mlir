@@ -13,9 +13,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "llvm/ADT/DenseMap.h"
 
-#include <cstdint>
 #include <functional>
-#include <optional>
 
 namespace mlir::tt::d2m {
 
@@ -363,8 +361,7 @@ static std::optional<CandidateScore> evaluateCandidate(
     ArrayRef<int64_t> shardExtents, ArrayRef<int64_t> shardFactors,
     ArrayRef<int64_t> originalBlockFactors, ArrayRef<int64_t> dimScales,
     ttcore::DeviceAttr device, ttcore::MemorySpaceAttr l1Attr,
-    uint32_t numBuffers, const uint64_t l1Budget, AutoShapeClass shapeClass,
-    bool allowIdentityCandidate = false) {
+    uint32_t numBuffers, bool allowIdentityCandidate = false) {
   SmallVector<int64_t> candidateGridExtents(gridExtents.begin(),
                                             gridExtents.end());
   SmallVector<int64_t> candidateShardExtents(shardExtents.begin(),
@@ -412,11 +409,8 @@ static std::optional<CandidateScore> evaluateCandidate(
       return std::nullopt;
     }
 
-    const int64_t shardVolume =
-        ttmlir::utils::volume<int64_t>(operandShardShape);
     // Reject candidates that would result in a too small operand shard shape.
-    // Allow reductions to have a small operand shard shape.
-    if (shapeClass != AutoShapeClass::SingleReduction && shardVolume < 4) {
+    if (ttmlir::utils::volume<int64_t>(operandShardShape) < 4) {
       return std::nullopt;
     }
 
@@ -451,10 +445,7 @@ static std::optional<CandidateScore> evaluateCandidate(
     SmallVector<int64_t> intermediateShardShape =
         canonicalMap.compose(candidateShardExtents);
 
-    const int64_t shardVolume =
-        ttmlir::utils::volume<int64_t>(intermediateShardShape);
-    // Reject candidates that would result in a too small operand shard shape.
-    if (shapeClass != AutoShapeClass::SingleReduction && shardVolume < 4) {
+    if (ttmlir::utils::volume<int64_t>(intermediateShardShape) < 4) {
       return WalkResult::interrupt();
     }
 
@@ -470,10 +461,6 @@ static std::optional<CandidateScore> evaluateCandidate(
   }
 
   if (!sawAffectedBuffer) {
-    return std::nullopt;
-  }
-
-  if (totalCBBytes > l1Budget) {
     return std::nullopt;
   }
 
@@ -517,8 +504,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
                 ArrayRef<int64_t> gridExtents, ArrayRef<int64_t> shardExtents,
                 ArrayRef<int64_t> shardFactors, ttcore::DeviceAttr device,
                 ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers,
-                bool useBoundedEltwiseSearch, bool allowMNReblocking,
-                const uint64_t l1Budget) {
+                bool useBoundedEltwiseSearch, bool allowMNReblocking) {
   const SmallVector<int64_t> originalBlockFactors =
       genericOp.getBlockFactorsValue();
 
@@ -555,8 +541,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
     bestCandidate = evaluateCandidate(
         genericOp, config->candidateDims, indexingMaps, gridExtents,
         shardExtents, shardFactors, originalBlockFactors, currentDimScales,
-        device, l1Attr, numBuffers, l1Budget, config->shapeClass,
-        /*allowIdentityCandidate=*/true);
+        device, l1Attr, numBuffers, /*allowIdentityCandidate=*/true);
   }
 
   // Restrict the large eltwise search space to the top kEltwiseBeamWidth
@@ -588,7 +573,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
       std::optional<CandidateScore> score = evaluateCandidate(
           genericOp, config->candidateDims, indexingMaps, gridExtents,
           shardExtents, shardFactors, originalBlockFactors, candidate.dimScales,
-          device, l1Attr, numBuffers, l1Budget, config->shapeClass);
+          device, l1Attr, numBuffers);
       if (score &&
           (!bestCandidate ||
            isBetterCandidate(config->shapeClass, *score, *bestCandidate))) {
@@ -614,8 +599,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
           auto candidate = evaluateCandidate(
               genericOp, config->candidateDims, indexingMaps, gridExtents,
               shardExtents, shardFactors, originalBlockFactors,
-              currentDimScales, device, l1Attr, numBuffers, l1Budget,
-              config->shapeClass);
+              currentDimScales, device, l1Attr, numBuffers);
           if (candidate && (!bestCandidate ||
                             isBetterCandidate(config->shapeClass, *candidate,
                                               *bestCandidate))) {
@@ -654,8 +638,7 @@ static SmallVector<int64_t> chooseReblockedFactors(
     ArrayRef<ttcore::IteratorType> iteratorTypes, ArrayRef<int64_t> gridExtents,
     ArrayRef<int64_t> shardExtents, ttcore::DeviceAttr device,
     BlockFactorAnalysis::BufferSizePolicy policy,
-    ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers,
-    const uint64_t l1Budget) {
+    ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers) {
   const SmallVector<int64_t> shardFactors = getShardBlockFactors(genericOp);
   switch (policy) {
   case BlockFactorAnalysis::BufferSizePolicy::Max:
@@ -666,17 +649,17 @@ static SmallVector<int64_t> chooseReblockedFactors(
     return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
                            shardExtents, shardFactors, device, l1Attr,
                            numBuffers, /*useBoundedEltwiseSearch=*/false,
-                           /*allowMNReblocking=*/false, l1Budget);
+                           /*allowMNReblocking=*/false);
   case BlockFactorAnalysis::BufferSizePolicy::Bounded:
     return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
                            shardExtents, shardFactors, device, l1Attr,
                            numBuffers, /*useBoundedEltwiseSearch=*/true,
-                           /*allowMNReblocking=*/false, l1Budget);
+                           /*allowMNReblocking=*/false);
   case BlockFactorAnalysis::BufferSizePolicy::AutoMN:
     return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
                            shardExtents, shardFactors, device, l1Attr,
                            numBuffers, /*useBoundedEltwiseSearch=*/false,
-                           /*allowMNReblocking=*/true, l1Budget);
+                           /*allowMNReblocking=*/true);
   }
 
   llvm_unreachable("unknown buffer size policy");
@@ -701,9 +684,6 @@ BlockFactorAnalysis::BlockFactorAnalysis(Operation *op, const Options &opts) {
 
     ttcore::DeviceAttr device = ttcore::lookupDevice(genericOp);
 
-    ttcore::ChipDescAttr chipDesc = ttcore::getOpChipDescAttr(genericOp);
-    const uint64_t l1Budget = chipDesc.getUsableL1Size();
-
     auto indexingMaps = genericOp.getIndexingMapsValue();
     auto iteratorTypes = genericOp.getIteratorTypesValue();
 
@@ -711,7 +691,7 @@ BlockFactorAnalysis::BlockFactorAnalysis(Operation *op, const Options &opts) {
 
     SmallVector<int64_t> reblockedFactors = chooseReblockedFactors(
         genericOp, indexingMaps, iteratorTypes, gridExtents, shardExtents,
-        device, opts.policy, l1Attr, opts.numBuffers, l1Budget);
+        device, opts.policy, l1Attr, opts.numBuffers);
 
     results[genericOp.getOperation()] = Result{std::move(reblockedFactors)};
   });
