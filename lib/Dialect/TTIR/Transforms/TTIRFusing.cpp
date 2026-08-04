@@ -2844,6 +2844,27 @@ private:
 
 namespace {
 
+// Prepares a per-channel affine parameter for use as a norm op's weight or
+// bias: the verifiers require exactly `normalizedShape`, and the affine is
+// evaluated in the norm's element type once it moves inside the op. Both
+// conversions run on a per-channel tensor, so they are cheap.
+static mlir::Value prepareNormAffineParam(
+    mlir::PatternRewriter &rewriter, mlir::Location loc, mlir::Value value,
+    llvm::ArrayRef<int64_t> normalizedShape, mlir::Type elementType) {
+  auto valueType = mlir::cast<mlir::RankedTensorType>(value.getType());
+  if (valueType.getShape() != normalizedShape) {
+    value = utils::createReshapeOp(rewriter, loc, value, normalizedShape)
+                .getResult();
+    valueType = mlir::cast<mlir::RankedTensorType>(value.getType());
+  }
+  if (valueType.getElementType() == elementType) {
+    return value;
+  }
+  auto castType = mlir::RankedTensorType::get(valueType.getShape(), elementType,
+                                              valueType.getEncoding());
+  return rewriter.create<TypecastOp>(loc, castType, value);
+}
+
 // Fuses: (x * rsqrt(mean(x^2) + epsilon)) * gamma -> RMSNormOp
 class RMSNormFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
@@ -3268,18 +3289,8 @@ public:
     // normalized_shape and match the input's element type.
     mlir::Value weight;
     if (gammaMul) {
-      weight = gammaSrc;
-      auto gammaType = mlir::cast<mlir::RankedTensorType>(weight.getType());
-      if (gammaType.getShape() != llvm::ArrayRef(normalizedShape)) {
-        weight = utils::createReshapeOp(rewriter, loc, weight, normalizedShape)
-                     .getResult();
-      }
-      auto weightType = mlir::cast<mlir::RankedTensorType>(weight.getType());
-      if (weightType.getElementType() != xType.getElementType()) {
-        auto castType = mlir::RankedTensorType::get(
-            normalizedShape, xType.getElementType(), weightType.getEncoding());
-        weight = rewriter.create<TypecastOp>(loc, castType, weight);
-      }
+      weight = prepareNormAffineParam(rewriter, loc, gammaSrc, normalizedShape,
+                                      xType.getElementType());
     }
 
     mlir::Value rmsResult;
@@ -3324,6 +3335,153 @@ public:
     mlir::Value result =
         utils::reshapeAndCastToType(rewriter, loc, rmsResult, targetType);
     rewriter.replaceOp(replaceTarget, result);
+    return mlir::success();
+  }
+};
+
+// Strips the reshape/broadcast chain off an affine parameter and returns the
+// source value when it is per-channel over a trailing dimension of size
+// `channelSize`, i.e. size-1 on every dimension but the last. Creates no IR, so
+// a caller can validate every operand before committing to the rewrite.
+static std::optional<mlir::Value>
+stripToPerChannelAffineParam(mlir::Value value, int64_t channelSize) {
+  // Typecasts are deliberately not traversed: folding across one would
+  // silently change the precision the affine is evaluated in.
+  value = utils::lookThroughLayoutOpsIf(value, [](mlir::Operation *op) {
+    return mlir::isa<ReshapeOp, BroadcastOp>(op);
+  });
+
+  llvm::ArrayRef<int64_t> shape =
+      mlir::cast<mlir::RankedTensorType>(value.getType()).getShape();
+  if (shape.empty() || shape.back() != channelSize) {
+    return std::nullopt;
+  }
+  // Every dimension but the last must be a broadcast dimension.
+  if (!llvm::all_of(shape.drop_back(), [](int64_t dim) { return dim == 1; })) {
+    return std::nullopt;
+  }
+  return value;
+}
+
+// Walks backward from `value` through typecasts to the defining op of type
+// OpTy. Every op traversed, and the result itself, must have exactly one use:
+// fusing a chain with an outside consumer would leave the original ops live and
+// recompute the producer.
+template <typename OpTy>
+static OpTy findSingleUseOpThroughTypecasts(mlir::Value value) {
+  OpTy op = utils::findOpThroughLayoutOpsIf<OpTy>(
+      value, [](mlir::Operation *layoutOp) {
+        return mlir::isa<TypecastOp>(layoutOp) && layoutOp->hasOneUse();
+      });
+  return op && op->hasOneUse() ? op : nullptr;
+}
+
+// Folds a per-channel affine that trails an unaffine layer norm into the norm's
+// own weight and bias operands:
+//
+//    layer_norm(x) * w + b  ->  layer_norm(x, weight = w, bias = b)
+//
+// Exact by the definition of the op, which already computes
+//
+//    ((x - mean) / sqrt(var + eps)) * weight + bias.
+//
+// The motivating case is adaLN timestep conditioning in diffusion transformers.
+// Frontends emit it as plain broadcast math,
+//
+//    norm(x) * (1 + scale) + shift
+//
+// leaving a multiply and an add over the full activation. The `1 + scale` add
+// stays where it is, but runs on a per-channel tensor instead of on the
+// activation.
+//
+// Typecasts between the norm and the affine are traversed, covering frontends
+// that run the norm in fp32 and the modulation in a narrower type. The affine
+// is then evaluated in the norm's element type
+class LayerNormAffineFusionPattern : public mlir::OpRewritePattern<AddOp> {
+  using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
+    // One addend is the scaled norm, the other is the bias.
+    MultiplyOp mul =
+        findSingleUseOpThroughTypecasts<MultiplyOp>(addOp.getLhs());
+    mlir::Value biasRaw = addOp.getRhs();
+    if (!mul) {
+      mul = findSingleUseOpThroughTypecasts<MultiplyOp>(addOp.getRhs());
+      biasRaw = addOp.getLhs();
+    }
+    if (!mul) {
+      return mlir::failure();
+    }
+
+    // One multiply operand is the norm, the other is the weight.
+    LayerNormOp normOp =
+        findSingleUseOpThroughTypecasts<LayerNormOp>(mul.getLhs());
+    mlir::Value weightRaw = mul.getRhs();
+    if (!normOp) {
+      normOp = findSingleUseOpThroughTypecasts<LayerNormOp>(mul.getRhs());
+      weightRaw = mul.getLhs();
+    }
+    if (!normOp) {
+      return mlir::failure();
+    }
+
+    // Only an unaffine norm can absorb the affine. Composing an existing
+    // weight/bias with a new one is a different (and lossier) rewrite.
+    if (normOp.getWeight() || normOp.getBias()) {
+      return mlir::failure();
+    }
+
+    // TTNN normalizes over the trailing dimension only.
+    llvm::ArrayRef<int64_t> normalizedShape = normOp.getNormalizedShape();
+    if (normalizedShape.size() != 1) {
+      return mlir::failure();
+    }
+
+    // Mismatched operands get cast to the norm's element type. Restrict that to
+    // floats so integer or boolean operands cannot be pulled into a float
+    // computation.
+    auto normType = mlir::cast<mlir::RankedTensorType>(normOp.getType());
+    auto isFloatTensor = [](mlir::Value value) {
+      return mlir::isa<mlir::FloatType>(
+          mlir::cast<mlir::RankedTensorType>(value.getType()).getElementType());
+    };
+    if (!mlir::isa<mlir::FloatType>(normType.getElementType()) ||
+        !isFloatTensor(weightRaw) || !isFloatTensor(biasRaw)) {
+      return mlir::failure();
+    }
+
+    // Validate both operands before creating any IR, so a bail-out cannot
+    // leave a dead reshape behind.
+    std::optional<mlir::Value> weight =
+        stripToPerChannelAffineParam(weightRaw, normalizedShape.back());
+    std::optional<mlir::Value> bias =
+        stripToPerChannelAffineParam(biasRaw, normalizedShape.back());
+    if (!weight || !bias) {
+      return mlir::failure();
+    }
+
+    mlir::Location loc = addOp.getLoc();
+    rewriter.setInsertionPoint(addOp);
+
+    // Bound to locals so the two parameters are always emitted in this order;
+    // argument evaluation order inside the create<> call is unspecified.
+    mlir::Type elementType = normType.getElementType();
+    mlir::Value fusedWeight = prepareNormAffineParam(
+        rewriter, loc, *weight, normalizedShape, elementType);
+    mlir::Value fusedBias = prepareNormAffineParam(
+        rewriter, loc, *bias, normalizedShape, elementType);
+
+    auto fusedNorm = rewriter.create<LayerNormOp>(
+        loc, normType, normOp.getInput(), fusedWeight, fusedBias,
+        normOp.getNormalizedShapeAttr(), normOp.getEpsilonAttr());
+
+    // The original chain may have reshaped or cast on the way to the add.
+    mlir::Value result = utils::reshapeAndCastToType(
+        rewriter, loc, fusedNorm,
+        mlir::cast<mlir::RankedTensorType>(addOp.getType()));
+    rewriter.replaceOp(addOp, result);
     return mlir::success();
   }
 };
@@ -3669,6 +3827,7 @@ public:
       }
       patterns.add<RMSNormFusionPattern>(&getContext());
       patterns.add<NormalizeRMSNormFusionPattern>(&getContext());
+      patterns.add<LayerNormAffineFusionPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());
