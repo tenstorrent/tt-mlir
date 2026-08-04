@@ -3815,6 +3815,7 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 //===----------------------------------------------------------------------===//
 // CrossEntropyForwardOp
 //===----------------------------------------------------------------------===//
+
 ::mlir::LogicalResult mlir::tt::ttnn::CrossEntropyForwardOp::verify() {
   RankedTensorType inputType = getInput().getType();
   RankedTensorType targetType = getTarget().getType();
@@ -3859,16 +3860,6 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
   if (!getTarget().getType().getElementType().isIntOrIndex()) {
     return emitOpError("target must have an integer element type, got ")
            << getTarget().getType().getElementType();
-  }
-
-  // ttml::metal::cross_entropy_fw hardcodes its circular buffers to Float16_b
-  // and asserts the input data format matches.
-  ::mlir::tt::ttcore::DataType inputDataType =
-      ::mlir::tt::ttcore::elementTypeToDataType(
-          getInput().getType().getElementType());
-  if (inputDataType != ::mlir::tt::ttcore::DataType::BFloat16) {
-    return emitOpError() << "input must have bf16 dtype, got "
-                         << DataTypeEnumToString(inputDataType);
   }
 
   return success();
