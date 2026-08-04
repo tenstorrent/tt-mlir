@@ -1099,6 +1099,10 @@ def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw"> {
     let summary = "Embedding backward op.";
     let description = [{
       Embedding backward operation. Generates the gradient of the embedding operation with respect to the input.
+
+      The gradient is returned as a 4D tensor of shape (1, 1, dictionary_size, embedding_size), matching
+      what tt-metal produces; the two leading unit dimensions have to be reshaped away by the producer of
+      this op if the consumer expects the 2D weight shape.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,

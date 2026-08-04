@@ -8,6 +8,7 @@
 #ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<16x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 32 + d1, d2), <1x1>, memref<1x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout6 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 512 + d2, d3), <1x1>, memref<16x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 module attributes {} {
   func.func @backward(%arg0: tensor<1x1x1x32xf32, #ttnn_layout>, %arg1: tensor<512x128xf32, #ttnn_layout1>, %arg2: tensor<1x32x128xf32, #ttnn_layout2>) -> tensor<512x128xf32, #ttnn_layout1> {
     %0 = "ttnn.to_layout"(%arg0)  : (tensor<1x1x1x32xf32, #ttnn_layout>) -> tensor<1x1x1x32xf32, #ttnn_layout3>
@@ -29,13 +30,17 @@ module attributes {} {
     // CHECK-SAME: -> tensor<1x1x32x128xbf16
     // CHECK-SAME: !ttcore.tile<32x32,
     // Check that the data type of the output operand is transformed in bf16.
-    %4 = "ttnn.embedding_bw"(%0, %1, %3) : (tensor<1x1x1x32xf32, #ttnn_layout3>, tensor<512x128xf32, #ttnn_layout4>, tensor<1x1x32x128xf32, #ttnn_layout5>) -> tensor<512x128xf32, #ttnn_layout4>
+    %4 = "ttnn.embedding_bw"(%0, %1, %3) : (tensor<1x1x1x32xf32, #ttnn_layout3>, tensor<512x128xf32, #ttnn_layout4>, tensor<1x1x32x128xf32, #ttnn_layout5>) -> tensor<1x1x512x128xf32, #ttnn_layout6>
     // CHECK: %[[EMBEDDING_BW_OP:.*]] = "ttnn.embedding_bw"(%[[TO_LAYOUT_INPUT]], %[[TO_LAYOUT_WEIGHTS]], %[[TO_LAYOUT_IN_GRADIENT]])
     // Check that the output operand is transformed back into the f32 data type.
-    // CHECK: "ttnn.to_layout"(%[[EMBEDDING_BW_OP]])
+    // CHECK: %[[TO_LAYOUT_OUTPUT:.*]] = "ttnn.to_layout"(%[[EMBEDDING_BW_OP]])
+    // CHECK-SAME: -> tensor<1x1x512x128xf32
+    %5 = "ttnn.reshape"(%4) <{shape = [512 : i32, 128 : i32]}> : (tensor<1x1x512x128xf32, #ttnn_layout6>) -> tensor<512x128xf32, #ttnn_layout4>
+    // CHECK: "ttnn.reshape"(%[[TO_LAYOUT_OUTPUT]])
     // CHECK-SAME: -> tensor<512x128xf32
+    %6 = "ttnn.to_layout"(%5)  : (tensor<512x128xf32, #ttnn_layout4>) -> tensor<512x128xf32, #ttnn_layout1>
+    // CHECK: "ttnn.to_layout"
     // CHECK-SAME: memref<512x128xf32, #ttnn.buffer_type
-    %5 = "ttnn.to_layout"(%4)  : (tensor<512x128xf32, #ttnn_layout4>) -> tensor<512x128xf32, #ttnn_layout1>
-    return %5 : tensor<512x128xf32, #ttnn_layout1>
+    return %6 : tensor<512x128xf32, #ttnn_layout1>
   }
 }

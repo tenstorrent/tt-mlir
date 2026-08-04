@@ -443,9 +443,25 @@ public:
           rewriter, ttmlir::utils::appendLocationSuffix(loc, "_4d_indices"));
     }
 
-    rewriter.replaceOpWithNewOp<ttnn::EmbeddingBackwardOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), inputIndices,
-        adaptor.getWeight(), reshapedGrad);
+    // tt-metal always returns the weight gradient as a 4D tensor of shape
+    // [1, 1, dictionary_size, embedding_size], so the ttnn op is typed that way
+    // and reshaped back to the 2D weight shape the ttir op declares.
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getType()));
+    llvm::SmallVector<int64_t, 4> gradient4DShape{
+        1, 1, outputType.getDimSize(0), outputType.getDimSize(1)};
+    auto gradient4DType = ttnn::utils::RankedTensorTypeFactory::create(
+        outputType, gradient4DShape);
+
+    auto embeddingBackwardOp = rewriter.create<ttnn::EmbeddingBackwardOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_embedding_bw"),
+        gradient4DType, inputIndices, adaptor.getWeight(), reshapedGrad);
+
+    llvm::SmallVector<int32_t, 2> outputShapeI32(outputType.getShape().begin(),
+                                                 outputType.getShape().end());
+    rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+        op, outputType, embeddingBackwardOp.getResult(),
+        rewriter.getI32ArrayAttr(outputShapeI32));
     return success();
   }
 };
@@ -3746,8 +3762,8 @@ public:
     const TypeConverter *typeConverter = this->getTypeConverter();
 
     SmallVector<Type> resultTypes;
-    if (failed(typeConverter->convertTypes(op->getResultTypes(),
-                                           resultTypes))) {
+    if (failed(
+            typeConverter->convertTypes(op->getResultTypes(), resultTypes))) {
       return failure();
     }
 
@@ -3762,8 +3778,7 @@ public:
 
     for (Region *region : {&whileOp.getCond(), &whileOp.getBody()}) {
       Block &block = region->front();
-      TypeConverter::SignatureConversion signatureConv(
-          block.getNumArguments());
+      TypeConverter::SignatureConversion signatureConv(block.getNumArguments());
       for (auto [index, argType] : llvm::enumerate(block.getArgumentTypes())) {
         Type convertedType = typeConverter->convertType(argType);
         if (!convertedType) {
