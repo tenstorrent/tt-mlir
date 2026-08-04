@@ -580,9 +580,13 @@ protected:
   createInputIndicesAndMcastGridDims(mlir::OpBuilder &builder,
                                      mlir::Location loc, d2m::GenericOp generic,
                                      bool enableMulticastInference) {
+    // Only DPS inputs/inits are positionally aligned with `indexing_maps`;
+    // trailing `additionalArgs` (e.g. accumulator scratch CBs) carry no map, so
+    // indexing past that point would read out of bounds.
+    const size_t numIndexedOperands = generic.getIndexingMaps().size();
     SmallVector<SmallVector<Value>> inputIndices(generic.getNumOperands());
     SmallVector<SmallVector<int64_t>> mcastGridDims(generic.getNumOperands());
-    for (size_t i = 0; i < generic.getNumOperands(); ++i) {
+    for (size_t i = 0; i < numIndexedOperands; ++i) {
       inputIndices[i] =
           d2m::utils::buildGridIndices(builder, loc, generic.getIndexingMap(i));
       if (enableMulticastInference) {
@@ -5733,8 +5737,24 @@ private:
     auto reducedIdxTy = RankedTensorType::get(
         reducedShape, rewriter.getI32Type(), inputTy.getEncoding());
 
-    auto argMaxOrigOutputs =
-        createDpsOutputs(loc, rewriter, {reducedValTy, reducedIdxTy});
+    // Accumulator buffers: the LLK's running value/index maxima are packed out
+    // and reloaded each chunk so they survive the DST section handshake's bank
+    // flip. f32 for values: DST holds fp32, so a bf16 accumulator CB would
+    // round-trip with half-ULP error and could flip the selected index on
+    // near-ties.
+    auto valAccTy = RankedTensorType::get(reducedShape, rewriter.getF32Type(),
+                                          inputTy.getEncoding());
+    auto idxAccTy = RankedTensorType::get(reducedShape, rewriter.getI32Type(),
+                                          inputTy.getEncoding());
+
+    // The accumulator buffers ride along as extra DPS outputs so the generic
+    // materializes real CBs for them with the right element types.  Their
+    // generic results go unused -- only the reduced value/index outputs are
+    // consumed -- but this is the only path that hands the compute kernel a CB
+    // port per buffer (`additionalArgs` operands are produced by HoistCBAllocs
+    // from in-region allocs, not populated from here).
+    auto argMaxOrigOutputs = createDpsOutputs(
+        loc, rewriter, {reducedValTy, reducedIdxTy, valAccTy, idxAccTy});
     // The values operand is laid out UNTILED, i.e. row-major in L1: the
     // `max_reduce_with_indices` LLK's 32-row path only accepts
     // `DataLayout::ROW_MAJOR`, which expects the 64 DST rows of a tile ordered
@@ -5745,6 +5765,7 @@ private:
     auto [argMaxInputsHead, argMaxOutputs] = toLayoutOperandsAndResults(
         rewriter, {SmallVector<Value>{adaptor.getInput()}, argMaxOrigOutputs},
         /*tiled=*/true, false, ttcore::OOBVal::NegInf);
+
     Value rowMajorValues = createOptimalLayoutOp(
         adaptor.getInput(), memorySpaces[0], /*tiled=*/false,
         /*noCollapse=*/false, rewriter, ttcore::OOBVal::NegInf);
@@ -5817,8 +5838,10 @@ private:
     }
     AffineMap argMaxOutputMap = outAccum.getAffineMap();
 
-    // Maps: {values, indices, out_values, out_indices}.
-    SmallVector<AffineMap> argMaxMaps = {argMaxInputMap, argMaxInputMap,
+    // Maps: {values, indices, out_values, out_indices, val_acc, idx_acc}.  The
+    // accumulators are reduced-shape like the outputs, so they share the map.
+    SmallVector<AffineMap> argMaxMaps = {argMaxInputMap,  argMaxInputMap,
+                                         argMaxOutputMap, argMaxOutputMap,
                                          argMaxOutputMap, argMaxOutputMap};
 
     // Reduction iterator along the reduced axis; parallel elsewhere.
@@ -5846,21 +5869,25 @@ private:
           auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
               loc,
               llvm::to_vector(
-                  mlir::ValueRange(blockArgs.take_back(2)).getTypes()),
+                  mlir::ValueRange(blockArgs.take_back(4)).getTypes()),
               /*inputs=*/blockArgs.take_front(2),
-              /*outs=*/blockArgs.take_back(2), argMaxMaps, linalgIters,
+              /*outs=*/blockArgs.take_back(4), argMaxMaps, linalgIters,
               [&](mlir::OpBuilder &bb, mlir::Location bbLoc,
                   mlir::ValueRange bbArgs) {
-                // bbArgs = {values, indices, out_values, out_indices}
+                // bbArgs = {values, indices,
+                //           out_values, out_indices, val_acc, idx_acc}
                 llvm::errs() << "emitting tile arg max\n";
                 auto argMax = bb.create<d2m::TileArgMaxOp>(
-                    bbLoc, bbArgs[2].getType(), bbArgs[3].getType(), bbArgs[0],
+                    bbLoc, bbArgs[2].getType(), bbArgs[3].getType(),
+                    bbArgs[4].getType(), bbArgs[5].getType(), bbArgs[0],
                     bbArgs[1], reduceDimAttr);
                 bb.create<mlir::linalg::YieldOp>(
                     bbLoc,
-                    mlir::ValueRange{argMax.getResult(0), argMax.getResult(1)});
+                    mlir::ValueRange{argMax.getResult(0), argMax.getResult(1),
+                                     argMax.getResult(2), argMax.getResult(3)});
               });
-          return {linalgGeneric.getResult(0), linalgGeneric.getResult(1)};
+          return {linalgGeneric.getResult(0), linalgGeneric.getResult(1),
+                  linalgGeneric.getResult(2), linalgGeneric.getResult(3)};
         });
 
     // DIAGNOSTIC: return the reduced VALUE (result 0) instead of the index

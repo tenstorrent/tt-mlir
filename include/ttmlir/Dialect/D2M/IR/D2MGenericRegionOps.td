@@ -883,9 +883,18 @@ def D2M_TileArgMaxOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_argmax", D2
                        TTCore_Tile:$indices,
                        D2M_ReduceDimAttr:$reduce_dim);
   let results = (outs TTCore_Tile:$out_values,
-                      TTCore_Tile:$out_indices);
+                      TTCore_Tile:$out_indices,
+                      TTCore_Tile:$val_acc_out,
+                      TTCore_Tile:$idx_acc_out);
 
   let extraClassDeclaration = [{
+    // Results 2/3 back the accumulator CBs that carry the LLK's running
+    // value/index maxima across chunks.  They are results only -- the enclosing
+    // generic needs them as DPS inits to materialize CBs with the right element
+    // types -- and are NOT listed below: `max_reduce_with_indices` addresses
+    // those slices implicitly at `idst + 1` / `idst_idx + 1`, which the DST
+    // allocator already reserves via `getDstInputSliceStride`.  Staging them
+    // here would make the allocator hand out 0/2/4/6 and overrun DST capacity.
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
       return {0, 1};
     }
@@ -897,11 +906,6 @@ def D2M_TileArgMaxOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_argmax", D2
     // two slices above the value tile rather than adjacent to it.
     int64_t getDstInputSliceStride() {
       return 2;
-    }
-    // Those same implicit slices hold the running maxima across chunks, so the
-    // DST section must span the whole reduction loop rather than one iteration.
-    bool getAccumulatesInDstAcrossReductionLoop() {
-      return true;
     }
   }];
 }
