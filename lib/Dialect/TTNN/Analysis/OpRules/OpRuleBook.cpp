@@ -14,7 +14,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TypecastRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
-#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/StringMap.h"
 
 #include <mutex>
 
@@ -61,7 +61,7 @@ bool OpRuleBook::preferCandidate(Operation * /*op*/, const BeamCandidate &a,
 }
 
 //===----------------------------------------------------------------------===//
-// Registry: maps OperationName -> OpRuleBook
+// Registry: maps op mnemonic -> OpRuleBook
 //===----------------------------------------------------------------------===//
 
 const OpRuleBook &getRuleBook(Operation *op) {
@@ -88,13 +88,16 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static PagedFillCacheRuleBook pagedFillCache;
   static PagedUpdateCacheRuleBook pagedUpdateCache;
   static ArgMaxRuleBook argMax;
+  static ReductionRuleBook reduction;
 
-  static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
+  // Keyed by the op's mnemonic, not OperationName: an OperationName is owned by
+  // its MLIRContext, so a registry built once per process from context A misses
+  // every op of context B and silently falls back to defaultRules.
+  static llvm::StringMap<const OpRuleBook *> registry;
   static std::once_flag initFlag;
   std::call_once(initFlag, [&] {
-    MLIRContext *ctx = op->getContext();
     auto reg = [&](StringRef name, const OpRuleBook *rb) {
-      registry[OperationName(name, ctx)] = rb;
+      registry[name] = rb;
     };
     reg(Conv2dOp::getOperationName(), &conv2d);
     reg(ConvTranspose2dOp::getOperationName(), &conv2d);
@@ -131,8 +134,13 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(PagedFillCacheOp::getOperationName(), &pagedFillCache);
     reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
     reg(ArgMaxOp::getOperationName(), &argMax);
+    reg(SumOp::getOperationName(), &reduction);
+    reg(MeanOp::getOperationName(), &reduction);
+    reg(MaxOp::getOperationName(), &reduction);
+    reg(MinOp::getOperationName(), &reduction);
+    reg(ProdOp::getOperationName(), &reduction);
   });
-  auto it = registry.find(op->getName());
+  auto it = registry.find(op->getName().getStringRef());
   return it != registry.end() ? *it->second : defaultRules;
 }
 

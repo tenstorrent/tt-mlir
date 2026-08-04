@@ -163,6 +163,42 @@ public:
                                     /*activation=*/nullptr);
   }
 
+  // Create the 1x1x32x64 -> 1x1x32x1 operands shared by the reduction mocks.
+  std::pair<mlir::Value, mlir::Type> createReductionOperands() {
+    const llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 64};
+    const llvm::SmallVector<int64_t> outputShape = {1, 1, 32, 1};
+
+    auto inputTensorType =
+        mlir::RankedTensorType::get(inputShape, builder.getBF16Type(),
+                                    createL1InterleavedLayout(inputShape));
+    auto input = builder.create<OnesOp>(
+        builder.getUnknownLoc(), inputTensorType,
+        /*device=*/nullptr, ShapeAttr::get(&context, inputShape));
+
+    return {input.getResult(), mlir::RankedTensorType::get(
+                                   outputShape, builder.getBF16Type(),
+                                   createDRAMInterleavedLayout(outputShape))};
+  }
+
+  // Create a SumOp/MeanOp/MaxOp/MinOp for testing.
+  template <typename ReductionOpTy>
+  ReductionOpTy createMockReductionOp() {
+    auto [input, outputTensorType] = createReductionOperands();
+    return builder.create<ReductionOpTy>(
+        builder.getUnknownLoc(), outputTensorType, input,
+        /*keep_dim=*/true, builder.getI32ArrayAttr({3}));
+  }
+
+  // ProdOp is a separate op class with a scalar dim_arg.
+  ProdOp createMockProdOp() {
+    auto [input, outputTensorType] = createReductionOperands();
+    return builder.create<ProdOp>(
+        builder.getUnknownLoc(), outputTensorType, input,
+        mlir::IntegerAttr::get(builder.getIntegerType(64, /*isSigned=*/true),
+                               3),
+        builder.getBoolAttr(true));
+  }
+
   // Create legal configs for an elementwise op (DRAM + L1-interleaved).
   std::vector<OpConfig> createElementwiseLegalConfigs(
       const llvm::ArrayRef<int64_t> &shape = {1, 1, 32, 32}) {
@@ -248,6 +284,47 @@ TEST_F(OpModelStrategyTest, ReshapeOpSkipsL1Sharding) {
           isShardedMemoryLayout(hint.outputLayout.getMemLayout().getValue()));
     }
   }
+}
+
+// Reductions return reinterpreted memory instead of the reduction when given a
+// sharded output, so neither the primary nor the fallback hints may offer one.
+static void expectNoShardedOutputHints(llvm::StringRef opName,
+                                       const OutputHints &hints) {
+  SCOPED_TRACE(opName.str());
+  EXPECT_FALSE(hints.hints.empty());
+  for (const auto &hint : hints.hints) {
+    ASSERT_TRUE(hint.outputLayout);
+    auto memLayout = hint.outputLayout.getMemLayout();
+    if (memLayout) {
+      EXPECT_FALSE(isShardedMemoryLayout(memLayout.getValue()));
+    }
+  }
+  EXPECT_TRUE(hints.fallbackHints.empty());
+}
+
+TEST_F(OpModelStrategyTest, ReductionOpsRejectShardedOutput) {
+  auto legalConfigs = createElementwiseLegalConfigs({1, 1, 32, 1});
+
+  expectNoShardedOutputHints(
+      "sum", getOutputHints(createMockReductionOp<SumOp>(), legalConfigs));
+  expectNoShardedOutputHints(
+      "mean", getOutputHints(createMockReductionOp<MeanOp>(), legalConfigs));
+  expectNoShardedOutputHints(
+      "max", getOutputHints(createMockReductionOp<MaxOp>(), legalConfigs));
+  expectNoShardedOutputHints(
+      "min", getOutputHints(createMockReductionOp<MinOp>(), legalConfigs));
+  expectNoShardedOutputHints("prod",
+                             getOutputHints(createMockProdOp(), legalConfigs));
+}
+
+TEST_F(OpModelStrategyTest, ReductionOpsKeepNonShardedOutput) {
+  auto legalConfigs = createElementwiseLegalConfigs({1, 1, 32, 1});
+
+  OutputHints hints =
+      getOutputHints(createMockReductionOp<SumOp>(), legalConfigs);
+
+  // The two non-sharded configs survive: DRAM- and L1-interleaved.
+  EXPECT_EQ(hints.hints.size(), 2u);
 }
 
 TEST_F(OpModelStrategyTest, UnknownOpUsesDefaultStrategy) {

@@ -20,4 +20,14 @@ bool ArgMaxRuleBook::generatesRowMajorInputSiblings(unsigned operandIdx) const {
   return operandIdx == 0;
 }
 
+//===----------------------------------------------------------------------===//
+// ReductionRuleBook
+//===----------------------------------------------------------------------===//
+
+OutputHints ReductionRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> &legalConfigs) const {
+  // Sharded results come back as reinterpreted memory; see the header.
+  return layout_filter_utils::nonShardedOutputHints(legalConfigs);
+}
+
 } // namespace mlir::tt::ttnn
