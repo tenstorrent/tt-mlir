@@ -6,13 +6,7 @@
 // RUN: not ttmlir-opt --convert-stablehlo-to-ttir %s 2>&1 | FileCheck %s
 
 // An argmax-shaped reduce whose init value is a block argument (here a
-// function argument) rather than a constant. The argmax recognizer used to
-// dereference the null result of `getDefiningOp()` and segfault; it must
-// report a clean legalization failure instead.
-//
-// The reducer body has to start with a `compare` op: the reduce pattern
-// dispatches on the body's first op, and add/max/min/mul/and/or are claimed by
-// earlier branches before the argmax check is reached.
+// function argument) rather than a constant.
 
 // CHECK: failed to legalize operation 'stablehlo.reduce'
 module @reduce_argmax_blockarg_init {
