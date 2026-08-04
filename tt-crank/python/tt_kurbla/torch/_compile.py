@@ -303,6 +303,17 @@ def _(mb, grad, self, other, mask):
     return mb.matmul_backward(grad, self, other, bool(mask[0]), bool(mask[1]))
 
 
+@_lowering(_aten.linear.default)
+def _(mb, input, weight, bias=None):
+    return mb.linear(input, weight, bias)
+
+
+@_lowering(_aten.linear_backward.default)
+def _(mb, self, grad_output, weight, output_mask):
+    return mb.linear_backward(self, grad_output, weight, bool(output_mask[0]), bool(output_mask[1]),
+                              bool(output_mask[2]))
+
+
 @_lowering(_aten.add.Scalar)
 def _(mb, x, scalar, alpha=1):
     return mb.add(x, mb.scalar_like(x, float(scalar)), float(alpha))

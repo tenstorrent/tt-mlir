@@ -17,6 +17,7 @@
 #include <nanobind/stl/pair.h>
 #include <nanobind/stl/shared_ptr.h>
 #include <nanobind/stl/string.h>
+#include <nanobind/stl/tuple.h>
 #include <nanobind/stl/vector.h>
 #include <torch/csrc/autograd/python_variable.h>
 #include <ttmlir/Target/Common/types_generated.h>
@@ -420,6 +421,21 @@ public:
         return tk::build_arange(*mb_, start, end, step, tk::mlir_element_type_for(tk::to_torch_dtype(dtype)));
     }
 
+    // Returns a 3-tuple; a gradient the caller did not request comes back as None.
+    std::tuple<std::optional<mlir::Value>, std::optional<mlir::Value>, std::optional<mlir::Value>>
+    linear_backward(mlir::Value self, mlir::Value grad, mlir::Value weight, bool need_self, bool need_weight,
+                    bool need_bias) {
+        assert_builder();
+        return tk::build_linear_backward(*mb_, self, grad, weight, need_self, need_weight, need_bias);
+    }
+
+    // aten::linear as a leaf: weight stays in stored [out, in] orientation and the transpose
+    // rides on the op, so it is never materialized (and never saved for backward).
+    mlir::Value linear(mlir::Value input, mlir::Value weight, std::optional<mlir::Value> bias) {
+        assert_builder();
+        return tk::build_linear(*mb_, input, weight, bias.has_value() ? *bias : mlir::Value{});
+    }
+
     // Embedding — indices (int) first, weight (float) second; no typecast on either
     // (intentional dtype mismatch — build_embedding expects indices to be integer-typed)
     mlir::Value embedding(mlir::Value weight, mlir::Value indices) {
@@ -752,6 +768,9 @@ NB_MODULE(_native, m) {
         .def("cat", &PyModuleBuilder::cat, "inputs"_a, "dim"_a)
         .def("slice", &PyModuleBuilder::slice, "input"_a, "dim"_a, "start"_a, "end"_a, "step"_a = 1LL)
         .def("arange", &PyModuleBuilder::arange, "start"_a, "end"_a, "step"_a, "dtype"_a)
+        .def("linear", &PyModuleBuilder::linear, "input"_a, "weight"_a, "bias"_a = nb::none())
+        .def("linear_backward", &PyModuleBuilder::linear_backward, "self"_a, "grad"_a, "weight"_a, "need_self"_a,
+             "need_weight"_a, "need_bias"_a)
         .def("embedding", &PyModuleBuilder::embedding, "weight"_a, "indices"_a)
         .def("le", &PyModuleBuilder::le, "lhs"_a, "rhs"_a)
         .def("lt", &PyModuleBuilder::lt, "lhs"_a, "rhs"_a)

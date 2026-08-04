@@ -229,6 +229,16 @@ mlir::Value build_slice(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int
 // callers must pass an empty inputs list to ModuleBuilder::init.
 mlir::Value build_arange(ModuleBuilder &mb, int64_t start, int64_t end, int64_t step, mlir::Type dtype);
 
+// Emit TTIR for aten::linear: `input @ weight.t() + bias`, with `weight` in torch's stored
+// [out_features, in_features] orientation. Maps to ttir.linear with transpose_b=true, so the
+// transpose never becomes a tensor.
+//
+// Keeping aten.linear a leaf is what makes this matter. Decomposed into aten.t + aten.mm (the
+// core_aten default), autograd saves the transposed weight for backward -- it is the actual
+// mm operand -- so every nn.Linear leaves a full transposed copy of its weight live across the
+// forward/backward boundary.
+mlir::Value build_linear(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias);
+
 // Emit TTIR for embedding lookup: `indices` (integer tensor) selects rows from
 // `weight` (float tensor). Do NOT call promote_inputs before this builder —
 // the dtype mismatch (int indices, float weight) is intentional.
@@ -249,6 +259,16 @@ mlir::Value build_matmul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
 std::pair<std::optional<mlir::Value>, std::optional<mlir::Value>>
 build_matmul_backward(ModuleBuilder &mb, mlir::Value grad, mlir::Value self, mlir::Value other, bool need_self,
                       bool need_other);
+
+// Emit TTIR for aten::linear_backward, given out = self @ weight.t():
+//   grad_self   = grad @ weight        (weight is already [out, in] -- no transpose needed)
+//   grad_weight = grad.t() @ self      (transpose folded onto ttir.matmul by build_mm)
+//   grad_bias   = grad summed over every leading dim
+// None of the transposes materializes, which is the point -- see build_linear. Returns
+// nullopt for any gradient the caller did not request.
+std::tuple<std::optional<mlir::Value>, std::optional<mlir::Value>, std::optional<mlir::Value>>
+build_linear_backward(ModuleBuilder &mb, mlir::Value self, mlir::Value grad, mlir::Value weight, bool need_self,
+                      bool need_weight, bool need_bias);
 
 // Emit TTIR for element-wise conditional selection:
 //   result[i] = condition[i] ? true_val[i] : false_val[i]
