@@ -136,6 +136,84 @@ std::tuple<at::Tensor, at::Tensor> tt_matmul_backward(const at::Tensor &grad_in,
     return std::make_tuple(std::move(grad_self_t), std::move(grad_other_t));
 }
 
+// aten::linear(input, weight, bias?) = input @ weight.t() + bias, weight stored [out, in].
+at::Tensor tt_linear(const at::Tensor &input_in, const at::Tensor &weight_in,
+                     const std::optional<at::Tensor> &bias_in) {
+    if (bias_in.has_value() && bias_in->defined()) {
+        const auto [i_in, w_in, b_in] = align_on_tt(input_in, weight_in, *bias_in);
+        TORCH_CHECK(w_in.dim() == 2, "tt-kurbla aten::linear: weight must be 2D");
+        auto mb = ModuleBuilder::init({spec_for(i_in), spec_for(w_in), spec_for(b_in)});
+        auto [promoted, i, w, b] = promote_inputs(mb, i_in, w_in, b_in);
+        auto result = build_linear(mb, i, w, b);
+        auto module_op = std::move(mb).finalize({result});
+        auto outputs = compile_and_run(std::move(module_op), {i_in, w_in, b_in});
+        std::vector<int64_t> out_shape(i_in.sizes().begin(), i_in.sizes().end());
+        out_shape.back() = w_in.size(0);
+        return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+    }
+
+    const auto [i_in, w_in] = align_on_tt(input_in, weight_in);
+    TORCH_CHECK(w_in.dim() == 2, "tt-kurbla aten::linear: weight must be 2D");
+    auto mb = ModuleBuilder::init({spec_for(i_in), spec_for(w_in)});
+    auto [promoted, i, w] = promote_inputs(mb, i_in, w_in);
+    auto result = build_linear(mb, i, w, mlir::Value{});
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {i_in, w_in});
+    std::vector<int64_t> out_shape(i_in.sizes().begin(), i_in.sizes().end());
+    out_shape.back() = w_in.size(0);
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+}
+
+// aten::linear_backward
+//   grad_self   = grad_output @ weight
+//   grad_weight = grad_output.t() @ self
+//   grad_bias   = grad_output summed over all leading dims
+std::tuple<at::Tensor, at::Tensor, at::Tensor> tt_linear_backward(const at::Tensor &self_in, const at::Tensor &grad_in,
+                                                                  const at::Tensor &weight_in,
+                                                                  ::std::array<bool, 3> mask) {
+    const auto [s_in, g_in, w_in] = align_on_tt(self_in, grad_in, weight_in);
+    TORCH_CHECK(w_in.dim() == 2, "tt-kurbla aten::linear_backward: weight must be 2D");
+
+    auto mb = ModuleBuilder::init({spec_for(s_in), spec_for(g_in), spec_for(w_in)});
+    auto [promoted, s, g, w] = promote_inputs(mb, s_in, g_in, w_in);
+    auto [gs, gw, gb] = build_linear_backward(mb, s, g, w, mask[0], mask[1], mask[2]);
+
+    int64_t out_features = w_in.size(0);
+    llvm::SmallVector<mlir::Value> requested;
+    std::optional<std::size_t> grad_self_slot;
+    std::optional<std::size_t> grad_weight_slot;
+    std::optional<std::size_t> grad_bias_slot;
+    if (gs.has_value()) {
+        grad_self_slot = requested.size();
+        requested.push_back(*gs);
+    }
+    if (gw.has_value()) {
+        grad_weight_slot = requested.size();
+        requested.push_back(*gw);
+    }
+    if (gb.has_value()) {
+        grad_bias_slot = requested.size();
+        requested.push_back(*gb);
+    }
+
+    auto module_op = std::move(mb).finalize(requested);
+    auto results = compile_and_run(std::move(module_op), {s_in, g_in, w_in});
+
+    at::Tensor grad_self;
+    at::Tensor grad_weight;
+    at::Tensor grad_bias;
+    if (grad_self_slot.has_value()) {
+        grad_self = wrap_tt_tensor(std::move(results[*grad_self_slot]), s_in.sizes(), promoted);
+    }
+    if (grad_weight_slot.has_value()) {
+        grad_weight = wrap_tt_tensor(std::move(results[*grad_weight_slot]), w_in.sizes(), promoted);
+    }
+    if (grad_bias_slot.has_value()) {
+        grad_bias = wrap_tt_tensor(std::move(results[*grad_bias_slot]), {out_features}, promoted);
+    }
+    return std::make_tuple(std::move(grad_self), std::move(grad_weight), std::move(grad_bias));
+}
+
 } // namespace
 
 mlir::Value build_t(ModuleBuilder &mb, mlir::Value input) {
@@ -181,6 +259,63 @@ mlir::Value build_addmm(ModuleBuilder &mb, mlir::Value bias, mlir::Value mat1, m
         result = mb.create<mlir::tt::ttir::AddOp>(result_type, result, scaled_bias).getResult();
     }
     return result;
+}
+
+std::tuple<std::optional<mlir::Value>, std::optional<mlir::Value>, std::optional<mlir::Value>>
+build_linear_backward(ModuleBuilder &mb, mlir::Value self, mlir::Value grad, mlir::Value weight, bool need_self,
+                      bool need_weight, bool need_bias) {
+    auto weight_type = mlir::cast<mlir::RankedTensorType>(weight.getType());
+    TORCH_INTERNAL_ASSERT(weight_type.getRank() == 2, "tt-kurbla build_linear_backward: weight must be 2D");
+    int64_t out_features = weight_type.getShape()[0];
+    int64_t in_features = weight_type.getShape()[1];
+
+    auto grad_type = mlir::cast<mlir::RankedTensorType>(grad.getType());
+    auto grad_shape = grad_type.getShape();
+    int64_t rows = 1;
+    for (std::size_t i = 0; i + 1 < grad_shape.size(); ++i) {
+        rows *= grad_shape[i];
+    }
+
+    // Collapse leading dims so both gradient matmuls are plain 2-D.
+    mlir::Value grad_2d = build_reshape(mb, grad, {rows, out_features});
+
+    std::optional<mlir::Value> grad_self;
+    std::optional<mlir::Value> grad_weight;
+    std::optional<mlir::Value> grad_bias;
+
+    if (need_self) {
+        // [rows, out] @ [out, in] -> [rows, in], then restore self's original shape.
+        mlir::Value gs = build_mm(mb, grad_2d, weight);
+        auto self_shape = mlir::cast<mlir::RankedTensorType>(self.getType()).getShape();
+        grad_self = build_reshape(mb, gs, llvm::to_vector(self_shape));
+    }
+    if (need_weight) {
+        mlir::Value self_2d = build_reshape(mb, self, {rows, in_features});
+        grad_weight = build_mm(mb, build_transpose(mb, grad_2d, 0, 1), self_2d);
+    }
+    if (need_bias) {
+        grad_bias = build_sum(mb, grad_2d, {0}, /*keepdim=*/false);
+    }
+    return {grad_self, grad_weight, grad_bias};
+}
+
+mlir::Value build_linear(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias) {
+    auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto weight_type = mlir::cast<mlir::RankedTensorType>(weight.getType());
+    TORCH_INTERNAL_ASSERT(input_type.getElementType() == weight_type.getElementType(),
+                          "tt-kurbla build_linear: input and weight must share element type");
+    TORCH_INTERNAL_ASSERT(weight_type.getRank() == 2, "tt-kurbla build_linear: weight must be 2D");
+
+    // weight is [out_features, in_features]; transpose_b makes the contraction use in_features.
+    auto input_shape = input_type.getShape();
+    llvm::SmallVector<int64_t> out_shape = llvm::to_vector(input_shape.drop_back());
+    out_shape.push_back(weight_type.getShape()[0]);
+    auto result_type = mlir::RankedTensorType::get(out_shape, input_type.getElementType());
+
+    return mb
+        .create<mlir::tt::ttir::LinearOp>(result_type, input, weight, bias, /*transpose_a=*/false,
+                                          /*transpose_b=*/true)
+        .getResult();
 }
 
 mlir::Value build_matmul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
@@ -315,6 +450,8 @@ build_matmul_backward(ModuleBuilder &mb, mlir::Value grad, mlir::Value self, mli
 }
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
+    m.impl("linear", TORCH_FN(tt_linear));
+    m.impl("linear_backward", TORCH_FN(tt_linear_backward));
     m.impl("t", TORCH_FN(tt_t));
     m.impl("mm", TORCH_FN(tt_mm));
     m.impl("addmm", TORCH_FN(tt_addmm));
