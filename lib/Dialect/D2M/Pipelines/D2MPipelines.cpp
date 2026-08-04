@@ -110,6 +110,8 @@ void createD2MFrontendPipeline(OpPassManager &pm,
     toD2MOptions.enableMulticastInference = options.enableMulticastInference;
   }
   pm.addPass(tt::createTTIRToD2MPass(toD2MOptions));
+  // Must precede grid selection, which folds the logical grids it emits.
+  pm.addPass(d2m::createD2MLowerTopk());
   pm.addPass(d2m::createD2MScalarizeConstTensors());
   d2m::D2MGridSelectionOptions gridOptOptions;
   {
@@ -133,7 +135,6 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
   pm.addPass(d2m::createD2MInsertScratchBuffers());
-  pm.addPass(d2m::createD2MDecomposeTopk());
 
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
@@ -184,6 +185,8 @@ void createD2MFrontendPipeline(OpPassManager &pm,
 
 void createD2MBackendPipeline(OpPassManager &pm,
                               const D2MPipelineOptions &options) {
+  // Emits arange_block, so must precede d2m-decompose-arange.
+  pm.addPass(d2m::createD2MDecomposeTopk());
   pm.addPass(d2m::createD2MDecomposeArange());
 
   d2m::D2MGenericTileComputeLoopsOptions tileComputeLoopsOptions;

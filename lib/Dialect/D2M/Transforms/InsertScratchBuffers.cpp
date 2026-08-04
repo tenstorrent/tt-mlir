@@ -25,6 +25,13 @@ namespace {
 // intermediate spills.
 constexpr size_t kScratchSizeBytes = 128 * 1024;
 
+// Duplicated in d2m-decompose-topk, which consumes them.
+constexpr llvm::StringLiteral kTopkIndexBufferAttr = "d2m.topk_index_buffer";
+constexpr llvm::StringLiteral kTopkLaneBufferAttr = "d2m.topk_lane_buffer";
+
+// Must exceed 1: a single row folds arange_block's compute root loop away.
+constexpr int64_t kTopkLaneTileRows = 2;
+
 // Get the tile type from a memref type, if it has one.
 static ttcore::TileType getTileType(MemRefType memrefType) {
   return mlir::dyn_cast<ttcore::TileType>(memrefType.getElementType());
@@ -143,6 +150,52 @@ static void addScratchToGeneric(GenericOp genericOp) {
   builder.create<ScratchInitOp>(genericOp.getLoc(), scratchAlloc.getResult());
 }
 
+static void addTopkIndexBuffers(GenericOp genericOp) {
+  if (genericOp.getNumRegions() == 0) {
+    return;
+  }
+
+  // At most one generate_indices topk_block per generic.
+  TopkBlockOp topkBlock = nullptr;
+  genericOp.getRegion(0).walk([&](TopkBlockOp op) {
+    if (op.getGenerateIndices()) {
+      topkBlock = op;
+    }
+  });
+  if (!topkBlock) {
+    return;
+  }
+
+  // Post-bufferization only; nothing to allocate while still on tensors.
+  auto inputType =
+      mlir::dyn_cast<MemRefType>(topkBlock.getInputValues().getType());
+  auto indicesType =
+      mlir::dyn_cast<MemRefType>(topkBlock.getOutIndices().getType());
+  if (!inputType || !indicesType) {
+    return;
+  }
+
+  auto l1MemorySpace = ttcore::MemorySpaceAttr::get(
+      genericOp.getContext(), ttcore::MemorySpace::DeviceL1);
+
+  Block &block = genericOp.getRegion(0).front();
+  OpBuilder builder(&block, block.begin());
+
+  auto allocScratch = [&](ArrayRef<int64_t> bufShape, StringRef roleAttr) {
+    auto bufType = MemRefType::get(bufShape, indicesType.getElementType(),
+                                   MemRefLayoutAttrInterface{}, l1MemorySpace);
+    auto allocOp = builder.create<memref::AllocOp>(topkBlock.getLoc(), bufType);
+    allocOp->setAttr("d2m.scratch_buffer", builder.getUnitAttr());
+    allocOp->setAttr(roleAttr, builder.getUnitAttr());
+    // Without this the canonicalizer erases the still-unused alloc.
+    builder.create<ScratchInitOp>(topkBlock.getLoc(), allocOp.getResult());
+  };
+
+  // One index tile per value tile, plus the lane pattern they all derive from.
+  allocScratch(inputType.getShape(), kTopkIndexBufferAttr);
+  allocScratch({kTopkLaneTileRows, 1}, kTopkLaneBufferAttr);
+}
+
 class D2MInsertScratchBuffers
     : public impl::D2MInsertScratchBuffersBase<D2MInsertScratchBuffers> {
   using D2MInsertScratchBuffersBase::D2MInsertScratchBuffersBase;
@@ -157,6 +210,7 @@ class D2MInsertScratchBuffers
     for (GenericOp genericOp : genericsToProcess) {
       transferBlockingMaps(genericOp);
       addScratchToGeneric(genericOp);
+      addTopkIndexBuffers(genericOp);
     }
   }
 };

@@ -18,6 +18,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         InsertTileMatmulBlock.cpp
         LinalgToAffine.cpp
         LowerScratchAllocate.cpp
+        LowerTopk.cpp
         LowerToLayout/LowerToLayout.cpp
         LowerToLayout/Plan.cpp
         MaterializeViewReturns.cpp

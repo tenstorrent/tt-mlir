@@ -135,19 +135,15 @@ static void verifySingleGenericConsumerThroughViewsAndMasks(Value root) {
 }
 
 // A pinned operand keeps its type verbatim: its dim alignments encode padded
-// shard extents chosen by the lowering, which tensorWithOptimalGrid would
-// recompute away. Only the virtual grid mapping is missing, and that lives on
-// the EmptyOp.
-static RankedTensorType gridAdjustedType(RankedTensorType oldType,
-                                         bool ttnnMode,
-                                         ArrayRef<int64_t> selectedGrid,
-                                         ArrayRef<int64_t> paddingTileShape,
-                                         bool pinned) {
-  if (pinned) {
+// shard extents that tensorWithOptimalGrid would recompute away.
+static RankedTensorType gridAdjustedType(const OperandGridInfo &info,
+                                         RankedTensorType oldType,
+                                         bool ttnnMode) {
+  if (info.pinned) {
     return oldType;
   }
-  return utils::tensorWithOptimalGrid(oldType, ttnnMode, selectedGrid,
-                                      paddingTileShape);
+  return utils::tensorWithOptimalGrid(oldType, ttnnMode, info.selectedGrid,
+                                      info.paddingTileShape);
 }
 
 static llvm::SmallVector<int64_t>
@@ -170,16 +166,16 @@ static void
 optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> targetGrid,
                      const EffectiveTargetGridRange &effectiveTargetGridRange,
                      bool ttnnMode, ArrayRef<int64_t> optimalGrid,
-                     OpBuilder &builder, bool forceRebuild = false) {
+                     OpBuilder &builder, bool pinned = false) {
   auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
   if (!emptyOp) {
     return;
   }
 
-  // Check if we're already at the target grid. Pinned operands always are, but
-  // still need the rebuild below to pick up the virtual grid mapping.
+  // A pinned operand already sits at its grid, but the rebuild below is what
+  // stamps its virtual grid mapping, so it must not take these early outs.
   auto emptyType = mlir::cast<mlir::RankedTensorType>(emptyOp.getType());
-  if (!forceRebuild &&
+  if (!pinned &&
       emptyType.getShape().take_front(2) == llvm::ArrayRef(optimalGrid)) {
     return;
   }
@@ -191,7 +187,7 @@ optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> targetGrid,
     return;
   }
 
-  bool needsOptimization = forceRebuild;
+  bool needsOptimization = pinned;
   for (int64_t g : optimalGrid) {
     if (g > 1) {
       needsOptimization = true;
@@ -209,8 +205,10 @@ optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> targetGrid,
 
   llvm::SmallVector<int64_t> paddingTileShape =
       getScalarBridgePaddingTileShape(toLayoutOp, outputType);
-  RankedTensorType newTensorType = gridAdjustedType(
-      outputType, ttnnMode, optimalGrid, paddingTileShape, forceRebuild);
+  RankedTensorType newTensorType =
+      pinned ? outputType
+             : utils::tensorWithOptimalGrid(outputType, ttnnMode, optimalGrid,
+                                            paddingTileShape);
   builder.setInsertionPoint(emptyOp);
 
   // VGM is NOT propagated from the to_layout's input here — the output EmptyOp
@@ -362,7 +360,7 @@ applyToLayoutUpdate(const OperandGridInfo &info,
                     bool ttnnMode, OpBuilder &builder) {
   auto toLayoutOp = info.getLiveOperand().getDefiningOp<d2m::ToLayoutOp>();
   optimizeToLayoutGrid(toLayoutOp, info.targetGrid, effectiveTargetGridRange,
-                       ttnnMode, info.selectedGrid, builder, info.forceRebuild);
+                       ttnnMode, info.selectedGrid, builder, info.pinned);
 }
 
 static void applyBehindViewToLayoutUpdate(
@@ -387,22 +385,20 @@ applyMaskUpdate(const OperandGridInfo &info,
 
   if (auto toLayoutOp = maskOp.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
     optimizeToLayoutGrid(toLayoutOp, info.targetGrid, effectiveTargetGridRange,
-                         ttnnMode, info.selectedGrid, builder,
-                         info.forceRebuild);
+                         ttnnMode, info.selectedGrid, builder, info.pinned);
   } else if (auto view = maskOp.getInput().getDefiningOp<d2m::ViewLayoutOp>()) {
     if (auto toLayoutOp = view.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
       optimizeToLayoutGrid(toLayoutOp, info.targetGrid,
                            effectiveTargetGridRange, ttnnMode,
-                           info.selectedGrid, builder, info.forceRebuild);
+                           info.selectedGrid, builder, info.pinned);
     }
   }
 
   auto oldResultType =
       mlir::cast<RankedTensorType>(maskOp.getResult().getType());
   RankedTensorType newResultType =
-      gridAdjustedType(oldResultType, ttnnMode, info.selectedGrid,
-                       info.paddingTileShape, info.forceRebuild);
-  if (newResultType == oldResultType && !info.forceRebuild) {
+      gridAdjustedType(info, oldResultType, ttnnMode);
+  if (!info.pinned && newResultType == oldResultType) {
     return;
   }
 
@@ -528,9 +524,7 @@ static void applyCompositeViewUpdate(
   auto outType =
       mlir::cast<RankedTensorType>(compositeView.getResult().getType());
 
-  RankedTensorType newOutType =
-      gridAdjustedType(outType, ttnnMode, info.selectedGrid,
-                       info.paddingTileShape, info.forceRebuild);
+  RankedTensorType newOutType = gridAdjustedType(info, outType, ttnnMode);
 
   TT_assertv(info.compositeInputInfos.size() ==
                  compositeView.getInputs().size(),
@@ -562,9 +556,7 @@ applyEmptyOpUpdate(const OperandGridInfo &info,
   EmptyOp emptyOp = info.getLiveOperand().getDefiningOp<d2m::EmptyOp>();
   auto emptyType =
       mlir::cast<mlir::RankedTensorType>(emptyOp.getResult().getType());
-  RankedTensorType newTensorType =
-      gridAdjustedType(emptyType, ttnnMode, info.selectedGrid,
-                       info.paddingTileShape, info.forceRebuild);
+  RankedTensorType newTensorType = gridAdjustedType(info, emptyType, ttnnMode);
   builder.setInsertionPoint(emptyOp);
 
   // The selected grid may differ from the EmptyOp's previous grid.
@@ -642,8 +634,7 @@ static void applyViewLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
   auto oldLayout =
       mlir::cast<ttcore::MetalLayoutAttr>(oldResultType.getEncoding());
   RankedTensorType newResultType =
-      gridAdjustedType(oldResultType, ttnnMode, info.selectedGrid,
-                       info.paddingTileShape, info.forceRebuild);
+      gridAdjustedType(info, oldResultType, ttnnMode);
 
   // Compose the original remapping with a reblock map that maps from the
   // old output shape to the new output shape.
@@ -706,8 +697,7 @@ recreateGenericOp(d2m::GenericOp genericOp,
   ttcore::GridAttr grid =
       deriveGenericGridAttr(genericOp, optimalOperandGrids, builder);
 
-  // Explicit datamovement form has no maps to reparallelize against; only the
-  // grid attr needs refreshing.
+  // Explicit datamovement form has no maps to reparallelize against.
   if (genericOp.isExplicitDatamovementForm()) {
     genericOp.setGridAttr(grid);
     return genericOp;
