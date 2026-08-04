@@ -33,9 +33,9 @@ _REGION_PATTERN = re.compile(
 # GLOBAL CALL COUNT is the final comma-separated field before either ``->``
 # (multiline op text) or the closing backtick (single-line op text). Earlier
 # fields vary with the profiler metadata and cannot be indexed reliably.
-_DEVICE_OP_CALL_COUNT_PATTERN = re.compile(
-    r"TT_DNN_DEVICE_OP:.*?,\s*(\d+)\s*(?:->|`(?:;|$))"
-)
+# After the closing backtick, tracy-csvexport may emit either ``;`` or ``,``
+# before the host timestamp, so do not require a specific trailer.
+_DEVICE_OP_CALL_COUNT_PATTERN = re.compile(r"TT_DNN_DEVICE_OP:.*?,\s*(\d+)\s*(?:->|`)")
 
 
 def extract_profile_regions(loc: Optional[str]) -> List[str]:

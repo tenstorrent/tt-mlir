@@ -97,12 +97,18 @@ def test_extract_device_op_global_call_count_current_tracy_format():
         '`TT_DNN_DEVICE_OP: "TilizeDeviceOperation", '
         "6579250399439280527, 0, false, 2048 ->"
     )
-    single_line = (
+    single_line_semicolon = (
         '`TT_DNN_DEVICE_OP: "TilizeDeviceOperation", '
         "6579250399439280527, 0, false, 3072`;12167960701"
     )
+    # tracy-csvexport sometimes uses a comma after the closing backtick.
+    single_line_comma = (
+        '`TT_DNN_DEVICE_OP: "TilizeDeviceOperation", '
+        "9338796516898729965, 0, false, 3072`,8326920549"
+    )
     assert extract_device_op_global_call_count(multiline) == 2048
-    assert extract_device_op_global_call_count(single_line) == 3072
+    assert extract_device_op_global_call_count(single_line_semicolon) == 3072
+    assert extract_device_op_global_call_count(single_line_comma) == 3072
     assert extract_device_op_global_call_count("MLIR_OP_LOCATION;loc(unknown)") is None
 
 
