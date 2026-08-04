@@ -619,9 +619,25 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
     - system_memory_ops: Operations with system_memory buffer type
     - Percentages: All counts as percentage of total_shardable_ops
 
+    FLOP report ("flops" section), per-chip, for one graph invocation:
+
+      MFU = total_flops / (measured_seconds * peak_flops_per_sec)
+
+    - total_flops: logical, un-padded FLOPs over the matrix-engine ops:
+      matmul/linear/sparse_matmul (2*M*K*N), conv, SDPA / flash-MLA prefill, and
+      the CCL reductions (numel(input) * (D-1) / D, D = mesh extent along
+      cluster_axis). Not counted: SFPU ops, all_gather and the other
+      data-movement collectives, and decode / chunked / paged attention, whose
+      effective key length is a runtime value.
+    - peak_flops_per_sec: the MFU denominator, flops-weighted across each op's
+      math fidelity.
+    - peak_flops_per_sec_by_fidelity: raw hardware peak per fidelity.
+
     Verbose output (--ttnn-perf-metrics-verbose-output-enabled) includes:
     - Detailed per-operation analysis with sharding and memory layout information for shardable ops
     - Complete operation type breakdown with counts for all operation types (excluding const-eval functions)
+    - A per-op FLOP array ("flops"/"per_op"): operation, location, flops and
+      math_fidelity.
   }];
 
   let options = [
