@@ -391,6 +391,51 @@ std::optional<Value> matchSelfConcatLastDim(Value value) {
   return concatOp.getOperand(0);
 }
 
+// Swap of dims 1 and 2 on a rank-4 tensor, used to move a [B, S, H, D]
+// layout into the [B, H, S, D] that ttnn::RotaryEmbeddingOp expects.
+constexpr int64_t kHeadSeqSwap[] = {0, 2, 1, 3};
+
+// Apply kHeadSeqSwap to a rank-4 shape.
+RankedTensorType swapHeadSeq(RankedTensorType type) {
+  ArrayRef<int64_t> shape = type.getShape();
+  SmallVector<int64_t, 4> swapped{shape[0], shape[2], shape[1], shape[3]};
+  return RankedTensorType::get(swapped, type.getElementType(),
+                               type.getEncoding());
+}
+
+Value createHeadSeqSwap(mlir::PatternRewriter &rewriter, Location loc,
+                        Value value) {
+  auto type = mlir::cast<RankedTensorType>(value.getType());
+  return rewriter
+      .create<PermuteOp>(loc, swapHeadSeq(type), value,
+                         llvm::ArrayRef<int64_t>(kHeadSeqSwap))
+      .getResult();
+}
+
+// ttnn::RotaryEmbeddingOp expects the head axis at index 1 and the sequence
+// axis at index 2. Some frontends keep heads at index 2 instead - diffusers
+// builds Q/K as [B, S, H, D] via `unflatten(2, (heads, -1))` and never
+// transposes before attention.
+//
+// The head axis is identifiable from the caches: RoPE varies along the
+// sequence and is shared across heads, so cos/sin is broadcast (size 1) on
+// the head axis and carries the full extent on the sequence axis. Returns
+// true when that broadcast sits at index 2, i.e. the operands are
+// [B, S, H, D] and need a swap. Ambiguous cases (both candidate axes
+// broadcast) are reported as canonical, since a fully broadcast cache is
+// valid under either reading.
+bool needsHeadSeqSwap(RankedTensorType inputType, RankedTensorType cosType) {
+  if (inputType.getRank() != 4 || cosType.getRank() != 4) {
+    return false;
+  }
+  ArrayRef<int64_t> x = inputType.getShape();
+  ArrayRef<int64_t> c = cosType.getShape();
+
+  bool canonical = c[1] == 1 && c[2] == x[2];
+  bool swapped = c[2] == 1 && c[1] == x[1];
+  return swapped && !canonical;
+}
+
 // Replace the anchor op with a ttcore.composite "rotary_embedding" that
 // references a decomposition function.
 // Detects self-concat cos/sin at the IR level (same as TTNN decomposition's
@@ -400,18 +445,34 @@ std::optional<Value> matchSelfConcatLastDim(Value value) {
 // so that ttnn::RotaryEmbeddingOp promotion (force-promote path) can still
 // match the expected shapes. The decomposition body uses the half-dim
 // operands directly via implicit broadcasting.
+//
+// When the operands arrive as [B, S, H, D], the composite is built in the
+// canonical [B, H, S, D] layout and wrapped in a matching pair of permutes.
 void replaceWithRoPEComposite(Operation *anchorOp,
                               mlir::PatternRewriter &rewriter, Value xSource,
                               Value cosInput, Value sinInput,
                               RankedTensorType resultType) {
   auto inputType = mlir::cast<RankedTensorType>(xSource.getType());
   auto cosType = mlir::cast<RankedTensorType>(cosInput.getType());
-  auto sinType = mlir::cast<RankedTensorType>(sinInput.getType());
 
   // Detect self-concat cos/sin pattern regardless of which fusing pattern
   // matched (rotate_half or complex rotation can both produce self-concat).
   bool isSelfConcatCosSin = matchSelfConcatLastDim(cosInput).has_value() &&
                             matchSelfConcatLastDim(sinInput).has_value();
+
+  Location loc = anchorOp->getLoc();
+  const bool swapLayout = needsHeadSeqSwap(inputType, cosType);
+  RankedTensorType compositeResultType = resultType;
+
+  if (swapLayout) {
+    xSource = createHeadSeqSwap(rewriter, loc, xSource);
+    cosInput = createHeadSeqSwap(rewriter, loc, cosInput);
+    sinInput = createHeadSeqSwap(rewriter, loc, sinInput);
+    inputType = mlir::cast<RankedTensorType>(xSource.getType());
+    cosType = mlir::cast<RankedTensorType>(cosInput.getType());
+    compositeResultType = swapHeadSeq(resultType);
+  }
+  auto sinType = mlir::cast<RankedTensorType>(sinInput.getType());
 
   // Find the parent module to insert the decomposition function.
   auto moduleOp = anchorOp->getParentOfType<ModuleOp>();
@@ -420,16 +481,23 @@ void replaceWithRoPEComposite(Operation *anchorOp,
   OpBuilder moduleBuilder(moduleOp.getContext());
   moduleBuilder.setInsertionPointToEnd(moduleOp.getBody());
   auto decompFunc = buildRoPEDecompositionFunc(
-      moduleBuilder, anchorOp->getLoc(), inputType, cosType, sinType,
-      resultType, isSelfConcatCosSin);
+      moduleBuilder, loc, inputType, cosType, sinType, compositeResultType,
+      isSelfConcatCosSin);
   moduleBuilder.insert(decompFunc);
 
   // Create the ttcore.composite op.
-  rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
-      anchorOp, TypeRange{resultType}, ValueRange{xSource, cosInput, sinInput},
+  auto compositeOp = rewriter.create<ttcore::CompositeOp>(
+      loc, TypeRange{compositeResultType},
+      ValueRange{xSource, cosInput, sinInput},
       rewriter.getStringAttr("rotary_embedding"),
       FlatSymbolRefAttr::get(rewriter.getContext(), decompFunc.getName()),
       /*composite_attributes=*/nullptr);
+
+  Value result = compositeOp.getResult(0);
+  if (swapLayout) {
+    result = createHeadSeqSwap(rewriter, loc, result);
+  }
+  rewriter.replaceOp(anchorOp, result);
 }
 
 } // namespace
@@ -1001,21 +1069,44 @@ mlir::LogicalResult RoPEInterleavedPairFusingPattern::matchAndRewrite(
 
   // 12. Apply ttcore.composite "rotary_embedding".
   // cosFull = concat(cosHalf, cosHalf) — always self-concat here.
+  //
+  // Same layout constraint as replaceWithRoPEComposite: the typed op wants
+  // heads at index 1, so [B, S, H, D] operands are swapped into [B, H, S, D],
+  // the composite is built there, and the result is permuted straight back.
+  // The interleave unwind below then works on the original layout unchanged.
+  Value xComposite = xPerm.getResult();
+  Value cosComposite = cosFull.getResult();
+  Value sinComposite = sinFull.getResult();
+  RankedTensorType compositeType = x4dType;
+  const bool swapLayout = needsHeadSeqSwap(
+      x4dType, mlir::cast<RankedTensorType>(cosFull.getType()));
+  if (swapLayout) {
+    xComposite = createHeadSeqSwap(rewriter, loc, xComposite);
+    cosComposite = createHeadSeqSwap(rewriter, loc, cosComposite);
+    sinComposite = createHeadSeqSwap(rewriter, loc, sinComposite);
+    compositeType = swapHeadSeq(x4dType);
+  }
+
   auto moduleOp = addOp->getParentOfType<ModuleOp>();
   OpBuilder moduleBuilder(moduleOp.getContext());
   moduleBuilder.setInsertionPointToEnd(moduleOp.getBody());
   auto decompFunc = buildRoPEDecompositionFunc(
-      moduleBuilder, loc, x4dType,
-      mlir::cast<RankedTensorType>(cosFull.getType()),
-      mlir::cast<RankedTensorType>(sinFull.getType()), x4dType,
+      moduleBuilder, loc, compositeType,
+      mlir::cast<RankedTensorType>(cosComposite.getType()),
+      mlir::cast<RankedTensorType>(sinComposite.getType()), compositeType,
       /*isSelfConcatCosSin=*/true);
   moduleBuilder.insert(decompFunc);
   auto rotEmb = rewriter.create<ttcore::CompositeOp>(
-      loc, TypeRange{x4dType},
-      ValueRange{xPerm.getResult(), cosFull.getResult(), sinFull.getResult()},
+      loc, TypeRange{compositeType},
+      ValueRange{xComposite, cosComposite, sinComposite},
       rewriter.getStringAttr("rotary_embedding"),
       FlatSymbolRefAttr::get(rewriter.getContext(), decompFunc.getName()),
       /*composite_attributes=*/nullptr);
+
+  Value rotEmbResult = rotEmb->getResult(0);
+  if (swapLayout) {
+    rotEmbResult = createHeadSeqSwap(rewriter, loc, rotEmbResult);
+  }
 
   // 13. Permute back: rotate-half [r0,r1,...|i0,i1,...] -> interleaved
   // [r0,i0,r1,i1,...]
@@ -1032,9 +1123,8 @@ mlir::LogicalResult RoPEInterleavedPairFusingPattern::matchAndRewrite(
   for (size_t i = 0; i < splitShape.size(); ++i) {
     splitShapeAttr[i] = static_cast<int32_t>(splitShape[i]);
   }
-  auto split =
-      rewriter.create<ReshapeOp>(loc, splitType, rotEmb->getResult(0),
-                                 rewriter.getI32ArrayAttr(splitShapeAttr));
+  auto split = rewriter.create<ReshapeOp>(
+      loc, splitType, rotEmbResult, rewriter.getI32ArrayAttr(splitShapeAttr));
 
   // Permute last two dims: (B,S,H,2,D/2) -> (B,S,H,D/2,2).
   SmallVector<int64_t> permShape(splitShape);

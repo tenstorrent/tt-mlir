@@ -80,6 +80,49 @@ def build_rope_rotate_half(
     return builder.add(x_cos, rot_sin)
 
 
+def build_rope_rotate_half_bshd(
+    input: Operand,
+    cos_input: Operand,
+    sin_input: Operand,
+    builder: TTIRBuilder,
+):
+    """Build Pattern 1 (rotate_half) with the head axis at index 2.
+
+    Same math as build_rope_rotate_half, but the input is
+    [batch, seq, heads, head_dim] rather than [batch, heads, seq, head_dim],
+    so cos/sin reshape to [1, seq, 1, head_dim] and broadcast over the head
+    axis at index 2 instead of index 1.
+
+    This is the layout diffusers hands RoPE - it builds Q/K via
+    unflatten(2, (heads, -1)) and never transposes - and the one
+    ttnn.rotary_embedding does not accept directly, so the fusing pattern has
+    to wrap the composite in a pair of permutes.
+    """
+    seq, head_dim = cos_input.type.shape[1], cos_input.type.shape[2]
+    cos_4d_shape = [1, seq, 1, head_dim]
+    cos_reshaped = builder.reshape(cos_input, shape=cos_4d_shape)
+    sin_reshaped = builder.reshape(sin_input, shape=cos_4d_shape)
+
+    x_cos = builder.multiply(input, cos_reshaped)
+
+    last_dim = input.type.shape[-1]
+    half_dim = last_dim // 2
+
+    begins_hi = [0, 0, 0, half_dim]
+    ends_hi = list(input.type.shape[:3]) + [last_dim]
+    x_hi = builder.slice(input, begins=begins_hi, ends=ends_hi, step=[1, 1, 1, 1])
+    neg_hi = builder.neg(x_hi)
+
+    begins_lo = [0, 0, 0, 0]
+    ends_lo = list(input.type.shape[:3]) + [half_dim]
+    x_lo = builder.slice(input, begins=begins_lo, ends=ends_lo, step=[1, 1, 1, 1])
+
+    rotated = builder.concat([neg_hi, x_lo], dim=3)
+    rot_sin = builder.multiply(rotated, sin_reshaped)
+
+    return builder.add(x_cos, rot_sin)
+
+
 # ---------------------------------------------------------------------------
 # Pattern 2: complex rotation (expanded / trig-identity form)
 #   real = x1*cos - x2*sin
@@ -268,6 +311,78 @@ def test_rope_rotate_half(input_shape, cos_sin_shape, dtype, target, request, de
             golden = torch_rope(input_data, cos_4d, sin_4d)
 
             result = build_rope_rotate_half(input, cos_input, sin_input, builder)
+
+            builder.set_goldens(
+                {input: input_data, cos_input: cos_data, sin_input: sin_data},
+                {result: golden},
+            )
+            return result
+
+    output = compile_and_execute_ttir(
+        module,
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        pipeline_options=[
+            "enable-ttnn-decomposition-pass=false",
+            "composite-resolution=force-promote",
+        ],
+        save_artifacts=True,
+    )
+
+    assert check_op(output, "rotary_embedding")
+
+
+# [batch, seq, heads, head_dim] with cos/sin [1, seq, head_dim]. Wan-shaped:
+# diffusers builds Q/K this way via unflatten(2, (heads, -1)).
+BSHD_SHAPES = [
+    pytest.param((1, 128, 8, 64), (1, 128, 64), id="wan-bshd-small"),
+    pytest.param((1, 256, 4, 128), (1, 256, 128), id="wan-bshd-128d"),
+]
+
+
+@pytest.mark.parametrize("input_shape, cos_sin_shape", BSHD_SHAPES)
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_rope_rotate_half_bshd_layout(
+    input_shape, cos_sin_shape, dtype, target, request, device
+):
+    """Pattern 1 with the head axis at index 2, the layout diffusers produces.
+
+    ttnn.rotary_embedding wants heads at index 1. When the operands arrive as
+    [B, S, H, D] the fusing pattern builds the composite in [B, H, S, D] and
+    wraps it in a matching pair of permutes. This is the only golden coverage
+    of that wrapped form, so it is what checks the permuted operands still
+    compute the right answer on device.
+
+    Coverage boundary: like its siblings this runs `force-promote`, which
+    bypasses OpModel. It therefore proves the wrapped form is built and is
+    numerically correct, but not that OpModel accepts it - a `validate` run
+    would, and that is currently blocked on a pipeline-binding issue where the
+    permute-wrapped composite promotes under ttmlir-opt but not under the
+    nanobind entry point the builder harness uses (see rope_todo.txt).
+    """
+    shapes = [input_shape, cos_sin_shape, cos_sin_shape]
+    dtypes = [dtype] * 3
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def rotary_embedding(
+            input: Operand,
+            cos_input: Operand,
+            sin_input: Operand,
+            builder: TTIRBuilder,
+        ):
+            input_data = torch.randn(input_shape, dtype=dtype)
+            cos_data = torch.randn(cos_sin_shape, dtype=dtype)
+            sin_data = torch.randn(cos_sin_shape, dtype=dtype)
+
+            # Broadcast over batch and the head axis at index 2.
+            cos_4d = cos_data.unsqueeze(2)
+            sin_4d = sin_data.unsqueeze(2)
+            golden = torch_rope(input_data, cos_4d, sin_4d)
+
+            result = build_rope_rotate_half_bshd(input, cos_input, sin_input, builder)
 
             builder.set_goldens(
                 {input: input_data, cos_input: cos_data, sin_input: sin_data},
