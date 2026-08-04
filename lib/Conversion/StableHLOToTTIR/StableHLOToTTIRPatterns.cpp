@@ -704,13 +704,20 @@ private:
 
   // Verify that the init value is defined by a constant op and initialize with
   // desired value.
+  //
+  // Every `getDefiningOp()` here can return null: `val` is a block argument
+  // whenever the init value comes from outside the enclosing region (a
+  // function argument, or a loop-carried/captured value of a surrounding
+  // `stablehlo.while`), and walking up a single-operand chain can reach one
+  // just the same. A null defining op simply means the value is not a
+  // constant, so treat it as a non-match rather than dereferencing it.
   bool verifyInitValue(mlir::Value val,
                        TypicalInitReductionValue desired) const {
     Operation *initValue = val.getDefiningOp();
-    while (initValue->getOpOperands().size() == 1) {
+    while (initValue && initValue->getOpOperands().size() == 1) {
       initValue = initValue->getOpOperand(0).get().getDefiningOp();
     }
-    if (!isa<mlir::stablehlo::ConstantOp>(initValue)) {
+    if (!initValue || !isa<mlir::stablehlo::ConstantOp>(initValue)) {
       return false;
     }
 
