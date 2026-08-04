@@ -212,11 +212,13 @@ SliceRuleBook::getOutputHints(Operation * /*op*/,
 //===----------------------------------------------------------------------===//
 
 /// Check if a reshape can be optimized to a view (no kernel launch) by
-/// tt-metal. Mirrors the `this_is_view` condition in tt-metal's
-/// reshape.cpp:378-384. Only applies to ReshapeOp — PermuteOp has its own
-/// NOP optimization (`canPermuteBeView`, below) with different conditions.
-/// Like the other view predicates, this self-guards on its op kind so that
-/// `isAliasingViewOp` can dispatch it over any operation.
+/// tt-metal. Mirrors the shape side of the `this_is_view` condition in
+/// tt-metal's reshape.cpp:611-619 (the memory-config side of that condition is
+/// checked by `reshapeOutputSpecIsHonored`, which shares the same helper).
+/// Only applies to ReshapeOp — PermuteOp has its own NOP optimization
+/// (`canPermuteBeView`, below) with different conditions. Like the other view
+/// predicates, this self-guards on its op kind so that `isAliasingViewOp` can
+/// dispatch it over any operation.
 bool canReshapeBeView(Operation *op) {
   if (!mlir::isa<ReshapeOp>(op)) {
     return false;
@@ -229,33 +231,10 @@ bool canReshapeBeView(Operation *op) {
     return false;
   }
 
-  auto inputShape = inputType.getShape();
-  auto outputShape = outputType.getShape();
-  if (inputShape.empty() || outputShape.empty()) {
-    return false;
-  }
-
-  // Condition 1: last dimension must be unchanged.
-  if (inputShape.back() != outputShape.back()) {
-    return false;
-  }
-
-  // Condition 2: for tiled layout, second-to-last dim must be unchanged or
-  // both second-to-last dims must be tile-aligned (no padding change).
   auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
-  if (ttnnLayout && ttnnLayout.isTiled()) {
-    int64_t inputSecondLast =
-        inputShape.size() >= 2 ? inputShape[inputShape.size() - 2] : 1;
-    int64_t outputSecondLast =
-        outputShape.size() >= 2 ? outputShape[outputShape.size() - 2] : 1;
-    if (inputSecondLast != outputSecondLast &&
-        !(outputSecondLast % TILE_HEIGHT == 0 &&
-          inputSecondLast % TILE_HEIGHT == 0)) {
-      return false;
-    }
-  }
-
-  return true;
+  return layout_filter_utils::reshapeShapesAllowView(
+      inputType.getShape(), outputType.getShape(),
+      ttnnLayout && ttnnLayout.isTiled());
 }
 
 //===----------------------------------------------------------------------===//
@@ -444,8 +423,29 @@ OutputHints ReshapeRuleBook::getOutputHints(
     // upgrading DRAM→L1 and breaking the zero-cost view path.
     return layout_filter_utils::nullHintOnly();
   }
+  // Divergence guard: drop any sharded candidate that ttnn::reshape would not
+  // return verbatim (it silently substitutes a different memory config in four
+  // cases, and the consumer then runs against a layout the tensor does not
+  // have -- up to and including a device hang). Composed in ahead of the
+  // sharding policy below so that it stays load-bearing if that policy is ever
+  // relaxed to admit sharded reshape outputs (issue #8020); today every
+  // in-tree config already satisfies it.
+  // https://github.com/tenstorrent/tt-mlir/issues/8020
+  auto inputType =
+      mlir::dyn_cast<RankedTensorType>(op->getOperand(0).getType());
+  auto outputType =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  std::vector<OpConfig> honoredConfigs = legalConfigs;
+  if (inputType && outputType) {
+    honoredConfigs = layout_filter_utils::filterConfigs(
+        legalConfigs,
+        layout_filter_utils::reshapeOutputSpecIsHonoredFilter(
+            mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding()),
+            inputType.getShape(), outputType.getShape()));
+  }
+
   // Non-view reshape: sharded output not beneficial, use non-sharded configs.
-  return layout_filter_utils::nonShardedOutputHints(legalConfigs);
+  return layout_filter_utils::nonShardedOutputHints(honoredConfigs);
 }
 
 //===----------------------------------------------------------------------===//
