@@ -2044,7 +2044,13 @@ public:
     if (compositeAttrs) {
       if (auto maskAttr = mlir::dyn_cast_or_null<IntegerAttr>(
               compositeAttrs.get("mask_type"))) {
-        maskType = static_cast<ttcore::AttentionMaskType>(maskAttr.getInt());
+        int64_t maskTypeInt = maskAttr.getInt();
+        if (maskTypeInt < 0 || maskTypeInt > 2) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "tenstorrent.sdpa_fw mask_type must be 0 (None), 1 "
+                     "(Causal), or 2 (Arbitrary).");
+        }
+        maskType = static_cast<ttcore::AttentionMaskType>(maskTypeInt);
       }
     }
 
