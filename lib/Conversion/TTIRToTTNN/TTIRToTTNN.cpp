@@ -3775,6 +3775,61 @@ public:
   }
 };
 
+// Converts `ttir.while` to `ttnn.while`, moving both regions across and
+// converting their block argument types. `ttir.yield` inside those regions is
+// handled by YieldOpConversionPattern below.
+class WhileOpConversionPattern : public OpConversionPattern<ttir::WhileOp> {
+public:
+  using OpConversionPattern<ttir::WhileOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(ttir::WhileOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    const TypeConverter *typeConverter = this->getTypeConverter();
+
+    SmallVector<Type> resultTypes;
+    if (failed(
+            typeConverter->convertTypes(op->getResultTypes(), resultTypes))) {
+      return failure();
+    }
+
+    auto whileOp = rewriter.create<ttnn::WhileOp>(
+        op.getLoc(), resultTypes, adaptor.getInits(), adaptor.getCaptures(),
+        op.getTripCountAttr());
+
+    rewriter.inlineRegionBefore(op.getCond(), whileOp.getCond(),
+                                whileOp.getCond().end());
+    rewriter.inlineRegionBefore(op.getBody(), whileOp.getBody(),
+                                whileOp.getBody().end());
+
+    for (Region *region : {&whileOp.getCond(), &whileOp.getBody()}) {
+      Block &block = region->front();
+      TypeConverter::SignatureConversion signatureConv(block.getNumArguments());
+      for (auto [index, argType] : llvm::enumerate(block.getArgumentTypes())) {
+        Type convertedType = typeConverter->convertType(argType);
+        if (!convertedType) {
+          return failure();
+        }
+        signatureConv.addInputs(index, convertedType);
+      }
+      rewriter.applySignatureConversion(&block, signatureConv, typeConverter);
+    }
+
+    rewriter.replaceOp(op, whileOp.getResults());
+    return success();
+  }
+};
+
+class YieldOpConversionPattern : public OpConversionPattern<ttir::YieldOp> {
+public:
+  using OpConversionPattern<ttir::YieldOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(ttir::YieldOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::YieldOp>(op, adaptor.getOperands());
+    return success();
+  }
+};
+
 } // namespace
 
 namespace mlir::tt {
@@ -3937,7 +3992,9 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            DebugOpConversionPattern<debug::DumpOp, ttnn::DumpTensorOp>,
            TopKOpConversionPattern,
            TopKRouterGptOpConversionPattern,
-           TTLangOpConversionPattern
+           TTLangOpConversionPattern,
+           WhileOpConversionPattern,
+           YieldOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

@@ -21,6 +21,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         ReductionForceKeepDim.cpp
         Transforms.cpp
         TTIRFusing.cpp
+        WhileTripCount.cpp
         Fusing/RoPEFusingPattern.cpp
         Fusing/SDPAFusingPattern.cpp
         Fusing/TopKFusingPattern.cpp

@@ -5486,6 +5486,122 @@ public:
 };
 } // namespace
 
+namespace {
+// Lowers `ttnn.while` to an `emitpy.while`:
+//
+//   for _ in range(N):                       # counted loops
+//   while True:                              # data-dependent loops
+//       <cond ops>                           # data-dependent loops only
+//       if <cond>.to_torch().item() == 0: break
+//       <body ops>
+//
+// Loop-carried values stay in SSA all the way down: the ttnn op's inits become
+// the loop's inits, the two regions' block arguments become the loop body's
+// block arguments, and the ttnn op's results become the loop's results.
+// Turning those into named Python locals is the emitter's job, since it is the
+// only place that can allocate names without colliding with existing ones.
+//
+// A counted loop drops its condition region: `range` bounds the loop, so the
+// predicate is never evaluated.
+//
+// As in the EmitC lowering, the yields are converted by their own pattern so
+// that the values they carry have already been converted by the time they are
+// used.
+
+constexpr llvm::StringLiteral kWhileYieldRoleAttr = "ttnn.while_yield_role";
+constexpr llvm::StringLiteral kWhileYieldCond = "cond";
+constexpr llvm::StringLiteral kWhileYieldBody = "body";
+
+class WhileOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::WhileOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::WhileOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::WhileOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    mlir::Location loc = srcOp.getLoc();
+
+    llvm::SmallVector<Type> carriedTypes;
+    if (failed(getTypeConverter()->convertTypes(srcOp.getResultTypes(),
+                                                carriedTypes))) {
+      return failure();
+    }
+
+    const bool counted = srcOp.getTripCount().has_value();
+    auto whileOp = rewriter.create<emitpy::WhileOp>(
+        loc, carriedTypes,
+        /*condition=*/counted ? StringAttr() : rewriter.getStringAttr("True"),
+        /*cond_args=*/ValueRange(),
+        /*inits=*/adaptor.getInits(),
+        /*trip_count=*/
+        counted ? rewriter.getI64IntegerAttr(*srcOp.getTripCount())
+                : IntegerAttr());
+
+    llvm::SmallVector<mlir::Location> argLocs(carriedTypes.size(), loc);
+    Block *loopBody =
+        rewriter.createBlock(&whileOp.getBody(), {}, carriedTypes, argLocs);
+
+    // Both ttnn regions take `inits ++ captures`. The carried values come from
+    // the loop's own block arguments; the captures are loop-invariant, so they
+    // come straight from the enclosing scope.
+    auto regionArgValues = [&]() {
+      llvm::SmallVector<Value> values(loopBody->getArguments());
+      llvm::append_range(values, adaptor.getCaptures());
+      return values;
+    };
+
+    if (!counted) {
+      rewriter.modifyOpInPlace(srcOp.getCondYield(), [&]() {
+        srcOp.getCondYield()->setAttr(kWhileYieldRoleAttr,
+                                      rewriter.getStringAttr(kWhileYieldCond));
+      });
+      rewriter.inlineBlockBefore(&srcOp.getCondBlock(), loopBody,
+                                 loopBody->end(), regionArgValues());
+    }
+
+    rewriter.modifyOpInPlace(srcOp.getBodyYield(), [&]() {
+      srcOp.getBodyYield()->setAttr(kWhileYieldRoleAttr,
+                                    rewriter.getStringAttr(kWhileYieldBody));
+    });
+    rewriter.inlineBlockBefore(&srcOp.getBodyBlock(), loopBody, loopBody->end(),
+                               regionArgValues());
+
+    rewriter.replaceOp(srcOp, whileOp.getResults());
+    return success();
+  }
+};
+
+class WhileYieldOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::YieldOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::YieldOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::YieldOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto role = srcOp->getAttrOfType<StringAttr>(kWhileYieldRoleAttr);
+    if (!role) {
+      return rewriter.notifyMatchFailure(srcOp, "yield is not part of a loop");
+    }
+
+    // The condition region's yield is the loop's exit test. Python has no
+    // do-while, so it is a break in the middle of a `while True` body.
+    if (role.getValue() == kWhileYieldCond) {
+      rewriter.replaceOpWithNewOp<emitpy::VerbatimOp>(
+          srcOp, "if {}.to_torch().item() == 0: break", adaptor.getOperands());
+      return success();
+    }
+
+    rewriter.replaceOpWithNewOp<emitpy::WhileYieldOp>(srcOp,
+                                                      adaptor.getOperands());
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -5747,6 +5863,11 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<EndTraceCaptureOpConversionPattern>(typeConverter, ctx);
   patterns.add<ExecuteTraceOpConversionPattern>(typeConverter, ctx);
   patterns.add<CaptureOrExecuteTraceOpConversionPattern>(typeConverter, ctx);
+
+  // Control flow ops
+  //
+  patterns.add<WhileOpConversionPattern>(typeConverter, ctx);
+  patterns.add<WhileYieldOpConversionPattern>(typeConverter, ctx);
 
   // Quantization ops.
   //

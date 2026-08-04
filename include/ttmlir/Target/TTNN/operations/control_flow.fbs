@@ -1,0 +1,35 @@
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+// A while loop.
+//
+// The condition and the body are each serialized as their own top-level
+// (private) program and referenced here by index, the same way FuncCallOp,
+// LoadCachedOp and CaptureOrExecuteTraceOp reference their callees. The
+// runtime executes them with nested ProgramExecutors.
+//
+// Both sub-programs take `inits ++ captures` as their inputs. The condition
+// program returns a single one-element uint32 tensor in system memory, which
+// the runtime reads back to host to decide whether to keep looping; the body
+// program returns the new values of the loop-carried tensors, which become the
+// next iteration's `inits`.
+table WhileOp {
+  cond_program_id: uint32;
+  body_program_id: uint32;
+
+  // Loop-carried tensors, in their initial state. One per output.
+  inits: [tt.target.ttnn.TensorRef];
+  // Loop-invariant tensors the regions reference. Rebound unchanged every
+  // iteration.
+  captures: [tt.target.ttnn.TensorRef];
+  // Loop-carried tensors after the final iteration.
+  outputs: [tt.target.ttnn.TensorRef];
+
+  // Statically known iteration count. When present the runtime skips the
+  // condition program entirely, which avoids a device-to-host synchronization
+  // per iteration. Absent means the loop is data-dependent.
+  trip_count: uint64 = null;
+
+  semaphore_inputs: [tt.target.ttnn.GlobalSemaphoreRef];
+}
