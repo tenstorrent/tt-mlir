@@ -729,9 +729,12 @@ void AddressSimSpillManagement<MemoryTracker>::handleOOM(
     // Stage 3: Op exceeds L1 budget even with no other live tensors — the op
     // itself is too large for the configured cap. Demote its output to DRAM.
     // No evictForDramCBGrowth needed: evictUntil already drained the live set.
+    // Still prepare Typecast operands (tt-mlir#9094): they may be L1-sharded
+    // in IR even when not present in the live set.
     observer_->onSelfSpill(op, pos);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "    DEMOTE SELF: op exceeds budget alone");
+    prepareOperandsForDramDemotion(op, pos, data);
     demoteToDram(op);
   }
 }
@@ -1187,8 +1190,7 @@ uint64_t AddressSimSpillManagement<MemoryTracker>::handleNoFit(
     return 0;
   }
   if (!fitsAfterEviction) {
-    demoteToDram(op);
-    evictForDramCBGrowth(op, pos, data);
+    demoteOpToDramChecked(op, pos, data);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "    NO_FIT: eviction exhausted, demoting to DRAM");
     return 0;
@@ -1210,8 +1212,7 @@ uint64_t AddressSimSpillManagement<MemoryTracker>::handleNoFit(
     return freshL1;
   }
 
-  demoteToDram(op);
-  evictForDramCBGrowth(op, pos, data);
+  demoteOpToDramChecked(op, pos, data);
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "    NO_FIT: validation failed after eviction, demoting to "
                "DRAM");
@@ -1250,8 +1251,7 @@ uint64_t AddressSimSpillManagement<MemoryTracker>::handleFragmentation(
   // Eviction was exhausted (op's own output won't fit / CB still overlaps).
   // Demote this op's output to DRAM rather than ship a clashing layout.
   if (!fitsAfterEviction) {
-    demoteToDram(op);
-    evictForDramCBGrowth(op, pos, data);
+    demoteOpToDramChecked(op, pos, data);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "    FRAG_DEMOTE: eviction exhausted, output to DRAM");
     return 0;
@@ -1326,8 +1326,7 @@ uint64_t AddressSimSpillManagement<MemoryTracker>::handleFragmentation(
     }
   }
 
-  demoteToDram(op);
-  evictForDramCBGrowth(op, pos, data);
+  demoteOpToDramChecked(op, pos, data);
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "    FRAG_DEMOTE: output to DRAM");
   return 0;
@@ -1608,6 +1607,7 @@ void L1SpillManagementBase<MemoryTracker>::run() {
                    "    BACKEND_ERROR at pos {0} for {1}: {2}. "
                    "Demoting to DRAM.",
                    pos, ttmlir::opToString(op), result.errorMessage);
+      prepareOperandsForDramDemotion(op, pos, data);
       demoteToDram(op);
       ++spillCount;
       continue;
@@ -1705,8 +1705,26 @@ L1SpillManagementBase<MemoryTracker>::computeLastUsePositions(
 }
 
 //===----------------------------------------------------------------------===//
-// demoteToDram
+// demoteToDram / prepareOperandsForDramDemotion / demoteOpToDramChecked
 //===----------------------------------------------------------------------===//
+
+namespace {
+
+/// True when `value` is an L1-sharded tensor. Demoting a consumer to DRAM
+/// Interleaved while leaving such an operand sharded violates ops that
+/// require matching in/out memory layouts (TypecastOp — tt-mlir#9094).
+bool isL1Sharded(Value value) {
+  auto tensorType = mlir::dyn_cast<RankedTensorType>(value.getType());
+  if (!tensorType) {
+    return false;
+  }
+  auto layoutAttr =
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(tensorType.getEncoding());
+  return layoutAttr && layoutAttr.hasL1BufferType() &&
+         layoutAttr.hasShardedTensorMemoryLayout();
+}
+
+} // namespace
 
 template <typename MemoryTracker>
 void L1SpillManagementBase<MemoryTracker>::demoteToDram(Operation *op) {
@@ -1732,6 +1750,70 @@ void L1SpillManagementBase<MemoryTracker>::demoteToDram(Operation *op) {
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer, "Demoted to DRAM: {0}",
                ttmlir::opToString(op));
+}
+
+template <typename MemoryTracker>
+void L1SpillManagementBase<MemoryTracker>::prepareOperandsForDramDemotion(
+    Operation *op, int64_t pos, ScheduleData &data) {
+  // Only Typecast (and future ops with the same metal constraint) need
+  // matching in/out memory layouts. Other ops accept DRAM-Interleaved
+  // outputs with sharded L1 inputs via inserted reshards on the consumer
+  // side; spilling every operand here would over-spill.
+  if (!isa<TypecastOp>(op)) {
+    return;
+  }
+
+  llvm::SmallVector<Value> liveToEvict;
+  for (OpOperand &use : op->getOpOperands()) {
+    Value operand = use.get();
+    if (!isL1Sharded(operand)) {
+      continue;
+    }
+    if (liveValues.count(operand)) {
+      liveToEvict.push_back(operand);
+      continue;
+    }
+    // Not tracked as live (block arg, already past last-use, etc.) but still
+    // L1-sharded in IR. Insert a DRAM-Interleaved ToMemoryConfig just before
+    // `op` and rewire only this use — spillToDram needs a defining op and
+    // would crash on block arguments.
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    PREPARE_DEMOTE: inserting DRAM-Interleaved spill before "
+                 "typecast operand #{0} (tt-mlir#9094)",
+                 use.getOperandNumber());
+    auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
+    auto layoutAttr = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+    TTNNLayoutAttr dramLayout =
+        TTNNLayoutAttr::Builder(layoutAttr, tensorType.getShape())
+            .setBufferType(BufferType::DRAM)
+            .setMemoryLayout(TensorMemoryLayout::Interleaved)
+            .build();
+    RankedTensorType dramType =
+        utils::RankedTensorTypeFactory::create(tensorType, dramLayout);
+    OpBuilder builder(op);
+    Location loc = ttmlir::utils::appendLocationSuffix(op->getLoc(), "_spill");
+    Operation *spillOp =
+        builder.create<ToMemoryConfigOp>(loc, dramType, operand);
+    use.set(spillOp->getResult(0));
+  }
+
+  size_t campaignMin = SIZE_MAX;
+  for (Value victim : liveToEvict) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    PREPARE_DEMOTE: evicting live L1-sharded operand {0} "
+                 "before demoting typecast (tt-mlir#9094)",
+                 ttmlir::opToString(victim.getDefiningOp()));
+    // skipReshardConsumer=op: do not restore this typecast's operand to L1.
+    evictValue(victim, pos, data, campaignMin, /*skipReshardConsumer=*/op);
+  }
+}
+
+template <typename MemoryTracker>
+void AddressSimSpillManagement<MemoryTracker>::demoteOpToDramChecked(
+    Operation *op, int64_t pos, ScheduleData &data) {
+  prepareOperandsForDramDemotion(op, pos, data);
+  demoteToDram(op);
+  evictForDramCBGrowth(op, pos, data);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2212,6 +2294,8 @@ void StatefulL1SpillManagement::recoverFromOOM(
         ttmlir::LogComponent::GreedyOptimizer,
         "    DEMOTE SELF (stateful): {0} unplaceable after draining L1",
         ttmlir::opToString(op));
+    // Prepare Typecast operands before demote (tt-mlir#9094).
+    prepareOperandsForDramDemotion(op, pos, data);
     demoteToDram(op);
     return; // no rewind; sweep advances to pos+1
   }

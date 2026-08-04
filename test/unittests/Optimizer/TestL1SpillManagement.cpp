@@ -117,6 +117,98 @@ TEST_F(SelfSpillTest, OpTooLargeForBudgetDemotes) {
   EXPECT_EQ(obs->selfSpills.front().op, opA);
 }
 
+// tt-mlir#9094: demoting a Typecast whose input is still L1-sharded must
+// insert a DRAM-Interleaved spill on that input first. Otherwise demoteToDram
+// leaves Typecast with HEIGHT/BLOCK_SHARDED in and INTERLEAVED out, which
+// tt-metal rejects (matching memory-layout fatal).
+TEST_F(SelfSpillTest, TypecastDemoteSpillsShardedInput) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 2048, 1024};
+  auto l1Layout = makeL1Sharded(shape);
+  auto tt = tensorType(shape, l1Layout);
+
+  auto args = beginFunc({tt});
+  // Stage-3 self-demote: typecast output alone exceeds the budget. The input
+  // is a block argument (never in the live set), so prepareOperands must
+  // insert a spill before `op` rather than calling spillToDram.
+  auto typecast =
+      builder.create<TypecastOp>(builder.getUnknownLoc(), tt, args[0]);
+  setL1Usage(typecast.getOperation(), /*l1UsageBytes=*/2000 * kKiB);
+  finishFunc({typecast.getResult()});
+
+  auto [obs] = run();
+
+  EXPECT_FALSE(pass->hasFailed())
+      << "demotion must not leave an illegal Typecast layout pair";
+  ASSERT_FALSE(obs->selfSpills.empty());
+  EXPECT_EQ(obs->selfSpills.front().op, typecast.getOperation());
+
+  // Output demoted to DRAM Interleaved.
+  auto outRt =
+      mlir::cast<mlir::RankedTensorType>(typecast.getResult().getType());
+  auto outLayout =
+      mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(outRt.getEncoding());
+  EXPECT_FALSE(outLayout.hasL1BufferType());
+  EXPECT_EQ(outLayout.getMemLayout().getValue(),
+            TensorMemoryLayout::Interleaved);
+
+  // Input rewired through a ToMemoryConfig spill to DRAM Interleaved.
+  Value typecastIn = typecast.getInput();
+  auto *spill = typecastIn.getDefiningOp();
+  ASSERT_TRUE(spill && isa<ToMemoryConfigOp>(spill))
+      << "expected a ToMemoryConfigOp spill on the typecast input";
+  auto inRt = mlir::cast<mlir::RankedTensorType>(typecastIn.getType());
+  auto inLayout =
+      mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(inRt.getEncoding());
+  EXPECT_FALSE(inLayout.hasL1BufferType());
+  EXPECT_EQ(inLayout.getMemLayout().getValue(),
+            TensorMemoryLayout::Interleaved);
+}
+
+// tt-mlir#9094 (live-operand path): typecast consumes a live L1-sharded
+// producer that itself fits, but the typecast's output forces Stage-3 demote.
+// prepareOperands must evictValue the live producer (skipReshard back to the
+// typecast) so the demoted typecast sees DRAM Interleaved input.
+TEST_F(SelfSpillTest, TypecastDemoteEvictsLiveShardedProducer) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 2048, 1024};
+  auto l1Layout = makeL1Sharded(shape);
+  auto tt = tensorType(shape, l1Layout);
+
+  auto args = beginFunc({tt});
+  // Small producer that stays in the live set until the typecast demotes.
+  auto *producer = addUnary(args[0], tt, /*l1UsageBytes=*/100 * kKiB);
+  auto typecast = builder.create<TypecastOp>(builder.getUnknownLoc(), tt,
+                                             producer->getResult(0));
+  setL1Usage(typecast.getOperation(), /*l1UsageBytes=*/2000 * kKiB);
+  finishFunc({typecast.getResult()});
+
+  auto [obs] = run();
+
+  EXPECT_FALSE(pass->hasFailed());
+  ASSERT_FALSE(obs->selfSpills.empty());
+  EXPECT_EQ(obs->selfSpills.front().op, typecast.getOperation());
+
+  auto outRt =
+      mlir::cast<mlir::RankedTensorType>(typecast.getResult().getType());
+  auto outLayout =
+      mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(outRt.getEncoding());
+  EXPECT_FALSE(outLayout.hasL1BufferType());
+  EXPECT_EQ(outLayout.getMemLayout().getValue(),
+            TensorMemoryLayout::Interleaved);
+
+  // Live producer was spilled to DRAM Interleaved for the typecast.
+  EXPECT_TRUE(wasSpilled(producer->getResult(0)))
+      << "live L1-sharded producer must be spilled before typecast demote";
+  Value typecastIn = typecast.getInput();
+  auto inRt = mlir::cast<mlir::RankedTensorType>(typecastIn.getType());
+  auto inLayout =
+      mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(inRt.getEncoding());
+  EXPECT_FALSE(inLayout.hasL1BufferType());
+  EXPECT_EQ(inLayout.getMemLayout().getValue(),
+            TensorMemoryLayout::Interleaved);
+}
+
 //===----------------------------------------------------------------------===//
 // NotImplementedTest
 //===----------------------------------------------------------------------===//

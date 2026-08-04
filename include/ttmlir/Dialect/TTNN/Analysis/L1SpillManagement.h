@@ -465,6 +465,17 @@ protected:
   /// Build schedule, last-use positions, death schedule, and position map.
   ScheduleData buildScheduleData();
 
+  /// Before demoting `op` to DRAM Interleaved, spill any L1-sharded operands
+  /// to DRAM Interleaved so layout-constrained ops (notably TypecastOp) keep
+  /// matching input/output memory layouts. Without this, demoteToDram leaves
+  /// Typecast with BLOCK_SHARDED in / INTERLEAVED out, which tt-metal rejects
+  /// (tt-mlir#9094).
+  ///
+  /// Live operands go through `evictValue` (tracker-safe). Non-live L1
+  /// sharded operands get a ToMemoryConfig inserted just before `op`.
+  void prepareOperandsForDramDemotion(Operation *op, int64_t pos,
+                                      ScheduleData &data);
+
   /// Insert a reshard op into the schedule at consumerPos (shifting the
   /// consumer and all later ops by +1), updating positionMap, lastUsePositions,
   /// and deathSchedule so the forward sweep processes the reshard naturally.
@@ -588,6 +599,7 @@ protected:
   using Base::markEvictedAndRebuild;
   using Base::memoryTracker;
   using Base::observer_;
+  using Base::prepareOperandsForDramDemotion;
   using Base::spillToDram;
 
   // Strategy hooks (address-sim implementations).
@@ -620,6 +632,10 @@ protected:
   void evictForCBOverlap(uint64_t cushionedCBUsage, int64_t pos,
                          ScheduleData &data);
   void evictForDramCBGrowth(Operation *op, int64_t pos, ScheduleData &data);
+
+  /// Spill matching-layout operands if needed, demote `op` to DRAM, then
+  /// run the DRAM-output CB growth check (address-sim path only).
+  void demoteOpToDramChecked(Operation *op, int64_t pos, ScheduleData &data);
 };
 
 extern template class AddressSimSpillManagement<SumL1MemoryTracker>;
