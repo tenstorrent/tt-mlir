@@ -65,6 +65,25 @@ public:
     return true;
   }
 
+  // Converts the block argument types of the op's regions.
+  //
+  // Operand and result conversion only reaches a block argument incidentally,
+  // via ops inside the region that use it. An argument with no uses in its
+  // region would otherwise keep its original type, which for an op like
+  // `ttir.while` (whose two regions must have identical signatures) leaves the
+  // IR inconsistent.
+  bool convertRegionArgTypes(Operation *op) const {
+    bool updated = false;
+    SmallVector<Type> newTypes;
+    for (Region &region : op->getRegions()) {
+      for (Block &block : region) {
+        newTypes.clear();
+        updated |= convertTypes(ValueRange(block.getArguments()), newTypes);
+      }
+    }
+    return updated;
+  }
+
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
     bool updated = false;
@@ -73,6 +92,7 @@ public:
     rewriter.startOpModification(op);
     updated |= convertTypes(op->getOperands(), operands);
     updated |= convertTypes(op->getResults(), results);
+    updated |= convertRegionArgTypes(op);
     updated |= convertFuncType(op, rewriter);
     if (!updated) {
       rewriter.cancelOpModification(op);

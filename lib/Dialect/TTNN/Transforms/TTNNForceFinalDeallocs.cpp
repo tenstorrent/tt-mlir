@@ -93,10 +93,19 @@ Value canonicalRoot(Value value, llvm::DenseMap<Value, Value> &valueToRoot) {
 // For each underlying buffer, this pass walks that buffer's deallocate ops from
 // bottom to top and sets the force flag to true on the last one in program
 // order (the true final use of that buffer), so the buffer is properly freed.
-// For buffers that are freed elsewhere (variables that escape the function that
-// are freed by the caller or conv activations the conv op force-deallocates
-// itself), no deallocation is forced and all of their (no-op) deallocations are
-// removed.
+// For buffers that are freed elsewhere, no deallocation is forced and all of
+// their (no-op) deallocations are removed. Those are buffers that escape the
+// block computing them (returned from the function and freed by the caller, or
+// yielded out of a region), buffers a region only borrows through its block
+// arguments, and conv activations the conv op force-deallocates itself.
+//
+// Forcing is only ever correct for a buffer the surrounding block owns, and
+// bottom-to-top walk order only means program order because every deallocation
+// of such a buffer sits in that same block: a value defined inside a region is
+// invisible outside it, and an op inside a region cannot alias a value from the
+// enclosing scope because the region-carrying ops are all IsolatedFromAbove. A
+// future region op that is not isolated from above breaks that and needs this
+// revisited.
 class TTNNForceFinalDeallocs
     : public impl::TTNNForceFinalDeallocsBase<TTNNForceFinalDeallocs> {
 public:
@@ -115,19 +124,42 @@ public:
   }
 
 private:
-  // Collects the roots that must never be force-freed. These are either
-  // variables returned from the function, or conv activations that the conv op
-  // deallocates itself.
+  // Collects the roots that must never be force-freed: buffers that escape the
+  // block that computes them, buffers a region is only borrowing, and conv
+  // activations that the conv op deallocates itself.
   llvm::DenseSet<Value>
   collectDoNotForceRoots(func::FuncOp funcOp,
                          llvm::DenseMap<Value, Value> &valueToRoot) {
     llvm::DenseSet<Value> doNotForceRoots;
     funcOp.walk([&](Operation *op) {
-      if (auto returnOp = mlir::dyn_cast<func::ReturnOp>(op)) {
-        for (Value operand : returnOp.getOperands()) {
+      // A terminator hands its operands to whoever its block returns to, so
+      // this block is not the one that frees them: the caller for func.return,
+      // the enclosing scope or the next iteration for a region terminator such
+      // as ttnn.yield.
+      if (op->hasTrait<OpTrait::IsTerminator>()) {
+        for (Value operand : op->getOperands()) {
           doNotForceRoots.insert(canonicalRoot(operand, valueToRoot));
         }
         return WalkResult::advance();
+      }
+
+      // A region's block arguments name buffers the region did not allocate:
+      // they belong to the enclosing scope, or -- across a loop back edge --
+      // to the previous iteration.
+      //
+      // Note the asymmetry with a function, which is deliberately skipped
+      // here. Calling transfers ownership of the arguments, so a func is
+      // expected to free the buffers it is passed; entering a region does not,
+      // and a region body may run many times against buffers it is only
+      // borrowing.
+      if (!mlir::isa<func::FuncOp>(op)) {
+        for (Region &region : op->getRegions()) {
+          for (Block &block : region) {
+            for (BlockArgument arg : block.getArguments()) {
+              doNotForceRoots.insert(canonicalRoot(arg, valueToRoot));
+            }
+          }
+        }
       }
 
       Value convActivation =

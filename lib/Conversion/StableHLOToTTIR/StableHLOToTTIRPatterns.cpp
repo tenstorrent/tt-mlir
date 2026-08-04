@@ -34,6 +34,7 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/RegionUtils.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
@@ -117,9 +118,9 @@ enum TypicalInitReductionValue {
 };
 
 // Check if the constant op is initialized with the desired init value.
-static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
+static bool checkInitValue(mlir::ElementsAttr initValue, mlir::Type elementType,
                            TypicalInitReductionValue desired) {
-  if (initValueOp.getValueAttr().size() != 1) {
+  if (initValue.size() != 1) {
     return false;
   }
 
@@ -154,9 +155,9 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
     return false;
   }
 
-  if (initValueOp.getResult().getType().getElementType().isBF16()) {
+  if (elementType.isBF16()) {
     const llvm::APFloat &value =
-        *initValueOp.getValue().value_begin<llvm::APFloat>();
+        *initValue.value_begin<llvm::APFloat>();
     if (desired == TypicalInitReductionValue::NEG_INF) {
       return value.isInfinity() && value.isNegative();
     }
@@ -166,11 +167,11 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
     return !value.isInfinity() && !value.isNaN() &&
            value.convertToDouble() == 1.0;
   }
-  if (initValueOp.getResult().getType().getElementType().isF32()) {
-    return *initValueOp.getValue().value_begin<float>() == desiredF32;
+  if (elementType.isF32()) {
+    return *initValue.value_begin<float>() == desiredF32;
   }
-  if (initValueOp.getResult().getType().getElementType().isF64()) {
-    return *initValueOp.getValue().value_begin<double>() == desiredF64;
+  if (elementType.isF64()) {
+    return *initValue.value_begin<double>() == desiredF64;
   }
   // Integer element types: read the constant as an APInt so both signed and
   // unsigned attributes work. value_begin<int32_t>()/<int64_t>() assert with
@@ -179,7 +180,7 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
   // tensor<ui32> sentinel that torch 2.11's max_pool2d_with_indices lowering
   // emits (#9031).
   if (auto intType = mlir::dyn_cast<mlir::IntegerType>(
-          initValueOp.getResult().getType().getElementType())) {
+          elementType)) {
     unsigned width = intType.getWidth();
     // Restrict to the widths the original signed-typed reads handled
     // (i1/i8/i32/i64). Other widths previously fell through to `return false`,
@@ -189,7 +190,7 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
       return false;
     }
     const llvm::APInt &value =
-        *initValueOp.getValue().value_begin<llvm::APInt>();
+        *initValue.value_begin<llvm::APInt>();
     if (width == 1) {
       return value.getBoolValue() == desiredI1;
     }
@@ -704,23 +705,71 @@ private:
 
   // Verify that the init value is defined by a constant op and initialize with
   // desired value.
+  //
+  // Every `getDefiningOp()` here can return null: `val` is a block argument
+  // whenever the init value comes from outside the enclosing region (a
+  // function argument, or a loop-carried/captured value of a surrounding
+  // `while`), and walking up a single-operand chain can reach one just the
+  // same. A null defining op simply means the value is not a constant, so
+  // treat it as a non-match rather than dereferencing it.
   bool verifyInitValue(mlir::Value val,
                        TypicalInitReductionValue desired) const {
+    val = resolveWhileCapture(val);
     Operation *initValue = val.getDefiningOp();
     while (initValue && initValue->getOpOperands().size() == 1) {
-      initValue = initValue->getOpOperand(0).get().getDefiningOp();
+      initValue = resolveWhileCapture(initValue->getOpOperand(0).get())
+                      .getDefiningOp();
     }
-    if (!initValue || !isa<mlir::stablehlo::ConstantOp>(initValue)) {
+    if (!initValue) {
       return false;
     }
 
-    mlir::stablehlo::ConstantOp initValueOp =
-        mlir::cast<mlir::stablehlo::ConstantOp>(initValue);
-
-    if (!checkInitValue(initValueOp, desired)) {
-      return false;
+    // The constant may still be in StableHLO form, or may already have been
+    // converted - resolveWhileCapture steps out of a region onto a
+    // `ttir.while` operand, which the driver has converted by the time the op
+    // inside the region is reached.
+    if (auto constantOp =
+            mlir::dyn_cast<mlir::stablehlo::ConstantOp>(initValue)) {
+      return checkInitValue(constantOp.getValue(),
+                            constantOp.getResult().getType().getElementType(),
+                            desired);
     }
-    return true;
+    if (auto constantOp = mlir::dyn_cast<ttir::ConstantOp>(initValue)) {
+      return checkInitValue(constantOp.getValue(),
+                            constantOp.getResult().getType().getElementType(),
+                            desired);
+    }
+    return false;
+  }
+
+  // Steps out of a `ttir.while` region: given one of a region's block
+  // arguments, returns the operand it is bound to, which lives in the
+  // enclosing scope.
+  //
+  // The while conversion promotes everything its regions read from outside to
+  // an explicit capture, because `ttir.while` is IsolatedFromAbove. That hides
+  // the defining op of any such value behind a block argument, and an argmax
+  // nested in a loop reads its -inf/0 init values from outside the loop. The
+  // operands are laid out as the loop-carried inits followed by the captures,
+  // in the same order as the block arguments, so the two line up by index.
+  //
+  // Returns `val` unchanged if it is not such a block argument.
+  static Value resolveWhileCapture(Value val) {
+    auto blockArg = mlir::dyn_cast<BlockArgument>(val);
+    if (!blockArg) {
+      return val;
+    }
+    Block *block = blockArg.getOwner();
+    auto whileOp = mlir::dyn_cast_or_null<ttir::WhileOp>(
+        block->getParent() ? block->getParent()->getParentOp() : nullptr);
+    if (!whileOp || !block->isEntryBlock()) {
+      return val;
+    }
+    unsigned index = blockArg.getArgNumber();
+    if (index >= whileOp->getNumOperands()) {
+      return val;
+    }
+    return whileOp->getOperand(index);
   }
 };
 } // namespace
@@ -3351,11 +3400,17 @@ private:
       if (!constantOp) {
         return std::nullopt;
       }
-      if (checkInitValue(constantOp, TypicalInitReductionValue::NEG_INF)) {
+      mlir::ElementsAttr constantValue = constantOp.getValue();
+      mlir::Type elementType =
+          constantOp.getResult().getType().getElementType();
+      if (checkInitValue(constantValue, elementType,
+                         TypicalInitReductionValue::NEG_INF)) {
         initValues.push_back(TypicalInitReductionValue::NEG_INF);
-      } else if (checkInitValue(constantOp, TypicalInitReductionValue::ZERO)) {
+      } else if (checkInitValue(constantValue, elementType,
+                                TypicalInitReductionValue::ZERO)) {
         initValues.push_back(TypicalInitReductionValue::ZERO);
-      } else if (checkInitValue(constantOp, TypicalInitReductionValue::ONE)) {
+      } else if (checkInitValue(constantValue, elementType,
+                                TypicalInitReductionValue::ONE)) {
         initValues.push_back(TypicalInitReductionValue::ONE);
       } else {
         return std::nullopt;
@@ -11162,7 +11217,138 @@ public:
   }
 };
 
+// Converts `stablehlo.while` into `ttir.while`.
+//
+// Unlike every other region-carrying StableHLO op handled in this file, the
+// regions are preserved rather than pattern-matched into an attribute. Two
+// things need fixing up along the way:
+//
+//   - `ttir.while` is IsolatedFromAbove, so values the regions use but that
+//     are defined outside the op must be promoted to explicit `captures`
+//     operands and appended to both regions' block arguments. This is not
+//     cosmetic: each region becomes its own program at runtime, with its own
+//     tensor pool, and can only see tensors bound through its own inputs.
+//     This applies to constants as well: cloning them into the regions instead
+//     would leave a const-evaluable op inside a region that is isolated from
+//     above, which const-eval hoisting then rewires to the function-level
+//     device and breaks. Patterns that need to see through a capture to what
+//     it was should use `resolveWhileCapture`.
+//   - The `stablehlo.return` terminators must become `ttir.yield`. No pattern
+//     covers them, and StableHLO is fully illegal after this pass, so they are
+//     rewritten here rather than left to the driver.
+class StableHLOToTTIRWhileOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::WhileOp> {
+  using OpConversionPattern<mlir::stablehlo::WhileOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::WhileOp srcOp,
+                  mlir::stablehlo::WhileOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    const TypeConverter *typeConverter = getTypeConverter();
+
+    llvm::SmallVector<Type> resultTypes;
+    if (failed(typeConverter->convertTypes(srcOp.getResultTypes(),
+                                           resultTypes))) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "could not convert result types");
+    }
+
+    // Both regions are given the same signature, so collect the captures of
+    // the two together.
+    llvm::SetVector<Value> capturedValues;
+    mlir::getUsedValuesDefinedAbove(srcOp->getRegions(), capturedValues);
+
+    llvm::SmallVector<Value> captures;
+    captures.reserve(capturedValues.size());
+    for (Value captured : capturedValues) {
+      if (!mlir::isa<RankedTensorType>(captured.getType())) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "loop body captures a value that is not a ranked tensor");
+      }
+      captures.push_back(rewriter.getRemappedValue(captured));
+    }
+
+    auto whileOp = rewriter.create<ttir::WhileOp>(
+        srcOp.getLoc(), resultTypes, adaptor.getOperand(), captures,
+        /*trip_count=*/nullptr);
+
+    // Move the StableHLO regions over wholesale; the driver then converts the
+    // ops inside them with the regular patterns.
+    rewriter.inlineRegionBefore(srcOp.getCond(), whileOp.getCond(),
+                                whileOp.getCond().end());
+    rewriter.inlineRegionBefore(srcOp.getBody(), whileOp.getBody(),
+                                whileOp.getBody().end());
+
+    for (Region *region : {&whileOp.getCond(), &whileOp.getBody()}) {
+      if (failed(appendCapturesAndRewriteTerminator(*region, capturedValues,
+                                                    rewriter))) {
+        return failure();
+      }
+    }
+
+    rewriter.replaceOp(srcOp, whileOp.getResults());
+    return success();
+  }
+
+private:
+  // Appends one block argument per captured value, redirects the region's uses
+  // of those values to the new arguments, and turns `stablehlo.return` into
+  // `ttir.yield`.
+  LogicalResult appendCapturesAndRewriteTerminator(
+      Region &region, const llvm::SetVector<Value> &capturedValues,
+      ConversionPatternRewriter &rewriter) const {
+    const TypeConverter *typeConverter = getTypeConverter();
+    Block &block = region.front();
+    const unsigned numOriginalArgs = block.getNumArguments();
+
+    TypeConverter::SignatureConversion signatureConv(numOriginalArgs);
+    for (auto [index, argType] : llvm::enumerate(block.getArgumentTypes())) {
+      Type convertedType = typeConverter->convertType(argType);
+      if (!convertedType) {
+        return rewriter.notifyMatchFailure(
+            region.getParentOp(), "could not convert region argument type");
+      }
+      signatureConv.addInputs(index, convertedType);
+    }
+    // Captures become brand-new trailing arguments with no original counterpart.
+    for (Value captured : capturedValues) {
+      Type convertedType = typeConverter->convertType(captured.getType());
+      if (!convertedType) {
+        return rewriter.notifyMatchFailure(region.getParentOp(),
+                                           "could not convert capture type");
+      }
+      signatureConv.addInputs(convertedType);
+    }
+
+    Block *newBlock =
+        rewriter.applySignatureConversion(&block, signatureConv, typeConverter);
+
+    auto usedInThisRegion = [&region](OpOperand &use) {
+      return region.isAncestor(use.getOwner()->getParentRegion());
+    };
+
+    for (auto [index, captured] : llvm::enumerate(capturedValues)) {
+      BlockArgument replacement = newBlock->getArgument(numOriginalArgs + index);
+      rewriter.replaceUsesWithIf(captured, replacement, usedInThisRegion);
+    }
+
+    auto returnOp =
+        mlir::cast<mlir::stablehlo::ReturnOp>(newBlock->getTerminator());
+    rewriter.setInsertionPoint(returnOp);
+    rewriter.replaceOpWithNewOp<ttir::YieldOp>(returnOp, returnOp.getOperands());
+
+    return success();
+  }
+};
+
 } // namespace
+
+static void addWhileOpConversionPattern(MLIRContext *ctx,
+                                        RewritePatternSet &patterns,
+                                        TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRWhileOpConversionPattern>(typeConverter, ctx);
+}
 
 static void addSparseMatmulOpConversionPattern(MLIRContext *ctx,
                                                RewritePatternSet &patterns,
@@ -11223,6 +11409,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addSparseMatmulOpConversionPattern(ctx, patterns, typeConverter);
   addAllToAllOpsConversionPattern(ctx, patterns, typeConverter);
   addTTLangOpConversionPattern(ctx, patterns, typeConverter);
+  addWhileOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

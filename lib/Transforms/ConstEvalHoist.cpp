@@ -303,12 +303,31 @@ private:
 } // namespace
 
 namespace {
+// Returns the closest ancestor that is isolated from above, which for an op in
+// a function body is the function itself.
+static Operation *getIsolationScope(Operation *op) {
+  for (Operation *parent = op->getParentOp(); parent;
+       parent = parent->getParentOp()) {
+    if (parent->hasTrait<mlir::OpTrait::IsIsolatedFromAbove>()) {
+      return parent;
+    }
+  }
+  return nullptr;
+}
+
 // Deduplicate operations with TTCoreDuplicateConstEvalTrait in a function.
 // Assumes any op with TTCoreDuplicateConstEvalTrait is equivalent to the same
 // op with the same attrs.
 static void deduplicateSharedOps(func::FuncOp funcOp) {
-  // Map from operation signature to first instance
-  using OpKey = std::pair<StringRef, DictionaryAttr>;
+  // Map from operation signature to first instance.
+  //
+  // The signature includes the enclosing isolation scope, because the walk
+  // below descends into regions that are isolated from above - a `ttnn.while`
+  // body, say. An op in such a region may not use a value defined outside it,
+  // so replacing it with an instance from an enclosing scope would leave its
+  // users referring to something they cannot see. Keying on the scope lets
+  // each isolated region deduplicate against itself and no further.
+  using OpKey = std::tuple<Operation *, StringRef, DictionaryAttr>;
   llvm::DenseMap<OpKey, Operation *> sharedOps;
 
   // Collect operations that need to be erased
@@ -321,7 +340,7 @@ static void deduplicateSharedOps(func::FuncOp funcOp) {
       StringRef opName = op->getName().getStringRef();
       DictionaryAttr attrs = op->getAttrDictionary();
 
-      OpKey key = std::make_pair(opName, attrs);
+      OpKey key = std::make_tuple(getIsolationScope(op), opName, attrs);
 
       // If this is the first instance with these attributes, record it
       auto [it, inserted] = sharedOps.insert({key, op});

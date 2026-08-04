@@ -5306,6 +5306,34 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// WhileOp
+//===----------------------------------------------------------------------===//
+
+::mlir::tt::ttir::YieldOp mlir::tt::ttir::WhileOp::getCondYield() {
+  return mlir::cast<YieldOp>(getCondBlock().getTerminator());
+}
+
+::mlir::tt::ttir::YieldOp mlir::tt::ttir::WhileOp::getBodyYield() {
+  return mlir::cast<YieldOp>(getBodyBlock().getTerminator());
+}
+
+// WhileOp verification
+::mlir::LogicalResult mlir::tt::ttir::WhileOp::verify() {
+  if (::mlir::failed(ttmlir::utils::verifyWhileOpStructure(
+          *this, getInits(), getCaptures(), getCond(), getBody(),
+          getCondYield().getOperands(), getBodyYield().getOperands()))) {
+    return ::mlir::failure();
+  }
+
+  if (getTripCount() && *getTripCount() < 0) {
+    return emitOpError() << "trip_count must be non-negative, but is "
+                         << *getTripCount();
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // RepeatOp
 //===----------------------------------------------------------------------===//
 

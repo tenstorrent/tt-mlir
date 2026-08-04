@@ -123,7 +123,10 @@ public:
   // detected).
   LogicalResult checkAndInsertDeallocation(IRRewriter &rewriter, Value value,
                                            Operation *lastOp) {
-    if (isa<func::ReturnOp>(lastOp)) {
+    // A value whose last use is a terminator escapes its block, so its owner
+    // is responsible for freeing it. For ttnn.yield that owner is the loop:
+    // values yielded by a while body become the next iteration's inputs.
+    if (isa<func::ReturnOp, ttnn::YieldOp>(lastOp)) {
       return success();
     }
 
@@ -185,8 +188,14 @@ public:
       assert(func.getBody().hasOneBlock() &&
              "found func that didn't have one block!");
       Liveness liveness(func.getOperation());
-      const LivenessBlockInfo *livenessInfo =
-          liveness.getLiveness(&func.getBody().front());
+
+      // Liveness is per block, and ops nested in a region (e.g. a ttnn.while
+      // body) belong to their own block, so the info has to be looked up from
+      // the block that actually owns the value rather than from the function's
+      // entry block.
+      auto livenessFor = [&](Value value) {
+        return liveness.getLiveness(value.getParentBlock());
+      };
 
       // Collect all values to deallocate with their last usage operations.
       SmallVector<std::pair<Value, Operation *>> valuesToDeallocate;
@@ -200,7 +209,7 @@ public:
           if (!isa<RankedTensorType>(arg.getType())) {
             continue;
           }
-          Operation *lastOp = getLastValueUsageOp(livenessInfo, arg);
+          Operation *lastOp = getLastValueUsageOp(livenessFor(arg), arg);
           valuesToDeallocate.push_back({arg, lastOp});
         }
       }
@@ -237,7 +246,7 @@ public:
             continue;
           }
 
-          Operation *lastOp = getLastValueUsageOp(livenessInfo, result);
+          Operation *lastOp = getLastValueUsageOp(livenessFor(result), result);
           valuesToDeallocate.push_back({result, lastOp});
         }
       });

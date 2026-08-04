@@ -545,4 +545,31 @@ def TTIRCPUBooleanNarrowing : Pass<"ttir-cpu-boolean-narrowing", "::mlir::Module
   }];
 }
 
+def TTIRWhileTripCount : Pass<"ttir-while-trip-count", "::mlir::ModuleOp"> {
+  let summary = "Annotate counted `ttir.while` loops with their trip count.";
+  let description = [{
+    Recognizes the counted-loop idiom that frontends emit for `fori_loop` and
+    friends, and records the iteration count on the op:
+
+    - one loop-carried value is an induction variable with a constant initial
+      value,
+    - the condition region compares that induction variable against a
+      loop-invariant constant and yields the result directly,
+    - the body region advances the induction variable by a constant step.
+
+    With `trip_count` set, the runtime skips the condition program altogether.
+    That matters a lot: a data-dependent loop has to copy the predicate back to
+    host to decide whether to continue, costing one device-to-host
+    synchronization per iteration.
+
+    The condition region is left intact, so consumers that ignore the attribute
+    still execute the loop correctly.
+
+    Must run before const-eval hoisting, which moves the constants this
+    analysis reads into separate functions, and before `TTNNLayout`, which
+    inserts typecast/to_layout ops between the comparison and the yield.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 #endif

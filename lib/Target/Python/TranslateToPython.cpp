@@ -148,7 +148,18 @@ struct PythonEmitter {
   /// Return the textual representation of a subscript operation.
   std::string getSubscriptName(SubscriptOp op);
 
-  /// Register a value with a name so it can be referenced later.
+  /// Bind `value` to a Python variable that another value already owns -- the
+  /// init, body block argument, yielded value and result of a loop-carried
+  /// value are all one variable. The name must have come from getOrCreateName,
+  /// which is what reserved it; this deliberately does no uniquing, since
+  /// aliasing the name is the point.
+  void mapValueToName(Value value, StringRef name);
+
+  /// Register a value with verbatim Python text to substitute for it wherever
+  /// it is used. Nothing is reserved: the text is either an expression rather
+  /// than an identifier (a literal, an inlined expression) or a name the IR
+  /// fixed and Python expects to be shared, as `global x` and a later
+  /// assignment to `x` are.
   void registerDeferredValue(Value value, StringRef str);
 
   /// Decides whether the file should be emitted. If fileId is set, only
@@ -395,6 +406,10 @@ std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
 
   ss << "[" << getOrCreateName(index, indexName) << "]";
   return name;
+}
+
+void PythonEmitter::mapValueToName(Value value, StringRef name) {
+  registerDeferredValue(value, name);
 }
 
 void PythonEmitter::registerDeferredValue(Value value, StringRef str) {
@@ -885,6 +900,14 @@ static LogicalResult printOperation(PythonEmitter &emitter, YieldOp yieldOp) {
   return yieldOp.emitOpError("yield operation should not be directly emitted");
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    WhileYieldOp yieldOp) {
+  // The loop-carried assignment is emitted by the parent, which is the only
+  // place that knows the variable names.
+  return yieldOp.emitOpError(
+      "while_yield operation should not be directly emitted");
+}
+
 // Helper function to build an expression string
 static FailureOr<std::string> buildExpressionString(ExpressionOp expressionOp,
                                                     PythonEmitter &emitter) {
@@ -974,6 +997,111 @@ static LogicalResult printOperation(PythonEmitter &emitter, IfOp ifOp) {
 }
 
 static LogicalResult printOperation(PythonEmitter &emitter,
+                                    VerbatimOp verbatimOp) {
+  raw_indented_ostream &os = emitter.ostream();
+
+  auto items = verbatimOp.parseFormatString();
+  if (failed(items)) {
+    return failure();
+  }
+
+  size_t idx = 0;
+  for (auto &item : *items) {
+    if (auto *str = std::get_if<StringRef>(&item)) {
+      os << *str;
+    } else {
+      if (failed(emitter.emitOperand(verbatimOp.getFmtArgs()[idx++], ""))) {
+        return failure();
+      }
+    }
+  }
+
+  return success();
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter, WhileOp whileOp) {
+  raw_indented_ostream &os = emitter.ostream();
+  Block &body = whileOp.getBody().front();
+
+  // Each loop-carried value is one Python variable that four SSA values refer
+  // to: the init that seeds it, the body block argument the body reads, the
+  // value the body yields back, and the result the code after the loop reads.
+  // Name it once, here, so it goes through the emitter's collision check, and
+  // bind the other three to that name.
+  //
+  // No Scope is opened for the body -- a Python loop body does not introduce
+  // one, and the results have to stay visible after the loop.
+  SmallVector<std::string> names;
+  names.reserve(whileOp.getInits().size());
+  for (auto [index, init] : llvm::enumerate(whileOp.getInits())) {
+    names.emplace_back(emitter.getOrCreateName(
+        body.getArgument(index), "carried_" + std::to_string(index)));
+    const std::string &name = names.back();
+    emitter.mapValueToName(whileOp.getResult(index), name);
+
+    os << name << " = ";
+    if (failed(emitter.emitOperand(init, ""))) {
+      return failure();
+    }
+    os << "\n";
+  }
+
+  if (std::optional<int64_t> tripCount = whileOp.getTripCount()) {
+    os << "for _ in range(" << *tripCount << "):\n";
+  } else {
+    os << "while ";
+
+    auto items = whileOp.parseFormatString();
+    if (failed(items)) {
+      return failure();
+    }
+
+    size_t idx = 0;
+    for (auto &item : *items) {
+      if (auto *str = std::get_if<StringRef>(&item)) {
+        os << *str;
+      } else {
+        if (failed(emitter.emitOperand(whileOp.getCondArgs()[idx++], ""))) {
+          return failure();
+        }
+      }
+    }
+
+    os << ":\n";
+  }
+
+  os.indent();
+  for (Operation &bodyOp : body.without_terminator()) {
+    if (failed(emitter.emitOperation(bodyOp))) {
+      return failure();
+    }
+  }
+
+  if (names.empty()) {
+    // Nothing carried, so nothing to assign; the body may well be empty too
+    // and Python has no empty block.
+    if (body.without_terminator().empty()) {
+      os << "pass\n";
+    }
+  } else {
+    // One tuple assignment, so the carry-back is simultaneous. A body that
+    // yields its arguments in a different order would otherwise clobber a
+    // value it still has to read.
+    llvm::interleaveComma(names, os);
+    os << " = ";
+    if (failed(interleaveCommaWithError(
+            whileOp.getYield().getResults(), os,
+            [&](Value value) { return emitter.emitOperand(value, ""); }))) {
+      return failure();
+    }
+    os << "\n";
+  }
+  os.unindent();
+
+  return success();
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
                                     ExpressionOp expressionOp) {
 
   Block *bodyBlock = expressionOp.getBodyBlock();
@@ -1045,7 +1173,8 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           .Case<CallOpaqueOp, ImportOp, AssignOp, GetAttrOp, SetAttrOp,
                 ConstantOp, SubscriptOp, ClassOp, GlobalOp, AssignGlobalOp,
                 GlobalStatementOp, CreateDictOp, ExpressionOp, YieldOp, IfOp,
-                NestedFuncOp, NestedFuncReturnOp, FileOp>(
+                WhileOp, WhileYieldOp, VerbatimOp, NestedFuncOp,
+                NestedFuncReturnOp, FileOp>(
               [&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             registerDeferredValue(op.getResult(), op.getValue());
@@ -1066,7 +1195,7 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
     return success();
   }
 
-  if (!isa<IfOp>(op)) {
+  if (!isa<IfOp, WhileOp>(op)) {
     os << "\n";
   }
 
