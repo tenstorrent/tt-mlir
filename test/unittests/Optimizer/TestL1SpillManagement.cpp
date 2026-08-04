@@ -8,6 +8,7 @@
 
 #include "gtest/gtest.h"
 
+using namespace mlir::tt::ttnn;
 using namespace mlir::tt::ttnn::test;
 
 //===----------------------------------------------------------------------===//
@@ -153,9 +154,9 @@ TEST_F(SelfSpillTest, TypecastDemoteSpillsShardedInput) {
             TensorMemoryLayout::Interleaved);
 
   // Input rewired through a ToMemoryConfig spill to DRAM Interleaved.
-  Value typecastIn = typecast.getInput();
+  mlir::Value typecastIn = typecast.getInput();
   auto *spill = typecastIn.getDefiningOp();
-  ASSERT_TRUE(spill && isa<ToMemoryConfigOp>(spill))
+  ASSERT_TRUE(spill && mlir::isa<ToMemoryConfigOp>(spill))
       << "expected a ToMemoryConfigOp spill on the typecast input";
   auto inRt = mlir::cast<mlir::RankedTensorType>(typecastIn.getType());
   auto inLayout =
@@ -200,7 +201,7 @@ TEST_F(SelfSpillTest, TypecastDemoteEvictsLiveShardedProducer) {
   // Live producer was spilled to DRAM Interleaved for the typecast.
   EXPECT_TRUE(wasSpilled(producer->getResult(0)))
       << "live L1-sharded producer must be spilled before typecast demote";
-  Value typecastIn = typecast.getInput();
+  mlir::Value typecastIn = typecast.getInput();
   auto inRt = mlir::cast<mlir::RankedTensorType>(typecastIn.getType());
   auto inLayout =
       mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(inRt.getEncoding());
