@@ -190,6 +190,19 @@ def TTKernel_PackReconfigDataFormatOp : TTKernel_Op<"pack_reconfig_data_format">
     }];
 }
 
+def TTKernel_ReconfigDataFormatSrcAOp : TTKernel_Op<"reconfig_data_format_srca"> {
+    let summary = "Reconfigure Src A data format for the given input CB.";
+    let description = [{
+      Reconfigures the srcA data format for a new operand, always re-deriving the int8/unsigned state from the new format.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in_cb);
+
+    let assemblyFormat = [{
+      `(` $in_cb `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_CopyTileInitOp : TTKernel_InitOp<"copy_tile_init"> {
     let summary = "Perform the init for copy tile. This does not reconfigure the unpacker data types.";
     let description = [{

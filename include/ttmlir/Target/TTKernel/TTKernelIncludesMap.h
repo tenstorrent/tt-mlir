@@ -187,6 +187,7 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"pack_tile_block",                                {"api/compute/pack.h", ""}},
         {"pack_untilize_init",                             {"api/compute/pack_untilize.h", ""}},
         {"pack_untilize_uninit",                           {"api/compute/pack_untilize.h", ""}},
+        {"reconfig_data_format_srca",                      {"api/compute/reconfig_data_format.h", ""}},
         {"power_binary_tile",                              {"api/compute/eltwise_binary_sfpu.h", ""}},
         {"power_binary_tile_init",                         {"api/compute/eltwise_binary_sfpu.h", ""}},
         {"power_tile",                                     {"api/compute/compute_kernel_api.h", ""}},

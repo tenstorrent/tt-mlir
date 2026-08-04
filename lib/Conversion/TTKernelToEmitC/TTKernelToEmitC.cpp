@@ -2685,6 +2685,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalUntilizeBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackUntilizeInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackUntilizeUninitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ReconfigDataFormatSrcAOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::ExperimentalPackUntilizeBlockOp>,
 

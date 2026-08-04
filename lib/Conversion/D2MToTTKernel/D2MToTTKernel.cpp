@@ -3223,9 +3223,9 @@ public:
     // TTIRToD2M lowering transposes ReduceDim::C inputs so this op always sees
     // a row reduction of a full 32-row tile.
     constexpr int32_t kNumRows = 32;
+    constexpr bool accumulate = true;
 
     Value chunk = findReductionLoopIV(op, idst);
-    const bool accumulate = static_cast<bool>(chunk);
     if (!chunk) {
       // No reduction loop: single-tile case, chunk is unused by the LLK.
       chunk = rewriter.create<arith::ConstantIndexOp>(loc, 0);
