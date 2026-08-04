@@ -366,6 +366,7 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   auto deviceRange = distributed::MeshCoordinateRange(meshDevice->shape());
   for (auto deviceCoord : deviceRange) {
     tt_metal::Program program = tt_metal::CreateProgram();
+    bool hasFabricConfiguredKernel = false;
     for (const target::metal::KernelConfig *kernelConfig :
          *command->program()->kernels()) {
       const target::metal::KernelSource *kernelSource =
@@ -425,6 +426,7 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
       }
 
       if (fabricConnectionConfig) {
+        hasFabricConfiguredKernel = true;
         auto fabricConfigArgs = common::appendFabricConfigArgs(
             fabricConnectionConfig, kernelConfig, program, handle, deviceCoord,
             meshDevice, rtArgsVec, coreRangeSet);
@@ -462,10 +464,9 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
       tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
     }
 
-    // fabric connected cores all have separate runtime args so we add a
-    // separate program for each device
-    if (command->fabric_connection_configs() &&
-        command->fabric_connection_configs()->size() > 0) {
+    // Fabric-configured kernels have device-specific runtime args, so emit a
+    // separate program per device.
+    if (hasFabricConfiguredKernel) {
       meshWorkload.add_program(distributed::MeshCoordinateRange(deviceCoord),
                                std::move(program));
     } else {
