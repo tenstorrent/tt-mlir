@@ -637,3 +637,30 @@ module {
     return %o : tensor<2x8x1x64xf32>
   }
 }
+
+// Same guard, but with the predicate derived from the scores (as torch's
+// _safe_softmax lowers). With no mask nothing introduces -inf, so it cannot
+// fire: the select must be dropped, or its predicate pins the QK^T matmul.
+module {
+  func.func @sdpa_mha_nan_safe_where_score_derived(
+      %q: tensor<1x8x128x64xbf16>,
+      %k: tensor<1x8x128x64xbf16>,
+      %v: tensor<1x8x128x64xbf16>) -> tensor<1x8x128x64xbf16> {
+    // CHECK-LABEL: @sdpa_mha_nan_safe_where_score_derived
+    // CHECK: "ttir.scaled_dot_product_attention"
+    // CHECK-NOT: ttir.where
+    // CHECK-NOT: ttir.matmul
+    // CHECK-NOT: ttir.eq
+    %kt = "ttir.permute"(%k) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<1x8x128x64xbf16>) -> tensor<1x8x64x128xbf16>
+    %qk = "ttir.matmul"(%q, %kt) <{transpose_a = false, transpose_b = false}> : (tensor<1x8x128x64xbf16>, tensor<1x8x64x128xbf16>) -> tensor<1x8x128x128xbf16>
+    %smx = "ttir.softmax"(%qk) <{dimension = -1 : si32, numericStable = false}> : (tensor<1x8x128x128xbf16>) -> tensor<1x8x128x128xbf16>
+    %neginf = "ttir.full"() <{fill_value = 0xFF800000 : f32, shape = array<i32: 1, 8, 128, 128>}> : () -> tensor<1x8x128x128xbf16>
+    %masked = "ttir.eq"(%qk, %neginf) : (tensor<1x8x128x128xbf16>, tensor<1x8x128x128xbf16>) -> tensor<1x8x128x128xi1>
+    %rowdead = "ttir.min"(%masked) <{dim_arg = [3 : i32], keep_dim = true}> : (tensor<1x8x128x128xi1>) -> tensor<1x8x128x1xi1>
+    %cond = "ttir.broadcast"(%rowdead) <{broadcast_dimensions = array<i64: 1, 1, 1, 128>}> : (tensor<1x8x128x1xi1>) -> tensor<1x8x128x128xi1>
+    %zeros = "ttir.zeros"() <{shape = array<i32: 1, 8, 128, 128>}> : () -> tensor<1x8x128x128xbf16>
+    %safe = "ttir.where"(%cond, %zeros, %smx) : (tensor<1x8x128x128xi1>, tensor<1x8x128x128xbf16>, tensor<1x8x128x128xbf16>) -> tensor<1x8x128x128xbf16>
+    %o = "ttir.matmul"(%safe, %v) <{transpose_a = false, transpose_b = false}> : (tensor<1x8x128x128xbf16>, tensor<1x8x128x64xbf16>) -> tensor<1x8x128x64xbf16>
+    return %o : tensor<1x8x128x64xbf16>
+  }
+}
