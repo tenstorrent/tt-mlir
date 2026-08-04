@@ -74,18 +74,18 @@ static mlir::LogicalResult wrapFunctionBodyInManualComputationOp(
                                        manualComputationOp->getResults());
 
   // Update old arguments with new arguments inside of the
-  // manualComputationBlock.
+  // manualComputationBlock. This has to reach uses nested inside regions too
+  // (e.g. the body of a `stablehlo.while`), and must not touch the func
+  // arguments that were passed as operands to the manualComputationOp itself,
+  // which is why it is scoped to the target region rather than being a plain
+  // replaceAllUsesWith.
   for (uint32_t i = 0; i < sourceBlock.getArguments().size(); i++) {
     auto oldArg = sourceBlock.getArgument(i);
     auto newArg = targetBlock.getArgument(i);
 
-    for (auto &targetOp : targetBlock.getOperations()) {
-      for (auto &operand : targetOp.getOpOperands()) {
-        if (operand.get() == oldArg) {
-          operand.set(newArg);
-        }
-      }
-    }
+    oldArg.replaceUsesWithIf(newArg, [&](mlir::OpOperand &operand) {
+      return targetRegion.isAncestor(operand.getOwner()->getParentRegion());
+    });
   }
 
   // Update all func.return ops in manualComputationOp with sdy.return op.

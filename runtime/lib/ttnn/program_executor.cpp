@@ -84,6 +84,7 @@
 #include "operations/layout/to_memory_config.h"
 #include "operations/layout/typecast.h"
 #include "operations/matmul/matmul.h"
+#include "operations/control_flow/while_op.h"
 #include "operations/mlir_native/func_call.h"
 #include "operations/normalization/batch_norm.h"
 #include "operations/normalization/distributed_rms_norm.h"
@@ -371,6 +372,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::FuncCallOp: {
     return operations::mlir_native::run(op->type_as_FuncCallOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::WhileOp: {
+    return operations::control_flow::run(op->type_as_WhileOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::CumSumOp: {
     return operations::reduction::cumsum::run(op->type_as_CumSumOp(),
