@@ -924,6 +924,30 @@ def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {
   ];
 }
 
+def D2MLowerTopk : Pass<"d2m-lower-topk", "::mlir::ModuleOp"> {
+  let summary = "Spread a single-core `topk_block` across the worker grid";
+  let description = [{
+    Starts from every leaf `topk_block` (`generate_indices = true`, i.e.
+    reducing raw input rather than merging partials), recovers the layout chain
+    feeding it and the extracts consuming it, and asks
+    `selectTopKShardingStrategy` how to split the reduction. One core means the
+    single-core lowering is already final. Otherwise it re-lays the input out
+    banded and/or data-parallel, runs a leaf topk per core, collapses the bands
+    with a merge tree (`mergeSchedule`) built on `d2m.composite_view` gathers,
+    and rebuilds the extracts.
+
+    Must run after `ttir-to-d2m` and before `d2m-grid-selection`, which folds
+    the logical grids emitted here onto physical cores. A shape the strategy
+    cannot place is a hard error: D2M has no fallback path for it.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::linalg::LinalgDialect",
+    "::mlir::tensor::TensorDialect",
+    "::mlir::arith::ArithDialect"
+  ];
+}
+
 def D2MDecomposeTopk : Pass<"d2m-decompose-topk", "::mlir::ModuleOp"> {
   let summary = "Decompose topk_block ops into low-level tile operations";
   let description = [{

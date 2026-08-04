@@ -10,7 +10,6 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <memory>
@@ -77,10 +76,9 @@ public:
   // rewriting does not re-run grid selection.
   llvm::SmallVector<CompositeInputGridInfo> compositeInputInfos;
 
-  // Set when the grid was pinned rather than computed. The apply phase would
-  // otherwise short-circuit on "already at the target grid" and skip stamping
-  // the virtual grid mapping.
-  bool forceRebuild = false;
+  // The operand's type is final: its grid was fixed by the lowering that built
+  // the generic. Apply-time rewrites keep the type and only stamp placement.
+  bool pinned = false;
 };
 
 /// Effective target grid range for a GenericOp.
@@ -124,17 +122,15 @@ struct GridAnalysis {
 
 private:
   /// Analyze a single GenericOp and compute grid decisions for all operands.
-  /// `pinned` generics keep the grid their producers already encoded.
   GenericGridAnalysisResult
   analyzeGenericOp(GenericOp genericOp,
-                   const EffectiveTargetGridRange &effectiveTargetGridRange,
-                   bool pinned);
+                   const EffectiveTargetGridRange &effectiveTargetGridRange);
 
-  /// Collect every GenericOp belonging to a topk expansion. A topk's band split
-  /// is a semantic property of the lowering, not an optimization, so these
-  /// grids are honored and only their mapping onto physical cores is decided
-  /// here.
-  static llvm::DenseSet<Operation *> collectTopKPinnedGenerics(Operation *root);
+  /// Record the grids a pinned generic's operands already carry, so the apply
+  /// phase can stamp physical placement without reselecting a split.
+  GenericGridAnalysisResult analyzePinnedGenericOp(
+      GenericOp genericOp,
+      const EffectiveTargetGridRange &effectiveTargetGridRange);
 
   /// Compute the effective target grid range for a generic, accounting for
   /// spatial region grid ranges.

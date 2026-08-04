@@ -1,9 +1,10 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-materialize-view-returns -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-lower-topk --d2m-materialize-view-returns -o %t %s
 // RUN: FileCheck %s --input-file=%t
 // RUN: FileCheck %s --input-file=%t --check-prefix=UNPLACED
 // RUN: ttmlir-opt --ttir-to-ttmetal-pipeline -o %t.ttmetal %s
 
-// Grids are emitted unfolded; d2m-grid-selection maps them onto physical cores.
+// Grids are emitted unfolded and tagged d2m.pinned_grid; d2m-grid-selection
+// only folds them onto physical cores.
 // The scan starts at the first function so it skips the ttcore.device
 // attribute, whose workerGrid always carries the device's own fold maps.
 // UNPLACED-LABEL: func.func @topk_dim1_k16
@@ -17,7 +18,8 @@ module {
 
   // 2D topk along dim 1 with k=16 on a 32x64 input (2 tiles wide).
   // The lowering must:
-  //   1. Transpose tiles (dim=1 operates on rows, TopkBlockOp on columns).
+  //   1. Transpose tiles (topk_block sorts down tile columns; dim=1 puts the
+  //      sort dim on tile rows).
   //   2. Run topk_block with correct k and num_elements.
   //   3. Extract results with tile_transpose (untranspose).
   // CHECK-LABEL: func @topk_dim1_k16
@@ -64,13 +66,13 @@ module {
   // ---- dim=0, k<=32 ----
 
   // 2D topk along dim 0 with k=16 on a 64x32 input (2 tiles tall).
-  // Nothing is transposed for dim=0: the value input already reduces down tile
-  // rows, and the index buffer is built inside the topk kernel rather than by
-  // an upstream arange that would need reorienting. Extract uses tile_typecast.
+  // Nothing is transposed for dim=0: the sort dim already runs down tile
+  // columns, which is the orientation topk_block wants. Extract uses
+  // tile_typecast, which also converts the si32 indices to the user's type.
   // CHECK-LABEL: func @topk_dim0_k16
   func.func @topk_dim0_k16(%arg0: tensor<64x32xf32>) -> (tensor<16x32xf32>, tensor<16x32xsi32>) {
-    // No index buffer is materialized upstream, so nothing is transposed and
-    // no arange runs before topk_block.
+    // The index buffer is built inside the topk kernel, so no arange runs
+    // upstream and nothing is transposed.
     // CHECK-NOT: d2m.tile_transpose
     // CHECK-NOT: d2m.arange_block
 
@@ -93,7 +95,8 @@ module {
 
   // ---- Large k (k>32) ----
 
-  // k=64 requires 2 output tiles and a 3-sub-merge tree.
+  // k=64 spans 2 output tiles; the reduction stays one topk_block here and only
+  // d2m-decompose-topk splits it into the large-k left fold.
   // CHECK-LABEL: func @topk_dim1_k64
   func.func @topk_dim1_k64(%arg0: tensor<32x256xf32>) -> (tensor<32x64xf32>, tensor<32x64xsi32>) {
     // Pre-transpose the input tiles.
@@ -114,8 +117,7 @@ module {
     return %values, %indices : tensor<32x64xf32>, tensor<32x64xsi32>
   }
 
-  // k=64 along dim=0 uses tile_typecast for extract, and needs no transpose
-  // anywhere: the index buffer is built in-kernel.
+  // k=64 along dim=0 uses tile_typecast for extract and needs no transpose.
   // CHECK-LABEL: func @topk_dim0_k64
   func.func @topk_dim0_k64(%arg0: tensor<256x32xf32>) -> (tensor<64x32xf32>, tensor<64x32xsi32>) {
     // CHECK-NOT: d2m.tile_transpose
@@ -165,8 +167,8 @@ module {
     // CHECK: d2m.empty() : tensor<1x1x1x1x!ttcore.tile<32x32, si32>
     // Values keep the full 2x1 reduction shape ...
     // CHECK: d2m.empty() : tensor<1x1x2x1x!ttcore.tile<32x32, f32>
-    // ... and the indices ride along as si32 (typecast to the user output
-    // after extract).
+    // ... and the indices ride along as si32 (dim=0 folds the typecast to the
+    // user's index type into the extract itself).
     // CHECK: d2m.empty() : tensor<1x1x2x1x!ttcore.tile<32x32, si32>
     %values, %indices = "ttir.topk"(%arg0) <{k = 16 : i32, dim = 0 : i32, largest = true, sorted = false}> : (tensor<64x32xf32>) -> (tensor<16x32xf32>, tensor<16x32xsi32>)
     return %values, %indices : tensor<16x32xf32>, tensor<16x32xsi32>
@@ -174,10 +176,10 @@ module {
 
   // ---- Non-power-of-2 tile counts (ragged), k<=32 ----
 
-  // 32x544 with k=16: Wt=17 (non-pow2) now converts successfully.
+  // 32x544 with k=16: Wt=17, a non-power-of-2 reduction tile count.
   // CHECK-LABEL: func @topk_dim1_k16_nonpow2
   func.func @topk_dim1_k16_nonpow2(%arg0: tensor<32x544xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>) {
-    // Pre-transpose and topk_block emit normally.
+    // The ragged tile count is the merge tree's problem, not this level's.
     // CHECK: d2m.generic
     // CHECK: d2m.tile_transpose
     // CHECK: d2m.generic
@@ -195,12 +197,13 @@ module {
   // ---- Multi-core (reduction dim split into per-core bands) ----
   //
   // When the reduction dim needs more tiles than one core's budget
-  // (kMaxTilesPerCore / nonTargetTiles), the lowering splits it into numShards
-  // bands (one per core) and runs a local topk_block per band. The bands stay
-  // distributed: each merge round gathers them with a single composite_view
-  // over the whole grid-wide result, which re-splits that grid x shard extent
-  // onto the merge grid, then runs one topk_block for every group at once. A
-  // wide non-target dim (4 tiles here) shrinks the per-core reduction budget to
+  // (kMaxTilesPerCore / nonTargetTiles), d2m-lower-topk rebuilds the chain as
+  // numShards bands (one per core), each running a local topk_block and then
+  // narrowing its partial to ceil(k/32) tiles. The bands stay distributed: a
+  // merge round gathers them with one composite_view per operand (values and
+  // indices need separate generics), re-splitting that grid x shard extent onto
+  // the merge grid, then runs one topk_block for every group at once. A wide
+  // non-target dim (4 tiles here) shrinks the per-core reduction budget to
   // 43/4 = 10 tiles, so a 16-reduction-tile input needs >= 2 cores.
 
   // dim=1 multi-core: 128x512, k=16. Rows=128 (4 non-target tiles), cols=512
@@ -246,10 +249,11 @@ module {
   //
   // When the NON-TARGET dim alone overflows the per-core budget (64 tiles here
   // against kMaxTilesPerCore = 43), banding the reduction dim cannot help: the
-  // whole non-target dim lives on every band core. topk is independent per
-  // slice, so the lowering splits the non-target dim across cores instead and
-  // each one runs the entire reduction locally. Nothing to merge, so no
-  // composite_view and a single topk_block.
+  // whole non-target dim still lives on every band core, leaving it under the
+  // two reduction tiles a band needs. topk is independent per slice, so the
+  // lowering splits the non-target dim across cores instead and each one runs
+  // the entire reduction locally. Nothing to merge, so no composite_view and a
+  // single topk_block.
 
   // dim=1 data-parallel: 2048x128, k=8. Rows=2048 (64 non-target tiles) split
   // across cores, cols=128 (4 reduction tiles) kept whole on each.

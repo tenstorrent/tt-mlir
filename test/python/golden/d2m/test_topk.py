@@ -24,10 +24,11 @@ torch.manual_seed(0)
 
 
 def _topk_index_dtype(shape: Tuple[int, ...], dim: int) -> torch.dtype:
-    """Index dtype the topk op declares for this input, mirroring
-    ttir_topk_golden / the TTNN topk workaround: UInt16 while the tile-padded
-    reduction dim fits in a uint16, else UInt32. Test-side goldens must match
-    this so execute_fb doesn't dtype-mismatch the device index output."""
+    """UInt16 while the tile-padded reduction dim fits in a uint16, else UInt32.
+
+    Mirrors ttir_topk_golden and the TTNN topk workaround; goldens here must match
+    it or execute_fb dtype-mismatches the device index output.
+    """
     TILE_SIZE = 32
     reduction_dim = dim if dim >= 0 else dim + len(shape)
     padded = ((shape[reduction_dim] + TILE_SIZE - 1) // TILE_SIZE) * TILE_SIZE
@@ -45,17 +46,9 @@ def _verify_topk_outputs(
 ):
     """PCC-checks topk device outputs against the golden via check_outputs.
 
-    Values go through the same check_outputs() PCC engine that execute_fb
-    uses, so a failure raises TTBuilderGoldenException.
-
-    check_gathered=True additionally validates the device's indices by
-    gathering the values they point to from the original input and
-    PCC-comparing those against the device's topk values. This is
-    order-robust (doesn't depend on positional/tie-break ordering). Used by
-    both single-core and multi-core tests in this file.
-
-    check_indices=True instead PCC-compares the device's indices positionally
-    against the golden indices. Not currently exercised by any test here.
+    check_gathered validates indices order-robustly: it gathers the values they
+    point to out of the input and PCC-compares those against the device's values.
+    check_indices instead compares indices positionally against the golden.
     """
     d = dim % input_tensor.ndim
     prog = output_tensors["program_0"]
@@ -104,8 +97,7 @@ def _verify_topk_outputs(
 
 
 SINGLE_CORE_TOPK_SHAPES = [
-    # Single-tile non-target dim (exactly 32 elements); reduction dim (256,
-    # 8 tiles) still goes through merge/rebuild.
+    # Single-tile non-target dim; the reduction dim still merges and rebuilds.
     pytest.param((32, 256), 64, -1, id="32x256_k64_dim1"),
     pytest.param((256, 32), 64, 0, id="256x32_k64_dim0"),
     # Large target dim (many tiles in reduction), k > 32.
@@ -130,9 +122,7 @@ MULTI_CORE_TOPK_SHAPES = [
     pytest.param((8192, 32), 16, 0, id="8192x32_k16_dim0"),
     pytest.param((88064, 32), 16, 0, id="88064x32_k16_dim0"),
     pytest.param((7639, 35), 16, 0, id="7639x35_k16_dim0"),
-    # k > 32: each core's local top-k spans two reduction tiles (winner +
-    # loser); the gather and merge tree carry outputReductionTiles=2 tiles per
-    # partial. dim=1 and transposed dim=0.
+    # k > 32: each core's partial spans two reduction tiles.
     pytest.param((32, 8192), 48, -1, id="32x8192_k48_dim1"),
     pytest.param((32, 88064), 64, -1, id="32x88064_k64_dim1"),
     pytest.param((8192, 32), 48, 0, id="8192x32_k48_dim0"),
@@ -183,7 +173,6 @@ def test_topk_single_core(shape, k, dim, target, request, device):
         print_ir=kwargs.get("print_ir", False),
     )
 
-    # Recompute golden from a fresh random input for a valid comparison.
     input_tensor = torch.randn(shape) * 50
     golden_topk = torch.topk(input_tensor, k=k, dim=dim, largest=True)
 
@@ -192,14 +181,14 @@ def test_topk_single_core(shape, k, dim, target, request, device):
     io_goldens[0]["output_0"] = GoldenMapTensor(
         {0: golden_topk.values}, mesh_shape=mesh_shape
     )
-    # Match device index dtype to avoid execute_fb dtype mismatch; raw index is ignored.
+    # Device index dtype must match, though the raw index is ignored below.
     io_goldens[0]["output_1"] = GoldenMapTensor(
         {0: golden_topk.indices.to(_topk_index_dtype(shape, dim))},
         mesh_shape=mesh_shape,
     )
 
-    # execute_fb's positional PCC is invalid for unsorted values / tie-unstable
-    # indices; both are PCC-checked order-robustly in _verify_topk_outputs.
+    # Positional PCC is invalid for unsorted values and tie-unstable indices;
+    # _verify_topk_outputs checks both order-robustly instead.
     _, output_tensors = execute_fb(
         compiled_bin,
         input_output_goldens=io_goldens,
@@ -261,7 +250,6 @@ def test_topk_multi_core(shape, k, dim, target, request, device):
         system_desc_path=kwargs["system_desc_path"],
         artifact_dir=artifact_dir,
         target=target,
-        # pipeline_options=["override-device-shape=1,1"],
         save_artifacts=True,
         print_ir=kwargs.get("print_ir", False),
     )
@@ -271,14 +259,14 @@ def test_topk_multi_core(shape, k, dim, target, request, device):
     io_goldens[0]["output_0"] = GoldenMapTensor(
         {0: golden_topk.values}, mesh_shape=mesh_shape
     )
-    # Match device index dtype to avoid execute_fb dtype mismatch; raw index is ignored.
+    # Device index dtype must match, though the raw index is ignored below.
     io_goldens[0]["output_1"] = GoldenMapTensor(
         {0: golden_topk.indices.to(_topk_index_dtype(shape, dim))},
         mesh_shape=mesh_shape,
     )
 
-    # execute_fb's positional PCC is invalid for unsorted values / tie-unstable
-    # indices; both are PCC-checked order-robustly in _verify_topk_outputs.
+    # Positional PCC is invalid for unsorted values and tie-unstable indices;
+    # _verify_topk_outputs checks both order-robustly instead.
     _, output_tensors = execute_fb(
         compiled_bin,
         input_output_goldens=io_goldens,
@@ -377,8 +365,7 @@ MULTI_CORE_TILE_DIST_SHAPES = [
 def test_topk_tile_distribution_single_core(
     shape, k, dim, pattern, target, request, device
 ):
-    """Run topk with hand-crafted inputs that concentrate top values in
-    specific tiles, stressing the merge-tree reduction logic."""
+    """Concentrate the top values in specific tiles to stress the merge tree."""
 
     def module(builder: TTIRBuilder):
         @builder.func([shape], [torch.float32])
@@ -417,8 +404,7 @@ def test_topk_tile_distribution_single_core(
         print_ir=kwargs.get("print_ir", False),
     )
 
-    # Replace the random input with our adversarial tensor and recompute the
-    # expected output so the golden comparison is valid.
+    # Recompute the golden against the adversarial tensor.
     adversarial_input = _build_tile_distribution_input(shape, k, dim, pattern)
     golden_topk = torch.topk(adversarial_input, k=k, dim=dim, largest=True)
 
@@ -429,14 +415,14 @@ def test_topk_tile_distribution_single_core(
     io_goldens[0]["output_0"] = GoldenMapTensor(
         {0: golden_topk.values}, mesh_shape=mesh_shape
     )
-    # Match device index dtype to avoid execute_fb dtype mismatch; raw index is ignored.
+    # Device index dtype must match, though the raw index is ignored below.
     io_goldens[0]["output_1"] = GoldenMapTensor(
         {0: golden_topk.indices.to(_topk_index_dtype(shape, dim))},
         mesh_shape=mesh_shape,
     )
 
-    # execute_fb's positional PCC is invalid for unsorted values / tie-unstable
-    # indices; both are PCC-checked order-robustly in _verify_topk_outputs.
+    # Positional PCC is invalid for unsorted values and tie-unstable indices;
+    # _verify_topk_outputs checks both order-robustly instead.
     _, output_tensors = execute_fb(
         compiled_bin,
         input_output_goldens=io_goldens,
@@ -457,8 +443,7 @@ def test_topk_tile_distribution_single_core(
 def test_topk_tile_distribution_multi_core(
     shape, k, dim, pattern, target, request, device
 ):
-    """Run topk with hand-crafted inputs that concentrate top values in
-    specific tiles, stressing the merge-tree reduction logic."""
+    """Concentrate the top values in specific tiles to stress the merge tree."""
 
     adversarial_input = _build_tile_distribution_input(shape, k, dim, pattern)
     golden_topk = torch.topk(adversarial_input, k=k, dim=dim, largest=True)
@@ -515,8 +500,8 @@ def test_topk_tile_distribution_multi_core(
         {0: golden_topk.values}, mesh_shape=mesh_shape
     )
 
-    # execute_fb's positional PCC is invalid for unsorted values / tie-unstable
-    # indices; both are PCC-checked order-robustly in _verify_topk_outputs.
+    # Positional PCC is invalid for unsorted values and tie-unstable indices;
+    # _verify_topk_outputs checks both order-robustly instead.
     _, output_tensors = execute_fb(
         compiled_bin,
         input_output_goldens=io_goldens,

@@ -13,17 +13,12 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
 
-#include <optional>
 #include <utility>
 #include <variant>
 
 namespace mlir::tt::ttcore {
 class DeviceAttr;
 } // namespace mlir::tt::ttcore
-
-namespace mlir::linalg {
-class GenericOp;
-} // namespace mlir::linalg
 
 namespace mlir::tt::d2m {
 class GenericOp;
@@ -40,9 +35,20 @@ constexpr llvm::StringLiteral kVirtualGridInverseMappingAttr =
 constexpr llvm::StringLiteral kVirtualGridForwardMappingAttr =
     "d2m.virtualGridForwardMapping";
 constexpr llvm::StringLiteral kReductionScalerAttr = "d2m.reduction_scaler";
+// Marks a generic whose operand grids are dictated by its lowering; grid
+// selection folds them onto physical cores instead of choosing a split.
+constexpr llvm::StringLiteral kPinnedGridAttr = "d2m.pinned_grid";
 
 inline bool isReductionScalerBuffer(Operation *op) {
   return op && op->hasAttr(kReductionScalerAttr);
+}
+
+inline void markPinnedGrid(Operation *op) {
+  op->setAttr(kPinnedGridAttr, UnitAttr::get(op->getContext()));
+}
+
+inline bool hasPinnedGrid(Operation *op) {
+  return op && op->hasAttr(kPinnedGridAttr);
 }
 
 // Return a new shaped type by reblocking its device shape to match a new grid
@@ -50,25 +56,12 @@ inline bool isReductionScalerBuffer(Operation *op) {
 ShapedType reblockShapedType(ShapedType oldType,
                              ArrayRef<int64_t> newGridShape);
 
-// Rebuild `layout`'s logical shape from a [grid..., shard...] device shape, so
-// that a re-split device shape keeps the same total extent (which the composite
-// view and reblocking checks compare against). Every other layout field is
-// carried over unchanged. `deviceShape` must have even rank.
-ttcore::MetalLayoutAttr
-rebuildLayoutForDeviceShape(ttcore::MetalLayoutAttr layout,
-                            ArrayRef<int64_t> deviceShape);
-
 // Build a sharded L1 MetalLayoutAttr for `logicalShape` where dim i is padded
 // out to `tilesPerDim[i]` tiles. Uses default collapsed intervals.
 ttcore::MetalLayoutAttr buildShardedTileLayout(MLIRContext *ctx,
                                                ArrayRef<int64_t> logicalShape,
                                                ArrayRef<int64_t> tilesPerDim,
                                                ttcore::MemorySpace memorySpace);
-
-// True when `deviceShape` allocates more elements than `logicalShape` occupies
-// along any dim, i.e. the shard carries a padding tail that must be masked.
-bool deviceShapeNeedsPadding(ArrayRef<int64_t> deviceShape,
-                             ArrayRef<int64_t> logicalShape);
 
 // Clone a local shard type using the shard shape implied by a reference
 // operand's device layout.
@@ -108,27 +101,38 @@ SmallVector<int64_t> deriveBlockFactorsFromOperandGrids(
 SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
                                     AffineMap indexingMap);
 
-// Build this core's own coordinate as one `d2m.core_index` per grid dim.
-// Unlike buildGridIndices, which projects loop indices through an indexing map,
-// these address the core itself -- what a remote_load/remote_store wants when
-// the access is local rather than a gather.
-SmallVector<Value> buildCoreIndices(OpBuilder &builder, Location loc,
-                                    std::size_t gridRank);
+// Populates `generic`'s region: `remote_load` per input, `tensor.empty` per
+// output, `body`'s results stored back. `generic` must be all-parallel.
+void buildParallelGenericRegion(
+    RewriterBase &rewriter, Location loc, GenericOp generic, ValueRange inputs,
+    ValueRange outputs,
+    llvm::function_ref<SmallVector<Value>(ArrayRef<Value>)> body);
 
-// Opt `generic` out of reblocking by clearing the attrs that pass keys off of.
-// Needed for hand-built datamovement regions, whose constant operand maps
-// reblocking would otherwise read as broadcasts and rebuild, discarding the
-// hand-built region. Call after the region is fully populated.
-void makeExplicitDatamovementForm(OpBuilder &builder, GenericOp generic);
+// Emits a one-in/one-out all-parallel `d2m.generic` mapping each tile of `src`
+// through `makeTile`. `gridMap`/`shardMap` index the input, null = identity.
+Value emitUnaryGeneric(
+    RewriterBase &rewriter, Location loc, Value src, Value out,
+    AffineMap gridMap, ArrayRef<Attribute> iteratorTypes,
+    llvm::function_ref<AffineMap(std::size_t)> shardMap,
+    llvm::function_ref<Value(OpBuilder &, Location, ValueRange)> makeTile);
 
-// Emit a `linalg.generic` copying `input` into `output` tile-by-tile via
-// TileTypecastOp. With `shardRedDim` set, a non-invertible `dim mod extent` map
-// on that dim takes the loop bound from the narrow output while reading the
-// wide input, copying only the leading tiles; without it the map is an identity
-// over the whole shard.
-linalg::GenericOp emitLeadingTileCopy(OpBuilder &builder, Location loc,
-                                      Value input, Value output,
-                                      std::optional<std::size_t> shardRedDim);
+// Copies `value` into a fresh buffer of its own type via `d2m.to_layout`
+Value materializeToLayout(RewriterBase &rewriter, Location loc, Value value);
+
+// Emits the per-core topk over an already tiled+layouted `layoutedInput`;
+// `dim == 1` tile-transposes the shard first, since `topk_block` sorts down
+// tile columns. Returns the generic's (values, indices), not yet materialized.
+std::pair<Value, Value> emitLeafTopk(RewriterBase &rewriter, Location loc,
+                                     Value layoutedInput, int32_t k,
+                                     int32_t dim, int64_t reductionDimSize);
+
+// Collapses `topkResult`'s `extractProjectDim` to tile 0, undoing the
+// pre-transpose (`dim == 1`) or typecasting (`dim == 0`) that
+// `emitLeafTopk` performed. `outputReductionTiles` is ceil(k / 32).
+GenericOp emitTopKExtract(RewriterBase &rewriter, Location loc,
+                          Value topkResult, Value extractOutput,
+                          std::size_t extractProjectDim,
+                          int64_t outputReductionTiles, int32_t dim);
 
 // Gets the underlying physical grid shape corresponding to the tensor or
 // memref. For views/streams, this 'physical' grid corresponds to the compute

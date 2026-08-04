@@ -18,6 +18,8 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
 
 #include <cassert>
@@ -146,25 +148,6 @@ ShapedType reblockShapedType(ShapedType oldType,
 }
 
 ttcore::MetalLayoutAttr
-rebuildLayoutForDeviceShape(ttcore::MetalLayoutAttr layout,
-                            ArrayRef<int64_t> deviceShape) {
-  TT_assert(deviceShape.size() % 2 == 0u);
-  const std::size_t physicalRank = deviceShape.size() / 2;
-  const int64_t tileDim = ttcore::TileType::getDefaultShape()[0];
-
-  SmallVector<int64_t> logicalShape;
-  logicalShape.reserve(physicalRank);
-  for (std::size_t i = 0; i < physicalRank; ++i) {
-    logicalShape.push_back(deviceShape[i] * deviceShape[i + physicalRank] *
-                           tileDim);
-  }
-  return ttcore::MetalLayoutAttr::get(
-      layout.getContext(), logicalShape, layout.getDimAlignments(),
-      layout.getCollapsedIntervals(), layout.getMemorySpace(),
-      layout.getMemoryLayout());
-}
-
-ttcore::MetalLayoutAttr
 buildShardedTileLayout(MLIRContext *ctx, ArrayRef<int64_t> logicalShape,
                        ArrayRef<int64_t> tilesPerDim,
                        ttcore::MemorySpace memorySpace) {
@@ -181,22 +164,6 @@ buildShardedTileLayout(MLIRContext *ctx, ArrayRef<int64_t> logicalShape,
       ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
           ctx, logicalShape.size()),
       dimAlignments);
-}
-
-bool deviceShapeNeedsPadding(ArrayRef<int64_t> deviceShape,
-                             ArrayRef<int64_t> logicalShape) {
-  TT_assert(deviceShape.size() == 2 * logicalShape.size());
-  const std::size_t physicalRank = logicalShape.size();
-  const int64_t tileDim = ttcore::TileType::getDefaultShape()[0];
-
-  for (std::size_t i = 0; i < physicalRank; ++i) {
-    int64_t allocatedElems =
-        deviceShape[i] * deviceShape[i + physicalRank] * tileDim;
-    if (allocatedElems > logicalShape[i]) {
-      return true;
-    }
-  }
-  return false;
 }
 
 Type cloneWithShardShape(Value referenceOperand, Type typeToRetype) {
@@ -302,48 +269,6 @@ SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
 
   TT_assert(indices.size() == indexingMap.getNumResults());
   return indices;
-}
-
-SmallVector<Value> buildCoreIndices(OpBuilder &builder, Location loc,
-                                    std::size_t gridRank) {
-  SmallVector<Value> indices;
-  indices.reserve(gridRank);
-  for (std::size_t i = 0; i < gridRank; ++i) {
-    indices.push_back(
-        builder.create<CoreIndexOp>(loc, static_cast<int64_t>(i)));
-  }
-  return indices;
-}
-
-void makeExplicitDatamovementForm(OpBuilder &builder, GenericOp generic) {
-  generic.setBlockFactorsAttr(builder.getI64ArrayAttr({}));
-  generic.setIndexingMapsAttr(builder.getAffineMapArrayAttr({}));
-  generic.setIteratorTypesAttr(builder.getArrayAttr({}));
-}
-
-linalg::GenericOp emitLeadingTileCopy(OpBuilder &builder, Location loc,
-                                      Value input, Value output,
-                                      std::optional<std::size_t> shardRedDim) {
-  MLIRContext *ctx = builder.getContext();
-  auto inShardType = cast<RankedTensorType>(input.getType());
-  std::size_t shardRank = cast<RankedTensorType>(output.getType()).getRank();
-  SmallVector<AffineExpr> inExprs;
-  for (std::size_t i = 0; i < shardRank; ++i) {
-    AffineExpr idx = builder.getAffineDimExpr(i);
-    inExprs.push_back(i == shardRedDim ? idx % inShardType.getShape()[i] : idx);
-  }
-  AffineMap shardInMap = AffineMap::get(shardRank, 0, inExprs, ctx);
-  AffineMap shardIdentity = builder.getMultiDimIdentityMap(shardRank);
-  SmallVector<mlir::utils::IteratorType> linalgIters(
-      shardRank, mlir::utils::IteratorType::parallel);
-  return builder.create<linalg::GenericOp>(
-      loc, output.getType(), input, output,
-      SmallVector<AffineMap>{shardInMap, shardIdentity}, linalgIters,
-      [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
-        Value copied =
-            b.create<TileTypecastOp>(bodyLoc, args[1].getType(), args[0]);
-        b.create<linalg::YieldOp>(bodyLoc, copied);
-      });
 }
 
 static llvm::SmallVector<int64_t>
@@ -1111,6 +1036,267 @@ getNocElementAlignment(Operation *op, ttcore::MemorySpace memorySpace,
 int32_t getNocElementAlignmentL1(
     Operation *op, const std::variant<RankedTensorType, MemRefType> &type) {
   return getNocElementAlignment(op, ttcore::MemorySpace::DeviceL1, type);
+}
+
+void buildParallelGenericRegion(
+    RewriterBase &rewriter, Location loc, GenericOp generic, ValueRange inputs,
+    ValueRange outputs,
+    llvm::function_ref<llvm::SmallVector<Value>(ArrayRef<Value>)> body) {
+  auto shardTypeOf = [](Value operand) {
+    auto tensorType = cast<RankedTensorType>(operand.getType());
+    auto layout = cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+    return RankedTensorType::get(layout.getShardShape(tensorType),
+                                 tensorType.getElementType());
+  };
+  auto localBuffer = [&](RankedTensorType shardType) {
+    return rewriter
+        .create<tensor::EmptyOp>(loc, shardType.getShape(),
+                                 shardType.getElementType())
+        .getResult();
+  };
+
+  auto insertPoint = rewriter.saveInsertionPoint();
+  rewriter.startOpModification(generic);
+  {
+    rewriter.createBlock(&generic->getRegions().front());
+
+    llvm::SmallVector<Value> blockArgs;
+    for (auto [i, input] : llvm::enumerate(inputs)) {
+      RankedTensorType shardType = shardTypeOf(input);
+      blockArgs.push_back(
+          rewriter
+              .create<RemoteLoadOp>(
+                  loc, shardType, localBuffer(shardType),
+                  generic->getOperand(i),
+                  buildGridIndices(rewriter, loc, generic.getIndexingMap(i)))
+              .getResult());
+    }
+    for (Value output : outputs) {
+      blockArgs.push_back(localBuffer(shardTypeOf(output)));
+    }
+
+    llvm::SmallVector<Value> computedResults = body(blockArgs);
+    assert(computedResults.size() == outputs.size());
+
+    llvm::SmallVector<Value> storeResults;
+    for (auto [outputIdx, result] : llvm::enumerate(computedResults)) {
+      size_t operandIdx = inputs.size() + outputIdx;
+      Value genericOperand = generic->getOperand(operandIdx);
+      storeResults.push_back(
+          rewriter
+              .create<RemoteStoreOp>(
+                  loc, genericOperand.getType(), genericOperand,
+                  buildGridIndices(rewriter, loc,
+                                   generic.getIndexingMap(operandIdx)),
+                  result)
+              .getResult());
+    }
+    rewriter.create<YieldOp>(loc, storeResults);
+  }
+  rewriter.finalizeOpModification(generic);
+  rewriter.restoreInsertionPoint(insertPoint);
+}
+
+Value emitUnaryGeneric(
+    RewriterBase &rewriter, Location loc, Value src, Value out,
+    AffineMap gridMap, ArrayRef<Attribute> iteratorTypes,
+    llvm::function_ref<AffineMap(std::size_t)> shardMap,
+    llvm::function_ref<Value(OpBuilder &, Location, ValueRange)> makeTile) {
+  std::size_t physicalRank = iteratorTypes.size();
+  AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
+  llvm::SmallVector<Value> ins = {src};
+  llvm::SmallVector<Value> outs = {out};
+  auto generic = rewriter.create<GenericOp>(
+      loc, ins, outs, /*additionalArgs=*/ValueRange(),
+      rewriter.getAffineMapArrayAttr(
+          llvm::SmallVector<AffineMap>{gridMap, identityMap}),
+      rewriter.getArrayAttr(iteratorTypes));
+  buildParallelGenericRegion(
+      rewriter, loc, generic, ins, outs,
+      [&](ArrayRef<Value> blockArgs) -> llvm::SmallVector<Value> {
+        Value input = blockArgs[0];
+        Value output = blockArgs[1];
+        std::size_t shardRank =
+            cast<RankedTensorType>(output.getType()).getRank();
+        AffineMap shardIdentity = rewriter.getMultiDimIdentityMap(shardRank);
+        AffineMap shardIn = shardMap ? shardMap(shardRank) : shardIdentity;
+        llvm::SmallVector<mlir::utils::IteratorType> linalgIters(
+            shardRank, mlir::utils::IteratorType::parallel);
+        auto linalgOp = rewriter.create<linalg::GenericOp>(
+            loc, output.getType(), input, output,
+            llvm::SmallVector<AffineMap>{shardIn, shardIdentity}, linalgIters,
+            [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
+              b.create<linalg::YieldOp>(bodyLoc, makeTile(b, bodyLoc, args));
+            });
+        return {linalgOp->getResult(0)};
+      });
+  return generic->getResult(0);
+}
+
+Value materializeToLayout(RewriterBase &rewriter, Location loc, Value value) {
+  auto valueType = cast<RankedTensorType>(value.getType());
+  auto emptyOp = rewriter.create<EmptyOp>(loc, valueType.getShape(),
+                                          valueType.getElementType(),
+                                          valueType.getEncoding());
+  return rewriter.create<ToLayoutOp>(loc, value, emptyOp).getResult(0);
+}
+
+std::pair<Value, Value> emitLeafTopk(RewriterBase &rewriter, Location loc,
+                                     Value layoutedInput, int32_t k,
+                                     int32_t dim, int64_t reductionDimSize) {
+  MLIRContext *ctx = rewriter.getContext();
+  auto layoutedType = cast<RankedTensorType>(layoutedInput.getType());
+  auto metalLayout = cast<ttcore::MetalLayoutAttr>(layoutedType.getEncoding());
+  auto valTileType = cast<ttcore::TileType>(layoutedType.getElementType());
+  ArrayRef<int64_t> deviceShape = layoutedType.getShape();
+  std::size_t physicalRank = deviceShape.size() / 2;
+
+  auto parallel =
+      ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel);
+  llvm::SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
+  AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
+
+  // TopkBlockOp sorts down tile columns; dim=1 puts the sort dim on tile rows.
+  Value topkInput = layoutedInput;
+  if (dim == 1) {
+    auto empty =
+        rewriter.create<EmptyOp>(loc, deviceShape, valTileType, metalLayout);
+    Value transposed = emitUnaryGeneric(
+        rewriter, loc, layoutedInput, empty.getResult(), identityMap,
+        iteratorTypes, /*shardMap=*/nullptr,
+        [&](OpBuilder &b, Location l, ValueRange args) {
+          return b.create<TileTransposeOp>(l, args[1].getType(), args[0])
+              .getResult();
+        });
+    markPinnedGrid(transposed.getDefiningOp());
+    topkInput = materializeToLayout(rewriter, loc, transposed);
+  }
+
+  auto idxTileType = ttcore::TileType::get(rewriter.getI32Type());
+
+  // One scratch tile per core for the lane pattern; the kernel derives the
+  // whole index buffer from it plus its own grid coordinate.
+  ArrayRef<int64_t> idxGridShape = metalLayout.getGridShape(layoutedType);
+  llvm::SmallVector<int64_t> idxScratchShape(idxGridShape.begin(),
+                                             idxGridShape.end());
+  idxScratchShape.append({1, 1});
+  auto idxScratchLayout = ttcore::MetalLayoutAttr::get(
+      ctx, llvm::SmallVector<int64_t>{1, 1}, ttcore::MemorySpace::DeviceL1,
+      ttcore::TensorMemoryLayout::Sharded);
+  auto idxScratchEmpty = rewriter.create<EmptyOp>(
+      loc, idxScratchShape, idxTileType, idxScratchLayout);
+
+  auto topkValsEmpty =
+      rewriter.create<EmptyOp>(loc, deviceShape, valTileType, metalLayout);
+  auto topkIdxEmpty =
+      rewriter.create<EmptyOp>(loc, deviceShape, idxTileType, metalLayout);
+
+  llvm::SmallVector<Value> topkInputs = {topkInput,
+                                         idxScratchEmpty.getResult()};
+  llvm::SmallVector<Value> topkOutputs = {topkValsEmpty.getResult(),
+                                          topkIdxEmpty.getResult()};
+  // A constant map keeps the 1x1 scratch shard out of the generic's
+  // shard-extent comparison against the full-shard operands.
+  llvm::SmallVector<AffineExpr> idxConstExprs(
+      physicalRank, rewriter.getAffineConstantExpr(0));
+  AffineMap idxConstMap = AffineMap::get(physicalRank, 0, idxConstExprs, ctx);
+  auto topkGeneric = rewriter.create<GenericOp>(
+      loc, topkInputs, topkOutputs, /*additionalArgs=*/ValueRange(),
+      rewriter.getAffineMapArrayAttr(llvm::SmallVector<AffineMap>{
+          identityMap, idxConstMap, identityMap, identityMap}),
+      rewriter.getArrayAttr(iteratorTypes));
+
+  buildParallelGenericRegion(
+      rewriter, loc, topkGeneric, topkInputs, topkOutputs,
+      [&](ArrayRef<Value> blockArgs) -> llvm::SmallVector<Value> {
+        auto topkBlock = rewriter.create<TopkBlockOp>(
+            loc, blockArgs[0], blockArgs[1], blockArgs[2], blockArgs[3], k,
+            reductionDimSize, /*stableSort=*/false, dim,
+            /*generateIndices=*/true);
+        return {topkBlock.getResultValues(), topkBlock.getResultIndices()};
+      });
+  markPinnedGrid(topkGeneric);
+
+  return {topkGeneric->getResult(0), topkGeneric->getResult(1)};
+}
+
+GenericOp emitTopKExtract(RewriterBase &rewriter, Location loc,
+                          Value topkResult, Value extractOutput,
+                          std::size_t extractProjectDim,
+                          int64_t outputReductionTiles, int32_t dim) {
+  MLIRContext *ctx = rewriter.getContext();
+  std::size_t extractRank =
+      ttcore::getDeviceLayout(extractOutput).getRank() / 2;
+  AffineMap extractIdentity = rewriter.getMultiDimIdentityMap(extractRank);
+  llvm::SmallVector<Attribute> extractIters(
+      extractRank,
+      ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
+
+  llvm::SmallVector<AffineExpr> inputMapExprs;
+  for (std::size_t i = 0; i < extractRank; ++i) {
+    inputMapExprs.push_back(i == extractProjectDim
+                                ? rewriter.getAffineConstantExpr(0)
+                                : rewriter.getAffineDimExpr(i));
+  }
+  AffineMap inputProjectedMap =
+      AffineMap::get(extractRank, 0, inputMapExprs, ctx);
+
+  llvm::SmallVector<Value> extractInputs = {topkResult};
+  llvm::SmallVector<Value> extractOutputs = {extractOutput};
+  auto generic = rewriter.create<GenericOp>(
+      loc, extractInputs, extractOutputs, /*additionalArgs=*/ValueRange(),
+      rewriter.getAffineMapArrayAttr(
+          llvm::SmallVector<AffineMap>{inputProjectedMap, extractIdentity}),
+      rewriter.getArrayAttr(extractIters));
+
+  buildParallelGenericRegion(
+      rewriter, loc, generic, extractInputs, extractOutputs,
+      [&](ArrayRef<Value> blockArgs) -> llvm::SmallVector<Value> {
+        Value input = blockArgs[0];
+        Value output = blockArgs[1];
+        std::size_t outShardRank =
+            cast<RankedTensorType>(output.getType()).getRank();
+        int64_t inReductionExtent = cast<RankedTensorType>(input.getType())
+                                        .getShape()[extractProjectDim];
+
+        // The input map must stay non-invertible, or linalg takes the loop
+        // bound from the wide input and rejects the narrower output shard; the
+        // mod leaves in-range reads unchanged.
+        AffineExpr projExpr =
+            outputReductionTiles == 1
+                ? rewriter.getAffineConstantExpr(0)
+                : rewriter.getAffineDimExpr(extractProjectDim) %
+                      inReductionExtent;
+        llvm::SmallVector<AffineExpr> mapFirstExprs;
+        for (std::size_t i = 0; i < outShardRank; ++i) {
+          mapFirstExprs.push_back(
+              i == extractProjectDim ? projExpr : rewriter.getAffineDimExpr(i));
+        }
+        AffineMap mapFirst =
+            AffineMap::get(outShardRank, 0, mapFirstExprs, ctx);
+        AffineMap outIdentity = rewriter.getMultiDimIdentityMap(outShardRank);
+        llvm::SmallVector<mlir::utils::IteratorType> linalgIters(
+            outShardRank, mlir::utils::IteratorType::parallel);
+
+        auto linalgOp = rewriter.create<linalg::GenericOp>(
+            loc, output.getType(), input, output,
+            llvm::SmallVector<AffineMap>{mapFirst, outIdentity}, linalgIters,
+            [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
+              Value result;
+              if (dim == 1) {
+                result = b.create<TileTransposeOp>(bodyLoc, args[1].getType(),
+                                                   args[0]);
+              } else {
+                result = b.create<TileTypecastOp>(bodyLoc, args[1].getType(),
+                                                  args[0]);
+              }
+              b.create<linalg::YieldOp>(bodyLoc, result);
+            });
+        return {linalgOp->getResult(0)};
+      });
+  markPinnedGrid(generic);
+
+  return generic;
 }
 
 } // namespace mlir::tt::d2m::utils
