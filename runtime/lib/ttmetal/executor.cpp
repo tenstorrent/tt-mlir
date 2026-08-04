@@ -409,17 +409,17 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
               target::metal::KernelConfigType::NocConfig &&
           command->fabric_connection_configs() &&
           kernelConfig->type_as_NocConfig()->fabric_config_index()) {
-        const uint32_t fabricConfigIndex =
-            *kernelConfig->type_as_NocConfig()->fabric_config_index();
-        LOG_ASSERT(fabricConfigIndex <
-                       command->fabric_connection_configs()->size(),
+        const auto *nocConfig = kernelConfig->type_as_NocConfig();
+        const auto *fabricConfigs = command->fabric_connection_configs();
+        const uint32_t fabricConfigIndex = *nocConfig->fabric_config_index();
+
+        LOG_ASSERT(fabricConfigIndex < fabricConfigs->size(),
                    "fabric_config_index ", fabricConfigIndex,
                    " out of range for fabric_connection_configs of size ",
-                   command->fabric_connection_configs()->size());
-        fabricConnectionConfig =
-            command->fabric_connection_configs()->Get(fabricConfigIndex);
+                   fabricConfigs->size());
+        fabricConnectionConfig = fabricConfigs->Get(fabricConfigIndex);
         LOG_ASSERT(fabricConnectionConfig->noc_index() ==
-                       kernelConfig->type_as_NocConfig()->noc_index(),
+                       nocConfig->noc_index(),
                    "fabric_connection_configs[", fabricConfigIndex,
                    "] noc_index does not match NocConfig noc_index");
       }
