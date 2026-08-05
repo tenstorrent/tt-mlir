@@ -147,6 +147,16 @@ struct TTIRToTTIRDecompositionPass
                  op.getTarget().getType().getRank() == 2;
         });
 
+    // ttml::metal::cross_entropy_bw has the same shape requirements, plus a 4D
+    // grad.
+    target.addDynamicallyLegalOp<ttir::CrossEntropyBackwardOp>(
+        [&](ttir::CrossEntropyBackwardOp op) {
+          RankedTensorType inputType = op.getInput().getType();
+          return inputType.getRank() == 4 && inputType.getDimSize(1) == 1 &&
+                 op.getTarget().getType().getRank() == 2 &&
+                 op.getGrad().getType().getRank() == 4;
+        });
+
     target.addDynamicallyLegalOp<ttir::ProdOp>([&](ttir::ProdOp op) {
       auto dimArg = op.getDimArg();
       if (!dimArg) {
