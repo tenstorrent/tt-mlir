@@ -6,6 +6,7 @@
 
 #include "operations/cpu/cpu.h"
 #include "tt-metalium/distributed_host_buffer.hpp"
+#include "tt-metalium/experimental/distributed_tensor/distributed_tensor_apis.hpp"
 #include "tt-metalium/experimental/fabric/fabric.hpp"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
@@ -396,7 +397,7 @@ namespace {
            ttnnTensorShards.size(), ttnnMeshShape.mesh_size());
   const auto &referenceShard = ttnnTensorShards.at(0);
   for (const auto &shard : ttnnTensorShards) {
-    TT_FATAL(shard.storage_type() == ::tt::tt_metal::StorageType::HOST,
+    TT_FATAL(shard.storage_type() == ::ttnn::StorageType::HOST,
              "All tensor shards must be on host");
     TT_FATAL(shard.tensor_spec() == referenceShard.tensor_spec(),
              "All tensor shards must have the same tensor spec");
@@ -416,9 +417,10 @@ namespace {
   ::tt::tt_metal::TensorTopology topology =
       buildTensorTopologyFromStrategy(strategy, ttnnMeshShape);
 
-  ::ttnn::Tensor multiDeviceHostTensor(::tt::tt_metal::HostTensor::from_buffer(
-      std::move(distributedHostBuffer), referenceShard.tensor_spec(),
-      std::move(topology)));
+  ::ttnn::Tensor multiDeviceHostTensor(
+      ::tt::tt_metal::host_tensor_from_buffer_with_topology(
+          std::move(distributedHostBuffer), referenceShard.tensor_spec(),
+          std::move(topology)));
 
   return utils::createRuntimeTensorFromTTNN(multiDeviceHostTensor);
 }
