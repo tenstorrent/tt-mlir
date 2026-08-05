@@ -675,6 +675,7 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(Operation *op,
     if (cbPeakUsage > l1DeadZone && cbPeakUsage <= l1BudgetPerCore) {
       uint64_t cbVT = l1BudgetPerCore - cbPeakUsage;
       bool anyEvicted = false;
+      size_t cbZoneCampaignMin = SIZE_MAX;
       for (Value victim : memoryTracker.getValuesAboveVirtualThreshold(cbVT)) {
         if (!liveValues.count(victim)) {
           continue;
@@ -683,7 +684,7 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(Operation *op,
                      "    CB_ZONE_EVICT: cbPeakUsage={0} cbVT={1}, evicting "
                      "high-virtual tensor to prevent CB-tensor clash",
                      cbPeakUsage, cbVT);
-        evictValue(victim, pos, data);
+        evictValue(victim, pos, data, cbZoneCampaignMin);
         anyEvicted = true;
       }
       if (anyEvicted) {
@@ -723,8 +724,9 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(Operation *op,
           toEvict.push_back(operand);
         }
       }
+      size_t largeTensorCampaignMin = SIZE_MAX;
       for (Value victim : toEvict) {
-        evictValue(victim, pos, data);
+        evictValue(victim, pos, data, largeTensorCampaignMin);
       }
       demoteToDram(op);
       evictForDramCBGrowth(op, pos, data, cbPeakUsage);
@@ -1775,7 +1777,7 @@ void L1SpillManagement<MemoryTracker>::evictForCBOverlap(
 
 template <typename MemoryTracker>
 void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
-    Operation *op, int64_t pos, const ScheduleData &data,
+    Operation *op, int64_t pos, ScheduleData &data,
     uint64_t knownCBPeak) {
 
   auto inputLayouts = utils::extractInputLayouts(op);

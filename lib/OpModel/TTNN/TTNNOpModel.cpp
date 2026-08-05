@@ -7498,7 +7498,7 @@ llvm::Expected<OpConstraints> OpModel<PixelUnshuffleOp>::getOpConstraints(
   if (!inputSpecExp) {
     return inputSpecExp.takeError();
   }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ::tt::tt_metal::TensorSpec inputSpec = inputSpecExp.get();
 
   // Derive downscale_factor from spatial dims: inputH / outputH.
   uint32_t downscale_factor =
@@ -7510,7 +7510,7 @@ llvm::Expected<OpConstraints> OpModel<PixelUnshuffleOp>::getOpConstraints(
                                 detail::getNullableMemoryConfig(outputLayout));
   };
 
-  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+  return operation::getOpConstraints(inputLayout.getContext(),
                                      pixelUnshuffleQuery);
 #else
   return OpConstraints{};
@@ -7529,7 +7529,7 @@ llvm::Expected<size_t> OpModel<PixelUnshuffleOp>::getOpRuntime(
   if (!inputSpecExp) {
     return inputSpecExp.takeError();
   }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ::tt::tt_metal::TensorSpec inputSpec = inputSpecExp.get();
 
   uint32_t downscale_factor =
       static_cast<uint32_t>(inputShape[2] / outputShape[2]);
@@ -7564,14 +7564,14 @@ llvm::Expected<OpConstraints> OpModel<GridSampleOp>::getOpConstraints(
   if (!inputSpecExp) {
     return inputSpecExp.takeError();
   }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ::tt::tt_metal::TensorSpec inputSpec = inputSpecExp.get();
 
   auto gridSpecExp =
       detail::convertToTensorSpec(device, gridShape, gridLayout);
   if (!gridSpecExp) {
     return gridSpecExp.takeError();
   }
-  ::ttnn::TensorSpec gridSpec = gridSpecExp.get();
+  ::tt::tt_metal::TensorSpec gridSpec = gridSpecExp.get();
 
   // Pass std::nullopt for output memory config so the kernel auto-generates the
   // correct HEIGHT_SHARDED L1 shard spec. batchOutputChannels is forwarded from
@@ -7588,8 +7588,7 @@ llvm::Expected<OpConstraints> OpModel<GridSampleOp>::getOpConstraints(
                                 gridSampleOutMemCfg);
   };
 
-  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
-                                     query);
+  return operation::getOpConstraints(inputLayout.getContext(), query);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -7609,14 +7608,14 @@ llvm::Expected<size_t> OpModel<GridSampleOp>::getOpRuntime(
   if (!inputSpecExp) {
     return inputSpecExp.takeError();
   }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ::tt::tt_metal::TensorSpec inputSpec = inputSpecExp.get();
 
   auto gridSpecExp =
       detail::convertToTensorSpec(device, gridShape, gridLayout);
   if (!gridSpecExp) {
     return gridSpecExp.takeError();
   }
-  ::ttnn::TensorSpec gridSpec = gridSpecExp.get();
+  ::tt::tt_metal::TensorSpec gridSpec = gridSpecExp.get();
 
   std::optional<::ttnn::MemoryConfig> gridSampleOutMemCfgRt = std::nullopt;
   auto query = [=]() {

@@ -464,7 +464,7 @@ private:
   /// in the static CB region), which can significantly increase the CB
   /// footprint.
   void evictForDramCBGrowth(Operation *op, int64_t pos,
-                            const ScheduleData &data,
+                            ScheduleData &data,
                             uint64_t knownCBPeak = 0);
 
   /// Collect downstream consumers of an op, following through spill ops.
