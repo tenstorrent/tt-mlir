@@ -5,6 +5,12 @@ set(TT_METAL_VERSION "5beed318d0f0d1c6212e605947fb0be80c9e0a1d")
 set(TTMLIR_TTMETAL_SOURCE_DIR "" CACHE PATH
     "Path to a user-managed tt-metal checkout. If empty, ExternalProject clones tt-metal at TT_METAL_VERSION.")
 
+set(TTMLIR_TTMETAL_BUILD_DIR "" CACHE PATH
+    "Path to the build tree for a user-managed tt-metal checkout. If empty, use build_<CMAKE_BUILD_TYPE> in the checkout.")
+
+set(TTMLIR_TTMETAL_INSTALL_PREFIX "" CACHE PATH
+    "Path to a staged user-managed tt-metal installation. If empty, use the tt-metal build tree.")
+
 if (TTMLIR_TTMETAL_SOURCE_DIR)
   get_filename_component(TTMETAL_SOURCE_DIR "${TTMLIR_TTMETAL_SOURCE_DIR}" ABSOLUTE)
   message(STATUS "Using user-managed tt-metal source: ${TTMETAL_SOURCE_DIR}")
@@ -48,12 +54,23 @@ else()
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
-set(TTMETAL_BUILD_DIR ${TTMETAL_SOURCE_DIR}/build_${CMAKE_BUILD_TYPE})
+if (TTMLIR_TTMETAL_BUILD_DIR)
+  get_filename_component(TTMETAL_BUILD_DIR "${TTMLIR_TTMETAL_BUILD_DIR}" ABSOLUTE)
+  message(STATUS "Using user-managed tt-metal build: ${TTMETAL_BUILD_DIR}")
+else()
+  set(TTMETAL_BUILD_DIR ${TTMETAL_SOURCE_DIR}/build_${CMAKE_BUILD_TYPE})
+endif()
+if (TTMLIR_TTMETAL_INSTALL_PREFIX)
+  get_filename_component(TTMETAL_INSTALL_PREFIX "${TTMLIR_TTMETAL_INSTALL_PREFIX}" ABSOLUTE)
+  message(STATUS "Using user-managed tt-metal install: ${TTMETAL_INSTALL_PREFIX}")
+else()
+  set(TTMETAL_INSTALL_PREFIX "${TTMETAL_BUILD_DIR}")
+endif()
 set(TTMETAL_BUILD_SYMLINK ${TTMETAL_SOURCE_DIR}/build)
 # tt-metal uses GNUInstallDirs which sets CMAKE_INSTALL_LIBDIR to "lib" or "lib64" based on the system
 # We need to use the same value to find the installed libraries
 include(GNUInstallDirs)
-set(TTMETAL_LIBRARY_DIR ${TTMETAL_BUILD_DIR}/${CMAKE_INSTALL_LIBDIR})
+set(TTMETAL_LIBRARY_DIR ${TTMETAL_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR})
 
 set(TTML_RELPATH tt-train/sources/ttml)
 set(TTML_SOURCE_DIR ${TTMETAL_SOURCE_DIR}/${TTML_RELPATH})
@@ -142,7 +159,7 @@ else()
   set(ENABLE_DISTRIBUTED OFF)
 endif()
 
-set(METAL_INSTALL_PREFIX "${TTMETAL_BUILD_DIR}")
+set(METAL_INSTALL_PREFIX "${TTMETAL_INSTALL_PREFIX}")
 
 if (TTMLIR_TTMETAL_SOURCE_DIR)
   set(_tt_metal_source_args
@@ -155,6 +172,27 @@ else()
     GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
     GIT_TAG ${TT_METAL_VERSION}
     GIT_PROGRESS OFF
+  )
+endif()
+
+set(_tt_metal_commands)
+if (TTMLIR_TTMETAL_BUILD_DIR AND TTMLIR_TTMETAL_INSTALL_PREFIX)
+  foreach(_tt_metal_artifact
+      ${TTNN_LIBRARY_PATH}
+      ${TTNN_PY_LIBRARY_PATH}
+      ${TTMETAL_LIBRARY_PATH}
+      ${DEVICE_LIBRARY_PATH}
+      ${TT_STL_LIBRARY_PATH}
+      ${TRACY_LIBRARY_PATH}
+      ${FMT_LIBRARY_PATH})
+    if(NOT EXISTS "${_tt_metal_artifact}")
+      message(FATAL_ERROR "Prebuilt tt-metal artifact is missing: ${_tt_metal_artifact}")
+    endif()
+  endforeach()
+  set(_tt_metal_commands
+    CONFIGURE_COMMAND ${CMAKE_COMMAND} -E true
+    BUILD_COMMAND ${CMAKE_COMMAND} -E true
+    INSTALL_COMMAND ${CMAKE_COMMAND} -E true
   )
 endif()
 
@@ -183,6 +221,7 @@ ExternalProject_Add(
     -DENABLE_DISTRIBUTED=${ENABLE_DISTRIBUTED}
     -DTT_USE_SYSTEM_SFPI=${TT_USE_SYSTEM_SFPI}
   ${_tt_metal_source_args}
+  ${_tt_metal_commands}
   BUILD_BYPRODUCTS
     ${TTNN_LIBRARY_PATH}
     ${TTNN_PY_LIBRARY_PATH}
