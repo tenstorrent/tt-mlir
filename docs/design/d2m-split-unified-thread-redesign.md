@@ -100,9 +100,10 @@ flow must keep all of them.
    waits on the CB it actually reads.
 10. **Scratch buffers** (`d2m.scratch_buffer`) and **reduction scaler buffers**
     are not treated as synchronized CBs.
-11. **`semaphore_wait` (no reset) is replicated into both threads**, preserving
-    relative order. `semaphore_wait` *with* reset in a unified region is an
-    error (`checkForIllegalSemaphoreOps`).
+11. **Non-mutating `semaphore_wait` is replicated into both threads**, preserving
+    relative order. Semaphore mutations (`semaphore_inc`, `semaphore_set`, and
+    waits with reset), router-only waits, and producer-release waits run only on
+    data movement so they cannot execute twice.
 12. Multicast parameters on `remote_load` and `preallocated_semaphores` /
     semaphore operands on `remote_store` are preserved through the explicit-CB
     conversion.
@@ -166,6 +167,7 @@ compute (see below); Pass 3 consumes and erases them.
 | aliased `remote_load` / `remote_store` | `compute` |
 | ops with `D2MGenericRegionComputeOpTrait` and their enclosing `linalg.generic` | `compute` |
 | `semaphore_wait` (no reset) | replicated → tag `both` |
+| `semaphore_inc` / `semaphore_set` / `semaphore_wait` with reset | `datamovement` |
 
 Structural / pure ops (`arith.constant`, `scf.for`, `d2m.core_index`,
 `view_layout`, `memref.alloc`, `get_cb`, index arithmetic) are **left
@@ -173,9 +175,9 @@ untagged**; Pass 2 replicates them to both threads and lets DCE drop the unused
 copies. This matches the current "clone all to both, then prune" behaviour but
 makes the decision explicit and one-time.
 
-Pass 1 also runs `checkForIllegalSemaphoreOps` (invariant 11) and the scratch /
-reduction-scaler exclusions (invariant 10) when classifying compute CB usage —
-though note these only matter to Pass 3; see §6.
+Pass 1 also applies the scratch / reduction-scaler exclusions (invariant 10)
+when classifying compute CB usage — though note these only matter to Pass 3;
+see §6.
 
 Output: still one unified region, semantically unchanged, now annotated and in
 explicit-CB form for data movement.
@@ -302,7 +304,7 @@ Demonstrating semantic equivalence for every current test case.
 | 14 compute→copy→compute | cb_buf DMA-produce; compute_scratch compute-produce+DMA-consume(copy); copy_dst DMA-produce(copy)+compute-read; cb_out compute-produce+DMA-store | DMA: load, copy, store; compute: wait/reserve/linalg/push/pop ×2. ✓ |
 | fanout (file 2) | cb_in DMA-produce, two compute consumers same nest | one `wait` before first, one `pop` after last. ✓ |
 | fanout_unsupported | cb_in consumers in two distinct nests | `commonParentBlock` fails → diagnostic. ✓ (Message text will change; see §8.) |
-| semaphore_wait ×2 | as labelled | `semaphore_wait` tagged `both`, replicated, order preserved; CB ops as above. ✓ |
+| semaphore_wait ×2 | as labelled | non-mutating `semaphore_wait` tagged `both`, replicated, order preserved; reset waits run on data movement; CB ops as above. ✓ |
 
 ## 7. Risks and open questions
 
@@ -372,7 +374,8 @@ contract at each boundary. Provisional RUN lines:
 - aliased load/store: op left in implicit form, tagged
   `d2m.thread = #d2m.thread<compute>`.
 - compute op (`linalg.generic` + `tile_exp`): tagged `compute`.
-- `semaphore_wait` (no reset): tagged `both`; with reset: `expected-error`.
+- `semaphore_wait` (no reset): tagged `both`; with reset: tagged
+  `datamovement` and not replicated.
 - `local_copy`: explicit-CB form, tagged `datamovement`.
 - negative: non-unified generic untouched.
 

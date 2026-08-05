@@ -202,9 +202,19 @@ appendFabricConfigArgs(
   // update number of topology args
   rtArgsVec[num_topology_arg_idx] = (rtArgsVec.size() - num_topology_arg_idx);
 
-  // insert fabric connection args (device and core specific)
-  std::vector<tt::tt_metal::CoreCoord> cores =
-      tt::tt_metal::corerange_to_cores(coreRangeSet);
+  // Insert fabric connection args only for configured router cores. An empty
+  // list preserves the legacy whole-grid behavior.
+  std::vector<tt::tt_metal::CoreCoord> cores;
+  const auto *routerCores = fabricConnectionConfig->router_cores();
+  if (routerCores && routerCores->size() >= 2) {
+    for (flatbuffers::uoffset_t index = 0; index + 1 < routerCores->size();
+         index += 2) {
+      cores.emplace_back(/*x=*/(*routerCores)[index + 1],
+                         /*y=*/(*routerCores)[index]);
+    }
+  } else {
+    cores = tt::tt_metal::corerange_to_cores(coreRangeSet);
+  }
   LOG_ASSERT(cores.size() <= num_links * cores_per_link, "Number of cores (",
              cores.size(),
              ") to connect to fabric routers exceeds number of routing "

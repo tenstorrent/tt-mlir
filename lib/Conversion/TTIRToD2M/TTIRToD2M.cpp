@@ -4565,7 +4565,8 @@ public:
         llvm::to_vector(ttcore::getGridShape(inputStreamResult));
     auto fabricConnectionConfig = ttcore::FabricConnectionConfigAttr::get(
         rewriter.getContext(), ttcore::NocIndex::Noc0, topology, clusterAxis,
-        ttcore::RoutingMode::UnidirRingTorus, num_links);
+        ttcore::RoutingMode::UnidirRingTorus, num_links,
+        /*router_cores=*/{});
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, TypeRange(outputStreamResult), inputStreamResult,
         outputStreamResult, ValueRange({startSemaphore, endSemaphore}),

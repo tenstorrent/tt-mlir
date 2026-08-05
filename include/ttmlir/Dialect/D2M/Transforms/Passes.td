@@ -1094,8 +1094,10 @@ def D2MAssignThreads : Pass<"d2m-assign-threads", "::mlir::ModuleOp"> {
       thread it will be split into. All remote/`local_copy` ops -- including
       aliased ones -- are assigned to `datamovement` (the verifier requires
       remote ops to live on the datamovement thread); compute ops are assigned
-      to `compute`. Ops replicated into both threads (structural ops,
-      `semaphore_wait`) are left untagged.
+      to `compute`. Semaphore mutations, router-only waits, and
+      producer-release waits are assigned to `datamovement`; other semaphore
+      waits and structural ops are replicated into both threads and left
+      untagged.
 
     The annotations are an internal handoff consumed by `d2m-split-threads`.
   }];

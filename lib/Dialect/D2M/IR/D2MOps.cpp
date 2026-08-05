@@ -8,7 +8,6 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
-#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -2217,14 +2216,6 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
                              opGridMap, opGridShape, emitDiag);
     if (failed(blockFactorResult)) {
       return blockFactorResult;
-    }
-  }
-
-  // Unified form will be replicated across compute and datamovement threads.
-  // Reject semaphore ops that would create race conditions when replicated.
-  if (isUnifiedForm() && !this->getRegion(0).empty()) {
-    if (failed(utils::checkForIllegalSemaphoreOps(&getRegion(0).front()))) {
-      return failure();
     }
   }
 
