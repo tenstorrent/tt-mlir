@@ -67,7 +67,8 @@ public:
       }
 
       L1SpillManagement<SumL1MemoryTracker> spill(
-          func, deviceGrid, l1BudgetPerCore, chipDesc.getUsableL1Size(),
+          func, deviceGrid, l1BudgetPerCore,
+          ttcore::getOpChipDescAttr(moduleOp).getUsableL1Size(),
           std::move(observer));
       spill.run();
 
