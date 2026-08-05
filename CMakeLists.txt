@@ -9,9 +9,6 @@ endif()
 
 project(tt-mlir LANGUAGES CXX C)
 
-if (NOT DEFINED ENV{TTMLIR_ENV_ACTIVATED})
-  message(FATAL_ERROR "tt-mlir environment not activated. Please run 'source env/activate'.")
-endif()
 
 set(NB_USE_SUBMODULE_DEPS ON CACHE BOOL "Use nanobind bundled dependencies")
 
@@ -46,6 +43,7 @@ option(TTMLIR_ENABLE_TESTS "Enable building all tests" ON)
 option(TTMLIR_ENABLE_TOOLS "Enable building core tools (ttmlir-opt, ttmlir-lsp-server, ttmlir-translate, ttnn-standalone)" ON)
 option(TTMLIR_ENABLE_ALCHEMIST "Enable tt-alchemist lib" ON)
 option(TTMLIR_ENABLE_ALCHEMIST_WHEEL "Enable tt-alchemist wheel" OFF)  # Expensive to build
+option(TTMLIR_ENABLE_DOCS "Enable documentation targets" ON)
 option(CODE_COVERAGE "Enable coverage reporting" OFF)
 option(TT_USE_SYSTEM_SFPI "Use system path for SFPI. SFPI is used to compile firmware." OFF)
 
@@ -133,8 +131,6 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
   message(FATAL_ERROR "In-source builds are not allowed. Please make a new directory (called a build directory) and run CMake from there.")
 endif()
 
-# If there are multiple python env we need to explicitly set the python3 executable
-set(Python3_EXECUTABLE $ENV{TTMLIR_VENV_DIR}/bin/python3)
 
 include(FindMLIR)
 include(TTMLIRVersion)
@@ -168,7 +164,6 @@ include_directories(${TTMLIR_BINARY_DIR}/include)
 include_directories(${TTMLIR_TOOLCHAIN_DIR}/include)
 link_directories(${LLVM_BUILD_LIBRARY_DIR})
 add_definitions(${LLVM_DEFINITIONS})
-include(TTMLIRPythonSitePackages)
 
 add_subdirectory(third_party)
 if (TTMLIR_ENABLE_STABLEHLO)
@@ -210,7 +205,9 @@ add_subdirectory(test)
 endif()
 add_subdirectory(tools)
 add_subdirectory(runtime)
-add_subdirectory(docs)
+if(TTMLIR_ENABLE_DOCS)
+  add_subdirectory(docs)
+endif()
 add_subdirectory(cmake/modules)
 
 include(LintTools)

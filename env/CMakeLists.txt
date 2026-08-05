@@ -1,34 +1,27 @@
 cmake_minimum_required(VERSION 3.20.0)
 project(ttmlir-toolchain LANGUAGES CXX C)
+find_package(Python3 3.12 REQUIRED COMPONENTS Interpreter Development.Module)
 
 set(FLATBUFFERS_VERSION "fb9afbafc7dfe226b9db54d4923bfb8839635274")
-set(LLVM_PROJECT_VERSION "4efe170d858eb54432f520abb4e7f0086236748b")
+set(LLVM_PROJECT_VERSION "22.1.0")
 set(STABLEHLO_VERSION "0a4440a5c8de45c4f9649bf3eb4913bf3f97da0d")
 set(SHARDY_VERSION "edfd6730ddfc39da5fbea8b6b202357fdf1cdb90")
 set(LLVM_BUILD_TYPE MinSizeRel CACHE STRING "Build type for LLVM")
 
 include(ExternalProject)
+string(REPLACE ";" "," TTMLIR_EXTERNAL_CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}")
 
-set(ENV{_ACTIVATE_ECHO_TOOLCHAIN_DIR_AND_EXIT} "1")
-execute_process(
-    COMMAND bash activate
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    OUTPUT_VARIABLE TTMLIR_TOOLCHAIN_DIR
-    RESULT_VARIABLE ACTIVATE_RESULT
-)
-
-if (ACTIVATE_RESULT)
-    message(FATAL_ERROR "Failed to get toolchain environment")
+set(TTMLIR_TOOLCHAIN_DIR "$ENV{TTMLIR_TOOLCHAIN_DIR}" CACHE PATH
+    "Install prefix for the tt-mlir toolchain")
+if(NOT TTMLIR_TOOLCHAIN_DIR)
+    message(FATAL_ERROR "TTMLIR_TOOLCHAIN_DIR must name an existing install prefix")
 endif()
-
-set(ENV{TTMLIR_TOOLCHAIN_DIR} "${TTMLIR_TOOLCHAIN_DIR}")
 message(STATUS "TTMLIR_TOOLCHAIN_DIR: ${TTMLIR_TOOLCHAIN_DIR}")
 
-if (NOT EXISTS "${TTMLIR_TOOLCHAIN_DIR}")
-    message( FATAL_ERROR "The directory ${TTMLIR_TOOLCHAIN_DIR} does not exist. Please create it before running this script.\n  sudo mkdir -p ${TTMLIR_TOOLCHAIN_DIR}\n  sudo chown -R $ENV{USER} ${TTMLIR_TOOLCHAIN_DIR}")
+if(NOT EXISTS "${TTMLIR_TOOLCHAIN_DIR}")
+    message(FATAL_ERROR "The directory ${TTMLIR_TOOLCHAIN_DIR} does not exist")
 endif()
 
-add_custom_target(python-venv ALL COMMAND TTMLIR_TOOLCHAIN_DIR=${TTMLIR_TOOLCHAIN_DIR} ENV_DIR=${CMAKE_CURRENT_SOURCE_DIR} bash ${CMAKE_CURRENT_SOURCE_DIR}/init_venv.sh)
 
 ExternalProject_Add(
     flatbuffers
@@ -36,13 +29,17 @@ ExternalProject_Add(
     CMAKE_ARGS
     -DCMAKE_BUILD_TYPE=Release
     -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
+    -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+    -DCMAKE_C_COMPILER_LAUNCHER=${CMAKE_C_COMPILER_LAUNCHER}
+    -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
+    -DCMAKE_PREFIX_PATH=${TTMLIR_EXTERNAL_CMAKE_PREFIX_PATH}
     -DFLATBUFFERS_BUILD_TESTS=OFF
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON # Required for linking into shared libraries (python bindings)
     GIT_REPOSITORY https://github.com/google/flatbuffers.git
     GIT_TAG ${FLATBUFFERS_VERSION}
     GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
     UPDATE_DISCONNECTED ON
-    DEPENDS python-venv
 )
 
 set(TTMLIR_BUILD_LLVM ON CACHE BOOL "Enable LLVM Build")
@@ -50,17 +47,24 @@ if(TTMLIR_BUILD_LLVM)
     # -DMLIR_ENABLE_EXPENSIVE_PATTERN_API_CHECKS=ON set if debug
     ExternalProject_Add(
         llvm-project
-        # Super hacky way to install the python dependencies before the build
-        # Sync nanobind with tt-metal's pinned version to avoid ODR violations
-        PATCH_COMMAND bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -c ${CMAKE_CURRENT_LIST_DIR}/pip-constraints.txt -r mlir/python/requirements.txt && git config user.email \"tt-mlir@tenstorrent.com\" && git config user.name \"tenstorrent\" && git apply --index \"${CMAKE_CURRENT_LIST_DIR}/patches/affine-allow-symbol-vars.patch\" && git commit -m \"tt-mlir related patch\""
+        PREFIX ${TTMLIR_TOOLCHAIN_DIR}
+
+        URL
+            "https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_PROJECT_VERSION}/llvm-project-${LLVM_PROJECT_VERSION}.src.tar.xz"
+        # Strongly recommended:
+        URL_HASH SHA256=25d2e2adc4356d758405dd885fcfd6447bce82a90eb78b6b87ce0934bd077173
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        PATCH_COMMAND git apply "${CMAKE_CURRENT_LIST_DIR}/patches/affine-allow-symbol-vars.patch"
         CMAKE_GENERATOR Ninja
         CMAKE_ARGS
         -DCMAKE_BUILD_TYPE=${LLVM_BUILD_TYPE}
-        -DPython3_FIND_VIRTUALENV=ONLY
-        -DPython3_EXECUTABLE=${TTMLIR_TOOLCHAIN_DIR}/venv/bin/python
+        -DPython3_EXECUTABLE=${Python3_EXECUTABLE}
         -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
         -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
         -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+        -DCMAKE_C_COMPILER_LAUNCHER=${CMAKE_C_COMPILER_LAUNCHER}
+        -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
+        -DCMAKE_PREFIX_PATH=${TTMLIR_EXTERNAL_CMAKE_PREFIX_PATH}
         -DLLVM_ENABLE_PROJECTS=mlir,lld
         -DLLVM_TARGETS_TO_BUILD=host
         -DLLVM_INSTALL_UTILS=ON
@@ -70,13 +74,10 @@ if(TTMLIR_BUILD_LLVM)
         -DCMAKE_C_FLAGS=-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
         SOURCE_SUBDIR llvm
         LIST_SEPARATOR ","
-        GIT_REPOSITORY https://github.com/llvm/llvm-project.git
-        GIT_TAG ${LLVM_PROJECT_VERSION}
-        GIT_PROGRESS OFF
-        GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
+        UPDATE_COMMAND ""
         UPDATE_DISCONNECTED ON
-        DEPENDS python-venv
     )
+
 endif()
 
 ExternalProject_Add(stablehlo
@@ -84,6 +85,7 @@ ExternalProject_Add(stablehlo
    GIT_REPOSITORY https://github.com/openxla/stablehlo.git
    GIT_TAG ${STABLEHLO_VERSION}
    GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
+   UPDATE_DISCONNECTED ON
    CONFIGURE_COMMAND ""
    BUILD_COMMAND ""
    INSTALL_COMMAND ""
@@ -95,6 +97,7 @@ ExternalProject_Add(shardy
    GIT_REPOSITORY https://github.com/openxla/shardy.git
    GIT_TAG ${SHARDY_VERSION}
    GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
+   UPDATE_DISCONNECTED ON
    CONFIGURE_COMMAND ""
    BUILD_COMMAND ""
    INSTALL_COMMAND ""
@@ -102,6 +105,6 @@ ExternalProject_Add(shardy
 )
 
 if(TTMLIR_BUILD_LLVM)
-    add_custom_target(llvm-lit ALL COMMAND cp llvm-project-prefix/src/llvm-project-build/bin/llvm-lit ${TTMLIR_TOOLCHAIN_DIR}/bin/llvm-lit DEPENDS llvm-project)
-    add_custom_target(run-clang-tidy-install ALL COMMAND cp llvm-project-prefix/src/llvm-project/clang-tools-extra/clang-tidy/tool/run-clang-tidy.py ${TTMLIR_TOOLCHAIN_DIR}/bin/run-clang-tidy.py DEPENDS llvm-project)
+    add_custom_target(llvm-lit ALL COMMAND cp ${TTMLIR_TOOLCHAIN_DIR}/src/llvm-project-build/bin/llvm-lit ${TTMLIR_TOOLCHAIN_DIR}/bin/llvm-lit DEPENDS llvm-project)
+    add_custom_target(run-clang-tidy-install ALL COMMAND cp ${TTMLIR_TOOLCHAIN_DIR}/src/llvm-project/clang-tools-extra/clang-tidy/tool/run-clang-tidy.py ${TTMLIR_TOOLCHAIN_DIR}/bin/run-clang-tidy.py DEPENDS llvm-project)
 endif()
