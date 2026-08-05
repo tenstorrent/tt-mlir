@@ -643,13 +643,9 @@ private:
     // from DRAM — avoids the CB clash where rm_reshape_interleaved CBs overlap
     // with any still-live L1 buffer.
     auto dramRMUnTy = mkDRAMRowMajorTy(rOutSrcTy);
-    auto layoutAttr = ttnn::LayoutAttr::get(rOut->getContext(), Layout::RowMajor);
     OpBuilder ob(rOut->getContext());
     ob.setInsertionPoint(rOut);
-    auto toRM = ob.create<ttnn::ToLayoutOp>(rOut.getLoc(), dramRMUnTy, rOutSrc,
-                                             layoutAttr,
-                                             /*dtype=*/nullptr,
-                                             /*memory_config=*/nullptr);
+    auto toRM = ob.create<ttnn::ToLayoutOp>(rOut.getLoc(), dramRMUnTy, rOutSrc);
 
     // Redirect rOut to consume toRM's DRAM RM output; make rOut output DRAM RM
     // (cheap re-stride — no tile boundary crossing, no CB clash).
@@ -680,13 +676,11 @@ private:
 
     if (!hasDramTileFinal) {
       auto tileTy    = mkDRAMTileTy(dramRMTy);
-      auto tileLo    = mlir::cast<TTNNLayoutAttr>(tileTy.getEncoding());
-      auto tileMemCfg = MemoryConfigAttr::get(tileLo);
 
       OpBuilder b(rOut->getContext());
       b.setInsertionPointAfter(rOut);
       auto mcTile = b.create<ttnn::ToMemoryConfigOp>(
-          rOut.getLoc(), tileTy, rOut.getResult(), tileMemCfg);
+          rOut.getLoc(), tileTy, rOut.getResult());
 
       SmallPtrSet<Operation *, 1> except{mcTile.getOperation()};
       rOut.getResult().replaceAllUsesExcept(mcTile.getResult(), except);
