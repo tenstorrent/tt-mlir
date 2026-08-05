@@ -787,6 +787,7 @@ public:
                                                         nullptr, outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
+    rewriter.create<ttkernel::ReconfigDataFormatSrcAOp>(store.getLoc(), cb);
     rewriter.create<ttkernel::CopyTileInitOp>(store.getLoc(), cb);
     rewriter.replaceOpWithNewOp<ttkernel::CopyTileOp>(store, cb, cbIndex,
                                                       dstIndex);
@@ -801,6 +802,8 @@ public:
     auto storeIdx =
         computeLinearIndex(store.getLoc(), store.getMemRefType().getShape(),
                            adaptor.getIndices(), rewriter);
+    // !!! EDIT COMMMENT
+    rewriter.create<ttkernel::PackReconfigDataFormatOp>(store.getLoc(), cb);
     rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
         store, dst, cb, storeIdx, rewriter.getBoolAttr(true));
     return success();
@@ -3149,19 +3152,75 @@ public:
 namespace {
 class D2MArgMaxRewriter : public OpConversionPattern<d2m::TileArgMaxOp> {
 private:
-  // The reduction loop's IV, i.e. the enclosing loop whose iterations
-  // accumulate into the same DST slot (the DST index does not vary with it).
-  // This is the `chunk` counter the MPWI LLK uses to decide whether to seed its
-  // accumulator slices (chunk == 0) or fold into them (chunk > 0).
-  static Value findReductionLoopIV(Operation *op, Value dstIndex) {
+  // Returns the reduction loop whose IV is the 'chunk' counter for the LLK, or
+  // null for the single-tile case. The IV is `getSingleBlockLoopIV(loop)`.
+  static Operation *findReductionLoop(Operation *op, Value dstIndex) {
     for (Operation *loop : getEnclosingLoops(op)) {
       Value loopIV = getSingleBlockLoopIV(loop);
       if (!loopIV || valueDependsOn(dstIndex, loopIV)) {
         continue;
       }
-      return loopIV;
+      return loop;
+    }
+    return nullptr;
+  }
+
+  // The L1 CB carrying `result` out of the region.
+  //
+  // Results do not reach L1 directly: InsertDstRegisterAccess stores each one
+  // to a DST slice, then a separate drain loop loads that slice back and stores
+  // it to L1.  So walk result -> DST store (through any dst_reinterpret_cast)
+  // to learn the slice, then find the load of that same slice whose value is
+  // stored to L1.  For the accumulator results this L1 buffer is what carries
+  // the running maxima across chunks, i.e. what we copy back in.
+  static Value findL1CbForResult(ConversionPatternRewriter &rewriter,
+                                 Value result) {
+    // The DST store that parks this result (through any reinterpret cast).
+    memref::StoreOp dstStore = findDstStoreForValue(result);
+    if (!dstStore || dstStore.getIndices().size() != 1) {
+      return {};
+    }
+    Value dstSlice = dstStore.getIndices().front();
+
+    // The drain load reading that same slice, and where its value lands in L1.
+    for (Operation *dstUser : dstStore.getMemRef().getUsers()) {
+      auto load = mlir::dyn_cast<memref::LoadOp>(dstUser);
+      if (!load || load.getIndices().size() != 1 ||
+          load.getIndices().front() != dstSlice) {
+        continue;
+      }
+      // The loaded tile may pass through a reinterpret cast before the store.
+      SmallVector<Value> candidates{load.getResult()};
+      for (Operation *loadUser : load.getResult().getUsers()) {
+        if (auto cast = mlir::dyn_cast<d2m::DstReinterpretCastOp>(loadUser)) {
+          candidates.push_back(cast.getResult());
+        }
+      }
+      for (Value candidate : candidates) {
+        for (Operation *storeUser : candidate.getUsers()) {
+          auto store = mlir::dyn_cast<memref::StoreOp>(storeUser);
+          if (store && ttcore::getMemorySpace(store.getMemRef()) ==
+                           ttcore::MemorySpace::DeviceL1) {
+            return rewriter.getRemappedValue(store.getMemRef());
+          }
+        }
+      }
     }
     return {};
+  }
+
+  // Emit `reconfig_data_format_srca` + `copy_tile_init` + `copy_tile` to stage
+  // one tile from `cb` into DST slice `dstSlice`. The srca reconfigure is
+  // required whenever consecutive copies read CBs of differing element width:
+  // `copy_tile_init` explicitly does not reprogram the unpacker data types, so
+  // without it a 32-bit index CB is unpacked through the format left behind by
+  // the bf16 value CB (measured: the index tile arrives as all zeros).
+  static void emitReconfiguredCopyTile(ConversionPatternRewriter &rewriter,
+                                       Location loc, Value cb, Value cbIndex,
+                                       Value dstSlice) {
+    rewriter.create<ttkernel::ReconfigDataFormatSrcAOp>(loc, cb);
+    rewriter.create<ttkernel::CopyTileInitOp>(loc, cb);
+    rewriter.create<ttkernel::CopyTileOp>(loc, cb, cbIndex, dstSlice);
   }
 
 public:
@@ -3225,15 +3284,89 @@ public:
     constexpr int32_t kNumRows = 32;
     constexpr bool accumulate = true;
 
-    Value chunk = findReductionLoopIV(op, idst);
+    Operation *reductionLoop = findReductionLoop(op, idst);
+    Value chunk = reductionLoop ? getSingleBlockLoopIV(reductionLoop) : Value();
     if (!chunk) {
       // No reduction loop: single-tile case, chunk is unused by the LLK.
       chunk = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     }
 
-    // accumulate=false: cross-tile reduction is done in the D2M region (the
-    // compose-and-gather path), not via the LLK's in-kernel chunk accumulator.
-    llvm::errs() << "emitting max_reduce_with_indices_tile\n";
+    // In accumulate mode the LLK keeps running value/index maxima in the slices
+    // it addresses implicitly at `idst + 1` / `idst_idx + 1`.  They cannot just
+    // live in DST across iterations: the DST section handshake that drains each
+    // iteration also retires the section, and the next iteration does not see
+    // what the previous one left there (measured: the slice reads back zero).
+    //
+    // So the accumulators round-trip through L1.  The store rewriters already
+    // pack them out to their own CBs every iteration (results 2/3); here they
+    // are copied back in beforehand, and the LLK folds them via SFPSWAP exactly
+    // as if they had never left -- keeping the value+index combine in hardware
+    // rather than hand-rolling a compare-and-select.
+    //
+    // Guarded on `chunk != 0`: the accumulator CBs hold nothing until the first
+    // iteration has packed them out, so copying back on chunk 0 would stage
+    // uninitialized L1 into the accumulator slices. The LLK does overwrite them
+    // without reading when chunk == 0, but only *after* these copies have
+    // already clobbered the slices -- so the guard is load-bearing, not just an
+    // optimization. Mirrors the int sfpu_reduce path, which reloads its
+    // accumulator from the output CB under the same predicate.
+    if (accumulate && op.getNumResults() > 3u) {
+      Value valAccCb = findL1CbForResult(rewriter, op.getResult(2));
+      Value idxAccCb = findL1CbForResult(rewriter, op.getResult(3));
+      if (valAccCb && idxAccCb) {
+        auto emitReloads = [&]() {
+          Value one = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+          Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+          emitReconfiguredCopyTile(
+              rewriter, loc, valAccCb, zero,
+              rewriter.create<arith::AddIOp>(loc, idst, one));
+          emitReconfiguredCopyTile(
+              rewriter, loc, idxAccCb, zero,
+              rewriter.create<arith::AddIOp>(loc, idstIdx, one));
+        };
+
+        // On chunk 0 the accumulator slice must be CLEARED rather than
+        // reloaded. The SFPU address offset field saturates at 62 DST rows, so
+        // reducing the value/index tiles at slots 0/2 partially loads -- and
+        // writes -- rows belonging to slots 1/3.  The accumulator slices
+        // therefore contain garbage as a side effect of the primary reduction,
+        // and folding against it corrupts the running maximum.  ttnn's
+        // compute_mpwi.cpp does the same thing, copying a dedicated clear-value
+        // tile into the value accumulator before its chunk loop; `fill_tile`
+        // lets us seed the slice directly.
+        //
+        // Only the VALUE accumulator needs clearing: index tracking mirrors
+        // value movement, so a garbage index can only survive if its paired
+        // garbage value wins the max, which -inf prevents.
+        auto emitClear = [&]() {
+          Value one = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+          Value valAccSlice = rewriter.create<arith::AddIOp>(loc, idst, one);
+          Value negInf = rewriter.create<arith::ConstantOp>(
+              loc, rewriter.getF32Type(),
+              rewriter.getF32FloatAttr(
+                  -std::numeric_limits<float>::infinity()));
+          rewriter.create<ttkernel::FillTileInitOp>(loc);
+          rewriter.create<ttkernel::FillTileOp>(loc, valAccSlice, negInf);
+        };
+
+        if (reductionLoop) {
+          Value firstIteration =
+              getLoopLowerBoundValue(rewriter, loc, reductionLoop);
+          Value notFirstIteration = rewriter.create<arith::CmpIOp>(
+              loc, arith::CmpIPredicate::ne, chunk, firstIteration);
+          auto ifOp = rewriter.create<scf::IfOp>(loc, notFirstIteration,
+                                                 /*withElseRegion=*/true);
+          OpBuilder::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+          emitReloads();
+          rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
+          emitClear();
+        }
+        // No reduction loop: single tile, chunk is always 0, so no reload at
+        // all.
+      }
+    }
+
     rewriter.create<ttkernel::MaxReduceWithIndicesTileOp>(
         loc, idst, idstIdx, chunk, rewriter.getI32IntegerAttr(kNumRows),
         rewriter.getBoolAttr(accumulate));

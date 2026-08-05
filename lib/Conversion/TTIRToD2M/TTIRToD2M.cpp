@@ -6173,11 +6173,17 @@ private:
 
     // Accumulator buffers: the LLK's running value/index maxima are packed out
     // and reloaded each chunk so they survive the DST section handshake's bank
-    // flip. f32 for values: DST holds fp32, so a bf16 accumulator CB would
-    // round-trip with half-ULP error and could flip the selected index on
-    // near-ties.
-    auto valAccTy = RankedTensorType::get(reducedShape, rewriter.getF32Type(),
-                                          inputTy.getEncoding());
+    // flip.
+    //
+    // The value accumulator must carry the SAME element type as the value
+    // input/output CBs. An f32 accumulator CB would be a *width* mismatch on
+    // the round-trip -- packed out as a 4096-byte f32 tile, then unpacked back
+    // into a DST slice the LLK reads in its native value format -- so the
+    // reloaded bits do not line up and the SFPSWAP fold compares garbage. That
+    // is a correctness failure, strictly worse than the half-ULP rounding a
+    // bf16 round-trip costs on near-ties.
+    auto valAccTy = RankedTensorType::get(
+        reducedShape, inputTy.getElementType(), inputTy.getEncoding());
     auto idxAccTy = RankedTensorType::get(reducedShape, rewriter.getI32Type(),
                                           inputTy.getEncoding());
 
@@ -6203,6 +6209,32 @@ private:
     Value rowMajorValues = createOptimalLayoutOp(
         adaptor.getInput(), memorySpaces[0], /*tiled=*/false,
         /*noCollapse=*/false, rewriter, ttcore::OOBVal::NegInf);
+
+    // Pin this operand to a unit grid.
+    //
+    // The relabel below reinterprets these bytes as tiles through view_layout
+    // only -- the ALLOCATION stays scalar-typed (`bf16`, not `!ttcore.tile`).
+    // Allocation sizes a shard from the trailing *scalar* dims, so on a grid
+    // wider than 1 the leading dim is read as a core-grid extent and each core
+    // receives only part of the reduction axis (measured: a 64x32 reduce got
+    // 2x1x32x32, i.e. 32 rows per core on a 2x1 grid, while the consuming
+    // generic runs on grid<1x1> -- so half the input was on a core the kernel
+    // never addresses, and the result was max(rows 0-31)).
+    //
+    // A view cannot move bytes between cores, so the reblock back to
+    // 1x1x64x32 that grid selection inserts is a type-level fiction here.
+    // Keep the whole reduction axis resident on one core instead; this also
+    // matches what the LLK needs, since it accumulates across chunks in that
+    // core's DST.
+    //
+    // TEMPORARY: argmax is a carve-out until the streamlined row-major LLK
+    // support lands, which should allocate tile-typed and relabel *down* to
+    // row-major -- that would let the reduction split across cores again.
+    if (auto rowMajorToLayout =
+            rowMajorValues.getDefiningOp<d2m::ToLayoutOp>()) {
+      rowMajorToLayout->setAttr("d2m.row_major_llk_operand",
+                                rewriter.getUnitAttr());
+    }
 
     // ===================== BEGIN ROW-MAJOR-AS-TILE RELABEL
     // ===================== Remove this whole block (and the `rowMajorValues =
@@ -6242,7 +6274,42 @@ private:
       auto viewTy = RankedTensorType::get(viewShape, viewTileTy,
                                           rowMajorTy.getEncoding());
 
-      // Identity remapping: this is a pure relabel, no index permutation.
+      // // Remapping is view coords -> base coords, and this view changes the
+      // // element type from scalar to tile, so the shard dims must be SCALED
+      // by
+      // // the tile shape: one step in tile coordinates is `tileShape[i]`
+      // scalars.
+      // // Grid dims are unaffected.
+      // //
+      // // An identity map here silently mis-addresses every block past the
+      // first.
+      // // The map composes with ShardLayoutAttr::getAffineMap() (built from
+      // the
+      // // scalar shard strides, e.g. [64, 2] for 32xbf16 rows), so a tile
+      // index
+      // // d2 in {0, 1} would be consumed as a *scalar row* index and the DMA
+      // // source offset for block n came out as n*64 (one row) instead of
+      // n*2048
+      // // (one tile). Measured on device: with the identity map a 64x32
+      // reduction
+      // // read rows 0-31 then rows 1-32; with this scaling it reads 0-31 then
+      // // 32-63 and the result is exact.
+      // const unsigned viewRank = viewShape.size();
+      // const unsigned gridRank = viewRank / 2;
+      // ArrayRef<int64_t> viewTileShape = viewTileTy.getShape();
+      // SmallVector<AffineExpr> viewRemapExprs;
+      // viewRemapExprs.reserve(viewRank);
+      // for (unsigned i = 0; i < gridRank; ++i) {
+      //   viewRemapExprs.push_back(rewriter.getAffineDimExpr(i));
+      // }
+      // for (unsigned i = 0; i < gridRank; ++i) {
+      //   viewRemapExprs.push_back(rewriter.getAffineDimExpr(gridRank + i) *
+      //                            viewTileShape[i]);
+      // }
+      // AffineMap viewRemap = AffineMap::get(viewRank, /*symbolCount=*/0,
+      //                                      viewRemapExprs,
+      //                                      rewriter.getContext());
+
       AffineMap viewRemap = rewriter.getMultiDimIdentityMap(viewShape.size());
 
       rowMajorValues =
@@ -6363,6 +6430,14 @@ private:
           RankedTensorType::get(viewShape, scalarTy, tiledTy.getEncoding());
 
       // Identity remapping: this is a pure relabel, no index permutation.
+      //
+      // NOTE: strictly this view changes the element type (tile -> scalar), so
+      // by the same argument as the input-side relabel the shard dims "should"
+      // be divided by the tile shape. Empirically that is NOT what this path
+      // wants -- see the bisect below. Every index folds to 0 today anyway,
+      // since the reduced output is a single 1x1x1x1 tile per shard, so
+      // identity and any scaling agree here; revisit if the reduced output ever
+      // spans more than one tile per shard.
       AffineMap viewRemap = rewriter.getMultiDimIdentityMap(viewShape.size());
 
       reducedValues =
