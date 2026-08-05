@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import time
+
 from op_by_op_infra.mlir_module_executor import (
     ExecutionPhase,
     ExecutionResult,
@@ -11,6 +13,21 @@ from op_by_op_infra.utils import ModuleWrapper
 from ttmlir.compile_and_run_utils import ModuleDialect
 
 from .fixtures import *
+
+
+def test_execution_result_timestamps_are_per_instance():
+    """Each ExecutionResult must timestamp itself, not share an import-time value.
+
+    Regression test: these fields used to default to a bare ``datetime.now()``,
+    which a dataclass evaluates once at class creation. Every instance then
+    reported the same start time, making per-op durations meaningless.
+    """
+    first = ExecutionResult(ExecutionPhase.GENERATED_STABLE_HLO, None)
+    time.sleep(0.01)
+    second = ExecutionResult(ExecutionPhase.GENERATED_STABLE_HLO, None)
+
+    assert first.execution_started != second.execution_started
+    assert second.execution_started > first.execution_started
 
 
 def test_shlo_compile(shlo_module_str: str):
