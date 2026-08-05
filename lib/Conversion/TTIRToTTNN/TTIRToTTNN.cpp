@@ -1284,6 +1284,22 @@ public:
     return success();
   }
 };
+
+class CrossEntropyBackwardOpConversionPattern
+    : public OpConversionPattern<ttir::CrossEntropyBackwardOp> {
+public:
+  using OpConversionPattern<ttir::CrossEntropyBackwardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CrossEntropyBackwardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::CrossEntropyBackwardOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getTarget(), adaptor.getGrad(),
+        adaptor.getScalerAttr());
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -3861,6 +3877,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            AdamWOpConversionPattern,
            SDPAForwardOpConversionPattern,
            CrossEntropyForwardOpConversionPattern,
+           CrossEntropyBackwardOpConversionPattern,
            RMSNormOpConversionPattern,
            DistributedRMSNormOpConversionPattern,
            DistributedLayerNormOpConversionPattern,

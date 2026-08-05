@@ -1238,6 +1238,63 @@ public:
 } // namespace
 
 //===----------------------------------------------------------------------===//
+// CrossEntropyBackward decomposition pattern
+//===----------------------------------------------------------------------===//
+
+// Same normalization as CrossEntropyForwardPattern above, plus `grad`, which
+// ttml::metal::cross_entropy_bw takes as a (1, 1, 1, 1) tensor. The result has
+// input's shape rather than the forward op's reduced shape.
+namespace {
+struct CrossEntropyBackwardPattern
+    : public OpConversionPattern<ttir::CrossEntropyBackwardOp> {
+public:
+  using OpConversionPattern<ttir::CrossEntropyBackwardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CrossEntropyBackwardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType inputType = op.getInput().getType();
+    RankedTensorType targetType = op.getTarget().getType();
+    RankedTensorType gradType = op.getGrad().getType();
+
+    llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+    int64_t height = inputShape[inputShape.size() - 2];
+    int64_t width = inputShape.back();
+    int64_t batch = std::accumulate(inputShape.begin(), inputShape.end() - 2,
+                                    1ll, std::multiplies<int64_t>());
+
+    llvm::SmallVector<int64_t, 4> inputShape4D = {batch, 1, height, width};
+    llvm::SmallVector<int64_t, 2> targetShape2D = {batch, height};
+    llvm::SmallVector<int64_t, 4> gradShape4D = {1, 1, 1, 1};
+
+    if (inputShape == llvm::ArrayRef<int64_t>(inputShape4D) &&
+        targetType.getShape() == llvm::ArrayRef<int64_t>(targetShape2D) &&
+        gradType.getShape() == llvm::ArrayRef<int64_t>(gradShape4D)) {
+      return rewriter.notifyMatchFailure(op,
+                                         "already (N, 1, H, W) / (N, H) / 1s");
+    }
+
+    Location loc = op.getLoc();
+    RankedTensorType resultType = op.getResult().getType();
+    auto resultType4D = RankedTensorType::get(
+        inputShape4D, resultType.getElementType(), resultType.getEncoding());
+
+    auto normalized = rewriter.create<ttir::CrossEntropyBackwardOp>(
+        loc, resultType4D,
+        reshapeIfNeeded(rewriter, loc, adaptor.getInput(), inputShape4D),
+        reshapeIfNeeded(rewriter, loc, adaptor.getTarget(), targetShape2D),
+        reshapeIfNeeded(rewriter, loc, adaptor.getGrad(), gradShape4D),
+        adaptor.getScalerAttr());
+
+    rewriter.replaceOp(op,
+                       reshapeIfNeeded(rewriter, loc, normalized.getResult(),
+                                       resultType.getShape()));
+    return success();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
 // BatchNorm decomposition patterns
 //===----------------------------------------------------------------------===//
 
@@ -2270,6 +2327,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<AdamWPattern>(typeConverter, ctx);
   patterns.add<SDPAForwardPattern>(typeConverter, ctx);
   patterns.add<CrossEntropyForwardPattern>(typeConverter, ctx);
+  patterns.add<CrossEntropyBackwardPattern>(typeConverter, ctx);
   patterns.add<QuantizeOpPattern>(typeConverter, ctx);
   patterns.add<DequantizeOpPattern>(typeConverter, ctx);
   patterns.add<RequantizeOpPattern>(typeConverter, ctx);

@@ -3670,6 +3670,47 @@ public:
 } // namespace
 
 //
+// CrossEntropyBackwardOp conversion pattern
+// (emits ::ttml::metal::cross_entropy_bw)
+//
+namespace {
+class CrossEntropyBackwardOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::CrossEntropyBackwardOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.cross_entropy_bw";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttml::metal::cross_entropy_bw";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::CrossEntropyBackwardOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = mlir::tt::ttnn::CrossEntropyBackwardOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::CrossEntropyBackwardOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::CrossEntropyBackwardOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getTarget()),
+        emitter.emit(srcOp.getGrad()),
+        emitter.emit(srcOp.getScaler()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+//
 // BatchNormTrainingOp conversion pattern
 //
 namespace {
@@ -6004,6 +6045,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            SDPAForwardOpConversionPattern, BatchNormTrainingOpConversionPattern,
            RMSNormOpConversionPattern, RMSNormPreAllGatherOpConversionPattern,
            CrossEntropyForwardOpConversionPattern,
+           CrossEntropyBackwardOpConversionPattern,
            BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
            RMSNormPreAllGatherOpConversionPattern,
            DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,

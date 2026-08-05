@@ -7448,6 +7448,71 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// CrossEntropyBackwardOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::CrossEntropyBackwardOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType targetType = getTarget().getType();
+  RankedTensorType gradType = getGrad().getType();
+
+  if (inputType.getRank() < 2) {
+    return emitOpError("input must have rank at least 2 (..., H, W), got rank ")
+           << inputType.getRank();
+  }
+  if (targetType.getRank() < 1) {
+    return emitOpError("target must have rank at least 1 (..., H), got rank ")
+           << targetType.getRank();
+  }
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> targetShape = targetType.getShape();
+
+  // Compare collapsed batch extents rather than dimension by dimension, so that
+  // any rank pairing the decomposition can normalize is accepted.
+  int64_t inputN = std::accumulate(inputShape.begin(), inputShape.end() - 2,
+                                   1ll, std::multiplies<int64_t>());
+  int64_t targetN = std::accumulate(targetShape.begin(), targetShape.end() - 1,
+                                    1ll, std::multiplies<int64_t>());
+
+  if (inputN != targetN) {
+    return emitOpError("target batch extent (")
+           << targetN << ") must match input batch extent (" << inputN << ")";
+  }
+
+  int64_t inputH = inputShape[inputShape.size() - 2];
+  int64_t targetH = targetShape.back();
+  if (targetH != inputH) {
+    return emitOpError("target last dimension (")
+           << targetH << ") must match input dimension -2 (" << inputH << ")";
+  }
+
+  // ttml only supports a scalar gradient. The rank is left to the decomposition
+  // to normalize.
+  llvm::ArrayRef<int64_t> gradShape = gradType.getShape();
+  if (llvm::any_of(gradShape, [](int64_t dim) { return dim != 1; })) {
+    return emitOpError("grad must have all dimensions equal to 1, got ")
+           << gradShape;
+  }
+
+  // The gradient has the same shape as the logits it is taken with respect to.
+  llvm::ArrayRef<int64_t> resultShape = getResult().getType().getShape();
+  if (resultShape != inputShape) {
+    return emitOpError("result shape must match input shape, expected ")
+           << inputShape << ", got " << resultShape;
+  }
+
+  // Target holds class indices selecting along input's last dimension, so it
+  // must be an integer type.
+  if (!targetType.getElementType().isIntOrIndex()) {
+    return emitOpError("target must have an integer element type, got ")
+           << targetType.getElementType();
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // DistributedRMSNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttir::DistributedRMSNormOp::verify() {

@@ -5429,6 +5429,28 @@ public:
                "through its Python bindings.");
   }
 };
+
+// CrossEntropyBackward conversion pattern.
+//
+// Unsupported for the same reason as cross_entropy_fw above.
+class CrossEntropyBackwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::CrossEntropyBackwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::CrossEntropyBackwardOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::CrossEntropyBackwardOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp, "EmitPy lowering for ttnn.cross_entropy_bw is not supported: "
+               "ttml does not expose the metal::cross_entropy_bw primitive "
+               "through its Python bindings.");
+  }
+};
 } // namespace
 
 namespace mlir::tt {
@@ -5747,6 +5769,9 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // CrossEntropyForward: deliberately declines conversion, same reason.
   patterns.add<CrossEntropyForwardOpConversionPattern>(typeConverter, ctx);
+
+  // CrossEntropyBackward: deliberately declines conversion, same reason.
+  patterns.add<CrossEntropyBackwardOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
