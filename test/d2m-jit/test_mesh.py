@@ -433,7 +433,6 @@ def _chunked_matmul_all_gather_1x2(
     grid_x,
     worker_count,
 ):
-    # Every worker computes; one router gathers the results and uses fabric.
     cy = core_index(0)
     cx = core_index(1)
     for chunk in range(num_chunks):

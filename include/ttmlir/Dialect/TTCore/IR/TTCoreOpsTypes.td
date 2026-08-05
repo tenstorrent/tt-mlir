@@ -698,7 +698,7 @@ def TTCore_FabricConnectionConfigAttr: TTCore_Attr<"FabricConnectionConfig", "fa
   let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `routing_mode` `=` $routing_mode `,` `num_links` `=` $num_links (`,` `router_cores` `=` `[` $router_cores^ `]`)? `>`";
   let extraClassDeclaration = [{
     // Router cores is a flat list of (y, x) grid coordinate pairs, one per
-    // (link, direction) slot. Empty preserves the legacy whole-grid behavior.
+    // (link, direction) slot. An empty list assigns every grid core.
     unsigned getNumRouterSlots() const { return getRouterCores().size() / 2; }
   }];
   let genVerifyDecl = 1;

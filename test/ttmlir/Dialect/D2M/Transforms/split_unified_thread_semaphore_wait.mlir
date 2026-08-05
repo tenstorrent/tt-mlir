@@ -81,11 +81,8 @@ module attributes {ttcore.system_desc = #system_desc} {
     return
   }
 
-  // Test 2: semaphore_wait with reset and no remote ops (aliased operands)
-  // Verifies:
-  // - semaphore_wait with reset is assigned only to datamovement
-  // - aliased load converted to CB ops in compute
-  // - DMA region has semaphore_wait with reset but no remote ops
+  // A resetting wait must remain on data movement even when no remote DMA
+  // survives, because both threads must not mutate the shared semaphore.
   // CHECK-LABEL: func.func @test_semaphore_wait_reset_no_remote
   // CHECK: d2m.generic
   // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
@@ -94,7 +91,6 @@ module attributes {ttcore.system_desc = #system_desc} {
     %cb_in = d2m.operand_alias %arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
     %cb_out = d2m.operand_alias %alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
 
-    // Datamovement region: semaphore_wait with reset, no remote ops
     // CHECK: ^datamovement0
     // CHECK: scf.for
     // CHECK: scf.for
@@ -104,7 +100,6 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK-NOT: linalg.generic
     // CHECK-NOT: d2m.pop
 
-    // Compute region: aliased CB ops, no semaphore mutation
     // CHECK: ^compute0
     // CHECK: scf.for
     // CHECK: scf.for

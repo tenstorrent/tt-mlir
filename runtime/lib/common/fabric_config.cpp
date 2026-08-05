@@ -202,8 +202,7 @@ appendFabricConfigArgs(
   // update number of topology args
   rtArgsVec[num_topology_arg_idx] = (rtArgsVec.size() - num_topology_arg_idx);
 
-  // Insert fabric connection args only for configured router cores. An empty
-  // list preserves the legacy whole-grid behavior.
+  // An empty router-core list assigns fabric connections to the whole grid.
   std::vector<tt::tt_metal::CoreCoord> cores;
   const auto *routerCores = fabricConnectionConfig->router_cores();
   if (routerCores && routerCores->size() >= 2) {

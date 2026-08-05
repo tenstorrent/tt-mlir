@@ -189,12 +189,9 @@ static bool shouldKeepOpForThread(Operation *op,
 // Recursively erase DMA ops not assigned to this thread.
 // Also removes ops that become dead as a result.
 //
-// `keepBarrier` designates this thread as the owner of the CCL start barrier
-// (DeviceSynchronizeOp). The barrier has no CB, so it would otherwise survive
-// the clone-into-every-DM-thread and run once per thread. Each replica emits a
-// fabric semaphore increment and wait, so duplicate barriers can overshoot the
-// expected count and deadlock. Keep it on the thread that owns the guarded
-// cross-device store and erase it from every other DM thread.
+// A DeviceSynchronizeOp has no CB to drive thread filtering. `keepBarrier`
+// retains it only on the thread that owns the guarded cross-device store;
+// duplicate barriers can overshoot the fabric semaphore count and deadlock.
 static void filterOpsForThread(PatternRewriter &rewriter, Block *block,
                                const DenseSet<unsigned> &assignedCBs,
                                bool keepBarrier) {
@@ -266,9 +263,8 @@ public:
     }
     Block *dmBlock = &dmRegion.front();
 
-    // These operations have ordering or side effects that cannot be cloned
-    // across physical DM threads. Keep the whole region on one DM core until
-    // per-op thread ownership and cross-DM synchronization are available.
+    // Cloning these shared side effects across physical DM threads would
+    // duplicate synchronization or race on shared state.
     bool keepSingleDMThread = false;
     dmBlock->walk([&](Operation *op) {
       auto wait = dyn_cast<SemaphoreWaitOp>(op);
@@ -299,8 +295,7 @@ public:
     unsigned numThreadsToUse = std::min(
         static_cast<unsigned>(cbWorkloads.size()), numDatamovementThreads);
 
-    // Not enough CBs to warrant splitting but still need to assign a DM core on
-    // the existing single DM thread before returning failure.
+    // Assign a concrete DM core even when the region remains single-threaded.
     if (keepSingleDMThread || numThreadsToUse <= 1 || cbWorkloads.size() <= 1) {
       bool writesDRAM = llvm::any_of(dmaOps, [](const auto &entry) {
         auto store = mlir::dyn_cast_or_null<RemoteStoreOp>(entry.first);
@@ -332,10 +327,9 @@ public:
 
     assignDmCoreIndices(assignments, dmaOps, numDatamovementThreads);
 
-    // A CCL start barrier has no CB and must run exactly once per worker core.
-    // Pin it to the DM thread that owns the cross-device store it guards. The
-    // fallback preserves the pre-split behavior for barriers without a fabric
-    // store in the same generic.
+    // A CCL start barrier must run exactly once per worker core. The DM thread
+    // owning the first cross-device store owns the barrier; otherwise thread 0
+    // owns it.
     unsigned barrierOwnerIdx = 0;
     for (const auto &[op, cbIdx] : dmaOps) {
       auto store = mlir::dyn_cast<RemoteStoreOp>(op);
@@ -389,8 +383,7 @@ public:
         rewriter.clone(op, mapping);
       }
 
-      // Filter to keep only DMA ops for this thread's assigned CBs, and keep
-      // the CCL start barrier only on its designated owner thread.
+      // Keep this thread's assigned DMA ops and its owned CCL start barrier.
       filterOpsForThread(rewriter, newDMBlock, assignments[i].assignedCBs,
                          /*keepBarrier=*/i == barrierOwnerIdx);
     }

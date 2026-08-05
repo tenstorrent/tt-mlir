@@ -561,8 +561,7 @@ Value findClosestReductionLoopIVForL1Acc(Operation *acquireDstOp,
     if (!isReduction.has_value() &&
         (anyOutputStoreDependsOnIV(copyInfos, iv) ||
          genericOutputStoreDependsOnIV(acquireDstOp, iv))) {
-      // Non-blocking fallback: if this loop indexes either an in-region output
-      // copy or the generic output store, it is parallel, not a reduction.
+      // A loop that selects a distinct output is parallel, not a reduction.
       continue;
     }
 

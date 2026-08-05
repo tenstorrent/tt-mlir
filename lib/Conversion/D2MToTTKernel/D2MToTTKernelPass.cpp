@@ -232,9 +232,8 @@ struct ConvertD2MToTTKernel
                   funcOp.getLoc())
               .getResult();
       if (funcHasRouterSubset(funcOp)) {
-        // Keep one connection open across the entire worker loop. Placing the
-        // lifecycle in the existing router branch would recreate and close it
-        // for every chunk, which prevents pipelined compute/CCL progress.
+        // Keep one connection open across every chunk so compute and fabric
+        // transfers can make pipelined progress.
         Value isRouter = builder.create<d2m::IsRouterCoreOp>(funcOp.getLoc());
         builder.create<scf::IfOp>(
             funcOp.getLoc(), isRouter,
