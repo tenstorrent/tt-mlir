@@ -19,8 +19,10 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include "llvm/ADT/SmallVector.h"
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
 #include <numeric>
 
 using namespace mlir;
@@ -1026,6 +1028,16 @@ mlir::Value reshapeToRank4IfNeeded(ConversionPatternRewriter &rewriter,
                       collapseShapeToRank4(valueType.getShape()));
 }
 
+mlir::Value reshapeIfNeeded(ConversionPatternRewriter &rewriter, Location loc,
+                            mlir::Value value,
+                            llvm::ArrayRef<int64_t> targetShape) {
+  auto valueType = mlir::cast<RankedTensorType>(value.getType());
+  if (valueType.getShape() == targetShape) {
+    return value;
+  }
+  return reshapeValue(rewriter, loc, value, targetShape);
+}
+
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -1180,38 +1192,45 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     RankedTensorType inputType = op.getInput().getType();
     RankedTensorType targetType = op.getTarget().getType();
+    RankedTensorType resultType = op.getResult().getType();
 
     llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+    assert(inputShape.size() >= 2 && "input tensor must have rank >= 2");
     int64_t height = inputShape[inputShape.size() - 2];
     int64_t width = inputShape.back();
-    int64_t batch = 1;
-    for (int64_t dim : inputShape.drop_back(2)) {
-      batch *= dim;
-    }
+    int64_t batch = std::accumulate(inputShape.begin(), inputShape.end() - 2,
+                                    1ll, std::multiplies<int64_t>());
 
     llvm::SmallVector<int64_t, 4> inputShape4D = {batch, 1, height, width};
     llvm::SmallVector<int64_t, 2> targetShape2D = {batch, height};
+    llvm::SmallVector<int64_t, 4> resultShape4D = {batch, 1, height, 1};
 
     if (inputShape == llvm::ArrayRef<int64_t>(inputShape4D) &&
-        targetType.getShape() == llvm::ArrayRef<int64_t>(targetShape2D)) {
+        targetType.getShape() == llvm::ArrayRef<int64_t>(targetShape2D) &&
+        resultType.getShape() == llvm::ArrayRef<int64_t>(resultShape4D)) {
       return rewriter.notifyMatchFailure(op, "already (N, 1, H, W) / (N, H)");
     }
 
     Location loc = op.getLoc();
     mlir::Value inputReshaped =
-        reshapeValue(rewriter, loc, adaptor.getInput(), inputShape4D);
+        reshapeIfNeeded(rewriter, loc, adaptor.getInput(), inputShape4D);
     mlir::Value targetReshaped =
-        reshapeValue(rewriter, loc, adaptor.getTarget(), targetShape2D);
+        reshapeIfNeeded(rewriter, loc, adaptor.getTarget(), targetShape2D);
 
-    RankedTensorType resultType = op.getResult().getType();
-    auto resultType4D = RankedTensorType::get({batch, 1, height, 1},
-                                              resultType.getElementType(),
-                                              resultType.getEncoding());
+    auto resultType4D = RankedTensorType::get(
+        resultShape4D, resultType.getElementType(), resultType.getEncoding());
 
-    auto normalized = rewriter.create<ttir::CrossEntropyForwardOp>(
+    if (resultType.getShape() ==
+        llvm::ArrayRef<int64_t>({batch, 1, height, 1})) {
+      rewriter.replaceOpWithNewOp<ttir::CrossEntropyForwardOp>(
+          op, resultType4D, inputReshaped, targetReshaped);
+      return success();
+    }
+
+    auto normalizedOp = rewriter.create<ttir::CrossEntropyForwardOp>(
         op.getLoc(), resultType4D, inputReshaped, targetReshaped);
 
-    rewriter.replaceOp(op, reshapeValue(rewriter, loc, normalized.getResult(),
+    rewriter.replaceOp(op, reshapeValue(rewriter, loc, normalizedOp.getResult(),
                                         resultType.getShape()));
     return success();
   }
