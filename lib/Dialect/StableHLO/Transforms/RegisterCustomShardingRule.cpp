@@ -648,10 +648,23 @@ getIndexerScoreDsaShardingRule(mlir::stablehlo::CustomCallOp op) {
 static mlir::sdy::OpShardingRuleAttr
 getChunkedSdpaShardingRule(mlir::stablehlo::CustomCallOp op) {
   // Chunked prefill SDPA over paged K/V:
-  //  0: query  [num_users, num_heads, chunk_len, head_size]
-  //  1: key    [num_blocks_total, num_kv_heads, block_size, head_size]
-  //  2: value  [num_blocks_total, num_kv_heads, block_size, head_size]
-  //  3: page_table, 4: chunk_start_idx (null-shardable)
+  //  0: query           [num_users, num_heads, chunk_len, head_size]
+  //  1: key             [num_blocks_total, num_kv_heads, block_size, head_size]
+  //  2: value           [num_blocks_total, num_kv_heads, block_size, head_size]
+  //  3: page_table      [num_users, max_blocks_per_seq]
+  //  4: chunk_start_idx [1] (null-shardable)
+  //
+  // Sharding propagates along two dims: the head dim, carried by query, key,
+  // value and output, and the users/batch dim, carried by query, page_table
+  // and output.
+  constexpr int64_t expectedNumOperands = 5;
+  if (op.getNumOperands() != expectedNumOperands) {
+    op.getOperation()->emitWarning()
+        << "Chunked SDPA: expected " << expectedNumOperands << " operands, got "
+        << op.getNumOperands() << ".";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
   auto queryType = llvm::cast<RankedTensorType>(op.getOperand(0).getType());
   auto keyType = llvm::cast<RankedTensorType>(op.getOperand(1).getType());
   auto valueType = llvm::cast<RankedTensorType>(op.getOperand(2).getType());
@@ -675,10 +688,11 @@ getChunkedSdpaShardingRule(mlir::stablehlo::CustomCallOp op) {
     return mlir::sdy::OpShardingRuleAttr();
   }
 
-  // Query [U, H, chunk_len, D], K/V [B, H, S, D], and output all carry the
-  // head dim at index 1.
-  const int64_t headDim = 1;
+  mlir::sdy::OpShardingRuleBuilder builder(op);
 
+  // 1. Head dim sharding. Query [U, H, chunk_len, D], K/V [B, H, S, D] and
+  //    output all carry the head dim at index 1.
+  const int64_t headDim = 1;
   int64_t headSize = queryType.getShape()[headDim];
 
   SmallVector<int64_t> operandHeadDims(op.getNumOperands(),
@@ -690,25 +704,23 @@ getChunkedSdpaShardingRule(mlir::stablehlo::CustomCallOp op) {
   operandHeadDims[2] = headDim; // value
   resultHeadDims[0] = headDim;  // output
 
-  mlir::sdy::OpShardingRuleBuilder builder(op);
   builder.addFactor(operandHeadDims, resultHeadDims, headSize,
                     mlir::sdy::FactorType::kPassThrough);
 
-  // Users factor: query, page_table and output shard on dim 0 (num_users).
-  // K/V dim 0 is num_blocks_total, not users, so the cache stays replicated.
-  // chunk_start_idx has no users dim.
+  // 2. Users/batch dim sharding. Query, page_table and output carry the users
+  //    dim at index 0. K/V dim 0 is num_blocks_total rather than users, so the
+  //    paged cache stays replicated, and chunk_start_idx has no users dim.
   const int64_t usersDim = 0;
   int64_t numUsers = queryType.getShape()[usersDim];
 
   SmallVector<int64_t> operandUsersDims(op.getNumOperands(),
                                         mlir::sdy::kNullDim);
   SmallVector<int64_t> resultUsersDims(op.getNumResults(), mlir::sdy::kNullDim);
+
   operandUsersDims[0] = usersDim; // query
-  constexpr int64_t pageTableIdx = 3;
-  if (op.getNumOperands() > pageTableIdx) {
-    operandUsersDims[pageTableIdx] = usersDim; // page_table
-  }
-  resultUsersDims[0] = usersDim; // output
+  operandUsersDims[3] = usersDim; // page_table
+  resultUsersDims[0] = usersDim;  // output
+
   builder.addFactor(operandUsersDims, resultUsersDims, numUsers,
                     mlir::sdy::FactorType::kPassThrough);
 
