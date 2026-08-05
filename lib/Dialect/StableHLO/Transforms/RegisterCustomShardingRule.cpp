@@ -553,19 +553,9 @@ getChunkedSdpaShardingRule(mlir::stablehlo::CustomCallOp op) {
   builder.addFactor(operandHeadDims, resultHeadDims, headSize,
                     mlir::sdy::FactorType::kPassThrough);
 
-  // Users factor. Query and output are [num_users, num_heads, chunk_len,
-  // head_size] and page_table is [num_users, max_blocks_per_seq], so dim 0 of
-  // those three is num_users.
-  //
-  // K/V are the paged cache [num_blocks_total, num_kv_heads, block_size,
-  // head_size], so their dim 0 is num_blocks_total and must stay kNullDim:
-  // mapping it here would tie pool partitioning to user partitioning and read
-  // blocks owned by another shard. chunk_start_idx is [1] and has no users dim.
-  //
-  // Without this factor, query dim 0 gets a synthetic size-1 factor, so a
-  // query sharded on the batch axis does not propagate that sharding to the
-  // result and ttir.chunked_scaled_dot_product_attention fails its verifier
-  // with "Result shape must match query shape".
+  // Users factor: query, page_table and output shard on dim 0 (num_users).
+  // K/V dim 0 is num_blocks_total, not users, so the cache stays replicated.
+  // chunk_start_idx has no users dim.
   const int64_t usersDim = 0;
   int64_t numUsers = queryType.getShape()[usersDim];
 
