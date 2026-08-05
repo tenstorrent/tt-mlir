@@ -1062,8 +1062,7 @@ public:
         emitter.emit(srcOp.getAlignCorners()),
         emitter.emit(std::nullopt), // use_precomputed_grid = false
         emitter.emit(srcOp.getBatchOutputChannels()),
-        emitter.emit(srcOp.getMemoryConfig()) |
-            emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
     };
 
     emitter.replaceOp(*this, args);
