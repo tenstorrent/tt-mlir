@@ -23,6 +23,7 @@ module {
   func.func @cross_entropy_fw_rank5(%input: tensor<2x3x4x32x64xbf16>, %target: tensor<24x32xui32>)
       -> tensor<2x3x4x32x1xbf16> {
     // CHECK-DAG: "ttir.reshape"(%arg0) <{shape = [24 : i32, 1 : i32, 32 : i32, 64 : i32]}>
+    // CHECK-NOT: "ttir.reshape"(%arg1)
     // CHECK: "ttir.cross_entropy_fw"
     // CHECK-SAME: -> tensor<24x1x32x1xbf16>
     %0 = "ttir.cross_entropy_fw"(%input, %target)
@@ -37,11 +38,26 @@ module {
   func.func @cross_entropy_fw_channels(%input: tensor<2x3x32x64xbf16>, %target: tensor<6x32xui32>)
       -> tensor<2x3x32x1xbf16> {
     // CHECK-DAG: "ttir.reshape"(%arg0) <{shape = [6 : i32, 1 : i32, 32 : i32, 64 : i32]}>
+    // CHECK-NOT: "ttir.reshape"(%arg1)
     // CHECK: "ttir.cross_entropy_fw"
     // CHECK-SAME: -> tensor<6x1x32x1xbf16>
     %0 = "ttir.cross_entropy_fw"(%input, %target)
         : (tensor<2x3x32x64xbf16>, tensor<6x32xui32>) -> tensor<2x3x32x1xbf16>
+    // CHECK: "ttir.reshape"({{.*}}) <{shape = [2 : i32, 3 : i32, 32 : i32, 1 : i32]}>
     return %0 : tensor<2x3x32x1xbf16>
+  }
+
+  // Only target is reshaped, since the input is already 4D.
+  // CHECK-LABEL: func.func @cross_entropy_fw_target_reshape
+  func.func @cross_entropy_fw_target_reshape(%input: tensor<1x1x32x64xbf16>, %target: tensor<32xui32>)
+      -> tensor<1x1x32x1xbf16> {
+    // CHECK-NOT: "ttir.reshape"(%arg0)
+    // CHECK-DAG: "ttir.reshape"(%arg1) <{shape = [1 : i32, 32 : i32]}>
+    // CHECK: "ttir.cross_entropy_fw"
+    // CHECK-NOT: "ttir.reshape"
+    %0 = "ttir.cross_entropy_fw"(%input, %target)
+        : (tensor<1x1x32x64xbf16>, tensor<32xui32>) -> tensor<1x1x32x1xbf16>
+    return %0 : tensor<1x1x32x1xbf16>
   }
 
   // Already canonical, so it must be left alone.
@@ -50,6 +66,7 @@ module {
       -> tensor<4x1x32x1xbf16> {
     // CHECK-NOT: "ttir.reshape"
     // CHECK: "ttir.cross_entropy_fw"
+    // CHECK-NOT: "ttir.reshape"
     %0 = "ttir.cross_entropy_fw"(%input, %target)
         : (tensor<4x1x32x64xbf16>, tensor<4x32xui32>) -> tensor<4x1x32x1xbf16>
     return %0 : tensor<4x1x32x1xbf16>
