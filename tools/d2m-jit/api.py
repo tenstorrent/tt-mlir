@@ -995,6 +995,13 @@ def _empty_op(shape):
     return tensor.empty(list(shape), tile_ty)
 
 
+@syntax("empty_like")
+def _empty_like_op(input):
+    """Kernel-body uninitialized L1 scratch block matching `input`."""
+    block_ty = input.type
+    return tensor.empty(list(block_ty.shape), block_ty.element_type)
+
+
 def _bool_attr_from_ast(node):
     if isinstance(node, ast.Constant) and isinstance(node.value, bool):
         return node.value

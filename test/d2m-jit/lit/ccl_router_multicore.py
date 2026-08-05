@@ -6,6 +6,8 @@
 # RUN: %python %s 2 2 2>&1 | FileCheck %s
 # RUN: %python %s 1 1 2>&1 | FileCheck %s
 # RUN: %python %s 1 1 2 2>&1 | FileCheck %s
+# RUN: %python %s 4 4 2 2>&1 | FileCheck %s
+# RUN: %python %s 4 4 2 bf16 2>&1 | FileCheck %s
 # REQUIRES: d2m-jit
 
 """Lower multicore matmul + router-core all-gather end to end."""
@@ -60,7 +62,7 @@ def router_matmul_all_gather(
             dx = mesh_position(1)
             for ty in range(grid_y):
                 for tx in range(grid_x):
-                    gathered = empty([4, 4])
+                    gathered = empty_like(c)
                     gathered = core_read(gathered, c, core=[ty, tx])
                     semaphore_inc(consumed, 1, core=[ty, tx])
                     remote_store(
@@ -82,8 +84,12 @@ def router_matmul_all_gather(
 grid_y = int(sys.argv[1])
 grid_x = int(sys.argv[2])
 num_chunks = int(sys.argv[3]) if len(sys.argv) > 3 else 1
-assert (grid_y, grid_x) in ((1, 1), (2, 1), (2, 2))
+dtype_name = sys.argv[4] if len(sys.argv) > 4 else "fp32"
+assert (grid_y, grid_x) in ((1, 1), (2, 1), (2, 2), (4, 4))
 assert num_chunks in (1, 2)
+assert dtype_name in ("fp32", "bf16")
+layout_dtype = d2m.float32 if dtype_name == "fp32" else d2m.bfloat16
+torch_dtype = torch.float32 if dtype_name == "fp32" else torch.bfloat16
 num_workers = grid_y * grid_x
 end_count = 2 * num_workers
 block_tiles = 4
@@ -91,23 +97,25 @@ block_elements = block_tiles * 32
 d2m.mesh((1, 2), topology=("linear", "linear"))
 input_layout = d2m.Layout(
     shape=(grid_y * num_chunks * block_elements, grid_x * block_elements),
-    dtype=d2m.float32,
+    dtype=layout_dtype,
     block_shape=[block_tiles, block_tiles],
     grid_shape=[grid_y * num_chunks, grid_x],
 )
 output_layout = d2m.Layout(
     shape=(2 * grid_y * num_chunks * block_elements, grid_x * block_elements),
-    dtype=d2m.float32,
+    dtype=layout_dtype,
     block_shape=[block_tiles, block_tiles],
     grid_shape=[2 * grid_y * num_chunks, grid_x],
 )
 full_lhs = torch.randn(
     grid_y * num_chunks * block_elements,
     2 * grid_x * block_elements,
+    dtype=torch_dtype,
 )
 full_rhs = torch.randn(
     grid_y * num_chunks * block_elements,
     2 * grid_x * block_elements,
+    dtype=torch_dtype,
 )
 lhs = d2m.mesh_shard(
     full_lhs,

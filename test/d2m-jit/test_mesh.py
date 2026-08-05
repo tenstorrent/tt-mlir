@@ -454,7 +454,7 @@ def _chunked_matmul_all_gather_1x2(
             dx = mesh_position(1)
             for ty in range(grid_y):
                 for tx in range(grid_x):
-                    gathered = empty([4, 4])
+                    gathered = empty_like(c)
                     gathered = core_read(gathered, c, core=[ty, tx])
                     semaphore_inc(consumed, 1, core=[ty, tx])
                     remote_store(
@@ -477,25 +477,33 @@ def _chunked_matmul_all_gather_1x2(
 @pytest.mark.parametrize("num_chunks", [1, 2])
 @pytest.mark.parametrize(
     "worker_grid",
-    [(1, 1), (2, 1), (2, 2)],
-    ids=["single-core", "multicore-2x1", "multicore-2x2"],
+    [(1, 1), (2, 1), (2, 2), (4, 4)],
+    ids=[
+        "single-core",
+        "multicore-2x1",
+        "multicore-2x2",
+        "saturation-4x4",
+    ],
 )
 def test_chunked_matmul_all_gather_round_trip_1x2(num_chunks, worker_grid):
     """Overlap chunk t's fabric send with chunk t+1's compute across devices."""
     torch.manual_seed(0)
     d2m.mesh((1, 2), topology=("linear", "linear"))
     grid_y, grid_x = worker_grid
+    saturation = worker_grid == (4, 4)
+    layout_dtype = d2m.bfloat16 if saturation else d2m.float32
+    torch_dtype = torch.bfloat16 if saturation else torch.float32
     block_tiles = 4
     block_elements = block_tiles * 32
     input_layout = d2m.Layout(
         shape=(grid_y * num_chunks * block_elements, grid_x * block_elements),
-        dtype=d2m.float32,
+        dtype=layout_dtype,
         block_shape=[block_tiles, block_tiles],
         grid_shape=[grid_y * num_chunks, grid_x],
     )
     output_layout = d2m.Layout(
         shape=(grid_y * 2 * num_chunks * block_elements, grid_x * block_elements),
-        dtype=d2m.float32,
+        dtype=layout_dtype,
         block_shape=[block_tiles, block_tiles],
         grid_shape=[2 * grid_y * num_chunks, grid_x],
     )
@@ -503,14 +511,14 @@ def test_chunked_matmul_all_gather_round_trip_1x2(num_chunks, worker_grid):
         torch.randn(
             grid_y * num_chunks * block_elements,
             2 * grid_x * block_elements,
-            dtype=torch.float32,
+            dtype=torch_dtype,
         )
         * 0.125
     )
     full_rhs = torch.randn(
         grid_y * num_chunks * block_elements,
         2 * grid_x * block_elements,
-        dtype=torch.float32,
+        dtype=torch_dtype,
     )
     full_rhs *= 0.125
     lhs = d2m.mesh_shard(
