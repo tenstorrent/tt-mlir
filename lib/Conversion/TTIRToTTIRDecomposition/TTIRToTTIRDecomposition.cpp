@@ -1197,27 +1197,22 @@ public:
       return rewriter.notifyMatchFailure(op, "already (N, 1, H, W) / (N, H)");
     }
 
-    auto reshape = [&](mlir::Value value,
-                       llvm::ArrayRef<int64_t> target) -> mlir::Value {
-      auto valueType = mlir::cast<RankedTensorType>(value.getType());
-      auto resultType = RankedTensorType::get(
-          target, valueType.getElementType(), valueType.getEncoding());
-      llvm::SmallVector<int32_t> targetI32(target.begin(), target.end());
-      return rewriter.create<ttir::ReshapeOp>(
-          op.getLoc(), resultType, value, rewriter.getI32ArrayAttr(targetI32));
-    };
+    Location loc = op.getLoc();
+    mlir::Value inputReshaped =
+        reshapeValue(rewriter, loc, adaptor.getInput(), inputShape4D);
+    mlir::Value targetReshaped =
+        reshapeValue(rewriter, loc, adaptor.getTarget(), targetShape2D);
 
-    auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    RankedTensorType resultType = op.getResult().getType();
     auto resultType4D = RankedTensorType::get({batch, 1, height, 1},
                                               resultType.getElementType(),
                                               resultType.getEncoding());
 
     auto normalized = rewriter.create<ttir::CrossEntropyForwardOp>(
-        op.getLoc(), resultType4D, reshape(adaptor.getInput(), inputShape4D),
-        reshape(adaptor.getTarget(), targetShape2D));
+        op.getLoc(), resultType4D, inputReshaped, targetReshaped);
 
-    rewriter.replaceOp(op,
-                       reshape(normalized.getResult(), resultType.getShape()));
+    rewriter.replaceOp(op, reshapeValue(rewriter, loc, normalized.getResult(),
+                                        resultType.getShape()));
     return success();
   }
 };
