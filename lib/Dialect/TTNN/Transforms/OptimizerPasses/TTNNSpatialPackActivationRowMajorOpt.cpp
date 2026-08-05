@@ -408,13 +408,11 @@ private:
       // Insert to_memory_config(DRAM TILE) after r_final.
       auto rFinalTy = mlir::cast<RankedTensorType>(r_final.getResult().getType());
       auto tileTy   = mkDRAMTileTy(rFinalTy);
-      auto tileLo   = mlir::cast<TTNNLayoutAttr>(tileTy.getEncoding());
-      auto tileMemCfg = MemoryConfigAttr::get(tileLo);
 
       OpBuilder b(r_final->getContext());
       b.setInsertionPointAfter(r_final);
       auto mcTile = b.create<ttnn::ToMemoryConfigOp>(
-          r_final.getLoc(), tileTy, r_final.getResult(), tileMemCfg);
+          r_final.getLoc(), tileTy, r_final.getResult());
 
       // Redirect all uses of r_final (except the new mc op itself) to mcTile.
       SmallPtrSet<Operation *, 1> except{mcTile.getOperation()};

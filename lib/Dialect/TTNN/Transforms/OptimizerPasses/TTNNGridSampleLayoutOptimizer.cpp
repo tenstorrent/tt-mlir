@@ -110,7 +110,7 @@ public:
         if (auto mco = mlir::dyn_cast<ttnn::ToMemoryConfigOp>(defOp)) {
           auto mcoCfg = mco.getMemoryConfig();
           if (mcoCfg &&
-              mlir::cast<BufferTypeAttr>(mcoCfg.getBufferType()).getValue() ==
+              mlir::cast<BufferTypeAttr>(mcoCfg->getBufferType()).getValue() ==
                   BufferType::DRAM) {
             memCfgOp = mco;
             beforeRm = mco.getInput();
@@ -176,7 +176,7 @@ public:
       // costs no bandwidth.
       auto newReshape = builder.create<ttnn::ReshapeOp>(
           gsOp.getLoc(), rmDramType, lutArg,
-          tileReshape.getShapeAttr(), /*memory_config=*/nullptr);
+          tileReshape.getShapeAttr());
 
       // ── Step B: Shard 4D grid to L1 HEIGHT_SHARDED ────────────────────────
       // 4D shard (128 rows × 16 cols × 2B = 32B page) satisfies L1 16B
@@ -211,10 +211,9 @@ public:
 
           auto l1Type = utils::RankedTensorTypeFactory::create(
               rmDramType, l1Layout);
-          auto l1MemCfg = MemoryConfigAttr::get(l1Layout);
 
           auto toL1 = builder.create<ttnn::ToMemoryConfigOp>(
-              gsOp.getLoc(), l1Type, newReshape.getResult(), l1MemCfg);
+              gsOp.getLoc(), l1Type, newReshape.getResult());
 
           gridForSample = toL1.getResult();
           ++l1Sharded;
