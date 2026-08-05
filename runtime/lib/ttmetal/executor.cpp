@@ -1280,6 +1280,7 @@ void MCQExecutor::execute(const target::metal::FinishCommand *) {
 }
 
 void MCQExecutor::execute(const target::metal::MeshShardCommand *command) {
+  ZoneScopedN("MeshShardCommand");
   LOG_ASSERT(command->src()->desc()->buffer_detail_type() ==
                  tt::target::metal::BufferDetail::SystemBuffer,
              "MeshShardCommand requires system memory as input");

@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Compare equal-work single-chip matmul with two-chip matmul + all-gather."""
+"""Profile a BF16 Llama 3 8B down projection with two-way tensor parallelism."""
 
 import argparse
 import collections
@@ -81,24 +81,53 @@ def _export_tracy(trace_path):
 
 def _summarize_tracy(csv_path, measured_iterations):
     selected = {
-        "submit": [],
+        "MeshShardCommand": [],
         "EnqueueProgramCommand": [],
         "FinishCommand": [],
         "EnqueueReadBufferCommand": [],
     }
+    submits = []
     with csv_path.open(encoding="utf-8", newline="") as input_file:
         for row in csv.DictReader(input_file):
             name = row["name"]
+            start_ns = int(row["ns_since_start"])
+            duration_ns = int(row["exec_time_ns"])
+            if name == "submit":
+                submits.append((start_ns, duration_ns))
             if name in selected:
-                selected[name].append(int(row["exec_time_ns"]))
-    for name, samples in selected.items():
-        samples = samples[-measured_iterations:]
-        if samples:
-            mean_us = sum(samples) / len(samples) / 1_000
+                selected[name].append((start_ns, duration_ns))
+
+    submits = sorted(submits)[-measured_iterations:]
+    submit_durations = [duration for _, duration in submits]
+    if submit_durations:
+        print(
+            f"tracy submit: count={len(submit_durations)} "
+            f"mean_us={sum(submit_durations) / len(submit_durations) / 1_000:.1f} "
+            f"min_us={min(submit_durations) / 1_000:.1f} "
+            f"max_us={max(submit_durations) / 1_000:.1f}"
+        )
+    for name, zones in selected.items():
+        counts = []
+        totals = []
+        for submit_start, submit_duration in submits:
+            durations = [
+                duration
+                for start, duration in zones
+                if submit_start <= start < submit_start + submit_duration
+            ]
+            counts.append(len(durations))
+            totals.append(sum(durations))
+        if totals and any(counts):
+            count = (
+                str(counts[0])
+                if len(set(counts)) == 1
+                else f"{min(counts)}-{max(counts)}"
+            )
             print(
-                f"tracy {name}: count={len(samples)} "
-                f"mean_us={mean_us:.1f} min_us={min(samples) / 1_000:.1f} "
-                f"max_us={max(samples) / 1_000:.1f}"
+                f"tracy {name}: count_per_submit={count} "
+                f"mean_total_us={sum(totals) / len(totals) / 1_000:.1f} "
+                f"min_total_us={min(totals) / 1_000:.1f} "
+                f"max_total_us={max(totals) / 1_000:.1f}"
             )
 
 
@@ -146,11 +175,18 @@ def _pcc(actual, expected):
 
 def _parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("single", "two-chip"))
+    parser.add_argument(
+        "mode",
+        choices=("single", "two-chip-serialized", "two-chip-overlap"),
+    )
     parser.add_argument("--iterations", type=int, default=3)
     parser.add_argument("--warmup", type=int, default=1)
-    parser.add_argument("--k-tiles", type=int, default=24)
-    parser.add_argument("--compute-repeats", type=int, default=6)
+    parser.add_argument("--m", type=int, default=576)
+    parser.add_argument("--k", type=int, default=14336)
+    parser.add_argument("--n", type=int, default=4096)
+    parser.add_argument("--grid-y", type=int, default=6)
+    parser.add_argument("--grid-x", type=int, default=8)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--tracy-file", type=pathlib.Path)
     parser.add_argument("--device-profile-dir", type=pathlib.Path)
     return parser.parse_args()
@@ -179,7 +215,7 @@ def main():
         os.environ["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
 
     with trace_context:
-        import multichip_overlap_workload as workload
+        import llama_down_projection_workload as workload
         from d2m_jit._src.builder import _Builder
 
         if args.device_profile_dir:
@@ -188,21 +224,34 @@ def main():
             d2m_config.enable_perf_trace = True
 
         config = workload.WorkloadConfig(
-            k_tiles=args.k_tiles,
-            compute_repeats=args.compute_repeats,
+            m=args.m,
+            k=args.k,
+            n=args.n,
+            grid_y=args.grid_y,
+            grid_x=args.grid_x,
+            seed=args.seed,
         )
-        output_blocks = 2 * config.grid_y * config.grid_x * config.num_chunks
-        effective_k = config.k_elements * (config.compute_repeats + 1)
+        activations, weight = workload.make_operands(config)
+        expected = workload.golden(activations, weight)
+        global_flops = 2 * config.m * config.k * config.n
         print(
-            f"workload: mode={args.mode} computed_output_blocks={output_blocks} "
-            f"block={config.block_elements}x{config.block_elements} "
-            f"effective_k={effective_k}",
+            f"workload: llama3-8b-down-projection mode={args.mode} dtype=bf16 "
+            f"shape={config.m}x{config.k}x{config.n} "
+            f"grid={config.grid_y}x{config.grid_x} "
+            f"global_flops={global_flops}",
             flush=True,
         )
-        run = (
-            workload.run_single_chip if args.mode == "single" else workload.run_two_chip
-        )
-        result = expected = None
+        if args.mode == "single":
+            run = lambda: workload.run_single_chip(config, activations, weight)
+        else:
+            overlap = args.mode == "two-chip-overlap"
+            run = lambda: workload.run_two_chip(
+                config,
+                activations,
+                weight,
+                overlap=overlap,
+            )
+        result = None
         warmup_context = contextlib.nullcontext()
         if args.device_profile_dir:
             from autotuner.autotuner import _silence_native_output
@@ -213,10 +262,10 @@ def main():
         with warmup_context:
             for _ in range(args.warmup):
                 _Builder.reset()
-                result, expected = run(config)
+                result = run()
         for iteration in range(args.iterations):
             _Builder.reset()
-            result, expected = run(config)
+            result = run()
             print(
                 f"iteration={iteration + 1} mode={args.mode} "
                 f"pcc={_pcc(result, expected):.6f}",

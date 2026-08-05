@@ -654,3 +654,19 @@ def test_chunked_matmul_all_gather_stress_1x2(
         torch_dtype,
         seed,
     )
+
+
+@requires_fabric_mesh
+@pytest.mark.parametrize("overlap", [False, True], ids=["serialized", "overlapped"])
+def test_llama_down_projection_all_reduce_1x2(overlap):
+    from llama_down_projection_workload import (
+        WorkloadConfig,
+        golden,
+        make_operands,
+        run_two_chip,
+    )
+
+    config = WorkloadConfig(m=128, k=14336, n=256, grid_y=2, grid_x=2)
+    activations, weight = make_operands(config)
+    result = run_two_chip(config, activations, weight, overlap=overlap)
+    assert_pcc(golden(activations, weight), result, threshold=0.99)
