@@ -158,3 +158,24 @@ module @ChunkedSDPAQUserSharding attributes {mhlo.cross_program_prefetches = [],
     return %0 : tensor<8x4x64x16xbf16>
   }
 }
+
+// -----
+
+module @ChunkedSDPAUserAndHeadSharding attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_attributes = {xla.sdy.meshes = "{mesh = #sdy.mesh<[\22_axis_0\22=2, \22_axis_1\22=2]>}"}, mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+  func.func @main(%query: tensor<8x4x64x16xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{\22_axis_0\22}, {\22_axis_1\22}, {}, {}]>"}, ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "query"}, %key: tensor<32x4x32x16xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22_axis_1\22}, {}, {}]>"}, ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "key"}, %value: tensor<32x4x32x16xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22_axis_1\22}, {}, {}]>"}, ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "value"}, %page_table: tensor<8x4xi32> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{\22_axis_0\22}, {}]>"}, ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "page_table"}, %chunk_start_idx: tensor<1xi32> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}]>"}, ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "chunk_start_idx"}) -> tensor<8x4x64x16xbf16> {
+    // Both factors at once on a 2D mesh, the DP plus TP shape this rule was
+    // added for. Users on _axis_0 and heads on _axis_1 compose, so the result
+    // is sharded on both dims and no resharding collective is needed.
+    // CHECK-LABEL: module @ChunkedSDPAUserAndHeadSharding
+    // CHECK-NOT: stablehlo.all_gather
+    // CHECK-NOT: stablehlo.all_to_all
+    // CHECK: stablehlo.custom_call @tt.chunked_scaled_dot_product_attention
+    // CHECK-SAME: tensor<4x2x64x16xbf16>, tensor<32x2x32x16xbf16>, tensor<32x2x32x16xbf16>, tensor<4x4xi32>, tensor<1xi32>
+    // CHECK-SAME: -> tensor<4x2x64x16xbf16>
+    // CHECK-NOT: stablehlo.all_gather
+    // CHECK-NOT: stablehlo.all_to_all
+    // CHECK: sdy.return
+    %0 = stablehlo.custom_call @tt.chunked_scaled_dot_product_attention(%query, %key, %value, %page_table, %chunk_start_idx) {api_version = 0 : i32, mhlo.frontend_attributes = {scale = "0.25"}} : (tensor<8x4x64x16xbf16>, tensor<32x4x32x16xbf16>, tensor<32x4x32x16xbf16>, tensor<8x4xi32>, tensor<1xi32>) -> tensor<8x4x64x16xbf16>
+    return %0 : tensor<8x4x64x16xbf16>
+  }
+}
