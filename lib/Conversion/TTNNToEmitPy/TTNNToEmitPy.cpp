@@ -891,9 +891,7 @@ public:
         emitter.emit(srcOp.getPaddingMode(), "padding_mode"),
         emitter.emit(srcOp.getAlignCorners(), "align_corners"),
         emitter.emit(srcOp.getBatchOutputChannels(), "batch_output_channels"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -924,9 +922,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(static_cast<int64_t>(srcOp.getDownscaleFactor()),
                      "downscale_factor"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(srcOp.getChannelOrder(), "channel_order"),
     };
 
