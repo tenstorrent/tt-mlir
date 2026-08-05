@@ -314,9 +314,6 @@ public:
   ::ttnn::GlobalSemaphore getOrCreateImplicitGlobalSemaphore(
       uintptr_t opKey,
       const std::function<::ttnn::GlobalSemaphore()> &factory) {
-    if (parentContext) {
-      return parentContext->getOrCreateImplicitGlobalSemaphore(opKey, factory);
-    }
     auto it = implicitOpSemaphores.find(opKey);
     if (it == implicitOpSemaphores.end()) {
       it = implicitOpSemaphores.emplace(opKey, factory()).first;
@@ -325,15 +322,10 @@ public:
   }
 
   // Returns a cached precomputed grid tensor for `opKey`, creating it on first
-  // use.  Lookups forward to the root context so the grid computed during
-  // warmup (where from_device is allowed) is reused during trace capture
-  // (where from_device is forbidden by TTNN trace).
+  // use.
   ::ttnn::Tensor getOrCreateImplicitPrecomputedGrid(
       uintptr_t opKey,
       const std::function<::ttnn::Tensor()> &factory) {
-    if (parentContext) {
-      return parentContext->getOrCreateImplicitPrecomputedGrid(opKey, factory);
-    }
     auto it = implicitOpPrecomputedGrids.find(opKey);
     if (it == implicitOpPrecomputedGrids.end()) {
       it = implicitOpPrecomputedGrids.emplace(opKey, factory()).first;
