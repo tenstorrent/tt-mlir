@@ -3775,9 +3775,6 @@ public:
   }
 };
 
-// Converts `ttir.while` to `ttnn.while`, moving both regions across and
-// converting their block argument types. `ttir.yield` inside those regions is
-// handled by YieldOpConversionPattern below.
 class WhileOpConversionPattern : public OpConversionPattern<ttir::WhileOp> {
 public:
   using OpConversionPattern<ttir::WhileOp>::OpConversionPattern;
