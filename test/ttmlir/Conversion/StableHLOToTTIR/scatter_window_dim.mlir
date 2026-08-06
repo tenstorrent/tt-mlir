@@ -31,6 +31,23 @@ module @scatter_window_dim {
     return %0 : tensor<6400x16xf64>
   }
 
+  // The scattered dimension can be a window dimension and carry the batch of
+  // window starts at the same time, but only when the window is a single
+  // element wide - here operand[0, idx[j]] = updates[j, 0] for each of the four
+  // indices. The window then contributes no offset of its own, so there must be
+  // no iota: adding one would write to idx[j] + j.
+  // CHECK-LABEL: func.func @window_carries_batch
+  // CHECK-NOT: ttir.arange
+  // CHECK: ttir.scatter
+  // CHECK-SAME: dim = 1
+  func.func @window_carries_batch(%operand: tensor<2x3xi32>, %indices: tensor<4x1xi32>, %updates: tensor<4x1xi32>) -> tensor<2x3xi32> {
+    %0 = "stablehlo.scatter"(%operand, %indices, %updates) <{indices_are_sorted = false, scatter_dimension_numbers = #stablehlo.scatter<update_window_dims = [1], inserted_window_dims = [0], scatter_dims_to_operand_dims = [1], index_vector_dim = 1>, unique_indices = false}> ({
+    ^bb0(%arg0: tensor<i32>, %arg1: tensor<i32>):
+      "stablehlo.return"(%arg1) : (tensor<i32>) -> ()
+    }) : (tensor<2x3xi32>, tensor<4x1xi32>, tensor<4x1xi32>) -> tensor<2x3xi32>
+    return %0 : tensor<2x3xi32>
+  }
+
   // A single-column window is the same shape of lowering, just with a
   // degenerate iota.
   // CHECK-LABEL: func.func @single_column
