@@ -154,24 +154,6 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
   EMBED_CAPI_LINK_LIBS
     MLIRCAPITransforms
     TTMLIRCAPI
-  PRIVATE_LINK_LIBS
-    TTMLIRCompilerStatic
-    TTMLIRPassTracker
-    MLIRArmNeonToLLVMIRTranslation
-    MLIRArmSMEToLLVMIRTranslation
-    MLIRArmSVEToLLVMIRTranslation
-    MLIRBuiltinToLLVMIRTranslation
-    MLIRGPUToLLVMIRTranslation
-    MLIRLLVMToLLVMIRTranslation
-    MLIRNVVMToLLVMIRTranslation
-    MLIROpenACCToLLVMIRTranslation
-    MLIROpenMPToLLVMIRTranslation
-    MLIRROCDLToLLVMIRTranslation
-    MLIRSPIRVToLLVMIRTranslation
-    MLIRTestToLLVMIRTranslation
-    MLIRVCIXToLLVMIRTranslation
-    MLIRX86VectorTransforms
-  PYTHON_BINDINGS_LIBRARY nanobind
 )
 
 # Create a separate library for PassTracker compiled with -fno-rtti to match MLIR
@@ -251,6 +233,62 @@ add_mlir_python_common_capi_library(TTMLIRPythonCAPI
   RELATIVE_INSTALL_ROOT ".."
   DECLARED_SOURCES ${TTMLIR_PYTHON_SOURCES}
 )
+# The python extensions must stay thin (no embedded MLIR/TTMLIR statics:
+# duplicate storage uniquers across .so files crash with "storage uniquer
+# isn't initialized"). Their MLIR C-API/PassTracker needs are force-extracted
+# into the CAPI here; identical flags in separate target_link_options calls
+# get deduped by CMake, so keep ONE whole-archive block.
+set(TTMLIR_CAPI_FORCE_EXTRACT
+  "$<TARGET_FILE:TTMLIRPassTracker>"
+  "$<TARGET_FILE:TTMLIRTTNNUtils>"
+  "$<TARGET_FILE:TTMLIRCompilerStatic>"
+  "$<TARGET_FILE:MLIRTTNNDialect>"
+  "$<TARGET_FILE:MLIRTTCoreDialect>"
+  "$<TARGET_FILE:MLIRTTKernelDialect>"
+  "$<TARGET_FILE:MLIRD2MDialect>"
+  "$<TARGET_FILE:MLIRTTIRDialect>"
+  "$<TARGET_FILE:MLIRTTNNTransforms>"
+  "$<TARGET_FILE:MLIRTTNNAnalysis>"
+  "$<TARGET_FILE:MLIRTTNNPipelines>"
+  "$<TARGET_FILE:MLIRTTUtils>"
+  "$<TARGET_FILE:MLIRD2MAnalysis>"
+  "$<TARGET_FILE:MLIRD2MTransforms>"
+  "$<TARGET_FILE:MLIRD2MPipelines>"
+  "$<TARGET_FILE:MLIRStableHLOTransforms>"
+  "$<TARGET_FILE:TTLLVMToDynamicLib>"
+  "$<TARGET_FILE:TTNNTargetFlatbuffer>"
+  "$<TARGET_FILE:TTKernelTargetCpp>"
+  "$<TARGET_FILE:TTMetalTargetFlatbuffer>"
+  "$<TARGET_FILE:EmitPyTargetPython>"
+  "$<TARGET_FILE:CheckOps>"
+  "$<TARGET_FILE:MpmdTransformsCommonUtils>"
+  # MLIR-side owners referenced by the ttmlir bindings but never pulled by the
+  # CAPI's own code.
+  "$<TARGET_FILE:MLIRRegisterAllPasses>"
+  "$<TARGET_FILE:MLIRGPUToLLVMIRTranslation>"
+  "$<TARGET_FILE:MLIRXeVMToLLVMIRTranslation>"
+  "$<TARGET_FILE:MLIRVCIXToLLVMIRTranslation>"
+  "$<TARGET_FILE:MLIRTargetCpp>"
+  "$<TARGET_FILE:MLIRSPIRVToLLVMIRTranslation>"
+  "$<TARGET_FILE:MLIRROCDLToLLVMIRTranslation>"
+  "$<TARGET_FILE:MLIRPtrToLLVMIRTranslation>"
+  "$<TARGET_FILE:MLIROpenMPToLLVMIRTranslation>"
+  "$<TARGET_FILE:MLIROpenACCToLLVMIRTranslation>")
+if(TARGET SdyAxisListRef)
+  # Shardy at the pinned SHA lists SdyAxisListRef before SdyExplicitReshardsUtil
+  # in SdyTransformsExportPasses' LINK_LIBS, so single-pass ld leaves AxisListRef
+  # undefined when the CAPI .so is linked with -Wl,-z,defs. Remove when shardy
+  # fixes its link order.
+  list(APPEND TTMLIR_CAPI_FORCE_EXTRACT "$<TARGET_FILE:SdyAxisListRef>")
+endif()
+target_link_options(TTMLIRPythonCAPI PRIVATE
+  "-Wl,--whole-archive"
+  ${TTMLIR_CAPI_FORCE_EXTRACT}
+  "-Wl,--no-whole-archive"
+  # --gc-sections drops weak TypeID objects (e.g. CoreRangeSetAttr) that are
+  # only referenced by the python extensions, leaving them undefined at
+  # runtime; keep all pulled sections in the CAPI.
+  "-Wl,--no-gc-sections")
 
 add_mlir_python_modules(TTMLIRPythonModules
   ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/ttmlir"
