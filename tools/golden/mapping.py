@@ -8516,6 +8516,104 @@ def sdpa_fw_golden(
     return (output,)
 
 
+def sdpa_bw_golden(
+    grad_output: GoldenMapTensor,
+    attn_output: GoldenMapTensor,
+    query: GoldenMapTensor,
+    key: GoldenMapTensor,
+    value: GoldenMapTensor,
+    intermediates: GoldenMapTensor,
+    attention_mask: Optional[GoldenMapTensor] = None,
+    mask_type: int = 1,
+    dropout_probability: float = 0.0,
+    **kwargs,
+) -> Tuple[GoldenMapTensor, ...]:
+    """Reference for the fused ttml SDPA backward (ttml::metal::sdpa_bw).
+
+    Given the upstream gradient and the forward tensors, computes the gradients
+    w.r.t. query, key and value. Recomputes the forward attention weights and
+    applies the standard SDPA backward formulas (matching the composite
+    implementation in tt-train's scaled_dot_product_attention.cpp). mask_type:
+    0=none, 1=causal, 2=arbitrary. Uses torch.* free functions only. Returns a
+    tuple (grad_query, grad_key, grad_value).
+    """
+    if not isinstance(mask_type, int):
+        mask_type = int(unpack_mlir_attr(mask_type))
+
+    q_heads = query.shape[1]
+    kv_heads = key.shape[1]
+    num_repeats = q_heads // kv_heads if q_heads != kv_heads else 1
+    q = query.float()
+    k_full = (
+        torch.repeat_interleave(key.float(), num_repeats, dim=1)
+        if num_repeats > 1
+        else key.float()
+    )
+    v_full = (
+        torch.repeat_interleave(value.float(), num_repeats, dim=1)
+        if num_repeats > 1
+        else value.float()
+    )
+
+    # Reconstruct the forward attention weights the same way the metal kernel
+    # does: P = exp(scale * Q @ K^T + mask - lse), where `lse` is the per-row
+    # log-sum-exp carried in `intermediates`. Using the provided intermediates
+    # keeps this golden faithful to ttml::metal::sdpa_bw even when the intermediates/attn_output are not a
+    # self-consistent forward pass.
+    scale = 1.0 / (float(query.shape[-1]) ** 0.5)
+    qk = torch.mul(torch.matmul(q, torch.transpose(k_full, -2, -1)), scale)
+    if mask_type == 1:  # Causal
+        seq_len_q = qk.shape[-2]
+        seq_len_k = qk.shape[-1]
+        causal_mask = torch.triu(
+            torch.full((seq_len_q, seq_len_k), float("-inf")), diagonal=1
+        )
+        qk = torch.add(qk, causal_mask)
+    elif mask_type == 2 and attention_mask is not None:  # Arbitrary
+        qk = torch.add(qk, attention_mask.float())
+    lse = torch.narrow(intermediates.float(), -1, 0, 1)
+    p = torch.exp(torch.sub(qk, lse))  # (B, Hq, S, S)
+
+    grad_out = grad_output.float()  # (B, Hq, S, Dv)
+
+    # dV = P^T @ dO ; dP = dO @ V^T.
+    dv_full = torch.matmul(torch.transpose(p, -2, -1), grad_out)  # (B, Hq, S, Dv)
+    dp = torch.matmul(grad_out, torch.transpose(v_full, -2, -1))  # (B, Hq, S, S)
+
+    # Softmax backward. The metal kernel uses the per-row scalar
+    # u = rowsum(dO ⊙ attn_output) (== sum_k dP·P for a consistent forward), so
+    # mirror that using the provided attn_output: dS = P * (dP - u) * scale.
+    u = torch.sum(
+        torch.mul(grad_out, attn_output.float()), dim=-1, keepdim=True
+    )  # (B, Hq, S, 1)
+    ds = torch.mul(p, torch.sub(dp, u))
+    ds = torch.mul(ds, scale)
+
+    # dQ = dS @ K ; dK = dS^T @ Q.
+    dq = torch.matmul(ds, k_full)  # (B, Hq, S, D)
+    dk_full = torch.matmul(torch.transpose(ds, -2, -1), q)  # (B, Hq, S, D)
+
+    # Sum gradients over the query groups sharing each KV head (GQA).
+    if num_repeats > 1:
+        batch = query.shape[0]
+        seq_len = query.shape[2]
+        head_dim = key.shape[-1]
+        head_dim_v = value.shape[-1]
+        dk = torch.sum(
+            torch.reshape(dk_full, (batch, kv_heads, num_repeats, seq_len, head_dim)),
+            dim=2,
+        )
+        dv = torch.sum(
+            torch.reshape(dv_full, (batch, kv_heads, num_repeats, seq_len, head_dim_v)),
+            dim=2,
+        )
+    else:
+        dk = dk_full
+        dv = dv_full
+
+    return dq.to(query.dtype), dk.to(key.dtype), dv.to(value.dtype)
+
+
 def flash_mla_prefill_golden(
     query: GoldenMapTensor,
     key: GoldenMapTensor,
@@ -9001,6 +9099,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
     ttir.AdamWOp: adamw_golden,
     ttir.SDPAForwardOp: sdpa_fw_golden,
+    ttir.SDPABackwardOp: sdpa_bw_golden,
     ttir.LayerNormOp: ttir_layer_norm_golden,
     ttir.SplitQueryKeyValueAndSplitHeadsOp: ttir_split_query_key_value_and_split_heads_golden,
     ttir.GroupNormOp: ttir_group_norm_golden,

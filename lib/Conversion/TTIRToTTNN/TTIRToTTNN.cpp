@@ -1272,6 +1272,31 @@ public:
 } // namespace
 
 namespace {
+class SDPABackwardOpConversionPattern
+    : public OpConversionPattern<ttir::SDPABackwardOp> {
+public:
+  using OpConversionPattern<ttir::SDPABackwardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SDPABackwardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    if (failed(getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                resultTypes))) {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::SDPABackwardOp>(
+        op, resultTypes, adaptor.getGradOutput(), adaptor.getAttnOutput(),
+        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
+        adaptor.getIntermediates(), adaptor.getAttentionMask(),
+        op.getMaskTypeAttr(), op.getDropoutProbabilityAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class DistributedRMSNormOpConversionPattern
     : public OpConversionPattern<ttir::DistributedRMSNormOp> {
 public:
@@ -3845,6 +3870,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BatchNormTrainingOpConversionPattern,
            AdamWOpConversionPattern,
            SDPAForwardOpConversionPattern,
+           SDPABackwardOpConversionPattern,
            RMSNormOpConversionPattern,
            DistributedRMSNormOpConversionPattern,
            DistributedLayerNormOpConversionPattern,
