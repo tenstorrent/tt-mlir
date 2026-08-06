@@ -123,7 +123,8 @@ public:
       Builder &builder, mlir::ValueRange inputOutputOperands, ArrayAttr threads,
       CoreRangeAttr coreRange, ttmetal::MathFidelity mathFidelity,
       const DenseMap<size_t, size_t> &cbOperandIndexToPort,
-      const DenseMap<uint32_t, uint32_t> &argMapping) const {
+      const DenseMap<uint32_t, uint32_t> &argMapping,
+      bool hasFabricConnectionConfig) const {
     SmallVector<Attribute> kernelConfigs;
 
     for (Attribute threadAttr : threads) {
@@ -161,9 +162,16 @@ public:
         const int32_t dmCoreIndex = thread.getDmCoreIndex();
         TT_assert(dmCoreIndex >= 0);
         const auto nocIdx = ttcore::getDmCoreDefaultNoc(arch_, dmCoreIndex);
+        std::optional<uint32_t> fabricConfigIndex = std::nullopt;
+        if (hasFabricConnectionConfig &&
+            kernelContainsOp<ttkernel::SetupFabricConnectionsOp>(
+                *symbolTable_, thread.getKernelSymbol())) {
+          // Single fabric config on this enqueue is at index 0.
+          fabricConfigIndex = 0u;
+        }
         kernelConfig = builder.getAttr<ttmetal::NocConfigAttr>(
             thread.getKernelSymbol(), coreRange, kernelArgs, dmCoreIndex,
-            nocIdx);
+            nocIdx, fabricConfigIndex);
         break;
       }
       case d2m::ThreadType::Unified: {
@@ -257,12 +265,17 @@ public:
 
     ArrayAttr threads = op.getThreads();
     CoreRangeAttr coreRange = coreRangeAttrFromOp(rewriter, op);
+    auto fabricConfig = op.getFabricConnectionConfigAttr();
     auto kernelConfigs = convertThreadsToKernelConfigs(
         rewriter, op.getInputsAndOutputs(), threads, coreRange, mathFidelity_,
-        cbOperandIndexToPort, argMapping);
+        cbOperandIndexToPort, argMapping, /*hasFabricConnectionConfig=*/
+        static_cast<bool>(fabricConfig));
+    ArrayAttr fabricConnectionConfigs = nullptr;
+    if (fabricConfig) {
+      fabricConnectionConfigs = rewriter.getArrayAttr({fabricConfig});
+    }
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
-        op, args, cbs, cbPorts, kernelConfigs,
-        op.getFabricConnectionConfigAttr());
+        op, args, cbs, cbPorts, kernelConfigs, fabricConnectionConfigs);
     return success();
   };
 
@@ -637,7 +650,7 @@ public:
     SmallVector<Value> mergedCbs;
     SmallVector<int64_t> mergedCbPorts;
     SmallVector<Attribute> mergedKernelConfigs;
-    ttcore::FabricConnectionConfigAttr mergedFabricConfig = nullptr;
+    SmallVector<Attribute> mergedFabricConfigs;
     SmallVector<Operation *> preEnqueueOps;
     SmallVector<Operation *> postEnqueueOps;
 
@@ -664,19 +677,16 @@ public:
           mergedCbPorts,
           llvm::seq<int64_t>(
               portBase, portBase + static_cast<int64_t>(regionCbPortCount)));
-      for (Attribute kernelConfig : enqueueProgram.getKernelConfigs()) {
-        mergedKernelConfigs.push_back(remapKernelConfig(
-            kernelConfig, enqueueProgram, remapTable, mergedCbSlotBase));
-      }
 
-      auto enqueueFabricConfig = enqueueProgram.getFabricConnectionConfigAttr();
-      if (hasConflictingFabricConfig(mergedFabricConfig, enqueueFabricConfig)) {
-        return rewriter.notifyMatchFailure(
-            op, "failed to merge region enqueue_program ops due to fabric "
-                "config conflict");
+      const size_t fabricConfigBase = mergedFabricConfigs.size();
+      if (ArrayAttr regionFabricConfigs =
+              enqueueProgram.getFabricConnectionConfigsAttr()) {
+        llvm::append_range(mergedFabricConfigs, regionFabricConfigs);
       }
-      if (enqueueFabricConfig) {
-        mergedFabricConfig = enqueueFabricConfig;
+      for (Attribute kernelConfig : enqueueProgram.getKernelConfigs()) {
+        mergedKernelConfigs.push_back(
+            remapKernelConfig(kernelConfig, enqueueProgram, remapTable,
+                              mergedCbSlotBase, fabricConfigBase));
       }
     }
 
@@ -689,9 +699,13 @@ public:
       rewriter.moveOpBefore(operation, op);
     }
 
+    ArrayAttr fabricConnectionConfigs =
+        mergedFabricConfigs.empty()
+            ? nullptr
+            : rewriter.getArrayAttr(mergedFabricConfigs);
     rewriter.create<ttmetal::EnqueueProgramOp>(
         op.getLoc(), remapTable.getUnifiedArgs(), mergedCbs, mergedCbPorts,
-        rewriter.getArrayAttr(mergedKernelConfigs), mergedFabricConfig);
+        rewriter.getArrayAttr(mergedKernelConfigs), fabricConnectionConfigs);
 
     for (Operation *operation : postEnqueueOps) {
       rewriter.moveOpBefore(operation, op);
@@ -838,7 +852,8 @@ private:
   static Attribute remapKernelConfig(Attribute kernelConfig,
                                      ttmetal::EnqueueProgramOp enqueueProgram,
                                      const SpatialRemapTable &remapTable,
-                                     size_t mergedCbSlotBase) {
+                                     size_t mergedCbSlotBase,
+                                     size_t fabricConfigBase) {
     Builder builder(kernelConfig.getContext());
     return TypeSwitch<Attribute, Attribute>(kernelConfig)
         .Case<ComputeConfigAttr>([&](ComputeConfigAttr computeConfig) {
@@ -853,12 +868,19 @@ private:
               computeConfig.getUnpackToDestMode());
         })
         .Case<NocConfigAttr>([&](NocConfigAttr nocConfig) {
+          std::optional<uint32_t> fabricConfigIndex = std::nullopt;
+          if (std::optional<uint32_t> localIndex =
+                  nocConfig.getFabricConfigIndex()) {
+            fabricConfigIndex =
+                static_cast<uint32_t>(*localIndex + fabricConfigBase);
+          }
           return NocConfigAttr::get(
               nocConfig.getContext(), nocConfig.getKernelSymbol(),
               nocConfig.getCoreRange(),
               remapKernelArgs(builder, nocConfig.getKernelArgs(),
                               enqueueProgram, remapTable, mergedCbSlotBase),
-              nocConfig.getDmCoreIndex(), nocConfig.getNocIndex());
+              nocConfig.getDmCoreIndex(), nocConfig.getNocIndex(),
+              fabricConfigIndex);
         })
         .Case<EthernetConfigAttr>([&](EthernetConfigAttr ethernetConfig) {
           return EthernetConfigAttr::get(
@@ -872,13 +894,6 @@ private:
           llvm_unreachable(
               "unexpected kernel config attribute kind in spatial merge");
         });
-  }
-
-  static bool hasConflictingFabricConfig(
-      ttcore::FabricConnectionConfigAttr mergedFabricConfig,
-      ttcore::FabricConnectionConfigAttr enqueueFabricConfig) {
-    return mergedFabricConfig && enqueueFabricConfig &&
-           mergedFabricConfig != enqueueFabricConfig;
   }
 
   static FailureOr<ttmetal::EnqueueProgramOp>
