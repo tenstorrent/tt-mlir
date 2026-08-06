@@ -95,6 +95,24 @@ def test_matmul_compiles_and_runs():
     assert result.dtype == torch.float32
 
 
+def test_kernel_call_has_profiler_location():
+    lhs = torch.eye(64, dtype=torch.float32)
+    rhs = torch.eye(64, dtype=torch.float32)
+    layout = _make_layout()
+    output = d2m.empty(layout)
+    matmul_kernel(
+        d2m.to_layout(lhs, layout),
+        d2m.to_layout(rhs, layout),
+        output,
+        1,
+        1,
+        grid=(2, 2),
+    )
+
+    assert output.value.owner.name == "d2m.generic"
+    assert str(output.value.owner.location) == 'loc("matmul_kernel")'
+
+
 def test_matmul_correctness_single_tile_multicore():
     """Per-shard 32x32 matmul: each core's shard is exactly one tile, so
     the kernel emits a single `tile_matmul` per shard. Comparing against
@@ -182,6 +200,51 @@ def test_matmul_correctness_multi_k_bf16_accumulator():
         grid=(1, 1),
     )
     assert_pcc(lhs.float() @ rhs.float(), out.to_host().float(), threshold=0.99)
+
+
+def test_prepared_matmul_reuses_program_and_immutable_rhs():
+    torch.manual_seed(0)
+    lhs = torch.randn(32, 64, dtype=torch.bfloat16) * 0.125
+    rhs = torch.randn(64, 32, dtype=torch.bfloat16) * 0.125
+    lhs_layout = d2m.Layout(
+        shape=(32, 64),
+        dtype=d2m.bfloat16,
+        block_shape=[1, 1],
+        grid_shape=[1, 1],
+    )
+    rhs_layout = d2m.Layout(
+        shape=(64, 32),
+        dtype=d2m.bfloat16,
+        block_shape=[1, 1],
+        grid_shape=[1, 1],
+    )
+    out_layout = d2m.Layout(
+        shape=(32, 32),
+        dtype=d2m.bfloat16,
+        block_shape=[1, 1],
+        grid_shape=[1, 1],
+    )
+    out = d2m.empty(out_layout)
+    matmul_multi_k_bf16_kernel(
+        d2m.to_layout(lhs, lhs_layout),
+        d2m.to_layout(rhs, rhs_layout),
+        out,
+        2,
+        grid=(1, 1),
+    )
+    executable = d2m.prepare(out, reusable_inputs=(rhs,))
+    try:
+        first_expected = lhs.float() @ rhs.float()
+        first = executable.run()[0]
+        lhs.copy_(torch.linspace(-0.25, 0.25, lhs.numel()).reshape_as(lhs))
+        second_expected = lhs.float() @ rhs.float()
+        second = executable.run()[0]
+        assert_pcc(first_expected, first.float(), threshold=0.99)
+        assert_pcc(second_expected, second.float(), threshold=0.99)
+        assert executable.program_cache_entries > 0
+        assert list(executable.input_reuse_stats.values())[0]["cache_hits"] == 1
+    finally:
+        executable.close()
 
 
 def test_matmul_correctness_tiled_mnk_loop_carried_accumulator():

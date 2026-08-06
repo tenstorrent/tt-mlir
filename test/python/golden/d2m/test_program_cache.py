@@ -91,9 +91,9 @@ def test_repeated_submission_with_dynamic_inputs(
     cold_cache_entries = device.get_num_program_cache_entries()
     assert cold_cache_entries > 0
 
-    # Normal lowering refreshes cached bindings. Forced compile-time lowering
-    # rebuilds programs whose kernels bake in allocation-dependent addresses,
-    # while address-independent programs in the command queue remain eligible.
+    # Both forms reuse programs because the binary-scoped allocation plan keeps
+    # compile-time addresses stable across submissions; runtime bindings are
+    # refreshed for the normal lowering.
     warm_lhs = torch.linspace(-1.0, 1.0, shape[0] * shape[1], dtype=dtype).reshape(
         shape
     )

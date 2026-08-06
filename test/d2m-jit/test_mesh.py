@@ -670,3 +670,41 @@ def test_llama_down_projection_all_reduce_1x2(overlap):
     activations, weight = make_operands(config)
     result = run_two_chip(config, activations, weight, overlap=overlap)
     assert_pcc(golden(activations, weight), result, threshold=0.99)
+
+
+@requires_fabric_mesh
+@pytest.mark.parametrize("overlap", [False, True], ids=["serialized", "overlapped"])
+def test_prepared_llama_mlp_1x2(overlap):
+    from llama_mlp_workload import (
+        WorkloadConfig,
+        golden,
+        make_operands,
+        prepare_two_chip,
+    )
+
+    config = WorkloadConfig(
+        m=128,
+        hidden=512,
+        intermediate=1024,
+        grid_y=2,
+        grid_x=2,
+        projection_k_block_tiles=8,
+        down_k_block_tiles=4,
+    )
+    operands = make_operands(config)
+    executable = prepare_two_chip(config, operands, overlap)
+    try:
+        first = executable.run()[0]
+        assert tuple(first.shape) == (config.m, config.hidden)
+        assert_pcc(golden(*operands), first, threshold=0.99)
+        cache_entries = executable.program_cache_entries
+        second = executable.run()[0]
+        assert tuple(second.shape) == (config.m, config.hidden)
+        assert_pcc(golden(*operands), second, threshold=0.99)
+        assert executable.program_cache_entries == cache_entries
+        assert cache_entries > 0
+        assert all(
+            stats["cache_hits"] == 1 for stats in executable.input_reuse_stats.values()
+        )
+    finally:
+        executable.close()

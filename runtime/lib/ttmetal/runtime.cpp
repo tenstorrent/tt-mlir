@@ -329,6 +329,7 @@ tt::target::Arch getArch() {
 size_t getNumAvailableDevices() { return tt_metal::GetNumAvailableDevices(); }
 
 Device openMeshDevice(const MeshDeviceOptions &options) {
+  ZoneScopedN("D2MPrepareDevice");
   std::optional<tt_metal::distributed::MeshShape> meshShape = std::nullopt;
   if (options.meshShape.has_value()) {
     LOG_ASSERT(options.meshShape.value().size() == 2,
@@ -368,6 +369,7 @@ Device openMeshDevice(const MeshDeviceOptions &options) {
 }
 
 void closeMeshDevice(Device parentMesh) {
+  ZoneScopedN("D2MReleaseDevice");
   tt_metal::distributed::MeshDevice &metalMeshDevice =
       parentMesh.as<tt_metal::distributed::MeshDevice>(DeviceRuntime::TTMetal);
 
@@ -589,6 +591,7 @@ getMemoryView(Device deviceHandle) {
 }
 
 void setFabricConfig(tt::runtime::FabricConfig config) {
+  ZoneScopedN("D2MConfigureFabric");
   ::tt::tt_fabric::SetFabricConfig(common::toMetalFabricConfig(config));
   RuntimeContext::instance().setCurrentFabricConfig(config);
 }
@@ -607,6 +610,7 @@ void wait(Tensor tensor, std::optional<uint8_t> cqId) {
 }
 
 void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
+  ZoneScopedN("D2MWait");
   for (Tensor tensor : tensors) {
     ::tt::runtime::ttmetal::wait(tensor);
   }
@@ -633,6 +637,7 @@ uint32_t getNumShards(Tensor tensor) {
 }
 
 std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
+  ZoneScopedN("D2MReadback");
   ::tt::runtime::ttmetal::wait(tensor);
   std::visit(
       utils::overloaded{
@@ -736,6 +741,7 @@ void memcpy(void *dst, Tensor src,
 }
 
 void memcpy(Tensor dst, Tensor src) {
+  ZoneScopedN("D2MHostCopy");
   auto &metalDst = dst.as<MetalTensor>(DeviceRuntime::TTMetal);
   auto &dstDesc = std::get<TensorDesc>(metalDst);
   std::visit(
@@ -1094,15 +1100,12 @@ DistributedHostBuffer getDistributedHostBuffer(Tensor tensor) {
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> &inputs) {
+  ZoneScopedN("D2MInvoke");
   const target::metal::TTMetalBinary &fbb = *getBinary(executableHandle);
   const target::metal::Program *program = fbb.programs()->Get(programIndex);
   tt_metal::distributed::MeshDevice &meshDevice =
       deviceHandle.as<tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
-  const bool hasReusableInput =
-      std::any_of(inputs.begin(), inputs.end(), getTensorReusable);
-  LOG_ASSERT(!hasReusableInput || meshDevice.num_devices() == 1,
-             "Reusable D2M inputs currently require a single-device handle");
   if (meshDevice.num_rows() != 1 || meshDevice.num_cols() != 1) {
     LOG_WARNING("D2M runtime multi-device support is experimental. mesh = [",
                 meshDevice.num_rows(), ", ", meshDevice.num_cols(), "]");

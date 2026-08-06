@@ -1198,7 +1198,8 @@ def mesh(shape, topology=None):
 
 
 def _emit_mesh_shard(b, value, dst_ty, direction, shard_dims, shard_shape):
-    shard_type = Attribute.parse("#ttcore.shard_type<devices>", b.ctx)
+    shard_type_name = "replicate" if all(dim == -1 for dim in shard_dims) else "devices"
+    shard_type = Attribute.parse(f"#ttcore.shard_type<{shard_type_name}>", b.ctx)
     shard_direction = Attribute.parse(f"#ttcore.shard_direction<{direction}>", b.ctx)
     return d2m.mesh_shard(
         dst_ty,
@@ -1747,81 +1748,184 @@ def _maybe_enable_perf_trace():
     )
 
 
-def _execute(b: _Builder, lts):
-    """Serialize to flatbuffer, run on a mesh device, return torch tensors."""
-    if runtime is None or binary is None:
-        raise RuntimeError("ttmlir runtime is not available in this build")
-    _maybe_enable_perf_trace()
-    bin_capsule = ttmetal_to_flatbuffer_bin(b.module)
-    fbb = binary.load_binary_from_capsule(bin_capsule)
-    if config.save_flatbuffer_path:
-        fbb.store(config.save_flatbuffer_path)
-        print(f"[d2m-jit] flatbuffer written to {config.save_flatbuffer_path}")
-    program_index = 0
-    device_options = runtime.MeshDeviceOptions()
-    device_options.mesh_shape = fbb.get_program_mesh_shape(program_index)
-    runtime.set_compatible_device_runtime(fbb)
+class PreparedExecutable:
+    """Compiled D2M graph with a persistent mesh device and runtime inputs."""
 
-    # Marshal inputs from the torch tensors / scalars gathered during graph build.
-    rt_inputs = []
-    for t in b.host_tensors:
-        if isinstance(t, int) and not isinstance(t, bool):
-            rt_inputs.append(runtime.create_scalar_tensor(t))
-            continue
-        rt_inputs.append(
-            runtime.create_borrowed_host_tensor(
-                t.data_ptr(),
-                list(t.shape),
-                list(t.stride()),
-                t.element_size(),
-                _to_runtime_data_type(t.dtype),
+    def __init__(self, builder, outputs, reusable_inputs):
+        if runtime is None or binary is None:
+            raise RuntimeError("ttmlir runtime is not available in this build")
+        _maybe_enable_perf_trace()
+        bin_capsule = ttmetal_to_flatbuffer_bin(builder.module)
+        self.binary = binary.load_binary_from_capsule(bin_capsule)
+        runtime.set_compatible_device_runtime(self.binary)
+        if config.save_flatbuffer_path:
+            self.binary.store(config.save_flatbuffer_path)
+            print(f"[d2m-jit] flatbuffer written to {config.save_flatbuffer_path}")
+
+        self.program_index = 0
+        self._host_tensors = tuple(builder.host_tensors)
+        reusable_ids = {id(tensor) for tensor in reusable_inputs}
+        available_ids = {
+            id(tensor)
+            for tensor in self._host_tensors
+            if not (isinstance(tensor, int) and not isinstance(tensor, bool))
+        }
+        missing = reusable_ids - available_ids
+        if missing:
+            raise ValueError(
+                "reusable_inputs must contain tensors used to build this graph"
             )
-        )
 
-    # Allocate output torch tensors and borrowed host wrappers.
-    out_torch = []
-    rt_outputs = []
-    for lt in lts:
-        torch_dtype = _ttcore_to_torch_dtype(lt.layout.dtype)
-        output_shape = (
-            lt.mesh.full_shape if lt.mesh is not None else lt.layout.logical_shape
-        )
-        t_out = torch.empty(list(output_shape), dtype=torch_dtype)
-        out_torch.append(t_out)
-        rt_outputs.append(
-            runtime.create_borrowed_host_tensor(
-                t_out.data_ptr(),
-                list(t_out.shape),
-                list(t_out.stride()),
-                t_out.element_size(),
-                _to_runtime_data_type(t_out.dtype),
+        self.runtime_inputs = []
+        self._reusable_input_indices = []
+        for index, tensor in enumerate(self._host_tensors):
+            if isinstance(tensor, int) and not isinstance(tensor, bool):
+                runtime_input = runtime.create_scalar_tensor(tensor)
+            else:
+                runtime_input = runtime.create_borrowed_host_tensor(
+                    tensor.data_ptr(),
+                    list(tensor.shape),
+                    list(tensor.stride()),
+                    tensor.element_size(),
+                    _to_runtime_data_type(tensor.dtype),
+                )
+                if id(tensor) in reusable_ids:
+                    runtime_input.set_reusable(True)
+                    self._reusable_input_indices.append(index)
+            self.runtime_inputs.append(runtime_input)
+
+        self._output_specs = []
+        for output in outputs:
+            output_shape = (
+                output.mesh.full_shape
+                if output.mesh is not None
+                else output.layout.logical_shape
             )
-        )
-
-    device = None
-    fabric_enabled = False
-    try:
-        if b._fabric_runtime_mode is not None:
-            runtime.set_fabric_config(
-                getattr(runtime.FabricConfig, b._fabric_runtime_mode)
+            self._output_specs.append(
+                (tuple(output_shape), _ttcore_to_torch_dtype(output.layout.dtype))
             )
-            fabric_enabled = True
 
-        device = runtime.open_mesh_device(device_options)
-        submitted = runtime.submit(device, fbb, program_index, rt_inputs)
-        runtime.wait(submitted)
-        for i, rt_out in enumerate(submitted):
-            host_view = runtime.to_host(rt_out, untilize=True)[0]
-            runtime.memcpy(rt_outputs[i], host_view)
-            runtime.deallocate_tensor(rt_out, force=True)
-        return out_torch
-    finally:
+        device_options = runtime.MeshDeviceOptions()
+        device_options.mesh_shape = self.binary.get_program_mesh_shape(
+            self.program_index
+        )
+        device_options.enable_program_cache = True
+        self.device = None
+        self._fabric_enabled = builder._fabric_runtime_mode is not None
         try:
-            if device is not None:
-                runtime.close_mesh_device(device)
-        finally:
-            if fabric_enabled:
+            if self._fabric_enabled:
+                runtime.set_fabric_config(
+                    getattr(runtime.FabricConfig, builder._fabric_runtime_mode)
+                )
+            self.device = runtime.open_mesh_device(device_options)
+        except Exception:
+            if self._fabric_enabled:
                 runtime.set_fabric_config(runtime.FabricConfig.DISABLED)
+            raise
+
+    def submit(self):
+        if self.device is None:
+            raise RuntimeError("prepared executable is closed")
+        return runtime.submit(
+            self.device,
+            self.binary,
+            self.program_index,
+            self.runtime_inputs,
+        )
+
+    def wait(self, submitted):
+        runtime.wait(submitted)
+
+    def readback(self, submitted):
+        outputs = []
+        for runtime_output, (shape, dtype) in zip(
+            submitted, self._output_specs, strict=True
+        ):
+            output = torch.empty(shape, dtype=dtype)
+            runtime_host = runtime.create_borrowed_host_tensor(
+                output.data_ptr(),
+                list(output.shape),
+                list(output.stride()),
+                output.element_size(),
+                _to_runtime_data_type(output.dtype),
+            )
+            host_view = runtime.to_host(runtime_output, untilize=True)[0]
+            runtime.memcpy(runtime_host, host_view)
+            runtime.deallocate_tensor(runtime_output, force=True)
+            outputs.append(output)
+        return tuple(outputs)
+
+    def run(self, readback=True):
+        submitted = self.submit()
+        self.wait(submitted)
+        if readback:
+            return self.readback(submitted)
+        for runtime_output in submitted:
+            runtime.deallocate_tensor(runtime_output, force=True)
+        return ()
+
+    @property
+    def program_cache_entries(self):
+        if self.device is None:
+            raise RuntimeError("prepared executable is closed")
+        return self.device.get_num_program_cache_entries()
+
+    @property
+    def input_reuse_stats(self):
+        return {
+            index: self.runtime_inputs[index].get_reuse_stats()
+            for index in self._reusable_input_indices
+        }
+
+    def close(self):
+        if self.device is None:
+            return
+        try:
+            runtime.close_mesh_device(self.device)
+        finally:
+            self.device = None
+            if self._fabric_enabled:
+                runtime.set_fabric_config(runtime.FabricConfig.DISABLED)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+
+def prepare(*lts: LazyTensor, reusable_inputs=()):
+    """Compile a lazy graph once for repeated execution on one open mesh."""
+    if not lts:
+        raise ValueError("prepare requires at least one LazyTensor")
+
+    builder = _get_scope()
+    if not isinstance(builder, _Builder):
+        raise RuntimeError("prepare() requires the top-level lazy builder")
+    resolved = [lt._resolve() for lt in lts]
+    for index, output in enumerate(resolved):
+        if output.is_view:
+            raise ValueError(
+                f"prepare: argument {index} is a view; convert it to a concrete "
+                "layout before preparing the graph"
+            )
+    assert all(output.generation == builder.generation for output in resolved)
+
+    _emit_returns_and_finalise(builder, resolved)
+    builder.module.operation.verify()
+    _run_pipeline(builder)
+    executable = PreparedExecutable(builder, resolved, tuple(reusable_inputs))
+    _Builder.reset()
+    return executable
+
+
+def _execute(b: _Builder, lts):
+    """Compile and execute a graph once, returning materialized torch tensors."""
+    executable = PreparedExecutable(b, lts, ())
+    try:
+        return list(executable.run())
+    finally:
+        executable.close()
 
 
 def to_host(*lts: LazyTensor):
@@ -2190,8 +2294,12 @@ def _emit_kernel_generic(
         compiler.visit(kernel._ast)
         compiler.module.operation.verify()
 
+    # The generic's name location survives lowering into the runtime command
+    # and identifies the kernel call in host and device profiler timelines.
+    kernel_loc = Location.name(kernel.fn.__name__, context=b.ctx)
+
     # Emit the GenericOp + splice the kernel body.
-    with b.ctx, b.loc, b.insert_point:
+    with b.ctx, kernel_loc, b.insert_point:
         # Scalars come from func args; semaphores reuse their host-scope
         # create_global_semaphore results.
         additional = [
@@ -2233,6 +2341,7 @@ def _emit_kernel_generic(
             threads,
             1,  # num_regions
             fabricConnectionConfig=fabric_attr,
+            loc=kernel_loc,
         )
 
         region = generic.regions[0]

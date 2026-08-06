@@ -158,8 +158,8 @@ void setTensorRetain(Tensor tensor, bool retain);
 // that writes or aliases the corresponding device input while reuse is
 // enabled. The Tensor and its copies must also remain alive until all using
 // submissions have completed. Clearing the flag is also forbidden while a
-// using submission is in flight. Currently implemented for single-device
-// programs in the local TTMetal runtime.
+// using submission is in flight. Retained representations are scoped to the
+// executable, program, input destination, and persistent TTMetal device.
 bool getTensorReusable(Tensor tensor);
 void setTensorReusable(Tensor &tensor, bool reusable);
 TensorReuseStats getTensorReuseStats(Tensor tensor);

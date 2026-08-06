@@ -30,7 +30,9 @@ from ._src.builder import (
     GlobalSemaphore,
     LazyTensor,
     MeshShard,
+    PreparedExecutable,
     fabric_config,
+    prepare,
     reduction_layout,
     arange,
     view_layout,
@@ -50,7 +52,6 @@ from ._src.rewrite import (
     infer_layout,
     apply_patterns,
 )
-
 
 # --- Backend dispatch (config.backend) --------------------------------------
 #
@@ -1032,6 +1033,25 @@ def _empty_like_op(input):
     """Kernel-body uninitialized L1 scratch block matching `input`."""
     block_ty = input.type
     return tensor.empty(list(block_ty.shape), block_ty.element_type)
+
+
+@syntax("tilize_block")
+def _tilize_block_op(input):
+    """Convert one row-major BF16 block to a block of 32x32 tiles."""
+    if not isinstance(input.type.element_type, BF16Type):
+        raise TypeError(
+            "tilize_block currently requires BF16 input, got "
+            f"{input.type.element_type}"
+        )
+    shape = list(input.type.shape)
+    if len(shape) != 2 or any(dim % 32 for dim in shape):
+        raise ValueError(
+            "tilize_block requires a rank-2 shape divisible by 32, got " f"{shape}"
+        )
+    tile_ty = ttcore.ir.TileType.get(input.context, 32, 32, ttcore.DataType.BFloat16)
+    result_ty = RankedTensorType.get([dim // 32 for dim in shape], tile_ty)
+    output = tensor.empty(list(result_ty.shape), result_ty.element_type)
+    return _as_value(d2m.tile_tilize_block(result_ty, input, output))
 
 
 def _bool_attr_from_ast(node):

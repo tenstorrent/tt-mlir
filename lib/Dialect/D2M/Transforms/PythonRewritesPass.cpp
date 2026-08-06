@@ -130,23 +130,21 @@ public:
 
   void runOnOperation() override {
     if (modulePaths.empty()) {
-      // No-op when invoked without any patterns.
       return;
     }
 
     ModuleOp module = getOperation();
 
-    // Step 1: print the host module to text with locations preserved.
     std::string inputText;
     {
       llvm::raw_string_ostream os(inputText);
       OpPrintingFlags flags;
       flags.enableDebugInfo(/*enable=*/true, /*pretty=*/false);
-      // Generic form is portable across C++/Python MLIR runtimes.
+      // Generic form is portable across C++/Python MLIR runtimes, while debug
+      // info preserves semantic location metadata through the text boundary.
       module.print(os, flags);
     }
 
-    // Step 2: call into Python.
     ensurePythonInitialized();
     PyGIL gil;
 
@@ -205,9 +203,8 @@ public:
     }
     std::string outputText(resultUtf8, resultUtf8 + resultLen);
 
-    // Step 3: parse the result back into the host context, replace
-    // module body. We keep the GIL held through the parse — it's
-    // synchronous and our pass doesn't expect parallelism here.
+    // Keep the GIL through the synchronous parse because the pass does not
+    // permit concurrent Python rewrites.
     OwningOpRef<ModuleOp> newModule =
         parseSourceString<ModuleOp>(outputText, &getContext());
 
@@ -220,27 +217,19 @@ public:
       return;
     }
 
-    // Swap bodies: erase the host module's body ops, splice in the
-    // re-parsed module's body. Both modules have a single block in
-    // their region.
     Block &dst = module.getBodyRegion().front();
     Block &src = newModule->getBodyRegion().front();
 
-    // Erase existing ops; iterating backwards because erase mutates the
-    // list. Skip the implicit terminator if any (ModuleOp doesn't have
-    // one).
     for (auto it = dst.rbegin(); it != dst.rend();) {
       Operation &op = *it;
       ++it;
       op.erase();
     }
-    // Splice the source's ops to the destination.
     auto &srcOps = src.getOperations();
     while (!srcOps.empty()) {
       Operation &op = srcOps.front();
       op.moveBefore(&dst, dst.end());
     }
-    // newModule is now empty; drop it.
   }
 
 private:

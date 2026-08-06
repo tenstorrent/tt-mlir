@@ -176,8 +176,8 @@ createMeshBufferForShardedMetalBuffer(
         toShape(distributionSpec->shard_shape_in_pages()), std::move(cores));
     if (!refAddress) {
       // An owning allocation must be sized from the distribution spec. When
-      // both forms are present, Metal's allocation path currently prioritizes
-      // the legacy shard spec, which describes only one shard per core and can
+      // both forms are present, Metal's allocation path prioritizes the shard
+      // spec. That spec describes only one shard per core and can
       // under-allocate buffers that place multiple shards on each core.
       return tt_metal::BufferShardingArgs(std::move(metalDistributionSpec));
     }
