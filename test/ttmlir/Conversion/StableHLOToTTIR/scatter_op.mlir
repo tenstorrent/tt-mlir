@@ -165,6 +165,28 @@ module @jit_scatter attributes {} {
         return %0 : tensor<3x394xi64>
     }
 
+    // Single-dimensional scatter-add whose indices carry an explicit size-1
+    // index_vector_dim, so indices.rank (2) exceeds updates.rank (1).
+    func.func public @test_scatter_index_vector_dim_rank_promotion(%operand: tensor<2xi64>, %indices: tensor<256x1xi64>, %updates: tensor<256xi64>) -> tensor<2xi64> {
+        // CHECK-LABEL: func.func public @test_scatter_index_vector_dim_rank_promotion
+        // CHECK: [[RS:%[0-9]+]] = "ttir.reshape"(%arg1)
+        // CHECK-SAME: (tensor<256x1xi64>) -> tensor<256xi64>
+        // CHECK: "ttir.scatter"(%arg0, [[RS]], %arg2)
+        // CHECK-SAME: <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<sum>}>
+        // CHECK-SAME: (tensor<2xi64>, tensor<256xi64>, tensor<256xi64>) -> tensor<2xi64>
+        %0 = "stablehlo.scatter"(%operand, %indices, %updates) <{
+          scatter_dimension_numbers = #stablehlo.scatter<
+            inserted_window_dims = [0],
+            scatter_dims_to_operand_dims = [0],
+            index_vector_dim = 1>
+        }> ({
+        ^bb0(%a: tensor<i64>, %b: tensor<i64>):
+          %r = stablehlo.add %a, %b : tensor<i64>
+          stablehlo.return %r : tensor<i64>
+        }) : (tensor<2xi64>, tensor<256x1xi64>, tensor<256xi64>) -> tensor<2xi64>
+        return %0 : tensor<2xi64>
+    }
+
     func.func @test_multidim_scatter_with_window_extracted_from_model(%arg186: tensor<1x2xbf16>, %arg187: tensor<1xi64>, %arg188: tensor<1xi64>) -> (tensor<1x7x2xbf16>) {
         // CHECK: "ttir.scatter"
         // CHECK-SAME: <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<sum>}>
