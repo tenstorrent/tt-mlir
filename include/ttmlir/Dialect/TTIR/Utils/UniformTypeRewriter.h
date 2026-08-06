@@ -68,10 +68,8 @@ public:
   // Converts the block argument types of the op's regions.
   //
   // Operand and result conversion only reaches a block argument incidentally,
-  // via ops inside the region that use it. An argument with no uses in its
-  // region would otherwise keep its original type, which for an op like
-  // `ttir.while` (whose two regions must have identical signatures) leaves the
-  // IR inconsistent.
+  // through ops inside the region that use it, so an unused argument would
+  // otherwise keep its original type.
   bool convertRegionArgTypes(Operation *op) const {
     bool updated = false;
     SmallVector<Type> newTypes;

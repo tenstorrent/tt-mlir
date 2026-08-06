@@ -5,9 +5,8 @@ namespace tt.target.ttnn;
 // A while loop.
 //
 // The condition and the body are each serialized as their own top-level
-// (private) program and referenced here by index, the same way FuncCallOp,
-// LoadCachedOp and CaptureOrExecuteTraceOp reference their callees. The
-// runtime executes them with nested ProgramExecutors.
+// (private) program, referenced here by index and executed by a nested
+// ProgramExecutor.
 //
 // Both sub-programs take `inits ++ captures` as their inputs. The condition
 // program returns a single one-element uint32 tensor in system memory, which
@@ -27,8 +26,7 @@ table WhileOp {
   outputs: [tt.target.ttnn.TensorRef];
 
   // Statically known iteration count. When present the runtime skips the
-  // condition program entirely, which avoids a device-to-host synchronization
-  // per iteration. Absent means the loop is data-dependent.
+  // condition program entirely. Absent means the loop is data-dependent.
   trip_count: uint64 = null;
 
   semaphore_inputs: [tt.target.ttnn.GlobalSemaphoreRef];

@@ -729,9 +729,8 @@ LogicalResult WhileOp::verify() {
     }
   }
 
-  // Every loop-carried value is the same Python variable seen from four
-  // places, so all four have to agree on how many there are and what they
-  // hold.
+  // The inits, body block arguments, yielded values and results are all the
+  // same Python variables, so all four have to agree.
   Block &body = getBody().front();
   TypeRange initTypes = getInits().getTypes();
   auto checkTypes = [&](TypeRange types, StringRef what) -> LogicalResult {
@@ -755,9 +754,9 @@ LogicalResult WhileOp::verify() {
     return failure();
   }
 
-  // Not getYield(): the trait that guarantees the terminator's type is a
-  // region trait, and those are verified after this, so the body may still be
-  // empty or end in something else entirely.
+  // Not getYield(): the trait that guarantees the terminator's type is a region
+  // trait, and those are verified after this, so the body may still be empty or
+  // end in something else.
   Operation *terminator = body.empty() ? nullptr : &body.back();
   if (auto yieldOp = llvm::dyn_cast_if_present<WhileYieldOp>(terminator)) {
     if (failed(checkTypes(yieldOp.getOperandTypes(), "yielded values"))) {

@@ -826,11 +826,9 @@ inline mlir::Operation *findFirstUserInBlock(mlir::Operation *op) {
 /// value per loop-carried value.
 ///
 /// Types are compared exactly, which at the TTNN level also enforces that
-/// layouts are invariant across iterations. This matters: at runtime each
-/// region is a separate program whose inputs are bound from the values
-/// yielded by `body` on the previous iteration, so a layout change across the
-/// yield would leave iteration 2 disagreeing with the serialized tensor
-/// descriptors.
+/// layouts are invariant across iterations - the next iteration rebinds the
+/// regions' inputs from the values `body` yielded, so a layout change across
+/// the yield would disagree with the serialized tensor descriptors.
 inline mlir::LogicalResult
 verifyWhileOpStructure(mlir::Operation *op, mlir::ValueRange inits,
                        mlir::ValueRange captures, mlir::Region &cond,
@@ -843,8 +841,7 @@ verifyWhileOpStructure(mlir::Operation *op, mlir::ValueRange inits,
            << " results";
   }
 
-  for (auto [index, init, result] :
-       llvm::enumerate(inits, op->getResults())) {
+  for (auto [index, init, result] : llvm::enumerate(inits, op->getResults())) {
     if (init.getType() != result.getType()) {
       return op->emitOpError()
              << "init " << index << " has type " << init.getType()
@@ -857,8 +854,8 @@ verifyWhileOpStructure(mlir::Operation *op, mlir::ValueRange inits,
   llvm::SmallVector<mlir::Type> expectedArgTypes(inits.getTypes());
   llvm::append_range(expectedArgTypes, captures.getTypes());
 
-  for (auto [name, region] : {std::make_pair("cond", &cond),
-                              std::make_pair("body", &body)}) {
+  for (auto [name, region] :
+       {std::make_pair("cond", &cond), std::make_pair("body", &body)}) {
     mlir::Block &block = region->front();
     if (block.getNumArguments() != expectedArgTypes.size()) {
       return op->emitOpError()
@@ -870,10 +867,9 @@ verifyWhileOpStructure(mlir::Operation *op, mlir::ValueRange inits,
     for (auto [index, argType, expectedType] :
          llvm::enumerate(block.getArgumentTypes(), expectedArgTypes)) {
       if (argType != expectedType) {
-        return op->emitOpError()
-               << "argument " << index << " of the '" << name
-               << "' region has type " << argType << " but " << expectedType
-               << " was expected";
+        return op->emitOpError() << "argument " << index << " of the '" << name
+                                 << "' region has type " << argType << " but "
+                                 << expectedType << " was expected";
       }
     }
   }

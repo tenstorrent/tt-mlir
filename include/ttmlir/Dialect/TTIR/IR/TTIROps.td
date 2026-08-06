@@ -248,18 +248,15 @@ def TTIR_WhileOp : TTIR_Op<"while", [
     `body` yields one value per loop-carried value, with matching types. The
     op's results are the loop-carried values after the final iteration.
 
-    The op is `IsolatedFromAbove` on purpose: at runtime each region becomes
-    its own flatbuffer program with its own tensor pool, and a nested program
-    can only see tensors bound through its own inputs. Values used by a region
-    but defined outside the op must therefore be promoted to explicit
-    `captures` operands, and `IsolatedFromAbove` is what makes the compiler
-    enforce that instead of the serializer silently dropping them.
+    The op is `IsolatedFromAbove`: at runtime each region becomes its own
+    flatbuffer program with its own tensor pool, and a nested program can only
+    see tensors bound through its own inputs. Values a region uses but that are
+    defined outside the op must therefore be promoted to explicit `captures`
+    operands.
 
-    `trip_count`, when present, is the statically known number of iterations.
-    It lets the runtime skip evaluating `cond` altogether, which avoids a
-    device-to-host synchronization per iteration. It is set by the
-    `ttir-while-trip-count` pass and must agree with `cond`; `cond` remains
-    valid and is still lowered so that consumers may ignore the attribute.
+    `trip_count`, when present, is the statically known number of iterations,
+    set by the `ttir-while-trip-count` pass. It must agree with `cond`, which
+    remains valid and is still lowered, so consumers may ignore the attribute.
 
     Example:
     ```mlir

@@ -323,10 +323,8 @@ static void deduplicateSharedOps(func::FuncOp funcOp) {
   //
   // The signature includes the enclosing isolation scope, because the walk
   // below descends into regions that are isolated from above - a `ttnn.while`
-  // body, say. An op in such a region may not use a value defined outside it,
-  // so replacing it with an instance from an enclosing scope would leave its
-  // users referring to something they cannot see. Keying on the scope lets
-  // each isolated region deduplicate against itself and no further.
+  // body, say. Such a region may not use a value defined outside it, so keying
+  // on the scope keeps each one deduplicating against itself and no further.
   using OpKey = std::tuple<Operation *, StringRef, DictionaryAttr>;
   llvm::DenseMap<OpKey, Operation *> sharedOps;
 

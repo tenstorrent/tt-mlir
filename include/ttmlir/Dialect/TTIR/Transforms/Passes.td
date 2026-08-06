@@ -557,10 +557,9 @@ def TTIRWhileTripCount : Pass<"ttir-while-trip-count", "::mlir::ModuleOp"> {
       loop-invariant constant and yields the result directly,
     - the body region advances the induction variable by a constant step.
 
-    With `trip_count` set, the runtime skips the condition program altogether.
-    That matters a lot: a data-dependent loop has to copy the predicate back to
-    host to decide whether to continue, costing one device-to-host
-    synchronization per iteration.
+    With `trip_count` set, the runtime skips the condition program altogether,
+    and with it the device-to-host copy of the predicate that a data-dependent
+    loop needs on every iteration.
 
     The condition region is left intact, so consumers that ignore the attribute
     still execute the loop correctly.

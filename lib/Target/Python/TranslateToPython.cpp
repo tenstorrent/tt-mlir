@@ -148,18 +148,16 @@ struct PythonEmitter {
   /// Return the textual representation of a subscript operation.
   std::string getSubscriptName(SubscriptOp op);
 
-  /// Bind `value` to a Python variable that another value already owns -- the
+  /// Bind `value` to a Python variable that another value already owns, as the
   /// init, body block argument, yielded value and result of a loop-carried
-  /// value are all one variable. The name must have come from getOrCreateName,
-  /// which is what reserved it; this deliberately does no uniquing, since
-  /// aliasing the name is the point.
+  /// value all are. The name must have come from getOrCreateName, which is what
+  /// reserved it; no uniquing happens here, since aliasing is the point.
   void mapValueToName(Value value, StringRef name);
 
   /// Register a value with verbatim Python text to substitute for it wherever
-  /// it is used. Nothing is reserved: the text is either an expression rather
-  /// than an identifier (a literal, an inlined expression) or a name the IR
-  /// fixed and Python expects to be shared, as `global x` and a later
-  /// assignment to `x` are.
+  /// it is used. Nothing is reserved: the text is either not an identifier at
+  /// all (a literal, an inlined expression) or a name the IR fixed and Python
+  /// expects to be shared, as `global x` and a later assignment to `x` are.
   void registerDeferredValue(Value value, StringRef str);
 
   /// Decides whether the file should be emitted. If fileId is set, only
@@ -1023,14 +1021,12 @@ static LogicalResult printOperation(PythonEmitter &emitter, WhileOp whileOp) {
   raw_indented_ostream &os = emitter.ostream();
   Block &body = whileOp.getBody().front();
 
-  // Each loop-carried value is one Python variable that four SSA values refer
-  // to: the init that seeds it, the body block argument the body reads, the
-  // value the body yields back, and the result the code after the loop reads.
-  // Name it once, here, so it goes through the emitter's collision check, and
-  // bind the other three to that name.
+  // The init, body block argument, yielded value and result of each
+  // loop-carried value are one Python variable. Name it once, here, so it goes
+  // through the emitter's collision check, and bind the rest to that name.
   //
-  // No Scope is opened for the body -- a Python loop body does not introduce
-  // one, and the results have to stay visible after the loop.
+  // No Scope is opened for the body: a Python loop body does not introduce one,
+  // and the results have to stay visible after the loop.
   SmallVector<std::string> names;
   names.reserve(whileOp.getInits().size());
   for (auto [index, init] : llvm::enumerate(whileOp.getInits())) {

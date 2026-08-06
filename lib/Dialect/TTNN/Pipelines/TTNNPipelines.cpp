@@ -92,9 +92,6 @@ void createTTNNPipelineTTIRPasses(
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
-  // Detect counted while loops before const-eval hoisting moves the constants
-  // this analysis reads out of the enclosing function, and before TTNNLayout
-  // inserts casts between the comparison and the condition yield.
   pm.addPass(mlir::tt::ttir::createTTIRWhileTripCount());
   pm.addPass(mlir::tt::ttir::createTTIRFoldFullToScalar());
   pm.addPass(mlir::tt::ttir::createTTIRConsolidateStaticCacheUpdates());

@@ -99,13 +99,11 @@ Value canonicalRoot(Value value, llvm::DenseMap<Value, Value> &valueToRoot) {
 // yielded out of a region), buffers a region only borrows through its block
 // arguments, and conv activations the conv op force-deallocates itself.
 //
-// Forcing is only ever correct for a buffer the surrounding block owns, and
-// bottom-to-top walk order only means program order because every deallocation
-// of such a buffer sits in that same block: a value defined inside a region is
-// invisible outside it, and an op inside a region cannot alias a value from the
-// enclosing scope because the region-carrying ops are all IsolatedFromAbove. A
-// future region op that is not isolated from above breaks that and needs this
-// revisited.
+// Bottom-to-top only means program order because every deallocation of a
+// block-owned buffer sits in that same block: a value defined in a region is
+// invisible outside it, and an op in a region cannot alias a value from the
+// enclosing scope while all region-carrying ops here are IsolatedFromAbove. A
+// region op that is not isolated from above needs this revisited.
 class TTNNForceFinalDeallocs
     : public impl::TTNNForceFinalDeallocsBase<TTNNForceFinalDeallocs> {
 public:
@@ -144,14 +142,9 @@ private:
       }
 
       // A region's block arguments name buffers the region did not allocate:
-      // they belong to the enclosing scope, or -- across a loop back edge --
-      // to the previous iteration.
-      //
-      // Note the asymmetry with a function, which is deliberately skipped
-      // here. Calling transfers ownership of the arguments, so a func is
-      // expected to free the buffers it is passed; entering a region does not,
-      // and a region body may run many times against buffers it is only
-      // borrowing.
+      // they belong to the enclosing scope, or - across a loop back edge - to
+      // the previous iteration. Functions are deliberately excluded: calling
+      // one transfers ownership of its arguments, entering a region does not.
       if (!mlir::isa<func::FuncOp>(op)) {
         for (Region &region : op->getRegions()) {
           for (Block &block : region) {
