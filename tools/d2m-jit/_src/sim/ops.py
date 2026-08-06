@@ -122,6 +122,14 @@ def remote_store(dst, indices, src):
     )
 
 
+def tilize_block(input):
+    return input
+
+
+def profile_event(label, thread):
+    pass
+
+
 # --- elementwise helpers -----------------------------------------------------
 
 
@@ -439,6 +447,8 @@ SIM_OPS.update(
         "core_index": core_index,
         "remote_load": remote_load,
         "remote_store": remote_store,
+        "tilize_block": tilize_block,
+        "profile_event": profile_event,
         "Semaphore": Semaphore,
         # Free functions only -- there are no method forms for these ops.
         "zeros": zeros,

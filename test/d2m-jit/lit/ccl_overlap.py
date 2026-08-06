@@ -38,7 +38,10 @@ def chunked_matmul_all_gather(lhs, rhs, output, start_sem, end_sem, num_chunks):
     for chunk in range(num_chunks):
         a = remote_load(lhs, [cy * num_chunks + chunk, cx])
         b = remote_load(rhs, [cy * num_chunks + chunk, cx])
+        profile_event("d2m.chunk.compute.begin", "compute")
         c = a @ b
+        profile_event("d2m.chunk.compute.end", "compute")
+        profile_event("d2m.chunk.fabric.begin", "datamovement")
         remote_store(
             output,
             [cy * 2 * num_chunks + dx * num_chunks + chunk, cx],
@@ -48,6 +51,7 @@ def chunked_matmul_all_gather(lhs, rhs, output, start_sem, end_sem, num_chunks):
             semaphore=end_sem,
             semaphore_indices=[cy, cx],
         )
+        profile_event("d2m.chunk.fabric.end", "datamovement")
     semaphore_wait(end_sem, 2 * num_chunks)
 
 
@@ -143,6 +147,15 @@ expected_core_range = f"#ttmetal.core_range<0x0, {grid_y}x{grid_x}>"
 assert fabric_enqueue.count(expected_core_range) == 3, fabric_enqueue
 assert "dm_core = 1, noc0" in fabric_enqueue, fabric_enqueue
 assert "dm_core = 0, noc1" in fabric_enqueue, fabric_enqueue
+profile_markers = {
+    "d2m.chunk.compute.begin": 1,
+    "d2m.chunk.compute.end": 1,
+    "d2m.chunk.fabric.begin": 2,
+    "d2m.chunk.fabric.end": 2,
+}
+for marker, expected_count in profile_markers.items():
+    assert lowered.count(marker) == expected_count, marker
+assert lowered.count("DeviceTimestampedData") == sum(profile_markers.values()), lowered
 
 # The chunk loop indexes distinct generic outputs. It must not be mistaken for
 # a matmul reduction loop, which would accumulate chunk t onto chunk t-1.

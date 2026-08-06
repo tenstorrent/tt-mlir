@@ -911,10 +911,6 @@ void MCQExecutor::enqueueMeshWorkload(distributed::MeshWorkload &workload,
   }
 
   distributed::EnqueueMeshWorkload(*mcq, workload, blockingCQ);
-
-  if (perf::Env::get().enablePerfTrace) {
-    ::tt::tt_metal::ReadMeshDeviceProfilerResults(*meshDevice);
-  }
 }
 
 void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,

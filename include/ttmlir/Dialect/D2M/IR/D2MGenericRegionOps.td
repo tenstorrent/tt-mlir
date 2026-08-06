@@ -3570,6 +3570,24 @@ def D2M_PrintOp : D2M_GenericRegionOp<"print", [MemoryEffects<[MemRead, MemWrite
     }];
 }
 
+def D2M_ProfileEventOp : D2M_GenericRegionOp<"profile_event",
+  [MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Record a named device-profiler timestamp.";
+    let description = [{
+        Emits a `DeviceTimestampedData` event on one physical thread of a split
+        D2M kernel. Repeated events inside a loop retain their name, core, and
+        timestamp in the tt-metal device-profiler log. Callers can pair `.begin`
+        and `.end` labels to reconstruct block-level timelines without adding
+        C++ scopes around generated temporaries.
+
+        `thread` is 0 for compute and 1 for data movement.
+    }];
+
+    let arguments = (ins StrAttr:$label, I32Attr:$thread);
+    let assemblyFormat = "`(` $label `,` $thread `)` attr-dict";
+    let hasVerifier = 1;
+}
+
 def D2M_OperandAliasOp : D2M_GenericRegionOp<"operand_alias", [
     MemoryEffects<[MemRead, MemWrite]>
   ]> {

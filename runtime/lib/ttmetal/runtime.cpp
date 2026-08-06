@@ -14,6 +14,7 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
+#include "tt/runtime/perf.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
@@ -1153,6 +1154,12 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
 
     LOG_ASSERT(outputs.size() == program->outputs()->size(),
                "Outputs size mismatch");
+  }
+
+  // A profiler read synchronizes the mesh, so defer it until every program in
+  // the submission has been enqueued to preserve inter-program overlap.
+  if (perf::Env::get().enablePerfTrace) {
+    tt::runtime::ttmetal::readDeviceProfilerResults(deviceHandle);
   }
 
   return outputs;

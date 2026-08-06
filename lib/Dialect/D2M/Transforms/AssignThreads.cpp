@@ -241,6 +241,9 @@ static LogicalResult lowerDMAOpsToExplicitCB(GenericOp generic, Block *block,
 // remain in implicit form and d2m-insert-compute-cb inspects them to add the
 // matching compute-side CB synchronization, then erases them.
 static std::optional<ThreadType> classifyOp(Operation *op) {
+  if (auto profile = mlir::dyn_cast<ProfileEventOp>(op)) {
+    return static_cast<ThreadType>(profile.getThread());
+  }
   if (mlir::isa<RemoteLoadOp, RemoteStoreOp, LocalCopyOp, CoreReadOp,
                 SemaphoreIncOp, SemaphoreSetOp>(op)) {
     return ThreadType::Datamovement;

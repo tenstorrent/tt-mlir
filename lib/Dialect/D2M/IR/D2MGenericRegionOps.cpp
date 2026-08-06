@@ -15,6 +15,8 @@
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringExtras.h"
 #include <limits>
 
 #define GET_OP_CLASSES
@@ -43,6 +45,21 @@ bufferizeCBOp(OpTy op, mlir::RewriterBase &rewriter,
 void AcquireDstOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   setNameFn(getResult(), "dst");
+}
+
+LogicalResult ProfileEventOp::verify() {
+  StringRef label = getLabel();
+  if (label.empty() || !llvm::all_of(label, [](char c) {
+        return llvm::isAlnum(c) || c == '_' || c == '-' || c == '.';
+      })) {
+    return emitOpError(
+        "label must contain only ASCII letters, digits, '_', '-', or '.'");
+  }
+  if (getThread() != static_cast<int32_t>(ThreadType::Compute) &&
+      getThread() != static_cast<int32_t>(ThreadType::Datamovement)) {
+    return emitOpError("thread must be 0 (compute) or 1 (data movement)");
+  }
+  return success();
 }
 
 // Helper to extract element type from ranked tensor or memref
