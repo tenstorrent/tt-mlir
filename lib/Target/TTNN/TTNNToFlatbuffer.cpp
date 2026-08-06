@@ -4403,8 +4403,8 @@ createOp(FlatbufferObjectCache &cache, WhileOp op,
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> inits;
   for (Value init : op.getInits()) {
-    inits.push_back(cache.at<::tt::target::ttnn::TensorRef>(
-        getOperandThroughDPSOps(init)));
+    inits.push_back(
+        cache.at<::tt::target::ttnn::TensorRef>(getOperandThroughDPSOps(init)));
   }
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> captures;
@@ -5416,9 +5416,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   //
   // Program bodies are built up as plain C++ vectors of offsets and only turned
   // into flatbuffer vectors by CreateProgramDirect, so finishing a nested
-  // program part-way through building its parent is safe. Indices are handed
-  // out as programs are appended, which cannot collide with `programIdxMap`
-  // because that only ever maps function names.
+  // program part-way through building its parent is safe.
   //
   // The names are kept alive for as long as `programs`, since
   // CreateProgramDirect copies from a `const char *`.

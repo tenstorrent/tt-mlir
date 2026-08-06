@@ -3877,20 +3877,15 @@ def TTNN_WhileOp : TTNN_Op<"while", [
     loop-carried values from one iteration to the next. Lowered from
     `ttir.while`; see that op for the full semantics.
 
-    Both regions take `inits ++ captures` as block arguments. Each region is
-    serialized as its own flatbuffer program, and the runtime binds the
-    region's inputs from `inits ++ captures` on the first iteration and from
-    `body`'s yielded values thereafter. Consequently every loop-carried value
-    must keep the same layout across the yield, which the verifier enforces by
-    comparing types exactly.
+    Two requirements are specific to this level, both materialized by
+    `TTNNLayout`:
 
-    `cond` must yield a single-element `uint32` tensor resident in system
-    memory: the runtime reads it back to host to decide whether to continue.
-    `TTNNLayout` is responsible for materializing that form.
-
-    `trip_count`, when present, is the statically known number of iterations
-    and lets the runtime skip the `cond` program entirely, avoiding a
-    device-to-host synchronization per iteration.
+    - `cond` must yield a single-element `uint32` tensor resident in system
+      memory, since the runtime reads it back to host to decide whether to
+      continue;
+    - every loop-carried value must keep the same layout across the yield,
+      because the next iteration rebinds the regions' inputs from the values
+      `body` yielded.
   }];
 
   let arguments = (ins Variadic<AnyRankedTensor>:$inits,
