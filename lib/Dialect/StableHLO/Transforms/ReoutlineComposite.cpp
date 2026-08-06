@@ -213,16 +213,110 @@ computeSafeInsertAfter(llvm::ArrayRef<mlir::Value> captures,
   return latestDef;
 }
 
+// Rescale a flattened tenstorrent.group_norm's `num_groups` from the global
+// value stashed at flatten time to the value that matches the now-localized
+// channel dim.
+//
+// Shardy propagated shardings through the *flattened* body, so the math is
+// already correct and partitioned; the only stale thing is the group count we
+// are about to bake back into the rebuilt composite. Nothing downstream catches
+// it -- the ttir.group_norm verifier only checks `channels % num_groups == 0`,
+// which a stale count typically still satisfies -- so a wrong value here shows
+// up purely as a silent accuracy loss.
+//
+// group_size is invariant under sharding:
+//   group_size     = global_channels / num_groups
+//   new_num_groups = local_channels  / group_size
+// This holds because Shardy shards a dim into contiguous blocks and GroupNorm's
+// groups are contiguous channel ranges, so every device holds a whole number of
+// whole groups.
+static mlir::LogicalResult
+rescaleGroupNormNumGroups(mlir::Operation *seedOp, mlir::Type localResultType,
+                          mlir::DictionaryAttr &compAttrs) {
+  auto globalChannelsAttr = seedOp->getAttrOfType<mlir::IntegerAttr>(
+      utils::kReoutlineGroupNormChannelsAttr);
+  if (!globalChannelsAttr) {
+    return mlir::success();
+  }
+
+  auto resultType = llvm::dyn_cast<mlir::RankedTensorType>(localResultType);
+  if (!resultType) {
+    return mlir::success();
+  }
+
+  int64_t channelDim = 1;
+  if (auto channelDimAttr = llvm::dyn_cast_or_null<mlir::IntegerAttr>(
+          compAttrs.get("channel_dim"))) {
+    channelDim = channelDimAttr.getInt();
+  }
+  if (channelDim < 0 || channelDim >= resultType.getRank()) {
+    return mlir::success();
+  }
+
+  int64_t globalChannels = globalChannelsAttr.getInt();
+  int64_t localChannels = resultType.getDimSize(channelDim);
+
+  // Channel dim was not sharded, so the global group count still applies.
+  if (globalChannels == localChannels) {
+    return mlir::success();
+  }
+
+  // num_groups is emitted either as a scalar integer or as a single-element
+  // dense tensor (mirrors TenstorrentGroupNormConversionPattern).
+  mlir::Attribute numGroupsAttr = compAttrs.get("num_groups");
+  int64_t numGroups = 0;
+  if (auto intAttr = llvm::dyn_cast_or_null<mlir::IntegerAttr>(numGroupsAttr)) {
+    numGroups = intAttr.getInt();
+  } else if (auto denseAttr =
+                 llvm::dyn_cast_or_null<mlir::DenseIntElementsAttr>(
+                     numGroupsAttr)) {
+    if (denseAttr.getNumElements() != 1) {
+      seedOp->emitError() << "tenstorrent.group_norm num_groups must be a "
+                             "single-element dense tensor";
+      return mlir::failure();
+    }
+    numGroups = *denseAttr.getValues<int64_t>().begin();
+  } else {
+    seedOp->emitError() << "tenstorrent.group_norm is missing an integer "
+                           "num_groups attribute";
+    return mlir::failure();
+  }
+
+  if (numGroups <= 0 || globalChannels % numGroups != 0) {
+    seedOp->emitError() << "cannot rescale num_groups: global channel dim ("
+                        << globalChannels << ") not divisible by num_groups ("
+                        << numGroups << ")";
+    return mlir::failure();
+  }
+
+  int64_t groupSize = globalChannels / numGroups;
+  if (localChannels % groupSize != 0) {
+    seedOp->emitError()
+        << "cannot rescale num_groups: local channel dim (" << localChannels
+        << ") does not hold a whole number of groups of size " << groupSize
+        << ". The channel dim must not be sharded finer than num_groups ("
+        << numGroups << ")";
+    return mlir::failure();
+  }
+
+  mlir::NamedAttrList updated(compAttrs);
+  mlir::MLIRContext *ctx = seedOp->getContext();
+  updated.set("num_groups",
+              mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 64),
+                                     localChannels / groupSize));
+  compAttrs = updated.getDictionary(ctx);
+
+  return mlir::success();
+}
+
 // Replace the original ops range with a stablehlo.composite, wiring
 // captures/results. Erase the old ops.
-void replaceWithComposite(mlir::func::FuncOp parentFunc,
-                          mlir::Operation *insertBefore,
-                          mlir::Operation *firstOp, mlir::Operation *lastOp,
-                          mlir::func::FuncOp callee,
-                          mlir::ArrayRef<mlir::Value> captures,
-                          mlir::ArrayRef<mlir::Value> escapes,
-                          llvm::ArrayRef<mlir::Operation *> opsToErase,
-                          mlir::StringAttr groupKey) {
+mlir::LogicalResult replaceWithComposite(
+    mlir::func::FuncOp parentFunc, mlir::Operation *insertBefore,
+    mlir::Operation *firstOp, mlir::Operation *lastOp,
+    mlir::func::FuncOp callee, mlir::ArrayRef<mlir::Value> captures,
+    mlir::ArrayRef<mlir::Value> escapes,
+    llvm::ArrayRef<mlir::Operation *> opsToErase, mlir::StringAttr groupKey) {
   mlir::Operation *after = computeSafeInsertAfter(captures, firstOp);
   mlir::OpBuilder builder(after);
   if (after == firstOp) {
@@ -254,8 +348,10 @@ void replaceWithComposite(mlir::func::FuncOp parentFunc,
       mlir::SymbolRefAttr::get(ctx, callee.getSymName());
   mlir::DictionaryAttr compAttrs = mlir::DictionaryAttr::get(ctx);
   mlir::StringAttr targetName = builder.getStringAttr(callee.getSymName());
+  mlir::Operation *seedOp = nullptr;
   for (mlir::Operation *op : opsToErase) {
     if (op->hasAttr(utils::kReoutlineSeedAttr)) {
+      seedOp = op;
       if (auto origName = op->getAttrOfType<mlir::StringAttr>(
               utils::kReoutlineOrigNameAttr)) {
         targetName = origName;
@@ -264,6 +360,17 @@ void replaceWithComposite(mlir::func::FuncOp parentFunc,
               utils::kReoutlineCompAttrsAttr)) {
         compAttrs = compAttr;
       }
+    }
+  }
+
+  // The stashed composite attributes are the pre-sharding ones. Any attribute
+  // that counts along a sharded dim has to be rescaled before it is baked back
+  // into the composite.
+  if (seedOp && targetName.getValue() == utils::kTTGroupNormCompositeName &&
+      !resultTypes.empty()) {
+    if (mlir::failed(
+            rescaleGroupNormNumGroups(seedOp, resultTypes[0], compAttrs))) {
+      return mlir::failure();
     }
   }
 
@@ -304,6 +411,8 @@ void replaceWithComposite(mlir::func::FuncOp parentFunc,
     }
     op->erase();
   }
+
+  return mlir::success();
 }
 
 // ReoutlineCompositePass: Rebuilds stablehlo.composite from grouped ops after
@@ -354,8 +463,12 @@ public:
             module, "outlined_", base.getValue(), captures, escapes, ops);
 
         // Replace range with a call and erase the grouped ops.
-        replaceWithComposite(func, firstOp, firstOp, lastOp, callee, captures,
-                             escapes, ops, group);
+        if (mlir::failed(replaceWithComposite(func, firstOp, firstOp, lastOp,
+                                              callee, captures, escapes, ops,
+                                              group))) {
+          signalPassFailure();
+          return;
+        }
       }
     }
   }
