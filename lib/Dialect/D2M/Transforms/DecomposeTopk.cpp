@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
@@ -21,13 +22,6 @@ namespace mlir::tt::d2m {
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
-
-// Must match kTopkLaneTileRows in d2m-insert-scratch-buffers.
-constexpr int64_t kLaneTileRows = 2;
-
-// Duplicated in d2m-insert-scratch-buffers, which sets them.
-constexpr llvm::StringLiteral kTopkIndexBufferAttr = "d2m.topk_index_buffer";
-constexpr llvm::StringLiteral kTopkLaneBufferAttr = "d2m.topk_lane_buffer";
 
 template <typename T>
 static int32_t floorLog2(T n) {
@@ -46,9 +40,9 @@ struct TopkIndexBuffers {
 static std::optional<TopkIndexBuffers> findIndexBuffers(GenericOp genericOp) {
   TopkIndexBuffers buffers;
   genericOp.getRegion(0).walk([&](memref::AllocOp allocOp) {
-    if (allocOp->hasAttr(kTopkIndexBufferAttr)) {
+    if (allocOp->hasAttr(utils::kTopkIndexBufferAttr)) {
       buffers.idxBuf = allocOp.getResult();
-    } else if (allocOp->hasAttr(kTopkLaneBufferAttr)) {
+    } else if (allocOp->hasAttr(utils::kTopkLaneBufferAttr)) {
       buffers.laneBuf = allocOp.getResult();
     }
   });
@@ -113,11 +107,12 @@ static Value buildIndexBuffer(PatternRewriter &rewriter, Location loc,
   auto genericOp = op->getParentOfType<GenericOp>();
   TT_assertv(genericOp, "topk_block must be inside a generic");
   ArrayRef<int64_t> gridShape = genericOp.getGrid().getShape();
-  int64_t totalTileRows = kLaneTileRows * gridShape[gridShape.size() - 2];
+  int64_t totalTileRows =
+      utils::kTopkLaneTileRows * gridShape[gridShape.size() - 2];
   Value arangeBase = rewriter.create<arith::AddIOp>(
       loc,
       rewriter.create<arith::MulIOp>(loc, coreIndex(0),
-                                     idxVal(kLaneTileRows * 32)),
+                                     idxVal(utils::kTopkLaneTileRows * 32)),
       rewriter.create<arith::MulIOp>(loc, coreIndex(1),
                                      idxVal(totalTileRows * 32 * 32)));
 

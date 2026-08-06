@@ -11,8 +11,7 @@
 // merge-stage block is handed the indices its children produced. It writes one
 // lane tile with a column-major arange, so the within-tile row index lands in
 // column 0, then per tile broadcasts that column across the tile and adds the
-// tile's offset within this core's band. Every function below is single-core,
-// so every topk_block is a leaf.
+// tile's offset within this core's band.
 
 module {
 

@@ -202,9 +202,7 @@ module {
   // narrowing its partial to ceil(k/32) tiles. The bands stay distributed: a
   // merge round gathers them with one composite_view per operand (values and
   // indices need separate generics), re-splitting that grid x shard extent onto
-  // the merge grid, then runs one topk_block for every group at once. A wide
-  // non-target dim (4 tiles here) shrinks the per-core reduction budget to
-  // 43/4 = 10 tiles, so a 16-reduction-tile input needs >= 2 cores.
+  // the merge grid, then runs one topk_block for every group at once.
 
   // dim=1 multi-core: 128x512, k=16. Rows=128 (4 non-target tiles), cols=512
   // (16 reduction tiles) -> multi-core band split.
@@ -252,8 +250,7 @@ module {
   // whole non-target dim still lives on every band core, leaving it under the
   // two reduction tiles a band needs. topk is independent per slice, so the
   // lowering splits the non-target dim across cores instead and each one runs
-  // the entire reduction locally. Nothing to merge, so no composite_view and a
-  // single topk_block.
+  // the entire reduction locally.
 
   // dim=1 data-parallel: 2048x128, k=8. Rows=2048 (64 non-target tiles) split
   // across cores, cols=128 (4 reduction tiles) kept whole on each.

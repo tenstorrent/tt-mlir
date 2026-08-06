@@ -419,18 +419,21 @@ static LogicalResult insertCBOpsForCompute(
   // enclosing loop (which lives *outside* `block`), and including it unlifted
   // would drag the bracket out of the transfer-depth block.
   //
-  // includeViewOwners: producers need views in the bracket so they can be
+  // skipViewOwners: producers need views in the bracket so they can be
   // rewritten next to the reserve. Self-produced consumers must not -- a
-  // hoisted view would pull the wait before this region's own push.
+  // hoisted view would pull the wait before this region's own push -- unless
+  // the views are all there is, since an empty bracket has nowhere to sync.
   auto bracket =
       [&](CBSync &sync, Block *block,
-          bool includeViewOwners) -> std::pair<Operation *, Operation *> {
+          bool skipViewOwners) -> std::pair<Operation *, Operation *> {
     SmallVector<Operation *> boundary;
-    auto lift = [&](Operation *op) {
+    SmallVector<Operation *> viewOwners;
+    auto liftInto = [&](Operation *op, SmallVector<Operation *> &into) {
       if (Operation *a = block->findAncestorOpInBlock(*op)) {
-        boundary.push_back(a);
+        into.push_back(a);
       }
     };
+    auto lift = [&](Operation *op) { liftInto(op, boundary); };
     for (Operation *anchor : sync.anchors) {
       lift(anchor);
       // A CB read into an SSA value (e.g. a hoisted, loop-invariant reduction
@@ -446,12 +449,14 @@ static LogicalResult insertCBOpsForCompute(
       }
     }
     for (OpOperand *use : sync.uses) {
-      if (!includeViewOwners && isCBViewOp(use->getOwner())) {
-        continue;
-      }
-      lift(use->getOwner());
+      Operation *owner = use->getOwner();
+      bool deferred = skipViewOwners && isCBViewOp(owner);
+      liftInto(owner, deferred ? viewOwners : boundary);
     }
 
+    if (boundary.empty()) {
+      boundary = std::move(viewOwners);
+    }
     if (boundary.empty()) {
       return {nullptr, nullptr};
     }
@@ -476,11 +481,8 @@ static LogicalResult insertCBOpsForCompute(
 
     // If this region also produces `cb`, ignore hoisted views so the wait
     // lands at the real read (after the push), not at the shared view.
-    auto [first, last] = bracket(sync, anchorBlock,
-                                 /*includeViewOwners=*/!producers.count(cb));
-    if (!first) {
-      std::tie(first, last) = bracket(sync, anchorBlock, true);
-    }
+    auto [first, last] =
+        bracket(sync, anchorBlock, /*skipViewOwners=*/producers.count(cb) > 0);
 
     rewriter.setInsertionPoint(first);
     auto cbHandle =
@@ -535,7 +537,7 @@ static LogicalResult insertCBOpsForCompute(
                 "fan-out is not yet supported (would deadlock on a "
                 "reserve/push cadence mismatch)";
     }
-    auto [first, last] = bracket(sync, anchorBlock, /*includeViewOwners=*/true);
+    auto [first, last] = bracket(sync, anchorBlock, /*skipViewOwners=*/false);
 
     rewriter.setInsertionPoint(first);
     auto cbHandle =

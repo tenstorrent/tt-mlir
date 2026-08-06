@@ -87,11 +87,6 @@ buildMergeSchedule(int64_t bands, int64_t mergeCap,
   return schedule;
 }
 
-struct BandSplit {
-  int64_t bands;
-  int64_t bandTiles;
-  llvm::SmallVector<int64_t> schedule;
-};
 } // namespace
 
 TopKL1Budget topKL1Budget(GenericOp leaf, ttcore::ChipDescAttr chipDesc,
@@ -133,9 +128,11 @@ TopKGeometry getTopKGeometry(int32_t dim, std::size_t physicalRank) {
   assert(physicalRank >= 2u &&
          "topk geometry expects a rank >= 2 device shape");
 
+  const std::size_t redDim =
+      (dim == 1) ? (physicalRank - 1) : (physicalRank - 2);
+
   TopKGeometry geometry;
-  geometry.genRedDim = (dim == 1) ? (physicalRank - 1) : (physicalRank - 2);
-  geometry.deviceRedDim = physicalRank + geometry.genRedDim;
+  geometry.deviceRedDim = physicalRank + redDim;
   geometry.deviceGridDim = static_cast<std::size_t>(dim);
   geometry.extractProjectDim = (dim == 1) ? (physicalRank - 1) : 0;
   return geometry;
@@ -155,6 +152,13 @@ mlir::FailureOr<TopKShardingStrategy> selectTopKShardingStrategy(
   // topk_block merges reduction tiles pairwise, so a core always holds two.
   const int64_t localReductionTiles = std::max<int64_t>(fullReductionTiles, 2);
   const int64_t maxGridCores = workerGridShape[0] * workerGridShape[1];
+  // Bands take the reduction dim's grid axis and non-target slices the other;
+  // dim==0 transposes the index grid, so its bands must fit both axes.
+  const int64_t bandGridLimit =
+      (dim == 1) ? workerGridShape[1]
+                 : std::min(workerGridShape[0], workerGridShape[1]);
+  const int64_t ntGridLimit =
+      (dim == 1) ? workerGridShape[0] : workerGridShape[1];
 
   TopKShardingStrategy strategy;
   strategy.outputReductionTiles = llvm::divideCeil(k, kTileWidth);
@@ -165,155 +169,96 @@ mlir::FailureOr<TopKShardingStrategy> selectTopKShardingStrategy(
 
   // Bands one merge core may gather: L1 left over once its leaf shard and the
   // fixed buffers are paid for, divided by what a band's partial costs there.
-  auto mergeCapFor = [&](int64_t leafTilesPerCore) {
+  // A gathered band spans the core's whole non-target extent.
+  auto mergeCapFor = [&](int64_t leafTilesPerCore, int64_t ntTiles) {
     const int64_t remaining = budget.usableBytes - budget.fixedBytes -
                               leafTilesPerCore * budget.bytesPerLeafTile;
     return remaining /
-           (budget.bytesPerMergeTile * strategy.outputReductionTiles);
+           (budget.bytesPerMergeTile * strategy.outputReductionTiles * ntTiles);
   };
 
-  // Neither one-dimensional split works once the non-target dim overflows a
-  // core and the reduction dim cannot ride along whole on every core.
-  if (nonTargetTiles > maxTilesPerCore &&
-      localReductionTiles >= maxTilesPerCore) {
-    // Bands take the reduction dim's grid axis and non-target slices the other;
-    // dim==0 transposes the index grid, so its bands must fit both axes.
-    const int64_t bandGridLimit =
-        (dim == 1) ? workerGridShape[1]
-                   : std::min(workerGridShape[0], workerGridShape[1]);
-    const int64_t ntGridLimit =
-        (dim == 1) ? workerGridShape[0] : workerGridShape[1];
-
-    // Fewest bands first: each extra band level costs a merge round.
-    bool found = scanPowerOfTwoFirst(2, bandGridLimit, [&](int64_t bands) {
-      int64_t bandTiles = llvm::divideCeil(fullReductionTiles, bands);
-      int64_t maxNtPerCore = maxTilesPerCore / bandTiles;
-      if (bandTiles < 2 || maxNtPerCore < 1) {
-        return false;
-      }
-      // Thinner non-target slices free tile budget for the merge rounds, so
-      // walk up until the chain closes.
-      for (int64_t ntSh = llvm::divideCeil(nonTargetTiles, maxNtPerCore);
-           ntSh <= ntGridLimit; ++ntSh) {
-        int64_t ntTiles = llvm::divideCeil(nonTargetTiles, ntSh);
-        std::optional<llvm::SmallVector<int64_t>> schedule = buildMergeSchedule(
-            bands, mergeCapFor(bandTiles * ntTiles), workerGridShape);
-        if (!schedule) {
-          continue;
-        }
-        strategy.mergeSchedule = std::move(*schedule);
-        strategy.numShards = bands;
-        strategy.ntShards = ntSh;
-        strategy.paddedReductionTiles = bands * bandTiles;
-        strategy.paddedNonTargetTiles = ntSh * ntTiles;
-        return true;
-      }
+  auto accept = [&](int64_t bands, int64_t ntShards) {
+    const int64_t bandTiles = (bands == 1)
+                                  ? localReductionTiles
+                                  : llvm::divideCeil(fullReductionTiles, bands);
+    const int64_t ntTiles = llvm::divideCeil(nonTargetTiles, ntShards);
+    // topk_block merges reduction tiles pairwise, so a band is never one tile.
+    if (bands > 1 && bandTiles < 2) {
       return false;
-    });
-    if (!found) {
-      failureReason = "D2M topk: no 2D split fits both dimensions within the "
-                      "per-core tile budget with a merge tree this worker grid "
-                      "can hold";
-      return mlir::failure();
     }
-    strategy.dataParallel = true;
-    strategy.multiCore = true;
-    return strategy;
-  }
-
-  // A core holds the product of the two dims, so the shard can overflow even
-  // when neither dim alone exceeds the budget.
-  const bool overBudget =
-      nonTargetTiles * localReductionTiles > maxTilesPerCore;
-  // Reduction tiles left for a band once the un-sliced non-target dim is paid
-  // for.
-  const int64_t bandBudget = maxTilesPerCore / nonTargetTiles;
-  const int64_t minBands =
-      llvm::divideCeil(fullReductionTiles, std::max<int64_t>(bandBudget, 1));
-
-  // Smallest band count that fits the reduction dim in that budget and whose
-  // merge tree closes on this grid.
-  auto findBandSplit = [&](int64_t lo) -> std::optional<BandSplit> {
-    BandSplit split;
-    bool found = scanPowerOfTwoFirst(lo, maxGridCores, [&](int64_t bands) {
-      int64_t bandTiles = llvm::divideCeil(fullReductionTiles, bands);
-      if (bandTiles > bandBudget ||
-          utils::findLegalPhysicalGridForVolume(bands, workerGridShape)
-              .empty()) {
-        return false;
-      }
+    if (bandTiles * ntTiles > maxTilesPerCore) {
+      return false;
+    }
+    // A one-dimensional split folds its cores onto the whole grid; a 2D one
+    // spends an axis per dim.
+    const bool placeable =
+        (bands > 1 && ntShards > 1)
+            ? (bands <= bandGridLimit && ntShards <= ntGridLimit)
+            : !utils::findLegalPhysicalGridForVolume(bands * ntShards,
+                                                     workerGridShape)
+                   .empty();
+    if (!placeable) {
+      return false;
+    }
+    if (bands > 1) {
       std::optional<llvm::SmallVector<int64_t>> schedule = buildMergeSchedule(
-          bands, mergeCapFor(bandTiles * nonTargetTiles), workerGridShape);
+          bands, mergeCapFor(bandTiles * ntTiles, ntTiles), workerGridShape);
       if (!schedule) {
         return false;
       }
-      split = {bands, bandTiles, std::move(*schedule)};
-      return true;
-    });
-    if (!found) {
-      return std::nullopt;
+      strategy.mergeSchedule = std::move(*schedule);
     }
-    return std::move(split);
+    strategy.multiCore = bands > 1;
+    strategy.dataParallel = ntShards > 1;
+    strategy.numShards = bands;
+    strategy.ntShards = ntShards;
+    strategy.paddedReductionTiles = bands * bandTiles;
+    strategy.paddedNonTargetTiles = ntShards * ntTiles;
+    return true;
   };
 
+  // One core holding both dims outright, then the splits in ascending cost.
+  if (accept(1, 1)) {
+    return strategy;
+  }
+
   // Banding preferred over data-parallel: it shrinks what every core holds
-  // rather than relying on a thin non-target slice. A large-k shape with a
-  // short reduction dim has no merge budget, leaving data-parallel as the only
-  // split.
-  std::optional<BandSplit> bandSplit;
-  if (overBudget && bandBudget >= 2) {
-    bandSplit = findBandSplit(minBands);
-  }
-
-  const int64_t maxNtTilesPerCore = maxTilesPerCore / localReductionTiles;
-  strategy.dataParallel = overBudget && !bandSplit && maxNtTilesPerCore >= 1;
-  if (strategy.dataParallel) {
-    // No merge to pay for, so take the thinnest shard: walk down from one tile
-    // per core, past counts no grid can hold.
-    const int64_t minNtShards =
-        llvm::divideCeil(nonTargetTiles, maxNtTilesPerCore);
-    std::optional<int64_t> ntShards;
-    for (int64_t cand = std::min(nonTargetTiles, maxGridCores);
-         cand >= minNtShards; --cand) {
-      if (!utils::findLegalPhysicalGridForVolume(cand, workerGridShape)
-               .empty()) {
-        ntShards = cand;
-        break;
-      }
-    }
-    if (!ntShards) {
-      failureReason = "D2M topk: no core count splits the non-target dimension "
-                      "within the per-core tile budget on this worker grid";
-      return mlir::failure();
-    }
-    const int64_t ntTiles = llvm::divideCeil(nonTargetTiles, *ntShards);
-    strategy.ntShards = *ntShards;
-    strategy.paddedNonTargetTiles = *ntShards * ntTiles;
-    strategy.paddedReductionTiles = localReductionTiles;
+  // rather than relying on a thin non-target slice. Fewest bands first, since
+  // each extra band level costs a merge round.
+  if (scanPowerOfTwoFirst(2, maxGridCores,
+                          [&](int64_t bands) { return accept(bands, 1); })) {
     return strategy;
   }
 
-  if (fullReductionTiles <= bandBudget) {
-    // One core already holds the whole reduction dim.
+  // A large-k shape with a short reduction dim has no merge budget, leaving
+  // data-parallel as the only split. No merge to pay for, so take the thinnest
+  // shard: walk down from one tile per core, past counts no grid can hold.
+  for (int64_t ntShards = std::min(nonTargetTiles, maxGridCores); ntShards >= 2;
+       --ntShards) {
+    if (accept(1, ntShards)) {
+      return strategy;
+    }
+  }
+
+  // Neither one-dimensional split works once the non-target dim overflows a
+  // core and the reduction dim cannot ride along whole on every core. Thinner
+  // non-target slices free tile budget for the merge rounds, so walk up until
+  // the chain closes.
+  if (scanPowerOfTwoFirst(2, bandGridLimit, [&](int64_t bands) {
+        for (int64_t ntShards = 2; ntShards <= ntGridLimit; ++ntShards) {
+          if (accept(bands, ntShards)) {
+            return true;
+          }
+        }
+        return false;
+      })) {
     return strategy;
   }
 
-  // Bands are distributed one per core and folded onto the 2D worker grid by a
-  // virtual-grid map attached when the leaf topk is emitted.
-  if (!bandSplit) {
-    bandSplit = findBandSplit(minBands);
-  }
-  if (!bandSplit) {
-    failureReason = "D2M topk: no band count fits the reduction dim within the "
-                    "per-core tile budget with a merge tree this worker grid "
-                    "can split evenly";
-    return mlir::failure();
-  }
-  strategy.multiCore = true;
-  strategy.numShards = bandSplit->bands;
-  strategy.paddedReductionTiles = bandSplit->bands * bandSplit->bandTiles;
-  strategy.mergeSchedule = std::move(bandSplit->schedule);
-  return strategy;
+  failureReason = "D2M topk: no split of the reduction and non-target "
+                  "dimensions fits the per-core tile budget with a merge tree "
+                  "this worker grid can hold";
+  return mlir::failure();
 }
 
 } // namespace mlir::tt::d2m

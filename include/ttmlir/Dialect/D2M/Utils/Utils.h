@@ -38,6 +38,12 @@ constexpr llvm::StringLiteral kReductionScalerAttr = "d2m.reduction_scaler";
 // Marks a generic whose operand grids are dictated by its lowering; grid
 // selection folds them onto physical cores instead of choosing a split.
 constexpr llvm::StringLiteral kPinnedGridAttr = "d2m.pinned_grid";
+// Topk scratch allocations, set by d2m-insert-scratch-buffers and consumed by
+// d2m-decompose-topk.
+constexpr llvm::StringLiteral kTopkIndexBufferAttr = "d2m.topk_index_buffer";
+constexpr llvm::StringLiteral kTopkLaneBufferAttr = "d2m.topk_lane_buffer";
+// Must exceed 1: a single row folds arange_block's compute root loop away.
+constexpr int64_t kTopkLaneTileRows = 2;
 
 inline bool isReductionScalerBuffer(Operation *op) {
   return op && op->hasAttr(kReductionScalerAttr);
@@ -109,15 +115,19 @@ void buildParallelGenericRegion(
     llvm::function_ref<SmallVector<Value>(ArrayRef<Value>)> body);
 
 // Emits a one-in/one-out all-parallel `d2m.generic` mapping each tile of `src`
-// through `makeTile`. `gridMap`/`shardMap` index the input, null = identity.
+// through `makeTile`, indexed by identity maps of `out`'s device rank.
 Value emitUnaryGeneric(
     RewriterBase &rewriter, Location loc, Value src, Value out,
-    AffineMap gridMap, ArrayRef<Attribute> iteratorTypes,
-    llvm::function_ref<AffineMap(std::size_t)> shardMap,
     llvm::function_ref<Value(OpBuilder &, Location, ValueRange)> makeTile);
 
 // Copies `value` into a fresh buffer of its own type via `d2m.to_layout`
 Value materializeToLayout(RewriterBase &rewriter, Location loc, Value value);
+
+// Lays `value` out over `grid`, sharded so dim i spans `tilesPerDim[i]` tiles,
+// and masks whatever padding tail that leaves to -inf.
+Value layoutAndMask(RewriterBase &rewriter, Location loc, Value value,
+                    ArrayRef<int64_t> tilesPerDim, ArrayRef<int64_t> grid,
+                    ttcore::MemorySpace memorySpace);
 
 // Emits the per-core topk over an already tiled+layouted `layoutedInput`;
 // `dim == 1` tile-transposes the shard first, since `topk_block` sorts down
