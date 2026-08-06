@@ -5495,11 +5495,11 @@ namespace {
 //
 // Loop-carried values cannot be SSA results here because `emitc.for` has no
 // results, so they live in `emitc.variable` lvalues that the body reassigns.
-// This mirrors how the trace lowering below models a region op's results.
-// Records which lvalues hold a loop's carried values, keyed by the emitc.for
-// that replaced the ttnn.while. The yields are lowered by their own pattern,
-// which runs later — only by then have the values they yield been converted to
-// EmitC types — so it needs a way back to the variables it must assign.
+//
+// The yields are lowered by their own pattern, which runs later - only by then
+// have the values they yield been converted to EmitC types - so they need a way
+// back to the variables they must assign: this maps each generated emitc.for to
+// the lvalues holding that loop's carried values.
 using WhileLoopVariableMap =
     llvm::DenseMap<Operation *, llvm::SmallVector<Value>>;
 
@@ -5535,8 +5535,8 @@ public:
       auto variable = rewriter.create<emitc::VariableOp>(
           loc, lvalueType,
           emitc::OpaqueAttr::get(
-              ctx, std::string(ttnn_to_emitc::TypeNameV<::ttnn::Tensor>) +
-                       "()"));
+              ctx,
+              std::string(ttnn_to_emitc::TypeNameV<::ttnn::Tensor>) + "()"));
       rewriter.create<emitc::AssignOp>(loc, variable, init);
       carried.push_back(variable.getResult());
     }
@@ -5549,8 +5549,8 @@ public:
           .getResult();
     };
 
-    // Without an emitc.while or emitc.break, a data-dependent loop is a for
-    // loop over a sentinel bound whose body breaks out verbatim.
+    // A data-dependent loop is bounded by a sentinel and breaks out of its
+    // body.
     std::string upperBound = counted ? std::to_string(*srcOp.getTripCount())
                                      : std::string("SIZE_MAX");
     auto forOp = rewriter.create<emitc::ForOp>(loc, makeIndexConstant("0"),
@@ -5611,8 +5611,7 @@ private:
 };
 
 // Lowers the `ttnn.yield`s that WhileOpConversionPattern moved into an
-// emitc.for body. Running as its own pattern is what makes the operands
-// available already converted to EmitC types.
+// emitc.for body.
 class WhileYieldOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::YieldOp> {
 public:
@@ -6559,8 +6558,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Control flow ops
   //
-  // The while op and its yields share a map from each generated emitc.for to
-  // the lvalues holding that loop's carried values.
+  // The while op and its yields share the loop-variable map.
   {
     auto loopVariables = std::make_shared<WhileLoopVariableMap>();
     patterns.add<WhileOpConversionPattern>(typeConverter, ctx, loopVariables);

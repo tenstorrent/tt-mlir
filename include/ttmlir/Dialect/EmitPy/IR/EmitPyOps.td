@@ -413,10 +413,7 @@ def EmitPy_WhileOp : EmitPy_Op<"while",
     arguments are the current iteration's values, `emitpy.while_yield` hands
     the next iteration's values back, and the op's results are the values the
     loop exits with. Python has no SSA, so the emitter gives each carried
-    value one named local that all four of those refer to, and emits the
-    carry-back as a single tuple assignment -- simultaneous, so a body that
-    yields its arguments in a different order cannot clobber a value it still
-    needs to read.
+    value one named local that all four of those refer to.
 
     The loop bound is either a `trip_count`, emitted as `for _ in range(n)`,
     or a `condition` format string whose `{}` placeholders are filled by
