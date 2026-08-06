@@ -1000,8 +1000,10 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
             deviceCoord, meshDevice, rtArgsVec, coreRangeSet);
 
         for (auto core : tt::tt_metal::corerange_to_cores(coreRangeSet)) {
+          auto it = fabricConfigArgs.find(core);
           tt_metal::SetRuntimeArgs(program, handle, core,
-                                   fabricConfigArgs[core]);
+                                   it != fabricConfigArgs.end() ? it->second
+                                                                : rtArgsVec);
         }
       } else {
         tt_metal::SetRuntimeArgs(program, handle, coreRangeSet, rtArgsVec);

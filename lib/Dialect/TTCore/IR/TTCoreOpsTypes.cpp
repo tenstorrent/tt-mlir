@@ -1381,6 +1381,30 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) {
   return ::mlir::success();
 }
 
+::mlir::LogicalResult FabricConnectionConfigAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    NocIndex nocIndex, Topology topology, uint32_t clusterAxis,
+    RoutingMode routingMode, uint32_t numLinks,
+    ::llvm::ArrayRef<int64_t> routerCores) {
+  (void)nocIndex;
+  (void)topology;
+  (void)clusterAxis;
+
+  if (routerCores.size() % 2 != 0) {
+    return emitError() << "router_cores must contain (y, x) coordinate pairs";
+  }
+  if (llvm::any_of(routerCores,
+                   [](int64_t coordinate) { return coordinate < 0; })) {
+    return emitError() << "router_cores coordinates must be non-negative";
+  }
+
+  uint64_t coresPerLink = routingMode == RoutingMode::UnidirRingTorus ? 2 : 1;
+  if (routerCores.size() / 2 > numLinks * coresPerLink) {
+    return emitError() << "router_cores exceeds the configured routing slots";
+  }
+  return ::mlir::success();
+}
+
 // Get effective stride (use provided or calculate from shape)
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getShardStride(RankedTensorType tensorType) const {

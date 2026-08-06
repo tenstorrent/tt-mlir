@@ -667,6 +667,23 @@ public:
         cbTransferDepth[getDMACBPort(generic, dma.getOperation())] =
             forDepth(dma.getOperation());
       });
+      // A compute-produced value gathered with core_read has no shard-DMA op
+      // on its source CB. AssignThreads inserts an explicit DM wait/pop pair
+      // instead; use that wait's loop depth as the producer cadence so compute
+      // reserves and pushes once per chunk rather than once around the entire
+      // loop.
+      dmBlock->walk([&](WaitOp wait) {
+        auto getCB = wait.getCb().getDefiningOp<GetCBOp>();
+        if (!getCB) {
+          return;
+        }
+        unsigned cbOperandIdx = getCB.getCbOperandIdx();
+        unsigned depth = forDepth(wait);
+        auto [it, inserted] = cbTransferDepth.try_emplace(cbOperandIdx, depth);
+        if (!inserted) {
+          it->second = std::max(it->second, depth);
+        }
+      });
       if (failed(insertCBOpsForCompute(computeBlock, rewriter, aliasedLoadCBs,
                                        aliasedStoreCBs, cbTransferDepth))) {
         signalPassFailure();

@@ -157,17 +157,11 @@ get_line_regions(int32_t my_idx, int32_t start_idx, int32_t end_idx,
   WAYPOINT("DA09");
   ASSERT(!(my_idx == start_idx && start_idx == end_idx));
 
-  // remove my_idx from endpoints since we don't send to ourselves
-  if (my_idx == start_idx) {
-    my_idx = (my_idx + 1) % size;
-  }
-  if (my_idx == end_idx) {
-    my_idx = (my_idx - 1 + size) % size;
-  }
-
   bool wraps = (start_idx > end_idx);
   if (!wraps) {
-    // Non-wrapped range: destinations are [start_idx..end_idx]
+    // Non-wrapped range: destinations are [start_idx..end_idx]. The
+    // forward/backward counts below already exclude the sender, so remapping
+    // an endpoint sender would invert its only valid direction on a line.
     if (my_idx < start_idx) {
       // Sender before range: forward only
       return {start_idx - my_idx, end_idx - start_idx + 1, 0, 0};
@@ -175,10 +169,18 @@ get_line_regions(int32_t my_idx, int32_t start_idx, int32_t end_idx,
       // Sender after range: backward only
       return {0, 0, my_idx - end_idx, end_idx - start_idx + 1};
     } else {
-      // Sender inside range: both directions
+      // Sender inside range (or at an endpoint): both directions
       return {1, end_idx - my_idx, 1, my_idx - start_idx};
     }
   } else {
+    // Remove the sender from wrapped endpoints.
+    if (my_idx == start_idx) {
+      my_idx = (my_idx + 1) % size;
+    }
+    if (my_idx == end_idx) {
+      my_idx = (my_idx - 1 + size) % size;
+    }
+
     // Wrapped range: destinations are [start_idx..size-1] and [0..end_idx]
     bool in_upper = (my_idx > start_idx && my_idx < size);
     bool in_lower = (my_idx > 0 && my_idx < end_idx);

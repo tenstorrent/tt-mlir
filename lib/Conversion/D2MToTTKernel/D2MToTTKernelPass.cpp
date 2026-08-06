@@ -184,32 +184,79 @@ struct ConvertD2MToTTKernel
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 
-    // If there is any fabric related writes,
-    // insert fabric connection manager ops and setup fabric connections at the
-    // start of the function and close at the end.
-    bool fabric_write_present = false;
-    funcOp.walk([&](d2m::DMAWriteOp dmaWriteOp) {
-      if (dmaWriteOp.getStartDevice().size() > 0) {
-        fabric_write_present = true;
-        return WalkResult::interrupt();
+    auto isFabricOp = [](Operation *op) {
+      return llvm::isa<d2m::DeviceSynchronizeOp>(op) ||
+             (llvm::isa<d2m::DMAWriteOp>(op) &&
+              !llvm::cast<d2m::DMAWriteOp>(op).getStartDevice().empty()) ||
+             (llvm::isa<d2m::SemaphoreIncOp>(op) &&
+              !llvm::cast<d2m::SemaphoreIncOp>(op).getStartDevice().empty()) ||
+             (llvm::isa<d2m::SemaphoreSetOp>(op) &&
+              !llvm::cast<d2m::SemaphoreSetOp>(op).getStartDevice().empty());
+    };
+    auto funcHasRouterSubset = [](func::FuncOp func) {
+      StringRef name = func.getSymName();
+      bool found = false;
+      if (auto module = func->getParentOfType<ModuleOp>()) {
+        module.walk([&](d2m::GenericOp generic) {
+          auto config = generic.getFabricConnectionConfigAttr();
+          if (!config || config.getRouterCores().empty()) {
+            return WalkResult::advance();
+          }
+          for (Attribute thread : generic.getThreads()) {
+            auto symbol = llvm::cast<d2m::ThreadAttr>(thread).getKernelSymbol();
+            if (symbol && symbol.getLeafReference() == name) {
+              found = true;
+              return WalkResult::interrupt();
+            }
+          }
+          return WalkResult::advance();
+        });
       }
-      return WalkResult::advance();
+      return found;
+    };
+
+    SmallVector<Operation *> fabricOps;
+    funcOp.walk([&](Operation *op) {
+      if (isFabricOp(op)) {
+        fabricOps.push_back(op);
+      }
     });
 
-    if (fabric_write_present) {
+    if (!fabricOps.empty()) {
+      Block *anchor = &funcOp.getBody().front();
       OpBuilder builder(funcOp.getContext());
-      builder.setInsertionPointToStart(&funcOp.getBody().front());
+      builder.setInsertionPointToStart(anchor);
       auto fabricConnectionManager =
           builder
               .create<ttkernel::CreateFabricConnectionManagerOp>(
                   funcOp.getLoc())
               .getResult();
-      builder.create<ttkernel::SetupFabricConnectionsOp>(
-          funcOp.getLoc(), fabricConnectionManager);
-      Operation *terminator = funcOp.getBody().front().getTerminator();
-      builder.setInsertionPoint(terminator);
-      builder.create<ttkernel::CloseFabricConnectionsOp>(
-          funcOp.getLoc(), fabricConnectionManager);
+      if (funcHasRouterSubset(funcOp)) {
+        // Keep one connection open across every chunk so compute and fabric
+        // transfers can make pipelined progress.
+        Value isRouter = builder.create<d2m::IsRouterCoreOp>(funcOp.getLoc());
+        builder.create<scf::IfOp>(
+            funcOp.getLoc(), isRouter,
+            [&](OpBuilder &thenBuilder, Location loc) {
+              thenBuilder.create<ttkernel::SetupFabricConnectionsOp>(
+                  loc, fabricConnectionManager);
+              thenBuilder.create<scf::YieldOp>(loc);
+            });
+        builder.setInsertionPoint(anchor->getTerminator());
+        builder.create<scf::IfOp>(
+            funcOp.getLoc(), isRouter,
+            [&](OpBuilder &thenBuilder, Location loc) {
+              thenBuilder.create<ttkernel::CloseFabricConnectionsOp>(
+                  loc, fabricConnectionManager);
+              thenBuilder.create<scf::YieldOp>(loc);
+            });
+      } else {
+        builder.create<ttkernel::SetupFabricConnectionsOp>(
+            funcOp.getLoc(), fabricConnectionManager);
+        builder.setInsertionPoint(anchor->getTerminator());
+        builder.create<ttkernel::CloseFabricConnectionsOp>(
+            funcOp.getLoc(), fabricConnectionManager);
+      }
     }
 
     if (failed(applyFullConversion(funcOp, target, std::move(patterns)))) {

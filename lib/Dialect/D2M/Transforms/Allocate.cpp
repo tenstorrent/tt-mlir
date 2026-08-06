@@ -1253,6 +1253,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             if (!mlir::isa_and_nonnull<memref::AllocOp>(allocOp)) {
               return WalkResult::advance();
             }
+            // A core_read destination contains data gathered from a peer core.
+            // Aliasing it to the local output shard would make every gather
+            // destination share and overwrite that same shard.
+            if (llvm::any_of(allocOp->getUsers(), [](Operation *user) {
+                  return mlir::isa<CoreReadOp>(user);
+                })) {
+              return WalkResult::advance();
+            }
             rewriter.setInsertionPoint(allocOp);
             rewriter.replaceOpWithNewOp<d2m::OperandAliasOp>(
                 allocOp, allocOp->getResultTypes(), remoteStoreOp.getMemref());

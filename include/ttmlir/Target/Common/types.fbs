@@ -216,4 +216,7 @@ table FabricConnectionConfig {
   cluster_axis: uint32;
   routing_mode: RoutingMode;
   num_links: uint32;
+  // Optional flat list of (y, x) worker coordinates that own fabric
+  // connections. An empty list assigns every grid core.
+  router_cores: [int];
 }

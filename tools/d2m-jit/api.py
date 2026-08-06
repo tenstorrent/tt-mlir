@@ -328,6 +328,36 @@ def remote_store(
     )
 
 
+@syntax("core_read")
+def core_read(dst, src, *, core):
+    """Read another core's local L1 ``src`` buffer into local ``dst``.
+
+    The source core is selected by logical ``[y, x]`` coordinates. Both
+    buffers must have the same shape and uniform L1 placement across the grid.
+    The caller is responsible for publishing and protecting the source with
+    semaphores.
+    """
+    dst = _as_value(dst)
+    src = _as_value(src)
+    return d2m.core_read(dst.type, src, _idx_list(core), dst)
+
+
+@syntax("semaphore_inc")
+def semaphore_inc(semaphore, value, core=None, mcast=None, compute=False):
+    """Increment a local or global semaphore.
+
+    ``compute=True`` marks a producer-done signal. The update remains on the
+    datamovement thread but is fenced behind the compute output gathered by a
+    subsequent ``core_read``.
+    """
+    op = d2m.semaphore_inc(
+        semaphore, _asindex(value), _idx_list(core), _idx_list(mcast), [], []
+    )
+    if compute:
+        op.operation.attributes["d2m.compute_signal"] = UnitAttr.get()
+    return op
+
+
 @syntax(
     "core_index",
     args_as_attr=[_i64_attr_from_literal],
@@ -342,9 +372,31 @@ def mesh_position(dim):
     return d2m.mesh_position(dim)
 
 
+@syntax("is_router_core")
+def is_router_core():
+    """Return true on cores selected by ``fabric_config(router_cores=...)``."""
+    return d2m.is_router_core()
+
+
+@syntax("router_direction")
+def router_direction():
+    """Return this router core's link-direction slot index."""
+    return d2m.router_direction()
+
+
 @syntax("semaphore_wait")
-def semaphore_wait(semaphore, value, reset=None):
-    return d2m.semaphore_wait(semaphore, _asindex(value), reset_value=_asindex(reset))
+def semaphore_wait(semaphore, value, reset=None, compute=False):
+    """Wait for a semaphore, optionally releasing a gathered compute result.
+
+    ``compute=True`` pairs this acknowledgment with the local compute result
+    gathered by ``core_read``. Once the acknowledgment arrives, the data-
+    movement thread releases that result so compute can reuse its circular
+    buffer for the next chunk.
+    """
+    op = d2m.semaphore_wait(semaphore, _asindex(value), reset_value=_asindex(reset))
+    if compute:
+        op.operation.attributes["d2m.compute_release"] = UnitAttr.get()
+    return op
 
 
 @syntax(
@@ -943,6 +995,13 @@ def _empty_op(shape):
     return tensor.empty(list(shape), tile_ty)
 
 
+@syntax("empty_like")
+def _empty_like_op(input):
+    """Kernel-body uninitialized L1 scratch block matching `input`."""
+    block_ty = input.type
+    return tensor.empty(list(block_ty.shape), block_ty.element_type)
+
+
 def _bool_attr_from_ast(node):
     if isinstance(node, ast.Constant) and isinstance(node.value, bool):
         return node.value
@@ -1407,23 +1466,34 @@ class Semaphore:
             ast_self, _asindex(value), _asindex(core), _asindex(mcast)
         )
 
-    def inc(ast_self, value, core=None, mcast=None):
-        return d2m.semaphore_inc(
+    def inc(ast_self, value, core=None, mcast=None, compute=False):
+        """Increment the semaphore, optionally after compute has produced data.
+
+        ``compute=True`` marks a producer-done signal. The update remains on
+        the datamovement thread but is fenced behind the local compute output
+        that a ``core_read`` gathers.
+        """
+        op = d2m.semaphore_inc(
             ast_self, _asindex(value), _asindex(core), _asindex(mcast)
         )
+        if compute:
+            op.operation.attributes["d2m.compute_signal"] = UnitAttr.get()
+        return op
 
-    def wait(ast_self, value, reset=None):
-        return d2m.semaphore_wait(
-            ast_self, _asindex(value), reset_value=_asindex(reset)
-        )
+    def wait(ast_self, value, reset=None, compute=False):
+        op = d2m.semaphore_wait(ast_self, _asindex(value), reset_value=_asindex(reset))
+        if compute:
+            op.operation.attributes["d2m.compute_release"] = UnitAttr.get()
+        return op
 
 
 @syntax("!d2m.global_semaphore")
 class GlobalSemaphoreOps:
-    def wait(ast_self, value, reset=None):
-        return d2m.semaphore_wait(
-            ast_self, _asindex(value), reset_value=_asindex(reset)
-        )
+    def wait(ast_self, value, reset=None, compute=False):
+        op = d2m.semaphore_wait(ast_self, _asindex(value), reset_value=_asindex(reset))
+        if compute:
+            op.operation.attributes["d2m.compute_release"] = UnitAttr.get()
+        return op
 
 
 # --- Block-level eltwise helper -------------------------------------------

@@ -407,6 +407,28 @@ static std::optional<bool> isReductionBlockingLoop(Operation *loopOp) {
   return iteratorType == ttcore::IteratorType::Reduction;
 }
 
+// Return true if an output store of the enclosing generic has an index that
+// depends on `iv`. Such an IV selects distinct output chunks and is therefore
+// parallel, not a matmul reduction IV.
+static bool genericOutputStoreDependsOnIV(Operation *contextOp, Value iv) {
+  auto genericOp = contextOp->getParentOfType<GenericOp>();
+  if (!genericOp) {
+    return false;
+  }
+
+  bool dependent = false;
+  genericOp.walk([&](RemoteStoreOp storeOp) {
+    for (Value index : storeOp.getIndices()) {
+      if (valueDependsOnIV(index, iv)) {
+        dependent = true;
+        return WalkResult::interrupt();
+      }
+    }
+    return WalkResult::advance();
+  });
+  return dependent;
+}
+
 static SmallVector<Value> getGuardLoopIVs(Operation *loadOrStore,
                                           DstAccessKind kind,
                                           Operation *contextOp) {
@@ -421,7 +443,8 @@ static SmallVector<Value> getGuardLoopIVs(Operation *loadOrStore,
       }
     }
 
-    if (!accessDependsOnIV(loadOrStore, kind, loopIV)) {
+    if (!accessDependsOnIV(loadOrStore, kind, loopIV) &&
+        !genericOutputStoreDependsOnIV(loadOrStore, loopIV)) {
       guardIVs.push_back(loopIV);
     }
   }
@@ -535,9 +558,10 @@ Value findClosestReductionLoopIVForL1Acc(Operation *acquireDstOp,
     if (isReduction.has_value() && !*isReduction) {
       continue;
     }
-    if (!isReduction.has_value() && anyOutputStoreDependsOnIV(copyInfos, iv)) {
-      // Non-blocking fallback: if this loop indexes the output, it is parallel,
-      // not a reduction.
+    if (!isReduction.has_value() &&
+        (anyOutputStoreDependsOnIV(copyInfos, iv) ||
+         genericOutputStoreDependsOnIV(acquireDstOp, iv))) {
+      // A loop that selects a distinct output is parallel, not a reduction.
       continue;
     }
 

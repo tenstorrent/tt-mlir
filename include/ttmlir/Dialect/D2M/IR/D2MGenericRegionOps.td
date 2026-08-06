@@ -2474,6 +2474,63 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
     }];
 }
 
+def D2M_CoreReadOp
+    : D2M_GenericRegionDatamovementOp<
+          "core_read",
+          [MemoryEffects<[MemRead, MemWrite]>, DestinationStyleOpInterface,
+           DeclareOpInterfaceMethods<
+               BufferizableOpInterface, ["bufferizesToMemoryRead",
+                                         "bufferizesToMemoryWrite", "bufferize",
+                                         "getAliasingValues", "getBufferType",
+                                         "hasTensorSemantics"]>,
+           D2M_SynchronizableOpInterface]> {
+  let summary = "D2M core-to-core local-L1 read.";
+  let description = [{
+      Reads an entire local L1 buffer from another core in the grid into this
+      core's local L1 buffer over the NoC. Both buffers must be local and have
+      identical shape and element type. The source buffer must have the same L1
+      offset on every core; `srcCore` selects the source core's logical `[y, x]`
+      coordinate.
+
+      Synchronization is the caller's responsibility: the source core must
+      publish the buffer before the read and must not overwrite it until the
+      transfer has completed.
+    }];
+
+  let arguments = (ins Arg<AnyRankedTensorOrMemRef,
+                           "remote core's local source buffer", [MemRead]>:$src,
+      Variadic<Index>:$srcCore,
+      Arg<AnyRankedTensorOrMemRef,
+          "this core's local destination buffer", [MemWrite]>:$dst);
+
+  let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
+
+  let assemblyFormat = [{
+      $src `core` `[` $srcCore `]` `into` $dst attr-dict
+      `:` type($src) `,` type($dst) (`->` qualified(type($result))^)?
+    }];
+
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+      MemRefType getSrcMemRefType() {
+        return cast<MemRefType>(getSrc().getType());
+      }
+      MemRefType getDstMemRefType() {
+        return cast<MemRefType>(getDst().getType());
+      }
+      mlir::MutableOperandRange getDpsInitsMutable() {
+        return getDstMutable();
+      }
+      bool isProducer(mlir::OpOperand &operand) {
+        return operand.get() == getDst();
+      }
+      bool isConsumer(mlir::OpOperand &operand) {
+        return operand.get() == getSrc();
+      }
+    }];
+}
+
 //===----------------------------------------------------------------------===//
 // D2M Generic Region Semaphore Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
@@ -3134,6 +3191,28 @@ def D2M_MeshPositionOp : D2M_GenericRegionOp<"mesh_position", [ Pure ]> {
 
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
     let results = (outs Index:$result);
+}
+
+def D2M_IsRouterCoreOp : D2M_GenericRegionOp<"is_router_core", [Pure]> {
+  let summary = "Query whether this core is a fabric router core.";
+  let description = [{
+      Returns true on cores assigned to issue fabric operations by the enclosing
+      generic's fabric connection configuration. An empty router-core list means
+      the whole grid and therefore returns true.
+    }];
+  let results = (outs I1:$result);
+  let assemblyFormat = [{ attr-dict `:` type($result) }];
+}
+
+def D2M_RouterDirectionOp : D2M_GenericRegionOp<"router_direction", [Pure]> {
+  let summary = "Query this router core's link-direction slot index.";
+  let description = [{
+      Returns the matching router-core slot index. Slot i selects routing plane
+      i / cores_per_link and direction i % cores_per_link. Returns zero when no
+      router-core subset is configured and is undefined on non-router cores.
+    }];
+  let results = (outs Index:$result);
+  let assemblyFormat = [{ attr-dict `:` type($result) }];
 }
 
 

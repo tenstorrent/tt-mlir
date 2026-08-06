@@ -238,7 +238,17 @@ static void collectComputeOpsToErase(Block *block,
       collectComputeOpsToErase(forOp.getBody(), eraseSet);
       continue;
     }
-    bool isDMAOp = isa<ShardDMAOpInterface, DeviceSynchronizeOp>(&op);
+    if (auto ifOp = dyn_cast<scf::IfOp>(&op)) {
+      for (Region &region : ifOp->getRegions()) {
+        if (!region.empty()) {
+          collectComputeOpsToErase(&region.front(), eraseSet);
+        }
+      }
+      continue;
+    }
+    bool isDMAOp =
+        isa<ShardDMAOpInterface, DeviceSynchronizeOp, SemaphoreIncOp,
+            SemaphoreSetOp, CoreReadOp, ReserveOp, PushOp, WaitOp, PopOp>(&op);
     bool isReplicated = isa<SemaphoreWaitOp>(&op);
     if (!isDMAOp && !isReplicated) {
       eraseSet.insert(&op);
@@ -338,10 +348,6 @@ public:
       return failure();
     }
     Block *originalBlock = &originalRegion.front();
-
-    if (failed(utils::checkForIllegalSemaphoreOps(originalBlock))) {
-      return failure();
-    }
 
     // Create new 2-region GenericOp: datamovement + compute.
     auto newGeneric = rewriter.create<GenericOp>(

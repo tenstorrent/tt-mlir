@@ -316,6 +316,11 @@ def zeros(shape):
     return SimBlock(torch.zeros(bm, bn, TILE, TILE, dtype=torch.float32))
 
 
+def empty_like(input):
+    """Kernel-body uninitialized block matching `input`."""
+    return SimBlock(torch.empty_like(input.tiles), input.reduced_axes)
+
+
 def matmul(lhs, rhs, transpose_b=False):
     a = lhs.to_2d()
     b = rhs.to_2d()
@@ -435,8 +440,9 @@ SIM_OPS.update(
         "remote_load": remote_load,
         "remote_store": remote_store,
         "Semaphore": Semaphore,
-        # Free function only -- there is no `!tensor.zeros` method form.
+        # Free functions only -- there are no method forms for these ops.
         "zeros": zeros,
+        "empty_like": empty_like,
     }
 )
 

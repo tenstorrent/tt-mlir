@@ -1,13 +1,8 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-split-unified-thread %s 2>&1 | FileCheck %s
 
-// This test file verifies that d2m.semaphore_wait ops (without reset values) are
-// properly replicated when splitting a unified thread into datamovement and compute
-// regions.
-//
-// IMPORTANT: d2m.semaphore_wait with reset values are NOT supported in unified thread
-// form. The pass will emit an error if a semaphore_wait with reset is encountered,
-// because replicating the reset across both threads would break synchronization.
-// Use separate d2m.semaphore_set ops if reset functionality is needed.
+// This test verifies that non-mutating d2m.semaphore_wait ops are replicated
+// when splitting a unified thread, while waits that reset a semaphore run only
+// on the datamovement thread.
 
 #l1 = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
@@ -86,34 +81,29 @@ module attributes {ttcore.system_desc = #system_desc} {
     return
   }
 
-  // Test 2: semaphore_wait with no remote ops (aliased operands)
-  // Verifies:
-  // - semaphore_wait is replicated into both regions even with no remote ops
-  // - aliased load converted to CB ops in compute
-  // - DMA region has semaphore_wait but no remote ops
-  // CHECK-LABEL: func.func @test_semaphore_wait_no_remote
+  // A resetting wait must remain on data movement even when no remote DMA
+  // survives, because both threads must not mutate the shared semaphore.
+  // CHECK-LABEL: func.func @test_semaphore_wait_reset_no_remote
   // CHECK: d2m.generic
   // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
-  func.func @test_semaphore_wait_no_remote(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
+  func.func @test_semaphore_wait_reset_no_remote(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
     %alloc = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
     %cb_in = d2m.operand_alias %arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
     %cb_out = d2m.operand_alias %alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
 
-    // Datamovement region: semaphore_wait replicated, no remote ops
     // CHECK: ^datamovement0
     // CHECK: scf.for
     // CHECK: scf.for
-    // CHECK: d2m.semaphore_wait %{{.*}}, %{{.*}}
+    // CHECK: d2m.semaphore_wait %{{.*}}, %{{.*}} reset %{{.*}}
     // CHECK-NOT: d2m.remote_load
     // CHECK-NOT: d2m.wait
     // CHECK-NOT: linalg.generic
     // CHECK-NOT: d2m.pop
 
-    // Compute region: semaphore_wait + aliased CB ops
     // CHECK: ^compute0
     // CHECK: scf.for
     // CHECK: scf.for
-    // CHECK: d2m.semaphore_wait %{{.*}}, %{{.*}}
+    // CHECK-NOT: d2m.semaphore_wait
     // CHECK: d2m.reserve %{{.*}}
     // CHECK: d2m.push %{{.*}}
     // CHECK: d2m.wait %{{.*}}
@@ -129,7 +119,7 @@ module attributes {ttcore.system_desc = #system_desc} {
       %c1 = arith.constant 1 : index
       scf.for %arg1 = %c0 to %c1 step %c1 {
         scf.for %arg2 = %c0 to %c1 step %c1 {
-          d2m.semaphore_wait %sem0, %c1 : !d2m.local_semaphore
+          d2m.semaphore_wait %sem0, %c1 reset %c0 : !d2m.local_semaphore
           d2m.remote_load %cb_in %arg0[%c0, %c0] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
           linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%cb_in : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) outs(%cb_out : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) {
           ^bb0(%in: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
