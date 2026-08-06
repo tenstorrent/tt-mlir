@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -4014,6 +4015,21 @@ public:
     return success();
   }
 };
+
+class D2MProfileEventOpRewriter
+    : public OpConversionPattern<d2m::ProfileEventOp> {
+public:
+  using OpConversionPattern<d2m::ProfileEventOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ProfileEventOp op, d2m::ProfileEventOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    std::string source =
+        "DeviceTimestampedData(\"" + op.getLabel().str() + "\", 0);";
+    rewriter.replaceOpWithNewOp<mlir::emitc::VerbatimOp>(op, source);
+    return success();
+  }
+};
 } // namespace
 
 } // namespace mlir::tt::ttkernel
@@ -4166,7 +4182,8 @@ void populateD2MToTTKernelPatterns(
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &cbProducerConsumer);
 
   // Debug op patterns.
-  patterns.add<ttkernel::D2MPrintOpRewriter>(typeConverter, ctx);
+  patterns.add<ttkernel::D2MPrintOpRewriter,
+               ttkernel::D2MProfileEventOpRewriter>(typeConverter, ctx);
 
   // This is needed to lower affine apply ops that may be generated when
   // `d2m.core_index` is used with a `phys_to_virt_map`.

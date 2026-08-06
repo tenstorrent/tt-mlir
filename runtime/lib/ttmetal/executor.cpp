@@ -891,6 +891,10 @@ void MCQExecutor::refreshCachedMeshWorkload(
 void MCQExecutor::enqueueMeshWorkload(distributed::MeshWorkload &workload,
                                       const char *loc) {
   if (perf::Env::get().enablePerfTrace) {
+    if (loc) {
+      perf::Env::get().tracyLogOpLocation(std::string(loc));
+    }
+
     auto devices = meshDevice->get_devices();
     auto meshShape = meshDevice->shape();
 
@@ -907,10 +911,6 @@ void MCQExecutor::enqueueMeshWorkload(distributed::MeshWorkload &workload,
   }
 
   distributed::EnqueueMeshWorkload(*mcq, workload, blockingCQ);
-
-  if (perf::Env::get().enablePerfTrace) {
-    ::tt::tt_metal::ReadMeshDeviceProfilerResults(*meshDevice);
-  }
 }
 
 void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,

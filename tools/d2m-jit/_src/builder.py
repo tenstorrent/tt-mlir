@@ -1718,8 +1718,8 @@ _g_perf_trace_enabled = False
 
 
 def _maybe_enable_perf_trace():
-    """Flip the perf::Env singleton so the ttmetal executor dumps device
-    profiler results after each workload. Must run before the first submit in
+    """Flip the perf::Env singleton so the ttmetal runtime dumps device
+    profiler results after each submission. Must run before the first submit in
     the process (the singleton is seeded on first access). Idempotent.
 
     Device-side capture is controlled by tt-metal env vars that must be present

@@ -246,9 +246,13 @@ static void collectComputeOpsToErase(Block *block,
       }
       continue;
     }
+    auto profile = dyn_cast<ProfileEventOp>(&op);
     bool isDMAOp =
         isa<ShardDMAOpInterface, DeviceSynchronizeOp, SemaphoreIncOp,
-            SemaphoreSetOp, CoreReadOp, ReserveOp, PushOp, WaitOp, PopOp>(&op);
+            SemaphoreSetOp, CoreReadOp, ReserveOp, PushOp, WaitOp, PopOp>(
+            &op) ||
+        (profile &&
+         profile.getThread() == static_cast<int32_t>(ThreadType::Datamovement));
     bool isReplicated = isa<SemaphoreWaitOp>(&op);
     if (!isDMAOp && !isReplicated) {
       eraseSet.insert(&op);

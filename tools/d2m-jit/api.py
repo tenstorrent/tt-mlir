@@ -710,6 +710,34 @@ def _const_value(node):
     )
 
 
+@syntax(
+    "profile_event",
+    args_as_attr=[_const_value, _const_value],
+)
+def profile_event(label, thread):
+    """Record a named device-profiler timestamp on one kernel thread.
+
+    Use `.begin` and `.end` label suffixes for events that form an interval.
+    The event is inert unless tt-metal device profiling is enabled.
+    """
+    if (
+        not isinstance(label, str)
+        or not label
+        or not label.isascii()
+        or any(not (character.isalnum() or character in "_.-") for character in label)
+    ):
+        raise ValueError(
+            "profile label must contain only ASCII letters, digits, '_', '-', or '.'"
+        )
+    thread_values = {"compute": 0, "datamovement": 1}
+    if thread not in thread_values:
+        raise ValueError("profile thread must be 'compute' or 'datamovement'")
+    return d2m.profile_event(
+        StringAttr.get(label),
+        IntegerAttr.get(IntegerType.get_signless(32), thread_values[thread]),
+    )
+
+
 def _tile_elem_type(block):
     """Return the !ttcore.tile element type of a tile-tensor block, or
     raise a clear error if `block` isn't a tile tensor."""
