@@ -21,6 +21,7 @@ from ._src.tensor_layout import (
     float16,
     bfloat16,
     uint32,
+    int32,
     _to_data_type,
 )
 from ._src import builder as _builder
@@ -942,6 +943,27 @@ def reduce_mean(input, dim):
     )
 
 
+@syntax("topk", args_as_attr=[False, _int_attr_from_ast, _int_attr_from_ast])
+def topk(input, k, dim):
+    """Block-level top-K along one tile axis; returns `(values, indices)`.
+
+    `dim` follows torch/numpy axis numbering for a 2D tile block, matching
+    `reduce_max`: `0` selects down rows, `1` selects across columns. Both
+    results keep `input`'s block shape except along `dim`, which narrows to
+    the `ceil(k / 32)` tiles the sorted top-K actually occupies -- the same
+    shrink-the-reduced-axis convention the `reduce_*` ops use, so the results
+    drop straight into a `remote_store`.
+
+    `values` carries `input`'s tile dtype; `indices` is `int32` and holds each
+    winner's position along `dim` *within this block*. A kernel that shards the
+    reduction across cores has to add its own band offset.
+
+    `k` may be at most 64, and the reduced axis must span at least two tiles --
+    the sort merges tile pairs, so one tile has nothing to merge against.
+    """
+    return _topk_block(input, k, dim)
+
+
 @syntax("!tensor")
 class TensorBlock:
     """The DSL-side host class for a tile-typed tensor block.
@@ -1268,6 +1290,10 @@ class TensorBlock:
         """Same as `d2m.reduce_mean(self, dim)`."""
         return reduce_mean(ast_self, dim)
 
+    def topk(ast_self: TensorBlock, k, dim):
+        """Same as `d2m.topk(self, k, dim)`; returns `(values, indices)`."""
+        return topk(ast_self, k, dim)
+
     def store(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
         return d2m.store(ast_self, rhs)
 
@@ -1488,14 +1514,14 @@ def _dim_to_reduce_dim_attr(dim):
     raise ValueError(f"reduce dim must be 0/1 or -2/-1, got {dim}")
 
 
-def _dim_to_int(dim):
+def _dim_to_int(dim, what="reduce dim"):
     if isinstance(dim, arith.ConstantOp):
         return IntegerAttr(dim.value).value
     if isinstance(dim, IntegerAttr):
         return dim.value
     if isinstance(dim, int) and not isinstance(dim, bool):
         return dim
-    raise TypeError(f"reduce dim must be an integer literal, got {dim!r}")
+    raise TypeError(f"{what} must be an integer literal, got {dim!r}")
 
 
 def _normalize_reduce_axis(dim, rank):
@@ -1721,6 +1747,151 @@ def _reduce_block(
             result = result.result
         linalg.yield_([result])
     _set_reduced_axes(generic.result, {reduce_axis})
+    return generic.result
+
+
+# topk's sort network merges tile pairs down to a single sorted run, so the
+# LLK's usable K tops out at two tiles' worth of lanes.
+_TOPK_MAX_K = 64
+_TILE_WIDTH = 32
+_TOPK_BLOCK_OP_NAME = "d2m.topk_block"
+
+
+def _topk_block(input, k, dim):
+    """Emit `d2m.topk_block` over a whole tile block, then narrow the results.
+
+    This is the leaf form: `generate_indices=true`, so the kernel derives its
+    index buffer in-kernel and the indices are positions within `input`.
+    Mirrors `d2m::utils::emitLeafTopk` + `emitTopKExtract`, minus the
+    surrounding `d2m.generic` -- in the DSL the kernel body *is* that generic's
+    region, so the op goes in directly rather than in a `linalg.generic`
+    (`topk_block` consumes the block, not one tile at a time).
+    """
+    block_ty = input.type
+    if not isinstance(block_ty, RankedTensorType):
+        raise TypeError(f"topk input must be a ranked tensor, got {block_ty}")
+    rank = block_ty.rank
+    if rank != 2:
+        # d2m-decompose-topk builds the in-kernel index buffer off a 2D shard.
+        raise ValueError(f"topk expects a 2D tile block, got rank {rank}")
+    _tile_elem_type(input)
+
+    reduce_axis = _normalize_reduce_axis(dim, rank)
+    k = _dim_to_int(k, what="topk k")
+    reduction_tiles = block_ty.shape[reduce_axis]
+
+    if k < 1 or k > _TOPK_MAX_K:
+        raise ValueError(f"topk k must be in [1, {_TOPK_MAX_K}], got {k}")
+    if reduction_tiles < 2:
+        raise ValueError(
+            "topk merges tile pairs, so the reduced block axis must span at "
+            f"least 2 tiles; axis {reduce_axis} spans {reduction_tiles}"
+        )
+    if k > reduction_tiles * _TILE_WIDTH:
+        raise ValueError(
+            f"topk k ({k}) exceeds the {reduction_tiles * _TILE_WIDTH} elements "
+            f"block axis {reduce_axis} holds"
+        )
+
+    # `topk_block` sorts down tile columns, so selecting across columns needs
+    # the data turned first; the extract below turns the results back.
+    transposed = reduce_axis == rank - 1
+    sort_input = tile_transpose(input) if transposed else input
+
+    ctx = get_default_loc_context()
+    idx_tile_ty = ttcore.ir.TileType.get(ctx, _TILE_WIDTH, _TILE_WIDTH, int32)
+    idx_block_ty = RankedTensorType.get(list(block_ty.shape), idx_tile_ty)
+
+    out_values = d2m.empty(block_ty)
+    out_indices = d2m.empty(idx_block_ty)
+    # With generate_indices=true the real index/lane buffers come from
+    # d2m-insert-scratch-buffers post-bufferization; this operand only has to
+    # exist and type-check, so it is left uninitialized.
+    scratch = d2m.empty(RankedTensorType.get([1] * rank, idx_tile_ty))
+
+    sorted_values, sorted_indices = d2m.topk_block(
+        block_ty,
+        idx_block_ty,
+        sort_input,
+        scratch,
+        out_values,
+        out_indices,
+        k,
+        reduction_tiles * _TILE_WIDTH,
+        False,  # stable_sort
+        reduce_axis,
+        generate_indices=True,
+    )
+
+    output_tiles = (k + _TILE_WIDTH - 1) // _TILE_WIDTH
+    return (
+        _topk_extract_block(sorted_values, reduce_axis, output_tiles, transposed),
+        _topk_extract_block(sorted_indices, reduce_axis, output_tiles, transposed),
+    )
+
+
+def _topk_extract_block(block, reduce_axis, output_tiles, transposed):
+    """Narrow `block`'s reduced axis to the tiles the sorted top-K occupies.
+
+    `topk_block` writes a full-block-sized result of which only the leading
+    `output_tiles` along `reduce_axis` are live. Undoing the input transpose is
+    folded into the same `linalg.generic`, matching `emitTopKExtract`.
+    """
+    block_ty = block.type
+    rank = block_ty.rank
+    elem_ty = block_ty.element_type
+    in_reduction_extent = block_ty.shape[reduce_axis]
+    out_shape = list(block_ty.shape)
+    out_shape[reduce_axis] = output_tiles
+    out_ty = RankedTensorType.get(out_shape, elem_ty)
+    output = d2m.empty(out_ty)
+
+    # The input map has to stay non-invertible or linalg takes the loop bound
+    # from the wider input and rejects the narrow output; `% extent` leaves
+    # in-range reads unchanged.
+    projected = (
+        AffineConstantExpr.get(0)
+        if output_tiles == 1
+        else AffineDimExpr.get(reduce_axis) % in_reduction_extent
+    )
+    input_map = AffineMap.get(
+        rank,
+        0,
+        [
+            projected if axis == reduce_axis else AffineDimExpr.get(axis)
+            for axis in range(rank)
+        ],
+    )
+    parallel = Attribute.parse("#linalg.iterator_type<parallel>")
+    generic = linalg.GenericOp(
+        [out_ty],
+        [block],
+        [output],
+        ArrayAttr.get(
+            [
+                AffineMapAttr.get(input_map),
+                AffineMapAttr.get(AffineMap.get_identity(rank)),
+            ]
+        ),
+        ArrayAttr.get([parallel] * rank),
+    )
+    body = Block.create_at_start(
+        generic.regions[0], [elem_ty, elem_ty], [Location.unknown()] * 2
+    )
+    with InsertionPoint(body):
+        src, dst = body.arguments
+        # The copy case still needs a compute op in the body: the D2M ->
+        # TTKernel store/DST-index lookup expects a single terminal one, so it
+        # cannot just yield `src`. Same-type tile_typecast is what
+        # emitTopKExtract uses here.
+        result = (
+            d2m.tile_transpose(dst.type, src)
+            if transposed
+            else d2m.tile_typecast(dst.type, src)
+        )
+        if hasattr(result, "result"):
+            result = result.result
+        linalg.yield_([result])
     return generic.result
 
 

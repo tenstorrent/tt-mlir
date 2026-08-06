@@ -88,6 +88,7 @@ class _DataType(enum.IntEnum):
     Float16 = 1
     BFloat16 = 2
     UInt32 = 9
+    Int32 = 12
 
     def __str__(self):
         return {
@@ -95,6 +96,7 @@ class _DataType(enum.IntEnum):
             "Float16": "f16",
             "BFloat16": "bf16",
             "UInt32": "u32",
+            "Int32": "si32",
         }[self.name]
 
 
@@ -128,6 +130,8 @@ def _data_type_name(dtype):
         return "BFloat16"
     if s in {"torch.uint32", "uint32", "u32"}:
         return "UInt32"
+    if s in {"torch.int32", "int32", "i32", "si32"}:
+        return "Int32"
     return None
 
 
@@ -168,6 +172,7 @@ float32 = _to_data_type("fp32")
 float16 = _to_data_type("fp16")
 bfloat16 = _to_data_type("bf16")
 uint32 = _to_data_type("u32")
+int32 = _to_data_type("i32")
 
 
 def _derive_blocked_grid_shape(logical_shape, block_shape, tiled):
@@ -243,6 +248,8 @@ class Layout:
             return mlir.BF16Type.get(ctx)
         if self.dtype.name == "UInt32":
             return mlir.IntegerType.get_unsigned(32, ctx)
+        if self.dtype.name == "Int32":
+            return mlir.IntegerType.get_signed(32, ctx)
         raise TypeError(f"Unsupported data type {self.dtype}")
 
     def get_host_elem_type(self, ctx):

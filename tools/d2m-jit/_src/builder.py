@@ -68,6 +68,7 @@ def _ttcore_to_torch_dtype(dt):
             ttcore.DataType.Float16: torch.float16,
             ttcore.DataType.BFloat16: torch.bfloat16,
             ttcore.DataType.UInt32: torch.uint32,
+            ttcore.DataType.Int32: torch.int32,
         }
     if dt not in _TTCORE_TO_TORCH:
         raise ValueError(f"No torch dtype for ttcore.DataType {dt}")

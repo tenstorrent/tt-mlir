@@ -465,11 +465,46 @@ class D2MCompiler(ast.NodeVisitor):
     def visit_Assign(self, node):
         assert len(node.targets) == 1, "Only single assignments supported"
         target = node.targets[0]
+        if isinstance(target, (ast.Tuple, ast.List)):
+            self._assign_unpacked(node, target)
+            return
         if not isinstance(target, ast.Name):
             raise NotImplementedError(
                 f"Assign target {type(target).__name__} not supported"
             )
         self.symbol_tables[-1][target.id] = self.visit(node.value)
+
+    def _assign_unpacked(self, node, target):
+        """Bind `a, b = <multi-result call>`.
+
+        Only syntax functions that return a Python tuple (e.g. an op with two
+        block results) can be unpacked; a single MLIR value has no elements to
+        distribute.
+        """
+        for element in target.elts:
+            if not isinstance(element, ast.Name):
+                raise NotImplementedError(
+                    f"Assign target {type(element).__name__} not supported"
+                )
+        value = self.visit(node.value)
+        if not isinstance(value, (tuple, list)):
+            self._fail(
+                node,
+                TypeError(
+                    f"cannot unpack into {len(target.elts)} names: the "
+                    "right-hand side produces a single value"
+                ),
+            )
+        if len(value) != len(target.elts):
+            self._fail(
+                node,
+                ValueError(
+                    f"expected {len(target.elts)} values to unpack, got "
+                    f"{len(value)}"
+                ),
+            )
+        for element, result in zip(target.elts, value):
+            self.symbol_tables[-1][element.id] = result
 
     def visit_AugAssign(self, node):
         target = node.target
