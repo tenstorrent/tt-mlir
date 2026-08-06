@@ -5,10 +5,14 @@
 import importlib
 import importlib.abc
 import importlib.machinery
+import importlib.util
 import os
 import re
 import subprocess
 import sys
+
+
+_DEV_LAYOUT = importlib.util.find_spec("ttmlir") is not None
 
 
 class _TtmlirRedirector(importlib.abc.MetaPathFinder):
@@ -20,9 +24,17 @@ class _TtmlirRedirector(importlib.abc.MetaPathFinder):
     inside the ``ttnn_jit`` wheel, those imports must resolve to the
     already-loaded ``ttnn_jit.ttmlir.*`` modules instead of picking up a second
     copy from the build directory on ``PYTHONPATH``.
+
+    When a top-level ``ttmlir`` package is importable (dev layout: ttmlir is a
+    separate package on PYTHONPATH), no redirect is installed. Redirecting in
+    that layout re-runs the ``_mlir`` extension's module init under an aliased
+    name, which double-registers nanobind types and crashes with
+    "PyGlobals already constructed".
     """
 
     def find_spec(self, fullname, path, target=None):
+        if _DEV_LAYOUT:
+            return None
         if fullname == "ttmlir" or fullname.startswith("ttmlir."):
             return importlib.machinery.ModuleSpec(fullname, _TtmlirLoader())
         return None
@@ -39,7 +51,9 @@ class _TtmlirLoader(importlib.abc.Loader):
         pass
 
 
-if not any(isinstance(f, _TtmlirRedirector) for f in sys.meta_path):
+if not _DEV_LAYOUT and not any(
+    isinstance(f, _TtmlirRedirector) for f in sys.meta_path
+):
     sys.meta_path.insert(0, _TtmlirRedirector())
 
 import ttnn

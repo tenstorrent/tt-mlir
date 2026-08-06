@@ -89,7 +89,7 @@ else ()
         _src/tensor_translator.py
         _src/supported_ops.py
         _src/conversions.py
-        _src/jit_functions.py
+        _src/memory_analyzer.py
         _src/tracing_compiler.py
   )
 
@@ -101,13 +101,12 @@ else ()
   add_custom_target(ttnn-jit ALL
     COMMENT "ttnn-jit package"
     DEPENDS TTNNJITModules _ttnn_jit _ttmlir_runtime TTMLIRPythonModules)
-  # In the non-wheel dev path, ttnn_jit source files use
-  # "from ttnn_jit.ttmlir.*" imports. Symlink ttmlir into the ttnn_jit
-  # package so that ttnn_jit.ttmlir resolves to the build's ttmlir.
+  # Dev layout: ttnn_jit sources import the separate top-level ttmlir package
+  # (no bundled tree, so no ttnn_jit/ttmlir symlink; aliasing ttmlir under a
+  # second package name re-runs the _mlir extension init and crashes).
   add_custom_command(
     TARGET ttnn-jit POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E create_symlink
-        ${TTMLIR_PYTHON_PACKAGES_DIR}/ttmlir
+    COMMAND ${CMAKE_COMMAND} -E rm -rf
         ${TTMLIR_PYTHON_PACKAGES_DIR}/ttnn_jit/ttmlir
   )
 endif()
