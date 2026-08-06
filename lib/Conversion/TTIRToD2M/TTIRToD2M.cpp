@@ -44,6 +44,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <numeric>
 #include <type_traits>
 
 namespace mlir::tt {
@@ -5669,15 +5670,40 @@ private:
     d2m::ReduceDim dimArg = dimArgAsReduceDim(op, logicalRank);
 
     if (dimArg == d2m::ReduceDim::RC) {
-      return rewriter.notifyMatchFailure(op, "dim_arg = RC not supported.");
+      return rewriter.notifyMatchFailure(
+          op, "D2M argmax with dim_arg = RC not supported.");
     }
 
     if (logicalRank > 2) {
-      return rewriter.notifyMatchFailure(op, "Rank > 2 not supported.");
+      return rewriter.notifyMatchFailure(
+          op, "D2M argmax with rank > 2 not supported.");
     }
 
-    if (dimArg == d2m::ReduceDim::R) {
-      // need to transpose input tensor
+    // The LLK only reduces columns (collapsing rows), so a ReduceDim::R request
+    // is served by transposing the input, reducing along C, and transposing the
+    // reduced result back.  Emit ttir.permute on both ends and let
+    // D2MPermuteRewriter lower them.
+    const bool needsTranspose = (dimArg == d2m::ReduceDim::R);
+
+    Value argMaxInput = adaptor.getInput();
+    SmallVector<int64_t> permutation(logicalRank);
+    std::iota(permutation.begin(), permutation.end(), 0);
+    std::swap(permutation[logicalRank - 2], permutation[logicalRank - 1]);
+
+    if (needsTranspose) {
+      SmallVector<int64_t> transposedShape(inputTy.getShape());
+      std::swap(transposedShape[logicalRank - 2],
+                transposedShape[logicalRank - 1]);
+      auto transposedTy = RankedTensorType::get(
+          transposedShape, inputTy.getElementType(), inputTy.getEncoding());
+      argMaxInput = rewriter.create<ttir::PermuteOp>(
+          loc, transposedTy, argMaxInput,
+          rewriter.getDenseI64ArrayAttr(permutation));
+
+      // Everything downstream now works on the transposed tensor, so the
+      // reduction is a plain column reduction over it.
+      inputTy = transposedTy;
+      dimArg = d2m::ReduceDim::C;
     }
 
     /// Use arange to fill in indices. Arange is done in f32 and then typecasted
@@ -5883,11 +5909,11 @@ private:
     // Begin the pseudo row-major trick. The values and indices will be laid out
     // untiled, producing a row-major layout that the LLK expects.
     auto [argMaxInputsHead, argMaxOutputs] = toLayoutOperandsAndResults(
-        rewriter, {SmallVector<Value>{adaptor.getInput()}, argMaxOrigOutputs},
+        rewriter, {SmallVector<Value>{argMaxInput}, argMaxOrigOutputs},
         /*tiled=*/true, false, ttcore::OOBVal::NegInf);
 
     Value rowMajorValues = createOptimalLayoutOp(
-        adaptor.getInput(), memorySpaces[0], /*tiled=*/false,
+        argMaxInput, memorySpaces[0], /*tiled=*/false,
         /*noCollapse=*/false, rewriter, ttcore::OOBVal::NegInf);
 
     // Pin this operand to a unit grid. This is a workaround to avoid the
@@ -6001,7 +6027,6 @@ private:
                   mlir::ValueRange bbArgs) {
                 // bbArgs = {values, indices,
                 //           out_values, out_indices, val_acc, idx_acc}
-                llvm::errs() << "emitting tile arg max\n";
                 auto argMax = bb.create<d2m::TileArgMaxOp>(
                     bbLoc, bbArgs[2].getType(), bbArgs[3].getType(),
                     bbArgs[4].getType(), bbArgs[5].getType(), bbArgs[0],
@@ -6042,7 +6067,7 @@ private:
       // NOTE: strictly this view changes the element type (tile -> scalar), so
       // by the same argument as the input-side relabel the shard dims "should"
       // be divided by the tile shape. Empirically that is NOT what this path
-      // wants -- see the bisect below. Every index folds to 0 today anyway,
+      // wants, see the bisect below. Every index folds to 0 today anyway,
       // since the reduced output is a single 1x1x1x1 tile per shard, so
       // identity and any scaling agree here; revisit if the reduced output ever
       // spans more than one tile per shard.
@@ -6057,6 +6082,20 @@ private:
 
     Value reducedHost =
         unLayoutResult(rewriter, reducedIndices, reducedHostType)->getResult(0);
+
+    // Undo the input transpose: the reduction ran over the transposed tensor,
+    // so its reduced axis is the other one relative to what the op promised.
+    if (needsTranspose) {
+      SmallVector<int64_t> untransposedShape(reducedHostType.getShape());
+      std::swap(untransposedShape[logicalRank - 2],
+                untransposedShape[logicalRank - 1]);
+      auto untransposedTy = RankedTensorType::get(
+          untransposedShape, reducedHostType.getElementType());
+      reducedHost = rewriter.create<ttir::PermuteOp>(
+          loc, untransposedTy, reducedHost,
+          rewriter.getDenseI64ArrayAttr(permutation));
+    }
+
     Value result = buildTypecastGeneric(rewriter, loc, reducedHost, outputTy);
 
     rewriter.replaceOp(op, result);

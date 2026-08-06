@@ -200,14 +200,14 @@ optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> targetGrid,
     return;
   }
 
-  // Operands feeding a row-major LLK stay on a unit grid.
+  // Argmax workaround: operands feeding a row-major LLK stay on a unit grid.
   //
   // These are allocated with a SCALAR element type and only relabeled as tiles
   // downstream via view_layout, so shard sizing uses the trailing scalar dims:
   // on a wider grid the leading dim is read as a core-grid extent and each core
   // gets only a slice of the reduction axis, while the consuming generic runs
-  // on grid<1x1>. The reblock view inserted below cannot repair that -- a view
-  // relabels types, it does not move bytes between cores.
+  // on grid<1x1>. The reblock view inserted below cannot repair that since a
+  // view just relabels types and does not move bytes between cores.
   //
   // TEMPORARY: paired with the carve-out in TTIRToD2M's argmax lowering. Remove
   // both once row-major LLK operands are allocated tile-typed and relabeled
