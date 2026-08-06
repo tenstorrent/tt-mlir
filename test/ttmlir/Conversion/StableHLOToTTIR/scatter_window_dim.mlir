@@ -11,10 +11,8 @@
 //
 //   operand[i, idx + j] = updates[i, j]
 //
-// ttir.scatter needs an absolute position per element, so the index tensor is
-// the broadcast start plus an iota of the within-window offsets. Shapes are
-// from the ORB model, where the Pade approximant writes a run of columns into
-// a wider buffer.
+// The index tensor is therefore the broadcast start plus an iota of the
+// within-window offsets.
 
 module @scatter_window_dim {
   // CHECK-LABEL: func.func @column_run
@@ -31,11 +29,12 @@ module @scatter_window_dim {
     return %0 : tensor<6400x16xf64>
   }
 
-  // The scattered dimension can be a window dimension and carry the batch of
-  // window starts at the same time, but only when the window is a single
-  // element wide - here operand[0, idx[j]] = updates[j, 0] for each of the four
-  // indices. The window then contributes no offset of its own, so there must be
-  // no iota: adding one would write to idx[j] + j.
+  // operand[0, idx[j]] = updates[j, 0]
+  //
+  // The scattered dimension is a window dimension and carries the batch of
+  // window starts at the same time, which is legal because the window is a
+  // single element wide. It contributes no offset of its own, so there must be
+  // no iota here - adding one would write to idx[j] + j.
   // CHECK-LABEL: func.func @window_carries_batch
   // CHECK-NOT: ttir.arange
   // CHECK: ttir.scatter

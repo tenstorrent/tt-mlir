@@ -7050,23 +7050,61 @@ public:
   }
 
 private:
-  // How a StableHLO update tensor lines up with the operand's dimensions.
-  struct OperandAlignedLayout {
-    // The update shape rewritten to the operand's rank: every window dimension
-    // sits at the operand dimension it writes to, the scatter-batch dimension
-    // (if any) sits at the scattered dimension, and the rest are 1.
-    llvm::SmallVector<int64_t> updateShape;
-    // The index tensor's shape rewritten to the operand's rank, each of its
-    // batch dimensions sitting at the operand dimension it varies.
-    llvm::SmallVector<int64_t> indexShape;
+  // Where each operand dimension draws its extent and its written position
+  // from: how a StableHLO scatter lines up with the operand's dimensions.
+  struct OperandDimSources {
+    static constexpr int64_t kNone = -1;
+
+    struct Source {
+      // Update dimension whose extent lands at this operand dimension, or kNone
+      // when the operand dimension gets extent 1.
+      int64_t updateDim = kNone;
+      // Index tensor dimension that varies the position written along this
+      // operand dimension, or kNone when that position does not vary.
+      int64_t indexDim = kNone;
+      // Window dimension a scatter-batch dimension took this slot from, or
+      // kNone. Only legal where that window is a single element wide.
+      int64_t displacedWindowDim = kNone;
+    };
+
+    // One entry per operand dimension.
+    llvm::SmallVector<Source> byOperandDim;
     // The operand dimension the indices address - the ttir.scatter `dim`.
     int64_t scatterDim = 0;
-    // Whether the update window runs along the scattered dimension, so that an
-    // index fixes only where the window starts.
-    bool scatterDimSpansWindow = false;
     // Whether the scatter indexes the operand at all.
     bool hasIndexValue = false;
+    // Update dimensions with nowhere to go: ttir.scatter tracks one scattered
+    // dimension, so at most one non-batching scatter-batch dimension fits.
+    llvm::SmallVector<int64_t> unplacedUpdateDims;
   };
+
+  // The update shape rewritten to the operand's rank: every mapped dimension's
+  // extent at the operand dimension it lands on, 1 everywhere else.
+  static llvm::SmallVector<int64_t>
+  alignUpdateShape(const OperandDimSources &sources,
+                   ArrayRef<int64_t> updateShape) {
+    return llvm::map_to_vector(
+        sources.byOperandDim,
+        [&](const OperandDimSources::Source &source) -> int64_t {
+          return source.updateDim == OperandDimSources::kNone
+                     ? 1
+                     : updateShape[source.updateDim];
+        });
+  }
+
+  // The index shape rewritten to the operand's rank: each of its batch
+  // dimensions at the operand dimension whose position it varies, 1 elsewhere.
+  static llvm::SmallVector<int64_t>
+  alignIndexShape(const OperandDimSources &sources,
+                  ArrayRef<int64_t> indexShape) {
+    return llvm::map_to_vector(
+        sources.byOperandDim,
+        [&](const OperandDimSources::Source &source) -> int64_t {
+          return source.indexDim == OperandDimSources::kNone
+                     ? 1
+                     : indexShape[source.indexDim];
+        });
+  }
 
   // Lowers a scatter that addresses at most one operand dimension onto
   // ttir.scatter, which is a torch-style scatter: for every coordinate `c` of
@@ -7076,7 +7114,6 @@ private:
   //
   // so the scattered dimension takes its position from `index` while every
   // other dimension is addressed positionally, by the source's own coordinate.
-  // OperandAlignedLayout works out how a StableHLO scatter lines up with that.
   LogicalResult
   convertToSingleDimScatter(mlir::stablehlo::ScatterOp srcOp,
                             mlir::stablehlo::ScatterOp::Adaptor adaptor,
@@ -7089,35 +7126,36 @@ private:
       return success();
     }
 
-    FailureOr<OperandAlignedLayout> layout =
-        computeOperandAlignedLayout(srcOp, rewriter);
-    if (failed(layout)) {
+    OperandDimSources sources = computeOperandDimSources(srcOp);
+    if (failed(checkAlignedScatterLegality(srcOp, sources, rewriter))) {
       return failure();
     }
 
     Value updates = srcOp.getUpdates()[0];
-    if (mlir::cast<RankedTensorType>(updates.getType()).getShape() !=
-        ArrayRef<int64_t>(layout->updateShape)) {
+    auto updateType = mlir::cast<RankedTensorType>(updates.getType());
+    llvm::SmallVector<int64_t> alignedUpdateShape =
+        alignUpdateShape(sources, updateType.getShape());
+    if (updateType.getShape() != ArrayRef<int64_t>(alignedUpdateShape)) {
       updates = ttir::utils::createReshapeOp(
           rewriter,
           ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_update_align"),
-          updates, layout->updateShape);
+          updates, alignedUpdateShape);
     }
 
-    Value indices = buildOperandAlignedIndices(srcOp, *layout, rewriter);
+    Value indices =
+        buildAlignedIndices(srcOp, sources, alignedUpdateShape, rewriter);
 
     rewriter.replaceOpWithNewOp<ttir::ScatterOp>(
         srcOp, outputType, srcOp.getInputs()[0], indices, updates,
-        rewriter.getI32IntegerAttr(layout->scatterDim),
+        rewriter.getI32IntegerAttr(sources.scatterDim),
         ttcore::ReduceTypeAttr::get(rewriter.getContext(), reduceType));
     return success();
   }
 
-  // Works out where each update dimension lands among the operand's
-  // dimensions, or reports why the scatter cannot be expressed that way.
-  FailureOr<OperandAlignedLayout>
-  computeOperandAlignedLayout(mlir::stablehlo::ScatterOp srcOp,
-                              ConversionPatternRewriter &rewriter) const {
+  // Fills in the table. What TTIR cannot express is recorded there rather than
+  // rejected here; checkAlignedScatterLegality reports it.
+  OperandDimSources
+  computeOperandDimSources(mlir::stablehlo::ScatterOp srcOp) const {
     auto dimensionNumbers = srcOp.getScatterDimensionNumbers();
     ArrayRef<int64_t> updateWindowDims = dimensionNumbers.getUpdateWindowDims();
     ArrayRef<int64_t> inputBatchingDims =
@@ -7128,13 +7166,14 @@ private:
         dimensionNumbers.getScatterDimsToOperandDims();
     int64_t indexVectorDim = dimensionNumbers.getIndexVectorDim();
 
-    ArrayRef<int64_t> updateShape =
-        mlir::cast<RankedTensorType>(srcOp.getUpdates()[0].getType())
-            .getShape();
-    ArrayRef<int64_t> indexShape =
-        srcOp.getScatterIndices().getType().getShape();
     int64_t rank =
         mlir::cast<RankedTensorType>(srcOp.getInputs()[0].getType()).getRank();
+    int64_t updateRank =
+        mlir::cast<RankedTensorType>(srcOp.getUpdates()[0].getType()).getRank();
+    int64_t indexRank = srcOp.getScatterIndices().getType().getRank();
+
+    OperandDimSources sources;
+    sources.byOperandDim.assign(rank, {});
 
     // The window spans every operand dimension that is not collapsed away.
     // Batching dimensions are collapsed too: like inserted ones they get no
@@ -7147,169 +7186,194 @@ private:
         llvm::filter_to_vector(llvm::seq<int64_t>(rank), [&](int64_t dim) {
           return !llvm::is_contained(collapsedDims, dim);
         });
-    if (windowOperandDims.size() != updateWindowDims.size()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "update_window_dims does not cover every operand dimension "
-                 "left by inserted_window_dims and input_batching_dims");
-    }
-
-    OperandAlignedLayout layout;
-    layout.updateShape.assign(rank, 1);
-    layout.indexShape.assign(rank, 1);
-
-    // Remember where each update dimension goes, to tell a reshape apart from a
-    // transpose further down.
-    llvm::SmallVector<int64_t> updateDimToOperandDim(updateShape.size(), -1);
+    TT_assertv(windowOperandDims.size() == updateWindowDims.size(),
+               "update_window_dims must cover every operand dimension left by "
+               "inserted_window_dims and input_batching_dims (guaranteed by "
+               "StableHLO scatter_c2)");
     for (auto [windowIndex, operandDim] : llvm::enumerate(windowOperandDims)) {
-      int64_t updateDim = updateWindowDims[windowIndex];
-      layout.updateShape[operandDim] = updateShape[updateDim];
-      updateDimToOperandDim[updateDim] = operandDim;
+      sources.byOperandDim[operandDim].updateDim =
+          updateWindowDims[windowIndex];
     }
 
-    // Whatever update dimensions are left are its scatter dimensions, matching
-    // one for one - and in order - the index tensor's dimensions other than
-    // index_vector_dim.
+    // With no scatter_dims_to_operand_dims no position is read from the index,
+    // so any dimension can carry the scatter; 0 will do.
+    sources.hasIndexValue = !scatterDimsToOperandDims.empty();
+    if (sources.hasIndexValue) {
+      sources.scatterDim = scatterDimsToOperandDims[0];
+    }
+
+    // Whatever update dimensions are not window dimensions are its scatter
+    // dimensions, matching one for one - and in order - the index tensor's
+    // dimensions other than index_vector_dim.
     llvm::SmallVector<int64_t> updateScatterDims = llvm::filter_to_vector(
-        llvm::seq<int64_t>(updateShape.size()), [&](int64_t dim) {
+        llvm::seq<int64_t>(updateRank), [&](int64_t dim) {
           return !llvm::is_contained(updateWindowDims, dim);
         });
-    llvm::SmallVector<int64_t> indexBatchDims = llvm::filter_to_vector(
-        llvm::seq<int64_t>(indexShape.size()),
-        [&](int64_t dim) { return dim != indexVectorDim; });
-    if (updateScatterDims.size() != indexBatchDims.size()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "the update's scatter dimensions do not match the index "
-                 "tensor's batch dimensions one for one");
-    }
-
-    // StableHLO ties the index vector's length to the number of scattered
-    // operand dimensions, so with at most one of those the vector holds a
-    // single component and index_vector_dim may sit anywhere.
-    if (indexVectorDim < static_cast<int64_t>(indexShape.size()) &&
-        indexShape[indexVectorDim] !=
-            static_cast<int64_t>(scatterDimsToOperandDims.size())) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "the index vector's length does not match the number of "
-                 "scattered operand dimensions");
-    }
-
-    // With no scatter_dims_to_operand_dims nothing indexes the operand: there
-    // is no position to read and every window starts at the operand's origin.
-    // Any dimension can carry those constant positions, so 0 will do.
-    layout.hasIndexValue = !scatterDimsToOperandDims.empty();
-    if (layout.hasIndexValue) {
-      layout.scatterDim = scatterDimsToOperandDims[0];
-    }
+    llvm::SmallVector<int64_t> indexBatchDims =
+        llvm::filter_to_vector(llvm::seq<int64_t>(indexRank), [&](int64_t dim) {
+          return dim != indexVectorDim;
+        });
+    TT_assertv(updateScatterDims.size() == indexBatchDims.size(),
+               "the update's scatter dimensions must match the index tensor's "
+               "batch dimensions one for one (guaranteed by StableHLO "
+               "scatter_c4)");
 
     // Place each scatter dimension of the update at the operand dimension whose
     // position it varies. A batching dimension varies its own operand batching
     // dimension; anything else varies the scattered one, of which ttir.scatter
     // can only track one.
-    bool scatterDimCarriesBatch = false;
-    for (auto [scatterIndex, indexDim] : llvm::enumerate(indexBatchDims)) {
+    bool scatterDimTaken = false;
+    for (auto [updateDim, indexDim] :
+         llvm::zip_equal(updateScatterDims, indexBatchDims)) {
       int64_t operandDim;
       const auto *batching = llvm::find(scatterIndicesBatchingDims, indexDim);
       if (batching != scatterIndicesBatchingDims.end()) {
         operandDim =
             inputBatchingDims[batching - scatterIndicesBatchingDims.begin()];
-      } else if (layout.hasIndexValue && !scatterDimCarriesBatch) {
-        operandDim = layout.scatterDim;
-        scatterDimCarriesBatch = true;
+      } else if (sources.hasIndexValue && !scatterDimTaken) {
+        operandDim = sources.scatterDim;
+        scatterDimTaken = true;
       } else {
-        return rewriter.notifyMatchFailure(
-            srcOp, "TTIR scatter supports at most one non-batching "
-                   "scatter-batch dimension");
+        sources.unplacedUpdateDims.push_back(updateDim);
+        continue;
       }
 
-      if (layout.updateShape[operandDim] != 1) {
+      // The slot may already hold a window dimension: the scattered dimension
+      // can be spanned by the window and carry the batch of window starts at
+      // once. The batch takes the slot; the window it displaces then
+      // contributes no extent of its own.
+      OperandDimSources::Source &source = sources.byOperandDim[operandDim];
+      source.displacedWindowDim = source.updateDim;
+      source.updateDim = updateDim;
+      source.indexDim = indexDim;
+    }
+
+    return sources;
+  }
+
+  // Reports the scatters whose operand-aligned mapping TTIR cannot express.
+  LogicalResult
+  checkAlignedScatterLegality(mlir::stablehlo::ScatterOp srcOp,
+                              const OperandDimSources &sources,
+                              ConversionPatternRewriter &rewriter) const {
+    if (!sources.unplacedUpdateDims.empty()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "TTIR scatter supports at most one non-batching "
+                 "scatter-batch dimension");
+    }
+
+    ArrayRef<int64_t> updateShape =
+        mlir::cast<RankedTensorType>(srcOp.getUpdates()[0].getType())
+            .getShape();
+    for (const OperandDimSources::Source &source : sources.byOperandDim) {
+      if (source.displacedWindowDim != OperandDimSources::kNone &&
+          updateShape[source.displacedWindowDim] != 1) {
         return rewriter.notifyMatchFailure(
             srcOp, "an operand dimension carries both a scatter-batch "
                    "dimension and a window wider than one element");
       }
-      int64_t updateDim = updateScatterDims[scatterIndex];
-      layout.updateShape[operandDim] = updateShape[updateDim];
-      layout.indexShape[operandDim] = indexShape[indexDim];
-      updateDimToOperandDim[updateDim] = operandDim;
     }
 
-    // The scattered dimension can be spanned by the window and carry the batch
-    // of window starts at once, but only if the window extent there is 1 - the
-    // check above rejects any wider overlap. There is then no offset within the
-    // window to account for, so it counts as not spanned.
-    layout.scatterDimSpansWindow =
-        !llvm::is_contained(collapsedDims, layout.scatterDim) &&
-        !scatterDimCarriesBatch;
-
-    // Only a reshape is emitted from this layout, which reproduces it just when
-    // the update's dimensions are in operand order already; anything else would
-    // need a transpose. Window and scatter dimensions together cover the
-    // update, so every entry has been mapped by now.
-    if (!llvm::is_sorted(updateDimToOperandDim)) {
+    // Only a reshape is emitted from this mapping, so the update's dimensions
+    // have to be in operand order already; anything else would need a
+    // transpose. Displaced window dimensions are left out: a reshape can move a
+    // single-element dimension anywhere without disturbing the element order.
+    llvm::SmallVector<int64_t> updateDimsInOperandOrder;
+    for (const OperandDimSources::Source &source : sources.byOperandDim) {
+      if (source.updateDim != OperandDimSources::kNone) {
+        updateDimsInOperandOrder.push_back(source.updateDim);
+      }
+    }
+    if (!llvm::is_sorted(updateDimsInOperandOrder)) {
       return rewriter.notifyMatchFailure(
           srcOp, "the update tensor's dimensions are not in operand order, "
                  "which would need a transpose");
     }
 
-    return layout;
+    // StableHLO ties the index vector's length to the number of scattered
+    // operand dimensions (scatter_c19), so with at most one of those the vector
+    // holds a single component and index_vector_dim may sit anywhere. Only a
+    // dynamic bound there can disagree, and the reshapes cannot honour one.
+    auto dimensionNumbers = srcOp.getScatterDimensionNumbers();
+    ArrayRef<int64_t> indexShape =
+        srcOp.getScatterIndices().getType().getShape();
+    int64_t indexVectorDim = dimensionNumbers.getIndexVectorDim();
+    if (indexVectorDim < static_cast<int64_t>(indexShape.size()) &&
+        indexShape[indexVectorDim] !=
+            static_cast<int64_t>(
+                dimensionNumbers.getScatterDimsToOperandDims().size())) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "the index vector's length does not match the number of "
+                 "scattered operand dimensions");
+    }
+
+    return success();
   }
 
   // Builds the ttir.scatter index tensor: operand-aligned, shaped like the
   // rewritten update tensor, holding for each element the position it is
   // written to along the scattered dimension.
-  Value buildOperandAlignedIndices(mlir::stablehlo::ScatterOp srcOp,
-                                   const OperandAlignedLayout &layout,
-                                   ConversionPatternRewriter &rewriter) const {
+  Value buildAlignedIndices(mlir::stablehlo::ScatterOp srcOp,
+                            const OperandDimSources &sources,
+                            ArrayRef<int64_t> alignedUpdateShape,
+                            ConversionPatternRewriter &rewriter) const {
     TypedValue<RankedTensorType> indices = srcOp.getScatterIndices();
     RankedTensorType indicesType = indices.getType();
     RankedTensorType targetType =
-        RankedTensorType::get(layout.updateShape, indicesType.getElementType(),
+        RankedTensorType::get(alignedUpdateShape, indicesType.getElementType(),
                               indicesType.getEncoding());
+
+    // Each element's own coordinate along the scattered dimension. Degenerates
+    // to a constant 0 where that dimension has extent 1.
+    auto buildCoordinateIota = [&] {
+      return rewriter.create<ttir::ArangeOp>(
+          srcOp.getLoc(), targetType, /*start=*/0,
+          /*end=*/alignedUpdateShape[sources.scatterDim],
+          /*step=*/1, /*arange_dimension=*/sources.scatterDim);
+    };
+
+    // Without an index value every position is the element's own coordinate:
+    // the window's origin, or the batch's coordinate where the scattered
+    // dimension turns out to be a batching one.
+    if (!sources.hasIndexValue) {
+      return buildCoordinateIota();
+    }
 
     // Where each window starts along the scattered dimension. There is one
     // index value per window, so it only varies along the dimensions carrying
     // the scatter batch and has to be stretched over the window - every element
     // of a window is written relative to the position its index picked out.
-    Value windowStart;
-    if (layout.hasIndexValue) {
-      windowStart = indices;
-      if (indicesType.getShape() != ArrayRef<int64_t>(layout.indexShape)) {
-        windowStart = ttir::utils::createReshapeOp(
-            rewriter,
-            ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_index_align"),
-            indices, layout.indexShape);
+    llvm::SmallVector<int64_t> startShape =
+        alignIndexShape(sources, indicesType.getShape());
+    Value windowStart = indices;
+    if (indicesType.getShape() != ArrayRef<int64_t>(startShape)) {
+      windowStart = ttir::utils::createReshapeOp(
+          rewriter,
+          ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_index_align"),
+          indices, startShape);
+    }
+    if (ArrayRef<int64_t>(startShape) != alignedUpdateShape) {
+      llvm::SmallVector<int64_t> repeatDims;
+      for (auto [startSize, windowSize] :
+           llvm::zip_equal(startShape, alignedUpdateShape)) {
+        repeatDims.push_back(startSize == windowSize ? 1 : windowSize);
       }
-      if (layout.indexShape != layout.updateShape) {
-        llvm::SmallVector<int64_t> repeatDims;
-        for (auto [startSize, windowSize] :
-             llvm::zip_equal(layout.indexShape, layout.updateShape)) {
-          repeatDims.push_back(startSize == windowSize ? 1 : windowSize);
-        }
-        windowStart = rewriter.create<ttir::RepeatOp>(
-            srcOp.getLoc(), targetType, windowStart,
-            rewriter.getDenseI64ArrayAttr(repeatDims));
-      }
-
-      if (!layout.scatterDimSpansWindow) {
-        return windowStart;
-      }
+      windowStart = rewriter.create<ttir::RepeatOp>(
+          srcOp.getLoc(), targetType, windowStart,
+          rewriter.getDenseI64ArrayAttr(repeatDims));
     }
 
-    // An index only says where a window starts. When the window spans the
-    // scattered dimension, each of its elements lands at its own offset from
-    // that start, so the within-window position has to be added on.
-    //
-    // With no index at all the start is the origin, and this iota is the whole
-    // answer - degenerating to a constant 0 when the scattered dimension has
-    // extent 1.
-    Value withinWindow = rewriter.create<ttir::ArangeOp>(
-        srcOp.getLoc(), targetType, /*start=*/0,
-        /*end=*/layout.updateShape[layout.scatterDim],
-        /*step=*/1, /*arange_dimension=*/layout.scatterDim);
-    if (!windowStart) {
-      return withinWindow;
+    // An index only fixes where a window starts, so a within-window offset is
+    // needed exactly when the update dimension sitting at the scattered
+    // dimension is a window dimension - where the scatter batch took that slot,
+    // or nothing did, the window contributes no offset of its own.
+    if (!llvm::is_contained(
+            srcOp.getScatterDimensionNumbers().getUpdateWindowDims(),
+            sources.byOperandDim[sources.scatterDim].updateDim)) {
+      return windowStart;
     }
     return rewriter.create<ttir::AddOp>(srcOp.getLoc(), targetType, windowStart,
-                                        withinWindow);
+                                        buildCoordinateIota());
   }
 
   // Folds away a scatter that overwrites the operand in its entirety, which
@@ -7317,9 +7381,8 @@ private:
   // emits this for an update whose index array turned out to be statically
   // empty (the index operand is then a `tensor<0x...>`).
   //
-  // This is an optimization, not a legality check: anything it does not
-  // recognize is left to the general lowering, so it reports plain failure
-  // without a diagnostic and without touching the IR.
+  // An optimization, not a legality check: what it does not recognize is left
+  // to the general lowering, so it fails plainly, without a diagnostic.
   LogicalResult foldFullOverwrite(mlir::stablehlo::ScatterOp srcOp,
                                   mlir::stablehlo::ScatterOp::Adaptor adaptor,
                                   ttcore::ReduceType reduceType,

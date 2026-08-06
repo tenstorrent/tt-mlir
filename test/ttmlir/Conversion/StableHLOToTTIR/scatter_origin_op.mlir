@@ -5,11 +5,10 @@
 // REQUIRES: stablehlo
 // RUN: ttmlir-opt --convert-stablehlo-to-ttir %s | FileCheck %s
 
-// Scatters with an empty `scatter_dims_to_operand_dims`. Every start index is
-// then 0, so the single update window is written at the operand's origin; when
-// it also covers the whole operand the op is a plain overwrite and folds away
-// to the update tensor. JAX emits this for an update whose index array turned
-// out to be statically empty, hence the `tensor<0x...>` index operands.
+// Scatters with an empty `scatter_dims_to_operand_dims` - hence the zero-extent
+// index operands. Every start index is then 0, so the single update window is
+// written at the operand's origin; when it also covers the whole operand the op
+// is a plain overwrite and folds away to the update tensor.
 
 module @scatter_origin {
   // CHECK-LABEL: func.func @overwrite_1d

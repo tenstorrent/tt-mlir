@@ -7,10 +7,8 @@
 
 // Single-dimensional scatters whose index tensor has no batch dimensions, so
 // index_vector_dim is 0 rather than 1 and there is exactly one window to write.
-// Because inserted_window_dims collapses a dimension, the update tensor also
-// has a lower rank than the operand and has to be reshaped up to it before
-// ttir.scatter - which requires input, index and source to share a rank - will
-// take it. All three shapes are taken from the ORB model.
+// inserted_window_dims also leaves the update tensor a rank short of the
+// operand, so it has to be reshaped up to the operand's rank.
 
 module @scatter_index_vector_dim_zero {
   // operand[:, idx] = updates

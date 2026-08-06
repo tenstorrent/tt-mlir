@@ -165,10 +165,8 @@ module @jit_scatter attributes {} {
         return %0 : tensor<3x394xi64>
     }
 
-    // Single-dimensional scatter-add where the indices carry an explicit
-    // size-1 index_vector_dim, making indices.rank (2) exceed updates.rank (1).
-    // The degenerate index_vector_dim must be squeezed and the op must still
-    // lower to a scatter-add along dim 0.
+    // Single-dimensional scatter-add whose indices carry an explicit size-1
+    // index_vector_dim, so indices.rank (2) exceeds updates.rank (1).
     func.func public @test_scatter_index_vector_dim_rank_promotion(%operand: tensor<2xi64>, %indices: tensor<256x1xi64>, %updates: tensor<256xi64>) -> tensor<2xi64> {
         // CHECK-LABEL: func.func public @test_scatter_index_vector_dim_rank_promotion
         // CHECK: [[RS:%[0-9]+]] = "ttir.reshape"(%arg1)

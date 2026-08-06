@@ -6,13 +6,9 @@
 // RUN: not ttmlir-opt --convert-stablehlo-to-ttir %s 2>&1 | FileCheck %s
 
 // An update computation that returns its *first* argument, the operand, rather
-// than the update. The scatter therefore leaves the operand untouched.
-//
-// getReduceTypeFromRegion reports ReduceType::Invalid for this, exactly as it
-// does for a real overwrite - it only looks for an arithmetic op in the region
-// and finds none either way. Lowering on the reduce type alone would turn this
-// into an overwrite and silently produce the wrong values, so the returned
-// value has to be checked as well.
+// than the update, so the scatter leaves the operand untouched. Its reduce type
+// is ReduceType::Invalid, exactly as a real overwrite's is, so lowering on the
+// reduce type alone would silently turn this into an overwrite.
 
 // CHECK: failed to legalize operation 'stablehlo.scatter'
 module @scatter_keeps_operand {

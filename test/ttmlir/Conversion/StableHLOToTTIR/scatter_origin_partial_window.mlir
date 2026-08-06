@@ -7,15 +7,11 @@
 
 // An origin scatter (empty scatter_dims_to_operand_dims) whose window covers
 // only part of the operand. Elements 4..255 keep their original values, so this
-// is not an overwrite and must not fold to the update tensor.
-//
-// It still lowers: the window starts at the origin, so the position of each
-// element along the scattered dimension is just its own offset within the
-// window, which an iota supplies. Every other dimension is already addressed
-// positionally by ttir.scatter.
+// is not an overwrite and must not fold to the update tensor. It still lowers:
+// with the window at the origin, each element's position along the scattered
+// dimension is just its own offset within the window, which an iota supplies.
 
 // CHECK-LABEL: func.func @main
-// The update tensor must not simply be returned.
 // CHECK-NOT: return %arg2
 // CHECK: ttir.arange
 // CHECK: ttir.scatter
