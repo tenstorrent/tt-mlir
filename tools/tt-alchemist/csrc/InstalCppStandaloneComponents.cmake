@@ -6,6 +6,15 @@ if(NOT DEFINED TTNN_INSTALL_DIR)
   set(TTNN_INSTALL_DIR "${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates/cpp/standalone/ttnn-install" CACHE PATH "Directory to install TT-NN components")
 endif()
 
+# tt-metal source root. Upstream assumes an in-tree build dir (`<src>/build_<type>`
+# so `TTMETAL_BUILD_DIR/..` is the source); user-managed out-of-tree builds need
+# the explicit source dir instead.
+if(TTMLIR_TTMETAL_SOURCE_DIR)
+  set(TTMETAL_SOURCE_ROOT "${TTMLIR_TTMETAL_SOURCE_DIR}")
+else()
+  set(TTMETAL_SOURCE_ROOT "${TTMETAL_BUILD_DIR}/..")
+endif()
+
 # Create install directory
 add_custom_command(
   OUTPUT ${TTNN_INSTALL_DIR}
@@ -63,15 +72,15 @@ add_custom_command(
   OUTPUT ${TTNN_INSTALL_DIR}/.missing-headers-installed
   DEPENDS ${TTNN_INSTALL_DIR}/.ttnn-dev-installed
   # Copy tracy
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTMETAL_BUILD_DIR}/../tt_metal/third_party/tracy/public/tracy ${TTNN_INSTALL_DIR}/include/tracy
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTMETAL_BUILD_DIR}/../tt_metal/third_party/tracy/public/common ${TTNN_INSTALL_DIR}/include/common
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTMETAL_BUILD_DIR}/../tt_metal/third_party/tracy/public/client ${TTNN_INSTALL_DIR}/include/client
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTMETAL_SOURCE_ROOT}/tt_metal/third_party/tracy/public/tracy ${TTNN_INSTALL_DIR}/include/tracy
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTMETAL_SOURCE_ROOT}/tt_metal/third_party/tracy/public/common ${TTNN_INSTALL_DIR}/include/common
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTMETAL_SOURCE_ROOT}/tt_metal/third_party/tracy/public/client ${TTNN_INSTALL_DIR}/include/client
   # Copy op-related missing hpp files
-  COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${TTMETAL_BUILD_DIR}/../ttnn/cpp/ttnn/operations -DDEST_DIR=${TTNN_INSTALL_DIR}/include/ttnn/operations -P ${CMAKE_CURRENT_SOURCE_DIR}/CopyHppFiles.cmake
+  COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${TTMETAL_SOURCE_ROOT}/ttnn/cpp/ttnn/operations -DDEST_DIR=${TTNN_INSTALL_DIR}/include/ttnn/operations -P ${CMAKE_CURRENT_SOURCE_DIR}/CopyHppFiles.cmake
   # Copy kernel-related missing hpp/cpp files (needed for kernel compilation in runtime)
-  COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${TTMETAL_BUILD_DIR}/../ttnn/cpp/ttnn/operations -DDEST_DIR=${TTNN_INSTALL_DIR}/libexec/tt-metalium/ttnn/cpp/ttnn/operations -P ${CMAKE_CURRENT_SOURCE_DIR}/CopyHppFiles.cmake
-  COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${TTMETAL_BUILD_DIR}/../ttnn/cpp/ttnn/operations -DDEST_DIR=${TTNN_INSTALL_DIR}/libexec/tt-metalium/ttnn/cpp/ttnn/operations -P ${CMAKE_CURRENT_SOURCE_DIR}/CopyCppFiles.cmake
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTMETAL_BUILD_DIR}/../tt_metal/api/tt-metalium ${TTNN_INSTALL_DIR}/libexec/tt-metalium/tt_metal/api/tt-metalium
+  COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${TTMETAL_SOURCE_ROOT}/ttnn/cpp/ttnn/operations -DDEST_DIR=${TTNN_INSTALL_DIR}/libexec/tt-metalium/ttnn/cpp/ttnn/operations -P ${CMAKE_CURRENT_SOURCE_DIR}/CopyHppFiles.cmake
+  COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${TTMETAL_SOURCE_ROOT}/ttnn/cpp/ttnn/operations -DDEST_DIR=${TTNN_INSTALL_DIR}/libexec/tt-metalium/ttnn/cpp/ttnn/operations -P ${CMAKE_CURRENT_SOURCE_DIR}/CopyCppFiles.cmake
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTMETAL_SOURCE_ROOT}/tt_metal/api/tt-metalium ${TTNN_INSTALL_DIR}/libexec/tt-metalium/tt_metal/api/tt-metalium
   #
   COMMAND ${CMAKE_COMMAND} -E touch ${TTNN_INSTALL_DIR}/.missing-headers-installed
   COMMENT "Installing missing headers for precompiled header"

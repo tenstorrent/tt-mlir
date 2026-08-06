@@ -105,7 +105,9 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_definitions(TT_BUILD_DEBUG TTMLIR_ENABLE_DEBUG_LOGS)
 endif()
 
-add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=ENV{TTMLIR_TOOLCHAIN_DIR})
+# LLVM 22 deprecates OpBuilder::create in favor of OpTy::create; keep the
+# warning visible but non-fatal. Full callsite migration is tracked upstream.
+add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-error=deprecated-declarations -Wno-unused-parameter --system-header-prefix=ENV{TTMLIR_TOOLCHAIN_DIR})
 
 set(CMAKE_LINKER_TYPE DEFAULT)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -175,6 +177,10 @@ if (TTMLIR_ENABLE_STABLEHLO)
   include_directories(SYSTEM ${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
   add_subdirectory(${TTMLIR_TOOLCHAIN_DIR}/src/shardy ${CMAKE_CURRENT_BINARY_DIR}/shardy EXCLUDE_FROM_ALL)
   add_subdirectory(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo ${CMAKE_CURRENT_BINARY_DIR}/stablehlo EXCLUDE_FROM_ALL)
+  # Upstream keeps a default: (report_fatal_error) in an exhaustive switch;
+  # clang 20 -Wcovered-switch-default rejects it under -Werror. Scoped to this
+  # one TU; keep the upstream file unmodified.
+  target_compile_options(obj.AttrTypeBuilderUtil PRIVATE -Wno-covered-switch-default)
   install(DIRECTORY shardy ${CMAKE_CURRENT_BINARY_DIR}/shardy/shardy
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     COMPONENT SharedLib
