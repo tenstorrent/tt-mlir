@@ -365,7 +365,7 @@ def _stage_k_segments(config, activation_sources, weight_sources, k_elements):
     return staged_activations, staged_weight, k_blocks
 
 
-def run_single_chip(config, activations, weight):
+def build_single_chip(config, activations, weight):
     d2m.mesh((1, 1), topology=("linear", "linear"))
     grid = (config.grid_y, config.grid_x)
     segment_activation_layout = _layout(
@@ -385,6 +385,7 @@ def run_single_chip(config, activations, weight):
     segment_size = config.k_segment_elements
     activation_sources = []
     weight_sources = []
+    reusable_weights = []
     for segment in range(config.k_segments):
         start = segment * segment_size
         stop = start + segment_size
@@ -394,9 +395,9 @@ def run_single_chip(config, activations, weight):
                 segment_activation_layout,
             )
         )
-        weight_sources.append(
-            d2m.to_layout(weight[start:stop, :], segment_weight_layout)
-        )
+        weight_segment = weight[start:stop, :]
+        reusable_weights.append(weight_segment)
+        weight_sources.append(d2m.to_layout(weight_segment, segment_weight_layout))
     staged_activations, staged_weight, k_blocks = _stage_k_segments(
         config,
         activation_sources,
@@ -414,10 +415,20 @@ def run_single_chip(config, activations, weight):
         grid=grid,
         kernel_io_in_dram=True,
     )
+    return output, tuple(reusable_weights)
+
+
+def run_single_chip(config, activations, weight):
+    output, _ = build_single_chip(config, activations, weight)
     return output.to_host()
 
 
-def run_two_chip(config, activations, weight, overlap):
+def prepare_single_chip(config, activations, weight):
+    output, reusable_weights = build_single_chip(config, activations, weight)
+    return d2m.prepare(output, reusable_inputs=reusable_weights)
+
+
+def build_two_chip(config, activations, weight, overlap):
     d2m.mesh((1, 2), topology=("linear", "linear"))
     grid = (config.grid_y, config.grid_x)
     segment_activation_layout = _layout(
@@ -442,6 +453,7 @@ def run_two_chip(config, activations, weight, overlap):
     segment_size = config.k_segment_elements
     activation_sources = []
     weight_sources = []
+    reusable_weights = []
     for local_segment in range(config.k_segments // 2):
         low_start = local_segment * segment_size
         high_start = low_start + config.k // 2
@@ -459,6 +471,7 @@ def run_two_chip(config, activations, weight, overlap):
             ),
             dim=0,
         )
+        reusable_weights.append(packed_weight)
         activation_sources.append(
             d2m.mesh_shard(
                 packed_activations,
@@ -539,7 +552,17 @@ def run_two_chip(config, activations, weight, overlap):
     )
     replicated = d2m.mesh_gather(
         output,
-        shard_dims=[-1, 0],
-        shard_shape=[2, 1],
+        shard_dims=[-1, -1],
+        shard_shape=[1, 1],
     )
-    return replicated.to_host()[: config.m]
+    return replicated, tuple(reusable_weights)
+
+
+def run_two_chip(config, activations, weight, overlap):
+    output, _ = build_two_chip(config, activations, weight, overlap)
+    return output.to_host()
+
+
+def prepare_two_chip(config, activations, weight, overlap):
+    output, reusable_weights = build_two_chip(config, activations, weight, overlap)
+    return d2m.prepare(output, reusable_inputs=reusable_weights)

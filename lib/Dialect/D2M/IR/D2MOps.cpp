@@ -372,7 +372,8 @@ d2m::MeshShardOp::getBufferType(
   auto shardShapeArray = getShardShape();
   auto shardType = getShardType();
   if (shardType != mlir::tt::ttcore::MeshShardType::Replicate &&
-      ttmlir::utils::volume(shardShapeArray) == 1) {
+      ttmlir::utils::volume(shardShapeArray) == 1 &&
+      getInput().getType() == getResult().getType()) {
     return getInput();
   }
 

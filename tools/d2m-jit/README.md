@@ -110,11 +110,19 @@ MLIR `Context`, `Module`, and an open `func.func`. Every call to
 ops to that open function. The graph **is** the MLIR module — there is no
 separate Python-side IR.
 
-The builder lifecycle is:
+The one-shot builder lifecycle is:
 
 1. Lazy-created on the first lazy-tensor construction.
 2. Reset by `to_host(*lts)`: emits returns, runs the pass pipeline, executes
    the resulting flatbuffer on a mesh device, drops the module.
+
+For repeated execution, `d2m.prepare(*lts, reusable_inputs=...)` runs the
+compiler pipeline once and opens a persistent mesh with TT-Metal's program
+cache enabled. The returned `PreparedExecutable` supports `submit`, `wait`,
+`readback`, and `run`; close it explicitly or use it as a context manager.
+Torch tensors listed in `reusable_inputs` are immutable for the executable's
+lifetime: their converted device buffers are retained after the first run and
+rebound on later runs.
 
 After reset, every `LazyTensor` produced by the dropped builder generation is
 "spent":
@@ -177,6 +185,7 @@ kernel body.
 | `d2m.permute(lt, *dims)` | `torch.permute`-style positional permutation. |
 | `d2m.reshape(lt, *new_shape)` | `torch.reshape`-style logical-shape change. A single `-1` dim is inferred from the others. Currently a host roundtrip (`to_host` -> `torch.reshape` -> `to_layout`); pays a DRAM transfer. Use for shape changes not expressible as a `view`. |
 | `d2m.spatial(inputs, outputs, grid_ranges, region_builders)` | Emit a `d2m.spatial` wrapper around one `@d2m.kernel` call per disjoint core range. |
+| `d2m.prepare(*lts, reusable_inputs=())` | Compile once and return a persistent `PreparedExecutable` for repeated submissions. |
 | `d2m.to_host(*lts)` | Compile and execute; return a tuple of `torch.Tensor`s. Resets the builder. |
 | `LazyTensor.to_host()` | Sugar for `to_host(self)[0]`. |
 
@@ -413,11 +422,13 @@ D2M_JIT_RUN_FABRIC_STRESS=1 \
 pytest test/d2m-jit/test_mesh.py
 ```
 
-The BF16 Llama 3 8B prefill down-projection benchmark compares the same dense
-`576x14336 @ 14336x4096` operation on one chip and with two-way K-sharded
-tensor parallelism. The two-chip modes provide serialized and overlapped
-matmul/all-reduce schedules. They can capture host/runtime Tracy zones when the
-runtime was built with `TT_RUNTIME_ENABLE_PERF_TRACE=ON`:
+The BF16 Llama 3 8B prefill benchmark defaults to the full gated MLP at
+`M=576`, hidden size `4096`, and intermediate size `14336`. Its two-chip modes
+column-shard the gate/up projections, keep the gated activation local, then
+row-shard the down projection and compare serialized and overlapped all-reduce
+schedules. `--workload down-projection` selects the isolated down projection.
+The default prepared lifecycle separates one-time compilation/device setup
+from steady-state invocation and retains the three immutable weights:
 
 ```bash
 export SYSTEM_DESC_PATH=/path/to/two-chip.ttsys
@@ -430,8 +441,10 @@ python test/d2m-jit/multichip_overlap_benchmark.py two-chip-overlap \
 ```
 
 Pass `--device-profile-dir DIR` to collect the matching tt-metal device
-timeline. Tracy summaries exclude warmup iterations; the device summary reports
-the longest kernel envelope in the captured warmup and measured iterations.
+timeline. Tracy reports the prepare, invoke, wait, and readback lifecycle zones
+and command composition for measured iterations. The device summary excludes
+warmup and reports the longest individual kernel, summed program activity on
+the critical chip, and the end-to-end kernel schedule span for each invocation.
 
 ## Pipeline
 

@@ -27,21 +27,33 @@ shard = d2m.mesh_shard(
     shard_shape=[1, 2],
 )
 gathered = d2m.mesh_gather(shard)
+replicated_full = torch.zeros((64, 64), dtype=torch.float32)
+replicated = d2m.mesh_shard(
+    replicated_full,
+    layout,
+    shard_dims=[-1, -1],
+    shard_shape=[1, 1],
+)
+gathered_replicated = d2m.mesh_gather(replicated)
 
 builder = _Builder.get()
 assert builder._mesh_shape == [1, 2]
 assert builder._mesh_topology == ["linear", "ring"]
 assert shard.mesh.full_shape == [64, 128]
-_emit_returns_and_finalise(builder, [gathered])
+_emit_returns_and_finalise(builder, [gathered, gathered_replicated])
 builder.module.operation.verify()
 print(builder.module)
 _Builder.reset()
 
 
 # CHECK: module attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x2>]>}
-# CHECK: func.func @main(%{{.*}}: tensor<64x128xf32>) -> tensor<64x128xf32>
+# CHECK: func.func @main(%{{.*}}: tensor<64x128xf32>, %{{.*}}: tensor<64x64xf32>) -> (tensor<64x128xf32>, tensor<64x64xf32>)
 # CHECK: shard_direction = #ttcore.shard_direction<full_to_shard>
 # CHECK-SAME: tensor<64x128xf32> -> tensor<64x64xf32, #ttcore.tensor_mesh<"mesh">>
+# CHECK: shard_type = #ttcore.shard_type<replicate>
+# CHECK-SAME: tensor<64x64xf32> -> tensor<64x64xf32, #ttcore.tensor_mesh<"mesh">>
 # CHECK: tensor<64x64xf32, #ttcore.tensor_mesh<"mesh">>
 # CHECK: shard_direction = #ttcore.shard_direction<shard_to_full>
 # CHECK-SAME: tensor<64x64xf32, #ttcore.tensor_mesh<"mesh">> -> tensor<64x128xf32>
+# CHECK: shard_type = #ttcore.shard_type<replicate>
+# CHECK-SAME: tensor<64x64xf32, #ttcore.tensor_mesh<"mesh">> -> tensor<64x64xf32>

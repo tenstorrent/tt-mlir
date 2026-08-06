@@ -162,8 +162,10 @@ shardHostBuffer(const tt_metal::HostBuffer &hostBuffer,
 
   // replicate - use the host buffer for all shards in distributed buffer.
   if (meshShardType == target::MeshShardType::Replicate) {
-    LOG_ASSERT(meshShardDims.size() == 1 && meshShardDims[0] == -1,
-               "Replicate shard type should have a single dimension set to -1");
+    LOG_ASSERT(!meshShardDims.empty() &&
+                   std::all_of(meshShardDims.begin(), meshShardDims.end(),
+                               [](int64_t dim) { return dim == -1; }),
+               "Replicate shard type should only contain -1 shard dimensions");
     auto distributedBuffer = tt_metal::DistributedHostBuffer::create(meshShape);
     for (const auto &coord :
          tt_metal::distributed::MeshCoordinateRange(meshShape)) {

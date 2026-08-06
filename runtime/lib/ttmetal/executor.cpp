@@ -33,6 +33,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -47,6 +48,7 @@ namespace {
 struct CachedKernelBinding {
   tt_metal::KernelHandle handle;
   tt_metal::CoreRangeSet coreRangeSet;
+  std::vector<std::uint32_t> compileArgs;
   std::vector<std::uint32_t> commonRuntimeArgs;
   std::vector<std::uint32_t> runtimeArgs;
 };
@@ -56,34 +58,18 @@ struct CachedCircularBufferBinding {
   std::uint32_t bufferGlobalId;
 };
 
-struct CachedMeshWorkloadState {
+struct CachedProgramBinding {
   std::vector<CachedKernelBinding> kernels;
   std::vector<CachedCircularBufferBinding> circularBuffers;
 };
 
+struct CachedMeshWorkloadState {
+  std::unordered_map<distributed::MeshCoordinateRange, CachedProgramBinding>
+      programs;
+};
+
 using CachedMeshWorkload = tt_metal::program_cache::detail::CachedMeshWorkload<
     CachedMeshWorkloadState>;
-
-bool hasDynamicCompileTimeBindings(
-    const target::metal::EnqueueProgramCommand *command) {
-  for (const target::metal::KernelConfig *kernelConfig :
-       *command->program()->kernels()) {
-    const auto *compileArgs = kernelConfig->args()->ct_args();
-    if (!compileArgs) {
-      continue;
-    }
-
-    for (const target::metal::KernelArg *kernelArg : *compileArgs) {
-      if (kernelArg->arg_type() ==
-              target::metal::KernelArgType::KernelArgBufferAddress ||
-          kernelArg->arg_type() ==
-              target::metal::KernelArgType::KernelArgGlobalSemaphore) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
 
 struct ReusableInputKey {
   std::uint32_t deviceId;
@@ -451,9 +437,6 @@ MCQExecutor::MCQExecutor(
     }
     if (reusableInputCache &&
         hostBuffers.find(ref->global_id()) != hostBuffers.end()) {
-      LOG_ASSERT(meshDevice->num_devices() == 1,
-                 "Reusable D2M inputs currently require a single-device "
-                 "program");
       hostBufferInputProvenance.try_emplace(
           ref->global_id(),
           ProgramInputProvenance{currentInputIndex,
@@ -535,8 +518,15 @@ void MCQExecutor::analyzeReusableInputs(
     }
     case target::metal::CommandType::MeshShardCommand: {
       const auto *meshShard = command->type_as_MeshShardCommand();
-      markHostUse(meshShard->src());
-      provenance.erase(meshShard->dst()->global_id());
+      auto source = provenance.find(meshShard->src()->global_id());
+      if (source == provenance.end()) {
+        provenance.erase(meshShard->dst()->global_id());
+        break;
+      }
+      provenance.insert_or_assign(meshShard->dst()->global_id(),
+                                  source->second);
+      plans.at(source->second.inputIndex)
+          .derivedHostBufferIds.insert(meshShard->dst()->global_id());
       break;
     }
     case target::metal::CommandType::ReturnCommand: {
@@ -550,6 +540,8 @@ void MCQExecutor::analyzeReusableInputs(
       break;
     }
   }
+
+  hostBufferInputProvenance = provenance;
 
   for (const auto &[inputIndex, plan] : plans) {
     if (!plan.input.cache || plan.requiresHostMaterialization ||
@@ -839,52 +831,66 @@ void MCQExecutor::refreshCachedMeshWorkload(
     CachedMeshWorkload &cached,
     const target::metal::EnqueueProgramCommand *command) {
   auto &programs = cached.workload.get_programs();
-  LOG_ASSERT(programs.size() == 1,
-             "Cached non-fabric workloads must contain exactly one program");
-  tt_metal::Program &program = programs.begin()->second;
-  LOG_ASSERT(cached.shared_variables.kernels.size() ==
-                 command->program()->kernels()->size(),
-             "Cached kernel binding count mismatch");
+  LOG_ASSERT(programs.size() == cached.shared_variables.programs.size(),
+             "Cached program binding count mismatch");
 
-  std::function<std::uint32_t(std::uint32_t)> preserveLocalSemaphores;
-  for (std::size_t i = 0; i < cached.shared_variables.kernels.size(); ++i) {
-    const target::metal::KernelConfig *kernelConfig =
-        command->program()->kernels()->Get(i);
-    const CachedKernelBinding &binding = cached.shared_variables.kernels[i];
+  for (auto &[range, program] : programs) {
+    const CachedProgramBinding &programBinding =
+        cached.shared_variables.programs.at(range);
+    LOG_ASSERT(programBinding.kernels.size() ==
+                   command->program()->kernels()->size(),
+               "Cached kernel binding count mismatch");
 
-    std::vector<std::uint32_t> commonRuntimeArgs = refreshRuntimeArgs(
-        binding.commonRuntimeArgs, kernelConfig->args()->crt_args(),
-        command->arg_refs_type(), command->arg_refs(), meshBuffers,
-        global_semaphores, local_semaphore_initializer, command->cbs(),
-        deviceAddressValidator, preserveLocalSemaphores, hostBuffers);
-    tt_metal::RuntimeArgsData &cachedCommonRuntimeArgs =
-        tt_metal::GetCommonRuntimeArgs(program, binding.handle);
-    LOG_ASSERT(cachedCommonRuntimeArgs.size() == commonRuntimeArgs.size(),
-               "Cached common runtime argument count mismatch");
-    std::copy(commonRuntimeArgs.begin(), commonRuntimeArgs.end(),
-              cachedCommonRuntimeArgs.data());
+    std::function<std::uint32_t(std::uint32_t)> preserveLocalSemaphores;
+    for (std::size_t i = 0; i < programBinding.kernels.size(); ++i) {
+      const target::metal::KernelConfig *kernelConfig =
+          command->program()->kernels()->Get(i);
+      const CachedKernelBinding &binding = programBinding.kernels[i];
 
-    std::vector<std::uint32_t> runtimeArgs = refreshRuntimeArgs(
-        binding.runtimeArgs, kernelConfig->args()->rt_args(),
-        command->arg_refs_type(), command->arg_refs(), meshBuffers,
-        global_semaphores, local_semaphore_initializer, command->cbs(),
-        deviceAddressValidator, preserveLocalSemaphores, hostBuffers);
-    for (const tt_metal::CoreCoord core :
-         tt_metal::corerange_to_cores(binding.coreRangeSet)) {
-      tt_metal::RuntimeArgsData &cachedRuntimeArgs =
-          tt_metal::GetRuntimeArgs(program, binding.handle, core);
-      LOG_ASSERT(cachedRuntimeArgs.size() == runtimeArgs.size(),
-                 "Cached runtime argument count mismatch");
-      std::copy(runtimeArgs.begin(), runtimeArgs.end(),
-                cachedRuntimeArgs.data());
+      std::vector<std::uint32_t> compileArgs = processCompileArgs(
+          kernelConfig->args()->ct_args(), command->arg_refs_type(),
+          command->arg_refs(), meshBuffers, global_semaphores,
+          local_semaphore_initializer, command->cbs(), deviceAddressValidator,
+          std::function<std::uint32_t(std::uint32_t)>(), hostBuffers,
+          &binding.compileArgs);
+      LOG_ASSERT(compileArgs == binding.compileArgs,
+                 "Cached compile-time kernel arguments changed between "
+                 "submissions");
+
+      std::vector<std::uint32_t> commonRuntimeArgs = refreshRuntimeArgs(
+          binding.commonRuntimeArgs, kernelConfig->args()->crt_args(),
+          command->arg_refs_type(), command->arg_refs(), meshBuffers,
+          global_semaphores, local_semaphore_initializer, command->cbs(),
+          deviceAddressValidator, preserveLocalSemaphores, hostBuffers);
+      tt_metal::RuntimeArgsData &cachedCommonRuntimeArgs =
+          tt_metal::GetCommonRuntimeArgs(program, binding.handle);
+      LOG_ASSERT(cachedCommonRuntimeArgs.size() == commonRuntimeArgs.size(),
+                 "Cached common runtime argument count mismatch");
+      std::copy(commonRuntimeArgs.begin(), commonRuntimeArgs.end(),
+                cachedCommonRuntimeArgs.data());
+
+      std::vector<std::uint32_t> runtimeArgs = refreshRuntimeArgs(
+          binding.runtimeArgs, kernelConfig->args()->rt_args(),
+          command->arg_refs_type(), command->arg_refs(), meshBuffers,
+          global_semaphores, local_semaphore_initializer, command->cbs(),
+          deviceAddressValidator, preserveLocalSemaphores, hostBuffers);
+      for (const tt_metal::CoreCoord core :
+           tt_metal::corerange_to_cores(binding.coreRangeSet)) {
+        tt_metal::RuntimeArgsData &cachedRuntimeArgs =
+            tt_metal::GetRuntimeArgs(program, binding.handle, core);
+        LOG_ASSERT(cachedRuntimeArgs.size() >= runtimeArgs.size(),
+                   "Cached runtime argument count mismatch");
+        std::copy(runtimeArgs.begin(), runtimeArgs.end(),
+                  cachedRuntimeArgs.data());
+      }
     }
-  }
 
-  for (const CachedCircularBufferBinding &binding :
-       cached.shared_variables.circularBuffers) {
-    const auto &meshBuffer = meshBuffers.at(binding.bufferGlobalId);
-    tt_metal::UpdateDynamicCircularBufferAddress(
-        program, binding.handle, *meshBuffer->get_reference_buffer());
+    for (const CachedCircularBufferBinding &binding :
+         programBinding.circularBuffers) {
+      const auto &meshBuffer = meshBuffers.at(binding.bufferGlobalId);
+      tt_metal::UpdateDynamicCircularBufferAddress(
+          program, binding.handle, *meshBuffer->get_reference_buffer());
+    }
   }
 }
 
@@ -916,20 +922,26 @@ void MCQExecutor::enqueueMeshWorkload(distributed::MeshWorkload &workload,
 void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
                           const char *loc, const char *debugInfo) {
   ZoneScopedN("EnqueueProgramCommand");
+  if (loc) {
+    std::string_view zoneText(loc);
+    constexpr std::string_view namePrefix = "loc(\"";
+    constexpr std::string_view nameSuffix = "\")";
+    if (zoneText.size() >= namePrefix.size() + nameSuffix.size() &&
+        zoneText.substr(0, namePrefix.size()) == namePrefix &&
+        zoneText.substr(zoneText.size() - nameSuffix.size()) == nameSuffix) {
+      zoneText = zoneText.substr(namePrefix.size(), zoneText.size() -
+                                                        namePrefix.size() -
+                                                        nameSuffix.size());
+    }
+    ZoneText(zoneText.data(), zoneText.size());
+  }
   LOG_TRACE(logger::LogRuntimeTTMetalCommand, "Executing program: ", loc, "\n",
             debugInfo);
 
   const std::uint32_t commandIndex = nextEnqueueProgramIndex++;
   auto &programCache = meshDevice->get_program_cache();
 
-  // Cached bindings describe one Program. Multi-device and fabric workloads
-  // need per-Program binding state before they can be refreshed safely. Buffer
-  // and global semaphore addresses baked into kernels can change between
-  // submissions, so those programs must be rebuilt.
-  const bool cacheEligible = programCache.is_enabled() &&
-                             meshDevice->num_devices() == 1 &&
-                             !command->fabric_connection_config() &&
-                             !hasDynamicCompileTimeBindings(command);
+  const bool cacheEligible = programCache.is_enabled();
   tt_metal::program_cache::detail::ProgramCacheKey programKey;
   if (cacheEligible) {
     programKey = createProgramCacheKey(command, commandIndex);
@@ -951,6 +963,7 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   auto meshWorkload = distributed::MeshWorkload();
   auto deviceRange = distributed::MeshCoordinateRange(meshDevice->shape());
   for (auto deviceCoord : deviceRange) {
+    CachedProgramBinding cacheProgramBinding;
     tt_metal::Program program = tt_metal::CreateProgram();
     for (const target::metal::KernelConfig *kernelConfig :
          *command->program()->kernels()) {
@@ -967,13 +980,17 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
         return tt_metal::CreateSemaphore(program, coreRangeSet, initialValue);
       };
 
+      auto materializedKernelConfig = createKernelConfig(
+          kernelConfig, command->arg_refs_type(), command->arg_refs(),
+          meshBuffers, global_semaphores, local_semaphore_initializer,
+          command->cbs(), deviceAddressValidator, createSemaphore, hostBuffers);
+      const std::vector<std::uint32_t> &compileArgs = std::visit(
+          [](const auto &config) -> const std::vector<std::uint32_t> & {
+            return config.compile_args;
+          },
+          materializedKernelConfig);
       tt_metal::KernelHandle handle = createKernel(
-          program, kernelSourceString, coreRangeSet,
-          createKernelConfig(kernelConfig, command->arg_refs_type(),
-                             command->arg_refs(), meshBuffers,
-                             global_semaphores, local_semaphore_initializer,
-                             command->cbs(), deviceAddressValidator,
-                             createSemaphore, hostBuffers),
+          program, kernelSourceString, coreRangeSet, materializedKernelConfig,
           currentProgramName, debugInfo, kernelConfig->debug_info()->c_str(),
           kernelConfig->loc() ? kernelConfig->loc()->c_str() : nullptr);
 
@@ -1010,9 +1027,9 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
       }
 
       if (cacheEligible) {
-        cacheState.kernels.push_back({handle, coreRangeSet,
-                                      std::move(commonRtArgsVec),
-                                      std::move(rtArgsVec)});
+        cacheProgramBinding.kernels.push_back(
+            {handle, coreRangeSet, compileArgs, std::move(commonRtArgsVec),
+             std::move(rtArgsVec)});
       }
     }
 
@@ -1040,18 +1057,22 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
       tt_metal::CBHandle handle =
           tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
       if (cacheEligible) {
-        cacheState.circularBuffers.push_back(
+        cacheProgramBinding.circularBuffers.push_back(
             {handle, cbRef->buffer_ref()->global_id()});
       }
     }
 
-    // fabric connected cores all have separate runtime args so we add a
-    // separate program for each device
-    if (command->fabric_connection_config()) {
-      meshWorkload.add_program(distributed::MeshCoordinateRange(deviceCoord),
-                               std::move(program));
-    } else {
-      meshWorkload.add_program(deviceRange, std::move(program));
+    // Fabric connection arguments are device-specific, so fabric workloads
+    // need one Program per device.
+    distributed::MeshCoordinateRange programRange =
+        command->fabric_connection_config()
+            ? distributed::MeshCoordinateRange(deviceCoord)
+            : deviceRange;
+    if (cacheEligible) {
+      cacheState.programs.emplace(programRange, std::move(cacheProgramBinding));
+    }
+    meshWorkload.add_program(programRange, std::move(program));
+    if (!command->fabric_connection_config()) {
       break;
     }
   }
@@ -1281,6 +1302,9 @@ void MCQExecutor::execute(const target::metal::FinishCommand *) {
 
 void MCQExecutor::execute(const target::metal::MeshShardCommand *command) {
   ZoneScopedN("MeshShardCommand");
+  if (skippedHostBufferIds.contains(command->dst()->global_id())) {
+    return;
+  }
   LOG_ASSERT(command->src()->desc()->buffer_detail_type() ==
                  tt::target::metal::BufferDetail::SystemBuffer,
              "MeshShardCommand requires system memory as input");
