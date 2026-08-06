@@ -87,9 +87,9 @@ struct InductionComparison {
 //   ^cond(...): %p = ttir.<cmp>(%arg_k, <invariant const>)
 //               ttir.yield %p
 // The induction variable may be on either side; canonicalization commutes
-// comparisons, so `lt(%arg_k, %limit)` often reaches us as `gt(%limit, %arg_k)`.
-std::optional<InductionComparison>
-matchConditionRegion(ttir::WhileOp whileOp) {
+// comparisons, so `lt(%arg_k, %limit)` often reaches us as `gt(%limit,
+// %arg_k)`.
+std::optional<InductionComparison> matchConditionRegion(ttir::WhileOp whileOp) {
   Block &block = whileOp.getCondBlock();
   Operation *compareOp =
       whileOp.getCondYield().getOperands().front().getDefiningOp();
@@ -203,7 +203,8 @@ std::optional<int64_t> computeTripCount(const InductionComparison &comparison,
   if (comparison.inclusive) {
     limit += comparison.ascending ? 1 : -1;
   }
-  llvm::APInt distance = comparison.ascending ? (limit - begin) : (begin - limit);
+  llvm::APInt distance =
+      comparison.ascending ? (limit - begin) : (begin - limit);
   llvm::APInt absStride = comparison.ascending ? stride : -stride;
 
   if (!distance.isStrictlyPositive()) {
@@ -224,8 +225,8 @@ std::optional<int64_t> analyzeTripCount(ttir::WhileOp whileOp) {
     return std::nullopt;
   }
 
-  std::optional<llvm::APInt> start = matchScalarIntConstant(
-      whileOp.getInits()[comparison->inductionIndex]);
+  std::optional<llvm::APInt> start =
+      matchScalarIntConstant(whileOp.getInits()[comparison->inductionIndex]);
   if (!start) {
     return std::nullopt;
   }

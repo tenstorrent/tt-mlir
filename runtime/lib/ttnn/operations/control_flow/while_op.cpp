@@ -40,14 +40,10 @@ uint64_t getMaxIterations() {
 // underlying ttnn tensor, with its own retain flag already raised.
 //
 // A nested program must not deallocate the values the loop hands it, and retain
-// is the flag that prevents that -- but it is not this op's flag to touch.
-// Const-eval keeps its cached outputs retained, trace keeps its input and
-// output slots retained, and a host caller can retain a tensor it passes in as
-// a program argument. Those are not hypothetical: when the loop bounds are
-// const-eval'd, every init and most captures arrive already retained and
-// registered in GlobalTensorCache. Raising the flag on a private view leaves
-// theirs untouched by construction, instead of relying on this op to correctly
-// restore what it found.
+// is the flag that prevents that - but it is not this op's flag to touch, since
+// const-eval, trace and host callers all keep tensors retained for their own
+// reasons. Raising it on a private view leaves theirs untouched by
+// construction.
 //
 // No data is copied. The view shares the underlying buffer, which also bumps
 // its refcount and so makes any non-forced deallocation of it a no-op.
@@ -55,8 +51,8 @@ uint64_t getMaxIterations() {
   const ::tt::runtime::ttnn::TTNNTensorWrapper &wrapper =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
   // Copied once here, so the view's event and the source's are independent from
-  // this point on. Harmless while the field is mostly unset, but revisit it if
-  // non-blocking readbacks or multiple command queues become widely used.
+  // this point on. Revisit if non-blocking readbacks or multiple command queues
+  // become widely used.
   std::optional<::ttnn::MeshEvent> meshEvent = wrapper.getMeshEvent();
 
   ::tt::runtime::Tensor view =
@@ -65,7 +61,7 @@ uint64_t getMaxIterations() {
 
   // Keep the version aligned with the source so consumers that key off it (the
   // const-eval cache, trace input-slot staleness) cannot mistake the view for a
-  // newer value. Trace does the same for its input slots.
+  // newer value.
   view.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
       .syncVersion(wrapper);
   return view;
@@ -77,9 +73,8 @@ runSubProgram(uint32_t programId, ProgramContext &context,
               const std::vector<::tt::runtime::Tensor> &captures,
               const std::vector<::tt::runtime::GlobalSemaphore> &semaphores) {
   // Retained views, not the tensors themselves: the sub-program must not
-  // deallocate what the loop still needs, and this is the only scope in which
-  // that protection is required. The views die with this vector, so no retain
-  // state outlives the call and there is nothing to unwind on an early exit.
+  // deallocate what the loop still needs, and the views die with this vector,
+  // so no retain state outlives the call.
   //
   // ProgramExecutor's tensor pool holds raw pointers into this vector, so it
   // has to be a distinct, stable object for the executor's whole lifetime.
@@ -101,9 +96,9 @@ runSubProgram(uint32_t programId, ProgramContext &context,
 
   // A body that yields one of its arguments unchanged hands back the very view
   // that was passed in, because the pool resolves that output id straight to
-  // the input slot. Map those back to the tensor the view was made from, so no
-  // view escapes this function: a view's retain flag is raised, and publishing
-  // one as a loop result would stop the enclosing program from ever freeing it.
+  // the input slot. Map those back to the tensor the view was made from: a
+  // view's retain flag is raised, so publishing one as a loop result would stop
+  // the enclosing program from ever freeing it.
   auto sourceOf = [&](size_t index) -> const ::tt::runtime::Tensor & {
     return index < carried.size() ? carried[index]
                                   : captures[index - carried.size()];
@@ -125,12 +120,10 @@ runSubProgram(uint32_t programId, ProgramContext &context,
   return outputs;
 }
 
-// Evaluates the condition program and reads its result back to host.
-//
-// This is the synchronization point that makes data-dependent loops expensive:
-// one device-to-host transfer per iteration. The compiler guarantees the
-// condition is already a host-resident single-element uint32 tensor (see
-// TTNNLayoutWhileOpRewriter), so there is nothing to move here.
+// Evaluates the condition program and reads its result back to host, the
+// device-to-host synchronization a data-dependent loop pays per iteration. The
+// compiler guarantees the condition is already a host-resident single-element
+// uint32 tensor (see TTNNLayoutWhileOpRewriter), so nothing is moved here.
 bool evaluateCondition(
     const ::tt::target::ttnn::WhileOp *op, ProgramContext &context,
     const std::vector<::tt::runtime::Tensor> &carried,
@@ -199,8 +192,8 @@ void run(const ::tt::target::ttnn::WhileOp *op, ProgramContext &context) {
   }
 
   // `carried` is either the inits, still owned by the enclosing program, or the
-  // body's own outputs -- never a view -- so the results are published exactly
-  // as a func call would publish them, with retain untouched.
+  // body's own outputs - never a view - so the results are published exactly as
+  // a func call would publish them, with retain untouched.
   LOG_ASSERT(carried.size() == op->outputs()->size(),
              "Number of outputs does not match");
   for (size_t i = 0; i < op->outputs()->size(); i++) {

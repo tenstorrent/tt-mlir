@@ -189,10 +189,9 @@ public:
              "found func that didn't have one block!");
       Liveness liveness(func.getOperation());
 
-      // Liveness is per block, and ops nested in a region (e.g. a ttnn.while
-      // body) belong to their own block, so the info has to be looked up from
-      // the block that actually owns the value rather than from the function's
-      // entry block.
+      // Liveness is per block, so it has to be looked up from the block that
+      // owns the value rather than from the function's entry block: values
+      // defined inside a region (a ttnn.while body, say) live in their own.
       auto livenessFor = [&](Value value) {
         return liveness.getLiveness(value.getParentBlock());
       };

@@ -801,12 +801,10 @@ namespace {
 // Brings a `ttir.while` into the shape the runtime and the `ttnn.while`
 // verifier require:
 //
-//   - the condition is read back to host every iteration to decide whether to
-//     keep looping, so the value yielded by the `cond` region is forced to a
-//     row-major `uint32` tensor in system memory;
-//   - each region's inputs are rebound from the values yielded by `body` on
-//     the next iteration, so every loop-carried value must keep the layout of
-//     the matching block argument across the yield.
+//   - the value yielded by `cond` is forced to a row-major `uint32` tensor in
+//     system memory, since the runtime reads it back to host every iteration;
+//   - every loop-carried value is relaid out to match its block argument, so
+//     that the layouts hold across the loop back-edge.
 class TTNNLayoutWhileOpRewriter : public OpRewritePattern<ttir::WhileOp> {
 public:
   TTNNLayoutWhileOpRewriter(MLIRContext *ctx)
@@ -855,7 +853,8 @@ private:
     }
 
     if (modified) {
-      rewriter.modifyOpInPlace(yieldOp, [&]() { yieldOp.setOperand(0, condition); });
+      rewriter.modifyOpInPlace(yieldOp,
+                               [&]() { yieldOp.setOperand(0, condition); });
     }
     return modified;
   }
@@ -867,7 +866,8 @@ private:
 
     rewriter.setInsertionPoint(yieldOp);
     for (OpOperand &operand : yieldOp->getOpOperands()) {
-      Type expectedType = block.getArgument(operand.getOperandNumber()).getType();
+      Type expectedType =
+          block.getArgument(operand.getOperandNumber()).getType();
       if (operand.get().getType() == expectedType) {
         continue;
       }
@@ -875,7 +875,8 @@ private:
       auto layout =
           mlir::cast<TTNNLayoutAttr>(expectedTensorType.getEncoding());
       std::optional<Value> relaidOut = createToLayoutOp(
-          rewriter, appendInputSuffix(yieldOp.getLoc(), operand.getOperandNumber()),
+          rewriter,
+          appendInputSuffix(yieldOp.getLoc(), operand.getOperandNumber()),
           operand.get(), layout.getBufferType(),
           mlir::isa<ttcore::TileType>(layout.getElementType()));
       if (!relaidOut) {
@@ -937,8 +938,6 @@ public:
       patterns.add<TTNNLayoutLoadCachedOpTypeRewriter>(&getContext());
       patterns.add<TTNNLayoutCompositeOpTypeRewriter>(&getContext());
 
-      // Force the loop condition to host and restore layout invariance across
-      // the loop back-edge.
       patterns.add<TTNNLayoutWhileOpRewriter>(&getContext());
 
       FrozenRewritePatternSet patternSet(std::move(patterns));

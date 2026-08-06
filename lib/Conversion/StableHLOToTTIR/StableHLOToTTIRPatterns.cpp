@@ -156,8 +156,7 @@ static bool checkInitValue(mlir::ElementsAttr initValue, mlir::Type elementType,
   }
 
   if (elementType.isBF16()) {
-    const llvm::APFloat &value =
-        *initValue.value_begin<llvm::APFloat>();
+    const llvm::APFloat &value = *initValue.value_begin<llvm::APFloat>();
     if (desired == TypicalInitReductionValue::NEG_INF) {
       return value.isInfinity() && value.isNegative();
     }
@@ -179,8 +178,7 @@ static bool checkInitValue(mlir::ElementsAttr initValue, mlir::Type elementType,
   // unsigned (ui32/ui64) attributes -- e.g. the dense<4294967295> :
   // tensor<ui32> sentinel that torch 2.11's max_pool2d_with_indices lowering
   // emits (#9031).
-  if (auto intType = mlir::dyn_cast<mlir::IntegerType>(
-          elementType)) {
+  if (auto intType = mlir::dyn_cast<mlir::IntegerType>(elementType)) {
     unsigned width = intType.getWidth();
     // Restrict to the widths the original signed-typed reads handled
     // (i1/i8/i32/i64). Other widths previously fell through to `return false`,
@@ -189,8 +187,7 @@ static bool checkInitValue(mlir::ElementsAttr initValue, mlir::Type elementType,
     if (width != 1 && width != 8 && width != 32 && width != 64) {
       return false;
     }
-    const llvm::APInt &value =
-        *initValue.value_begin<llvm::APInt>();
+    const llvm::APInt &value = *initValue.value_begin<llvm::APInt>();
     if (width == 1) {
       return value.getBoolValue() == desiredI1;
     }
@@ -706,28 +703,24 @@ private:
   // Verify that the init value is defined by a constant op and initialize with
   // desired value.
   //
-  // Every `getDefiningOp()` here can return null: `val` is a block argument
-  // whenever the init value comes from outside the enclosing region (a
-  // function argument, or a loop-carried/captured value of a surrounding
-  // `while`), and walking up a single-operand chain can reach one just the
-  // same. A null defining op simply means the value is not a constant, so
-  // treat it as a non-match rather than dereferencing it.
+  // Every `getDefiningOp()` here can return null, since `val` or a value up its
+  // single-operand chain may be a block argument. That just means the value is
+  // not a constant, so treat it as a non-match.
   bool verifyInitValue(mlir::Value val,
                        TypicalInitReductionValue desired) const {
     val = resolveWhileCapture(val);
     Operation *initValue = val.getDefiningOp();
     while (initValue && initValue->getOpOperands().size() == 1) {
-      initValue = resolveWhileCapture(initValue->getOpOperand(0).get())
-                      .getDefiningOp();
+      initValue =
+          resolveWhileCapture(initValue->getOpOperand(0).get()).getDefiningOp();
     }
     if (!initValue) {
       return false;
     }
 
     // The constant may still be in StableHLO form, or may already have been
-    // converted - resolveWhileCapture steps out of a region onto a
-    // `ttir.while` operand, which the driver has converted by the time the op
-    // inside the region is reached.
+    // converted: resolveWhileCapture steps out onto a `ttir.while` operand,
+    // which the driver converts before it reaches the ops inside the regions.
     if (auto constantOp =
             mlir::dyn_cast<mlir::stablehlo::ConstantOp>(initValue)) {
       return checkInitValue(constantOp.getValue(),
@@ -743,17 +736,13 @@ private:
   }
 
   // Steps out of a `ttir.while` region: given one of a region's block
-  // arguments, returns the operand it is bound to, which lives in the
-  // enclosing scope.
+  // arguments, returns the operand it is bound to, which lives in the enclosing
+  // scope. Returns `val` unchanged if it is not such a block argument.
   //
-  // The while conversion promotes everything its regions read from outside to
-  // an explicit capture, because `ttir.while` is IsolatedFromAbove. That hides
-  // the defining op of any such value behind a block argument, and an argmax
-  // nested in a loop reads its -inf/0 init values from outside the loop. The
-  // operands are laid out as the loop-carried inits followed by the captures,
+  // An argmax nested in a loop reads its -inf/0 init values from outside the
+  // loop, and the while conversion turns those into captures, hiding their
+  // defining ops behind block arguments. The operands are `inits ++ captures`,
   // in the same order as the block arguments, so the two line up by index.
-  //
-  // Returns `val` unchanged if it is not such a block argument.
   static Value resolveWhileCapture(Value val) {
     auto blockArg = mlir::dyn_cast<BlockArgument>(val);
     if (!blockArg) {
@@ -10942,16 +10931,13 @@ public:
 // regions are preserved rather than pattern-matched into an attribute. Two
 // things need fixing up along the way:
 //
-//   - `ttir.while` is IsolatedFromAbove, so values the regions use but that
-//     are defined outside the op must be promoted to explicit `captures`
-//     operands and appended to both regions' block arguments. This is not
-//     cosmetic: each region becomes its own program at runtime, with its own
-//     tensor pool, and can only see tensors bound through its own inputs.
-//     This applies to constants as well: cloning them into the regions instead
-//     would leave a const-evaluable op inside a region that is isolated from
-//     above, which const-eval hoisting then rewires to the function-level
-//     device and breaks. Patterns that need to see through a capture to what
-//     it was should use `resolveWhileCapture`.
+//   - `ttir.while` is IsolatedFromAbove, so values the regions use but that are
+//     defined outside the op must be promoted to explicit `captures` operands
+//     and appended to both regions' block arguments. Constants included:
+//     cloning one into a region would leave a const-evaluable op inside an
+//     isolated region, which const-eval hoisting then rewires to the
+//     function-level device and breaks. Patterns that need to see through a
+//     capture to what it was should use `resolveWhileCapture`.
 //   - The `stablehlo.return` terminators must become `ttir.yield`. No pattern
 //     covers them, and StableHLO is fully illegal after this pass, so they are
 //     rewritten here rather than left to the driver.
@@ -10967,8 +10953,8 @@ public:
     const TypeConverter *typeConverter = getTypeConverter();
 
     llvm::SmallVector<Type> resultTypes;
-    if (failed(typeConverter->convertTypes(srcOp.getResultTypes(),
-                                           resultTypes))) {
+    if (failed(
+            typeConverter->convertTypes(srcOp.getResultTypes(), resultTypes))) {
       return rewriter.notifyMatchFailure(srcOp,
                                          "could not convert result types");
     }
@@ -11030,7 +11016,8 @@ private:
       }
       signatureConv.addInputs(index, convertedType);
     }
-    // Captures become brand-new trailing arguments with no original counterpart.
+    // Captures become brand-new trailing arguments with no original
+    // counterpart.
     for (Value captured : capturedValues) {
       Type convertedType = typeConverter->convertType(captured.getType());
       if (!convertedType) {
@@ -11048,14 +11035,16 @@ private:
     };
 
     for (auto [index, captured] : llvm::enumerate(capturedValues)) {
-      BlockArgument replacement = newBlock->getArgument(numOriginalArgs + index);
+      BlockArgument replacement =
+          newBlock->getArgument(numOriginalArgs + index);
       rewriter.replaceUsesWithIf(captured, replacement, usedInThisRegion);
     }
 
     auto returnOp =
         mlir::cast<mlir::stablehlo::ReturnOp>(newBlock->getTerminator());
     rewriter.setInsertionPoint(returnOp);
-    rewriter.replaceOpWithNewOp<ttir::YieldOp>(returnOp, returnOp.getOperands());
+    rewriter.replaceOpWithNewOp<ttir::YieldOp>(returnOp,
+                                               returnOp.getOperands());
 
     return success();
   }

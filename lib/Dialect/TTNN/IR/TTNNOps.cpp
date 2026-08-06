@@ -5700,8 +5700,6 @@ void CaptureOrExecuteTraceOp::getEffects(
 
 // WhileOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::WhileOp::verify() {
-  // The shared structural check compares types exactly, which at this level
-  // also enforces that layouts are invariant across the loop back-edge.
   if (::mlir::failed(ttmlir::utils::verifyWhileOpStructure(
           *this, getInits(), getCaptures(), getCond(), getBody(),
           getCondYield().getOperands(), getBodyYield().getOperands()))) {
@@ -5713,9 +5711,9 @@ void CaptureOrExecuteTraceOp::getEffects(
                          << *getTripCount();
   }
 
-  // The runtime reads the condition back to host every iteration, so it must
-  // be a host-resident single-element uint32 tensor. TTNNLayout materializes
-  // this; anything else means the loop would read garbage.
+  // The runtime reads the condition back to host every iteration, so it must be
+  // a host-resident single-element uint32 tensor, as TTNNLayout materializes
+  // it.
   auto conditionType = mlir::cast<RankedTensorType>(
       getCondYield().getOperands().front().getType());
   if (auto layout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
