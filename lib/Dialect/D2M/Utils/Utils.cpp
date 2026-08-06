@@ -1099,17 +1099,19 @@ void buildParallelGenericRegion(
 
 Value emitUnaryGeneric(
     RewriterBase &rewriter, Location loc, Value src, Value out,
-    AffineMap gridMap, ArrayRef<Attribute> iteratorTypes,
-    llvm::function_ref<AffineMap(std::size_t)> shardMap,
     llvm::function_ref<Value(OpBuilder &, Location, ValueRange)> makeTile) {
-  std::size_t physicalRank = iteratorTypes.size();
+  std::size_t physicalRank =
+      cast<RankedTensorType>(out.getType()).getRank() / 2;
   AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
+  llvm::SmallVector<Attribute> iteratorTypes(
+      physicalRank, ttcore::IteratorTypeAttr::get(
+                        rewriter.getContext(), ttcore::IteratorType::Parallel));
   llvm::SmallVector<Value> ins = {src};
   llvm::SmallVector<Value> outs = {out};
   auto generic = rewriter.create<GenericOp>(
       loc, ins, outs, /*additionalArgs=*/ValueRange(),
       rewriter.getAffineMapArrayAttr(
-          llvm::SmallVector<AffineMap>{gridMap, identityMap}),
+          llvm::SmallVector<AffineMap>{identityMap, identityMap}),
       rewriter.getArrayAttr(iteratorTypes));
   buildParallelGenericRegion(
       rewriter, loc, generic, ins, outs,
@@ -1119,13 +1121,12 @@ Value emitUnaryGeneric(
         std::size_t shardRank =
             cast<RankedTensorType>(output.getType()).getRank();
         AffineMap shardIdentity = rewriter.getMultiDimIdentityMap(shardRank);
-        AffineMap shardIn = shardMap ? shardMap(shardRank) : shardIdentity;
         llvm::SmallVector<mlir::utils::IteratorType> linalgIters(
             shardRank, mlir::utils::IteratorType::parallel);
         auto linalgOp = rewriter.create<linalg::GenericOp>(
             loc, output.getType(), input, output,
-            llvm::SmallVector<AffineMap>{shardIn, shardIdentity}, linalgIters,
-            [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
+            llvm::SmallVector<AffineMap>{shardIdentity, shardIdentity},
+            linalgIters, [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
               b.create<linalg::YieldOp>(bodyLoc, makeTile(b, bodyLoc, args));
             });
         return {linalgOp->getResult(0)};
@@ -1139,6 +1140,39 @@ Value materializeToLayout(RewriterBase &rewriter, Location loc, Value value) {
                                           valueType.getElementType(),
                                           valueType.getEncoding());
   return rewriter.create<ToLayoutOp>(loc, value, emptyOp).getResult(0);
+}
+
+Value layoutAndMask(RewriterBase &rewriter, Location loc, Value value,
+                    ArrayRef<int64_t> tilesPerDim, ArrayRef<int64_t> grid,
+                    ttcore::MemorySpace memorySpace) {
+  auto valueType = cast<RankedTensorType>(value.getType());
+  llvm::SmallVector<int64_t> tileShape =
+      llvm::to_vector(ttcore::TileType::getDefaultShape());
+  auto tileType = ttcore::TileType::get(valueType.getElementType(), tileShape);
+  ttcore::MetalLayoutAttr layout = buildShardedTileLayout(
+      rewriter.getContext(), valueType.getShape(), tilesPerDim, memorySpace);
+  llvm::SmallVector<int64_t> deviceShape =
+      layout.getDeviceShape(grid, tileShape);
+
+  auto empty = rewriter.create<EmptyOp>(loc, deviceShape, tileType, layout);
+  Value laidOut = rewriter.create<ToLayoutOp>(loc, value, empty).getResult(0);
+
+  const std::size_t physicalRank = deviceShape.size() / 2;
+  const int64_t tileDim = ttcore::TileType::getDefaultShape()[0];
+  bool needsMask = false;
+  for (std::size_t i = 0; i < physicalRank; ++i) {
+    const int64_t allocatedElems =
+        deviceShape[i] * deviceShape[i + physicalRank] * tileDim;
+    needsMask |= allocatedElems > valueType.getShape()[i];
+  }
+  if (!needsMask) {
+    return laidOut;
+  }
+  auto maskOut = rewriter.create<EmptyOp>(loc, deviceShape, tileType, layout);
+  return rewriter
+      .create<MaskOp>(loc, laidOut, maskOut, layout.getLogicalShape(),
+                      ttcore::OOBVal::NegInf)
+      .getResult();
 }
 
 std::pair<Value, Value> emitLeafTopk(RewriterBase &rewriter, Location loc,
@@ -1162,8 +1196,7 @@ std::pair<Value, Value> emitLeafTopk(RewriterBase &rewriter, Location loc,
     auto empty =
         rewriter.create<EmptyOp>(loc, deviceShape, valTileType, metalLayout);
     Value transposed = emitUnaryGeneric(
-        rewriter, loc, layoutedInput, empty.getResult(), identityMap,
-        iteratorTypes, /*shardMap=*/nullptr,
+        rewriter, loc, layoutedInput, empty.getResult(),
         [&](OpBuilder &b, Location l, ValueRange args) {
           return b.create<TileTransposeOp>(l, args[1].getType(), args[0])
               .getResult();

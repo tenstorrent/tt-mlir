@@ -22,8 +22,6 @@ namespace mlir::tt::d2m {
 /// reducing along `dim`. A device shape is `[grid..., shard...]`, so the same
 /// axis has a different index depending on which half is indexed.
 struct TopKGeometry {
-  /// Reduction axis within one half; grid-level maps are built on this.
-  std::size_t genRedDim = 0;
   /// Reduction axis in the shard half, where reduction tiles live.
   std::size_t deviceRedDim = 0;
   /// Grid axis the bands spread across.

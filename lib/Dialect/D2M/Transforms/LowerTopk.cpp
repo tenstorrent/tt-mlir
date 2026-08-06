@@ -51,39 +51,6 @@ rebuildLayoutForDeviceShape(ttcore::MetalLayoutAttr layout,
       layout.getMemoryLayout());
 }
 
-/// True when `deviceShape` allocates more elements than `logicalShape` occupies
-/// along any dim, i.e. there is a padding tail that must be masked.
-bool deviceShapeNeedsPadding(ArrayRef<int64_t> deviceShape,
-                             ArrayRef<int64_t> logicalShape) {
-  TT_assert(deviceShape.size() == 2 * logicalShape.size());
-  const std::size_t physicalRank = logicalShape.size();
-  const int64_t tileDim = ttcore::TileType::getDefaultShape()[0];
-
-  for (std::size_t i = 0; i < physicalRank; ++i) {
-    int64_t allocatedElems =
-        deviceShape[i] * deviceShape[i + physicalRank] * tileDim;
-    if (allocatedElems > logicalShape[i]) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/// Emit a `local_copy` narrowing `input` to `output`'s leading tiles. The
-/// copy's iteration domain is the destination shape, so identity maps against a
-/// wider source read exactly the leading tiles -- no compute-side tile op is
-/// involved.
-Value emitLeadingTileSelect(OpBuilder &builder, Location loc, Value input,
-                            Value output) {
-  std::size_t shardRank = cast<RankedTensorType>(output.getType()).getRank();
-  AffineMap shardIdentity = builder.getMultiDimIdentityMap(shardRank);
-  return builder
-      .create<LocalCopyOp>(
-          loc, input, output,
-          builder.getAffineMapArrayAttr({shardIdentity, shardIdentity}))
-      .getResult();
-}
-
 //===----------------------------------------------------------------------===//
 // Recovering TTIRToD2M's single-core lowering
 //===----------------------------------------------------------------------===//
@@ -212,7 +179,6 @@ void eraseDeadChain(RewriterBase &rewriter, ArrayRef<Operation *> roots) {
 /// the wide partials do not stay live on every core and overflow L1.
 Value compactReductionDim(RewriterBase &rewriter, Location loc, Value partial,
                           int64_t outputReductionTiles, int32_t dim) {
-  MLIRContext *ctx = rewriter.getContext();
   auto wideType = mlir::cast<RankedTensorType>(partial.getType());
   auto tileType = mlir::cast<ttcore::TileType>(wideType.getElementType());
   std::size_t rank = wideType.getShape().size() / 2;
@@ -225,22 +191,17 @@ Value compactReductionDim(RewriterBase &rewriter, Location loc, Value partial,
       rebuildLayoutForDeviceShape(
           mlir::cast<ttcore::MetalLayoutAttr>(wideType.getEncoding()),
           narrowShape));
-
-  AffineMap identityMap = rewriter.getMultiDimIdentityMap(rank);
-  llvm::SmallVector<Attribute> iterators(
-      rank, ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
-  // A constant input map keeps the wide operand out of the generic's shard
-  // extent comparison, which the narrower output would fail.
+  auto narrowType = mlir::cast<RankedTensorType>(narrowEmpty.getType());
   auto generic = rewriter.create<GenericOp>(
-      loc, ValueRange{partial}, ValueRange{narrowEmpty.getResult()},
-      /*additionalArgs=*/ValueRange(),
-      rewriter.getAffineMapArrayAttr(llvm::SmallVector<AffineMap>{
-          AffineMap::get(rank, 0,
-                         llvm::SmallVector<AffineExpr>(
-                             rank, rewriter.getAffineConstantExpr(0)),
-                         ctx),
-          identityMap}),
-      rewriter.getArrayAttr(iterators));
+      loc, TypeRange{narrowType}, ValueRange{partial},
+      ValueRange{narrowEmpty.getResult()}, /*additionalArgs=*/ValueRange(),
+      rewriter.getAttr<ttcore::GridAttr>(
+          ArrayRef<int64_t>(narrowShape).take_front(rank)),
+      /*block_factors=*/rewriter.getI64ArrayAttr({}),
+      /*indexing_maps=*/rewriter.getArrayAttr({}),
+      /*iterator_types=*/rewriter.getArrayAttr({}),
+      rewriter.getArrayAttr(rewriter.getAttr<ThreadAttr>(ThreadType::Unified)),
+      /*fabricConnectionConfig=*/nullptr, /*numRegions=*/1);
 
   {
     OpBuilder::InsertionGuard guard(rewriter);
@@ -249,7 +210,6 @@ Value compactReductionDim(RewriterBase &rewriter, Location loc, Value partial,
       return RankedTensorType::get(deviceType.getShape().take_back(rank),
                                    tileType);
     };
-    auto narrowType = mlir::cast<RankedTensorType>(narrowEmpty.getType());
     llvm::SmallVector<Value> coreIndices;
     coreIndices.reserve(rank);
     for (std::size_t i = 0; i < rank; ++i) {
@@ -264,8 +224,13 @@ Value compactReductionDim(RewriterBase &rewriter, Location loc, Value partial,
                        .getResult();
     auto outBuf = rewriter.create<tensor::EmptyOp>(
         loc, shardType(narrowType).getShape(), tileType);
+    AffineMap shardIdentity = rewriter.getMultiDimIdentityMap(rank);
     Value narrowed =
-        emitLeadingTileSelect(rewriter, loc, loaded, outBuf.getResult());
+        rewriter
+            .create<LocalCopyOp>(
+                loc, loaded, outBuf.getResult(),
+                rewriter.getAffineMapArrayAttr({shardIdentity, shardIdentity}))
+            .getResult();
     Value stored =
         rewriter
             .create<RemoteStoreOp>(loc, narrowType, narrowEmpty.getResult(),
@@ -273,11 +238,6 @@ Value compactReductionDim(RewriterBase &rewriter, Location loc, Value partial,
             .getResult();
     rewriter.create<YieldOp>(loc, ValueRange{stored});
   }
-  // Opt out of reblocking, whose broadcast inference would discard the region
-  // hand-built above.
-  generic.setBlockFactorsAttr(rewriter.getI64ArrayAttr({}));
-  generic.setIndexingMapsAttr(rewriter.getAffineMapArrayAttr({}));
-  generic.setIteratorTypesAttr(rewriter.getArrayAttr({}));
   utils::markPinnedGrid(generic);
 
   return utils::materializeToLayout(rewriter, loc, generic->getResult(0));
@@ -293,30 +253,14 @@ std::pair<Value, Value> emitShardedLeaves(RewriterBase &rewriter, Location loc,
                                           ttcore::MemorySpace memSpace,
                                           int64_t gridCols, int64_t ntCores) {
   auto inputType = mlir::cast<RankedTensorType>(rawInput.getType());
-  llvm::SmallVector<int64_t> tileShape =
-      llvm::to_vector(ttcore::TileType::getDefaultShape());
-  auto tileType = ttcore::TileType::get(inputType.getElementType(), tileShape);
-
   llvm::SmallVector<int64_t> shardTiles(inputType.getRank(), 1);
   shardTiles[dim] = strategy.paddedReductionTiles;
   shardTiles[1 - dim] = strategy.paddedNonTargetTiles;
-  auto layout = utils::buildShardedTileLayout(
-      rewriter.getContext(), inputType.getShape(), shardTiles, memSpace);
   llvm::SmallVector<int64_t> grid =
       (dim == 1) ? llvm::SmallVector<int64_t>{ntCores, gridCols}
                  : llvm::SmallVector<int64_t>{gridCols, ntCores};
-  llvm::SmallVector<int64_t> deviceShape =
-      layout.getDeviceShape(grid, tileShape);
-
-  auto empty = rewriter.create<EmptyOp>(loc, deviceShape, tileType, layout);
-  Value input = rewriter.create<ToLayoutOp>(loc, rawInput, empty).getResult(0);
-  if (deviceShapeNeedsPadding(deviceShape, inputType.getShape())) {
-    auto maskOut = rewriter.create<EmptyOp>(loc, deviceShape, tileType, layout);
-    input = rewriter
-                .create<MaskOp>(loc, input, maskOut, layout.getLogicalShape(),
-                                ttcore::OOBVal::NegInf)
-                .getResult();
-  }
+  Value input =
+      utils::layoutAndMask(rewriter, loc, rawInput, shardTiles, grid, memSpace);
 
   auto [vals, idx] = utils::emitLeafTopk(rewriter, loc, input, k, dim,
                                          inputType.getShape()[dim]);
@@ -503,14 +447,9 @@ void emitMultiCore(RewriterBase &rewriter, SingleCoreTopK recovered, int32_t k,
         mlir::cast<ttcore::TileType>(idxType.getElementType()).getShape());
     auto castEmpty = rewriter.create<EmptyOp>(
         loc, idxType.getShape(), castTileType, idxType.getEncoding());
-    std::size_t rank = idxType.getShape().size() / 2;
     newIdx = utils::emitUnaryGeneric(
         rewriter, loc, newIdx, castEmpty.getResult(),
-        rewriter.getMultiDimIdentityMap(rank),
-        llvm::SmallVector<Attribute>(
-            rank, ttcore::IteratorTypeAttr::get(
-                      rewriter.getContext(), ttcore::IteratorType::Parallel)),
-        /*shardMap=*/nullptr, [&](OpBuilder &b, Location l, ValueRange args) {
+        [&](OpBuilder &b, Location l, ValueRange args) {
           return b.create<TileTypecastOp>(l, args[1].getType(), args[0])
               .getResult();
         });
@@ -540,6 +479,9 @@ public:
         leaves.push_back(leaf);
       }
     });
+    if (leaves.empty()) {
+      return;
+    }
 
     auto workerGrid = llvm::to_vector(
         ttcore::lookupDevice(getOperation()).getWorkerGrid().getShape());

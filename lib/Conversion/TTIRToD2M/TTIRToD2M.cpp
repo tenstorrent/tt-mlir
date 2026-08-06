@@ -3616,7 +3616,6 @@ public:
   matchAndRewrite(ttir::TopKOp op, ttir::TopKOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op->getLoc();
-    MLIRContext *ctx = rewriter.getContext();
 
     auto inputType = cast<RankedTensorType>(adaptor.getInputTensor().getType());
     auto valuesType = cast<RankedTensorType>(op.getValues().getType());
@@ -3647,38 +3646,16 @@ public:
 
     Value layoutedInput;
     if (reductionDimSize <= kTileWidth) {
-      // topk_block merges reduction tiles pairwise, so it needs at least two;
-      // dimAlignments pads the buffer and the mask below fills the tail.
-      constexpr std::array<int64_t, 2> defaultTileShape =
-          ttcore::TileType::getDefaultShape();
-      SmallVector<int64_t> tileShapeVec(defaultTileShape.begin(),
-                                        defaultTileShape.end());
-      auto tileElemType =
-          ttcore::TileType::get(inputType.getElementType(), tileShapeVec);
-      SmallVector<int64_t> paddedTiles(inputType.getShape().size(), 1);
+      // topk_block merges reduction tiles pairwise, so it needs at least two.
+      SmallVector<int64_t> paddedTiles(rank, 1);
       paddedTiles[dim] = 2;
-      auto paddedLayout = d2m::utils::buildShardedTileLayout(
-          ctx, inputType.getShape(), paddedTiles, memorySpaces[0]);
-      SmallVector<int64_t> unitGrid(inputType.getShape().size(), 1);
-      SmallVector<int64_t> paddedDeviceShape =
-          paddedLayout.getDeviceShape(unitGrid, tileShapeVec);
-      auto paddedEmpty = rewriter.create<d2m::EmptyOp>(
-          loc, paddedDeviceShape, tileElemType, paddedLayout);
-      Value toLayouted = rewriter
-                             .create<d2m::ToLayoutOp>(
-                                 loc, adaptor.getInputTensor(), paddedEmpty)
-                             .getResult(0);
-      auto maskOutput = rewriter.create<d2m::EmptyOp>(
-          loc, paddedDeviceShape, tileElemType, paddedLayout);
-      layoutedInput = rewriter
-                          .create<d2m::MaskOp>(loc, toLayouted, maskOutput,
-                                               paddedLayout.getLogicalShape(),
-                                               ttcore::OOBVal::NegInf)
-                          .getResult();
+      layoutedInput = d2m::utils::layoutAndMask(
+          rewriter, loc, adaptor.getInputTensor(), paddedTiles,
+          SmallVector<int64_t>(rank, 1), memorySpaces[0]);
     } else {
-      layoutedInput = createOptimalLayoutOp(adaptor.getInputTensor(),
-                                            memorySpaces[0], /*tiled=*/true,
-                                            /*noCollapse=*/false, rewriter);
+      layoutedInput = createOptimalLayoutOp(
+          adaptor.getInputTensor(), memorySpaces[0], /*tiled=*/true,
+          /*noCollapse=*/false, rewriter, ttcore::OOBVal::NegInf);
     }
 
     auto [topkVals, topkIdx] = d2m::utils::emitLeafTopk(
@@ -3722,14 +3699,8 @@ public:
       auto idxCastEmpty = rewriter.create<d2m::EmptyOp>(
           loc, extractedIdxType.getShape(), idxCastTileType,
           extractedIdxType.getEncoding());
-      std::size_t castRank = extractedIdxType.getShape().size() / 2;
-      AffineMap castIdentity = rewriter.getMultiDimIdentityMap(castRank);
-      SmallVector<Attribute> castIters(
-          castRank,
-          ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
       idxFinal = d2m::utils::emitUnaryGeneric(
-          rewriter, loc, idxFinal, idxCastEmpty.getResult(), castIdentity,
-          castIters, /*shardMap=*/nullptr,
+          rewriter, loc, idxFinal, idxCastEmpty.getResult(),
           [&](OpBuilder &b, Location l, ValueRange args) {
             return b.create<d2m::TileTypecastOp>(l, args[1].getType(), args[0])
                 .getResult();

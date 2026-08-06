@@ -110,8 +110,6 @@ void createD2MFrontendPipeline(OpPassManager &pm,
     toD2MOptions.enableMulticastInference = options.enableMulticastInference;
   }
   pm.addPass(tt::createTTIRToD2MPass(toD2MOptions));
-  // Must precede grid selection, which folds the logical grids it emits.
-  pm.addPass(d2m::createD2MLowerTopk());
   pm.addPass(d2m::createD2MScalarizeConstTensors());
   d2m::D2MGridSelectionOptions gridOptOptions;
   {
@@ -120,6 +118,7 @@ void createD2MFrontendPipeline(OpPassManager &pm,
     gridOptOptions.ttnnMode = options.ttnnMode;
   }
   pm.addPass(d2m::createD2MMaterializeViewReturns());
+  pm.addPass(d2m::createD2MLowerTopk());
   pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MOptimizeMasks());

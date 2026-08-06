@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
@@ -24,13 +25,6 @@ namespace {
 // Fixed scratch buffer size used for every fused d2m.generic that needs
 // intermediate spills.
 constexpr size_t kScratchSizeBytes = 128 * 1024;
-
-// Duplicated in d2m-decompose-topk, which consumes them.
-constexpr llvm::StringLiteral kTopkIndexBufferAttr = "d2m.topk_index_buffer";
-constexpr llvm::StringLiteral kTopkLaneBufferAttr = "d2m.topk_lane_buffer";
-
-// Must exceed 1: a single row folds arange_block's compute root loop away.
-constexpr int64_t kTopkLaneTileRows = 2;
 
 // Get the tile type from a memref type, if it has one.
 static ttcore::TileType getTileType(MemRefType memrefType) {
@@ -192,8 +186,8 @@ static void addTopkIndexBuffers(GenericOp genericOp) {
   };
 
   // One index tile per value tile, plus the lane pattern they all derive from.
-  allocScratch(inputType.getShape(), kTopkIndexBufferAttr);
-  allocScratch({kTopkLaneTileRows, 1}, kTopkLaneBufferAttr);
+  allocScratch(inputType.getShape(), utils::kTopkIndexBufferAttr);
+  allocScratch({utils::kTopkLaneTileRows, 1}, utils::kTopkLaneBufferAttr);
 }
 
 class D2MInsertScratchBuffers
