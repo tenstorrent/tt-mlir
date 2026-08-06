@@ -268,6 +268,376 @@ def _device_critical_path_ns(profile_csv, warmup, iterations):
     return _device_timing_samples(profile_csv, warmup, iterations)["critical_path_ns"]
 
 
+def _device_profile_event_intervals(profile_csv, warmup, iterations):
+    events_by_stream = collections.defaultdict(list)
+    with profile_csv.open(encoding="utf-8", newline="") as input_file:
+        header = input_file.readline()
+        match = re.search(r"CHIP_FREQ\[MHz\]:\s*([0-9.]+)", header)
+        if match is None:
+            raise ValueError(f"chip frequency is missing from {profile_csv}")
+        frequency_mhz = float(match.group(1))
+        for raw_row in csv.DictReader(input_file):
+            row = {key.strip().lower(): value.strip() for key, value in raw_row.items()}
+            label = row["zone name"]
+            if not label.startswith("d2m."):
+                continue
+            phase, separator, boundary = label.rpartition(".")
+            if not separator or boundary not in ("begin", "end"):
+                raise ValueError(
+                    f"device profile event {label!r} is not an interval boundary"
+                )
+            device = row.get("device id") or row.get("pcie slot") or "unknown"
+            stream = (
+                device,
+                row["run host id"],
+                row["core_x"],
+                row["core_y"],
+                row["risc processor type"],
+                phase,
+            )
+            events_by_stream[stream].append(
+                (int(row["time[cycles since reset]"]), boundary)
+            )
+
+    captured_runs = warmup + iterations
+    intervals_by_phase = collections.defaultdict(lambda: collections.defaultdict(list))
+    for stream, events in events_by_stream.items():
+        events.sort()
+        intervals = []
+        start = None
+        for cycle, boundary in events:
+            if boundary == "begin":
+                if start is not None:
+                    raise ValueError(f"nested begin events in profiler stream {stream}")
+                start = cycle
+            else:
+                if start is None:
+                    raise ValueError(f"unmatched end event in profiler stream {stream}")
+                if cycle < start:
+                    raise ValueError(f"negative interval in profiler stream {stream}")
+                intervals.append((start, cycle))
+                start = None
+        if start is not None:
+            raise ValueError(f"unmatched begin event in profiler stream {stream}")
+        if len(intervals) % captured_runs:
+            raise ValueError(
+                f"profiler stream {stream} does not divide into captured runs"
+            )
+
+        intervals_per_run = len(intervals) // captured_runs
+        device, program, core_x, core_y, risc, phase = stream
+        stream_id = (program, core_x, core_y, risc)
+        for run_index in range(warmup, captured_runs):
+            begin = run_index * intervals_per_run
+            end = begin + intervals_per_run
+            intervals_by_phase[(device, run_index, phase)][stream_id].extend(
+                intervals[begin:end]
+            )
+
+    return frequency_mhz, intervals_by_phase
+
+
+def _block_envelopes(intervals_by_stream, blocks_per_core, phase):
+    if not intervals_by_stream:
+        raise ValueError(f"device profile is missing {phase} events")
+    envelopes = []
+    for stream, intervals in intervals_by_stream.items():
+        if len(intervals) != blocks_per_core:
+            raise ValueError(
+                f"{phase} stream {stream} has {len(intervals)} intervals; "
+                f"expected {blocks_per_core}"
+            )
+    for block in range(blocks_per_core):
+        intervals = [
+            stream_intervals[block] for stream_intervals in intervals_by_stream.values()
+        ]
+        envelopes.append(
+            {
+                "start": min(start for start, _ in intervals),
+                "end": max(end for _, end in intervals),
+                "active": sum(end - start for start, end in intervals),
+                "streams": len(intervals),
+            }
+        )
+    return envelopes
+
+
+def _mean(values):
+    values = [value for value in values if value is not None]
+    return sum(values) / len(values) if values else None
+
+
+def _device_block_timeline(
+    profile_csv, warmup, iterations, blocks_per_core, timeline_csv=None
+):
+    frequency_mhz, intervals_by_phase = _device_profile_event_intervals(
+        profile_csv, warmup, iterations
+    )
+    device_runs = sorted(
+        {
+            (device, run_index)
+            for device, run_index, phase in intervals_by_phase
+            if phase == "d2m.block.compute"
+        }
+    )
+    rows = []
+    for device, run_index in device_runs:
+        phases = {
+            phase: intervals_by_phase.get((device, run_index, phase), {})
+            for phase in (
+                "d2m.block.compute",
+                "d2m.router.ready_wait",
+                "d2m.router.transfer",
+                "d2m.router.fabric_wait",
+                "d2m.block.reduction",
+            )
+        }
+        # Compute events run on all three TRISCs, so their envelope represents
+        # the complete unpack, math, and pack wave across the worker grid.
+        compute = _block_envelopes(
+            phases["d2m.block.compute"], blocks_per_core, "d2m.block.compute"
+        )
+        ready_wait = _block_envelopes(
+            phases["d2m.router.ready_wait"],
+            blocks_per_core,
+            "d2m.router.ready_wait",
+        )
+        transfer = _block_envelopes(
+            phases["d2m.router.transfer"], blocks_per_core, "d2m.router.transfer"
+        )
+        fabric_wait = _block_envelopes(
+            phases["d2m.router.fabric_wait"],
+            blocks_per_core,
+            "d2m.router.fabric_wait",
+        )
+        reduction = (
+            _block_envelopes(
+                phases["d2m.block.reduction"],
+                blocks_per_core,
+                "d2m.block.reduction",
+            )
+            if phases["d2m.block.reduction"]
+            else [None] * blocks_per_core
+        )
+        origin = compute[0]["start"]
+        for block in range(blocks_per_core):
+            ccl_start = transfer[block]["start"]
+            ccl_end = fabric_wait[block]["end"]
+            next_compute = compute[block + 1] if block + 1 < blocks_per_core else None
+            overlap = None
+            compute_gap = None
+            if next_compute is not None:
+                overlap = max(
+                    0,
+                    min(ccl_end, next_compute["end"])
+                    - max(ccl_start, next_compute["start"]),
+                )
+                compute_gap = next_compute["start"] - compute[block]["end"]
+            rows.append(
+                {
+                    "device": device,
+                    "iteration": run_index - warmup + 1,
+                    "block": block,
+                    "origin_cycles": origin,
+                    "compute_start_cycles": compute[block]["start"],
+                    "compute_end_cycles": compute[block]["end"],
+                    "compute_stream_active_cycles": compute[block]["active"],
+                    "compute_streams": compute[block]["streams"],
+                    "ready_wait_start_cycles": ready_wait[block]["start"],
+                    "ready_wait_end_cycles": ready_wait[block]["end"],
+                    "transfer_start_cycles": transfer[block]["start"],
+                    "transfer_end_cycles": transfer[block]["end"],
+                    "fabric_wait_start_cycles": fabric_wait[block]["start"],
+                    "fabric_wait_end_cycles": fabric_wait[block]["end"],
+                    "ccl_start_cycles": ccl_start,
+                    "ccl_end_cycles": ccl_end,
+                    "next_compute_overlap_cycles": overlap,
+                    "next_compute_gap_cycles": compute_gap,
+                    "reduction_start_cycles": (
+                        reduction[block]["start"] if reduction[block] else None
+                    ),
+                    "reduction_end_cycles": (
+                        reduction[block]["end"] if reduction[block] else None
+                    ),
+                }
+            )
+
+    scale_ns = 1_000 / frequency_mhz
+    summaries = {}
+    for device in sorted({row["device"] for row in rows}):
+        device_rows = [row for row in rows if row["device"] == device]
+        iteration_rows = collections.defaultdict(list)
+        for row in device_rows:
+            iteration_rows[row["iteration"]].append(row)
+        block_periods = []
+        down_stages = []
+        down_to_reduction_gaps = []
+        reduction_stages = []
+        for run_rows in iteration_rows.values():
+            run_rows.sort(key=lambda row: row["block"])
+            block_periods.extend(
+                second["compute_start_cycles"] - first["compute_start_cycles"]
+                for first, second in zip(run_rows, run_rows[1:])
+            )
+            down_end = max(
+                max(row["compute_end_cycles"], row["ccl_end_cycles"])
+                for row in run_rows
+            )
+            down_stages.append(down_end - run_rows[0]["compute_start_cycles"])
+            reduction_rows = [
+                row for row in run_rows if row["reduction_start_cycles"] is not None
+            ]
+            if reduction_rows:
+                reduction_start = min(
+                    row["reduction_start_cycles"] for row in reduction_rows
+                )
+                reduction_end = max(
+                    row["reduction_end_cycles"] for row in reduction_rows
+                )
+                down_to_reduction_gaps.append(reduction_start - down_end)
+                reduction_stages.append(reduction_end - reduction_start)
+        eligible_rows = [
+            row for row in device_rows if row["next_compute_overlap_cycles"] is not None
+        ]
+        eligible_ccl = sum(
+            row["ccl_end_cycles"] - row["ccl_start_cycles"] for row in eligible_rows
+        )
+        all_ccl = sum(
+            row["ccl_end_cycles"] - row["ccl_start_cycles"] for row in device_rows
+        )
+        overlap = sum(row["next_compute_overlap_cycles"] for row in eligible_rows)
+        summaries[device] = {
+            "compute_wave_mean_ns": _mean(
+                [
+                    (row["compute_end_cycles"] - row["compute_start_cycles"]) * scale_ns
+                    for row in device_rows
+                ]
+            ),
+            "compute_stream_mean_ns": _mean(
+                [
+                    row["compute_stream_active_cycles"]
+                    / row["compute_streams"]
+                    * scale_ns
+                    for row in device_rows
+                ]
+            ),
+            "block_period_mean_ns": _mean(
+                [period * scale_ns for period in block_periods]
+            ),
+            "ready_wait_mean_ns": _mean(
+                [
+                    (row["ready_wait_end_cycles"] - row["ready_wait_start_cycles"])
+                    * scale_ns
+                    for row in device_rows
+                ]
+            ),
+            "transfer_mean_ns": _mean(
+                [
+                    (row["transfer_end_cycles"] - row["transfer_start_cycles"])
+                    * scale_ns
+                    for row in device_rows
+                ]
+            ),
+            "fabric_wait_mean_ns": _mean(
+                [
+                    (row["fabric_wait_end_cycles"] - row["fabric_wait_start_cycles"])
+                    * scale_ns
+                    for row in device_rows
+                ]
+            ),
+            "ccl_mean_ns": _mean(
+                [
+                    (row["ccl_end_cycles"] - row["ccl_start_cycles"]) * scale_ns
+                    for row in device_rows
+                ]
+            ),
+            "next_compute_overlap_mean_ns": _mean(
+                [row["next_compute_overlap_cycles"] * scale_ns for row in eligible_rows]
+            ),
+            "next_compute_gap_mean_ns": _mean(
+                [row["next_compute_gap_cycles"] * scale_ns for row in eligible_rows]
+            ),
+            "steady_state_ccl_compute_overlap_pct": (
+                100 * overlap / eligible_ccl if eligible_ccl else None
+            ),
+            "end_to_end_ccl_compute_overlap_pct": (
+                100 * overlap / all_ccl if all_ccl else None
+            ),
+            "down_stage_mean_ns": _mean(
+                [duration * scale_ns for duration in down_stages]
+            ),
+            "down_to_reduction_gap_mean_ns": _mean(
+                [duration * scale_ns for duration in down_to_reduction_gaps]
+            ),
+            "reduction_stage_mean_ns": _mean(
+                [duration * scale_ns for duration in reduction_stages]
+            ),
+            "reduction_wave_mean_ns": _mean(
+                [
+                    (row["reduction_end_cycles"] - row["reduction_start_cycles"])
+                    * scale_ns
+                    for row in device_rows
+                    if row["reduction_start_cycles"] is not None
+                ]
+            ),
+        }
+
+    if timeline_csv:
+        timeline_csv.parent.mkdir(parents=True, exist_ok=True)
+        time_fields = [
+            "compute_start",
+            "compute_end",
+            "ready_wait_start",
+            "ready_wait_end",
+            "transfer_start",
+            "transfer_end",
+            "fabric_wait_start",
+            "fabric_wait_end",
+            "ccl_start",
+            "ccl_end",
+            "reduction_start",
+            "reduction_end",
+        ]
+        fieldnames = (
+            ["device", "iteration", "block"]
+            + [f"{field}_us" for field in time_fields]
+            + [
+                "compute_stream_mean_us",
+                "next_compute_overlap_us",
+                "next_compute_gap_us",
+            ]
+        )
+        with timeline_csv.open("w", encoding="utf-8", newline="") as output:
+            writer = csv.DictWriter(output, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in rows:
+                output_row = {
+                    "device": row["device"],
+                    "iteration": row["iteration"],
+                    "block": row["block"],
+                }
+                for field in time_fields:
+                    cycles = row[f"{field}_cycles"]
+                    output_row[f"{field}_us"] = (
+                        ""
+                        if cycles is None
+                        else f"{(cycles - row['origin_cycles']) / frequency_mhz:.3f}"
+                    )
+                output_row["compute_stream_mean_us"] = (
+                    row["compute_stream_active_cycles"]
+                    / row["compute_streams"]
+                    / frequency_mhz
+                )
+                for field in ("next_compute_overlap", "next_compute_gap"):
+                    cycles = row[f"{field}_cycles"]
+                    output_row[f"{field}_us"] = (
+                        "" if cycles is None else f"{cycles / frequency_mhz:.3f}"
+                    )
+                writer.writerow(output_row)
+
+    return {"rows": rows, "summaries": summaries}
+
+
 def _pcc(actual, expected):
     import torch
 
@@ -301,6 +671,7 @@ def _parse_args():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--tracy-file", type=pathlib.Path)
     parser.add_argument("--device-profile-dir", type=pathlib.Path)
+    parser.add_argument("--block-timeline-file", type=pathlib.Path)
     return parser.parse_args()
 
 
@@ -308,6 +679,10 @@ def main():
     args = _parse_args()
     if args.iterations < 1 or args.warmup < 0:
         raise ValueError("iterations must be positive and warmup must be non-negative")
+    if args.block_timeline_file and not args.device_profile_dir:
+        raise ValueError("--block-timeline-file requires --device-profile-dir")
+    if args.block_timeline_file and args.mode == "single":
+        raise ValueError("block overlap timelines require a two-chip mode")
 
     trace_context = contextlib.nullcontext()
     if args.tracy_file:
@@ -479,6 +854,42 @@ def main():
                 "device active_program_ns="
                 f"{active_samples} mean_ns={sum(active_samples) / len(active_samples)}"
             )
+        if args.mode != "single":
+            timeline_csv = args.block_timeline_file or (
+                args.device_profile_dir / ".logs" / "d2m_block_timeline.csv"
+            )
+            timeline = _device_block_timeline(
+                profile_csv,
+                args.warmup,
+                args.iterations,
+                config.output_blocks_per_core,
+                timeline_csv,
+            )
+            for device, summary in timeline["summaries"].items():
+                print(
+                    f"device={device} block_timeline "
+                    f"compute_wave_mean_ns={summary['compute_wave_mean_ns']:.1f} "
+                    f"compute_stream_mean_ns={summary['compute_stream_mean_ns']:.1f} "
+                    f"block_period_mean_ns={summary['block_period_mean_ns']:.1f} "
+                    f"ready_wait_mean_ns={summary['ready_wait_mean_ns']:.1f} "
+                    f"transfer_mean_ns={summary['transfer_mean_ns']:.1f} "
+                    f"fabric_wait_mean_ns={summary['fabric_wait_mean_ns']:.1f} "
+                    f"ccl_mean_ns={summary['ccl_mean_ns']:.1f} "
+                    "next_compute_overlap_mean_ns="
+                    f"{summary['next_compute_overlap_mean_ns']:.1f} "
+                    f"next_compute_gap_mean_ns={summary['next_compute_gap_mean_ns']:.1f} "
+                    "steady_state_ccl_compute_overlap_pct="
+                    f"{summary['steady_state_ccl_compute_overlap_pct']:.1f} "
+                    "end_to_end_ccl_compute_overlap_pct="
+                    f"{summary['end_to_end_ccl_compute_overlap_pct']:.1f} "
+                    f"down_stage_mean_ns={summary['down_stage_mean_ns']:.1f} "
+                    "down_to_reduction_gap_mean_ns="
+                    f"{summary['down_to_reduction_gap_mean_ns']:.1f} "
+                    "reduction_stage_mean_ns="
+                    f"{summary['reduction_stage_mean_ns']:.1f} "
+                    f"reduction_wave_mean_ns={summary['reduction_wave_mean_ns']:.1f}"
+                )
+            print(f"device block timeline: {timeline_csv}")
         print(f"device profile: {profile_csv}")
 
 

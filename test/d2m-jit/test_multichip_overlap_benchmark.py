@@ -2,9 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import csv
+
 import torch
 
 from multichip_overlap_benchmark import (
+    _device_block_timeline,
     _device_critical_path_ns,
     _device_kernel_ns,
     _device_timing_samples,
@@ -127,6 +130,77 @@ def test_device_critical_path_compares_per_device_spans(tmp_path):
     )
 
     assert _device_critical_path_ns(profile_csv, warmup=0, iterations=1) == [300]
+
+
+def test_device_block_timeline_reconstructs_compute_ccl_overlap(tmp_path):
+    profile_csv = tmp_path / "profile_log_device.csv"
+    rows = []
+
+    def add_interval(core_x, core_y, risc, program, label, start, end):
+        for boundary, cycle in (("begin", start), ("end", end)):
+            rows.append(
+                f"0,{core_x},{core_y},{risc},1,{cycle},0,{program},,,"
+                f"{label}.{boundary},TS_DATA,0,,\n"
+            )
+
+    for core_x, first, second in (
+        (1, (100, 200), (250, 350)),
+        (2, (110, 210), (260, 360)),
+    ):
+        add_interval(core_x, 1, "TRISC", 7, "d2m.block.compute", *first)
+        add_interval(core_x, 1, "TRISC", 7, "d2m.block.compute", *second)
+    for label, intervals in (
+        ("d2m.router.ready_wait", ((105, 215), (300, 365))),
+        ("d2m.router.transfer", ((215, 240), (365, 390))),
+        ("d2m.router.fabric_wait", ((240, 300), (390, 430))),
+    ):
+        for interval in intervals:
+            add_interval(1, 1, "BRISC", 7, label, *interval)
+    for core_x, first, second in (
+        (1, (500, 520), (530, 550)),
+        (2, (505, 525), (535, 555)),
+    ):
+        add_interval(core_x, 1, "TRISC", 8, "d2m.block.reduction", *first)
+        add_interval(core_x, 1, "TRISC", 8, "d2m.block.reduction", *second)
+
+    profile_csv.write_text(
+        "ARCH: wormhole_b0, CHIP_FREQ[MHz]: 1000, Max Compute Cores: 64\n"
+        "device id,core_x,core_y,RISC processor type,timer_id,"
+        "time[cycles since reset],data,run host ID,trace id,trace id counter,"
+        "zone name,type,source line,source file,meta data\n" + "".join(rows)
+    )
+    timeline_csv = tmp_path / "timeline.csv"
+
+    timeline = _device_block_timeline(
+        profile_csv,
+        warmup=0,
+        iterations=1,
+        blocks_per_core=2,
+        timeline_csv=timeline_csv,
+    )
+
+    summary = timeline["summaries"]["0"]
+    assert summary["compute_wave_mean_ns"] == 110
+    assert summary["compute_stream_mean_ns"] == 100
+    assert summary["block_period_mean_ns"] == 150
+    assert summary["ready_wait_mean_ns"] == 87.5
+    assert summary["transfer_mean_ns"] == 25
+    assert summary["fabric_wait_mean_ns"] == 50
+    assert summary["ccl_mean_ns"] == 75
+    assert summary["next_compute_overlap_mean_ns"] == 50
+    assert summary["next_compute_gap_mean_ns"] == 40
+    assert summary["steady_state_ccl_compute_overlap_pct"] == 100 * 50 / 85
+    assert summary["end_to_end_ccl_compute_overlap_pct"] == 100 * 50 / 150
+    assert summary["down_stage_mean_ns"] == 330
+    assert summary["down_to_reduction_gap_mean_ns"] == 70
+    assert summary["reduction_stage_mean_ns"] == 55
+    assert summary["reduction_wave_mean_ns"] == 25
+    with timeline_csv.open(encoding="utf-8", newline="") as input_file:
+        timeline_rows = list(csv.DictReader(input_file))
+    assert timeline_rows[0]["compute_start_us"] == "0.000"
+    assert timeline_rows[0]["compute_end_us"] == "0.110"
+    assert timeline_rows[0]["next_compute_overlap_us"] == "0.050"
+    assert timeline_rows[1]["next_compute_overlap_us"] == ""
 
 
 def test_tracy_summary_aggregates_zones_per_submit(tmp_path, capsys):

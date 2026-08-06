@@ -207,17 +207,23 @@ def serialized_two_chip_down_projection(
         n_slot = item % n_blocks_per_core
         m_block = cy * m_blocks_per_core + m_slot
         n_block = cx * n_blocks_per_core + n_slot
+        profile_event("d2m.block.compute.begin", "compute")
         acc = zeros([1, 4], dtype="bf16")
         for k_block in range(k_blocks):
             lhs = remote_load(activations, [m_block, k_block])
             rhs = remote_load(weight, [k_block, n_block])
             acc += lhs @ rhs
+        profile_event("d2m.block.compute.end", "compute")
         semaphore_inc(ready, 1, core=[0, 0], compute=True)
 
         if is_router_core():
             dy = mesh_position(0)
+            profile_event("d2m.router.ready_wait.begin", "datamovement")
             semaphore_wait(ready, (item + 1) * worker_count)
+            profile_event("d2m.router.ready_wait.end", "datamovement")
             dx = mesh_position(1)
+            # Per-worker timestamp pairs overflow the profiler's per-RISC buffer.
+            profile_event("d2m.router.transfer.begin", "datamovement")
             for ty in range(grid_y):
                 target_m = ty * m_blocks_per_core + m_slot
                 for tx in range(grid_x):
@@ -234,7 +240,10 @@ def serialized_two_chip_down_projection(
                         semaphore=fabric_done,
                         semaphore_indices=[cy, cx],
                     )
+            profile_event("d2m.router.transfer.end", "datamovement")
+            profile_event("d2m.router.fabric_wait.begin", "datamovement")
             semaphore_wait(fabric_done, (item + 1) * 2 * worker_count)
+            profile_event("d2m.router.fabric_wait.end", "datamovement")
             for ty in range(grid_y):
                 for tx in range(grid_x):
                     semaphore_inc(transfer_done, 1, core=[ty, tx])
@@ -276,17 +285,23 @@ def overlapped_two_chip_down_projection(
         n_slot = item % n_blocks_per_core
         m_block = cy * m_blocks_per_core + m_slot
         n_block = cx * n_blocks_per_core + n_slot
+        profile_event("d2m.block.compute.begin", "compute")
         acc = zeros([1, 4], dtype="bf16")
         for k_block in range(k_blocks):
             lhs = remote_load(activations, [m_block, k_block])
             rhs = remote_load(weight, [k_block, n_block])
             acc += lhs @ rhs
+        profile_event("d2m.block.compute.end", "compute")
         semaphore_inc(ready, 1, core=[0, 0], compute=True)
 
         if is_router_core():
             dy = mesh_position(0)
+            profile_event("d2m.router.ready_wait.begin", "datamovement")
             semaphore_wait(ready, (item + 1) * worker_count)
+            profile_event("d2m.router.ready_wait.end", "datamovement")
             dx = mesh_position(1)
+            # Per-worker timestamp pairs overflow the profiler's per-RISC buffer.
+            profile_event("d2m.router.transfer.begin", "datamovement")
             for ty in range(grid_y):
                 target_m = ty * m_blocks_per_core + m_slot
                 for tx in range(grid_x):
@@ -303,7 +318,10 @@ def overlapped_two_chip_down_projection(
                         semaphore=fabric_done,
                         semaphore_indices=[cy, cx],
                     )
+            profile_event("d2m.router.transfer.end", "datamovement")
+            profile_event("d2m.router.fabric_wait.begin", "datamovement")
             semaphore_wait(fabric_done, (item + 1) * 2 * worker_count)
+            profile_event("d2m.router.fabric_wait.end", "datamovement")
         semaphore_wait(consumed, item + 1, compute=True)
 
 
@@ -321,9 +339,11 @@ def reduce_two_chip_partials(
         m_block = cy * m_blocks_per_core + m_slot
         for n_slot in range(n_blocks_per_core):
             n_block = cx * n_blocks_per_core + n_slot
+            profile_event("d2m.block.reduction.begin", "compute")
             first = remote_load(partials, [m_block, n_block])
             second = remote_load(partials, [m_blocks + m_block, n_block])
             remote_store(output, [m_block, n_block], first + second)
+            profile_event("d2m.block.reduction.end", "compute")
 
 
 def _stage_k_segments(config, activation_sources, weight_sources, k_elements):
