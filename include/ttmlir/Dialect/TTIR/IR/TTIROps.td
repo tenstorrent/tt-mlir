@@ -216,7 +216,7 @@ def TTIR_YieldOp : TTIR_Op<"yield", [Pure, Terminator]> {
   let summary = "Terminator for TTIR control flow regions.";
   let description = [{
     Terminates a region of a TTIR control flow op. The meaning of the yielded
-    values is defined by the parent op; see `ttir.while`.
+    values is defined by the parent op;
   }];
 
   let arguments = (ins Variadic<AnyRankedTensor>:$operands);
@@ -235,8 +235,7 @@ def TTIR_WhileOp : TTIR_Op<"while", [
   let summary = "While loop.";
   let description = [{
     Repeatedly executes `body` while `cond` yields true, threading the
-    loop-carried values from one iteration to the next. Lowered from
-    `stablehlo.while`.
+    loop-carried values from one iteration to the next.
 
     Both regions take the same block arguments: the loop-carried values
     followed by the loop-invariant captures, i.e. `inits ++ captures`. On the
@@ -276,7 +275,7 @@ def TTIR_WhileOp : TTIR_Op<"while", [
 
   let arguments = (ins Variadic<AnyRankedTensor>:$inits,
                        Variadic<AnyRankedTensor>:$captures,
-                       OptionalAttr<I64Attr>:$trip_count);
+                       OptionalAttr<ConfinedAttr<I64Attr, [IntNonNegative]>>:$trip_count);
 
   let results = (outs Variadic<AnyRankedTensor>:$results);
 
