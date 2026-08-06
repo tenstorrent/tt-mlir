@@ -1006,11 +1006,15 @@ def _shape_literal(node):
     )
 
 
-@syntax("zeros", args_as_attr=[_shape_literal])
-def _zeros_op(shape):
+@syntax(
+    "zeros",
+    args_as_attr=[_shape_literal],
+    kwargs_as_attr={"dtype": _const_value},
+)
+def _zeros_op(shape, dtype="fp32"):
     """Kernel-body zero-initialized tile block."""
     ctx = get_default_loc_context()
-    tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, float32)
+    tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, _to_data_type(dtype))
     block_ty = RankedTensorType.get(list(shape), tile_ty)
     return _zeros_block(block_ty)
 

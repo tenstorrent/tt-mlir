@@ -404,6 +404,35 @@ The Python module installs to `<build>/python_packages/d2m_jit/`.
 RNG is deterministic per test. `test/d2m-jit/utils.py` provides
 `assert_pcc(golden, actual)` and `arange_tile(...)` helpers.
 
+Fabric execution and its larger grid/dtype/seed matrix are opt-in:
+
+```bash
+SYSTEM_DESC_PATH=/path/to/two-chip.ttsys \
+D2M_JIT_RUN_FABRIC_TESTS=1 \
+D2M_JIT_RUN_FABRIC_STRESS=1 \
+pytest test/d2m-jit/test_mesh.py
+```
+
+The BF16 Llama 3 8B prefill down-projection benchmark compares the same dense
+`576x14336 @ 14336x4096` operation on one chip and with two-way K-sharded
+tensor parallelism. The two-chip modes provide serialized and overlapped
+matmul/all-reduce schedules. They can capture host/runtime Tracy zones when the
+runtime was built with `TT_RUNTIME_ENABLE_PERF_TRACE=ON`:
+
+```bash
+export SYSTEM_DESC_PATH=/path/to/two-chip.ttsys
+python test/d2m-jit/multichip_overlap_benchmark.py single \
+  --tracy-file /tmp/d2m-overlap/single.tracy
+python test/d2m-jit/multichip_overlap_benchmark.py two-chip-serialized \
+  --tracy-file /tmp/d2m-overlap/two-chip-serialized.tracy
+python test/d2m-jit/multichip_overlap_benchmark.py two-chip-overlap \
+  --tracy-file /tmp/d2m-overlap/two-chip-overlap.tracy
+```
+
+Pass `--device-profile-dir DIR` to collect the matching tt-metal device
+timeline. Tracy summaries exclude warmup iterations; the device summary reports
+the longest kernel envelope in the captured warmup and measured iterations.
+
 ## Pipeline
 
 `to_host` runs the following passes on the open module before flatbuffering:

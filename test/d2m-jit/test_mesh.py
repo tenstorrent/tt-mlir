@@ -51,6 +51,11 @@ requires_fabric_mesh = pytest.mark.skipif(
     ),
 )
 
+requires_fabric_stress = pytest.mark.skipif(
+    os.environ.get("D2M_JIT_RUN_FABRIC_STRESS") != "1",
+    reason="requires D2M_JIT_RUN_FABRIC_STRESS=1 to opt into fabric stress tests",
+)
+
 
 def test_mesh_configuration():
     d2m.mesh((1, 2), topology=("linear", "ring"))
@@ -472,26 +477,16 @@ def _chunked_matmul_all_gather_1x2(
         semaphore_wait(consumed, chunk + 1, compute=True)
 
 
-@requires_fabric_mesh
-@pytest.mark.parametrize("num_chunks", [1, 2])
-@pytest.mark.parametrize(
-    "worker_grid",
-    [(1, 1), (2, 1), (2, 2), (4, 4)],
-    ids=[
-        "single-core",
-        "multicore-2x1",
-        "multicore-2x2",
-        "saturation-4x4",
-    ],
-)
-def test_chunked_matmul_all_gather_round_trip_1x2(num_chunks, worker_grid):
-    """Overlap chunk t's fabric send with chunk t+1's compute across devices."""
-    torch.manual_seed(0)
+def _run_chunked_matmul_all_gather(
+    num_chunks,
+    worker_grid,
+    layout_dtype,
+    torch_dtype,
+    seed,
+):
+    torch.manual_seed(seed)
     d2m.mesh((1, 2), topology=("linear", "linear"))
     grid_y, grid_x = worker_grid
-    saturation = worker_grid == (4, 4)
-    layout_dtype = d2m.bfloat16 if saturation else d2m.float32
-    torch_dtype = torch.bfloat16 if saturation else torch.float32
     block_tiles = 4
     block_elements = block_tiles * 32
     input_layout = d2m.Layout(
@@ -580,3 +575,98 @@ def test_chunked_matmul_all_gather_round_trip_1x2(num_chunks, worker_grid):
 
     assert result.shape == expected.shape
     assert_pcc(expected, result, threshold=0.99)
+
+
+@requires_fabric_mesh
+@pytest.mark.parametrize("num_chunks", [1, 2])
+@pytest.mark.parametrize(
+    "worker_grid",
+    [(1, 1), (2, 1), (2, 2), (4, 4)],
+    ids=[
+        "single-core",
+        "multicore-2x1",
+        "multicore-2x2",
+        "saturation-4x4",
+    ],
+)
+def test_chunked_matmul_all_gather_round_trip_1x2(num_chunks, worker_grid):
+    """Overlap chunk t's fabric send with chunk t+1's compute across devices."""
+    saturation = worker_grid == (4, 4)
+    _run_chunked_matmul_all_gather(
+        num_chunks,
+        worker_grid,
+        d2m.bfloat16 if saturation else d2m.float32,
+        torch.bfloat16 if saturation else torch.float32,
+        seed=0,
+    )
+
+
+@requires_fabric_mesh
+@requires_fabric_stress
+@pytest.mark.parametrize(
+    "num_chunks,worker_grid,layout_dtype,torch_dtype,seed",
+    [
+        pytest.param(
+            2,
+            (1, 1),
+            d2m.float32,
+            torch.float32,
+            3,
+            id="alternate-seed-fp32",
+        ),
+        pytest.param(
+            2,
+            (2, 2),
+            d2m.bfloat16,
+            torch.bfloat16,
+            7,
+            id="multichunk-bf16",
+        ),
+        pytest.param(
+            1,
+            (4, 8),
+            d2m.bfloat16,
+            torch.bfloat16,
+            11,
+            id="wide-grid-bf16",
+        ),
+        pytest.param(
+            2,
+            (8, 2),
+            d2m.float32,
+            torch.float32,
+            19,
+            id="tall-grid-fp32",
+        ),
+    ],
+)
+def test_chunked_matmul_all_gather_stress_1x2(
+    num_chunks,
+    worker_grid,
+    layout_dtype,
+    torch_dtype,
+    seed,
+):
+    _run_chunked_matmul_all_gather(
+        num_chunks,
+        worker_grid,
+        layout_dtype,
+        torch_dtype,
+        seed,
+    )
+
+
+@requires_fabric_mesh
+@pytest.mark.parametrize("overlap", [False, True], ids=["serialized", "overlapped"])
+def test_llama_down_projection_all_reduce_1x2(overlap):
+    from llama_down_projection_workload import (
+        WorkloadConfig,
+        golden,
+        make_operands,
+        run_two_chip,
+    )
+
+    config = WorkloadConfig(m=128, k=14336, n=256, grid_y=2, grid_x=2)
+    activations, weight = make_operands(config)
+    result = run_two_chip(config, activations, weight, overlap=overlap)
+    assert_pcc(golden(activations, weight), result, threshold=0.99)
