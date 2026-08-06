@@ -5992,18 +5992,11 @@ private:
     return d2m::ReduceDim::R;
   }
 
-  /// Relabels a row-major (scalar-element) device buffer as tile-typed without
-  /// moving any data, so a tile-consuming op can read it.
-  ///
-  /// The shard dims are SCALED by the tile shape: the map composes with
-  /// ShardLayoutAttr::getAffineMap() (built from scalar shard strides), so a
-  /// tile index would otherwise be consumed as a scalar row index and the DMA
-  /// source offset for block n would come out as one row instead of one tile.
-  /// Measured on device: with an identity map a 64x32 reduction read rows 0-31
-  /// then 1-32; with this scaling it reads 0-31 then 32-63 and is exact.
-  ///
-  /// Both LLK operands must go through this so they reach DST under the same
-  /// interleaved ROW_MAJOR addressing that `max_reduce_with_indices` assumes.
+  /// Relabels a row-major buffer as tile-typed without performing any data
+  /// movement. Used to "trick" the compiler into allowing a row-major buffer to
+  /// be passed to an op requiring tiles, in this case d2m::TileArgMaxOp. Also
+  /// scales the shard dims by the tile shape to allow later passes to calculate
+  /// the correct offsets for DMA reads.
   mlir::Value relabelRowMajorAsTile(ConversionPatternRewriter &rewriter,
                                     Location loc, mlir::Value rowMajor) const {
     auto rowMajorTy = mlir::cast<RankedTensorType>(rowMajor.getType());
@@ -6095,7 +6088,7 @@ private:
     return unLayoutResult(rewriter, generic->getResult(0), resultType)
         ->getResult(0);
   }
-  // mark this OP as row major using a to layout op
+
   LogicalResult
   matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
@@ -6121,17 +6114,9 @@ private:
       // need to transpose input tensor
     }
 
-    // fill in arange
-    // Build the arange in F32, then typecast to i32 below.
-    //
-    // `fill_arange_tile<DataFormat::Int32>` does not populate the scratch CB:
-    // measured on device, DST slot 0 reads all zeros immediately after
-    // `transpose_wh_tile` consumes it (so the transpose is not at fault, nor
-    // the DST section handshake -- both were ruled out by probing
-    // before/after). The f32 arange path is the one exercised by test_tms / the
-    // standalone arange tests and is known good, and test_tms xfails i32 arange
-    // for a missing tile*scalar llk, so keep the fill in f32 and convert
-    // afterwards.
+    /// Use arange to fill in indices. Arange is done in f32 and then typecasted
+    /// to i32 to avoid a known issue with TileMulOp on an integer tile with a
+    /// scalar.
     auto arangeIdxTy = RankedTensorType::get(
         inputTy.getShape(), rewriter.getF32Type(), inputTy.getEncoding());
     auto idxTy = RankedTensorType::get(
@@ -6141,11 +6126,7 @@ private:
     auto [arangeInsUnused, arangeOutputs] = toLayoutOperandsAndResults(
         rewriter, {SmallVector<Value>{}, arangeOrigOutputs}, true);
 
-    // creating a scratch tile for arange.  Derive the layout/tile info from
-    // the *laid-out* arange output (arangeOutputs), not from idxTy: idxTy is a
-    // logical TTIR tensor whose encoding is null/TensorLayoutAttr and whose
-    // element type is a scalar i32, so casting it to MetalLayoutAttr/TileType
-    // would dereference through a null attribute and crash.
+    // Creating a scratch tile for arange.
     auto arangeTensorType =
         mlir::cast<RankedTensorType>(arangeOutputs.front().getType());
     auto arangeLayout =
@@ -6171,7 +6152,6 @@ private:
     int64_t numElements = (dimArg == d2m::ReduceDim::R)
                               ? inputTy.getDimSize(logicalRank - 1)
                               : inputTy.getDimSize(logicalRank - 2);
-    llvm::errs() << "numElements = " << numElements << "\n";
 
     AffineExpr zero = rewriter.getAffineConstantExpr(0);
     AffineMap arangeConstMap =
@@ -6207,37 +6187,55 @@ private:
           return {result};
         });
 
-    // Allocate the typecast output ROW-MAJOR (tiled=false), not tile-typed.
-    //
-    // `max_reduce_with_indices` loads the index tile with the same offsets it
-    // uses for the values, so both operands must reach DST under the identical
-    // interleaved ROW_MAJOR addressing. The value operand gets there by being
-    // allocated as scalars (`1x1x32x32xbf16`, pinned via
-    // `d2m.row_major_llk_operand`) and then relabelled up to tile-typed with
-    // the shard dims scaled by the tile shape.
-    //
-    // A tile-typed allocation here cannot be given that treatment: relabelling
-    // one tile down to a 32x32 scalar view and back up scaled claims an extent
-    // the allocation never had. Allocating scalar instead makes the two
-    // operands structurally identical, so the single scaled relabel below is
-    // exactly the value path's.
-    auto i32IndicesOrigOutput = createDpsOutputs(loc, rewriter, {idxTy});
-    Value i32IndicesRowMajor = createOptimalLayoutOp(
-        i32IndicesOrigOutput[0], memorySpaces[1], /*tiled=*/false,
-        /*noCollapse=*/false, rewriter);
-    if (auto idxToLayout =
-            i32IndicesRowMajor.getDefiningOp<d2m::ToLayoutOp>()) {
-      idxToLayout->setAttr("d2m.row_major_llk_operand", rewriter.getUnitAttr());
-    }
+    // Broadcasting the result of arange so that the indices repeat every
+    // row/column, instead of spanning the entire tensor.
+    d2m::TileBcastType arangeBcastTy = (dimArg == d2m::ReduceDim::C)
+                                           ? d2m::TileBcastType::Col
+                                           : d2m::TileBcastType::Row;
 
-    // Relabel the row-major buffer up to tile-typed so the generic still stores
-    // tiles, while the ALLOCATION underneath stays scalar -- identical to how
-    // the value operand is presented to the argmax generic below.
-    Value i32IndicesTileView =
-        relabelRowMajorAsTile(rewriter, loc, i32IndicesRowMajor);
+    auto arangeBcastOrigOutputs =
+        createDpsOutputs(loc, rewriter, {arangeIdxTy});
+    auto [arangeBcastInputsUnused, arangeBcastOutputs] =
+        toLayoutOperandsAndResults(
+            rewriter, {SmallVector<Value>{}, arangeBcastOrigOutputs}, true);
 
-    SmallVector<Value> i32IndicesOutputs{i32IndicesTileView};
-    SmallVector<Value> i32IndicesInputs = {arange.getResult(0)};
+    SmallVector<AffineMap> arangeBcastMaps = {identityMap, identityMap};
+
+    SmallVector<Value> arangeBcastInputs = {arange.getResult(0)};
+
+    d2m::GenericOp arangeBcast = rewriter.create<d2m::GenericOp>(
+        loc, arangeBcastInputs, arangeBcastOutputs, ValueRange(),
+        rewriter.getAffineMapArrayAttr(arangeBcastMaps),
+        rewriter.getArrayAttr(allParallelIterTy));
+
+    withD2MGenericRegion(
+        rewriter, loc, arangeBcast, arangeBcastInputs, arangeBcastOutputs,
+        [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
+          auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+              loc,
+              llvm::to_vector(
+                  mlir::ValueRange(blockArgs.take_back(1)).getTypes()),
+              /*inputs=*/blockArgs.take_front(1),
+              /*outs=*/blockArgs.take_back(1), arangeBcastMaps,
+              iteratorTypeTTIRToLinalg(rewriter, allParallelIterTy),
+              [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                  mlir::ValueRange bbArgs) {
+                Value bcast = bbBuilder
+                                  .create<d2m::TileBcastOp>(
+                                      bbLoc, bbArgs.front().getType(),
+                                      bbArgs.front(), arangeBcastTy)
+                                  .getResult();
+                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, bcast);
+              });
+          return {linalgGeneric.getResult(0)};
+        });
+
+    // Typecast from f32 -> i32.
+    auto [i32IndicesInsUnused, i32IndicesOutputs] = toLayoutOperandsAndResults(
+        rewriter,
+        {SmallVector<Value>{}, createDpsOutputs(loc, rewriter, {idxTy})},
+        /*tiled=*/true);
+    SmallVector<Value> i32IndicesInputs = {arangeBcast.getResult(0)};
 
     const std::size_t i32IndicesPhysicalRank =
         ttcore::getDeviceLayout(i32IndicesOutputs[0]).getRank() / 2;
@@ -6301,37 +6299,23 @@ private:
     auto reducedIdxTy = RankedTensorType::get(
         reducedShape, rewriter.getI32Type(), inputTy.getEncoding());
 
-    // Accumulator buffers: the LLK's running value/index maxima are packed out
-    // and reloaded each chunk so they survive the DST section handshake's bank
-    // flip.
-    //
-    // The value accumulator must carry the SAME element type as the value
-    // input/output CBs. An f32 accumulator CB would be a *width* mismatch on
-    // the round-trip -- packed out as a 4096-byte f32 tile, then unpacked back
-    // into a DST slice the LLK reads in its native value format -- so the
-    // reloaded bits do not line up and the SFPSWAP fold compares garbage. That
-    // is a correctness failure, strictly worse than the half-ULP rounding a
-    // bf16 round-trip costs on near-ties.
+    // Accumulator buffers used for the LLK's 'accumulate' feature, sidestepping
+    // having to combine the results in accumulators manually.
     auto valAccTy = RankedTensorType::get(
         reducedShape, inputTy.getElementType(), inputTy.getEncoding());
     auto idxAccTy = RankedTensorType::get(reducedShape, rewriter.getI32Type(),
                                           inputTy.getEncoding());
 
-    // The accumulator buffers ride along as extra DPS outputs so the generic
-    // materializes real CBs for them with the right element types.  Their
-    // generic results go unused -- only the reduced value/index outputs are
-    // consumed -- but this is the only path that hands the compute kernel a CB
-    // port per buffer (`additionalArgs` operands are produced by HoistCBAllocs
-    // from in-region allocs, not populated from here).
+    // The accumulator buffers are added as DPS outputs so the generic
+    // materializes CBs for them with the right types. Their CBs are then used
+    // to store and reload the intermediate accumulator results to avoid an
+    // issue with DST register flipping and corrupting data after
+    // tile_regs_commit.
     auto argMaxOrigOutputs = createDpsOutputs(
         loc, rewriter, {reducedValTy, reducedIdxTy, valAccTy, idxAccTy});
-    // The values operand is laid out UNTILED, i.e. row-major in L1: the
-    // `max_reduce_with_indices` LLK's 32-row path only accepts
-    // `DataLayout::ROW_MAJOR`, which expects the 64 DST rows of a tile ordered
-    // F0R0, F1R0, F0R1, F1R1, ... rather than face-major. No LLK stages that
-    // order from a tilized CB (the only unpacker hooks are SrcA transposes), so
-    // the ordering has to come from the data already being row-major in L1.
-    // Outputs stay tiled; only the reduced input needs the row-major order.
+
+    // Begin the pseudo row-major trick. The values and indices will be laid out
+    // untiled, producing a row-major layout that the LLK expects.
     auto [argMaxInputsHead, argMaxOutputs] = toLayoutOperandsAndResults(
         rewriter, {SmallVector<Value>{adaptor.getInput()}, argMaxOrigOutputs},
         /*tiled=*/true, false, ttcore::OOBVal::NegInf);
@@ -6340,79 +6324,60 @@ private:
         adaptor.getInput(), memorySpaces[0], /*tiled=*/false,
         /*noCollapse=*/false, rewriter, ttcore::OOBVal::NegInf);
 
-    // Pin this operand to a unit grid.
-    //
-    // The relabel below reinterprets these bytes as tiles through view_layout
-    // only -- the ALLOCATION stays scalar-typed (`bf16`, not `!ttcore.tile`).
-    // Allocation sizes a shard from the trailing *scalar* dims, so on a grid
-    // wider than 1 the leading dim is read as a core-grid extent and each core
-    // receives only part of the reduction axis (measured: a 64x32 reduce got
-    // 2x1x32x32, i.e. 32 rows per core on a 2x1 grid, while the consuming
-    // generic runs on grid<1x1> -- so half the input was on a core the kernel
-    // never addresses, and the result was max(rows 0-31)).
-    //
-    // A view cannot move bytes between cores, so the reblock back to
-    // 1x1x64x32 that grid selection inserts is a type-level fiction here.
-    // Keep the whole reduction axis resident on one core instead; this also
-    // matches what the LLK needs, since it accumulates across chunks in that
-    // core's DST.
-    //
-    // TEMPORARY: argmax is a carve-out until the streamlined row-major LLK
-    // support lands, which should allocate tile-typed and relabel *down* to
-    // row-major -- that would let the reduction split across cores again.
+    // Pin this operand to a unit grid. This is a workaround to avoid the
+    // following bug: The LLK expects the operands to be in row-major layout. To
+    // achieve this, we untilize the operands and then reinterpret cast them as
+    // a tile. However, allocation sizes a shard from the trailing scaler dims
+    // (e.g. 2x1x32x32xbf16 would read as 2x1 cores instead of 2x1 tiles). The
+    // consuming generic interprets it correctly as a 2x1 grid, though. So, the
+    // values are sent to the wrong cores.
     if (auto rowMajorToLayout =
             rowMajorValues.getDefiningOp<d2m::ToLayoutOp>()) {
       rowMajorToLayout->setAttr("d2m.row_major_llk_operand",
                                 rewriter.getUnitAttr());
     }
 
-    // ===================== BEGIN ROW-MAJOR-AS-TILE RELABEL
-    // ===================== Remove this whole block (and the `rowMajorValues =
-    // ...` reassignment at its end) to go back to feeding the plain untiled
-    // operand.
-    //
-    // Problem: the LLK needs row-major *bytes*, but the d2m.generic /
-    // CB machinery needs a *tile-typed* operand -- an untiled operand makes the
-    // region see scalar elements, not tiles.
-    //
-    // Trick: `ttcore::isTiled()` is `isa<TileType>(elementType)` and nothing
-    // else, so "is this tilized?" is purely a type-level label with no
-    // independent record of the physical byte order. `d2m.view_layout` with
-    // `reinterpretLayout = true` rewrites that label and emits no data
-    // movement, so we can hand the row-major buffer above to a tile-consuming
-    // op. D2MLowerToLayout sees isTiled(input) == isTiled(output) across the
-    // view and therefore emits no TilizeStep to "correct" it.
-    //
-    // This is the same construction test/python/golden/d2m/test_tilize.py uses
-    // to test tilize/untilize (goldens there assert the face permutation), so
-    // the mechanism is exercised in-tree.
-    //
-    // Caveat: nothing in the IR records "these tile-labeled bytes are actually
-    // row-major". Any later pass that inserts a reblock, spill/reload, or DMA
-    // assuming face order will silently corrupt this. Only the LLK below is
-    // expected to consume it.
+    // The LLK needs row-major bytes, but the d2m.generic/linalg.generic
+    // machinery operates on tiles. To trick the compiler, we physically
+    // untilize the data using createOptimalLayoutOp above, then reinterpret
+    // cast it as a tile, so that as far as the compiler is concerned, the data
+    // is tilized. createOptimalLayoutOp is what does the physical movement of
+    // data, reinterpret cast is a simple relabeling. Caveat: nothing in the IR
+    // records that these tile-labeled operands are really row-major.
     rowMajorValues = relabelRowMajorAsTile(rewriter, loc, rowMajorValues);
-    // ====================== END ROW-MAJOR-AS-TILE RELABEL
-    // ======================
 
-    // The index operand needs no relabel: unlike the values, its buffer is
-    // already allocated tile-typed and correctly laid out.
-    //
-    // The row-major-as-tile relabel exists to rescue an operand that was
-    // allocated as SCALARS (`1x1x32x32xbf16`) and must be presented to the
-    // generic as tiles, scaling the shard dims by the tile shape so the
-    // per-block DMA stride is a whole tile rather than a single row. The value
-    // operand is pinned that way on purpose (`d2m.row_major_llk_operand`).
-    //
-    // The index operand comes out of the arange/typecast generics as
-    // `1x1x1x1x!tile<32x32,si32>` -- one tile, not 1024 scalars. Relabelling it
-    // tile -> scalar (identity) and back scalar -> tile (scaled by 32) claimed
-    // an extent its allocation never had, so the scaled block indices addressed
-    // outside the tile and the index tile read as zeros. Verified by
-    // substituting a constant index tile: the host then reported that constant
-    // exactly, which isolated the fault to this relabel rather than to the
-    // arange, the typecast, the LLK, or the output path.
-    Value rowMajorIndices = i32Indices.getResult(0);
+    // Give the same pseudo row-major treatment to indices. The indices however
+    // are already laid out as tiles, so we can't reuse the same
+    // relabelRowMajorAsTile helper right away because it expects a TTIR tensor.
+    Value tiledIndices = i32Indices.getResult(0);
+    auto tiledIdxTy = mlir::cast<RankedTensorType>(tiledIndices.getType());
+    auto tiledIdxLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(tiledIdxTy.getEncoding());
+    auto idxTileTy = mlir::cast<ttcore::TileType>(tiledIdxTy.getElementType());
+    SmallVector<int64_t> untiledIdxShape(tiledIdxTy.getShape());
+    ArrayRef<int64_t> idxTileShape = idxTileTy.getShape();
+    for (size_t i = 0; i < idxTileShape.size(); ++i) {
+      untiledIdxShape[untiledIdxShape.size() - idxTileShape.size() + i] *=
+          idxTileShape[i];
+    }
+    auto untiledIdxTy = RankedTensorType::get(
+        untiledIdxShape, idxTileTy.getElementType(), tiledIdxLayout);
+
+    Value untiledIdxEmpty =
+        rewriter
+            .create<d2m::EmptyOp>(loc, untiledIdxTy,
+                                  /*virtualGridInverseMapping=*/nullptr,
+                                  /*virtualGridForwardMapping=*/nullptr)
+            .getResult();
+    Value rowMajorIndices =
+        rewriter.create<d2m::ToLayoutOp>(loc, tiledIndices, untiledIdxEmpty)
+            .getResult(0);
+
+    // Pin to a unit grid for the same reason as the values.
+    rowMajorIndices.getDefiningOp()->setAttr("d2m.row_major_llk_operand",
+                                             rewriter.getUnitAttr());
+
+    rowMajorIndices = relabelRowMajorAsTile(rewriter, loc, rowMajorIndices);
 
     SmallVector<Value> argMaxInputs = {rowMajorValues, rowMajorIndices};
 
@@ -6484,35 +6449,16 @@ private:
                   linalgGeneric.getResult(2), linalgGeneric.getResult(3)};
         });
 
-    // argmax returns the INDEX of the maximum (result 1). The reduced value
-    // (result 0) is still computed -- the LLK produces both from one pass --
-    // but it is not what the op is defined to return.
     auto reducedHostType = RankedTensorType::get(reducedIdxTy.getShape(),
                                                  reducedIdxTy.getElementType());
 
-    // ====================== BEGIN ROW-MAJOR-AS-TILE UNDO
-    // ====================== Inverse of the relabel applied to the input above.
-    // The generic's result is labeled tile-typed, but `max_reduce_with_indices`
-    // consumed and produced pseudo row-major bytes, so the label does not
-    // describe the buffer.  Relabel it back to the untiled row-major type
-    // *before* `unLayoutResult`, so the genuine `d2m.to_layout` conversion it
-    // emits reads the buffer with the same convention the LLK wrote it in.
-    //
-    // Placement matters: reinterpreting after `unLayoutResult` would be too
-    // late, since that `to_layout` would already have read the bytes as face
-    // ordered.  `reinterpretLayout` only forbids changing the grid shape
-    // (D2MOps.cpp ViewLayoutOp::verify), and shard shape is allowed to change
-    // exactly so tiled<->untiled relabels like this one are expressible.
-    //
-    // Remove this block together with the input-side relabel above.
-    //
-    // Applies to the INDEX result: `max_reduce_with_indices` writes the reduced
-    // indices with the same interleaved ROW_MAJOR addressing it uses for the
-    // values (`idx_first` and `val_first` differ only in which DST slice they
-    // target), so the index buffer needs the identical relabel treatment.
-    Value reducedValues = argMaxGeneric->getResult(1);
+    // Now we undo the pseudo row-major trick from above. The generic's result
+    // is labeled as tile-typed, but we know that it's actually row-major. So,
+    // we relabel it as untiled row-major before feeding it into unLayoutResult,
+    // which handles layout conversion.
+    Value reducedIndices = argMaxGeneric->getResult(1);
     {
-      auto tiledTy = mlir::cast<RankedTensorType>(reducedValues.getType());
+      auto tiledTy = mlir::cast<RankedTensorType>(reducedIndices.getType());
       auto tiledLayout =
           mlir::cast<ttcore::MetalLayoutAttr>(tiledTy.getEncoding());
       auto tileTy = mlir::cast<ttcore::TileType>(tiledTy.getElementType());
@@ -6536,17 +6482,15 @@ private:
       // spans more than one tile per shard.
       AffineMap viewRemap = rewriter.getMultiDimIdentityMap(viewShape.size());
 
-      reducedValues =
+      reducedIndices =
           rewriter
-              .create<d2m::ViewLayoutOp>(loc, viewTy, reducedValues, viewRemap,
+              .create<d2m::ViewLayoutOp>(loc, viewTy, reducedIndices, viewRemap,
                                          /*reinterpretLayout=*/true)
               .getResult();
     }
-    // ======================= END ROW-MAJOR-AS-TILE UNDO
-    // =======================
 
     Value reducedHost =
-        unLayoutResult(rewriter, reducedValues, reducedHostType)->getResult(0);
+        unLayoutResult(rewriter, reducedIndices, reducedHostType)->getResult(0);
     Value result = buildTypecastGeneric(rewriter, loc, reducedHost, outputTy);
 
     rewriter.replaceOp(op, result);

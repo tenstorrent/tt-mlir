@@ -3274,7 +3274,6 @@ public:
       setInsertionPointAfterOperands(rewriter, {cbValues, outCB},
                                      /*allowHoisting*/ true);
       rewriter.create<ttkernel::InitSFPUOp>(loc, cbValues, outCB);
-      rewriter.create<ttkernel::MaxReduceWithIndicesInitOp>(loc);
     }
 
     // num_rows is the number of tile rows reduced. The LLK reduces columns
@@ -3366,6 +3365,8 @@ public:
         // all.
       }
     }
+
+    rewriter.create<ttkernel::MaxReduceWithIndicesInitOp>(loc);
 
     rewriter.create<ttkernel::MaxReduceWithIndicesTileOp>(
         loc, idst, idstIdx, chunk, rewriter.getI32IntegerAttr(kNumRows),
