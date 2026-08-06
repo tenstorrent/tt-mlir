@@ -33,10 +33,10 @@ def exchange_payload(source, destination, start, done, packet_count):
     )
     profile_event("d2m.fabric.saturation.begin", "datamovement")
     for _ in range(packet_count):
-        payload = remote_load(source, [0, 0])
+        payload = remote_load(source, [0, cx])
         remote_store(
             destination,
-            [0, 0],
+            [0, cx],
             payload,
             start_device=[dy, 1 - dx],
             device_mcast_shape=[1, 1],
@@ -59,14 +59,14 @@ def _payload_geometry(payload_kib):
     return tile_count // tiles_x, tiles_x
 
 
-def _build(payload_kib, packet_count, seed):
+def _build(payload_kib, packet_count, num_links, num_senders, seed):
     tiles_y, tiles_x = _payload_geometry(payload_kib)
-    shape = (tiles_y * 32, tiles_x * 32)
+    shape = (tiles_y * 32, num_senders * tiles_x * 32)
     layout = d2m.Layout(
         shape=shape,
         dtype=d2m.bfloat16,
         block_shape=[tiles_y, tiles_x],
-        grid_shape=[1, 1],
+        grid_shape=[1, num_senders],
         mem_space="dram",
     )
     generator = torch.Generator()
@@ -84,15 +84,15 @@ def _build(payload_kib, packet_count, seed):
     exchange_payload(
         source,
         destination,
-        d2m.global_semaphore(),
-        d2m.global_semaphore(init=0),
+        d2m.global_semaphore(grid_shape=(8, 8)),
+        d2m.global_semaphore(grid_shape=(8, 8), init=0),
         packet_count,
-        grid=(1, 1),
+        grid=(1, num_senders),
         fabric=d2m.fabric_config(
             cluster_axis=1,
             topology="linear",
-            num_links=1,
-            router_cores=[(0, 0)],
+            num_links=num_links,
+            router_cores=[(0, x) for x in range(num_senders)],
         ),
         kernel_io_in_dram=True,
     )
@@ -155,7 +155,7 @@ def _device_durations_ns(profile_csv, warmup, iterations):
                 f"expected {captured_runs} intervals on stream {stream}, "
                 f"found {len(intervals)}"
             )
-        durations[stream[0]].extend(intervals[warmup:])
+        durations[stream] = intervals[warmup:]
     if not durations:
         raise ValueError("fabric saturation events are missing from the device profile")
     return durations
@@ -165,6 +165,8 @@ def _parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--payload-kib", type=int, default=128)
     parser.add_argument("--packet-count", type=int, default=512)
+    parser.add_argument("--num-links", type=int, choices=(1, 2), default=1)
+    parser.add_argument("--num-senders", type=int, choices=(1, 2), default=1)
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument("--iterations", type=int, default=3)
     parser.add_argument("--seed", type=int, default=0)
@@ -182,6 +184,9 @@ def main():
         raise ValueError("payload size and packet count must be positive")
     if args.warmup < 0 or args.iterations <= 0:
         raise ValueError("warmup must be non-negative and iterations must be positive")
+    num_senders = args.num_senders
+    if num_senders > args.num_links:
+        raise ValueError("number of senders cannot exceed number of links")
 
     args.profile_dir.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(args.profile_dir / ".logs", ignore_errors=True)
@@ -195,7 +200,13 @@ def main():
 
     d2m_config.enable_perf_trace = True
     _Builder.reset()
-    executable, expected = _build(args.payload_kib, args.packet_count, args.seed)
+    executable, expected = _build(
+        args.payload_kib,
+        args.packet_count,
+        args.num_links,
+        num_senders,
+        args.seed,
+    )
     result = None
     host_samples_ms = []
     try:
@@ -214,13 +225,30 @@ def main():
         raise ValueError(f"fabric exchange failed correctness, max_diff={max_diff}")
 
     profile_csv = args.profile_dir / ".logs" / "profile_log_device.csv"
-    durations = _device_durations_ns(profile_csv, args.warmup, args.iterations)
-    bytes_per_direction = args.payload_kib * 1024 * args.packet_count
+    stream_durations = _device_durations_ns(profile_csv, args.warmup, args.iterations)
+    streams_by_device = collections.defaultdict(list)
+    for stream, samples in stream_durations.items():
+        streams_by_device[stream[0]].append(samples)
+    for device, streams in streams_by_device.items():
+        if len(streams) != num_senders:
+            raise ValueError(
+                f"expected {num_senders} profiler streams on device {device}, "
+                f"found {len(streams)}"
+            )
+    durations = {
+        device: [
+            max(stream[iteration] for stream in streams)
+            for iteration in range(args.iterations)
+        ]
+        for device, streams in streams_by_device.items()
+    }
+    bytes_per_direction = args.payload_kib * 1024 * args.packet_count * num_senders
     all_samples_ns = [sample for samples in durations.values() for sample in samples]
     mean_ns = sum(all_samples_ns) / len(all_samples_ns)
     per_direction_gbps = bytes_per_direction / mean_ns
     print(
         f"payload_kib={args.payload_kib} packets={args.packet_count} "
+        f"num_links={args.num_links} num_senders={num_senders} "
         f"bytes_per_direction={bytes_per_direction}"
     )
     for device, samples in sorted(durations.items()):
@@ -231,6 +259,7 @@ def main():
         )
     print(
         f"mean_directional_GBps={per_direction_gbps:.3f} "
+        f"mean_per_sender_GBps={per_direction_gbps / num_senders:.3f} "
         f"mean_full_duplex_GBps={2 * per_direction_gbps:.3f} "
         f"host_ms={[round(sample, 3) for sample in host_samples_ms]} "
         f"profile={profile_csv}"
