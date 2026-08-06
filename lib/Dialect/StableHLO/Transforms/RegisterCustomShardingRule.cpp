@@ -1785,6 +1785,8 @@ getArgMaxShardingRule(mlir::stablehlo::CustomCallOp op) {
 static mlir::sdy::OpShardingRuleAttr
 getSamplingShardingRule(mlir::stablehlo::CustomCallOp op) {
   if (op.getNumOperands() != 5 || op.getNumResults() != 1) {
+    op->emitWarning("tt.sampling sharding rule expects 5 operands and 1 "
+                    "result; falling back to replication");
     return mlir::sdy::OpShardingRuleAttr();
   }
 
@@ -1793,22 +1795,38 @@ getSamplingShardingRule(mlir::stablehlo::CustomCallOp op) {
   auto resultType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
   if (!valuesType || !resultType || valuesType.getRank() != 2 ||
       resultType.getRank() != 1) {
+    op->emitWarning("tt.sampling sharding rule expects input_values of rank 2 "
+                    "and a result of rank 1; falling back to replication");
     return mlir::sdy::OpShardingRuleAttr();
-  }
-
-  // Operands 1..4 must agree with input_values on the batch dim.
-  for (int64_t i = 1; i < 5; ++i) {
-    auto operandType =
-        llvm::dyn_cast<RankedTensorType>(op.getOperand(i).getType());
-    int64_t expectedRank = (i == 1) ? 2 : 1;
-    if (!operandType || operandType.getRank() != expectedRank ||
-        operandType.getShape()[0] != valuesType.getShape()[0]) {
-      return mlir::sdy::OpShardingRuleAttr();
-    }
   }
 
   int64_t batchSize = valuesType.getShape()[0];
   int64_t candidateSize = valuesType.getShape()[1];
+
+  if (resultType.getShape()[0] != batchSize) {
+    op->emitWarning("tt.sampling sharding rule expects the result batch dim to "
+                    "match input_values; falling back to replication");
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // input_indices must match input_values exactly; k, p and temp must agree on
+  // the batch dim. A mismatch would make the factor sizes below inconsistent
+  // with the operand shapes, which Shardy rejects when verifying the rule.
+  for (unsigned i = 1; i < op.getNumOperands(); ++i) {
+    auto operandType =
+        llvm::dyn_cast<RankedTensorType>(op.getOperand(i).getType());
+    bool shapeOk =
+        operandType && (i == 1 ? operandType.getShape() == valuesType.getShape()
+                               : operandType.getRank() == 1 &&
+                                     operandType.getShape()[0] == batchSize);
+    if (!shapeOk) {
+      op->emitWarning("tt.sampling sharding rule expects operand ")
+          << i
+          << " to match input_values on the batch dim; falling back to "
+             "replication";
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+  }
 
   mlir::sdy::OpShardingRuleBuilder builder(op);
 

@@ -24,5 +24,8 @@ func.func @sampling_candidate_dim_replicated(%arg0: tensor<64x256xbf16> {sdy.sha
 }
 
 // CHECK-LABEL: func.func @sampling_candidate_dim_replicated
+// The candidate dim is gathered back before the op, and only the batch dim
+// stays sharded.
+// CHECK: stablehlo.all_gather
 // CHECK: stablehlo.custom_call @tt.sampling
 // CHECK-SAME: (tensor<32x256xbf16>, tensor<32x256xi32>, tensor<32xi32>, tensor<32xbf16>, tensor<32xbf16>) -> tensor<32xi32>
