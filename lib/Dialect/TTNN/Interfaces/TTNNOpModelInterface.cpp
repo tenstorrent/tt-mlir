@@ -4704,6 +4704,24 @@ OnesOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// ZerosBufferOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+ZerosBufferOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  return detail::getNamedFullOpConstraints(*this, inputs, opConfig);
+}
+
+// Same as ZerosOp: runtime measurement is disabled for creation ops.
+llvm::Expected<size_t>
+ZerosBufferOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
+}
+
+//===----------------------------------------------------------------------===//
 // FullOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

@@ -3121,6 +3121,43 @@ def TTNN_FullOp : TTNN_CreationOp<"full", [CanExecuteOnHostTrait]> {
 
 }
 
+def TTNN_ZerosBufferOp : TTNN_MemoryEffectOp<"zeros_buffer",
+  [CheckTileTypeTrait, TTCore_CreationOpTrait, TTCore_NonCacheableTrait,
+   TTNN_TensorSpecInterface, TTNN_DeviceOperandInterface, TTNN_LayoutOpInterface]> {
+  let summary = "Allocates a fresh zero-filled tensor (special-purpose; prefer ttnn.zeros).";
+  let description = [{
+    Tensor operation to allocate a new tensor filled with zeros.
+
+    Given a ShapeAttr `shape`, produces a tensor with the same shape, filled
+    with zeros. Every instance denotes a distinct allocation: it is exempt from
+    CSE and from const-eval hoisting, so each call yields its own buffer rather
+    than a shared one.
+
+    It differs from `ttnn.zeros` only in these allocation semantics, not at
+    runtime: it serializes to the same flatbuffer op (`NamedFullOp` with
+    `type = Zeros`) and executes as `ttnn::zeros`.
+
+    Example:
+      %0 = "ttnn.zeros_buffer"(%device) <{shape = #ttnn.shape<8192x16x32x128>}>
+          : (!ttnn.device) -> tensor<8192x16x32x128xbf16, #ttnn_layout>
+
+    Note: prefer `ttnn.zeros` unless each call must yield its own distinct
+    buffer, since skipping CSE and const-eval costs an allocation per
+    invocation. The distinct-allocation guarantee comes from being built on
+    `TTNN_MemoryEffectOp` rather than `TTNN_Op` (which injects `Pure`, leaving
+    even `ttnn.zeros` and `ttnn.empty` CSE-able) plus `TTCore_NonCacheableTrait`.
+    `CanExecuteOnHostTrait` is omitted, as for `ttnn.empty` and `ttnn.rand`:
+    these buffers stay on device.
+  }];
+
+  let arguments = (ins Optional<TTNN_Device>:$device,
+                       TTNN_ShapeAttr:$shape);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "result"]>, CanExecuteOnHostTrait]> {
     let summary = "Constant op.";
     let description = [{

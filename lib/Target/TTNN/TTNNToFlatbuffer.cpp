@@ -434,6 +434,8 @@ createNamedFullOp(FlatbufferObjectCache &cache, OpTy op) {
     type = ::tt::target::ttnn::NamedFullOpType::Zeros;
   } else if constexpr (std::is_same_v<OpTy, ttnn::OnesOp>) {
     type = ::tt::target::ttnn::NamedFullOpType::Ones;
+  } else if constexpr (std::is_same_v<OpTy, ttnn::ZerosBufferOp>) {
+    type = ::tt::target::ttnn::NamedFullOpType::Zeros;
   } else {
     static_assert(ttmlir::utils::always_false<OpTy>(),
                   "Unsupported NamedFullOp type");
@@ -4288,6 +4290,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto onesOp = dyn_cast<OnesOp>(op); onesOp) {
     return createOperation(cache, createNamedFullOp(cache, onesOp), debugString,
                            locInfo);
+  }
+  if (auto zerosBufferOp = dyn_cast<ZerosBufferOp>(op); zerosBufferOp) {
+    return createOperation(cache, createNamedFullOp(cache, zerosBufferOp),
+                           debugString, locInfo);
   }
   if (auto addOp = dyn_cast<AddOp>(op); addOp) {
     return createOperation(cache, createEltwiseBinaryOp(cache, addOp),

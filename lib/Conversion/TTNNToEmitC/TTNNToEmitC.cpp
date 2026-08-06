@@ -2378,6 +2378,25 @@ public:
 };
 } // namespace
 
+// ZerosBufferOp conversion pattern
+//
+// Emits ttnn::zeros: zeros_buffer differs only in allocation semantics, and
+// there is no ttnn::zeros_buffer in the TTNN API.
+namespace {
+class ZerosBufferOpConversionPattern
+    : public NamedFullOpConversionPattern<mlir::tt::ttnn::ZerosBufferOp> {
+public:
+  using NamedFullOpConversionPattern<
+      mlir::tt::ttnn::ZerosBufferOp>::NamedFullOpConversionPattern;
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.zeros_buffer";
+  }
+  std::string getPrefixSwapPattern() const override { return "ttnn::zeros"; }
+};
+} // namespace
+
 // FullOp conversion pattern
 //
 namespace {
@@ -5545,6 +5564,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<EmptyOpConversionPattern,
                NamedFullOpConversionPattern<mlir::tt::ttnn::ZerosOp>,
                NamedFullOpConversionPattern<mlir::tt::ttnn::OnesOp>,
+               ZerosBufferOpConversionPattern,
                FullOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::ArangeOp>,
                DefaultOpConversionPattern<mlir::tt::ttnn::ConstantOp>,

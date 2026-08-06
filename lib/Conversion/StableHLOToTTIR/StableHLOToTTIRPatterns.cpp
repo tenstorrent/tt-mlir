@@ -9985,6 +9985,50 @@ static void addSortOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRSortOpConversionPattern>(typeConverter, ctx);
 }
 
+namespace {
+// This pattern recognizes and converts stablehlo.custom_call @tt.zeros_buffer
+// to ttir.zeros_buffer. The custom_call has no operands; the shape and element
+// type come from its single result type.
+class StableHLOZerosBufferConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.zeros_buffer") {
+      return failure();
+    }
+
+    if (!adaptor.getOperands().empty() || srcOp.getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ZerosBuffer op must have no operands and exactly one result. "
+                 "Got " +
+                     std::to_string(adaptor.getOperands().size()) +
+                     " operands and " +
+                     std::to_string(srcOp.getResults().size()) + " results.");
+    }
+
+    auto outputType = mlir::dyn_cast_or_null<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+    if (!outputType) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ZerosBuffer op result must be a ranked tensor.");
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::ZerosBufferOp>(
+        srcOp, outputType,
+        rewriter.getDenseI32ArrayAttr(
+            llvm::to_vector_of<int32_t>(outputType.getShape())));
+
+    return success();
+  }
+};
+} // namespace
+
 static void addCacheOpsConversionPattern(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
                                          TypeConverter &typeConverter) {
@@ -9993,6 +10037,7 @@ static void addCacheOpsConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOPagedUpdateCacheConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOPagedFillCacheConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOSamplingConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOZerosBufferConversionPattern>(typeConverter, ctx);
 }
 
 namespace {

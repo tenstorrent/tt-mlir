@@ -502,6 +502,8 @@ auto getOpSymbol() {
     return WRAP_OP(::ttnn::zeros);
   } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::OnesOp>) {
     return WRAP_OP(::ttnn::ones);
+  } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::ZerosBufferOp>) {
+    return WRAP_OP(::ttnn::zeros);
   } else if constexpr (std::is_same_v<OpTy, QuantizeOp>) {
     return WRAP_OP(::ttnn::quantize);
   } else if constexpr (std::is_same_v<OpTy, DequantizeOp>) {
@@ -1810,6 +1812,7 @@ llvm::Expected<OpConstraints> NamedFullOpModel<OpTy>::getOpConstraints(
 // Explicit template instantiation for NamedFullOpModel.
 template struct NamedFullOpModel<ZerosOp>;
 template struct NamedFullOpModel<OnesOp>;
+template struct NamedFullOpModel<ZerosBufferOp>;
 
 //===----------------------------------------------------------------------===//
 // SoftmaxOp

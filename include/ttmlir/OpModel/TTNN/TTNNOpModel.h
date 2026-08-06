@@ -420,6 +420,9 @@ struct OpModel<ZerosOp> : NamedFullOpModel<ZerosOp> {};
 template <>
 struct OpModel<OnesOp> : NamedFullOpModel<OnesOp> {};
 
+template <>
+struct OpModel<ZerosBufferOp> : NamedFullOpModel<ZerosBufferOp> {};
+
 //===----------------------------------------------------------------------===//
 // Quantization Ops
 //===----------------------------------------------------------------------===//
