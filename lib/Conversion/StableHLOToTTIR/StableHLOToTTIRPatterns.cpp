@@ -11206,22 +11206,6 @@ public:
   }
 };
 
-// Converts `stablehlo.while` into `ttir.while`.
-//
-// Unlike every other region-carrying StableHLO op handled in this file, the
-// regions are preserved rather than pattern-matched into an attribute. Two
-// things need fixing up along the way:
-//
-//   - `ttir.while` is IsolatedFromAbove, so values the regions use but that are
-//     defined outside the op must be promoted to explicit `captures` operands
-//     and appended to both regions' block arguments. Constants included:
-//     cloning one into a region would leave a const-evaluable op inside an
-//     isolated region, which const-eval hoisting then rewires to the
-//     function-level device and breaks. Patterns that need to see through a
-//     capture to what it was should use `resolveWhileCapture`.
-//   - The `stablehlo.return` terminators must become `ttir.yield`. No pattern
-//     covers them, and StableHLO is fully illegal after this pass, so they are
-//     rewritten here rather than left to the driver.
 class StableHLOToTTIRWhileOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::WhileOp> {
   using OpConversionPattern<mlir::stablehlo::WhileOp>::OpConversionPattern;
