@@ -59,6 +59,24 @@ func.func @multi_element_condition(%arg0: tensor<1xi32>) -> tensor<1xi32> {
 
 // -----
 
+// A trip count is an iteration count, so ODS confines the attribute to
+// non-negative values.
+func.func @negative_trip_count(%arg0: tensor<1xi32>) -> tensor<1xi32> {
+  // expected-error @+1 {{attribute 'trip_count' failed to satisfy constraint}}
+  %r = ttir.while inits(%arg0 : tensor<1xi32>) {trip_count = -1 : i64}
+    cond {
+    ^cond(%i: tensor<1xi32>):
+      %p = "ttir.lt"(%i, %i) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi1>
+      ttir.yield %p : tensor<1xi1>
+    } do {
+    ^body(%i: tensor<1xi32>):
+      ttir.yield %i : tensor<1xi32>
+    } -> (tensor<1xi32>)
+  return %r : tensor<1xi32>
+}
+
+// -----
+
 // ttir.while is IsolatedFromAbove: each region becomes its own runtime program
 // with its own tensor pool, so anything it reads has to arrive as a capture.
 func.func @unpromoted_capture(%arg0: tensor<1xi32>, %outside: tensor<1xi32>) -> tensor<1xi32> {
