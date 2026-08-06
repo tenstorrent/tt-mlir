@@ -2446,6 +2446,121 @@ class TTIRBuilder(Builder):
 
         return zeros_module, zeros_builder
 
+    ############### ttir.ZerosBufferOp ###############
+
+    @tag(ttir.ZerosBufferOp)
+    def zeros_buffer(
+        self,
+        shape: List[int],
+        dtype: torch.dtype,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.zeros_buffer)
+        mlir_output_type = self._get_type_from_torch_dtype(dtype)
+        shape_attr = DenseI32ArrayAttr.get(shape)
+        result = self._create_ranked_tensor_type(shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            shape_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        op_golden_function = get_golden_function(ttir_op)
+        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+        golden_output = op_golden_function(
+            shape_attr, mesh_shape_attr, result.element_type
+        )
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.ZerosBufferOp)
+    def zeros_buffer_parser(
+        self,
+        old_op: ttir.ZerosBufferOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.zeros_buffer_parser)
+        result = old_op.result.type
+        shape_attr = old_op.shape
+
+        new_op = ttir_op(
+            result,
+            shape_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        op_golden_function = get_golden_function(ttir_op)
+        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+        golden_output = op_golden_function(
+            shape_attr, mesh_shape_attr, result.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.ZerosBufferOp)
+    def zeros_buffer_split(
+        self,
+        old_op: ttir.ZerosBufferOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.zeros_buffer_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            zeros_buffer_module = Module.create()
+            zeros_buffer_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types: List[Type] = []
+
+            with InsertionPoint(zeros_buffer_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="zeros_buffer_module")
+                def decorated_func():
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result,
+                        old_op.shape,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    zeros_buffer_builder._set_golden_tensor(
+                        new_op_result, old_op_result
+                    )
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                zeros_buffer_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return zeros_buffer_module, zeros_buffer_builder
+
     ############### ttir.RandOp ###############
 
     @tag(ttir.RandOp)

@@ -53,6 +53,9 @@ static constexpr llvm::StringLiteral flashMlaPrefillTargetName =
 static constexpr llvm::StringLiteral indexerScoreDsaTargetName =
     "tt.indexer_score_dsa";
 
+static constexpr llvm::StringLiteral zerosBufferTargetName = 
+    "tt.zeros_buffer";
+
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   mlir::Operation::operand_range inputs = scatterOp.getInputs();
@@ -1926,6 +1929,39 @@ getGatherDimShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// Sharding rule for tt.zeros_buffer.
+//
+// Input:  none -- the op allocates rather than transforming a tensor.
+// Output: [d0, ..., dN]
+//
+// Every result dim: kPassThrough with no operand dim to relate it to. With no
+// operands there is nothing to constrain the result, so each dim is an
+// independent free factor, which is what lets a caller's sharding constraint
+// (e.g. on the KV head axis) bind to the result. Without a registered rule
+// Shardy has no semantics for the target and leaves the result replicated.
+
+static mlir::sdy::OpShardingRuleAttr
+getZerosBufferShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 0 || op.getNumResults() != 1) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto resultType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+  if (!resultType) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+
+  const llvm::SmallVector<int64_t> noOperandDims;
+  for (int64_t dim = 0; dim < resultType.getRank(); ++dim) {
+    builder.addFactor(noOperandDims, {dim}, resultType.getShape()[dim],
+                      mlir::sdy::FactorType::kPassThrough);
+  }
+
+  return builder.build();
+}
+
 struct StablehloCustomCallShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
           StablehloCustomCallShardingModel, ::mlir::stablehlo::CustomCallOp> {
@@ -2004,6 +2040,7 @@ private:
           {utils::kTTArgMaxCustomCallTargetName, getArgMaxShardingRule},
           {utils::kTTGatherDimCustomCallTargetName, getGatherDimShardingRule},
           {utils::kTTGatherCustomCallTargetName, getGatherDimShardingRule},
+          {zerosBufferTargetName, getZerosBufferShardingRule},
       };
 };
 

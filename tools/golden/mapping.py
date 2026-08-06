@@ -8949,6 +8949,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.TypecastOp: ttir_typecast_golden,
     # Tensor creation
     ttir.ZerosOp: ttir_zeros_golden,
+    ttir.ZerosBufferOp: ttir_zeros_golden,
     ttir.OnesOp: ttir_ones_golden,
     ttir.ConstantOp: ttir_constant_golden,
     ttir.FullOp: ttir_full_golden,

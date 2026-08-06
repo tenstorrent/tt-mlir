@@ -5655,6 +5655,48 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones", [ConstantLike]> {
   let hasFolder = 1;
 }
 
+def TTIR_ZerosBufferOp : TTIR_Op<"zeros_buffer",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+   TTCore_CreationOpTrait, TTCore_NonCacheableTrait]> {
+  let summary = "Allocates a fresh zero-filled tensor (special-purpose; prefer ttir.zeros).";
+  let description = [{
+    The `zeros_buffer` operation allocates a new tensor of the specified shape
+    and fills it with zeros. Every instance denotes a distinct allocation: it is
+    exempt from CSE and from const-eval hoisting, so each call yields its own
+    buffer rather than a shared one.
+
+    It differs from `ttir.zeros` only in these allocation semantics, not at
+    runtime: both lower to the same `ttnn::zeros` call.
+
+    This op is produced from `stablehlo.custom_call @tt.zeros_buffer`, which
+    must be emitted with `has_side_effect = true`, no operands, and exactly one
+    ranked tensor result supplying the shape and element type.
+
+    Example:
+    ```mlir
+    // Allocate a zero-filled KV cache buffer.
+    %cache = "ttir.zeros_buffer"() <{shape = array<i32: 8192, 16, 32, 128>}>
+        : () -> tensor<8192x16x32x128xbf16>
+    ```
+
+    Attributes:
+    - `shape` (Array of Integer): The shape of the tensor to allocate.
+
+    Output:
+    - `result` (Tensor): A freshly allocated tensor filled with zeros.
+
+    Note: prefer `ttir.zeros` unless each call must yield its own distinct
+    buffer, since skipping CSE and const-eval costs an allocation per
+    invocation. The `Allocate` memory effect and `TTCore_NonCacheableTrait` are
+    what provide that guarantee; adding `Pure`, `ConstantLike`, or a folder
+    would silently defeat it.
+  }];
+
+  let arguments = (ins DenseI32ArrayAttr:$shape);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 def TTIR_EmptyOp : TTIR_Op<"empty", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, TTCore_CreationOpTrait, TTCore_NonCacheableTrait]> {
     let summary = "Empty tensor allocation operation.";
     let description = [{

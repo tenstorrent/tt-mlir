@@ -808,6 +808,29 @@ def test_zeros(shape: Shape, dtype: torch.dtype, request, device):
     ],
     ids=["bf16", "f32", "i32"],
 )
+def test_zeros_buffer(shape: Shape, dtype: torch.dtype, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func([], [])
+        def zeros_buffer(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+            return builder.zeros_buffer(shape, dtype, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.bfloat16 | SkipIf("sim"),
+        torch.float32 | SkipIf("sim"),
+        torch.int32 | SkipIf("sim"),
+    ],
+    ids=["bf16", "f32", "i32"],
+)
 def test_ones(shape: Shape, dtype: torch.dtype, request, device):
     def module(builder: TTIRBuilder):
         @builder.func([], [])

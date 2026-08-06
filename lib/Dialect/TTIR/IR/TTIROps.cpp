@@ -1345,6 +1345,21 @@ void EmptyOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
+// ZerosBufferOp
+//===----------------------------------------------------------------------===//
+
+// ZerosBufferOp models allocation semantics: each call is a distinct
+// zero-filled buffer, unlike ttir.zeros which is a value. The Allocate effect
+// prevents CSE from merging identical instances while still allowing DCE to
+// remove unused ones.
+void ZerosBufferOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(MemoryEffects::Allocate::get(),
+                       cast<OpResult>(getResult()));
+}
+
+//===----------------------------------------------------------------------===//
 // RandOp
 //===----------------------------------------------------------------------===//
 

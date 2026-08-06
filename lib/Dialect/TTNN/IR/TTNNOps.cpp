@@ -1366,6 +1366,22 @@ static ::mlir::LogicalResult namedOpVerify(Op op) {
 }
 
 //===----------------------------------------------------------------------===//
+// ZerosBufferOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::ZerosBufferOp::verify() {
+  return namedOpVerify(*this);
+}
+
+void mlir::tt::ttnn::ZerosBufferOp::getEffects(
+    ::mlir::SmallVectorImpl<
+        ::mlir::SideEffects::EffectInstance<::mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(::mlir::MemoryEffects::Allocate::get(),
+                       mlir::cast<OpResult>(getResult()));
+}
+
+//===----------------------------------------------------------------------===//
 // FullOp
 //===----------------------------------------------------------------------===//
 
