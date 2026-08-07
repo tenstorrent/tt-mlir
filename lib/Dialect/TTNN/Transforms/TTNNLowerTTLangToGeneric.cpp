@@ -37,6 +37,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -46,6 +47,7 @@
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -420,7 +422,8 @@ ProgramAttr buildProgramAttr(TTLangOp op, MLIRContext *ctx,
 
 // Lower one `ttnn.tt_lang_op` to a `ttnn.generic`. Returns failure (with
 // a diagnostic already emitted) on a malformed/unset artifact.
-mlir::LogicalResult lowerTTLangOpToGeneric(TTLangOp op) {
+mlir::LogicalResult
+lowerTTLangOpToGeneric(TTLangOp op, llvm::SmallPtrSetImpl<Value> &claimedOuts) {
   MLIRContext *ctx = op.getContext();
 
   mlir::StringAttr artifactAttr = op.getKernelArtifactAttr();
@@ -447,15 +450,83 @@ mlir::LogicalResult lowerTTLangOpToGeneric(TTLangOp op) {
     return mlir::failure();
   }
 
+  // Ensure no DPS "out" init operand is a buffer some other output already
+  // writes to.
+  //
+  // `ttnn.generic` writes each output in place, so two outputs backed by one
+  // buffer clobber each other and only the last write survives, with no
+  // diagnostic anywhere. The operands reaching this pass do not always satisfy
+  // that: StableHLOToTTIR synthesizes one `ttir.empty` init per result, and
+  // same-shaped results make those ops identical and side-effect free, so CSE
+  // folds them into a single SSA value that lands in several "out" slots.
+  //
+  // CSE folds across the whole module, not just one op, so `claimedOuts` is
+  // carried across every `tt_lang_op` the pass visits. Two chained kernels with
+  // same-shaped outputs otherwise share a destination, and the second one
+  // overwrites the first one's result -- which it may also be reading as an
+  // input.
+  //
+  // Only repeats are rebuilt. The first claimant of a buffer, and any init that
+  // is already unique, is left alone, so a caller that deliberately passed a
+  // particular destination (a block argument, say) still gets written in place
+  // and DPS semantics are preserved. This is the last pass before flatbuffer
+  // emission, so nothing runs afterwards to merge the replacements back
+  // together, and `ttnn.empty` carries `TTCoreNonCacheableTrait`, which keeps
+  // const-eval from hoisting them into one shared cached buffer.
   OpBuilder builder(op);
+  mlir::IRRewriter rewriter(op->getContext());
+  llvm::SmallVector<Value> operands(op.getInputs().begin(),
+                                    op.getInputs().end());
+  for (unsigned r = 0; r < numResults; ++r) {
+    unsigned outIdx = numIns + r;
+    if (claimedOuts.insert(operands[outIdx]).second) {
+      continue;
+    }
+
+    auto outType = mlir::dyn_cast<RankedTensorType>(operands[outIdx].getType());
+    if (!outType) {
+      return op.emitError("ttnn.tt_lang_op \"out\" operand ")
+             << outIdx
+             << " repeats an earlier destination but is not a ranked tensor, "
+                "so a distinct buffer cannot be built for it.";
+    }
+    auto layoutAttr =
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(outType.getEncoding());
+    if (!layoutAttr) {
+      return op.emitError("ttnn.tt_lang_op \"out\" operand ")
+             << outIdx
+             << " repeats an earlier destination but carries no "
+                "#ttnn.ttnn_layout encoding, so a distinct buffer cannot be "
+                "built for it.";
+    }
+    ShapeAttr shapeAttr = ShapeAttr::get(ctx, outType.getShape());
+
+    Value freshOut;
+    if (isSystemBufferType(layoutAttr.getBufferType())) {
+      // Host-memory destination: EmptyOp requires a device, so fall back to a
+      // ZerosOp (matches the ttir.empty -> ttnn lowering for system buffers).
+      rewriter.setInsertionPoint(op);
+      freshOut = rewriter.create<ZerosOp>(op.getLoc(), outType,
+                                          /*device=*/nullptr, shapeAttr);
+    } else {
+      GetDeviceOp device = utils::getOrInsertDevice(rewriter, op);
+      rewriter.setInsertionPoint(op);
+      freshOut =
+          rewriter.create<EmptyOp>(op.getLoc(), outType, device, shapeAttr);
+    }
+    operands[outIdx] = freshOut;
+    claimedOuts.insert(freshOut);
+  }
+
   // `ttnn.generic` writes in place into its "out" operands and has no
   // results; downstream IR references the out operands directly. Replace
-  // each tt_lang_op result with its tied "out" operand before erasing.
-  builder.create<GenericOp>(op.getLoc(), op.getInputs(),
+  // each tt_lang_op result with its tied (now distinct) "out" operand
+  // before erasing.
+  builder.create<GenericOp>(op.getLoc(), operands,
                             /*additional_args=*/ValueRange{}, program);
 
   for (unsigned r = 0; r < numResults; ++r) {
-    op.getResult(r).replaceAllUsesWith(op.getInputs()[numIns + r]);
+    op.getResult(r).replaceAllUsesWith(operands[numIns + r]);
   }
   op.erase();
   return mlir::success();
@@ -471,8 +542,9 @@ public:
     llvm::SmallVector<TTLangOp> ops;
     getOperation().walk([&](TTLangOp op) { ops.push_back(op); });
 
+    llvm::SmallPtrSet<Value, 8> claimedOuts;
     for (TTLangOp op : ops) {
-      if (mlir::failed(lowerTTLangOpToGeneric(op))) {
+      if (mlir::failed(lowerTTLangOpToGeneric(op, claimedOuts))) {
         return signalPassFailure();
       }
     }
