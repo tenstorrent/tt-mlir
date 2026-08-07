@@ -195,6 +195,34 @@ TTNNOperandsWorkaroundsFactory::createEmbeddingBackwardOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(bf16Workaround);
 }
 
+// Factory method to create a set of workarounds for CrossEntropyForwardOp.
+//
+// They encode the calling convention of ttml::metal::cross_entropy_fw. It
+// requires the class indices to be row-major pages of uint32s, and input and
+// output to be tiled bf16.
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createCrossEntropyForwardOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds inputTiledBf16Workaround;
+  inputTiledBf16Workaround.tensorLayoutWorkaround = Layout::Tile;
+  inputTiledBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds targetRowMajorUInt32Workaround;
+  targetRowMajorUInt32Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  targetRowMajorUInt32Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::UInt32;
+
+  TTNNOperandWorkarounds outputTiledBf16Workaround;
+  outputTiledBf16Workaround.tensorLayoutWorkaround = Layout::Tile;
+  outputTiledBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
+      .addInputOperandWorkaround(inputTiledBf16Workaround)
+      .addInputOperandWorkaround(targetRowMajorUInt32Workaround)
+      .addOutputOperandWorkaround(outputTiledBf16Workaround);
+}
+
 // Factory method to create a set of workarounds for UpsampleOp. The UpsampleOp
 // expects the input to be in row-major layout and to use the bf16 data type.
 // Since the output of the UpsampleOp follows the same format as the input

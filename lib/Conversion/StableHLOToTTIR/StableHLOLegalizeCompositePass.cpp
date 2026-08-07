@@ -2123,6 +2123,9 @@ void populateStableHLOCompositeLegalizationPatterns(
       context, "tenstorrent.gelu_tanh");
   patterns.add<TenstorrentAdamWConversionPattern>(context);
   patterns.add<TenstorrentSDPAForwardConversionPattern>(context);
+  patterns.add<
+      StableHLOToTTIRCompositeOpConversionPattern<ttir::CrossEntropyForwardOp>>(
+      context, "tenstorrent.cross_entropy_fw");
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<CustomCallRMSNormConversionPattern>(context);
   patterns.add<CustomCallDistributedRMSNormConversionPattern>(context);

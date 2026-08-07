@@ -1594,6 +1594,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {
+    tensorRefs = {opContext.type_as_CrossEntropyForwardOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::AdamWOp:
   case ::tt::target::ttnn::OpType::FillCacheOp:
   case ::tt::target::ttnn::OpType::PagedFillCacheOp:
@@ -1963,6 +1967,11 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     if (opContext.type_as_SDPAForwardOp()->attention_mask()) {
       tensorRefs.push_back(opContext.type_as_SDPAForwardOp()->attention_mask());
     }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {
+    tensorRefs = {opContext.type_as_CrossEntropyForwardOp()->input(),
+                  opContext.type_as_CrossEntropyForwardOp()->target()};
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {
