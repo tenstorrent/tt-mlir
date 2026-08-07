@@ -1,0 +1,1 @@
+add_runtime_gtest(test_is_tensor_allocated)
