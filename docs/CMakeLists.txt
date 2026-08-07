@@ -6,7 +6,7 @@ add_custom_target(copy-docs-dir
 )
 
 execute_process(
-    COMMAND ${Python_EXECUTABLE} -m pip install sphinx sphinx-markdown-builder
+    COMMAND ${Python_EXECUTABLE} -m pip install -r ${CMAKE_CURRENT_SOURCE_DIR}/requirements.txt
     # Optional arguments for pip install, like --upgrade, -e for editable install, etc.
     # ARGS ${_pip_args}
     # Specify the working directory if needed
@@ -25,11 +25,11 @@ find_program(SPHINX_APIDOC_EXECUTABLE
 )
 
 if(NOT SPHINX_EXECUTABLE)
-    message(FATAL_ERROR "sphinx-build not found - required to build documentation. Make sure sphinx and sphinx-markdown-builder are installed.")
+    message(FATAL_ERROR "sphinx-build not found - required to build documentation. Install docs/requirements.txt (sphinx, sphinx-rtd-theme, sphinx-markdown-builder).")
 endif()
 
 if(NOT SPHINX_APIDOC_EXECUTABLE)
-    message(FATAL_ERROR "sphinx-apidoc not found - required to build API documentation. Make sure sphinx and sphinx-markdown-builder are installed.")
+    message(FATAL_ERROR "sphinx-apidoc not found - required to build API documentation. Install docs/requirements.txt.")
 endif()
 
 # Configure sphinx-apidoc command
