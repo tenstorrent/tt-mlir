@@ -2567,7 +2567,8 @@ TEST_F(OpModelBase, repeatInterleaveOp) {
   }
 }
 
-TEST_F(OpModelBase, repeatOp) {
+// TODO(ddilbaz): Disable OpModel for RepeatOp until TTNN 2.0 API fixes.
+TEST_F(OpModelBase, DISABLED_repeatOp) {
   // create RepeatOp
   llvm::SmallVector<int64_t> tensorShapeA = {128, 128};
   llvm::SmallVector<int64_t> tensorShapeO = {128, 128};

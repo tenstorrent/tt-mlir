@@ -2982,30 +2982,32 @@ RepeatInterleaveOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // RepeatOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints> RepeatOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
-    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
-        liveRecords) {
-  assert(inputs.size() == 1);
-
-  const auto inputShape = getInput().getType().getShape();
-
-  return detail::constraintsDispatch(*this, liveRecords, inputShape, inputs[0],
-                                     getRepeatDims().getShape(),
-                                     opConfig.outputLayout);
-}
-
-llvm::Expected<size_t>
-RepeatOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                       const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-
-  const auto inputShape = getInput().getType().getShape();
-
-  return opRuntimeCache().getOrCompute(
-      op_model::OpModel<RepeatOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getRepeatDims().getShape(), opConfig.outputLayout);
-}
+// TODO(ddilbaz): Disable OpModel for RepeatOp until TTNN 2.0 API fixes.
+//
+// llvm::Expected<op_model::OpConstraints> RepeatOp::getOpConstraints(
+//     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+//     std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+//         liveRecords) {
+//   assert(inputs.size() == 1);
+//
+//   const auto inputShape = getInput().getType().getShape();
+//
+//   return detail::constraintsDispatch(*this, liveRecords, inputShape, inputs[0],
+//                                      getRepeatDims().getShape(),
+//                                      opConfig.outputLayout);
+// }
+//
+// llvm::Expected<size_t>
+// RepeatOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+//                        const OpConfig &opConfig) {
+//   assert(inputs.size() == 1);
+//
+//   const auto inputShape = getInput().getType().getShape();
+//
+//   return opRuntimeCache().getOrCompute(
+//       op_model::OpModel<RepeatOp>::getOpRuntime, *this, inputShape, inputs[0],
+//       getRepeatDims().getShape(), opConfig.outputLayout);
+// }
 
 //===----------------------------------------------------------------------===//
 // PadOp - TTNN Op Model Interface

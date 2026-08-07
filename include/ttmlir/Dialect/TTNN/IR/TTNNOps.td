@@ -1416,7 +1416,8 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape"> {
     }];
 }
 
-def TTNN_RepeatOp : TTNN_Op<"repeat"> {
+// TODO(ddilbaz): Disable OpModel for RepeatOp until TTNN 2.0 API fixes.
+def TTNN_RepeatOp : TTNN_Op<"repeat", [OpModelExempt]> {
     let summary = "Repeat op.";
     let description = [{
       Returns a new tensor filled with repetition of input tensor according to number of times specified in repeat_dims.

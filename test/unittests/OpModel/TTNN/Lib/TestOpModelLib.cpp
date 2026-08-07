@@ -1332,7 +1332,8 @@ TEST_F(OpModelTest, RepeatInterleave) {
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
 
-TEST_F(OpModelTest, Repeat) {
+// TODO(ddilbaz): Disable OpModel for RepeatOp until TTNN 2.0 API fixes.
+TEST_F(OpModelTest, DISABLED_Repeat) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   const TTNNLayoutAttr layoutDRAM = CreateTiledLayout(
       tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
