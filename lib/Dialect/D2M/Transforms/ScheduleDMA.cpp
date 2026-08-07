@@ -11,9 +11,12 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/Interfaces/ViewLikeInterface.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/SmallPtrSet.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MSCHEDULEDMA
@@ -33,6 +36,16 @@ struct DMAThreadAssignment {
   // Assigned hardware DM core.
   // For WH/BH: 1 = DRAM reader, 0 = DRAM writer.
   int32_t dmCoreIndex = -1;
+};
+
+struct RemoteMemrefAccess {
+  DenseSet<unsigned> loadCBs;
+  DenseSet<unsigned> storeCBs;
+};
+
+struct CBAffinityGroup {
+  DenseSet<unsigned> cbs;
+  size_t workload = 0;
 };
 
 // Collect all DMA ops from a block, recursively walking into nested scf.for
@@ -143,35 +156,125 @@ static void assignDmCoreIndices(
   assignDmCoreIndicesForSingleNoC(assignments);
 }
 
-// Assign CBs to threads to balance workload.
+static bool groupsOverlap(const DenseSet<unsigned> &lhs,
+                          const DenseSet<unsigned> &rhs) {
+  return llvm::any_of(lhs, [&](unsigned cb) { return rhs.contains(cb); });
+}
+
+static void collectRemoteMemrefRoots(Value memref,
+                                     SmallVectorImpl<Value> &roots,
+                                     llvm::SmallPtrSetImpl<Value> &visited) {
+  if (!visited.insert(memref).second) {
+    return;
+  }
+
+  Operation *definingOp = memref.getDefiningOp();
+  if (auto view = mlir::dyn_cast_if_present<ViewOpInterface>(definingOp)) {
+    for (Value input : view.getCompositeInputs()) {
+      collectRemoteMemrefRoots(input, roots, visited);
+    }
+    return;
+  }
+  if (auto view =
+          mlir::dyn_cast_if_present<mlir::ViewLikeOpInterface>(definingOp)) {
+    collectRemoteMemrefRoots(view.getViewSource(), roots, visited);
+    return;
+  }
+  if (auto cast = mlir::dyn_cast_if_present<memref::CastOp>(definingOp)) {
+    collectRemoteMemrefRoots(cast.getSource(), roots, visited);
+    return;
+  }
+
+  roots.push_back(memref);
+}
+
+static SmallVector<Value> collectRemoteMemrefRoots(Value memref) {
+  SmallVector<Value> roots;
+  llvm::SmallPtrSet<Value, 4> visited;
+  collectRemoteMemrefRoots(memref, roots, visited);
+  return roots;
+}
+
+// Assign CBs to threads to balance workload. CBs that load from and store to
+// the same remote memref stay on one thread so potentially dependent accesses
+// are ordered by that thread's NoC barriers.
 // Returns a vector of DMAThreadAssignment, one per hardware thread.
 static SmallVector<DMAThreadAssignment>
 assignCBsToThreads(const DenseMap<unsigned, size_t> &cbWorkloads,
+                   ArrayRef<std::pair<Operation *, unsigned>> dmaOps,
                    unsigned numThreads) {
-  SmallVector<DMAThreadAssignment> assignments(numThreads);
-
-  // Sort CBs by workload (descending) for greedy assignment.
-  SmallVector<std::pair<unsigned, size_t>> sortedCBs;
-  for (const auto &[cbIdx, workload] : cbWorkloads) {
-    sortedCBs.push_back({cbIdx, workload});
+  DenseMap<Value, RemoteMemrefAccess> accesses;
+  for (const auto &[op, cbIdx] : dmaOps) {
+    if (auto load = mlir::dyn_cast<RemoteLoadOp>(op)) {
+      for (Value root : collectRemoteMemrefRoots(load.getMemref())) {
+        accesses[root].loadCBs.insert(cbIdx);
+      }
+    } else if (auto store = mlir::dyn_cast<RemoteStoreOp>(op)) {
+      for (Value root : collectRemoteMemrefRoots(store.getMemref())) {
+        accesses[root].storeCBs.insert(cbIdx);
+      }
+    }
   }
-  llvm::sort(sortedCBs,
-             [](const auto &a, const auto &b) { return a.second > b.second; });
 
-  // Greedy assignment: assign each CB to the thread with smallest workload.
-  for (const auto &[cbIdx, workload] : sortedCBs) {
+  SmallVector<DenseSet<unsigned>> affinitySets;
+  for (const auto &[memref, access] : accesses) {
+    (void)memref;
+    if (access.loadCBs.empty() || access.storeCBs.empty()) {
+      continue;
+    }
+
+    DenseSet<unsigned> merged(access.loadCBs.begin(), access.loadCBs.end());
+    merged.insert(access.storeCBs.begin(), access.storeCBs.end());
+    for (size_t i = 0; i < affinitySets.size();) {
+      if (!groupsOverlap(merged, affinitySets[i])) {
+        ++i;
+        continue;
+      }
+      merged.insert(affinitySets[i].begin(), affinitySets[i].end());
+      affinitySets.erase(affinitySets.begin() + i);
+    }
+    affinitySets.push_back(std::move(merged));
+  }
+
+  DenseSet<unsigned> groupedCBs;
+  SmallVector<CBAffinityGroup> groups;
+  for (DenseSet<unsigned> &cbs : affinitySets) {
+    CBAffinityGroup group;
+    group.cbs = std::move(cbs);
+    for (unsigned cb : group.cbs) {
+      group.workload += cbWorkloads.lookup(cb);
+      groupedCBs.insert(cb);
+    }
+    groups.push_back(std::move(group));
+  }
+  for (const auto &[cbIdx, workload] : cbWorkloads) {
+    if (!groupedCBs.contains(cbIdx)) {
+      groups.push_back({DenseSet<unsigned>{cbIdx}, workload});
+    }
+  }
+
+  llvm::sort(groups,
+             [](const CBAffinityGroup &lhs, const CBAffinityGroup &rhs) {
+               return lhs.workload > rhs.workload;
+             });
+
+  SmallVector<DMAThreadAssignment> assignments(
+      std::min(numThreads, static_cast<unsigned>(groups.size())));
+  // Greedy assignment: assign each affinity group to the least-loaded thread.
+  for (const CBAffinityGroup &group : groups) {
     // Find thread with minimum workload.
     unsigned minThreadIdx = 0;
     size_t minWorkload = assignments[0].workload;
-    for (unsigned i = 1; i < numThreads; ++i) {
+    for (unsigned i = 1; i < assignments.size(); ++i) {
       if (assignments[i].workload < minWorkload) {
         minWorkload = assignments[i].workload;
         minThreadIdx = i;
       }
     }
 
-    assignments[minThreadIdx].assignedCBs.insert(cbIdx);
-    assignments[minThreadIdx].workload += workload;
+    assignments[minThreadIdx].assignedCBs.insert(group.cbs.begin(),
+                                                 group.cbs.end());
+    assignments[minThreadIdx].workload += group.workload;
   }
 
   return assignments;
@@ -273,9 +376,11 @@ public:
       cbWorkloads[cbIdx]++;
     }
 
-    // Determine number of threads to use.
-    unsigned numThreadsToUse = std::min(
-        static_cast<unsigned>(cbWorkloads.size()), numDatamovementThreads);
+    // Assign CBs to threads. Read/write affinity groups may reduce the number
+    // of independent work units below the number of physical DMA cores.
+    SmallVector<DMAThreadAssignment> assignments =
+        assignCBsToThreads(cbWorkloads, dmaOps, numDatamovementThreads);
+    unsigned numThreadsToUse = assignments.size();
 
     // Not enough CBs to warrant splitting but still need to assign a DM core on
     // the existing single DM thread before returning failure.
@@ -298,10 +403,6 @@ public:
       }));
       return failure();
     }
-
-    // Assign CBs to threads.
-    SmallVector<DMAThreadAssignment> assignments =
-        assignCBsToThreads(cbWorkloads, numThreadsToUse);
 
     assignDmCoreIndices(assignments, dmaOps, numDatamovementThreads);
 
