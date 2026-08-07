@@ -578,11 +578,10 @@ GridAnalysis::getTargetGridRange(GenericOp genericOp) const {
     if (gridRangesAttr && regionIndex < gridRangesAttr.size()) {
       ttcore::CoreRangeAttr range =
           mlir::cast<ttcore::CoreRangeAttr>(gridRangesAttr[regionIndex]);
-      targetGridRange.shape = {
-          range.getEndCoord().getY() - range.getStartCoord().getY() + 1,
-          range.getEndCoord().getX() - range.getStartCoord().getX() + 1};
-      targetGridRange.offset = {range.getStartCoord().getY(),
-                                range.getStartCoord().getX()};
+      targetGridRange.shape.assign(range.getSize().begin(),
+                                   range.getSize().end());
+      targetGridRange.offset = {range.getOffset().getY(),
+                                range.getOffset().getX()};
       return targetGridRange;
     }
   }
