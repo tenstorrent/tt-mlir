@@ -3428,11 +3428,15 @@ private:
   // [B, 1, Hq, Sk].
   static constexpr int64_t kDecodeMaskNumHeadsDim = 2;
 
-  // Determine if the decode op should be used based on query sequence length.
-  // SDPA decode is optimized for autoregressive decoding where seq_len == 1.
+  // Decode kernel requires Sq == 1 and Sk % 32 == 0 (k_chunk_size constraint);
+  // otherwise fall back to the generic prefill op.
   bool shouldUseDecode(ttir::ScaledDotProductAttentionOp op) const {
     auto queryType = mlir::cast<RankedTensorType>(op.getQuery().getType());
-    return queryType.getDimSize(kSeqLenDim) == 1;
+    if (queryType.getDimSize(kSeqLenDim) != 1) {
+      return false;
+    }
+    auto keyType = mlir::cast<RankedTensorType>(op.getKey().getType());
+    return keyType.getDimSize(kSeqLenDim) % 32 == 0;
   }
 
   // Materialize the heads dim of the decode mask. The decode kernel currently
