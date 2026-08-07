@@ -127,14 +127,22 @@
 #include "operations/ttml/adamw.h"
 #include "operations/ttml/sdpa_fw.h"
 #include "tt/runtime/debug.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
 
+#include "ttnn/graph/graph_processor.hpp"
+#include "ttnn/graph/graph_serialization.hpp"
+
 #include "tracy/Tracy.hpp"
 
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <optional>
+#include <unistd.h>
 
 namespace tt::runtime::ttnn {
 
@@ -216,11 +224,187 @@ void ProgramExecutor::runProgramCallback(
   }
 }
 
+namespace {
+
+uint64_t graphCaptureEnvUInt(const char *name, uint64_t fallback) {
+  const char *value = std::getenv(name);
+  return value ? std::strtoull(value, nullptr, 10) : fallback;
+}
+
+// Writes one ttnn graph report per top-level program execution; const-eval
+// subprograms execute nested and land in their parent's report. State is
+// thread_local because GraphTracker's processors are.
+class GraphCaptureWindow {
+public:
+  explicit GraphCaptureWindow(const char *programName)
+      : topLevel(state().depth++ == 0) {
+    if (topLevel) {
+      open(programName);
+    }
+  }
+
+  ~GraphCaptureWindow() {
+    --state().depth;
+    if (!topLevel || !state().capture) {
+      return;
+    }
+    state().capture.reset();
+    ::ttnn::graph::GraphProcessor::disable_detailed_buffer_tracing();
+    writeOperationRecords();
+  }
+
+  GraphCaptureWindow(const GraphCaptureWindow &) = delete;
+  GraphCaptureWindow &operator=(const GraphCaptureWindow &) = delete;
+
+  static bool isRecording() { return state().capture.has_value(); }
+
+  static void recordOperation(nlohmann::json &&record) {
+    state().operationRecords.push_back(std::move(record));
+  }
+
+private:
+  struct State {
+    std::optional<::ttnn::graph::ScopedGraphCapture> capture;
+    std::filesystem::path reportPath;
+    nlohmann::json operationRecords = nlohmann::json::array();
+    uint64_t executions = 0;
+    uint64_t reports = 0;
+    uint64_t depth = 0;
+  };
+
+  static State &state() {
+    static thread_local State state;
+    return state;
+  }
+
+  static void open(const char *programName) {
+    static const char *captureDir =
+        std::getenv("TT_RUNTIME_GRAPH_CAPTURE_DIR");
+    if (!captureDir) {
+      return;
+    }
+    static const uint64_t first =
+        graphCaptureEnvUInt("TT_RUNTIME_GRAPH_CAPTURE_FIRST", 0);
+    // Zero reports means every execution from `first` onwards.
+    static const uint64_t reportLimit =
+        graphCaptureEnvUInt("TT_RUNTIME_GRAPH_CAPTURE_REPORTS", 1);
+
+    uint64_t index = state().executions++;
+    if (index < first ||
+        (reportLimit != 0 && state().reports >= reportLimit)) {
+      return;
+    }
+    ++state().reports;
+
+    state().reportPath =
+        std::filesystem::path(captureDir) /
+        (std::string(programName) + "_pid" + std::to_string(::getpid()) +
+         "_tid" + std::to_string(::gettid()) + "_exec" + std::to_string(index) +
+         ".json");
+    state().operationRecords = nlohmann::json::array();
+    ::ttnn::graph::GraphProcessor::enable_detailed_buffer_tracing();
+    state().capture.emplace(::tt::tt_metal::IGraphProcessor::RunMode::NORMAL,
+                            state().reportPath);
+  }
+
+  // Sidecar name and record shape are the contract ttnn's graph_report importer
+  // reads as `python_io`.
+  static void writeOperationRecords() {
+    std::filesystem::path sidecarPath = state().reportPath;
+    sidecarPath.replace_extension(".python_io.json");
+    std::ofstream sidecar(sidecarPath);
+    sidecar << state().operationRecords;
+    state().operationRecords = nlohmann::json::array();
+  }
+
+  const bool topLevel;
+};
+
+// Opens a tracked scope named after the program op so the report has one
+// operation per op, with the ttnn calls it dispatches nested inside it.
+class TrackedOperation {
+public:
+  TrackedOperation(const ::tt::target::ttnn::Operation *op,
+                   ProgramContext *programContext)
+      : op(GraphCaptureWindow::isRecording() ? op : nullptr),
+        programContext(programContext) {
+    if (!this->op) {
+      return;
+    }
+    name = ::tt::target::ttnn::EnumNameOpType(this->op->type_type());
+    std::string locInfo = getOpLocInfo(context());
+    std::vector<::ttnn::Tensor> inputs = poolTensors(getOpInputRefs(context()));
+    record["name"] = name;
+    record["arguments"] = {{"loc", locInfo},
+                           {"mlir", getOpDebugString(context())}};
+    record["python_stack_trace"] = nlohmann::json::array({locInfo});
+    record["input_tensor_ids"] = tensorIds(inputs);
+    ::tt::tt_metal::GraphTracker::instance().track_function_start(name, inputs);
+  }
+
+  ~TrackedOperation() {
+    if (!op) {
+      return;
+    }
+    std::vector<::ttnn::Tensor> outputs;
+    try {
+      outputs = poolTensors(getOpOutputRefs(context()));
+      record["output_tensor_ids"] = tensorIds(outputs);
+      GraphCaptureWindow::recordOperation(std::move(record));
+    } catch (...) {
+    }
+    ::tt::tt_metal::GraphTracker::instance().track_function_end(outputs);
+  }
+
+  TrackedOperation(const TrackedOperation &) = delete;
+  TrackedOperation &operator=(const TrackedOperation &) = delete;
+
+private:
+  OpContext context() const {
+    return OpContext(::tt::runtime::utils::unsafeBorrowShared(
+                         const_cast<::tt::target::ttnn::Operation *>(op)),
+                     DeviceRuntime::TTNN);
+  }
+
+  std::vector<::ttnn::Tensor>
+  poolTensors(std::vector<::tt::runtime::TensorRef> refs) const {
+    const ProgramTensorPool &pool = programContext->getTensorPool();
+    std::vector<::ttnn::Tensor> tensors;
+    for (::tt::runtime::TensorRef &ref : refs) {
+      const auto *tensorRef =
+          &ref.as<::tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+      if (tensorRef != nullptr && pool.contains(tensorRef)) {
+        tensors.push_back(pool.getTTNNTensorAndValidate(tensorRef));
+      }
+    }
+    return tensors;
+  }
+
+  static std::vector<uint64_t>
+  tensorIds(const std::vector<::ttnn::Tensor> &tensors) {
+    std::vector<uint64_t> ids;
+    for (const ::ttnn::Tensor &tensor : tensors) {
+      if (tensor.tensor_id != ::ttnn::Tensor::INVALID_TENSOR_ID) {
+        ids.push_back(tensor.tensor_id);
+      }
+    }
+    return ids;
+  }
+
+  const ::tt::target::ttnn::Operation *op;
+  ProgramContext *programContext;
+  std::string name;
+  nlohmann::json record;
+};
+
+} // namespace
+
 void ProgramExecutor::execute() {
   ZoneScopedN("program_execute");
   ZoneText(program->name()->c_str(), std::strlen(program->name()->c_str()));
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
+  GraphCaptureWindow graphCapture(program->name()->c_str());
   runProgramCallback(debug::Hooks::get().getpreProgramCallback(),
                      executableHandle, context.get());
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
@@ -234,7 +418,10 @@ void ProgramExecutor::execute() {
         perf::Env::get().tracyProgramMetadata);
     runOpCallback(debug::Hooks::get().getPreOperatorCallback(),
                   executableHandle, op, context.get());
-    runOperation(op);
+    {
+      TrackedOperation trackedOperation(op, context.get());
+      runOperation(op);
+    }
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     syncAfterOpIfNeeded();
 #endif
