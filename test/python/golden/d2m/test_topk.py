@@ -8,9 +8,8 @@ import torch
 from builder.base.builder_utils import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_ttir_to_flatbuffer
-from builder.base.builder_runtime import execute_fb
+from builder.base.builder_runtime import execute_fb, check_outputs
 from builder.base.builder_apis import get_artifact_dir
-from golden import get_atol_rtol_pcc
 from golden.mapping import GoldenMapTensor
 from conftest import get_request_kwargs
 from typing import Optional, List, Tuple
@@ -21,114 +20,43 @@ torch.manual_seed(0)
 
 
 def _verify_topk_outputs(input_tensor, golden_topk, dim, output_tensors):
-    """PCC-checks topk device outputs against the golden.
+    """PCC-checks topk device outputs against the golden via check_outputs.
 
-    Values are compared order-robustly. Indices are validated on the values
-    they point to, gathered from the input, rather than raw positions.
+    Indices are checked order-robustly: gather the values they point to out of
+    the input and PCC-compare those against the device's values.
     """
-    d = dim % input_tensor.ndim
     prog = output_tensors["program_0"]
     device_values = prog["device_output_0"][0]
+
+    check_outputs(
+        golden_topk.values,
+        device_values,
+        "topk_values",
+        0.99,
+        1e-08,
+        1e-05,
+        check_pcc=True,
+        check_atol=False,
+        check_rtol=False,
+    )
+
     device_indices = prog["device_output_1"][0].long()
-
-    dv_sorted, _ = torch.sort(device_values, dim=d)
-    gv_sorted, _ = torch.sort(golden_topk.values, dim=d)
-    _, _, values_pcc = get_atol_rtol_pcc(gv_sorted, dv_sorted, 1e-08, 1e-05)
-    assert values_pcc >= 0.99, f"values PCC {values_pcc} < 0.99"
-
-    # The pointed-to values are compared in bf16.
-    device_gathered = torch.gather(input_tensor, d, device_indices).to(torch.bfloat16)
-    golden_gathered = torch.gather(input_tensor, d, golden_topk.indices).to(
-        torch.bfloat16
-    )
-    dg_sorted, _ = torch.sort(device_gathered, dim=d)
-    gg_sorted, _ = torch.sort(golden_gathered, dim=d)
-    _, _, index_value_pcc = get_atol_rtol_pcc(gg_sorted, dg_sorted, 1e-08, 1e-05)
-    assert index_value_pcc >= 0.99, f"index-value PCC {index_value_pcc} < 0.99"
-
-
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize(
-    "shape,k,dim",
-    [
-        # Single-tile target dim, dim=1 and dim=0
-        pytest.param((32, 256), 16, -1, id="32x256_k16_dim1"),
-        pytest.param((32, 256), 64, -1, id="32x256_k64_dim1"),
-        pytest.param((256, 32), 16, 0, id="256x32_k16_dim0"),
-        pytest.param((256, 32), 64, 0, id="256x32_k64_dim0"),
-        # Large target dim (many tiles in reduction)
-        pytest.param((32, 1376), 16, -1, id="32x1376_k16_dim1"),
-        pytest.param((1760, 32), 16, 0, id="1760x32_k16_dim0"),
-        pytest.param((32, 1376), 64, -1, id="32x1376_k64_dim1"),
-        pytest.param((1760, 32), 64, 0, id="1760x32_k64_dim0"),
-        # Ragged (non-power-of-2 tile count)
-        pytest.param((32, 96), 16, -1, id="32x96_k16_dim1"),
-        pytest.param((1536, 32), 16, 0, id="1536x32_k16_dim0"),
-        # Multi-tile non-target dim (ht>1 for dim=1, wt>1 for dim=0)
-        pytest.param((96, 446), 32, -1, id="96x446_k32_dim1"),
-        pytest.param((383, 96), 63, 0, id="383x96_k63_dim0"),
-    ],
-)
-def test_topk(shape, k, dim, target, request, device):
-    input_tensor = torch.randn(shape) * 50
-    golden_topk = torch.topk(input_tensor, k=k, dim=dim, largest=True)
-
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
-        def topk(
-            in0: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            values = builder.topk(
-                in0,
-                k=k,
-                dim=dim,
-                largest=True,
-                sorted=False,
-                unit_attrs=unit_attrs,
-            )
-            indices = builder.topk_indices(values)
-            builder.set_goldens(
-                {in0: input_tensor},
-                {
-                    values: golden_topk.values,
-                    indices: golden_topk.indices.to(torch.uint16),
-                },
-            )
-            return values, indices
-
-    kwargs = get_request_kwargs(request)
-    artifact_dir = get_artifact_dir(
-        kwargs["output_root"], "TTIRBuilder", kwargs["test_base"], make_dir=True
+    gathered_values = torch.gather(input_tensor.float(), dim, device_indices)
+    check_outputs(
+        device_values.float(),
+        gathered_values,
+        "topk_gathered_values",
+        0.99,
+        1e-08,
+        1e-05,
+        check_pcc=True,
+        check_atol=False,
+        check_rtol=False,
     )
 
-    (
-        builder,
-        compiled_bin,
-        io_goldens,
-        intermediate_goldens,
-    ) = compile_ttir_to_flatbuffer(
-        module,
-        system_desc_path=kwargs["system_desc_path"],
-        artifact_dir=artifact_dir,
-        target=target,
-        pipeline_options=["override-device-shape=1,1"],
-        save_artifacts=True,
-    )
 
-    _, output_tensors = execute_fb(
-        compiled_bin,
-        input_output_goldens=io_goldens,
-        intermediate_goldens=intermediate_goldens,
-        device=device,
-        pcc=0.99,
-        check_pcc=False,
-        save_artifacts=True,
-        artifact_dir=artifact_dir,
-    )
-
-    _verify_topk_outputs(input_tensor, golden_topk, dim, output_tensors)
+def _random_input(shape: Tuple[int, ...], k: int, dim: int) -> torch.Tensor:
+    return torch.randn(shape) * 50
 
 
 def _build_tile_distribution_input(
@@ -184,30 +112,87 @@ def _build_tile_distribution_input(
     return tensor
 
 
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("pattern", ["first_tiles", "last_tiles", "strided"])
-@pytest.mark.parametrize(
-    "shape,k,dim",
-    [
-        # pow2 tile count, dim=1 and dim=0
-        pytest.param((32, 256), 16, -1, id="32x256_k16_dim1"),
-        pytest.param((256, 32), 64, 0, id="256x32_k64_dim0"),
-        # Large reduction dim
-        pytest.param((32, 1024), 64, -1, id="32x1024_k64_dim1"),
-        # Ragged (non-power-of-2): odd tile count, even tile count
-        pytest.param((32, 96), 16, -1, id="32x96_k16_dim1"),  # 3 tiles, odd
-        pytest.param((544, 32), 16, 0, id="544x32_k16_dim0"),  # 17 tiles, odd
-        # Multi-tile non-target dim
-        pytest.param((64, 256), 64, -1, id="64x256_k64_dim1"),  # ht=2, large-k
+SINGLE_CORE_TOPK_SHAPES = [
+    # Single-tile non-target dim; the reduction dim still merges and rebuilds.
+    pytest.param((32, 256), 64, -1, id="32x256_k64_dim1"),
+    pytest.param((256, 32), 64, 0, id="256x32_k64_dim0"),
+    # Large target dim (many tiles in reduction), k > 32.
+    pytest.param((32, 1376), 64, -1, id="32x1376_k64_dim1"),
+    pytest.param((1376, 32), 64, 0, id="1376x32_k64_dim0"),
+    # Ragged (non-power-of-2 tile count)
+    pytest.param((32, 96), 16, -1, id="32x96_k16_dim1"),
+    pytest.param((1208, 32), 16, 0, id="1208x32_k16_dim0"),
+    # Multi-tile non-target dim (ht>1 for dim=1, wt>1 for dim=0)
+    pytest.param((96, 446), 32, -1, id="96x446_k32_dim1"),
+    pytest.param((383, 96), 63, 0, id="383x96_k63_dim0"),
+]
+
+MULTI_CORE_TOPK_SHAPES = [
+    # Non-target dim is a single tile (32), on dim 0; target dim (dim=1) is
+    # any multiple of 32.
+    pytest.param((32, 5504), 16, -1, id="32x5504_k16_dim1"),
+    pytest.param((32, 96256), 16, -1, id="32x96256_k16_dim1"),
+    pytest.param((35, 7639), 16, -1, id="35x7639_k16_dim1"),
+    # Transposed equivalents: non-target dim is a single tile (32), on dim 1;
+    # target dim (dim=0) is any multiple of 32.
+    pytest.param((8192, 32), 16, 0, id="8192x32_k16_dim0"),
+    pytest.param((96256, 32), 16, 0, id="96256x32_k16_dim0"),
+    pytest.param((7639, 35), 16, 0, id="7639x35_k16_dim0"),
+    # k > 32: each core's partial spans two reduction tiles.
+    pytest.param((32, 8192), 48, -1, id="32x8192_k48_dim1"),
+    pytest.param((32, 96256), 64, -1, id="32x96256_k64_dim1"),
+    pytest.param((8192, 32), 48, 0, id="8192x32_k48_dim0"),
+    pytest.param((96256, 32), 64, 0, id="96256x32_k64_dim0"),
+    # data parallel
+    pytest.param((32, 8192), 16, 0, id="32x8192_k16_dim0"),
+    pytest.param((8192, 32), 16, -1, id="8192x32_k16_dim1"),
+]
+
+# Shapes worth running against inputs whose top values sit in specific tiles,
+# which stresses the merge tree.
+TILE_DIST_SHAPES = [
+    # pow2 tile count, dim=0
+    pytest.param((256, 32), 64, 0, id="256x32_k64_dim0"),
+    # Large reduction dim, still <= 1024.
+    pytest.param((32, 1024), 64, -1, id="32x1024_k64_dim1"),
+    # Ragged (non-power-of-2): odd tile count
+    pytest.param((32, 96), 16, -1, id="32x96_k16_dim1"),  # 3 tiles, odd
+    # Multi-tile non-target dim
+    pytest.param((64, 256), 64, -1, id="64x256_k64_dim1"),  # ht=2, large-k
+    # Multi-core: non-target dim is a single tile (32), on dim 0.
+    pytest.param((32, 2080), 16, -1, id="32x2080_k16_dim1"),  # 65 tiles, odd
+]
+
+
+def _cases(shapes, input_fn, id_suffix=""):
+    return [
+        pytest.param(
+            *shape.values, input_fn, id=shape.id + id_suffix, marks=shape.marks
+        )
+        for shape in shapes
+    ]
+
+
+TOPK_CASES = [
+    *_cases(SINGLE_CORE_TOPK_SHAPES, _random_input),
+    *_cases(MULTI_CORE_TOPK_SHAPES, _random_input),
+    *[
+        case
+        for pattern in ("first_tiles", "last_tiles", "strided")
+        for case in _cases(
+            TILE_DIST_SHAPES,
+            lambda shape, k, dim, pattern=pattern: _build_tile_distribution_input(
+                shape, k, dim, pattern
+            ),
+            f"_{pattern}",
+        )
     ],
-)
-def test_topk_tile_distribution(shape, k, dim, pattern, target, request, device):
-    """Run topk with hand-crafted inputs that concentrate top values in
-    specific tiles, stressing the merge-tree reduction logic."""
+]
 
-    adversarial_input = _build_tile_distribution_input(shape, k, dim, pattern)
-    golden_topk = torch.topk(adversarial_input, k=k, dim=dim, largest=True)
 
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("shape,k,dim,input_fn", TOPK_CASES)
+def test_topk(shape, k, dim, input_fn, target, request, device):
     def module(builder: TTIRBuilder):
         @builder.func([shape], [torch.float32])
         def topk(
@@ -224,13 +209,6 @@ def test_topk_tile_distribution(shape, k, dim, pattern, target, request, device)
                 unit_attrs=unit_attrs,
             )
             indices = builder.topk_indices(values)
-            builder.set_goldens(
-                {in0: adversarial_input},
-                {
-                    values: golden_topk.values,
-                    indices: golden_topk.indices.to(torch.uint16),
-                },
-            )
             return values, indices
 
     kwargs = get_request_kwargs(request)
@@ -248,10 +226,26 @@ def test_topk_tile_distribution(shape, k, dim, pattern, target, request, device)
         system_desc_path=kwargs["system_desc_path"],
         artifact_dir=artifact_dir,
         target=target,
-        pipeline_options=["override-device-shape=1,1"],
         save_artifacts=True,
+        print_ir=kwargs.get("print_ir", False),
     )
 
+    input_tensor = input_fn(shape, k, dim)
+    golden_topk = torch.topk(input_tensor, k=k, dim=dim, largest=True)
+
+    mesh_shape = (1, 1)
+    io_goldens[0]["input_0"] = GoldenMapTensor({0: input_tensor}, mesh_shape=mesh_shape)
+    io_goldens[0]["output_0"] = GoldenMapTensor(
+        {0: golden_topk.values}, mesh_shape=mesh_shape
+    )
+    # Device index dtype must match, though the raw index is ignored below.
+    io_goldens[0]["output_1"] = GoldenMapTensor(
+        {0: golden_topk.indices.to(io_goldens[0]["output_1"].dtype)},
+        mesh_shape=mesh_shape,
+    )
+
+    # Positional PCC is invalid for unsorted values and tie-unstable indices;
+    # _verify_topk_outputs checks both order-robustly instead.
     _, output_tensors = execute_fb(
         compiled_bin,
         input_output_goldens=io_goldens,
@@ -263,4 +257,4 @@ def test_topk_tile_distribution(shape, k, dim, pattern, target, request, device)
         artifact_dir=artifact_dir,
     )
 
-    _verify_topk_outputs(adversarial_input, golden_topk, dim, output_tensors)
+    _verify_topk_outputs(input_tensor, golden_topk, dim, output_tensors)

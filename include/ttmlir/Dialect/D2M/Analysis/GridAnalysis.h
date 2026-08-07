@@ -95,6 +95,12 @@ struct GenericGridAnalysisResult {
   EffectiveTargetGridRange effectiveTargetGridRange;
 };
 
+/// Determines where on the device grid a generic op is allowed to place its
+/// grid. Kept free-standing so callers with only a shape, not yet a buffer, can
+/// still query this range.
+EffectiveTargetGridRange getTargetGridRange(GenericOp genericOp,
+                                            ArrayRef<int64_t> deviceGridShape);
+
 /// Module-level analysis that computes optimal grid assignments for all
 /// d2m.generic ops before any IR modification.
 ///
@@ -121,10 +127,6 @@ private:
   GenericGridAnalysisResult
   analyzeGenericOp(GenericOp genericOp,
                    const EffectiveTargetGridRange &effectiveTargetGridRange);
-
-  /// Compute the effective target grid range for a generic, accounting for
-  /// spatial region grid ranges.
-  EffectiveTargetGridRange getTargetGridRange(GenericOp genericOp) const;
 
   /// Normalize operand grids within a generic to ensure consistency across
   /// operands sharing loop dimensions. Physical shapes are required to ensure

@@ -568,8 +568,8 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
   return result;
 }
 
-EffectiveTargetGridRange
-GridAnalysis::getTargetGridRange(GenericOp genericOp) const {
+EffectiveTargetGridRange getTargetGridRange(GenericOp genericOp,
+                                            ArrayRef<int64_t> deviceGridShape) {
   EffectiveTargetGridRange targetGridRange;
   mlir::Region *region = genericOp->getParentRegion();
   if (auto spatialOp = mlir::dyn_cast<d2m::SpatialOp>(region->getParentOp())) {
@@ -595,15 +595,16 @@ GridAnalysis::GridAnalysis(Operation *moduleOp,
                            ArrayRef<int64_t> deviceGridShape, bool ttnnMode)
     : deviceGridShape(deviceGridShape), ttnnMode(ttnnMode) {
   moduleOp->walk([&](GenericOp genericOp) {
+    if (genericOp->hasAttr("d2m.skip_grid_selection")) {
+      return;
+    }
     // Skip explicit datamovement form — users manage grids manually.
     if (genericOp.isExplicitDatamovementForm()) {
       return;
     }
-    if (genericOp->hasAttr("d2m.skip_grid_selection")) {
-      return;
-    }
 
-    EffectiveTargetGridRange targetGridRange = getTargetGridRange(genericOp);
+    EffectiveTargetGridRange targetGridRange =
+        d2m::getTargetGridRange(genericOp, deviceGridShape);
     GenericGridAnalysisResult result =
         analyzeGenericOp(genericOp, targetGridRange);
     results[genericOp.getOperation()] =

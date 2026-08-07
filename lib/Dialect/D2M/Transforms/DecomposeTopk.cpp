@@ -5,13 +5,17 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/TopKUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
+#include <optional>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MDECOMPOSETOPK
@@ -26,6 +30,147 @@ static int32_t floorLog2(T n) {
     ++result;
   }
   return result;
+}
+
+struct TopkIndexBuffers {
+  Value idxBuf;
+  Value laneBuf;
+};
+
+static std::optional<TopkIndexBuffers> findIndexBuffers(GenericOp genericOp) {
+  TopkIndexBuffers buffers;
+  genericOp.getRegion(0).walk([&](memref::AllocOp allocOp) {
+    if (allocOp->hasAttr(utils::kTopkIndexBufferAttr)) {
+      buffers.idxBuf = allocOp.getResult();
+    } else if (allocOp->hasAttr(utils::kTopkLaneBufferAttr)) {
+      buffers.laneBuf = allocOp.getResult();
+    }
+  });
+  if (!buffers.idxBuf || !buffers.laneBuf) {
+    return std::nullopt;
+  }
+  return buffers;
+}
+
+static void eraseScratchAnchors(PatternRewriter &rewriter, GenericOp genericOp,
+                                const TopkIndexBuffers &buffers) {
+  SmallVector<ScratchInitOp> anchors;
+  genericOp.getRegion(0).walk([&](ScratchInitOp initOp) {
+    if (initOp.getScratch() == buffers.idxBuf ||
+        initOp.getScratch() == buffers.laneBuf) {
+      anchors.push_back(initOp);
+    }
+  });
+  for (ScratchInitOp initOp : anchors) {
+    rewriter.eraseOp(initOp);
+  }
+}
+
+// Builds this core's index buffer: tile t, element (i, j) holds t * 32 + i
+// (row index i plus this core's band offset from core_index(dim)), constant
+// along non-target axis j.
+static Value buildIndexBuffer(PatternRewriter &rewriter, Location loc,
+                              TopkBlockOp op, MemRefType inputType,
+                              int64_t dimIdx, int64_t numTilesInner,
+                              Value idxBuf, Value laneBuf) {
+  MLIRContext *ctx = rewriter.getContext();
+  ArrayRef<int64_t> shape = inputType.getShape();
+  TT_assertv(shape.size() == 2ul,
+             "in-kernel index generation expects a 2D shard");
+
+  auto idxTileType = mlir::cast<ttcore::TileType>(
+      mlir::cast<MemRefType>(op.getOutIndices().getType()).getElementType());
+  // emitLeafTopk always picks an integer index type; arith wants it signless.
+  Type scalarType = IntegerType::get(
+      ctx, mlir::cast<IntegerType>(idxTileType.getElementType()).getWidth());
+
+  auto idxVal = [&](int64_t v) -> Value {
+    return rewriter.create<arith::ConstantIndexOp>(loc, v);
+  };
+  auto coreIndex = [&](int64_t dim) -> Value {
+    return rewriter.create<CoreIndexOp>(loc, dim);
+  };
+  Value zeroIdx = idxVal(0);
+  Value oneIdx = idxVal(1);
+  Value const32Idx = idxVal(32);
+
+  // Written once; every tile derives its values from this one lane pattern. A
+  // column-major arange puts i in column 0, which a Col bcast then replicates.
+  rewriter.create<ArangeBlockOp>(loc, op.getScratchIdxTile(), laneBuf,
+                                 /*numElements=*/32, /*start=*/0, /*step=*/1,
+                                 /*colMajor=*/true);
+  // The loop below reads this back out of L1, so the pack must land first.
+  rewriter.create<UnpackStallOnPackOp>(loc);
+
+  // arange_block folds this core's grid position into every element; the
+  // per-tile offset below subtracts it back out.
+  auto genericOp = op->getParentOfType<GenericOp>();
+  TT_assertv(genericOp, "topk_block must be inside a generic");
+  ArrayRef<int64_t> gridShape = genericOp.getGrid().getShape();
+  int64_t totalTileRows =
+      utils::kTopkLaneTileRows * gridShape[gridShape.size() - 2];
+  Value arangeBase = rewriter.create<arith::AddIOp>(
+      loc,
+      rewriter.create<arith::MulIOp>(loc, coreIndex(0),
+                                     idxVal(utils::kTopkLaneTileRows * 32)),
+      rewriter.create<arith::MulIOp>(loc, coreIndex(1),
+                                     idxVal(totalTileRows * 32 * 32)));
+
+  // Tiles this core's band starts at, in whole tiles of the reduction dim.
+  Value bandOffset = rewriter.create<arith::MulIOp>(loc, coreIndex(dimIdx),
+                                                    idxVal(numTilesInner));
+
+  // The reduction dim is iterated innermost so the compute-root tag lands on a
+  // loop that can never fold away for a single trip: topk_block merges
+  // reduction tiles pairwise, so a shard always spans at least two.
+  bool reductionIsRow = (dimIdx == 0);
+  int64_t outerTiles = reductionIsRow ? shape[1] : shape[0];
+  int64_t innerTiles = reductionIsRow ? shape[0] : shape[1];
+
+  auto outerLoop =
+      rewriter.create<scf::ForOp>(loc, zeroIdx, idxVal(outerTiles), oneIdx);
+  rewriter.setInsertionPointToStart(outerLoop.getBody());
+  auto innerLoop =
+      rewriter.create<scf::ForOp>(loc, zeroIdx, idxVal(innerTiles), oneIdx);
+  // Tagged here rather than by linalg-to-affine or d2m-op-scheduler, neither of
+  // which processes a directly emitted scf.for; DST syncs go in the inner body.
+  innerLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
+  innerLoop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
+  rewriter.setInsertionPointToStart(innerLoop.getBody());
+
+  Value outerIdx = outerLoop.getInductionVar();
+  Value reductionTile = innerLoop.getInductionVar();
+  Value rowIdx = reductionIsRow ? reductionTile : outerIdx;
+  Value colIdx = reductionIsRow ? outerIdx : reductionTile;
+
+  Value laneTile = rewriter.create<memref::LoadOp>(
+      loc, laneBuf, ValueRange{zeroIdx, zeroIdx});
+  Value rowTile =
+      rewriter
+          .create<TileBcastOp>(loc, idxTileType, laneTile, TileBcastType::Col)
+          .getResult();
+
+  Value tileOffsetIdx = rewriter.create<arith::SubIOp>(
+      loc,
+      rewriter.create<arith::MulIOp>(
+          loc, rewriter.create<arith::AddIOp>(loc, bandOffset, reductionTile),
+          const32Idx),
+      arangeBase);
+  Value tileOffset =
+      rewriter.create<arith::IndexCastOp>(loc, scalarType, tileOffsetIdx);
+  Value indexTile =
+      rewriter.create<TileAddOp>(loc, idxTileType, rowTile, tileOffset)
+          .getResult();
+
+  rewriter.create<memref::StoreOp>(loc, indexTile, idxBuf,
+                                   ValueRange{rowIdx, colIdx});
+
+  rewriter.setInsertionPointAfter(outerLoop);
+  // The merge tree unpacks these tiles straight out of L1, so the packer's
+  // writes must land before the first copy_tile reads them.
+  rewriter.create<UnpackStallOnPackOp>(loc);
+
+  return idxBuf;
 }
 
 // Decomposes TopkBlockOp into tile_topk_{local_sort,merge,rebuild} ops with
@@ -49,11 +194,6 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
                "input must have at least 2 dimensions");
 
     int32_t k = op.getK();
-
-    // The index buffer is pre-filled upstream (in TTIRToD2M via arange +
-    // broadcast generics) and passed in as scratch_idx_tile.
-    Value bufIdxFilled = scratchIdxTile;
-
     int32_t logk = floorLog2(k);
 
     // When k>32 the result spans 2 tiles. The large-k path left-folds over
@@ -61,6 +201,24 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
     bool useLargeK = (k > 32);
     int64_t dimIdx = op.getDim();
     int64_t numTilesInner = inputShape[dimIdx];
+
+    // A leaf builds its own index buffer; a merge stage is handed the real
+    // indices its children produced.
+    Value bufIdxFilled = scratchIdxTile;
+    if (op.getGenerateIndices()) {
+      auto parentGeneric = op->getParentOfType<GenericOp>();
+      TT_assertv(parentGeneric, "topk_block must be inside a generic");
+      std::optional<TopkIndexBuffers> buffers = findIndexBuffers(parentGeneric);
+      if (!buffers) {
+        return failure();
+      }
+      // d2m-lower-scratch-allocate reads a leftover anchor as the spill pool.
+      eraseScratchAnchors(rewriter, parentGeneric, *buffers);
+      bufIdxFilled =
+          buildIndexBuffer(rewriter, loc, op, inputType, dimIdx, numTilesInner,
+                           buffers->idxBuf, buffers->laneBuf);
+    }
+
     // logWt is the merge-tree depth; ceilLog2 ensures the final fold always
     // runs for non-power-of-2 tile counts.
     bool numTilesPow2 =
