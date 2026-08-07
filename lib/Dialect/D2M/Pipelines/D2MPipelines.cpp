@@ -118,8 +118,8 @@ void createD2MFrontendPipeline(OpPassManager &pm,
     gridOptOptions.ttnnMode = options.ttnnMode;
   }
   pm.addPass(d2m::createD2MMaterializeViewReturns());
-  pm.addPass(d2m::createD2MLowerTopk());
   pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
+  pm.addPass(d2m::createD2MLowerTopk());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MOptimizeMasks());
   pm.addPass(d2m::createD2MLowerToLayout());
@@ -184,7 +184,6 @@ void createD2MFrontendPipeline(OpPassManager &pm,
 
 void createD2MBackendPipeline(OpPassManager &pm,
                               const D2MPipelineOptions &options) {
-  // Emits arange_block, so must precede d2m-decompose-arange.
   pm.addPass(d2m::createD2MDecomposeTopk());
   pm.addPass(d2m::createD2MDecomposeArange());
 

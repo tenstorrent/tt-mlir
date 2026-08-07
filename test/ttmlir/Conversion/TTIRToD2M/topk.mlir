@@ -1,16 +1,18 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-lower-topk --d2m-materialize-view-returns -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --d2m-lower-topk --d2m-materialize-view-returns -o %t %s
 // RUN: FileCheck %s --input-file=%t
-// RUN: FileCheck %s --input-file=%t --check-prefix=UNPLACED
+// RUN: FileCheck %s --input-file=%t --check-prefix=CONSUMED
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection -o %t.plan %s
+// RUN: FileCheck %s --input-file=%t.plan --check-prefix=PLAN
 // RUN: ttmlir-opt --ttir-to-ttmetal-pipeline -o %t.ttmetal %s
 
-// Grids are emitted unfolded and tagged d2m.pinned_grid; d2m-grid-selection
-// only folds them onto physical cores.
+// ttir-to-d2m emits only a placeholder leaf; d2m-grid-selection chooses the
+// split and folds every buffer it implies onto the leaf, and d2m-lower-topk
+// builds exactly those ops. So every plan entry is consumed and no plan
+// survives the lowering.
 // The scan starts at the first function so it skips the ttcore.device
-// attribute, whose workerGrid always carries the device's own fold maps.
-// UNPLACED-LABEL: func.func @topk_dim1_k16
-// UNPLACED-NOT: virt_to_physical_map
-// UNPLACED-NOT: physical_to_virt_map
-// UNPLACED-NOT: d2m.skip_grid_selection
+// attribute.
+// CONSUMED-LABEL: func.func @topk_dim1_k16
+// CONSUMED-NOT: d2m.topk_plan
 
 module {
 
@@ -23,6 +25,10 @@ module {
   //   2. Run topk_block with correct k and num_elements.
   //   3. Extract results with tile_transpose (untranspose).
   // CHECK-LABEL: func @topk_dim1_k16
+  // Every topk gets a plan, single core or not: it is the only thing that says
+  // what buffers to build.
+  // PLAN-LABEL: func.func @topk_dim1_k16
+  // PLAN: d2m.topk_plan
   func.func @topk_dim1_k16(%arg0: tensor<32x64xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>) {
     // The pre-transpose is a generic op wrapping tile_transpose.
     // CHECK: d2m.generic
@@ -141,9 +147,8 @@ module {
   // 32x64 input maps to 1x2 tiles (Ht=1, Wt=2).
   // CHECK-LABEL: func @topk_dim1_tile_shapes
   func.func @topk_dim1_tile_shapes(%arg0: tensor<32x64xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>) {
-    // The input layout is 1x2 tiles of f32.
-    // CHECK: d2m.to_layout
-    // CHECK-SAME: tensor<1x1x1x2x!ttcore.tile<32x32, f32>
+    // The input is gathered onto one core as 1x2 tiles of f32.
+    // CHECK: d2m.to_layout %arg0{{.*}} -> tensor<1x1x1x2x!ttcore.tile<32x32, f32>
     // The pre-transpose buffer is 1x2 tiles of f32.
     // CHECK: d2m.empty() : tensor<1x1x1x2x!ttcore.tile<32x32, f32>
     // The index input is a single si32 scratch tile per core: the kernel
@@ -161,8 +166,7 @@ module {
   // Verify tiled shapes for dim=0: 64x32 maps to 2x1 tiles.
   // CHECK-LABEL: func @topk_dim0_tile_shapes
   func.func @topk_dim0_tile_shapes(%arg0: tensor<64x32xf32>) -> (tensor<16x32xf32>, tensor<16x32xsi32>) {
-    // CHECK: d2m.to_layout
-    // CHECK-SAME: tensor<1x1x2x1x!ttcore.tile<32x32, f32>
+    // CHECK: d2m.to_layout %arg0{{.*}} -> tensor<1x1x2x1x!ttcore.tile<32x32, f32>
     // The index input is a single si32 scratch tile per core.
     // CHECK: d2m.empty() : tensor<1x1x1x1x!ttcore.tile<32x32, si32>
     // Values keep the full 2x1 reduction shape ...
@@ -197,16 +201,19 @@ module {
   // ---- Multi-core (reduction dim split into per-core bands) ----
   //
   // When the reduction dim needs more tiles than one core's budget
-  // (kMaxTilesPerCore / nonTargetTiles), d2m-lower-topk rebuilds the chain as
-  // numShards bands (one per core), each running a local topk_block and then
-  // narrowing its partial to ceil(k/32) tiles. The bands stay distributed: a
-  // merge round gathers them with one composite_view per operand (values and
-  // indices need separate generics), re-splitting that grid x shard extent onto
-  // the merge grid, then runs one topk_block for every group at once.
+  // (kMaxTilesPerCore / nonTargetTiles), grid selection plans numShards bands
+  // (one per core) and d2m-lower-topk builds them, each running a local
+  // topk_block and then narrowing its partial to ceil(k/32) tiles. The bands
+  // stay distributed: a merge round gathers them with one composite_view per
+  // operand (values and indices need separate generics), re-splitting that
+  // grid x shard extent onto the merge grid, then runs one topk_block for every
+  // group at once.
 
   // dim=1 multi-core: 128x512, k=16. Rows=128 (4 non-target tiles), cols=512
   // (16 reduction tiles) -> multi-core band split.
   // CHECK-LABEL: func @topk_dim1_multicore
+  // PLAN-LABEL: func.func @topk_dim1_multicore
+  // PLAN: d2m.topk_plan
   func.func @topk_dim1_multicore(%arg0: tensor<128x512xf32>) -> (tensor<128x16xf32>, tensor<128x16xsi32>) {
     // Per-band local topk (transpose + topk_block) ...
     // CHECK: d2m.tile_transpose
@@ -227,6 +234,8 @@ module {
   // own index slice from its grid coordinate, so no index buffer is built or
   // moved across cores.
   // CHECK-LABEL: func @topk_dim0_multicore
+  // PLAN-LABEL: func.func @topk_dim0_multicore
+  // PLAN: d2m.topk_plan
   func.func @topk_dim0_multicore(%arg0: tensor<512x128xf32>) -> (tensor<16x128xf32>, tensor<16x128xsi32>) {
     // CHECK-NOT: d2m.tile_transpose
     // CHECK-NOT: d2m.arange_block
@@ -255,6 +264,8 @@ module {
   // dim=1 data-parallel: 2048x128, k=8. Rows=2048 (64 non-target tiles) split
   // across cores, cols=128 (4 reduction tiles) kept whole on each.
   // CHECK-LABEL: func @topk_dim1_data_parallel
+  // PLAN-LABEL: func.func @topk_dim1_data_parallel
+  // PLAN: d2m.topk_plan
   func.func @topk_dim1_data_parallel(%arg0: tensor<2048x128xf32>) -> (tensor<2048x8xf32>, tensor<2048x8xsi32>) {
     // The value input is still pre-transposed for dim=1 ...
     // CHECK: d2m.tile_transpose
@@ -270,6 +281,8 @@ module {
   // dim=0 data-parallel: the transpose of the above. Cols=2048 (64 non-target
   // tiles) split across cores, rows=128 (4 reduction tiles) kept whole.
   // CHECK-LABEL: func @topk_dim0_data_parallel
+  // PLAN-LABEL: func.func @topk_dim0_data_parallel
+  // PLAN: d2m.topk_plan
   func.func @topk_dim0_data_parallel(%arg0: tensor<128x2048xf32>) -> (tensor<8x2048xf32>, tensor<8x2048xsi32>) {
     // Every slice reduces the whole dim locally and builds its own indices, so
     // there is no shared index buffer to broadcast across the slice cores.

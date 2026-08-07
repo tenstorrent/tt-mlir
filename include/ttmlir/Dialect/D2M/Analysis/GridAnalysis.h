@@ -75,10 +75,6 @@ public:
   // input's selected grid and padded/materialized tensor type so apply-time
   // rewriting does not re-run grid selection.
   llvm::SmallVector<CompositeInputGridInfo> compositeInputInfos;
-
-  // The operand's type is final: its grid was fixed by the lowering that built
-  // the generic. Apply-time rewrites keep the type and only stamp placement.
-  bool pinned = false;
 };
 
 /// Effective target grid range for a GenericOp.
@@ -98,6 +94,11 @@ struct GenericGridAnalysisResult {
   // default, or the range scoped by an enclosing d2m.spatial region.
   EffectiveTargetGridRange effectiveTargetGridRange;
 };
+
+/// Determines where on the device grid a generic op is allowed to place its
+/// grid.
+EffectiveTargetGridRange getTargetGridRange(GenericOp genericOp,
+                                            ArrayRef<int64_t> deviceGridShape);
 
 /// Module-level analysis that computes optimal grid assignments for all
 /// d2m.generic ops before any IR modification.
@@ -125,16 +126,6 @@ private:
   GenericGridAnalysisResult
   analyzeGenericOp(GenericOp genericOp,
                    const EffectiveTargetGridRange &effectiveTargetGridRange);
-
-  /// Record the grids a pinned generic's operands already carry, so the apply
-  /// phase can stamp physical placement without reselecting a split.
-  GenericGridAnalysisResult analyzePinnedGenericOp(
-      GenericOp genericOp,
-      const EffectiveTargetGridRange &effectiveTargetGridRange);
-
-  /// Compute the effective target grid range for a generic, accounting for
-  /// spatial region grid ranges.
-  EffectiveTargetGridRange getTargetGridRange(GenericOp genericOp) const;
 
   /// Normalize operand grids within a generic to ensure consistency across
   /// operands sharing loop dimensions. Physical shapes are required to ensure

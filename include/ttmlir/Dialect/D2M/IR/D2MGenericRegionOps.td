@@ -3372,13 +3372,12 @@ def D2M_TopkBlockOp : D2M_GenericRegionComputeOp<"topk_block",
       `generate_indices` selects where the index buffer paired with the value
       tiles comes from:
 
-      - false (the default): scratch_idx_tile IS that buffer, already holding
-        one index tile per value tile. Merge stages use this, since the indices
-        they carry are results of an earlier stage and cannot be recomputed.
-      - true: scratch_idx_tile is only a 1x1 scratch tile, and
-        `d2m-decompose-topk` builds the full index buffer in-kernel from this
-        core's grid coordinate. A leaf topk over raw input uses this, its
-        indices being just the reduction coordinate.
+      - false (the default): scratch_idx_tile already holds one index tile
+        per value tile. Used by merge stages, whose indices can't be
+        recomputed.
+      - true: scratch_idx_tile is just a 1x1 scratch tile, and
+        `d2m-decompose-topk` builds the index buffer in-kernel from the
+        core's grid coordinate. Used by a leaf topk over raw input.
   }];
 
   let arguments = (ins

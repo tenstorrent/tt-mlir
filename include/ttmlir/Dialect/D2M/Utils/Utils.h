@@ -35,39 +35,15 @@ constexpr llvm::StringLiteral kVirtualGridInverseMappingAttr =
 constexpr llvm::StringLiteral kVirtualGridForwardMappingAttr =
     "d2m.virtualGridForwardMapping";
 constexpr llvm::StringLiteral kReductionScalerAttr = "d2m.reduction_scaler";
-// Marks a generic whose operand grids are dictated by its lowering; grid
-// selection folds them onto physical cores instead of choosing a split.
-constexpr llvm::StringLiteral kPinnedGridAttr = "d2m.pinned_grid";
-// Topk scratch allocations, set by d2m-insert-scratch-buffers and consumed by
-// d2m-decompose-topk.
-constexpr llvm::StringLiteral kTopkIndexBufferAttr = "d2m.topk_index_buffer";
-constexpr llvm::StringLiteral kTopkLaneBufferAttr = "d2m.topk_lane_buffer";
-// Must exceed 1: a single row folds arange_block's compute root loop away.
-constexpr int64_t kTopkLaneTileRows = 2;
 
 inline bool isReductionScalerBuffer(Operation *op) {
   return op && op->hasAttr(kReductionScalerAttr);
-}
-
-inline void markPinnedGrid(Operation *op) {
-  op->setAttr(kPinnedGridAttr, UnitAttr::get(op->getContext()));
-}
-
-inline bool hasPinnedGrid(Operation *op) {
-  return op && op->hasAttr(kPinnedGridAttr);
 }
 
 // Return a new shaped type by reblocking its device shape to match a new grid
 // shape.
 ShapedType reblockShapedType(ShapedType oldType,
                              ArrayRef<int64_t> newGridShape);
-
-// Build a sharded L1 MetalLayoutAttr for `logicalShape` where dim i is padded
-// out to `tilesPerDim[i]` tiles. Uses default collapsed intervals.
-ttcore::MetalLayoutAttr buildShardedTileLayout(MLIRContext *ctx,
-                                               ArrayRef<int64_t> logicalShape,
-                                               ArrayRef<int64_t> tilesPerDim,
-                                               ttcore::MemorySpace memorySpace);
 
 // Clone a local shard type using the shard shape implied by a reference
 // operand's device layout.
@@ -114,35 +90,28 @@ void buildParallelGenericRegion(
     ValueRange outputs,
     llvm::function_ref<SmallVector<Value>(ArrayRef<Value>)> body);
 
-// Emits a one-in/one-out all-parallel `d2m.generic` mapping each tile of `src`
-// through `makeTile`, indexed by identity maps of `out`'s device rank.
+// Maps each tile of `src` through `makeTile` under identity maps of `out`'s
+// device rank. A null `grid` leaves the grid derived from the operands.
 Value emitUnaryGeneric(
     RewriterBase &rewriter, Location loc, Value src, Value out,
-    llvm::function_ref<Value(OpBuilder &, Location, ValueRange)> makeTile);
+    llvm::function_ref<Value(OpBuilder &, Location, ValueRange)> makeTile,
+    ttcore::GridAttr grid = nullptr);
 
-// Copies `value` into a fresh buffer of its own type via `d2m.to_layout`
-Value materializeToLayout(RewriterBase &rewriter, Location loc, Value value);
+// A buffer whose type and placement grid selection decided. A null `type` means
+// unplaced: the emitter sizes the buffer off its own input instead.
+struct PlacedBuffer {
+  RankedTensorType type;
+  // Null when the grid needs neither virtualization nor a spatial offset.
+  AffineMapAttr vgmForward;
+  AffineMapAttr vgmInverse;
+  ttcore::GridAttr grid;
 
-// Lays `value` out over `grid`, sharded so dim i spans `tilesPerDim[i]` tiles,
-// and masks whatever padding tail that leaves to -inf.
-Value layoutAndMask(RewriterBase &rewriter, Location loc, Value value,
-                    ArrayRef<int64_t> tilesPerDim, ArrayRef<int64_t> grid,
-                    ttcore::MemorySpace memorySpace);
+  bool isPlaced() const { return static_cast<bool>(type); }
+};
 
-// Emits the per-core topk over an already tiled+layouted `layoutedInput`;
-// `dim == 1` tile-transposes the shard first, since `topk_block` sorts down
-// tile columns. Returns the generic's (values, indices), not yet materialized.
-std::pair<Value, Value> emitLeafTopk(RewriterBase &rewriter, Location loc,
-                                     Value layoutedInput, int32_t k,
-                                     int32_t dim, int64_t reductionDimSize);
-
-// Collapses `topkResult`'s `extractProjectDim` to tile 0, undoing the
-// pre-transpose (`dim == 1`) or typecasting (`dim == 0`) that
-// `emitLeafTopk` performed. `outputReductionTiles` is ceil(k / 32).
-GenericOp emitTopKExtract(RewriterBase &rewriter, Location loc,
-                          Value topkResult, Value extractOutput,
-                          std::size_t extractProjectDim,
-                          int64_t outputReductionTiles, int32_t dim);
+// Copies `value` into an explicitly placed destination of its own type.
+Value materializeToLayout(RewriterBase &rewriter, Location loc, Value value,
+                          const PlacedBuffer &destination);
 
 // Gets the underlying physical grid shape corresponding to the tensor or
 // memref. For views/streams, this 'physical' grid corresponds to the compute
@@ -184,6 +153,12 @@ std::optional<AffineMap> getVirtualGridForwardMapping(Value val);
 // when the stored mapping belongs to a different-rank view of the value.
 std::optional<std::pair<AffineMap, AffineMap>>
 getGridMapsFromVirtualGridMapping(Value val, ArrayRef<int64_t> gridShape);
+
+// Folds `gridShape` from a mapping pair held directly rather than read off a
+// value, so a buffer that does not exist yet can still be folded.
+std::optional<std::pair<AffineMap, AffineMap>>
+getGridMapsFromVirtualGridMapping(AffineMap forwardMap, AffineMap inverseMap,
+                                  ArrayRef<int64_t> gridShape);
 
 // Returns the effective affine map for a memref-typed value by resolving
 // ViewLayoutAttr remappings (via applyViews) and falling back to the layout's

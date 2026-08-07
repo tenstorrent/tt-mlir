@@ -18,33 +18,16 @@
 
 namespace mlir::tt::d2m {
 
-/// Which axis the reduction occupies at each granularity, for a 2D topk
-/// reducing along `dim`. A device shape is `[grid..., shard...]`, so the same
-/// axis has a different index depending on which half is indexed.
-struct TopKGeometry {
-  /// Reduction axis in the shard half, where reduction tiles live.
-  std::size_t deviceRedDim = 0;
-  /// Grid axis the bands spread across.
-  std::size_t deviceGridDim = 0;
-  /// Axis the extract collapses to tile 0.
-  std::size_t extractProjectDim = 0;
-};
-
-TopKGeometry getTopKGeometry(int32_t dim, std::size_t physicalRank);
-
-/// How a 2D topk is split across the worker grid: the reduction dim (`dim`)
-/// banded `numShards` ways and merged back by a tree, the non-target dim
-/// (`1 - dim`) sliced `ntShards` independent ways, or both.
-///
-/// The `padded*` extents are whole-tensor tile counts rounded up to a multiple
-/// of the shard count; the caller masks the padding tail to -inf.
+/// A band is a slice of the reduction dim: each core gets some of the elements
+/// being reduced, so its top-k is partial. Data-parallel slices the non-target
+/// dim instead: each core gets whole rows to reduce, so its top-k is final.
 struct TopKShardingStrategy {
   /// Reduction tiles one output partial occupies: ceil(k / 32).
   int64_t outputReductionTiles = 1;
 
-  /// The non-target dim is sliced across cores.
+  /// Data-parallel: the non-target dim is sliced across cores.
   bool dataParallel = false;
-  /// The reduction dim is banded across cores and merged by a tree.
+  /// Banded: the reduction dim is split across cores and merged by a tree.
   bool multiCore = false;
 
   /// Bands the reduction dim is split into; 1 when not banded.
@@ -79,10 +62,46 @@ struct TopKL1Budget {
   int64_t fixedBytes = 0;
 };
 
-/// Reads the above off `leaf`'s operand types. `numBuffers` is the CB buffering
-/// factor the generic will be allocated with.
+/// Reads TopKL1Budget's fields off `leaf`'s operand types. `numBuffers` is the
+/// CB buffering factor the generic will be allocated with.
 TopKL1Budget topKL1Budget(GenericOp leaf, ttcore::ChipDescAttr chipDesc,
                           int64_t numBuffers);
+
+/// The placeholder `ttir-to-d2m` leaves behind for one topk.
+struct SingleCoreTopK {
+  GenericOp leaf;
+  /// Pre-layout input, so a rebuild shards it rather than re-sharding a layout.
+  Value logicalInput;
+  /// The index element type the user asked for; every planned index buffer is
+  /// i32 regardless, so the extract or a following cast converts to this.
+  Type indexElementType;
+};
+
+/// Reads the placeholder's operand chain and attributes. Touches nothing
+/// downstream of `leaf`, which is where the planned chain gets built.
+SingleCoreTopK readSingleCoreTopK(GenericOp leaf);
+
+/// One buffer a split topk needs.
+struct TopKBufferPlan {
+  mlir::RankedTensorType type;
+};
+
+/// A topk's buffers, split by the pass that materializes them.
+struct TopKBufferPlans {
+  /// The leaf's laid-out operand, placed onto the leaf by d2m-grid-selection.
+  TopKBufferPlan input;
+  /// Its padding tail's fill; a null type means the layout leaves no tail.
+  TopKBufferPlan inputMask;
+  /// Built by d2m-lower-topk, and all the plan attribute carries.
+  llvm::SmallVector<TopKBufferPlan> lowered;
+};
+
+/// The sole definition of what buffers a topk needs. `lowered` is in the order
+/// d2m-lower-topk consumes it, which is the whole contract between the two.
+/// Touches no IR beyond reading `chain`'s types.
+TopKBufferPlans planTopKBuffers(SingleCoreTopK chain,
+                                const TopKShardingStrategy &strategy, int64_t k,
+                                int32_t dim);
 
 /// Chooses how to split a 2D topk of `inputShape` reducing along `dim` across
 /// `workerGridShape`, keeping every core's shard within `maxTilesPerCore` and

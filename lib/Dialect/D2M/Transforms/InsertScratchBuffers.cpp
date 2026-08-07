@@ -5,7 +5,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/TopKUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
@@ -145,9 +145,7 @@ static void addScratchToGeneric(GenericOp genericOp) {
 }
 
 static void addTopkIndexBuffers(GenericOp genericOp) {
-  if (genericOp.getNumRegions() == 0) {
-    return;
-  }
+  assert(genericOp.getNumRegions() != 0 && "d2m.generic must have a region");
 
   // At most one generate_indices topk_block per generic.
   TopkBlockOp topkBlock = nullptr;
@@ -160,14 +158,13 @@ static void addTopkIndexBuffers(GenericOp genericOp) {
     return;
   }
 
-  // Post-bufferization only; nothing to allocate while still on tensors.
+  // Runs after bufferization, so these are always memrefs.
   auto inputType =
       mlir::dyn_cast<MemRefType>(topkBlock.getInputValues().getType());
   auto indicesType =
       mlir::dyn_cast<MemRefType>(topkBlock.getOutIndices().getType());
-  if (!inputType || !indicesType) {
-    return;
-  }
+  assert(inputType && indicesType &&
+         "topk_block operands must be memrefs post-bufferization");
 
   auto l1MemorySpace = ttcore::MemorySpaceAttr::get(
       genericOp.getContext(), ttcore::MemorySpace::DeviceL1);

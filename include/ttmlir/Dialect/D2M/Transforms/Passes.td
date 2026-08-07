@@ -925,20 +925,17 @@ def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {
 }
 
 def D2MLowerTopk : Pass<"d2m-lower-topk", "::mlir::ModuleOp"> {
-  let summary = "Spread a single-core `topk_block` across the worker grid";
+  let summary = "Build a `topk_block` chain from its placement plan";
   let description = [{
-    Starts from every leaf `topk_block` (`generate_indices = true`, i.e.
-    reducing raw input rather than merging partials), recovers the layout chain
-    feeding it and the extracts consuming it, and asks
-    `selectTopKShardingStrategy` how to split the reduction. One core means the
-    single-core lowering is already final. Otherwise it re-lays the input out
-    banded and/or data-parallel, runs a leaf topk per core, collapses the bands
-    with a merge tree (`mergeSchedule`) built on `d2m.composite_view` gathers,
-    and rebuilds the extracts.
+    Replaces every placeholder `topk_block` carrying a `d2m.topk_plan` with the
+    chain that plan describes: the input laid out banded and/or data-parallel,
+    a leaf topk per core, the bands collapsed by a merge tree (`mergeSchedule`)
+    built on `d2m.composite_view` gathers, and the extracts that narrow the
+    result to `k` and cast its indices to the type the user asked for.
 
-    Must run after `ttir-to-d2m` and before `d2m-grid-selection`, which folds
-    the logical grids emitted here onto physical cores. A shape the strategy
-    cannot place is a hard error: D2M has no fallback path for it.
+    Must run after `d2m-grid-selection`, which is what chose the split, folded
+    every buffer's grid onto physical cores, and wrote the plan. Every buffer
+    built here comes from the plan, including the single-core case.
   }];
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
