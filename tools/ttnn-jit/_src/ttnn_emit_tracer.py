@@ -17,12 +17,16 @@ Coverage is the full transformer-decoder vocabulary: dense compute
 (matmul/linear, elementwise binary/unary, rms_norm, softmax), data movement
 (slice, reshape, transpose, permute, concat, embedding), attention (SDPA,
 paged SDPA decode), heads (QKV split + concat, prefill and decode), RoPE, and
-in-place paged KV-cache ops. The full Llama decoder sweeps in both phases. Not
-MoE router (topk/scatter/zeros/arange/pad/clamp/fill_cache). Not yet ported:
-the long-tail allowlisted ops the TTIR tracer covers via BaseOpHandler, and
-ttnn.sparse_matmul -- the routed-expert path -- for which the whole optimizer
-has no coverage anyway (the op is OpModelExempt and unregistered in the rule
-book), so a MoE capture must trace its dense expert graph.
+in-place paged KV-cache ops, the MoE router (topk/scatter/zeros/arange/pad/
+clamp/fill_cache) and the routed-expert ttnn.sparse_matmul. The full Llama
+decoder sweeps in both phases, and a sparse-MoE decoder traces end to end.
+
+Note on sparse_matmul: TTNN_SparseMatmulOp is OpModelExempt, so the optimizer
+returns notImplemented for it and places nothing on the op itself. That is a
+soft gap, not a terminal -- tracing it still lets the optimizer see and place
+the surrounding graph (router, activations, the MoE tail), which is the point.
+Not yet ported: pow/pow_tensor/rearrange, allowlisted ops the TTIR tracer
+covers via BaseOpHandler and this tracer stubs via _unhandled.
 """
 
 from contextlib import contextmanager
@@ -242,6 +246,113 @@ def _linear_handler(
             bias=(bias.mlir_value if bias is not None else None),
             transpose_a=bool(transpose_a),
             transpose_b=bool(transpose_b),
+        )
+
+
+def _sparse_matmul_handler(
+    jit_ctx,
+    a,
+    b,
+    *,
+    sparsity=None,
+    is_input_a_sparse=None,
+    is_input_b_sparse=None,
+    nnz=None,
+    **kwargs,
+):
+    # ttnn.sparse_matmul(a, b=[1,E,K,N], sparsity) -> ttnn.sparse_matmul. Output
+    # shape per SparseMatmulOp::verify (E,K,N from b; M = a[-2]): dense-sparse
+    # (b sparse, e.g. MoE gate/up) -> [A,B,1,E,M,N]; sparse-dense (a sparse, e.g.
+    # down) -> [A,B,M,N]; both sparse -> [1,E,M,N]. ttnn defaults to b-sparse when
+    # neither flag is set. program_config/compute_config are dropped: every
+    # direct-TTNN tensor starts DRAM-interleaved and the optimizer re-decides.
+    a_sparse = bool(is_input_a_sparse)
+    b_sparse = (
+        bool(is_input_b_sparse) if is_input_b_sparse is not None else not a_sparse
+    )
+    a_shape = [int(d) for d in a.mlir_value.type.shape]
+    b_shape = [int(d) for d in b.mlir_value.type.shape]
+    E, N, M = b_shape[1], b_shape[-1], a_shape[-2]
+    if a_sparse and b_sparse:
+        out = [1, E, M, N]
+    elif b_sparse:
+        out = [a_shape[0], a_shape[1], 1, E, M, N]
+    else:
+        out = [a_shape[0], a_shape[1], M, N]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _retype(jit_ctx.ctx, a.mlir_value, out)
+        return ttnn.sparse_matmul(
+            result=rt,
+            a=a.mlir_value,
+            b=b.mlir_value,
+            sparsity=sparsity.mlir_value,
+            is_input_a_sparse=a_sparse,
+            is_input_b_sparse=b_sparse,
+            nnz=nnz,
+        )
+
+
+def _softplus_handler(jit_ctx, x, **kwargs):
+    """``ttnn.softplus(x)`` -> ``log(exp(x) + 1)``.
+
+    DECOMPOSITION, not 1:1. The TTNN dialect has no standalone softplus op --
+    `SoftPlus` exists only as a `UnaryOpType` enum case usable as a matmul fused
+    activation, so there is nothing to emit directly. Three ops stand in for one,
+    which is faithful in value but changes what the optimizer counts. Replace this
+    with a named TTNN_SoftplusOp if op-for-op fidelity starts to matter.
+    """
+    dims = [int(d) for d in x.mlir_value.type.shape]
+    elem = x.mlir_value.type.element_type
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _tt(jit_ctx.ctx, dims, elem)
+        e = ttnn.exp(result=rt, input=x.mlir_value)
+        one = ttnn.ones(
+            result=_tt(jit_ctx.ctx, dims, elem),
+            shape=ttnn.ir.ShapeAttr.get(jit_ctx.ctx, dims),
+        )
+        s = ttnn.add(result=_tt(jit_ctx.ctx, dims, elem), lhs=e, rhs=one)
+        return ttnn.log(result=_tt(jit_ctx.ctx, dims, elem), input=s)
+
+
+def _repeat_interleave_handler(jit_ctx, x, repeats=None, dim=None, **kwargs):
+    """``ttnn.repeat_interleave(x, repeats, dim)`` -> ``ttnn.repeat_interleave``."""
+    repeats = int(kwargs.get("repeats", repeats))
+    dim = int(kwargs.get("dim", dim))
+    dims = [int(d) for d in x.mlir_value.type.shape]
+    if dim < 0:
+        dim += len(dims)
+    out = list(dims)
+    out[dim] = dims[dim] * repeats
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        return ttnn.repeat_interleave(
+            result=_retype(jit_ctx.ctx, x.mlir_value, out),
+            input=x.mlir_value,
+            repeats=repeats,
+            dim=dim,
+        )
+
+
+def _pow_handler(jit_ctx, x, y, **kwargs):
+    """``ttnn.pow(x, y)`` -> ``ttnn.pow_tensor`` (tensor y) or ``ttnn.pow_scalar``."""
+    dims = [int(d) for d in x.mlir_value.type.shape]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _retype(jit_ctx.ctx, x.mlir_value, dims)
+        if hasattr(y, "mlir_value"):
+            return ttnn.pow_tensor(result=rt, lhs=x.mlir_value, rhs=y.mlir_value)
+        return ttnn.pow_scalar(
+            result=rt,
+            lhs=x.mlir_value,
+            rhs=FloatAttr.get(F32Type.get(jit_ctx.ctx), float(y)),
+        )
+
+
+def _ones_like_handler(jit_ctx, input, **kwargs):
+    """``ttnn.ones_like(x)`` -> ``ttnn.ones`` of x's shape/element type."""
+    dims = [int(d) for d in input.mlir_value.type.shape]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        return ttnn.ones(
+            result=_retype(jit_ctx.ctx, input.mlir_value, dims),
+            shape=ttnn.ir.ShapeAttr.get(jit_ctx.ctx, dims),
         )
 
 
@@ -891,6 +1002,31 @@ def _paged_update_cache_handler(
         )
 
 
+def _paged_fused_update_cache_handler(
+    jit_ctx, cache1, input1, cache2, input2, *, update_idxs_tensor=None,
+    page_table=None, share_cache=None, **kwargs
+):
+    """``ttnn.experimental.paged_fused_update_cache`` -> TWO ``ttnn.paged_update_cache``.
+
+    DECOMPOSITION, not 1:1. The fused op updates the K and V caches in one
+    invocation; the TTNN dialect has PagedUpdateCacheOp but no fused variant, and
+    the fused signature is literally (cache1, input1, cache2, input2, ...), so two
+    ops express exactly the same writes. The advisor then places the two cache
+    updates independently, which for layout purposes is more information, not less
+    -- but it is two device ops where the shipped graph runs one, so a
+    reconciliation will pair them by position.
+    """
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        pt = page_table.mlir_value if page_table is not None else None
+        for cache, inp in ((cache1, input1), (cache2, input2)):
+            ttnn.paged_update_cache(
+                cache=cache.mlir_value,
+                input=inp.mlir_value,
+                update_index=update_idxs_tensor.mlir_value,
+                page_table=pt,
+            )
+
+
 def _paged_fill_cache_handler(jit_ctx, cache, input, page_table, **kwargs):
     with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
         ttnn.paged_fill_cache(
@@ -966,6 +1102,12 @@ def _repeat_handler(jit_ctx, x, repeat_dims=None, **kwargs):
 _VALUE_HANDLERS = {
     "matmul": _matmul_handler,
     "linear": _linear_handler,
+    "sparse_matmul": _sparse_matmul_handler,
+    "softplus": _softplus_handler,
+    "ones_like": _ones_like_handler,
+    "repeat_interleave": _repeat_interleave_handler,
+    "pow": _pow_handler,
+    "pow_tensor": _pow_handler,
     "reshape": _reshape_handler,
     "typecast": _typecast_handler,
     "softmax": _softmax_handler,
@@ -1060,6 +1202,7 @@ _EXPERIMENTAL_MULTI = {
 _EXPERIMENTAL_INPLACE = {
     "paged_update_cache": (_paged_update_cache_handler, 0),
     "paged_fill_cache": (_paged_fill_cache_handler, 0),
+    "paged_fused_update_cache": (_paged_fused_update_cache_handler, 0),
 }
 
 # ttnn.transformer.<op> handlers.
@@ -1079,6 +1222,34 @@ _PASSTHROUGH_IDENTITY = {
     "sharded_to_interleaved",
 }
 _PASSTHROUGH_NONE = {"deallocate"}
+
+# Raw patches: installed WITHOUT _capture, because they need the caller's own
+# object identity rather than a TracedTensor proxy.
+_RAW = {"copy"}
+
+
+def _make_raw_copy(jit_ctx):
+    """``ttnn.copy(src, dst)`` writes src into dst in place and returns nothing.
+
+    There is no TTNN dialect op for it, so nothing is emitted. The trace-level
+    model is to rebind dst's identity to src's value, so a later read of the same
+    tensor -- qwen's recurrent/conv state is read on the next token -- observes
+    what was written instead of a fresh unrelated placeholder. Requires the raw
+    `dst` object, hence _RAW: after _capture, `id(dst)` is a proxy's id.
+
+    The device write itself is real cost that no op records, so it stays in the
+    untraced remainder. That is the honest outcome: the advisor places the ops
+    around the state update, not the update.
+    """
+
+    def op(src, dst, *args, **kwargs):
+        if hasattr(src, "mlir_value"):
+            jit_ctx.weight_cache[id(dst)] = src.mlir_value
+        elif hasattr(src, "shape") and hasattr(src, "dtype"):
+            jit_ctx.weight_cache[id(dst)] = _weight_value(src, jit_ctx)
+        return None
+
+    return op
 
 
 def _identity_passthrough(*args, **kwargs):
@@ -1127,6 +1298,9 @@ def patch_ttnn(jit_ctx):
         for name in _PASSTHROUGH_NONE:
             originals[name] = getattr(_ttnn_rt, name, _MISSING)
             setattr(_ttnn_rt, name, _none_passthrough)
+        for name in _RAW:
+            originals[name] = getattr(_ttnn_rt, name, _MISSING)
+            setattr(_ttnn_rt, name, _make_raw_copy(jit_ctx))
         for name, value_fn in _VALUE_HANDLERS.items():
             originals[name] = getattr(_ttnn_rt, name, _MISSING)
             setattr(_ttnn_rt, name, _make_value_op(value_fn, jit_ctx))

@@ -58,6 +58,44 @@ class TracedTensor:
     def __init__(self, mlir_value):
         self.mlir_value = mlir_value
 
+    def __getitem__(self, key):
+        """``x[..., :n]`` -> ``ttnn.slice``.
+
+        Not every gap is a missing op: model code slices tensors with Python
+        subscript syntax (qwen's gated-delta mixer splits its projection with
+        `mixed[..., :key_width]`), and without this the trace dies on a
+        TypeError that names no op at all. Routed through the *patched*
+        ttnn.slice, so whichever tracer is active emits its own slice.
+        """
+        import ttnn
+
+        dims = [int(d) for d in self.mlir_value.type.shape]
+        keys = key if isinstance(key, tuple) else (key,)
+        if sum(1 for k in keys if k is Ellipsis) > 1:
+            raise IndexError("only one Ellipsis is allowed in a subscript")
+        if Ellipsis in keys:
+            at = keys.index(Ellipsis)
+            pad = len(dims) - (len(keys) - 1)
+            keys = keys[:at] + (slice(None),) * pad + keys[at + 1 :]
+        if len(keys) > len(dims):
+            raise IndexError(f"too many indices for a rank-{len(dims)} tensor")
+        keys = keys + (slice(None),) * (len(dims) - len(keys))
+        starts, ends, steps = [], [], []
+        for k, dim in zip(keys, dims):
+            if isinstance(k, slice):
+                s, e, st = k.indices(dim)
+            else:
+                # An integer index would drop a rank; ttnn.slice cannot, and
+                # silently keeping the axis would be wrong. Fail loudly.
+                raise NotImplementedError(
+                    "integer indexing drops a dimension; slice then reshape, or "
+                    "add rank-reducing support to TracedTensor.__getitem__"
+                )
+            starts.append(s)
+            ends.append(e)
+            steps.append(st)
+        return ttnn.slice(self, starts, ends, steps)
+
     @property
     def __class__(self):
         # Spoof isinstance(proxy, ttnn.Tensor) so real model code that gates on
