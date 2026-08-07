@@ -175,6 +175,9 @@ def _persistent_worker(task_queue: queues.Queue, result_queue: queues.Queue):
 _STOP_JOIN_TIMEOUT_SECONDS = 10
 # Grace period after SIGTERM before escalating to SIGKILL.
 _TERMINATE_JOIN_TIMEOUT_SECONDS = 5
+# Final bound after SIGKILL. A process stuck in an uninterruptible syscall can
+# outlive the signal, so even this join is bounded rather than indefinite.
+_KILL_JOIN_TIMEOUT_SECONDS = 5
 # Poll interval used when draining `result_queue`. `get_nowait` can spuriously
 # raise Empty on a multiprocessing queue whose feeder thread has not caught up,
 # so drain with a short blocking get instead.
@@ -276,16 +279,51 @@ class ProcessManager:
         self.task_queue.put(Task.exit())
         self.process.join(timeout)
 
+        escalated = False
         if self.process.is_alive():
+            escalated = True
             self.process.terminate()
             self.process.join(_TERMINATE_JOIN_TIMEOUT_SECONDS)
 
         if self.process.is_alive():
-            # SIGKILL cannot be ignored, so this join is bounded in practice.
             self.process.kill()
-            self.process.join()
+            # Bounded even here: SIGKILL cannot be caught, but a process wedged
+            # in an uninterruptible syscall can still outlive the signal, and an
+            # unbounded join would put back exactly the hang this method exists
+            # to prevent.
+            self.process.join(_KILL_JOIN_TIMEOUT_SECONDS)
+            if self.process.is_alive():
+                print(
+                    f"WARNING: worker {self.process.pid} survived SIGKILL for "
+                    f"{_KILL_JOIN_TIMEOUT_SECONDS}s; abandoning it.",
+                    file=sys.stderr,
+                )
+
+        if escalated:
+            # A worker that had to be terminated never reached
+            # `task_queue.get()`, so it never consumed the exit task above. That
+            # task would otherwise sit in the queue and be read by the *next*
+            # worker -- which reuses this same queue -- making it exit
+            # immediately and every subsequent `run()` fail.
+            self._drain_task_queue()
 
     # ----- Private methods -----
+
+    def _drain_task_queue(self) -> int:
+        """
+        Discards anything left in `task_queue`, returning how many were dropped.
+
+        Only safe once the worker is known to be stopped: `run()` puts a single
+        task and waits for its result, so anything still queued at that point is
+        stale by definition.
+        """
+        dropped = 0
+        while True:
+            try:
+                self.task_queue.get(timeout=_DRAIN_POLL_SECONDS)
+            except queue.Empty:
+                return dropped
+            dropped += 1
 
     def _drain_result_queue(self) -> int:
         """
