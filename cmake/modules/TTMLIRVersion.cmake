@@ -1,10 +1,15 @@
-# get git commit hash
-execute_process(
-  COMMAND git rev-parse HEAD
-  WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
-  OUTPUT_VARIABLE TTMLIR_GIT_HASH
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
+# get git commit hash (override with TTMLIR_GIT_HASH env for reproducible
+# builds from dirty trees)
+if(DEFINED ENV{TTMLIR_GIT_HASH})
+  set(TTMLIR_GIT_HASH "$ENV{TTMLIR_GIT_HASH}")
+else()
+  execute_process(
+    COMMAND git rev-parse HEAD
+    WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+    OUTPUT_VARIABLE TTMLIR_GIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+endif()
 
 # Check if tags exist and fetch from remote if they don't
 execute_process(
