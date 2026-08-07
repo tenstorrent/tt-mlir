@@ -3208,6 +3208,72 @@ public:
 };
 } // namespace
 
+// AllGatherMinimalMatmulAsyncOp conversion pattern
+//
+namespace {
+class AllGatherMinimalMatmulAsyncOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::AllGatherMinimalMatmulAsyncOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.all_gather_minimal_matmul_async";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::all_gather_minimal_matmul_async";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::AllGatherMinimalMatmulAsyncOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllGatherMinimalMatmulAsyncOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<
+        mlir::tt::ttnn::AllGatherMinimalMatmulAsyncOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(srcOp.getScalar()),
+        emitter.emit(srcOp.getAddcmulInput1()),
+        emitter.emit(srcOp.getAddcmulInput2()),
+        emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt),
+        rewriter.getAttr<emitc::OpaqueAttr>(
+            "std::vector<::ttnn::GlobalSemaphore>{}"),
+        emitter.emit(srcOp.getTopology()),
+        emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getDtype()),
+        emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getNumLinks()),
+        emitter.emit(srcOp.getClusterAxis()),
+        emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getForceTranspose()),
+        emitter.emit(srcOp.getNumWorkersPerLink()),
+        emitter.emit(srcOp.getNumBuffersPerChannel()),
+        emitter.emit(srcOp.getChunks()),
+        emitter.emit(srcOp.getDim()),
+        emitter.emit(std::nullopt),
+        rewriter.getAttr<emitc::OpaqueAttr>(
+            "std::vector<::ttnn::GlobalSemaphore>{}"),
+        emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt),
+        rewriter.getAttr<emitc::OpaqueAttr>("false"),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 namespace {
 class ScatterOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::ScatterOp> {
@@ -5975,6 +6041,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<AllReduceOpConversionPattern>(typeConverter, ctx);
   patterns.add<AllReduceAsyncOpConversionPattern>(typeConverter, ctx);
   patterns.add<ReduceScatterOpConversionPattern>(typeConverter, ctx);
+  patterns.add<AllGatherMinimalMatmulAsyncOpConversionPattern>(typeConverter,
+                                                               ctx);
   patterns.add<ScatterOpConversionPattern>(typeConverter, ctx);
   patterns.add<MeshPartitionOpConversionPattern>(typeConverter, ctx);
   patterns.add<DistributeTensorOpConversionPattern>(typeConverter, ctx);
