@@ -20,7 +20,7 @@ namespace mlir::tt::ttnn {
 template <typename OpT>
 struct Program {
   ::flatbuffers::FlatBufferBuilder *fbb;
-  const char *name;
+  std::string name;
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> inputs;
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
   std::vector<::flatbuffers::Offset<OpT>> ops;
@@ -107,11 +107,15 @@ template <typename OpT, typename FnT, typename TensorFnT>
 Program<OpT>
 regionToProgram(FlatbufferObjectCache &cache, mlir::Region &region,
                 llvm::StringRef name, FnT fn, TensorFnT tensorValueToFlatbuffer,
+                mlir::AsmState &printState,
                 const llvm::StringMap<uint32_t> &programIndexMap,
                 const llvm::StringMap<std::string> &constEvalFuncHashes,
                 const RegionProgramEmitterFn &emitRegionProgram) {
+  assert(region.hasOneBlock() &&
+         "region programs are emitted from a single block");
+
   Program<OpT> program;
-  program.name = name.data();
+  program.name = name.str();
 
   mlir::Block &block = region.front();
 
@@ -122,8 +126,6 @@ regionToProgram(FlatbufferObjectCache &cache, mlir::Region &region,
         arg, tensorValueToFlatbuffer, /*local_shape=*/std::nullopt));
   }
 
-  auto printFlags = getProgramDebugPrintingFlags();
-  mlir::AsmState printState(region.getParentOfType<func::FuncOp>(), printFlags);
   blockOpsToProgram(program, cache, block, fn, printState, programIndexMap,
                     constEvalFuncHashes, emitRegionProgram);
 
@@ -146,7 +148,7 @@ funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
   OpPrintingFlags printFlags = getProgramDebugPrintingFlags();
 
   Program<OpT> program;
-  program.name = entry.getSymName().data();
+  program.name = entry.getSymName().str();
 
   for (auto &input : entry.getBody().getArguments()) {
     if (mlir::isa<mlir::tt::ttnn::GlobalSemaphoreType>(input.getType())) {
@@ -222,45 +224,45 @@ funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
                                                shardStatus, localShape));
   }
 
+  assert(entry.getBody().hasOneBlock() &&
+         "programs are emitted from a single block");
+
   mlir::AsmState printState(entry, printFlags);
   mlir::Block &entryBlock = entry.getBody().front();
   blockOpsToProgram(program, cache, entryBlock, fn, printState, programIndexMap,
                     constEvalFuncHashes, emitRegionProgram);
 
-  {
-    auto returnOp = dyn_cast<func::ReturnOp>(entryBlock.getTerminator());
-    if (returnOp) {
-      for (auto [i, output] : llvm::enumerate(returnOp.getOperands())) {
-        ttcore::ShardStatus shardStatus = ttcore::ShardStatus::Unsharded;
-        mlir::RankedTensorType localShape =
-            mlir::cast<mlir::RankedTensorType>(output.getType());
+  if (auto returnOp = dyn_cast<func::ReturnOp>(entryBlock.getTerminator())) {
+    for (auto [i, output] : llvm::enumerate(returnOp.getOperands())) {
+      ttcore::ShardStatus shardStatus = ttcore::ShardStatus::Unsharded;
+      mlir::RankedTensorType localShape =
+          mlir::cast<mlir::RankedTensorType>(output.getType());
 
-        auto resultAttrs = mlir::DictionaryAttr::get(entry.getContext(),
-                                                     entry.getResultAttrs(i));
-        if (resultAttrs) {
-          auto shardStatusAttr =
-              resultAttrs.get(mlir::tt::ttcore::ShardStatusAttr::name);
-          if (shardStatusAttr) {
-            auto ssAttr =
-                mlir::cast<mlir::tt::ttcore::ShardStatusAttr>(shardStatusAttr);
-            shardStatus = ssAttr.getValue();
-          }
-
-          auto localShapeAttr =
-              resultAttrs.get(mlir::tt::ttcore::LocalShapeAttr::name);
-          if (localShapeAttr) {
-            auto lsAttr =
-                mlir::cast<mlir::tt::ttcore::LocalShapeAttr>(localShapeAttr);
-            localShape =
-                mlir::cast<mlir::RankedTensorType>(lsAttr.getLocalShape());
-          }
+      auto resultAttrs = mlir::DictionaryAttr::get(entry.getContext(),
+                                                   entry.getResultAttrs(i));
+      if (resultAttrs) {
+        auto shardStatusAttr =
+            resultAttrs.get(mlir::tt::ttcore::ShardStatusAttr::name);
+        if (shardStatusAttr) {
+          auto ssAttr =
+              mlir::cast<mlir::tt::ttcore::ShardStatusAttr>(shardStatusAttr);
+          shardStatus = ssAttr.getValue();
         }
 
-        auto tensorRefResult =
-            cache.getOrCreate(getOperandThroughDPSOps(output),
-                              tensorValueToFlatbuffer, shardStatus, localShape);
-        program.outputs.push_back(tensorRefResult);
+        auto localShapeAttr =
+            resultAttrs.get(mlir::tt::ttcore::LocalShapeAttr::name);
+        if (localShapeAttr) {
+          auto lsAttr =
+              mlir::cast<mlir::tt::ttcore::LocalShapeAttr>(localShapeAttr);
+          localShape =
+              mlir::cast<mlir::RankedTensorType>(lsAttr.getLocalShape());
+        }
       }
+
+      auto tensorRefResult =
+          cache.getOrCreate(getOperandThroughDPSOps(output),
+                            tensorValueToFlatbuffer, shardStatus, localShape);
+      program.outputs.push_back(tensorRefResult);
     }
   }
 
