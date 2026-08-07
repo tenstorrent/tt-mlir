@@ -378,4 +378,24 @@ module attributes {} {
     %0 = "stablehlo.gather"(%arg0, %arg1) <{dimension_numbers = #stablehlo.gather<offset_dims = [2], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 2>, indices_are_sorted = false, slice_sizes = array<i64: 1, 512>}> : (tensor<32128x512xbf16>, tensor<1x15xi64>) -> tensor<1x15x512xbf16>
     return %0 : tensor<1x15x512xbf16>
   }
+
+  // Example 29 regresses the multi-dim flatten stride order. start_index_map =
+  // [0, 1, 2] but operand dim 0 has size 1 and is dropped from the flatten
+  // (info.startIndexMap = [1, 2]); dims 1, 2 (sizes 12, 12) flatten to 144
+  // rows. The per-component strides must be looked up by their ORIGINAL operand
+  // dim with the dropped dim at stride 0, i.e. [0, 12, 1]. The old
+  // position-based computation produced [12, 1, 1] (dim 1 lost its x12), so the
+  // dense value below is what pins the fix.
+  // CHECK-LABEL: func.func @gather_29
+  func.func @gather_29(%operand: tensor<1x12x12x768xf32>, %start_indices: tensor<16x12x3xi32>) -> tensor<16x12x768xf32> {
+    // CHECK: "ttir.reshape"
+    // CHECK-SAME: -> tensor<144x768xf32>
+    // CHECK: "ttir.typecast"
+    // CHECK: "ttir.constant"
+    // CHECK-SAME: dense<{{.*}}0.000000e+00{{.*}}1.200000e+01{{.*}}1.000000e+00{{.*}}> : tensor<3x1xf32>
+    // CHECK: "ttir.matmul"
+    // CHECK: "ttir.embedding"
+    %0 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [2], collapsed_slice_dims = [0, 1, 2], start_index_map = [0, 1, 2], index_vector_dim = 2>, indices_are_sorted = false, slice_sizes = array<i64: 1, 1, 1, 768>}> : (tensor<1x12x12x768xf32>, tensor<16x12x3xi32>) -> tensor<16x12x768xf32>
+    return %0 : tensor<16x12x768xf32>
+  }
 }
