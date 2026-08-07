@@ -168,6 +168,15 @@ def _weight_value(tensor, jit_ctx):
     from ttnn_jit.ttmlir.dialects import ttir
 
     key = id(tensor)
+    # In-place ops that carry no dialect op (ttnn.copy) rebind their destination
+    # here. Checked BEFORE weight_cache so the placeholder stays in weight_cache
+    # for _finalize_signature to lift and erase, while reads see the update.
+    # Clobbering weight_cache instead orphans the placeholder, and a surviving
+    # ttir.empty aborts the pipeline with "Backend constraints are not
+    # implemented for op ttir.empty".
+    alias = getattr(jit_ctx, "cache_alias", None)
+    if alias is not None and key in alias:
+        return alias[key]
     cache = jit_ctx.weight_cache
     if key in cache:
         return cache[key]
@@ -1237,16 +1246,23 @@ def _make_raw_copy(jit_ctx):
     what was written instead of a fresh unrelated placeholder. Requires the raw
     `dst` object, hence _RAW: after _capture, `id(dst)` is a proxy's id.
 
+    Recorded in cache_alias rather than weight_cache: the destination usually
+    already HAS a placeholder from an earlier read, and overwriting its
+    weight_cache entry orphans that placeholder so _finalize_signature never
+    lifts or erases it. A surviving ttir.empty then aborts the pipeline.
+
     The device write itself is real cost that no op records, so it stays in the
     untraced remainder. That is the honest outcome: the advisor places the ops
     around the state update, not the update.
     """
 
     def op(src, dst, *args, **kwargs):
+        if jit_ctx.cache_alias is None:
+            jit_ctx.cache_alias = {}
         if hasattr(src, "mlir_value"):
-            jit_ctx.weight_cache[id(dst)] = src.mlir_value
+            jit_ctx.cache_alias[id(dst)] = src.mlir_value
         elif hasattr(src, "shape") and hasattr(src, "dtype"):
-            jit_ctx.weight_cache[id(dst)] = _weight_value(src, jit_ctx)
+            jit_ctx.cache_alias[id(dst)] = _weight_value(src, jit_ctx)
         return None
 
     return op
