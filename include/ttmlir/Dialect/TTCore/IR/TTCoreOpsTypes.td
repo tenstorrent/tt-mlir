@@ -697,6 +697,10 @@ def TTCore_FabricConnectionConfigAttr: TTCore_Attr<"FabricConnectionConfig", "fa
   let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `routing_mode` `=` $routing_mode `,` `num_links` `=` $num_links `>`";
 }
 
+def TTCore_FabricConnectionConfigArrayAttr
+    : TypedArrayAttrBase<TTCore_FabricConnectionConfigAttr,
+                         "FabricConnectionConfig array attribute">;
+
 //===----------------------------------------------------------------------===//
 // TT type definitions
 //===----------------------------------------------------------------------===//

@@ -146,6 +146,59 @@ public:
       shardy_utils::setReplicatedSharding(
           iotaOp, context, globalMeshOp.getSymName(), oldType.getRank());
     });
+
+    rootModule.walk([&](mlir::stablehlo::SliceOp sliceOp) {
+      mlir::sdy::TensorShardingAttr sharding =
+          shardy_utils::getFirstSharding(sliceOp);
+      if (!sharding) {
+        return;
+      }
+
+      if (shardy_utils::isFullyReplicatedTensor(sharding, globalMeshOp)) {
+        return;
+      }
+
+      auto inputType =
+          mlir::cast<mlir::RankedTensorType>(sliceOp.getOperand().getType());
+      llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+      llvm::ArrayRef<int64_t> startIndices = sliceOp.getStartIndices();
+      llvm::ArrayRef<int64_t> limitIndices = sliceOp.getLimitIndices();
+      llvm::ArrayRef<int64_t> strides = sliceOp.getStrides();
+
+      llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
+          sharding.getDimShardings();
+
+      for (size_t i = 0; i < dimShardings.size() && i < startIndices.size();
+           ++i) {
+        if (dimShardings[i].getAxes().empty()) {
+          continue;
+        }
+
+        // Contiguous slice covering the whole dimension: the local slice is a
+        // no-op on each shard, so dividing start/limit is trivially correct.
+        if (startIndices[i] == 0 && limitIndices[i] == inputShape[i] &&
+            strides[i] == 1) {
+          continue;
+        }
+
+        // Strided interleave ([::2], [1::2]): shard d's local index k maps to
+        // global d*shardWidth + k, so the extracted phase survives only if the
+        // stride divides the per-shard width, and the shards only tile the
+        // result if the slice runs to the end of the dimension.
+        if (strides[i] > 1 && startIndices[i] < strides[i] &&
+            limitIndices[i] == inputShape[i]) {
+          FailureOr<int64_t> shardWidth = shardy_utils::calculateUpdatedDim(
+              globalMeshOp.getMesh(), dimShardings[i], inputShape[i]);
+          if (succeeded(shardWidth) && *shardWidth % strides[i] == 0) {
+            continue;
+          }
+        }
+
+        shardy_utils::setReplicatedSharding(
+            sliceOp, context, globalMeshOp.getSymName(), inputType.getRank());
+        return;
+      }
+    });
   }
 };
 

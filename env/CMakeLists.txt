@@ -9,6 +9,7 @@ set(SHARDY_VERSION "edfd6730ddfc39da5fbea8b6b202357fdf1cdb90")
 set(LLVM_BUILD_TYPE MinSizeRel CACHE STRING "Build type for LLVM")
 
 include(ExternalProject)
+string(REPLACE ";" "," TTMLIR_EXTERNAL_CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}")
 
 set(TTMLIR_TOOLCHAIN_DIR "$ENV{TTMLIR_TOOLCHAIN_DIR}" CACHE PATH
     "Install prefix for the tt-mlir toolchain")
@@ -58,6 +59,9 @@ if(TTMLIR_BUILD_LLVM)
         -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
         -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
         -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+        -DCMAKE_C_COMPILER_LAUNCHER=${CMAKE_C_COMPILER_LAUNCHER}
+        -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
+        -DCMAKE_PREFIX_PATH=${TTMLIR_EXTERNAL_CMAKE_PREFIX_PATH}
         -DLLVM_ENABLE_PROJECTS=mlir,lld
         -DLLVM_TARGETS_TO_BUILD=host
         -DLLVM_INSTALL_UTILS=ON
@@ -78,10 +82,11 @@ ExternalProject_Add(stablehlo
    GIT_REPOSITORY https://github.com/openxla/stablehlo.git
    GIT_TAG ${STABLEHLO_VERSION}
    GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
+   UPDATE_DISCONNECTED ON
    CONFIGURE_COMMAND ""
    BUILD_COMMAND ""
    INSTALL_COMMAND ""
-   PATCH_COMMAND git config user.email "tt-mlir@tenstorrent.com" && git config user.name "tenstorrent" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/stablehlo-complex-mul-expander.patch" && git commit -m "tt-mlir related patch"
+   PATCH_COMMAND git config user.email "tt-mlir@tenstorrent.com" && git config user.name "tenstorrent" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/stablehlo-complex-mul-expander.patch" && git commit -m "tt-mlir related patch" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/stablehlo-token-type-qualify.patch" && git commit -m "tt-mlir related patch"
 )
 
 ExternalProject_Add(shardy
@@ -89,6 +94,7 @@ ExternalProject_Add(shardy
    GIT_REPOSITORY https://github.com/openxla/shardy.git
    GIT_TAG ${SHARDY_VERSION}
    GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
+   UPDATE_DISCONNECTED ON
    CONFIGURE_COMMAND ""
    BUILD_COMMAND ""
    INSTALL_COMMAND ""
