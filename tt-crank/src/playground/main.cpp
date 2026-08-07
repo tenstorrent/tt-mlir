@@ -24,7 +24,8 @@ func.func @add(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<6
 // Feel free to test new code here.
 int main([[maybe_unused]] int argc, [[maybe_unused]] char **argv) {
     tt::kurbla::CompileOptions opts;
-    tt::kurbla::CompiledProgram program = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, opts);
+    tt::kurbla::CompiledProgram &program =
+        *tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, opts).program;
 
     log_debug(tt::LogAlways, "log_debug");
     log_info(tt::LogAlways, "log_info");

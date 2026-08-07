@@ -99,9 +99,9 @@ static bool register_hooks_flag [[maybe_unused]] = []() {
 
 } // namespace
 
-::tt::kurbla::CompiledProgram &compile_module(mlir::OwningOpRef<mlir::ModuleOp> module_op,
-                                              const ::tt::kurbla::CompileOptions &options) {
-    return ::tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get(), options);
+::tt::kurbla::CompileResult compile_module(mlir::OwningOpRef<mlir::ModuleOp> module_op,
+                                           const ::tt::kurbla::CompileOptions &options, bool capture_ttir) {
+    return ::tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get(), options, capture_ttir);
 }
 
 // Binds input tensors to execution payload.
@@ -147,7 +147,7 @@ std::vector<at::Tensor> run_compiled_program(::tt::kurbla::CompiledProgram &prog
 
 std::vector<::tt::runtime::Tensor> compile_and_run(mlir::OwningOpRef<mlir::ModuleOp> module_op,
                                                    llvm::ArrayRef<at::Tensor> inputs) {
-    ::tt::kurbla::CompiledProgram &program = compile_module(std::move(module_op));
+    ::tt::kurbla::CompiledProgram &program = *compile_module(std::move(module_op)).program;
     ::tt::kurbla::ExecutionPayload payload(program);
     bind_inputs(payload, inputs);
     return payload.run();

@@ -46,6 +46,21 @@ struct TT_KURBLA_API CompiledProgram {
     std::string_view ttnn_ir() const;
 };
 
+// `CompiledProgram` with additional metadata produced by the compilation.
+struct TT_KURBLA_API CompileResult {
+    // Borrowed: the program is owned by the process-wide compile cache and
+    // outlives this result. Never null.
+    CompiledProgram *program;
+
+    // The TTIR the program was compiled from. Populated when the caller passes
+    // `capture_ttir`, empty otherwise.
+    std::string ttir;
+
+    // True when the program came straight out of the compile cache, i.e. no
+    // pipeline ran.
+    bool cache_hit;
+};
+
 // Returns the process-wide MLIRContext used by tt-kurbla's compile pipelines.
 // Use this when building TTIR modules programmatically (e.g. lowering from
 // framework IR like PyTorch FX) — the resulting ModuleOp must live in this
@@ -53,22 +68,24 @@ struct TT_KURBLA_API CompiledProgram {
 TT_KURBLA_API mlir::MLIRContext &mlir_context();
 
 // Compile TTIR text through the ttir-to-ttnn runtime pipeline and emit a TTNN
-// flatbuffer.
+// flatbuffer. `capture_ttir` copies `ttir` into the result — no re-print needed,
+// the caller already handed us the text.
 //
 // Not safe to call from multiple threads concurrently in v1 — the underlying
 // MLIRContext is a process-wide singleton without internal locking. Callers
 // must serialize.
-TT_KURBLA_API CompiledProgram &compile_ttir_to_ttnn_flatbuffer(std::string_view ttir,
-                                                               const CompileOptions &options = {});
+TT_KURBLA_API CompileResult compile_ttir_to_ttnn_flatbuffer(std::string_view ttir, const CompileOptions &options = {},
+                                                            bool capture_ttir = false);
 
 // Compile a pre-built TTIR ModuleOp. The module must live in mlir_context()
 // and is mutated in place — on success it holds TTNN ops, not TTIR.
 //
-// This is the entry point for callers that construct TTIR in memory rather
-// than serializing it to text first (e.g. a PyTorch FX → TTIR lowering).
+// When `capture_ttir` is set, the TTIR text will be created from the module
+// and stored in the `CompileResult`.
 //
 // Same threading caveat as the string overload: serialize calls.
-TT_KURBLA_API CompiledProgram &compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module_op,
-                                                               const CompileOptions &options = {});
+TT_KURBLA_API CompileResult compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module_op,
+                                                            const CompileOptions &options = {},
+                                                            bool capture_ttir = false);
 
 } // namespace tt::kurbla
