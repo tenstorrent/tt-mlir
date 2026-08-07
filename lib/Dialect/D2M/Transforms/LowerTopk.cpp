@@ -3,12 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Asserts.h"
-#include "ttmlir/Dialect/D2M/Analysis/BlockFactorAnalysis.h"
 #include "ttmlir/Dialect/D2M/Analysis/TopKShardingStrategy.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/TopKUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
@@ -16,7 +15,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/PatternMatch.h"
-#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/Support/MathExtras.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERTOPK
@@ -26,177 +25,50 @@ namespace {
 
 constexpr int64_t kTileWidth = ttcore::TileType::getDefaultShape()[1];
 
-//===----------------------------------------------------------------------===//
-// Layout and region helpers
-//===----------------------------------------------------------------------===//
+// Reads the placement plan: every buffer this pass builds comes from here, in
+// the order `planTopKBuffers` listed them, and grid selection already chose and
+// folded each one.
+class PlanReader {
+public:
+  explicit PlanReader(TopKPlanAttr plan) : plan(plan) {}
 
-/// Rebuild `layout`'s logical shape from a [grid..., shard...] `deviceShape` of
-/// even rank, carrying every other layout field over unchanged.
-ttcore::MetalLayoutAttr
-rebuildLayoutForDeviceShape(ttcore::MetalLayoutAttr layout,
-                            ArrayRef<int64_t> deviceShape) {
-  TT_assert(deviceShape.size() % 2 == 0u);
-  const std::size_t physicalRank = deviceShape.size() / 2;
-  const int64_t tileDim = ttcore::TileType::getDefaultShape()[0];
-
-  llvm::SmallVector<int64_t> logicalShape;
-  logicalShape.reserve(physicalRank);
-  for (std::size_t i = 0; i < physicalRank; ++i) {
-    logicalShape.push_back(deviceShape[i] * deviceShape[i + physicalRank] *
-                           tileDim);
+  utils::PlacedBuffer next() {
+    TT_assertv(cursor < plan.getPlacements().size(),
+               "topk emission asked for more buffers than the plan holds; the "
+               "plan and the emission have drifted apart");
+    TopKPlacementAttr placement = plan.getPlacements()[cursor++];
+    return {placement.getType(), placement.getVgmForward(),
+            placement.getVgmInverse(), placement.getGrid()};
   }
-  return ttcore::MetalLayoutAttr::get(
-      layout.getContext(), logicalShape, layout.getDimAlignments(),
-      layout.getCollapsedIntervals(), layout.getMemorySpace(),
-      layout.getMemoryLayout());
-}
 
-//===----------------------------------------------------------------------===//
-// Recovering TTIRToD2M's single-core lowering
-//===----------------------------------------------------------------------===//
+  /// Every placement must be read by the time emission finishes, or the plan
+  /// and the emission have drifted apart.
+  void assertFullyConsumed() const {
+    TT_assertv(cursor == plan.getPlacements().size(),
+               "topk plan holds {} placements but the emission built {}",
+               plan.getPlacements().size(), cursor);
+  }
 
-/// The pieces this pass replaces, all reachable from the leaf `topk_block`.
-struct SingleCoreTopK {
-  GenericOp leaf;
-  /// Pre-layout input, so the pass shards it rather than re-sharding a layout.
-  Value logicalInput;
-  GenericOp extractValues;
-  GenericOp extractIndices;
-  /// Follows the index extract when `dim != 0`, else null.
-  GenericOp indexCast;
+private:
+  TopKPlanAttr plan;
+  std::size_t cursor = 0;
 };
 
-/// Walks back from the leaf's input through the `to_layout`s that materialize
-/// buffers, the padding-tail `mask`, and the tile-transpose generic dim=1 adds.
-Value findLogicalInput(Value value) {
-  auto isDevice = [](Value v) {
-    auto type = mlir::dyn_cast<RankedTensorType>(v.getType());
-    return type &&
-           mlir::isa_and_nonnull<ttcore::MetalLayoutAttr>(type.getEncoding());
-  };
-  while (isDevice(value)) {
-    Operation *def = value.getDefiningOp();
-    if (auto toLayout = mlir::dyn_cast_if_present<ToLayoutOp>(def)) {
-      value = toLayout.getInput();
-    } else if (auto mask = mlir::dyn_cast_if_present<MaskOp>(def)) {
-      value = mask.getInput();
-    } else if (auto generic = mlir::dyn_cast_if_present<GenericOp>(def);
-               generic && generic.getInputs().size() == 1) {
-      value = generic.getInputs()[0];
-    } else {
-      return nullptr;
-    }
-  }
-  return value;
-}
-
-/// The single generic consuming `value`, looking through the `to_layout` that
-/// materializes it. Null when the use pattern is not the one TTIRToD2M emits.
-GenericOp findConsumingGeneric(Value value) {
-  for (int hop = 0; hop < 2; ++hop) {
-    Operation *consumer = nullptr;
-    for (Operation *user : value.getUsers()) {
-      // A generic reads its operands back through `remote_load`, so each
-      // operand has a nested use as well as a direct one, both naming that
-      // generic.
-      if (GenericOp owner = user->getParentOfType<GenericOp>()) {
-        user = owner;
-      }
-      if (consumer && consumer != user) {
-        return nullptr;
-      }
-      consumer = user;
-    }
-    if (auto generic = mlir::dyn_cast_if_present<GenericOp>(consumer)) {
-      return generic;
-    }
-    // to_layout is DPS: a use as its output does not continue the chain.
-    auto toLayout = mlir::dyn_cast_if_present<ToLayoutOp>(consumer);
-    if (!toLayout || toLayout.getInput() != value) {
-      return nullptr;
-    }
-    value = toLayout.getResult(0);
-  }
-  return nullptr;
-}
-
-mlir::FailureOr<SingleCoreTopK> recoverSingleCoreTopK(GenericOp leaf) {
-  SingleCoreTopK recovered;
-  recovered.leaf = leaf;
-  recovered.logicalInput = findLogicalInput(leaf.getInputs()[0]);
-  recovered.extractValues = findConsumingGeneric(leaf->getResult(0));
-  recovered.extractIndices = findConsumingGeneric(leaf->getResult(1));
-  if (!recovered.logicalInput || !recovered.extractValues ||
-      !recovered.extractIndices) {
-    return mlir::failure();
-  }
-
-  // dim != 0 casts the extracted indices to the user's index type in a region
-  // of its own; dim == 0 folds that cast into the extract itself.
-  GenericOp next = findConsumingGeneric(recovered.extractIndices->getResult(0));
-  bool isCast =
-      next && next != recovered.extractIndices &&
-      next->walk([](TileTypecastOp) { return WalkResult::interrupt(); })
-          .wasInterrupted();
-  recovered.indexCast = isCast ? next : GenericOp();
-  return recovered;
-}
-
-/// The logical tensor type a device-layout value stands for.
-RankedTensorType getLogicalType(Value deviceValue) {
-  auto type = mlir::cast<RankedTensorType>(deviceValue.getType());
-  auto layout = mlir::cast<ttcore::MetalLayoutAttr>(type.getEncoding());
-  return RankedTensorType::get(
-      layout.getLogicalShape(),
-      mlir::cast<ttcore::TileType>(type.getElementType()).getElementType());
-}
-
-/// Erases `roots` and everything upstream they were the last user of. The chain
-/// being replaced is straight-line, so this bottoms out at the logical input.
-void eraseDeadChain(RewriterBase &rewriter, ArrayRef<Operation *> roots) {
-  llvm::SmallVector<Operation *> worklist(roots);
-  llvm::SmallPtrSet<Operation *, 16> erased;
-  while (!worklist.empty()) {
-    Operation *op = worklist.pop_back_val();
-    if (erased.contains(op) || !op->use_empty()) {
-      continue;
-    }
-    for (Value operand : op->getOperands()) {
-      if (Operation *def = operand.getDefiningOp()) {
-        worklist.push_back(def);
-      }
-    }
-    erased.insert(op);
-    rewriter.eraseOp(op);
-  }
-}
-
-//===----------------------------------------------------------------------===//
-// Multi-core emission
-//===----------------------------------------------------------------------===//
-
-/// Narrows every core's shard down to its leading `outputReductionTiles`, so
-/// the wide partials do not stay live on every core and overflow L1.
+/// Narrows every core's shard down to `narrow`'s reduction extent, so the wide
+/// partials do not stay live on every core and overflow L1.
 Value compactReductionDim(RewriterBase &rewriter, Location loc, Value partial,
-                          int64_t outputReductionTiles, int32_t dim) {
+                          const utils::PlacedBuffer &narrow) {
   auto wideType = mlir::cast<RankedTensorType>(partial.getType());
   auto tileType = mlir::cast<ttcore::TileType>(wideType.getElementType());
-  std::size_t rank = wideType.getShape().size() / 2;
-  TopKGeometry geometry = getTopKGeometry(dim, rank);
+  const std::size_t rank = wideType.getShape().size() / 2;
 
-  llvm::SmallVector<int64_t> narrowShape(wideType.getShape());
-  narrowShape[geometry.deviceRedDim] = outputReductionTiles;
-  auto narrowEmpty = rewriter.create<EmptyOp>(
-      loc, narrowShape, tileType,
-      rebuildLayoutForDeviceShape(
-          mlir::cast<ttcore::MetalLayoutAttr>(wideType.getEncoding()),
-          narrowShape));
-  auto narrowType = mlir::cast<RankedTensorType>(narrowEmpty.getType());
+  Value narrowEmpty = rewriter
+                          .create<EmptyOp>(loc, narrow.type, narrow.vgmInverse,
+                                           narrow.vgmForward)
+                          .getResult();
   auto generic = rewriter.create<GenericOp>(
-      loc, TypeRange{narrowType}, ValueRange{partial},
-      ValueRange{narrowEmpty.getResult()}, /*additionalArgs=*/ValueRange(),
-      rewriter.getAttr<ttcore::GridAttr>(
-          ArrayRef<int64_t>(narrowShape).take_front(rank)),
+      loc, TypeRange{narrow.type}, ValueRange{partial}, ValueRange{narrowEmpty},
+      /*additionalArgs=*/ValueRange(), narrow.grid,
       /*block_factors=*/rewriter.getI64ArrayAttr({}),
       /*indexing_maps=*/rewriter.getArrayAttr({}),
       /*iterator_types=*/rewriter.getArrayAttr({}),
@@ -206,9 +78,8 @@ Value compactReductionDim(RewriterBase &rewriter, Location loc, Value partial,
   {
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.createBlock(&generic->getRegion(0));
-    auto shardType = [&](RankedTensorType deviceType) {
-      return RankedTensorType::get(deviceType.getShape().take_back(rank),
-                                   tileType);
+    auto shardShape = [&](RankedTensorType deviceType) {
+      return deviceType.getShape().take_back(rank);
     };
     llvm::SmallVector<Value> coreIndices;
     coreIndices.reserve(rank);
@@ -216,14 +87,16 @@ Value compactReductionDim(RewriterBase &rewriter, Location loc, Value partial,
       coreIndices.push_back(
           rewriter.create<CoreIndexOp>(loc, static_cast<int64_t>(i)));
     }
-    auto loadBuf = rewriter.create<tensor::EmptyOp>(
-        loc, shardType(wideType).getShape(), tileType);
-    Value loaded = rewriter
-                       .create<RemoteLoadOp>(loc, shardType(wideType), loadBuf,
-                                             partial, coreIndices)
-                       .getResult();
-    auto outBuf = rewriter.create<tensor::EmptyOp>(
-        loc, shardType(narrowType).getShape(), tileType);
+    auto loadBuf =
+        rewriter.create<tensor::EmptyOp>(loc, shardShape(wideType), tileType);
+    Value loaded =
+        rewriter
+            .create<RemoteLoadOp>(
+                loc, RankedTensorType::get(shardShape(wideType), tileType),
+                loadBuf, partial, coreIndices)
+            .getResult();
+    auto outBuf = rewriter.create<tensor::EmptyOp>(loc, shardShape(narrow.type),
+                                                   tileType);
     AffineMap shardIdentity = rewriter.getMultiDimIdentityMap(rank);
     Value narrowed =
         rewriter
@@ -231,237 +104,291 @@ Value compactReductionDim(RewriterBase &rewriter, Location loc, Value partial,
                 loc, loaded, outBuf.getResult(),
                 rewriter.getAffineMapArrayAttr({shardIdentity, shardIdentity}))
             .getResult();
-    Value stored =
-        rewriter
-            .create<RemoteStoreOp>(loc, narrowType, narrowEmpty.getResult(),
-                                   coreIndices, narrowed)
-            .getResult();
+    Value stored = rewriter
+                       .create<RemoteStoreOp>(loc, narrow.type, narrowEmpty,
+                                              coreIndices, narrowed)
+                       .getResult();
     rewriter.create<YieldOp>(loc, ValueRange{stored});
   }
-  utils::markPinnedGrid(generic);
 
-  return utils::materializeToLayout(rewriter, loc, generic->getResult(0));
+  return utils::materializeToLayout(rewriter, loc, generic->getResult(0),
+                                    narrow);
 }
 
-/// Lays `rawInput` out banded `gridCols` ways along the reduction dim and/or
-/// sliced `ntCores` ways along the non-target dim, then runs one leaf topk per
-/// core. Buffers carry logical grids only; GridSelection folds them onto cores.
-std::pair<Value, Value> emitShardedLeaves(RewriterBase &rewriter, Location loc,
-                                          Value rawInput, int32_t k,
-                                          int32_t dim,
-                                          const TopKShardingStrategy &strategy,
-                                          ttcore::MemorySpace memSpace,
-                                          int64_t gridCols, int64_t ntCores) {
-  auto inputType = mlir::cast<RankedTensorType>(rawInput.getType());
-  llvm::SmallVector<int64_t> shardTiles(inputType.getRank(), 1);
-  shardTiles[dim] = strategy.paddedReductionTiles;
-  shardTiles[1 - dim] = strategy.paddedNonTargetTiles;
-  llvm::SmallVector<int64_t> grid =
-      (dim == 1) ? llvm::SmallVector<int64_t>{ntCores, gridCols}
-                 : llvm::SmallVector<int64_t>{gridCols, ntCores};
-  Value input =
-      utils::layoutAndMask(rewriter, loc, rawInput, shardTiles, grid, memSpace);
-
-  auto [vals, idx] = utils::emitLeafTopk(rewriter, loc, input, k, dim,
-                                         inputType.getShape()[dim]);
-  if (gridCols == 1) {
-    return {utils::materializeToLayout(rewriter, loc, vals),
-            utils::materializeToLayout(rewriter, loc, idx)};
-  }
-  return {compactReductionDim(rewriter, loc, vals,
-                              strategy.outputReductionTiles, dim),
-          compactReductionDim(rewriter, loc, idx, strategy.outputReductionTiles,
-                              dim)};
-}
-
-/// Collapses `bands` partials, one per core, down to `numGroups`: core g merges
-/// the groupTiles bands starting at g * groupTiles, gathered by a composite
-/// view that D2MExpandDMAReadCompositeView resolves per tile into a DMA read.
+/// Collapses one merge round: each surviving core merges the bands gathered
+/// through a composite view (resolved into DMA reads by
+/// D2MExpandDMAReadCompositeView).
 std::pair<Value, Value> emitMergeRound(RewriterBase &rewriter, Location loc,
                                        Value valsIn, Value idxIn, int32_t k,
-                                       int32_t dim,
-                                       int64_t outputReductionTiles,
-                                       int64_t bands, int64_t numGroups) {
+                                       int32_t dim, PlanReader &plan) {
   MLIRContext *ctx = rewriter.getContext();
-  int64_t groupTiles = bands / numGroups;
-  TT_assertv(groupTiles * numGroups == bands,
-             "merge round must divide the band count evenly");
-
   auto valsInType = mlir::cast<RankedTensorType>(valsIn.getType());
-  std::size_t rank = valsInType.getShape().size() / 2;
-  TopKGeometry geometry = getTopKGeometry(dim, rank);
+  const std::size_t rank = valsInType.getShape().size() / 2;
   AffineMap identityMap = rewriter.getMultiDimIdentityMap(rank);
   llvm::SmallVector<Attribute> iterators(
       rank, ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
 
-  // The input's extent re-split: numGroups cores each holding groupTiles bands'
-  // worth of reduction tiles, so the grid x shard product is preserved.
-  llvm::SmallVector<int64_t> wideShape(valsInType.getShape());
-  wideShape[geometry.deviceGridDim] = numGroups;
-  wideShape[geometry.deviceRedDim] = groupTiles * outputReductionTiles;
-  auto wideTypeOf = [&](Value in) {
-    auto inType = mlir::cast<RankedTensorType>(in.getType());
-    return RankedTensorType::get(
-        wideShape, inType.getElementType(),
-        rebuildLayoutForDeviceShape(
-            mlir::cast<ttcore::MetalLayoutAttr>(inType.getEncoding()),
-            wideShape));
-  };
-
   // Separate generics: the DMA-expansion pass supports only one composite view
   // per GenericOp (#7600).
   auto gather = [&](Value in) -> Value {
-    RankedTensorType wideType = wideTypeOf(in);
+    utils::PlacedBuffer wide = plan.next();
     auto composite = rewriter.create<CompositeViewOp>(
-        loc, wideType, ValueRange{in}, dim, /*logicalSizes=*/nullptr);
-    auto out = rewriter.create<EmptyOp>(
-        loc, wideShape, wideType.getElementType(), wideType.getEncoding());
+        loc, wide.type, ValueRange{in}, dim, /*logicalSizes=*/nullptr);
     llvm::SmallVector<Value> ins = {composite.getResult()};
-    llvm::SmallVector<Value> outs = {out.getResult()};
+    llvm::SmallVector<Value> outs = {
+        rewriter
+            .create<EmptyOp>(loc, wide.type, wide.vgmInverse, wide.vgmForward)
+            .getResult()};
     auto generic = rewriter.create<GenericOp>(
         loc, ins, outs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(
             llvm::SmallVector<AffineMap>{identityMap, identityMap}),
-        rewriter.getArrayAttr(iterators));
+        rewriter.getArrayAttr(iterators), ThreadType::Unified, wide.grid);
     utils::buildParallelGenericRegion(
         rewriter, loc, generic, ins, outs,
         [](ArrayRef<Value> args) -> llvm::SmallVector<Value> {
           return {args[0]};
         });
-    utils::markPinnedGrid(generic);
-    return utils::materializeToLayout(rewriter, loc, generic->getResult(0));
+    return utils::materializeToLayout(rewriter, loc, generic->getResult(0),
+                                      wide);
   };
 
+  // Braced init so the two gathers draw from the plan in order.
   llvm::SmallVector<Value> ins = {gather(valsIn), gather(idxIn)};
+
+  utils::PlacedBuffer mergeVals = plan.next();
+  utils::PlacedBuffer mergeIdx = plan.next();
   llvm::SmallVector<Value> outs = {
       rewriter
-          .create<EmptyOp>(loc, wideShape, valsInType.getElementType(),
-                           wideTypeOf(valsIn).getEncoding())
+          .create<EmptyOp>(loc, mergeVals.type, mergeVals.vgmInverse,
+                           mergeVals.vgmForward)
           .getResult(),
       rewriter
-          .create<EmptyOp>(
-              loc, wideShape,
-              mlir::cast<RankedTensorType>(idxIn.getType()).getElementType(),
-              wideTypeOf(idxIn).getEncoding())
+          .create<EmptyOp>(loc, mergeIdx.type, mergeIdx.vgmInverse,
+                           mergeIdx.vgmForward)
           .getResult()};
+
+  const int64_t numElements =
+      mergeVals.type.getShape()[rank + dim] * kTileWidth;
+
   auto merge = rewriter.create<GenericOp>(
       loc, ins, outs, /*additionalArgs=*/ValueRange(),
       rewriter.getAffineMapArrayAttr(llvm::SmallVector<AffineMap>{
           identityMap, identityMap, identityMap, identityMap}),
-      rewriter.getArrayAttr(iterators));
+      rewriter.getArrayAttr(iterators), ThreadType::Unified, mergeVals.grid);
   utils::buildParallelGenericRegion(
       rewriter, loc, merge, ins, outs,
       [&](ArrayRef<Value> args) -> llvm::SmallVector<Value> {
         // No generate_indices: these indices are an earlier stage's results and
         // cannot be recomputed from a coordinate.
         auto block = rewriter.create<TopkBlockOp>(
-            loc, args[0], args[1], args[2], args[3], k,
-            /*numElements=*/groupTiles * outputReductionTiles * kTileWidth,
+            loc, args[0], args[1], args[2], args[3], k, numElements,
             /*stableSort=*/false, dim);
         return {block.getResultValues(), block.getResultIndices()};
       });
-  utils::markPinnedGrid(merge);
 
-  return {compactReductionDim(
-              rewriter, loc,
-              utils::materializeToLayout(rewriter, loc, merge->getResult(0)),
-              outputReductionTiles, dim),
-          compactReductionDim(
-              rewriter, loc,
-              utils::materializeToLayout(rewriter, loc, merge->getResult(1)),
-              outputReductionTiles, dim)};
+  utils::PlacedBuffer compactVals = plan.next();
+  utils::PlacedBuffer compactIdx = plan.next();
+  return {compactReductionDim(rewriter, loc,
+                              utils::materializeToLayout(rewriter, loc,
+                                                         merge->getResult(0),
+                                                         mergeVals),
+                              compactVals),
+          compactReductionDim(rewriter, loc,
+                              utils::materializeToLayout(
+                                  rewriter, loc, merge->getResult(1), mergeIdx),
+                              compactIdx)};
 }
 
-/// Rebuilds the recovered single-core topk across the grid. `recovered` comes
-/// by value because MLIR op accessors are non-const.
-void emitMultiCore(RewriterBase &rewriter, SingleCoreTopK recovered, int32_t k,
-                   int32_t dim, const TopKShardingStrategy &strategy) {
-  Location loc = recovered.leaf->getLoc();
-  TopKGeometry geometry = getTopKGeometry(
-      dim,
-      mlir::cast<RankedTensorType>(recovered.logicalInput.getType()).getRank());
+/// Collapses the reduction dim to tile 0, undoing what `emitLeafTopk` did.
+/// `outputReductionTiles` is ceil(k / 32).
+GenericOp emitTopKExtract(RewriterBase &rewriter, Location loc,
+                          Value topkResult, Value extractOutput, int32_t dim,
+                          int64_t outputReductionTiles, ttcore::GridAttr grid) {
+  const auto extractProjectDim = static_cast<std::size_t>(dim);
+  MLIRContext *ctx = rewriter.getContext();
+  std::size_t extractRank =
+      ttcore::getDeviceLayout(extractOutput).getRank() / 2;
+  AffineMap extractIdentity = rewriter.getMultiDimIdentityMap(extractRank);
+  llvm::SmallVector<Attribute> extractIters(
+      extractRank,
+      ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
 
-  // Everything the rebuild reads -- the logical input and both extract
-  // destinations -- is defined by the values extract.
-  rewriter.setInsertionPoint(recovered.extractValues);
+  llvm::SmallVector<AffineExpr> inputMapExprs;
+  for (std::size_t i = 0; i < extractRank; ++i) {
+    inputMapExprs.push_back(i == extractProjectDim
+                                ? rewriter.getAffineConstantExpr(0)
+                                : rewriter.getAffineDimExpr(i));
+  }
+  AffineMap inputProjectedMap =
+      AffineMap::get(extractRank, 0, inputMapExprs, ctx);
 
-  auto inputLayout = mlir::cast<ttcore::MetalLayoutAttr>(
-      mlir::cast<RankedTensorType>(recovered.leaf.getInputs()[0].getType())
-          .getEncoding());
-  // Non-target slices exchange no data, so a 2D split runs the band-and-merge
-  // pipeline once per slice row.
-  std::pair<Value, Value> level = emitShardedLeaves(
-      rewriter, loc, recovered.logicalInput, k, dim, strategy,
-      inputLayout.getMemorySpace(),
-      /*gridCols=*/strategy.multiCore ? strategy.numShards : 1,
-      /*ntCores=*/strategy.ntShards);
+  llvm::SmallVector<Value> extractInputs = {topkResult};
+  llvm::SmallVector<Value> extractOutputs = {extractOutput};
+  auto generic = rewriter.create<GenericOp>(
+      loc, extractInputs, extractOutputs, /*additionalArgs=*/ValueRange(),
+      rewriter.getAffineMapArrayAttr(
+          llvm::SmallVector<AffineMap>{inputProjectedMap, extractIdentity}),
+      rewriter.getArrayAttr(extractIters), ThreadType::Unified, grid);
 
-  int64_t bands = strategy.multiCore ? strategy.numShards : 1;
-  for (int64_t numGroups : strategy.mergeSchedule) {
-    level = emitMergeRound(rewriter, loc, level.first, level.second, k, dim,
-                           strategy.outputReductionTiles, bands, numGroups);
-    bands = numGroups;
+  utils::buildParallelGenericRegion(
+      rewriter, loc, generic, extractInputs, extractOutputs,
+      [&](ArrayRef<Value> blockArgs) -> llvm::SmallVector<Value> {
+        Value input = blockArgs[0];
+        Value output = blockArgs[1];
+        std::size_t outShardRank =
+            cast<RankedTensorType>(output.getType()).getRank();
+        int64_t inReductionExtent = cast<RankedTensorType>(input.getType())
+                                        .getShape()[extractProjectDim];
+        AffineExpr projExpr =
+            outputReductionTiles == 1
+                ? rewriter.getAffineConstantExpr(0)
+                : rewriter.getAffineDimExpr(extractProjectDim) %
+                      inReductionExtent;
+        llvm::SmallVector<AffineExpr> mapFirstExprs;
+        for (std::size_t i = 0; i < outShardRank; ++i) {
+          mapFirstExprs.push_back(
+              i == extractProjectDim ? projExpr : rewriter.getAffineDimExpr(i));
+        }
+        AffineMap mapFirst =
+            AffineMap::get(outShardRank, 0, mapFirstExprs, ctx);
+        AffineMap outIdentity = rewriter.getMultiDimIdentityMap(outShardRank);
+        llvm::SmallVector<mlir::utils::IteratorType> linalgIters(
+            outShardRank, mlir::utils::IteratorType::parallel);
+
+        auto linalgOp = rewriter.create<linalg::GenericOp>(
+            loc, output.getType(), input, output,
+            llvm::SmallVector<AffineMap>{mapFirst, outIdentity}, linalgIters,
+            [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
+              Value result;
+              if (dim == 1) {
+                result = b.create<TileTransposeOp>(bodyLoc, args[1].getType(),
+                                                   args[0]);
+              } else {
+                result = b.create<TileTypecastOp>(bodyLoc, args[1].getType(),
+                                                  args[0]);
+              }
+              b.create<linalg::YieldOp>(bodyLoc, result);
+            });
+        return {linalgOp->getResult(0)};
+      });
+
+  return generic;
+}
+
+/// The laid-out and masked input d2m-grid-selection emitted off `logicalInput`,
+/// marked because the placeholder leaf cannot hold it as an operand.
+Value findPlacedInput(Value logicalInput) {
+  // The mark sits on the to_layout, or on the mask when one was planned, and
+  // is dropped on the way out so no marker outlives the pass.
+  auto take = [](Operation *op) -> Value {
+    if (!op->hasAttr(utils::kTopKInputAttr)) {
+      return {};
+    }
+    op->removeAttr(utils::kTopKInputAttr);
+    return op->getResult(0);
+  };
+  for (Operation *toLayout : logicalInput.getUsers()) {
+    if (Value placed = take(toLayout)) {
+      return placed;
+    }
+    for (Operation *mask : toLayout->getUsers()) {
+      if (Value placed = take(mask)) {
+        return placed;
+      }
+    }
+  }
+  TT_assertv(false, "topk leaf has no input placed by d2m-grid-selection");
+  return {};
+}
+
+/// Builds the topk the plan describes, replacing the leaf d2m-grid-selection
+/// placed. `chain` comes by value because MLIR op accessors are non-const.
+void emitPlannedTopK(RewriterBase &rewriter, SingleCoreTopK chain, int32_t k,
+                     int32_t dim, TopKPlanAttr planAttr) {
+  Location loc = chain.leaf->getLoc();
+  PlanReader plan(planAttr);
+  auto logicalInputType =
+      mlir::cast<RankedTensorType>(chain.logicalInput.getType());
+
+  // The only thing the build reads is the input chain grid selection laid out
+  // and masked onto the split; everything else it re-emits from the plan.
+  rewriter.setInsertionPoint(chain.leaf);
+  Value input = findPlacedInput(chain.logicalInput);
+
+  utils::LeafTopKBuffers leafBuffers;
+  if (dim == 1) {
+    leafBuffers.transpose = plan.next();
+  }
+  leafBuffers.scratch = plan.next();
+  leafBuffers.values = plan.next();
+  leafBuffers.indices = plan.next();
+  auto [leafVals, leafIdx] =
+      utils::emitLeafTopk(rewriter, loc, input, k, dim,
+                          logicalInputType.getShape()[dim], leafBuffers);
+
+  // Banding is what produces wide partials worth narrowing; a purely
+  // data-parallel split leaves each core's result already final.
+  std::pair<Value, Value> level;
+  if (planAttr.getNumShards() > 1) {
+    utils::PlacedBuffer compactVals = plan.next();
+    utils::PlacedBuffer compactIdx = plan.next();
+    level = {compactReductionDim(rewriter, loc, leafVals, compactVals),
+             compactReductionDim(rewriter, loc, leafIdx, compactIdx)};
+  } else {
+    level = {
+        utils::materializeToLayout(rewriter, loc, leafVals, leafBuffers.values),
+        utils::materializeToLayout(rewriter, loc, leafIdx,
+                                   leafBuffers.indices)};
   }
 
-  // A data-parallel split must keep each extract's destination on the same
-  // cores as its source; otherwise the conversion's destination still fits.
-  auto rebuildExtract = [&](GenericOp oldExtract, Value newInput) -> Value {
-    Value output = oldExtract.getOutputs()[0];
-    if (strategy.dataParallel) {
-      RankedTensorType logicalType = getLogicalType(output);
-      llvm::SmallVector<int64_t> tileShape =
-          llvm::to_vector(ttcore::TileType::getDefaultShape());
-      llvm::SmallVector<int64_t> shardTiles(logicalType.getRank(), 1);
-      shardTiles[1 - dim] = strategy.paddedNonTargetTiles;
-      auto layout = utils::buildShardedTileLayout(
-          rewriter.getContext(), logicalType.getShape(), shardTiles,
-          mlir::cast<ttcore::MetalLayoutAttr>(
-              mlir::cast<RankedTensorType>(output.getType()).getEncoding())
-              .getMemorySpace());
-      llvm::SmallVector<int64_t> grid =
-          (dim == 1) ? llvm::SmallVector<int64_t>{strategy.ntShards, 1}
-                     : llvm::SmallVector<int64_t>{1, strategy.ntShards};
-      output =
-          rewriter
-              .create<EmptyOp>(loc, layout.getDeviceShape(grid, tileShape),
-                               ttcore::TileType::get(
-                                   logicalType.getElementType(), tileShape),
-                               layout)
-              .getResult();
-    }
-    return utils::emitTopKExtract(rewriter, loc, newInput, output,
-                                  geometry.extractProjectDim,
-                                  strategy.outputReductionTiles, dim)
+  for (std::size_t round = 0; round < planAttr.getMergeSchedule().size();
+       ++round) {
+    level =
+        emitMergeRound(rewriter, loc, level.first, level.second, k, dim, plan);
+  }
+
+  auto emitExtract = [&](Value newInput) -> Value {
+    utils::PlacedBuffer placed = plan.next();
+    // Width comes from `k`, not the input's reduction extent: a data-parallel
+    // split has no merge tree to narrow it, so the partial is still full width.
+    return emitTopKExtract(rewriter, loc, newInput,
+                           rewriter
+                               .create<EmptyOp>(loc, placed.type,
+                                                placed.vgmInverse,
+                                                placed.vgmForward)
+                               .getResult(),
+                           dim, llvm::divideCeil(k, kTileWidth), placed.grid)
         ->getResult(0);
   };
 
-  Value newVals = rebuildExtract(recovered.extractValues, level.first);
-  Value newIdx = rebuildExtract(recovered.extractIndices, level.second);
+  Value newVals = emitExtract(level.first);
+  Value newIdx = emitExtract(level.second);
 
-  GenericOp lastIdxOp = recovered.extractIndices;
-  if (recovered.indexCast) {
-    // Elementwise, so it follows its input's layout.
-    auto idxType = mlir::cast<RankedTensorType>(newIdx.getType());
-    auto castTileType = ttcore::TileType::get(
-        getLogicalType(recovered.indexCast->getResult(0)).getElementType(),
-        mlir::cast<ttcore::TileType>(idxType.getElementType()).getShape());
-    auto castEmpty = rewriter.create<EmptyOp>(
-        loc, idxType.getShape(), castTileType, idxType.getEncoding());
+  // dim == 0's extract casts to the user's index type on the way out; dim == 1
+  // transposes instead, so its cast needs a region of its own.
+  if (dim != 0) {
+    utils::PlacedBuffer castBuffer = plan.next();
     newIdx = utils::emitUnaryGeneric(
-        rewriter, loc, newIdx, castEmpty.getResult(),
+        rewriter, loc, newIdx,
+        rewriter
+            .create<EmptyOp>(loc, castBuffer.type, castBuffer.vgmInverse,
+                             castBuffer.vgmForward)
+            .getResult(),
         [&](OpBuilder &b, Location l, ValueRange args) {
           return b.create<TileTypecastOp>(l, args[1].getType(), args[0])
               .getResult();
-        });
-    utils::markPinnedGrid(newIdx.getDefiningOp());
-    lastIdxOp = recovered.indexCast;
+        },
+        castBuffer.grid);
   }
 
-  rewriter.replaceAllUsesWith(recovered.extractValues->getResult(0), newVals);
-  rewriter.replaceAllUsesWith(lastIdxOp->getResult(0), newIdx);
-  eraseDeadChain(rewriter, {recovered.extractValues.getOperation(),
-                            lastIdxOp.getOperation(),
-                            recovered.extractIndices.getOperation()});
+  plan.assertFullyConsumed();
+
+  // The placed leaf's results feed nothing but the `to_layout`s that hand the
+  // topk back to its user, and those check neither shape nor element type.
+  rewriter.replaceAllUsesWith(chain.leaf->getResult(0), newVals);
+  rewriter.replaceAllUsesWith(chain.leaf->getResult(1), newIdx);
+  rewriter.eraseOp(chain.leaf);
 }
 
 class D2MLowerTopk final : public impl::D2MLowerTopkBase<D2MLowerTopk> {
@@ -469,61 +396,22 @@ public:
   using impl::D2MLowerTopkBase<D2MLowerTopk>::D2MLowerTopkBase;
 
   void runOnOperation() override {
-    // Collected up front: the rebuild emits already-sharded leaf topk_blocks of
-    // its own. generate_indices distinguishes a leaf from a merge stage.
+    // Collected up front because the build emits generics of its own; only the
+    // leaf d2m-grid-selection placed carries a plan.
     llvm::SmallVector<GenericOp> leaves;
-    getOperation().walk([&](TopkBlockOp op) {
-      GenericOp leaf = op->getParentOfType<GenericOp>();
-      if (op.getGenerateIndices() && leaf && leaf.getInputs().size() == 2 &&
-          leaf->getNumResults() == 2) {
-        leaves.push_back(leaf);
+    getOperation().walk([&](GenericOp generic) {
+      if (generic->hasAttr(utils::kTopKPlanAttr)) {
+        leaves.push_back(generic);
       }
     });
-    if (leaves.empty()) {
-      return;
-    }
 
-    auto workerGrid = llvm::to_vector(
-        ttcore::lookupDevice(getOperation()).getWorkerGrid().getShape());
-    auto chipDesc =
-        ttcore::getCurrentScopeSystemDesc(getOperation()).getChipDesc(0);
     IRRewriter rewriter(&getContext());
-
     for (GenericOp leaf : leaves) {
       auto topkBlock = *leaf->getRegion(0).getOps<TopkBlockOp>().begin();
-      int32_t k = topkBlock.getK();
-      int32_t dim = topkBlock.getDim();
-      // Taken from the leaf's own operand, since the strategy has to be known
-      // before deciding whether the chain around it matters.
-      auto inputLayout = mlir::cast<ttcore::MetalLayoutAttr>(
-          mlir::cast<RankedTensorType>(leaf.getInputs()[0].getType())
-              .getEncoding());
+      auto plan = leaf->getAttrOfType<TopKPlanAttr>(utils::kTopKPlanAttr);
 
-      std::string failureReason;
-      auto strategy = selectTopKShardingStrategy(
-          k, dim, inputLayout.getLogicalShape(), workerGrid,
-          topKL1Budget(leaf, chipDesc,
-                       BlockFactorAnalysis::Options{}.numBuffers),
-          failureReason);
-      if (failed(strategy)) {
-        // D2M has no fallback for a topk it cannot place.
-        topkBlock->emitOpError(failureReason);
-        return signalPassFailure();
-      }
-      // One core already holds the whole reduction, so ttir-to-d2m's output is
-      // final and the chain around it never has to be recovered.
-      if (!strategy->multiCore && !strategy->dataParallel) {
-        continue;
-      }
-
-      auto recovered = recoverSingleCoreTopK(leaf);
-      if (failed(recovered)) {
-        topkBlock->emitOpError(
-            "needs to be split across cores, but the layout and extract chain "
-            "around it is not the one ttir-to-d2m emits");
-        return signalPassFailure();
-      }
-      emitMultiCore(rewriter, *recovered, k, dim, *strategy);
+      emitPlannedTopK(rewriter, readSingleCoreTopK(leaf), topkBlock.getK(),
+                      topkBlock.getDim(), plan);
     }
   }
 };

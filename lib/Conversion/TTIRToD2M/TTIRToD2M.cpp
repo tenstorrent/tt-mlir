@@ -6,10 +6,10 @@
 
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
-#include "ttmlir/Dialect/D2M/Analysis/TopKShardingStrategy.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/GridSelectionUtils.h"
+#include "ttmlir/Dialect/D2M/Utils/TopKUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
@@ -3635,82 +3635,25 @@ public:
     const int32_t k = op.getK();
     assert(k <= 64 && "D2M topk only supports k <= 64");
     const int64_t reductionDimSize = inputType.getShape()[dim];
+
+    // guard against k > 32 for the single tile case
     if ((reductionDimSize + kTileWidth - 1) / kTileWidth == 1) {
       assert(k <= kTileWidth && "single-tile topk input only supports k <= 32");
     }
 
-    // Reduction tiles one output partial occupies.
-    const int64_t outputReductionTiles = (k + kTileWidth - 1) / kTileWidth;
-    const d2m::TopKGeometry geometry =
-        d2m::getTopKGeometry(dim, static_cast<std::size_t>(rank));
-
-    Value layoutedInput;
-    if (reductionDimSize <= kTileWidth) {
-      // topk_block merges reduction tiles pairwise, so it needs at least two.
-      SmallVector<int64_t> paddedTiles(rank, 1);
-      paddedTiles[dim] = 2;
-      layoutedInput = d2m::utils::layoutAndMask(
-          rewriter, loc, adaptor.getInputTensor(), paddedTiles,
-          SmallVector<int64_t>(rank, 1), memorySpaces[0]);
-    } else {
-      layoutedInput = createOptimalLayoutOp(
-          adaptor.getInputTensor(), memorySpaces[0], /*tiled=*/true,
-          /*noCollapse=*/false, rewriter, ttcore::OOBVal::NegInf);
-    }
+    // Placeholder leaf: d2m-grid-selection plans padding/transpose/extract,
+    // and d2m-lower-topk replaces this leaf with the planned chain.
+    Value layoutedInput = createOptimalLayoutOp(
+        adaptor.getInputTensor(), memorySpaces[0], /*tiled=*/true,
+        /*noCollapse=*/false, rewriter, ttcore::OOBVal::NegInf);
 
     auto [topkVals, topkIdx] = d2m::utils::emitLeafTopk(
         rewriter, loc, layoutedInput, k, dim, reductionDimSize);
+    d2m::utils::setTopkIndexType(topkVals.getDefiningOp(),
+                                 indicesType.getElementType());
 
-    Type idxOutElemType = indicesType.getElementType();
-    bool fuseIdxCast = (dim == 0);
-    // Must match the index element type emitLeafTopk picks.
-    Type leafIdxElemType = rewriter.getI32Type();
-    auto extractIdxIndicesType = RankedTensorType::get(
-        indicesType.getShape(), fuseIdxCast ? idxOutElemType : leafIdxElemType);
-
-    SmallVector<Value> origValOutputs =
-        createDpsOutputs(loc, rewriter, {valuesType});
-    SmallVector<Value> origIdxOutputs =
-        createDpsOutputs(loc, rewriter, {extractIdxIndicesType});
-    Value extractValsLayout =
-        createOptimalLayoutOp(origValOutputs[0], memorySpaces[1],
-                              /*tiled=*/true, /*noCollapse=*/false, rewriter);
-    Value extractIdxLayout =
-        createOptimalLayoutOp(origIdxOutputs[0], memorySpaces[1],
-                              /*tiled=*/true, /*noCollapse=*/false, rewriter);
-
-    auto extractValsGeneric = d2m::utils::emitTopKExtract(
-        rewriter, loc, d2m::utils::materializeToLayout(rewriter, loc, topkVals),
-        extractValsLayout, geometry.extractProjectDim, outputReductionTiles,
-        dim);
-    auto extractIdxGeneric = d2m::utils::emitTopKExtract(
-        rewriter, loc, d2m::utils::materializeToLayout(rewriter, loc, topkIdx),
-        extractIdxLayout, geometry.extractProjectDim, outputReductionTiles,
-        dim);
-
-    Value idxFinal = extractIdxGeneric->getResult(0);
-    if (!fuseIdxCast) {
-      // Its own region, so the D2M->TTKernel store/DST-index lookup still finds
-      // a single terminal compute op.
-      auto extractedIdxType = cast<RankedTensorType>(idxFinal.getType());
-      auto idxCastTileType = ttcore::TileType::get(
-          idxOutElemType,
-          cast<ttcore::TileType>(extractedIdxType.getElementType()).getShape());
-      auto idxCastEmpty = rewriter.create<d2m::EmptyOp>(
-          loc, extractedIdxType.getShape(), idxCastTileType,
-          extractedIdxType.getEncoding());
-      idxFinal = d2m::utils::emitUnaryGeneric(
-          rewriter, loc, idxFinal, idxCastEmpty.getResult(),
-          [&](OpBuilder &b, Location l, ValueRange args) {
-            return b.create<d2m::TileTypecastOp>(l, args[1].getType(), args[0])
-                .getResult();
-          });
-      d2m::utils::markPinnedGrid(idxFinal.getDefiningOp());
-    }
-
-    Operation *valResult =
-        unLayoutResult(rewriter, extractValsGeneric->getResult(0), valuesType);
-    Operation *idxResult = unLayoutResult(rewriter, idxFinal, indicesType);
+    Operation *valResult = unLayoutResult(rewriter, topkVals, valuesType);
+    Operation *idxResult = unLayoutResult(rewriter, topkIdx, indicesType);
 
     rewriter.replaceOp(op, {valResult->getResult(0), idxResult->getResult(0)});
     return success();

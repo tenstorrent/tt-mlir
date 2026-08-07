@@ -1422,8 +1422,8 @@ mlir::LogicalResult d2m::CompositeViewOp::verify() {
     return emitOpError("dim out of range.");
   }
 
-  // A single input is meaningful when that input is itself distributed: the
-  // view re-splits its grid x shard extent onto the consuming generic's grid.
+  // A single input regroups that input's grid x shard extent onto a coarser
+  // grid; two or more concatenate along `dim`.
   if (this->getInputs().empty()) {
     return emitOpError("must have at least one input.");
   }
@@ -2575,12 +2575,16 @@ createParallelizedGenericShell(d2m::GenericOp thisOp, OpBuilder &builder,
     newResultTypes.push_back(newOutputs[resultIndex].getType());
   }
 
-  return builder.create<d2m::GenericOp>(
+  auto newOp = builder.create<d2m::GenericOp>(
       thisOp.getLoc(), TypeRange(newResultTypes), newInputs, newOutputs,
       thisOp.getAdditionalArgs(), newGrid,
       builder.getI64ArrayAttr(newBlockFactors), thisOp.getIndexingMaps(),
       thisOp.getIteratorTypes(), thisOp.getThreads(),
       thisOp.getFabricConnectionConfigAttr(), thisOp.getNumRegions());
+  // Reparallelizing rewrites the grid, not what the op means: anything a pass
+  // marked this generic with has to survive.
+  newOp->setDiscardableAttrs(thisOp->getDiscardableAttrDictionary());
+  return newOp;
 }
 
 // Clone one generic region and retarget its block args to reblocked operands.

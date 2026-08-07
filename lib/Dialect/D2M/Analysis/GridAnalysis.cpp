@@ -25,13 +25,6 @@ bool GridAnalysis::isTTNNOperand(Value operand) {
   return operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>() != nullptr;
 }
 
-// The grid a value's layout already encodes.
-static llvm::SmallVector<int64_t> encodedGridShape(Value value) {
-  auto type = mlir::cast<RankedTensorType>(value.getType());
-  auto layout = mlir::cast<ttcore::MetalLayoutAttr>(type.getEncoding());
-  return llvm::to_vector(layout.getGridShape(type));
-}
-
 // Find the largest value <= maxFactor that divides all the given physical
 // dimensions. Returns 1 if no better common factor exists.
 static int64_t findLargestCommonFactor(int64_t maxFactor,
@@ -378,32 +371,6 @@ computeCompositeInputGridInfos(d2m::CompositeViewOp compositeView,
   return inputInfos;
 }
 
-GenericGridAnalysisResult GridAnalysis::analyzePinnedGenericOp(
-    GenericOp genericOp,
-    const EffectiveTargetGridRange &effectiveTargetGridRange) {
-  GenericGridAnalysisResult result;
-  result.effectiveTargetGridRange = effectiveTargetGridRange;
-
-  for (auto [operandIndex, operand] :
-       llvm::enumerate(genericOp.getInputsAndOutputs())) {
-    OperandGridInfo info;
-    info.setOwner(genericOp);
-    info.setOperandIndex(operandIndex);
-    info.selectedGrid = encodedGridShape(operand);
-    info.pinned = true;
-    if (auto compositeView = operand.getDefiningOp<d2m::CompositeViewOp>()) {
-      for (Value input : compositeView.getInputs()) {
-        info.compositeInputInfos.push_back(
-            {input, encodedGridShape(input),
-             mlir::cast<RankedTensorType>(input.getType())});
-      }
-    }
-    result.normalizedOperandGrids.push_back(info.selectedGrid);
-    result.operandInfos.push_back(std::move(info));
-  }
-  return result;
-}
-
 GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     GenericOp genericOp,
     const EffectiveTargetGridRange &effectiveTargetGridRange) {
@@ -601,8 +568,8 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
   return result;
 }
 
-EffectiveTargetGridRange
-GridAnalysis::getTargetGridRange(GenericOp genericOp) const {
+EffectiveTargetGridRange getTargetGridRange(GenericOp genericOp,
+                                            ArrayRef<int64_t> deviceGridShape) {
   EffectiveTargetGridRange targetGridRange;
   mlir::Region *region = genericOp->getParentRegion();
   if (auto spatialOp = mlir::dyn_cast<d2m::SpatialOp>(region->getParentOp())) {
@@ -631,18 +598,15 @@ GridAnalysis::GridAnalysis(Operation *moduleOp,
     if (genericOp->hasAttr("d2m.skip_grid_selection")) {
       return;
     }
-    // A pinned generic still needs its grids folded onto physical cores, so it
-    // is analyzed even in explicit datamovement form.
-    bool pinned = utils::hasPinnedGrid(genericOp);
     // Skip explicit datamovement form — users manage grids manually.
-    if (genericOp.isExplicitDatamovementForm() && !pinned) {
+    if (genericOp.isExplicitDatamovementForm()) {
       return;
     }
 
-    EffectiveTargetGridRange targetGridRange = getTargetGridRange(genericOp);
+    EffectiveTargetGridRange targetGridRange =
+        d2m::getTargetGridRange(genericOp, deviceGridShape);
     GenericGridAnalysisResult result =
-        pinned ? analyzePinnedGenericOp(genericOp, targetGridRange)
-               : analyzeGenericOp(genericOp, targetGridRange);
+        analyzeGenericOp(genericOp, targetGridRange);
     results[genericOp.getOperation()] =
         std::make_unique<GenericGridAnalysisResult>(std::move(result));
   });

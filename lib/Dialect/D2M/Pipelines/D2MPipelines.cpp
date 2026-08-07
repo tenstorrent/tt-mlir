@@ -118,8 +118,8 @@ void createD2MFrontendPipeline(OpPassManager &pm,
     gridOptOptions.ttnnMode = options.ttnnMode;
   }
   pm.addPass(d2m::createD2MMaterializeViewReturns());
-  pm.addPass(d2m::createD2MLowerTopk());
   pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
+  pm.addPass(d2m::createD2MLowerTopk());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MOptimizeMasks());
   pm.addPass(d2m::createD2MLowerToLayout());
