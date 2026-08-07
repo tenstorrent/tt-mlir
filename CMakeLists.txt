@@ -9,9 +9,6 @@ endif()
 
 project(tt-mlir LANGUAGES CXX C)
 
-if (NOT DEFINED ENV{TTMLIR_ENV_ACTIVATED})
-  message(FATAL_ERROR "tt-mlir environment not activated. Please run 'source env/activate'.")
-endif()
 
 set(NB_USE_SUBMODULE_DEPS ON CACHE BOOL "Use nanobind bundled dependencies")
 
@@ -46,6 +43,7 @@ option(TTMLIR_ENABLE_TESTS "Enable building all tests" ON)
 option(TTMLIR_ENABLE_TOOLS "Enable building core tools (ttmlir-opt, ttmlir-lsp-server, ttmlir-translate, ttnn-standalone)" ON)
 option(TTMLIR_ENABLE_ALCHEMIST "Enable tt-alchemist lib" ON)
 option(TTMLIR_ENABLE_ALCHEMIST_WHEEL "Enable tt-alchemist wheel" OFF)  # Expensive to build
+option(TTMLIR_ENABLE_DOCS "Enable documentation targets" ON)
 option(CODE_COVERAGE "Enable coverage reporting" OFF)
 option(TT_USE_SYSTEM_SFPI "Use system path for SFPI. SFPI is used to compile firmware." OFF)
 
@@ -107,7 +105,9 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_definitions(TT_BUILD_DEBUG TTMLIR_ENABLE_DEBUG_LOGS)
 endif()
 
-add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=ENV{TTMLIR_TOOLCHAIN_DIR})
+# LLVM 22 deprecates OpBuilder::create in favor of OpTy::create; keep the
+# warning visible but non-fatal. Full callsite migration is tracked upstream.
+add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-error=deprecated-declarations -Wno-unused-parameter --system-header-prefix=ENV{TTMLIR_TOOLCHAIN_DIR})
 
 set(CMAKE_LINKER_TYPE DEFAULT)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -133,8 +133,6 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
   message(FATAL_ERROR "In-source builds are not allowed. Please make a new directory (called a build directory) and run CMake from there.")
 endif()
 
-# If there are multiple python env we need to explicitly set the python3 executable
-set(Python3_EXECUTABLE $ENV{TTMLIR_VENV_DIR}/bin/python3)
 
 include(FindMLIR)
 include(TTMLIRVersion)
@@ -168,7 +166,6 @@ include_directories(${TTMLIR_BINARY_DIR}/include)
 include_directories(${TTMLIR_TOOLCHAIN_DIR}/include)
 link_directories(${LLVM_BUILD_LIBRARY_DIR})
 add_definitions(${LLVM_DEFINITIONS})
-include(TTMLIRPythonSitePackages)
 
 add_subdirectory(third_party)
 if (TTMLIR_ENABLE_STABLEHLO)
@@ -180,6 +177,10 @@ if (TTMLIR_ENABLE_STABLEHLO)
   include_directories(SYSTEM ${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
   add_subdirectory(${TTMLIR_TOOLCHAIN_DIR}/src/shardy ${CMAKE_CURRENT_BINARY_DIR}/shardy EXCLUDE_FROM_ALL)
   add_subdirectory(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo ${CMAKE_CURRENT_BINARY_DIR}/stablehlo EXCLUDE_FROM_ALL)
+  # Upstream keeps a default: (report_fatal_error) in an exhaustive switch;
+  # clang 20 -Wcovered-switch-default rejects it under -Werror. Scoped to this
+  # one TU; keep the upstream file unmodified.
+  target_compile_options(obj.AttrTypeBuilderUtil PRIVATE -Wno-covered-switch-default)
   install(DIRECTORY shardy ${CMAKE_CURRENT_BINARY_DIR}/shardy/shardy
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     COMPONENT SharedLib
@@ -210,7 +211,9 @@ add_subdirectory(test)
 endif()
 add_subdirectory(tools)
 add_subdirectory(runtime)
-add_subdirectory(docs)
+if(TTMLIR_ENABLE_DOCS)
+  add_subdirectory(docs)
+endif()
 add_subdirectory(cmake/modules)
 
 include(LintTools)
