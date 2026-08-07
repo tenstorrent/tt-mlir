@@ -3631,6 +3631,79 @@ public:
 } // namespace
 
 //
+// SDPABackwardOp conversion pattern (emits ::ttml::metal::sdpa_bw)
+//
+namespace {
+class SDPABackwardOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::SDPABackwardOp> {
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.sdpa_bw"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttml::metal::sdpa_bw";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SDPABackwardOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = mlir::tt::ttnn::SDPABackwardOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SDPABackwardOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SDPABackwardOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::StringRef maskTypeName;
+    switch (srcOp.getMaskType()) {
+    case mlir::tt::ttcore::AttentionMaskType::None:
+      maskTypeName = "::ttml::metal::AttentionMaskType::None";
+      break;
+    case mlir::tt::ttcore::AttentionMaskType::Causal:
+      maskTypeName = "::ttml::metal::AttentionMaskType::Causal";
+      break;
+    case mlir::tt::ttcore::AttentionMaskType::Arbitrary:
+      maskTypeName = "::ttml::metal::AttentionMaskType::Arbitrary";
+      break;
+    }
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getGradOutput()),
+        emitter.emit(srcOp.getAttnOutput()),
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getValue()),
+        emitter.emit(srcOp.getIntermediates()),
+        rewriter.getAttr<emitc::OpaqueAttr>(maskTypeName),
+        emitter.emit(srcOp.getAttentionMask()),
+        emitter.emit(srcOp.getDropoutProbability()),
+    };
+
+    using ReturnTy = std::tuple<::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor>;
+    auto sdpaBackwardOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(ttnn_to_emitc::TypeNameV<ReturnTy>),
+        convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    auto tensorType = rewriter.getType<emitc::OpaqueType>(
+        ttnn_to_emitc::TypeNameV<::ttnn::Tensor>);
+    llvm::SmallVector<mlir::Value, 3> results;
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      auto getTensorOp = rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), tensorType, "::std::get", /*args=*/nullptr,
+          rewriter.getArrayAttr({rewriter.getI32IntegerAttr(i)}),
+          sdpaBackwardOp.getResult(0));
+      results.push_back(getTensorOp.getResult(0));
+    }
+
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+};
+} // namespace
+
+//
 // BatchNormTrainingOp conversion pattern
 //
 namespace {
@@ -5962,8 +6035,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
            CumSumOpConversionPattern, CumProdOpConversionPattern,
            BatchNormInferenceOpConversionPattern, AdamWOpConversionPattern,
-           SDPAForwardOpConversionPattern, BatchNormTrainingOpConversionPattern,
-           RMSNormOpConversionPattern, RMSNormPreAllGatherOpConversionPattern,
+           SDPAForwardOpConversionPattern, SDPABackwardOpConversionPattern,
+           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
+           RMSNormPreAllGatherOpConversionPattern,
            DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,
            LayerNormPreAllGatherOpConversionPattern,
            LayerNormPostAllGatherOpConversionPattern,

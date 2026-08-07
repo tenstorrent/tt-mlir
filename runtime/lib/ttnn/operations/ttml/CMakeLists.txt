@@ -11,6 +11,7 @@ endif()
 add_library(TTRuntimeTTMLOps STATIC
   adamw.cpp
   sdpa_fw.cpp
+  sdpa_bw.cpp
 )
 set_property(TARGET TTRuntimeTTMLOps PROPERTY CXX_STANDARD 20)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")

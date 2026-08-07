@@ -15,6 +15,11 @@ set(TTML_METAL_OP_SRCS
   ${TTML_SOURCE_DIR}/metal/ops/sdpa_fw/sdpa_fw.cpp
   ${TTML_SOURCE_DIR}/metal/ops/sdpa_fw/device/sdpa_fw_device_operation.cpp
   ${TTML_SOURCE_DIR}/metal/ops/sdpa_fw/device/sdpa_fw_program_factory.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/sdpa_bw/sdpa_bw.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/sdpa_bw/device/sdpa_bw_q_device_operation.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/sdpa_bw/device/sdpa_bw_q_program_factory.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/sdpa_bw/device/sdpa_bw_kv_device_operation.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/sdpa_bw/device/sdpa_bw_kv_program_factory.cpp
 )
 set_source_files_properties(${TTML_METAL_OP_SRCS} PROPERTIES GENERATED TRUE)
 
