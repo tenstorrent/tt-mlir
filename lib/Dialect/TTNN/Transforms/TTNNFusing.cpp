@@ -176,6 +176,29 @@ private:
   }
 };
 
+// True if `reshapeOp` only adds or removes unit outer dimensions, leaving the
+// trailing [M, N] pair — and therefore the row-major element order — intact.
+// A reshape that actually redistributes elements does not qualify.
+static bool isUnitOuterDimReshape(ReshapeOp reshapeOp) {
+  auto inputType =
+      mlir::dyn_cast<RankedTensorType>(reshapeOp.getInput().getType());
+  auto resultType = mlir::dyn_cast<RankedTensorType>(reshapeOp.getType());
+  if (!inputType || !resultType || inputType.getRank() < 2 ||
+      resultType.getRank() < 2) {
+    return false;
+  }
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  ArrayRef<int64_t> resultShape = resultType.getShape();
+  if (inputShape.take_back(2) != resultShape.take_back(2)) {
+    return false;
+  }
+  auto unitOuterDims = [](ArrayRef<int64_t> shape) {
+    return llvm::all_of(shape.drop_back(2),
+                        [](int64_t dim) { return dim == 1; });
+  };
+  return unitOuterDims(inputShape) && unitOuterDims(resultShape);
+}
+
 // Fuse the DiT adaLN gated-residual epilogue on TTNN ops:
 //
 //   proj = matmul(a, b)          (or linear(a, b, bias))
@@ -186,6 +209,13 @@ private:
 // operand orders of both the add and the multiply. Requires single uses of the
 // projection and the multiply so nothing is duplicated, and bails on
 // activation/transposed operands the fused op does not model.
+//
+// The projection may be separated from the multiply by a unit-outer-dim
+// reshape: tt-mlir lowers `ttir.dot_general` to a 2D matmul ([M, K] x [K, N])
+// while the adaLN epilogue stays rank-3, so WAN DiT emits
+//   linear -> reshape([M, N] -> [1, M, N]) -> multiply -> add
+// That reshape commutes with the elementwise epilogue, so it is folded away and
+// replayed on the fused result.
 template <typename MatmulLikeOp>
 class TTNNDitMatmulAddcmulFusing : public mlir::OpRewritePattern<AddOp> {
   using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
@@ -204,12 +234,26 @@ public:
       return mlir::failure();
     }
 
-    // multiply: one operand is the matmul/linear projection, the other the
-    // gate.
-    MatmulLikeOp projOp = gateMulOp.getLhs().getDefiningOp<MatmulLikeOp>();
+    // multiply: one operand is the matmul/linear projection — possibly behind a
+    // unit-outer-dim reshape — the other the gate.
+    ReshapeOp projReshapeOp;
+    auto resolveProj = [&projReshapeOp](mlir::Value value) -> MatmulLikeOp {
+      projReshapeOp = nullptr;
+      if (auto reshapeOp = value.getDefiningOp<ReshapeOp>()) {
+        if (!isUnitOuterDimReshape(reshapeOp) ||
+            !reshapeOp.getResult().hasOneUse()) {
+          return nullptr;
+        }
+        projReshapeOp = reshapeOp;
+        return reshapeOp.getInput().getDefiningOp<MatmulLikeOp>();
+      }
+      return value.getDefiningOp<MatmulLikeOp>();
+    };
+
+    MatmulLikeOp projOp = resolveProj(gateMulOp.getLhs());
     mlir::Value gate = gateMulOp.getRhs();
     if (!projOp) {
-      projOp = gateMulOp.getRhs().getDefiningOp<MatmulLikeOp>();
+      projOp = resolveProj(gateMulOp.getRhs());
       gate = gateMulOp.getLhs();
     }
     if (!projOp || !projOp.getResult().hasOneUse()) {
@@ -238,8 +282,17 @@ public:
     ArrayRef<int64_t> outShape = outputType.getShape();
     ArrayRef<int64_t> resShape = residualType.getShape();
     ArrayRef<int64_t> gateShape = gateType.getShape();
-    const int64_t m = outShape[outShape.size() - 2];
-    const int64_t n = outShape[outShape.size() - 1];
+    // [M, N] is the projection's output, not the add's. A multiply that
+    // broadcasts the projection's rows (proj [1, N] against an [M, N] gate)
+    // widens the epilogue past what the fused op can compute, so the output
+    // must agree with the projection.
+    ArrayRef<int64_t> projShape = projOp.getResult().getType().getShape();
+    const int64_t m = projShape[projShape.size() - 2];
+    const int64_t n = projShape[projShape.size() - 1];
+    if (outShape[outShape.size() - 2] != m ||
+        outShape[outShape.size() - 1] != n) {
+      return mlir::failure();
+    }
     // residual (ternary_a) must match the output [M, N] exactly.
     if (resShape[resShape.size() - 2] != m ||
         resShape[resShape.size() - 1] != n) {
@@ -252,6 +305,30 @@ public:
       return mlir::failure();
     }
 
+    if (projReshapeOp) {
+      // With the reshape folded, the fused op takes the projection's rank (the
+      // device kernel derives the output rank from operand `a`) while the
+      // addcmul operands keep theirs. The kernel only validates their trailing
+      // two dims, so restrict this to operands whose outer dims are unit --
+      // otherwise a batched residual would silently pair with an unbatched
+      // output. Requiring the same of the output additionally makes the
+      // replayed reshape element-count preserving by construction.
+      auto unitOuterDims = [](ArrayRef<int64_t> shape) {
+        return llvm::all_of(shape.drop_back(2),
+                            [](int64_t dim) { return dim == 1; });
+      };
+      if (!unitOuterDims(outShape) || !unitOuterDims(resShape) ||
+          !unitOuterDims(gateShape)) {
+        return mlir::failure();
+      }
+      // The fused op is built at the projection's type, so the epilogue must
+      // not change element type.
+      if (outputType.getElementType() !=
+          projOp.getResult().getType().getElementType()) {
+        return mlir::failure();
+      }
+    }
+
     mlir::Value bias;
     if constexpr (std::is_same_v<MatmulLikeOp, LinearOp>) {
       bias = projOp.getBias();
@@ -259,9 +336,22 @@ public:
 
     // Operand order matches ttnn.dit_matmul_addcmul_fused:
     //   a, b, residual, gate, [bias].
-    rewriter.replaceOpWithNewOp<DitMatmulAddcmulFusedOp>(
-        addOp, addOp.getType(), projOp.getA(), projOp.getB(), residual, gate,
-        bias, /*compute_config=*/nullptr);
+    if (!projReshapeOp) {
+      rewriter.replaceOpWithNewOp<DitMatmulAddcmulFusedOp>(
+          addOp, addOp.getType(), projOp.getA(), projOp.getB(), residual, gate,
+          bias, /*compute_config=*/nullptr);
+      return mlir::success();
+    }
+
+    // Replay the folded reshape on the fused result so the add's consumers keep
+    // seeing the rank they expect.
+    auto fusedOp = rewriter.create<DitMatmulAddcmulFusedOp>(
+        addOp.getLoc(), projOp.getResult().getType(), projOp.getA(),
+        projOp.getB(), residual, gate, bias, /*compute_config=*/nullptr);
+    rewriter.replaceOpWithNewOp<ReshapeOp>(
+        addOp, addOp.getType(), fusedOp.getResult(),
+        rewriter.getI32ArrayAttr(
+            llvm::SmallVector<int32_t>(outShape.begin(), outShape.end())));
     return mlir::success();
   }
 };
