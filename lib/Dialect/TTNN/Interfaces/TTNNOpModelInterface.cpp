@@ -2992,7 +2992,8 @@ RepeatInterleaveOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 //
 //   const auto inputShape = getInput().getType().getShape();
 //
-//   return detail::constraintsDispatch(*this, liveRecords, inputShape, inputs[0],
+//   return detail::constraintsDispatch(*this, liveRecords, inputShape,
+//   inputs[0],
 //                                      getRepeatDims().getShape(),
 //                                      opConfig.outputLayout);
 // }
@@ -3005,8 +3006,8 @@ RepeatInterleaveOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 //   const auto inputShape = getInput().getType().getShape();
 //
 //   return opRuntimeCache().getOrCompute(
-//       op_model::OpModel<RepeatOp>::getOpRuntime, *this, inputShape, inputs[0],
-//       getRepeatDims().getShape(), opConfig.outputLayout);
+//       op_model::OpModel<RepeatOp>::getOpRuntime, *this, inputShape,
+//       inputs[0], getRepeatDims().getShape(), opConfig.outputLayout);
 // }
 
 //===----------------------------------------------------------------------===//
