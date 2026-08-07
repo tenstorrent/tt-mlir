@@ -28,16 +28,16 @@ module {
 
   // CHECK-BH-NO-TA-LABEL: func.func @tensor_accessor_vgm
   // CHECK-BH-NO-TA-NOT: TensorAccessor
-  // CHECK-BH-NO-TA: "ttmetal.create_buffer"() <{address = {{[0-9]+}} : i64}> : () -> memref<1x12x4x1x!ttcore.tile<32x32, f32>
+  // CHECK-BH-NO-TA: "ttmetal.create_buffer"() <{address = {{[0-9]+}} : i64, virtualGridForwardMapping = #map{{[0-9]*}}, virtualGridInverseMapping = #map{{[0-9]*}}}> : () -> memref<1x12x4x1x!ttcore.tile<32x32, f32>
   // CHECK-BH-NO-TA-NOT: TensorAccessor
-  // CHECK-BH-NO-TA: #ttmetal.core_range<0x0, 1x12>
+  // CHECK-BH-NO-TA: #ttmetal.core_range<0x0, 3x4>
   // CHECK-BH-NO-TA-NOT: TensorAccessor
   // CHECK-BH-NO-TA: #ttmetal.core_range<0x0, 2x6>
   // CHECK-BH-NO-TA-NOT: TensorAccessor
 
   // CHECK-BH-TA-LABEL: func.func @tensor_accessor_vgm
-  // CHECK-BH-TA: "ttmetal.create_buffer"() <{address = {{[0-9]+}} : i64}> : () -> memref<1x12x4x1x!ttcore.tile<32x32, f32>
-  // CHECK-BH-TA: "ttmetal.enqueue_program"{{.*}}#ttmetal.core_range<0x0, 1x12>{{.*}}ct_args = [<tensor_accessor_args[0]>]
+  // CHECK-BH-TA: "ttmetal.create_buffer"() <{address = {{[0-9]+}} : i64, virtualGridForwardMapping = #map{{[0-9]*}}, virtualGridInverseMapping = #map{{[0-9]*}}}> : () -> memref<1x12x4x1x!ttcore.tile<32x32, f32>
+  // CHECK-BH-TA: "ttmetal.enqueue_program"{{.*}}#ttmetal.core_range<0x0, 3x4>{{.*}}ct_args = [<tensor_accessor_args[0]>]
   // CHECK-BH-TA: "ttmetal.enqueue_program"{{.*}}#ttmetal.core_range<0x0, 2x6>{{.*}}ct_args = [<tensor_accessor_args[0]>]
   // CHECK-BH-TA: emitc.verbatim "constexpr auto {{.*}} TensorAccessorArgs
   // CHECK-BH-TA: const uint32_t page_id_{{[0-9]+}}

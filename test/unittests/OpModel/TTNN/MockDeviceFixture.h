@@ -36,11 +36,10 @@
 #include <cstddef>
 #include <utility>
 
-// Maximum number of mock chips configured once per binary.
-// Individual tests can reshape to any topology whose volume <= maxMockChips.
-static constexpr size_t maxMockChips = 8;
-
-// Configures mock mode once for the entire test binary.
+// Opens a single-chip mock device once per binary as a bootstrap. Individual
+// tests reshape to their target sub-topology — N300 (1×2), T3K (1×8),
+// Galaxy (4×8), etc. — via reshapeMeshDevice(); each reshape builds a fresh
+// MetalEnv (and a fresh per-topology system descriptor).
 // Register via ::testing::AddGlobalTestEnvironment(new MockDeviceEnvironment())
 // in main().
 class MockDeviceEnvironment : public ::testing::Environment {
@@ -48,15 +47,21 @@ public:
   void SetUp() override {
     mlir::MLIRContext tmpCtx;
     tmpCtx.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
+    // Bootstrap a single-chip mock device. Its 8x8 Wormhole worker grid matches
+    // the default system descriptor, so the grid validation in openDevice
+    // passes. Each test fixture reshapes to its target topology in SetUp(),
+    // rebuilding the system descriptor from the reshaped device's grid (the
+    // worker grid is topology-dependent: e.g. the 6u mock reports 9x8). With
+    // MetalEnv every reshape builds a fresh env, so there is no need to
+    // pre-size the base mesh here.
     auto systemDesc = mlir::tt::ttcore::SystemDescAttr::getDefault(
-        &tmpCtx, mlir::tt::ttcore::Arch::WormholeB0,
-        {1, static_cast<int>(maxMockChips)});
+        &tmpCtx, mlir::tt::ttcore::Arch::WormholeB0, {1});
     mlir::tt::ttnn::op_model::SingletonDeviceContext::setSystemDesc(systemDesc);
     mlir::tt::ttnn::op_model::SingletonDeviceContext::getInstance()
         .openMockDevice(
             /*traceRegionSize=*/0,
             /*meshShape=*/
-            std::make_pair(static_cast<size_t>(1), maxMockChips));
+            std::make_pair(static_cast<size_t>(1), static_cast<size_t>(1)));
   }
 
   void TearDown() override {
