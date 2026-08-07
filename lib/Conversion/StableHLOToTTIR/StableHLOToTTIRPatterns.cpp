@@ -708,57 +708,62 @@ private:
   // not a constant, so treat it as a non-match.
   bool verifyInitValue(mlir::Value val,
                        TypicalInitReductionValue desired) const {
-    val = resolveWhileCapture(val);
-    Operation *initValue = val.getDefiningOp();
-    while (initValue && initValue->getOpOperands().size() == 1) {
-      initValue =
-          resolveWhileCapture(initValue->getOpOperand(0).get()).getDefiningOp();
+    Operation *initValue = resolveWhileCapture(val).getDefiningOp();
+    while (initValue && initValue->getNumOperands() == 1) {
+      initValue = resolveWhileCapture(initValue->getOperand(0)).getDefiningOp();
     }
     if (!initValue) {
       return false;
     }
+
+    auto matchesDesired = [&](auto constantOp) {
+      return checkInitValue(constantOp.getValue(),
+                            constantOp.getResult().getType().getElementType(),
+                            desired);
+    };
 
     // The constant may still be in StableHLO form, or may already have been
     // converted: resolveWhileCapture steps out onto a `ttir.while` operand,
     // which the driver converts before it reaches the ops inside the regions.
     if (auto constantOp =
             mlir::dyn_cast<mlir::stablehlo::ConstantOp>(initValue)) {
-      return checkInitValue(constantOp.getValue(),
-                            constantOp.getResult().getType().getElementType(),
-                            desired);
+      return matchesDesired(constantOp);
     }
     if (auto constantOp = mlir::dyn_cast<ttir::ConstantOp>(initValue)) {
-      return checkInitValue(constantOp.getValue(),
-                            constantOp.getResult().getType().getElementType(),
-                            desired);
+      return matchesDesired(constantOp);
     }
     return false;
   }
 
   // Steps out of a `ttir.while` region: given one of a region's block
-  // arguments, returns the operand it is bound to, which lives in the enclosing
+  // arguments, returns the capture it is bound to, which lives in the enclosing
   // scope. Returns `val` unchanged if it is not such a block argument.
   //
   // An argmax nested in a loop reads its -inf/0 init values from outside the
   // loop, and the while conversion turns those into captures, hiding their
-  // defining ops behind block arguments. The operands are `inits ++ captures`,
-  // in the same order as the block arguments, so the two line up by index.
+  // defining ops behind block arguments.
+  //
+  // Only the captures resolve. Block arguments are `inits ++ captures`, and an
+  // init is rebound to the value the body yielded on every iteration after the
+  // first, so the loop's operand for it says nothing about what it holds.
   static Value resolveWhileCapture(Value val) {
     auto blockArg = mlir::dyn_cast<BlockArgument>(val);
     if (!blockArg) {
       return val;
     }
     Block *block = blockArg.getOwner();
-    auto whileOp = mlir::dyn_cast_or_null<ttir::WhileOp>(
-        block->getParent() ? block->getParent()->getParentOp() : nullptr);
+    auto whileOp =
+        mlir::dyn_cast_if_present<ttir::WhileOp>(block->getParentOp());
     if (!whileOp || !block->isEntryBlock()) {
       return val;
     }
+    unsigned numInits = whileOp.getInits().size();
     unsigned index = blockArg.getArgNumber();
-    if (index >= whileOp->getNumOperands()) {
+    mlir::OperandRange captures = whileOp.getCaptures();
+    if (index < numInits || index - numInits >= captures.size()) {
       return val;
     }
-    return whileOp->getOperand(index);
+    return captures[index - numInits];
   }
 };
 } // namespace
