@@ -2756,6 +2756,75 @@ def TTNN_SDPAForwardOp : TTNN_Op<"sdpa_fw", [OpModelExempt]> {
     let hasVerifier = 1;
 }
 
+def TTNN_CrossEntropyForwardOp : TTNN_Op<"cross_entropy_fw", [OpModelExempt]> {
+    let summary = "Cross entropy loss forward pass (ttml).";
+    let description = [{
+      Per-row cross entropy loss against integer class indices, backed by the
+      ttml metal op `ttml::metal::cross_entropy_fw`. Computes
+
+        loss = -input[target] + max(input) + log(sum(exp(input - max(input))))
+
+      one value per row, with no reduction across rows.
+
+      `input` holds the logits as `(N, 1, H, W)` and must be bf16: the kernel
+      hardcodes its circular buffers to `Float16_b`. `target` holds the class
+      indices as `(N, H)` and reaches the kernel as row-major uint32.
+
+      The result is shaped `(N, 1, H, 1)`.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$target);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createCrossEntropyForwardOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_CrossEntropyBackwardOp : TTNN_Op<"cross_entropy_bw", [OpModelExempt]> {
+    let summary = "Cross entropy loss backward pass (ttml).";
+    let description = [{
+      Gradient of the cross entropy loss w.r.t. the logits, backed by the ttml
+      metal op `ttml::metal::cross_entropy_bw`. Computes
+
+        d_input = (softmax(input) - one_hot(target)) * scaler * grad
+
+      `ttml::metal::cross_entropy_bw` is a host-side composition: the device
+      primitive produces `(softmax(input) - one_hot(target)) * scaler`, and a
+      `ttnn::multiply` scales it by `grad`.
+
+      `input` holds the logits as `(N, 1, H, W)` and must be bf16: the kernel
+      hardcodes its circular buffers to `Float16_b`. `target` holds the class
+      indices as `(N, H)` and reaches the kernel as row-major uint32. `grad` is
+      the incoming gradient, restricted to `(1, 1, 1, 1)`.
+
+      The result is shaped like `input`.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$target,
+                         AnyRankedTensor:$grad,
+                         F32Attr:$scaler);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createCrossEntropyBackwardOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
     [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface, TTNN_DistributedOpInterface, OpModelExempt]> {
     let summary = "Distributed RMS normalization with all-gather op.";

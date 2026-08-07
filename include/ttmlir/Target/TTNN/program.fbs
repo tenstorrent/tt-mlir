@@ -62,6 +62,8 @@ union OpType {
   ConvTranspose2dOp,
   Conv3dOp,
   CpuOp,
+  CrossEntropyBackwardOp,
+  CrossEntropyForwardOp,
   DeallocateOp,
   DistributeTensorOp,
   DistributedRMSNormOp,
