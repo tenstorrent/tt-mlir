@@ -39,8 +39,15 @@ enum class FunctionType {
   /// for tracing.
   TraceMain,
 
-  /// Trace run and capture function - a function that runs and captures
-  /// a trace for later execution.
+  /// Trace allocate-slots function - allocates the persistent device buffers
+  /// (input and output slots) that a captured trace reads from and writes to.
+  /// Runs exactly once per trace; the slots then outlive every capture of it.
+  TraceAllocateSlots,
+
+  /// Trace run and capture function - runs and captures a trace against slots
+  /// that were allocated by the TraceAllocateSlots function and are passed in
+  /// as arguments. Used for both the initial capture and any later recapture
+  /// of a stale trace.
   TraceRunAndCapture,
 
   /// Trace execute function - a function that executes a previously
@@ -82,6 +89,8 @@ constexpr inline llvm::StringLiteral kForwardCPUDeclarationValue =
     "forward_cpu_declaration";
 constexpr inline llvm::StringLiteral kConstEvalValue = "const_eval";
 constexpr inline llvm::StringLiteral kTraceMainValue = "trace_main";
+constexpr inline llvm::StringLiteral kTraceAllocateSlotsValue =
+    "trace_allocate_slots";
 constexpr inline llvm::StringLiteral kTraceRunAndCaptureValue =
     "trace_run_and_capture";
 constexpr inline llvm::StringLiteral kTraceExecuteValue = "trace_execute";
@@ -115,6 +124,8 @@ inline llvm::StringRef getFunctionTypeValue(FunctionType type) {
     return detail::kConstEvalValue;
   case FunctionType::TraceMain:
     return detail::kTraceMainValue;
+  case FunctionType::TraceAllocateSlots:
+    return detail::kTraceAllocateSlotsValue;
   case FunctionType::TraceRunAndCapture:
     return detail::kTraceRunAndCaptureValue;
   case FunctionType::TraceExecute:
@@ -150,6 +161,9 @@ parseFunctionTypeValue(llvm::StringRef value) {
   }
   if (value == detail::kTraceMainValue) {
     return FunctionType::TraceMain;
+  }
+  if (value == detail::kTraceAllocateSlotsValue) {
+    return FunctionType::TraceAllocateSlots;
   }
   if (value == detail::kTraceRunAndCaptureValue) {
     return FunctionType::TraceRunAndCapture;
@@ -244,6 +258,11 @@ inline bool isTraceMainFunc(mlir::func::FuncOp funcOp) {
   return hasFunctionType(funcOp, FunctionType::TraceMain);
 }
 
+/// Returns true if the function is marked as a trace allocate-slots function.
+inline bool isTraceAllocateSlotsFunc(mlir::func::FuncOp funcOp) {
+  return hasFunctionType(funcOp, FunctionType::TraceAllocateSlots);
+}
+
 /// Returns true if the function is marked as a trace run and capture function.
 inline bool isTraceRunAndCaptureFunc(mlir::func::FuncOp funcOp) {
   return hasFunctionType(funcOp, FunctionType::TraceRunAndCapture);
@@ -255,10 +274,10 @@ inline bool isTraceExecuteFunc(mlir::func::FuncOp funcOp) {
 }
 
 /// Returns true if the function is any trace function (TraceMain,
-/// TraceRunAndCapture, or TraceExecute).
+/// TraceAllocateSlots, TraceRunAndCapture, or TraceExecute).
 inline bool isTraceFunc(mlir::func::FuncOp funcOp) {
-  return isTraceMainFunc(funcOp) || isTraceRunAndCaptureFunc(funcOp) ||
-         isTraceExecuteFunc(funcOp);
+  return isTraceMainFunc(funcOp) || isTraceAllocateSlotsFunc(funcOp) ||
+         isTraceRunAndCaptureFunc(funcOp) || isTraceExecuteFunc(funcOp);
 }
 
 /// Returns true if the function is marked as a kernel function.
