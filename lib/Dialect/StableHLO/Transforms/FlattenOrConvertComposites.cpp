@@ -14,6 +14,37 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_FLATTENORCONVERTCOMPOSITESPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
+// Record the global channel dim size of a tenstorrent.group_norm on the seed op
+// of its flattened body, so ReoutlineCompositePass can rescale `num_groups`
+// after the shapes have been localized. Best effort: if the composite is not
+// shaped the way we expect there is nothing to stash, and reoutlining will
+// leave `num_groups` alone (which is correct for an unsharded channel dim).
+static void stashGroupNormGlobalChannels(mlir::stablehlo::CompositeOp comp,
+                                         mlir::DictionaryAttr origCompAttrs,
+                                         mlir::Operation *seedOp,
+                                         mlir::OpBuilder &builder) {
+  if (comp.getNumResults() < 1) {
+    return;
+  }
+  auto resultType =
+      llvm::dyn_cast<mlir::RankedTensorType>(comp.getResult(0).getType());
+  if (!resultType) {
+    return;
+  }
+
+  int64_t channelDim = 1;
+  if (auto channelDimAttr = llvm::dyn_cast_or_null<mlir::IntegerAttr>(
+          origCompAttrs.get("channel_dim"))) {
+    channelDim = channelDimAttr.getInt();
+  }
+  if (channelDim < 0 || channelDim >= resultType.getRank()) {
+    return;
+  }
+
+  seedOp->setAttr(utils::kReoutlineGroupNormChannelsAttr,
+                  builder.getI64IntegerAttr(resultType.getDimSize(channelDim)));
+}
+
 // Inline a single stablehlo.composite op. Returns success if it was flattened.
 static mlir::LogicalResult
 flattenOneComposite(mlir::stablehlo::CompositeOp comp,
@@ -111,6 +142,13 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
       cloned->setAttr(utils::kReoutlineOrigNameAttr, origName);
       // { approximate = "tanh" }
       cloned->setAttr(utils::kReoutlineCompAttrsAttr, origCompAttrs);
+      // group_norm's stashed `num_groups` counts along the channel dim, so it
+      // goes stale once shapes are localized. Record the global channel count
+      // here so ReoutlineCompositePass can recover the (shard-invariant) group
+      // size and rescale.
+      if (origName.getValue() == utils::kTTGroupNormCompositeName) {
+        stashGroupNormGlobalChannels(comp, origCompAttrs, cloned, builder);
+      }
       seeded = true;
     }
     clonedOps.push_back(cloned);
