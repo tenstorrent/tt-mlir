@@ -17,7 +17,7 @@ table EnqueueProgramCommand {
   arg_refs: [ArgRef];
   cbs: [CBRef];
   program: ProgramDesc;
-  fabric_connection_config: tt.target.FabricConnectionConfig;
+  fabric_connection_configs: [tt.target.FabricConnectionConfig];
 }
 
 table CreateGlobalSemaphoreCommand {

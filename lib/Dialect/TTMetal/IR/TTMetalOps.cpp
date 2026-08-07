@@ -52,6 +52,34 @@ namespace mlir::tt::ttmetal {
       continue;
     }
   }
+
+  ArrayAttr fabricConfigs = getFabricConnectionConfigsAttr();
+  const size_t numFabricConfigs =
+      fabricConfigs ? fabricConfigs.size() : static_cast<size_t>(0);
+  for (Attribute kernelConfigAttr : getKernelConfigs()) {
+    auto nocConfig = mlir::dyn_cast<NocConfigAttr>(kernelConfigAttr);
+    if (!nocConfig) {
+      continue;
+    }
+    std::optional<uint32_t> fabricConfigIndex =
+        nocConfig.getFabricConfigIndex();
+    if (!fabricConfigIndex) {
+      continue;
+    }
+    if (*fabricConfigIndex >= numFabricConfigs) {
+      return emitOpError("fabric_config_index ")
+             << *fabricConfigIndex
+             << " is out of range for fabricConnectionConfigs of size "
+             << numFabricConfigs;
+    }
+    auto fabricConfig = mlir::cast<ttcore::FabricConnectionConfigAttr>(
+        fabricConfigs[*fabricConfigIndex]);
+    if (fabricConfig.getNocIndex() != nocConfig.getNocIndex()) {
+      return emitOpError("fabric_config_index ")
+             << *fabricConfigIndex
+             << " noc_index does not match NocConfig noc_index";
+    }
+  }
   return success();
 }
 

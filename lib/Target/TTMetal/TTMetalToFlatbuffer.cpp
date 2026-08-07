@@ -957,10 +957,14 @@ kernelArgsToFlatbuffer(FlatbufferObjectCache &cache,
 static flatbuffers::Offset<target::metal::NocConfig>
 nocConfigToFlatbuffer(FlatbufferObjectCache &cache,
                       NocConfigAttr nocConfigAttr) {
+  ::flatbuffers::Optional<uint32_t> fabricConfigIndex = ::flatbuffers::nullopt;
+  if (std::optional<uint32_t> index = nocConfigAttr.getFabricConfigIndex()) {
+    fabricConfigIndex = *index;
+  }
   return target::metal::CreateNocConfig(
       *cache.fbb,
       toFlatbufferDataMovementProcessor(nocConfigAttr.getDmCoreIndex()),
-      toFlatbuffer(cache, nocConfigAttr.getNocIndex()));
+      toFlatbuffer(cache, nocConfigAttr.getNocIndex()), fabricConfigIndex);
 }
 
 static flatbuffers::Offset<target::metal::ComputeConfig>
@@ -1262,18 +1266,27 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
               symbolTable));
         }
 
-        flatbuffers::Offset<target::FabricConnectionConfig>
-            fabricConnectionConfig;
-        if (enqueueProgramOp.getFabricConnectionConfigAttr()) {
-          fabricConnectionConfig = fabricConnectionConfigToFlatbuffer(
-              cache, enqueueProgramOp.getFabricConnectionConfigAttr());
+        std::vector<flatbuffers::Offset<target::FabricConnectionConfig>>
+            fabricConnectionConfigs;
+        const std::vector<flatbuffers::Offset<target::FabricConnectionConfig>>
+            *fabricConnectionConfigsPtr = nullptr;
+        if (ArrayAttr fabricConfigsAttr =
+                enqueueProgramOp.getFabricConnectionConfigsAttr()) {
+          fabricConnectionConfigs.reserve(fabricConfigsAttr.size());
+          for (Attribute fabricConfigAttr : fabricConfigsAttr) {
+            fabricConnectionConfigs.push_back(
+                fabricConnectionConfigToFlatbuffer(
+                    cache, mlir::cast<ttcore::FabricConnectionConfigAttr>(
+                               fabricConfigAttr)));
+          }
+          fabricConnectionConfigsPtr = &fabricConnectionConfigs;
         }
 
         cqBuilder.appendCommand(
             target::metal::CreateEnqueueProgramCommandDirect(
                 fbb, &argTypes, &args, &cbs,
                 target::metal::CreateProgramDescDirect(fbb, &kernelConfigs),
-                fabricConnectionConfig),
+                fabricConnectionConfigsPtr),
             op);
       } else if (auto createBufferOp =
                      dyn_cast_if_present<tt::ttmetal::CreateBufferOp>(op);

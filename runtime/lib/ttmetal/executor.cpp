@@ -366,6 +366,7 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   auto deviceRange = distributed::MeshCoordinateRange(meshDevice->shape());
   for (auto deviceCoord : deviceRange) {
     tt_metal::Program program = tt_metal::CreateProgram();
+    bool hasFabricConfiguredKernel = false;
     for (const target::metal::KernelConfig *kernelConfig :
          *command->program()->kernels()) {
       const target::metal::KernelSource *kernelSource =
@@ -404,14 +405,31 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
           local_semaphore_initializer, command->cbs(), deviceAddressValidator,
           createSemaphore, hostBuffers);
 
-      if (command->fabric_connection_config() &&
-          kernelConfig->type_type() ==
+      const target::FabricConnectionConfig *fabricConnectionConfig = nullptr;
+      if (kernelConfig->type_type() ==
               target::metal::KernelConfigType::NocConfig &&
-          command->fabric_connection_config()->noc_index() ==
-              kernelConfig->type_as_NocConfig()->noc_index()) {
+          command->fabric_connection_configs() &&
+          kernelConfig->type_as_NocConfig()->fabric_config_index()) {
+        const auto *nocConfig = kernelConfig->type_as_NocConfig();
+        const auto *fabricConfigs = command->fabric_connection_configs();
+        const uint32_t fabricConfigIndex = *nocConfig->fabric_config_index();
+
+        LOG_ASSERT(fabricConfigIndex < fabricConfigs->size(),
+                   "fabric_config_index ", fabricConfigIndex,
+                   " out of range for fabric_connection_configs of size ",
+                   fabricConfigs->size());
+        fabricConnectionConfig = fabricConfigs->Get(fabricConfigIndex);
+        LOG_ASSERT(fabricConnectionConfig->noc_index() ==
+                       nocConfig->noc_index(),
+                   "fabric_connection_configs[", fabricConfigIndex,
+                   "] noc_index does not match NocConfig noc_index");
+      }
+
+      if (fabricConnectionConfig) {
+        hasFabricConfiguredKernel = true;
         auto fabricConfigArgs = common::appendFabricConfigArgs(
-            command->fabric_connection_config(), kernelConfig, program, handle,
-            deviceCoord, meshDevice, rtArgsVec, coreRangeSet);
+            fabricConnectionConfig, kernelConfig, program, handle, deviceCoord,
+            meshDevice, rtArgsVec, coreRangeSet);
 
         for (auto core : tt::tt_metal::corerange_to_cores(coreRangeSet)) {
           tt_metal::SetRuntimeArgs(program, handle, core,
@@ -446,9 +464,9 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
       tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
     }
 
-    // fabric connected cores all have separate runtime args so we add a
-    // separate program for each device
-    if (command->fabric_connection_config()) {
+    // Fabric-configured kernels have device-specific runtime args, so emit a
+    // separate program per device.
+    if (hasFabricConfiguredKernel) {
       meshWorkload.add_program(distributed::MeshCoordinateRange(deviceCoord),
                                std::move(program));
     } else {
