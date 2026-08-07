@@ -1,0 +1,70 @@
+include "ttmlir/Target/Common/types.fbs";
+
+namespace tt.target.cuda;
+
+table Kernel {
+  name: string;
+  ptx: string;
+  grid_size_x: uint64;
+  grid_size_y: uint64;
+  grid_size_z: uint64;
+  block_size_x: uint64;
+  block_size_y: uint64;
+  block_size_z: uint64;
+  input_names: [string];
+}
+
+enum DataType: uint16 {
+  Float64,
+  UInt64,
+  Int64,
+  Float32,
+  UInt32,
+  Int32,
+  Float16,
+  BFloat16,
+  UInt16,
+  Int16
+}
+
+table Type {
+  shape: [uint64];
+  data_type: DataType;
+}
+
+table MemRefDesc {
+  id: string;
+  type: Type;
+  first: uint64;
+  last: uint64;
+}
+
+table Constant {
+  id: string;
+  type: Type;
+  value: [uint8];
+  first: uint64;
+  last: uint64;
+}
+
+table CopyFunction {
+  src: string;
+  dst: string;
+  offset: uint64;
+}
+
+union Action {
+  Kernel,
+  CopyFunction
+}
+
+table Program {
+  actions: [Action];
+  memrefs: [MemRefDesc];
+  constants: [Constant];
+  return_variable: string;
+}
+
+root_type Program;
+file_identifier "TTCU";
+file_extension "ttc";
