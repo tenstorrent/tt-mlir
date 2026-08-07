@@ -31,6 +31,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/TypeSwitch.h"
 
+#include <atomic>
 #include <cstdint>
 #include <numeric>
 #include <optional>
@@ -3340,16 +3341,32 @@ void MoeComputeOp::allocateBuffers(::mlir::RewriterBase &rewriter) {
   auto device = utils::getOrInsertDevice(rewriter, *this);
 
   // Insert in the prelude (after GetDeviceOp) so it is trace-hoistable.
-  ttnn::EmptyOp combineEmptyOp;
+  // ZerosOp (not EmptyOp): the combine writer only fills pages whose expert is
+  // local to this device, so pages for a token's experts on other non-cluster
+  // columns are never written and must read 0 for the downstream
+  // all_reduce(sum) over the non-cluster axis to aggregate cleanly.
+  ttnn::ZerosOp combineZerosOp;
   {
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointAfter(device);
-    combineEmptyOp = rewriter.create<ttnn::EmptyOp>(getLoc(), combineType,
+    combineZerosOp = rewriter.create<ttnn::ZerosOp>(getLoc(), combineType,
                                                     device, combineShapeAttr);
   }
 
+  // The buffer takes sparse in-place writes, so it must be re-zeroed per step
+  // and not shared across layers. Two discardable attrs enforce that:
+  //  - "ttnn.non_cacheable": keep it inline (not const-eval hoisted/cached) so
+  //    the runtime re-zeros it each step instead of retaining prior writes.
+  //  - "ttnn.combine_output_id" (unique): stop CSE from merging the per-layer
+  //    buffers.
+  combineZerosOp->setAttr("ttnn.non_cacheable", rewriter.getUnitAttr());
+  static std::atomic<int64_t> combineOutputUniquifier{0};
+  combineZerosOp->setAttr(
+      "ttnn.combine_output_id",
+      rewriter.getI64IntegerAttr(combineOutputUniquifier.fetch_add(1)));
+
   rewriter.modifyOpInPlace(*this, [&]() {
-    getOptionalOutputTensorMutable().assign(combineEmptyOp.getResult());
+    getOptionalOutputTensorMutable().assign(combineZerosOp.getResult());
   });
 }
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
@@ -3400,9 +3417,7 @@ namespace {
 // (matches tt-metal's compute_output_specs).
 TTNNLayoutAttr getA2ADrainShardedLayout(MLIRContext *ctx,
                                         RankedTensorType resultType,
-                                        CoreCoordAttr drainCore) {
-  auto drainRange = CoreRangeAttr::get(ctx, drainCore, drainCore);
-  auto drainCrs = CoreRangeSetAttr::get(ctx, {drainRange});
+                                        CoreRangeSetAttr drainCrs) {
   llvm::SmallVector<int64_t, 2> gridShape{1, 1};
   return TTNNLayoutAttr::Builder(resultType)
       .setBufferType(BufferType::L1)
@@ -3438,9 +3453,17 @@ void AllToAllDispatchMetadataOp::allocateBuffers(
 
   MLIRContext *ctx = rewriter.getContext();
 
-  // Persistent-mode drain core: the kernel derives it from the indices/scores
-  // shard spec, so we fix the shard placement to (0,0) here.
-  auto drainCore = CoreCoordAttr::get(ctx, /*x=*/0, /*y=*/0);
+  // Place the persistent indices/scores on moe_compute's tilize drain core
+  // (stashed as ttnn.moe_metadata_drain_core by
+  // TTNNAllocateDistributedOpBuffers) to avoid a cross-core reshard that
+  // deadlocks the collective. Default (0,0).
+  CoreRangeSetAttr drainCrs =
+      (*this)->getAttrOfType<CoreRangeSetAttr>("ttnn.moe_metadata_drain_core");
+  if (!drainCrs) {
+    auto drainCore = CoreCoordAttr::get(ctx, /*x=*/0, /*y=*/0);
+    drainCrs = CoreRangeSetAttr::get(
+        ctx, {CoreRangeAttr::get(ctx, drainCore, drainCore)});
+  }
 
   auto dispatchedType = cast<RankedTensorType>(getDispatched().getType());
   auto indicesType = cast<RankedTensorType>(getIndices().getType());
@@ -3449,9 +3472,9 @@ void AllToAllDispatchMetadataOp::allocateBuffers(
   auto newDispatchedType = utils::RankedTensorTypeFactory::create(
       dispatchedType, getA2ADispatchedLayout(ctx, dispatchedType));
   auto newIndicesType = utils::RankedTensorTypeFactory::create(
-      indicesType, getA2ADrainShardedLayout(ctx, indicesType, drainCore));
+      indicesType, getA2ADrainShardedLayout(ctx, indicesType, drainCrs));
   auto newScoresType = utils::RankedTensorTypeFactory::create(
-      scoresType, getA2ADrainShardedLayout(ctx, scoresType, drainCore));
+      scoresType, getA2ADrainShardedLayout(ctx, scoresType, drainCrs));
 
   auto device = utils::getOrInsertDevice(rewriter, *this);
 
