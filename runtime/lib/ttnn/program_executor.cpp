@@ -30,6 +30,7 @@
 #include "operations/ccl/reduce_scatter.h"
 #include "operations/ccl/selective_reduce_combine.h"
 #include "operations/context/get_device.h"
+#include "operations/control_flow/while_op.h"
 #include "operations/conv/conv1d.h"
 #include "operations/conv/conv2d.h"
 #include "operations/conv/conv3d.h"
@@ -360,6 +361,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::FuncCallOp: {
     return operations::mlir_native::run(op->type_as_FuncCallOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::WhileOp: {
+    return operations::control_flow::run(op->type_as_WhileOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::CumSumOp: {
     return operations::reduction::cumsum::run(op->type_as_CumSumOp(),
