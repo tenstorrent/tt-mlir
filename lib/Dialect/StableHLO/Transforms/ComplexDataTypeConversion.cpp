@@ -395,6 +395,162 @@ public:
   }
 };
 
+// Rewrites stablehlo::SelectOp on complex tensors. The true/false operands are
+// unpacked to the ...x2 layout; the (non-complex) i1 predicate must gain the
+// same trailing real/imag dim so its shape still matches the operands. A scalar
+// predicate is left untouched (StableHLO broadcasts it as-is).
+class ComplexSelectOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::SelectOp> {
+  using OpConversionPattern<mlir::stablehlo::SelectOp>::OpConversionPattern;
+
+public:
+  LogicalResult matchAndRewrite(
+      mlir::stablehlo::SelectOp op,
+      OpConversionPattern<mlir::stablehlo::SelectOp>::OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    auto newResultType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+
+    Value pred = adaptor.getPred();
+    auto predType = mlir::cast<RankedTensorType>(pred.getType());
+    if (predType.getRank() != 0) {
+      // Append a trailing dim of 2 and broadcast the predicate into it so it
+      // lines up with the unpacked real/imag operands.
+      SmallVector<int64_t> newPredShape(predType.getShape());
+      newPredShape.push_back(2);
+      auto newPredType =
+          RankedTensorType::get(newPredShape, predType.getElementType());
+      SmallVector<int64_t> bcastDims;
+      for (int64_t i = 0; i < predType.getRank(); ++i) {
+        bcastDims.push_back(i);
+      }
+      pred = rewriter.create<mlir::stablehlo::BroadcastInDimOp>(
+          loc, newPredType, pred, rewriter.getDenseI64ArrayAttr(bcastDims));
+    }
+
+    rewriter.replaceOpWithNewOp<mlir::stablehlo::SelectOp>(
+        op, newResultType, pred, adaptor.getOnTrue(), adaptor.getOnFalse());
+    return success();
+  }
+};
+
+// Rewrites stablehlo::PadOp on complex tensors. Padding is defined over the
+// original (complex) dims, and the padding value is a complex scalar; neither
+// maps directly onto the unpacked ...x2 layout (a complex pad value cannot be a
+// single real scalar). The real and imag planes are therefore separated, padded
+// independently with their own scalar pad value, and re-interleaved.
+class ComplexPadOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::PadOp> {
+  using OpConversionPattern<mlir::stablehlo::PadOp>::OpConversionPattern;
+
+public:
+  LogicalResult matchAndRewrite(
+      mlir::stablehlo::PadOp op,
+      OpConversionPattern<mlir::stablehlo::PadOp>::OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    auto newResultType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    Type floatTy = newResultType.getElementType();
+
+    // Move the trailing real/imag dim to the front: [origDims..., 2] -> [2,
+    // ...]
+    Value transposed =
+        transposeTrailingToLeading(loc, adaptor.getOperand(), rewriter);
+    auto transposedType = mlir::cast<RankedTensorType>(transposed.getType());
+    int64_t rank = transposedType.getRank();
+
+    // Padding value: extract the real/imag components as rank-0 scalar
+    // constants. Downstream lowering (StableHLOToTTIR PadOp) requires the pad
+    // value to trace back to a constant through only
+    // reshape/broadcast/typecast, so a slice of the unpacked [re, im] pair
+    // would not be accepted. Read the components straight from the original
+    // complex splat constant instead.
+    auto scalarTy = RankedTensorType::get({}, floatTy);
+    Value realPad, imagPad;
+    if (auto padConstOp =
+            op.getPaddingValue().getDefiningOp<mlir::stablehlo::ConstantOp>()) {
+      auto denseAttr = mlir::cast<DenseElementsAttr>(padConstOp.getValue());
+      std::complex<APFloat> c =
+          *denseAttr.getValues<std::complex<APFloat>>().begin();
+      SmallVector<APFloat> re{c.real()}, im{c.imag()};
+      realPad = rewriter.create<mlir::stablehlo::ConstantOp>(
+          loc, scalarTy, DenseElementsAttr::get(scalarTy, re));
+      imagPad = rewriter.create<mlir::stablehlo::ConstantOp>(
+          loc, scalarTy, DenseElementsAttr::get(scalarTy, im));
+    } else {
+      // Fallback for a non-constant pad value: slice the converted [re, im]
+      // pair. (ttir.pad only accepts a constant pad value, so this path only
+      // lowers further if a later pass folds it.)
+      Value padPair = adaptor.getPaddingValue();
+      auto comp = [&](int64_t idx) -> Value {
+        Value s = rewriter.create<mlir::stablehlo::SliceOp>(
+            loc, RankedTensorType::get({1}, floatTy), padPair,
+            rewriter.getDenseI64ArrayAttr({idx}),
+            rewriter.getDenseI64ArrayAttr({idx + 1}),
+            rewriter.getDenseI64ArrayAttr({1}));
+        return rewriter.create<mlir::stablehlo::ReshapeOp>(loc, scalarTy, s);
+      };
+      realPad = comp(0);
+      imagPad = comp(1);
+    }
+
+    // Result plane shape = result dims without the trailing real/imag dim.
+    SmallVector<int64_t> resPlaneShape(newResultType.getShape().begin(),
+                                       newResultType.getShape().end() - 1);
+    auto resPlaneType = RankedTensorType::get(resPlaneShape, floatTy);
+
+    // Slices component `idx` (0 = real, 1 = imag) off the leading dim and pads
+    // it with the matching scalar, returning a [1, paddedDims...] tensor.
+    auto padPlane = [&](int64_t idx, Value padVal) -> Value {
+      SmallVector<int64_t> begins(rank, 0), steps(rank, 1);
+      SmallVector<int64_t> ends(transposedType.getShape().begin(),
+                                transposedType.getShape().end());
+      begins[0] = idx;
+      ends[0] = idx + 1;
+      SmallVector<int64_t> sliceShape(transposedType.getShape().begin(),
+                                      transposedType.getShape().end());
+      sliceShape[0] = 1;
+      Value slice = rewriter.create<mlir::stablehlo::SliceOp>(
+          loc, RankedTensorType::get(sliceShape, floatTy), transposed,
+          rewriter.getDenseI64ArrayAttr(begins),
+          rewriter.getDenseI64ArrayAttr(ends),
+          rewriter.getDenseI64ArrayAttr(steps));
+      // Drop the leading dim of 1 so the pad config (over origDims) applies.
+      SmallVector<int64_t> planeShape(sliceShape.begin() + 1, sliceShape.end());
+      Value plane = rewriter.create<mlir::stablehlo::ReshapeOp>(
+          loc, RankedTensorType::get(planeShape, floatTy), slice);
+      Value padded = rewriter.create<mlir::stablehlo::PadOp>(
+          loc, resPlaneType, plane, padVal, op.getEdgePaddingLowAttr(),
+          op.getEdgePaddingHighAttr(), op.getInteriorPaddingAttr());
+      // Re-add a leading dim of 1 for concatenation.
+      SmallVector<int64_t> unsqShape;
+      unsqShape.push_back(1);
+      for (auto d : resPlaneShape) {
+        unsqShape.push_back(d);
+      }
+      return rewriter.create<mlir::stablehlo::ReshapeOp>(
+          loc, RankedTensorType::get(unsqShape, floatTy), padded);
+    };
+
+    Value realPlane = padPlane(0, realPad);
+    Value imagPlane = padPlane(1, imagPad);
+
+    SmallVector<int64_t> concatShape;
+    concatShape.push_back(2);
+    for (auto d : resPlaneShape) {
+      concatShape.push_back(d);
+    }
+    Value packed = rewriter.create<mlir::stablehlo::ConcatenateOp>(
+        loc, RankedTensorType::get(concatShape, floatTy),
+        ValueRange{realPlane, imagPlane}, /*dimension=*/0);
+
+    rewriter.replaceOp(op, transposeLeadingToTrailing(loc, packed, rewriter));
+    return success();
+  }
+};
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -533,8 +689,9 @@ struct StableHLOComplexDataTypeConversionPass
         mlir::stablehlo::ConstantOp, mlir::stablehlo::ReshapeOp,
         mlir::stablehlo::SliceOp, mlir::stablehlo::GatherOp,
         mlir::stablehlo::ConcatenateOp, mlir::stablehlo::BroadcastInDimOp,
-        mlir::stablehlo::AllToAllOp, mlir::stablehlo::CompositeOp>(
-        isNotComplexType);
+        mlir::stablehlo::AllToAllOp, mlir::stablehlo::CompositeOp,
+        mlir::stablehlo::ConvertOp, mlir::stablehlo::SelectOp,
+        mlir::stablehlo::PadOp>(isNotComplexType);
 
     target.addIllegalOp<mlir::stablehlo::ComplexOp, mlir::stablehlo::RealOp,
                         mlir::stablehlo::ImagOp>();
@@ -575,11 +732,13 @@ struct StableHLOComplexDataTypeConversionPass
     patterns.add<
         ComplexBroadcastInDimOpConversionPattern,
         ComplexConstantOpConversionPattern, ComplexGatherOpConversionPattern,
-        ComplexSliceOpConversionPattern,
+        ComplexSliceOpConversionPattern, ComplexSelectOpConversionPattern,
+        ComplexPadOpConversionPattern,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ConcatenateOp>,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
         ComplexPassthroughConversionPattern<mlir::stablehlo::AllToAllOp>,
         ComplexPassthroughConversionPattern<mlir::stablehlo::CompositeOp>,
+        ComplexTypeDefaultConversionPattern<mlir::stablehlo::ConvertOp>,
         ShardyManualComputationComplexConversionPattern,
         ShardyReturnOpTypeConversionPattern,
         StablehloComplexToDecomposedPattern,
