@@ -3733,6 +3733,55 @@ public:
 };
 } // namespace
 
+// MinimalMatmulStridedReduceScatterAsyncOp
+//
+namespace {
+class MinimalMatmulStridedReduceScatterAsyncOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::MinimalMatmulStridedReduceScatterAsyncOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.minimal_matmul_strided_reduce_scatter_async";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.minimal_matmul_strided_reduce_scatter_async";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::MinimalMatmulStridedReduceScatterAsyncOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult matchAndRewrite(
+      mlir::tt::ttnn::MinimalMatmulStridedReduceScatterAsyncOp srcOp,
+      OpAdaptor adaptor, ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitpy::EmitPyTTNNEmitter<
+        mlir::tt::ttnn::MinimalMatmulStridedReduceScatterAsyncOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput(), "input_tensor"),
+        emitter.emit(srcOp.getWeight(), "weight_tensor"),
+        emitter.emit(srcOp.getDim(), "dim"),
+        emitter.emit(srcOp.getNumLinks(), "num_links"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config_mm"),
+        emitter.emit(srcOp.getTopology(), "topology"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(srcOp.getBias(), "bias"),
+        emitter.emit(srcOp.getScalar(), "fused_ternary_scalar"),
+        emitter.emit(srcOp.getAddcmulInput1(), "addcmul_input_tensor1"),
+        emitter.emit(srcOp.getAddcmulInput2(), "addcmul_input_tensor2"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+        emitter.emit(srcOp.getDtype(), "dtype"),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // AllReduceOp
 //
 namespace {
@@ -5636,6 +5685,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // clang-format off
   patterns.add<AllGatherOpConversionPattern,
                ReduceScatterOpConversionPattern,
+               MinimalMatmulStridedReduceScatterAsyncOpConversionPattern,
                AllReduceOpConversionPattern,
                AllReduceAsyncOpConversionPattern,
                PointToPointOpConversionPattern,
