@@ -707,10 +707,10 @@ private:
   bool verifyInitValue(mlir::Value val,
                        TypicalInitReductionValue desired) const {
     Operation *initValue = val.getDefiningOp();
-    while (initValue->getOpOperands().size() == 1) {
+    while (initValue && initValue->getOpOperands().size() == 1) {
       initValue = initValue->getOpOperand(0).get().getDefiningOp();
     }
-    if (!isa<mlir::stablehlo::ConstantOp>(initValue)) {
+    if (!initValue || !isa<mlir::stablehlo::ConstantOp>(initValue)) {
       return false;
     }
 
