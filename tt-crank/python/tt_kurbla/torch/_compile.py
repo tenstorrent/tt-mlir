@@ -31,6 +31,7 @@ from torch._dynamo.backends.common import aot_module_simplified
 from torch._subclasses.fake_tensor import unset_fake_temporarily
 
 from . import _native
+from ._artifacts import Artifact, is_artifacts_dumper_active, register_artifact
 
 _aten = torch.ops.aten
 _funcol = torch.ops._c10d_functional
@@ -855,6 +856,26 @@ COMPILE_OPTIONS = [opt for opt in CompileOption]
 BfpDtype = _native.BfpDtype          # BfpBf8, BfpBf4
 MathFidelity = _native.MathFidelity  # LoFi, HiFi2, HiFi3, HiFi4
 
+def _compile_options_dict(options: _native.CompileOptions) -> dict[str, object]:
+    """JSON-ready view of the options a graph was compiled with, for a dump's
+    `artifacts.json`. `CompileOption`'s values are the bound attribute names, so this
+    stays in step with the native struct on its own.
+
+    An option the user never set reads back as `None` (the underlying field is a
+    `std::optional`), which is worth recording: it means "tt-mlir's default", not
+    "off".
+    """
+
+    def value_of(option: CompileOption):
+        value = getattr(options, option.value)
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return value
+        # BfpDtype / MathFidelity, and anything else native and enum-shaped.
+        return getattr(value, "name", None) or str(value)
+
+    return {opt.value: value_of(opt) for opt in COMPILE_OPTIONS}
+
+
 def _compile_options(options: dict [CompileOption, str | int | bool] | None) -> _native.CompileOptions:
     """Converts python dict with CompileOption to _native.CompileOptions"""
 
@@ -995,6 +1016,14 @@ class _TTIRInterpreter(torch.fx.Interpreter):
 _post_aot_fx_hook: Callable[[torch.fx.GraphModule], None] | None = None
 
 
+def _aot_graph_kind() -> str | None:
+    """`forward` / `backward` / `inference` for the graph aot has us compiling, taken
+    from its `<aot id>_<kind>` tag.
+    """
+    tag = getattr(torch._guards.TracingContext.try_get(), "aot_graph_name", None) or ()
+    return "_".join(tag).rpartition("_")[2] or None
+
+
 def _lower_and_compile(
     gm: torch.fx.GraphModule,
     example_inputs: list[torch.Tensor],
@@ -1049,7 +1078,14 @@ def _lower_and_compile(
         outputs.append(v)
         output_dtypes.append(_to_runtime_dtype(fx_node.meta["val"].dtype))
 
-    program = mb.compile(outputs, options)
+    # Capturing the TTIR costs a full module print, so only pay for it when
+    # something is actually collecting artifacts.
+    dumping_artifacts = is_artifacts_dumper_active()
+    result = mb.compile(outputs, options, capture_ttir=dumping_artifacts)
+    program = result.program
+
+    if dumping_artifacts:
+        register_artifact(Artifact(_compile_options_dict(options), result, _aot_graph_kind()))
 
     def runner(*inputs: torch.Tensor) -> list:
         produced = iter(_native.run_program(program, list(inputs), output_dtypes))

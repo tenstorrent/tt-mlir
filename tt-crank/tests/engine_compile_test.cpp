@@ -5,6 +5,8 @@
 #include <mlir/IR/OwningOpRef.h>
 #include <mlir/Parser/Parser.h>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 
 namespace {
 
@@ -18,7 +20,7 @@ func.func @add(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<6
 } // namespace
 
 TEST(EngineCompileTest, CompilesTrivialModule) {
-    tt::kurbla::CompiledProgram program = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
+    tt::kurbla::CompiledProgram &program = *tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir).program;
 
     EXPECT_GE(program.num_programs(), 1U);
 }
@@ -35,8 +37,8 @@ TEST(EngineCompileTest, ThrowsOnParseError) {
 }
 
 TEST(EngineCompileTest, ReusesEngineAcrossCalls) {
-    auto program_a = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
-    auto program_b = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
+    auto &program_a = *tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir).program;
+    auto &program_b = *tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir).program;
 
     EXPECT_GE(program_a.num_programs(), 1U);
     EXPECT_GE(program_b.num_programs(), 1U);
@@ -52,18 +54,51 @@ TEST(EngineCompileTest, CompilesPreBuiltModule) {
     mlir::OwningOpRef<mlir::ModuleOp> module_op = mlir::parseSourceString<mlir::ModuleOp>(k_trivial_add_ttir, &ctx);
     ASSERT_TRUE(module_op);
 
-    tt::kurbla::CompiledProgram program = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get());
+    tt::kurbla::CompiledProgram &program = *tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get()).program;
 
     EXPECT_GE(program.num_programs(), 1U);
 }
 
 // ttnn_ir() recovers the post-pipeline module from the compiled flatbuffer.
 // Confirm it recovers the real lowered module, not an empty or partial buffer.
-TEST(EngineCompileTest, RecoversTtnnIrFromFlatbuffer) {
-    auto program = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
+TEST(EngineCompileTest, RecoversTTNNIRFromFlatbuffer) {
+    auto &program = *tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir).program;
 
     std::string_view ir = program.ttnn_ir();
     EXPECT_FALSE(ir.empty());
     EXPECT_NE(ir.find("func.func"), std::string_view::npos);
     EXPECT_NE(ir.find("ttnn.add"), std::string_view::npos);
+}
+
+// Capturing the TTIR costs a full module print, so it is opt-in.
+TEST(EngineCompileTest, DoesNotCaptureTTIRByDefault) {
+    tt::kurbla::CompileResult result = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
+
+    EXPECT_NE(result.program, nullptr);
+    EXPECT_TRUE(result.ttir.empty());
+}
+
+// Verify that the TTIR is properly captured when the user demands it.
+TEST(EngineCompileTest, CapturesTTIRFromModuleBeforePipeline) {
+    mlir::MLIRContext &ctx = tt::kurbla::mlir_context();
+
+    mlir::OwningOpRef<mlir::ModuleOp> module_op = mlir::parseSourceString<mlir::ModuleOp>(k_trivial_add_ttir, &ctx);
+    ASSERT_TRUE(module_op);
+
+    tt::kurbla::CompileResult result =
+        tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get(), {}, /*capture_ttir=*/true);
+
+    EXPECT_NE(result.program, nullptr);
+    ASSERT_FALSE(result.ttir.empty());
+    EXPECT_NE(result.ttir.find("ttir.add"), std::string::npos);
+    EXPECT_EQ(result.ttir.find("ttnn."), std::string::npos);
+}
+
+// Verify that the TTIR is properly captured when the user demands it.
+TEST(EngineCompileTest, CapturesTTIRFromStringInput) {
+    tt::kurbla::CompileResult result =
+        tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, {}, /* capture_ttir= */ true);
+
+    EXPECT_NE(result.program, nullptr);
+    EXPECT_EQ(std::string_view(result.ttir), k_trivial_add_ttir);
 }

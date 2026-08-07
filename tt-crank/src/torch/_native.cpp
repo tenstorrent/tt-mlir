@@ -23,6 +23,7 @@
 #include <ttmlir/Target/Common/types_generated.h>
 
 #include "cast.hpp"
+#include "config.hpp"
 #include "engine/compile.hpp"
 #include "engine/compile_options.hpp"
 #include "engine/device.hpp"
@@ -225,12 +226,13 @@ public:
         return mb_->insert_typecast(value, tk::mlir_element_type_for(tk::to_torch_dtype(dtype)));
     }
 
-    ::tt::kurbla::CompiledProgram &compile(const std::vector<mlir::Value> &outputs,
-                                           const ::tt::kurbla::CompileOptions &options) {
+    // Returns the compiled program along with metadata.
+    ::tt::kurbla::CompileResult compile(const std::vector<mlir::Value> &outputs,
+                                        const ::tt::kurbla::CompileOptions &options, bool capture_ttir) {
         assert_builder();
         auto module_op = std::move(*mb_).finalize(outputs);
         mb_.reset();
-        return tk::compile_module(std::move(module_op), options);
+        return tk::compile_module(std::move(module_op), options, capture_ttir);
     }
 
     // Unary elementwise
@@ -569,6 +571,8 @@ NB_MODULE(_native, m) {
     m.doc() = "tt-kurbla torch backend native module";
     m.def("loaded", []() { return true; });
 
+    m.def("artifacts_dir", &artifacts_dir_config, "Directory where the artifacts should be stored.");
+
     m.def("runtime_device_num_chips", &::tt::kurbla::runtime_device_num_chips,
           "Number of physical chips behind the single logical tt device.");
 
@@ -784,9 +788,29 @@ NB_MODULE(_native, m) {
         .def("index_copy", &PyModuleBuilder::index_copy, "input"_a, "dim"_a, "index"_a, "source"_a)
         .def("tril", &PyModuleBuilder::tril, "input"_a, "diagonal"_a = 0)
         // Consumes the builder. Subsequent calls on `self` raise.
-        .def("compile", &PyModuleBuilder::compile, "outputs"_a, "options"_a, nb::rv_policy::reference);
+        // `capture_ttir`: set when the TTIR string is needed.
+        .def("compile", &PyModuleBuilder::compile, "outputs"_a, "options"_a, "capture_ttir"_a = false);
 
-    nb::class_<::tt::kurbla::CompiledProgram>(m, "CompiledProgram");
+    nb::class_<::tt::kurbla::CompileResult>(m, "CompileResult")
+        // `reference` overrides the `reference_internal` a property getter uses by
+        // default. Both are non-owning — Python never frees the program either way —
+        // but `reference_internal` would also keep this `CompileResult` (and its
+        // TTIR string) alive for as long as the returned program object, which
+        // outlives it. The compile cache owns the program, so no keepalive is needed.
+        .def_prop_ro(
+            "program", [](const ::tt::kurbla::CompileResult &self) { return self.program; }, nb::rv_policy::reference,
+            "The compiled program, owned by the process-wide compile cache.")
+        .def_ro("ttir", &::tt::kurbla::CompileResult::ttir,
+                "The TTIR this program was compiled from. Empty unless `capture_ttir` was set.")
+        .def_ro("cache_hit", &::tt::kurbla::CompileResult::cache_hit,
+                "True when the program came from the compile cache and no pipeline ran.");
+
+    nb::class_<::tt::kurbla::CompiledProgram>(m, "CompiledProgram")
+        // Returns a copy: `ttnn_ir()` hands out a view into the flatbuffer, and
+        // nanobind has no string_view caster here.
+        .def(
+            "ttnn_ir", [](const ::tt::kurbla::CompiledProgram &self) { return std::string(self.ttnn_ir()); },
+            "Gets the TTNN IR.");
 
     m.def("run_program", &run_program, "program"_a, "inputs"_a, "output_dtypes"_a,
           "Bind tt-backend torch.Tensors to the compiled program's inputs and run it. "

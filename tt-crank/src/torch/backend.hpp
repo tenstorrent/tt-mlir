@@ -28,8 +28,8 @@ std::vector<::tt::runtime::Tensor> compile_and_run(mlir::OwningOpRef<mlir::Modul
 
 // Compile a finalized TTIR module into a `CompiledProgram` that can back
 // many `run_compiled_program` calls — compile once, bind-and-run many.
-::tt::kurbla::CompiledProgram &compile_module(mlir::OwningOpRef<mlir::ModuleOp> module_op,
-                                              const ::tt::kurbla::CompileOptions &options = {});
+::tt::kurbla::CompileResult compile_module(mlir::OwningOpRef<mlir::ModuleOp> module_op,
+                                           const ::tt::kurbla::CompileOptions &options = {}, bool capture_ttir = false);
 
 // Bind `inputs` to an already-compiled program, execute it, and wrap the
 // device-resident outputs as tt-backend `at::Tensor`s. Output shapes come

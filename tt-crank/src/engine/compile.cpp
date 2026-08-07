@@ -224,7 +224,7 @@ void print_ttnn_ir(const CompiledProgram &prog) {
 
     auto ir = prog.ttnn_ir();
     llvm::errs() << "[tt_kurbla] ===== TTNN module =====\n";
-    llvm::errs() << (ir.empty() ? "[tt_kurbla] <no TTNN IR embedded in cached binary>" : ir);
+    llvm::errs() << (ir.empty() ? "[tt_kurbla] <no TTNN IR embedded in binary>" : ir);
     llvm::errs() << "\n[tt_kurbla] ========================\n";
 }
 
@@ -239,12 +239,20 @@ void print_compile_options(const CompileOptions &options) {
 // Assumes the caller has already installed a ScopedDiagnosticHandler that
 // writes captured diagnostics into `diag_buffer`. The module is mutated in
 // place; on success it contains TTNN ops.
-CompiledProgram &run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const CompileOptions &options,
-                                           const std::string &diag_buffer) {
+CompileResult run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const CompileOptions &options,
+                                        const std::string &diag_buffer, bool capture_ttir) {
     MLIRCompileGuard guard;
 
     print_tt_ir(module_op);
     print_compile_options(options);
+
+    // Has to happen before the pipeline runs: it rewrites the module in place, so
+    // from here on there is no TTIR left to print.
+    std::string ttir;
+    if (capture_ttir) {
+        llvm::raw_string_ostream stream(ttir);
+        module_op.print(stream);
+    }
 
     mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions pm_opts;
     set_pipeline_options(options, pm_opts);
@@ -252,7 +260,7 @@ CompiledProgram &run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compi
     auto key = calc_compilation_key(module_op, pm_opts);
     if (auto *entry = cache[key]) {
         print_ttnn_ir(*entry);
-        return *entry;
+        return {entry, std::move(ttir), /*cache_hit=*/true};
     }
 
     attach_sys_desc_attr(module_op, diag_buffer);
@@ -276,7 +284,7 @@ CompiledProgram &run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compi
     CompiledProgram &prog = cache.insert(key, CompiledProgram(std::move(fb)));
     print_ttnn_ir(prog);
 
-    return prog;
+    return {&prog, std::move(ttir), /*cache_hit=*/false};
 }
 
 } // namespace
@@ -308,7 +316,8 @@ std::string_view CompiledProgram::ttnn_ir() const {
     return fb->mlir()->source()->c_str();
 }
 
-CompiledProgram &compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module_op, const CompileOptions &options) {
+CompileResult compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module_op, const CompileOptions &options,
+                                              bool capture_ttir) {
     mlir::MLIRContext *ctx = module_op.getContext();
 
     std::string diag_buffer;
@@ -319,10 +328,10 @@ CompiledProgram &compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module_op, const
         return mlir::success();
     });
 
-    return run_ttir_to_ttnn_and_emit(module_op, options, diag_buffer);
+    return run_ttir_to_ttnn_and_emit(module_op, options, diag_buffer, capture_ttir);
 }
 
-CompiledProgram &compile_ttir_to_ttnn_flatbuffer(std::string_view ttir, const CompileOptions &options) {
+CompileResult compile_ttir_to_ttnn_flatbuffer(std::string_view ttir, const CompileOptions &options, bool capture_ttir) {
     mlir::MLIRContext &ctx = engine_state().context;
 
     std::string diag_buffer;
@@ -336,7 +345,12 @@ CompiledProgram &compile_ttir_to_ttnn_flatbuffer(std::string_view ttir, const Co
     mlir::OwningOpRef<mlir::ModuleOp> module_op = mlir::parseSourceString<mlir::ModuleOp>(ttir, &ctx);
     TT_FATAL(module_op, "{}", make_error_message("failed to parse TTIR module", diag_buffer));
 
-    return run_ttir_to_ttnn_and_emit(module_op.get(), options, diag_buffer);
+    CompileResult result = run_ttir_to_ttnn_and_emit(module_op.get(), options, diag_buffer, /*capture_ttir=*/false);
+    if (capture_ttir) {
+        result.ttir = std::string(ttir);
+    }
+
+    return result;
 }
 
 } // namespace tt::kurbla

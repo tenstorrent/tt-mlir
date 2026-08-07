@@ -2,6 +2,7 @@
 
 #include "preproc.hpp"
 #include <cstdlib>
+#include <string>
 
 // Feature switches section.
 
@@ -57,3 +58,6 @@ CONFIG_STR(logger_types, "Always", "TT_LOGGER_TYPES")
 
 // Compile cache directory where all compiled binaries are loaded/stored.
 CONFIG_STR(compile_cache_dir, ".data/bin_cache/", "TT_KURBLA_COMPILE_CACHE_DIR")
+
+// Directory where the artifacts should be stored.
+CONFIG_STR(artifacts_dir, ".data/artifacts/", "TT_KURBLA_ARTIFACTS_DIR")

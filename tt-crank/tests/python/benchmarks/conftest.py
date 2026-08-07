@@ -182,6 +182,19 @@ def _strict_no_fallback(request: pytest.FixtureRequest) -> Any:
         yield
 
 
+@pytest.fixture(autouse=True)
+def _collect_artifacts(request: pytest.FixtureRequest) -> Any:
+    """Collect the artifacts we produce in this benchmark, into a directory named
+    after the test (param id included, so parametrized runs don't collide).
+    """
+    from tt_kurbla.torch._artifacts import collect_artifacts
+
+    # The context dumps on exit, including when the benchmark raises — a failed
+    # compile-and-run is exactly when the IR is worth having.
+    with collect_artifacts(request.node.name):
+        yield
+
+
 @pytest.fixture(scope="session")
 def llm_num_layers(request: pytest.FixtureRequest) -> int | None:
     value = request.config.getoption("--llm-num-layers")
