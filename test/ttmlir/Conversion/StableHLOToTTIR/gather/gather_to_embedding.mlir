@@ -51,11 +51,13 @@ module attributes {} {
   // CHECK-LABEL: func.func @gather_5
   func.func @gather_5(%operand: tensor<2x7x512xf32>, %start_indices: tensor<2x2xi32>) -> (tensor<2x512xf32> {jax.result_info = "result"}) {
     // CHECK: "ttir.reshape"
-    // CHECK: "ttir.typecast"
     // CHECK: "ttir.constant"
-    // CHECK: "ttir.matmul"
+    // CHECK: "ttir.broadcast"
+    // CHECK: "ttir.multiply"
+    // CHECK: "ttir.sum"
+    // CHECK: "ttir.reshape"
     // CHECK: "ttir.embedding"
-    // CHECK-SAME: (tensor<2x1xf32>, tensor<14x512xf32>) -> tensor<2x1x512xf32>
+    // CHECK-SAME: (tensor<1x2xi32>, tensor<14x512xf32>) -> tensor<1x2x512xf32>
     // CHECK: "ttir.reshape"
     %0 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [1], collapsed_slice_dims = [0, 1], start_index_map = [0, 1], index_vector_dim = 1>, indices_are_sorted = false, slice_sizes = array<i64: 1, 1, 512>}> : (tensor<2x7x512xf32>, tensor<2x2xi32>) -> tensor<2x512xf32>
     return %0 : tensor<2x512xf32>
@@ -94,11 +96,13 @@ module attributes {} {
   // CHECK-LABEL: func.func @gather_9
   func.func @gather_9(%operand: tensor<3x2x3xf32>, %start_indices: tensor<1x2xi32>) -> (tensor<1x3xf32> {jax.result_info = "result"}) {
     // CHECK: "ttir.reshape"
-    // CHECK: "ttir.typecast"
     // CHECK: "ttir.constant"
-    // CHECK: "ttir.matmul"
+    // CHECK: "ttir.broadcast"
+    // CHECK: "ttir.multiply"
+    // CHECK: "ttir.sum"
+    // CHECK: "ttir.reshape"
     // CHECK: "ttir.embedding"
-    // CHECK-SAME: (tensor<1x1xf32>, tensor<6x3xf32>) -> tensor<1x1x3xf32>
+    // CHECK-SAME: (tensor<1x1xi32>, tensor<6x3xf32>) -> tensor<1x1x3xf32>
     // CHECK: "ttir.reshape"
     %0 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [1], collapsed_slice_dims = [0, 1], start_index_map = [0, 1], index_vector_dim = 1>, indices_are_sorted = false, slice_sizes = array<i64: 1, 1, 3>}> : (tensor<3x2x3xf32>, tensor<1x2xi32>) -> tensor<1x3xf32>
     return %0 : tensor<1x3xf32>
@@ -107,12 +111,13 @@ module attributes {} {
   // CHECK-LABEL: func.func @gather_10
   func.func @gather_10(%operand: tensor<7x8x2xf32>, %start_indices: tensor<2x2x2xi32>) -> (tensor<2x2x2xf32> {jax.result_info = "result"}) {
     // CHECK: "ttir.reshape"
-    // CHECK: "ttir.typecast"
     // CHECK: "ttir.constant"
-    // CHECK: "ttir.matmul"
+    // CHECK: "ttir.broadcast"
+    // CHECK: "ttir.multiply"
+    // CHECK: "ttir.sum"
     // CHECK: "ttir.reshape"
     // CHECK: "ttir.embedding"
-    // CHECK-SAME: (tensor<1x4xf32>, tensor<56x2xf32>) -> tensor<1x4x2xf32>
+    // CHECK-SAME: (tensor<1x4xi32>, tensor<56x2xf32>) -> tensor<1x4x2xf32>
     // CHECK: "ttir.reshape"
     %0 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [2], collapsed_slice_dims = [0, 1], start_index_map = [0, 1], index_vector_dim = 2>, indices_are_sorted = false, slice_sizes = array<i64: 1, 1, 2>}> : (tensor<7x8x2xf32>, tensor<2x2x2xi32>) -> tensor<2x2x2xf32>
     return %0 : tensor<2x2x2xf32>
@@ -121,12 +126,13 @@ module attributes {} {
   // CHECK-LABEL: func.func @gather_11
   func.func @gather_11(%operand: tensor<18x17x2xf32>, %start_indices: tensor<3x1x3x2xi32>) -> (tensor<3x1x3x2xf32> {jax.result_info = "result"}) {
     // CHECK: "ttir.reshape"
-    // CHECK: "ttir.typecast"
     // CHECK: "ttir.constant"
-    // CHECK: "ttir.matmul"
+    // CHECK: "ttir.broadcast"
+    // CHECK: "ttir.multiply"
+    // CHECK: "ttir.sum"
     // CHECK: "ttir.reshape"
     // CHECK: "ttir.embedding"
-    // CHECK-SAME: (tensor<1x9xf32>, tensor<306x2xf32>) -> tensor<1x9x2xf32>
+    // CHECK-SAME: (tensor<1x9xi32>, tensor<306x2xf32>) -> tensor<1x9x2xf32>
     // CHECK: "ttir.reshape"
     %0 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [3], collapsed_slice_dims = [0, 1], start_index_map = [0, 1], index_vector_dim = 3>, indices_are_sorted = false, slice_sizes = array<i64: 1, 1, 2>}> : (tensor<18x17x2xf32>, tensor<3x1x3x2xi32>) -> tensor<3x1x3x2xf32>
     return %0 : tensor<3x1x3x2xf32>
@@ -135,12 +141,13 @@ module attributes {} {
   // CHECK-LABEL: func.func @gather_12
   func.func @gather_12(%operand: tensor<4x5x2x2xf32>, %start_indices: tensor<2x1x1x2xi32>) -> (tensor<2x1x1x2x2xf32> {jax.result_info = "result"}) {
     // CHECK: "ttir.reshape"
-    // CHECK: "ttir.typecast"
     // CHECK: "ttir.constant"
-    // CHECK: "ttir.matmul"
+    // CHECK: "ttir.broadcast"
+    // CHECK: "ttir.multiply"
+    // CHECK: "ttir.sum"
     // CHECK: "ttir.reshape"
     // CHECK: "ttir.embedding"
-    // CHECK-SAME: (tensor<1x2xf32>, tensor<20x4xf32>) -> tensor<1x2x4xf32>
+    // CHECK-SAME: (tensor<1x2xi32>, tensor<20x4xf32>) -> tensor<1x2x4xf32>
     // CHECK: "ttir.reshape"
     %0 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [3, 4], collapsed_slice_dims = [0, 1], start_index_map = [0, 1], index_vector_dim = 3>, indices_are_sorted = false, slice_sizes = array<i64: 1, 1, 2, 2>}> : (tensor<4x5x2x2xf32>, tensor<2x1x1x2xi32>) -> tensor<2x1x1x2x2xf32>
     return %0 : tensor<2x1x1x2x2xf32>
@@ -162,11 +169,13 @@ module attributes {} {
   // CHECK-LABEL: func.func @gather_14
   func.func @gather_14(%operand: tensor<3x2x3x4xf32>, %start_indices: tensor<1x3xi32>) -> (tensor<1x4xf32> {jax.result_info = "result"}) {
     // CHECK: "ttir.reshape"
-    // CHECK: "ttir.typecast"
     // CHECK: "ttir.constant"
-    // CHECK: "ttir.matmul"
+    // CHECK: "ttir.broadcast"
+    // CHECK: "ttir.multiply"
+    // CHECK: "ttir.sum"
+    // CHECK: "ttir.reshape"
     // CHECK: "ttir.embedding"
-    // CHECK-SAME: (tensor<1x1xf32>, tensor<18x4xf32>) -> tensor<1x1x4xf32>
+    // CHECK-SAME: (tensor<1x1xi32>, tensor<18x4xf32>) -> tensor<1x1x4xf32>
     // CHECK: "ttir.reshape"
     %0 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [1], collapsed_slice_dims = [0, 1, 2], start_index_map = [0, 1, 2], index_vector_dim = 1>, indices_are_sorted = false, slice_sizes = array<i64: 1, 1, 1, 4>}> : (tensor<3x2x3x4xf32>, tensor<1x3xi32>) -> tensor<1x4xf32>
     return %0 : tensor<1x4xf32>
@@ -189,11 +198,13 @@ module attributes {} {
   func.func @gather_16(%operand: tensor<1x2x5x7xf32>, %start_indices: tensor<3x2xi32>) -> (tensor<1x2x3xf32> {jax.result_info = "result"}) {
     // CHECK: "ttir.permute"
     // CHECK: "ttir.reshape"
-    // CHECK: "ttir.typecast"
     // CHECK: "ttir.constant"
-    // CHECK: "ttir.matmul"
+    // CHECK: "ttir.broadcast"
+    // CHECK: "ttir.multiply"
+    // CHECK: "ttir.sum"
+    // CHECK: "ttir.reshape"
     // CHECK: "ttir.embedding"
-    // CHECK-SAME: (tensor<3x1xf32>, tensor<35x2xf32>) -> tensor<3x1x2xf32>
+    // CHECK-SAME: (tensor<1x3xi32>, tensor<35x2xf32>) -> tensor<1x3x2xf32>
     // CHECK: "ttir.permute"
     %0 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [0, 1], collapsed_slice_dims = [2, 3], start_index_map = [2, 3], index_vector_dim = 1>, indices_are_sorted = false, slice_sizes = array<i64: 1, 2, 1, 1>}> : (tensor<1x2x5x7xf32>, tensor<3x2xi32>) -> tensor<1x2x3xf32>
     return %0 : tensor<1x2x3xf32>

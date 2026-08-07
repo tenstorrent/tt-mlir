@@ -16,14 +16,22 @@ module @test_gather_multi_partial {
     // CHECK-SAME: (tensor<1x12x12x768xbf16>) -> tensor<12x12x1x768xbf16>
     // CHECK: "ttir.reshape"
     // CHECK-SAME: (tensor<12x12x1x768xbf16>) -> tensor<144x768xbf16>
-    // Multi-component indices combined into a flat 1-D index.
-    // CHECK: "ttir.matmul"
+    // Multi-component indices combined into a flat 1-D index with integer
+    // multiply + reduce-sum (no typecast/matmul).
+    // CHECK-NOT: "ttir.typecast"
+    // CHECK-NOT: "ttir.matmul"
+    // CHECK: "ttir.constant"
+    // CHECK: "ttir.broadcast"
+    // CHECK: "ttir.multiply"
+    // CHECK: "ttir.sum"
     // Window expansion producing a single set of expanded indices.
     // CHECK: "ttir.constant"
     // CHECK: "ttir.broadcast"
     // CHECK: "ttir.add"
-    // Exactly one embedding op.
+    // CHECK-SAME: (tensor<9x192xi32>, tensor<9x192xi32>) -> tensor<9x192xi32>
+    // Exactly one embedding op with the flattened integer indices.
     // CHECK: "ttir.embedding"
+    // CHECK-SAME: (tensor<9x192xi32>, tensor<144x768xbf16>) -> tensor<9x192x768xbf16>
     // Final reshape + permute to the original result shape.
     // CHECK: "ttir.reshape"
     // CHECK: "ttir.permute"
