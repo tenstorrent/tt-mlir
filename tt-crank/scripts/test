@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 
-# Usage: scripts/test [sim] [-- <ctest-args>...]
+# Usage: scripts/test [sim] [-- <gtest-args>...]
 #
 # Run tt-kurbla unit tests against an existing build.
 #
+# Runs the gtest binary directly rather than going through ctest: gtest already
+# reports each test by name with its own timing, and ctest would only add a second
+# registration layer that hides that output unless run with -V.
+#
 # Arguments:
 #   sim              Route the runtime through ttsim (sets TT_KURBLA_USE_SIMULATOR=1).
-#   -- <ctest-args>  Extra flags forwarded verbatim to ctest.
+#   -- <gtest-args>  Extra flags forwarded verbatim to the test binary.
 #   -h, --help       Print this message and exit.
 #
 # Examples:
 #   ./scripts/test
-#   ./scripts/test sim -- -R EngineCompileTest --verbose
+#   ./scripts/test sim -- --gtest_filter='EngineCompileTest.*'
 #
 # Expects the build to already exist. Run ./scripts/build first.
 
@@ -44,14 +48,15 @@ for arg in "$@"; do
 done
 
 BUILD_DIR="$REPO_DIR/build"
+TEST_BIN="$BUILD_DIR/tests/tt_kurbla_unit_tests"
 
-if [[ ! -d "$BUILD_DIR" ]]; then
-    echo "error: build directory '$BUILD_DIR' not found — run ./scripts/build first" >&2
+if [[ ! -x "$TEST_BIN" ]]; then
+    echo "error: test binary '$TEST_BIN' not found — run ./scripts/build first" >&2
     exit 1
 fi
 
 if [[ $SIM -eq 1 ]]; then
-    TT_KURBLA_USE_SIMULATOR=1 ctest --test-dir "$BUILD_DIR" --output-on-failure "${EXTRA_ARGS[@]}"
+    TT_KURBLA_USE_SIMULATOR=1 "$TEST_BIN" "${EXTRA_ARGS[@]}"
 else
-    ctest --test-dir "$BUILD_DIR" --output-on-failure "${EXTRA_ARGS[@]}"
+    "$TEST_BIN" "${EXTRA_ARGS[@]}"
 fi

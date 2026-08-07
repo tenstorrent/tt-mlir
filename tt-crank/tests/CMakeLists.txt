@@ -17,8 +17,6 @@ foreach(_gtest_tgt gtest gmock gtest_main gmock_main)
     endif()
 endforeach()
 
-include(GoogleTest)
-
 add_executable(tt_kurbla_unit_tests
     version_test.cpp
     engine_compile_test.cpp
@@ -35,4 +33,4 @@ target_link_libraries(tt_kurbla_unit_tests
         GTest::gtest_main
 )
 
-gtest_discover_tests(tt_kurbla_unit_tests)
+add_test(NAME tt_kurbla_unit_tests COMMAND tt_kurbla_unit_tests)
