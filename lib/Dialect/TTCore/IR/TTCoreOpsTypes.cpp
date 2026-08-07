@@ -89,7 +89,11 @@ SystemDescAttr createDefaultBlackholeSystemDesc(
                       std::multiplies<int64_t>());
 
   // Populate dummy values for single chip or multi chip config.
-  llvm::SmallVector<std::int64_t> gridShape = {10, 13};
+  // p150 worker grid is 11x10: 14x10 full grid, 2 columns harvested -> 12x10,
+  // 1 column used for dispatch -> 11x10. Using a larger grid makes the
+  // optimizer / OpModel disagree with the system desc at opt-level 1
+  // (worker-grid mismatch on ttnn.full).
+  llvm::SmallVector<std::int64_t> gridShape = {10, 11};
   llvm::SmallVector<std::int64_t> dramGridShape = {1, 8};
 
   // Captured from a p150 device. Blackhole's optimal mapping is identical
