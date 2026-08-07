@@ -3649,11 +3649,9 @@ public:
 
       patterns.add<ReluFusionPattern>(&getContext());
 
-      if (conv2dWithMultiplyEnabled) {
-        patterns.add<ConvWithMultiply<Conv2dOp>>(&getContext());
-        patterns.add<ConvWithMultiply<ConvTranspose2dOp>>(&getContext());
-        patterns.add<BatchNormDecomposition>(&getContext());
-      }
+      patterns.add<ConvWithMultiply<Conv2dOp>>(&getContext());
+      patterns.add<ConvWithMultiply<ConvTranspose2dOp>>(&getContext());
+      patterns.add<BatchNormDecomposition>(&getContext());
       if (permuteMatmulEnabled) {
         patterns.add<PermuteMatmulFusionPattern<MatmulOp>>(&getContext());
         patterns.add<PermuteMatmulFusionPattern<LinearOp>>(&getContext());

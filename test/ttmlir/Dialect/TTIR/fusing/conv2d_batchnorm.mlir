@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-fusing="ttnn-enable-conv2d-with-multiply-pattern=true" -o %t %s
+// RUN: ttmlir-opt --ttir-fusing -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 module {
