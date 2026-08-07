@@ -19,6 +19,7 @@ namespace mlir::tt::ttnn {
 //     https://github.com/tenstorrent/tt-metal/issues/39074
 //   ReshapeOp, PermuteOp: reject width-sharded inputs
 //     (round-trip through interleaved internally in tt-metal)
+//     Each has its own rule book; they share only this input restriction.
 //
 // Output hints:
 //   All: non-sharded only
@@ -94,10 +95,22 @@ bool canPermuteBeView(Operation *op);
 /// the op onto its source's L1 slot instead of tracking a fresh allocation.
 bool isAliasingViewOp(Operation *op);
 
-/// ReshapeOp, PermuteOp: reject width-sharded inputs, no reshards.
+/// ReshapeOp: reject width-sharded inputs, no reshards.
 /// View-eligible reshapes use NULL hint only (inherit input memory config).
 /// Non-view reshapes use non-sharded output hints.
 struct ReshapeRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
+/// PermuteOp: reject width-sharded inputs, non-sharded output only, no
+/// reshards. Split off `ReshapeRuleBook` (#7988) so reshape-specific rule
+/// changes cannot leak into permute; the rules here are permute's long-standing
+/// behavior, since `canReshapeBeView` never held for a PermuteOp.
+struct PermuteRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
   OutputHints
