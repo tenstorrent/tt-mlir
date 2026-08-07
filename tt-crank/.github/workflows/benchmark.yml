@@ -234,3 +234,11 @@ jobs:
             benchmark_results.json
             benchmark_output.log
           if-no-files-found: warn
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-artifacts
+          path: .data/artifacts/
+          if-no-files-found: warn
