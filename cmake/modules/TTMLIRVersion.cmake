@@ -54,12 +54,16 @@ execute_process(
 )
 
 # get the number of commits since the latest tag
-execute_process(
-  COMMAND git rev-list ${GIT_TAG}..HEAD --count
-  WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
-  OUTPUT_VARIABLE GIT_COMMITS
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
+if(DEFINED ENV{TTMLIR_VERSION_PATCH})
+  set(GIT_COMMITS "$ENV{TTMLIR_VERSION_PATCH}")
+else()
+  execute_process(
+    COMMAND git rev-list ${GIT_TAG}..HEAD --count
+    WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+    OUTPUT_VARIABLE GIT_COMMITS
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+endif()
 
 # Extract the major and minor version from the tag (assumes tags are in "major.minor" format)
 string(REGEX MATCH "^v([0-9]+)\\.([0-9]+)$" GIT_TAG_MATCH ${GIT_TAG})
