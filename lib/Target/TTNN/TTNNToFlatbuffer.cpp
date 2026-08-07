@@ -33,11 +33,14 @@
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <memory>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
@@ -5582,29 +5585,33 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   // Program bodies are built up as plain C++ vectors of offsets and only turned
   // into flatbuffer vectors by CreateProgramDirect, so finishing a nested
   // program part-way through building its parent is safe.
-  //
-  // The names are kept alive for as long as `programs`, since
-  // CreateProgramDirect copies from a `const char *`.
-  std::vector<std::string> regionProgramNames;
+  llvm::DenseMap<mlir::Operation *, std::unique_ptr<mlir::AsmState>>
+      printStates;
+
   RegionProgramEmitterFn emitRegionProgram =
       [&](FlatbufferObjectCache &regionCache, mlir::Region &region,
           llvm::StringRef name) -> uint32_t {
     auto func = region.getParentOfType<func::FuncOp>();
-    regionProgramNames.push_back(name.str());
+    std::unique_ptr<mlir::AsmState> &printState =
+        printStates[func.getOperation()];
+    if (!printState) {
+      printState = std::make_unique<mlir::AsmState>(
+          func, getProgramDebugPrintingFlags());
+    }
 
     Program<::tt::target::ttnn::Operation> regionProgram =
         regionToProgram<::tt::target::ttnn::Operation>(
-            regionCache, region, regionProgramNames.back(), emitTTNNOperation,
-            tensorValueToFlatbuffer, programIdxMap, constEvalFuncHashes,
-            emitRegionProgram);
+            regionCache, region, name, emitTTNNOperation,
+            tensorValueToFlatbuffer, *printState, programIdxMap,
+            constEvalFuncHashes, emitRegionProgram);
 
     ::tt::target::Dim2d regionMeshShape =
         deviceToFlatbufferMeshShape(ttcore::lookupDevice(func));
 
     programs.push_back(::tt::target::ttnn::CreateProgramDirect(
-        fbb, regionProgram.name, &regionProgram.inputs, &regionProgram.outputs,
-        &regionProgram.ops, &dylibs, debugInfo, /*private=*/true,
-        &regionMeshShape, &regionProgram.semaphoreInputs));
+        fbb, regionProgram.name.c_str(), &regionProgram.inputs,
+        &regionProgram.outputs, &regionProgram.ops, &dylibs, debugInfo,
+        /*private=*/true, &regionMeshShape, &regionProgram.semaphoreInputs));
     return static_cast<uint32_t>(programs.size() - 1);
   };
 
@@ -5623,8 +5630,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
     ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
 
     programs[funcIdx] = ::tt::target::ttnn::CreateProgramDirect(
-        fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-        &dylibs, debugInfo, func.isPrivate(), &meshShape,
+        fbb, program.name.c_str(), &program.inputs, &program.outputs,
+        &program.ops, &dylibs, debugInfo, func.isPrivate(), &meshShape,
         &program.semaphoreInputs);
   }
 
