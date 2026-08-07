@@ -177,6 +177,42 @@ getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
     return mlir::sdy::OpShardingRuleAttr();
   }
 
+  // 3D SDPA is [B, S, D], a single implicit head. S and D are the
+  // softmax/contraction axes, so only batch can be sharded.
+  if (qType.getRank() == 3) {
+    if (kType.getRank() != 3 || vType.getRank() != 3 ||
+        outType.getRank() != 3) {
+      op.getOperation()->emitWarning()
+          << "SDPA requires Q/K/V/Out to have the same rank";
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+
+    ArrayRef<int64_t> qShape3D = qType.getShape();
+    if (qShape3D != outType.getShape() ||
+        kType.getShape() != vType.getShape() || qShape3D != kType.getShape()) {
+      op.getOperation()->emitWarning()
+          << "SDPA shape validation failed: incompatible Q/K/V/Out dimensions";
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+
+    int64_t numOperands3D = op.getNumOperands();
+    sdy::OpShardingRuleBuilder builder3D(op);
+    auto makeOpDims3D = [&](int64_t dim) -> SmallVector<int64_t> {
+      SmallVector<int64_t> dims(numOperands3D, sdy::kNullDim);
+      dims[0] = dim;
+      dims[1] = dim;
+      dims[2] = dim;
+      return dims;
+    };
+    builder3D.addFactor(makeOpDims3D(0), {0}, qShape3D[0],
+                        sdy::FactorType::kPassThrough);
+    builder3D.addFactor(makeOpDims3D(1), {1}, qShape3D[1],
+                        sdy::FactorType::kNeedReplication);
+    builder3D.addFactor(makeOpDims3D(2), {2}, qShape3D[2],
+                        sdy::FactorType::kNeedReplication);
+    return builder3D.build();
+  }
+
   // SDPA operates on 4D tensors: [B, H, S, D]
   if (qType.getRank() != 4 || kType.getRank() != 4 || vType.getRank() != 4 ||
       outType.getRank() != 4) {
