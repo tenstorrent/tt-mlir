@@ -72,6 +72,11 @@ public:
   bool shouldRetain() const { return retain.load(std::memory_order_relaxed); }
   void setRetain(bool val) { retain.store(val, std::memory_order_relaxed); }
 
+  bool isReclaimed() const { return reclaimed.load(std::memory_order_acquire); }
+  void setReclaimed(bool val) {
+    reclaimed.store(val, std::memory_order_release);
+  }
+
   uint64_t getVersion() const {
     return version.load(std::memory_order_relaxed);
   }
@@ -98,6 +103,12 @@ private:
   // Setting this to true will prohibit deallocate ops within
   // the program from deallocating the tensor
   std::atomic<bool> retain;
+
+  // Set when load_cached reclaims a const-eval input's device buffer (freed
+  // and replaced with a placeholder); a device->host read-back then errors
+  // instead of returning the placeholder.
+  std::atomic<bool> reclaimed{false};
+
   std::atomic<uint64_t> version;
 
   static uint64_t getLatestVersion();
