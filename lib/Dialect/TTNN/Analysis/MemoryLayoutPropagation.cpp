@@ -3,10 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagation.h"
+
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
-#include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/ConvRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/OpRuleBook.h"
@@ -19,13 +19,11 @@
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
-#include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "llvm/ADT/DenseSet.h"
 
 #include <algorithm>
 #include <map>
@@ -587,8 +585,9 @@ MemoryLayoutPropagation::processOp(Operation *op) {
     // Try primary output hints with this input combination.
     bool gotSharded = false;
     for (size_t hi = 0; hi < outputHints.hints.size(); ++hi) {
-      if (!ruleBook.isValidOutputHintForInputs(outputHints.hints[hi],
-                                               inputLayouts)) {
+      bool valid = ruleBook.isValidOutputHintForInputs(outputHints.hints[hi],
+                                                      inputLayouts);
+      if (!valid) {
         continue;
       }
       if (tryHint(outputHints.hints[hi], hi, inputLayouts, anyReshard,
@@ -1021,6 +1020,31 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
                                 maxInputCandidatesPerOperand);
     }
 
+    // Inject op-specific extra reshard candidates (e.g. DRAM width-sharded
+    // weight and L1 1x8 activation for DS matmul) before standard reshards so
+    // they are not displaced when the candidate list reaches the cap.
+    for (TTNNLayoutAttr extraLayout :
+         getRuleBook(op).getExtraInputReshardCandidates(op, operandIdx)) {
+      bool alreadyPresent =
+          llvm::any_of(candidatesForOperand, [&](const InputCandidate &ic) {
+            return ic.layout == extraLayout;
+          });
+      if (alreadyPresent) {
+        continue;
+      }
+      size_t producerBeamSize = producerBeam ? producerBeam->size() : 1;
+      for (size_t pIdx = 0; pIdx < producerBeamSize; ++pIdx) {
+        if (candidatesForOperand.size() >= maxInputCandidatesPerOperand) {
+          break;
+        }
+        InputCandidate ic;
+        ic.layout = extraLayout;
+        ic.producerCandidateIndex = pIdx;
+        ic.isReshard = true;
+        candidatesForOperand.push_back(ic);
+      }
+    }
+
     addReshardCandidates(candidatesForOperand, op, operandIdx, operand,
                          currentLayout, tensorType, producerBeam, producerOp,
                          resultIdx, maxInputCandidatesPerOperand);
@@ -1443,7 +1467,7 @@ void MemoryLayoutPropagation::applyToIR() {
     applyOpConfig(op, *getChosenCandidate(op));
   }
 
-  // Second pass: insert reshard ops.
+  // Second pass: insert reshard ops (deduped per producer via reshardCache).
   func->walk([&](Operation *op) {
     const BeamCandidate *chosen = getChosenCandidate(op);
     if (!chosen) {
@@ -1567,23 +1591,38 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
     }
   }
 
-  // Take the producer's layout and apply the reshard target's buffer type,
-  // memory layout, grid, and page layout (element type). Tracking the element
-  // type is what lets a tile -> row-major sibling reshard materialize.
-  TTNNLayoutAttr producerLayout =
-      utils::getLayoutAttrFromTensor(producerTensorType);
-  Type reshardElementType = ttnn::utils::getElementType(
-      reshardLayout.getContext(), reshardLayout.getLayout(),
-      reshardLayout.getDataType());
-  TTNNLayoutAttr outputLayout =
-      TTNNLayoutAttr::Builder(producerLayout, producerTensorType.getShape())
-          .setBufferType(reshardLayout.getBufferType())
-          .setMemoryLayout(reshardLayout.getMemLayout())
-          .setGridShape(reshardLayout.getGridShape())
-          .setElementType(reshardElementType)
-          .buildWithCanonicalCorePlacement(deviceAttr);
+  // Use reshardLayout directly instead of rebuilding it from the producer's
+  // layout via Builder. reshardLayout is already a complete layout for this
+  // tensor, and the DRAM-sharded candidates (buildDRAMShardedWeightLayout /
+  // buildL1ShardedLayout) are declarative: exact memref shard shape in tiles,
+  // explicit core range set, producer's linear map. Builder::build() re-derives
+  // all three from grid + shape. The shard shape happens to come out identical,
+  // but the core range set does not -- buildWithCanonicalCorePlacement only
+  // fills a *null* core range set, so an already-sharded in0 producer's
+  // placement would survive instead of the DS layout's 1x8 grid.
+  //
+  // This also subsumes the page-layout (element type) override the Builder path
+  // needed: reshardLayout carries its own element type, so a tile -> row-major
+  // sibling reshard materializes without reconstructing it.
   RankedTensorType newTensorType =
-      utils::RankedTensorTypeFactory::create(producerTensorType, outputLayout);
+      utils::RankedTensorTypeFactory::create(producerTensorType, reshardLayout);
+
+  // Dedup: reuse a shared reshard for consumers of the same producer requesting
+  // the same target layout.
+  // Stays correct downstream: TTNNDeallocate frees it after its last consumer,
+  // and if the L1 spill pass evicts it for space it re-splits into per-consumer
+  // reshards.
+  std::pair<mlir::Value, mlir::Attribute> cacheKey{operand, reshardLayout};
+  if (auto it = reshardCache.find(cacheKey); it != reshardCache.end()) {
+    if (Operation *cachedOp = it->second.getDefiningOp();
+        cachedOp && cachedOp->getBlock() == consumerOp->getBlock() &&
+        cachedOp->isBeforeInBlock(consumerOp)) {
+      consumerOp->setOperand(operandIndex, it->second);
+      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                   "Reused shared memory reconfig op: {0}", cachedOp);
+      return;
+    }
+  }
 
   OpBuilder builder(consumerOp);
   Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
@@ -1595,7 +1634,7 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
   // sequence. Pure memory-config reshards stay ttnn.to_memory_config.
   bool pageLayoutChanges =
       utils::getLayoutAttrFromTensor(producerTensorType).getLayout() !=
-      outputLayout.getLayout();
+      reshardLayout.getLayout();
   Operation *reshardOp =
       pageLayoutChanges
           ? builder.create<ToTensorSpecOp>(loc, newTensorType, operand)
@@ -1604,6 +1643,7 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
                 .getOperation();
 
   consumerOp->setOperand(operandIndex, reshardOp->getResult(0));
+  reshardCache[cacheKey] = reshardOp->getResult(0);
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "Inserted reshard op: {0}", *reshardOp);
