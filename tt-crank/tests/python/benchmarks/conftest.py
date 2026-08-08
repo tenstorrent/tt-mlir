@@ -220,9 +220,17 @@ def record_bench(request: pytest.FixtureRequest) -> Callable[[BenchmarkResult], 
 
 
 def _git_sha() -> str:
+    # Prefer the sha the Actions runner provides.
+    sha = os.environ.get("GITHUB_SHA")
+    if sha:
+        return sha
     try:
         return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL, text=True
+            ["git", "rev-parse", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            # Pin to this file's repo; the pytest invocation dir may be outside it.
+            cwd=os.path.dirname(__file__),
         ).strip()
     except Exception:
         return ""
@@ -231,6 +239,8 @@ def _git_sha() -> str:
 def _device_info() -> dict[str, Any]:
     return {
         "hostname": socket.gethostname(),
+        "arch": torch.tt.arch(),
+        "num_chips": torch.tt.num_chips(),
         "platform": _platform.platform(),
         "python_version": sys.version.split()[0],
         "torch_version": torch.__version__,
@@ -249,6 +259,8 @@ def pytest_terminal_summary(
         return
     tr = terminalreporter
     tr.write_sep("=", "benchmark results")
+    tr.write_line(f"device arch: {torch.tt.arch()}, chips: {torch.tt.num_chips()}")
+    tr.write_line("")
     for r in results:
         for line in r.format_card().split("\n"):
             tr.write_line(line)

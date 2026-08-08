@@ -256,6 +256,11 @@ def run_benchmark(
     in a single fenced pass - that final `_sync` is where pipelined device
     work actually drains.
 
+    The warmup phase is timed separately and reported as `warmup_total_ms`;
+    in compile mode without `--accuracy` that's where graph compilation
+    lands (with `--accuracy` the untimed pre-warmup reference pass compiles
+    first).
+
     If `reference_model` is given, runs an extra (untimed) forward pass
     before and after warmup, emits `pcc_before_warmup` / `pcc_after_warmup`
     measurements against the reference's output, and asserts both clear
@@ -277,9 +282,11 @@ def run_benchmark(
             _sync(cold_out)
 
         _signpost("warmup_start")
+        warmup_t0 = time.perf_counter_ns()
         for _ in range(warmup):
             out = model(*inputs)
             _sync(out)
+        warmup_ns = time.perf_counter_ns() - warmup_t0
         _signpost("warmup_end")
 
         if have_ref:
@@ -320,6 +327,7 @@ def run_benchmark(
         iters=iters,
         measurements=[
             *accuracy_measurements,
+            Measurement("warmup_total_ms", warmup_ns / 1e6, "ms"),
             Measurement("total_ms", total_ms, "ms"),
             Measurement("iter_mean_ms", iter_mean_ms, "ms"),
             Measurement("samples_per_sec", samples_per_sec, "samples/s"),
@@ -352,6 +360,8 @@ def run_llm_benchmark(
 
     Warmup runs the same loop for `warmup_steps`, then the cache is
     `reset()` outside the timed region so timing starts from a clean cache.
+    Warmup wall-clock is reported as `warmup_total_ms`; in compile mode
+    that's where prefill + decode graph compilation lands.
     """
 
     def _generate(steps: int) -> list[int]:
@@ -371,7 +381,9 @@ def run_llm_benchmark(
 
     with torch.no_grad():
         _signpost("warmup_start")
+        warmup_t0 = time.perf_counter_ns()
         _generate(warmup_steps)
+        warmup_ns = time.perf_counter_ns() - warmup_t0
         _signpost("warmup_end")
         past_key_values.reset()
 
@@ -392,6 +404,7 @@ def run_llm_benchmark(
         warmup=warmup_steps,
         iters=total_steps,
         measurements=[
+            Measurement("warmup_total_ms", warmup_ns / 1e6, "ms"),
             Measurement("ttft_ms", step_ns[0] / 1e6, "ms"),
             Measurement("itl_mean_ms", statistics.fmean(decode_ms) if decode_ms else 0.0, "ms"),
             Measurement("itl_p50_ms", _percentile(decode_ms, 50.0), "ms"),
