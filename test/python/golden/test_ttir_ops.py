@@ -204,9 +204,9 @@ def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request, dev
     )
 
 
-@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
+@pytest.mark.parametrize("shape", [(64, 2048)], ids=shape_str)
 @pytest.mark.parametrize("shard_dims", [(0, 1)])
-@pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
+@pytest.mark.parametrize("mesh_shape", [(1, 2), (1, 8), (2, 4)], ids=shape_str)
 @pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 def test_cpu_hoisted_multichip(
     shape: Shape,
