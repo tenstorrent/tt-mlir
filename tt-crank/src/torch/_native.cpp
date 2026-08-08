@@ -807,7 +807,11 @@ NB_MODULE(_native, m) {
         .def_ro("ttir", &::tt::kurbla::CompileResult::ttir,
                 "The TTIR this program was compiled from. Empty unless `capture_ttir` was set.")
         .def_ro("cache_hit", &::tt::kurbla::CompileResult::cache_hit,
-                "True when the program came from the compile cache and no pipeline ran.");
+                "True when the program came from the compile cache and no pipeline ran.")
+        .def_prop_ro(
+            "compile_duration_ms",
+            [](const ::tt::kurbla::CompileResult &self) { return self.compile_duration.count(); },
+            "Wall-clock engine compile time in milliseconds. Near zero on a cache hit.");
 
     nb::class_<::tt::kurbla::CompiledProgram>(m, "CompiledProgram")
         // Returns a copy: `ttnn_ir()` hands out a view into the flatbuffer, and

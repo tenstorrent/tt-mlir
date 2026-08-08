@@ -94,6 +94,18 @@ TEST(EngineCompileTest, CapturesTTIRFromModuleBeforePipeline) {
     EXPECT_EQ(result.ttir.find("ttnn."), std::string::npos);
 }
 
+// The duration must be populated on both the compile and the cache-hit path.
+// No cold-vs-warm comparison: the on-disk cache persists across runs, so the
+// first call here isn't guaranteed to be a real compile.
+TEST(EngineCompileTest, ReportsCompileDuration) {
+    tt::kurbla::CompileResult first = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
+    EXPECT_GT(first.compile_duration.count(), 0.0);
+
+    tt::kurbla::CompileResult second = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
+    EXPECT_TRUE(second.cache_hit);
+    EXPECT_GT(second.compile_duration.count(), 0.0);
+}
+
 // Verify that the TTIR is properly captured when the user demands it.
 TEST(EngineCompileTest, CapturesTTIRFromStringInput) {
     tt::kurbla::CompileResult result =

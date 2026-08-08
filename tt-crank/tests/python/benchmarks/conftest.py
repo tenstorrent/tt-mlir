@@ -17,10 +17,40 @@ from typing import Any
 import pytest
 import torch
 
-from ._runner import BenchmarkResult
+from ._runner import BenchmarkResult, Measurement
 
 
 _RESULTS_KEY = "_tt_kurbla_bench_results"
+
+
+def _results_bucket(config: pytest.Config) -> list[BenchmarkResult]:
+    """The session-wide result list, created on first use."""
+    bucket: list[BenchmarkResult] = getattr(config, _RESULTS_KEY, [])
+    setattr(config, _RESULTS_KEY, bucket)
+    return bucket
+
+
+class _TestReport:
+    """One test's benchmark report: the device result, plus the optional
+    --cpu-baseline row. One of each, enforced, so the compile stats folded in
+    at teardown can't be misattributed; a test wanting several device results
+    should be parametrized into several tests instead.
+    """
+
+    def __init__(self) -> None:
+        self.device_result: BenchmarkResult | None = None
+        self.cpu_baseline: BenchmarkResult | None = None
+
+    def record(self, result: BenchmarkResult) -> None:
+        if result.device == "cpu":
+            assert self.cpu_baseline is None, "this test already recorded a cpu baseline"
+            self.cpu_baseline = result
+        else:
+            assert self.device_result is None, "this test already recorded a device result"
+            self.device_result = result
+
+    def results(self) -> list[BenchmarkResult]:
+        return [r for r in (self.device_result, self.cpu_baseline) if r is not None]
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -183,16 +213,36 @@ def _strict_no_fallback(request: pytest.FixtureRequest) -> Any:
 
 
 @pytest.fixture(autouse=True)
-def _collect_artifacts(request: pytest.FixtureRequest) -> Any:
-    """Collect the artifacts we produce in this benchmark, into a directory named
-    after the test (param id included, so parametrized runs don't collide).
+def _test_report(request: pytest.FixtureRequest) -> Any:
+    """Per-test benchmark report, wrapped in an artifacts collection named after
+    the test (param id included, so parametrized runs don't collide).
+
+    On teardown, folds the collection's compile stats (total engine compile
+    time, graph and cache-hit counts) into the results the test recorded, then
+    flushes them into the session-wide list the reporting hooks read.
     """
     from tt_kurbla.torch._artifacts import collect_artifacts
 
-    # The context dumps on exit, including when the benchmark raises — a failed
-    # compile-and-run is exactly when the IR is worth having.
-    with collect_artifacts(request.node.name):
-        yield
+    report = _TestReport()
+    try:
+        # A failing test still dumps its artifacts on exit from the `with`
+        # block, so the IR collected up to the failure survives for debugging.
+        with collect_artifacts(request.node.name) as collection:
+            yield report
+            stats = collection.compile_stats()
+
+        if stats.num_graphs > 0 and report.device_result is not None:
+            report.device_result.measurements.extend(
+                [
+                    Measurement("compile_total_ms", stats.total_duration_ms, "ms"),
+                    Measurement("num_graphs", stats.num_graphs, "count"),
+                    Measurement("num_cache_hits", stats.num_cache_hits, "count"),
+                ]
+            )
+    finally:
+        # Flush even when the artifacts dump throws: the results themselves
+        # are fine, and dropping them would hide a finished measurement.
+        _results_bucket(request.config).extend(report.results())
 
 
 @pytest.fixture(scope="session")
@@ -208,15 +258,10 @@ def opt_level(request: pytest.FixtureRequest) -> int | None:
 
 
 @pytest.fixture
-def record_bench(request: pytest.FixtureRequest) -> Callable[[BenchmarkResult], None]:
-    """Stash a BenchmarkResult on the session config for terminal + JSON reporting."""
-    bucket: list[BenchmarkResult] = getattr(request.config, _RESULTS_KEY, [])
-    setattr(request.config, _RESULTS_KEY, bucket)
-
-    def _record(result: BenchmarkResult) -> None:
-        bucket.append(result)
-
-    return _record
+def record_bench(_test_report: _TestReport) -> Callable[[BenchmarkResult], None]:
+    """Record a BenchmarkResult on this test's report, for terminal + JSON
+    reporting once the report is finalized."""
+    return _test_report.record
 
 
 def _git_sha() -> str:
