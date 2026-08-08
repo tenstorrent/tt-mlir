@@ -11,6 +11,7 @@
 
 #include "ttnn/tensor/tensor.hpp"
 
+#include <map>
 #include <vector>
 
 namespace tt::runtime::ttnn::operations::cpu {
@@ -116,11 +117,10 @@ std::vector<::ttnn::Tensor> runSingleChip(
 // subset of devices), the implementation will need to be updated to handle
 // that case appropriately.
 //
-// Additionally, the implementation could be simplified if there was a way
-// to detect whether a multi-device tensor is sharded or replicated; however, at
-// the time of writing, all multi-device tensors are created through
-// tt::runtime::createMultiDeviceHostTensor, and they all appear as sharded
-// tensors from the TTNN perspective.
+// Replicated inputs are recognized by their host buffers, not by topology
+// metadata: a replicated tensor hands every mesh coordinate the same pointer,
+// which is the same signal DistributedHostBuffer::transform uses to collapse
+// per-shard work.
 std::vector<::ttnn::Tensor> runMultiChip(
     common::WrappedFunc fn, const std::vector<::ttnn::Tensor> &inputs,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
@@ -161,6 +161,14 @@ std::vector<::ttnn::Tensor> runMultiChip(
   }
 
   // Execute CPU-hoisted function for each shard.
+  //
+  // Under data parallelism every weight is replicated, so all `numShards` input
+  // tuples are identical and this pure function only needs to run once. Reusing
+  // the output tensors matters as much as skipping the call: the mesh shards
+  // then share one HostBuffer, so the per-shard host transforms downstream of
+  // this op dedupe too.
+  std::map<std::vector<void *>, std::vector<::ttnn::Tensor>> resultsByInputs;
+
   std::vector<void *> inputDataPtrs;
   inputDataPtrs.reserve(inputs.size());
 
@@ -175,13 +183,19 @@ std::vector<::ttnn::Tensor> runMultiChip(
           inputShards[i][tensorIdx]));
     }
 
-    std::vector<::ttnn::Tensor> shardOutputs =
-        executeCPUHoistedFunction(fn, fbInputs, fbOutputs, inputDataPtrs);
+    auto [entry, isNewInput] = resultsByInputs.try_emplace(inputDataPtrs);
+    if (isNewInput) {
+      entry->second =
+          executeCPUHoistedFunction(fn, fbInputs, fbOutputs, inputDataPtrs);
+    }
 
-    for (size_t i = 0; i < shardOutputs.size(); ++i) {
-      outputShards[i].push_back(std::move(shardOutputs[i]));
+    for (size_t i = 0; i < entry->second.size(); ++i) {
+      outputShards[i].push_back(entry->second[i]);
     }
   }
+
+  LOG_DEBUG("CPU-hoisted op ran ", resultsByInputs.size(), " time(s) for ",
+            numShards, " shard(s)");
 
   // Combine output shards into multi-device tensors.
   std::vector<::ttnn::Tensor> outputs;
