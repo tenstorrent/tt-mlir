@@ -210,10 +210,8 @@ def _run_decode_benchmark(
         # chunk 0) fails the run instead of reporting a fast but wrong pass.
         pcc_prefill = compute_pcc(dev_prefill, cpu_prefill)
         pcc_first_decode = compute_pcc(dev_decode, cpu_decode)
-        result.measurements.append(Measurement("pcc_prefill", pcc_prefill, "pcc", target=_PCC_TARGET))
-        result.measurements.append(
-            Measurement("pcc_first_decode", pcc_first_decode, "pcc", target=_PCC_TARGET)
-        )
+        result.measurements.append(Measurement("pcc_prefill", pcc_prefill, "pcc"))
+        result.measurements.append(Measurement("pcc_first_decode", pcc_first_decode, "pcc"))
         assert pcc_prefill >= _PCC_TARGET, (
             f"{label}: prefill PCC {pcc_prefill:.4f} < {_PCC_TARGET}"
         )

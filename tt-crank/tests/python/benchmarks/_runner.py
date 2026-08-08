@@ -4,10 +4,10 @@ Benchmarking helpers for the tt-kurbla torch backend.
 Every measurement uses host-side wall-clock via `time.perf_counter_ns` with
 explicit fences via `_sync` (recursive `.cpu()` on tensor leaves).
 
-Results carry a `measurements` array of `{name, value, unit, target}`
-entries rather than a fixed set of fields, so new metrics (TTFT, ITL
-percentiles, device kernel duration from tracy, etc.) can be added without
-breaking the JSON schema that downstream dashboards key on.
+Results carry a `measurements` array of `{name, value, unit}` entries
+rather than a fixed set of fields, so new metrics (TTFT, ITL percentiles,
+device kernel duration from tracy, etc.) can be added without breaking the
+JSON schema that downstream dashboards key on.
 """
 
 from __future__ import annotations
@@ -128,7 +128,6 @@ class Measurement:
     name: str
     value: float
     unit: str
-    target: float = -1.0   # -1.0 = no regression threshold set
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -162,7 +161,8 @@ class BenchmarkResult:
         )
         rows = [header]
         for m in self.measurements:
-            rows.append(f"  {m.name:<24} {m.value:>12.3f} {m.unit}")
+            value = f"{m.value:>12.0f}" if m.unit == "count" else f"{m.value:>12.3f}"
+            rows.append(f"  {m.name:<24} {value} {m.unit}")
         return "\n".join(rows)
 
 
@@ -309,8 +309,8 @@ def run_benchmark(
     if have_ref:
         pcc_before = _pcc_against_reference(cold_out, reference_model, reference_inputs)
         pcc_after = _pcc_against_reference(warm_out, reference_model, reference_inputs)
-        accuracy_measurements.append(Measurement("pcc_before_warmup", pcc_before, "pcc", target=pcc_target))
-        accuracy_measurements.append(Measurement("pcc_after_warmup", pcc_after, "pcc", target=pcc_target))
+        accuracy_measurements.append(Measurement("pcc_before_warmup", pcc_before, "pcc"))
+        accuracy_measurements.append(Measurement("pcc_after_warmup", pcc_after, "pcc"))
         assert pcc_before >= pcc_target, f"{label}: pcc_before_warmup {pcc_before:.4f} < {pcc_target}"
         assert pcc_after >= pcc_target, f"{label}: pcc_after_warmup {pcc_after:.4f} < {pcc_target}"
 

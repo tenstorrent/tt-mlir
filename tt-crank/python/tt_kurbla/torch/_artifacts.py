@@ -12,6 +12,7 @@ import json
 import re
 from collections.abc import Callable
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,15 @@ from . import _native
 
 # Index of a dump directory: what was compiled, and with which options.
 _ARTIFACTS_JSON = "artifacts.json"
+
+
+@dataclass(frozen=True)
+class CompileStats:
+    """Compile work aggregated over one collection's graphs."""
+
+    total_duration_ms: float
+    num_graphs: int
+    num_cache_hits: int
 
 
 class Artifact:
@@ -83,6 +93,14 @@ class _ArtifactsDumperContext:
     def register_artifact(self, artifact: Artifact):
         self.artifacts.append(artifact)
 
+    def compile_stats(self) -> CompileStats:
+        results = [artifact.compile_result for artifact in self.artifacts]
+        return CompileStats(
+            total_duration_ms=sum(r.compile_duration_ms for r in results),
+            num_graphs=len(results),
+            num_cache_hits=sum(r.cache_hit for r in results),
+        )
+
     def dump(self) -> Path | None:
         """Write every registered artifact, plus an `artifacts.json` index, into a
         fresh directory.
@@ -124,6 +142,7 @@ class _ArtifactsDumperContext:
                 entry[field] = f"{stem}{suffix}" if ir else None
 
             entry["cache_hit"] = result.cache_hit
+            entry["compile_duration_ms"] = result.compile_duration_ms
             entry["compile_options"] = artifact.compile_options
             graphs.append(entry)
 
@@ -149,6 +168,9 @@ _global_artifacts_dumper_context: _ArtifactsDumperContext | None = None
 def collect_artifacts(collection_name: str):
     """Collect the artifacts produced in this context, dumped on exit into
     `$TT_KURBLA_ARTIFACTS_DIR/<collection_name>_<timestamp>/`.
+
+    Yields the collection, so the caller can inspect what was gathered (e.g.
+    `compile_stats()`) after the body ran.
     """
     global _global_artifacts_dumper_context
 
@@ -158,7 +180,7 @@ def collect_artifacts(collection_name: str):
     _global_artifacts_dumper_context = context
 
     try:
-        yield
+        yield context
     finally:
         # Uninstall before dumping, so we leave with the dumper uninstalled no
         # matter whether the dump throws. Skipped if `dump_artifacts()` in the body

@@ -217,12 +217,10 @@ jobs:
               )
               print(header)
               print()
-              print("| metric | value | unit | target |")
-              print("| --- | ---: | :--- | ---: |")
+              print("| metric | value | unit |")
+              print("| --- | ---: | :--- |")
               for m in r.get("measurements", []):
-                  target = m.get("target", -1.0)
-                  target_s = "—" if target is None or target < 0 else f"{target:g}"
-                  print(f"| {m['name']} | {m['value']:.3f} | {m['unit']} | {target_s} |")
+                  print(f"| {m['name']} | {m['value']:.3f} | {m['unit']} |")
               print()
           PY
 

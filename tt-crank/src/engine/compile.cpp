@@ -1,5 +1,6 @@
 #include "engine/compile.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -254,13 +255,20 @@ CompileResult run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const CompileO
         module_op.print(stream);
     }
 
+    // Started here so that neither waiting on another thread's compile nor the
+    // opt-in IR dumps above inflate the reported duration.
+    const auto compile_start = std::chrono::steady_clock::now();
+    const auto elapsed = [compile_start]() {
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - compile_start);
+    };
+
     mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions pm_opts;
     set_pipeline_options(options, pm_opts);
 
     auto key = calc_compilation_key(module_op, pm_opts);
     if (auto *entry = cache[key]) {
         print_ttnn_ir(*entry);
-        return {entry, std::move(ttir), /*cache_hit=*/true};
+        return {entry, std::move(ttir), /*cache_hit=*/true, elapsed()};
     }
 
     attach_sys_desc_attr(module_op, diag_buffer);
@@ -284,7 +292,7 @@ CompileResult run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const CompileO
     CompiledProgram &prog = cache.insert(key, CompiledProgram(std::move(fb)));
     print_ttnn_ir(prog);
 
-    return {&prog, std::move(ttir), /*cache_hit=*/false};
+    return {&prog, std::move(ttir), /*cache_hit=*/false, elapsed()};
 }
 
 } // namespace

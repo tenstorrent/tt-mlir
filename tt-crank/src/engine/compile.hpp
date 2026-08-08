@@ -1,6 +1,7 @@
 #pragma once
 
 #include "assert.hpp"
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -59,6 +60,10 @@ struct TT_KURBLA_API CompileResult {
     // True when the program came straight out of the compile cache, i.e. no
     // pipeline ran.
     bool cache_hit;
+
+    // Wall-clock time the engine spent producing this result. On a cache hit
+    // only the lookup ran, so this is near zero.
+    std::chrono::duration<double, std::milli> compile_duration{};
 };
 
 // Returns the process-wide MLIRContext used by tt-kurbla's compile pipelines.

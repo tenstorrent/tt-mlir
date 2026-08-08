@@ -58,13 +58,18 @@ def test_artifacts_dump(
     model = torch.compile(MNISTLinear(_FEAT, _HIDDEN, _CLASSES).to(tt_device, dtype=_DTYPE), backend="tt")
     x = torch.randn(_BATCH, _FEAT, device=tt_device, dtype=_DTYPE)
 
-    with collect_artifacts("mnist_linear"):
+    with collect_artifacts("mnist_linear") as collection:
         with torch.no_grad() if no_grad else contextlib.nullcontext():
             out = model(x)
         # aot compiles the backward lazily, on the first backward call - so this has
         # to happen inside the collection to be seen.
         if run_backward:
             out.sum().backward()
+
+    stats = collection.compile_stats()
+    assert stats.num_graphs == len(expected_graphs)
+    assert 0 <= stats.num_cache_hits <= stats.num_graphs
+    assert stats.total_duration_ms > 0.0
 
     (out_dir,) = list(artifacts_root.iterdir())
     assert out_dir.name.startswith("mnist_linear_")
@@ -80,3 +85,4 @@ def test_artifacts_dump(
         # Not asserted `False`: the compile cache is process-wide, so an earlier
         # test in the same session may legitimately have compiled this graph.
         assert isinstance(graph["cache_hit"], bool)
+        assert graph["compile_duration_ms"] > 0.0
