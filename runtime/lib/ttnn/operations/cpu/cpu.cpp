@@ -4,6 +4,7 @@
 
 #include "cpu.h"
 
+#include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/dylib.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
@@ -11,6 +12,8 @@
 
 #include "ttnn/tensor/tensor.hpp"
 
+#include <future>
+#include <map>
 #include <vector>
 
 namespace tt::runtime::ttnn::operations::cpu {
@@ -104,8 +107,10 @@ std::vector<::ttnn::Tensor> runSingleChip(
 // Executes CPU-hoisted function for multi-chip workloads.
 //
 // This function handles sharded and replicated inputs across multiple devices.
-// For each shard, it gathers input tensor data pointers, executes the
-// CPU function, and finally, combines the outputs into a multi-device tensor.
+// It gathers input tensor data pointers per shard, groups shards with
+// identical inputs, executes the CPU function once per group (in parallel
+// when there are multiple groups), and finally, combines the outputs into a
+// multi-device tensor.
 //
 // TODO(dmilinkovic):
 // The current implementation assumes that input tensors are either:
@@ -116,11 +121,10 @@ std::vector<::ttnn::Tensor> runSingleChip(
 // subset of devices), the implementation will need to be updated to handle
 // that case appropriately.
 //
-// Additionally, the implementation could be simplified if there was a way
-// to detect whether a multi-device tensor is sharded or replicated; however, at
-// the time of writing, all multi-device tensors are created through
-// tt::runtime::createMultiDeviceHostTensor, and they all appear as sharded
-// tensors from the TTNN perspective.
+// Replicated inputs are recognized by their host buffers, not by topology
+// metadata: a replicated tensor hands every mesh coordinate the same pointer,
+// which is the same signal DistributedHostBuffer::transform uses to collapse
+// per-shard work.
 std::vector<::ttnn::Tensor> runMultiChip(
     common::WrappedFunc fn, const std::vector<::ttnn::Tensor> &inputs,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
@@ -160,7 +164,17 @@ std::vector<::ttnn::Tensor> runMultiChip(
     outputShards[i].reserve(numShards);
   }
 
-  // Execute CPU-hoisted function for each shard.
+  // Group shards by their input tuples; the function runs once per group.
+  //
+  // Under data parallelism every weight is replicated, so all `numShards` input
+  // tuples are identical and this pure function only needs to run once. Reusing
+  // the output tensors matters as much as skipping the call: the mesh shards
+  // then share one HostBuffer, so the per-shard host transforms downstream of
+  // this op dedupe too.
+  std::map<std::vector<void *>, size_t> groupIdxByInputs;
+  std::vector<const std::vector<void *> *> groupInputs;
+  std::vector<size_t> shardGroups(numShards);
+
   std::vector<void *> inputDataPtrs;
   inputDataPtrs.reserve(inputs.size());
 
@@ -175,11 +189,51 @@ std::vector<::ttnn::Tensor> runMultiChip(
           inputShards[i][tensorIdx]));
     }
 
-    std::vector<::ttnn::Tensor> shardOutputs =
-        executeCPUHoistedFunction(fn, fbInputs, fbOutputs, inputDataPtrs);
+    auto [entry, isNewInput] =
+        groupIdxByInputs.try_emplace(inputDataPtrs, groupInputs.size());
+    if (isNewInput) {
+      groupInputs.push_back(&entry->first);
+    }
+    shardGroups[shardIdx] = entry->second;
+  }
 
+  // Genuinely sharded inputs produce multiple groups; run each on its own
+  // thread (the hoisted function is pure and the whole call chain is
+  // reentrant). Group count is bounded by the mesh size and const-eval
+  // results are cached across runs, so no thread pooling is needed.
+  std::vector<std::vector<::ttnn::Tensor>> groupResults(groupInputs.size());
+  if (groupInputs.size() == 1) {
+    groupResults[0] =
+        executeCPUHoistedFunction(fn, fbInputs, fbOutputs, *groupInputs[0]);
+  } else {
+    std::vector<std::future<std::vector<::ttnn::Tensor>>> futures;
+    futures.reserve(groupInputs.size());
+    for (const std::vector<void *> *groupInputPtrs : groupInputs) {
+      futures.push_back(std::async(
+          std::launch::async, [fn, fbInputs, fbOutputs, groupInputPtrs]() {
+            return executeCPUHoistedFunction(fn, fbInputs, fbOutputs,
+                                             *groupInputPtrs);
+          }));
+    }
+    // get() rethrows worker exceptions. If one throws (or a launch fails),
+    // the remaining futures' destructors block until their tasks finish --
+    // std::async futures join on destruction -- so no task can outlive the
+    // frame-local state it borrows.
+    for (size_t groupIdx = 0; groupIdx < futures.size(); ++groupIdx) {
+      groupResults[groupIdx] = futures[groupIdx].get();
+    }
+  }
+
+  debug::Stats::get().incrementStat(
+      "CpuOpHoistedRuns", static_cast<std::int64_t>(groupResults.size()));
+  LOG_DEBUG("CPU-hoisted op ran ", groupResults.size(), " time(s) for ",
+            numShards, " shard(s)");
+
+  for (size_t shardIdx = 0; shardIdx < numShards; ++shardIdx) {
+    const std::vector<::ttnn::Tensor> &shardOutputs =
+        groupResults[shardGroups[shardIdx]];
     for (size_t i = 0; i < shardOutputs.size(); ++i) {
-      outputShards[i].push_back(std::move(shardOutputs[i]));
+      outputShards[i].push_back(shardOutputs[i]);
     }
   }
 
