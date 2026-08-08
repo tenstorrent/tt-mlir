@@ -201,6 +201,7 @@ jobs:
           print(f"- mode: `{session.get('mode')}` | warmup: `{session.get('warmup')}` | iters: `{session.get('iters')}`")
           print(f"- simulator: `{session.get('simulator')}`")
           print(f"- host: `{session.get('device_info', {}).get('hostname', '')}`")
+          print(f"- arch: `{session.get('device_info', {}).get('arch', '')}` | chips: `{session.get('device_info', {}).get('num_chips', '')}`")
           print(f"- timestamp: `{session.get('timestamp', '')}`")
           print()
 

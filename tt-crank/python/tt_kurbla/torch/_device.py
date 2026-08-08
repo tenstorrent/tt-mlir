@@ -57,6 +57,11 @@ class _DeviceModule:
         return _native.runtime_device_num_chips()
 
     @staticmethod
+    def arch() -> str:
+        """Architecture of the chips behind the `tt` device, e.g. "wormhole_b0"."""
+        return _native.runtime_device_arch()
+
+    @staticmethod
     def set_mesh_shape(rows: int, cols: int) -> None:
         """Open (or reopen) the runtime MeshDevice as (rows, cols); rows*cols
         must be in `[1, num_chips()]`. Prefer `torch.tt.init_device_mesh`

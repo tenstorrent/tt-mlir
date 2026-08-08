@@ -576,6 +576,10 @@ NB_MODULE(_native, m) {
     m.def("runtime_device_num_chips", &::tt::kurbla::runtime_device_num_chips,
           "Number of physical chips behind the single logical tt device.");
 
+    m.def(
+        "runtime_device_arch", []() { return std::string(mlir::tt::ttcore::stringifyArch(::tt::kurbla::arch())); },
+        "Architecture of the chips behind the tt device, e.g. \"wormhole_b0\".");
+
     m.def("open_runtime_device_mesh", &::tt::kurbla::open_runtime_device_mesh, "rows"_a, "cols"_a,
           "Open (or reopen, if already open with a different shape) the MeshDevice "
           "with mesh shape (rows, cols). rows*cols must be in [1, num_chips()].");
