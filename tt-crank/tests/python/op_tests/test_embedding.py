@@ -6,7 +6,6 @@ import torch
 from tt_kurbla.torch.testing import assert_close_cpu_vs_tt
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 @pytest.mark.parametrize(
     "vocab_size,hidden,seq_len",
     [
@@ -22,7 +21,6 @@ def test_embedding(vocab_size: int, hidden: int, seq_len: int) -> None:
     assert_close_cpu_vs_tt(fn, weight, indices)
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 def test_embedding_module() -> None:
     # nn.Embedding moves weight to tt; indices stay on CPU (scalar-type Long).
     module = torch.nn.Embedding(256, 64).to(torch.bfloat16)

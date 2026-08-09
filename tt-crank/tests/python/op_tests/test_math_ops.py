@@ -17,7 +17,6 @@ def test_pow_tensor_scalar(exp: float, dtype: torch.dtype) -> None:
     assert_close_cpu_vs_tt(lambda x: x.pow(exp), a, atol=0.05, rtol=0.05)
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 @pytest.mark.parametrize("dtype", get_supported_dtypes())
 @pytest.mark.parametrize("scalar", [2.0, -1.5, 0.5])
 def test_add_scalar(scalar: float, dtype: torch.dtype) -> None:
@@ -25,7 +24,6 @@ def test_add_scalar(scalar: float, dtype: torch.dtype) -> None:
     assert_close_cpu_vs_tt(lambda x: x + scalar, a, atol=0.05, rtol=0.05)
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 @pytest.mark.parametrize("dtype", get_supported_dtypes())
 @pytest.mark.parametrize("scalar", [2.0, -0.5, 3.0])
 def test_mul_scalar(scalar: float, dtype: torch.dtype) -> None:
@@ -40,14 +38,12 @@ def test_div_tensor(dtype: torch.dtype) -> None:
     assert_close_cpu_vs_tt(lambda x, y: x / y, a, b, atol=5e-3, rtol=5e-3)
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 @pytest.mark.parametrize("scalar", [2.0, 4.0, 0.5])
 def test_div_scalar(scalar: float) -> None:
     a = torch.randn((32, 64), dtype=torch.bfloat16)
     assert_close_cpu_vs_tt(lambda x: x / scalar, a, atol=5e-3, rtol=5e-3)
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 @pytest.mark.parametrize("dtype", [torch.int32, torch.int64])
 def test_div_integer_true_division(dtype: torch.dtype) -> None:
     # int / int is true division: the result is the default float dtype
