@@ -253,7 +253,6 @@ def test_bitwise_and_bool(shape: tuple[int, ...]) -> None:
 
 # index_copy lowers to ttir.ScatterOp, which ttsim doesn't support (it aborts
 # the simulator process) — exercise it on silicon only.
-@pytest.mark.usefixtures("skip_if_sim")
 @pytest.mark.parametrize("dim", [0, 1, -1], ids=["dim0", "dim1", "dim_neg1"])
 def test_index_copy(dim: int) -> None:
     self_t = torch.randn((32, 64), dtype=torch.bfloat16)
@@ -264,7 +263,6 @@ def test_index_copy(dim: int) -> None:
     assert_close_cpu_vs_tt(lambda s, i, src: torch.index_copy(s, dim, i, src), self_t, index, source)
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 def test_index_copy_inplace_kv_cache_like() -> None:
     # Mirrors the Llama StaticCache update: scatter new key/value slabs into a
     # [batch, heads, cache_len, head_dim] cache along the sequence dim.
@@ -280,7 +278,6 @@ def test_index_copy_inplace_kv_cache_like() -> None:
     torch.testing.assert_close(tt.cpu(), expected)
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 def test_index_copy_inplace_kv_cache_decode_step() -> None:
     # Single-token decode step at a non-zero position: the [batch, heads, 1,
     # head_dim] write along the seq dim lowers to ttir.update_cache (vs the

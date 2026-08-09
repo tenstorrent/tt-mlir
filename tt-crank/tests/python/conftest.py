@@ -66,13 +66,6 @@ def device_type() -> DeviceType:
     """
     return DeviceType.SIM if os.environ.get("TT_KURBLA_USE_SIMULATOR") == "1" else DeviceType.REAL
 
-@pytest.fixture()
-def skip_if_sim(device_type: DeviceType) -> None:
-    """ttsim's TTNN-emitted f32/i32 kernels trip UB; tests that exercise a
-    non-bf16 lowering can't run there."""
-    if device_type is DeviceType.SIM:
-        pytest.skip("Tests needs the f32 emitter, unreliable under ttsim")
-
 
 @pytest.fixture(autouse=True)
 def _reset_dynamo_between_tests() -> None:

@@ -380,7 +380,6 @@ def test_compile_max_pool2d(n: int, c: int, h: int, w: int, k: int, stride: int,
     _assert_compile_matches_eager(_MaxPool(), x)
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 def test_compile_batch_norm() -> None:
     """nn.BatchNorm2d in eval mode compiled end-to-end — exercises
     aten._native_batch_norm_legit_no_training + operator.getitem in one FX graph."""
@@ -389,7 +388,6 @@ def test_compile_batch_norm() -> None:
     _assert_compile_matches_eager(model, x, atol=0.05, rtol=0.05)
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 def test_compile_add_dtype_promotion() -> None:
     """bf16 + f32 must promote to f32 - same `at::promote_types` semantics
     the eager kernel applies. Validates that the compile path's MLIR-level
@@ -577,7 +575,6 @@ def test_compile_softmax(dim: int) -> None:
     _assert_compile_matches_eager(_Softmax(dim), x, atol=0.05, rtol=0.05)
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 @pytest.mark.parametrize("dim,keepdim", [(0, False), (1, True), (-1, False)])
 def test_compile_argmax(dim: int, keepdim: bool) -> None:
     class _Argmax(nn.Module):
@@ -704,7 +701,6 @@ def test_compile_slice(shape: tuple[int, ...], dim: int, start: int, end: int) -
     _assert_compile_matches_eager(_Slice(dim, start, end), x)
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 def test_compile_arange() -> None:
     class _Arange(nn.Module):
         def forward(self) -> torch.Tensor:
@@ -713,7 +709,6 @@ def test_compile_arange() -> None:
     _assert_compile_matches_eager(_Arange())
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 def test_compile_embedding() -> None:
     class _Embedding(nn.Module):
         def __init__(self) -> None:
@@ -904,7 +899,6 @@ def test_compile_bitwise_bool() -> None:
     _assert_compile_matches_eager(_Mask(), x, y)
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 def test_compile_logical_nonbool() -> None:
     """logical_and/or/not on non-bool (int) operands. torch treats any nonzero
     value as true and returns bool, so these must NOT share the bitwise lowering
@@ -918,7 +912,6 @@ def test_compile_logical_nonbool() -> None:
     _assert_compile_matches_eager(_Logical(), a, b)
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 def test_compile_index_single() -> None:
     """Advanced indexing with one index tensor on a single dim (aten.index.Tensor
     → gather). ttir.gather isn't supported under ttsim."""
@@ -931,7 +924,6 @@ def test_compile_index_single() -> None:
     _assert_compile_matches_eager(_Index(), x, idx)
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 def test_compile_index_leading_dims() -> None:
     """Advanced indexing with index tensors covering all leading dims
     (aten.index.Tensor → flattened linear-index gather). ttir.gather isn't
@@ -946,7 +938,6 @@ def test_compile_index_leading_dims() -> None:
     _assert_compile_matches_eager(_IndexND(), x, r, c)
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 def test_compile_index_negative() -> None:
     """Negative indices count from the end. ttir.gather reads out of bounds on
     negatives, so the lowering normalizes them (idx + size) first — covers both
@@ -1038,7 +1029,6 @@ def test_compile_tril(shape: tuple, diagonal: int) -> None:
     _assert_compile_matches_eager(_Tril(diagonal), x)
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 def test_compile_index_copy() -> None:
     """aten::index_copy.default in a compiled graph — copies rows from `src`
     into `dst` at positions given by `index` along dim 0. Used by StaticCache

@@ -74,7 +74,6 @@ def _tolerance(a_dtype: torch.dtype, b_dtype: torch.dtype) -> dict[str, float]:
     return {}
 
 
-@pytest.mark.usefixtures("skip_if_sim")
 @pytest.mark.parametrize("mode", _MODES, ids=lambda m: m.value)
 @pytest.mark.parametrize("op_name", list(BINARY_OPS))
 @pytest.mark.parametrize("a_dtype,b_dtype", DTYPE_PAIRS)
@@ -95,7 +94,6 @@ def test_binary_op_dtype(
 
 # Tensor + Python scalar: result dtype follows the tensor (PyTorch's
 # wrapped-scalar rule), not the scalar's natural Python type.
-@pytest.mark.usefixtures("skip_if_sim")
 @pytest.mark.parametrize("mode", _MODES, ids=lambda m: m.value)
 @pytest.mark.parametrize("op_name", list(BINARY_OPS))
 @pytest.mark.parametrize(
@@ -122,7 +120,6 @@ def test_binary_op_scalar(
 # Cross-device: one tt operand, one CPU operand. Eager only - torch.compile
 # rejects mixed-device inputs at FakeTensor trace time, so the compile path
 # never sees this case.
-@pytest.mark.usefixtures("skip_if_sim")
 @pytest.mark.parametrize("op_name", list(BINARY_OPS))
 @pytest.mark.parametrize("a_dtype,b_dtype", [(torch.float32, torch.float32), (torch.float32, torch.float64)])
 def test_binary_op_mixed_device(op_name: str, a_dtype: torch.dtype, b_dtype: torch.dtype) -> None:

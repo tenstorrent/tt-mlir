@@ -12,9 +12,6 @@ from tt_kurbla.torch.testing import post_aot_fx_hook, strict_no_fallback
 # we have our own kernel for sdpa.
 _SDPA_OVERRIDEABLE = "_scaled_dot_product_fused_attention_overrideable"
 
-# SDPA's eager kernel allocates an f32 `logsumexp` slot, so it needs the f32 emitter.
-pytestmark = pytest.mark.usefixtures("skip_if_sim")
-
 _DT = torch.bfloat16
 _B, _H, _S, _E = 1, 8, 32, 64
 _PCC = 0.99  # bf16 SDPA vs an fp-accumulating CPU reference

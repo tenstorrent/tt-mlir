@@ -17,7 +17,9 @@
 set(TT_KURBLA_TTSIM_VERSION "v1.9.1" CACHE STRING
     "ttsim release tag (https://github.com/tenstorrent/ttsim/releases)")
 
-set(TT_KURBLA_SIM_ARCH "wh" CACHE STRING "Simulator arch (wh|bh)")
+# Default to blackhole: it provides more coverage, since wormhole kernels have more
+# issues which get exposed when running through the sim.
+set(TT_KURBLA_SIM_ARCH "bh" CACHE STRING "Simulator arch (wh|bh)")
 set_property(CACHE TT_KURBLA_SIM_ARCH PROPERTY STRINGS wh bh)
 
 if(TT_KURBLA_SIM_ARCH STREQUAL "wh")
