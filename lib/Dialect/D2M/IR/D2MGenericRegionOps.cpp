@@ -1525,7 +1525,8 @@ TopkBlockOp::bufferize(mlir::RewriterBase &rewriter,
 
   rewriter.create<TopkBlockOp>(getLoc(), *maybeInputBuffer, *maybeScratchBuffer,
                                *maybeOutValsBuffer, *maybeOutIdxBuffer, getK(),
-                               getNumElements(), getStableSort(), getDim());
+                               getNumElements(), getStableSort(), getDim(),
+                               getGenerateIndices());
 
   mlir::bufferization::replaceOpWithBufferizedValues(
       rewriter, getOperation(),

@@ -20,6 +20,10 @@ namespace mlir::tt::ttcore {
 class DeviceAttr;
 } // namespace mlir::tt::ttcore
 
+namespace mlir::tt::d2m {
+class GenericOp;
+} // namespace mlir::tt::d2m
+
 namespace mlir::tt::d2m::utils {
 
 // Discardable attribute names for propagating virtualGridMapping (inverse) and
@@ -79,6 +83,36 @@ SmallVector<int64_t> deriveBlockFactorsFromOperandGrids(
 SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
                                     AffineMap indexingMap);
 
+// Populates `generic`'s region: `remote_load` per input, `tensor.empty` per
+// output, `body`'s results stored back. `generic` must be all-parallel.
+void buildParallelGenericRegion(
+    RewriterBase &rewriter, Location loc, GenericOp generic, ValueRange inputs,
+    ValueRange outputs,
+    llvm::function_ref<SmallVector<Value>(ArrayRef<Value>)> body);
+
+// Maps each tile of `src` through `makeTile` under identity maps of `out`'s
+// device rank. A null `grid` leaves the grid derived from the operands.
+Value emitUnaryGeneric(
+    RewriterBase &rewriter, Location loc, Value src, Value out,
+    llvm::function_ref<Value(OpBuilder &, Location, ValueRange)> makeTile,
+    ttcore::GridAttr grid = nullptr);
+
+// A buffer whose type and placement grid selection decided. A null `type` means
+// unplaced: the emitter sizes the buffer off its own input instead.
+struct PlacedBuffer {
+  RankedTensorType type;
+  // Null when the grid needs neither virtualization nor a spatial offset.
+  AffineMapAttr vgmForward;
+  AffineMapAttr vgmInverse;
+  ttcore::GridAttr grid;
+
+  bool isPlaced() const { return static_cast<bool>(type); }
+};
+
+// Copies `value` into an explicitly placed destination of its own type.
+Value materializeToLayout(RewriterBase &rewriter, Location loc, Value value,
+                          const PlacedBuffer &destination);
+
 // Gets the underlying physical grid shape corresponding to the tensor or
 // memref. For views/streams, this 'physical' grid corresponds to the compute
 // grid shape used if the tensor/memref was the output of a GenericOp.
@@ -119,6 +153,12 @@ std::optional<AffineMap> getVirtualGridForwardMapping(Value val);
 // when the stored mapping belongs to a different-rank view of the value.
 std::optional<std::pair<AffineMap, AffineMap>>
 getGridMapsFromVirtualGridMapping(Value val, ArrayRef<int64_t> gridShape);
+
+// Folds `gridShape` from a mapping pair held directly rather than read off a
+// value, so a buffer that does not exist yet can still be folded.
+std::optional<std::pair<AffineMap, AffineMap>>
+getGridMapsFromVirtualGridMapping(AffineMap forwardMap, AffineMap inverseMap,
+                                  ArrayRef<int64_t> gridShape);
 
 // Returns the effective affine map for a memref-typed value by resolving
 // ViewLayoutAttr remappings (via applyViews) and falling back to the layout's

@@ -3369,10 +3369,15 @@ def D2M_TopkBlockOp : D2M_GenericRegionComputeOp<"topk_block",
       decomposed post-bufferization by `d2m-decompose-topk` into
       `tile_topk_local_sort`, `tile_topk_merge`, and `tile_topk_rebuild`.
 
-      The scratch_idx_tile is a pre-filled full-shape index buffer containing
-      the arange of original element indices (generated upstream in TTIRToD2M
-      via arange + broadcast generics). `d2m-decompose-topk` consumes this
-      buffer directly.
+      `generate_indices` selects where the index buffer paired with the value
+      tiles comes from:
+
+      - false (the default): scratch_idx_tile already holds one index tile
+        per value tile. Used by merge stages, whose indices can't be
+        recomputed.
+      - true: scratch_idx_tile is just a 1x1 scratch tile, and
+        `d2m-decompose-topk` builds the index buffer in-kernel from the
+        core's grid coordinate. Used by a leaf topk over raw input.
   }];
 
   let arguments = (ins
@@ -3383,7 +3388,8 @@ def D2M_TopkBlockOp : D2M_GenericRegionComputeOp<"topk_block",
       I32Attr:$k,
       I64Attr:$num_elements,
       BoolAttr:$stable_sort,
-      I32Attr:$dim);
+      I32Attr:$dim,
+      DefaultValuedAttr<BoolAttr, "false">:$generate_indices);
 
   let results = (outs
       AnyRankedTensorOrMemRef:$result_values,
@@ -3393,14 +3399,16 @@ def D2M_TopkBlockOp : D2M_GenericRegionComputeOp<"topk_block",
     OpBuilder<(ins "Value":$inputValues, "Value":$scratchIdxTile,
                     "Value":$outValues, "Value":$outIndices,
                     "int32_t":$k, "int64_t":$numElements,
-                    "bool":$stableSort, "int32_t":$dim), [{
+                    "bool":$stableSort, "int32_t":$dim,
+                    CArg<"bool", "false">:$generateIndices), [{
       build($_builder, $_state,
             outValues.getType(), outIndices.getType(),
             inputValues, scratchIdxTile, outValues, outIndices,
             $_builder.getI32IntegerAttr(k),
             $_builder.getI64IntegerAttr(numElements),
             $_builder.getBoolAttr(stableSort),
-            $_builder.getI32IntegerAttr(dim));
+            $_builder.getI32IntegerAttr(dim),
+            $_builder.getBoolAttr(generateIndices));
     }]>
   ];
 
