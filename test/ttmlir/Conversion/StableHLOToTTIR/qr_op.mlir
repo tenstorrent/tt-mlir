@@ -18,6 +18,9 @@ module {
   func.func @qr_m_ge_n(%arg0: tensor<4x3xf32>) -> (tensor<4x3xf32>, tensor<3x3xf32>) {
     // CHECK: "ttir.qr"(%arg0)
     // CHECK-SAME: -> (tensor<4x3xf32>, tensor<3x3xf32>)
+    // CHECK-NOT: custom_call
+    // CHECK-NOT: stablehlo
+    // CHECK: return
     // TTNN-LABEL: func.func @qr_m_ge_n
     // TTNN-NOT: ttir.qr
     // TTNN-NOT: xi1
@@ -43,6 +46,9 @@ module {
   func.func @qr_m_lt_n(%arg0: tensor<3x4xf32>) -> (tensor<3x3xf32>, tensor<3x4xf32>) {
     // CHECK: "ttir.qr"(%arg0)
     // CHECK-SAME: -> (tensor<3x3xf32>, tensor<3x4xf32>)
+    // CHECK-NOT: custom_call
+    // CHECK-NOT: stablehlo
+    // CHECK: return
     // TTNN-LABEL: func.func @qr_m_lt_n
     // TTNN-NOT: ttir.qr
     // TTNN-NOT: xi1
@@ -62,8 +68,6 @@ module {
     return %2, %9 : tensor<3x3xf32>, tensor<3x4xf32>
   }
 
-  // CHECK: return
-  // No lapack custom call or stablehlo mask chain may survive the rewrite.
-  // CHECK-NOT: custom_call
-  // CHECK-NOT: stablehlo
+  // No lapack custom call or stablehlo op may survive the rewrite; each
+  // function above ends with CHECK-NOT covering its tail up to the next label.
 }

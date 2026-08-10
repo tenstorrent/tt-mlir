@@ -5000,6 +5000,11 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
   auto qType = getQ().getType();
   auto rType = getR().getType();
 
+  if (!inputType.hasStaticShape() || !qType.hasStaticShape() ||
+      !rType.hasStaticShape()) {
+    return emitOpError("requires statically known input, Q, and R shapes");
+  }
+
   if (inputType.getRank() != 2) {
     return emitOpError("requires a rank-2 input");
   }
