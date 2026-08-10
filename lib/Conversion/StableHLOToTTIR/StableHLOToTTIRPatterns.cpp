@@ -8751,6 +8751,190 @@ public:
 } // namespace
 
 namespace {
+// Converts the JAX 0.7.1 QR graph to a single ttir.qr.
+//
+// jnp.linalg.qr (CPU/GPU) emits two LAPACK FFI custom calls plus the R
+// extraction:
+//   %packed:2 = stablehlo.custom_call @lapack_sgeqrf_ffi(%input)
+//               // (packed reflectors [m, n], tau [k])
+//   %q = stablehlo.custom_call @lapack_sorgqr_ffi(%a, %tau)  // Q [m, k]
+//   %r = stablehlo.select(mask, zeros, %a)  // strict upper triangle [k, n]
+// where k = min(m, n). When m >= n, JAX slices the top k rows of the packed
+// reflectors before masking; when m < n, ORGQR consumes the leading k x k
+// block instead. The packed reflectors therefore have two consumers: ORGQR
+// (possibly through a slice) and the R extraction (possibly through a slice).
+//
+// This pattern rewrites the whole graph to one ttir.qr created from the GEQRF
+// *input*, replaces ORGQR's uses with the Q result and the extraction's uses
+// with the R result, then erases the dead custom calls and mask chain so no
+// lapack custom call remains visible to any generic custom-call lowering.
+class StableHLOQrConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::SelectOp> {
+public:
+  StableHLOQrConversionPattern(TypeConverter &typeConverter, MLIRContext *ctx)
+      : OpConversionPattern<mlir::stablehlo::SelectOp>(typeConverter, ctx,
+                                                       /*benefit=*/2) {}
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::SelectOp rSelect,
+                  mlir::stablehlo::SelectOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (rSelect.getNumOperands() != 3) {
+      return failure();
+    }
+
+    Operation *rSlice = rSelect.getOnFalse().getDefiningOp();
+    Value packed = rSelect.getOnFalse();
+    if (isLeadingBlockSlice(rSlice)) {
+      packed = rSlice->getOperand(0);
+    }
+    auto geqrf = packed.getDefiningOp<mlir::stablehlo::CustomCallOp>();
+    if (!geqrf || !isGeqrf(geqrf) || geqrf.getNumOperands() != 1 ||
+        geqrf.getNumResults() != 2) {
+      return failure();
+    }
+
+    auto inputType =
+        dyn_cast<RankedTensorType>(geqrf.getOperand(0).getType());
+    if (!inputType || inputType.getRank() != 2 || !inputType.hasStaticShape() ||
+        !inputType.getElementType().isF32()) {
+      return failure();
+    }
+
+    int64_t m = inputType.getDimSize(0);
+    int64_t n = inputType.getDimSize(1);
+    int64_t k = std::min(m, n);
+
+    packed = geqrf.getResult(0);
+    Value tau = geqrf.getResult(1);
+    SmallVector<Operation *> ttirSlices;
+    for (Operation *user : packed.getUsers()) {
+      if (isa<ttir::SliceStaticOp>(user)) {
+        ttirSlices.push_back(user);
+      }
+    }
+    auto packedType = dyn_cast<RankedTensorType>(packed.getType());
+    auto tauType = dyn_cast<RankedTensorType>(tau.getType());
+    if (!packedType || packedType.getShape() != inputType.getShape() ||
+        !tauType || tauType.getRank() != 1 ||
+        tauType.getDimSize(0) != k) {
+      return failure();
+    }
+
+    mlir::stablehlo::CustomCallOp orgqr;
+    for (Operation *user : packed.getUsers()) {
+      if (auto cc = dyn_cast<mlir::stablehlo::CustomCallOp>(user)) {
+        if (isOrgqr(cc)) {
+          orgqr = cc;
+        }
+        continue;
+      }
+      if (isLeadingBlockSlice(user)) {
+        for (Operation *sliceUser : user->getResult(0).getUsers()) {
+          if (auto cc =
+                  dyn_cast<mlir::stablehlo::CustomCallOp>(sliceUser)) {
+            if (isOrgqr(cc)) {
+              orgqr = cc;
+            }
+          }
+        }
+      }
+    }
+    if (!orgqr || orgqr.getNumOperands() != 2 ||
+        orgqr.getNumResults() != 1 || orgqr.getOperand(1) != tau ||
+        !isPackedOrLeadingBlock(orgqr.getOperand(0), packed, k)) {
+      return failure();
+    }
+
+    auto qType = dyn_cast<RankedTensorType>(orgqr.getResult(0).getType());
+    auto rType = dyn_cast<RankedTensorType>(rSelect.getResult().getType());
+    if (!qType || qType.getShape() != llvm::ArrayRef<int64_t>{m, k} ||
+        !rType || rType.getShape() != llvm::ArrayRef<int64_t>{k, n} ||
+        !isPackedOrLeadingBlock(rSelect.getOnFalse(), packed, k)) {
+      return failure();
+    }
+    Operation *predicate = adaptor.getPred().getDefiningOp();
+    Operation *onTrue = adaptor.getOnTrue().getDefiningOp();
+
+
+    auto qrOp = rewriter.create<ttir::QrOp>(geqrf.getLoc(), qType, rType,
+                                            geqrf.getOperand(0));
+    orgqr.getResult(0).replaceAllUsesWith(qrOp.getResult(0));
+    rSelect.getResult().replaceAllUsesWith(qrOp.getResult(1));
+    rewriter.eraseOp(orgqr);
+    rewriter.eraseOp(rSelect);
+    for (Operation *slice : ttirSlices) {
+      if (slice->use_empty()) {
+        rewriter.eraseOp(slice);
+      }
+    }
+    eraseDeadQrChain(rewriter, packed.getDefiningOp());
+    eraseDeadQrChain(rewriter, predicate);
+    eraseDeadQrChain(rewriter, onTrue);
+    return success();
+  }
+
+private:
+  // True if `value` is `packed` itself or a [k, k] slice of it.
+  bool isPackedOrLeadingBlock(Value value, Value packed, int64_t k) const {
+    if (value == packed) {
+      return true;
+    }
+    Operation *sliceOp = value.getDefiningOp();
+    if (!isLeadingBlockSlice(sliceOp) || sliceOp->getOperand(0) != packed) {
+      return false;
+    }
+    auto sliceType = dyn_cast<RankedTensorType>(value.getType());
+    return sliceType &&
+           sliceType.getShape() == llvm::ArrayRef<int64_t>{k, k};
+  }
+
+  bool isLeadingBlockSlice(Operation *op) const {
+    return isa_and_nonnull<mlir::stablehlo::SliceOp, ttir::SliceStaticOp>(op);
+  }
+
+  bool isGeqrf(mlir::stablehlo::CustomCallOp op) const {
+    if (!op) {
+      return false;
+    }
+    StringRef target = op.getCallTargetName();
+    return target == "lapack_sgeqrf_ffi" || target == "Qr";
+  }
+
+  bool isOrgqr(mlir::stablehlo::CustomCallOp op) const {
+    if (!op) {
+      return false;
+    }
+    StringRef target = op.getCallTargetName();
+    return target == "lapack_sorgqr_ffi" ||
+           target == "ProductOfElementaryHouseholderReflectors";
+  }
+
+  // Erases `op` before its dead StableHLO or TTIR inputs. This releases its
+  // operand uses before the recursive calls check whether those inputs are
+  // dead.
+  void eraseDeadQrChain(ConversionPatternRewriter &rewriter,
+                        Operation *op) const {
+    if (!op || !op->use_empty() ||
+        (!isa<mlir::stablehlo::StablehloDialect>(op->getDialect()) &&
+         op->getName().getDialectNamespace() != "ttir")) {
+      return;
+    }
+    SmallVector<Value> operands(op->getOperands());
+    rewriter.eraseOp(op);
+    for (Value operand : operands) {
+      eraseDeadQrChain(rewriter, operand.getDefiningOp());
+    }
+  }
+};
+} // namespace
+
+static void addQrOpConversionPattern(MLIRContext *ctx,
+                                     RewritePatternSet &patterns,
+                                     TypeConverter &typeConverter) {
+  patterns.add<StableHLOQrConversionPattern>(typeConverter, ctx);
+}
+
+namespace {
 class StableHLOErfOpMHLOConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
   using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
@@ -11217,6 +11401,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addAsinhOpConversionPattern(ctx, patterns, typeConverter);
   addSortOpConversionPattern(ctx, patterns, typeConverter);
   addCacheOpsConversionPattern(ctx, patterns, typeConverter);
+  addQrOpConversionPattern(ctx, patterns, typeConverter);
   addOptimizationBarrierOpConversionPattern(ctx, patterns, typeConverter);
   addScaledDotProductAttentionDecodeOpConversionPattern(ctx, patterns,
                                                         typeConverter);

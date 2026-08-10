@@ -4995,6 +4995,35 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
 }
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
 
+::mlir::LogicalResult mlir::tt::ttir::QrOp::verify() {
+  auto inputType = getInput().getType();
+  auto qType = getQ().getType();
+  auto rType = getR().getType();
+
+  if (inputType.getRank() != 2) {
+    return emitOpError("requires a rank-2 input");
+  }
+
+  int64_t rows = inputType.getShape()[0];
+  int64_t columns = inputType.getShape()[1];
+  int64_t reducedColumns = std::min(rows, columns);
+
+  if (qType.getShape() != llvm::ArrayRef<int64_t>{rows, reducedColumns}) {
+    return emitOpError("Q must have shape [")
+           << rows << ", " << reducedColumns << "]";
+  }
+  if (rType.getShape() != llvm::ArrayRef<int64_t>{reducedColumns, columns}) {
+    return emitOpError("R must have shape [")
+           << reducedColumns << ", " << columns << "]";
+  }
+  if (inputType.getElementType() != qType.getElementType() ||
+      inputType.getElementType() != rType.getElementType()) {
+    return emitOpError("requires matching input, Q, and R element types");
+  }
+
+  return success();
+}
+
 // Returns the number of leading input dimensions that are merged into the
 // first output dimension. Returns 0 if the reshape is not a leading dimension
 // merge.

@@ -60,6 +60,7 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::ReduceAndOp>();
       target.addIllegalOp<ttir::ReduceOrOp>();
       target.addIllegalOp<ttir::SplitQueryKeyValueAndSplitHeadsOp>();
+      target.addIllegalOp<ttir::QrOp>();
       break;
 
     case DecompMode::TTNN:
@@ -75,6 +76,7 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::RequantizeOp>();
       target.addIllegalOp<ttir::DequantizeOp>();
       target.addIllegalOp<ttir::ReverseOp>();
+      target.addIllegalOp<ttir::QrOp>();
 
       // Conv ops are legal only if already in channel-last format.
       // Non-channel-last ops will be decomposed with permutes.
@@ -163,6 +165,17 @@ struct TTIRToTTIRDecompositionPass
       // Illegal if any padding value is negative (needs decomposition into
       // slice + pad).
       return llvm::none_of(op.getPadding(), [](int32_t p) { return p < 0; });
+    });
+
+    // ttir.qr is decomposed into primitive ops by QrDecompositionPattern.
+    // Only static rank-2 f32 inputs are supported; other configurations are
+    // left legal (untouched).
+    target.addDynamicallyLegalOp<ttir::QrOp>([&](ttir::QrOp op) {
+      auto inputType = op.getInput().getType();
+      if (inputType.getRank() != 2 || !inputType.hasStaticShape()) {
+        return true;
+      }
+      return !inputType.getElementType().isF32();
     });
 
     TypeConverter typeConverter;

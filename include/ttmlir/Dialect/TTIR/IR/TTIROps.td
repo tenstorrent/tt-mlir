@@ -5233,6 +5233,23 @@ def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
 
+def TTIR_QrOp : TTIR_NamedOp<"qr"> {
+    let summary = "Reduced QR factorization.";
+    let description = [{
+      Computes the reduced QR factorization of a rank-2 input matrix.
+
+      The result satisfies `input = q * r`. The `q` result has orthonormal
+      columns. The `r` result is upper triangular.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input);
+
+    let results = (outs AnyRankedTensor:$q,
+                        AnyRankedTensor:$r);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_PermuteOp : TTIR_NamedOp<"permute", [TTIR_TensorManipulation]> {
     let summary = "Tensor dimension permutation operation.";
     let description = [{

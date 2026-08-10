@@ -2178,6 +2178,262 @@ struct NegativePadOpDecompositionPattern
 };
 } // namespace
 
+namespace {
+// Decomposes ttir.qr (reduced QR factorization) into primitive TTIR ops.
+//
+// For a static m x n f32 input A with k = min(m, n), the reduced QR
+// factorization produces Q (m x k) and R (k x n) such that A = Q R, with Q
+// orthonormal and R upper triangular. This pattern rewrites it with
+// compile-time-unrolled Householder reflections:
+//
+//   Forward pass (step = 0..k-1): builds R by applying the reflector
+//   H_step = I - beta * v v^T to the trailing block R[step:, step:], while
+//   recording v and beta. R is carried as the full m x n tensor and stitched
+//   back together with slices and concats after each step.
+//
+//   Backward pass (step = k-1..0): applies the recorded reflectors to the
+//   first k columns of the identity in reverse order, so Q is built directly
+//   in its reduced m x k form without an m x m intermediate:
+//   Q = H_0 ... H_{k-1} I[:, 0:k].
+//
+// Only static rank-2 f32 inputs are supported; other configurations are left
+// untouched by returning failure.
+struct QrDecompositionPattern : public OpConversionPattern<ttir::QrOp> {
+  using OpConversionPattern<ttir::QrOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::QrOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    auto inputType = dyn_cast<RankedTensorType>(adaptor.getInput().getType());
+    if (!inputType || inputType.getRank() != 2 || !inputType.hasStaticShape()) {
+      return rewriter.notifyMatchFailure(op, "expected a static rank-2 input");
+    }
+    Type elementType = inputType.getElementType();
+    if (!elementType.isF32()) {
+      return rewriter.notifyMatchFailure(op, "only f32 inputs are supported");
+    }
+
+    int64_t m = inputType.getDimSize(0);
+    int64_t n = inputType.getDimSize(1);
+    int64_t k = std::min(m, n);
+
+    // Forward pass: build R and record the Householder reflectors.
+    Value r = adaptor.getInput();
+    SmallVector<Value> reflectorVectors;
+    SmallVector<Value> reflectorBetas;
+    for (int64_t step = 0; step < k; ++step) {
+      int64_t len = m - step;
+      int64_t cols = n - step;
+
+      // x = R[step:, step] : (len, 1)
+      Value x = createSlice(rewriter, loc, r, {len, 1}, {step, step},
+                            {m, step + 1});
+
+      // norm = ||x|| : (1, 1)
+      Value xSquared =
+          rewriter.create<ttir::MultiplyOp>(loc, x.getType(), x, x);
+      Value normSquared = createSum(rewriter, loc, xSquared, {1, 1});
+      Value norm =
+          rewriter.create<ttir::SqrtOp>(loc, normSquared.getType(), normSquared);
+
+      // Set sign(0) to 1 with arithmetic so that the reflector reduces the
+      // zero-leading case without a boolean tensor.
+      Value x0 = createSlice(rewriter, loc, x, {1, 1}, {0, 0}, {1, 1});
+      Value signX0 = rewriter.create<ttir::SignOp>(loc, x0.getType(), x0);
+      Value absoluteSign =
+          rewriter.create<ttir::AbsOp>(loc, x0.getType(), signX0);
+      Value one = createFull(rewriter, loc, {1, 1}, 1.0f);
+      Value zeroSignCorrection = rewriter.create<ttir::SubtractOp>(
+          loc, x0.getType(), one, absoluteSign);
+      Value nonzeroSign = rewriter.create<ttir::AddOp>(
+          loc, x0.getType(), signX0, zeroSignCorrection);
+      Value signedNorm = rewriter.create<ttir::MultiplyOp>(
+          loc, x0.getType(), nonzeroSign, norm);
+      Value alpha =
+          rewriter.create<ttir::NegOp>(loc, x0.getType(), signedNorm);
+      Value vTop =
+          rewriter.create<ttir::SubtractOp>(loc, x0.getType(), x0, alpha);
+
+      Value v;
+      if (len == 1) {
+        v = vTop;
+      } else {
+        Value xRest =
+            createSlice(rewriter, loc, x, {len - 1, 1}, {1, 0}, {len, 1});
+        auto vType = RankedTensorType::get({len, 1}, elementType);
+        v = rewriter.create<ttir::ConcatOp>(loc, vType, ValueRange{vTop, xRest},
+                                            /*dim=*/0);
+      }
+
+      // Add one only for the all-zero reflector. This keeps the denominator
+      // finite without changing beta for nonzero reflectors.
+      Value vSquared =
+          rewriter.create<ttir::MultiplyOp>(loc, v.getType(), v, v);
+      Value vTv = createSum(rewriter, loc, vSquared, {1, 1});
+      Value two = createFull(rewriter, loc, {1, 1}, 2.0f);
+      Value vTvSign = rewriter.create<ttir::SignOp>(loc, vTv.getType(), vTv);
+      Value absoluteVTvSign =
+          rewriter.create<ttir::AbsOp>(loc, vTv.getType(), vTvSign);
+      Value zeroReflectorCorrection = rewriter.create<ttir::SubtractOp>(
+          loc, vTv.getType(), one, absoluteVTvSign);
+      Value safeVTv = rewriter.create<ttir::AddOp>(
+          loc, vTv.getType(), vTv, zeroReflectorCorrection);
+      Value beta =
+          rewriter.create<ttir::DivOp>(loc, vTv.getType(), two, safeVTv);
+
+      // R[step:, step:] -= beta * v * (v^T R[step:, step:])
+      Value rBlock =
+          createSlice(rewriter, loc, r, {len, cols}, {step, step}, {m, n});
+      auto wTType = RankedTensorType::get({1, cols}, elementType);
+      Value wT = rewriter.create<ttir::MatmulOp>(
+          loc, wTType, v, rBlock, /*transpose_a=*/true,
+          /*transpose_b=*/false);
+      Value outer =
+          rewriter.create<ttir::MatmulOp>(loc, rBlock.getType(), v, wT);
+      Value scaled = rewriter.create<ttir::MultiplyOp>(
+          loc, rBlock.getType(), beta, outer);
+      Value updatedBlock = rewriter.create<ttir::SubtractOp>(
+          loc, rBlock.getType(), rBlock, scaled);
+
+      r = stitch(rewriter, loc, r, updatedBlock, step, m, n, elementType);
+
+      reflectorVectors.push_back(v);
+      reflectorBetas.push_back(beta);
+    }
+
+    // Backward pass: build the reduced Q by applying the recorded reflectors
+    // to the first k columns of the identity in reverse order.
+    Value q = createReducedIdentity(rewriter, loc, m, k, elementType);
+    for (int64_t step = k - 1; step >= 0; --step) {
+      int64_t len = m - step;
+      int64_t cols = k - step;
+      Value v = reflectorVectors[step];
+      Value beta = reflectorBetas[step];
+
+      Value qBlock =
+          createSlice(rewriter, loc, q, {len, cols}, {step, step}, {m, k});
+      auto wTType = RankedTensorType::get({1, cols}, elementType);
+      Value wT = rewriter.create<ttir::MatmulOp>(
+          loc, wTType, v, qBlock, /*transpose_a=*/true,
+          /*transpose_b=*/false);
+      Value outer =
+          rewriter.create<ttir::MatmulOp>(loc, qBlock.getType(), v, wT);
+      Value scaled = rewriter.create<ttir::MultiplyOp>(
+          loc, qBlock.getType(), beta, outer);
+      Value updatedBlock = rewriter.create<ttir::SubtractOp>(
+          loc, qBlock.getType(), qBlock, scaled);
+
+      q = stitch(rewriter, loc, q, updatedBlock, step, m, k, elementType);
+    }
+
+    // R = top k rows of the forward-pass result; Q already has the reduced
+    // m x k shape.
+    Value resultR;
+    if (k == m) {
+      resultR = r;
+    } else {
+      resultR = createSlice(rewriter, loc, r, {k, n}, {0, 0}, {k, n});
+    }
+
+    rewriter.replaceOp(op, {q, resultR});
+    return success();
+  }
+
+private:
+  // Slices `input` with unit steps to the given result shape.
+  Value createSlice(ConversionPatternRewriter &rewriter, Location loc,
+                    Value input, ArrayRef<int64_t> resultShape,
+                    ArrayRef<int64_t> begins, ArrayRef<int64_t> ends) const {
+    auto inputType = cast<RankedTensorType>(input.getType());
+    auto resultType =
+        RankedTensorType::get(resultShape, inputType.getElementType());
+    auto beginsAttr = llvm::to_vector(llvm::map_range(
+        begins, [](int64_t b) { return static_cast<int32_t>(b); }));
+    auto endsAttr = llvm::to_vector(llvm::map_range(
+        ends, [](int64_t e) { return static_cast<int32_t>(e); }));
+    return rewriter.create<ttir::SliceStaticOp>(
+        loc, resultType, input, rewriter.getI32ArrayAttr(beginsAttr),
+        rewriter.getI32ArrayAttr(endsAttr),
+        rewriter.getI32ArrayAttr({1, 1}));
+  }
+
+  // Sums `input` along dimension 0, keeping the reduced dimension.
+  Value createSum(ConversionPatternRewriter &rewriter, Location loc,
+                  Value input, ArrayRef<int64_t> resultShape) const {
+    auto inputType = cast<RankedTensorType>(input.getType());
+    auto resultType =
+        RankedTensorType::get(resultShape, inputType.getElementType());
+    return rewriter.create<ttir::SumOp>(
+        loc, resultType, input, rewriter.getBoolAttr(true),
+        rewriter.getI32ArrayAttr({0}));
+  }
+
+  // Creates a constant tensor filled with `value`.
+  Value createFull(ConversionPatternRewriter &rewriter, Location loc,
+                   ArrayRef<int64_t> shape, float value) const {
+    auto type = RankedTensorType::get(shape, rewriter.getF32Type());
+    return rewriter.create<ttir::FullOp>(loc, type,
+                                         rewriter.getF32FloatAttr(value));
+  }
+
+  // First k columns of the m x m identity matrix.
+  Value createReducedIdentity(ConversionPatternRewriter &rewriter,
+                              Location loc, int64_t m, int64_t k,
+                              Type elementType) const {
+    auto rowArangeType = RankedTensorType::get({m}, elementType);
+    Value rowIndices = rewriter.create<ttir::ArangeOp>(
+        loc, rowArangeType, /*start=*/0, /*end=*/m, /*step=*/1,
+        /*arange_dimension=*/0);
+    auto rowType = RankedTensorType::get({m, 1}, elementType);
+    Value rowIdx = rewriter.create<ttir::ReshapeOp>(
+        loc, rowType, rowIndices,
+        rewriter.getI32ArrayAttr(
+            SmallVector<int32_t>{static_cast<int32_t>(m), 1}));
+    auto columnArangeType = RankedTensorType::get({k}, elementType);
+    Value columnIndices = rewriter.create<ttir::ArangeOp>(
+        loc, columnArangeType, /*start=*/0, /*end=*/k, /*step=*/1,
+        /*arange_dimension=*/0);
+    auto colType = RankedTensorType::get({1, k}, elementType);
+    Value colIdx = rewriter.create<ttir::ReshapeOp>(
+        loc, colType, columnIndices,
+        rewriter.getI32ArrayAttr(
+            SmallVector<int32_t>{1, static_cast<int32_t>(k)}));
+    auto resultType = RankedTensorType::get({m, k}, elementType);
+    Value one = createFull(rewriter, loc, {1, 1}, 1.0f);
+    Value difference = rewriter.create<ttir::SubtractOp>(
+        loc, resultType, rowIdx, colIdx);
+    Value distance =
+        rewriter.create<ttir::AbsOp>(loc, resultType, difference);
+    Value boundedDistance = rewriter.create<ttir::MinimumOp>(
+        loc, resultType, distance, one);
+    return rewriter.create<ttir::SubtractOp>(loc, resultType, one,
+                                             boundedDistance);
+  }
+
+  // Reassembles a tensor whose trailing block was updated:
+  // full becomes [full[:step, :]; [full[step:, :step] | updatedBlock]].
+  Value stitch(ConversionPatternRewriter &rewriter, Location loc, Value full,
+               Value updatedBlock, int64_t step, int64_t rows, int64_t cols,
+               Type elementType) const {
+    if (step == 0) {
+      return updatedBlock;
+    }
+    int64_t len = rows - step;
+    Value left = createSlice(rewriter, loc, full, {len, step}, {step, 0},
+                             {rows, step});
+    auto midType = RankedTensorType::get({len, cols}, elementType);
+    Value mid = rewriter.create<ttir::ConcatOp>(
+        loc, midType, ValueRange{left, updatedBlock}, /*dim=*/1);
+    Value top = createSlice(rewriter, loc, full, {step, cols}, {0, 0},
+                            {step, cols});
+    auto fullType = RankedTensorType::get({rows, cols}, elementType);
+    return rewriter.create<ttir::ConcatOp>(
+        loc, fullType, ValueRange{top, mid}, /*dim=*/0);
+  }
+};
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter,
@@ -2202,6 +2458,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<SplitQueryKeyValueAndSplitHeadsDecompositionPattern>(
       typeConverter, ctx);
   patterns.add<NegativePadOpDecompositionPattern>(typeConverter, ctx);
+  patterns.add<QrDecompositionPattern>(typeConverter, ctx);
 
   // Configure which ReductionPattern to add base on the configuration
   switch (decompConfig) {
