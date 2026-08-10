@@ -9309,4 +9309,114 @@ llvm::Expected<size_t> OpModel<MeshPartitionOp>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// AdamWOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<AdamWOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> paramShape, TTNNLayoutAttr paramLayout,
+    llvm::ArrayRef<int64_t> gradShape, TTNNLayoutAttr gradLayout,
+    llvm::ArrayRef<int64_t> expAvgShape, TTNNLayoutAttr expAvgLayout,
+    llvm::ArrayRef<int64_t> expAvgSqShape, TTNNLayoutAttr expAvgSqLayout,
+    std::optional<llvm::ArrayRef<int64_t>> maxExpAvgSqShape,
+    std::optional<TTNNLayoutAttr> maxExpAvgSqLayout, llvm::APFloat lr,
+    llvm::APFloat beta1, llvm::APFloat beta2, llvm::APFloat beta1Pow,
+    llvm::APFloat beta2Pow, llvm::APFloat epsilon, llvm::APFloat weightDecay,
+    bool stochasticRounding, TTNNLayoutAttr outputLayout,
+    const MockAllocatorState *initialState) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec paramSpec,
+      detail::convertToTensorSpec(device, paramShape, paramLayout));
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec gradSpec,
+                   detail::convertToTensorSpec(device, gradShape, gradLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec expAvgSpec,
+      detail::convertToTensorSpec(device, expAvgShape, expAvgLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec expAvgSqSpec,
+      detail::convertToTensorSpec(device, expAvgSqShape, expAvgSqLayout));
+  std::optional<::tt::tt_metal::TensorSpec> maxExpAvgSqSpec =
+      detail::convertToOptionalTensorSpec(device, maxExpAvgSqShape,
+                                          maxExpAvgSqLayout);
+
+  const ::ttml::metal::StochasticRounding stochasticRoundingValue =
+      stochasticRounding ? ::ttml::metal::StochasticRounding::Enabled
+                         : ::ttml::metal::StochasticRounding::Disabled;
+
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
+  auto adamWOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        ::ttml::metal::adamw, device, initialStateOpt, paramSpec, gradSpec,
+        expAvgSpec, expAvgSqSpec, maxExpAvgSqSpec, lr.convertToFloat(),
+        beta1.convertToFloat(), beta2.convertToFloat(),
+        beta1Pow.convertToFloat(), beta2Pow.convertToFloat(),
+        epsilon.convertToFloat(), weightDecay.convertToFloat(),
+        stochasticRoundingValue);
+  };
+
+  return operation::getOpConstraintsWithState(paramLayout.getContext(),
+                                              adamWOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<AdamWOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> paramShape, TTNNLayoutAttr paramLayout,
+    llvm::ArrayRef<int64_t> gradShape, TTNNLayoutAttr gradLayout,
+    llvm::ArrayRef<int64_t> expAvgShape, TTNNLayoutAttr expAvgLayout,
+    llvm::ArrayRef<int64_t> expAvgSqShape, TTNNLayoutAttr expAvgSqLayout,
+    std::optional<llvm::ArrayRef<int64_t>> maxExpAvgSqShape,
+    std::optional<TTNNLayoutAttr> maxExpAvgSqLayout, llvm::APFloat lr,
+    llvm::APFloat beta1, llvm::APFloat beta2, llvm::APFloat beta1Pow,
+    llvm::APFloat beta2Pow, llvm::APFloat epsilon, llvm::APFloat weightDecay,
+    bool stochasticRounding, TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec paramSpec,
+      detail::convertToTensorSpec(device, paramShape, paramLayout));
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec gradSpec,
+                   detail::convertToTensorSpec(device, gradShape, gradLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec expAvgSpec,
+      detail::convertToTensorSpec(device, expAvgShape, expAvgLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec expAvgSqSpec,
+      detail::convertToTensorSpec(device, expAvgSqShape, expAvgSqLayout));
+  std::optional<::tt::tt_metal::TensorSpec> maxExpAvgSqSpec =
+      detail::convertToOptionalTensorSpec(device, maxExpAvgSqShape,
+                                          maxExpAvgSqLayout);
+
+  const ::ttml::metal::StochasticRounding stochasticRoundingValue =
+      stochasticRounding ? ::ttml::metal::StochasticRounding::Enabled
+                         : ::ttml::metal::StochasticRounding::Disabled;
+
+  auto adamWOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttml::metal::adamw, device, paramSpec, gradSpec,
+                            expAvgSpec, expAvgSqSpec, maxExpAvgSqSpec,
+                            lr.convertToFloat(), beta1.convertToFloat(),
+                            beta2.convertToFloat(), beta1Pow.convertToFloat(),
+                            beta2Pow.convertToFloat(), epsilon.convertToFloat(),
+                            weightDecay.convertToFloat(),
+                            stochasticRoundingValue);
+  };
+
+  return operation::getOpRuntime(adamWOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 } // namespace mlir::tt::ttnn::op_model

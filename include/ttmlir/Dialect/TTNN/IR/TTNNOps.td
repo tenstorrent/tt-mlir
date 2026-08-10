@@ -2683,7 +2683,7 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_Compute
     let hasVerifier = 1;
 }
 
-def TTNN_AdamWOp : TTNN_InplaceOp<"adamw", [OpModelExempt]> {
+def TTNN_AdamWOp : TTNN_InplaceOp<"adamw"> {
     let summary = "AdamW optimizer step (ttml).";
     let description = [{
       Fused AdamW optimizer step, backed by the ttml metal op

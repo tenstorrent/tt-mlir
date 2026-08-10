@@ -3,7 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-if (NOT (TTMLIR_ENABLE_RUNTIME AND TT_RUNTIME_ENABLE_TTNN))
+# Built for the TTNN runtime (which dispatches these ops on device) and for
+# OpModel (which queries their constraints/runtime through ttnn::graph). Either
+# consumer alone is enough; both gate on tt-metal, which third_party/CMakeLists
+# builds under the same `RUNTIME OR OPMODEL` condition.
+if (NOT ((TTMLIR_ENABLE_RUNTIME AND TT_RUNTIME_ENABLE_TTNN) OR TTMLIR_ENABLE_OPMODEL))
   add_library(ttml_metal_ops INTERFACE)
   return()
 endif()

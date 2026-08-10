@@ -32,6 +32,7 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 }
 } // namespace ttnn::graph::detail
 
+#include "metal/optimizers/adamw/adamw.hpp"
 #include "ttnn/graph/graph_query_op_constraints.hpp"
 #include "ttnn/graph/graph_query_op_runtime.hpp"
 #include "ttnn/graph/graph_trace_utils.hpp"
