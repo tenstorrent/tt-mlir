@@ -79,7 +79,9 @@ GATHERED_FULL = _L(
 
 CHUNK_LHS = _L((M_CHUNK, K), [MM_M_BLOCK, MM_K_BLOCK], [MM_GRID, MM_K_PARTITIONS])
 CHUNK_RHS = _L((K, LOCAL_N), [MM_K_BLOCK, MM_N_BLOCK], [MM_K_PARTITIONS, MM_GRID])
-CHUNK_PARTIAL = _L((M_CHUNK, LOCAL_N), [MM_M_BLOCK, MM_N_BLOCK], [MM_GRID, MM_GRID])
+CHUNK_PARTIAL = _L(
+    (M_CHUNK, LOCAL_N), [MM_M_BLOCK, MM_N_BLOCK], [MM_GRID, MM_GRID], "l1"
+)
 SPATIAL_LHS = _L(
     (M_CHUNK, K),
     [MM_M_BLOCK, SPATIAL_K_BLOCK],
@@ -96,6 +98,7 @@ SPATIAL_PARTIAL = _L(
     (M_CHUNK, LOCAL_N),
     [MM_M_BLOCK, SPATIAL_N_BLOCK],
     [MM_GRID, SPATIAL_MM_GRID_N],
+    "l1",
 )
 
 
@@ -336,6 +339,9 @@ def test_overlap(_stream_buffers):
 
     for step in range(NUM_M_CHUNKS - 1):
         prev = partial
+        # Origin-placed region-sized lhs (8x6): nested MM generic inherits the
+        # region's virt_to_physical map, so same-grid VGM to_layout is neither
+        # required nor safe (corrupts). rhs is pre-placed via mesh_shard VGM.
         lhs_d = _slice_chunk(lhs_full, step + 1, SPATIAL_LHS, SPATIAL_MM_K_PARTITIONS)
         partial_spatial = d2m.empty(SPATIAL_PARTIAL)
         matmul = _make_matmul(
@@ -377,7 +383,7 @@ def test_overlap(_stream_buffers):
                 ),
             ],
         )
-        partial = d2m.to_layout(partial_spatial, SPATIAL_PARTIAL)
+        partial = partial_spatial
 
     _run_ag(
         partial,
