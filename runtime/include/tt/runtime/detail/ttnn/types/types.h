@@ -340,6 +340,20 @@ public:
     return it->second;
   }
 
+  // Read-only access for FuncCallOp to propagate grids parent→child.
+  const std::unordered_map<uintptr_t, ::ttnn::Tensor> &
+  getImplicitPrecomputedGrids() const {
+    return implicitOpPrecomputedGrids;
+  }
+
+  // Seed this context with pre-existing grids (FuncCallOp parent→child, and
+  // child→parent back-propagation). try_emplace keeps any existing entry.
+  void inheritImplicitPrecomputedGrids(
+      const std::unordered_map<uintptr_t, ::ttnn::Tensor> &source) {
+    for (const auto &[key, grid] : source) {
+      implicitOpPrecomputedGrids.try_emplace(key, grid);
+    }
+  }
 
   Binary &getExecutableHandle() { return executableHandle; }
 

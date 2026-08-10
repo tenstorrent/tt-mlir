@@ -19,6 +19,10 @@ struct TraceData {
   std::vector<::tt::runtime::Tensor> outputTensors;
   /// Trace cache generation id at capture time - used to detect stale traces.
   uint64_t generationId = 0;
+  /// Op-implicit precomputed tensors (e.g. GridSampleOp coordinate grids) that
+  /// the captured trace references by device buffer address.  Stored here to
+  /// keep those device buffers allocated for the entire lifetime of the trace.
+  std::unordered_map<uintptr_t, ::ttnn::Tensor> implicitPrecomputedGrids;
 };
 
 /// Cache for storing captured traces.
