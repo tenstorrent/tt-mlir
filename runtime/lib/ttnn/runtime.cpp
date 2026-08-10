@@ -1576,6 +1576,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {op->combine_output()};
     break;
   }
+  case ::tt::target::ttnn::OpType::QrOp: {
+    tensorRefs = utils::convertFbTensorRefsToVector(
+        opContext.type_as_QrOp()->outputs());
+    break;
+  }
   case ::tt::target::ttnn::OpType::TopKOp: {
     tensorRefs = utils::convertFbTensorRefsToVector(
         opContext.type_as_TopKOp()->outputs());
@@ -1789,6 +1794,10 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::ReductionOp: {
     tensorRefs = {opContext.type_as_ReductionOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::QrOp: {
+    tensorRefs = {opContext.type_as_QrOp()->input()};
     break;
   }
   case ::tt::target::ttnn::OpType::TopKOp: {

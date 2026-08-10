@@ -4244,6 +4244,20 @@ createOp(FlatbufferObjectCache &cache, debug::RegionEndOp op) {
                                                regionId);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::QrOp>
+createOp(FlatbufferObjectCache &cache, QrOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (auto result : op.getResults()) {
+    outputs.push_back(cache.getOrCreateNoSharding(
+        result, tensorValueToFlatbuffer, /*local_shape*/ std::nullopt));
+  }
+
+  return ::tt::target::ttnn::CreateQrOpDirect(*cache.fbb, in, &outputs);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::TopKOp>
 createOp(FlatbufferObjectCache &cache, TopKOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
@@ -5150,6 +5164,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto regionEndOp = dyn_cast<debug::RegionEndOp>(op); regionEndOp) {
     return createOperation(cache, createOp(cache, regionEndOp), debugString,
                            locInfo);
+  }
+  if (auto qrOp = dyn_cast<QrOp>(op); qrOp) {
+    return createOperation(cache, createOp(cache, qrOp), debugString, locInfo);
   }
   if (auto topKOp = dyn_cast<TopKOp>(op); topKOp) {
     return createOperation(cache, createOp(cache, topKOp), debugString,

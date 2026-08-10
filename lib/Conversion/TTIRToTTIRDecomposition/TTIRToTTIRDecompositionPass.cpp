@@ -167,15 +167,22 @@ struct TTIRToTTIRDecompositionPass
       return llvm::none_of(op.getPadding(), [](int32_t p) { return p < 0; });
     });
 
-    // ttir.qr is decomposed into primitive ops by QrDecompositionPattern.
-    // Only static rank-2 f32 inputs are supported; other configurations are
-    // left legal (untouched).
+    // ttir.qr is decomposed into primitive ops by QrDecompositionPattern
+    // unless the TTNN native path can handle it: a static rank-2 f32 input
+    // that fits a single tile (m, n <= 32) lowers to the fused ttnn.qr op.
+    // Other configurations are left legal (untouched) or decompose.
     target.addDynamicallyLegalOp<ttir::QrOp>([&](ttir::QrOp op) {
       auto inputType = op.getInput().getType();
       if (inputType.getRank() != 2 || !inputType.hasStaticShape()) {
         return true;
       }
-      return !inputType.getElementType().isF32();
+      if (!inputType.getElementType().isF32()) {
+        return true;
+      }
+      if (decompConfig != DecompMode::TTNN) {
+        return false;
+      }
+      return inputType.getDimSize(0) <= 32 && inputType.getDimSize(1) <= 32;
     });
 
     TypeConverter typeConverter;

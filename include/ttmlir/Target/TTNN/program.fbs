@@ -159,6 +159,7 @@ union OpType {
   MemorySnapshotOp,
   RegionStartOp,
   RegionEndOp,
+  QrOp,
   TopKOp,
   TopKRouterGptOp,
   CreateGlobalSemaphoreOp,

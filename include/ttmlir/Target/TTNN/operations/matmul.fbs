@@ -73,6 +73,11 @@ table MatmulOp {
 }
 // ANCHOR_END: adding_an_op_matmul_fbs
 
+table QrOp {
+  input: tt.target.ttnn.TensorRef;
+  outputs: [tt.target.ttnn.TensorRef];
+}
+
 table LinearOp {
   a: tt.target.ttnn.TensorRef;
   b: tt.target.ttnn.TensorRef;

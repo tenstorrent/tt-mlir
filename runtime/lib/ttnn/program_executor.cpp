@@ -83,6 +83,7 @@
 #include "operations/layout/to_memory_config.h"
 #include "operations/layout/typecast.h"
 #include "operations/matmul/matmul.h"
+#include "operations/linalg/qr.h"
 #include "operations/mlir_native/func_call.h"
 #include "operations/normalization/batch_norm.h"
 #include "operations/normalization/distributed_rms_norm.h"
@@ -715,6 +716,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::RegionEndOp: {
     return operations::debug::run(op->type_as_RegionEndOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::QrOp: {
+    return operations::linalg::qr::run(op->type_as_QrOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::TopKOp: {
     return operations::reduction::topk::run(op->type_as_TopKOp(), getContext());

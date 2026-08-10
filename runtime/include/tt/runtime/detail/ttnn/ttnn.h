@@ -50,6 +50,7 @@
 #include "ttnn/operations/generic/generic_op.hpp"
 #include "ttnn/operations/kv_cache/kv_cache.hpp"
 #include "ttnn/operations/matmul/matmul.hpp"
+#include "ttnn/operations/qr/qr.hpp"
 #include "ttnn/operations/normalization/batch_norm/batch_norm.hpp"
 #include "ttnn/operations/normalization/groupnorm/groupnorm.hpp"
 #include "ttnn/operations/normalization/layernorm/layernorm.hpp"

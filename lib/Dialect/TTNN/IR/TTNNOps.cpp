@@ -7090,6 +7090,40 @@ void mlir::tt::ttnn::D2MSubgraphOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
+// QrOp
+//===----------------------------------------------------------------------===//
+
+// QrOp verification: reduced QR, q is m x k, r is k x n with k = min(m, n).
+::mlir::LogicalResult mlir::tt::ttnn::QrOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType qType = getQ().getType();
+  RankedTensorType rType = getR().getType();
+
+  if (!inputType.hasStaticShape() || inputType.getRank() != 2) {
+    return emitOpError("requires a statically known rank-2 input");
+  }
+
+  int64_t m = inputType.getDimSize(0);
+  int64_t n = inputType.getDimSize(1);
+  int64_t k = std::min(m, n);
+
+  if (qType.getShape() != ArrayRef<int64_t>{m, k}) {
+    return emitOpError("Q must have shape [")
+           << m << ", " << k << "], got " << qType.getShape();
+  }
+  if (rType.getShape() != ArrayRef<int64_t>{k, n}) {
+    return emitOpError("R must have shape [")
+           << k << ", " << n << "], got " << rType.getShape();
+  }
+  if (inputType.getElementType() != qType.getElementType() ||
+      inputType.getElementType() != rType.getElementType()) {
+    return emitOpError("requires matching input, Q, and R element types");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // TopKOp
 //===----------------------------------------------------------------------===//
 

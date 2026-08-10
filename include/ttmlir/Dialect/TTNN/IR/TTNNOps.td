@@ -4447,6 +4447,22 @@ def TTNN_SamplingOp : TTNN_Op<"sampling"> {
   let hasVerifier = 1;
 }
 
+def TTNN_QrOp : TTNN_Op<"qr"> {
+  let summary = "Reduced QR factorization of a rank-2 matrix.";
+  let description = [{
+    Computes the reduced QR factorization of a rank-2 fp32 matrix with both
+    dimensions at most 32 (a single tile). Returns (Q, R) with Q (m x k) and
+    R (k x n), k = min(m, n), using the LAPACK sign convention (sign(0) = 1).
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input);
+
+  let results = (outs AnyRankedTensor:$q,
+                      AnyRankedTensor:$r);
+
+  let hasVerifier = 1;
+}
+
 def TTNN_TopKOp : TTNN_Op<"topk"> {
   let summary = "Top-K selection operation.";
   let description = [{

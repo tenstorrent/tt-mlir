@@ -83,6 +83,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/typecast.cpp
   # ANCHOR: adding_an_op_matmul_runtime_cmake
   ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/linalg/qr.cpp
   # ANCHOR_END: adding_an_op_matmul_runtime_cmake
   ${CMAKE_CURRENT_SOURCE_DIR}/mlir_native/func_call.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/cumsum.cpp

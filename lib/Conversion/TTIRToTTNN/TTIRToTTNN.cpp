@@ -3716,6 +3716,23 @@ public:
   }
 };
 
+class QrOpConversionPattern : public OpConversionPattern<ttir::QrOp> {
+public:
+  using OpConversionPattern<ttir::QrOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(ttir::QrOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                      resultTypes))) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<ttnn::QrOp>(
+        op, resultTypes, adaptor.getInput());
+    return success();
+  }
+};
+
 class TopKOpConversionPattern : public OpConversionPattern<ttir::TopKOp> {
 public:
   using OpConversionPattern<ttir::TopKOp>::OpConversionPattern;
@@ -3893,6 +3910,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            GeluBackwardOpConversionPattern,
            DropoutOpConversionPattern,
            DebugOpConversionPattern<debug::DumpOp, ttnn::DumpTensorOp>,
+           QrOpConversionPattern,
            TopKOpConversionPattern,
            TopKRouterGptOpConversionPattern,
            TTLangOpConversionPattern
