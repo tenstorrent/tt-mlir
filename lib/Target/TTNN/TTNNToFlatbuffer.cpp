@@ -38,6 +38,7 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <memory>
@@ -4521,10 +4522,12 @@ createOp(FlatbufferObjectCache &cache, WhileOp op,
          const RegionProgramEmitterFn &emitRegionProgram) {
   auto parentFunc = op->getParentOfType<func::FuncOp>();
 
-  // Number the loop within its function so that nested and sibling loops get
-  // distinguishable program names.
+  // Number the loop by its position among the function's loops in pre-order,
+  // so that nested and sibling loops get distinguishable program names.
+  // `chisel.ops.IRModule` reconstructs these names to map a region program
+  // back onto the region it came from, and walks in the same order.
   unsigned loopIndex = 0;
-  parentFunc.walk([&](WhileOp other) {
+  parentFunc.walk<WalkOrder::PreOrder>([&](WhileOp other) {
     if (other == op) {
       return WalkResult::interrupt();
     }
@@ -4532,14 +4535,10 @@ createOp(FlatbufferObjectCache &cache, WhileOp op,
     return WalkResult::advance();
   });
 
-  llvm::SmallString<64> nameBuffer;
-  auto regionProgramName = [&](llvm::StringRef suffix) -> llvm::StringRef {
-    nameBuffer.assign(parentFunc.getSymName());
-    nameBuffer.append("_while_");
-    nameBuffer.append(std::to_string(loopIndex));
-    nameBuffer.append("_");
-    nameBuffer.append(suffix);
-    return nameBuffer;
+  auto regionProgramName = [&](llvm::StringRef suffix) {
+    return llvm::formatv("{0}_while_{1}_{2}", parentFunc.getSymName(),
+                         loopIndex, suffix)
+        .str();
   };
 
   // The regions are serialized first so that their programs are complete
