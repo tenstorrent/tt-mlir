@@ -101,13 +101,14 @@ def pytest_collection_modifyitems(config, items):
         if marker is not None and not marker.args:
             raise pytest.UsageError(
                 "machines marker requires at least one machine name, e.g. "
-                "@pytest.mark.machines(\"n300\")"
+                '@pytest.mark.machines("n300")'
             )
         allowed = frozenset(marker.args) if marker else _DEFAULT_MACHINES
         unknown = sorted(m for m in allowed if m not in _MACHINE_NUM_DEVICES)
         if unknown:
             raise pytest.UsageError(f"Unknown machines marker values: {unknown}")
         required = min(_MACHINE_NUM_DEVICES[m] for m in allowed)
+        if runs_on:
             if runs_on not in allowed:
                 item.add_marker(
                     pytest.mark.skip(
