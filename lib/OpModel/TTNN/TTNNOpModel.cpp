@@ -5318,18 +5318,18 @@ OpModel<DitMatmulAddcmulFusedOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecA,
+      ::tt::tt_metal::TensorSpec inputSpecA,
       detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecB,
+      ::tt::tt_metal::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec residualSpec,
+      ::tt::tt_metal::TensorSpec residualSpec,
       detail::convertToTensorSpec(device, residualShape, residualLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec gateSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec gateSpec,
                    detail::convertToTensorSpec(device, gateShape, gateLayout));
 
-  std::optional<::ttnn::TensorSpec> biasSpec;
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec;
   if (biasShape && biasLayout) {
     biasSpec = conversion::getTensorSpec(biasShape.value(), biasLayout.value());
   }
@@ -5373,18 +5373,18 @@ llvm::Expected<size_t> OpModel<DitMatmulAddcmulFusedOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecA,
+      ::tt::tt_metal::TensorSpec inputSpecA,
       detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecB,
+      ::tt::tt_metal::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec residualSpec,
+      ::tt::tt_metal::TensorSpec residualSpec,
       detail::convertToTensorSpec(device, residualShape, residualLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec gateSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec gateSpec,
                    detail::convertToTensorSpec(device, gateShape, gateLayout));
 
-  std::optional<::ttnn::TensorSpec> biasSpec;
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec;
   if (biasShape && biasLayout) {
     biasSpec = conversion::getTensorSpec(biasShape.value(), biasLayout.value());
   }

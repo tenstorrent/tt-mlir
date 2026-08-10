@@ -2517,7 +2517,8 @@ TEST_F(OpModelTest, DitMatmulAddcmulFused) {
       /*biasShape=*/std::nullopt, /*biasLayout=*/std::nullopt, layoutO,
       /*computeKernelConfig=*/std::nullopt);
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outLayouts] =
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBacks, outputAllocationsReadBacks] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);

@@ -3324,7 +3324,9 @@ MatmulOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<op_model::OpConstraints>
 DitMatmulAddcmulFusedOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<
+        llvm::ArrayRef<op_model::OpModelAllocationRecord>> /*liveRecords*/) {
   assert(inputs.size() == (4 + (getBias() == nullptr ? 0 : 1)));
 
   const auto inputShapeA = getA().getType().getShape();
