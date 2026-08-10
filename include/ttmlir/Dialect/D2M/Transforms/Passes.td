@@ -924,7 +924,7 @@ def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {
   ];
 }
 
-def D2MLowerTopk : Pass<"d2m-lower-topk", "::mlir::ModuleOp"> {
+def D2MBuildTopkChain : Pass<"d2m-build-topk-chain", "::mlir::ModuleOp"> {
   let summary = "Build a `topk_block` chain from its placement plan";
   let description = [{
     Replaces every placeholder `topk_block` carrying a `d2m.topk_plan` with the

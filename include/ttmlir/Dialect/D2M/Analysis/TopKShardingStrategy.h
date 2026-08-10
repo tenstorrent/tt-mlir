@@ -92,13 +92,13 @@ struct TopKBufferPlans {
   TopKBufferPlan input;
   /// Its padding tail's fill; a null type means the layout leaves no tail.
   TopKBufferPlan inputMask;
-  /// Built by d2m-lower-topk, and all the plan attribute carries.
+  /// Built by d2m-build-topk-chain, and all the plan attribute carries.
   llvm::SmallVector<TopKBufferPlan> lowered;
 };
 
 /// The sole definition of what buffers a topk needs. `lowered` is in the order
-/// d2m-lower-topk consumes it, which is the whole contract between the two.
-/// Touches no IR beyond reading `chain`'s types.
+/// d2m-build-topk-chain consumes it, which is the whole contract between the
+/// two. Touches no IR beyond reading `chain`'s types.
 TopKBufferPlans planTopKBuffers(SingleCoreTopK chain,
                                 const TopKShardingStrategy &strategy, int64_t k,
                                 int32_t dim);

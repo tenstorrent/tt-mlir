@@ -18,7 +18,7 @@
 #include "llvm/Support/MathExtras.h"
 
 namespace mlir::tt::d2m {
-#define GEN_PASS_DEF_D2MLOWERTOPK
+#define GEN_PASS_DEF_D2MBUILDTOPKCHAIN
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
@@ -391,9 +391,10 @@ void emitPlannedTopK(RewriterBase &rewriter, SingleCoreTopK chain, int32_t k,
   rewriter.eraseOp(chain.leaf);
 }
 
-class D2MLowerTopk final : public impl::D2MLowerTopkBase<D2MLowerTopk> {
+class D2MBuildTopkChain final
+    : public impl::D2MBuildTopkChainBase<D2MBuildTopkChain> {
 public:
-  using impl::D2MLowerTopkBase<D2MLowerTopk>::D2MLowerTopkBase;
+  using impl::D2MBuildTopkChainBase<D2MBuildTopkChain>::D2MBuildTopkChainBase;
 
   void runOnOperation() override {
     // Collected up front because the build emits generics of its own; only the

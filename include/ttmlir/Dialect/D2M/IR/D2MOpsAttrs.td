@@ -86,10 +86,11 @@ def D2M_TopKPlanAttr : AttrDef<D2M_Dialect, "TopKPlan", [], "::mlir::Attribute">
   let summary = "How a topk is split across the worker grid, and where every buffer lands.";
   let description = [{
     Written by `d2m-grid-selection` onto the placeholder leaf `d2m.generic`, and
-    consumed by `d2m-lower-topk`, which erases that leaf and re-emits the whole
-    chain from here. It is the whole handoff, so lower-topk derives no shape and
-    folds nothing, single core or not. The laid-out input grid selection emits
-    itself stays out of it, since only what is left to build travels here.
+    consumed by `d2m-build-topk-chain`, which erases that leaf and re-emits the
+    whole chain from here. It is the whole handoff, so the chain build derives
+    no shape and folds nothing, single core or not. The laid-out input grid
+    selection emits itself stays out of it, since only what is left to build
+    travels here.
 
     `numShards` bands the reduction dim, `ntShards` slices the non-target dim.
     `mergeSchedule` holds the group count surviving *after* each merge round,

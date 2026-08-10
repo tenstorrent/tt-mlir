@@ -18,11 +18,12 @@ constexpr llvm::StringLiteral kTopkIndexTypeAttr = "d2m.topk_index_type";
 // d2m-decompose-topk.
 constexpr llvm::StringLiteral kTopkIndexBufferAttr = "d2m.topk_index_buffer";
 constexpr llvm::StringLiteral kTopkLaneBufferAttr = "d2m.topk_lane_buffer";
-// Set on a leaf generic by d2m-grid-selection and consumed by d2m-lower-topk.
+// Set on a leaf generic by d2m-grid-selection and consumed by
+// d2m-build-topk-chain.
 constexpr llvm::StringLiteral kTopKPlanAttr = "d2m.topk_plan";
 // Set by d2m-grid-selection on the op ending the laid-out (and masked) input
-// chain it emits, so d2m-lower-topk can find it without the placeholder leaf
-// having to hold it as an operand.
+// chain it emits, so d2m-build-topk-chain can find it without the placeholder
+// leaf having to hold it as an operand.
 constexpr llvm::StringLiteral kTopKInputAttr = "d2m.topk_input";
 // Must exceed 1: a single row folds arange_block's compute root loop away.
 constexpr int64_t kTopkLaneTileRows = 2;

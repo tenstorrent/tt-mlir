@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --d2m-lower-topk --d2m-materialize-view-returns -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --d2m-build-topk-chain --d2m-materialize-view-returns -o %t %s
 // RUN: FileCheck %s --input-file=%t
 // RUN: FileCheck %s --input-file=%t --check-prefix=CONSUMED
 // RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection -o %t.plan %s
@@ -6,9 +6,9 @@
 // RUN: ttmlir-opt --ttir-to-ttmetal-pipeline -o %t.ttmetal %s
 
 // ttir-to-d2m emits only a placeholder leaf; d2m-grid-selection chooses the
-// split and folds every buffer it implies onto the leaf, and d2m-lower-topk
-// builds exactly those ops. So every plan entry is consumed and no plan
-// survives the lowering.
+// split and folds every buffer it implies onto the leaf, and
+// d2m-build-topk-chain builds exactly those ops. So every plan entry is
+// consumed and no plan survives the lowering.
 // The scan starts at the first function so it skips the ttcore.device
 // attribute.
 // CONSUMED-LABEL: func.func @topk_dim1_k16
@@ -202,7 +202,7 @@ module {
   //
   // When the reduction dim needs more tiles than one core's budget
   // (kMaxTilesPerCore / nonTargetTiles), grid selection plans numShards bands
-  // (one per core) and d2m-lower-topk builds them, each running a local
+  // (one per core) and d2m-build-topk-chain builds them, each running a local
   // topk_block and then narrowing its partial to ceil(k/32) tiles. The bands
   // stay distributed: a merge round gathers them with one composite_view per
   // operand (values and indices need separate generics), re-splitting that

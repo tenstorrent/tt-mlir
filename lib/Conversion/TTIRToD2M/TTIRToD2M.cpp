@@ -3597,9 +3597,10 @@ public:
   }
 };
 
-/// Lowers `ttir.topk` single-core: lay the input out, run one `d2m.topk_block`
-/// over the whole reduction, extract the surviving k elements. `d2m-lower-topk`
-/// rewrites this output across the grid when the shape calls for it.
+/// Lowers `ttir.topk`: lay the input out, run one `d2m.topk_block` over the
+/// whole reduction, extract the surviving k elements. What grid that runs on
+/// is decided later — `d2m-grid-selection` plans the split and
+/// `d2m-build-topk-chain` re-emits it as that chain.
 class D2MTopKRewriter : public OpConversionPattern<ttir::TopKOp>,
                         D2MNamedRewriterCommon {
 public:
@@ -3642,7 +3643,7 @@ public:
     }
 
     // Placeholder leaf: d2m-grid-selection plans padding/transpose/extract,
-    // and d2m-lower-topk replaces this leaf with the planned chain.
+    // and d2m-build-topk-chain replaces this leaf with the planned chain.
     Value layoutedInput = createOptimalLayoutOp(
         adaptor.getInputTensor(), memorySpaces[0], /*tiled=*/true,
         /*noCollapse=*/false, rewriter, ttcore::OOBVal::NegInf);
