@@ -1025,7 +1025,8 @@ struct OpModel<SparseSdpaOp> {
       llvm::ArrayRef<int64_t> kvShape, TTNNLayoutAttr kvLayout,
       llvm::ArrayRef<int64_t> indicesShape, TTNNLayoutAttr indicesLayout,
       uint32_t vDim, std::optional<llvm::APFloat> scale, uint32_t kChunkSize,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,

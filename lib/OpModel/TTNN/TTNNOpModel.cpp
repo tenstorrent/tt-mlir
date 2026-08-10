@@ -3933,18 +3933,22 @@ llvm::Expected<OpConstraints> OpModel<SparseSdpaOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> kvShape, TTNNLayoutAttr kvLayout,
     llvm::ArrayRef<int64_t> indicesShape, TTNNLayoutAttr indicesLayout,
     uint32_t vDim, std::optional<llvm::APFloat> scale, uint32_t kChunkSize,
-    TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
+      ::tt::tt_metal::TensorSpec querySpec,
       detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec kvSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec kvSpec,
                    detail::convertToTensorSpec(device, kvShape, kvLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec indicesSpec,
+      ::tt::tt_metal::TensorSpec indicesSpec,
       detail::convertToTensorSpec(device, indicesShape, indicesLayout));
 
   std::optional<float> scaleFloat =
@@ -3956,17 +3960,18 @@ llvm::Expected<OpConstraints> OpModel<SparseSdpaOp>::getOpConstraints(
   // ttnn default. cache_batch_idx / block_cyclic_* are not modelled by the TTNN
   // dialect op, so they stay unset.
   auto sparseSdpaOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::transformer::sparse_sdpa, device,
-                                querySpec, kvSpec, indicesSpec, vDim,
-                                scaleFloat, kChunkSize,
-                                /*compute_kernel_config=*/std::nullopt,
-                                /*cache_batch_idx=*/std::nullopt,
-                                /*block_cyclic_sp_axis=*/std::nullopt,
-                                /*block_cyclic_chunk_local=*/std::nullopt);
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        ::ttnn::transformer::sparse_sdpa, device, initialStateOpt, querySpec,
+        kvSpec, indicesSpec, vDim, ::ttnn::transformer::SparseKVFormat::BF16,
+        scaleFloat, kChunkSize,
+        /*compute_kernel_config=*/std::nullopt,
+        /*cache_batch_idx=*/std::nullopt,
+        /*block_cyclic_sp_axis=*/std::nullopt,
+        /*block_cyclic_chunk_local=*/std::nullopt);
   };
 
-  return operation::getOpConstraints(queryLayout.getContext(),
-                                     sparseSdpaOpQuery);
+  return operation::getOpConstraintsWithState(queryLayout.getContext(),
+                                              sparseSdpaOpQuery);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -3983,12 +3988,12 @@ llvm::Expected<size_t> OpModel<SparseSdpaOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
+      ::tt::tt_metal::TensorSpec querySpec,
       detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec kvSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec kvSpec,
                    detail::convertToTensorSpec(device, kvShape, kvLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec indicesSpec,
+      ::tt::tt_metal::TensorSpec indicesSpec,
       detail::convertToTensorSpec(device, indicesShape, indicesLayout));
 
   std::optional<float> scaleFloat =
@@ -3996,7 +4001,9 @@ llvm::Expected<size_t> OpModel<SparseSdpaOp>::getOpRuntime(
 
   auto sparseSdpaOpQuery = [=]() {
     return QUERY_OP_RUNTIME(::ttnn::transformer::sparse_sdpa, device, querySpec,
-                            kvSpec, indicesSpec, vDim, scaleFloat, kChunkSize,
+                            kvSpec, indicesSpec, vDim,
+                            ::ttnn::transformer::SparseKVFormat::BF16,
+                            scaleFloat, kChunkSize,
                             /*compute_kernel_config=*/std::nullopt,
                             /*cache_batch_idx=*/std::nullopt,
                             /*block_cyclic_sp_axis=*/std::nullopt,

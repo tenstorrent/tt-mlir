@@ -26,7 +26,8 @@ void run(const ::tt::target::ttnn::SparseSdpaOp *op, ProgramContext &context) {
   // default; cache_batch_idx and the block-cyclic remap parameters are not
   // modelled by the TTNN dialect op and stay unset.
   ::ttnn::Tensor out = ::ttnn::transformer::sparse_sdpa(
-      query, kv, indices, op->v_dim(), scale, op->k_chunk_size(),
+      query, kv, indices, op->v_dim(),
+      ::ttnn::transformer::SparseKVFormat::BF16, scale, op->k_chunk_size(),
       /*compute_kernel_config=*/std::nullopt,
       /*cache_batch_idx=*/std::nullopt,
       /*block_cyclic_sp_axis=*/std::nullopt,

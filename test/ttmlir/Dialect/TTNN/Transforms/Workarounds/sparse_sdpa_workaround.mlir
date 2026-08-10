@@ -29,12 +29,12 @@ module {
   // top of the ROW_MAJOR coercion.
   func.func public @sparse_sdpa_f32_si32(%q: tensor<1x32x32x64xf32>, %kv: tensor<1x1x64x64xf32>, %idx: tensor<1x1x32x32xsi32>) -> tensor<1x32x32x32xf32> {
     // CHECK: func.func public @sparse_sdpa_f32_si32
-    // CHECK-DAG: "ttnn.to_layout"(%arg0)
-    // CHECK-DAG: "ttnn.to_layout"(%arg1)
-    // CHECK-DAG: "ttnn.to_layout"(%arg2)
+    // CHECK-DAG: "ttnn.to_tensor_spec"(%arg0)
+    // CHECK-DAG: "ttnn.to_tensor_spec"(%arg1)
+    // CHECK-DAG: "ttnn.to_tensor_spec"(%arg2)
     // CHECK: %[[OUT:.*]] = "ttnn.sparse_sdpa"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}})
     // CHECK-SAME: (tensor<1x32x32x64xbf16, #[[Q_RM]]>, tensor<1x1x64x64xbf16, #[[KV_RM]]>, tensor<1x1x32x32xui32, #[[IDX_RM]]>) -> tensor<1x32x32x32xbf16, #[[OUT_RM]]>
-    // CHECK: "ttnn.to_layout"(%[[OUT]])
+    // CHECK: "ttnn.to_tensor_spec"(%[[OUT]])
     // CHECK-SAME: -> tensor<1x32x32x32xf32
     %0 = "ttnn.sparse_sdpa"(%q, %kv, %idx) <{v_dim = 32 : ui32, k_chunk_size = 32 : ui32}> : (tensor<1x32x32x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x32x32xsi32>) -> tensor<1x32x32x32xf32>
     return %0 : tensor<1x32x32x32xf32>
