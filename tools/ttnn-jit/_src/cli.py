@@ -216,8 +216,13 @@ def main(argv=None) -> int:
         choices=["ttnn", "interception", "rewrite"],
         default="ttnn",
         help="ttnn (default; emit TTNN directly, forces --pipeline ttnn), "
-        "interception (ttnn->TTIR), or rewrite (source-rewrite). Use interception "
-        "only for ops not yet handled by the direct-TTNN tracer.",
+        "interception (ttnn->TTIR), or rewrite (source-rewrite). NOTE: interception "
+        "is not a general fallback for the direct-TTNN tracer -- it cannot trace any "
+        "decoder using ttnn.rotary_embedding_hf, since TTIR has only "
+        "rotary_embedding_llama, which needs a trans_mat operand the HF op has no "
+        "equivalent for. It also lacks arange, fill_cache, logical_and, mul, pad, "
+        "rotary_embedding, scaled_dot_product_attention_decode and zeros. Prefer "
+        "adding a handler to the direct-TTNN tracer.",
     )
     c.set_defaults(fn=_cmd_capture)
 
