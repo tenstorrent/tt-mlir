@@ -12,6 +12,7 @@ import torch
 
 import d2m_jit as d2m
 from d2m_jit._src.builder import _Builder
+from runner import KernelBench, TensorSpec, compute_pcc, layout_from_spec, run_bench
 
 try:
     from _ttmlir_runtime import binary, runtime
@@ -131,3 +132,126 @@ def test_mesh_compute_round_trip_1x2():
 
     assert result.shape == full.shape
     assert (torch.sigmoid(full) - result).abs().max().item() < 0.05
+
+
+# ----------------------------------------------------------------------
+# Autotunable mesh kernel bench.
+#
+# The mesh mapping (mesh shape, topology, shard dims/factors) is fixed on the
+# materializer -- it is not a swept knob.  The autotuner's grid/block/mem
+# knobs apply PER SHARD: every device runs the same kernel with the same
+# config on its own shard of the full tensor.
+#
+# Autotuner caveats for mesh benches:
+# * `TensorSpec.shape` is the FULL tensor shape (what `make_inputs` generates
+#   and `mesh_shard` consumes), but the kernel executes on per-device shards,
+#   so auto-generated grid/block candidates are derived from the wrong tile
+#   counts.  Pass explicit `AutotuneKnobs.grid_shapes` valid for the shard;
+#   infeasible configs fail loudly on the divisibility asserts below.
+# * `kernel_ns` from a multi-chip profiler trace is unreliable (perf-analyzer
+#   does not separate per-device cycle clocks), so rank mesh results with
+#   care -- PCC and completion are trustworthy, timing is not yet.
+# ----------------------------------------------------------------------
+
+_MESH_SHAPE = (1, 2)
+_MESH_TOPOLOGY = ("linear", "ring")
+_SHARD_DIMS = [0, 1]
+_SHARD_SHAPE = [1, 2]
+
+
+@d2m.kernel
+def mesh_sigmoid_kernel(input_, output, m_blocks, n_blocks):
+    m_offset = core_index(0) * m_blocks
+    n_offset = core_index(1) * n_blocks
+    for m in range(m_blocks):
+        for n in range(n_blocks):
+            value = remote_load(input_, [m_offset + m, n_offset + n])
+            remote_store(
+                output,
+                [m_offset + m, n_offset + n],
+                sigmoid(value),
+            )
+
+
+def mesh_sigmoid_run(kernel, inputs, tensors, grid_shape):
+    """Mesh materializer: shard the full input across the device mesh, run the
+    kernel on every device's shard, gather back to the full tensor.
+
+    The per-device shard layout is derived from the spec's full shape via
+    ``_SHARD_SHAPE``; swept ``block_shape``/``mem_space`` reach the shard
+    Layout through ``layout_from_spec`` and ``grid_shape`` through the kernel
+    call, mirroring ``eltwise_block_run``'s contract.
+    """
+    assert len(tensors) == 1, "mesh_sigmoid_run materializes exactly one input"
+    ts = tensors[0]
+    full = inputs[0]
+    gy, gx = grid_shape
+
+    for dim, factor in zip(ts.shape, _SHARD_SHAPE):
+        assert (
+            dim % factor == 0
+        ), f"full shape {ts.shape} not divisible by shard factors {_SHARD_SHAPE}"
+    shard_h = ts.shape[-2] // _SHARD_SHAPE[-2]
+    shard_w = ts.shape[-1] // _SHARD_SHAPE[-1]
+    assert shard_h % 32 == 0, f"shard height {shard_h} is not tile-aligned"
+    assert shard_w % 32 == 0, f"shard width {shard_w} is not tile-aligned"
+    bm, bn = ts.block_shape[0], ts.block_shape[1]
+    tiles_m, tiles_n = shard_h // 32, shard_w // 32
+    assert (
+        tiles_m % bm == 0
+    ), f"shard M tiles ({tiles_m}) not divisible by block_shape[0]={bm}"
+    assert (
+        tiles_n % bn == 0
+    ), f"shard N tiles ({tiles_n}) not divisible by block_shape[1]={bn}"
+    blocks_m, blocks_n = tiles_m // bm, tiles_n // bn
+    assert (
+        blocks_m % gy == 0
+    ), f"shard M blocks ({blocks_m}) not divisible by grid_shape[0]={gy}"
+    assert (
+        blocks_n % gx == 0
+    ), f"shard N blocks ({blocks_n}) not divisible by grid_shape[1]={gx}"
+
+    d2m.mesh(_MESH_SHAPE, topology=_MESH_TOPOLOGY)
+    layout = layout_from_spec(ts, grid_shape=[gy, gx], shape=(shard_h, shard_w))
+    sharded = d2m.mesh_shard(
+        full,
+        layout,
+        shard_dims=_SHARD_DIMS,
+        shard_shape=_SHARD_SHAPE,
+    )
+    output = d2m.empty(layout)
+    kernel(sharded, output, blocks_m // gy, blocks_n // gx, grid=(gy, gx))
+    gathered = d2m.mesh_gather(
+        output,
+        shard_dims=_SHARD_DIMS,
+        shard_shape=_SHARD_SHAPE,
+    )
+    return gathered.to_host()
+
+
+# Full (128, 256) f32 -> per-device shard (128, 128) = 4x4 tiles, so valid
+# per-shard grids with block [1, 1] are all divisor pairs of (4, 4).
+KERNEL_BENCHES = {
+    "mesh_sigmoid": KernelBench(
+        kernel=mesh_sigmoid_kernel,
+        golden=torch.sigmoid,
+        run=mesh_sigmoid_run,
+        tensors=[
+            TensorSpec(
+                shape=(128, 256),
+                block_shape=[1, 1],
+                dtype=torch.float32,
+                dist="uniform(-2,2)",
+            )
+        ],
+        grid_shape=(2, 2),
+    )
+}
+
+
+@requires_mesh
+def test_mesh_sigmoid_bench_round_trip():
+    bench = KERNEL_BENCHES["mesh_sigmoid"]
+    actual, expected = run_bench(bench)
+    assert actual.shape == expected.shape
+    assert compute_pcc(expected, actual) >= bench.pcc
