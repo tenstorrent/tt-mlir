@@ -401,7 +401,6 @@ static Operation *tryCreateTypedOp(ttcore::CompositeOp compositeOp,
     return nullptr;
   }
 
-
   if (resolution == CompositeResolution::Validate) {
     auto validationResult = entry.validate(compositeOp, builder);
     if (!validationResult.isSuccess()) {

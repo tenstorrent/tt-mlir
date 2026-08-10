@@ -387,7 +387,7 @@ public:
   // Create workarounds for sparse_sdpa op operands. The tt-metal kernel gathers
   // q/kv/indices with row-major paged accessors, so all three operands and the
   // output must be unpadded ROW_MAJOR DRAM-interleaved, q/kv bf16 and indices
-  // uint32 (sparse_sdpa_device_operation.cpp).
+  // uint32.
   static TTNNOperandsWorkarounds
   createSparseSdpaOpOperandsWorkarounds(Operation *op);
 

@@ -1158,8 +1158,6 @@ TTNNOperandsWorkaroundsFactory::createSDPAForwardOpOperandsWorkarounds(
 //   q, kv, out : BFLOAT16 (tt-metal also accepts fp8_e4m3, which the TTNN
 //                dialect cannot express, so bf16 is the only reachable choice)
 //   indices    : UINT32
-// See sparse_sdpa_device_operation.cpp (validate_non_hashed and
-// validate_on_program_cache_miss).
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSparseSdpaOpOperandsWorkarounds(
     Operation *op) {

@@ -2443,10 +2443,6 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ArangeOp> emitter(
         srcOp, adaptor, rewriter);
 
-    // ttnn::arange has no single-argument overload, so the generic
-    // DefaultOpConversionPattern (which would emit only the operands, and
-    // arange has none besides the optional device) cannot be used: the trailing
-    // defaults have to be spelled out.
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getStart()),
         emitter.emit(srcOp.getEnd()),

@@ -57,7 +57,6 @@ static constexpr llvm::StringLiteral samplingTargetName = "tt.sampling";
 
 static constexpr llvm::StringLiteral sparseSdpaTargetName = "tt.sparse_sdpa";
 
-
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   mlir::Operation::operand_range inputs = scatterOp.getInputs();
@@ -652,8 +651,7 @@ getIndexerScoreDsaShardingRule(mlir::stablehlo::CustomCallOp op) {
 // Sharding rule for the `tt.sparse_sdpa` custom_call (sparse top-k MLA prefill
 // attention).
 //
-// Tensor layout (matches the StableHLO conversion in
-// StableHLOToTTIRPatterns.cpp):
+// Tensor layout:
 //   query   : [B, H, S, K_DIM]   H query heads, query seq S, latent head dim
 //   kv      : [B, 1, T, K_DIM]   single (shared) latent cache, key seq T
 //   indices : [B, 1, S, TOPK]    absolute key positions per query token
