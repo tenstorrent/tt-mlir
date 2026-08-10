@@ -24,17 +24,19 @@ _MACHINE_NUM_DEVICES = {"n150": 1, "p150": 1, "n300": 2, "llmbox": 8}
 
 @functools.lru_cache(maxsize=1)
 def _num_devices():
-    """Chip count read from SYSTEM_DESC_PATH, without opening a runtime device.
+    """Chip count read from the builder's resolved system descriptor
+    (SYSTEM_DESC_PATH if set, otherwise queried from the runtime).
 
     Unknown (no system desc, no runtime bindings) counts as a single-chip box:
     single-device tests still run and multi-chip tests skip."""
-    system_desc = os.environ.get("SYSTEM_DESC_PATH")
-    if not system_desc:
-        return 1
     try:
         # Imported lazily: the simulator suite runs with no MLIR bindings.
         from _ttmlir_runtime import binary
+        from d2m_jit._src.builder import _get_system_desc_path
 
+        system_desc = _get_system_desc_path()
+        if not system_desc:
+            return 1
         desc = binary.load_system_desc_from_path(system_desc).as_json()
         desc = re.sub(r"\bnan\b", "NaN", desc)
         desc = re.sub(r"\binf\b", "Infinity", desc)
