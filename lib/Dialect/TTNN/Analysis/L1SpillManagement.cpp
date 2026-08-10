@@ -651,6 +651,15 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
         if (!liveValues.count(victim)) {
           continue;
         }
+        // Never evict an already-inserted reshard: it exists specifically to
+        // supply an L1-sharded input to its consumer. Evicting it would trigger
+        // inserting another reshard for the same consumer, creating an
+        // unbounded chain of reshards (infinite loop / O(n^2) positionMap
+        // iteration). evictUntil / evictFarthestUse already honour this guard;
+        // apply the same rule here in the direct CB-zone eviction path.
+        if (insertedReshardValues.count(victim)) {
+          continue;
+        }
         TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                      "    CB_ZONE_EVICT: cbPeakUsage={0} cbVT={1}, evicting "
                      "high-virtual tensor to prevent CB-tensor clash",
@@ -690,7 +699,7 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
                    l1Size, l1BudgetPerCore);
       llvm::SmallVector<Value> toEvict;
       for (Value operand : op->getOperands()) {
-        if (liveValues.count(operand)) {
+        if (liveValues.count(operand) && !insertedReshardValues.count(operand)) {
           toEvict.push_back(operand);
         }
       }
