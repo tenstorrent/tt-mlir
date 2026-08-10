@@ -5,13 +5,9 @@
 #include "operations/ccl/all_gather.h"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/common/runtime_context.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+
 #include "ttnn/operations/ccl/all_gather/all_gather.hpp"
-#include "ttnn/operations/ccl/ccl_host_types.hpp"
 
 namespace tt::runtime::ttnn::operations::ccl {
 void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
@@ -30,9 +26,7 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
-  std::optional<::ttnn::Tensor> optionalOutputTensor = std::nullopt;
-  // Do not pass optionalOutputTensor to all_gather for now.
-  // Enable it when needed.
+  std::optional<::ttnn::Tensor> persistentOutputTensor = std::nullopt;
 
   std::optional<uint32_t> numLinks = op->num_links();
   std::optional<::tt::tt_fabric::Topology> topology = std::nullopt;
@@ -41,9 +35,10 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
         ::tt::runtime::common::toMetalTopology(op->topology().value()));
   }
 
-  ::ttnn::Tensor out = ::ttnn::all_gather(
-      input, allGatherDim, clusterAxis, subDeviceId, outputMemoryConfig,
-      optionalOutputTensor, numLinks, topology);
+  ::ttnn::Tensor out =
+      ::ttnn::all_gather(input, allGatherDim, clusterAxis, outputMemoryConfig,
+                         persistentOutputTensor, subDeviceId,
+                         /*sub_core_grid=*/std::nullopt, numLinks, topology);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

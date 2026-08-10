@@ -2,10 +2,46 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
 import pytest
 import torch
 
-from d2m_jit._src.builder import _Builder
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "device_only(reason): asserts device-specific behavior -- an intended "
+        "simulator divergence (SIMULATOR_SPEC.md §9), a host API the backend "
+        "switch does not dispatch, or a device-specific error type (§8). Skipped "
+        "when the suite is re-run with D2M_JIT_BACKEND=sim. Always pass "
+        "`reason=`: it is what shows up in the skip report, and it should name "
+        "the root cause, not the symptom.",
+    )
+
+
+def _sim_backend_requested():
+    return os.environ.get("D2M_JIT_BACKEND", "device") == "sim"
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip `device_only` tests when the whole suite is re-run on the simulator.
+
+    CI runs this directory twice: once on the device, once with
+    D2M_JIT_BACKEND=sim (see .github/test_scripts/d2m_jit.sh). Skipping by
+    marker rather than by deselecting paths keeps the exclusions visible in the
+    junit report instead of silently narrowing what the sim lane covers.
+    """
+    if not _sim_backend_requested():
+        return
+    for item in items:
+        marker = item.get_closest_marker("device_only")
+        if marker is None:
+            continue
+        reason = marker.kwargs.get("reason") or (
+            marker.args[0] if marker.args else "NO REASON GIVEN -- please add one"
+        )
+        item.add_marker(pytest.mark.skip(reason=f"device_only: {reason}"))
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -19,6 +55,12 @@ def _reset_builder():
     """Drop the process-level builder singleton between tests so a failed
     compile (negative tests) doesn't leak MLIR state into the next test."""
     yield
+    # Imported here, not at module scope: the simulator suite runs with no MLIR
+    # bindings at all, and there is no builder state to drop in that case.
+    try:
+        from d2m_jit._src.builder import _Builder
+    except ImportError:
+        return
     _Builder.reset()
 
 
@@ -26,6 +68,12 @@ def pytest_generate_tests(metafunc):
     """Parametrize the generic pattern tests over every spec declared in the
     bundled pattern files (test/d2m-jit/patterns/*.py). Adding a pattern file with
     PATTERN_TESTS / KERNEL_BENCHES is picked up here with no harness edits."""
+    # `runner` imports the MLIR bindings, so only reach for it when a test
+    # actually asks for one of the parametrized fixtures -- otherwise collecting
+    # the device-free simulator suite would require a tt-metal build.
+    if not {"pattern_test", "kernel_bench", "e2e_spec"} & set(metafunc.fixturenames):
+        return
+
     from runner import discover
 
     pattern_tests, kernel_benches = discover()

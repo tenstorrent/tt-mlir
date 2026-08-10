@@ -7582,6 +7582,201 @@ class TTIRBuilder(Builder):
 
         return gt_module, gt_builder
 
+    ############### ttir.AdamWOp ###############
+
+    @tag(ttir.AdamWOp)
+    def adamw(
+        self,
+        param: Operand,
+        grad: Operand,
+        exp_avg: Operand,
+        exp_avg_sq: Operand,
+        max_exp_avg_sq: Optional[Operand] = None,
+        lr: float = 1e-3,
+        beta1: float = 0.9,
+        beta2: float = 0.999,
+        beta1_pow: float = 0.9,
+        beta2_pow: float = 0.999,
+        epsilon: float = 1e-8,
+        weight_decay: float = 0.0,
+        stochastic_rounding: bool = False,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.adamw)
+        lr_attr = FloatAttr.get_f32(lr)
+        beta1_attr = FloatAttr.get_f32(beta1)
+        beta2_attr = FloatAttr.get_f32(beta2)
+        beta1_pow_attr = FloatAttr.get_f32(beta1_pow)
+        beta2_pow_attr = FloatAttr.get_f32(beta2_pow)
+        epsilon_attr = FloatAttr.get_f32(epsilon)
+        weight_decay_attr = FloatAttr.get_f32(weight_decay)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(param)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        param0 = self._get_golden_tensor(param)
+        grad0 = self._get_golden_tensor(grad)
+        exp_avg0 = self._get_golden_tensor(exp_avg)
+        exp_avg_sq0 = self._get_golden_tensor(exp_avg_sq)
+        max_exp_avg_sq0 = (
+            self._get_golden_tensor(max_exp_avg_sq)
+            if max_exp_avg_sq is not None
+            else None
+        )
+
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            param0,
+            grad0,
+            exp_avg0,
+            exp_avg_sq0,
+            max_exp_avg_sq0,
+            lr_attr,
+            beta1_attr,
+            beta2_attr,
+            beta1_pow_attr,
+            beta2_pow_attr,
+            epsilon_attr,
+            weight_decay_attr,
+            stochastic_rounding,
+            mlir_output_type,
+        )
+
+        param_out = self._create_ranked_tensor_type(
+            golden_output[0].shape, mlir_output_type
+        )
+        exp_avg_out = self._get_type(exp_avg)
+        exp_avg_sq_out = self._get_type(exp_avg_sq)
+        max_exp_avg_sq_out = (
+            self._get_type(max_exp_avg_sq) if max_exp_avg_sq is not None else None
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            param_out,
+            exp_avg_out,
+            exp_avg_sq_out,
+            max_exp_avg_sq_out,
+            param,
+            grad,
+            exp_avg,
+            exp_avg_sq,
+            lr_attr,
+            beta1_attr,
+            beta2_attr,
+            beta1_pow_attr,
+            beta2_pow_attr,
+            epsilon_attr,
+            weight_decay_attr,
+            max_exp_avg_sq=max_exp_avg_sq,
+            stochastic_rounding=stochastic_rounding,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        op_results = list(op.operation.results)
+        for op_result, golden in zip(op_results, golden_output):
+            self._set_golden_tensor(op_result, golden)
+
+        return tuple(op_results)
+
+    ############### ttir.SDPAForwardOp ###############
+
+    @tag(ttir.SDPAForwardOp)
+    def sdpa_fw(
+        self,
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        attention_mask: Optional[Operand] = None,
+        mask_type: AttentionMaskType = AttentionMaskType.Causal,
+        dropout_probability: float = 0.0,
+        return_intermediates: bool = False,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.sdpa_fw)
+        mask_type_attr = ttcore.ir.AttentionMaskTypeAttr.get(self._ctx, mask_type.value)
+        dropout_attr = FloatAttr.get_f32(dropout_probability)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(query)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        query0 = self._get_golden_tensor(query)
+        key0 = self._get_golden_tensor(key)
+        value0 = self._get_golden_tensor(value)
+        attention_mask0 = (
+            self._get_golden_tensor(attention_mask)
+            if attention_mask is not None
+            else None
+        )
+
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            query0,
+            key0,
+            value0,
+            attention_mask0,
+            int(mask_type.value.value),
+            dropout_probability,
+            return_intermediates,
+            mlir_output_type,
+        )
+
+        output_type_ranked = self._create_ranked_tensor_type(
+            golden_output[0].shape, mlir_output_type
+        )
+        intermediates_type = None
+        if return_intermediates:
+            intermediates_type = self._create_ranked_tensor_type(
+                golden_output[1].shape,
+                self._get_type_from_torch_dtype(torch.float32),
+            )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            output_type_ranked,
+            intermediates_type,
+            query,
+            key,
+            value,
+            attention_mask=attention_mask,
+            mask_type=mask_type_attr,
+            dropout_probability=dropout_attr,
+            return_intermediates=return_intermediates,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        op_results = list(op.operation.results)
+        for op_result, golden in zip(op_results, golden_output):
+            self._set_golden_tensor(op_result, golden)
+
+        if len(op_results) == 1:
+            return op_results[0]
+        return tuple(op_results)
+
     ############### ttir.BatchNormInferenceOp ###############
 
     @tag(ttir.BatchNormInferenceOp)
@@ -13182,12 +13377,11 @@ class TTIRBuilder(Builder):
         batch_offset: int = 0,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpResult:
+    ) -> Operand:
         ttir_op = self.get_opview_from_method(TTIRBuilder.fill_cache)
 
-        # `in0` is the cache (DPS init) and `in1` is the new values to fill in.
-        # The result type matches the cache type.
-        result = in0.type
+        # `in0` is the cache and `in1` is the new values to fill in. This op
+        # mutates the cache in place and produces no result.
         batch_offset_attr = IntegerAttr.get(IntegerType.get_signless(32), batch_offset)
 
         cache_golden = self._get_golden_tensor(in0)
@@ -13203,21 +13397,24 @@ class TTIRBuilder(Builder):
             loc = Location.name(loc)
 
         op = ttir_op(
-            result,
             in0,
             in1,
             batch_offset_attr,
             loc=loc,
         )
-        op_result = op.result
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        self._set_golden_tensor(op_result, golden_output)
+        # The cache is mutated in place; record the post-mutation golden on the
+        # cache operand so later reads (and the function output) observe it.
+        # Snapshot the pre-mutation golden first so the cache is still reported
+        # with its original value as the function's input golden.
+        self._snapshot_input_goldens([in0])
+        self._set_golden_tensor(in0, golden_output)
 
-        return op_result
+        return in0
 
     @parse(ttir.FillCacheOp)
     def fill_cache_parser(
@@ -13229,17 +13426,14 @@ class TTIRBuilder(Builder):
 
         cache = global_dict[old_op.cache]
         input = global_dict[old_op.input]
-        result = old_op.result.type
         batch_offset_attr = old_op.batch_offset
 
         new_op = ttir_op(
-            result,
             cache,
             input,
             batch_offset_attr,
             loc=old_op.location,
         )
-        new_op_result = new_op.result
 
         cache_golden = self._get_golden_tensor(cache)
         input_golden = self._get_golden_tensor(input)
@@ -13247,10 +13441,13 @@ class TTIRBuilder(Builder):
         golden_output = op_golden_function(
             cache_golden, input_golden, batch_offset=batch_offset_attr
         )
-        self._set_golden_tensor(new_op_result, golden_output)
+        # In-place op: the cache operand now holds the mutated values. Snapshot
+        # the pre-mutation golden first so the cache is still reported with its
+        # original value as the function's input golden.
+        self._snapshot_input_goldens([cache])
+        self._set_golden_tensor(cache, golden_output)
 
-        op_map_dictionary = {old_op.result: new_op_result}
-        return new_op, op_map_dictionary
+        return new_op, {}
 
     @split(ttir.FillCacheOp)
     def fill_cache_split(
@@ -13276,30 +13473,33 @@ class TTIRBuilder(Builder):
                 def decorated_func(*inputs):
                     cache = inputs[0]
                     input = inputs[1]
-                    result = old_op.result.type
                     batch_offset_attr = old_op.batch_offset
 
                     new_op = ttir_op(
-                        result,
                         cache,
                         input,
                         batch_offset_attr,
                         loc=old_op.location,
                     )
-                    new_op_result = new_op.result
 
-                    cache_golden = self._get_golden_tensor(old_op.cache)
+                    original_cache_golden = self._input_golden_snapshot.get(
+                        old_op.cache, self._get_golden_tensor(old_op.cache)
+                    )
                     input_golden = self._get_golden_tensor(old_op.input)
-                    old_op_result = self._get_golden_tensor(old_op.result)
-                    fill_cache_builder._set_golden_tensor(new_op_result, old_op_result)
-                    fill_cache_builder._set_golden_tensor(cache, cache_golden)
+                    mutated_cache_golden = self._get_golden_tensor(old_op.cache)
+
+                    fill_cache_builder._set_golden_tensor(cache, original_cache_golden)
                     fill_cache_builder._set_golden_tensor(input, input_golden)
                     fill_cache_builder._annotate_presharded_arg(cache)
                     fill_cache_builder._annotate_presharded_arg(input)
                     ordered_inputs.extend([cache, input])
-                    ordered_outputs.append(new_op_result)
+                    fill_cache_builder._snapshot_input_goldens([cache, input])
 
-                    return new_op
+                    # In-place mutation: cache holds the filled values on return.
+                    fill_cache_builder._set_golden_tensor(cache, mutated_cache_golden)
+                    ordered_outputs.append(cache)
+
+                    return cache
 
                 new_func_op = decorated_func.func_op
                 fill_cache_builder._func_ops_generated[new_func_op] = [
@@ -13348,8 +13548,8 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpResult*)
-            The updated cache tensor
+        (*Operand*)
+            The cache operand, mutated in place
         """
         ttir_op = self.get_opview_from_method(TTIRBuilder.update_cache)
 
@@ -13371,7 +13571,6 @@ class TTIRBuilder(Builder):
             batch_offset_attr,
             mlir_output_type,
         )
-        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -13379,22 +13578,25 @@ class TTIRBuilder(Builder):
             loc = Location.name(loc)
 
         op = ttir_op(
-            result,
             in0,
             in1,
             in2,
             batch_offset_attr,
             loc=loc,
         )
-        op_result = op.result
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        self._set_golden_tensor(op_result, golden_output)
+        # The cache is mutated in place; record the post-mutation golden on the
+        # cache operand so later reads (and the function output) observe it.
+        # Snapshot the pre-mutation golden first so the cache is still reported
+        # with its original value as the function's input golden.
+        self._snapshot_input_goldens([in0])
+        self._set_golden_tensor(in0, golden_output)
 
-        return op_result
+        return in0
 
     @parse(ttir.UpdateCacheOp)
     def update_cache_parser(
@@ -13407,18 +13609,15 @@ class TTIRBuilder(Builder):
         cache = global_dict[old_op.cache]
         input = global_dict[old_op.input]
         update_index = global_dict[old_op.update_index]
-        result = old_op.result.type
         batch_offset_attr = old_op.batch_offset
 
         new_op = ttir_op(
-            result,
             cache,
             input,
             update_index,
             batch_offset_attr,
             loc=old_op.location,
         )
-        new_op_result = new_op.result
 
         input_cache = self._get_golden_tensor(cache)
         input_update = self._get_golden_tensor(input)
@@ -13429,13 +13628,15 @@ class TTIRBuilder(Builder):
             input_update,
             input_index,
             batch_offset_attr,
-            result.element_type,
+            self.get_type(cache),
         )
-        self._set_golden_tensor(new_op_result, golden_output)
+        # In-place op: the cache operand now holds the mutated values. Snapshot
+        # the pre-mutation golden first so the cache is still reported with its
+        # original value as the function's input golden.
+        self._snapshot_input_goldens([cache])
+        self._set_golden_tensor(cache, golden_output)
 
-        op_map_dictionary = {}
-        op_map_dictionary[old_op.result] = new_op_result
-        return new_op, op_map_dictionary
+        return new_op, {}
 
     @split(ttir.UpdateCacheOp)
     def update_cache_split(
@@ -13466,36 +13667,41 @@ class TTIRBuilder(Builder):
                     cache = inputs[0]
                     input = inputs[1]
                     update_index = inputs[2]
-                    result = old_op.result.type
                     batch_offset_attr = old_op.batch_offset
 
                     new_op = ttir_op(
-                        result,
                         cache,
                         input,
                         update_index,
                         batch_offset_attr,
                         loc=old_op.location,
                     )
-                    new_op_result = new_op.result
 
-                    input_cache = self._get_golden_tensor(old_op.cache)
+                    original_cache_golden = self._input_golden_snapshot.get(
+                        old_op.cache, self._get_golden_tensor(old_op.cache)
+                    )
                     input_update = self._get_golden_tensor(old_op.input)
                     input_index = self._get_golden_tensor(old_op.update_index)
-                    old_op_result = self._get_golden_tensor(old_op.result)
+                    mutated_cache_golden = self._get_golden_tensor(old_op.cache)
+
                     update_cache_builder._set_golden_tensor(
-                        new_op_result, old_op_result
+                        cache, original_cache_golden
                     )
-                    update_cache_builder._set_golden_tensor(cache, input_cache)
                     update_cache_builder._set_golden_tensor(input, input_update)
                     update_cache_builder._set_golden_tensor(update_index, input_index)
                     update_cache_builder._annotate_presharded_arg(cache)
                     update_cache_builder._annotate_presharded_arg(input)
                     update_cache_builder._annotate_presharded_arg(update_index)
                     ordered_inputs.extend([cache, input, update_index])
-                    ordered_outputs.append(new_op_result)
+                    update_cache_builder._snapshot_input_goldens(
+                        [cache, input, update_index]
+                    )
 
-                    return new_op
+                    # In-place mutation: cache holds the updated values on return.
+                    update_cache_builder._set_golden_tensor(cache, mutated_cache_golden)
+                    ordered_outputs.append(cache)
+
+                    return cache
 
                 new_func_op = decorated_func.func_op
                 update_cache_builder._func_ops_generated[new_func_op] = [
@@ -13518,7 +13724,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpResult:
+    ) -> Operand:
         ttir_op = self.get_opview_from_method(TTIRBuilder.paged_update_cache)
 
         if output_type is None:
@@ -13544,7 +13750,6 @@ class TTIRBuilder(Builder):
             pt_golden,
             mlir_output_type,
         )
-        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -13552,7 +13757,6 @@ class TTIRBuilder(Builder):
             loc = Location.name(loc)
 
         op = ttir_op(
-            result,
             cache,
             input,
             update_index,
@@ -13560,15 +13764,19 @@ class TTIRBuilder(Builder):
             page_table=page_table,
             loc=loc,
         )
-        op_result = op.result
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        self._set_golden_tensor(op_result, golden_output)
+        # The cache is mutated in place; record the post-mutation golden on the
+        # cache operand so later reads (and the function output) observe it.
+        # Snapshot the pre-mutation golden first so the cache is still reported
+        # with its original value as the function's input golden.
+        self._snapshot_input_goldens([cache])
+        self._set_golden_tensor(cache, golden_output)
 
-        return op_result
+        return cache
 
     @parse(ttir.PagedUpdateCacheOp)
     def paged_update_cache_parser(
@@ -13584,11 +13792,9 @@ class TTIRBuilder(Builder):
         page_table = (
             global_dict[old_op.page_table] if old_op.page_table is not None else None
         )
-        result = old_op.result.type
         share_cache_attr = old_op.share_cache
 
         new_op = ttir_op(
-            result,
             cache,
             input,
             update_index,
@@ -13596,7 +13802,6 @@ class TTIRBuilder(Builder):
             page_table=page_table,
             loc=old_op.location,
         )
-        new_op_result = new_op.result
 
         cache_golden = self._get_golden_tensor(cache)
         input_golden = self._get_golden_tensor(input)
@@ -13611,13 +13816,15 @@ class TTIRBuilder(Builder):
             index_golden,
             share_cache_attr,
             pt_golden,
-            result.element_type,
+            self.get_type(cache),
         )
-        self._set_golden_tensor(new_op_result, golden_output)
+        # In-place op: the cache operand now holds the mutated values. Snapshot
+        # the pre-mutation golden first so the cache is still reported with its
+        # original value as the function's input golden.
+        self._snapshot_input_goldens([cache])
+        self._set_golden_tensor(cache, golden_output)
 
-        op_map_dictionary = {}
-        op_map_dictionary[old_op.result] = new_op_result
-        return new_op, op_map_dictionary
+        return new_op, {}
 
     @split(ttir.PagedUpdateCacheOp)
     def paged_update_cache_split(
@@ -13660,11 +13867,9 @@ class TTIRBuilder(Builder):
                     else:
                         page_table = None
 
-                    result = old_op.result.type
                     share_cache_attr = old_op.share_cache
 
                     new_op = ttir_op(
-                        result,
                         cache,
                         input,
                         update_index,
@@ -13672,13 +13877,11 @@ class TTIRBuilder(Builder):
                         page_table=page_table,
                         loc=old_op.location,
                     )
-                    new_op_result = new_op.result
 
-                    old_op_result = self._get_golden_tensor(old_op.result)
-                    puc_builder._set_golden_tensor(new_op_result, old_op_result)
-
-                    cache_golden = self._get_golden_tensor(old_op.cache)
-                    puc_builder._set_golden_tensor(cache, cache_golden)
+                    original_cache_golden = self._input_golden_snapshot.get(
+                        old_op.cache, self._get_golden_tensor(old_op.cache)
+                    )
+                    puc_builder._set_golden_tensor(cache, original_cache_golden)
                     ordered_inputs.append(cache)
 
                     input_golden = self._get_golden_tensor(old_op.input)
@@ -13697,9 +13900,14 @@ class TTIRBuilder(Builder):
                     puc_builder._annotate_presharded_arg(cache)
                     puc_builder._annotate_presharded_arg(input)
                     puc_builder._annotate_presharded_arg(update_index)
-                    ordered_outputs.append(new_op_result)
+                    puc_builder._snapshot_input_goldens(ordered_inputs)
 
-                    return new_op
+                    # In-place mutation: cache holds the updated values on return.
+                    mutated_cache_golden = self._get_golden_tensor(old_op.cache)
+                    puc_builder._set_golden_tensor(cache, mutated_cache_golden)
+                    ordered_outputs.append(cache)
+
+                    return cache
 
                 new_func_op = decorated_func.func_op
                 puc_builder._func_ops_generated[new_func_op] = [
@@ -13721,7 +13929,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpResult:
+    ) -> Operand:
         ttir_op = self.get_opview_from_method(TTIRBuilder.paged_fill_cache)
 
         if output_type is None:
@@ -13746,7 +13954,6 @@ class TTIRBuilder(Builder):
             batch_idx_golden,
             mlir_output_type,
         )
-        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -13754,22 +13961,25 @@ class TTIRBuilder(Builder):
             loc = Location.name(loc)
 
         op = ttir_op(
-            result,
             cache,
             input,
             page_table,
             batch_idx_tensor=batch_idx_tensor,
             loc=loc,
         )
-        op_result = op.result
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        self._set_golden_tensor(op_result, golden_output)
+        # The cache is mutated in place; record the post-mutation golden on the
+        # cache operand so later reads (and the function output) observe it.
+        # Snapshot the pre-mutation golden first so the cache is still reported
+        # with its original value as the function's input golden.
+        self._snapshot_input_goldens([cache])
+        self._set_golden_tensor(cache, golden_output)
 
-        return op_result
+        return cache
 
     @parse(ttir.PagedFillCacheOp)
     def paged_fill_cache_parser(
@@ -13787,17 +13997,14 @@ class TTIRBuilder(Builder):
             if old_op.batch_idx_tensor is not None
             else None
         )
-        result = old_op.result.type
 
         new_op = ttir_op(
-            result,
             cache,
             input,
             page_table,
             batch_idx_tensor=batch_idx_tensor,
             loc=old_op.location,
         )
-        new_op_result = new_op.result
 
         cache_golden = self._get_golden_tensor(cache)
         input_golden = self._get_golden_tensor(input)
@@ -13813,13 +14020,15 @@ class TTIRBuilder(Builder):
             input_golden,
             pt_golden,
             batch_idx_golden,
-            result.element_type,
+            self.get_type(cache),
         )
-        self._set_golden_tensor(new_op_result, golden_output)
+        # In-place op: the cache operand now holds the mutated values. Snapshot
+        # the pre-mutation golden first so the cache is still reported with its
+        # original value as the function's input golden.
+        self._snapshot_input_goldens([cache])
+        self._set_golden_tensor(cache, golden_output)
 
-        op_map_dictionary = {}
-        op_map_dictionary[old_op.result] = new_op_result
-        return new_op, op_map_dictionary
+        return new_op, {}
 
     @split(ttir.PagedFillCacheOp)
     def paged_fill_cache_split(
@@ -13862,23 +14071,18 @@ class TTIRBuilder(Builder):
                     else:
                         batch_idx_tensor = None
 
-                    result = old_op.result.type
-
                     new_op = ttir_op(
-                        result,
                         cache,
                         input,
                         page_table,
                         batch_idx_tensor=batch_idx_tensor,
                         loc=old_op.location,
                     )
-                    new_op_result = new_op.result
 
-                    old_op_result = self._get_golden_tensor(old_op.result)
-                    pfc_builder._set_golden_tensor(new_op_result, old_op_result)
-
-                    cache_golden = self._get_golden_tensor(old_op.cache)
-                    pfc_builder._set_golden_tensor(cache, cache_golden)
+                    original_cache_golden = self._input_golden_snapshot.get(
+                        old_op.cache, self._get_golden_tensor(old_op.cache)
+                    )
+                    pfc_builder._set_golden_tensor(cache, original_cache_golden)
                     ordered_inputs.append(cache)
 
                     input_golden = self._get_golden_tensor(old_op.input)
@@ -13897,9 +14101,14 @@ class TTIRBuilder(Builder):
                     pfc_builder._annotate_presharded_arg(cache)
                     pfc_builder._annotate_presharded_arg(input)
                     pfc_builder._annotate_presharded_arg(page_table)
-                    ordered_outputs.append(new_op_result)
+                    pfc_builder._snapshot_input_goldens(ordered_inputs)
 
-                    return new_op
+                    # In-place mutation: cache holds the filled values on return.
+                    mutated_cache_golden = self._get_golden_tensor(old_op.cache)
+                    pfc_builder._set_golden_tensor(cache, mutated_cache_golden)
+                    ordered_outputs.append(cache)
+
+                    return cache
 
                 new_func_op = decorated_func.func_op
                 pfc_builder._func_ops_generated[new_func_op] = [

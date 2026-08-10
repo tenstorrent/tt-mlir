@@ -65,11 +65,19 @@
 #include <cstddef>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <vector>
 
 template <typename... T>
 std::vector<ttnn::Tensor> util_create_vec(T &&...t) {
   return std::vector<ttnn::Tensor>{std::forward<T>(t)...};
+}
+
+// Unwraps a std::optional<T> into a T. Used to extract tensors from ttml metal
+// ops that return std::vector<std::optional<ttnn::Tensor>> (e.g. sdpa_fw).
+template <typename T>
+T util_get_optional_value(const std::optional<T> &opt) {
+  return opt.value();
 }
 
 namespace ttnn {
@@ -190,8 +198,7 @@ uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
 ::ttnn::Tensor loadTensor(const std::string &filePath, ttnn::Layout layout,
                           ttnn::DataType dtype, ttnn::MeshDevice *device,
                           ttnn::MemoryConfig memoryConfig) {
-  ::ttnn::Tensor loadedTensor =
-      ::tt::tt_metal::load_tensor_flatbuffer(filePath);
+  ::ttnn::Tensor loadedTensor = ::ttnn::load_tensor_flatbuffer(filePath);
 
   assert(loadedTensor.device() == nullptr && "loaded tensor must be on host");
 

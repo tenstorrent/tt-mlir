@@ -646,38 +646,40 @@ private:
       RankedTensorType currentTensorType =
           mlir::cast<RankedTensorType>(arg.getType());
 
-      ttnn::ToLayoutOp layoutOp = nullptr;
+      ttnn::ToTensorSpecOp tensorSpecOp = nullptr;
 
-      // Check if argument has only one use and it's a ToLayoutOp.
+      // Check if argument has only one use and it's a ToTensorSpecOp.
       if (arg.hasOneUse()) {
         auto *user = *arg.getUsers().begin();
-        if (auto directLayoutOp = mlir::dyn_cast<ttnn::ToLayoutOp>(user)) {
-          layoutOp = directLayoutOp;
+        if (auto directTensorSpecOp =
+                mlir::dyn_cast<ttnn::ToTensorSpecOp>(user)) {
+          tensorSpecOp = directTensorSpecOp;
         }
       }
 
-      // If there's no ToLayoutOp pattern, keep the original type.
-      if (!layoutOp) {
+      // If there's no ToTensorSpecOp pattern, keep the original type.
+      if (!tensorSpecOp) {
         newInputTypes.push_back(currentTensorType);
         continue;
       }
 
-      // Get the target type from the ToLayoutOp and update the function
+      // Get the target type from the ToTensorSpecOp and update the function
       // argument type directly.
-      RankedTensorType targetTensorType = layoutOp.getResult().getType();
+      RankedTensorType targetTensorType = tensorSpecOp.getResult().getType();
       TTNNLayoutAttr targetLayoutAttr =
           utils::getLayoutAttrFromTensor(targetTensorType);
       TTNNLayoutAttr currentLayoutAttr =
           utils::getLayoutAttrFromTensor(currentTensorType);
       if (targetLayoutAttr.getDataType() != currentLayoutAttr.getDataType()) {
-        return funcOp.emitError("ToLayoutOp changed data type for argument ")
+        return funcOp.emitError(
+                   "ToTensorSpecOp changed data type for argument ")
                << argIdx << ", expected only buffer type change";
       }
       newInputTypes.push_back(targetTensorType);
 
-      // Replace all uses of ToLayoutOp with the function argument.
-      layoutOp.getResult().replaceAllUsesWith(arg);
-      opsToErase.push_back(layoutOp);
+      // Replace all uses of ToTensorSpecOp with the function argument.
+      tensorSpecOp.getResult().replaceAllUsesWith(arg);
+      opsToErase.push_back(tensorSpecOp);
 
       hasChanges = true;
     }
@@ -790,14 +792,14 @@ private:
       }
       // For inputs, convert them to system memory/row major if needed
       else if (layout.getBufferType() != ttnn::BufferType::SystemMemory) {
-        // Convert to system memory using ToLayoutOp
+        // Convert to system memory using ToTensorSpecOp
         RankedTensorType systemMemoryTileType =
             utils::RankedTensorTypeFactory::create(
                 tensorType, ttnn::BufferType::SystemMemory);
 
-        auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
+        auto toTensorSpecOp = builder.create<ttnn::ToTensorSpecOp>(
             funcOp.getLoc(), systemMemoryTileType, input);
-        tensorInputs.push_back(toLayoutOp.getResult());
+        tensorInputs.push_back(toTensorSpecOp.getResult());
       } else {
         // Already on system memory
         tensorInputs.push_back(input);

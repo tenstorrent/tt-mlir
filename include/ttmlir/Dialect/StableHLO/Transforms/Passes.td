@@ -83,6 +83,17 @@ def RegisterUserShardingRulePass : Pass<"register-user-sharding-rule", "::mlir::
     is present and non-empty but does not parse into an #sdy.op_sharding_rule,
     the pass fails with an error.
 
+    The promoted rule is always non-custom, even if the user wrote it as
+    `custom`. Shardy's is_custom_rule bit only exempts a rule from
+    removeShardingRules and makes InsertExplicitReshards skip the op;
+    it does not affect propagation. Keeping it set would
+    therefore suppress the operand reshards a user rule needs. Instead, user
+    rules follow the same lifecycle as the built-in C++ rules: propagation
+    consumes and then strips the attribute, and RegisterCustomShardingRulePass
+    recreates the rule on demand from the frontend attribute through
+    ShardingRuleOpInterface from the "xla.sdy.custom_sharding_rule", so later
+    passes still see it.
+
     This pass is intended to run before any Shardy sharding propagation passes.
   }];
 
@@ -560,10 +571,17 @@ def ReplicateNonSplittableValuesPass : Pass<"replicate-non-splittable-values", "
     which fails for non-splat, non-periodic data (and, for iota, would drop
     the per-shard offset so every shard emits 0..local-1).
 
+    It also handles stablehlo.slice that narrows a sharded dimension: start and
+    limit are absolute positions, so dividing them by the shard factor only
+    lines up when the slice spans the whole dimension. Strided slices with
+    start < stride (e.g. [::2], [1::2]) are a valid per-shard interleave and are
+    left alone.
+
     Example values that are non-splittable:
       - dense<[0, 1, 2, ..., 63]> : tensor<64xi64>  (position indices)
       - dense<[[[0.0, 1.0, ..., 63.0]]]> : tensor<1x1x64xf32>  (RoPE freqs)
       - stablehlo.iota dim = 0 : tensor<64xui32>  (sharded along dim 0)
+      - stablehlo.slice [0:2560] of tensor<2x1x30720xbf16> sharded on dim 2
   }];
 
   let dependentDialects = [

@@ -125,6 +125,13 @@ private:
   /// Update function return types to match modified IR.
   void updateFunctionReturnTypes();
 
+  /// Backstop for updateFunctionReturnTypes: a function result's layout may
+  /// change, its element type may not. Casts the return operand back to the
+  /// declared element type if it diverged.
+  void reconcileReturnOperandDataType(func::ReturnOp returnOp,
+                                      unsigned operandIdx,
+                                      FunctionType declaredType);
+
   /// Backward pass: consolidate beam at fork points.
   /// Only runs when beamWidth > 1.
   void consolidateBeam();

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-layout --ttnn-workaround --convert-ttnn-to-emitpy -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-layout --ttnn-workaround --ttnn-decompose-layouts --convert-ttnn-to-emitpy -o %t.mlir %s
 // RUN: ttmlir-translate --mlir-to-python %t.mlir | FileCheck %s
 
 func.func @chunked_sdpa(%arg0: tensor<1x12x64x64xbf16>, %arg1: tensor<128x12x32x64xbf16>, %arg2: tensor<128x12x32x64xbf16>, %arg3: tensor<1x8xi32>, %arg4: tensor<1xi32>) -> tensor<1x12x64x64xbf16> {

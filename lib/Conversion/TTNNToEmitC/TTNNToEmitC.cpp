@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -2476,6 +2475,39 @@ private:
 };
 } // namespace
 
+// Arange op conversion pattern
+//
+namespace {
+class ArangeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::ArangeOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ArangeOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ArangeOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ArangeOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getStart()),
+        emitter.emit(srcOp.getEnd()),
+        emitter.emit(srcOp.getStep()),
+        emitter.emit(srcOp.getDtypeAttr()),
+        emitter.emit<::ttnn::operations::creation::detail::OptionalMeshDevice>(
+            srcOp.getDevice()),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
+        emitter.emit(srcOp.getLayoutAttr().getValue()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Rand op conversion pattern
 //
 namespace {
@@ -2856,6 +2888,34 @@ public:
 };
 } // namespace
 
+namespace {
+// Use CallOpaqueOp for generated function calls so we can spell callees as
+// `::foo(...)`. Tensor operands live in the ttnn namespace, so an unqualified
+// call like `add(v1, v2)` would also consider `ttnn::add` via ADL.
+class FuncCallOpConversionPattern : public OpConversionPattern<func::CallOp> {
+public:
+  using OpConversionPattern<func::CallOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(func::CallOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    for (Type resultType : srcOp.getResultTypes()) {
+      Type convertedType = getTypeConverter()->convertType(resultType);
+      if (!convertedType) {
+        return rewriter.notifyMatchFailure(srcOp, "type conversion failed");
+      }
+      resultTypes.push_back(convertedType);
+    }
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, resultTypes, ("::" + srcOp.getCallee()).str(), nullptr, nullptr,
+        adaptor.getOperands());
+    return success();
+  }
+};
+} // namespace
+
 // DistributeTensorOp conversion pattern
 //
 namespace {
@@ -3079,9 +3139,10 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getAllGatherDim()),
         emitter.emit(srcOp.getClusterAxis()),
-        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
-        emitter.emit(/* optional_output_tensor= */ std::nullopt),
+        emitter.emit(/* persistent_output_tensor= */ std::nullopt),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
+        emitter.emit(/* sub_core_grid= */ std::nullopt),
         emitter.emit(srcOp.getNumLinks()),
         emitter.emit(srcOp.getTopology()),
     };
@@ -3481,6 +3542,142 @@ public:
 } // namespace
 
 //
+// AdamWOp conversion pattern (emits ::ttml::metal::adamw)
+//
+namespace {
+class AdamWOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::AdamWOp> {
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.adamw"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttml::metal::adamw";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::AdamWOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = mlir::tt::ttnn::AdamWOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AdamWOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AdamWOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // Arg order matches ttml::metal::adamw(param, grad, exp_avg, exp_avg_sq,
+    // max_exp_avg_sq, lr, beta1, beta2, beta1_pow, beta2_pow, epsilon,
+    // weight_decay, stochastic_rounding).
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getParam()),
+        emitter.emit(srcOp.getGrad()),
+        emitter.emit(srcOp.getExpAvg()),
+        emitter.emit(srcOp.getExpAvgSq()),
+        emitter.emit(srcOp.getMaxExpAvgSq()),
+        emitter.emit(srcOp.getLr()),
+        emitter.emit(srcOp.getBeta1()),
+        emitter.emit(srcOp.getBeta2()),
+        emitter.emit(srcOp.getBeta1Pow()),
+        emitter.emit(srcOp.getBeta2Pow()),
+        emitter.emit(srcOp.getEpsilon()),
+        emitter.emit(srcOp.getWeightDecay()),
+        rewriter.getAttr<emitc::OpaqueAttr>(
+            srcOp.getStochasticRounding()
+                ? "::ttml::metal::StochasticRounding::Enabled"
+                : "::ttml::metal::StochasticRounding::Disabled"),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+//
+// SDPAForwardOp conversion pattern (emits ::ttml::metal::sdpa_fw)
+//
+namespace {
+class SDPAForwardOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::SDPAForwardOp> {
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.sdpa_fw"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttml::metal::sdpa_fw";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SDPAForwardOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = mlir::tt::ttnn::SDPAForwardOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SDPAForwardOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SDPAForwardOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // Map the ttcore mask-type enum onto the mirrored ttml::metal one.
+    llvm::StringRef maskTypeName;
+    switch (srcOp.getMaskType()) {
+    case mlir::tt::ttcore::AttentionMaskType::None:
+      maskTypeName = "::ttml::metal::AttentionMaskType::None";
+      break;
+    case mlir::tt::ttcore::AttentionMaskType::Causal:
+      maskTypeName = "::ttml::metal::AttentionMaskType::Causal";
+      break;
+    case mlir::tt::ttcore::AttentionMaskType::Arbitrary:
+      maskTypeName = "::ttml::metal::AttentionMaskType::Arbitrary";
+      break;
+    }
+
+    // Arg order matches ttml::metal::sdpa_fw(query, key, value, mask_type,
+    // mask, dropout_probability, return_intermediates).
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getValue()),
+        rewriter.getAttr<emitc::OpaqueAttr>(maskTypeName),
+        emitter.emit(srcOp.getAttentionMask()),
+        emitter.emit(srcOp.getDropoutProbability()),
+        emitter.emit(srcOp.getReturnIntermediates()),
+    };
+
+    using ReturnTy = std::vector<std::optional<::ttnn::Tensor>>;
+    auto sdpaForwardOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(ttnn_to_emitc::TypeNameV<ReturnTy>),
+        convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    // Unpack each result: results[i] = util_get_optional_value(vec[i]).
+    auto optionalType = emitc::OpaqueType::get(
+        rewriter.getContext(), ttnn_to_emitc::TypeNameV<ReturnTy::value_type>);
+    auto optionalLValueType = emitc::LValueType::get(optionalType);
+    auto tensorType = rewriter.getType<emitc::OpaqueType>(
+        ttnn_to_emitc::TypeNameV<::ttnn::Tensor>);
+
+    llvm::SmallVector<mlir::Value, 2> results;
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), rewriter.getIndexType(), std::to_string(i));
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), optionalLValueType, sdpaForwardOp.getResult(0),
+          indexOp.getResult());
+      auto loadOp = rewriter.create<emitc::LoadOp>(srcOp.getLoc(), optionalType,
+                                                   subscriptOp.getResult());
+      auto valueOp = rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), tensorType,
+          ttnn_to_emitc::kGetOptionalValueFunctionName, /*args=*/nullptr,
+          /*template_args=*/nullptr, loadOp.getResult());
+      results.push_back(valueOp.getResult(0));
+    }
+
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+};
+} // namespace
+
+//
 // BatchNormTrainingOp conversion pattern
 //
 namespace {
@@ -3831,6 +4028,65 @@ public:
         emitter.emit(srcOp.getIsCausal()),
         emitter.emit(srcOp.getScale()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
+    };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// IndexerScoreDsaOp conversion pattern
+//
+namespace {
+class IndexerScoreDsaOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::IndexerScoreDsaOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.indexer_score_dsa";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::indexer_score_dsa";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::IndexerScoreDsaOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::IndexerScoreDsaOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::IndexerScoreDsaOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // ttnn takes the query-sequence shard as `seq_shard_axes`, a
+    // std::vector<uint32_t> of mesh axes; forward the single cluster_axis as
+    // its sole element (unset -> std::nullopt).
+    llvm::SmallVector<uint32_t, 1> seqShardAxesStorage;
+    std::optional<llvm::ArrayRef<uint32_t>> seqShardAxes;
+    if (std::optional<uint32_t> clusterAxis = srcOp.getClusterAxis()) {
+      seqShardAxesStorage.push_back(*clusterAxis);
+      seqShardAxes = llvm::ArrayRef<uint32_t>(seqShardAxesStorage);
+    }
+
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getWeights()),
+        emitter.emit(srcOp.getChunkStartIdx()),
+        /*program_config=*/
+        emitter.emit<::ttnn::operations::experimental::indexer_score::
+                         IndexerScoreProgramConfig>(std::nullopt),
+        /*compute_kernel_config=*/emitter.emit(std::nullopt),
+        /*cache_batch_idx=*/emitter.emit(std::nullopt),
+        /*kv_len=*/emitter.emit(std::nullopt),
+        /*seq_shard_axes=*/emitter.emit<std::vector<uint32_t>>(seqShardAxes),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
@@ -4820,7 +5076,7 @@ private:
     return mlir::tt::ttnn::WriteTensorOp::getOperationName().str();
   }
   std::string getPrefixSwapPattern() const override {
-    return "tt::tt_metal::copy_to_device";
+    return "ttnn::copy_to_device";
   }
 
 public:
@@ -5296,7 +5552,7 @@ private:
   }
 
   std::string getPrefixSwapPattern() const override {
-    return "::tt::tt_metal::dump_tensor_flatbuffer";
+    return "::ttnn::dump_tensor_flatbuffer";
   }
 
 public:
@@ -5593,7 +5849,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                NamedFullOpConversionPattern<mlir::tt::ttnn::ZerosOp>,
                NamedFullOpConversionPattern<mlir::tt::ttnn::OnesOp>,
                FullOpConversionPattern,
-               DefaultOpConversionPattern<mlir::tt::ttnn::ArangeOp>,
+               ArangeOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::ConstantOp>,
                RandOpConversionPattern,
                AssignOpConversionPattern>(typeConverter, ctx);
@@ -5753,9 +6009,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       .add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
            DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
            CumSumOpConversionPattern, CumProdOpConversionPattern,
-           BatchNormInferenceOpConversionPattern,
-           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-           RMSNormPreAllGatherOpConversionPattern,
+           BatchNormInferenceOpConversionPattern, AdamWOpConversionPattern,
+           SDPAForwardOpConversionPattern, BatchNormTrainingOpConversionPattern,
+           RMSNormOpConversionPattern, RMSNormPreAllGatherOpConversionPattern,
            DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,
            LayerNormPreAllGatherOpConversionPattern,
            LayerNormPostAllGatherOpConversionPattern,
@@ -5819,6 +6075,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // FuncOp
   //
   patterns.add<FuncOpConversionPattern>(typeConverter, ctx);
+  patterns.add<FuncCallOpConversionPattern>(typeConverter, ctx,
+                                            PatternBenefit(2));
 
   // Transformers ops
   //
@@ -5839,6 +6097,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
                                                              ctx);
   patterns.add<FlashMlaPrefillOpConversionPattern>(typeConverter, ctx);
+  patterns.add<IndexerScoreDsaOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPCreateQKVHeadsDecodeOpConversionPattern>(typeConverter, ctx);
 }
 // ANCHOR_END: op_rewriter_pattern_set_emitc

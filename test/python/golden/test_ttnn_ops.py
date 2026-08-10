@@ -638,7 +638,7 @@ def test_full(
                 unit_attrs=unit_attrs,
             )
             if full_layout == ttnn.Layout.RowMajor:
-                return builder.to_layout(
+                return builder.to_tensor_spec(
                     full, layout=ttnn.Layout.Tile, output_type=dtype
                 )
             return full
@@ -688,7 +688,7 @@ def test_constant(
                 buffer_type=buffer_type,
             )
             if constant_layout == ttnn.Layout.RowMajor:
-                return builder.to_layout(
+                return builder.to_tensor_spec(
                     constant,
                     layout=ttnn.Layout.Tile,
                     buffer_type=ttnn.BufferType.DRAM,

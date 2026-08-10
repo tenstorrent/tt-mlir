@@ -114,6 +114,27 @@ struct TTIRToTTIRDecompositionPass
                   meanType.getRank() == 4 && varType.getRank() == 4);
         });
 
+    // ttml::metal::adamw only accepts 4D tensors.
+    target.addDynamicallyLegalOp<ttir::AdamWOp>([&](ttir::AdamWOp op) {
+      return op.getParam().getType().getRank() == 4;
+    });
+
+    // ttml::metal::sdpa_fw only accepts 4D tensors; decompose when any operand
+    // or result is not already rank 4.
+    target.addDynamicallyLegalOp<ttir::SDPAForwardOp>(
+        [&](ttir::SDPAForwardOp op) {
+          bool operandsRank4 =
+              (op.getQuery().getType().getRank() == 4) &&
+              (op.getKey().getType().getRank() == 4) &&
+              (op.getValue().getType().getRank() == 4) &&
+              (!op.getAttentionMask() ||
+               (op.getAttentionMask().getType().getRank() == 4));
+          bool resultsRank4 = llvm::all_of(op.getResultTypes(), [&](Type t) {
+            return cast<RankedTensorType>(t).getRank() == 4;
+          });
+          return operandsRank4 && resultsRank4;
+        });
+
     target.addDynamicallyLegalOp<ttir::ProdOp>([&](ttir::ProdOp op) {
       auto dimArg = op.getDimArg();
       if (!dimArg) {
