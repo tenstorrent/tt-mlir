@@ -466,16 +466,33 @@ private:
     toTileOp.getInputMutable().assign(rFlat.getResult());
 
     auto origTileTy = mlir::cast<RankedTensorType>(toTileOp.getResult().getType());
-    auto tileLo = TTNNLayoutAttr::Builder(origTileTy)
-                      .setBufferType(BufferType::L1)
-                      .setLayout(Layout::Tile)
-                      .setMemoryLayout(TensorMemoryLayout::Interleaved)
-                      .build();
-    auto newTileTy = utils::RankedTensorTypeFactory::create(rFlatOutRM, tileLo);
-    toTileOp.getResult().setType(newTileTy);
+
+    // to_layout can only change layout (RM→TILE), not buffer type per MLIR dialect
+    // rules. Keep tilize output in DRAM; insert to_memory_config for DRAM→L1 move.
+    auto dramTileLo = TTNNLayoutAttr::Builder(origTileTy)
+                          .setBufferType(BufferType::DRAM)
+                          .setLayout(Layout::Tile)
+                          .setMemoryLayout(TensorMemoryLayout::Interleaved)
+                          .build();
+    auto dramTileTy = utils::RankedTensorTypeFactory::create(rFlatOutRM, dramTileLo);
+    toTileOp.getResult().setType(dramTileTy);
+
+    // Insert to_memory_config(DRAM TILE → L1 TILE) after to_layout so the downstream
+    // matmul reads activation from L1. Transform 2 keeps this L1 mc intact.
+    auto l1TileLo = TTNNLayoutAttr::Builder(origTileTy)
+                        .setBufferType(BufferType::L1)
+                        .setLayout(Layout::Tile)
+                        .setMemoryLayout(TensorMemoryLayout::Interleaved)
+                        .build();
+    auto l1TileTy = utils::RankedTensorTypeFactory::create(rFlatOutRM, l1TileLo);
+    OpBuilder mcBuilder(toTileOp->getContext());
+    mcBuilder.setInsertionPointAfter(toTileOp);
+    auto mcToL1 = mcBuilder.create<ttnn::ToMemoryConfigOp>(
+        toTileOp.getLoc(), l1TileTy, toTileOp.getResult());
+    mcToL1->setAttr("memory_config", MemoryConfigAttr::get(l1TileLo));
 
     SmallPtrSet<Operation *, 2> exceptions{toTileOp};
-    rFlat.getResult().replaceAllUsesExcept(toTileOp.getResult(), exceptions);
+    rFlat.getResult().replaceAllUsesExcept(mcToL1.getResult(), exceptions);
 
     // ── Transform 2: remove L1 bounce + fuse matmul+add → linear ──────────────
     // The NCHW path lowers ttir::LinearOp(W^T, act, bias) to ttnn::MatmulOp +
@@ -576,10 +593,6 @@ private:
         biasAddOp.erase();
       }
 
-      llvm::errs() << "[SpatialPackOpt] processNCHW: MatmulOp → LinearOp"
-                   << (biasAddOp ? " (bias fused)" : " (no bias)")
-                   << " act=" << linearOp.getB().getType()
-                   << " w="   << linearOp.getA().getType() << "\n";
     }
 
     if (!linearOp)
@@ -635,8 +648,6 @@ private:
         auto dramTileTy = mkDRAMTileTy(rOutSrcTy);
         updateMemoryConfig(mcOp, dramTileTy);
         rOutSrcTy = dramTileTy;
-        llvm::errs() << "[SpatialPackOpt] processNCHW: redirected ShardedToInterleaved "
-                        "mc from L1 → DRAM TILE to release L1 before reshape\n";
       }
     }
 
@@ -659,9 +670,6 @@ private:
     auto rOutTy  = mlir::cast<RankedTensorType>(rOut.getResult().getType());
     auto dramRMTy = mkDRAMRowMajorTy(rOutTy);
     rOut.getResult().setType(dramRMTy);
-
-    llvm::errs() << "[SpatialPackOpt] processNCHW: inserted untilize(DRAM RM)"
-                    " before output reshape → DRAM ROW_MAJOR re-stride\n";
 
     // Ensure downstream consumers of rOut see DRAM TILE (same guard as NHWC).
     bool hasDramTileFinal = false;
