@@ -2,10 +2,45 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import functools
+import json
 import os
+import re
 
 import pytest
 import torch
+
+
+# CI machine types (the RUNS_ON env var) a test runs on when it carries no
+# `machines` marker: the single-chip lanes. Tests that need other hardware opt
+# in with e.g. @pytest.mark.machines("n300", "llmbox").
+_DEFAULT_MACHINES = frozenset({"n150", "p150"})
+
+# Devices each CI machine type provides. A test's device requirement is the
+# smallest count among the machines it opted into; local runs (RUNS_ON unset)
+# use it to skip tests this system doesn't have enough chips for.
+_MACHINE_NUM_DEVICES = {"n150": 1, "p150": 1, "n300": 2, "llmbox": 8}
+
+
+@functools.lru_cache(maxsize=1)
+def _num_devices():
+    """Chip count read from SYSTEM_DESC_PATH, without opening a runtime device.
+
+    Unknown (no system desc, no runtime bindings) counts as a single-chip box:
+    single-device tests still run and multi-chip tests skip."""
+    system_desc = os.environ.get("SYSTEM_DESC_PATH")
+    if not system_desc:
+        return 1
+    try:
+        # Imported lazily: the simulator suite runs with no MLIR bindings.
+        from _ttmlir_runtime import binary
+
+        desc = binary.load_system_desc_from_path(system_desc).as_json()
+        desc = re.sub(r"\bnan\b", "NaN", desc)
+        desc = re.sub(r"\binf\b", "Infinity", desc)
+        return len(json.loads(desc)["system_desc"]["chip_desc_indices"])
+    except Exception:
+        return 1
 
 
 def pytest_configure(config):
@@ -18,6 +53,14 @@ def pytest_configure(config):
         "`reason=`: it is what shows up in the skip report, and it should name "
         "the root cause, not the symptom.",
     )
+    config.addinivalue_line(
+        "markers",
+        "machines(*names): CI machine types (RUNS_ON values) this test runs "
+        "on. Unmarked tests default to the single-chip lanes (n150/p150); "
+        "multi-chip tests opt into n300/llmbox. In CI (RUNS_ON set) a test "
+        "runs only on its listed machines; locally it runs whenever this "
+        "system has at least as many devices as the smallest machine listed.",
+    )
 
 
 def _sim_backend_requested():
@@ -25,23 +68,50 @@ def _sim_backend_requested():
 
 
 def pytest_collection_modifyitems(config, items):
-    """Skip `device_only` tests when the whole suite is re-run on the simulator.
+    """Skip tests that don't apply to this backend or CI machine.
 
-    CI runs this directory twice: once on the device, once with
-    D2M_JIT_BACKEND=sim (see .github/test_scripts/d2m_jit.sh). Skipping by
-    marker rather than by deselecting paths keeps the exclusions visible in the
-    junit report instead of silently narrowing what the sim lane covers.
+    Two filters, both skip-by-marker rather than deselect-by-path so the
+    exclusions stay visible in the junit report instead of silently narrowing
+    what a lane covers:
+
+    - `device_only` tests are skipped when the whole suite is re-run with
+      D2M_JIT_BACKEND=sim (see .github/test_scripts/d2m_jit.sh).
+    - When RUNS_ON is set (CI), each test runs only on its `machines` marker's
+      machine types, defaulting to the single-chip lanes (_DEFAULT_MACHINES).
+      This is what keeps the n300/llmbox lanes down to the multi-chip tests.
+    - Locally (RUNS_ON unset), a test is skipped when this system has fewer
+      devices than the least-demanding machine the test opted into, so a
+      single-chip box runs everything except the multi-chip tests.
     """
-    if not _sim_backend_requested():
-        return
+    sim = _sim_backend_requested()
+    runs_on = os.environ.get("RUNS_ON")
     for item in items:
-        marker = item.get_closest_marker("device_only")
-        if marker is None:
-            continue
-        reason = marker.kwargs.get("reason") or (
-            marker.args[0] if marker.args else "NO REASON GIVEN -- please add one"
-        )
-        item.add_marker(pytest.mark.skip(reason=f"device_only: {reason}"))
+        if sim:
+            marker = item.get_closest_marker("device_only")
+            if marker is not None:
+                reason = marker.kwargs.get("reason") or (
+                    marker.args[0]
+                    if marker.args
+                    else "NO REASON GIVEN -- please add one"
+                )
+                item.add_marker(pytest.mark.skip(reason=f"device_only: {reason}"))
+        marker = item.get_closest_marker("machines")
+        allowed = frozenset(marker.args) if marker else _DEFAULT_MACHINES
+        required = min(_MACHINE_NUM_DEVICES.get(m, 1) for m in allowed)
+        if runs_on:
+            if runs_on not in allowed:
+                item.add_marker(
+                    pytest.mark.skip(
+                        reason=f"machines: runs on {sorted(allowed)}, not {runs_on}"
+                    )
+                )
+        elif _num_devices() < required:
+            item.add_marker(
+                pytest.mark.skip(
+                    reason=f"machines: needs >= {required} devices, "
+                    f"this system has {_num_devices()}"
+                )
+            )
 
 
 @pytest.fixture(scope="function", autouse=True)
