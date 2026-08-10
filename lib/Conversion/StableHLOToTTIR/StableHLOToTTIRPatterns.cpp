@@ -9558,10 +9558,10 @@ namespace {
 //   masked to -inf where t > chunk_start_idx + s.
 //
 // q [B, Hi, Sq, D], k [B, 1, T, D], weights [B, Hi, Sq, 1] -> [B, 1, Sq, T].
-static Value
-buildIndexerScoreDsaDecompositionBody(ConversionPatternRewriter &rewriter,
-                                      Location loc, Value query, Value key,
-                                      Value weights, uint32_t chunkStartIdx) {
+static Value buildIndexerScoreDsaDecompositionBody(
+    ConversionPatternRewriter &rewriter, Location loc, Value query, Value key,
+    Value weights, uint32_t chunkStartIdx, std::optional<uint32_t> clusterAxis,
+    uint32_t numDevices) {
   auto queryType = mlir::cast<RankedTensorType>(query.getType());
   auto keyType = mlir::cast<RankedTensorType>(key.getType());
   ArrayRef<int64_t> qShape = queryType.getShape();
@@ -9641,13 +9641,59 @@ buildIndexerScoreDsaDecompositionBody(ConversionPatternRewriter &rewriter,
   // beyond bf16's exact-integer range (256) are not conflated --
   // chunk_start_idx pushes the compared magnitudes well past that for long DSA
   // contexts.
+  Type i32Type = rewriter.getI32Type();
   auto indexType = RankedTensorType::get({batch, 1, querySeqLen, keySeqLen},
-                                         rewriter.getI32Type(), encoding);
-  Value rowIdx = rewriter
-                     .create<ttir::ArangeOp>(loc, indexType, /*start=*/0,
-                                             /*end=*/querySeqLen, /*step=*/1,
-                                             /*arange_dimension=*/2)
-                     .getResult();
+                                         i32Type, encoding);
+
+  // `query` (and hence `querySeqLen`) is already per-device-local: this
+  // decomposition is synthesized during StableHLOToTTIR conversion, which runs
+  // after Shardy's UpdateGlobalToLocalShapes has shrunk every sharded shape
+  // down to its local size. A plain arange(0, querySeqLen) therefore numbers
+  // every device's rows 0..querySeqLen-1 regardless of which shard of the
+  // global query sequence this device actually holds -- every device ends up
+  // computing rank 0's causal window. The promoted ttnn.indexer_score_dsa
+  // kernel avoids this because it is instantiated once per mesh coordinate
+  // (indexer_score_program_factory.cpp's create_mesh_workload) and bakes each
+  // device's true `chunk_start_idx + rank*Sq` in as a runtime arg; this shared
+  // MLIR region has no equivalent per-device specialization, so the rank has
+  // to be recovered explicitly via ttir.mesh_partition instead: partition a
+  // GLOBAL row-index arange the same way the query sequence itself was
+  // partitioned, and each device gets back exactly its own `[rank*Sq,
+  // (rank+1)*Sq)` window. When numDevices == 1 (no sequence sharding, or the
+  // composite's cluster_axis wasn't set) this reduces to the original local
+  // arange, so single-device behavior is unchanged.
+  Value rowIdx;
+  if (clusterAxis.has_value() && numDevices > 1) {
+    int64_t globalQuerySeqLen = querySeqLen * static_cast<int64_t>(numDevices);
+    auto globalColType =
+        RankedTensorType::get({1, 1, globalQuerySeqLen, 1}, i32Type, encoding);
+    Value globalRows = rewriter
+                           .create<ttir::ArangeOp>(loc, globalColType,
+                                                   /*start=*/0,
+                                                   /*end=*/globalQuerySeqLen,
+                                                   /*step=*/1,
+                                                   /*arange_dimension=*/2)
+                           .getResult();
+    auto localColType =
+        RankedTensorType::get({1, 1, querySeqLen, 1}, i32Type, encoding);
+    Value localRows =
+        rewriter
+            .create<ttir::MeshPartitionOp>(
+                loc, localColType, globalRows, rewriter.getSI32IntegerAttr(2),
+                rewriter.getUI32IntegerAttr(*clusterAxis))
+            .getResult();
+    rowIdx = rewriter
+                 .create<ttir::BroadcastOp>(
+                     loc, indexType, localRows,
+                     SmallVector<int64_t>{batch, 1, 1, keySeqLen})
+                 .getResult();
+  } else {
+    rowIdx = rewriter
+                 .create<ttir::ArangeOp>(loc, indexType, /*start=*/0,
+                                         /*end=*/querySeqLen, /*step=*/1,
+                                         /*arange_dimension=*/2)
+                 .getResult();
+  }
   Value colIdx = rewriter
                      .create<ttir::ArangeOp>(loc, indexType, /*start=*/0,
                                              /*end=*/keySeqLen, /*step=*/1,
@@ -9733,18 +9779,42 @@ public:
     // sequence is sharded across every device. Naming the axis is what makes a
     // partial split (e.g. heads on one mesh axis, sequence on another) correct.
     IntegerAttr clusterAxisAttr;
+    std::optional<uint32_t> clusterAxis;
     if (auto frontendAttributes = mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
             srcOp->getDiscardableAttr("mhlo.frontend_attributes"))) {
       if (auto clusterAxisStringAttr =
               frontendAttributes.getAs<mlir::StringAttr>("cluster_axis")) {
-        uint32_t clusterAxis = 0;
-        if (!llvm::to_integer(clusterAxisStringAttr.getValue(), clusterAxis)) {
+        uint32_t clusterAxisValue = 0;
+        if (!llvm::to_integer(clusterAxisStringAttr.getValue(),
+                              clusterAxisValue)) {
           return rewriter.notifyMatchFailure(
               srcOp, "cluster_axis attribute must be a non-negative integer. "
                      "Received \"" +
                          clusterAxisStringAttr.getValue() + "\".");
         }
-        clusterAxisAttr = rewriter.getUI32IntegerAttr(clusterAxis);
+        clusterAxisAttr = rewriter.getUI32IntegerAttr(clusterAxisValue);
+        clusterAxis = clusterAxisValue;
+      }
+    }
+
+    // num_devices is optional and defaults to 1 (no sequence sharding). Only
+    // consumed here, to let the decomposition fallback (below) reconstruct
+    // each device's causal window when the promoted ttnn.indexer_score_dsa
+    // kernel isn't used -- the promoted kernel derives its own per-device
+    // rank from the device's mesh coordinates and does not need this. Mirrors
+    // all_to_all_dispatch's num_devices attribute.
+    uint32_t numDevices = 1;
+    if (auto frontendAttributes = mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"))) {
+      if (auto numDevicesStringAttr =
+              frontendAttributes.getAs<mlir::StringAttr>("num_devices")) {
+        if (!llvm::to_integer(numDevicesStringAttr.getValue(), numDevices) ||
+            numDevices < 1) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "num_devices attribute must be a positive integer. "
+                     "Received \"" +
+                         numDevicesStringAttr.getValue() + "\".");
+        }
       }
     }
 
@@ -9777,7 +9847,8 @@ public:
 
       Value decompResult = buildIndexerScoreDsaDecompositionBody(
           rewriter, srcOp.getLoc(), entry->getArgument(0),
-          entry->getArgument(1), entry->getArgument(2), chunkStartIdx);
+          entry->getArgument(1), entry->getArgument(2), chunkStartIdx,
+          clusterAxis, numDevices);
       rewriter.create<mlir::func::ReturnOp>(srcOp.getLoc(), decompResult);
     }
 

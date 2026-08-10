@@ -549,6 +549,19 @@ getFlashMlaPrefillShardingRule(mlir::stablehlo::CustomCallOp op) {
 //       produces, matching the op's cluster_axis=None flat linearization) masks
 //       correctly on every device. Any other split would not -- see the caveat
 //       in docs/dsa_blackhole_tt-mlir_changes.md.
+//
+//       This "the op itself handles it" guarantee holds for the PROMOTED
+//       ttnn.indexer_score_dsa kernel (instantiated once per mesh coordinate,
+//       each baking in its own chunk_start_idx + rank*Sq). It does NOT
+//       automatically hold for TTNNResolveComposites' fallback decomposition,
+//       which is a single MLIR region shared across every device and, absent
+//       explicit correction, would compute every shard's causal window as if
+//       it were rank 0. buildIndexerScoreDsaDecompositionBody
+//       (StableHLOToTTIRPatterns.cpp) recovers the rank itself via
+//       ttir.mesh_partition over a global row-index arange, so the guarantee
+//       is restored on the decomposition path too -- but only when the caller
+//       passes num_devices > 1 alongside cluster_axis; num_devices == 1
+//       (the default) reduces to the original, offset-free local arange.
 //   - Key seq   (kNeedReplication, size T) : key dim 2, out dim 3. Still cannot
 //       be sharded: every query row scores against all T keys, and the op reads
 //       T to derive the per-rank window.
