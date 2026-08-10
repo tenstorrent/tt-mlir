@@ -147,12 +147,21 @@ def resolve_reshape(layout: Layout, shape):
 class MeshShard:
     """Metadata needed to gather a per-device shard back to its full tensor."""
 
-    __slots__ = ("full_shape", "shard_dims", "shard_shape")
+    __slots__ = ("full_shape", "shard_dims", "shard_shape", "shard_type")
 
-    def __init__(self, full_shape, shard_dims, shard_shape):
+    def __init__(self, full_shape, shard_dims, shard_shape, shard_type="devices"):
         self.full_shape = list(full_shape)
         self.shard_dims = list(shard_dims)
         self.shard_shape = list(shard_shape)
+        self.shard_type = shard_type
+
+
+def normalize_mesh_shard_type(shard_type):
+    if shard_type not in {"devices", "replicate"}:
+        raise ValueError(
+            "mesh shard type must be 'devices' or 'replicate', " f"got {shard_type!r}"
+        )
+    return shard_type
 
 
 def validate_mesh_mapping(mesh_shape, tensor_rank, shard_dims, shard_shape):
@@ -192,7 +201,13 @@ def validate_mesh_mapping(mesh_shape, tensor_rank, shard_dims, shard_shape):
         )
 
 
-def shard_logical_shape(mesh_shape, full_shape, shard_dims, shard_shape):
+def shard_logical_shape(
+    mesh_shape, full_shape, shard_dims, shard_shape, shard_type="devices"
+):
+    shard_type = normalize_mesh_shard_type(shard_type)
+    if shard_type == "replicate":
+        # Replicated tensors keep the full logical shape on every device.
+        return list(full_shape)
     validate_mesh_mapping(mesh_shape, len(full_shape), shard_dims, shard_shape)
     shard = list(full_shape)
     for dim, factor in enumerate(shard_shape):

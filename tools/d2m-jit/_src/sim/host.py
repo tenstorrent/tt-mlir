@@ -284,7 +284,9 @@ def view_layout(lt: SimTensor, remapping_fn) -> SimTensor:
 # device path. `mesh_shard` round-trips need real devices and stay device-only.
 
 
-def mesh_gather(lt: SimTensor, shard_dims=None, shard_shape=None) -> SimTensor:
+def mesh_gather(
+    lt: SimTensor, shard_dims=None, shard_shape=None, shard_type="devices"
+) -> SimTensor:
     """Sim analog of `builder.mesh_gather`: mark a per-device SimTensor for a
     `shard_to_full` gather and record the resulting full-tensor metadata.
 
@@ -311,15 +313,21 @@ def mesh_gather(lt: SimTensor, shard_dims=None, shard_shape=None) -> SimTensor:
             "produced by mesh_shard"
         )
 
+    from ..layout_math import normalize_mesh_shard_type
+
+    shard_type = normalize_mesh_shard_type(shard_type)
     shard_dims = list(shard_dims)
     shard_shape = list(shard_shape)
-    validate_mesh_mapping(
-        mesh["shape"], len(lt.layout.logical_shape), shard_dims, shard_shape
-    )
-    full_shape = [
-        dim * factor for dim, factor in zip(lt.layout.logical_shape, shard_shape)
-    ]
-    lt.mesh = MeshShard(full_shape, shard_dims, shard_shape)
+    if shard_type == "replicate":
+        full_shape = list(lt.layout.logical_shape)
+    else:
+        validate_mesh_mapping(
+            mesh["shape"], len(lt.layout.logical_shape), shard_dims, shard_shape
+        )
+        full_shape = [
+            dim * factor for dim, factor in zip(lt.layout.logical_shape, shard_shape)
+        ]
+    lt.mesh = MeshShard(full_shape, shard_dims, shard_shape, shard_type)
     return lt
 
 

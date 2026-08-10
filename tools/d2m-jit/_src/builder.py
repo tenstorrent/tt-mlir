@@ -47,6 +47,7 @@ from .layout_math import (
     reduction_layout,
     resolve_reshape,
     MeshShard,
+    normalize_mesh_shard_type as _normalize_mesh_shard_type,
     validate_mesh_mapping as _validate_mesh_mapping,
     shard_logical_shape as _shard_logical_shape,
     set_current_mesh as _set_current_mesh,
@@ -1034,13 +1035,16 @@ def mesh(shape, topology=None):
     b.set_mesh(shape, topology)
 
 
-def _emit_mesh_shard(b, value, dst_ty, direction, shard_dims, shard_shape):
-    shard_type = Attribute.parse("#ttcore.shard_type<devices>", b.ctx)
+def _emit_mesh_shard(
+    b, value, dst_ty, direction, shard_dims, shard_shape, shard_type="devices"
+):
+    shard_type = _normalize_mesh_shard_type(shard_type)
+    shard_type_attr = Attribute.parse(f"#ttcore.shard_type<{shard_type}>", b.ctx)
     shard_direction = Attribute.parse(f"#ttcore.shard_direction<{direction}>", b.ctx)
     return d2m.mesh_shard(
         dst_ty,
         value,
-        shard_type,
+        shard_type_attr,
         shard_direction,
         list(shard_shape),
         list(shard_dims),
@@ -1054,12 +1058,19 @@ def _tensor_mesh_attr(b):
         return Attribute.parse(f'#ttcore.tensor_mesh<"{b._mesh_name}">', b.ctx)
 
 
-def mesh_shard(input_, layout: Layout, shard_dims, shard_shape) -> LazyTensor:
-    """Distribute a full host tensor into one `layout` shard per device.
+def mesh_shard(
+    input_,
+    layout: Layout,
+    shard_dims,
+    shard_shape,
+    shard_type="devices",
+) -> LazyTensor:
+    """Distribute or replicate a full host tensor across the mesh.
 
     `shard_dims` maps each mesh axis to a tensor dimension (`-1` replicates
     that mesh axis). `shard_shape` has tensor rank and records the resulting
-    factor for each tensor dimension.
+    factor for each tensor dimension. Set `shard_type="replicate"` to place the
+    full tensor on every device.
     """
     if torch is None or not isinstance(input_, torch.Tensor):
         raise TypeError("mesh_shard expects a torch.Tensor containing the full tensor")
@@ -1069,11 +1080,12 @@ def mesh_shard(input_, layout: Layout, shard_dims, shard_shape) -> LazyTensor:
     if b._mesh_name is None:
         raise RuntimeError("mesh_shard() requires a preceding mesh() declaration")
 
+    shard_type = _normalize_mesh_shard_type(shard_type)
     shard_dims = list(shard_dims)
     shard_shape = list(shard_shape)
     full_shape = list(input_.shape)
     expected_shape = _shard_logical_shape(
-        b._mesh_shape, full_shape, shard_dims, shard_shape
+        b._mesh_shape, full_shape, shard_dims, shard_shape, shard_type
     )
     if list(layout.logical_shape) != expected_shape:
         raise ValueError(
@@ -1089,22 +1101,34 @@ def mesh_shard(input_, layout: Layout, shard_dims, shard_shape) -> LazyTensor:
         )
         host = b.add_host_input(layout, input_, host_ty=full_ty)
         shard = _emit_mesh_shard(
-            b, host, shard_ty, "full_to_shard", shard_dims, shard_shape
+            b,
+            host,
+            shard_ty,
+            "full_to_shard",
+            shard_dims,
+            shard_shape,
+            shard_type,
         )
         device = layout.build_to_device(b.ctx, shard)
     return LazyTensor(
         layout,
         device,
         b.generation,
-        mesh=MeshShard(full_shape, shard_dims, shard_shape),
+        mesh=MeshShard(full_shape, shard_dims, shard_shape, shard_type),
     )
 
 
-def mesh_gather(lt: LazyTensor, shard_dims=None, shard_shape=None) -> LazyTensor:
+def mesh_gather(
+    lt: LazyTensor,
+    shard_dims=None,
+    shard_shape=None,
+    shard_type="devices",
+) -> LazyTensor:
     """Mark a per-device tensor for a `shard_to_full` gather in `to_host`.
 
     Tensors returned by `mesh_shard` already carry the mapping. Other tensors,
-    such as kernel outputs, require `shard_dims` and `shard_shape`.
+    such as kernel outputs, require `shard_dims` and `shard_shape`. Set
+    `shard_type="replicate"` when every device holds the same full result.
     """
     if not isinstance(lt, LazyTensor):
         raise TypeError(f"mesh_gather expected a LazyTensor, got {type(lt).__name__}")
@@ -1124,16 +1148,20 @@ def mesh_gather(lt: LazyTensor, shard_dims=None, shard_shape=None) -> LazyTensor
             "produced by mesh_shard"
         )
 
+    shard_type = _normalize_mesh_shard_type(shard_type)
     shard_dims = list(shard_dims)
     shard_shape = list(shard_shape)
-    _validate_mesh_mapping(
-        b._mesh_shape, len(lt.layout.logical_shape), shard_dims, shard_shape
-    )
     lt = lt._resolve()
-    full_shape = [
-        dim * factor for dim, factor in zip(lt.layout.logical_shape, shard_shape)
-    ]
-    lt.mesh = MeshShard(full_shape, shard_dims, shard_shape)
+    if shard_type == "replicate":
+        full_shape = list(lt.layout.logical_shape)
+    else:
+        _validate_mesh_mapping(
+            b._mesh_shape, len(lt.layout.logical_shape), shard_dims, shard_shape
+        )
+        full_shape = [
+            dim * factor for dim, factor in zip(lt.layout.logical_shape, shard_shape)
+        ]
+    lt.mesh = MeshShard(full_shape, shard_dims, shard_shape, shard_type)
     return lt
 
 
@@ -1539,6 +1567,7 @@ def _emit_returns_and_finalise(b: _Builder, lts):
                     "shard_to_full",
                     lt.mesh.shard_dims,
                     lt.mesh.shard_shape,
+                    lt.mesh.shard_type,
                 )
             else:
                 host = lt.layout.build_from_device(b.ctx, dev)
