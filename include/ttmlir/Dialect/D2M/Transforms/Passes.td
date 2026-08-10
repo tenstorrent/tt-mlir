@@ -91,7 +91,7 @@ def D2MOpScheduler : Pass<"d2m-op-scheduler", "::mlir::ModuleOp"> {
 
   list<Option> options = [
     Option<"enableOpScheduler", "enable-op-scheduler", "bool", "true",
-           "Enable operation scheduling optimization (currently hard-wired to true internally)">,
+           "Enable operation scheduling optimization">,
   ];
 
   let dependentDialects = [
@@ -112,6 +112,19 @@ def D2MSFPUTileLoopFission : Pass<"d2m-sfpu-tile-loop-fission", "::mlir::ModuleO
 
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect"
+  ];
+}
+
+def D2MAffineLICM : Pass<"d2m-affine-licm", "::mlir::ModuleOp"> {
+  let summary = "Hoist loop-invariant operations from affine loops at module scope";
+  let description = [{
+    Runs loop-invariant code motion over affine loop-like operations from a
+    ModuleOp pass, avoiding the implicit func.func pass adaptor used by the
+    stock affine-loop-invariant-code-motion pass.
+  }];
+
+  let dependentDialects = [
     "::mlir::affine::AffineDialect"
   ];
 }
