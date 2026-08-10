@@ -410,22 +410,6 @@ struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
     if (!producerLayoutOp) {
       return failure();
     }
-    // Do not skip a producer that changes virtual-grid placement or an
-    // associated remapping. Folding those away drops the physical move
-    // (e.g. VGM-offset untilize -> origin reshard -> tilize -> to_host
-    // collapsing to a direct VGM to_host that reads the wrong cores).
-    if (utils::getVirtualGridInverseMapping(producerLayoutOp.getInput()) !=
-            utils::getVirtualGridInverseMapping(producerLayoutOp.getOutput()) ||
-        utils::getAssociatedRemapping(producerLayoutOp.getInput()) !=
-            utils::getAssociatedRemapping(producerLayoutOp.getOutput())) {
-      return failure();
-    }
-    if (utils::getVirtualGridInverseMapping(op.getInput()) !=
-            utils::getVirtualGridInverseMapping(op.getOutput()) ||
-        utils::getAssociatedRemapping(op.getInput()) !=
-            utils::getAssociatedRemapping(op.getOutput())) {
-      return failure();
-    }
     rewriter.replaceOpWithNewOp<ToLayoutOp>(op, producerLayoutOp.getInput(),
                                             op.getOutput());
     return success();
@@ -1672,13 +1656,6 @@ void d2m::GenericOp::build(
         grid = builder.getAttr<ttcore::GridAttr>(gridShape, maps->first,
                                                  maps->second);
       }
-
-      // Clearing VGM (output has none, an input still has maps): keep the
-      // output's origin grid with no inverse map. Loads still resolve through
-      // the input operand's VGM (TensorAccessor), so cores at origin read the
-      // offset shards and write locally. Attaching the input VGM to the grid
-      // while the output empty has none fails verification ("grid has an
-      // inverse map but output operand does not have a VGM").
 
       // 2. Check for a 2D→2D permutation reblocking on a ViewLayoutOp.
       //    After the refactor, associated remappings are always reblockings

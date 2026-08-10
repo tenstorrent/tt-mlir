@@ -446,13 +446,9 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
            current.type.getNumElements() == tgt.type.getNumElements());
       bool bothTilized =
           ttcore::isTiled(current.type) && ttcore::isTiled(tgt.type);
-      bool vgmChanging = current.vgmForward != tgt.vgmForward ||
-                         current.vgmInverse != tgt.vgmInverse;
 
-      // Tilized mapping changes that also move virtual-grid placement must go
-      // through scalar space. A bare tilized Reshard/Rebuffer into a VGM empty
-      // misplaces multi-row offset grids (e.g. 8x7 @ col1..7).
-      if (bothTilized && (!isSimpleReblocking || vgmChanging)) {
+      if (bothTilized && !isSimpleReblocking) {
+        // Tilized, misaligned shards: mapping must go through scalar space.
         emitTilizedReshardDecomposition(
             plan, ctx, current.type, *current.getLayout(), tgt.type,
             *tgt.getLayout(), current.vgmForward, current.vgmInverse,
@@ -501,16 +497,7 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
   bool needsRemapMaterialization =
       canMaterializeMetadataChange && current.remapping &&
       !current.remapping.isEmpty() && current.remapping != tgt.remapping;
-  if (needsVgmChange && current.hasLayout() && tgt.hasLayout() &&
-      ttcore::isTiled(current.type) && ttcore::isTiled(tgt.type)) {
-    // Pure tilized VGM moves (same metal layout/grid) also need the scalar
-    // bridge; identity tiled DMA into a VGM empty is not reliable.
-    emitTilizedReshardDecomposition(
-        plan, ctx, current.type, *current.getLayout(), tgt.type,
-        *tgt.getLayout(), current.vgmForward, current.vgmInverse,
-        tgt.vgmForward, tgt.vgmInverse);
-    updateStateFromOutput(current, std::get<TilizeStep>(plan.back()).output);
-  } else if (needsVgmChange || needsRemapMaterialization) {
+  if (needsVgmChange || needsRemapMaterialization) {
     auto output = makeOutputSpec(current.type, tgt.vgmForward, tgt.vgmInverse);
     plan.push_back(RebufferStep{output});
     updateStateFromOutput(current, output);
