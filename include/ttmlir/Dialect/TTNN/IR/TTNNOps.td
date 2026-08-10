@@ -2689,18 +2689,24 @@ def TTNN_AdamWOp : TTNN_InplaceOp<"adamw", [OpModelExempt]> {
       `param`, `exp_avg`, `exp_avg_sq` and the optional `max_exp_avg_sq` (used for
       AMSGrad) are all mutated in place, so the op has no results. `amsgrad` is
       implied by the presence of `max_exp_avg_sq`.
+
+      `beta1_pow` / `beta2_pow` are single-element f32 tensors carrying beta^t
+      for the current step. They are operands rather than attributes so the
+      graph does not change from step to step and can be compiled once; the
+      runtime reads the two scalars back to feed `ttml::metal::adamw`, whose
+      API takes floats.
     }];
 
     let arguments = (ins Arg<AnyRankedTensor, "parameter tensor (updated in place)", [MemWrite]>:$param,
                          AnyRankedTensor:$grad,
                          Arg<AnyRankedTensor, "first moment estimate", [MemWrite]>:$exp_avg,
                          Arg<AnyRankedTensor, "second moment estimate", [MemWrite]>:$exp_avg_sq,
+                         AnyRankedTensor:$beta1_pow,
+                         AnyRankedTensor:$beta2_pow,
                          Arg<Optional<AnyRankedTensor>, "max second moment estimate (amsgrad)", [MemWrite]>:$max_exp_avg_sq,
                          F32Attr:$lr,
                          F32Attr:$beta1,
                          F32Attr:$beta2,
-                         F32Attr:$beta1_pow,
-                         F32Attr:$beta2_pow,
                          F32Attr:$epsilon,
                          F32Attr:$weight_decay,
                          DefaultValuedAttr<BoolAttr, "false">:$stochastic_rounding);
@@ -2708,14 +2714,14 @@ def TTNN_AdamWOp : TTNN_InplaceOp<"adamw", [OpModelExempt]> {
     let builders = [
       OpBuilder<(ins "Value":$param, "Value":$grad,
                      "Value":$exp_avg, "Value":$exp_avg_sq,
+                     "Value":$beta1_pow, "Value":$beta2_pow,
                      "llvm::APFloat":$lr, "llvm::APFloat":$beta1,
-                     "llvm::APFloat":$beta2, "llvm::APFloat":$beta1_pow,
-                     "llvm::APFloat":$beta2_pow, "llvm::APFloat":$epsilon,
+                     "llvm::APFloat":$beta2, "llvm::APFloat":$epsilon,
                      "llvm::APFloat":$weight_decay),
       [{
-        build($_builder, $_state, param, grad, exp_avg, exp_avg_sq,
-              /*max_exp_avg_sq=*/nullptr, lr, beta1, beta2, beta1_pow, beta2_pow,
-              epsilon, weight_decay, /*stochastic_rounding=*/false);
+        build($_builder, $_state, param, grad, exp_avg, exp_avg_sq, beta1_pow,
+              beta2_pow, /*max_exp_avg_sq=*/nullptr, lr, beta1, beta2, epsilon,
+              weight_decay, /*stochastic_rounding=*/false);
       }]>
     ];
 

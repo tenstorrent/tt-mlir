@@ -3766,6 +3766,25 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
   llvm::ArrayRef<int64_t> shape = getParam().getType().getShape();
   auto sameShape = [&](RankedTensorType t) { return t.getShape() == shape; };
 
+  // Mirrors the ttir.adamw check: the runtime reads these two back as floats.
+  auto verifyScalarF32 = [&](RankedTensorType t,
+                             llvm::StringRef name) -> ::mlir::LogicalResult {
+    if (t.getNumElements() != 1) {
+      return emitOpError() << name << " must have exactly one element, got "
+                           << t.getNumElements();
+    }
+    if (!t.getElementType().isF32()) {
+      return emitOpError() << name << " must be f32, got " << t.getElementType();
+    }
+    return success();
+  };
+  if (failed(verifyScalarF32(getBeta1Pow().getType(), "beta1_pow"))) {
+    return failure();
+  }
+  if (failed(verifyScalarF32(getBeta2Pow().getType(), "beta2_pow"))) {
+    return failure();
+  }
+
   if (!sameShape(getGrad().getType())) {
     return emitOpError("grad must have the same shape as param");
   }

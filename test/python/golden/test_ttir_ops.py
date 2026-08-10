@@ -197,36 +197,73 @@ def test_sdpa_fw(shape: Shape, target: str, request, device):
     )
 
 
+ADAMW_BETA1 = 0.9
+ADAMW_BETA2 = 0.999
+ADAMW_STEP = 10
+
+
+def adamw_state_goldens(
+    builder: TTIRBuilder, exp_avg_sq: Operand, beta1_pow: Operand, beta2_pow: Operand
+):
+    """Optimizer state that random inputs cannot stand in for.
+
+    `exp_avg_sq` is a second moment, so it is non-negative, and `beta1_pow` /
+    `beta2_pow` hold beta^step for the current step. The bias correction divides
+    by `1 - beta^step`, which a random normal would drive to zero or negative.
+    """
+    return {
+        exp_avg_sq: builder._get_golden_tensor(exp_avg_sq).apply_shardwise(
+            lambda s: s.abs()
+        ),
+        beta1_pow: builder._get_golden_tensor(beta1_pow).apply_shardwise(
+            lambda s: torch.full_like(s, ADAMW_BETA1**ADAMW_STEP)
+        ),
+        beta2_pow: builder._get_golden_tensor(beta2_pow).apply_shardwise(
+            lambda s: torch.full_like(s, ADAMW_BETA2**ADAMW_STEP)
+        ),
+    }
+
+
 @pytest.mark.parametrize("shape", [(1, 1, 64, 64)], ids=shape_str)
 @pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 def test_adamw(shape: Shape, target: str, request, device):
     def module(builder: TTIRBuilder):
+        # beta1_pow / beta2_pow are single-element tensor inputs, so a training
+        # step's bias correction never changes the graph.
         @builder.func(
-            [shape, shape, shape, shape],
-            [torch.float32, torch.bfloat16, torch.float32, torch.float32],
+            [shape, shape, shape, shape, (1,), (1,)],
+            [
+                torch.float32,
+                torch.bfloat16,
+                torch.float32,
+                torch.float32,
+                torch.float32,
+                torch.float32,
+            ],
         )
         def adamw(
             param: Operand,
             grad: Operand,
             exp_avg: Operand,
             exp_avg_sq: Operand,
+            beta1_pow: Operand,
+            beta2_pow: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            exp_avg_sq_t = builder._get_golden_tensor(exp_avg_sq).apply_shardwise(
-                lambda s: s.abs()
+            builder.set_goldens_from_builder_tensor(
+                adamw_state_goldens(builder, exp_avg_sq, beta1_pow, beta2_pow), {}
             )
-            builder.set_goldens_from_builder_tensor({exp_avg_sq: exp_avg_sq_t}, {})
             return builder.adamw(
                 param,
                 grad,
                 exp_avg,
                 exp_avg_sq,
+                beta1_pow,
+                beta2_pow,
                 lr=1e-3,
-                beta1=0.9,
-                beta2=0.999,
-                beta1_pow=0.9,
-                beta2_pow=0.999,
+                beta1=ADAMW_BETA1,
+                beta2=ADAMW_BETA2,
                 epsilon=1e-8,
                 weight_decay=1e-2,
             )
@@ -244,28 +281,40 @@ def test_adamw(shape: Shape, target: str, request, device):
 def test_adamw_fused_forward(shape: Shape, target: str, request, device):
     def module(builder: TTIRBuilder):
         @builder.func(
-            [shape, shape, shape, shape],
-            [torch.float32, torch.bfloat16, torch.float32, torch.float32],
+            [shape, shape, shape, shape, (1,), (1,)],
+            [
+                torch.float32,
+                torch.bfloat16,
+                torch.float32,
+                torch.float32,
+                torch.float32,
+                torch.float32,
+            ],
         )
         def adamw_fused_forward(
             param: Operand,
             grad: Operand,
             exp_avg: Operand,
             exp_avg_sq: Operand,
+            beta1_pow: Operand,
+            beta2_pow: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            exp_avg_sq_t = builder._get_golden_tensor(exp_avg_sq).apply_shardwise(
-                lambda s: s.abs()
+            builder.set_goldens_from_builder_tensor(
+                adamw_state_goldens(builder, exp_avg_sq, beta1_pow, beta2_pow), {}
             )
-            builder.set_goldens_from_builder_tensor({exp_avg_sq: exp_avg_sq_t}, {})
             act = builder.abs(param)
             param_out, _, _ = builder.adamw(
                 param,
                 grad,
                 exp_avg,
                 exp_avg_sq,
+                beta1_pow,
+                beta2_pow,
                 lr=1.0,
+                beta1=ADAMW_BETA1,
+                beta2=ADAMW_BETA2,
                 weight_decay=1e-2,
             )
             return builder.add(param_out, act)

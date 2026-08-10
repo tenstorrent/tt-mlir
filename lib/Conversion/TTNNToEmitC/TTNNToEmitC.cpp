@@ -3498,6 +3498,30 @@ public:
 // AdamWOp conversion pattern (emits ::ttml::metal::adamw)
 //
 namespace {
+// Emits `float util_scalar_to_float(const ttnn::Tensor &)`, which reads a
+// single-element tensor back to the host as a float. Declared in
+// tools/ttnn-standalone/ttnn-precompiled.hpp.
+mlir::Value emitScalarReadback(mlir::Value tensor, mlir::Location loc,
+                               ConversionPatternRewriter &rewriter) {
+  auto floatType = rewriter.getType<emitc::OpaqueType>("float");
+  return rewriter
+      .create<emitc::CallOpaqueOp>(
+          loc, floatType, ttnn_to_emitc::kScalarToFloatFunctionName,
+          /*args=*/nullptr, /*template_args=*/nullptr,
+          mlir::ValueRange{tensor})
+      .getResult(0);
+}
+
+// Formats a float attribute as a C++ literal. `EmitCTTNNEmitter::emit` is not
+// used for these: it formats floats with `std::to_string`, which is fixed to
+// six decimals and would flatten epsilon (1e-8) to `0.000000f`.
+mlir::Attribute emitFloatLiteral(llvm::APFloat value,
+                                 ConversionPatternRewriter &rewriter) {
+  llvm::SmallString<24> literal;
+  value.toString(literal);
+  return rewriter.getAttr<emitc::OpaqueAttr>(literal.str());
+}
+
 class AdamWOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::AdamWOp> {
 private:
@@ -3517,22 +3541,48 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AdamWOp> emitter(
         srcOp, adaptor, rewriter);
 
+    // `beta1_pow` / `beta2_pow` are single-element tensors in the IR, so that
+    // the graph stays the same for every optimizer step, but
+    // `ttml::metal::adamw` takes them as floats. Read the two scalars back
+    // before the call and pass the results by value.
+    mlir::Value beta1Pow =
+        emitScalarReadback(adaptor.getBeta1Pow(), srcOp.getLoc(), rewriter);
+    mlir::Value beta2Pow =
+        emitScalarReadback(adaptor.getBeta2Pow(), srcOp.getLoc(), rewriter);
+
+    // The emitter identifies a tensor argument by the position of the operand it
+    // comes from, so operands must be emitted in the op's own operand order:
+    // param, grad, exp_avg, exp_avg_sq, beta1_pow, beta2_pow, max_exp_avg_sq.
+    // The two readback results are not operands of `srcOp`, so they take the
+    // positions of the tensors they replace explicitly. Reordering to match
+    // ttml's signature happens in `args` below, not here.
+    mlir::Attribute param = emitter.emit(srcOp.getParam());
+    mlir::Attribute grad = emitter.emit(srcOp.getGrad());
+    mlir::Attribute expAvg = emitter.emit(srcOp.getExpAvg());
+    mlir::Attribute expAvgSq = emitter.emit(srcOp.getExpAvgSq());
+    mlir::Attribute beta1PowArg =
+        emitter.emit(beta1Pow, srcOp.getBeta1PowMutable().getOperandNumber());
+    mlir::Attribute beta2PowArg =
+        emitter.emit(beta2Pow, srcOp.getBeta2PowMutable().getOperandNumber());
+    // Optional operand: emits `::std::nullopt` when absent, i.e. amsgrad off.
+    mlir::Attribute maxExpAvgSq = emitter.emit(srcOp.getMaxExpAvgSq());
+
     // Arg order matches ttml::metal::adamw(param, grad, exp_avg, exp_avg_sq,
     // max_exp_avg_sq, lr, beta1, beta2, beta1_pow, beta2_pow, epsilon,
     // weight_decay, stochastic_rounding).
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getParam()),
-        emitter.emit(srcOp.getGrad()),
-        emitter.emit(srcOp.getExpAvg()),
-        emitter.emit(srcOp.getExpAvgSq()),
-        emitter.emit(srcOp.getMaxExpAvgSq()),
-        emitter.emit(srcOp.getLr()),
-        emitter.emit(srcOp.getBeta1()),
-        emitter.emit(srcOp.getBeta2()),
-        emitter.emit(srcOp.getBeta1Pow()),
-        emitter.emit(srcOp.getBeta2Pow()),
-        emitter.emit(srcOp.getEpsilon()),
-        emitter.emit(srcOp.getWeightDecay()),
+        param,
+        grad,
+        expAvg,
+        expAvgSq,
+        maxExpAvgSq,
+        emitFloatLiteral(srcOp.getLr(), rewriter),
+        emitFloatLiteral(srcOp.getBeta1(), rewriter),
+        emitFloatLiteral(srcOp.getBeta2(), rewriter),
+        beta1PowArg,
+        beta2PowArg,
+        emitFloatLiteral(srcOp.getEpsilon(), rewriter),
+        emitFloatLiteral(srcOp.getWeightDecay(), rewriter),
         rewriter.getAttr<emitc::OpaqueAttr>(
             srcOp.getStochasticRounding()
                 ? "::ttml::metal::StochasticRounding::Enabled"

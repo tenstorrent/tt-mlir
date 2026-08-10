@@ -1157,12 +1157,12 @@ def adamw_golden(
     grad: GoldenMapTensor,
     exp_avg: GoldenMapTensor,
     exp_avg_sq: GoldenMapTensor,
+    beta1_pow: GoldenMapTensor,
+    beta2_pow: GoldenMapTensor,
     max_exp_avg_sq: Optional[GoldenMapTensor] = None,
     lr=1e-3,
     beta1=0.9,
     beta2=0.999,
-    beta1_pow=0.9,
-    beta2_pow=0.999,
     epsilon=1e-8,
     weight_decay=0.0,
     stochastic_rounding=False,
@@ -1181,8 +1181,9 @@ def adamw_golden(
     lr = unpack_mlir_attr(lr)
     beta1 = unpack_mlir_attr(beta1)
     beta2 = unpack_mlir_attr(beta2)
-    beta1_pow = unpack_mlir_attr(beta1_pow)
-    beta2_pow = unpack_mlir_attr(beta2_pow)
+    # The bias-correction terms are single-element tensors now, not attributes.
+    beta1_pow = float(torch.as_tensor(beta1_pow).reshape(-1)[0])
+    beta2_pow = float(torch.as_tensor(beta2_pow).reshape(-1)[0])
     epsilon = unpack_mlir_attr(epsilon)
     weight_decay = unpack_mlir_attr(weight_decay)
 

@@ -2358,13 +2358,13 @@ def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
     - `grad` (Tensor): gradient of the parameter.
     - `exp_avg` (Tensor): first moment estimate.
     - `exp_avg_sq` (Tensor): second moment estimate.
+    - `beta1_pow`, `beta2_pow` (Tensor): beta1^t and beta2^t bias-correction terms.
     - `max_exp_avg_sq` (Optional Tensor): max second moment for AMSGrad. Its
       presence implies amsgrad, and requires the matching result.
 
     Attributes:
     - `lr`: learning rate.
     - `beta1`, `beta2`: exponential decay rates for the moment estimates.
-    - `beta1_pow`, `beta2_pow`: beta1^t and beta2^t bias-correction terms.
     - `epsilon`: numerical-stability constant.
     - `weight_decay`: decoupled weight-decay coefficient.
     - `stochastic_rounding`: enable stochastic rounding (default false).
@@ -2377,12 +2377,12 @@ def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
                        AnyRankedTensor:$grad,
                        AnyRankedTensor:$exp_avg,
                        AnyRankedTensor:$exp_avg_sq,
+                       AnyRankedTensor:$beta1_pow,
+                       AnyRankedTensor:$beta2_pow,
                        Optional<AnyRankedTensor>:$max_exp_avg_sq,
                        F32Attr:$lr,
                        F32Attr:$beta1,
                        F32Attr:$beta2,
-                       F32Attr:$beta1_pow,
-                       F32Attr:$beta2_pow,
                        F32Attr:$epsilon,
                        F32Attr:$weight_decay,
                        DefaultValuedAttr<BoolAttr, "false">:$stochastic_rounding);

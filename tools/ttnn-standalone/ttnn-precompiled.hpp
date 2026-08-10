@@ -110,6 +110,13 @@ T util_get_optional_value(const std::optional<T> &opt) {
   return opt.value();
 }
 
+// Reads a single-element tensor back to host as a float. ttml's optimizer ops
+// take the AdamW bias-correction terms by value, but they travel through the
+// graph as tensors so the program is identical every step.
+inline float util_scalar_to_float(const ::ttnn::Tensor &tensor) {
+  return ::ttnn::from_device(tensor).to_vector<float>().front();
+}
+
 namespace ttnn {
 
 // DeviceGetter class

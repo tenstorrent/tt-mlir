@@ -7591,12 +7591,12 @@ class TTIRBuilder(Builder):
         grad: Operand,
         exp_avg: Operand,
         exp_avg_sq: Operand,
+        beta1_pow: Operand,
+        beta2_pow: Operand,
         max_exp_avg_sq: Optional[Operand] = None,
         lr: float = 1e-3,
         beta1: float = 0.9,
         beta2: float = 0.999,
-        beta1_pow: float = 0.9,
-        beta2_pow: float = 0.999,
         epsilon: float = 1e-8,
         weight_decay: float = 0.0,
         stochastic_rounding: bool = False,
@@ -7608,8 +7608,6 @@ class TTIRBuilder(Builder):
         lr_attr = FloatAttr.get_f32(lr)
         beta1_attr = FloatAttr.get_f32(beta1)
         beta2_attr = FloatAttr.get_f32(beta2)
-        beta1_pow_attr = FloatAttr.get_f32(beta1_pow)
-        beta2_pow_attr = FloatAttr.get_f32(beta2_pow)
         epsilon_attr = FloatAttr.get_f32(epsilon)
         weight_decay_attr = FloatAttr.get_f32(weight_decay)
 
@@ -7622,6 +7620,8 @@ class TTIRBuilder(Builder):
         grad0 = self._get_golden_tensor(grad)
         exp_avg0 = self._get_golden_tensor(exp_avg)
         exp_avg_sq0 = self._get_golden_tensor(exp_avg_sq)
+        beta1_pow0 = self._get_golden_tensor(beta1_pow)
+        beta2_pow0 = self._get_golden_tensor(beta2_pow)
         max_exp_avg_sq0 = (
             self._get_golden_tensor(max_exp_avg_sq)
             if max_exp_avg_sq is not None
@@ -7634,12 +7634,12 @@ class TTIRBuilder(Builder):
             grad0,
             exp_avg0,
             exp_avg_sq0,
+            beta1_pow0,
+            beta2_pow0,
             max_exp_avg_sq0,
             lr_attr,
             beta1_attr,
             beta2_attr,
-            beta1_pow_attr,
-            beta2_pow_attr,
             epsilon_attr,
             weight_decay_attr,
             stochastic_rounding,
@@ -7669,11 +7669,11 @@ class TTIRBuilder(Builder):
             grad,
             exp_avg,
             exp_avg_sq,
+            beta1_pow,
+            beta2_pow,
             lr_attr,
             beta1_attr,
             beta2_attr,
-            beta1_pow_attr,
-            beta2_pow_attr,
             epsilon_attr,
             weight_decay_attr,
             max_exp_avg_sq=max_exp_avg_sq,

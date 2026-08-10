@@ -1958,13 +1958,14 @@ public:
       return failure();
     }
     size_t numOperands = adaptor.getOperands().size();
-    if (numOperands != 4 && numOperands != 5) {
+    if (numOperands != 6 && numOperands != 7) {
       return rewriter.notifyMatchFailure(
-          srcOp, "tenstorrent.adamw must have 4 or 5 operands (param, grad, "
-                 "exp_avg, exp_avg_sq, [max_exp_avg_sq]).");
+          srcOp, "tenstorrent.adamw must have 6 or 7 operands (param, grad, "
+                 "exp_avg, exp_avg_sq, beta1_pow, beta2_pow, "
+                 "[max_exp_avg_sq]).");
     }
 
-    if (srcOp.getNumResults() != numOperands - 1) {
+    if (srcOp.getNumResults() != numOperands - 3) {
       return rewriter.notifyMatchFailure(
           srcOp, "tenstorrent.adamw must have one result per updated operand "
                  "(param, exp_avg, exp_avg_sq, [max_exp_avg_sq]).");
@@ -1978,9 +1979,8 @@ public:
 
     // Copy the required F32 hyperparameters through, normalizing to F32 so the
     // ttir.adamw verifier accepts them regardless of the source float width.
-    static constexpr StringRef kFloatAttrs[] = {
-        "lr",        "beta1",   "beta2",       "beta1_pow",
-        "beta2_pow", "epsilon", "weight_decay"};
+    static constexpr StringRef kFloatAttrs[] = {"lr", "beta1", "beta2",
+                                                "epsilon", "weight_decay"};
 
     SmallVector<NamedAttribute> namedAttrs;
     for (StringRef name : kFloatAttrs) {
