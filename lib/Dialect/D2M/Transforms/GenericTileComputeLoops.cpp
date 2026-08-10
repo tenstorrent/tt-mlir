@@ -103,15 +103,11 @@ static SmallVector<int64_t> calculateOptimalSubblockSizes(
   // Eval the affine map to get the subblock factors.
   auto subblockFactors = inverse.compose(flattenedSubblockFactors);
 
-  // `inverse` was built from *every* indexing map with reverse=true, so its
+  // `inverse` was built from every indexing map with reverse=true, so its
   // dims run in concat order (outN..out0, inN..in0).  The shape vector composed
   // against it has to cover all of them: supplying only one output's shape
   // leaves the trailing dims symbolic and `compose` hits a
   // cast<AffineConstantExpr> assert.
-  //
-  // `outputBlockShape` is output 0's shape -- the one the DST subblocking was
-  // computed from -- and in the reversed order that lands *after* every other
-  // output, not first.
   SmallVector<int64_t> flattenedBlockShapes;
   for (Value output : llvm::reverse(outputs.drop_front())) {
     auto outputType = mlir::cast<MemRefType>(output.getType());

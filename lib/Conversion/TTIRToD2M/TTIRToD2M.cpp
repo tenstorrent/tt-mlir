@@ -5876,7 +5876,6 @@ private:
     //          reduced axis pinned to tile-position 0 via the output affine
     //          map (same collapse trick as tile_reduce_max), so the LLK's
     //          in-place row/col-0 result lands in the logically-reduced slot.
-    auto reduceDimAttr = d2m::ReduceDimAttr::get(ctx, dimArg);
 
     // Reduced logical shapes: the reduction axis collapses to 1.
     SmallVector<int64_t> reducedShape(inputTy.getShape().begin(),
@@ -5916,19 +5915,6 @@ private:
         argMaxInput, memorySpaces[0], /*tiled=*/false,
         /*noCollapse=*/false, rewriter, ttcore::OOBVal::NegInf);
 
-    // Pin this operand to a unit grid. This is a workaround to avoid the
-    // following bug: The LLK expects the operands to be in row-major layout. To
-    // achieve this, we untilize the operands and then reinterpret cast them as
-    // a tile. However, allocation sizes a shard from the trailing scaler dims
-    // (e.g. 2x1x32x32xbf16 would read as 2x1 cores instead of 2x1 tiles). The
-    // consuming generic interprets it correctly as a 2x1 grid, though. So, the
-    // values are sent to the wrong cores.
-    if (auto rowMajorToLayout =
-            rowMajorValues.getDefiningOp<d2m::ToLayoutOp>()) {
-      rowMajorToLayout->setAttr("d2m.row_major_llk_operand",
-                                rewriter.getUnitAttr());
-    }
-
     // The LLK needs row-major bytes, but the d2m.generic/linalg.generic
     // machinery operates on tiles. To trick the compiler, we physically
     // untilize the data using createOptimalLayoutOp above, then reinterpret
@@ -5964,10 +5950,6 @@ private:
     Value rowMajorIndices =
         rewriter.create<d2m::ToLayoutOp>(loc, tiledIndices, untiledIdxEmpty)
             .getResult(0);
-
-    // Pin to a unit grid for the same reason as the values.
-    rowMajorIndices.getDefiningOp()->setAttr("d2m.row_major_llk_operand",
-                                             rewriter.getUnitAttr());
 
     rowMajorIndices = relabelRowMajorAsTile(rewriter, loc, rowMajorIndices);
 
@@ -6030,7 +6012,7 @@ private:
                 auto argMax = bb.create<d2m::TileArgMaxOp>(
                     bbLoc, bbArgs[2].getType(), bbArgs[3].getType(),
                     bbArgs[4].getType(), bbArgs[5].getType(), bbArgs[0],
-                    bbArgs[1], reduceDimAttr);
+                    bbArgs[1]);
                 bb.create<mlir::linalg::YieldOp>(
                     bbLoc,
                     mlir::ValueRange{argMax.getResult(0), argMax.getResult(1),

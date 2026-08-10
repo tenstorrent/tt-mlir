@@ -876,25 +876,17 @@ def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max", D2M_Tile
 def D2M_TileArgMaxOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_argmax", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M Tile ArgMax Op";
   let description = [{
-    TODO
+    The `tile_argmax` operation computes the max of all elements in the input values along with its index over the columns (i.e. the output is a row). Requires the input values and indices to be in row-major layout. Indices must be properly filled in and passed by the callee.
   }];
 
   let arguments = (ins TTCore_Tile:$values,
-                       TTCore_Tile:$indices,
-                       D2M_ReduceDimAttr:$reduce_dim);
+                       TTCore_Tile:$indices);
   let results = (outs TTCore_Tile:$out_values,
                       TTCore_Tile:$out_indices,
                       TTCore_Tile:$val_acc_out,
                       TTCore_Tile:$idx_acc_out);
 
   let extraClassDeclaration = [{
-    // Results 2/3 back the accumulator CBs that carry the LLK's running
-    // value/index maxima across chunks.  They are results only -- the enclosing
-    // generic needs them as DPS inits to materialize CBs with the right element
-    // types -- and are NOT listed below: `max_reduce_with_indices` addresses
-    // those slices implicitly at `idst + 1` / `idst_idx + 1`, which the DST
-    // allocator already reserves via `getDstInputSliceStride`.  Staging them
-    // here would make the allocator hand out 0/2/4/6 and overrun DST capacity.
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
       return {0, 1};
     }

@@ -106,13 +106,11 @@ static int insertLoadOps(affine::AffineForOp outerFor, RewriterBase &rewriter) {
           prevOp = prevOp->getPrevNode();
         }
 
-        // Only re-materialize *loads* next to their use. Cloning anything else
-        // duplicates real computation, and for a multi-result compute op (e.g.
-        // d2m.tile_argmax, which yields both the reduced value and the reduced
-        // index) it is doubly wrong: the op gets cloned once per operand use
-        // and every clone's uses are rewired to result 0, so the second
-        // result's consumer silently reads the first result. Worse, these SFPU
-        // ops reduce in place, so a duplicated call re-reduces its own output.
+        // Only re-materialize loads next to their use: cloning anything else
+        // duplicates real computation, and every clone's uses get rewired to
+        // result 0, so a multi-result op (e.g. d2m.tile_argmax) would have its
+        // second result's consumer silently read the first. These SFPU ops also
+        // reduce in place, so a duplicated call re-reduces its own output.
         if (!loadIsOk && loadOpRequired &&
             isa<affine::AffineLoadOp>(loadOpRequired)) {
           rewriter.setInsertionPoint(&op);
@@ -158,23 +156,13 @@ static bool fissionAtStore(affine::AffineForOp outerFor,
     return false;
   }
 
-  // Do not split between the result-stores of a single multi-result compute op.
-  //
-  // The partitioning below keeps, in the cloned nest, every op before the split
-  // that still has a user after it. A multi-result op (e.g. d2m.tile_argmax,
-  // which yields both the reduced value and the reduced index) stores one
-  // result before the split and another after it, so it satisfies that rule and
-  // is retained in BOTH halves -- i.e. the op gets duplicated. These SFPU ops
-  // reduce in place, so a duplicated call re-reduces its own output and the
-  // result is garbage.
-  //
-  // Advance the boundary past every store that feeds off the same multi-result
-  // op, so all results of one op stay in the same half.
-  //
-  // The stored value is often not the multi-result op itself but a
-  // single-result forwarding op applied to one of its results (e.g.
-  // `dst_reinterpret_cast(out_values)`), so walk back through single-result,
-  // single-operand producers to find the real source.
+  // Never split between the stores of one multi-result op: the partitioning
+  // keeps any pre-split op that still has users after the split, so a
+  // multi-result op (e.g. d2m.tile_argmax) lands in both halves, and since
+  // these SFPU ops reduce in place the duplicate re-reduces its own output into
+  // garbage. Advance the boundary past every store feeding off the same op,
+  // walking back through single-result forwarding ops (e.g.
+  // dst_reinterpret_cast) to identify the real source.
   auto multiResultSourceOf = [](Value value) -> Operation * {
     Operation *def = value.getDefiningOp();
     while (def && def->getNumResults() == 1 && def->getNumOperands() == 1) {
