@@ -22,6 +22,19 @@ if (TTMLIR_ENABLE_OPMODEL)
     target_include_directories(${LIB_NAME} SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
     set(TTNN_LIBS TTMETAL_LIBRARY DEVICE_LIBRARY TTNN_LIBRARY TT_STL_LIBRARY TRACY_LIBRARY)
     target_link_libraries(${LIB_NAME} PUBLIC ${TTNN_LIBS} PRIVATE TTMLIRTTNNUtils)
+
+    # A few TTNN ops are backed by tt-train's metal ops rather than a ttnn::
+    # symbol (e.g. ttnn.adamw -> ttml::metal::adamw). Their declarations live
+    # under ${TTML_SOURCE_DIR}, and the public MetalHeaders.h includes them, so
+    # the path must be PUBLIC (as TTMETAL_INCLUDE_DIRS above is) -- anything
+    # reaching MetalHeaders.h via Conversion.h needs it too, e.g. TestConversion.
+    # SYSTEM keeps third-party warnings out of our builds.
+    # No -march=x86-64-v3 here (unlike runtime/lib/ttnn/operations/ttml): the
+    # ttml headers we consume are enums plus out-of-line declarations, so no ttml
+    # inline code is compiled here and there is no ABI surface to match.
+    target_include_directories(${LIB_NAME} SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTML_SOURCE_DIR}>")
+    target_link_libraries(${LIB_NAME} PRIVATE ttml_metal_ops)
+
     target_compile_definitions(${LIB_NAME} PUBLIC TTMLIR_ENABLE_OPMODEL)
     if (TTMLIR_DISABLE_MOCK_DEVICE)
         target_compile_definitions(${LIB_NAME} PRIVATE TTMLIR_DISABLE_MOCK_DEVICE)
@@ -42,6 +55,10 @@ target_link_libraries(${LIB_NAME} PUBLIC coverage_config)
 
 # Add to export set for build-tree usage (needed by tests)
 install(TARGETS ${LIB_NAME} EXPORT TTNNOpModelLibTargets)
+if (TTMLIR_ENABLE_OPMODEL)
+    # Linked above; must share this export set for the export() below to work.
+    install(TARGETS ttml_metal_ops EXPORT TTNNOpModelLibTargets)
+endif()
 
 # Export for build-tree usage (needed for tests and other targets in this build)
 export(EXPORT TTNNOpModelLibTargets

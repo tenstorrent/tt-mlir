@@ -5688,6 +5688,160 @@ TEST_F(OpModelTest, PagedFillCacheOp) {
 }
 
 //===----------------------------------------------------------------------===//
+// AdamWOp Tests
+//===----------------------------------------------------------------------===//
+
+// AdamWOp is backed by the ttml metal op `ttml::metal::adamw` rather than a
+// `ttnn::` symbol. Its device operation validates every operand as
+// DRAM / INTERLEAVED / TILE, with `grad` always BFLOAT16 and the moments
+// matching `param`'s dtype, so all layouts below are built explicitly.
+//
+// The whole cost of the op is circular buffers: the output aliases `param` and
+// lives in DRAM, so tensorL1PeakSize and outputL1BufferSize are both 0.
+class OpModelAdamWTest : public OpModelTest {
+protected:
+  static constexpr float kLr = 1e-3f;
+  static constexpr float kBeta1 = 0.9f;
+  static constexpr float kBeta2 = 0.999f;
+  static constexpr float kEpsilon = 1e-8f;
+  static constexpr float kWeightDecay = 0.01f;
+
+  llvm::Expected<OpConstraints>
+  queryConstraints(llvm::ArrayRef<int64_t> shape, TTNNLayoutAttr paramLayout,
+                   TTNNLayoutAttr gradLayout, TTNNLayoutAttr momentLayout,
+                   bool amsgrad, bool stochasticRounding = false) {
+    std::optional<llvm::ArrayRef<int64_t>> maxExpAvgSqShape;
+    std::optional<TTNNLayoutAttr> maxExpAvgSqLayout;
+    if (amsgrad) {
+      maxExpAvgSqShape = shape;
+      maxExpAvgSqLayout = momentLayout;
+    }
+    return OpModel<AdamWOp>::getOpConstraints(
+        shape, paramLayout, shape, gradLayout, shape, momentLayout, shape,
+        momentLayout, maxExpAvgSqShape, maxExpAvgSqLayout, llvm::APFloat(kLr),
+        llvm::APFloat(kBeta1), llvm::APFloat(kBeta2), llvm::APFloat(kBeta1),
+        llvm::APFloat(kBeta2), llvm::APFloat(kEpsilon),
+        llvm::APFloat(kWeightDecay), stochasticRounding,
+        /*outputLayout=*/paramLayout);
+  }
+};
+
+TEST_F(OpModelAdamWTest, AdamWOpFloat32) {
+  const llvm::SmallVector<int64_t> shape = {1, 1, 128, 128};
+
+  const TTNNLayoutAttr f32Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  const TTNNLayoutAttr bf16Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = queryConstraints(shape, f32Layout, bf16Layout,
+                                         f32Layout, /*amsgrad=*/false);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  size_t cbSizeWithoutAmsgrad = 0;
+  if (constraintsExp) {
+    OpConstraints &opCstr = constraintsExp.get();
+    EXPECT_GT(opCstr.cbL1PeakSize, 0);
+    // Every operand is required to be in DRAM, so nothing lands in L1.
+    EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+    // Captures the updated parameter, even though it is an in-place update.
+    EXPECT_EQ(opCstr.outputLayouts.size(), 1);
+    cbSizeWithoutAmsgrad = opCstr.cbL1PeakSize;
+  }
+
+  // AMSGrad is implied by the presence of max_exp_avg_sq (ttml forwards
+  // `max_exp_avg_sq.has_value()` as the amsgrad flag), and it allocates an
+  // extra set of circular buffers. This is what proves the optional operand is
+  // actually threaded through to the kernel rather than dropped.
+  auto amsgradConstraintsExp =
+      queryConstraints(shape, f32Layout, bf16Layout, f32Layout,
+                       /*amsgrad=*/true);
+  EXPECT_TRUE(static_cast<bool>(amsgradConstraintsExp));
+  if (amsgradConstraintsExp && cbSizeWithoutAmsgrad > 0) {
+    EXPECT_GT(amsgradConstraintsExp.get().cbL1PeakSize, cbSizeWithoutAmsgrad);
+  }
+
+  auto runtimeExp = OpModel<AdamWOp>::getOpRuntime(
+      shape, f32Layout, shape, bf16Layout, shape, f32Layout, shape, f32Layout,
+      /*maxExpAvgSqShape=*/std::nullopt, /*maxExpAvgSqLayout=*/std::nullopt,
+      llvm::APFloat(kLr), llvm::APFloat(kBeta1), llvm::APFloat(kBeta2),
+      llvm::APFloat(kBeta1), llvm::APFloat(kBeta2), llvm::APFloat(kEpsilon),
+      llvm::APFloat(kWeightDecay), /*stochasticRounding=*/false, f32Layout);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  }
+}
+
+TEST_F(OpModelAdamWTest, AdamWOpBFloat16) {
+  const llvm::SmallVector<int64_t> shape = {1, 1, 128, 128};
+
+  // With a BFLOAT16 param every operand is BFLOAT16, and stochastic rounding is
+  // only legal in this configuration.
+  const TTNNLayoutAttr bf16Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = queryConstraints(shape, bf16Layout, bf16Layout,
+                                         bf16Layout, /*amsgrad=*/false,
+                                         /*stochasticRounding=*/true);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  if (constraintsExp) {
+    OpConstraints &opCstr = constraintsExp.get();
+    EXPECT_GT(opCstr.cbL1PeakSize, 0);
+    EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+  }
+}
+
+TEST_F(OpModelAdamWTest, AdamWOpLargeShape) {
+  // A larger tensor to confirm the reported numbers really come from the
+  // per-core block split rather than being shape-independent constants.
+  const llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+
+  const TTNNLayoutAttr f32Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  const TTNNLayoutAttr bf16Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = queryConstraints(shape, f32Layout, bf16Layout,
+                                         f32Layout, /*amsgrad=*/false);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  }
+}
+
+TEST_F(OpModelAdamWTest, AdamWOpRejectsL1Param) {
+  // The ttml device operation TT_FATALs unless every operand is in DRAM. The
+  // query must surface that as an error rather than a bogus cost, otherwise the
+  // optimizer could pick an L1 layout that fails at runtime.
+  const llvm::SmallVector<int64_t> shape = {1, 1, 128, 128};
+
+  const TTNNLayoutAttr f32LayoutL1 =
+      CreateTiledLayout(shape, BufferType::L1, TensorMemoryLayout::Interleaved,
+                        /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+                        builder.getF32Type());
+  const TTNNLayoutAttr f32Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  const TTNNLayoutAttr bf16Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = queryConstraints(shape, f32LayoutL1, bf16Layout,
+                                         f32Layout, /*amsgrad=*/false);
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  if (!constraintsExp) {
+    llvm::consumeError(constraintsExp.takeError());
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // QuantizeOp Tests
 //===----------------------------------------------------------------------===//
 

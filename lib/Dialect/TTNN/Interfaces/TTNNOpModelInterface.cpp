@@ -4411,6 +4411,61 @@ RMSNormPreAllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// AdamWOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints> AdamWOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  assert(inputs.size() >= 4 && inputs.size() <= 5 &&
+         "AdamWOp must have 4 or 5 inputs");
+
+  auto paramShape = getParam().getType().getShape();
+  auto gradShape = getGrad().getType().getShape();
+  auto expAvgShape = getExpAvg().getType().getShape();
+  auto expAvgSqShape = getExpAvgSq().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> maxExpAvgSqShape;
+  std::optional<TTNNLayoutAttr> maxExpAvgSqLayout;
+  if (getMaxExpAvgSq()) {
+    maxExpAvgSqShape = getMaxExpAvgSq().getType().getShape();
+    maxExpAvgSqLayout = inputs[4];
+  }
+
+  return detail::constraintsDispatch(
+      *this, liveRecords, paramShape, inputs[0], gradShape, inputs[1],
+      expAvgShape, inputs[2], expAvgSqShape, inputs[3], maxExpAvgSqShape,
+      maxExpAvgSqLayout, getLr(), getBeta1(), getBeta2(), getBeta1Pow(),
+      getBeta2Pow(), getEpsilon(), getWeightDecay(), getStochasticRounding(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+AdamWOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig) {
+  assert(inputs.size() >= 4 && inputs.size() <= 5 &&
+         "AdamWOp must have 4 or 5 inputs");
+
+  auto paramShape = getParam().getType().getShape();
+  auto gradShape = getGrad().getType().getShape();
+  auto expAvgShape = getExpAvg().getType().getShape();
+  auto expAvgSqShape = getExpAvgSq().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> maxExpAvgSqShape;
+  std::optional<TTNNLayoutAttr> maxExpAvgSqLayout;
+  if (getMaxExpAvgSq()) {
+    maxExpAvgSqShape = getMaxExpAvgSq().getType().getShape();
+    maxExpAvgSqLayout = inputs[4];
+  }
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<AdamWOp>::getOpRuntime, *this, paramShape, inputs[0],
+      gradShape, inputs[1], expAvgShape, inputs[2], expAvgSqShape, inputs[3],
+      maxExpAvgSqShape, maxExpAvgSqLayout, getLr(), getBeta1(), getBeta2(),
+      getBeta1Pow(), getBeta2Pow(), getEpsilon(), getWeightDecay(),
+      getStochasticRounding(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
