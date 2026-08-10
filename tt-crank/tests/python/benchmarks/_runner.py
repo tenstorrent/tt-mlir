@@ -358,10 +358,14 @@ def run_llm_benchmark(
     `total_steps - 1` decode steps yield the inter-token-latency
     distribution and `tokens_per_sec` (per user, so batch-size independent).
 
-    Warmup runs the same loop for `warmup_steps`, then the cache is
-    `reset()` outside the timed region so timing starts from a clean cache.
-    Warmup wall-clock is reported as `warmup_total_ms`; in compile mode
-    that's where prefill + decode graph compilation lands.
+    Warmup runs the same loop twice (cache `reset()` between passes): the
+    first pass compiles the prefill/decode graphs and the second executes
+    them again so trace capture also lands in warmup - with a single pass
+    the prefill trace would be recaptured inside the timed region. Each
+    pass runs `warmup_steps / 2` steps (min 4) so the warmup token total
+    stays ~`warmup_steps`. The cache is `reset()` after the last pass so
+    timing starts from a clean cache. Warmup wall-clock is reported as
+    `warmup_total_ms`.
     """
 
     def _generate(steps: int) -> list[int]:
@@ -382,10 +386,14 @@ def run_llm_benchmark(
     with torch.no_grad():
         _signpost("warmup_start")
         warmup_t0 = time.perf_counter_ns()
-        _generate(warmup_steps)
+
+        # Run the warmup twice to ensure that the prefill trace is recaptured
+        # outside of the timing measurement window.
+        for _ in range(2):
+            _generate(max(warmup_steps // 2, 4))
+            past_key_values.reset()
         warmup_ns = time.perf_counter_ns() - warmup_t0
         _signpost("warmup_end")
-        past_key_values.reset()
 
         with _maybe_profile(trace_path):
             step_ns = _generate(total_steps)
