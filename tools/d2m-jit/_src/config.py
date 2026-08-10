@@ -27,6 +27,13 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return v.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_int(name: str, default: int) -> int:
+    value = int(os.environ.get(name, default))
+    if value < 1:
+        raise ValueError(f"{name} must be at least 1, got {value}")
+    return value
+
+
 @dataclass
 class _Config:
     # Execution backend for the canonical `import d2m_jit` surface:
@@ -54,6 +61,15 @@ class _Config:
     # Keep explicit d2m.tile_matmul loops instead of replacing them with
     # d2m.tile_matmul_block in the backend pipeline.
     use_tile_matmul: bool = _env_bool("D2M_JIT_USE_TILE_MATMUL")
+    # Number of backing buffers allocated for streams.
+    num_stream_buffers: int = _env_int("D2M_JIT_NUM_STREAM_BUFFERS", default=2)
+    # Run d2m-reblock-generics after generate-outer-loops (TTIR FE path).
+    # Default off: reduction matmul + mcast + CCL currently Fatal under reblock
+    # (micro-blocking still needs more work). Opt in with
+    # D2M_JIT_ENABLE_REBLOCK_GENERICS=1.
+    enable_reblock_generics: bool = _env_bool(
+        "D2M_JIT_ENABLE_REBLOCK_GENERICS", default=False
+    )
     # If set, write the post-pipeline flatbuffer to this path before
     # device submit. Useful for offline inspection with ttrt.
     save_flatbuffer_path: Optional[str] = os.environ.get("D2M_JIT_SAVE_FLATBUFFER_PATH")

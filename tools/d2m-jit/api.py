@@ -1897,7 +1897,15 @@ def _matmul_block(lhs, rhs, transpose_b=False, acc=None):
             )
         output = acc
     else:
-        output = _zeros_block(out_ty)
+        # Prefer empty (no tile_fill) over _zeros_block. For GenericOp-level
+        # reduction matmul (`remote_store(out, a @ b)` + reduction iterator),
+        # Allocate copy-elision aliases the matmul outs onto `out` and packer
+        # L1-acc carries the outer K sum. A per-iter zeros fill becomes a dead
+        # synchronized CB after that elision and desyncs fine-grained reblock
+        # streams (e.g. [1,1,56] missing one 6-tile K micro-block). Golden TTIR
+        # matmul bodies also have no per-iter fill. Standalone `a @ b` still
+        # relies on a zeroed DPS `out` / first-iter packer init.
+        output = d2m.empty(out_ty)
 
     # (d0, d1, d2) = (M, N, K).
     d0 = AffineDimExpr.get(0)

@@ -148,6 +148,12 @@ def _pipeline_passes():
     hoist-inits so the dispatch-level conversion sees the original loop
     structure.
     """
+    num_stream_buffers = int(config.num_stream_buffers)
+    if num_stream_buffers < 1:
+        raise ValueError(
+            f"num_stream_buffers must be at least 1, got {num_stream_buffers}"
+        )
+    stream_buffer_opt = f"num-stream-buffers={num_stream_buffers}"
     passes = [
         "canonicalize",
         "d2m-lower-to-layout",
@@ -156,8 +162,15 @@ def _pipeline_passes():
         "d2m-insert-scratch-buffers",
         "d2m-generic-apply-interchange",
         "d2m-generate-outer-loops",
-        "d2m-mark-synchronized-buffers",
-        "d2m-allocate",
+    ]
+    # Match createD2MFrontendPipeline: micro-block matmul K reduction into
+    # stream CBs (e.g. 42 -> 1x6/6x2) before allocate. Optional so K-loop
+    # kernels / debugging can opt out via config.enable_reblock_generics=0.
+    if config.enable_reblock_generics:
+        passes.append(f"d2m-reblock-generics{{{stream_buffer_opt}}}")
+    passes += [
+        f"d2m-mark-synchronized-buffers{{{stream_buffer_opt}}}",
+        f"d2m-allocate{{{stream_buffer_opt}}}",
         "d2m-lower-multicast-loads",
         "d2m-generic-lower-to-explicit-form",
         "canonicalize",
