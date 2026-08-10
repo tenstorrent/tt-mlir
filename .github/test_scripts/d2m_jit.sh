@@ -36,6 +36,9 @@ pytest -v "$WORK_DIR"/test/d2m-jit --junit-xml="$TEST_REPORT_PATH"
 # reference the device run uses -- no hand-copied sim suite, and no separate
 # device-vs-sim comparison needed. Tests marked `device_only` skip themselves
 # here (see conftest.py).
+#
+# TODO(https://github.com/tenstorrent/tt-mlir/issues/9202): the sim backend
+# currently does not support multi-chip topologies
 if [[ "$RUNS_ON" != "n300" && "$RUNS_ON" != "llmbox" ]]; then
     echo "Re-running d2m-jit tests on the simulator backend..."
     D2M_JIT_BACKEND=sim pytest -v "$WORK_DIR"/test/d2m-jit \
