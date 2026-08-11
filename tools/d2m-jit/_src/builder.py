@@ -1078,6 +1078,8 @@ def mesh_shard(
     shard_dims,
     shard_shape,
     shard_type="devices",
+    *,
+    virtual_grid_offset=None,
 ) -> LazyTensor:
     """Distribute or replicate a full host tensor across the mesh.
 
@@ -1085,6 +1087,10 @@ def mesh_shard(
     that mesh axis). `shard_shape` has tensor rank and records the resulting
     factor for each tensor dimension. Set `shard_type="replicate"` to place the
     full tensor on every device.
+
+    Optional `virtual_grid_offset=(oy, ox)` places the device buffer on a
+    virtual grid (golden rhs path: host -> VGM empty directly), so offset
+    spatial regions can skip a corrupting same-grid VGM rebuffer.
     """
     if torch is None or not isinstance(input_, torch.Tensor):
         raise TypeError("mesh_shard expects a torch.Tensor containing the full tensor")
@@ -1123,7 +1129,22 @@ def mesh_shard(
             shard_shape,
             shard_type,
         )
-        device = layout.build_to_device(b.ctx, shard)
+        if virtual_grid_offset is None:
+            device = layout.build_to_device(b.ctx, shard)
+        else:
+            # Match TTIRBuilder: to_device into a VGM empty at the offset.
+            output_type = layout.build_device_tensor_type(b.ctx, blocked=False)
+            tensor_rank = len(RankedTensorType(output_type).shape)
+            inverse, forward = _make_offset_vgm_maps(
+                b.ctx, virtual_grid_offset, tensor_rank
+            )
+            output = d2m.empty(
+                output_type,
+                virtual_grid_inverse_mapping=inverse,
+                virtual_grid_forward_mapping=forward,
+            )
+            converted = d2m.ToLayoutOp([output_type], shard, output).result
+            device = layout.build_blocked_view(b.ctx, converted)
     return LazyTensor(
         layout,
         device,
