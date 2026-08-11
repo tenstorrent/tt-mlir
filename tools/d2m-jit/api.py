@@ -257,9 +257,15 @@ def _static_int_from_ast(node, visitor):
         if isinstance(node.op, ast.Mult):
             return lhs * rhs
         if isinstance(node.op, ast.FloorDiv):
-            return lhs // rhs
+            try:
+                return lhs // rhs
+            except ZeroDivisionError as exc:
+                raise visitor._format_error(node, exc) from exc
         if isinstance(node.op, ast.Mod):
-            return lhs % rhs
+            try:
+                return lhs % rhs
+            except ZeroDivisionError as exc:
+                raise visitor._format_error(node, exc) from exc
     raise D2mJitError("expected a compile-time integer expression")
 
 
@@ -267,13 +273,27 @@ def _static_int_from_ast(node, visitor):
 def remote_load(
     *args, mcast_start_index=None, mcast_shape=None, mcast_dims=None
 ) -> MemTx:
-    if len(args) == 2:
+    # Preserve the original positional multicast form while adding the local
+    # buffer overload. Kernel index sequences resolve to tuples; the second
+    # argument in the buffer form is instead the source tensor value.
+    if 2 <= len(args) <= 5 and isinstance(args[1], (list, tuple)):
         local_buffer, src, indices = None, args[0], args[1]
+        positional_mcast = args[2:]
+        mcast_values = [mcast_start_index, mcast_shape, mcast_dims]
+        mcast_names = ["mcast_start_index", "mcast_shape", "mcast_dims"]
+        for i, value in enumerate(positional_mcast):
+            if mcast_values[i] is not None:
+                raise D2mJitError(
+                    f"remote_load got multiple values for '{mcast_names[i]}'"
+                )
+            mcast_values[i] = value
+        mcast_start_index, mcast_shape, mcast_dims = mcast_values
     elif len(args) == 3:
         local_buffer, src, indices = args
     else:
         raise D2mJitError(
-            "remote_load expects (src, indices) or (buffer, src, indices); "
+            "remote_load expects (src, indices[, mcast_start_index, "
+            "mcast_shape, mcast_dims]) or (buffer, src, indices); "
             f"got {len(args)} positional arguments"
         )
 

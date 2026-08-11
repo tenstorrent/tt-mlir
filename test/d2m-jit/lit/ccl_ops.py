@@ -24,6 +24,7 @@ def ccl_kernel(input_, output, start_sem, end_sem):
         num_receivers=1,
         core_indices=[cy, cx],
     )
+    _legacy = remote_load(input_, [cy, cx], [cy, cx], [1, 1])
     scratch = empty([1, 1])
     scratch = remote_load(scratch, input_, [cy, cx])
     remote_store(
@@ -75,6 +76,7 @@ _Builder.reset()
 # CHECK: %[[DY:.*]] = "d2m.mesh_position"
 # CHECK: d2m.device_synchronize
 # CHECK-SAME: %[[DY]]
+# CHECK: d2m.remote_load
 # CHECK: tensor.empty()
 # CHECK: d2m.remote_load
 # CHECK: d2m.remote_store
