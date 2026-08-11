@@ -31,3 +31,29 @@ table WhileOp {
 
   semaphore_inputs: [tt.target.ttnn.GlobalSemaphoreRef];
 }
+
+// An N-way branch.
+//
+// Each branch is serialized as its own top-level (private) program, referenced
+// here by index and executed by a nested ProgramExecutor. Every branch program
+// takes `captures` as its inputs and returns one value per output.
+//
+// The runtime reads `index` back to host and runs exactly one branch. Following
+// StableHLO, an index outside `[0, len(branch_program_ids))` - which includes
+// any negative one - selects the last branch.
+table CaseOp {
+  // Single-element si32 tensor in system memory.
+  index: tt.target.ttnn.TensorRef;
+
+  // One program id per branch, in selection order.
+  branch_program_ids: [uint32];
+
+  // Tensors the branches reference from the enclosing scope. Bound as the
+  // selected branch program's inputs.
+  captures: [tt.target.ttnn.TensorRef];
+
+  // Values the selected branch produced.
+  outputs: [tt.target.ttnn.TensorRef];
+
+  semaphore_inputs: [tt.target.ttnn.GlobalSemaphoreRef];
+}

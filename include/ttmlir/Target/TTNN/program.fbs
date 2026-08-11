@@ -177,6 +177,7 @@ union OpType {
   AllocateMoeComputeSemaphoreOp,
   CopyOp,
   WhileOp,
+  CaseOp,
 }
 
 table Operation {
