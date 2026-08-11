@@ -381,6 +381,41 @@ class D2MCompiler(ast.NodeVisitor):
                         names.append(target.id)
         return names
 
+    def _eval_static_int(self, node):
+        """Evaluate a compile-time integer AST expression using int captures.
+
+        Used for attributes that must be known at trace time (e.g. shape
+        literals, num_receivers) so a value derived from a captured mesh size
+        resolves to a constant. Supports literals, captured int names, and
+        +, -, *, //, % over them.
+        """
+        if isinstance(node, ast.Constant) and isinstance(node.value, int):
+            return node.value
+        if isinstance(node, ast.Name):
+            if node.id in self.captures and isinstance(self.captures[node.id], int):
+                return self.captures[node.id]
+            raise ValueError(
+                f"'{node.id}' is not a compile-time int capture (closed-over int)"
+            )
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            return -self._eval_static_int(node.operand)
+        if isinstance(node, ast.BinOp):
+            lhs = self._eval_static_int(node.left)
+            rhs = self._eval_static_int(node.right)
+            if isinstance(node.op, ast.Add):
+                return lhs + rhs
+            if isinstance(node.op, ast.Sub):
+                return lhs - rhs
+            if isinstance(node.op, ast.Mult):
+                return lhs * rhs
+            if isinstance(node.op, ast.FloorDiv):
+                return lhs // rhs
+            if isinstance(node.op, ast.Mod):
+                return lhs % rhs
+        raise ValueError(
+            "compile-time integer expression must be over literals and int captures"
+        )
+
     def visit_For(self, node):
         assert node.iter.func.id == "range", "Only range() supported in for loops"
 

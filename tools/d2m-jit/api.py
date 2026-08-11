@@ -8,10 +8,17 @@ import ast
 import functools
 
 from ttmlir.ir import *
-from ttmlir.dialects import d2m, ttcore, arith, linalg
+from ttmlir.dialects import d2m, ttcore, arith, linalg, tensor
 from ttmlir.dialects._ods_common import get_default_loc_context
 
 from ._src.utils import _asindex
+
+
+def _as_value(v):
+    """Coerce an OpView to its result Value (leave Values untouched)."""
+    return v.result if hasattr(v, "result") else v
+
+
 from ._src.ast import syntax
 from ._src.config import config
 from ._src.errors import D2mJitError
@@ -206,8 +213,24 @@ def _tile_bcast_type_attr(node):
 
 @syntax("remote_load")
 def remote_load(
-    src, indices, mcast_start_index=None, mcast_shape=None, mcast_dims=None
+    *args, mcast_start_index=None, mcast_shape=None, mcast_dims=None
 ) -> MemTx:
+    """Load an entire shard from a remote tensor into a local L1 buffer.
+
+    Two call forms:
+      remote_load(src, indices, ...)        # allocate the destination buffer
+      remote_load(buf, src, indices, ...)   # load into an explicit buffer
+    """
+    if len(args) == 2:
+        local_buffer, src, indices = None, args[0], args[1]
+    elif len(args) == 3:
+        local_buffer, src, indices = args
+    else:
+        raise D2mJitError(
+            "remote_load expects (src, indices) or (buf, src, indices); "
+            f"got {len(args)} positional arguments"
+        )
+
     if mcast_dims is not None:
         if isinstance(mcast_dims, tuple):
             mcast_dims = list(mcast_dims)
@@ -215,10 +238,16 @@ def remote_load(
             if isinstance(mcast_dims, int):
                 mcast_dims = arith.constant(IndexType.get(src.context), mcast_dims)
             mcast_dims = [mcast_dims]
-    dst_type = RankedTensorType.get(
-        src.type.shape[len(indices) :], src.type.element_type
-    )
-    dst = d2m.empty(dst_type)
+
+    if local_buffer is None:
+        dst_type = RankedTensorType.get(
+            src.type.shape[len(indices) :], src.type.element_type
+        )
+        local_buffer = d2m.empty(dst_type)
+    else:
+        local_buffer = _as_value(local_buffer)
+        dst_type = local_buffer.type
+
     return d2m.remote_load(
         dst_type,
         src,
@@ -226,7 +255,7 @@ def remote_load(
         mcast_start_index=mcast_start_index,
         mcast_shape=mcast_shape,
         mcast_dims=mcast_dims,
-        local_buffer=dst,
+        local_buffer=local_buffer,
     )
 
 
@@ -797,12 +826,13 @@ def where(cond, true_value, false_value):
     )
 
 
-def _shape_literal(node):
+def _shape_literal(node, visitor):
+    """Pull a compile-time block shape; elements may be int captures."""
     if isinstance(node, (ast.List, ast.Tuple)):
-        return [int(_const_value(element)) for element in node.elts]
+        return [visitor._eval_static_int(elt) for elt in node.elts]
     raise D2mJitError(
-        "zeros() expects a literal block shape, e.g. zeros([m_tiles, n_tiles]); "
-        f"got {type(node).__name__}"
+        "expected a block shape [m_tiles, n_tiles] of compile-time ints "
+        f"(literals or int captures); got {type(node).__name__}"
     )
 
 
@@ -813,6 +843,34 @@ def _zeros_op(shape):
     tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, float32)
     block_ty = RankedTensorType.get(list(shape), tile_ty)
     return _zeros_block(block_ty)
+
+
+@syntax("empty", args_as_attr=[_shape_literal])
+def _empty_op(shape):
+    """Block-level uninitialised L1 scratch buffer (kernel-body `empty`).
+
+    Registered as the kernel-body op `empty`; named `_empty_op` at module
+    scope so it does not shadow the host-side `empty(layout)` re-exported as
+    the public `d2m.empty`.
+
+    `shape` is a Python-literal list/tuple of block dimensions in tiles, e.g.
+    `empty([m_tiles, n_tiles])`. Produces an uninitialised
+    `tensor<shape x !ttcore.tile<32x32, f32>>` (via `tensor.empty`), intended as
+    an explicit destination buffer for `remote_load(buf, src, indices)`.
+
+    Uses `tensor.empty` (not `d2m.empty`): for a cross-device CCL kernel a
+    `d2m.empty` load buffer makes the backend split the datamovement work onto a
+    second NOC thread that ends up without the fabric write (the
+    `getFabricConnectionManager` lowering then fails); `tensor.empty` matches the
+    buffer the all_gather rewriter emits and keeps the fabric chain on one
+    thread.
+
+    The tile element type is f32; this matches `zeros(...)`. A dtype override
+    is a follow-up once a non-f32 CCL needs it.
+    """
+    ctx = get_default_loc_context()
+    tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, float32)
+    return tensor.empty(list(shape), tile_ty)
 
 
 def _bool_attr_from_ast(node):
