@@ -49,6 +49,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
         OptimizerPasses/TTNNDeduceMoEComputeLayouts.cpp
         OptimizerPasses/TTNNPrepareConv3dWeights.cpp
+        OptimizerPasses/TTNNPrepareGridSampleGrid.cpp
         TTNNAdjustDeallocs.cpp
         TTNNForceFinalDeallocs.cpp
         TTNNAllocateDistributedOpBuffers.cpp

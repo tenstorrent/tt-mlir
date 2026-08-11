@@ -124,6 +124,7 @@ union OpType {
   PrepareConv3dWeightsOp,
   PrepareConvTranspose2dBiasOp,
   PrepareConvTranspose2dWeightsOp,
+  PrepareGridSampleGridOp,
   RandOp,
   ReductionArgMaxOp,
   ReductionOp,

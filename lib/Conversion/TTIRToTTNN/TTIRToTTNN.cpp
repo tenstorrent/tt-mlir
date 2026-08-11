@@ -3219,7 +3219,8 @@ public:
     mlir::Value ttnnResult = rewriter.create<ttnn::GridSampleOp>(
         loc, nhwcOutputType, input, grid, adaptor.getModeAttr(),
         adaptor.getPaddingModeAttr(), adaptor.getAlignCornersAttr(),
-        rewriter.getBoolAttr(batchOutputChannels), ttnn::MemoryConfigAttr());
+        rewriter.getBoolAttr(batchOutputChannels), ttnn::MemoryConfigAttr(),
+        rewriter.getBoolAttr(false));
 
     // Permute output back from NHWC (N, H_out, W_out, C) to NCHW (N, C, H_out, W_out).
     // Permutation [0,3,1,2] is the inverse of [0,2,3,1].

@@ -97,6 +97,7 @@
 #include "operations/pool/pool2d.h"
 #include "operations/pool/upsample.h"
 #include "operations/pool/grid_sample.h"
+#include "operations/pool/prepare_grid_sample_grid.h"
 #include "operations/rand/rand.h"
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/cumprod.h"
@@ -635,6 +636,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::GridSampleOp: {
     return operations::pool::run(op->type_as_GridSampleOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::PrepareGridSampleGridOp: {
+    return operations::pool::run(op->type_as_PrepareGridSampleGridOp(),
+                                 getContext());
   }
   case ::tt::target::ttnn::OpType::PixelUnshuffleOp: {
     return operations::data_movement::run(op->type_as_PixelUnshuffleOp(),

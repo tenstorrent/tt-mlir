@@ -61,6 +61,11 @@ private:
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::GetDeviceOp>(op);
     shouldHoist &=
         !(op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>());
+    // PrepareGridSampleGridOp runs on the CPU path and must not enter the trace
+    // region. It is sunk before the first hoistable op so its DRAM result
+    // becomes a regular trace input slot.
+    shouldHoist &=
+        !::mlir::isa<mlir::tt::ttnn::PrepareGridSampleGridOp>(op);
     return shouldHoist;
   }
 
@@ -910,9 +915,10 @@ private:
       for (size_t i = firstHoistable; i <= lastHoistable; i++) {
         if (shouldHoistOp(allOps[i])) {
           opsToHoist.push_back(allOps[i]);
-        } else if (allOps[i]
-                       ->hasTrait<
-                           mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>()) {
+        } else if (allOps[i]->hasTrait<
+                       mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>() ||
+                   mlir::isa<mlir::tt::ttnn::PrepareGridSampleGridOp>(
+                       allOps[i])) {
           creationOpsToSink.push_back(allOps[i]);
         } else {
           // We found a non-hoistable op in the middle - this is an error

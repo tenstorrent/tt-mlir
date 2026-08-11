@@ -518,6 +518,15 @@ void createTTIRToTTNNCommonPipeline(
     // and the pass falls back to TILE_WIDTH for c_in_block.
     devicePm.addPass(mlir::tt::ttnn::createTTNNPrepareConv3dWeights());
 
+    // Materialize PrepareGridSampleGridOp for every GridSampleOp that requires
+    // a precomputed coordinate grid (nearest mode or align_corners=true). Runs
+    // unconditionally for both trace and non-trace paths:
+    //   - Non-trace: the op runs inline each inference on the CPU path.
+    //   - Trace: TTNNTraceHoistTransform sinks it before the trace region so
+    //     its DRAM result becomes a proper trace input slot, eliminating the
+    //     need for the implicit precomputed grid cache in the runtime.
+    devicePm.addPass(mlir::tt::ttnn::createTTNNPrepareGridSampleGrid());
+
     if (options.enableCreateD2MSubgraphs) {
       TTNNPipelineD2MPassOptions d2mOptions;
       d2mOptions.enableElementwiseFusion = options.enableD2MElementwiseFusion;

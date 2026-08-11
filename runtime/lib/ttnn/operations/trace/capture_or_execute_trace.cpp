@@ -119,13 +119,7 @@ static void runTraceProgramAndCaptureTrace(
   TraceData traceData{.traceId = meshTraceId,
                       .inputTensors = std::move(inputSlots),
                       .outputTensors = std::move(outputSlots),
-                      .generationId = traceCache.getGenerationId(),
-                      // Keep precomputed grids (e.g. GridSampleOp) alive for
-                      // the lifetime of the trace.  The captured trace holds
-                      // device buffer addresses for these tensors; freeing
-                      // them before the trace completes causes a device hang.
-                      .implicitPrecomputedGrids =
-                          executor.getContext().getImplicitPrecomputedGrids()};
+                      .generationId = traceCache.getGenerationId()};
   auto [mainProgramKey, captureExecuteKey] = getTraceCacheKeys(op, context);
   traceCache.insert(mainProgramKey, captureExecuteKey, std::move(traceData));
 }

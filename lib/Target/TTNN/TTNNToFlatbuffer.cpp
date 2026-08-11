@@ -1997,11 +1997,34 @@ createOp(FlatbufferObjectCache &cache, GridSampleOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
+  bool usePrecomputedGrid = op.getUsePrecomputedGrid();
 
   return ::tt::target::ttnn::CreateGridSampleOp(*cache.fbb, input, grid, mode,
                                                 paddingMode, alignCorners,
                                                 batchOutputChannels,
-                                                memoryConfig, output);
+                                                memoryConfig, output,
+                                                usePrecomputedGrid);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::PrepareGridSampleGridOp>
+createOp(FlatbufferObjectCache &cache, PrepareGridSampleGridOp op) {
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> grid =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getGrid()));
+  flatbuffers::Offset<flatbuffers::String> mode =
+      toFlatbuffer(cache, op.getMode());
+  flatbuffers::Offset<flatbuffers::String> paddingMode =
+      toFlatbuffer(cache, op.getPaddingMode());
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreatePrepareGridSampleGridOp(
+      *cache.fbb, grid, static_cast<uint32_t>(op.getInputN()),
+      static_cast<uint32_t>(op.getInputH()),
+      static_cast<uint32_t>(op.getInputW()),
+      static_cast<uint32_t>(op.getInputC()), mode, paddingMode,
+      op.getAlignCorners(), output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::PixelUnshuffleOp>
@@ -4941,6 +4964,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto gridSampleOp = dyn_cast<GridSampleOp>(op); gridSampleOp) {
     return createOperation(cache, createOp(cache, gridSampleOp), debugString,
                            locInfo);
+  }
+  if (auto prepareGridSampleGridOp = dyn_cast<PrepareGridSampleGridOp>(op);
+      prepareGridSampleGridOp) {
+    return createOperation(cache, createOp(cache, prepareGridSampleGridOp),
+                           debugString, locInfo);
   }
   if (auto pixelUnshuffleOp = dyn_cast<PixelUnshuffleOp>(op);
       pixelUnshuffleOp) {

@@ -3513,7 +3513,8 @@ def TTNN_GridSampleOp : TTNN_Op<"grid_sample"> {
                          DefaultValuedAttr<StrAttr, "\"zeros\"">:$padding_mode,
                          DefaultValuedAttr<BoolAttr, "false">:$align_corners,
                          DefaultValuedAttr<BoolAttr, "false">:$batch_output_channels,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         DefaultValuedAttr<BoolAttr, "false">:$use_precomputed_grid);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -3526,6 +3527,30 @@ def TTNN_GridSampleOp : TTNN_Op<"grid_sample"> {
     let hasVerifier = 1;
 }
 
+def TTNN_PrepareGridSampleGridOp : TTNN_Op<"prepare_grid_sample_grid"> {
+    let summary = "Prepares the grid sample coordinate grid for use by GridSampleOp.";
+    let description = [{
+      Runs prepare_grid_sample_grid on the host, converting the raw float32 grid
+      tensor into a precomputed coordinate grid (bf16) ready for ttnn::grid_sample
+      with use_precomputed_grid=true. For nearest mode the output shape equals the
+      input grid shape; for bilinear the last dimension expands from 2 to 6.
+
+      This op is inserted by TTNNPrepareGridSampleGrid before each GridSampleOp
+      that requires a precomputed grid (nearest mode or align_corners=true). It is
+      intentionally left outside the trace region (non-hoistable) so it executes
+      on the CPU path and its DRAM result is fed to the trace as a regular input
+      slot, avoiding any from_device call inside the trace.
+    }];
+    let arguments = (ins AnyRankedTensor:$grid,
+                         I32Attr:$input_n,
+                         I32Attr:$input_h,
+                         I32Attr:$input_w,
+                         I32Attr:$input_c,
+                         StrAttr:$mode,
+                         StrAttr:$padding_mode,
+                         BoolAttr:$align_corners);
+    let results = (outs AnyRankedTensor:$result);
+}
 
 def TTNN_PixelUnshuffleOp : TTNN_Op<"pixel_unshuffle"> {
     let summary = "Pixel unshuffle (space-to-depth) with selectable channel ordering and memory config.";

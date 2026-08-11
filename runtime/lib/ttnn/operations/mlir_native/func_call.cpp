@@ -26,19 +26,7 @@ void run(const ::tt::target::ttnn::FuncCallOp *op, ProgramContext &context) {
                            context.getExecutableHandle(), programIndex, inputs,
                            /*constEvalProgram=*/false, semaphoreInputs);
 
-  // Propagate parent's precomputed grids into child so that ops like
-  // GridSampleOp (which call from_device during warmup) do not re-run their
-  // factory lambdas during trace capture, where from_device is forbidden.
-  executor.getContext().inheritImplicitPrecomputedGrids(
-      context.getImplicitPrecomputedGrids());
-
   executor.execute();
-
-  // Back-propagate any grids the child created (warmup) back to the parent so
-  // subsequent FuncCallOp invocations (trace capture, inference runs) also hit
-  // the cache.
-  context.inheritImplicitPrecomputedGrids(
-      executor.getContext().getImplicitPrecomputedGrids());
 
   std::vector<::tt::runtime::Tensor> outputs = executor.gatherOutputTensors();
 

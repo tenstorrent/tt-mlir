@@ -321,32 +321,17 @@ public:
   }
 
   // Returns a cached precomputed grid tensor for `opKey`, creating it on first
-  // use.  Lookups forward to the root context so the grid computed during
-  // warmup (where from_device is allowed) is reused during trace capture
-  // (where from_device is forbidden by TTNN trace).
-  ::ttnn::Tensor getOrCreateImplicitPrecomputedGrid(
+  // use via `factory`. The grid is computed once and reused across inferences;
+  // the key is the flatbuffer PrepareGridSampleGridOp pointer, which is stable
+  // for the lifetime of the loaded binary.
+  const ::ttnn::Tensor &getOrCreatePreparedGrid(
       uintptr_t opKey,
       const std::function<::ttnn::Tensor()> &factory) {
-    auto it = implicitOpPrecomputedGrids.find(opKey);
-    if (it == implicitOpPrecomputedGrids.end()) {
-      it = implicitOpPrecomputedGrids.emplace(opKey, factory()).first;
+    auto it = preparedGridCache.find(opKey);
+    if (it == preparedGridCache.end()) {
+      it = preparedGridCache.emplace(opKey, factory()).first;
     }
     return it->second;
-  }
-
-  // Read-only access for FuncCallOp to propagate grids parent→child.
-  const std::unordered_map<uintptr_t, ::ttnn::Tensor> &
-  getImplicitPrecomputedGrids() const {
-    return implicitOpPrecomputedGrids;
-  }
-
-  // Seed this context with pre-existing grids (FuncCallOp parent→child, and
-  // child→parent back-propagation). try_emplace keeps any existing entry.
-  void inheritImplicitPrecomputedGrids(
-      const std::unordered_map<uintptr_t, ::ttnn::Tensor> &source) {
-    for (const auto &[key, grid] : source) {
-      implicitOpPrecomputedGrids.try_emplace(key, grid);
-    }
   }
 
   Binary &getExecutableHandle() { return executableHandle; }
@@ -364,10 +349,9 @@ private:
   // Op-implicit GlobalSemaphores keyed by flatbuffer op pointer; root only.
   std::unordered_map<uintptr_t, ::ttnn::GlobalSemaphore> implicitOpSemaphores;
 
-  // Op-implicit precomputed grid tensors keyed by flatbuffer op pointer; root
-  // only.  Computed during warmup and reused during trace capture.
-  std::unordered_map<uintptr_t, ::ttnn::Tensor> implicitOpPrecomputedGrids;
-
+  // Precomputed grids for PrepareGridSampleGridOp, keyed by flatbuffer op
+  // pointer. Computed once on first inference; stable for binary's lifetime.
+  std::unordered_map<uintptr_t, ::ttnn::Tensor> preparedGridCache;
 
   common::DylibManager dylibManager;
 

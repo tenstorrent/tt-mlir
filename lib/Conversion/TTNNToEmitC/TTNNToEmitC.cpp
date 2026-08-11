@@ -1060,7 +1060,7 @@ public:
         emitter.emit(srcOp.getMode()),
         emitter.emit(srcOp.getPaddingMode()),
         emitter.emit(srcOp.getAlignCorners()),
-        emitter.emit(std::nullopt), // use_precomputed_grid = false
+        emitter.emit(srcOp.getUsePrecomputedGrid()),
         emitter.emit(srcOp.getBatchOutputChannels()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
     };
@@ -1069,6 +1069,51 @@ public:
     return success();
   }
 };
+
+// PrepareGridSampleGrid op conversion pattern
+//
+namespace {
+class PrepareGridSampleGridOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::PrepareGridSampleGridOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.prepare_grid_sample_grid";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::prepare_grid_sample_grid";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PrepareGridSampleGridOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PrepareGridSampleGridOp srcOp,
+                  mlir::tt::ttnn::PrepareGridSampleGridOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PrepareGridSampleGridOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getGrid()),
+        emitter.emit(srcOp.getInputN()),
+        emitter.emit(srcOp.getInputH()),
+        emitter.emit(srcOp.getInputW()),
+        emitter.emit(srcOp.getInputC()),
+        emitter.emit(srcOp.getMode()),
+        emitter.emit(srcOp.getPaddingMode()),
+        emitter.emit(srcOp.getAlignCorners()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
 
 // Quantization ops conversion pattern
 //
