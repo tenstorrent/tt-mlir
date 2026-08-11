@@ -56,6 +56,7 @@ from ._src.builder import (
     global_semaphore,
     mesh,
     mesh_shard,
+    reblock,
     fabric_config,
 )
 from ._src.rewrite import (
@@ -137,6 +138,7 @@ spatial = _dispatch("spatial")
 # pure metadata derivation, so it dispatches and has a sim backing that operates
 # on SimTensors under `backend="sim"`.
 mesh_gather = _dispatch("mesh_gather")
+reblock = _dispatch("reblock")
 
 
 class _DispatchKernel:
