@@ -1542,6 +1542,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
         opContext.type_as_WhileOp()->outputs());
     break;
   }
+  case ::tt::target::ttnn::OpType::CaseOp: {
+    tensorRefs = utils::convertFbTensorRefsToVector(
+        opContext.type_as_CaseOp()->outputs());
+    break;
+  }
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp: {
     tensorRefs = utils::convertFbTensorRefsToVector(
         opContext.type_as_CaptureOrExecuteTraceOp()->outputs());
@@ -2230,6 +2235,13 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
       tensorRefs.push_back(init);
     }
     for (const auto *capture : *opContext.type_as_WhileOp()->captures()) {
+      tensorRefs.push_back(capture);
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CaseOp: {
+    tensorRefs.push_back(opContext.type_as_CaseOp()->index());
+    for (const auto *capture : *opContext.type_as_CaseOp()->captures()) {
       tensorRefs.push_back(capture);
     }
     break;

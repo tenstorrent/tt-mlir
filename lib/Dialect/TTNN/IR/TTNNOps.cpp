@@ -5998,6 +5998,95 @@ static YieldOp getYieldIfPresent(Block &block) {
 }
 
 //===----------------------------------------------------------------------===//
+// CaseOp
+//===----------------------------------------------------------------------===//
+
+::mlir::tt::ttnn::YieldOp
+mlir::tt::ttnn::CaseOp::getBranchYield(unsigned index) {
+  return mlir::cast<YieldOp>(getBranchBlock(index).getTerminator());
+}
+
+// CaseOp verification
+::mlir::LogicalResult mlir::tt::ttnn::CaseOp::verify() {
+  if (getBranches().empty()) {
+    return emitOpError() << "expects at least one branch";
+  }
+
+  auto indexType = mlir::cast<RankedTensorType>(getIndex().getType());
+  if (!indexType.getElementType().isInteger()) {
+    return emitOpError() << "expects an integer index tensor, but got "
+                         << indexType;
+  }
+  if (indexType.getNumElements() != 1) {
+    return emitOpError() << "expects a single-element index tensor, but got "
+                         << indexType;
+  }
+  // The runtime reads the index back to host to pick a branch, so it must be a
+  // host-resident si32 tensor, as TTNNLayout materializes it. It stays signed
+  // because a negative index has to keep reading as out of range.
+  if (auto layout =
+          mlir::dyn_cast_if_present<TTNNLayoutAttr>(indexType.getEncoding())) {
+    if (layout.getBufferType() != BufferType::SystemMemory) {
+      return emitOpError()
+             << "expects the index tensor in system memory, but got "
+             << indexType;
+    }
+    if (layout.getDataType() != ttcore::DataType::Int32) {
+      return emitOpError() << "expects an si32 index tensor, but got "
+                           << indexType;
+    }
+  }
+
+  // A branch runs at most once, so nothing is carried into it and its block
+  // arguments are exactly the captures.
+  llvm::SmallVector<Type> expectedArgTypes(getCaptures().getTypes());
+
+  for (auto [branchIndex, region] : llvm::enumerate(getBranches())) {
+    Block &block = region.front();
+
+    if (block.getNumArguments() != expectedArgTypes.size()) {
+      return emitOpError() << "expects branch " << branchIndex << " to take "
+                           << expectedArgTypes.size()
+                           << " arguments (the captures), but it takes "
+                           << block.getNumArguments();
+    }
+    for (auto [index, argType, expectedType] :
+         llvm::enumerate(block.getArgumentTypes(), expectedArgTypes)) {
+      if (argType != expectedType) {
+        return emitOpError() << "argument " << index << " of branch "
+                             << branchIndex << " has type " << argType
+                             << " but " << expectedType << " was expected";
+      }
+    }
+
+    YieldOp branchYield = getYieldIfPresent(block);
+    if (!branchYield) {
+      continue;
+    }
+    if (branchYield.getNumOperands() != getNumResults()) {
+      return emitOpError() << "expects branch " << branchIndex
+                           << " to yield one value per result ("
+                           << getNumResults() << "), but it yields "
+                           << branchYield.getNumOperands();
+    }
+    // Comparing types exactly also pins the layouts. All branches publish into
+    // the one set of outputs, whose tensor descriptors are serialized once, so
+    // a branch that produced a different layout would be read back wrong.
+    for (auto [index, yielded, result] :
+         llvm::enumerate(branchYield.getOperands(), getResults())) {
+      if (yielded.getType() != result.getType()) {
+        return emitOpError()
+               << "value " << index << " yielded by branch " << branchIndex
+               << " has type " << yielded.getType() << " but result " << index
+               << " has type " << result.getType();
+      }
+    }
+  }
+
+  return ::mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // PointToPointOp
 //===----------------------------------------------------------------------===//
 

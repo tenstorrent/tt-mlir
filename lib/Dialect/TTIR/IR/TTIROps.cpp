@@ -5371,6 +5371,79 @@ static YieldOp getYieldIfPresent(Block &block) {
 }
 
 //===----------------------------------------------------------------------===//
+// CaseOp
+//===----------------------------------------------------------------------===//
+
+::mlir::tt::ttir::YieldOp
+mlir::tt::ttir::CaseOp::getBranchYield(unsigned index) {
+  return mlir::cast<YieldOp>(getBranchBlock(index).getTerminator());
+}
+
+// CaseOp verification
+::mlir::LogicalResult mlir::tt::ttir::CaseOp::verify() {
+  if (getBranches().empty()) {
+    return emitOpError() << "expects at least one branch";
+  }
+
+  auto indexType = mlir::cast<RankedTensorType>(getIndex().getType());
+  if (!indexType.getElementType().isInteger()) {
+    return emitOpError() << "expects an integer index tensor, but got "
+                         << indexType;
+  }
+  if (indexType.getNumElements() != 1) {
+    return emitOpError() << "expects a single-element index tensor, but got "
+                         << indexType;
+  }
+
+  // A branch runs at most once, so nothing is carried into it and its block
+  // arguments are exactly the captures.
+  llvm::SmallVector<Type> expectedArgTypes(getCaptures().getTypes());
+
+  for (auto [branchIndex, region] : llvm::enumerate(getBranches())) {
+    Block &block = region.front();
+
+    if (block.getNumArguments() != expectedArgTypes.size()) {
+      return emitOpError() << "expects branch " << branchIndex << " to take "
+                           << expectedArgTypes.size()
+                           << " arguments (the captures), but it takes "
+                           << block.getNumArguments();
+    }
+    for (auto [index, argType, expectedType] :
+         llvm::enumerate(block.getArgumentTypes(), expectedArgTypes)) {
+      if (argType != expectedType) {
+        return emitOpError() << "argument " << index << " of branch "
+                             << branchIndex << " has type " << argType
+                             << " but " << expectedType << " was expected";
+      }
+    }
+
+    YieldOp branchYield = getYieldIfPresent(block);
+    if (!branchYield) {
+      continue;
+    }
+    if (branchYield.getNumOperands() != getNumResults()) {
+      return emitOpError() << "expects branch " << branchIndex
+                           << " to yield one value per result ("
+                           << getNumResults() << "), but it yields "
+                           << branchYield.getNumOperands();
+    }
+    // Every branch feeds the one set of results, so they all have to produce
+    // the result types exactly, not merely types compatible with each other.
+    for (auto [index, yielded, result] :
+         llvm::enumerate(branchYield.getOperands(), getResults())) {
+      if (yielded.getType() != result.getType()) {
+        return emitOpError()
+               << "value " << index << " yielded by branch " << branchIndex
+               << " has type " << yielded.getType() << " but result " << index
+               << " has type " << result.getType();
+      }
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // RepeatOp
 //===----------------------------------------------------------------------===//
 
