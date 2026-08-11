@@ -19,6 +19,15 @@ def _as_value(v):
     return v.result if hasattr(v, "result") else v
 
 
+def _idx_list(v):
+    """Normalise an optional index / list-of-indices kwarg to index Values."""
+    if v is None:
+        return []
+    if isinstance(v, (list, tuple)):
+        return [_asindex(x) for x in v]
+    return [_asindex(v)]
+
+
 from ._src.ast import syntax
 from ._src.config import config
 from ._src.errors import D2mJitError
@@ -47,6 +56,7 @@ from ._src.builder import (
     global_semaphore,
     mesh,
     mesh_shard,
+    fabric_config,
 )
 from ._src.rewrite import (
     pattern,
@@ -260,15 +270,62 @@ def remote_load(
 
 
 @syntax("remote_store")
-def remote_store(dst, indices, src):
+def remote_store(
+    dst,
+    indices,
+    src,
+    *,
+    start_device=None,
+    device_mcast_shape=None,
+    semaphore=None,
+    semaphore_indices=None,
+):
+    """Store an entire shard from a local buffer into a remote tensor.
+
+    Optional cross-device parameters drive a multi-device (mesh) store:
+      - `start_device` / `device_mcast_shape`: destination device range
+      - `semaphore` + `semaphore_indices`: fabric semaphore to increment
+    """
     return d2m.remote_store(
         dst.type,
         dst,
         indices,
-        start_device=[],
-        device_mcast_shape=[],
-        semaphore_indices=[],
+        start_device=_idx_list(start_device),
+        device_mcast_shape=_idx_list(device_mcast_shape),
+        semaphore_indices=_idx_list(semaphore_indices),
         local_buffer=src,
+        semaphore=semaphore,
+    )
+
+
+@syntax("semaphore_wait")
+def semaphore_wait(semaphore, value, reset=None):
+    """Block until a (local or global) semaphore reaches `value`."""
+    return d2m.semaphore_wait(semaphore, _asindex(value), reset_value=_asindex(reset))
+
+
+@syntax(
+    "device_synchronize",
+    kwargs_as_attr={
+        "num_receivers": lambda node, visitor: IntegerAttr.get(
+            IntegerType.get_signless(32), visitor._eval_static_int(node)
+        )
+    },
+)
+def device_synchronize(
+    semaphore,
+    start_device=None,
+    mcast_shape=None,
+    num_receivers=0,
+    core_indices=None,
+):
+    """Cross-device synchronization barrier for CCL kernels."""
+    return d2m.device_synchronize(
+        semaphore,
+        _idx_list(start_device),
+        _idx_list(mcast_shape),
+        num_receivers,
+        _idx_list(core_indices),
     )
 
 
@@ -280,6 +337,17 @@ def remote_store(dst, indices, src):
 )
 def core_index(index):
     return d2m.core_index(index)
+
+
+@syntax(
+    "mesh_position",
+    args_as_attr=[
+        lambda node: IntegerAttr.get(IntegerType.get_signless(64), node.value)
+    ],
+)
+def mesh_position(dim):
+    """The current device's position in the mesh along `dim` (0=y, 1=x)."""
+    return d2m.mesh_position(dim)
 
 
 # --- Block-level elementwise free functions ---------------------------------

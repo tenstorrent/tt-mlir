@@ -269,6 +269,12 @@ class _Builder:
         self._mesh_shape = None
         self._mesh_topology = None
         self._mesh_name = None
+        # Set when a kernel is invoked with a `fabric=` config (a CCL kernel).
+        # `_execute` must then enable the device fabric (set_fabric_config)
+        # before opening the mesh device, or the cross-device fabric ops
+        # (device_synchronize / fabric remote_store / fabric semaphore incs)
+        # silently fail at runtime.
+        self._fabric_used = False
         # Reset the MLIR-free mesh mirror the simulator reads (a fresh graph
         # declares its own mesh).
         _clear_current_mesh()
@@ -543,6 +549,7 @@ class _SpatialRegionScope:
         block_factors,
         indexing_maps,
         iterator_types,
+        fabric=None,
         kernel_io_in_dram=None,
     ):
         """Emit one nested generic for this spatial region."""
@@ -577,6 +584,7 @@ class _SpatialRegionScope:
             block_factors=block_factors,
             indexing_maps=indexing_maps,
             iterator_types=iterator_types,
+            fabric=fabric,
             kernel_io_in_dram=kernel_io_in_dram,
             grid_offset=self.offset,
         )
@@ -792,9 +800,7 @@ def full(layout: Layout, value) -> LazyTensor:
         iterator_types = ArrayAttr.get([parallel_iter] * physical_rank)
         # Unified, not Compute: remote_store can only live in a
         # datamovement or unified region.
-        threads = ArrayAttr.get(
-            [d2m.ir.ThreadAttr.get(b.ctx, str(d2m.ThreadType.Unified))]
-        )
+        threads = ArrayAttr.get([d2m.ir.ThreadAttr.get(b.ctx, "unified")])
         grid_attr = ttcore.ir.GridAttr.get(b.ctx, list(layout.grid_shape))
 
         generic = d2m.GenericOp(
@@ -1616,14 +1622,27 @@ def _execute(b: _Builder, lts):
             )
         )
 
-    device = runtime.open_mesh_device(device_options)
-    submitted = runtime.submit(device, fbb, program_index, rt_inputs)
-    runtime.wait(submitted)
-    for i, rt_out in enumerate(submitted):
-        host_view = runtime.to_host(rt_out, untilize=True)[0]
-        runtime.memcpy(rt_outputs[i], host_view)
-        runtime.deallocate_tensor(rt_out, force=True)
-    runtime.close_mesh_device(device)
+    # CCL kernels need the device fabric enabled *before* the mesh is opened
+    # (matching the golden harness). Without it the program's fabric ops
+    # (device_synchronize / fabric remote_store / fabric semaphore incs)
+    # silently fail at runtime.
+    fabric_used = getattr(b, "_fabric_used", False)
+    if fabric_used:
+        runtime.set_fabric_config(runtime.FabricConfig.FABRIC_1D_RING)
+    try:
+        device = runtime.open_mesh_device(device_options)
+        try:
+            submitted = runtime.submit(device, fbb, program_index, rt_inputs)
+            runtime.wait(submitted)
+            for i, rt_out in enumerate(submitted):
+                host_view = runtime.to_host(rt_out, untilize=True)[0]
+                runtime.memcpy(rt_outputs[i], host_view)
+                runtime.deallocate_tensor(rt_out, force=True)
+        finally:
+            runtime.close_mesh_device(device)
+    finally:
+        if fabric_used:
+            runtime.set_fabric_config(runtime.FabricConfig.DISABLED)
     return out_torch
 
 
@@ -1824,11 +1843,19 @@ def _emit_kernel_generic(
     block_factors,
     indexing_maps,
     iterator_types,
+    fabric=None,
     kernel_io_in_dram=None,
     grid_offset=(0, 0),
 ):
     """Append a d2m.GenericOp to the open host func that invokes `kernel`."""
     b = _get_scope()
+
+    # A `fabric=` kernel needs the device fabric enabled at open time; flag it so
+    # `_execute` calls set_fabric_config before open_mesh_device.
+    if fabric is not None:
+        lazy_builder = b.parent if isinstance(b, _SpatialRegionScope) else b
+        if isinstance(lazy_builder, _Builder):
+            lazy_builder._fabric_used = True
 
     def _call_error(msg, hint=None, cause=None):
         # Pin call-site errors to the kernel's `def` line. The user's actual
@@ -1866,11 +1893,14 @@ def _emit_kernel_generic(
                 )
             lazy_args.append(a._resolve())
         elif isinstance(a, GlobalSemaphore):
-            if not isinstance(b, _Builder):
+            # Allowed on the lazy builder and inside d2m.spatial (semaphores are
+            # created on the parent builder and consumed by a nested generic).
+            # Pattern-rewrite scopes still cannot own host-side semaphore state.
+            if not isinstance(b, (_Builder, _SpatialRegionScope)):
                 raise _call_error(
                     "global semaphore arguments require the top-level lazy "
-                    "builder and are not supported inside a pattern rewrite "
-                    "or d2m.spatial",
+                    "builder (or a d2m.spatial region) and are not supported "
+                    "inside a pattern rewrite",
                     cause=TypeError(),
                 )
             if id(a) in seen_semaphores:
@@ -2016,6 +2046,7 @@ def _emit_kernel_generic(
             iter_attr,
             threads,
             1,  # num_regions
+            fabricConnectionConfig=fabric,
         )
 
         region = generic.regions[0]
@@ -2075,6 +2106,7 @@ class CompiledKernel:
         block_factors=None,
         indexing_maps=None,
         iterator_types=None,
+        fabric=None,
         kernel_io_in_dram=None,
     ):
         b = _get_scope()
@@ -2087,6 +2119,7 @@ class CompiledKernel:
                 block_factors=block_factors,
                 indexing_maps=indexing_maps,
                 iterator_types=iterator_types,
+                fabric=fabric,
                 kernel_io_in_dram=kernel_io_in_dram,
             )
         else:
@@ -2098,8 +2131,45 @@ class CompiledKernel:
                 block_factors=block_factors,
                 indexing_maps=indexing_maps,
                 iterator_types=iterator_types,
+                fabric=fabric,
                 kernel_io_in_dram=kernel_io_in_dram,
             )
+
+
+def fabric_config(
+    cluster_axis,
+    topology="ring",
+    num_links=1,
+    noc="noc0",
+    routing="unidir_ring_torus",
+    router_cores=None,
+):
+    """Build a `#ttcore.fabric_connection_config` attribute for a CCL kernel.
+
+    Pass the result as the `fabric=` argument of a `@d2m.kernel` call; it
+    configures the cross-device fabric routing for the GenericOp (required for
+    all_gather and other collectives). Defaults match the all_gather lowering
+    (`noc0`, ring topology, unidirectional ring/torus routing).
+
+    `router_cores` optionally restricts the fabric to a subset of the generic's
+    grid: a list of `(y, x)` grid coordinates, one per `(link, direction)` slot
+    (slot `i` -> routing plane `i // cores_per_link`, direction
+    `i % cores_per_link`; `cores_per_link` is 1 for `bidir_line_mesh`, 2 for
+    `unidir_ring_torus`). Omitted == the whole grid (legacy behavior). The kernel
+    queries membership via `is_router_core()` / `router_direction()`. See
+    tools/d2m-jit/fabric_router_cores_design.md."""
+    b = _get_scope()
+    routers = ""
+    if router_cores:
+        flat = ", ".join(str(int(v)) for yx in router_cores for v in yx)
+        routers = f", router_cores = [{flat}]"
+    with b.ctx, b.loc:
+        return Attribute.parse(
+            f"#ttcore.fabric_connection_config<noc_index = {noc}, "
+            f"topology = {topology}, cluster_axis = {int(cluster_axis)}, "
+            f"routing_mode = {routing}, num_links = {int(num_links)}{routers}>",
+            b.ctx,
+        )
 
 
 def kernel(fn):
