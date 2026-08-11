@@ -32,6 +32,16 @@ module attributes {} {
     return %0 : tensor<3x4xbf16>
   }
 
+  // Float32 table lookups also bypass ttir.embedding, whose bf16 weight
+  // workaround would round the gathered values.
+  // CHECK-LABEL: func.func @gather_f32_select_rows
+  func.func @gather_f32_select_rows(%operand: tensor<6x4xf32>, %start_indices: tensor<3x1xi32>) -> tensor<3x4xf32> {
+    // CHECK-NOT: "ttir.embedding"
+    // CHECK: "ttir.gather"
+    %0 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [1], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 1>, indices_are_sorted = false, slice_sizes = array<i64: 1, 4>}> : (tensor<6x4xf32>, tensor<3x1xi32>) -> tensor<3x4xf32>
+    return %0 : tensor<3x4xf32>
+  }
+
   // 2D integer operand, single indexed dim with a partial (non-full, non-1)
   // slice, so start indices are expanded to gather the implied consecutive
   // rows (needsExpansion == true). Must stay on ttir.gather to keep integer

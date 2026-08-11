@@ -4985,21 +4985,21 @@ class StableHLOGatherToEmbeddingPattern
    */
   LogicalResult checkBasicLegality(mlir::stablehlo::GatherOp srcOp,
                                    PatternRewriter &rewriter) const {
-    // Shape/slice constraints shared with the integer-gather lowering.
+    // Shape/slice constraints shared by the gather lowerings.
     if (failed(checkGatherShapeLegality(srcOp, rewriter))) {
       return failure();
     }
 
-    // ttir.embedding casts its weight to bf16, which represents integers
-    // exactly only in [-256, 256], so wide integers round. Handle single-index
-    // integer gathers to StableHLOGatherIntToGatherPattern (ttir.gather keeps
-    // their precision); every other case (multi-dim integer indexing,
-    // index-typed, and float operands) stays on the embedding path unchanged.
+    // ttir.embedding casts its weight to bf16. Preserve wide integer and
+    // float32 operand precision by routing single-index gathers through
+    // StableHLOGatherToGatherPattern (ttir.gather); bf16 and other float
+    // operands keep the embedding path.
     auto operandElemType = srcOp.getOperand().getType().getElementType();
-    if (mlir::isa<mlir::IntegerType>(operandElemType) &&
+    if ((mlir::isa<mlir::IntegerType>(operandElemType) ||
+         mlir::isa<mlir::Float32Type>(operandElemType)) &&
         numFlattenedIndexingDims(srcOp) <= 1) {
       return rewriter.notifyMatchFailure(
-          srcOp, "single-index integer gather lowered via ttir.gather");
+          srcOp, "single-index gather lowered via ttir.gather");
     }
 
     return success();
@@ -5045,8 +5045,8 @@ public:
     }
 
     // Normalize the gather into the shared 2D (weights, indices) operands and
-    // lower to ttir.embedding. Integer single-index gathers are rejected by
-    // checkBasicLegality and handled by StableHLOGatherIntToGatherPattern.
+    // lower to ttir.embedding. Single-index integer and float32 gathers are
+    // handled by StableHLOGatherToGatherPattern.
     GatherOperands ops = buildGatherOperands(srcOp, adaptor, rewriter);
 
     auto embeddingOutputType = mlir::RankedTensorType::get(
@@ -5066,7 +5066,7 @@ public:
 
 public:
   // Result of buildGatherOperands: the 2D operands the embedding and
-  // integer-gather lowerings share, plus the metadata needed to reshape the
+  // direct-gather lowerings share, plus the metadata needed to reshape the
   // result back to the gather's output layout.
   struct GatherOperands {
     // Operand permuted so indexed dims lead, then flattened to 2D [V, D].
@@ -5159,7 +5159,7 @@ public:
 
   // Shape/slice constraints required to normalize a gather into the 2D
   // (weights, indices) form. Element-type agnostic, so it is shared by the
-  // embedding and integer-gather patterns.
+  // embedding and direct-gather patterns.
   static LogicalResult checkGatherShapeLegality(mlir::stablehlo::GatherOp srcOp,
                                                 PatternRewriter &rewriter) {
     auto dimensionNumbers = srcOp.getDimensionNumbers();
@@ -5224,7 +5224,7 @@ public:
   }
 
   // Normalizes a (shape-legal) StableHLO gather into the 2D weights/indices
-  // operands shared by the embedding and integer-gather lowerings. Requires
+  // operands shared by the embedding and direct-gather lowerings. Requires
   // checkGatherShapeLegality to have already succeeded.
   static GatherOperands
   buildGatherOperands(mlir::stablehlo::GatherOp srcOp,
@@ -5675,23 +5675,25 @@ public:
   }
 };
 
-// Single-index integer gathers can't use ttir.embedding: it casts the weight
-// to bf16 and rounds wide integers. Lowering to ttir.gather keeps integer
-// precision. Reuses StableHLOGatherToEmbeddingPattern's geometric
+// Single-index integer and float32 gathers can't use ttir.embedding: it casts
+// the weight to bf16 and loses operand precision. Lowering to ttir.gather keeps
+// the source dtype. Reuses StableHLOGatherToEmbeddingPattern's geometric
 // normalization (buildGatherOperands), then broadcasts the indices to the
 // weight's trailing dim so ttir.gather sees equal-rank operands (torch.gather
 // semantics).
-class StableHLOGatherIntToGatherPattern
+class StableHLOGatherToGatherPattern
     : public OpConversionPattern<mlir::stablehlo::GatherOp> {
   using OpConversionPattern<mlir::stablehlo::GatherOp>::OpConversionPattern;
 
-  // Matches only the integer single-index gathers that
+  // Matches single-index integer and float32 gathers that
   // StableHLOGatherToEmbeddingPattern deliberately turns away.
   static LogicalResult checkLegality(mlir::stablehlo::GatherOp srcOp,
                                      PatternRewriter &rewriter) {
-    if (!mlir::isa<mlir::IntegerType>(
-            srcOp.getOperand().getType().getElementType())) {
-      return rewriter.notifyMatchFailure(srcOp, "non-integer operand");
+    auto operandElemType = srcOp.getOperand().getType().getElementType();
+    if (!mlir::isa<mlir::IntegerType>(operandElemType) &&
+        !mlir::isa<mlir::Float32Type>(operandElemType)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "operand type is not integer or float32");
     }
     if (failed(StableHLOGatherToEmbeddingPattern::checkGatherShapeLegality(
             srcOp, rewriter))) {
@@ -5700,7 +5702,7 @@ class StableHLOGatherIntToGatherPattern
     if (StableHLOGatherToEmbeddingPattern::numFlattenedIndexingDims(srcOp) >
         1) {
       return rewriter.notifyMatchFailure(
-          srcOp, "multi-dim integer indexing uses the embedding path");
+          srcOp, "multi-dim gather uses the embedding path");
     }
     return success();
   }
@@ -5731,7 +5733,7 @@ public:
     auto indicesFlat = ttir::utils::createReshapeOp(
         rewriter,
         ttmlir::utils::appendLocationSuffix(srcOp->getLoc(),
-                                            "_intGatherIndicesFlat"),
+                                            "_gatherIndicesFlat"),
         startIndices, indicesFlatType.getShape());
 
     Value indicesBcast = indicesFlat;
@@ -5740,7 +5742,7 @@ public:
           {B, D}, startIndicesElemType, startIndicesType.getEncoding());
       indicesBcast = rewriter.create<ttir::BroadcastOp>(
           ttmlir::utils::appendLocationSuffix(srcOp->getLoc(),
-                                              "_intGatherIndicesBcast"),
+                                              "_gatherIndicesBcast"),
           indicesBcastType, indicesFlat, rewriter.getDenseI64ArrayAttr({1, D}));
     }
 
@@ -5748,7 +5750,7 @@ public:
         {B, D}, reshapedInput.getType().getElementType(),
         reshapedInput.getType().getEncoding());
     Value gather = rewriter.create<ttir::GatherOp>(
-        ttmlir::utils::appendLocationSuffix(srcOp->getLoc(), "_intGather"),
+        ttmlir::utils::appendLocationSuffix(srcOp->getLoc(), "_gather"),
         gatherOutType, reshapedInput, indicesBcast,
         rewriter.getI32IntegerAttr(0));
 
@@ -5757,7 +5759,7 @@ public:
     auto reshaped = ttir::utils::createReshapeOp(
         rewriter,
         ttmlir::utils::appendLocationSuffix(srcOp->getLoc(),
-                                            "_intGatherReshape"),
+                                            "_gatherReshape"),
         mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(gather),
         ops.newOutputShape);
 
@@ -10638,7 +10640,7 @@ static void addGatherOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOGatherToGatherDimPattern>(typeConverter, ctx);
   patterns.add<StableHLOGatherToSliceRepeatConcatPattern>(typeConverter, ctx);
   patterns.add<StableHLOGatherToEmbeddingPattern>(typeConverter, ctx);
-  patterns.add<StableHLOGatherIntToGatherPattern>(typeConverter, ctx);
+  patterns.add<StableHLOGatherToGatherPattern>(typeConverter, ctx);
   patterns.add<StableHLOGatherMultiPartialFlattenPattern>(typeConverter, ctx);
 }
 

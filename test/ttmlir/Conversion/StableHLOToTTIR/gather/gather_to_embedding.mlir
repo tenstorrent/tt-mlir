@@ -30,20 +30,16 @@ module attributes {} {
 
   // CHECK-LABEL: func.func @gather_3
   func.func @gather_3(%operand: tensor<732x12xf32>, %start_indices: tensor<38809x1xi32>) -> tensor<38809x12xf32> {
-    // CHECK: "ttir.embedding"
-    // CHECK-SAME: (tensor<38809x1xi32>, tensor<732x12xf32>) -> tensor<38809x1x12xf32>
-    // CHECK: "ttir.reshape"
+    // CHECK: "ttir.gather"
+    // CHECK-SAME: (tensor<732x12xf32>, tensor<38809x12xi32>) -> tensor<38809x12xf32>
     %0 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [1], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 1>, indices_are_sorted = false, slice_sizes = array<i64: 1, 12>}> : (tensor<732x12xf32>, tensor<38809x1xi32>) -> tensor<38809x12xf32>
     return %0 : tensor<38809x12xf32>
   }
 
   // CHECK-LABEL: func.func @gather_4
   func.func @gather_4(%operand: tensor<2048x1x200xf32>, %start_indices: tensor<1x2x1xi32>) -> tensor<1x2x1x200xf32> {
-    // CHECK: "ttir.reshape"
-    // CHECK: "ttir.reshape"
-    // CHECK: "ttir.embedding"
-    // CHECK-SAME: (tensor<1x2xi32>, tensor<2048x200xf32>) -> tensor<1x2x200xf32>
-    // CHECK: "ttir.reshape"
+    // CHECK: "ttir.gather"
+    // CHECK-SAME: (tensor<2048x200xf32>, tensor<2x200xi32>) -> tensor<2x200xf32>
     %0 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [2, 3], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 2>, indices_are_sorted = false, slice_sizes = array<i64: 1, 1, 200>}> : (tensor<2048x1x200xf32>, tensor<1x2x1xi32>) -> tensor<1x2x1x200xf32>
     return %0 : tensor<1x2x1x200xf32>
   }
@@ -176,11 +172,8 @@ module attributes {} {
   // CHECK-LABEL: func.func @gather_15
   func.func @gather_15(%operand: tensor<1x2x3x5xf32>, %start_indices: tensor<4x1xi32>) -> (tensor<1x2x3x4xf32> {jax.result_info = "result"}) {
     // CHECK: "ttir.permute"
-    // CHECK: "ttir.reshape"
-    // CHECK: "ttir.embedding"
-    // CHECK-SAME: (tensor<4x1xi32>, tensor<5x6xf32>) -> tensor<4x1x6xf32>
-    // CHECK: "ttir.reshape"
-    // CHECK: "ttir.permute"
+    // CHECK: "ttir.gather"
+    // CHECK-SAME: (tensor<5x6xf32>, tensor<4x6xi32>) -> tensor<4x6xf32>
     %0 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [0, 1, 2], collapsed_slice_dims = [3], start_index_map = [3], index_vector_dim = 1>, indices_are_sorted = false, slice_sizes = array<i64: 1, 2, 3, 1>}> : (tensor<1x2x3x5xf32>, tensor<4x1xi32>) -> tensor<1x2x3x4xf32>
     return %0 : tensor<1x2x3x4xf32>
   }
