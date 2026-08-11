@@ -14,13 +14,12 @@ namespace tt::runtime::ttnn::operations::control_flow {
 namespace {
 
 // Reads the index back to host, the one device-to-host synchronization this op
-// pays, and resolves it to a branch. The compiler guarantees the index is
-// already a host-resident single-element si32 tensor (see
-// TTNNLayoutCaseOpRewriter), so nothing is moved here.
+// pays, and resolves it to a branch. The schema requires a host-resident
+// single-element si32 index, so nothing is moved here.
 //
-// Following StableHLO, an index outside [0, numBranches) selects the last
-// branch. Reading it signed is what makes a negative index land there rather
-// than wrapping around to a valid one.
+// An index outside [0, numBranches) selects the last branch. Reading it signed
+// is what makes a negative index land there rather than wrapping around to a
+// valid one.
 uint32_t selectBranch(const ::tt::target::ttnn::CaseOp *op,
                       ProgramContext &context, uint32_t numBranches) {
   const ::ttnn::Tensor &indexTensor =

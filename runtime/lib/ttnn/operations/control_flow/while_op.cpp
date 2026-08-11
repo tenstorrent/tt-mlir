@@ -50,8 +50,8 @@ concatenate(const std::vector<::tt::runtime::Tensor> &carried,
 
 // Evaluates the condition program and reads its result back to host, the
 // device-to-host synchronization a data-dependent loop pays per iteration. The
-// compiler guarantees the condition is already a host-resident single-element
-// uint32 tensor (see TTNNLayoutWhileOpRewriter), so nothing is moved here.
+// schema requires a host-resident single-element uint32 condition, so nothing
+// is moved here.
 bool evaluateCondition(
     const ::tt::target::ttnn::WhileOp *op, ProgramContext &context,
     const std::vector<::tt::runtime::Tensor> &carried,
