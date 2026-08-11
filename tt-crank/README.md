@@ -65,6 +65,28 @@ Override the source tree of `tt-mlir` without editing the submodule:
 cmake --preset debug -DTTMLIR_SOURCE_DIR_OVERRIDE=/path/to/sibling/tt-mlir
 ```
 
+## Building a wheel
+
+```sh
+uv build --wheel                                       # → dist/tt_kurbla-0.1.0-cp312-cp312-linux_x86_64.whl
+pip wheel . --no-build-isolation --no-deps -w dist/     # same, via pip
+```
+
+The wheel bundles the native stack but not the SFPI toolchain, which is installed once per machine instead:
+
+```sh
+tt-kurbla-install-sfpi        # provisions /opt/tenstorrent/sfpi; prompts for sudo
+```
+
+### Installing the wheel
+
+```sh
+uv pip install dist/tt_kurbla-*.whl
+pip install dist/tt_kurbla-*.whl      # same, via pip
+
+tt-kurbla-install-sfpi                # then, once per machine (prompts for sudo)
+```
+
 ## Python tests
 
 The Python test suite lives in `tests/python/` and runs with pytest. The build must exist first (`./scripts/build`), as pytest imports the compiled `tt_kurbla` extension.

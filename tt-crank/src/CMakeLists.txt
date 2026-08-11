@@ -106,6 +106,22 @@ if(TT_KURBLA_TRACY_ZONES)
     target_link_libraries(tt_kurbla PUBLIC tt_kurbla::tracy)
 endif()
 
+# Wheel: libtt_kurbla.so lands in tt_kurbla/lib alongside its deps (tt-mlir's libs,
+# libtt_kurbla_common.so), so $ORIGIN resolves everything. RPATH must be decided at
+# configure time; what ships is decided by the component.
+if(TT_KURBLA_WHEEL)
+    set_target_properties(tt_kurbla PROPERTIES
+        INSTALL_RPATH "$ORIGIN"
+        BUILD_WITH_INSTALL_RPATH TRUE)
+endif()
+
+install(TARGETS tt_kurbla
+    LIBRARY
+        DESTINATION tt_kurbla/lib
+        COMPONENT wheel_payload
+        EXCLUDE_FROM_ALL
+)
+
 if(TT_KURBLA_BUILD_PYTHON_EXT)
     add_subdirectory(torch)
 endif()

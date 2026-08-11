@@ -3,6 +3,9 @@
 /build_*
 /out/
 
+# Wheels built by `uv build`
+/dist/
+
 /.cpmcache/
 
 # Python venv (dev tooling — pre-commit, etc.)

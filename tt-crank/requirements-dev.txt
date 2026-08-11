@@ -1,34 +1,19 @@
---extra-index-url https://download.pytorch.org/whl/cpu
+# Dev-only tooling. Runtime deps live in requirements.txt, which also feeds the
+# wheel's [project.dependencies]; `source venv/activate` installs both files.
 pre-commit>=4.0,<5
-torch==2.10.0+cpu
-torchvision==0.25.0+cpu
+pytest
+# Pinned by direct URL to the CPU build, for the same reason as torch in
+# requirements.txt. Bump version + cp tag together with torch.
+torchvision@https://download.pytorch.org/whl/cpu/torchvision-0.25.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl
+
 # Pinned: transformers 5.13.0 changed StaticCache in-place update semantics,
 # breaking the KV-cache writeback in the LLM decode benchmarks (_copy_from
 # shape mismatch). Bump deliberately and re-validate the benchmarks.
 transformers==5.12.1
 
-# Build deps for `uv pip install -e .`. Live in the venv (not just
-# build-system.requires) because we disable PEP 517 build isolation in
-# pyproject.toml — torch is too heavy to re-download into a sandboxed build env.
-scikit-build-core>=0.10
+# Build deps. Needed in the venv, not just build-system.requires, because
+# pyproject disables PEP 517 build isolation.
+scikit-build-core>=1.0
+dynamic-metadata>=0.5
 nanobind>=2.2
 uv
-
-pytest
-
-# Runtime dependencies of the re-exported tt-metal Python modules
-# (python/tracy/_original/* and python/ttnn/_original/*). Versions match
-# tt-metal's tt_metal/python_env/requirements-dev.txt to avoid resolver
-# pinning fights.
-loguru==0.6.0
-click==8.1.7
-pandas==2.3.3
-seaborn==0.13.2
-pyyaml>=5.4
-numpy>=1.24.4,<2
-# ttnn imports these at top level — ttnn.graph -> graphviz,
-# ttnn.database / decorators -> networkx, type validation -> pydantic.
-graphviz
-networkx==3.1
-pydantic==2.9.2
-websockets==16.0
