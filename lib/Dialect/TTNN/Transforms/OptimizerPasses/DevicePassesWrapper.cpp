@@ -14,6 +14,8 @@
 #include "mlir/Pass/PassManager.h"
 #include "llvm/ADT/ScopeExit.h"
 
+#include <chrono>
+#include <cstdio>
 #include <cstdlib>
 
 namespace mlir::tt::ttnn {
@@ -46,6 +48,9 @@ public:
   }
 
   void runOnOperation() override {
+    auto _tTotal = std::chrono::steady_clock::now();
+    fprintf(stderr, "[dev-wrap-timing] DevicePassesWrapper START\n");
+
     // Disable tt-metal backtrace generation.
     setenv("TT_METAL_DISABLE_BACKTRACE", "1", 1);
 
@@ -55,7 +60,13 @@ public:
     } else {
       op_model::SingletonDeviceContext::setSystemDesc(
           ttcore::getCurrentScopeSystemDesc(getOperation()));
+      fprintf(stderr, "[dev-wrap-timing]   openMockDevice() START\n");
+      auto _tMock = std::chrono::steady_clock::now();
       op_model::SingletonDeviceContext::getInstance().openMockDevice();
+      fprintf(stderr, "[dev-wrap-timing]   openMockDevice() done  %ld ms\n",
+              (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                  std::chrono::steady_clock::now() - _tMock)
+                  .count());
     }
 
     // Set tensorL1UsageCap as a module attribute so it's accessible to nested
@@ -90,14 +101,28 @@ public:
         });
 
     // Run the nested pipeline.
+    fprintf(stderr, "[dev-wrap-timing]   runPipeline(nestedPm) START\n");
+    auto _tPipe = std::chrono::steady_clock::now();
     auto pipelineResult = runPipeline(nestedPm, getOperation());
+    long _pipMs =
+        (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - _tPipe)
+            .count();
     if (failed(pipelineResult) || nestedPassEmittedError) {
+      fprintf(stderr, "[dev-wrap-timing]   runPipeline(nestedPm) done  %ld ms  FAIL\n",
+              _pipMs);
       signalPassFailure();
       return;
     }
+    fprintf(stderr, "[dev-wrap-timing]   runPipeline(nestedPm) done  %ld ms  OK\n",
+            _pipMs);
 
     // Clean up the attribute after the nested passes complete.
     op->removeAttr(utils::g_TensorL1UsageCapAttrName);
+    fprintf(stderr, "[dev-wrap-timing] DevicePassesWrapper TOTAL  %ld ms\n",
+            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - _tTotal)
+                .count());
   }
 
 private:

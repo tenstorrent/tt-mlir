@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <chrono>
+#include <cstdio>
 #include <type_traits>
 
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -11,6 +13,8 @@
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/OpModel/TTNN/TTNNOutputTensorInference.h"
 #include "ttmlir/Utils.h"
+
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNPREPARECONV2DWEIGHTSANDBIAS
@@ -40,20 +44,62 @@ public:
     // but for standalone pass usage, the guard opens/closes it.
     op_model::ScopedSingletonDeviceGuard deviceGuard(getOperation());
 
+    auto _tTotal = std::chrono::steady_clock::now();
+    fprintf(stderr, "[prep2d-timing] TTNNPrepareConv2dWeightsAndBias START\n");
+
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
 
+    size_t _conv2dIdx = 0;
     moduleOp.walk([&](ttnn::Conv2dOp convOp) {
+      std::string _locStr;
+      {
+        llvm::raw_string_ostream _ss(_locStr);
+        convOp.getLoc().print(_ss);
+      }
+      fprintf(stderr, "[prep2d-timing]   conv2d[%zu] loc=%s\n", _conv2dIdx,
+              _locStr.c_str());
+      auto _t = std::chrono::steady_clock::now();
       processConvOp<ttnn::Conv2dOp, ttnn::PrepareConv2dWeightsOp,
                     ttnn::PrepareConv2dBiasOp>(convOp, moduleOp, rewriter);
+      fprintf(stderr, "[prep2d-timing]   conv2d[%zu] done  %ld ms\n",
+              _conv2dIdx,
+              (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                  std::chrono::steady_clock::now() - _t)
+                  .count());
+      ++_conv2dIdx;
     });
 
+    size_t _convT2dIdx = 0;
     moduleOp.walk([&](ttnn::ConvTranspose2dOp convOp) {
+      std::string _locStr;
+      {
+        llvm::raw_string_ostream _ss(_locStr);
+        convOp.getLoc().print(_ss);
+      }
+      fprintf(stderr, "[prep2d-timing]   conv_transpose2d[%zu] loc=%s\n",
+              _convT2dIdx, _locStr.c_str());
+      auto _t = std::chrono::steady_clock::now();
       processConvOp<ttnn::ConvTranspose2dOp,
                     ttnn::PrepareConvTranspose2dWeightsOp,
                     ttnn::PrepareConvTranspose2dBiasOp>(convOp, moduleOp,
                                                         rewriter);
+      fprintf(stderr,
+              "[prep2d-timing]   conv_transpose2d[%zu] done  %ld ms\n",
+              _convT2dIdx,
+              (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                  std::chrono::steady_clock::now() - _t)
+                  .count());
+      ++_convT2dIdx;
     });
+
+    fprintf(stderr,
+            "[prep2d-timing] TTNNPrepareConv2dWeightsAndBias TOTAL  %ld ms"
+            "  conv2d=%zu  conv_transpose2d=%zu\n",
+            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - _tTotal)
+                .count(),
+            _conv2dIdx, _convT2dIdx);
 #endif // TTMLIR_ENABLE_OPMODEL
   }
 

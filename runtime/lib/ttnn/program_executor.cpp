@@ -135,6 +135,7 @@
 
 #include "tracy/Tracy.hpp"
 
+#include <cstdio>
 #include <cstring>
 
 namespace tt::runtime::ttnn {
@@ -224,6 +225,8 @@ void ProgramExecutor::execute() {
             "Starting execution of program: ", program->name()->c_str());
   runProgramCallback(debug::Hooks::get().getpreProgramCallback(),
                      executableHandle, context.get());
+  size_t opIdx = 0;
+  bool opTraceCapturing = false;
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
@@ -233,6 +236,15 @@ void ProgramExecutor::execute() {
     perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
     perf::Env::get().tracyLogProgramMetadata(
         perf::Env::get().tracyProgramMetadata);
+    if (op->type_type() ==
+        ::tt::target::ttnn::OpType::BeginTraceCaptureOp) {
+      opTraceCapturing = true;
+    }
+    fprintf(stderr, "[op-trace] >> [%zu] %s trace=%s | %s\n",
+            opIdx,
+            ::tt::target::ttnn::EnumNameOpType(op->type_type()),
+            opTraceCapturing ? "ON" : "OFF",
+            op->debug_info()->c_str());
     runOpCallback(debug::Hooks::get().getPreOperatorCallback(),
                   executableHandle, op, context.get());
     runOperation(op);
@@ -243,6 +255,14 @@ void ProgramExecutor::execute() {
     runOpCallback(debug::Hooks::get().getPostOperatorCallback(),
                   executableHandle, op, context.get());
     readProfilerDataIfNeeded();
+    fprintf(stderr, "[op-trace] << [%zu] %s done\n",
+            opIdx,
+            ::tt::target::ttnn::EnumNameOpType(op->type_type()));
+    if (op->type_type() ==
+        ::tt::target::ttnn::OpType::EndTraceCaptureOp) {
+      opTraceCapturing = false;
+    }
+    ++opIdx;
   }
 
   runProgramCallback(debug::Hooks::get().getpostProgramCallback(),

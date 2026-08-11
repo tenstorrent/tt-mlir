@@ -36,6 +36,11 @@
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
+
+#include <chrono>
+#include <cstdio>
+#include <string>
 
 namespace mlir::tt::ttnn {
 
@@ -80,6 +85,9 @@ public:
         "TTNNGreedyMemoryLayoutPropagation pass requires OpModel support to be "
         "enabled.");
 #else
+    auto _tMLA = std::chrono::steady_clock::now();
+    fprintf(stderr, "[mla-timing] GreedyMemoryLayoutPropagation START\n");
+
     ModuleOp moduleOp = getOperation();
     op_model::ScopedSingletonDeviceGuard deviceGuard(moduleOp);
 
@@ -94,11 +102,18 @@ public:
 
     // Step 1: Run ScalarDataTypeAnalysis to collect all scalar types used in
     // the graph.
+    fprintf(stderr, "[mla-timing] Step1: ScalarDataTypeAnalysis ...\n");
+    auto _tStep1 = std::chrono::steady_clock::now();
     ScalarDataTypeAnalysis scalarDataTypeAnalysis =
         getAnalysis<ScalarDataTypeAnalysis>();
     scalarDataTypeAnalysis.init(
         ScalarDataTypeAnalysisInput(&overrideOutputLayout));
     auto scalarTypes = scalarDataTypeAnalysis.getResult();
+    fprintf(stderr, "[mla-timing] Step1 done in %ld ms  (%zu scalar types)\n",
+            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - _tStep1)
+                .count(),
+            scalarTypes.size());
 
     TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                  "ScalarDataTypeAnalysis found {0} unique scalar types.",
@@ -106,12 +121,21 @@ public:
 
     // Step 2: Run LegalTensorLayoutAnalysis to generate layouts for all tensor
     // types.
+    fprintf(stderr, "[mla-timing] Step2: LegalTensorLayoutAnalysis ...\n");
+    auto _tStep2 = std::chrono::steady_clock::now();
     LegalTensorLayoutAnalysis legalTensorLayoutAnalysis =
         getAnalysis<LegalTensorLayoutAnalysis>();
     legalTensorLayoutAnalysis.init(LegalTensorLayoutAnalysisInput(
         deviceGrid, &scalarTypes, rowMajorEnabled));
     TensorTypeLayoutsMap tensorTypePossibleLayouts =
         legalTensorLayoutAnalysis.getResult();
+    size_t _numTensorTypes = tensorTypePossibleLayouts.size();
+    fprintf(stderr,
+            "[mla-timing] Step2 done in %ld ms  (%zu tensor types)\n",
+            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - _tStep2)
+                .count(),
+            _numTensorTypes);
 
     if (!enableL1ShardingLayouts) {
       clearShardedLayouts(tensorTypePossibleLayouts);
@@ -122,6 +146,10 @@ public:
     }
 
     // Step 3: Walk operations and run per-op analyses.
+    fprintf(stderr,
+            "[mla-timing] Step3: per-op LegalOpLayout/Config analysis ...\n");
+    auto _tStep3 = std::chrono::steady_clock::now();
+    size_t _step3OpIdx = 0;
     moduleOp->walk([&](func::FuncOp func) {
       if (!ttmlir::utils::isForwardDeviceFunc(func)) {
         return;
@@ -151,6 +179,25 @@ public:
         RankedTensorType tensorType =
             mlir::cast<RankedTensorType>(op->getResult(0).getType());
 
+        // Build shape and loc strings for timing print
+        std::string _shapeStr = "[";
+        for (size_t _i = 0; _i < tensorType.getShape().size(); ++_i) {
+          if (_i > 0) _shapeStr += ",";
+          _shapeStr += std::to_string(tensorType.getShape()[_i]);
+        }
+        _shapeStr += "]";
+        std::string _locStr;
+        {
+          llvm::raw_string_ostream _ss(_locStr);
+          op->getLoc().print(_ss);
+        }
+        fprintf(stderr,
+                "[mla-timing]   op[%zu] %-40s  shape=%s  loc=%s\n",
+                _step3OpIdx,
+                op->getName().getStringRef().str().c_str(),
+                _shapeStr.c_str(), _locStr.c_str());
+        auto _tOp = std::chrono::steady_clock::now();
+
         auto tensorLayouts = tensorTypePossibleLayouts.find(tensorType);
         assert(tensorLayouts != tensorTypePossibleLayouts.end() &&
                "No layouts found for tensor type");
@@ -167,10 +214,29 @@ public:
             legalOpLayoutAnalysis.getResult(), &overrideConv2dConfig,
             &overrideConv3dConfig, enableConv2dSearchExtensions));
         legalConfigs[op] = legalOpConfigAnalysis.getResult();
+
+        fprintf(stderr,
+                "[mla-timing]   op[%zu] done  %ld ms  layouts=%zu  configs=%zu\n",
+                _step3OpIdx,
+                (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - _tOp)
+                    .count(),
+                legalOpLayoutAnalysis.getResult().size(),
+                legalConfigs[op].size());
+        ++_step3OpIdx;
       });
     });
+    fprintf(stderr, "[mla-timing] Step3 done in %ld ms  (%zu ops)\n",
+            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - _tStep3)
+                .count(),
+            _step3OpIdx);
 
     // Step 4: Run layout propagation for each forward device function.
+    fprintf(stderr,
+            "[mla-timing] Step4: MemoryLayoutPropagation  legalConfigs=%zu ...\n",
+            legalConfigs.size());
+    auto _tStep4 = std::chrono::steady_clock::now();
     moduleOp->walk([&](func::FuncOp func) {
       if (!ttmlir::utils::isForwardDeviceFunc(func)) {
         return;
@@ -194,6 +260,9 @@ public:
         observer = std::make_unique<CompileTimeStatsObserver>();
       }
 
+      fprintf(stderr, "[mla-timing]   propagation.run() for func '%s' ...\n",
+              func.getName().str().c_str());
+      auto _tProp = std::chrono::steady_clock::now();
       MemoryLayoutPropagation propagation(
           func, legalConfigs, &tensorTypePossibleLayouts,
           static_cast<size_t>(beamWidth),
@@ -201,6 +270,10 @@ public:
           static_cast<size_t>(maxReshardCandidatesPerType),
           std::move(observer));
       propagation.run();
+      fprintf(stderr, "[mla-timing]   propagation.run() done  %ld ms\n",
+              (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                  std::chrono::steady_clock::now() - _tProp)
+                  .count());
 
       // Sync D2M subgraph function types to match dispatch op's current inputs
       // (e.g. after reshard insertion, operand types may have changed).
@@ -219,6 +292,14 @@ public:
         }
       }
     });
+    fprintf(stderr, "[mla-timing] Step4 done in %ld ms\n",
+            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - _tStep4)
+                .count());
+    fprintf(stderr, "[mla-timing] GreedyMemoryLayoutPropagation TOTAL %ld ms\n",
+            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - _tMLA)
+                .count());
 #endif
   }
 

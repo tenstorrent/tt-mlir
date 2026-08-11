@@ -16,7 +16,10 @@
 
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 
+#include <chrono>
+#include <cstdio>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -337,15 +340,44 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
           effectiveSearchSpace.reshardIfNotOptimal = {false};
         }
 
+        // Build loc string for cfg-timing prints
+        std::string _locStr;
+        {
+          llvm::raw_string_ostream _ss(_locStr);
+          convOp.getLoc().print(_ss);
+        }
+        int64_t _spatial =
+            (int64_t)convOp.getInputHeight() * convOp.getInputWidth();
+        bool _large = _spatial > 100000;
+        auto _ks = convOp.getKernelSize();
+        fprintf(stderr,
+                "[cfg-timing] Conv2d @%s  H=%d W=%d C_in=%d C_out=%d K=%dx%d"
+                "  spatial=%ld  large=%s"
+                "  actBlockH_opts=%zu  reshard_opts=%zu"
+                "  actDbl_opts=%zu  wgtDbl_opts=%zu  input_layouts=%zu\n",
+                _locStr.c_str(),
+                (int)convOp.getInputHeight(), (int)convOp.getInputWidth(),
+                (int)convOp.getInChannels(), (int)convOp.getOutChannels(),
+                (int)_ks[0], (int)_ks[1],
+                (long)_spatial, _large ? "YES" : "no",
+                effectiveSearchSpace.actBlockHOverride.size(),
+                effectiveSearchSpace.reshardIfNotOptimal.size(),
+                effectiveSearchSpace.enableActDoubleBuffer.size(),
+                effectiveSearchSpace.enableWeightsDoubleBuffer.size(),
+                analysisResult.size());
+        auto _tCfg = std::chrono::steady_clock::now();
+
         Conv2dConfigGenerator configGenerator(&convOp, conv2dConfigAttrBase,
                                               effectiveSearchSpace, filterOut);
 
         std::vector<OpConfig> newLegalConfigs;
+        size_t _cfgGenCount = 0;
         auto addConfigs = [&](const Conv2dConfigAttr &configAttr) {
           for (const OpConfig &existingOpConfig : analysisResult) {
             newLegalConfigs.emplace_back(existingOpConfig.outputLayout,
                                          Conv2dAttrs{configAttr, std::nullopt});
           }
+          ++_cfgGenCount;
         };
 
         if (configGenerator.searchDone()) {
@@ -363,6 +395,14 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
         }
 
         analysisResult = std::move(newLegalConfigs);
+        fprintf(stderr,
+                "[cfg-timing] Conv2d @%s done  %ld ms"
+                "  configs_generated=%zu  total_op_configs=%zu\n",
+                _locStr.c_str(),
+                (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - _tCfg)
+                    .count(),
+                _cfgGenCount, analysisResult.size());
         TTMLIR_TRACE(
             ttmlir::LogComponent::GreedyOptimizer,
             "Filled op specific attrs for conv2d op {}, ending with {} configs",

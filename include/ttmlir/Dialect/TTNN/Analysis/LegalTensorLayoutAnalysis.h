@@ -58,7 +58,7 @@ private:
   bool applyOverrides() override { return false; }
 
   // Helper to process a single tensor type
-  void processTensorType(RankedTensorType tensorType);
+  void processTensorType(RankedTensorType tensorType, size_t idx);
 
   // Generate layouts for a tensor type
   std::vector<TTNNLayoutAttr> generateLayouts(RankedTensorType tensorType);

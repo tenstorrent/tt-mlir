@@ -17,7 +17,10 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/ArrayRef.h"
 
+#include <chrono>
 #include <cstdint>
+#include <cstdio>
+#include <string>
 #include <unordered_set>
 #include <vector>
 
@@ -231,8 +234,12 @@ static std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
 // ===----------------------------------------------------------------------===//
 
 void LegalTensorLayoutAnalysis::analysisImplementation() {
+  auto _tTotal = std::chrono::steady_clock::now();
+  fprintf(stderr, "[lta-timing] LegalTensorLayoutAnalysis START\n");
+
   mlir::ModuleOp moduleOp = mlir::cast<mlir::ModuleOp>(op);
   llvm::DenseSet<RankedTensorType> processedTypes;
+  size_t typeIdx = 0;
 
   // Walk through module and collect all tensor types
   moduleOp->walk([&](Operation *op) {
@@ -243,7 +250,7 @@ void LegalTensorLayoutAnalysis::analysisImplementation() {
       auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
       // Only process each unique tensor type once
       if (processedTypes.insert(tensorType).second) {
-        processTensorType(tensorType);
+        processTensorType(tensorType, typeIdx++);
       }
     }
 
@@ -254,13 +261,31 @@ void LegalTensorLayoutAnalysis::analysisImplementation() {
       auto tensorType = mlir::cast<RankedTensorType>(result.getType());
       // Only process each unique tensor type once
       if (processedTypes.insert(tensorType).second) {
-        processTensorType(tensorType);
+        processTensorType(tensorType, typeIdx++);
       }
     }
   });
+
+  fprintf(stderr, "[lta-timing] LegalTensorLayoutAnalysis DONE  %ld ms  types=%zu\n",
+          (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::steady_clock::now() - _tTotal)
+              .count(),
+          typeIdx);
 }
 
-void LegalTensorLayoutAnalysis::processTensorType(RankedTensorType tensorType) {
+void LegalTensorLayoutAnalysis::processTensorType(RankedTensorType tensorType,
+                                                  size_t idx) {
+  // Build shape string for timing print
+  std::string shapeStr = "[";
+  for (size_t i = 0; i < tensorType.getShape().size(); ++i) {
+    if (i > 0) shapeStr += ",";
+    shapeStr += std::to_string(tensorType.getShape()[i]);
+  }
+  shapeStr += "]";
+  fprintf(stderr, "[lta-timing]   type[%zu] shape=%s ...\n", idx,
+          shapeStr.c_str());
+  auto _t = std::chrono::steady_clock::now();
+
   // Generate all possible layouts for this tensor type
   std::vector<TTNNLayoutAttr> layouts = generateLayouts(tensorType);
 
@@ -280,6 +305,12 @@ void LegalTensorLayoutAnalysis::processTensorType(RankedTensorType tensorType) {
     analysisResult[tensorType][scalarType][pageLayoutIndex][memLayoutIndex]
         .push_back(layout);
   }
+
+  fprintf(stderr, "[lta-timing]   type[%zu] done  %ld ms  layouts=%zu\n", idx,
+          (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::steady_clock::now() - _t)
+              .count(),
+          layouts.size());
 }
 
 std::vector<TTNNLayoutAttr>

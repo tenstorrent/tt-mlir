@@ -21,6 +21,9 @@
 #include "mlir/Pass/Pass.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include <chrono>
+#include <cstdio>
+
 namespace mlir::tt::ttnn {
 
 #define GEN_PASS_DEF_TTNNGREEDYL1SPILLMANAGEMENT
@@ -39,6 +42,8 @@ public:
         "TTNNGreedyL1SpillManagement pass requires OpModel support to be "
         "enabled.");
 #else
+    auto _tTotal = std::chrono::steady_clock::now();
+    fprintf(stderr, "[l1spill-timing] GreedyL1SpillManagement START\n");
     op_model::ScopedSingletonDeviceGuard deviceGuard(getOperation());
 
     ModuleOp moduleOp = getOperation();
@@ -55,6 +60,7 @@ public:
                  utils::getTensorL1UsageCap(moduleOp),
                  utils::getReservedL1Usage(moduleOp));
 
+    size_t funcIdx = 0;
     moduleOp->walk([&](func::FuncOp func) -> WalkResult {
       if (!ttmlir::utils::isForwardDeviceFunc(func)) {
         return WalkResult::advance();
@@ -66,10 +72,20 @@ public:
         observer = std::make_unique<DecisionTraceObserver>();
       }
 
+      fprintf(stderr, "[l1spill-timing]   func[%zu] '%s' spill.run() START\n",
+              funcIdx, func.getName().str().c_str());
+      auto _tSpill = std::chrono::steady_clock::now();
       L1SpillManagement<SumL1MemoryTracker> spill(
           func, deviceGrid, l1BudgetPerCore, chipDesc.getUsableL1Size(),
           std::move(observer));
       spill.run();
+      fprintf(stderr, "[l1spill-timing]   func[%zu] '%s' spill.run() done  %ld ms\n",
+              funcIdx,
+              func.getName().str().c_str(),
+              (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                  std::chrono::steady_clock::now() - _tSpill)
+                  .count());
+      ++funcIdx;
 
       // run() emits a diagnostic but cannot fail the pass on its own; surface
       // any unrecoverable condition (e.g. an op whose CBs overlap a required
@@ -105,6 +121,10 @@ public:
 
       return WalkResult::advance();
     });
+    fprintf(stderr, "[l1spill-timing] GreedyL1SpillManagement TOTAL  %ld ms\n",
+            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - _tTotal)
+                .count());
 #endif
   }
 };
