@@ -22,17 +22,20 @@ namespace mlir::tt::ttnn {
 namespace {
 
 // Maps a control flow region's block argument to the operand it is bound to.
-// A `ttnn.while` region observes `inits ++ captures`; a `ttnn.case` branch
-// observes just the captures.
-Value getBoundOperand(Operation *op, unsigned argNumber) {
-  if (auto whileOp = mlir::dyn_cast<WhileOp>(op)) {
-    unsigned numInits = whileOp.getInits().size();
-    if (argNumber < numInits) {
-      return whileOp.getInits()[argNumber];
-    }
-    return whileOp.getCaptures()[argNumber - numInits];
+// Overloaded per op rather than taking an `Operation *`, so that there is no
+// unhandled op to guard against: a `ttnn.while` region observes
+// `inits ++ captures`, a `ttnn.case` branch observes just the captures, and
+// nothing else has a binding to describe.
+Value getBoundOperand(WhileOp op, unsigned argNumber) {
+  unsigned numInits = op.getInits().size();
+  if (argNumber < numInits) {
+    return op.getInits()[argNumber];
   }
-  return mlir::cast<CaseOp>(op).getCaptures()[argNumber];
+  return op.getCaptures()[argNumber - numInits];
+}
+
+Value getBoundOperand(CaseOp op, unsigned argNumber) {
+  return op.getCaptures()[argNumber];
 }
 
 // The block argument a region hands straight back out as `resultNumber`, or a
@@ -62,7 +65,7 @@ llvm::SmallVector<Value> getForwardedOperands(Operation *op,
     BlockArgument arg = getForwardedArgument(whileOp.getBody(), resultNumber);
     if (arg && (arg.getArgNumber() >= whileOp.getInits().size() ||
                 arg.getArgNumber() == resultNumber)) {
-      operands.push_back(getBoundOperand(op, arg.getArgNumber()));
+      operands.push_back(getBoundOperand(whileOp, arg.getArgNumber()));
     }
     return operands;
   }
@@ -72,7 +75,7 @@ llvm::SmallVector<Value> getForwardedOperands(Operation *op,
     // forwards.
     for (Region &branch : caseOp.getBranches()) {
       if (BlockArgument arg = getForwardedArgument(branch, resultNumber)) {
-        Value operand = getBoundOperand(op, arg.getArgNumber());
+        Value operand = getBoundOperand(caseOp, arg.getArgNumber());
         if (!llvm::is_contained(operands, operand)) {
           operands.push_back(operand);
         }
