@@ -15,6 +15,7 @@ the pure tests can't reach — that a swept knob actually reached a constructed
 Layout, and that the resulting numerics pass PCC.
 """
 
+import dataclasses
 import pathlib
 
 import pytest
@@ -433,6 +434,85 @@ def test_run_config_stamps_shard_dims_and_mesh(tmp_path):
     assert seen["mesh"].topology is None
     # Original bench specs are untouched.
     assert bench.tensors[0].shard_dims is None
+
+
+# ---------------------------------------------------------------------------
+# Mesh / sharding space generation (step 3)
+#
+# The (mesh × strategy) axes are outermost; grid/block candidates are derived
+# from each strategy's per-device SHARD shapes, not the full spec shapes.
+# ---------------------------------------------------------------------------
+
+
+def _mesh_strategies_bench():
+    """(128, 256) f32 bench on a (1, 2) mesh with three joint strategies."""
+    from runner import MeshSpec
+
+    base = _bench([(128, 256)])
+    return dataclasses.replace(
+        base,
+        mesh=MeshSpec(shape=(1, 2), topology=("linear", "ring")),
+        shard_strategies={
+            "replicate": [[-1, -1]],
+            "cols": [[-1, 1]],
+            "rows": [[-1, 0]],
+        },
+    )
+
+
+def test_generate_configs_derives_blocks_from_shard_shapes():
+    bench = _mesh_strategies_bench()
+    cfgs = _tuner(A.AutotuneKnobs()).generate_configs(bench)
+
+    assert cfgs, "expected mesh configs"
+    assert all(c.mesh_shape == (1, 2) for c in cfgs)
+    assert all(c.mesh_topology == ("linear", "ring") for c in cfgs)
+    by_strategy = {
+        name: [c for c in cfgs if c.strategy == name]
+        for name in ("replicate", "cols", "rows")
+    }
+    assert all(by_strategy.values())
+
+    def max_bx(configs):
+        return max(b[1] for c in configs for b in c.blocks)
+
+    # Replicated shard is the full (128, 256) = 4x8 tiles -> bx up to 8;
+    # cols shard is (128, 128) = 4x4 tiles -> bx capped at 4;
+    # rows shard is (64, 256) -> by capped at 2.
+    assert max_bx(by_strategy["replicate"]) == 8
+    assert max_bx(by_strategy["cols"]) == 4
+    assert max(b[0] for c in by_strategy["rows"] for b in c.blocks) == 2
+    # Shards recorded on the config match the strategy.
+    assert all(c.shards == [[-1, 1]] for c in by_strategy["cols"])
+
+
+def test_generate_configs_shard_strategy_filter():
+    bench = _mesh_strategies_bench()
+    knobs = A.AutotuneKnobs(shard_strategies=["cols"])
+    cfgs = _tuner(knobs).generate_configs(bench)
+    assert cfgs and all(c.strategy == "cols" for c in cfgs)
+
+    with pytest.raises(ValueError, match="unknown shard strategies"):
+        _tuner(A.AutotuneKnobs(shard_strategies=["nope"])).generate_configs(bench)
+
+
+def test_generate_configs_mesh_shapes_knob_and_infeasible_skip(capsys):
+    bench = _mesh_strategies_bench()
+    # (1, 3) does not divide 256 (cols) or 128 (rows): only replicate remains.
+    knobs = A.AutotuneKnobs(mesh_shapes=[(1, 2), (1, 3)])
+    cfgs = _tuner(knobs).generate_configs(bench)
+
+    on_1x3 = [c for c in cfgs if c.mesh_shape == (1, 3)]
+    assert on_1x3 and all(c.strategy == "replicate" for c in on_1x3)
+    assert "skipping mesh (1, 3)" in capsys.readouterr().out
+    # Topology was declared for (1, 2) only; it must not leak to (1, 3).
+    assert all(c.mesh_topology is None for c in on_1x3)
+    assert {c.mesh_shape for c in cfgs} == {(1, 2), (1, 3)}
+
+
+def test_generate_configs_without_strategies_is_single_device():
+    cfgs = _tuner(A.AutotuneKnobs()).generate_configs(_bench([(128, 128)]))
+    assert cfgs and all(c.mesh_shape is None and c.strategy is None for c in cfgs)
 
 
 def test_run_config_shards_length_mismatch_raises(tmp_path):

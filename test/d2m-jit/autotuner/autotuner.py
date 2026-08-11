@@ -135,6 +135,7 @@ from runner import (
     compute_pcc,
     make_inputs,
     run_bench,
+    shard_shape_for_spec,
 )
 
 # ---------------------------------------------------------------------------
@@ -228,11 +229,24 @@ class AutotuneKnobs:
         Maximum ``gy * gx`` when auto-generating grid shapes.
     max_block_tiles:
         Maximum per-dimension block size when auto-generating block shapes.
+    mesh_shapes:
+        Device-mesh shapes to sweep, e.g. ``[(1, 2), (2, 2)]``.  ``None`` →
+        the bench's own ``mesh.shape``.  Only applies to benches declaring
+        ``shard_strategies``; the (mesh × strategy) axes are OUTER — grid and
+        block candidates are re-derived from each strategy's per-device shard
+        shapes.
+    shard_strategies:
+        Names filtering ``bench.shard_strategies``.  ``None`` → sweep every
+        strategy the bench declares.  A name the bench does not declare is an
+        error.  For a single-device baseline, declare (and select) a
+        fully-replicated strategy on the bench.
     """
 
     grid_shapes: Optional[list[tuple[int, int]]] = None
     block_shapes: Optional[list[list[int]]] = None
     mem_spaces: Optional[list[str]] = None
+    mesh_shapes: Optional[list] = None
+    shard_strategies: Optional[list[str]] = None
     # Per-tensor block shapes dispatched as joint configs (not Cartesian product).
     # Each entry is [block_shape_t0, block_shape_t1, ...] — one per tensor.
     # Example: [[[1, 1], [1, 1]], [[1, 3], [3, 1]]] to sweep k_block ∈ {1, 3}.
@@ -858,35 +872,149 @@ class Autotuner:
         # Focused mode, block unconstrained: each tensor keeps its own default.
         return [[list(ts.block_shape) for ts in bench.tensors]]
 
+    def _resolve_mesh_axes(self, bench: KernelBench) -> list:
+        """Outer (mesh_shape × shard strategy) axes; ``[None]`` = single device.
+
+        Mesh axes exist only when the bench declares ``shard_strategies`` and
+        a mesh is available (``bench.mesh`` or ``knobs.mesh_shapes``).
+        ``knobs.shard_strategies`` filters the declared strategies by name;
+        an unknown name is an error (silently dropping an explicitly requested
+        strategy would misrepresent coverage).  Each axis is a
+        ``(mesh_shape, topology, strategy_name, shards)`` tuple.
+        """
+        k = self.knobs
+        declared = bench.shard_strategies or {}
+        if k.shard_strategies is not None:
+            unknown = [n for n in k.shard_strategies if n not in declared]
+            if unknown:
+                raise ValueError(
+                    f"unknown shard strategies {unknown}; bench declares "
+                    f"{sorted(declared)}"
+                )
+            declared = {n: declared[n] for n in k.shard_strategies}
+
+        if k.mesh_shapes is not None:
+            meshes = [tuple(m) for m in k.mesh_shapes]
+        elif bench.mesh is not None:
+            meshes = [tuple(bench.mesh.shape)]
+        else:
+            meshes = []
+
+        if not declared or not meshes:
+            return [None]
+
+        axes = []
+        for mesh_shape in meshes:
+            # A topology names physical connectivity, so it only carries over
+            # to the mesh shape it was declared for.
+            topology = (
+                tuple(bench.mesh.topology)
+                if bench.mesh is not None
+                and bench.mesh.topology is not None
+                and tuple(bench.mesh.shape) == mesh_shape
+                else None
+            )
+            for name, shards in declared.items():
+                if len(shards) != len(bench.tensors):
+                    raise ValueError(
+                        f"shard strategy {name!r} has {len(shards)} entries "
+                        f"but bench has {len(bench.tensors)} tensor(s)"
+                    )
+                for sd in shards:
+                    if len(sd) != len(mesh_shape):
+                        raise ValueError(
+                            f"shard strategy {name!r} entry {list(sd)} has "
+                            f"{len(sd)} mesh axes but mesh {mesh_shape} has "
+                            f"{len(mesh_shape)}"
+                        )
+                axes.append((mesh_shape, topology, name, [list(s) for s in shards]))
+        return axes
+
+    def _shard_view(
+        self, bench: KernelBench, mesh_shape: tuple, shards: list
+    ) -> KernelBench:
+        """Bench copy whose tensor shapes are the per-device SHARD shapes.
+
+        Grid/block candidates for a mesh config must be derived from what the
+        kernel actually sees on each device, not the full host-level shapes —
+        blocks valid for the full tensor routinely fail the shard's
+        divisibility constraints (and vice versa).  Raises ``ValueError``
+        when the strategy does not divide a tensor (infeasible combo).
+        """
+        mesh = MeshSpec(shape=mesh_shape)
+        shard_tensors = []
+        for ts, dims in zip(bench.tensors, shards):
+            spec = dataclasses.replace(ts, shard_dims=list(dims))
+            shard_tensors.append(
+                dataclasses.replace(spec, shape=shard_shape_for_spec(mesh, spec))
+            )
+        return dataclasses.replace(bench, tensors=shard_tensors)
+
     def generate_configs(self, bench: KernelBench) -> list[AutotuneConfig]:
         """Return the deduplicated ``AutotuneConfig``s to evaluate for *bench*.
 
-        The space is the Cartesian product ``grids × block-options(per grid) ×
-        mem-options``, where each option is already resolved to a per-tensor
-        list (see the ``_resolve_*`` helpers).  ``joint_*`` knobs contribute
-        per-tensor entries directly; plain-list / ``"all"`` / full-sweep knobs
-        contribute uniform (broadcast) entries.  See ``AutotuneKnobs``.
+        The space is ``mesh-axes × grids × block-options(per grid) ×
+        mem-options``.  The (mesh × strategy) axes are outermost: each
+        strategy reshapes what the kernel sees per device, so grid and block
+        candidates are re-derived from its shard shapes (``_shard_view``).
+        Single-device benches have one trivial mesh axis and reduce to the
+        plain ``grids × blocks × mems`` product.  ``joint_*`` knobs
+        contribute per-tensor entries directly; plain-list / ``"all"`` /
+        full-sweep knobs contribute uniform (broadcast) entries.  See
+        ``AutotuneKnobs``.
         """
         n_tensors = len(bench.tensors)
-        grids = self._resolve_grids(bench)
         mem_options = self._resolve_mem_options(n_tensors)
 
         seen: set = set()
         configs: list[AutotuneConfig] = []
-        for grid in grids:
-            for blocks in self._resolve_block_options(bench, grid, n_tensors):
-                for mems in mem_options:
-                    cfg = AutotuneConfig(grid_shape=grid, blocks=blocks, mems=mems)
-                    # Dedup on a structured key rather than the display id, which
-                    # collapses uniform axes and could alias distinct configs.
-                    key = (
-                        cfg.grid_shape,
-                        tuple(tuple(b) for b in cfg.blocks),
-                        tuple(cfg.mems),
-                    )
-                    if key not in seen:
-                        seen.add(key)
-                        configs.append(cfg)
+
+        def _extend(view_bench: KernelBench, mesh_fields: dict) -> None:
+            for grid in self._resolve_grids(view_bench):
+                for blocks in self._resolve_block_options(view_bench, grid, n_tensors):
+                    for mems in mem_options:
+                        cfg = AutotuneConfig(
+                            grid_shape=grid, blocks=blocks, mems=mems, **mesh_fields
+                        )
+                        # Dedup on a structured key rather than the display id,
+                        # which collapses uniform axes and could alias distinct
+                        # configs.
+                        key = (
+                            cfg.grid_shape,
+                            tuple(tuple(b) for b in cfg.blocks),
+                            tuple(cfg.mems),
+                            cfg.mesh_shape,
+                            None
+                            if cfg.shards is None
+                            else tuple(tuple(s) for s in cfg.shards),
+                        )
+                        if key not in seen:
+                            seen.add(key)
+                            configs.append(cfg)
+
+        for axis in self._resolve_mesh_axes(bench):
+            if axis is None:
+                _extend(bench, {})
+                continue
+            mesh_shape, topology, name, shards = axis
+            try:
+                view = self._shard_view(bench, mesh_shape, shards)
+            except ValueError as exc:
+                # Requested-but-infeasible combo: drop loudly, not silently.
+                print(
+                    f"  WARNING: skipping mesh {mesh_shape} strategy "
+                    f"{name!r}: {exc}"
+                )
+                continue
+            _extend(
+                view,
+                {
+                    "mesh_shape": mesh_shape,
+                    "mesh_topology": topology,
+                    "strategy": name,
+                    "shards": shards,
+                },
+            )
         return configs
 
     # ------------------------------------------------------------------
