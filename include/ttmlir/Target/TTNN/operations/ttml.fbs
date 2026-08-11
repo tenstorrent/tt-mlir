@@ -30,3 +30,17 @@ table SDPAForwardOp {
   out: tt.target.ttnn.TensorRef;
   intermediates: tt.target.ttnn.TensorRef;
 }
+
+table CrossEntropyForwardOp {
+  input: tt.target.ttnn.TensorRef;
+  target: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table CrossEntropyBackwardOp {
+  input: tt.target.ttnn.TensorRef;
+  target: tt.target.ttnn.TensorRef;
+  grad: tt.target.ttnn.TensorRef;
+  scaler: float;
+  out: tt.target.ttnn.TensorRef;
+}
