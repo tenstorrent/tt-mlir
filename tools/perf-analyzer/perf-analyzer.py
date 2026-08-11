@@ -126,7 +126,11 @@ def read_chip_freq_mhz(profile_log: pathlib.Path) -> float:
 
 def collect_device_timeline(profile_log: pathlib.Path) -> tuple[list[dict], int]:
     """returns a list of all captured zones (excluding firmware and kernel setup zones)
-    as well as the total runtime of the program as a tuple"""
+    as well as the total runtime of the program as a tuple
+
+    Multi-chip traces are handled: every zone/span is grouped per device (the
+    "PCIe slot" column) because timestamps are "cycles since reset" of each
+    chip's own clock — subtracting timestamps across devices is meaningless."""
 
     with profile_log.open() as f:
         f.readline()  # skip arch header
@@ -136,16 +140,18 @@ def collect_device_timeline(profile_log: pathlib.Path) -> tuple[list[dict], int]
 
         open_zones: dict[tuple, int] = {}
         kernel_name: str = ""
-        # Track the timestamp span per core (core_x/core_y). The computed wall time
-        # below is the longest per-core span observed in the trace (it may still
-        # include host-side gaps between dispatches depending on instrumentation).
+        # Track the timestamp span per (device, core_x, core_y). The computed
+        # wall time below is the longest per-core span observed in the trace
+        # (it may still include host-side gaps between dispatches depending on
+        # instrumentation).
         minmax = defaultdict(lambda: (float("inf"), 0))
 
         for row in reader:
             row = {k.strip().lower(): v for k, v in row.items()}
 
+            device = row.get("pcie slot", "0").strip()
             cycles = int(row["time[cycles since reset]"])
-            key = (int(row["core_x"]), int(row["core_y"]))
+            key = (device, int(row["core_x"]), int(row["core_y"]))
             minmax[key] = (min(minmax[key][0], cycles), max(minmax[key][1], cycles))
 
             if row["zone name"].startswith("kernel_outer"):
@@ -156,6 +162,7 @@ def collect_device_timeline(profile_log: pathlib.Path) -> tuple[list[dict], int]
                 continue
 
             key = (
+                device,
                 row["core_x"],
                 row["core_y"],
                 row["risc processor type"],
@@ -175,6 +182,7 @@ def collect_device_timeline(profile_log: pathlib.Path) -> tuple[list[dict], int]
                     "name": row["zone name"],
                     "kernel": kernel_name,
                     "host_id": row["run host id"],
+                    "device": device,
                     "core": (int(row["core_x"]), int(row["core_y"])),
                     "risc": row["risc processor type"],
                     "duration": cycles - start_cycles,
@@ -236,7 +244,7 @@ def get_runtimes(rows: list[dict], wall_cycles: int) -> dict[str, float]:
 
     for row in rows:
         if row["name"] == "TRISC-KERNEL":
-            key = (row["core"], row["host_id"])
+            key = (row.get("device", "0"), row["core"], row["host_id"])
             trisc_kernels[key].append(row["start"])
             trisc_kernels[key].append(row["end"])
 
@@ -468,9 +476,15 @@ def collect_device_runtimes(profile_log: pathlib.Path, freq_mhz: float) -> dict:
     the LAST `*-KERNEL` ZONE_END, across ALL cores and ALL RISCs
     (BRISC/NCRISC/TRISC/ERISC) — not just TRISC. Returned in cycles; the rest of the
     tool works in cycles and converts to ns at print time.
+
+    Multi-chip traces: spans are computed per device (the "PCIe slot" column)
+    because each chip's "cycles since reset" clock is independent — mixing them
+    produces meaningless spans. An op's duration is the max over devices (the
+    slowest device gates completion). The per-device reduction is returned
+    under "kernel duration per device" for callers that want the breakdown.
     """
-    # per op (run host id) -> [min *-KERNEL start, max *-KERNEL end]
-    op_kernel_span: dict[str, list] = defaultdict(lambda: [float("inf"), 0])
+    # per (device, run host id) -> [min *-KERNEL start, max *-KERNEL end]
+    op_kernel_span: dict[tuple, list] = defaultdict(lambda: [float("inf"), 0])
 
     with profile_log.open() as f:
         f.readline()  # skip arch header
@@ -480,24 +494,32 @@ def collect_device_runtimes(profile_log: pathlib.Path, freq_mhz: float) -> dict:
             if not row["zone name"].endswith("-KERNEL"):
                 continue
             cycles = int(row["time[cycles since reset]"])
-            span = op_kernel_span[row["run host id"]]
+            device = row.get("pcie slot", "0").strip()
+            span = op_kernel_span[(device, row["run host id"])]
             if row["type"] == "ZONE_START":
                 span[0] = min(span[0], cycles)
             elif row["type"] == "ZONE_END":
                 span[1] = max(span[1], cycles)
 
-    # one value per op, matching a DEVICE KERNEL DURATION row in ops_perf_results.csv
-    kernel_durations = [
-        hi - lo for lo, hi in op_kernel_span.values() if lo != float("inf") and hi >= lo
-    ]
-    if not kernel_durations:
+    # per device: longest single (device-local) op span, matching a DEVICE
+    # KERNEL DURATION row in ops_perf_results.csv (swap max for sum() for
+    # total kernel time)
+    per_device: dict[str, int] = {}
+    for (device, _), (lo, hi) in op_kernel_span.items():
+        if lo == float("inf") or hi < lo:
+            continue
+        per_device[device] = max(per_device.get(device, 0), hi - lo)
+
+    if not per_device:
         print(
             f"\n***** {profile_log} has no kernel zones. Unable to collect runtime information."
         )
-        return {"kernel duration": 0}
+        return {"kernel duration": 0, "kernel duration per device": {}}
 
-    # reduce to the longest single op, as before (swap for sum() for total kernel time)
-    return {"kernel duration": max(kernel_durations)}
+    return {
+        "kernel duration": max(per_device.values()),
+        "kernel duration per device": per_device,
+    }
 
 
 def collect_perf_counters(profile_log: pathlib.Path) -> pd.DataFrame:

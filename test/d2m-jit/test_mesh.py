@@ -148,9 +148,10 @@ def test_mesh_compute_round_trip_1x2():
 #   so auto-generated grid/block candidates are derived from the wrong tile
 #   counts.  Pass explicit `AutotuneKnobs.grid_shapes` valid for the shard;
 #   infeasible configs fail loudly on the divisibility asserts below.
-# * `kernel_ns` from a multi-chip profiler trace is unreliable (perf-analyzer
-#   does not separate per-device cycle clocks), so rank mesh results with
-#   care -- PCC and completion are trustworthy, timing is not yet.
+# * `kernel_ns` from a multi-chip profiler trace is the max over devices
+#   (perf-analyzer groups spans per device before reducing, since each chip's
+#   cycle counter is independent); the per-device breakdown is on
+#   `AutotuneResult.device_kernel_ns`.
 # ----------------------------------------------------------------------
 
 _MESH_SHAPE = (1, 2)

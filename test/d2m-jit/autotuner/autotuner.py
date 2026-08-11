@@ -315,6 +315,9 @@ class AutotuneResult:
     error: Optional[str] = None
     profiler_log: Optional[str] = None
     elapsed_s: Optional[float] = None  # wall-clock time of the Python run call
+    # Per-device kernel_ns breakdown for mesh runs (device id -> ns).  None on
+    # single-device traces; kernel_ns is the max over devices.
+    device_kernel_ns: Optional[dict] = None
 
     @property
     def config_id(self) -> str:
@@ -331,6 +334,7 @@ class AutotuneResult:
             "error": self.error,
             "profiler_log": self.profiler_log,
             "elapsed_s": self.elapsed_s,
+            "device_kernel_ns": self.device_kernel_ns,
         }
 
 
@@ -541,19 +545,25 @@ def _profiling_ctx(profiler_dir: str):
 
 def _parse_profile_csv(
     csv_path: pathlib.Path, verbose: bool = False
-) -> tuple[Optional[float], Optional[float]]:
-    """Return ``(kernel_ns, wall_ns)`` from a ``profile_log_device.csv``.
+) -> tuple[Optional[float], Optional[float], Optional[dict]]:
+    """Return ``(kernel_ns, wall_ns, device_kernel_ns)`` from a
+    ``profile_log_device.csv``.
 
     Uses ``collect_device_runtimes`` from perf-analyzer for kernel duration
     and ``read_chip_freq_mhz`` to convert cycles → ns.
 
-    Returns ``(None, None)`` if the file does not exist or cannot be parsed
-    (e.g. profiling not enabled in the build).  A *parse* failure (as opposed
-    to a missing file) is warned about when ``verbose`` so it is not confused
-    with "no device data".
+    ``kernel_ns`` is the max over devices — on a mesh run the slowest device
+    gates completion, so that is the objective.  ``device_kernel_ns`` maps
+    device id → kernel_ns for the per-device breakdown (``None`` for
+    single-device traces, where it adds nothing over ``kernel_ns``).
+
+    Returns ``(None, None, None)`` if the file does not exist or cannot be
+    parsed (e.g. profiling not enabled in the build).  A *parse* failure (as
+    opposed to a missing file) is warned about when ``verbose`` so it is not
+    confused with "no device data".
     """
     if not csv_path.exists():
-        return None, None
+        return None, None, None
     try:
         pa = _load_perf_analyzer()
         freq_mhz = pa.read_chip_freq_mhz(csv_path)
@@ -561,6 +571,16 @@ def _parse_profile_csv(
 
         kernel_cycles = runtimes.get("kernel duration", 0)
         kernel_ns = pa.cycles_to_ns(kernel_cycles, freq_mhz) if kernel_cycles else None
+
+        per_device_cycles = runtimes.get("kernel duration per device", {})
+        device_kernel_ns = (
+            {
+                dev: pa.cycles_to_ns(cycles, freq_mhz)
+                for dev, cycles in per_device_cycles.items()
+            }
+            if len(per_device_cycles) > 1
+            else None
+        )
 
         # Wall time from get_runtimes (requires timeline parse)
         try:
@@ -570,11 +590,11 @@ def _parse_profile_csv(
         except Exception:
             wall_ns = None
 
-        return kernel_ns, wall_ns
+        return kernel_ns, wall_ns, device_kernel_ns
     except Exception as exc:
         if verbose:
             print(f"  WARNING: failed to parse profiler CSV {csv_path}: {exc}")
-        return None, None
+        return None, None, None
 
 
 @contextlib.contextmanager
@@ -929,7 +949,9 @@ class Autotuner:
 
         elapsed_s = time.perf_counter() - t0
 
-        kernel_ns, wall_ns = _parse_profile_csv(profiler_csv, verbose=self.verbose)
+        kernel_ns, wall_ns, device_kernel_ns = _parse_profile_csv(
+            profiler_csv, verbose=self.verbose
+        )
 
         # Guard: reject configs whose swept knobs were silently ignored by the
         # materializer.  Such a config's timing is meaningless (it is a
@@ -941,6 +963,7 @@ class Autotuner:
                 error_msg = f"config not applied: {guard_msg}"
                 kernel_ns = None
                 wall_ns = None
+                device_kernel_ns = None
 
         pcc_val: Optional[float] = None
         if self.check_pcc and actual is not None and expected is not None:
@@ -958,6 +981,7 @@ class Autotuner:
             error_msg = f"PCC {pcc_val:.5f} < {bench.pcc} threshold"
             kernel_ns = None
             wall_ns = None
+            device_kernel_ns = None
 
         saved_log: Optional[str] = None
         if self.save_profiler_logs and profiler_csv.exists():
@@ -983,6 +1007,13 @@ class Autotuner:
                 if kernel_ns is not None
                 else "no profiler data"
             )
+            if kernel_ns is not None and device_kernel_ns is not None:
+                per_dev = ", ".join(
+                    f"dev{d}={ns:.1f}" for d, ns in sorted(device_kernel_ns.items())
+                )
+                status = (
+                    f"{status} (max over {len(device_kernel_ns)} devices: {per_dev})"
+                )
             if error_msg:
                 status = f"ERROR: {error_msg}"
             pcc_str = f"  pcc={pcc_val:.5f}" if pcc_val is not None else ""
@@ -997,6 +1028,7 @@ class Autotuner:
             error=error_msg,
             profiler_log=saved_log,
             elapsed_s=elapsed_s,
+            device_kernel_ns=device_kernel_ns,
         )
 
     # ------------------------------------------------------------------

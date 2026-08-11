@@ -276,6 +276,73 @@ def test_override_bench_tensors_noop_returns_same():
 
 
 # ---------------------------------------------------------------------------
+# Multi-device profiler CSV parsing
+#
+# Each chip's "time[cycles since reset]" counter is independent, so any span
+# computed across devices mixes unrelated clocks.  These tests build a
+# synthetic two-device trace whose clocks are offset by ~5M cycles: the old
+# (device-blind) grouping reported the cross-clock garbage span (~5M cycles);
+# the fix reports the max over per-device spans.
+# ---------------------------------------------------------------------------
+
+# CHIP_FREQ 1000 MHz makes 1 cycle == 1 ns, so expected values read directly.
+_CSV_HEADER = (
+    "ARCH: wormhole_b0, CHIP_FREQ[MHz]: 1000, Max Compute Cores: 64\n"
+    "PCIe slot, core_x, core_y, RISC processor type, timer_id, "
+    "time[cycles since reset], data, run host ID, trace id, trace id counter, "
+    "zone name, type, source line, source file, meta data\n"
+)
+
+
+def _csv_row(device, cycles, ztype, zone="TRISC-KERNEL", core=(1, 1), host_id=1):
+    return (
+        f"{device},{core[0]},{core[1]},TRISC,1,{cycles},0,{host_id},,,"
+        f"{zone},{ztype},0,test.cpp,\n"
+    )
+
+
+def _write_profile_csv(tmp_path, rows):
+    csv_path = tmp_path / "profile_log_device.csv"
+    csv_path.write_text(_CSV_HEADER + "".join(rows))
+    return csv_path
+
+
+# Device 0 kernel spans 2000 cycles; device 1 (clock offset by ~5M) spans
+# 4000.  Correct kernel duration = max over devices = 4000; the device-blind
+# span would be 5_004_000 - 1_000.
+_TWO_DEVICE_ROWS = [
+    _csv_row(0, 1_000, "ZONE_START"),
+    _csv_row(0, 3_000, "ZONE_END"),
+    _csv_row(1, 5_000_000, "ZONE_START"),
+    _csv_row(1, 5_004_000, "ZONE_END"),
+]
+
+
+def test_collect_device_runtimes_groups_per_device(tmp_path):
+    csv_path = _write_profile_csv(tmp_path, _TWO_DEVICE_ROWS)
+    pa = A._load_perf_analyzer()
+    runtimes = pa.collect_device_runtimes(csv_path, 1000.0)
+    assert runtimes["kernel duration"] == 4_000
+    assert runtimes["kernel duration per device"] == {"0": 2_000, "1": 4_000}
+
+
+def test_parse_profile_csv_multi_device(tmp_path):
+    csv_path = _write_profile_csv(tmp_path, _TWO_DEVICE_ROWS)
+    kernel_ns, wall_ns, device_kernel_ns = A._parse_profile_csv(csv_path)
+    assert kernel_ns == 4_000.0
+    assert device_kernel_ns == {"0": 2_000.0, "1": 4_000.0}
+    # Wall time is also a per-(device, core) span, reduced by max.
+    assert wall_ns == 4_000.0
+
+
+def test_parse_profile_csv_single_device_has_no_breakdown(tmp_path):
+    csv_path = _write_profile_csv(tmp_path, _TWO_DEVICE_ROWS[:2])
+    kernel_ns, wall_ns, device_kernel_ns = A._parse_profile_csv(csv_path)
+    assert kernel_ns == 2_000.0
+    assert device_kernel_ns is None
+
+
+# ---------------------------------------------------------------------------
 # On-silicon smoke test
 # ---------------------------------------------------------------------------
 
