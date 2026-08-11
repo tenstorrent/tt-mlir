@@ -5718,6 +5718,129 @@ void CaptureOrExecuteTraceOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
+// WhileOp
+//===----------------------------------------------------------------------===//
+
+::mlir::tt::ttnn::YieldOp mlir::tt::ttnn::WhileOp::getCondYield() {
+  return mlir::cast<YieldOp>(getCondBlock().getTerminator());
+}
+
+::mlir::tt::ttnn::YieldOp mlir::tt::ttnn::WhileOp::getBodyYield() {
+  return mlir::cast<YieldOp>(getBodyBlock().getTerminator());
+}
+
+// Verifiers must not use getCondYield()/getBodyYield(): the trait that pins the
+// terminator's type is a region trait, and those are verified after this op, so
+// the block may still be empty or end in something else. Returning null leaves
+// the diagnostic to the trait.
+static YieldOp getYieldIfPresent(Block &block) {
+  Operation *terminator = block.empty() ? nullptr : &block.back();
+  return llvm::dyn_cast_if_present<YieldOp>(terminator);
+}
+
+// WhileOp verification
+::mlir::LogicalResult mlir::tt::ttnn::WhileOp::verify() {
+  ValueRange inits = getInits();
+
+  if (inits.size() != getNumResults()) {
+    return emitOpError()
+           << "expects one result per loop-carried value, but has "
+           << inits.size() << " inits and " << getNumResults() << " results";
+  }
+
+  // Comparing types exactly also pins the layouts, which the runtime relies on:
+  // the next iteration rebinds the regions' inputs from the values `body`
+  // yielded, so a layout change across the yield would disagree with the
+  // serialized tensor descriptors.
+  for (auto [index, init, result] : llvm::enumerate(inits, getResults())) {
+    if (init.getType() != result.getType()) {
+      return emitOpError() << "init " << index << " has type " << init.getType()
+                           << " but the matching result has type "
+                           << result.getType()
+                           << "; loop-carried types must be invariant";
+    }
+  }
+
+  // Both regions observe the same values, so their signatures are identical.
+  llvm::SmallVector<Type> expectedArgTypes(inits.getTypes());
+  llvm::append_range(expectedArgTypes, getCaptures().getTypes());
+
+  for (auto [name, block] : {std::make_pair("cond", &getCondBlock()),
+                             std::make_pair("body", &getBodyBlock())}) {
+    if (block->getNumArguments() != expectedArgTypes.size()) {
+      return emitOpError()
+             << "expects the '" << name << "' region to take "
+             << expectedArgTypes.size()
+             << " arguments (inits followed by captures), but it takes "
+             << block->getNumArguments();
+    }
+    for (auto [index, argType, expectedType] :
+         llvm::enumerate(block->getArgumentTypes(), expectedArgTypes)) {
+      if (argType != expectedType) {
+        return emitOpError() << "argument " << index << " of the '" << name
+                             << "' region has type " << argType << " but "
+                             << expectedType << " was expected";
+      }
+    }
+  }
+
+  if (YieldOp condYield = getYieldIfPresent(getCondBlock())) {
+    if (condYield.getNumOperands() != 1) {
+      return emitOpError()
+             << "expects the 'cond' region to yield exactly one value, but it "
+                "yields "
+             << condYield.getNumOperands();
+    }
+    auto conditionType =
+        mlir::cast<RankedTensorType>(condYield.getOperand(0).getType());
+    if (conditionType.getNumElements() != 1) {
+      return emitOpError()
+             << "expects the 'cond' region to yield a single-element tensor, "
+                "but it yields "
+             << conditionType;
+    }
+    // The runtime reads the condition back to host every iteration, so it must
+    // be a host-resident uint32 tensor, as TTNNLayout materializes it.
+    if (auto layout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
+            conditionType.getEncoding())) {
+      if (layout.getBufferType() != BufferType::SystemMemory) {
+        return emitOpError()
+               << "expects the 'cond' region to yield a tensor in system "
+                  "memory, but it yields "
+               << conditionType;
+      }
+      if (layout.getDataType() != ttcore::DataType::UInt32) {
+        return emitOpError()
+               << "expects the 'cond' region to yield a uint32 tensor, but it "
+                  "yields "
+               << conditionType;
+      }
+    }
+  }
+
+  if (YieldOp bodyYield = getYieldIfPresent(getBodyBlock())) {
+    if (bodyYield.getNumOperands() != inits.size()) {
+      return emitOpError()
+             << "expects the 'body' region to yield one value per loop-carried "
+                "value ("
+             << inits.size() << "), but it yields "
+             << bodyYield.getNumOperands();
+    }
+    for (auto [index, yielded, init] :
+         llvm::enumerate(bodyYield.getOperands(), inits)) {
+      if (yielded.getType() != init.getType()) {
+        return emitOpError()
+               << "value " << index << " yielded by the 'body' region has type "
+               << yielded.getType() << " but init " << index << " has type "
+               << init.getType() << "; loop-carried types must be invariant";
+      }
+    }
+  }
+
+  return ::mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // PointToPointOp
 //===----------------------------------------------------------------------===//
 

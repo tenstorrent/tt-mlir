@@ -687,6 +687,92 @@ FailureOr<SmallVector<ReplacementItem>> IfOp::parseFormatString() {
 }
 
 //===----------------------------------------------------------------------===//
+// WhileOp
+//===----------------------------------------------------------------------===//
+
+WhileYieldOp WhileOp::getYield() {
+  return llvm::cast<WhileYieldOp>(getBody().front().getTerminator());
+}
+
+LogicalResult WhileOp::verify() {
+  std::optional<StringRef> condition = getCondition();
+
+  if (condition.has_value() == getTripCount().has_value()) {
+    return emitOpError()
+           << "requires exactly one of `condition` or `trip_count`";
+  }
+
+  if (!condition && !getCondArgs().empty()) {
+    return emitOpError() << "condition arguments require a condition string";
+  }
+
+  if (condition) {
+    if (condition->empty()) {
+      return emitOpError() << "condition string must not be empty";
+    }
+
+    auto errorCallback = [&]() -> InFlightDiagnostic {
+      return this->emitOpError();
+    };
+    FailureOr<SmallVector<ReplacementItem>> fmt =
+        ::parseFormatString(*condition, getCondArgs(), errorCallback);
+    if (failed(fmt)) {
+      return failure();
+    }
+    size_t numPlaceholders = llvm::count_if(*fmt, [](ReplacementItem &item) {
+      return std::holds_alternative<Placeholder>(item);
+    });
+
+    if (numPlaceholders != getCondArgs().size()) {
+      return emitOpError() << "requires operands for each placeholder in the "
+                              "condition string";
+    }
+  }
+
+  // The inits, body block arguments, yielded values and results are all the
+  // same Python variables, so all four have to agree.
+  Block &body = getBody().front();
+  TypeRange initTypes = getInits().getTypes();
+  auto checkTypes = [&](TypeRange types, StringRef what) -> LogicalResult {
+    if (types.size() != initTypes.size()) {
+      return emitOpError() << "expected " << initTypes.size() << " " << what
+                           << " to match its loop-carried values, got "
+                           << types.size();
+    }
+    for (size_t index = 0; index < types.size(); ++index) {
+      if (types[index] != initTypes[index]) {
+        return emitOpError()
+               << what << " #" << index << " has type " << types[index]
+               << " but init #" << index << " has type " << initTypes[index];
+      }
+    }
+    return success();
+  };
+
+  if (failed(checkTypes(body.getArgumentTypes(), "body block arguments")) ||
+      failed(checkTypes(getResultTypes(), "results"))) {
+    return failure();
+  }
+
+  // Not getYield(): the trait that guarantees the terminator's type is a region
+  // trait, and those are verified after this, so the body may still be empty or
+  // end in something else.
+  Operation *terminator = body.empty() ? nullptr : &body.back();
+  if (auto yieldOp = llvm::dyn_cast_if_present<WhileYieldOp>(terminator)) {
+    if (failed(checkTypes(yieldOp.getOperandTypes(), "yielded values"))) {
+      return failure();
+    }
+  }
+
+  return success();
+}
+
+FailureOr<SmallVector<ReplacementItem>> WhileOp::parseFormatString() {
+  // Error checking is done in verify.
+  return ::parseFormatString(getCondition().value_or(""), getCondArgs());
+}
+
+//===----------------------------------------------------------------------===//
 // ConstantOp
 //===----------------------------------------------------------------------===//
 
