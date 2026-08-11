@@ -22,6 +22,13 @@ from .tensor_layout import Layout
 _D2M_KERNEL_TYPES = {None, "datamovement", "noc", "compute", "unified"}
 
 
+class _SemaphoreArg:
+    """Sentinel used to type a kernel argument as a global semaphore."""
+
+
+SEMAPHORE_ARG = _SemaphoreArg()
+
+
 def _as_value(v):
     """Coerce an OpView or Value to an ir.Value."""
     return v.result if isinstance(v, OpView) else v
@@ -270,6 +277,8 @@ class D2MCompiler(ast.NodeVisitor):
                 func_operand_types.append(
                     rt_arg.build_device_tensor_type(self.ctx, blocked=True)
                 )
+            elif isinstance(rt_arg, _SemaphoreArg):
+                func_operand_types.append(d2m.ir.GlobalSemaphoreType.get(self.ctx))
             elif isinstance(rt_arg, int):
                 func_operand_types.append(IndexType.get(self.ctx))
             else:

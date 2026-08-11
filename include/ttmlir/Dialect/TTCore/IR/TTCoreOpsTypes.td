@@ -697,6 +697,10 @@ def TTCore_FabricConnectionConfigAttr: TTCore_Attr<"FabricConnectionConfig", "fa
   let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `routing_mode` `=` $routing_mode `,` `num_links` `=` $num_links `>`";
 }
 
+def TTCore_FabricConnectionConfigArrayAttr
+    : TypedArrayAttrBase<TTCore_FabricConnectionConfigAttr,
+                         "FabricConnectionConfig array attribute">;
+
 //===----------------------------------------------------------------------===//
 // TT type definitions
 //===----------------------------------------------------------------------===//
@@ -777,6 +781,11 @@ def TTCore_TopologyAttr : EnumAttr<TTCore_Dialect, TTCore_Topology, "topology"> 
 
 def TTCore_MoEActivationFunctionAttr :
     EnumAttr<TTCore_Dialect, TTCore_MoEActivationFunction, "moe_activation_function"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TTCore_AttentionMaskTypeAttr :
+    EnumAttr<TTCore_Dialect, TTCore_AttentionMaskType, "attention_mask_type"> {
   let assemblyFormat = "`<` $value `>`";
 }
 

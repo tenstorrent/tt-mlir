@@ -36,6 +36,9 @@ test/lit.site.cfg.py
 # Builder Test Default Artifact Paths
 /builder-artifacts/
 
+# Autotuner Generated Files
+/autotune-artifacts/
+
 # TTNN and TTMetal flatbuffers
 *.ttnn
 *.ttm
@@ -55,5 +58,7 @@ env/build/
 **/dist/
 
 # Generated Artifacts
-generated/*
-test/python/golden/generated/*
+**/generated/
+
+# System descriptor snapshots (d2m-jit artifact)
+current.ttsys

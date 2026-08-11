@@ -4298,10 +4298,10 @@ def TTKernel_SetupFabricConnectionsOp : TTKernel_Op<"experimental.setup_fabric_c
   let summary = "SetupFabricConnections";
   let description = [{
     Setup fabric connections for inter-device communication. The connection scheme
-    is derived from the attribute `TTMetal_FabricConnectionConfigAttr` in the
-    `EnqueueProgramOp`.
+    is selected by the owning kernel's `fabric_config_index`, which indexes into
+    `EnqueueProgramOp`'s `fabricConnectionConfigs` table.
 
-   `TTMetal_FabricConnectionConfigAttr` specifies:
+    `FabricConnectionConfig` specifies:
       - `noc_index`: Which NOC the fabric uses (must match kernel's NocConfig)
       - `topology`: The routing scheme to use for the mesh device (e.g. Line, Ring)
       - `cluster_axis`: The axis along which the to route for 1D topologies
@@ -4547,11 +4547,13 @@ def TTKernel_TensorAccessorOp : TTKernel_Op<"TensorAccessor"> {
     TensorAccessor constructor.
   }];
 
-  let arguments = (ins TTKernel_TensorAccessorArgs:$args, I32:$bank_base_address_in, I32:$page_size_in);
+  let arguments = (ins TTKernel_TensorAccessorArgs:$args,
+                       I32:$bank_base_address_in,
+                       Optional<I32>:$page_size_in);
   let results = (outs TTKernel_TensorAccessor:$result);
 
   let assemblyFormat = [{
-    `(` $args `,` $bank_base_address_in `,` $page_size_in `)` attr-dict `:` functional-type(operands, results)
+    `(` $args `,` $bank_base_address_in (`,` $page_size_in^)? `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 

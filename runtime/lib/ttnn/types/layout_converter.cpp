@@ -283,25 +283,22 @@ LayoutConverter::convertHostTensorLayout(const ::ttnn::Tensor &input,
 
 ::ttnn::Tensor LayoutConverter::handleDeviceInputNoLayoutTypecast(
     const ::ttnn::Tensor &input) {
-  if (inputDesc.isTilized()) {
-    ::ttnn::Tensor out = typecastIfNeeded(input);
-    out = toMemoryConfigIfNeeded(out);
-    out = fromDeviceIfNeeded(out);
-    return out;
-  }
-
+  // Host typecast path for ROW_MAJOR when the destination is host. Prefer this
+  // over on-device typecast + from_device so we don't pay for a device op that
+  // is immediately brought back.
   if (!inputDesc.isTilized() && shouldFromDevice) {
     ::ttnn::Tensor out = fromDeviceIfNeeded(input);
     out = typecastIfNeeded(out);
     return out;
   }
 
-  if (!inputDesc.isTilized() && !shouldFromDevice) {
-    LOG_FATAL("Currently to_layout does not support device to device typecast "
-              "for input layout: ",
-              debug::toString(inputDesc.layout));
-  }
-  LOG_FATAL("Unreachable code path");
+  // On-device typecast for TILE and ROW_MAJOR (ttnn::typecast supports both).
+  // RowMajorLayoutPropagation relies on this path for RM-preserving dtype
+  // conversions; previously ROW_MAJOR device->device typecast fatally aborted.
+  ::ttnn::Tensor out = typecastIfNeeded(input);
+  out = toMemoryConfigIfNeeded(out);
+  out = fromDeviceIfNeeded(out);
+  return out;
 }
 
 ::ttnn::Tensor

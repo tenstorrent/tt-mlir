@@ -176,6 +176,7 @@ kernel body.
 | `d2m.view_layout(lt, lambda d0, d1, d2, d3: ...)` | Low-level: lambda parameter count matches the source's MLIR rank (typically `2 * logical_rank` for tiled tensors). Each result expression may be a parameter, literal `0`, or affine arithmetic with integer constants (`+`, `-`, `*`, `//`, `%`). Arithmetic remappings preserve the source physical shape. |
 | `d2m.permute(lt, *dims)` | `torch.permute`-style positional permutation. |
 | `d2m.reshape(lt, *new_shape)` | `torch.reshape`-style logical-shape change. A single `-1` dim is inferred from the others. Currently a host roundtrip (`to_host` -> `torch.reshape` -> `to_layout`); pays a DRAM transfer. Use for shape changes not expressible as a `view`. |
+| `d2m.spatial(inputs, outputs, grid_ranges, region_builders)` | Emit a `d2m.spatial` wrapper around one `@d2m.kernel` call per disjoint core range. |
 | `d2m.to_host(*lts)` | Compile and execute; return a tuple of `torch.Tensor`s. Resets the builder. |
 | `LazyTensor.to_host()` | Sugar for `to_host(self)[0]`. |
 
@@ -352,6 +353,7 @@ layout tensor outside the kernel body.
 A process-level singleton. Each flag also reads a `D2M_JIT_*` env var.
 
 ```python
+d2m.config.backend                  # str: "device" (default) or "sim"; env D2M_JIT_BACKEND
 d2m.config.print_pipeline           # bool: print the pipeline string
 d2m.config.print_ir_before_pipeline # bool: dump the module before passes
 d2m.config.print_ir_after_pipeline  # bool: dump the module after passes
@@ -445,6 +447,54 @@ have been dropped — the DSL emits the post-legalisation form directly.
 - **Argument order in a `@kernel` call.** All `LazyTensor` arguments first,
   then any `int` scalar arguments. Mixing raises a `TypeError`. The last
   `num_outs` `LazyTensor`s (default 1) are treated as outputs.
+
+## Simulator (no device)
+
+`d2m_jit.sim` runs a kernel as **regular Python on torch** — no MLIR context,
+no pass pipeline, no silicon. Swap one import and the rest of your code is
+unchanged:
+
+```python
+import d2m_jit.sim as d2m   # instead of: import d2m_jit as d2m
+```
+
+Or keep the canonical import and flip the backend (per-call, runtime-toggleable):
+
+```python
+import d2m_jit as d2m
+d2m.config.backend = "sim"   # or env D2M_JIT_BACKEND=sim ; default "device"
+```
+
+The kernel body executes on the host (so `print` / `breakpoint()` work inside
+it), and `to_host()` returns a `torch.Tensor` matching the *intended*
+semantics — useful as a fast inner loop and as a golden oracle for device
+tests. The whole in-kernel op surface above is covered, comparisons and the
+kernel-body `zeros([m, n])` accumulator included.
+
+`import d2m_jit.sim` requires neither the `ttmlir` bindings nor
+`_ttmlir_runtime`, so it works with no tt-metal build at all —
+`pytest test/d2m-jit/sim/test_sim.py` passes on a plain Python+torch image (its
+sibling `test_backend_switch.py` drives the device surface, so it does need the
+bindings). (Where
+the bindings are installed it does load `ttmlir` for the shared dtype
+constants, but never the runtime extension. The canonical `import d2m_jit`
+surface needs both regardless of `config.backend`.)
+
+See [SIMULATOR_SPEC.md](SIMULATOR_SPEC.md) for the design and the list of
+intended device divergences (e.g. `empty` is zero, matmul is correct without a
+zeros-prefill, multicast runs).
+
+CI checks the simulator by re-running the whole pytest directory with
+`D2M_JIT_BACKEND=sim` after the device pass, on the existing d2m-jit lane. Every
+test carries its own torch golden, so each kernel is checked against the same
+reference on both backends — not just the kernels `test_sim.py` defines. Tests
+that cannot hold on the simulator are marked `device_only` and skip themselves in
+the sim re-run.
+
+The whole host-op surface is dispatched to the simulator too, `arange` /
+`reshape` / `spatial` included (`arange` / `reshape` are host roundtrips;
+`spatial` runs each region builder in sequence, since physical placement is
+value-neutral in sim — see SIMULATOR_SPEC.md §3).
 
 ## Related
 

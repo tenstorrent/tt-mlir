@@ -1422,8 +1422,10 @@ mlir::LogicalResult d2m::CompositeViewOp::verify() {
     return emitOpError("dim out of range.");
   }
 
-  if (this->getInputs().size() < 2) {
-    return emitOpError("must have at least two inputs.");
+  // A single input regroups that input's grid x shard extent onto a coarser
+  // grid; two or more concatenate along `dim`.
+  if (this->getInputs().empty()) {
+    return emitOpError("must have at least one input.");
   }
 
   int64_t accum = 0;
@@ -2024,14 +2026,21 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
           "GenericOp virtual grid affine map must have 2 inputs, or be empty.");
     }
 
-    // Verify that the grid volume fits within the device's worker grid.
-    auto device = ttcore::lookupDevice(*this);
-    int64_t gridVolume = getGrid().getGridVolume();
-    int64_t deviceVolume = device.getWorkerGrid().getGridVolume();
-    if (gridVolume > deviceVolume) {
-      return emitOpError("grid volume (")
-             << gridVolume << ") exceeds device worker grid capacity ("
-             << deviceVolume << ")";
+    // This op may be verified before an enclosing device has been registered
+    // (e.g. d2m-jit early verify before ttcore-register-device). Device-
+    // dependent checks are deferred until a device op is available, matching
+    // CreateGlobalSemaphoreOp::verify, rather than asserting in lookupDevice.
+    auto deviceOp = ttcore::lookupDeviceOp(getOperation());
+    if (deviceOp) {
+      // Verify that the grid volume fits within the device's worker grid.
+      ttcore::DeviceAttr device = deviceOp.getDeviceAttr();
+      int64_t gridVolume = getGrid().getGridVolume();
+      int64_t deviceVolume = device.getWorkerGrid().getGridVolume();
+      if (gridVolume > deviceVolume) {
+        return emitOpError("grid volume (")
+               << gridVolume << ") exceeds device worker grid capacity ("
+               << deviceVolume << ")";
+      }
     }
 
     auto isDRAM = [](Value output) {
@@ -2066,6 +2075,10 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
         if (!outputInvMap && !gridInvMap.isEmpty()) {
           return emitOpError("grid has an inverse map but output operand "
                              "does not have a VGM");
+        }
+
+        if (!deviceOp) {
+          continue;
         }
 
         SmallVector<int64_t> physicalGridShape =
@@ -2562,12 +2575,16 @@ createParallelizedGenericShell(d2m::GenericOp thisOp, OpBuilder &builder,
     newResultTypes.push_back(newOutputs[resultIndex].getType());
   }
 
-  return builder.create<d2m::GenericOp>(
+  auto newOp = builder.create<d2m::GenericOp>(
       thisOp.getLoc(), TypeRange(newResultTypes), newInputs, newOutputs,
       thisOp.getAdditionalArgs(), newGrid,
       builder.getI64ArrayAttr(newBlockFactors), thisOp.getIndexingMaps(),
       thisOp.getIteratorTypes(), thisOp.getThreads(),
       thisOp.getFabricConnectionConfigAttr(), thisOp.getNumRegions());
+  // Reparallelizing rewrites the grid, not what the op means: anything a pass
+  // marked this generic with has to survive.
+  newOp->setDiscardableAttrs(thisOp->getDiscardableAttrDictionary());
+  return newOp;
 }
 
 // Clone one generic region and retarget its block args to reblocked operands.

@@ -142,8 +142,8 @@ public:
         if (!mlir::dyn_cast<OpModel>(op)) {
           return;
         }
-        // Skip ToLayoutOp -- their layouts are set by other passes.
-        if (isa<ToLayoutOp>(op)) {
+        // Skip ToTensorSpecOp -- their layouts are set by other passes.
+        if (isa<ToTensorSpecOp>(op)) {
           return;
         }
 

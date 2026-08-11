@@ -313,16 +313,16 @@ def TTNNPrepareConv2dWeightsAndBias : Pass<"ttnn-prepare-conv2d-weights-and-bias
 }
 
 def TTNNDeduceMoEComputeLayouts : Pass<"ttnn-deduce-moe-compute-layouts", "::mlir::ModuleOp"> {
-  let summary = "Refine result layouts of the moe_compute weight-prep and compute ops using OpModel.";
+  let summary = "Refine moe_compute weight-prep layouts and reshard its inputs using OpModel.";
   let description = [{
     The prepare_moe_compute_*_weights ops produce a 6-D packed tensor with a
-    bank-permuted DRAM HEIGHT_SHARDED memory config, and ttnn.moe_compute
-    produces height-sharded outputs on the device compute grid. The exact
-    shapes and layouts depend on the target device and the hidden/intermediate
-    sizes, so the TTIR caller cannot know them up front. This pass walks those
-    ops emerging from TTIR->TTNN conversion and replaces their (placeholder)
-    result layouts with the OpModel-derived specs obtained via graph-captured
-    query of the corresponding tt-metal invocation.
+    bank-permuted DRAM HEIGHT_SHARDED memory config. The exact shapes and
+    layouts depend on the target device and the hidden/intermediate sizes, so
+    the TTIR caller cannot know them up front. This pass walks those ops
+    emerging from TTIR->TTNN conversion and replaces their (placeholder) result
+    layouts with the OpModel-derived specs obtained via graph-captured query of
+    the corresponding tt-metal invocation. It also reshards ttnn.moe_compute's
+    expert indices/scores inputs onto the device-derived tilize drain core.
     Requires -DTTMLIR_ENABLE_OPMODEL=ON.
   }];
 }
@@ -361,7 +361,12 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
             "enable-rope-fusion",
             "bool", /*default=*/"false",
             "Enable RoPE fusion patterns at the TTNN level. Disabled by "
-            "default since RoPE fusion is handled at the TTIR level.">
+            "default since RoPE fusion is handled at the TTIR level.">,
+    Option<"enableSDPAFusion",
+            "enable-sdpa-fusion",
+            "bool", /*default=*/"false",
+            "Enable SDPA fusion patterns at the TTNN level. Disabled by "
+            "default since SDPA fusion is handled at the TTIR level.">
   ];
 }
 
@@ -614,9 +619,25 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
     - system_memory_ops: Operations with system_memory buffer type
     - Percentages: All counts as percentage of total_shardable_ops
 
+    FLOP report ("flops" section), per-chip, for one graph invocation:
+
+      MFU = total_flops / (measured_seconds * peak_flops_per_sec)
+
+    - total_flops: logical, un-padded FLOPs over the matrix-engine ops:
+      matmul/linear/sparse_matmul (2*M*K*N), conv, SDPA / flash-MLA prefill, and
+      the CCL reductions (numel(input) * (D-1) / D, D = mesh extent along
+      cluster_axis). Not counted: SFPU ops, all_gather and the other
+      data-movement collectives, and decode / chunked / paged attention, whose
+      effective key length is a runtime value.
+    - peak_flops_per_sec: the MFU denominator, flops-weighted across each op's
+      math fidelity.
+    - peak_flops_per_sec_by_fidelity: raw hardware peak per fidelity.
+
     Verbose output (--ttnn-perf-metrics-verbose-output-enabled) includes:
     - Detailed per-operation analysis with sharding and memory layout information for shardable ops
     - Complete operation type breakdown with counts for all operation types (excluding const-eval functions)
+    - A per-op FLOP array ("flops"/"per_op"): operation, location, flops and
+      math_fidelity.
   }];
 
   let options = [
@@ -795,8 +816,9 @@ def TTNNConfigureCCLOps : Pass<"ttnn-configure-ccl-ops", "::mlir::ModuleOp"> {
   let summary = "Configure device-specific parameters on CCL operations.";
   let description = [{
     This pass configures all device-specific parameters on CCL operations
-    (AllGather, AllReduce, ReduceScatter) based on the DeviceAttr. This
-    includes setting the topology attribute from the per-axis mesh topology.
+    (AllGather, AllReduce, ReduceScatter, MoeCompute) based on the DeviceAttr.
+    This includes setting the topology attribute from the per-axis mesh
+    topology.
   }];
 }
 
@@ -847,6 +869,10 @@ def TTNNGreedyL1SpillManagement : Pass<"ttnn-greedy-l1-spill-management", "::mli
     Option<"decisionTraceDir", "decision-trace-dir", "std::string",
            "\"ttrt-artifacts/decision_trace\"",
            "Directory for decision trace JSON output.">,
+    Option<"useMockAllocatorState", "use-mock-allocator-state", "bool", "true",
+           "Use tt-metal's stateful op-constraints query (MockAllocatorL1Tracker) "
+           "for fragmentation-accurate L1 fit decisions. When false, use the "
+           "scalar additional-L1 + CB-cushion tracker (SumL1MemoryTracker).">,
   ];
 }
 
@@ -940,7 +966,7 @@ def TTNNLowerTTLangToGeneric : Pass<"ttnn-lower-tt-lang-to-generic", "::mlir::Mo
     `tt_torch.tt_lang._serialize_compiled_operation`:
 
     {
-      "format_version": 1,
+      "format_version": 2,
       "kernels": [
         {"thread_type": "compute"|"noc",
          "cpp_source":  "<embedded C++ source>",
@@ -950,6 +976,9 @@ def TTNNLowerTTLangToGeneric : Pass<"ttnn-lower-tt-lang-to-generic", "::mlir::Mo
       ],
       "core_range": {"start": [x, y], "end": [x, y]},
       "cb_configs": [{buffer_index, data_format, page_size, total_size}, ...],
+      "num_pipe_sync_semaphores": <int>,
+      "num_pipe_global_semaphores": <int>,
+      "pipe_sram_scratch_bytes": <int>,
       ...
     }
 

@@ -16,7 +16,7 @@ module attributes {} {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
     // CHECK: %[[VALUES:.*]], %[[INDICES:.*]] = "ttnn.sort"
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK-SAME: (%[[INDICES]]
     // CHECK-SAME: -> tensor<128x32xsi32
 

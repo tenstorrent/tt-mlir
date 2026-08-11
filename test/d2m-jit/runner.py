@@ -63,7 +63,6 @@ import torch
 
 from ttmlir import ir
 
-
 # ----------------------------------------------------------------------
 # Spec dataclasses (the data an agent emits / tweaks per pattern)
 # ----------------------------------------------------------------------
@@ -85,13 +84,11 @@ class InputSpec:
 @dataclass
 class TensorSpec:
     """Shape and layout for one input tensor in a KernelBench.
-
     Fully describes a single kernel input: the logical shape, the tile-level
     block count per ``remote_load``, the element dtype, and the random
     distribution used to generate test data. All four are tensor-level
     properties — they can differ between inputs in the same kernel (e.g.
     lhs/rhs in a mixed-precision matmul).
-
     ``grid_shape`` is the only graph-level execution parameter and lives on
     ``KernelBench`` directly.
     """
@@ -100,6 +97,42 @@ class TensorSpec:
     block_shape: list
     dtype: torch.dtype
     dist: "str | Callable" = "uniform(-1,1)"
+    mem_space: str = "L1"
+
+
+def d2m_mem_space(mem_space_str: str) -> str:
+    """Convert a mem-space string to the lowercase form ``d2m.Layout`` expects.
+    ``d2m.Layout`` accepts ``mem_space`` as a lowercase string (``"l1"``,
+    ``"dram"``).  Use this in materializers to pass an explicit ``mem_space``
+    to ``d2m.Layout`` when per-tensor placement is controlled via
+    ``TensorSpec.mem_space``.  Accepts case-insensitive input.
+    """
+    from d2m_jit._src import tensor_layout as _tl
+
+    return _tl._to_mem_space(mem_space_str.lower())
+
+
+def layout_from_spec(spec, *, grid_shape, block_shape=None, shape=None, tiled=True):
+    """Build a ``d2m.Layout`` from a ``TensorSpec``, honoring its ``mem_space``.
+
+    Centralizes Layout construction so every materializer applies the swept
+    per-tensor ``mem_space`` (and ``block_shape``) knob without having to
+    remember to thread ``mem_space`` through ``d2m.Layout`` by hand -- the
+    autotuner rejects any config whose ``mem_space`` never reaches a Layout.
+    ``block_shape`` / ``shape`` override the spec's values when a materializer
+    needs a different physical layout than the spec's declared one (e.g. an
+    output tensor); both default to the spec.
+    """
+    import d2m_jit as d2m
+
+    return d2m.Layout(
+        shape=tuple(shape if shape is not None else spec.shape),
+        dtype=d2m_dtype(spec.dtype),
+        block_shape=list(block_shape if block_shape is not None else spec.block_shape),
+        grid_shape=list(grid_shape),
+        tiled=tiled,
+        mem_space=d2m_mem_space(spec.mem_space),
+    )
 
 
 @dataclass
@@ -162,6 +195,11 @@ _MLIR_ELTY_TO_TORCH = {
     "f32": torch.float32,
     "f16": torch.float16,
     "bf16": torch.bfloat16,
+    "i64": torch.int64,
+    "si64": torch.int64,
+    "i32": torch.int32,
+    "si32": torch.int32,
+    "ui32": torch.uint32,
 }
 
 
@@ -184,6 +222,17 @@ def _gen_tensor(shape, td, dist, gen):
     if callable(dist):
         return dist(shape, td, gen)
     spec = dist.strip()
+    if not td.is_floating_point:
+        # torch.rand/randn reject integer dtypes; map named dists to randint.
+        if spec.startswith("uniform"):
+            lo, hi = (
+                float(x) for x in spec[spec.index("(") + 1 : spec.index(")")].split(",")
+            )
+            return torch.randint(int(lo), int(hi) + 1, shape, generator=gen, dtype=td)
+        if spec in ("rand", "randn"):
+            info = torch.iinfo(td)
+            return torch.randint(info.min, info.max, shape, generator=gen, dtype=td)
+        raise ValueError(f"unknown input distribution for integer dtype: {dist!r}")
     if spec.startswith("uniform"):
         lo, hi = (
             float(x) for x in spec[spec.index("(") + 1 : spec.index(")")].split(",")
@@ -342,15 +391,13 @@ def eltwise_block_run(kernel, inputs, tensors, grid_shape):
         blocks_n % gx == 0
     ), f"N blocks ({blocks_n}) not evenly divisible by grid_shape[1]={gx}"
 
-    L = d2m.Layout(
-        shape=tuple(ts.shape),
-        dtype=d2m_dtype(ts.dtype),
-        block_shape=[bm, bn],
-        grid_shape=[gy, gx],
-        tiled=True,
-    )
-    ins = [d2m.to_layout(t, L) for t in inputs]
-    out = d2m.empty(L)
+    # One Layout per input so each tensor's swept ``mem_space`` is honored;
+    # the output inherits the first input's placement.
+    ins = [
+        d2m.to_layout(t, layout_from_spec(spec, grid_shape=[gy, gx]))
+        for t, spec in zip(inputs, tensors)
+    ]
+    out = d2m.empty(layout_from_spec(ts, grid_shape=[gy, gx]))
     m_blocks = blocks_m // gy
     n_blocks = blocks_n // gx
     kernel(*ins, out, m_blocks, n_blocks, grid=(gy, gx))
@@ -480,6 +527,43 @@ class E2EDevice:
             self.device = None
 
 
+def _prepare_runtime_inputs(runtime, fbb, inputs, device, program_index):
+    import json
+    import re
+
+    input_descs = json.loads(
+        re.sub(
+            r"\binf\b",
+            "Infinity",
+            re.sub(r"\bnan\b", "NaN", fbb.get_program_inputs_as_json(program_index)),
+        )
+    )
+
+    rt_inputs = []
+    host_inputs = []
+    for tensor, input_desc in zip(inputs, input_descs, strict=True):
+        desc = input_desc["desc"]
+        expected_dtype = _RT_STR_TO_TORCH[desc["layout"]["memory_desc"]["data_type"]]
+        if tensor.dtype != expected_dtype:
+            tensor = tensor.to(expected_dtype)
+        tensor = tensor.contiguous()
+
+        # Borrowed host tensors do not own their backing storage. Return the
+        # owners so callers can keep converted temporaries alive through wait().
+        host_inputs.append(tensor)
+        rt_input = runtime.create_borrowed_host_tensor(
+            tensor.data_ptr(),
+            list(tensor.shape),
+            list(tensor.stride()),
+            tensor.element_size(),
+            _TORCH_TO_RT[tensor.dtype],
+        )
+        layout = runtime.get_layout(fbb, program_index, len(rt_inputs))
+        rt_inputs.append(runtime.to_layout(rt_input, device, layout, True))
+
+    return rt_inputs, host_inputs
+
+
 def execute_ttm_in_process(fbb, inputs, device, program_index: int = 0):
     """Submit ``fbb`` on ``device`` with torch ``inputs``; return torch outputs.
 
@@ -492,23 +576,15 @@ def execute_ttm_in_process(fbb, inputs, device, program_index: int = 0):
     import re
 
     runtime = _rt()
-
-    rt_inputs = []
-    for t in inputs:
-        t = t.contiguous()
-        rt_in = runtime.create_borrowed_host_tensor(
-            t.data_ptr(),
-            list(t.shape),
-            list(t.stride()),
-            t.element_size(),
-            _TORCH_TO_RT[t.dtype],
-        )
-        layout = runtime.get_layout(fbb, program_index, len(rt_inputs))
-        rt_inputs.append(runtime.to_layout(rt_in, device, layout, True))
+    rt_inputs, host_inputs = _prepare_runtime_inputs(
+        runtime, fbb, inputs, device, program_index
+    )
 
     runtime.set_compatible_device_runtime(fbb)
     rt_outputs = runtime.submit(device, fbb, program_index, rt_inputs)
     runtime.wait(rt_outputs)
+    # Keep the borrowed input storage alive until all queued transfers finish.
+    del host_inputs
 
     out_json = fbb.get_program_outputs_as_json(program_index)
     out_descs = json.loads(

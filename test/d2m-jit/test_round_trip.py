@@ -6,6 +6,7 @@
 to_layout / to_host (single + multi); spent-tensor raises; materialised
 LazyTensor auto-rematerialises on re-use."""
 
+import pytest
 import torch
 import d2m_jit as d2m
 
@@ -36,6 +37,11 @@ def test_round_trip_multi():
     assert torch.allclose(t2, out_b)
 
 
+@pytest.mark.device_only(
+    reason="stale-tensor error is a device builder-generation artifact the "
+    "simulator has no analog for, so tensor reuse just works "
+    "(SIMULATOR_SPEC.md §8)"
+)
 def test_spent_tensor_raises():
     L = make_layout()
     t1 = torch.randn(64, 64, dtype=torch.float32)

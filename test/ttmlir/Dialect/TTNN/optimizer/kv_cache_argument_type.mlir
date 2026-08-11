@@ -14,6 +14,6 @@ func.func @kv_cache_stays_tiled(
     %fill_value: tensor<1x32x1x512xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}
 ) -> tensor<1x32x64x512xbf16> {
     %update_index = "ttir.constant"() <{value = dense<0> : tensor<1xi32>}> : () -> tensor<1xi32>
-    %0 = "ttir.update_cache"(%cache, %fill_value, %update_index) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x1x512xbf16>, tensor<1xi32>) -> tensor<1x32x64x512xbf16>
-    return %0 : tensor<1x32x64x512xbf16>
+    "ttir.update_cache"(%cache, %fill_value, %update_index) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x1x512xbf16>, tensor<1xi32>) -> ()
+    return %cache : tensor<1x32x64x512xbf16>
 }

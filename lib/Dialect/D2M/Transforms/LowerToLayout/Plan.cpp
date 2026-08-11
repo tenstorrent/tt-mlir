@@ -282,15 +282,19 @@ modifyDeviceType(MLIRContext *ctx, RankedTensorType baseType,
 void emitTilizedReshardDecomposition(
     Plan &plan, MLIRContext *ctx, RankedTensorType currentType,
     ttcore::MetalLayoutAttr currentLayout, RankedTensorType targetType,
-    ttcore::MetalLayoutAttr targetLayout, ArrayRef<int64_t> targetGridShape,
-    AffineMap currentRemapping, AffineMap currentVgmForward,
+    ttcore::MetalLayoutAttr targetLayout, AffineMap currentVgmForward,
     AffineMap currentVgmInverse, AffineMap targetVgmForward,
     AffineMap targetVgmInverse) {
   Type scalarType = getScalarType(currentType.getElementType());
-  auto untilizedType = modifyDeviceType(
-      ctx, currentType, currentLayout, targetGridShape, currentRemapping,
-      ttcore::MemorySpace::DeviceL1, /*newTensorGrid=*/{}, scalarType,
-      /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/false);
+  ArrayRef<int64_t> sourceTileShape = ttcore::getTensorTileShape(currentType);
+  SmallVector<int64_t> untilizedShape(currentType.getShape());
+  assert(untilizedShape.size() >= sourceTileShape.size());
+  for (size_t i = 0; i < sourceTileShape.size(); ++i) {
+    untilizedShape[untilizedShape.size() - sourceTileShape.size() + i] *=
+        sourceTileShape[i];
+  }
+  auto untilizedType =
+      RankedTensorType::get(untilizedShape, scalarType, currentLayout);
   plan.push_back(
       UntilizeStep{currentType, makeOutputSpec(untilizedType, currentVgmForward,
                                                currentVgmInverse)});
@@ -312,9 +316,9 @@ void emitTilizedReshardDecomposition(
 
   ArrayRef<int64_t> tileShape = ttcore::getTensorTileShape(targetType);
   auto tiledType = RankedTensorType::get(
-      targetLayout.getDeviceShape(targetLayout.getGridShape(targetType),
-                                  tileShape),
-      targetType.getElementType(), targetLayout);
+      scalarTargetLayout.getDeviceShape(targetLayout.getGridShape(targetType),
+                                        tileShape),
+      targetType.getElementType(), scalarTargetLayout);
   plan.push_back(TilizeStep{
       llvm::to_vector(tileShape), scalarTargetType,
       makeOutputSpec(tiledType, targetVgmForward, targetVgmInverse)});
@@ -401,11 +405,13 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
     updateStateFromOutput(current, output, current.remapping);
   }
 
-  // L1 → DRAM: the DMA writes directly into the output DRAM buffer, including
-  // the target virtual-grid metadata. Otherwise a following VGM-only rebuffer
-  // would become an unsupported DRAM→DRAM copy.
+  // L1 -> DRAM can reblock directly when the physical volumes match. A view
+  // maps the output to the source grid, preserving parallel virtual-grid DMA.
+  // Padded volume changes must first reshard in L1 so extra source shards do
+  // not address past the target DRAM allocation.
   if (current.hasLayout() && !current.isDRAM() && tgt.hasLayout() &&
-      tgt.isDRAM()) {
+      tgt.isDRAM() &&
+      current.type.getNumElements() == tgt.type.getNumElements()) {
     auto output = makeOutputSpec(tgt.type, tgt.vgmForward, tgt.vgmInverse);
     plan.push_back(L1ToDRAMStep{output, AffineMap()});
     updateStateFromOutput(current, output);
@@ -430,12 +436,14 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
                                    tgt.getLayout()->getDimAlignments());
 
     if (needsMappingChange) {
-      bool isSimpleReblocking = (current.getLayout()->getLogicalShape() ==
-                                     tgt.getLayout()->getLogicalShape() &&
-                                 current.getLayout()->getDimAlignments() ==
-                                     tgt.getLayout()->getDimAlignments() &&
-                                 current.getLayout()->getCollapsedIntervals() ==
-                                     tgt.getLayout()->getCollapsedIntervals());
+      bool isSimpleReblocking =
+          (current.getLayout()->getLogicalShape() ==
+               tgt.getLayout()->getLogicalShape() &&
+           current.getLayout()->getDimAlignments() ==
+               tgt.getLayout()->getDimAlignments() &&
+           current.getLayout()->getCollapsedIntervals() ==
+               tgt.getLayout()->getCollapsedIntervals() &&
+           current.type.getNumElements() == tgt.type.getNumElements());
       bool bothTilized =
           ttcore::isTiled(current.type) && ttcore::isTiled(tgt.type);
 
@@ -443,9 +451,8 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
         // Tilized, misaligned shards: mapping must go through scalar space.
         emitTilizedReshardDecomposition(
             plan, ctx, current.type, *current.getLayout(), tgt.type,
-            *tgt.getLayout(), targetGridShape, current.remapping,
-            current.vgmForward, current.vgmInverse, tgt.vgmForward,
-            tgt.vgmInverse);
+            *tgt.getLayout(), current.vgmForward, current.vgmInverse,
+            tgt.vgmForward, tgt.vgmInverse);
         updateStateFromOutput(current,
                               std::get<TilizeStep>(plan.back()).output);
       } else {
@@ -466,6 +473,16 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
         updateStateFromOutput(current, output);
       }
     }
+  }
+
+  // L1 -> DRAM after any required padded mapping change. The DMA writes into
+  // the output DRAM buffer with the target virtual-grid metadata, avoiding an
+  // unsupported DRAM-to-DRAM rebuffer.
+  if (current.hasLayout() && !current.isDRAM() && tgt.hasLayout() &&
+      tgt.isDRAM()) {
+    auto output = makeOutputSpec(tgt.type, tgt.vgmForward, tgt.vgmInverse);
+    plan.push_back(L1ToDRAMStep{output, AffineMap()});
+    updateStateFromOutput(current, output);
   }
 
   // Materialize into a fresh buffer when VGM changes or when we need to clear

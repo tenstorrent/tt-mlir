@@ -6,11 +6,9 @@
 
 #include "operations/cpu/cpu.h"
 #include "tt-metalium/experimental/fabric/fabric.hpp"
-#include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
-#include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/layout_converter.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
@@ -20,7 +18,6 @@
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
-#include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/types_generated.h"
 #include "ttnn/tensor/serialization.hpp"
@@ -387,13 +384,12 @@ Tensor createMultiDeviceBorrowedHostTensor(
   }
   ::ttnn::MeshDevice &meshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  ::ttnn::TensorSpec tensorSpec(
+  ::tt::tt_metal::TensorSpec tensorSpec(
       ::ttnn::Shape(shape),
       ::ttnn::TensorLayout(
           layoutDesc.dataType, ::ttnn::PageConfig(layoutDesc.layout),
           layoutDesc.memoryConfig.value_or(::ttnn::MemoryConfig{})));
-  ::ttnn::Tensor tensor =
-      ::tt::tt_metal::create_device_tensor(tensorSpec, &meshDevice);
+  ::ttnn::Tensor tensor = ::ttnn::create_device_tensor(tensorSpec, &meshDevice);
 
   return utils::createRuntimeTensorFromTTNN(tensor);
 }
@@ -810,7 +806,13 @@ getMemoryView(Device deviceHandle) {
 }
 
 void setFabricConfig(tt::runtime::FabricConfig config) {
-  ::tt::tt_fabric::SetFabricConfig(common::toMetalFabricConfig(config));
+  // RELAXED reliability mode brings fabric up on the live links only, rather
+  // than requiring every link in the mesh graph descriptor to be healthy. The
+  // STRICT default errors/hangs at init on any downed link, stalling
+  // multi-device CCL ops (e.g. moe_compute's combine) on a Galaxy.
+  ::tt::tt_fabric::SetFabricConfig(
+      common::toMetalFabricConfig(config),
+      ::tt::tt_fabric::FabricReliabilityMode::RELAXED_SYSTEM_HEALTH_SETUP_MODE);
   RuntimeContext::instance().setCurrentFabricConfig(config);
 }
 
@@ -1044,8 +1046,8 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
     size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dst, srcPtr, size);
   } else {
-    ::tt::tt_metal::copy_to_host(srcTensor.device()->mesh_command_queue(),
-                                 srcTensor, reinterpret_cast<std::byte *>(dst));
+    ::ttnn::copy_to_host(srcTensor.device()->mesh_command_queue(), srcTensor,
+                         reinterpret_cast<std::byte *>(dst));
   }
 }
 
@@ -1065,12 +1067,11 @@ void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
     size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dstPtr, srcPtr, size);
   } else if (utils::isOnHost(srcTensor.storage_type())) {
-    ::tt::tt_metal::copy_to_device(srcTensor, dstTensor);
+    ::ttnn::copy_to_device(srcTensor, dstTensor);
   } else {
     void *dstPtr = utils::getRawHostDataPtr(dstTensor);
-    ::tt::tt_metal::copy_to_host(srcTensor.device()->mesh_command_queue(),
-                                 srcTensor,
-                                 reinterpret_cast<std::byte *>(dstPtr));
+    ::ttnn::copy_to_host(srcTensor.device()->mesh_command_queue(), srcTensor,
+                         reinterpret_cast<std::byte *>(dstPtr));
   }
 }
 
@@ -1488,6 +1489,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_FlashMlaPrefillOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::IndexerScoreDsaOp: {
+    tensorRefs = {opContext.type_as_IndexerScoreDsaOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
     tensorRefs = {opContext.type_as_NLPConcatHeadsDecodeOp()->out()};
     break;
@@ -1568,9 +1573,7 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::MoeComputeOp: {
     auto *op = opContext.type_as_MoeComputeOp();
-    tensorRefs = {op->per_expert_total_tokens(), op->expert_activation(),
-                  op->expert_to_token(),         op->tilize_output(),
-                  op->matmul_output(),           op->combine_output()};
+    tensorRefs = {op->combine_output()};
     break;
   }
   case ::tt::target::ttnn::OpType::TopKOp: {
@@ -1583,6 +1586,15 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {op->expert_indices(), op->expert_weights()};
     break;
   }
+  case ::tt::target::ttnn::OpType::SDPAForwardOp: {
+    auto *op = opContext.type_as_SDPAForwardOp();
+    tensorRefs = {op->out()};
+    if (op->intermediates()) {
+      tensorRefs.push_back(op->intermediates());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AdamWOp:
   case ::tt::target::ttnn::OpType::FillCacheOp:
   case ::tt::target::ttnn::OpType::PagedFillCacheOp:
   case ::tt::target::ttnn::OpType::UpdateCacheOp:
@@ -1623,6 +1635,9 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     break;
   }
   case ::tt::target::ttnn::OpType::ResetGlobalSemaphoreOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllocateMoeComputeSemaphoreOp: {
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1929,6 +1944,25 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
                   opContext.type_as_BatchNormTrainingOp()->running_var(),
                   opContext.type_as_BatchNormTrainingOp()->weight(),
                   opContext.type_as_BatchNormTrainingOp()->bias()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AdamWOp: {
+    tensorRefs = {opContext.type_as_AdamWOp()->param(),
+                  opContext.type_as_AdamWOp()->grad(),
+                  opContext.type_as_AdamWOp()->exp_avg(),
+                  opContext.type_as_AdamWOp()->exp_avg_sq()};
+    if (opContext.type_as_AdamWOp()->max_exp_avg_sq()) {
+      tensorRefs.push_back(opContext.type_as_AdamWOp()->max_exp_avg_sq());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SDPAForwardOp: {
+    tensorRefs = {opContext.type_as_SDPAForwardOp()->query(),
+                  opContext.type_as_SDPAForwardOp()->key(),
+                  opContext.type_as_SDPAForwardOp()->value()};
+    if (opContext.type_as_SDPAForwardOp()->attention_mask()) {
+      tensorRefs.push_back(opContext.type_as_SDPAForwardOp()->attention_mask());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {
@@ -2254,6 +2288,11 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::IndexerScoreDsaOp: {
+    auto *op = opContext.type_as_IndexerScoreDsaOp();
+    tensorRefs = {op->query(), op->key(), op->weights()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
     tensorRefs = {
         opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->query(),
@@ -2357,6 +2396,9 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     break;
   }
   case ::tt::target::ttnn::OpType::ResetGlobalSemaphoreOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllocateMoeComputeSemaphoreOp: {
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -2496,7 +2538,7 @@ void updateTensorInPool(CallbackContext programContextHandle,
   const bool dstOnHost = utils::isOnHost(dstTensor.storage_type());
   if (!srcOnHost && !dstOnHost) {
     ::ttnn::Tensor hostSrcTensor = ::ttnn::from_device(srcTensor);
-    ::tt::tt_metal::copy_to_device(hostSrcTensor, dstTensor);
+    ::ttnn::copy_to_device(hostSrcTensor, dstTensor);
   } else {
     ::tt::runtime::Tensor &dstRuntimeTensor =
         tensorPool.getRuntimeTensorAndValidate(tensorRefPtr);
@@ -2529,7 +2571,7 @@ invokeCpuOp(CallbackContext programContextHandle, OpContext opContextHandle,
 
 void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
   ::ttnn::Tensor ttnnTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
-  ::tt::tt_metal::dump_tensor_flatbuffer(filePath, ttnnTensor);
+  ::ttnn::dump_tensor_flatbuffer(filePath, ttnnTensor);
 }
 
 ::tt::runtime::Tensor loadTensor(const std::string &filePath,
@@ -2541,7 +2583,7 @@ void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
   }
 
   ::ttnn::Tensor metalTensor =
-      ::tt::tt_metal::load_tensor_flatbuffer(filePath, devicePtr);
+      ::ttnn::load_tensor_flatbuffer(filePath, devicePtr);
 
   auto tensor = utils::createRuntimeTensorFromTTNN(metalTensor);
 

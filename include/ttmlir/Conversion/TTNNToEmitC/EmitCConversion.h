@@ -114,6 +114,10 @@ namespace transformer {
 struct SDPAProgramConfig;
 } // namespace transformer
 
+namespace experimental::indexer_score {
+struct IndexerScoreProgramConfig;
+} // namespace experimental::indexer_score
+
 } // namespace operations
 } // namespace ttnn
 
@@ -265,6 +269,14 @@ template <>
 struct TypeName<::ttnn::operations::transformer::SDPAProgramConfig> {
   inline static const std::string value =
       "::ttnn::operations::transformer::SDPAProgramConfig";
+};
+
+template <>
+struct TypeName<::ttnn::operations::experimental::indexer_score::
+                    IndexerScoreProgramConfig> {
+  inline static const std::string value = "::ttnn::operations::experimental::"
+                                          "indexer_score::"
+                                          "IndexerScoreProgramConfig";
 };
 
 // Marker type for MatmulMultiCoreReuseMultiCast1DProgramConfig (used by
@@ -2001,6 +2013,12 @@ static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
 // Name for the function that creates a std::vector from a variadic number of
 // `ttnn::Tensor`s.
 inline constexpr const char *kCreateVectorFunctionName = "util_create_vec";
+
+// Name for the function that unwraps a `std::optional<T>` into a `T`. Used to
+// extract tensors from ttml metal ops that return
+// `std::vector<std::optional<ttnn::Tensor>>` (e.g. sdpa_fw).
+inline constexpr const char *kGetOptionalValueFunctionName =
+    "util_get_optional_value";
 
 // Name for the function that gets a scalar (uint32_t) from a `ttnn::Tensor`.
 inline constexpr const char *kGetScalarFromTensorFunctionName =

@@ -1656,7 +1656,8 @@ public:
 //
 // Operand/attribute mapping:
 //   - Operands: [query, key, value] or [query, key, value, attention_mask].
-//     Shapes are passed through unchanged; the TTIR generic verifier enforces
+//     4D shapes are passed through unchanged; 3D query/key/value are promoted
+//     to 4D with a unit head dim. The TTIR generic verifier enforces
 //     [B, Hq, Sq, D] / [B, Hkv, Sk, D] / [1|B, 1|Hq, Sq, Sk] layouts.
 //   - Attributes: only `is_causal` and `scale` are forwarded from the
 //     composite. Other attributes that PyTorch SDPA may set
@@ -1707,12 +1708,41 @@ static LogicalResult convertToTTIRScaledDotProductAttention(
     }
   }
 
+  auto queryType = mlir::cast<RankedTensorType>(operands[0].getType());
+  int64_t queryRank = queryType.getRank();
+  if (queryRank != 3 && queryRank != 4) {
+    return rewriter.notifyMatchFailure(srcOp, "query rank must be 3 or 4");
+  }
+  bool needsHeadDim = queryRank == 3;
+  if (needsHeadDim) {
+    for (Value operand : operands.take_front(3)) {
+      if (mlir::cast<RankedTensorType>(operand.getType()).getRank() != 3) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "query, key and value must all have the same rank");
+      }
+    }
+  }
+
+  auto insertHeadDim = [&](Value value) -> Value {
+    auto type = mlir::cast<RankedTensorType>(value.getType());
+    SmallVector<int64_t> shape(type.getShape().begin(), type.getShape().end());
+    shape.insert(shape.begin() + 1, 1);
+    auto promotedType = RankedTensorType::get(shape, type.getElementType());
+    return rewriter.create<ttir::ReshapeOp>(
+        srcOp->getLoc(), promotedType, value,
+        rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(shape)));
+  };
+
   // The first 3 operands are always query, key, value. A 4th operand
   // (attention_mask) is present only when is_causal is false.
   bool hasAttnMask = !isCausal && numOperands == 4;
   SmallVector<Value> sdpaOperands = {operands[0], operands[1], operands[2]};
+  if (needsHeadDim) {
+    for (Value &operand : sdpaOperands) {
+      operand = insertHeadDim(operand);
+    }
+  }
   if (hasAttnMask) {
-    // Left-pad mask with unit dims to 4D — matches PyTorch broadcast semantics.
     Value mask = operands[3];
     auto maskType = mlir::cast<RankedTensorType>(mask.getType());
     int64_t maskRank = maskType.getRank();
@@ -1720,7 +1750,12 @@ static LogicalResult convertToTTIRScaledDotProductAttention(
       return rewriter.notifyMatchFailure(srcOp,
                                          "attention_mask rank must be <= 4");
     }
-    if (maskRank < 4) {
+    if (needsHeadDim && maskRank == 3) {
+      // A [B, Sq, Sk] mask takes the head dim in the same position as query.
+      mask = insertHeadDim(mask);
+    } else if (maskRank < 4) {
+      // Left-pad mask with unit dims to 4D — matches PyTorch broadcast
+      // semantics.
       SmallVector<int64_t> paddedShape(4 - maskRank, 1);
       paddedShape.append(maskType.getShape().begin(),
                          maskType.getShape().end());
@@ -1739,8 +1774,25 @@ static LogicalResult convertToTTIRScaledDotProductAttention(
   namedAttrs.push_back(rewriter.getNamedAttr(
       "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
 
-  rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
-      srcOp, outputType, sdpaOperands, namedAttrs);
+  if (!needsHeadDim) {
+    rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
+        srcOp, outputType, sdpaOperands, namedAttrs);
+    return success();
+  }
+
+  SmallVector<int64_t> promotedShape(outputType.getShape().begin(),
+                                     outputType.getShape().end());
+  promotedShape.insert(promotedShape.begin() + 1, 1);
+  auto promotedOutputType =
+      RankedTensorType::get(promotedShape, outputType.getElementType());
+
+  Value sdpaResult = rewriter.create<ttir::ScaledDotProductAttentionOp>(
+      srcOp->getLoc(), promotedOutputType, sdpaOperands, namedAttrs);
+
+  rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+      srcOp, outputType, sdpaResult,
+      rewriter.getI32ArrayAttr(
+          llvm::to_vector_of<int32_t>(outputType.getShape())));
   return success();
 }
 
@@ -1943,6 +1995,150 @@ public:
   }
 };
 
+class TenstorrentAdamWConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentAdamWConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.adamw") {
+      return failure();
+    }
+    size_t numOperands = adaptor.getOperands().size();
+    if (numOperands != 4 && numOperands != 5) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.adamw must have 4 or 5 operands (param, grad, "
+                 "exp_avg, exp_avg_sq, [max_exp_avg_sq]).");
+    }
+
+    if (srcOp.getNumResults() != numOperands - 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.adamw must have one result per updated operand "
+                 "(param, exp_avg, exp_avg_sq, [max_exp_avg_sq]).");
+    }
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+    if (!compositeAttrs) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.adamw must have composite_attributes.");
+    }
+
+    // Copy the required F32 hyperparameters through, normalizing to F32 so the
+    // ttir.adamw verifier accepts them regardless of the source float width.
+    static constexpr StringRef kFloatAttrs[] = {
+        "lr",        "beta1",   "beta2",       "beta1_pow",
+        "beta2_pow", "epsilon", "weight_decay"};
+
+    SmallVector<NamedAttribute> namedAttrs;
+    for (StringRef name : kFloatAttrs) {
+      auto attr = mlir::dyn_cast_or_null<FloatAttr>(compositeAttrs.get(name));
+      if (!attr) {
+        return rewriter.notifyMatchFailure(
+            srcOp, llvm::Twine("tenstorrent.adamw requires float '") + name +
+                       "' attribute");
+      }
+      namedAttrs.push_back(rewriter.getNamedAttr(
+          name, rewriter.getF32FloatAttr(attr.getValueAsDouble())));
+    }
+
+    // stochastic_rounding is optional and defaults to false.
+    bool stochasticRounding = false;
+    if (auto srAttr = mlir::dyn_cast_or_null<BoolAttr>(
+            compositeAttrs.get("stochastic_rounding"))) {
+      stochasticRounding = srAttr.getValue();
+    }
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "stochastic_rounding", rewriter.getBoolAttr(stochasticRounding)));
+
+    rewriter.replaceOpWithNewOp<ttir::AdamWOp>(
+        srcOp, srcOp.getResultTypes(), adaptor.getOperands(), namedAttrs);
+    return success();
+  }
+};
+
+class TenstorrentSDPAForwardConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentSDPAForwardConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.sdpa_fw") {
+      return failure();
+    }
+    size_t numOperands = adaptor.getOperands().size();
+    if (numOperands != 3 && numOperands != 4) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.sdpa_fw must have 3 or 4 operands (query, key, "
+                 "value, [attention_mask]).");
+    }
+    size_t numResults = srcOp.getNumResults();
+    if (numResults != 1 && numResults != 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.sdpa_fw must have 1 or 2 results (output, "
+                 "[intermediates]).");
+    }
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+
+    // mask_type is an integer selector (0=None, 1=Causal, 2=Arbitrary),
+    // defaulting to Causal.
+    ttcore::AttentionMaskType maskType = ttcore::AttentionMaskType::Causal;
+    if (compositeAttrs) {
+      if (auto maskAttr = mlir::dyn_cast_or_null<IntegerAttr>(
+              compositeAttrs.get("mask_type"))) {
+        int64_t maskTypeInt = maskAttr.getInt();
+        if (maskTypeInt < 0 || maskTypeInt > 2) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "tenstorrent.sdpa_fw mask_type must be 0 (None), 1 "
+                     "(Causal), or 2 (Arbitrary).");
+        }
+        maskType = static_cast<ttcore::AttentionMaskType>(maskTypeInt);
+      }
+    }
+
+    // The presence of the attention_mask operand must agree with the mask type.
+    bool hasMask = numOperands == 4;
+    if (hasMask != (maskType == ttcore::AttentionMaskType::Arbitrary)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.sdpa_fw attention_mask operand must be present "
+                 "iff mask_type is arbitrary.");
+    }
+
+    float dropout = 0.0F;
+    if (compositeAttrs) {
+      if (auto dropAttr = mlir::dyn_cast_or_null<FloatAttr>(
+              compositeAttrs.get("dropout_probability"))) {
+        dropout = dropAttr.getValueAsDouble();
+      }
+    }
+
+    bool returnIntermediates = numResults == 2;
+
+    SmallVector<NamedAttribute> namedAttrs;
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "mask_type",
+        ttcore::AttentionMaskTypeAttr::get(rewriter.getContext(), maskType)));
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "dropout_probability", rewriter.getF32FloatAttr(dropout)));
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "return_intermediates", rewriter.getBoolAttr(returnIntermediates)));
+
+    rewriter.replaceOpWithNewOp<ttir::SDPAForwardOp>(
+        srcOp, srcOp.getResultTypes(), adaptor.getOperands(), namedAttrs);
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -1977,6 +2173,8 @@ void populateStableHLOCompositeLegalizationPatterns(
       context, "tenstorrent.gelu");
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
       context, "tenstorrent.gelu_tanh");
+  patterns.add<TenstorrentAdamWConversionPattern>(context);
+  patterns.add<TenstorrentSDPAForwardConversionPattern>(context);
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<CustomCallRMSNormConversionPattern>(context);
   patterns.add<CustomCallDistributedRMSNormConversionPattern>(context);

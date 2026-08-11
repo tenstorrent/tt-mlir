@@ -290,4 +290,23 @@ def TTCore_RoutingMode : I32EnumAttr<"RoutingMode", "TT RoutingMode",
   let cppNamespace = "::mlir::tt::ttcore";
 }
 
+// Attention mask mode for scaled dot-product attention. Mirrors
+// `ttml::metal::AttentionMaskType` (values must match its declaration order):
+//  - None: no mask, scores are only scaled.
+//  - Causal: lower-triangular causal mask generated on device.
+//  - Arbitrary: use the provided mask tensor.
+def TTCore_AttentionMaskType_None : I32EnumAttrCase<"None", 0, "none">;
+def TTCore_AttentionMaskType_Causal : I32EnumAttrCase<"Causal", 1, "causal">;
+def TTCore_AttentionMaskType_Arbitrary : I32EnumAttrCase<"Arbitrary", 2, "arbitrary">;
+
+def TTCore_AttentionMaskType : I32EnumAttr<"AttentionMaskType", "TT AttentionMaskType",
+                           [
+                            TTCore_AttentionMaskType_None,
+                            TTCore_AttentionMaskType_Causal,
+                            TTCore_AttentionMaskType_Arbitrary,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttcore";
+}
+
 #endif // TTMLIR_DIALECT_TTCORE_IR_TTCOREOPSENUMS_TD

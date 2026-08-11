@@ -359,6 +359,17 @@ createOp(FlatbufferObjectCache &cache, ResetGlobalSemaphoreOp op) {
                                                           op.getValue());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::AllocateMoeComputeSemaphoreOp>
+createOp(FlatbufferObjectCache &cache, AllocateMoeComputeSemaphoreOp op) {
+  auto output =
+      cache.getOrCreate(op.getResult(), globalSemaphoreValueToFlatbuffer);
+  auto coreRangeSet = ::tt::target::ttnn::CreateCoreRangeSet(
+      *cache.fbb, toFlatbuffer(cache, op.getMuxCoreRangeSet().getCoreRanges()));
+  return ::tt::target::ttnn::CreateAllocateMoeComputeSemaphoreOp(
+      *cache.fbb, coreRangeSet, op.getOutputHeightShardDim(),
+      op.getHiddenSize(), op.getInitialValue(), output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::FullOp>
 createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto shape = op.getShape().getShape().vec();
@@ -1242,17 +1253,33 @@ createOp(FlatbufferObjectCache &cache, AllToAllDispatchMetadataOp op) {
     memoryConfig = toFlatbuffer(cache, memConfig.value());
   }
 
-  const ::tt::target::ttnn::CoreCoord *drainCorePtr = nullptr;
-  ::tt::target::ttnn::CoreCoord drainCoreVal;
-  if (auto drainCoreAttr = op.getDrainCore()) {
-    drainCoreVal = toFlatbuffer(cache, *drainCoreAttr);
-    drainCorePtr = &drainCoreVal;
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> dispatchedBuffer = 0;
+  if (op.getDispatchedBuffer()) {
+    dispatchedBuffer = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getDispatchedBuffer()));
+  }
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> indicesBuffer = 0;
+  if (op.getIndicesBuffer()) {
+    indicesBuffer = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getIndicesBuffer()));
+  }
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> scoresBuffer = 0;
+  if (op.getScoresBuffer()) {
+    scoresBuffer = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getScoresBuffer()));
+  }
+  ::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>
+      crossDeviceSemaphore = 0;
+  if (op.getCrossDeviceSemaphore()) {
+    crossDeviceSemaphore = cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(
+        op.getCrossDeviceSemaphore());
   }
 
   return ::tt::target::ttnn::CreateAllToAllDispatchMetadataOp(
       *cache.fbb, inputTensor, expertIndices, expertScores, expertMapping,
       dispatched, indices, scores, static_cast<uint32_t>(op.getNumDevices()),
-      static_cast<uint32_t>(op.getClusterAxis()), memoryConfig, drainCorePtr);
+      static_cast<uint32_t>(op.getClusterAxis()), memoryConfig,
+      dispatchedBuffer, indicesBuffer, scoresBuffer, crossDeviceSemaphore);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::AllToAllCombineOp>
@@ -1432,30 +1459,15 @@ createOp(FlatbufferObjectCache &cache, MoeComputeOp op) {
 
   auto activation = toFlatbuffer(cache, op.getActivationFunction());
 
-  // `cluster_axis`, `num_links`, and `topology` are schema-optional
-  // (uint32/Topology = null). Use the toFlatbuffer overloads that return
-  // flatbuffers::Optional<...> so unset attrs serialize as the absent marker
-  // rather than 0/Ring — tt-metal distinguishes the two (e.g. moe_compute
-  // asserts num_links > 0, and cluster_axis=0 is a valid mesh axis).
-  auto clusterAxis = toFlatbuffer(cache, op.getClusterAxis());
+  // cluster_axis is required but schema-optional; serialize it present.
+  // num_links and topology are optional — serialize unset as the absent marker
+  // (tt-metal asserts num_links > 0).
+  auto clusterAxis = ::flatbuffers::Optional<uint32_t>(op.getClusterAxis());
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
   auto topology = toFlatbuffer(cache, op.getTopology());
 
-  ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet> muxCoreRangeSet = 0;
-  if (op.getMuxCoreRangeSetAttr()) {
-    muxCoreRangeSet = toFlatbuffer(cache, op.getMuxCoreRangeSetAttr());
-  }
+  auto muxCoreRangeSet = toFlatbuffer(cache, op.getMuxCoreRangeSetAttr());
 
-  auto perExpertTokens = cache.getOrCreateNoSharding(
-      op.getPerExpertTotalTokens(), tensorValueToFlatbuffer, std::nullopt);
-  auto expertActivation = cache.getOrCreateNoSharding(
-      op.getExpertActivation(), tensorValueToFlatbuffer, std::nullopt);
-  auto expertToToken = cache.getOrCreateNoSharding(
-      op.getExpertToToken(), tensorValueToFlatbuffer, std::nullopt);
-  auto tilizeOutput = cache.getOrCreateNoSharding(
-      op.getTilizeOutput(), tensorValueToFlatbuffer, std::nullopt);
-  auto matmulOutput = cache.getOrCreateNoSharding(
-      op.getMatmulOutput(), tensorValueToFlatbuffer, std::nullopt);
   auto combineOutput = cache.getOrCreateNoSharding(
       op.getCombineOutput(), tensorValueToFlatbuffer, std::nullopt);
 
@@ -1464,8 +1476,7 @@ createOp(FlatbufferObjectCache &cache, MoeComputeOp op) {
       w2, optionalOutput, crossDeviceSemaphore, deviceRef, op.getLayerId(),
       op.getOutputHeightShardDim(), op.getIntermediateSize(), op.getHasBias(),
       clusterAxis, activation, numLinks, topology, muxCoreRangeSet,
-      op.getComputeOnly(), perExpertTokens, expertActivation, expertToToken,
-      tilizeOutput, matmulOutput, combineOutput);
+      combineOutput);
 }
 
 // Convert ttcore::ReduceType to tt::target::ttnn::ScatterReduceType
@@ -1610,6 +1621,66 @@ createOp(FlatbufferObjectCache &cache, BatchNormTrainingOp op) {
       *cache.fbb, input, runningMean, runningVar,
       op.getEpsilon().convertToFloat(), op.getMomentum().convertToFloat(),
       weight, bias, memoryConfig, output, computeConfig.value_or(0));
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::AdamWOp>
+createOp(FlatbufferObjectCache &cache, AdamWOp op) {
+  auto param = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getParam()));
+  auto grad = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGrad()));
+  auto expAvg = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpAvg()));
+  auto expAvgSq = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpAvgSq()));
+
+  // Optional AMSGrad max second moment: offset 0 when absent.
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> maxExpAvgSq = 0;
+  if (op.getMaxExpAvgSq()) {
+    maxExpAvgSq = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getMaxExpAvgSq()));
+  }
+
+  return ::tt::target::ttnn::CreateAdamWOp(
+      *cache.fbb, param, grad, expAvg, expAvgSq, maxExpAvgSq,
+      op.getLr().convertToFloat(), op.getBeta1().convertToFloat(),
+      op.getBeta2().convertToFloat(), op.getBeta1Pow().convertToFloat(),
+      op.getBeta2Pow().convertToFloat(), op.getEpsilon().convertToFloat(),
+      op.getWeightDecay().convertToFloat(), op.getStochasticRounding());
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::SDPAForwardOp>
+createOp(FlatbufferObjectCache &cache, SDPAForwardOp op) {
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+  auto value = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getValue()));
+
+  // Optional attention mask: offset 0 when absent.
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> attentionMask = 0;
+  if (op.getAttentionMask()) {
+    attentionMask = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getAttentionMask()));
+  }
+
+  auto output = cache.getOrCreateNoSharding(
+      op.getOutput(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+
+  // Optional log-sum-exp intermediates: offset 0 when absent.
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> intermediates = 0;
+  if (op.getIntermediates()) {
+    intermediates = cache.getOrCreateNoSharding(op.getIntermediates(),
+                                                tensorValueToFlatbuffer,
+                                                /*local_shape*/ std::nullopt);
+  }
+
+  return ::tt::target::ttnn::CreateSDPAForwardOp(
+      *cache.fbb, query, key, value, attentionMask,
+      static_cast<uint32_t>(op.getMaskType()),
+      op.getDropoutProbability().convertToFloat(), op.getReturnIntermediates(),
+      output, intermediates);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RMSNormOp>
@@ -3322,9 +3393,13 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::SDPAConfig>>
       programConfig = toFlatbuffer(cache, op.getProgramConfig());
 
+  ::flatbuffers::Optional<uint32_t> slidingWindowSize =
+      toFlatbuffer(cache, op.getSlidingWindowSize());
+
   return ::tt::target::ttnn::CreateScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, isCausal, attentionMask, curPosTensor,
-      attentionSink, scale, out, memoryConfig, programConfig.value_or(0));
+      attentionSink, scale, slidingWindowSize, out, memoryConfig,
+      programConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<
@@ -3528,6 +3603,27 @@ createOp(FlatbufferObjectCache &cache, FlashMlaPrefillOp op) {
   return ::tt::target::ttnn::CreateFlashMlaPrefillOp(
       *cache.fbb, query, key, value, attentionMask, headDimV, isCausal, scale,
       out, memoryConfig);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::IndexerScoreDsaOp>
+createOp(FlatbufferObjectCache &cache, IndexerScoreDsaOp op) {
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+  auto weights = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getWeights()));
+  auto chunkStartIdx = op.getChunkStartIdx();
+  ::flatbuffers::Optional<uint32_t> clusterAxis;
+  if (auto axis = op.getClusterAxis()) {
+    clusterAxis = *axis;
+  }
+  auto out =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateIndexerScoreDsaOp(
+      *cache.fbb, query, key, weights, chunkStartIdx, out, clusterAxis);
 }
 
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
@@ -4836,6 +4932,14 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, batchNormTrainingOp),
                            debugString, locInfo);
   }
+  if (auto adamwOp = dyn_cast<AdamWOp>(op); adamwOp) {
+    return createOperation(cache, createOp(cache, adamwOp), debugString,
+                           locInfo);
+  }
+  if (auto sdpaForwardOp = dyn_cast<SDPAForwardOp>(op); sdpaForwardOp) {
+    return createOperation(cache, createOp(cache, sdpaForwardOp), debugString,
+                           locInfo);
+  }
   if (auto rmsNormOp = dyn_cast<RMSNormOp>(op); rmsNormOp) {
     return createOperation(cache, createOp(cache, rmsNormOp), debugString,
                            locInfo);
@@ -5005,6 +5109,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, flashMlaPrefillOp),
                            debugString, locInfo);
   }
+  if (auto indexerScoreDsaOp = dyn_cast<IndexerScoreDsaOp>(op);
+      indexerScoreDsaOp) {
+    return createOperation(cache, createOp(cache, indexerScoreDsaOp),
+                           debugString, locInfo);
+  }
   if (auto dtOp = dyn_cast<DistributeTensorOp>(op); dtOp) {
     return createOperation(cache, createOp(cache, dtOp), debugString, locInfo);
   }
@@ -5054,6 +5163,14 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto createGlobalSemaphoreOp = dyn_cast<CreateGlobalSemaphoreOp>(op);
       createGlobalSemaphoreOp) {
     return createOperation(cache, createOp(cache, createGlobalSemaphoreOp),
+                           debugString, locInfo);
+  }
+
+  if (auto allocateMoeComputeSemaphoreOp =
+          dyn_cast<AllocateMoeComputeSemaphoreOp>(op);
+      allocateMoeComputeSemaphoreOp) {
+    return createOperation(cache,
+                           createOp(cache, allocateMoeComputeSemaphoreOp),
                            debugString, locInfo);
   }
 

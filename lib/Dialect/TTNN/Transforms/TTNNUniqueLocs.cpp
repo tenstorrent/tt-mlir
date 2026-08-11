@@ -40,7 +40,7 @@ public:
         return;
       }
 
-      if (mlir::isa<ToLayoutOp>(op)) {
+      if (mlir::isa<ToTensorSpecOp>(op)) {
         return;
       }
 

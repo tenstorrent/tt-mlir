@@ -1,0 +1,32 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table AdamWOp {
+  param: tt.target.ttnn.TensorRef;
+  grad: tt.target.ttnn.TensorRef;
+  exp_avg: tt.target.ttnn.TensorRef;
+  exp_avg_sq: tt.target.ttnn.TensorRef;
+  max_exp_avg_sq: tt.target.ttnn.TensorRef;
+  lr: float;
+  beta1: float;
+  beta2: float;
+  beta1_pow: float;
+  beta2_pow: float;
+  epsilon: float;
+  weight_decay: float;
+  stochastic_rounding: bool = false;
+}
+
+table SDPAForwardOp {
+  query: tt.target.ttnn.TensorRef;
+  key: tt.target.ttnn.TensorRef;
+  value: tt.target.ttnn.TensorRef;
+  attention_mask: tt.target.ttnn.TensorRef;
+  mask_type: uint32;
+  dropout_probability: float;
+  return_intermediates: bool = false;
+  out: tt.target.ttnn.TensorRef;
+  intermediates: tt.target.ttnn.TensorRef;
+}

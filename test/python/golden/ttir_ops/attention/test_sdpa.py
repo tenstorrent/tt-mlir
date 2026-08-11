@@ -620,3 +620,227 @@ def test_sdpa_decode_in_models(
         **get_request_kwargs(request),
         device=device,
     )
+
+
+@pytest.mark.parametrize(
+    "num_heads,num_kv_heads,head_dim,blocks_per_user",
+    [
+        # MHA (Q heads == KV heads)
+        (8, 8, 64, 4),
+        (8, 8, 128, 4),
+        # GQA (4:1)
+        (8, 2, 128, 4),
+        # MQA with large head_dim (config-sensitive path, Gemma-style)
+        (8, 1, 256, 4),
+        # MQA: head_dim=512, 32-block page table (Blackhole L1 overflow guard)
+        (8, 1, 512, 32),
+    ],
+    ids=[
+        "mha_d64",
+        "mha_d128",
+        "gqa_d128",
+        "mqa_d256",
+        "gemma4_d512_overflow",
+    ],
+)
+@pytest.mark.parametrize("optimization_level", [0, 1, 2])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_paged_sdpa_decode_causal(
+    num_heads: int,
+    num_kv_heads: int,
+    head_dim: int,
+    blocks_per_user: int,
+    optimization_level: int,
+    target: str,
+    request,
+    device,
+):
+    """
+    Test causal Paged Scaled Dot Product Attention Decode.
+
+    The head_dim=512 case guards the Blackhole program config injected by the
+    TTNN workaround; running across all optimization levels confirms the
+    optimizer does not drop or overwrite it.
+    """
+    batch = 1
+    block_size = 32
+    kv_seq = block_size * blocks_per_user
+    num_blocks = batch * blocks_per_user
+    scale = head_dim**-0.5
+
+    # Q: [batch, seq_q=1, num_heads, head_dim]
+    query_shape = (batch, 1, num_heads, head_dim)
+    # K/V (paged): [num_blocks, num_kv_heads, block_size, head_dim]
+    kv_shape = (num_blocks, num_kv_heads, block_size, head_dim)
+    page_table_shape = (batch, blocks_per_user)
+    output_shape = query_shape
+    cur_pos_shape = (batch,)
+
+    shapes = [
+        query_shape,
+        kv_shape,
+        kv_shape,
+        page_table_shape,
+        output_shape,
+        cur_pos_shape,
+    ]
+    dtypes = [
+        torch.bfloat16,
+        torch.bfloat16,
+        torch.bfloat16,
+        torch.int32,
+        torch.bfloat16,
+        torch.int32,
+    ]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def paged_sdpa_decode(
+            query: Operand,
+            key: Operand,
+            value: Operand,
+            page_table: Operand,
+            output: Operand,
+            cur_pos: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Page table maps each user's logical blocks to physical blocks.
+            valid_page_table = (
+                torch.arange(blocks_per_user, dtype=torch.int32)
+                .unsqueeze(0)
+                .expand(batch, -1)
+                .contiguous()
+            )
+            # Attend to all KV positions so the golden covers the full cache.
+            valid_cur_pos = torch.full((batch,), kv_seq - 1, dtype=torch.int32)
+            builder.set_goldens(
+                {page_table: valid_page_table, cur_pos: valid_cur_pos}, {}
+            )
+            return builder.paged_scaled_dot_product_attention_decode(
+                query,
+                key,
+                value,
+                page_table,
+                output,
+                is_causal=True,
+                cur_pos_tensor=cur_pos,
+                scale=scale,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        pipeline_options=[f"optimization-level={optimization_level}"],
+    )
+
+
+@pytest.mark.parametrize(
+    "num_heads,num_kv_heads,head_dim,blocks_per_user",
+    # A single shape suffices: k_chunk_size is a tt-metal API contract, not a
+    # shape property, and metal's default (32) always applies.
+    [(8, 8, 64, 4)],
+    ids=["mha_d64"],
+)
+@pytest.mark.parametrize("optimization_level", [0, 1, 2])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_paged_sdpa_decode_non_causal(
+    num_heads: int,
+    num_kv_heads: int,
+    head_dim: int,
+    blocks_per_user: int,
+    optimization_level: int,
+    target: str,
+    request,
+    device,
+):
+    """
+    Test non-causal Paged Scaled Dot Product Attention Decode.
+
+    Off Blackhole no program config is injected; this guards that the former
+    compile-time non-causal k_chunk_size override is covered by tt-metal's
+    default (k_chunk_size=32) across all optimization levels.
+    """
+    batch = 1
+    block_size = 32
+    kv_seq = block_size * blocks_per_user
+    num_blocks = batch * blocks_per_user
+    scale = head_dim**-0.5
+
+    # Q: [batch, seq_q=1, num_heads, head_dim]
+    query_shape = (batch, 1, num_heads, head_dim)
+    # K/V (paged): [num_blocks, num_kv_heads, block_size, head_dim]
+    kv_shape = (num_blocks, num_kv_heads, block_size, head_dim)
+    page_table_shape = (batch, blocks_per_user)
+    # Decode mask: [batch, 1, num_heads, kv_seq]
+    mask_shape = (batch, 1, num_heads, kv_seq)
+    output_shape = query_shape
+    cur_pos_shape = (batch,)
+
+    shapes = [
+        query_shape,
+        kv_shape,
+        kv_shape,
+        page_table_shape,
+        output_shape,
+        mask_shape,
+        cur_pos_shape,
+    ]
+    dtypes = [
+        torch.bfloat16,
+        torch.bfloat16,
+        torch.bfloat16,
+        torch.int32,
+        torch.bfloat16,
+        torch.bfloat16,
+        torch.int32,
+    ]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def paged_sdpa_decode(
+            query: Operand,
+            key: Operand,
+            value: Operand,
+            page_table: Operand,
+            output: Operand,
+            attention_mask: Operand,
+            cur_pos: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Page table maps each user's logical blocks to physical blocks.
+            valid_page_table = (
+                torch.arange(blocks_per_user, dtype=torch.int32)
+                .unsqueeze(0)
+                .expand(batch, -1)
+                .contiguous()
+            )
+            # Attend to all KV positions so the golden covers the full cache.
+            valid_cur_pos = torch.full((batch,), kv_seq - 1, dtype=torch.int32)
+            builder.set_goldens(
+                {page_table: valid_page_table, cur_pos: valid_cur_pos}, {}
+            )
+            return builder.paged_scaled_dot_product_attention_decode(
+                query,
+                key,
+                value,
+                page_table,
+                output,
+                is_causal=False,
+                attention_mask=attention_mask,
+                cur_pos_tensor=cur_pos,
+                scale=scale,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        pipeline_options=[f"optimization-level={optimization_level}"],
+    )

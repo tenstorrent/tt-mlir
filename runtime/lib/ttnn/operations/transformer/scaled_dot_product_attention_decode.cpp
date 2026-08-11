@@ -42,7 +42,7 @@ static void runScaledDotProductAttentionDecodeOp(
   }
 
   std::optional<float> scale = op->scale();
-  std::optional<uint32_t> slidingWindowSize = std::nullopt;
+  std::optional<uint32_t> slidingWindowSize = op->sliding_window_size();
 
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
       programConfig;

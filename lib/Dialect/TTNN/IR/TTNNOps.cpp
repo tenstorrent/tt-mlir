@@ -2215,13 +2215,50 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult ToLayoutOp::verify() {
-  return verifyTTNNLayoutInterface<ToLayoutOp>(*this);
+  if (mlir::failed(verifyTTNNLayoutInterface<ToLayoutOp>(*this))) {
+    return mlir::failure();
+  }
+
+  // ttnn.to_layout is the narrow layout op: it may only change the page layout
+  // (tile <-> row-major) and, optionally, the data type. It must not change
+  // memory config or device placement - those aggregate changes belong to
+  // ttnn.to_tensor_spec, which the TTNNDecomposeLayouts pass breaks down into
+  // to_device / to_memory_config / typecast / to_layout.
+  auto inputLayout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
+      getInput().getType().getEncoding());
+  auto outputLayout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
+      getResult().getType().getEncoding());
+  if (!inputLayout) {
+    return emitOpError("Input tensor type missing layout attribute");
+  }
+  if (!outputLayout) {
+    return emitOpError("Output tensor type missing layout attribute");
+  }
+
+  if (inputLayout.getBufferType() != outputLayout.getBufferType()) {
+    return emitOpError("ttnn.to_layout cannot change buffer type from '")
+           << stringifyBufferType(inputLayout.getBufferType()) << "' to '"
+           << stringifyBufferType(outputLayout.getBufferType())
+           << "'; use ttnn.to_tensor_spec for memory-config or device "
+              "placement changes";
+  }
+  if (inputLayout.getMemLayoutOpt() != outputLayout.getMemLayoutOpt()) {
+    return emitOpError("ttnn.to_layout cannot change tensor memory layout; use "
+                       "ttnn.to_tensor_spec for memory-config changes");
+  }
+  if (inputLayout.getGridShape() != outputLayout.getGridShape()) {
+    return emitOpError("ttnn.to_layout cannot change grid shape; use"
+                       "ttnn.to_tensor_spec for memory-config changes");
+  }
+
+  return mlir::success();
 }
 
 namespace {
-// ToLayoutOp can be folded if its input has the same layout as the output of
-// ToLayoutOp.
-mlir::OpFoldResult foldIdentityToLayoutOp(ttnn::ToLayoutOp op) {
+// A ToLayout-style op (ttnn.to_layout / ttnn.to_tensor_spec) can be folded if
+// its input has the same layout as the output of the op.
+template <typename OpTy>
+mlir::OpFoldResult foldIdentityToLayoutOp(OpTy op) {
   mlir::RankedTensorType inputType = op.getInput().getType();
   ttnn::TTNNLayoutAttr inputLayout =
       mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
@@ -2258,9 +2295,11 @@ mlir::OpFoldResult foldIdentityToLayoutOp(ttnn::ToLayoutOp op) {
 //      -----------------------
 //                |
 //
-mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
-  // Get the input operand and verify that the previous op is ToLayoutOp.
-  ttnn::ToLayoutOp producerOp = op.getInput().getDefiningOp<ttnn::ToLayoutOp>();
+template <typename OpTy>
+mlir::OpFoldResult foldConsecutiveToLayoutOp(OpTy op) {
+  // Get the input operand and verify that the previous op is the same op type.
+  mlir::Value inputValue = op.getInput();
+  OpTy producerOp = inputValue.template getDefiningOp<OpTy>();
 
   if (!producerOp) {
     return nullptr;
@@ -2353,13 +2392,100 @@ mlir::OpFoldResult ttnn::ToLayoutOp::fold(FoldAdaptor adaptor) {
   return nullptr;
 }
 
-// ToLayoutOp canonicalization.
-void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
+//===----------------------------------------------------------------------===//
+// ToTensorSpecOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult ToTensorSpecOp::verify() {
+  return verifyTTNNLayoutInterface<ToTensorSpecOp>(*this);
+}
+
+// Returns true iff input/result data types differ, i.e. this to_tensor_spec
+// actually performs a dtype conversion alongside the layout change.
+bool ttnn::ToTensorSpecOp::hasDtypeChange() {
+  auto inputDtype = ttnn::getDtypeFromValue(getInput());
+  auto resultDtype = ttnn::getDtypeFromValue(getResult());
+
+  // If we can't determine one of the dtypes, conservatively assume there is
+  // no dtype change so we don't drive a dtype-aware code path with stale
+  // information.
+  if (!inputDtype || !resultDtype) {
+    return false;
+  }
+
+  return inputDtype.getValue() != resultDtype.getValue();
+}
+
+// A ToTensorSpecOp whose input is produced by a TypecastOp can read the
+// pre-typecast value directly when the net dtype is a lossless round-trip:
+//
+//  x --typecast--> mid --to_tensor_spec(+layout L)--> out, with out == dtype(x)
+//
+// Collapsing cast(cast(x, mid), out) into cast(x, out) is value-preserving only
+// when the typecast widened losslessly (mid exactly represents x), so narrowing
+// mid back to x's type returns x bitwise. This rewires the to_layout to bypass
+// the typecast (turning it into a pure layout change) and lets the now-possibly
+// dead typecast be removed by DCE. Rejects f32->bf16->f32, bf16->f16->bf16, and
+// FP->Int->FP. TTNN carries no conservative_folding attribute (it does not
+// survive TTIR->TTNN lowering), so we require a provably lossless producer
+// rather than relying on caller intent.
+static mlir::OpFoldResult
+foldTypecastIntoToTensorSpecOp(ttnn::ToTensorSpecOp op) {
+  ttnn::TypecastOp typecastOp = op.getInput().getDefiningOp<ttnn::TypecastOp>();
+  if (!typecastOp) {
+    return nullptr;
+  }
+
+  ttcore::DataTypeAttr inDtype = ttnn::getDtypeFromValue(typecastOp.getInput());
+  ttcore::DataTypeAttr midDtype = ttnn::getDtypeFromValue(op.getInput());
+  ttcore::DataTypeAttr outDtype = ttnn::getDtypeFromValue(op.getResult());
+  if (!inDtype || !midDtype || !outDtype) {
+    return nullptr;
+  }
+
+  // Only a dtype round-trip is eligible: the merge keeps the to_layout's result
+  // type, so its dtype must equal the typecast's input dtype to be a no-op on
+  // values.
+  if (inDtype.getValue() != outDtype.getValue()) {
+    return nullptr;
+  }
+
+  // The round-trip is value-preserving only when the typecast was a lossless
+  // widening of the input type.
+  if (ttcore::isNarrowingConversion(inDtype.getValue(), midDtype.getValue())) {
+    return nullptr;
+  }
+
+  op.getInputMutable().set(typecastOp.getInput());
+
+  return op.getResult();
+}
+
+// ToTensorSpecOp folder
+mlir::OpFoldResult ttnn::ToTensorSpecOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldIdentityToLayoutOp(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = foldConsecutiveToLayoutOp(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = foldTypecastIntoToTensorSpecOp(*this)) {
+    return foldResult;
+  }
+
+  return nullptr;
+}
+
+// ToTensorSpecOp canonicalization.
+void mlir::tt::ttnn::ToTensorSpecOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // Merge to layout op into TTNN creation ops.
-  patterns.add(+[](mlir::tt::ttnn::ToLayoutOp toLayoutOp,
+  // Merge to tensor spec op into TTNN creation ops.
+  patterns.add(+[](ToTensorSpecOp toTensorSpecOp,
                    mlir::PatternRewriter &rewriter) {
-    Operation *creationOp = toLayoutOp.getInput().getDefiningOp();
+    mlir::Value inputValue = toTensorSpecOp.getInput();
+    Operation *creationOp = inputValue.getDefiningOp();
     if (!creationOp ||
         !creationOp
              ->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>()) {
@@ -2377,18 +2503,18 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     }
 
     auto ttnnLayoutAttr =
-        mlir::dyn_cast<TTNNLayoutAttr>(toLayoutOp.getType().getEncoding());
+        mlir::dyn_cast<TTNNLayoutAttr>(toTensorSpecOp.getType().getEncoding());
     if (!ttnnLayoutAttr) {
       return failure();
     }
 
     MemoryConfigAttr targetMemoryConfigAttr =
         mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-            toLayoutOp.getOperation())
+            toTensorSpecOp.getOperation())
             .getMemoryConfigAttr();
 
-    // If the to layout op tends to move the tensor to host, we can't merge it
-    // into creation op if creation op doesn't support execution on host. For
+    // If the to tensor spec op tends to move the tensor to host, we can't merge
+    // it into creation op if creation op doesn't support execution on host. For
     // example Rand and Empty op can only work on device.
     if (!creationOp->hasTrait<CanExecuteOnHostTrait>() &&
         (!targetMemoryConfigAttr ||
@@ -2412,7 +2538,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     if (!deviceOperandInterface.getDevice() && newBufferType &&
         isDeviceBufferType(newBufferType.getValue())) {
       deviceOperandInterface.setDevice(
-          utils::getOrInsertDevice(rewriter, toLayoutOp));
+          utils::getOrInsertDevice(rewriter, toTensorSpecOp));
     } else if (deviceOperandInterface.getDevice() && newBufferType &&
                isSystemBufferType(newBufferType.getValue())) {
       // If the new buffer type is a system buffer type, we need to remove
@@ -2429,17 +2555,18 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
             .setElementType(ttnnLayoutAttr.getScalarElementType()));
 
     rewriter.finalizeOpModification(tensorSpecOp);
-    rewriter.replaceAllOpUsesWith(toLayoutOp, tensorSpecOp);
-    rewriter.eraseOp(toLayoutOp);
+    rewriter.replaceAllOpUsesWith(toTensorSpecOp, tensorSpecOp);
+    rewriter.eraseOp(toTensorSpecOp);
     return success();
   });
 
-  // Merging to layout op into TTNN empty op on host should produce ttnn.zeros
-  // op on host.
-  patterns.add(+[](mlir::tt::ttnn::ToLayoutOp toLayoutOp,
+  // Merging to tensor spec op into TTNN empty op on host should produce
+  // ttnn.zeros op on host.
+  patterns.add(+[](ToTensorSpecOp toTensorSpecOp,
                    mlir::PatternRewriter &rewriter) {
-    // Check if the toLayoutOp is being applied on a TTNN empty op
-    EmptyOp emptyOp = toLayoutOp.getInput().getDefiningOp<ttnn::EmptyOp>();
+    // Check if the toTensorSpecOp is being applied on a TTNN empty op
+    mlir::Value inputValue = toTensorSpecOp.getInput();
+    EmptyOp emptyOp = inputValue.getDefiningOp<ttnn::EmptyOp>();
     if (!emptyOp) {
       return mlir::failure();
     }
@@ -2452,10 +2579,10 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     // Verify that the target buffer type is a system memory.
     BufferTypeAttr bufferTypeAttr = nullptr;
     if (mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-            toLayoutOp.getOperation())
+            toTensorSpecOp.getOperation())
             .getMemoryConfigAttr()) {
       bufferTypeAttr = mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-                           toLayoutOp.getOperation())
+                           toTensorSpecOp.getOperation())
                            .getMemoryConfigAttr()
                            .getBufferType();
     }
@@ -2468,10 +2595,11 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     // encoding via the TTNN_DtypeOpInterface and no longer needs to be passed
     // through the builder.
     auto zerosOp = rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ZerosOp>(
-        emptyOp, toLayoutOp.getType(), /*device=*/nullptr, emptyOp.getShape());
+        emptyOp, toTensorSpecOp.getType(), /*device=*/nullptr,
+        emptyOp.getShape());
 
-    rewriter.replaceAllOpUsesWith(toLayoutOp, zerosOp);
-    rewriter.eraseOp(toLayoutOp);
+    rewriter.replaceAllOpUsesWith(toTensorSpecOp, zerosOp);
+    rewriter.eraseOp(toTensorSpecOp);
     return mlir::success();
   });
 }
@@ -3036,6 +3164,18 @@ void mlir::tt::ttnn::MatmulOp::getCanonicalizationPatterns(
     return emitOpError("cluster_axis must be 0 or 1");
   }
 
+  // The three persistent output buffers are bound together by allocateBuffers,
+  // so they must be all-bound or all-unbound. A partially-bound op would
+  // mislead the runtime, which requires all three (plus the semaphore) present.
+  unsigned boundBuffers = (getDispatchedBuffer() ? 1 : 0) +
+                          (getIndicesBuffer() ? 1 : 0) +
+                          (getScoresBuffer() ? 1 : 0);
+
+  if (boundBuffers != 0 && boundBuffers != 3) {
+    return emitOpError("dispatched_buffer, indices_buffer and scores_buffer "
+                       "must be all bound or all unbound");
+  }
+
   return success();
 }
 
@@ -3226,20 +3366,6 @@ void mlir::tt::ttnn::MatmulOp::getCanonicalizationPatterns(
   if (getOutputHeightShardDim() == 0) {
     return emitOpError("output_height_shard_dim must be positive");
   }
-  // Only the compute_only path is supported: the A2A selective-reduce-combine
-  // (and the multi-device routing it implies) is intentionally not wired.
-  if (!getComputeOnly()) {
-    return emitOpError("only the compute_only path is supported; compute_only "
-                       "must be set");
-  }
-  if (getClusterAxis() || getTopology() || getNumLinks() ||
-      getMuxCoreRangeSet() || getOptionalOutputTensor() ||
-      getCrossDeviceSemaphore()) {
-    return emitOpError(
-        "compute_only moe_compute must not set cluster_axis, topology, "
-        "num_links, mux_core_range_set, optional_output_tensor, or "
-        "cross_device_semaphore");
-  }
 
   RankedTensorType inputType = getTilizeInputTensor().getType();
   if (inputType.getRank() < 2) {
@@ -3255,17 +3381,201 @@ void mlir::tt::ttnn::MatmulOp::getCanonicalizationPatterns(
   return success();
 }
 
-// Only the compute_only path is supported: it skips the A2A combine, so there
-// is no combine-output buffer to materialize (optional_output_tensor stays
-// unset, enforced by the verifier).
-bool MoeComputeOp::hasUnboundBuffers() { return false; }
+// The combine output buffer and cross-device semaphore are materialized in the
+// function prelude so they are trace-hoistable. Both must be bound: tt-metal
+// deadlocks the A2A combine unless optional_output_tensor and
+// cross_device_semaphore are both provided.
+bool MoeComputeOp::hasUnboundBuffers() { return !getOptionalOutputTensor(); }
 
-void MoeComputeOp::allocateBuffers(::mlir::RewriterBase &rewriter) {}
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+void MoeComputeOp::allocateBuffers(::mlir::RewriterBase &rewriter) {
+  if (!hasUnboundBuffers()) {
+    return;
+  }
 
-// compute_only has no A2A combine, hence no cross-device semaphore.
-bool MoeComputeOp::hasUnboundSemaphores() { return false; }
+  // Combine output: same spec as the op result.
+  MLIRContext *ctx = rewriter.getContext();
+  auto combineType = cast<RankedTensorType>(getCombineOutput().getType());
+  auto combineShapeAttr = ShapeAttr::get(ctx, combineType.getShape());
 
-void MoeComputeOp::allocateSemaphores(::mlir::RewriterBase &rewriter) {}
+  auto device = utils::getOrInsertDevice(rewriter, *this);
+
+  // Insert in the prelude (after GetDeviceOp) so it is trace-hoistable.
+  ttnn::EmptyOp combineEmptyOp;
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(device);
+    combineEmptyOp = rewriter.create<ttnn::EmptyOp>(getLoc(), combineType,
+                                                    device, combineShapeAttr);
+  }
+
+  rewriter.modifyOpInPlace(*this, [&]() {
+    getOptionalOutputTensorMutable().assign(combineEmptyOp.getResult());
+  });
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+bool MoeComputeOp::hasUnboundSemaphores() { return !getCrossDeviceSemaphore(); }
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+void MoeComputeOp::allocateSemaphores(::mlir::RewriterBase &rewriter) {
+  if (!hasUnboundSemaphores()) {
+    return;
+  }
+
+  // ttnn.allocate_moe_compute_semaphore carries the placement inputs and defers
+  // the (dynamic) combine-core query to its runtime handler.
+  MLIRContext *ctx = rewriter.getContext();
+  auto inputType = cast<RankedTensorType>(getTilizeInputTensor().getType());
+  auto hiddenSizeAttr = rewriter.getUI32IntegerAttr(
+      static_cast<uint32_t>(inputType.getShape().back()));
+
+  auto device = utils::getOrInsertDevice(rewriter, *this);
+
+  // Insert in the prelude (after GetDeviceOp) so it is trace-hoistable.
+  ttnn::AllocateMoeComputeSemaphoreOp semaphoreOp;
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(device);
+    semaphoreOp = rewriter.create<ttnn::AllocateMoeComputeSemaphoreOp>(
+        getLoc(), GlobalSemaphoreType::get(ctx), device.getResult(),
+        getOutputHeightShardDimAttr(), hiddenSizeAttr,
+        /*initial_value=*/rewriter.getUI32IntegerAttr(0),
+        getMuxCoreRangeSetAttr());
+  }
+
+  rewriter.modifyOpInPlace(*this, [&]() {
+    getCrossDeviceSemaphoreMutable().assign(semaphoreOp.getResult());
+  });
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+//===----------------------------------------------------------------------===//
+// AllToAllDispatchMetadataOp (DistributedOpInterface)
+//===----------------------------------------------------------------------===//
+
+// Persistent-mode bindings (3 output buffers + cross-device semaphore) are
+// materialized in the function prelude so they are trace-hoistable slots.
+namespace {
+// Persistent indices/scores layout: L1 HEIGHT_SHARDED on the op's drain core
+// (matches tt-metal's compute_output_specs).
+TTNNLayoutAttr getA2ADrainShardedLayout(MLIRContext *ctx,
+                                        RankedTensorType resultType,
+                                        CoreCoordAttr drainCore) {
+  auto drainRange = CoreRangeAttr::get(ctx, drainCore, drainCore);
+  auto drainCrs = CoreRangeSetAttr::get(ctx, {drainRange});
+  llvm::SmallVector<int64_t, 2> gridShape{1, 1};
+  return TTNNLayoutAttr::Builder(resultType)
+      .setBufferType(BufferType::L1)
+      .setMemoryLayout(
+          TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::HeightSharded))
+      .setGridShape(gridShape)
+      .setCoreRangeSet(drainCrs)
+      .build();
+}
+
+// Persistent dispatched layout: DRAM INTERLEAVED (matches
+// compute_output_specs).
+TTNNLayoutAttr getA2ADispatchedLayout(MLIRContext *ctx,
+                                      RankedTensorType resultType) {
+  return TTNNLayoutAttr::Builder(resultType)
+      .setBufferType(BufferType::DRAM)
+      .setMemoryLayout(
+          TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::Interleaved))
+      .build();
+}
+} // namespace
+
+bool AllToAllDispatchMetadataOp::hasUnboundBuffers() {
+  return !getDispatchedBuffer() || !getIndicesBuffer() || !getScoresBuffer();
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+void AllToAllDispatchMetadataOp::allocateBuffers(
+    ::mlir::RewriterBase &rewriter) {
+  if (!hasUnboundBuffers()) {
+    return;
+  }
+
+  MLIRContext *ctx = rewriter.getContext();
+
+  // Persistent-mode drain core: the kernel derives it from the indices/scores
+  // shard spec, so we fix the shard placement to (0,0) here.
+  auto drainCore = CoreCoordAttr::get(ctx, /*x=*/0, /*y=*/0);
+
+  auto dispatchedType = cast<RankedTensorType>(getDispatched().getType());
+  auto indicesType = cast<RankedTensorType>(getIndices().getType());
+  auto scoresType = cast<RankedTensorType>(getScores().getType());
+
+  auto newDispatchedType = utils::RankedTensorTypeFactory::create(
+      dispatchedType, getA2ADispatchedLayout(ctx, dispatchedType));
+  auto newIndicesType = utils::RankedTensorTypeFactory::create(
+      indicesType, getA2ADrainShardedLayout(ctx, indicesType, drainCore));
+  auto newScoresType = utils::RankedTensorTypeFactory::create(
+      scoresType, getA2ADrainShardedLayout(ctx, scoresType, drainCore));
+
+  auto device = utils::getOrInsertDevice(rewriter, *this);
+
+  auto makeEmpty = [&](RankedTensorType t) -> ttnn::EmptyOp {
+    auto shapeAttr = ShapeAttr::get(ctx, t.getShape());
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(device);
+    return rewriter.create<ttnn::EmptyOp>(getLoc(), t, device, shapeAttr);
+  };
+
+  ttnn::EmptyOp dispatchedEmpty = makeEmpty(newDispatchedType);
+  ttnn::EmptyOp indicesEmpty = makeEmpty(newIndicesType);
+  ttnn::EmptyOp scoresEmpty = makeEmpty(newScoresType);
+
+  rewriter.modifyOpInPlace(*this, [&]() {
+    // tt-metal returns the provided buffers as the op outputs.
+    getDispatched().setType(newDispatchedType);
+    getIndices().setType(newIndicesType);
+    getScores().setType(newScoresType);
+    getDispatchedBufferMutable().assign(dispatchedEmpty.getResult());
+    getIndicesBufferMutable().assign(indicesEmpty.getResult());
+    getScoresBufferMutable().assign(scoresEmpty.getResult());
+  });
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+bool AllToAllDispatchMetadataOp::hasUnboundSemaphores() {
+  return !getCrossDeviceSemaphore();
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+void AllToAllDispatchMetadataOp::allocateSemaphores(
+    ::mlir::RewriterBase &rewriter) {
+  if (!hasUnboundSemaphores()) {
+    return;
+  }
+
+  MLIRContext *ctx = rewriter.getContext();
+
+  // Cross-device semaphore over the worker cores, init 0. The runtime passes
+  // worker_core_range_set=nullopt, so tt-metal uses its default worker range
+  // CoreRange((0,0),(0,7)) and the semaphore must span exactly those cores.
+  auto workerStart = CoreCoordAttr::get(ctx, /*x=*/0, /*y=*/0);
+  auto workerEnd = CoreCoordAttr::get(ctx, /*x=*/0, /*y=*/7);
+  auto workerRange = CoreRangeAttr::get(ctx, workerStart, workerEnd);
+  auto workerCrs = CoreRangeSetAttr::get(ctx, {workerRange});
+
+  auto device = utils::getOrInsertDevice(rewriter, *this);
+
+  ttnn::CreateGlobalSemaphoreOp semaphoreOp;
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(device);
+    semaphoreOp = rewriter.create<ttnn::CreateGlobalSemaphoreOp>(
+        getLoc(), GlobalSemaphoreType::get(ctx), device.getResult(),
+        /*initial_value=*/rewriter.getUI32IntegerAttr(0), workerCrs);
+  }
+
+  rewriter.modifyOpInPlace(*this, [&]() {
+    getCrossDeviceSemaphoreMutable().assign(semaphoreOp.getResult());
+  });
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
 //===----------------------------------------------------------------------===//
 // AllocOp
@@ -3505,6 +3815,59 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
       return emitOpError("bias tensor must be 1D with size matching the last "
                          "dimension of input");
     }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AdamWOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::AdamWOp::verify() {
+  llvm::ArrayRef<int64_t> shape = getParam().getType().getShape();
+  auto sameShape = [&](RankedTensorType t) { return t.getShape() == shape; };
+
+  if (!sameShape(getGrad().getType())) {
+    return emitOpError("grad must have the same shape as param");
+  }
+  if (!sameShape(getExpAvg().getType())) {
+    return emitOpError("exp_avg must have the same shape as param");
+  }
+  if (!sameShape(getExpAvgSq().getType())) {
+    return emitOpError("exp_avg_sq must have the same shape as param");
+  }
+  if (getMaxExpAvgSq() && !sameShape(getMaxExpAvgSq().getType())) {
+    return emitOpError("max_exp_avg_sq must have the same shape as param");
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SDPAForwardOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::SDPAForwardOp::verify() {
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType valueType = getValue().getType();
+
+  if (queryType.getRank() != 4 || keyType.getRank() != 4 ||
+      valueType.getRank() != 4) {
+    return emitOpError("query, key and value must be rank 4 (B, H, S, D)");
+  }
+
+  ttcore::AttentionMaskType maskType = getMaskType();
+  if (maskType == ttcore::AttentionMaskType::Arbitrary && !getAttentionMask()) {
+    return emitOpError(
+        "attention_mask is required when mask_type is 'arbitrary'");
+  }
+  if (maskType != ttcore::AttentionMaskType::Arbitrary && getAttentionMask()) {
+    return emitOpError(
+        "attention_mask is only allowed when mask_type is 'arbitrary'");
+  }
+
+  if (getReturnIntermediates() != static_cast<bool>(getIntermediates())) {
+    return emitOpError("intermediates result must be present iff "
+                       "return_intermediates is true");
   }
 
   return success();
@@ -3948,11 +4311,9 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
            << inputShape[1];
   }
 
-  if (inputShape[0] * inputShape[2] % 32 != 0) {
-    return emitOpError("flattened height must be tile-aligned, "
-                       "got ")
-           << inputShape[0] * inputShape[2];
-  }
+  // Tile-alignment of the flattened height (H*W) is a fused-kernel constraint,
+  // not an op invariant, so it is not verified here. Non-tile-aligned shapes
+  // flow into TTNNDecomposition, which lowers them to primitives.
 
   int64_t numGroups = getNumGroups();
   if (numGroups <= 0) {
@@ -6609,6 +6970,72 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
       resultType.getShape()[3] != headDimV) {
     return emitOpError(
         "Result shape must be [batch, num_query_heads, seq_len, head_dim_v]");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// IndexerScoreDsaOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::IndexerScoreDsaOp::verify() {
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType weightsType = getWeights().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  if (queryType.getRank() != 4) {
+    return emitOpError("Query must be a 4D tensor [B, Hi, Sq, D]");
+  }
+  if (keyType.getRank() != 4) {
+    return emitOpError("Key must be a 4D tensor [B, 1, T, D]");
+  }
+  if (weightsType.getRank() != 4) {
+    return emitOpError("Weights must be a 4D tensor [B, Hi, Sq, 1]");
+  }
+  if (resultType.getRank() != 4) {
+    return emitOpError("Result must be a 4D tensor [B, 1, Sq, T]");
+  }
+
+  int64_t batch = queryType.getShape()[0];
+  int64_t numHeads = queryType.getShape()[1];
+  int64_t querySeqLen = queryType.getShape()[2];
+  int64_t headDim = queryType.getShape()[3];
+  int64_t keySeqLen = keyType.getShape()[2];
+
+  // Batch size must be 1 (tt-metal op restriction)
+  if (batch != 1) {
+    return emitOpError("Query batch size (dim 0) must be 1, got ") << batch;
+  }
+
+  if (keyType.getShape()[0] != batch) {
+    return emitOpError("Key batch size must match query batch size");
+  }
+  if (keyType.getShape()[1] != 1) {
+    return emitOpError("Key must have a single head (dim 1 must be 1)");
+  }
+  if (keyType.getShape()[3] != headDim) {
+    return emitOpError("Key head dim must match query head dim");
+  }
+
+  if (weightsType.getShape()[0] != batch ||
+      weightsType.getShape()[1] != numHeads ||
+      weightsType.getShape()[2] != querySeqLen ||
+      weightsType.getShape()[3] != 1) {
+    return emitOpError(
+        "Weights shape must be [batch, num_heads, query_seq_len, 1]");
+  }
+
+  if (resultType.getShape()[0] != batch || resultType.getShape()[1] != 1 ||
+      resultType.getShape()[2] != querySeqLen ||
+      resultType.getShape()[3] != keySeqLen) {
+    return emitOpError(
+        "Result shape must be [batch, 1, query_seq_len, key_seq_len]");
+  }
+
+  if (queryType.getElementType() != keyType.getElementType()) {
+    return emitOpError("Query and key must have the same element type");
   }
 
   return success();

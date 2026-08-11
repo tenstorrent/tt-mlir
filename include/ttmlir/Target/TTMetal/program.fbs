@@ -11,6 +11,7 @@ enum EthType : ushort {
 table NocConfig {
   processor: DataMovementProcessor;
   noc_index: NocIndex;
+  fabric_config_index: uint32 = null;
 }
 
 table ComputeConfig {
@@ -86,6 +87,10 @@ table KernelArgScalar {
   operand_idx: uint32;
 }
 
+table KernelArgTensorAccessorArgs {
+  operand_idx: uint32;
+}
+
 union KernelArgType {
   KernelArgCBPort,
   KernelArgBufferAddress,
@@ -93,6 +98,7 @@ union KernelArgType {
   KernelArgNamedArgument,
   KernelArgGlobalSemaphore,
   KernelArgScalar,
+  KernelArgTensorAccessorArgs,
 }
 
 table KernelArg {

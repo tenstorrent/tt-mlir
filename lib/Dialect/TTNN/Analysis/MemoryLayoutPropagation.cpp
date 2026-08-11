@@ -81,6 +81,53 @@ static TTNNLayoutAttr getOutputLayoutForResult(const BeamCandidate &c,
   return c.configHint.outputLayout;
 }
 
+/// Returns `layout` with its scalar element type replaced, recomputing the
+/// physical layout for the new element size. Layouts that already carry the
+/// requested type are returned unchanged. Delegates the actual re-encoding to
+/// RankedTensorTypeFactory so element-type handling - including quantized types
+/// - lives in one place, and keeps only the encoding of its result.
+static TTNNLayoutAttr withScalarElementType(TTNNLayoutAttr layout,
+                                            llvm::ArrayRef<int64_t> tensorShape,
+                                            Type scalarElementType) {
+  if (!layout || layout.getScalarElementType() == scalarElementType) {
+    return layout;
+  }
+  RankedTensorType asTensorType =
+      RankedTensorType::get(tensorShape, layout.getScalarElementType(), layout);
+  return utils::getLayoutAttrFromTensor(utils::RankedTensorTypeFactory::create(
+      asTensorType, ttcore::elementTypeToDataType(scalarElementType)));
+}
+
+/// The op-model reports the result layout tt-metal actually produces, whose
+/// data type can differ from the one declared on the op result: ttnn.argmax
+/// really produces ui32 where the frontend declared si32. applyOpConfig adopts
+/// the real data type and reconciles it back to the declared one with a cast,
+/// so everything that reasons about the value a consumer sees - the input
+/// candidates, and the reshard sources validated against them - must use the
+/// declared data type. Layouts that differ only in memory or page layout are
+/// returned unchanged.
+static TTNNLayoutAttr withDeclaredDataType(TTNNLayoutAttr layout,
+                                           RankedTensorType declaredType) {
+  return withScalarElementType(layout, declaredType.getShape(),
+                               declaredType.getElementType());
+}
+
+/// Builds a ttnn.typecast that converts `value` to `targetElementType`, leaving
+/// every other property of its layout - buffer type, page layout, sharding -
+/// exactly as it is. A direct typecast rather than a ttnn.to_layout is
+/// deliberate: reconciling a data type never needs to move or re-page the
+/// tensor, and a typecast can be validated against the op-model and needs no
+/// later decomposition.
+static TypecastOp createDataTypeReconcilingCast(
+    RewriterBase &rewriter, mlir::TypedValue<RankedTensorType> value,
+    Type targetElementType, llvm::StringRef locSuffix) {
+  RankedTensorType targetType = utils::RankedTensorTypeFactory::create(
+      value.getType(), ttcore::elementTypeToDataType(targetElementType));
+  return rewriter.create<TypecastOp>(
+      ttmlir::utils::appendLocationSuffix(value.getLoc(), locSuffix),
+      targetType, value);
+}
+
 /// Returns an optional filter predicate that rejects invalid input layouts
 /// for a given op.  When the filter returns false, the candidate is removed.
 /// Returns nullptr when no filtering is needed (all layouts accepted).
@@ -116,6 +163,25 @@ static bool isShardedLayout(TTNNLayoutAttr layout) {
   }
   auto memLayout = layout.getMemLayout();
   return memLayout && isShardedMemoryLayout(memLayout.getValue());
+}
+
+/// Build the DRAM-interleaved ROW_MAJOR sibling of a tiled candidate (same
+/// dtype). Deliberately DRAM-interleaved, not L1: the reshard that feeds it is
+/// materialized as a ttnn.to_layout the optimizer can't validate for L1 usage,
+/// so keeping the retiled tensor in DRAM leaves no L1 footprint for the spill
+/// pass to miss. Returns null if the candidate is already row-major.
+static TTNNLayoutAttr getRowMajorSibling(TTNNLayoutAttr tiledLayout,
+                                         llvm::ArrayRef<int64_t> tensorShape) {
+  if (tiledLayout.getLayout() == Layout::RowMajor) {
+    return nullptr;
+  }
+  Type rmElementType = ttnn::utils::getElementType(
+      tiledLayout.getContext(), Layout::RowMajor, tiledLayout.getDataType());
+  return TTNNLayoutAttr::Builder(tiledLayout, tensorShape)
+      .setBufferType(BufferType::DRAM)
+      .setMemoryLayout(TensorMemoryLayout::Interleaved)
+      .setElementType(rmElementType)
+      .build();
 }
 
 /// Compute total bytes transferred from DRAM across all inputs.
@@ -330,9 +396,9 @@ void MemoryLayoutPropagation::run() {
     if (!mlir::dyn_cast<OpModel>(op)) {
       return;
     }
-    // Skip ToLayoutOp -- these are inserted by earlier passes and their
+    // Skip ToTensorSpecOp -- these are inserted by earlier passes and their
     // layouts should be preserved, not re-decided by layout propagation.
-    if (isa<ToLayoutOp>(op)) {
+    if (isa<ToTensorSpecOp>(op)) {
       return;
     }
     if (!legalConfigs.count(op)) {
@@ -690,8 +756,9 @@ void MemoryLayoutPropagation::addL1InterleavedFallbacks(
     if (candidates.size() >= maxCandidates) {
       break;
     }
-    TTNNLayoutAttr prodOut =
-        getOutputLayoutForResult((*producerBeam)[pIdx], resultIdx);
+    TTNNLayoutAttr prodOut = withDeclaredDataType(
+        getOutputLayoutForResult((*producerBeam)[pIdx], resultIdx),
+        inputTensorType);
     if (!prodOut || !prodOut.hasL1BufferType()) {
       continue;
     }
@@ -865,8 +932,9 @@ void MemoryLayoutPropagation::addReshardCandidates(
       // Validate the reshard is feasible for this producer candidate.
       TTNNLayoutAttr producerOutput;
       if (producerBeam) {
-        producerOutput =
-            getOutputLayoutForResult((*producerBeam)[pIdx], resultIdx);
+        producerOutput = withDeclaredDataType(
+            getOutputLayoutForResult((*producerBeam)[pIdx], resultIdx),
+            tensorType);
       } else {
         // Func args / unresolved producers: use the current IR layout.
         producerOutput = currentLayout;
@@ -927,7 +995,9 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
     if (producerBeam) {
       for (size_t k = 0; k < producerBeam->size() && k < beamWidth; ++k) {
         InputCandidate ic;
-        ic.layout = getOutputLayoutForResult((*producerBeam)[k], resultIdx);
+        ic.layout = withDeclaredDataType(
+            getOutputLayoutForResult((*producerBeam)[k], resultIdx),
+            tensorType);
         ic.producerCandidateIndex = k;
         ic.isReshard = false;
         if (ic.layout) {
@@ -954,6 +1024,25 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
     addReshardCandidates(candidatesForOperand, op, operandIdx, operand,
                          currentLayout, tensorType, producerBeam, producerOp,
                          resultIdx, maxInputCandidatesPerOperand);
+
+    // Row-major input siblings: clone each tiled candidate into an RM sibling
+    // (isReshard=true) for ops whose kernel requires a RowMajor input; the
+    // require-RM filter below then drops the tiled originals.
+    if (generatesRowMajorInputSiblings(op, operandIdx)) {
+      std::vector<InputCandidate> rmSiblings;
+      for (const auto &ic : candidatesForOperand) {
+        if (TTNNLayoutAttr rmLayout =
+                getRowMajorSibling(ic.layout, tensorType.getShape())) {
+          InputCandidate rmIc;
+          rmIc.layout = rmLayout;
+          rmIc.producerCandidateIndex = ic.producerCandidateIndex;
+          rmIc.isReshard = true;
+          rmSiblings.push_back(rmIc);
+        }
+      }
+      candidatesForOperand.insert(candidatesForOperand.end(),
+                                  rmSiblings.begin(), rmSiblings.end());
+    }
 
     // Filter after all candidates (producer beam + reshards) are collected.
     // This rejects layouts the op cannot consume (e.g., any sharded RHS for
@@ -1342,14 +1431,17 @@ void MemoryLayoutPropagation::applyToIR() {
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "applyToIR: applying configs for {0} ops in beam state",
                beamState.size());
-  // First pass: apply op configs.
+  // First pass: apply op configs. Collected up front because applyOpConfig can
+  // insert a reconciling cast right after the op it is configuring.
+  SmallVector<Operation *> configuredOps;
   func->walk([&](Operation *op) {
-    const BeamCandidate *chosen = getChosenCandidate(op);
-    if (!chosen) {
-      return;
+    if (getChosenCandidate(op)) {
+      configuredOps.push_back(op);
     }
-    applyOpConfig(op, *chosen);
   });
+  for (Operation *op : configuredOps) {
+    applyOpConfig(op, *getChosenCandidate(op));
+  }
 
   // Second pass: insert reshard ops.
   func->walk([&](Operation *op) {
@@ -1385,6 +1477,8 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
     return;
   }
 
+  IRRewriter rewriter(op->getContext());
+
   // Update all tensor results. For single-output ops this iterates once.
   // For multi-output ops (e.g. SplitQueryKeyValueAndSplitHeads), each result
   // gets its own layout from outputLayouts.
@@ -1411,6 +1505,32 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
     RankedTensorType newTensorType =
         RankedTensorType::get(tensorShape, newElementType, resultLayout);
     result.setType(newTensorType);
+
+    // Nothing observes the divergence for a dead result, so a cast there would
+    // only add IR (and a deallocate) for later passes to clean up.
+    if (newElementType == originalElementType || result.use_empty()) {
+      continue;
+    }
+
+    // The op-model's real result data type differs from the declared one (e.g.
+    // ttnn.argmax produces ui32 where the frontend declared si32). Adopting it
+    // silently would redefine the type every consumer - and, for a returned
+    // value, the program's public signature - was compiled against, which is
+    // what the runtime then refuses to reconcile (#9115). Keep the change local
+    // by typecasting back and rewiring the op's consumers through the cast.
+    rewriter.setInsertionPointAfter(op);
+    TypecastOp castOp = createDataTypeReconcilingCast(
+        rewriter, mlir::cast<mlir::TypedValue<RankedTensorType>>(result),
+        originalElementType, "_dtype_reconcile");
+    rewriter.replaceUsesWithIf(
+        result, castOp.getResult(), [&](OpOperand &operand) {
+          return operand.getOwner() != castOp.getOperation();
+        });
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "Reconciled op-model result dtype {0} back to declared {1} "
+                 "for {2}",
+                 newElementType, originalElementType, op->getName());
   }
 
   applyOpSpecificAttrs(op, candidate);
@@ -1430,8 +1550,12 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
         producerLayout.getBufferType() == reshardLayout.getBufferType();
     bool sameMemLayout =
         producerLayout.getMemLayout() == reshardLayout.getMemLayout();
+    // A tile <-> row-major page-layout change is a real reshard, even when
+    // buffer type and memory layout are unchanged (RowMajor input siblings).
+    bool samePageLayout =
+        producerLayout.getLayout() == reshardLayout.getLayout();
 
-    if (sameBufferType && sameMemLayout) {
+    if (sameBufferType && sameMemLayout && samePageLayout) {
       // For sharded layouts, also require matching grids.
       bool bothSharded =
           isShardedMemoryLayout(producerLayout.getMemLayout().getValue()) &&
@@ -1443,15 +1567,20 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
     }
   }
 
-  // Build the output layout by taking the producer's current layout and
-  // applying the target buffer type, memory layout, and grid.
+  // Take the producer's layout and apply the reshard target's buffer type,
+  // memory layout, grid, and page layout (element type). Tracking the element
+  // type is what lets a tile -> row-major sibling reshard materialize.
   TTNNLayoutAttr producerLayout =
       utils::getLayoutAttrFromTensor(producerTensorType);
+  Type reshardElementType = ttnn::utils::getElementType(
+      reshardLayout.getContext(), reshardLayout.getLayout(),
+      reshardLayout.getDataType());
   TTNNLayoutAttr outputLayout =
       TTNNLayoutAttr::Builder(producerLayout, producerTensorType.getShape())
           .setBufferType(reshardLayout.getBufferType())
           .setMemoryLayout(reshardLayout.getMemLayout())
           .setGridShape(reshardLayout.getGridShape())
+          .setElementType(reshardElementType)
           .buildWithCanonicalCorePlacement(deviceAttr);
   RankedTensorType newTensorType =
       utils::RankedTensorTypeFactory::create(producerTensorType, outputLayout);
@@ -1460,31 +1589,80 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
   Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
                                                      "_mem_reconfig");
 
-  ToMemoryConfigOp memoryReconfigOp =
-      builder.create<ToMemoryConfigOp>(loc, newTensorType, operand);
+  // A tile <-> row-major page-layout change (RowMajor input siblings) is a
+  // retile, which ttnn.to_memory_config does not do -- emit a ttnn.to_layout,
+  // which TTNNDecomposeLayouts lowers into the untilize/tilize + memory-config
+  // sequence. Pure memory-config reshards stay ttnn.to_memory_config.
+  bool pageLayoutChanges =
+      utils::getLayoutAttrFromTensor(producerTensorType).getLayout() !=
+      outputLayout.getLayout();
+  Operation *reshardOp =
+      pageLayoutChanges
+          ? builder.create<ToTensorSpecOp>(loc, newTensorType, operand)
+                .getOperation()
+          : builder.create<ToMemoryConfigOp>(loc, newTensorType, operand)
+                .getOperation();
 
-  consumerOp->setOperand(operandIndex, memoryReconfigOp->getResult(0));
+  consumerOp->setOperand(operandIndex, reshardOp->getResult(0));
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-               "Inserted memory reconfig op: {0}", memoryReconfigOp);
+               "Inserted reshard op: {0}", *reshardOp);
 }
 
 void MemoryLayoutPropagation::updateFunctionReturnTypes() {
+  FunctionType funcType = func.getFunctionType();
   SmallVector<Type> funcResultTypes;
 
   func->walk([&](Operation *op) {
     if (op->getNumResults() == 0) {
       if (auto funcReturn = dyn_cast<func::ReturnOp>(op)) {
+        for (unsigned i = 0; i < funcReturn.getNumOperands(); ++i) {
+          reconcileReturnOperandDataType(funcReturn, i, funcType);
+        }
         funcResultTypes.append(funcReturn.getOperandTypes().begin(),
                                funcReturn.getOperandTypes().end());
       }
     }
   });
 
-  FunctionType funcType = func.getFunctionType();
   FunctionType newFuncType = FunctionType::get(
       func.getContext(), funcType.getInputs(), funcResultTypes);
   func.setType(newFuncType);
+}
+
+void MemoryLayoutPropagation::reconcileReturnOperandDataType(
+    func::ReturnOp returnOp, unsigned operandIdx, FunctionType declaredType) {
+  if (operandIdx >= declaredType.getNumResults()) {
+    return;
+  }
+  auto declared =
+      mlir::dyn_cast<RankedTensorType>(declaredType.getResult(operandIdx));
+  Value operand = returnOp.getOperand(operandIdx);
+  auto current = mlir::dyn_cast<RankedTensorType>(operand.getType());
+  if (!declared || !current ||
+      declared.getElementType() == current.getElementType()) {
+    return;
+  }
+
+  // A function result's layout is free to change - the runtime's toLayout
+  // reconciles buffer type, sharding and page layout when the tensor is handed
+  // to the next program. Its element type is not: changing it redefines the
+  // program's signature relative to every other program compiled against it,
+  // and the runtime is then asked for a device-resident pure-dtype cast it
+  // cannot perform (#9115). applyOpConfig already casts back where it adopts
+  // the op-model's data type, so this is a backstop for any other path.
+  func.emitWarning() << "layout propagation changed the element type of "
+                        "function result "
+                     << operandIdx << " from " << declared.getElementType()
+                     << " to " << current.getElementType()
+                     << "; inserting a reconciling cast";
+
+  IRRewriter rewriter(returnOp->getContext());
+  rewriter.setInsertionPoint(returnOp);
+  TypecastOp castOp = createDataTypeReconcilingCast(
+      rewriter, mlir::cast<mlir::TypedValue<RankedTensorType>>(operand),
+      declared.getElementType(), "_result_dtype_reconcile");
+  returnOp.setOperand(operandIdx, castOp.getResult());
 }
 
 } // namespace mlir::tt::ttnn

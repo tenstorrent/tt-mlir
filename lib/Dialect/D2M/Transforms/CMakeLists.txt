@@ -1,5 +1,6 @@
 add_mlir_dialect_library(MLIRD2MTransforms
         Allocate.cpp
+        BuildTopkChain.cpp
         DMAOptimizations.cpp
         DecomposeArange.cpp
         DecomposeMasking.cpp
@@ -32,6 +33,9 @@ add_mlir_dialect_library(MLIRD2MTransforms
         GenerateOuterLoops.cpp
         LowerToExplicitForm.cpp
         LowerMulticastLoads.cpp
+        AssignThreads.cpp
+        SplitThreads.cpp
+        InsertComputeCB.cpp
         SplitUnifiedThread.cpp
         PreallocateMcastSemaphores.cpp
         ScheduleDMA.cpp

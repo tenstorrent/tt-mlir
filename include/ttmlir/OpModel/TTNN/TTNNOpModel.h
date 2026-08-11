@@ -12,6 +12,9 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Error.h"
 
+#include <memory>
+#include <optional>
+
 // Unwrap an llvm::Expected<T> expression: on success assign the value to `lhs`,
 // on failure propagate the error by returning it from the enclosing function.
 //
@@ -38,12 +41,70 @@
   _Pragma("clang diagnostic pop")
 // clang-format on
 
+// Forward declaration only. The full definition lives in tt-metalium
+// (experimental/mock_device/mock_allocator.hpp) and is only available when
+// TTMLIR_ENABLE_OPMODEL is defined. Declared here (rather than in the broadly
+// included TTNNOpConstraints.h) so the global ::tt name it introduces stays out
+// of translation units that do `using namespace mlir` and reference an
+// unqualified `tt` (which would otherwise become ambiguous with mlir::tt).
+namespace tt::tt_metal::experimental {
+class MockAllocatorState;
+} // namespace tt::tt_metal::experimental
+
 namespace mlir::tt::ttnn::op_model {
+
+using MockAllocatorState = ::tt::tt_metal::experimental::MockAllocatorState;
+
+// Build a MockAllocatorState representing the given live allocations, for the
+// stateful (build-from-records) constraint query. Confines all tt-metalium
+// interaction (extract + with_allocations + record conversion) to the op-model
+// boundary; callers pass/receive the opaque handle only.
+//
+// Returns a NON-NULL state even for an empty `liveRecords`: an empty state
+// gives the same fit decision as the stateless query, but it routes through the
+// stateful query branch, which is the only branch that reports
+// output_allocations. The spill path bootstraps its record set from those, so
+// returning null here would permanently degrade it to stateless behavior (see
+// the rationale at the definition).
+std::shared_ptr<MockAllocatorState>
+buildInitialState(llvm::ArrayRef<OpModelAllocationRecord> liveRecords);
+
+// Snapshot / restore the mock device's allocator state around a batch of
+// stateful spill queries. Those queries mutate the SHARED mock device and do
+// not restore it, which corrupts later stateless op-model queries (wrong
+// conv2d config, spurious pool/conv global-CB failures). Call snapshot before
+// the spill pass runs and restore after, so the device is byte-identical to
+// before -- matching what the stateless (scalar-spill) path leaves.
+void snapshotMockAllocatorState();
+void restoreMockAllocatorState();
 
 // Checks if the tensor layout is legal for the given tensor shape.
 bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
                                  TTNNLayoutAttr layout,
                                  ttcore::GridAttr maxGrid);
+
+//===----------------------------------------------------------------------===//
+// Op-model constraint queries
+//
+// Every family below exposes ONE constraint entry point, `getOpConstraints`,
+// whose trailing `initialState` parameter selects the query flavour:
+//
+//   * `nullptr` (the default) -- stateless query. tt-metal runs
+//     query_op_constraints under NO_DISPATCH: nothing is allocated,
+//     `outputAllocations` comes back empty, and the result is a pure function
+//     of the remaining arguments, so the interface layer caches it.
+//   * non-null -- stateful (build-from-records) query. tt-metal applies the
+//     state, then runs a NORMAL-mode capture that really allocates, so the
+//     result reflects actual L1 placement/fragmentation and reports per-output
+//     `outputAllocations`. Depends on the live set, hence never cached.
+//
+// Build the state with `buildInitialState` above; note that an empty record set
+// still yields a non-null (i.e. stateful) state on purpose.
+//
+// The families that predate the stateful spill path (creation ops,
+// quantization, Conv1d, ...) simply have no `initialState` parameter: they are
+// stateless-only, and the interface layer passes no state for them.
+//===----------------------------------------------------------------------===//
 
 template <typename OpTy>
 struct OpModel;
@@ -56,7 +117,8 @@ template <typename OpT>
 struct UnaryEltwiseOpModel {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -67,7 +129,8 @@ template <typename OpT>
 struct UnaryEltwiseWithFastApproxModeOpModel {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -177,7 +240,8 @@ template <>
 struct OpModel<SigmoidOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -193,7 +257,8 @@ struct OpModel<LeakyReluOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, llvm::APFloat slope,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -210,7 +275,8 @@ struct BinaryEltwiseOpModel {
   static llvm::Expected<OpConstraints> getOpConstraints(
       llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
       llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
-      TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr = nullptr);
+      TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr = nullptr,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
@@ -223,7 +289,8 @@ struct BinaryCompositeOpModel {
   static llvm::Expected<OpConstraints> getOpConstraints(
       llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
       llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
-      TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr = nullptr);
+      TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr = nullptr,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
@@ -311,7 +378,8 @@ struct OpModel<GeluBackwardOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
       llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
       llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
-      std::string approximate, TTNNLayoutAttr outputLayout);
+      std::string approximate, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
@@ -329,7 +397,8 @@ struct TernaryEltwiseOpModel {
       llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
       llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
       llvm::ArrayRef<int64_t> inputShapeC, TTNNLayoutAttr inputLayoutC,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
@@ -351,7 +420,8 @@ struct ReductionOpModel {
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout,
                    std::optional<llvm::ArrayRef<int64_t>> dimArg, bool keepDim,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -380,7 +450,8 @@ struct OpModel<ArgMaxOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, std::optional<int32_t> dim,
-                   bool keepDim, TTNNLayoutAttr outputLayout);
+                   bool keepDim, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -398,7 +469,8 @@ struct OpModel<ProdOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, std::optional<int64_t> dim,
-                   bool keepDim, TTNNLayoutAttr outputLayout);
+                   bool keepDim, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 };
 
 //===----------------------------------------------------------------------===//
@@ -430,7 +502,8 @@ struct QuantizationOpModel {
       llvm::ArrayRef<int64_t> scaleShape, TTNNLayoutAttr scaleLayout,
       llvm::ArrayRef<int64_t> zeroPointShape, TTNNLayoutAttr zeroPointLayout,
       std::optional<int32_t> axis, std::optional<ttcore::DataType> outputDtype,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -456,7 +529,8 @@ struct OpModel<RequantizeOp> {
       TTNNLayoutAttr inZeroPointLayout, llvm::ArrayRef<int64_t> outScaleShape,
       TTNNLayoutAttr outScaleLayout, llvm::ArrayRef<int64_t> outZeroPointShape,
       TTNNLayoutAttr outZeroPointLayout, std::optional<int32_t> axis,
-      std::optional<ttcore::DataType> outputDtype, TTNNLayoutAttr outputLayout);
+      std::optional<ttcore::DataType> outputDtype, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -477,7 +551,8 @@ struct OpModel<SoftmaxOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, const int dimArg,
-                   bool numericStable, TTNNLayoutAttr outputLayout);
+                   bool numericStable, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -497,7 +572,8 @@ struct OpModel<ScatterOp> {
       llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout,
       llvm::ArrayRef<int64_t> sourceShape, TTNNLayoutAttr sourceLayout,
       int32_t dim, std::optional<ttcore::ReduceTypeAttr> optReduction,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -515,7 +591,8 @@ template <>
 struct OpModel<ReshapeOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-      llvm::ArrayRef<int64_t> outputShape, TTNNLayoutAttr outputLayout);
+      llvm::ArrayRef<int64_t> outputShape, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -533,7 +610,8 @@ struct OpModel<SliceStaticOp> {
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> begins,
                    llvm::ArrayRef<int64_t> ends, llvm::ArrayRef<int64_t> step,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -552,7 +630,8 @@ struct OpModel<SliceDynamicOp> {
       llvm::ArrayRef<int64_t> beginsShape, TTNNLayoutAttr beginsLayout,
       llvm::ArrayRef<int64_t> endsShape, TTNNLayoutAttr endsLayout,
       std::optional<llvm::SmallVector<int64_t>> step,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -571,7 +650,8 @@ struct OpModel<BitcastConvertOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, ttcore::DataTypeAttr dtype,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -588,7 +668,8 @@ struct OpModel<TypecastOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, ttcore::DataTypeAttr dtype,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -604,7 +685,8 @@ template <>
 struct OpModel<ToLayoutOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-      std::optional<ttcore::DataType> outputDtype, TTNNLayoutAttr outputLayout);
+      std::optional<ttcore::DataType> outputDtype, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -620,7 +702,8 @@ template <>
 struct OpModel<ToMemoryConfigOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -636,7 +719,8 @@ struct OpModel<ConcatOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(std::vector<llvm::ArrayRef<int64_t>> inputShapes,
                    std::vector<TTNNLayoutAttr> inputLayouts, const int dim,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(std::vector<llvm::ArrayRef<int64_t>> inputShapes,
@@ -653,7 +737,8 @@ struct OpModel<TransposeOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, const int dim0, const int dim1,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -671,7 +756,8 @@ struct OpModel<CumSumOp> {
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, const int32_t dim,
                    std::optional<ttcore::DataType> dtype,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -689,7 +775,8 @@ struct OpModel<CumProdOp> {
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, const int32_t dim,
                    std::optional<ttcore::DataType> dtype,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -705,7 +792,8 @@ template <>
 struct OpModel<ConcatenateHeadsOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -730,7 +818,8 @@ struct OpModel<ScaledDotProductAttentionDecodeOp> {
                    std::optional<TTNNLayoutAttr> attentionSinkLayout,
                    std::optional<llvm::APFloat> scale,
                    std::optional<SDPAProgramConfigAttr> programConfig,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
@@ -765,7 +854,8 @@ struct OpModel<PagedScaledDotProductAttentionDecodeOp> {
       std::optional<llvm::APFloat> scale,
       std::optional<uint32_t> slidingWindowSize,
       std::optional<SDPAProgramConfigAttr> programConfig,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
@@ -802,7 +892,8 @@ struct OpModel<PagedFlashMultiLatentAttentionDecodeOp> {
       std::optional<TTNNLayoutAttr> curPosTensorLayout,
       std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
       std::optional<TTNNLayoutAttr> attentionSinkLayout,
-      std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+      std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
@@ -821,6 +912,33 @@ struct OpModel<PagedFlashMultiLatentAttentionDecodeOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// ChunkedScaledDotProductAttentionOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<ChunkedScaledDotProductAttentionOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+      llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+      llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
+      llvm::ArrayRef<int64_t> chunkStartIdxShape,
+      TTNNLayoutAttr chunkStartIdxLayout, std::optional<llvm::APFloat> scale,
+      std::optional<SDPAProgramConfigAttr> programConfig,
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+      llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+      llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
+      llvm::ArrayRef<int64_t> chunkStartIdxShape,
+      TTNNLayoutAttr chunkStartIdxLayout, std::optional<llvm::APFloat> scale,
+      std::optional<SDPAProgramConfigAttr> programConfig,
+      TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionOp
 //===----------------------------------------------------------------------===//
 template <>
@@ -834,7 +952,8 @@ struct OpModel<ScaledDotProductAttentionOp> {
       std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
       std::optional<TTNNLayoutAttr> attentionSinkLayout, bool isCausal,
       std::optional<llvm::APFloat> scale,
-      std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout);
+      std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
@@ -862,7 +981,8 @@ struct OpModel<FlashMlaPrefillOp> {
       std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
       std::optional<TTNNLayoutAttr> attentionMaskLayout, uint32_t headDimV,
       bool isCausal, std::optional<llvm::APFloat> scale,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
@@ -873,6 +993,26 @@ struct OpModel<FlashMlaPrefillOp> {
                std::optional<TTNNLayoutAttr> attentionMaskLayout,
                uint32_t headDimV, bool isCausal,
                std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// IndexerScoreDsaOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<IndexerScoreDsaOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+      llvm::ArrayRef<int64_t> weightsShape, TTNNLayoutAttr weightsLayout,
+      uint32_t chunkStartIdx, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+               llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+               llvm::ArrayRef<int64_t> weightsShape,
+               TTNNLayoutAttr weightsLayout, uint32_t chunkStartIdx,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===-----------------------------------------------------------------------===//
@@ -886,7 +1026,8 @@ struct OpModel<RotaryEmbeddingLlamaOp> {
       llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
       llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
       llvm::ArrayRef<int64_t> transMatShape, TTNNLayoutAttr transMatLayout,
-      bool isDecodeMode, TTNNLayoutAttr outputLayout);
+      bool isDecodeMode, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -908,7 +1049,8 @@ struct OpModel<RotaryEmbeddingOp> {
                    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> cosShape,
                    TTNNLayoutAttr cosLayout, llvm::ArrayRef<int64_t> sinShape,
                    TTNNLayoutAttr sinLayout, std::optional<uint32_t> tokenIndex,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -928,7 +1070,8 @@ struct OpModel<NLPCreateQKVHeadsDecodeOp> {
       std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
       std::optional<TTNNLayoutAttr> batchOffsetLayout, uint32_t numHeads,
       std::optional<uint32_t> numKVHeads, std::optional<bool> overlapQKCoregrid,
-      std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout);
+      std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -950,7 +1093,8 @@ struct OpModel<SplitQueryKeyValueAndSplitHeadsOp> {
                    std::optional<llvm::ArrayRef<int64_t>> inputKVShape,
                    std::optional<TTNNLayoutAttr> inputKVLayout,
                    uint32_t numHeads, std::optional<uint32_t> numKVHeads,
-                   bool transposeKey, TTNNLayoutAttr outputLayout);
+                   bool transposeKey, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -968,7 +1112,8 @@ template <>
 struct OpModel<NLPConcatHeadsOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -983,7 +1128,8 @@ struct OpModel<NLPConcatHeadsDecodeOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, uint32_t headDim,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -1000,7 +1146,8 @@ struct OpModel<RepeatInterleaveOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, const unsigned int repeats,
-                   const int dim, TTNNLayoutAttr outputLayout);
+                   const int dim, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -1018,7 +1165,8 @@ struct OpModel<RepeatOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> repeats,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -1036,7 +1184,8 @@ struct OpModel<PadOp> {
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int32_t> padding,
                    llvm::APFloat padValue, bool multicore,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1053,7 +1202,8 @@ struct OpModel<SortOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, int dim, bool descending,
-                   bool stable, TTNNLayoutAttr outputLayout);
+                   bool stable, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -1072,7 +1222,8 @@ struct OpModel<TopKRouterGptOp> {
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
       llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
       llvm::ArrayRef<int64_t> biasShape, TTNNLayoutAttr biasLayout, uint32_t k,
-      uint32_t numExperts, TTNNLayoutAttr outputLayout);
+      uint32_t numExperts, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1096,7 +1247,8 @@ struct OpModel<LinearOp> {
       std::optional<llvm::StringRef> activation,
       std::optional<mlir::Attribute> programConfigAttr = std::nullopt,
       std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
-          std::nullopt);
+          std::nullopt,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
@@ -1119,7 +1271,8 @@ struct OpModel<MatmulOp> {
       std::optional<llvm::StringRef> activation = std::nullopt,
       std::optional<mlir::Attribute> programConfigAttr = std::nullopt,
       std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
-          std::nullopt);
+          std::nullopt,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
@@ -1147,7 +1300,8 @@ struct OpModel<FillCacheOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
       llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-      uint32_t batchOffset, TTNNLayoutAttr outputLayout);
+      uint32_t batchOffset, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
@@ -1166,7 +1320,8 @@ struct OpModel<UpdateCacheOp> {
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
       llvm::ArrayRef<int64_t> updateIndexShape,
       TTNNLayoutAttr updateIndexLayout, uint32_t batchOffset,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
@@ -1189,7 +1344,8 @@ struct OpModel<PagedUpdateCacheOp> {
       TTNNLayoutAttr updateIndexLayout,
       std::optional<llvm::ArrayRef<int64_t>> pageTableShape,
       std::optional<TTNNLayoutAttr> pageTableLayout, bool shareCache,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
@@ -1212,8 +1368,8 @@ struct OpModel<PagedFillCacheOp> {
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
       llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
       std::optional<llvm::ArrayRef<int64_t>> batchIdxShape,
-      std::optional<TTNNLayoutAttr> batchIdxLayout,
-      TTNNLayoutAttr outputLayout);
+      std::optional<TTNNLayoutAttr> batchIdxLayout, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
@@ -1243,7 +1399,8 @@ struct OpModel<Conv2dOp> {
       std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
       std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1282,7 +1439,8 @@ struct OpModel<Conv1dOp> {
       std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
       std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1317,7 +1475,8 @@ struct OpModel<Conv3dOp> {
       std::optional<ttcore::DataTypeAttr> outputDtype,
       std::optional<Conv3dConfigAttr> conv3dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1352,7 +1511,8 @@ struct OpModel<ConvTranspose2dOp> {
       llvm::ArrayRef<int32_t> output_padding, llvm::ArrayRef<int32_t> dilation,
       uint32_t groups, std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1387,7 +1547,8 @@ struct OpModel<PrepareConv2dWeightsOp> {
       std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
       std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1407,7 +1568,8 @@ struct OpModel<PrepareConv2dBiasOp> {
       ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
       std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1429,7 +1591,8 @@ struct OpModel<PrepareConvTranspose2dWeightsOp> {
       std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
       std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig, bool mirrorKernel,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1450,7 +1613,8 @@ struct OpModel<PrepareConvTranspose2dBiasOp> {
       std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
       std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1466,7 +1630,8 @@ struct OpModel<PrepareMoEComputeW0W1WeightsOp> {
                    std::optional<TTNNLayoutAttr> bias0Layout,
                    std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
                    std::optional<TTNNLayoutAttr> bias1Layout,
-                   uint32_t hiddenSize, uint32_t intermediateSize);
+                   uint32_t hiddenSize, uint32_t intermediateSize,
+                   const MockAllocatorState *initialState = nullptr);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1479,7 +1644,8 @@ struct OpModel<PrepareMoEComputeW2WeightsOp> {
   getOpConstraints(llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
                    std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
                    std::optional<TTNNLayoutAttr> bias2Layout,
-                   uint32_t hiddenSize, uint32_t intermediateSize);
+                   uint32_t hiddenSize, uint32_t intermediateSize,
+                   const MockAllocatorState *initialState = nullptr);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1495,7 +1661,8 @@ struct OpModel<MaxPool2dOp> {
       llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
       llvm::ArrayRef<int32_t> dilation, bool ceilMode,
       bool reallocateHaloOutput, std::optional<bool> configTensorsInDram,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1521,7 +1688,8 @@ struct OpModel<MaxPool2dWithIndicesOp> {
       llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
       llvm::ArrayRef<int32_t> dilation, bool ceilMode,
       bool reallocateHaloOutput, bool deallocateInput, bool returnIndices,
-      std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout);
+      std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1547,7 +1715,8 @@ struct OpModel<AvgPool2dOp> {
       llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
       llvm::ArrayRef<int32_t> dilation, bool ceilMode,
       bool reallocateHaloOutput, std::optional<bool> configTensorsInDram,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1568,7 +1737,8 @@ template <>
 struct OpModel<GlobalAvgPool2dOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-      std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout);
+      std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1593,7 +1763,8 @@ struct OpModel<BatchNormInferenceOp> {
                    std::optional<TTNNLayoutAttr> weightLayout,
                    std::optional<llvm::ArrayRef<int64_t>> biasShape,
                    std::optional<TTNNLayoutAttr> biasLayout,
-                   llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
+                   llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1624,7 +1795,8 @@ struct OpModel<BatchNormTrainingOp> {
       std::optional<TTNNLayoutAttr> weightLayout,
       std::optional<llvm::ArrayRef<int64_t>> biasShape,
       std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-      llvm::APFloat momentum, TTNNLayoutAttr outputLayout);
+      llvm::APFloat momentum, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1653,7 +1825,8 @@ struct OpModel<RMSNormOp> {
       std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
       TTNNLayoutAttr outputLayout,
       std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
-          std::nullopt);
+          std::nullopt,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1677,7 +1850,8 @@ struct OpModel<RMSNormPreAllGatherOp> {
       std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
       std::optional<TTNNLayoutAttr> residualInputLayout,
       std::optional<ttcore::DataType> dtype, std::optional<bool> use2DCoreGrid,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1700,7 +1874,8 @@ struct OpModel<LayerNormOp> {
                    std::optional<TTNNLayoutAttr> weightLayout,
                    std::optional<llvm::ArrayRef<int64_t>> biasShape,
                    std::optional<TTNNLayoutAttr> biasLayout,
-                   llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
+                   llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1723,7 +1898,8 @@ struct OpModel<LayerNormPreAllGatherOp> {
       std::optional<TTNNLayoutAttr> residualInputLayout,
       std::optional<llvm::ArrayRef<int64_t>> recipShape,
       std::optional<TTNNLayoutAttr> recipLayout,
-      std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout);
+      std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1748,7 +1924,8 @@ struct OpModel<LayerNormPostAllGatherOp> {
       std::optional<TTNNLayoutAttr> weightLayout,
       std::optional<llvm::ArrayRef<int64_t>> biasShape,
       std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1775,7 +1952,8 @@ struct OpModel<GroupNormOp> {
                    std::optional<TTNNLayoutAttr> weightLayout,
                    std::optional<llvm::ArrayRef<int64_t>> biasShape,
                    std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
-                   llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
+                   llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1797,7 +1975,8 @@ struct OpModel<ClampScalarOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, mlir::Attribute min,
-                   mlir::Attribute max, TTNNLayoutAttr outputLayout);
+                   mlir::Attribute max, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -1816,7 +1995,8 @@ struct OpModel<ClampTensorOp> {
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> minShape,
                    TTNNLayoutAttr minLayout, llvm::ArrayRef<int64_t> maxShape,
-                   TTNNLayoutAttr maxLayout, TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr maxLayout, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1835,7 +2015,8 @@ struct OpModel<PermuteOp> {
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout,
                    llvm::ArrayRef<int64_t> permutation, llvm::APFloat padValue,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1852,7 +2033,8 @@ struct OpModel<PowScalarOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, mlir::Attribute exponent,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -1869,7 +2051,8 @@ struct OpModel<UpsampleOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, mlir::Attribute scaleFactor,
-                   llvm::StringRef mode, TTNNLayoutAttr outputLayout);
+                   llvm::StringRef mode, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -1888,7 +2071,8 @@ struct OpModel<EmbeddingOp> {
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout,
                    llvm::ArrayRef<int64_t> weightShape,
-                   TTNNLayoutAttr weightLayout, TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr weightLayout, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1906,7 +2090,8 @@ struct OpModel<EmbeddingBackwardOp> {
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
       llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
       llvm::ArrayRef<int64_t> inGradientShape, TTNNLayoutAttr inGradientLayout,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1924,7 +2109,8 @@ struct OpModel<GatherOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
       llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout,
-      int32_t dim, TTNNLayoutAttr outputLayout);
+      int32_t dim, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1976,7 +2162,8 @@ struct OpModel<mlir::tt::ttnn::FullOp> {
 template <>
 struct OpModel<ConstantOp> {
   static llvm::Expected<OpConstraints>
-  getOpConstraints(mlir::ElementsAttr value, TTNNLayoutAttr outputLayout);
+  getOpConstraints(mlir::ElementsAttr value, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 };
 
 //===----------------------------------------------------------------------===//
@@ -2034,7 +2221,8 @@ struct OpModel<TopKOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, int k, int dim, bool largest,
-                   bool sorted, TTNNLayoutAttr outputLayout);
+                   bool sorted, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout, int k,
@@ -2056,7 +2244,8 @@ struct OpModel<SamplingOp> {
                    llvm::ArrayRef<int64_t> kShape, TTNNLayoutAttr kLayout,
                    llvm::ArrayRef<int64_t> pShape, TTNNLayoutAttr pLayout,
                    llvm::ArrayRef<int64_t> tempShape, TTNNLayoutAttr tempLayout,
-                   std::optional<uint32_t> seed, TTNNLayoutAttr outputLayout);
+                   std::optional<uint32_t> seed, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputValuesShape,
@@ -2079,7 +2268,8 @@ struct OpModel<MeshPartitionOp> {
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, int32_t dim,
                    std::optional<uint32_t> clusterAxis,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,

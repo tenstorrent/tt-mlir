@@ -8554,13 +8554,17 @@ class TTNNBuilder(Builder):
         self,
         input: Operand,
         layout: Optional[ttnn.ir.LayoutAttr] = None,
-        buffer_type: ttnn.ir.BufferType = ttnn.BufferType.DRAM,
-        tensor_memory_layout: ttnn.ir.TensorMemoryLayout = ttnn.TensorMemoryLayout.Interleaved,
-        grid_shape: Optional[List[int]] = None,
-        core_range_set: Optional[ttnn.ir.CoreRangeSetAttr] = None,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
     ) -> OpResult:
+        """Change only the page layout (Tile<->RowMajor) and optionally the
+        data type.
+
+        The memory config (buffer type, tensor memory layout, sharding, grid)
+        is preserved from the input -- ``ttnn.to_layout`` structurally cannot
+        change it (enforced by the op verifier).  For any memory-config or
+        device-placement change use :meth:`to_tensor_spec` instead.
+        """
         ttnn_op = self.get_opview_from_method(TTNNBuilder.to_layout)
 
         if output_type is None:
@@ -8571,8 +8575,18 @@ class TTNNBuilder(Builder):
         input_golden = self._get_golden_tensor(input)
         shape = input.type.shape
 
-        if grid_shape is None:
-            grid_shape = [1, 1]
+        # Preserve the input's memory config; to_layout only changes page
+        # layout / dtype.
+        input_enc = ttnn.ir.TTNNLayoutAttr.maybe_downcast(
+            self._get_type(input).encoding
+        )
+        buffer_type = ttnn.ir.BufferTypeAttr.maybe_downcast(
+            input_enc.memory_space
+        ).value
+        tensor_memory_layout = ttnn.TensorMemoryLayout(
+            input_enc.tensor_memory_layout_as_int
+        )
+        grid_shape = list(input_enc.grid_shape)
 
         layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
         result = self.create_ttnn_tensor(
@@ -8582,7 +8596,6 @@ class TTNNBuilder(Builder):
             buffer_type=buffer_type,
             tensor_memory_layout=tensor_memory_layout,
             grid_shape=grid_shape,
-            core_range_set=core_range_set,
         )
 
         op_golden_function = get_golden_function(ttnn_op)
@@ -8686,6 +8699,158 @@ class TTNNBuilder(Builder):
                 ]
 
         return to_layout_module, to_layout_builder
+
+    ############### ttnn.ToTensorSpecOp ###############
+
+    @tag(ttnn.ToTensorSpecOp)
+    def to_tensor_spec(
+        self,
+        input: Operand,
+        layout: Optional[ttnn.ir.LayoutAttr] = None,
+        buffer_type: ttnn.ir.BufferType = ttnn.BufferType.DRAM,
+        tensor_memory_layout: ttnn.ir.TensorMemoryLayout = ttnn.TensorMemoryLayout.Interleaved,
+        grid_shape: Optional[List[int]] = None,
+        core_range_set: Optional[ttnn.ir.CoreRangeSetAttr] = None,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        """Aggregate layout / memory-config change.
+
+        Wraps all layout information (data type, page layout, memory config and
+        device placement) into a single ``ttnn.to_tensor_spec`` op that the
+        ``TTNNDecomposeLayouts`` pass later breaks down into the concrete
+        ``to_layout`` / ``to_device`` / ``to_memory_config`` / ``typecast`` ops.
+        Use this for any memory-config change (buffer type, sharding, grid) or
+        device placement; use :meth:`to_layout` only for a pure page-layout
+        (+/- dtype) change.
+        """
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.to_tensor_spec)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input_golden = self._get_golden_tensor(input)
+        shape = input.type.shape
+
+        if grid_shape is None:
+            grid_shape = [1, 1]
+
+        layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
+        result = self.create_ttnn_tensor(
+            shape,
+            mlir_output_type,
+            layout=layout,
+            buffer_type=buffer_type,
+            tensor_memory_layout=tensor_memory_layout,
+            grid_shape=grid_shape,
+            core_range_set=core_range_set,
+        )
+
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input_golden, layout_attr, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            input,
+            loc=loc,
+        )
+        op_result = op.result
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.ToTensorSpecOp)
+    def to_tensor_spec_parser(
+        self,
+        old_op: ttnn.ToTensorSpecOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.to_tensor_spec_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(
+            result,
+            in0,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        result_layout = ttnn.ir.TTNNLayoutAttr.maybe_downcast(result.encoding)
+        layout = (
+            ttnn.Layout.Tile
+            if result_layout is not None
+            and "ttcore.tile" in str(result_layout.memref.element_type)
+            else ttnn.Layout.RowMajor
+        )
+        layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
+        golden_output = op_golden_function(input0, layout_attr, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op, {old_op.result: new_op_result}
+
+    @split(ttnn.ToTensorSpecOp)
+    def to_tensor_spec_split(
+        self,
+        old_op: ttnn.ToTensorSpecOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.to_tensor_spec_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            to_tensor_spec_module = Module.create()
+            to_tensor_spec_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(to_tensor_spec_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="to_tensor_spec_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    to_tensor_spec_builder._set_golden_tensor(
+                        new_op_result, old_op_result
+                    )
+                    input0 = self._get_golden_tensor(old_op.input)
+                    to_tensor_spec_builder._set_golden_tensor(in0, input0)
+                    to_tensor_spec_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                to_tensor_spec_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return to_tensor_spec_module, to_tensor_spec_builder
 
     ############### ttnn.ToDeviceOp ###############
 
