@@ -21,6 +21,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
@@ -30,7 +31,6 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
-#include "mlir/IR/Builders.h"
 #include "llvm/Support/LogicalResult.h"
 #include <algorithm>
 #include <cstdint>
@@ -274,16 +274,10 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   llvm_unreachable("Expected load or subview op");
 }
 
-// Get DST index from where a compute op result is stored.
-// Handles both affine.store and memref.store.
-// When a value has multiple stores to different DST memrefs (due to value
-// reuse across DST regions after LICM), we prefer stores in the same block
-// as the defining op. This ensures we get the DST index for the correct
-// allocation context.
 // Finds the memref.store that writes `value` (or a dst_reinterpret_cast of it)
-// back into RegisterDst, and returns its slot index; null StoreOp if none.
-// The cast case covers results whose element type differs from the DST buffer
-// type (e.g. tile_argmax's bf16 value stored into an si32 DST slot).
+// back into RegisterDst; null if none. The cast case covers results whose
+// element type differs from the DST buffer type (e.g. tile_argmax's bf16 value
+// stored into an si32 DST slot).
 static memref::StoreOp findDstStoreForValue(Value value) {
   auto directStore = [](Value v) -> memref::StoreOp {
     for (Operation *op : v.getUsers()) {
@@ -3320,7 +3314,7 @@ public:
       }
     }
 
-    // Initialize the max_pool_with_indices LLK (primes the replay buffer, so
+    // Initialize the max_reduce_with_indices LLK (primes the replay buffer, so
     // must be done right before the LLK call).
     rewriter.create<ttkernel::MaxReduceWithIndicesInitOp>(loc);
 

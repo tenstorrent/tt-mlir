@@ -16,6 +16,7 @@
 
 #include <limits>
 #include <numeric>
+#include <optional>
 
 namespace mlir::tt::d2m::utils {
 
@@ -104,6 +105,9 @@ getMaxDstTilesForLinalgOp(linalg::GenericOp op,
       (classifyLinalgExecutionClass(op) == DstExecutionClass::FPU)
           ? static_cast<int64_t>(dstLogicalSizeTiles)
           : static_cast<int64_t>(dstLogicalSizeTiles) / 2;
+  if (tilesOnHW < coResidentTiles) {
+    return std::nullopt;
+  }
   int64_t maxDstTiles = tilesOnHW / coResidentTiles;
 
   return maxDstTiles;

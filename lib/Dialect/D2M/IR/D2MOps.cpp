@@ -3143,25 +3143,8 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
     }
     bufferOutputs.push_back(*maybeValue);
   }
-  // Additional args are plain operands rather than DPS inputs/inits, but they
-  // still need buffering: leaving them as tensors while inputs/outputs become
-  // memrefs produces a generic that mixes both and fails to bufferize.
-  mlir::SmallVector<mlir::Value> bufferAdditionalArgs;
-  bufferAdditionalArgs.reserve(getAdditionalArgs().size());
-  for (auto additionalArg : getAdditionalArgs()) {
-    if (!mlir::isa<mlir::RankedTensorType>(additionalArg.getType())) {
-      bufferAdditionalArgs.push_back(additionalArg);
-      continue;
-    }
-    auto maybeValue =
-        bufferization::getBuffer(rewriter, additionalArg, options, state);
-    if (failed(maybeValue)) {
-      return maybeValue;
-    }
-    bufferAdditionalArgs.push_back(*maybeValue);
-  }
   auto bufferGeneric = rewriter.create<d2m::GenericOp>(
-      getLoc(), ValueRange(), bufferInputs, bufferOutputs, bufferAdditionalArgs,
+      getLoc(), ValueRange(), bufferInputs, bufferOutputs, getAdditionalArgs(),
       getGrid(), getBlockFactors(), getIndexingMaps(), getIteratorTypes(),
       getThreads(), getFabricConnectionConfigAttr(),
       /*numRegions=*/getNumRegions());

@@ -23,6 +23,7 @@
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
+#include "mlir/IR/AsmState.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -39,7 +40,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
-#include "mlir/IR/AsmState.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -581,13 +581,9 @@ protected:
   createInputIndicesAndMcastGridDims(mlir::OpBuilder &builder,
                                      mlir::Location loc, d2m::GenericOp generic,
                                      bool enableMulticastInference) {
-    // Only DPS inputs/inits are positionally aligned with `indexing_maps`;
-    // trailing `additionalArgs` (e.g. accumulator scratch CBs) carry no map, so
-    // indexing past that point would read out of bounds.
-    const size_t numIndexedOperands = generic.getIndexingMaps().size();
     SmallVector<SmallVector<Value>> inputIndices(generic.getNumOperands());
     SmallVector<SmallVector<int64_t>> mcastGridDims(generic.getNumOperands());
-    for (size_t i = 0; i < numIndexedOperands; ++i) {
+    for (size_t i = 0; i < generic.getNumOperands(); ++i) {
       inputIndices[i] =
           d2m::utils::buildGridIndices(builder, loc, generic.getIndexingMap(i));
       if (enableMulticastInference) {
@@ -4765,14 +4761,13 @@ public:
   }
 };
 
-class D2MArgMaxLLKRewriter : public OpConversionPattern<ttir::ArgMaxOp>,
-                             D2MNamedRewriterCommon {
+class D2MArgMaxRewriter : public OpConversionPattern<ttir::ArgMaxOp>,
+                          D2MNamedRewriterCommon {
 public:
-  D2MArgMaxLLKRewriter(const TypeConverter &typeConverter,
-                       mlir::MLIRContext *ctx,
-                       ttcore::MemorySpace defaultInputMemSpace,
-                       ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
-                       bool collapseTensors, bool enableMulticastInference)
+  D2MArgMaxRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
+                    ttcore::MemorySpace defaultInputMemSpace,
+                    ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+                    bool collapseTensors, bool enableMulticastInference)
       : OpConversionPattern<ttir::ArgMaxOp>(typeConverter, ctx),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
                                ttnnMode, collapseTensors,
@@ -5180,6 +5175,7 @@ private:
     // physical movement of data, reinterpret cast is a simple relabeling.
     // Caveat: nothing in the IR records that these tile-labeled operands are
     // really row-major.
+    // TODO(#9209): add native support for row-major tiles.
     rowMajorValues = relabelRowMajorAsTile(rewriter, loc, rowMajorValues);
 
     // Give the same pseudo row-major treatment to indices. The indices however
@@ -5430,7 +5426,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,
     D2MBroadcastRewriter,
     // Argmax (using the LLK version)
-    D2MArgMaxLLKRewriter,
+    D2MArgMaxRewriter,
     // Tensor manipulation/View ops.
     D2MConcatRewriter,
     D2MTensorManipulationOpRewriter<ttir::RearrangeOp,        rearrangeLogicalInfo>,

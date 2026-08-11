@@ -573,14 +573,19 @@ def get_perf_counter_stats(perf_counters: pd.DataFrame) -> dict:
     semaphore_full_wait_0 = get_value_ref_ratio("WAITING_FOR_NONFULL_SEM_0")
     semaphore_full_wait_1 = get_value_ref_ratio("WAITING_FOR_NONFULL_SEM_1")
     semaphore_full_wait_2 = get_value_ref_ratio("WAITING_FOR_NONFULL_SEM_2")
+    idx = ["run_host_id", "core_x", "core_y"]
     tdma_bundle_cnt = (
-        get_counter_values("L1_0_TDMA_BUNDLE_0_RISC")
-        + get_counter_values("L1_0_TDMA_BUNDLE_1_TRISC")
+        get_counter_values("L1_0_TDMA_BUNDLE_0_RISC").groupby(level=idx).sum()
+        + get_counter_values("L1_0_TDMA_BUNDLE_1_TRISC").groupby(level=idx).sum()
     ) / 2
-    tdma_bundle = (tdma_bundle_cnt) / get_counter_ref_cnt("L1_0_TDMA_BUNDLE_0_RISC")
-    fpu_efficiency = get_counter_values("FPU_COUNTER") / get_counter_values(
-        "FPU_INSTRN_AVAILABLE_1"
-    )
+    tdma_bundle = (
+        tdma_bundle_cnt
+        / get_counter_ref_cnt("L1_0_TDMA_BUNDLE_0_RISC").groupby(level=idx).sum()
+    ).replace([float("inf"), -float("inf")], float("nan"))
+    fpu_efficiency = (
+        get_counter_values("FPU_COUNTER").groupby(level=idx).sum()
+        / get_counter_values("FPU_INSTRN_AVAILABLE_1").groupby(level=idx).sum()
+    ).replace([float("inf"), -float("inf")], float("nan"))
 
     noc_out = (
         get_counter_values("L1_0_NOC_RING0_OUTGOING_0")
