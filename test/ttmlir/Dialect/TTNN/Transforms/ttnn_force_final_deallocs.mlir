@@ -226,12 +226,16 @@ module {
   }
 
   // Branches that forward *different* captures leave the result aliasing one of
-  // them, but which is only known at runtime. There is no single root whose last
-  // deallocation could be forced, so every handle involved is left alone.
+  // them, but which is only known at runtime. The handles are grouped rather
+  // than merged: they name distinct buffers, only one of which is shared.
+  //
+  // Here the result escapes through the return, so nothing may be forced - but
+  // the deallocations must still be kept. Each one frees whichever buffer it
+  // alone owns, and dropping them would leak the captures.
   //
   // Each capture is given a view so that its root has two deallocations: without
-  // the ambiguity check the bottom-most of each pair would be forced, freeing a
-  // buffer the returned result may still name.
+  // the grouping the bottom-most of each pair would be forced, freeing a buffer
+  // the returned result may still name.
   // CHECK-LABEL: func.func @case_forwards_ambiguous
   func.func @case_forwards_ambiguous(%arg0: tensor<64x128xbf16, #l2>, %arg1: tensor<si32, #index>) -> tensor<64x128xbf16, #l2> {
     %a = "ttnn.add"(%arg0, %arg0) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
@@ -246,13 +250,44 @@ module {
     ^bb0(%c0: tensor<64x128xbf16, #l2>, %c1: tensor<64x128xbf16, #l2>):
       ttnn.yield %c1 : tensor<64x128xbf16, #l2>
     } -> (tensor<64x128xbf16, #l2>)
+    // All four survive, none forced.
     // CHECK-NOT: force = true
+    // CHECK-COUNT-4: "ttnn.deallocate"
+    // CHECK-NOT: "ttnn.deallocate"
     "ttnn.deallocate"(%va) <{force = false}> : (tensor<1x64x128xbf16, #l3>) -> ()
     "ttnn.deallocate"(%vb) <{force = false}> : (tensor<1x64x128xbf16, #l3>) -> ()
     "ttnn.deallocate"(%a) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
     "ttnn.deallocate"(%b) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
     // CHECK: return
     return %0 : tensor<64x128xbf16, #l2>
+  }
+
+  // The same ambiguity, but nothing escapes: the result is consumed here and
+  // only %r is returned. Every deallocation is kept, since each frees whichever
+  // buffer it alone owns, and the bottom-most is forced to free the one that is
+  // shared - whose refcount never drops to zero on its own. Dropping any of
+  // them would hold a buffer to the end of the function.
+  // CHECK-LABEL: func.func @case_forwards_ambiguous_local
+  func.func @case_forwards_ambiguous_local(%arg0: tensor<64x128xbf16, #l2>, %arg1: tensor<si32, #index>) -> tensor<64x128xbf16, #l2> {
+    %a = "ttnn.add"(%arg0, %arg0) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    %b = "ttnn.add"(%a, %a) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    // CHECK: ttnn.case
+    %0 = ttnn.case index(%arg1 : tensor<si32, #index>) captures(%a, %b : tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) branches {
+    ^bb0(%c0: tensor<64x128xbf16, #l2>, %c1: tensor<64x128xbf16, #l2>):
+      ttnn.yield %c0 : tensor<64x128xbf16, #l2>
+    }, {
+    ^bb0(%c0: tensor<64x128xbf16, #l2>, %c1: tensor<64x128xbf16, #l2>):
+      ttnn.yield %c1 : tensor<64x128xbf16, #l2>
+    } -> (tensor<64x128xbf16, #l2>)
+    %r = "ttnn.multiply"(%0, %0) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    // CHECK: "ttnn.deallocate"(%{{[0-9]+}}) <{force = false}>
+    // CHECK: "ttnn.deallocate"(%{{[0-9]+}}) <{force = false}>
+    // CHECK: "ttnn.deallocate"(%{{[0-9]+}}) <{force = true}>
+    "ttnn.deallocate"(%a) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    "ttnn.deallocate"(%b) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    "ttnn.deallocate"(%0) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    // CHECK: return
+    return %r : tensor<64x128xbf16, #l2>
   }
 
   // No aliasing: a single deallocate per buffer already frees with force = false

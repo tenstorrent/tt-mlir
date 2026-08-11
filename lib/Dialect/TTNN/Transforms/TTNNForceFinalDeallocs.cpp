@@ -158,6 +158,62 @@ Value canonicalRoot(Value value, llvm::DenseMap<Value, Value> &valueToRoot) {
   return root;
 }
 
+// Groups roots that may name the same buffer without provably doing so, which
+// today means a control flow result whose branches forward different operands:
+// it aliases one of them, decided at runtime.
+//
+// These cannot be merged into a single root the way a view can. A root stands
+// for one buffer, and the members of a group are still distinct buffers - only
+// one of them turns out to be shared - so their deallocations are not
+// interchangeable and none of them is redundant.
+class MayAliasGroups {
+public:
+  Value find(Value root) const {
+    auto it = parent.find(root);
+    while (it != parent.end() && it->second != root) {
+      root = it->second;
+      it = parent.find(root);
+    }
+    return root;
+  }
+
+  void join(Value lhs, Value rhs) {
+    Value lhsGroup = find(lhs);
+    Value rhsGroup = find(rhs);
+    parent[lhsGroup] = lhsGroup;
+    if (lhsGroup != rhsGroup) {
+      parent[rhsGroup] = lhsGroup;
+    }
+  }
+
+  bool isGrouped(Value root) const { return parent.contains(root); }
+
+private:
+  llvm::DenseMap<Value, Value> parent;
+};
+
+MayAliasGroups buildMayAliasGroups(func::FuncOp funcOp,
+                                   llvm::DenseMap<Value, Value> &valueToRoot) {
+  MayAliasGroups groups;
+  funcOp.walk([&](Operation *op) {
+    if (!mlir::isa<WhileOp, CaseOp>(op)) {
+      return;
+    }
+    for (OpResult result : op->getResults()) {
+      llvm::SmallVector<Value> forwarded =
+          getForwardedOperands(op, result.getResultNumber());
+      if (forwarded.size() < 2) {
+        continue;
+      }
+      Value resultRoot = canonicalRoot(result, valueToRoot);
+      for (Value operand : forwarded) {
+        groups.join(resultRoot, canonicalRoot(operand, valueToRoot));
+      }
+    }
+  });
+  return groups;
+}
+
 } // namespace
 
 // A `ttnn.deallocate` with the force flag set to false frees the buffer only
@@ -171,8 +227,16 @@ Value canonicalRoot(Value value, llvm::DenseMap<Value, Value> &valueToRoot) {
 //
 // Getting the aliasing wrong the other way round is worse than a leak: forcing
 // a deallocation of a buffer another live handle still names frees it out from
-// under that handle. So an alias that cannot be resolved to a single buffer
-// keeps every handle involved out of the forcing decision entirely.
+// under that handle.
+//
+// Aliasing comes in two strengths. A view *must* alias its source, so all the
+// handles share one root and every deallocation but the last is a no-op that
+// can be removed. A control flow result whose branches forward different
+// operands only *may* alias each of them - which one is decided at runtime - so
+// those handles are grouped rather than merged: they are still distinct
+// buffers, no deallocation among them is redundant, and only the bottom-most is
+// forced, to free the one that is shared and whose refcount therefore never
+// drops to zero on its own.
 //
 // For each underlying buffer, this pass walks that buffer's deallocate ops from
 // bottom to top and sets the force flag to true on the last one in program
@@ -239,25 +303,6 @@ private:
         }
       }
 
-      // A control flow result whose branches forward different operands aliases
-      // one of them, but which is only known at runtime, so it has no single
-      // root. Neither the result nor any candidate may be force-freed:
-      // whichever way the branch goes, one of the two handles outlives the
-      // other.
-      if (mlir::isa<WhileOp, CaseOp>(op)) {
-        for (OpResult result : op->getResults()) {
-          llvm::SmallVector<Value> forwarded =
-              getForwardedOperands(op, result.getResultNumber());
-          if (forwarded.size() < 2) {
-            continue;
-          }
-          doNotForceRoots.insert(canonicalRoot(result, valueToRoot));
-          for (Value operand : forwarded) {
-            doNotForceRoots.insert(canonicalRoot(operand, valueToRoot));
-          }
-        }
-      }
-
       Value convActivation =
           llvm::TypeSwitch<Operation *, Value>(op)
               .Case<Conv2dOp, ConvTranspose2dOp>([](auto convOp) {
@@ -279,46 +324,66 @@ private:
     // buffer.
     llvm::DenseMap<Value, Value> valueToRoot;
 
+    // Built before anything else resolves a root, so that every later lookup
+    // sees the same grouping.
+    MayAliasGroups mayAliasGroups = buildMayAliasGroups(funcOp, valueToRoot);
+    auto groupOf = [&](Value value) {
+      return mayAliasGroups.find(canonicalRoot(value, valueToRoot));
+    };
+
     // Buffers that are used outside the function (returned variables) or
     // deallocated by a conv op (conv op L1 activations) cannot be force-freed.
-    llvm::DenseSet<Value> doNotForceRoots =
-        collectDoNotForceRoots(funcOp, valueToRoot);
+    llvm::DenseSet<Value> doNotForceGroups;
+    for (Value root : collectDoNotForceRoots(funcOp, valueToRoot)) {
+      doNotForceGroups.insert(mayAliasGroups.find(root));
+    }
 
     // Count deallocations per buffer so we only touch buffers that
     // actually have multiple (aliasing) deallocations.
     llvm::SmallVector<DeallocateOp> deallocs;
-    llvm::DenseMap<Value, unsigned> deallocCountByRoot;
+    llvm::DenseMap<Value, unsigned> deallocCountByGroup;
     funcOp.walk([&](DeallocateOp deallocOp) {
       deallocs.push_back(deallocOp);
-      deallocCountByRoot[canonicalRoot(deallocOp.getInput(), valueToRoot)]++;
+      deallocCountByGroup[groupOf(deallocOp.getInput())]++;
     });
 
     // Walk deallocations bottom-to-top and decide, per buffer, which single
     // deallocate (if any) should free it. All other deallocations of that
     // buffer are no-ops and are removed.
-    llvm::DenseSet<Value> forcedRoots;
+    llvm::DenseSet<Value> forcedGroups;
     llvm::SmallVector<DeallocateOp> redundantDeallocs;
     for (auto deallocOp : llvm::reverse(deallocs)) {
-      Value root = canonicalRoot(deallocOp.getInput(), valueToRoot);
+      Value group = groupOf(deallocOp.getInput());
+
+      // A may-alias group holds distinct buffers, only one of which turns out
+      // to be shared, so none of its deallocations is redundant: each frees
+      // whichever buffer it alone owns. Only the bottom-most needs forcing, to
+      // free the one that is shared and whose refcount therefore never drops
+      // to zero on its own.
+      bool mayAlias = mayAliasGroups.isGrouped(group);
 
       // The buffer is freed elsewhere: escapes the function (freed by the
       // caller) or is a conv activation the conv force-deallocates itself.
-      if (doNotForceRoots.contains(root)) {
-        redundantDeallocs.push_back(deallocOp);
+      if (doNotForceGroups.contains(group)) {
+        if (!mayAlias) {
+          redundantDeallocs.push_back(deallocOp);
+        }
         continue;
       }
 
       // A single deallocate already frees the buffer (its input variable is the
-      // sole reference), so leave it as is.
-      if (deallocCountByRoot.lookup(root) < 2) {
+      // sole reference), so leave it as is. A may-alias group is the exception:
+      // a lone deallocation there may be the shared buffer's, whose refcount is
+      // still above zero, so it has to be forced.
+      if (!mayAlias && deallocCountByGroup.lookup(group) < 2) {
         continue;
       }
 
       // Multiple aliasing deallocations: the first one seen is the last in
       // program order, so force it. The rest are no-ops and are removed.
-      if (forcedRoots.insert(root).second) {
+      if (forcedGroups.insert(group).second) {
         deallocOp.setForce(true);
-      } else {
+      } else if (!mayAlias) {
         redundantDeallocs.push_back(deallocOp);
       }
     }
