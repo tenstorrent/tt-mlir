@@ -702,7 +702,7 @@ std::pair<Type, int> inferDstInfoFromAllAccesses(const CopyInfoMap &copyInfos) {
   // element type on the acquire_dst memref is compiler bookkeeping that the
   // no-op dst_reinterpret_cast reconciles at each access. When a region mixes
   // element types (e.g. tile_argmax writes a bf16 value tile and an si32 index
-  // tile into distinct slots), the buffer must be typed by the *widest*
+  // tile into distinct slots), the buffer must be typed by the widest
   // access, otherwise a wider store (si32) would be narrowed into a smaller
   // slot type (bf16) and lose bits / fail the affine.store verifier.
   auto scalarBitWidth = [](Type memrefElementType) -> unsigned {

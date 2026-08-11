@@ -113,25 +113,13 @@ public:
       TTKernelControlDstSection>::TTKernelControlDstSectionBase;
 
   void runOnOperation() final {
-    // A DST section is `acquire ... commit/wait ... pack* ... release`, so all
-    // packs sharing one acquire belong to a *single* section.  Group the
-    // candidates by their opening acquire and span each group from its first to
-    // its last pack; keying insertion on the individual pack's parent instead
-    // would emit one commit/wait/release per pack, which for a multi-result op
-    // (e.g. d2m.tile_argmax, packing a value tile and an index tile out of one
-    // acquire) yields several unbalanced handshakes and, in SyncHalf mode, a
-    // dest_section_flip between them.
-    //
-    // Keyed on (opening acquire, pack op kind), not on the enclosing block:
-    //   - one block may open several independent sections in sequence, so the
-    //     block alone would wrongly merge them;
-    //   - pack_tile and pack_tile_block drive different packer configurations,
-    //     so when both appear under one acquire they each need their own
-    //     section (see @mixed_pack_ops_in_dst_section).
-    // Packs of the *same* kind under one acquire do share a section, which is
-    // what collapses a multi-result op's packs into a single handshake.
-    // `MapVector` keeps iteration in insertion order so emission is
-    // deterministic.
+    // A DST section is `acquire ... commit/wait ... pack* ... release`, so
+    // every pack under one acquire shares a section and gets one handshake.
+    // Keying on each pack's parent instead would emit unbalanced handshakes for
+    // a multi-result op like d2m.tile_argmax. Keyed on (acquire, pack op kind)
+    // rather than the block, since a block may open several sections in
+    // sequence and pack_tile vs pack_tile_block need different packer
+    // configurations.
     struct DstSectionSpan {
       Operation *first = nullptr;
       Operation *last = nullptr;

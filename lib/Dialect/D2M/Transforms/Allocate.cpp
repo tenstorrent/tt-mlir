@@ -609,10 +609,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         const MemRefType memrefType =
             llvm::cast<MemRefType>(allocOp->getResultTypes().front());
 
-        // Instrumentation: describe where this func-level (persistent) alloc
-        // comes from -- its type, its own source location, and the ops that
-        // consume it (with their locations). These persistent allocs are the
-        // ones that live across generic-op boundaries and dominate L1 usage.
         if (TT_DEBUG_ENABLED()) {
           std::string usersStr;
           llvm::raw_string_ostream us{usersStr};
@@ -701,9 +697,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                       getMemrefSizeBytes(allocOp.getType(), device),
                   L1memInfo.alignment);
 
-          // Instrumentation: describe where this in-generic (streamed CB)
-          // alloc comes from -- its buffer type, buffer count, computed L1
-          // byte size, and the owning generic op (with its location).
           if (TT_DEBUG_ENABLED()) {
             TT_ALLOC_DEBUG(
                 "in-generic alloc: type={} numBuffers={} l1Bytes={} loc={} "

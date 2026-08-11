@@ -88,7 +88,7 @@ static SmallVector<int64_t> calculateOptimalSubblockSizes(
   // requirements.
   //
   // With several outputs the reversed concat order is (outN..out0, inN..in0),
-  // so output 0's factors sit *after* the other outputs' dims rather than at
+  // so output 0's factors sit after the other outputs' dims rather than at
   // the front; pad those leading dims with 1s (they are free, exactly like the
   // input dims) so the factors land on the dims they describe.
   SmallVector<int64_t> flattenedSubblockFactors;

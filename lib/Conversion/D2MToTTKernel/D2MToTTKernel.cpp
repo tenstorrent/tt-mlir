@@ -787,6 +787,7 @@ public:
                                                         nullptr, outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
+    // Need to reconfigure Src A to the correct data format.
     rewriter.create<ttkernel::ReconfigDataFormatSrcAOp>(store.getLoc(), cb);
     rewriter.create<ttkernel::CopyTileInitOp>(store.getLoc(), cb);
     rewriter.replaceOpWithNewOp<ttkernel::CopyTileOp>(store, cb, cbIndex,
