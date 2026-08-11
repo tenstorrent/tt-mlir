@@ -490,31 +490,6 @@ class _SpatialRegionScope:
             )
         return grid
 
-    def _make_offset_vgm_maps(self):
-        oy, ox = self.offset
-        d0 = AffineDimExpr.get(0)
-        d1 = AffineDimExpr.get(1)
-        zero = AffineExpr.get_constant(0, self.ctx)
-
-        def add_const(expr, value):
-            if value == 0:
-                return expr
-            return AffineExpr.get_add(expr, AffineExpr.get_constant(value, self.ctx))
-
-        inverse = AffineMap.get(2, 0, [zero, add_const(d0, -oy), add_const(d1, -ox)])
-        dims = [AffineDimExpr.get(i) for i in range(4)]
-        forward = AffineMap.get(
-            4,
-            0,
-            [
-                add_const(dims[0], oy),
-                add_const(dims[1], ox),
-                dims[2],
-                dims[3],
-            ],
-        )
-        return inverse, forward
-
     def _remap_spatial_output(self, lt: "LazyTensor"):
         # Replace the matching SpatialOp out with a VGM empty so L1 lands on
         # this region's physical cores.
@@ -524,7 +499,8 @@ class _SpatialRegionScope:
         if output_idx is None:
             raise ValueError("kernel output not listed in d2m.spatial(outputs=...)")
 
-        inverse, forward = self._make_offset_vgm_maps()
+        tensor_rank = len(RankedTensorType(lt.value.type).shape)
+        inverse, forward = _make_offset_vgm_maps(self.ctx, self.offset, tensor_rank)
         with self.ctx, self.loc, InsertionPoint(self.spatial_op.operation):
             remapped_value = d2m.empty(
                 lt.value.type,
@@ -665,6 +641,44 @@ class LazyTensor:
             "by to_host(). Re-materialise its source or include it in the "
             "to_host() call before reset."
         )
+
+
+# --- Virtual grid helpers ----------------------------------------------------
+
+
+def _make_offset_vgm_maps(ctx, offset_yx, tensor_rank: int):
+    """Build inverse/forward virtual-grid maps for a 2D core offset (oy, ox).
+
+    Inverse maps physical 2D core coords to (device, virt_y, virt_x).
+    Forward maps a metal tensor's device dims, offsetting the leading
+    grid y/x and passing remaining shard dims through.
+    """
+    if tensor_rank < 2:
+        raise ValueError(f"VGM remap requires tensor rank >= 2, got {tensor_rank}")
+    oy, ox = offset_yx
+    zero = AffineExpr.get_constant(0, ctx)
+
+    def add_const(expr, value):
+        if value == 0:
+            return expr
+        return AffineExpr.get_add(expr, AffineExpr.get_constant(value, ctx))
+
+    inverse = AffineMap.get(
+        2,
+        0,
+        [
+            zero,
+            add_const(AffineDimExpr.get(0), -oy),
+            add_const(AffineDimExpr.get(1), -ox),
+        ],
+    )
+    dims = [AffineDimExpr.get(i) for i in range(tensor_rank)]
+    forward = AffineMap.get(
+        tensor_rank,
+        0,
+        [add_const(dims[0], oy), add_const(dims[1], ox)] + dims[2:],
+    )
+    return inverse, forward
 
 
 # --- Public constructors -----------------------------------------------------
