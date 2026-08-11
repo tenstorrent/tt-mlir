@@ -441,7 +441,9 @@ def apply_patterns_text(
         apply_patterns(module)
         module.operation.verify()
         if preserve_debug_info:
-            return module.operation.get_asm(enable_debug_info=True)
+            return module.operation.get_asm(
+                enable_debug_info=True, assume_verified=True
+            )
         return str(module)
     finally:
         _registry.clear()
