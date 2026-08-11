@@ -1481,17 +1481,16 @@ static mlir::Value build_kv_cache_write(ModuleBuilder &mb, mlir::Value cache, ml
         if (mlir::cast<mlir::RankedTensorType>(index.getType()).getElementType() != i32_type) {
             update_index = mb.insert_typecast(index, i32_type);
         }
-        return mb
-            .create<mlir::tt::ttir::UpdateCacheOp>(cache_type, cache, updates, update_index,
-                                                   mb.attrs().getI32IntegerAttr(0))
-            .getResult();
+        // update_cache mutates `cache` in place and produces no result; the same
+        // SSA value carries the updated tensor forward.
+        mb.create<mlir::tt::ttir::UpdateCacheOp>(cache, updates, update_index, mb.attrs().getI32IntegerAttr(0));
+        return cache;
     }
 
     // Prefill: fill_cache fills a single batch slab from seq 0, so emit one op per
     // batch element (slicing it out) and chain the in-place result.
     llvm::SmallVector<int64_t> begins(4, 0), steps(4, 1);
     llvm::SmallVector<int64_t> ends(source_shape.begin(), source_shape.end());
-    mlir::Value chained = cache;
     for (int64_t b = 0; b < batch; ++b) {
         mlir::Value slab = source;
         if (batch > 1) {
@@ -1499,11 +1498,11 @@ static mlir::Value build_kv_cache_write(ModuleBuilder &mb, mlir::Value cache, ml
             ends[0] = b + 1;
             slab = build_slice(mb, source, begins, ends, steps);
         }
-        chained = mb.create<mlir::tt::ttir::FillCacheOp>(cache_type, chained, slab,
-                                                         mb.attrs().getI32IntegerAttr(as<int32_t>(b)))
-                      .getResult();
+        // fill_cache mutates `cache` in place and produces no result; each op in
+        // the loop writes a batch slab, chained by their MemWrite effect.
+        mb.create<mlir::tt::ttir::FillCacheOp>(cache, slab, mb.attrs().getI32IntegerAttr(as<int32_t>(b)));
     }
-    return chained;
+    return cache;
 }
 
 mlir::Value build_index_copy(ModuleBuilder &mb, mlir::Value input, int64_t dim, mlir::Value index, mlir::Value source) {
