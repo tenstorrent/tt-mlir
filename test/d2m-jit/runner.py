@@ -91,6 +91,10 @@ class TensorSpec:
     lhs/rhs in a mixed-precision matmul).
     ``grid_shape`` is the only graph-level execution parameter and lives on
     ``KernelBench`` directly.
+
+    ``shape`` is always the FULL (host-level) tensor shape.  On a mesh bench
+    the per-device shard shape is derived from it via ``shard_dims`` and the
+    bench's ``MeshSpec`` (see ``shard_shape_for_spec``).
     """
 
     shape: tuple
@@ -98,6 +102,60 @@ class TensorSpec:
     dtype: torch.dtype
     dist: "str | Callable" = "uniform(-1,1)"
     mem_space: str = "L1"
+    # Mesh sharding: one entry per mesh axis, mapping it to the tensor dim it
+    # splits, or -1 to replicate along that axis (``d2m.mesh_shard``'s
+    # ``shard_dims``).  None on single-device benches; stamped per-config by
+    # the autotuner when the sharding strategy is swept.
+    shard_dims: Optional[list] = None
+
+
+@dataclass
+class MeshSpec:
+    """Device-mesh declaration for a mesh-parallel bench (graph-level).
+
+    ``shape`` is the device mesh (e.g. ``(1, 2)``); ``topology`` matches the
+    topology argument of ``d2m.mesh`` (e.g. ``("linear", "ring")``).  How each
+    tensor maps onto the mesh is per-tensor (``TensorSpec.shard_dims``).
+    """
+
+    shape: tuple
+    topology: Optional[tuple] = None
+
+
+def shard_factors(mesh_shape, shard_dims, rank: int) -> list:
+    """Per-tensor-dim split factors implied by ``(mesh_shape, shard_dims)``.
+
+    A tensor dim mapped by several mesh axes multiplies their extents —
+    mirrors the expected-shape rule of
+    ``d2m_jit._src.layout_math.validate_mesh_mapping``.
+    """
+    factors = [1] * rank
+    for mesh_axis, tensor_dim in enumerate(shard_dims):
+        if tensor_dim >= 0:
+            factors[tensor_dim] *= mesh_shape[mesh_axis]
+    return factors
+
+
+def shard_shape_for_spec(mesh: MeshSpec, spec: TensorSpec) -> tuple:
+    """Per-device logical shape of *spec* under *mesh*.
+
+    ``shard_dims=None`` means fully replicated (every device sees the full
+    shape).  Raises ``ValueError`` when a dim is not divisible by its shard
+    factor — the same infeasibility ``d2m.mesh_shard`` would reject, surfaced
+    before any device work.
+    """
+    dims = spec.shard_dims if spec.shard_dims is not None else [-1] * len(mesh.shape)
+    factors = shard_factors(mesh.shape, dims, len(spec.shape))
+    shard = []
+    for dim, (size, factor) in enumerate(zip(spec.shape, factors)):
+        if size % factor != 0:
+            raise ValueError(
+                f"shard dim {dim}: full size {size} is not divisible by "
+                f"shard factor {factor} (mesh {tuple(mesh.shape)}, "
+                f"shard_dims {list(dims)})"
+            )
+        shard.append(size // factor)
+    return tuple(shard)
 
 
 def d2m_mem_space(mem_space_str: str) -> str:
@@ -167,11 +225,15 @@ class KernelBench:
     ``tensors`` declares one ``TensorSpec`` per kernel INPUT, fully describing
     each tensor: shape, block_shape, dtype, and input distribution.
     ``grid_shape`` is the only graph-level parameter — the execution grid
-    shared by all tensors in the kernel call.
+    shared by all tensors in the kernel call — unless the bench declares a
+    ``mesh``, which is likewise graph-level.
 
     The materializer ``run(kernel, inputs, tensors, grid_shape) -> host_tensor``
     receives the generated torch inputs alongside the full ``TensorSpec`` list,
-    so it can build per-tensor ``d2m.Layout`` objects directly.
+    so it can build per-tensor ``d2m.Layout`` objects directly.  When a mesh is
+    in play (``bench.mesh`` or a per-config override) the materializer is
+    instead called as ``run(kernel, inputs, tensors, grid_shape, mesh)`` and
+    reads each tensor's ``shard_dims`` off its ``TensorSpec``.
 
     ``name`` is set by ``discover()`` from the key in ``KERNEL_BENCHES``; it
     is empty when the bench is used directly without discovery.
@@ -185,6 +247,13 @@ class KernelBench:
     seed: int = 0
     pcc: float = 0.99
     name: str = ""  # stamped by discover() from the KERNEL_BENCHES dict key
+    # Device mesh this bench runs on (None = single device).
+    mesh: Optional[MeshSpec] = None
+    # Semantically legal joint sharding strategies: name -> one ``shard_dims``
+    # entry per tensor.  Declares which dims the kernel may shard (e.g. matmul
+    # never shards K; rope never shards head_dim) so the autotuner only sweeps
+    # strategies the kernel's semantics allow.
+    shard_strategies: Optional[dict] = None
 
 
 # ----------------------------------------------------------------------
@@ -404,16 +473,24 @@ def eltwise_block_run(kernel, inputs, tensors, grid_shape):
     return out.to_host()
 
 
-def run_bench(bench: KernelBench, *, tensors=None, grid_shape=None):
+def run_bench(bench: KernelBench, *, tensors=None, grid_shape=None, mesh=None):
     """Execute one bench and return ``(actual, expected)`` torch tensors.
 
     Each keyword argument overrides the corresponding field of ``bench``;
     omitted arguments fall back to the bench's defaults.
+
+    When a mesh is in play (``mesh`` argument or ``bench.mesh``) the
+    materializer is called with it as a fifth argument; single-device benches
+    keep the four-argument contract, so existing materializers are unchanged.
     """
     tensors = tensors if tensors is not None else bench.tensors
     grid_shape = grid_shape if grid_shape is not None else bench.grid_shape
+    mesh = mesh if mesh is not None else bench.mesh
     inputs = make_inputs(tensors, bench.seed)
-    actual = bench.run(bench.kernel, inputs, tensors, grid_shape)
+    if mesh is not None:
+        actual = bench.run(bench.kernel, inputs, tensors, grid_shape, mesh)
+    else:
+        actual = bench.run(bench.kernel, inputs, tensors, grid_shape)
     expected = bench.golden(*inputs)
     return actual, expected
 

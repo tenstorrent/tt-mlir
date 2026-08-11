@@ -128,7 +128,14 @@ _RUNNER_DIR = pathlib.Path(__file__).parent.parent
 if str(_RUNNER_DIR) not in sys.path:
     sys.path.insert(0, str(_RUNNER_DIR))
 
-from runner import KernelBench, TensorSpec, compute_pcc, make_inputs, run_bench
+from runner import (
+    KernelBench,
+    MeshSpec,
+    TensorSpec,
+    compute_pcc,
+    make_inputs,
+    run_bench,
+)
 
 # ---------------------------------------------------------------------------
 # Lazy-load perf-analyzer (hyphenated filename prevents normal import)
@@ -248,16 +255,35 @@ class AutotuneConfig:
     every tensor shares a value — build one with :meth:`uniform`.  There is no
     separate scalar representation, so every downstream consumer (``run_config``,
     ``id``, ``as_dict``) reads a single shape without branching.
+
+    Mesh sharding follows the same split: ``mesh_shape``/``mesh_topology`` are
+    graph-level (like ``grid_shape``), ``shards`` is per-tensor (like
+    ``blocks``/``mems``) — one ``shard_dims`` entry per tensor, stamped onto
+    its ``TensorSpec`` by ``run_config``.  All default to ``None`` (single
+    device), which leaves ``id`` unchanged for existing configs (``as_dict``
+    always emits the mesh keys, as ``None``, so the JSON schema is stable).
+    ``strategy`` is the display name of the joint sharding strategy (a key of
+    ``bench.shard_strategies``), used in ``id``.
     """
 
     grid_shape: tuple[int, int]
     blocks: list[list[int]]  # one [by, bx] per tensor
     mems: list[str]  # one mem_space ("L1"/"DRAM") per tensor
+    mesh_shape: Optional[tuple] = None
+    mesh_topology: Optional[tuple] = None
+    shards: Optional[list] = None  # one shard_dims (entry per mesh axis) per tensor
+    strategy: Optional[str] = None
 
     def __post_init__(self):
         self.grid_shape = tuple(self.grid_shape)
         self.blocks = [list(b) for b in self.blocks]
         self.mems = list(self.mems)
+        if self.mesh_shape is not None:
+            self.mesh_shape = tuple(self.mesh_shape)
+        if self.mesh_topology is not None:
+            self.mesh_topology = tuple(self.mesh_topology)
+        if self.shards is not None:
+            self.shards = [list(s) for s in self.shards]
 
     @classmethod
     def uniform(
@@ -293,13 +319,33 @@ class AutotuneConfig:
             m = self.mems[0]
         else:
             m = "-".join(self.mems)
-        return f"g{g}_b{b}_m{m}"
+        base = f"g{g}_b{b}_m{m}"
+        if self.mesh_shape is None:
+            return base
+        mesh = "x".join(str(d) for d in self.mesh_shape)
+        # Prefer the strategy name; fall back to encoding shard_dims per
+        # tensor ("r" = replicated mesh axis), collapsing uniform tensors.
+        strategy = self.strategy
+        if strategy is None and self.shards is not None:
+            encoded = [
+                "".join("r" if d < 0 else str(d) for d in sd) for sd in self.shards
+            ]
+            strategy = (
+                encoded[0]
+                if all(e == encoded[0] for e in encoded)
+                else "-".join(encoded)
+            )
+        return f"{base}_mesh{mesh}_s{strategy}" if strategy else f"{base}_mesh{mesh}"
 
     def as_dict(self) -> dict:
         return {
             "grid_shape": list(self.grid_shape),
             "blocks": self.blocks,
             "mems": self.mems,
+            "mesh_shape": list(self.mesh_shape) if self.mesh_shape else None,
+            "mesh_topology": list(self.mesh_topology) if self.mesh_topology else None,
+            "shards": self.shards,
+            "strategy": self.strategy,
         }
 
 
@@ -877,22 +923,39 @@ class Autotuner:
         from d2m_jit._src.builder import _Builder
 
         # Every config is per-tensor: stamp each tensor's block_shape/mem_space
-        # onto its TensorSpec.  The materializer reads these off the specs and
-        # builds the corresponding d2m.Layout.
+        # (and shard_dims when the config sweeps sharding) onto its TensorSpec.
+        # The materializer reads these off the specs and builds the
+        # corresponding d2m.Layout / mesh_shard.
         n_tensors = len(bench.tensors)
         if len(config.blocks) != n_tensors or len(config.mems) != n_tensors:
             raise ValueError(
                 f"Config tensor count mismatch: bench has {n_tensors} tensor(s) "
                 f"but blocks={len(config.blocks)} mems={len(config.mems)}"
             )
-        overridden_tensors = [
-            dataclasses.replace(
-                bench.tensors[i],
-                block_shape=list(config.blocks[i]),
-                mem_space=config.mems[i],
+        if config.shards is not None and len(config.shards) != n_tensors:
+            raise ValueError(
+                f"Config tensor count mismatch: bench has {n_tensors} tensor(s) "
+                f"but shards={len(config.shards)}"
             )
-            for i in range(n_tensors)
-        ]
+        overridden_tensors = []
+        for i in range(n_tensors):
+            overrides: dict = {
+                "block_shape": list(config.blocks[i]),
+                "mem_space": config.mems[i],
+            }
+            if config.shards is not None:
+                overrides["shard_dims"] = list(config.shards[i])
+            overridden_tensors.append(
+                dataclasses.replace(bench.tensors[i], **overrides)
+            )
+
+        # Graph-level mesh override; None falls back to bench.mesh inside
+        # run_bench (and to single-device when the bench has none either).
+        mesh = (
+            MeshSpec(shape=config.mesh_shape, topology=config.mesh_topology)
+            if config.mesh_shape is not None
+            else None
+        )
 
         profiler_tmp = tmp_dir or self._profiler_dir
         profiler_csv = pathlib.Path(profiler_tmp) / ".logs" / "profile_log_device.csv"
@@ -920,6 +983,7 @@ class Autotuner:
                             bench,
                             tensors=overridden_tensors,
                             grid_shape=config.grid_shape,
+                            mesh=mesh,
                         )
 
                     # Clean warmup profiler data before the measured pass.
@@ -935,6 +999,7 @@ class Autotuner:
                             bench,
                             tensors=overridden_tensors,
                             grid_shape=config.grid_shape,
+                            mesh=mesh,
                         )
 
         except Exception as exc:

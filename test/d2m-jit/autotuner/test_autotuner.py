@@ -128,7 +128,15 @@ def test_config_id_collapses_uniform_axes():
 def test_config_as_dict_roundtrips_fields():
     cfg = A.AutotuneConfig((2, 1), [[1, 2]], ["DRAM"])
     d = cfg.as_dict()
-    assert d == {"grid_shape": [2, 1], "blocks": [[1, 2]], "mems": ["DRAM"]}
+    assert d == {
+        "grid_shape": [2, 1],
+        "blocks": [[1, 2]],
+        "mems": ["DRAM"],
+        "mesh_shape": None,
+        "mesh_topology": None,
+        "shards": None,
+        "strategy": None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -273,6 +281,172 @@ def test_override_bench_tensors_length_mismatch_raises():
 def test_override_bench_tensors_noop_returns_same():
     bench = _bench([(64, 64)])
     assert A._override_bench_tensors(bench) is bench
+
+
+# ---------------------------------------------------------------------------
+# Mesh / sharding config model
+#
+# Step 2 of the sharding-as-a-tuning-axis work: AutotuneConfig carries
+# graph-level mesh_shape/mesh_topology and per-tensor shard_dims; run_config
+# stamps shard_dims onto TensorSpecs and passes a MeshSpec through run_bench
+# to the (five-argument) materializer.  Space generation over these axes is
+# step 3; these tests cover the model and plumbing only.
+# ---------------------------------------------------------------------------
+
+
+def test_config_without_mesh_unchanged():
+    cfg = A.AutotuneConfig(grid_shape=(1, 1), blocks=[[1, 1]], mems=["L1"])
+    assert cfg.id == "g1x1_b1x1_mL1"
+    d = cfg.as_dict()
+    assert d["mesh_shape"] is None
+    assert d["shards"] is None
+    assert d["strategy"] is None
+
+
+def test_mesh_config_id_and_dict():
+    cfg = A.AutotuneConfig(
+        grid_shape=(2, 2),
+        blocks=[[1, 1]],
+        mems=["L1"],
+        mesh_shape=(1, 2),
+        mesh_topology=("linear", "ring"),
+        shards=[[-1, 1]],
+        strategy="cols",
+    )
+    assert cfg.id == "g2x2_b1x1_mL1_mesh1x2_scols"
+    d = cfg.as_dict()
+    assert d["mesh_shape"] == [1, 2]
+    assert d["mesh_topology"] == ["linear", "ring"]
+    assert d["shards"] == [[-1, 1]]
+    assert d["strategy"] == "cols"
+
+
+def test_mesh_config_id_encodes_shard_dims_without_name():
+    uniform = A.AutotuneConfig(
+        grid_shape=(1, 1),
+        blocks=[[1, 1]] * 2,
+        mems=["L1"] * 2,
+        mesh_shape=(1, 2),
+        shards=[[-1, 1], [-1, 1]],
+    )
+    assert uniform.id == "g1x1_b1x1_mL1_mesh1x2_sr1"
+    mixed = A.AutotuneConfig(
+        grid_shape=(1, 1),
+        blocks=[[1, 1]] * 2,
+        mems=["L1"] * 2,
+        mesh_shape=(1, 2),
+        shards=[[-1, 0], [-1, -1]],
+    )
+    assert mixed.id == "g1x1_b1x1_mL1_mesh1x2_sr0-rr"
+
+
+def test_shard_factors_and_shard_shape_for_spec():
+    from runner import MeshSpec, shard_factors, shard_shape_for_spec
+
+    assert shard_factors((1, 2), [-1, 1], 2) == [1, 2]
+    assert shard_factors((2, 2), [0, 1], 2) == [2, 2]
+    # Two mesh axes mapped to the same tensor dim multiply their extents.
+    assert shard_factors((2, 2), [1, 1], 2) == [1, 4]
+    assert shard_factors((1, 2), [-1, -1], 2) == [1, 1]
+
+    sharded = TensorSpec(
+        shape=(128, 256), block_shape=[1, 1], dtype=torch.float32, shard_dims=[-1, 1]
+    )
+    replicated = TensorSpec(shape=(128, 256), block_shape=[1, 1], dtype=torch.float32)
+    assert shard_shape_for_spec(MeshSpec(shape=(1, 2)), sharded) == (128, 128)
+    assert shard_shape_for_spec(MeshSpec(shape=(1, 2)), replicated) == (128, 256)
+    with pytest.raises(ValueError, match="not divisible"):
+        shard_shape_for_spec(MeshSpec(shape=(1, 3)), sharded)
+
+
+def _spy_mesh_bench(seen: dict):
+    """One-tensor bench whose five-argument materializer records its inputs."""
+    from runner import MeshSpec
+
+    def spy_run(kernel, inputs, tensors, grid_shape, mesh):
+        seen["tensors"] = tensors
+        seen["grid_shape"] = grid_shape
+        seen["mesh"] = mesh
+        return inputs[0]
+
+    bench = _bench([(128, 256)])
+    return A.KernelBench(
+        kernel=bench.kernel,
+        golden=lambda x: x,
+        run=spy_run,
+        tensors=bench.tensors,
+        grid_shape=(1, 1),
+        name="spy",
+        mesh=MeshSpec(shape=(1, 2), topology=("linear", "ring")),
+    )
+
+
+def test_run_bench_passes_mesh_to_materializer():
+    from runner import run_bench
+
+    seen: dict = {}
+    bench = _spy_mesh_bench(seen)
+    actual, expected = run_bench(bench)
+    assert seen["mesh"].shape == (1, 2)
+    assert torch.equal(actual, expected)
+
+
+def test_run_bench_keeps_four_arg_contract_without_mesh():
+    from runner import run_bench
+
+    def four_arg_run(kernel, inputs, tensors, grid_shape):
+        return inputs[0]
+
+    bench = _bench([(64, 64)])
+    bench = A.KernelBench(
+        kernel=bench.kernel,
+        golden=lambda x: x,
+        run=four_arg_run,
+        tensors=bench.tensors,
+        grid_shape=(1, 1),
+        name="fake",
+    )
+    actual, expected = run_bench(bench)
+    assert torch.equal(actual, expected)
+
+
+def test_run_config_stamps_shard_dims_and_mesh(tmp_path):
+    seen: dict = {}
+    bench = _spy_mesh_bench(seen)
+    tuner = A.Autotuner(output_dir=str(tmp_path), verbose=False)
+    cfg = A.AutotuneConfig(
+        grid_shape=(1, 1),
+        blocks=[[2, 2]],
+        mems=["DRAM"],
+        mesh_shape=(1, 2),
+        shards=[[-1, 1]],
+        strategy="cols",
+    )
+    result = tuner.run_config(bench, cfg, bench_name="spy")
+    assert result.error is None
+    ts = seen["tensors"][0]
+    assert ts.shard_dims == [-1, 1]
+    assert ts.block_shape == [2, 2]
+    assert ts.mem_space == "DRAM"
+    # Config-level mesh overrides bench.mesh (topology comes from the config).
+    assert seen["mesh"].shape == (1, 2)
+    assert seen["mesh"].topology is None
+    # Original bench specs are untouched.
+    assert bench.tensors[0].shard_dims is None
+
+
+def test_run_config_shards_length_mismatch_raises(tmp_path):
+    bench = _spy_mesh_bench({})
+    tuner = A.Autotuner(output_dir=str(tmp_path), verbose=False)
+    cfg = A.AutotuneConfig(
+        grid_shape=(1, 1),
+        blocks=[[1, 1]],
+        mems=["L1"],
+        mesh_shape=(1, 2),
+        shards=[[-1, 1], [-1, 1]],  # bench has one tensor
+    )
+    with pytest.raises(ValueError, match="shards"):
+        tuner.run_config(bench, cfg, bench_name="spy")
 
 
 # ---------------------------------------------------------------------------
