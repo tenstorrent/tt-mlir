@@ -138,6 +138,7 @@ union OpType {
   FlashMlaPrefillOp,
   ScatterOp,
   SDPAForwardOp,
+  SDPABackwardOp,
   SelectiveReduceCombineOp,
   SliceOp,
   SoftmaxOp,

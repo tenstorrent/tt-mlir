@@ -1150,6 +1150,52 @@ TTNNOperandsWorkaroundsFactory::createSDPAForwardOpOperandsWorkarounds(
   return operandsWorkaround;
 }
 
+// Create workarounds for the ttml sdpa_bw op. The backing metal op
+// (ttml::metal::sdpa_bw) requires the gradient, forward output, Q/K/V, the
+// optional mask and the gradient outputs to be bf16, and the log-sum-exp
+// intermediates to be f32.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSDPABackwardOpOperandsWorkarounds(
+    Operation *op) {
+  TTNNOperandWorkarounds bf16Workaround;
+  bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  TTNNOperandWorkarounds f32Workaround;
+  f32Workaround.tensorDataTypeWorkaround = ttcore::DataType::Float32;
+
+  auto sdpaBackwardOp = cast<SDPABackwardOp>(op);
+
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(f32Workaround);
+
+  if (sdpaBackwardOp.getAttentionMask()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  }
+
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(bf16Workaround);
+
+  return operandsWorkaround;
+}
+
 // Create workarounds for SDPA decode op: cast f32 inputs to bf16.
 // tt-metal SDPA only supports bf16/bfp8_b/bfp4_b.
 // Issue page: https://github.com/tenstorrent/tt-metal/issues/36717

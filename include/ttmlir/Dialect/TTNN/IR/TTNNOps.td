@@ -2756,6 +2756,42 @@ def TTNN_SDPAForwardOp : TTNN_Op<"sdpa_fw", [OpModelExempt]> {
     let hasVerifier = 1;
 }
 
+def TTNN_SDPABackwardOp : TTNN_Op<"sdpa_bw", [OpModelExempt]> {
+    let summary = "Scaled dot-product attention backward (ttml).";
+    let description = [{
+      Training-oriented fused scaled dot-product attention backward pass, backed
+      by the ttml metal op `ttml::metal::sdpa_bw`. Given the upstream gradient
+      and the forward pass tensors (output, Q, K, V and log-sum-exp
+      intermediates), computes the gradients w.r.t. query, key and value.
+
+      All tensors are rank 4 `(B, H, S, D)`. `attention_mask` is only valid when
+      `mask_type` is `arbitrary`.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$grad_output,
+                         AnyRankedTensor:$attn_output,
+                         AnyRankedTensor:$query,
+                         AnyRankedTensor:$key,
+                         AnyRankedTensor:$value,
+                         AnyRankedTensor:$intermediates,
+                         Optional<AnyRankedTensor>:$attention_mask,
+                         DefaultValuedAttr<TTCore_AttentionMaskTypeAttr, "::mlir::tt::ttcore::AttentionMaskType::Arbitrary">:$mask_type,
+                         DefaultValuedAttr<F32Attr, "0.0">:$dropout_probability);
+
+    let results = (outs AnyRankedTensor:$grad_query,
+                        AnyRankedTensor:$grad_key,
+                        AnyRankedTensor:$grad_value);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSDPABackwardOpOperandsWorkarounds(this->getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
     [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface, TTNN_DistributedOpInterface, OpModelExempt]> {
     let summary = "Distributed RMS normalization with all-gather op.";

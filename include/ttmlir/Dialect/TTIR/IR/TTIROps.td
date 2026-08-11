@@ -2438,6 +2438,54 @@ def TTIR_SDPAForwardOp : TTIR_NamedOp<"sdpa_fw"> {
   let hasVerifier = 1;
 }
 
+def TTIR_SDPABackwardOp : TTIR_NamedOp<"sdpa_bw"> {
+  let summary = "Scaled dot-product attention backward (ttml).";
+  let description = [{
+    Training-oriented fused scaled dot-product attention backward pass, backed by
+    the ttml metal op `ttml::metal::sdpa_bw`. Given the upstream gradient and the
+    forward pass tensors (output, Q, K, V and log-sum-exp intermediates), it
+    computes the gradients w.r.t. query, key and value.
+
+    Inputs:
+    - `grad_output` (Tensor): `[B x Hq x S x Dv]`, gradient w.r.t. the forward
+      output.
+    - `attn_output` (Tensor): `[B x Hq x S x Dv]`, the forward output.
+    - `query` (Tensor): `[B x Hq x S x D]`.
+    - `key` (Tensor): `[B x Hkv x S x D]`.
+    - `value` (Tensor): `[B x Hkv x S x Dv]`.
+    - `intermediates` (Tensor): `[B x Hq x S x 32]` log-sum-exp from the forward
+      pass.
+    - `attention_mask` (Optional Tensor): `[1 x 1 x S x S]`, only valid when
+      `mask_type` is `arbitrary`.
+
+    Attributes:
+    - `mask_type`: `none`, `causal` or `arbitrary` (default). `arbitrary`
+      requires `attention_mask`; `none`/`causal` forbid it.
+    - `dropout_probability`: dropout probability (currently must be 0.0).
+
+    Outputs:
+    - `grad_query` (Tensor): `[B x Hq x S x D]`.
+    - `grad_key` (Tensor): `[B x Hkv x S x D]`.
+    - `grad_value` (Tensor): `[B x Hkv x S x Dv]`.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$grad_output,
+                       AnyRankedTensor:$attn_output,
+                       AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       AnyRankedTensor:$value,
+                       AnyRankedTensor:$intermediates,
+                       Optional<AnyRankedTensor>:$attention_mask,
+                       DefaultValuedAttr<TTCore_AttentionMaskTypeAttr, "::mlir::tt::ttcore::AttentionMaskType::Arbitrary">:$mask_type,
+                       DefaultValuedAttr<F32Attr, "0.0">:$dropout_probability);
+
+  let results = (outs AnyRankedTensor:$grad_query,
+                      AnyRankedTensor:$grad_key,
+                      AnyRankedTensor:$grad_value);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_DistributedRMSNormOp : TTIR_NamedOp<"distributed_rms_norm", [AttrSizedOperandSegments]> {
   let summary = "Distributed RMS normalization with all-gather operation";
   let description = [{

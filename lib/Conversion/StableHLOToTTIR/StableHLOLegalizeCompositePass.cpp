@@ -2139,6 +2139,80 @@ public:
   }
 };
 
+class TenstorrentSDPABackwardConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentSDPABackwardConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.sdpa_bw") {
+      return failure();
+    }
+    size_t numOperands = adaptor.getOperands().size();
+    if (numOperands != 6 && numOperands != 7) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.sdpa_bw must have 6 or 7 operands (grad_output, "
+                 "attn_output, query, key, value, intermediates, "
+                 "[attention_mask]).");
+    }
+    if (srcOp.getNumResults() != 3) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.sdpa_bw must have 3 results (grad_query, "
+                 "grad_key, grad_value).");
+    }
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+
+    // mask_type is an integer selector (0=None, 1=Causal, 2=Arbitrary),
+    // defaulting to Arbitrary to match ttml::metal::sdpa_bw's default.
+    ttcore::AttentionMaskType maskType = ttcore::AttentionMaskType::Arbitrary;
+    if (compositeAttrs) {
+      if (auto maskAttr = mlir::dyn_cast_or_null<IntegerAttr>(
+              compositeAttrs.get("mask_type"))) {
+        int64_t maskTypeInt = maskAttr.getInt();
+        if (maskTypeInt < 0 || maskTypeInt > 2) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "tenstorrent.sdpa_bw mask_type must be 0 (None), 1 "
+                     "(Causal), or 2 (Arbitrary).");
+        }
+        maskType = static_cast<ttcore::AttentionMaskType>(maskTypeInt);
+      }
+    }
+
+    // The presence of the attention_mask operand must agree with the mask type.
+    bool hasMask = numOperands == 7;
+    if (hasMask != (maskType == ttcore::AttentionMaskType::Arbitrary)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.sdpa_bw attention_mask operand must be present "
+                 "iff mask_type is arbitrary.");
+    }
+
+    float dropout = 0.0F;
+    if (compositeAttrs) {
+      if (auto dropAttr = mlir::dyn_cast_or_null<FloatAttr>(
+              compositeAttrs.get("dropout_probability"))) {
+        dropout = dropAttr.getValueAsDouble();
+      }
+    }
+
+    SmallVector<NamedAttribute> namedAttrs;
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "mask_type",
+        ttcore::AttentionMaskTypeAttr::get(rewriter.getContext(), maskType)));
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "dropout_probability", rewriter.getF32FloatAttr(dropout)));
+
+    rewriter.replaceOpWithNewOp<ttir::SDPABackwardOp>(
+        srcOp, srcOp.getResultTypes(), adaptor.getOperands(), namedAttrs);
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -2175,6 +2249,7 @@ void populateStableHLOCompositeLegalizationPatterns(
       context, "tenstorrent.gelu_tanh");
   patterns.add<TenstorrentAdamWConversionPattern>(context);
   patterns.add<TenstorrentSDPAForwardConversionPattern>(context);
+  patterns.add<TenstorrentSDPABackwardConversionPattern>(context);
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<CustomCallRMSNormConversionPattern>(context);
   patterns.add<CustomCallDistributedRMSNormConversionPattern>(context);

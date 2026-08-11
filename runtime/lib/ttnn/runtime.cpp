@@ -1594,6 +1594,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::SDPABackwardOp: {
+    auto *op = opContext.type_as_SDPABackwardOp();
+    tensorRefs = {op->grad_query(), op->grad_key(), op->grad_value()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::AdamWOp:
   case ::tt::target::ttnn::OpType::FillCacheOp:
   case ::tt::target::ttnn::OpType::PagedFillCacheOp:
@@ -1962,6 +1967,15 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
                   opContext.type_as_SDPAForwardOp()->value()};
     if (opContext.type_as_SDPAForwardOp()->attention_mask()) {
       tensorRefs.push_back(opContext.type_as_SDPAForwardOp()->attention_mask());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SDPABackwardOp: {
+    auto *op = opContext.type_as_SDPABackwardOp();
+    tensorRefs = {op->grad_output(), op->attn_output(), op->query(),
+                  op->key(),         op->value(),       op->intermediates()};
+    if (op->attention_mask()) {
+      tensorRefs.push_back(op->attention_mask());
     }
     break;
   }
