@@ -63,6 +63,8 @@ file(MAKE_DIRECTORY "${_TTMLIR_INSTALL_DIR}/include")
 # CONFIGURE_COMMAND below (which would otherwise silently drop them).
 set(_TTMLIR_CMAKE_ARGS
     -DCMAKE_INSTALL_PREFIX=${_TTMLIR_INSTALL_DIR}
+    # Silence the per-file "-- Installing:"/"-- Up-to-date:" messages.
+    -DCMAKE_INSTALL_MESSAGE=NEVER
     -DCMAKE_BUILD_TYPE=Release
     -DCMAKE_C_COMPILER=clang
     -DCMAKE_CXX_COMPILER=clang++
