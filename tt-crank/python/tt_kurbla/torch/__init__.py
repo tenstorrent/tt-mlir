@@ -2,6 +2,22 @@ import atexit
 
 import torch  # noqa: F401  — load libtorch before importing the _native extension
 
+# Preserve weight tying (and optimizer references) across `Module.to("tt")`.
+#
+# Weight tying is when two parameters are identical - same python object.
+# After moving a module, which had tied weights, to the `tt` device, we want
+# to preserve the identity of the original tied parameters. Otherwise, we would
+# get multiple copies of essentially the same tensor.
+#
+# Torch by default doesn't preserve this property for `PrivateUse1` backends.
+# However, we can globally override this behaviour with this flag. Unfortunately,
+# this means that we have overridden the behaviour for all possible module
+# conversions - which can cause exceptions of the following form:
+#       "Expected use_count of <tensor> to be 1"
+#
+# NOTE: this setting seems like it will be a future on-by-default in torch.
+torch.__future__.set_swap_module_params_on_conversion(True)
+
 from . import _native  # noqa: F401  — loading the .so runs c10::register_privateuse1_backend("tt")
 from ._device import register
 

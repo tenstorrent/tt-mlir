@@ -92,7 +92,14 @@ def assert_close_cpu_vs_tt(
     ``options`` is forwarded to ``torch.compile`` and applies only to ``COMPILE`` mode;
     it is ignored in ``EAGER`` mode.
     """
+    # Detach to free the CPU forward's autograd graph before the move: with
+    # swap_module_params_on_conversion enabled (tt_kurbla/torch/__init__.py),
+    # `.to("tt")` refuses to swap parameters still referenced by a live
+    # graph's SavedVariables. Only the output values are compared here, so the
+    # graph is dead weight anyway.
     cpu_out = fn(*cpu_args)
+    if isinstance(cpu_out, torch.Tensor):
+        cpu_out = cpu_out.detach()
 
     if isinstance(fn, torch.nn.Module):
         fn.to("tt")

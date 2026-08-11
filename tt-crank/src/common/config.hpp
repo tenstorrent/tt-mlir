@@ -42,8 +42,8 @@ FS_WITH_DISABLER(comp_consteval, true, "TT_KURBLA_COMP_CONSTEVAL_DISABLED");
 // Enables tensor borrowing.
 FS_WITH_DISABLER(tensor_borrowing, true, "TT_KURBLA_TENSOR_BORROWING_DISABLED");
 
-// Warns user that forward is run with inference mode.
-FS_WITH_DISABLER(warn_on_inference, true, "TT_KURBLA_WARN_ON_INFERENCE_DISABLED");
+// Warns user that a borrowed tensor's in-place writes cannot be detected.
+FS_WITH_DISABLER(warn_on_unsafe_borrow, true, "TT_KURBLA_WARN_ON_UNSAFE_BORROW_DISABLED");
 
 // Config section.
 
