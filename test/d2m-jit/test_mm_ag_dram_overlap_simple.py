@@ -70,14 +70,18 @@ def _L(shape, block, grid, mem="dram"):
     )
 
 
+# Matmul LHS in L1 so only RHS is a DRAM multicast. Full LHS for overlap
+# slicing stays in DRAM; baseline shards LHS directly into L1.
 BASELINE_LHS = _L((M, K), [M_TILES // MM_GRID, MM_K_BLOCK], [MM_GRID, MM_GRID])
+BASELINE_LHS_L1 = _L((M, K), [M_TILES // MM_GRID, MM_K_BLOCK], [MM_GRID, MM_GRID], "l1")
 BASELINE_RHS = _L((K, LOCAL_N), [MM_K_BLOCK, MM_N_BLOCK], [MM_GRID, MM_GRID])
-BASELINE_PARTIAL = _L((M, LOCAL_N), [BASELINE_M_BLOCK, MM_N_BLOCK], [MM_GRID, MM_GRID])
+BASELINE_PARTIAL = _L(
+    (M, LOCAL_N), [BASELINE_M_BLOCK, MM_N_BLOCK], [MM_GRID, MM_GRID], "l1"
+)
 GATHERED_FULL = _L(
     (M, N), [AG_M_BLOCK, LOCAL_N_TILES], [AG_STORAGE_GRID_M, NUM_DEVICES]
 )
-
-CHUNK_LHS = _L((M_CHUNK, K), [MM_M_BLOCK, MM_K_BLOCK], [MM_GRID, MM_K_PARTITIONS])
+CHUNK_LHS = _L((M_CHUNK, K), [MM_M_BLOCK, MM_K_BLOCK], [MM_GRID, MM_K_PARTITIONS], "l1")
 CHUNK_RHS = _L((K, LOCAL_N), [MM_K_BLOCK, MM_N_BLOCK], [MM_K_PARTITIONS, MM_GRID])
 CHUNK_PARTIAL = _L(
     (M_CHUNK, LOCAL_N), [MM_M_BLOCK, MM_N_BLOCK], [MM_GRID, MM_GRID], "l1"
@@ -133,38 +137,31 @@ def _make_slice(chunk_idx, m_block_tiles, k_block_tiles):
     return d2m.kernel(slice_m)
 
 
-def _make_matmul(k_partitions, m_block, k_block, n_block, name="matmul"):
-    # Reduction GenericOp is required here: high-level mcast_dims on
-    # remote_load only lower correctly with block_index/yield + reduction
-    # iterators. Explicit core_index+K-loop leaves mcast in explicit DM form
-    # and fails verification.
+def _make_matmul(k_partitions, m_block, k_block, n_block, gy, gx, name="matmul"):
+    # Explicit DM + low-level mcast. gy/gx are int captures (not runtime
+    # scalar args) so saved flatbuffers do not need program-arg scalars.
     def matmul(lhs, rhs, out):
-        mbi = block_index(0)
-        nbi = block_index(1)
-        kbi = block_index(2)
-        lhs_block = empty([m_block, k_block], dtype="bf16")
-        lhs_block = remote_load(lhs_block, lhs, [mbi, kbi], mcast_dims=[0])
-        rhs_block = empty([k_block, n_block], dtype="bf16")
-        rhs_block = remote_load(rhs_block, rhs, [kbi, nbi], mcast_dims=[1])
-        result = remote_store(out, [mbi, nbi], lhs_block @ rhs_block)
-        yield result
+        cy = core_index(0)
+        cx = core_index(1)
+        acc = zeros([m_block, n_block], dtype="bf16")
+        for k in range(k_partitions):
+            a = empty([m_block, k_block], dtype="bf16")
+            a = remote_load(
+                a, lhs, [cy, k], mcast_start_index=[cy, 0], mcast_shape=[1, gx]
+            )
+            b = empty([k_block, n_block], dtype="bf16")
+            b = remote_load(
+                b, rhs, [k, cx], mcast_start_index=[0, cx], mcast_shape=[gy, 1]
+            )
+            acc += a @ b
+        remote_store(out, [cy, cx], acc)
 
     matmul.__name__ = name
     kern = d2m.kernel(matmul)
 
     def _call(*args, grid, **kwargs):
-        return kern(
-            *args,
-            grid=grid,
-            block_factors=[1, 1, k_partitions],
-            indexing_maps=[
-                lambda m, n, k: (m, k),
-                lambda m, n, k: (k, n),
-                lambda m, n, k: (m, n),
-            ],
-            iterator_types=["parallel", "parallel", "reduction"],
-            **kwargs,
-        )
+        assert (int(grid[0]), int(grid[1])) == (gy, gx), (grid, gy, gx)
+        return kern(*args, grid=grid, **kwargs)
 
     _call.__name__ = name
     return _call
@@ -210,8 +207,7 @@ def _make_all_gather_into_range(
 
 @pytest.fixture
 def _stream_buffers(monkeypatch):
-    # Single stream buffer is required for this problem size: default 2
-    # overflows L1 on the overlap graph (~1.74MB needed vs ~1.39MB usable).
+    # Default 2 stream buffers overflows L1 on this overlap graph.
     monkeypatch.setattr(d2m.config, "num_stream_buffers", 1)
     monkeypatch.setattr(d2m.config, "kernel_io_in_dram", False)
 
@@ -227,10 +223,10 @@ def _begin():
     d2m.mesh((1, NUM_DEVICES), topology=("linear", "ring"))
 
 
-def _shard_full_lhs(lhs):
+def _shard_full_lhs(lhs, layout=BASELINE_LHS):
     return d2m.mesh_shard(
         lhs,
-        BASELINE_LHS,
+        layout,
         shard_dims=[-1],
         shard_shape=[1, NUM_DEVICES],
         shard_type="replicate",
@@ -285,19 +281,23 @@ def test_baseline(_stream_buffers):
     lhs, rhs, expected = _make_inputs()
     _begin()
 
-    lhs_base = _shard_full_lhs(lhs)
-    lhs_d = d2m.reblock(lhs_base, [MM_GRID, BASELINE_K_PARTITIONS])
-    rhs_base = d2m.mesh_shard(
-        rhs, BASELINE_RHS, shard_dims=[-1, 1], shard_shape=[1, NUM_DEVICES]
+    lhs_d = d2m.reblock(
+        _shard_full_lhs(lhs, BASELINE_LHS_L1), [MM_GRID, BASELINE_K_PARTITIONS]
     )
-    rhs_d = d2m.reblock(rhs_base, [BASELINE_K_PARTITIONS, MM_GRID])
+    rhs_d = d2m.reblock(
+        d2m.mesh_shard(
+            rhs, BASELINE_RHS, shard_dims=[-1, 1], shard_shape=[1, NUM_DEVICES]
+        ),
+        [BASELINE_K_PARTITIONS, MM_GRID],
+    )
     partial_d = d2m.empty(BASELINE_PARTIAL)
-
     _make_matmul(
         BASELINE_K_PARTITIONS,
         BASELINE_M_BLOCK,
         BASELINE_K_BLOCK,
         MM_N_BLOCK,
+        MM_GRID,
+        MM_GRID,
         name="matmul",
     )(lhs_d, rhs_d, partial_d, grid=(MM_GRID, MM_GRID))
 
@@ -324,7 +324,13 @@ def test_overlap(_stream_buffers):
     )
     partial = d2m.empty(CHUNK_PARTIAL)
     _make_matmul(
-        MM_K_PARTITIONS, MM_M_BLOCK, MM_K_BLOCK, MM_N_BLOCK, name="matmul_chunk_0"
+        MM_K_PARTITIONS,
+        MM_M_BLOCK,
+        MM_K_BLOCK,
+        MM_N_BLOCK,
+        MM_GRID,
+        MM_GRID,
+        name="matmul_chunk_0",
     )(lhs_chunk, rhs_d, partial, grid=(MM_GRID, MM_GRID))
 
     oy, ox = BUNDLED_MM_GRID_RANGE[0]
@@ -339,9 +345,6 @@ def test_overlap(_stream_buffers):
 
     for step in range(NUM_M_CHUNKS - 1):
         prev = partial
-        # Origin-placed region-sized lhs (8x6): nested MM generic inherits the
-        # region's virt_to_physical map, so same-grid VGM to_layout is neither
-        # required nor safe (corrupts). rhs is pre-placed via mesh_shard VGM.
         lhs_d = _slice_chunk(lhs_full, step + 1, SPATIAL_LHS, SPATIAL_MM_K_PARTITIONS)
         partial_spatial = d2m.empty(SPATIAL_PARTIAL)
         matmul = _make_matmul(
@@ -349,6 +352,8 @@ def test_overlap(_stream_buffers):
             MM_M_BLOCK,
             SPATIAL_K_BLOCK,
             SPATIAL_N_BLOCK,
+            MM_GRID,
+            SPATIAL_MM_GRID_N,
             name=f"matmul_spatial_{step}",
         )
         start_sem = d2m.global_semaphore()
