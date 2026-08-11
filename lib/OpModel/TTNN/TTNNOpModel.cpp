@@ -642,6 +642,8 @@ auto getOpSymbol() {
     return WRAP_OP(::ttnn::silu);
   } else if constexpr (std::is_same_v<OpTy, MishOp>) {
     return WRAP_OP(::ttnn::mish);
+  } else if constexpr (std::is_same_v<OpTy, RoundOp>) {
+    return WRAP_OP(::ttnn::round);
   } else {
     static_assert(ttmlir::utils::always_false(),
                   "add mapping from TTNN dialect to TTNN lib op");
@@ -1467,45 +1469,43 @@ template struct UnaryEltwiseWithFastApproxModeOpModel<GeluOp>;
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<OpConstraints> OpModel<RoundOp>::getOpConstraints(
-    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-    TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout) {
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto query = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::round, device, inputSpec, std::nullopt,
-                                detail::getNullableMemoryConfig(outputLayout));
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
+  auto roundOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        ::ttnn::round, device, initialStateOpt, inputSpec, std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout));
   };
 
-  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
-                                     query);
+  return operation::getOpConstraintsWithState(inputLayout.getContext(),
+                                              roundOpQuery);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t>
-OpModel<RoundOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-                               TTNNLayoutAttr inputLayout,
-                               TTNNLayoutAttr outputLayout) {
+llvm::Expected<size_t> OpModel<RoundOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   auto query = [=]() {
     return QUERY_OP_RUNTIME(::ttnn::round, device, inputSpec, std::nullopt,

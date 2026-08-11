@@ -292,7 +292,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         /*decimals=*/emitter.emit(std::nullopt),
-        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
     };
 
     emitter.replaceOp(*this, args);
