@@ -195,6 +195,13 @@ private:
       return;
     }
 
+    // Control flow ops carry regions that become their own flatbuffer
+    // programs. Hoisting one into a const-eval function would move those
+    // programs with it, which nothing downstream expects.
+    if (op->getNumRegions() > 0) {
+      return;
+    }
+
     // Handle shared ops separately as well.
     if (isSharedOp(op)) {
       sharedOps.push_back(op);
@@ -303,13 +310,19 @@ private:
 } // namespace
 
 namespace {
-// Returns the closest ancestor that is isolated from above, which for an op in
-// a function body is the function itself.
-static Operation *getIsolationScope(Operation *op) {
-  for (Operation *parent = op->getParentOp(); parent;
-       parent = parent->getParentOp()) {
-    if (parent->hasTrait<mlir::OpTrait::IsIsolatedFromAbove>()) {
-      return parent;
+// Returns the region an op may substitute values within: the nearest enclosing
+// region whose parent is isolated from above, which for an op in a function
+// body is the function's own body.
+//
+// Two sibling regions of the same op (the branches of a `ttnn.case`, or a
+// `ttnn.while`'s cond and body) are distinct scopes even though they share a
+// parent, so this has to be a region rather than that parent op.
+static Region *getSubstitutionScope(Operation *op) {
+  for (Region *region = op->getParentRegion(); region;
+       region = region->getParentRegion()) {
+    Operation *parent = region->getParentOp();
+    if (parent && parent->hasTrait<mlir::OpTrait::IsIsolatedFromAbove>()) {
+      return region;
     }
   }
   return nullptr;
@@ -321,11 +334,11 @@ static Operation *getIsolationScope(Operation *op) {
 static void deduplicateSharedOps(func::FuncOp funcOp) {
   // Map from operation signature to first instance.
   //
-  // The signature includes the enclosing isolation scope, because the walk
+  // The signature includes the enclosing substitution scope, because the walk
   // below descends into regions that are isolated from above - a `ttnn.while`
   // body, say. Such a region may not use a value defined outside it, so keying
   // on the scope keeps each one deduplicating against itself and no further.
-  using OpKey = std::tuple<Operation *, StringRef, DictionaryAttr>;
+  using OpKey = std::tuple<Region *, StringRef, DictionaryAttr>;
   llvm::DenseMap<OpKey, Operation *> sharedOps;
 
   // Collect operations that need to be erased
@@ -338,7 +351,7 @@ static void deduplicateSharedOps(func::FuncOp funcOp) {
       StringRef opName = op->getName().getStringRef();
       DictionaryAttr attrs = op->getAttrDictionary();
 
-      OpKey key = std::make_tuple(getIsolationScope(op), opName, attrs);
+      OpKey key = std::make_tuple(getSubstitutionScope(op), opName, attrs);
 
       // If this is the first instance with these attributes, record it
       auto [it, inserted] = sharedOps.insert({key, op});
