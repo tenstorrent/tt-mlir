@@ -73,8 +73,6 @@ static DstExecutionClass classifyLinalgExecutionClass(linalg::GenericOp op) {
 static std::optional<int64_t>
 getMaxDstTilesForLinalgOp(linalg::GenericOp op,
                           unsigned maxDstPhysicalSizeTiles) {
-  // TT_assertv(op.getOutputs().size() == 1u,
-  //            "expected exactly one linalg.generic output");
   if (op.getOutputs().empty()) {
     return std::nullopt;
   }
@@ -99,6 +97,8 @@ getMaxDstTilesForLinalgOp(linalg::GenericOp op,
     dstLogicalSizeTiles =
         std::min(dstLogicalSizeTiles, maxDstPhysicalSizeTiles);
   }
+  // SFPU ops only get half of DST, and whatever is left is split evenly because
+  // every output must be resident simultaneously.
   int64_t coResidentTiles = op.getOutputs().size();
   int64_t tilesOnHW =
       (classifyLinalgExecutionClass(op) == DstExecutionClass::FPU)

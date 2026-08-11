@@ -748,12 +748,16 @@ def TTKernel_MaxReduceWithIndicesInitOp : TTKernel_InitOp<"max_reduce_with_indic
 }
 
 def TTKernel_MaxReduceWithIndicesTileOp : TTKernel_SFPUOp<"max_reduce_with_indices"> {
-    let summary = "You know him, you love him.";
+    let summary = "Max reduce with indices operation";
     let description = [{
       Performs MaxPool with indices algorithm on the data tile and index tile
       that are pre-loaded in DST register. The DST register buffer must be in
       acquired state via *acquire_dst* call. This call is blocking and is only
-      available on the compute engine.
+      available on the compute engine. The chunk operand is only used when the
+      accumulate flag is true, controlling when the intermediate data is stored
+      to the accumulators. When accumulate is true, the chunk operand must be
+      zero on the first iteration of a reduction loop and non-zero for the rest
+      of the loop.
     }];
 
     let arguments = (ins IndexLike:$idst,

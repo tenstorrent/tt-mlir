@@ -802,7 +802,7 @@ public:
     auto storeIdx =
         computeLinearIndex(store.getLoc(), store.getMemRefType().getShape(),
                            adaptor.getIndices(), rewriter);
-    // !!! EDIT COMMMENT
+    // Need to reconfigure the packer to the correct data format.
     rewriter.create<ttkernel::PackReconfigDataFormatOp>(store.getLoc(), cb);
     rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
         store, dst, cb, storeIdx, rewriter.getBoolAttr(true));

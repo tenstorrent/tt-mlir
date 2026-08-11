@@ -4765,13 +4765,16 @@ public:
   }
 };
 
-class D2MArgMaxRewriter : public OpConversionPattern<ttir::ArgMaxOp>,
-                          D2MNamedRewriterCommon {
+class D2MArgMaxDecompositionRewriter
+    : public OpConversionPattern<ttir::ArgMaxOp>,
+      D2MNamedRewriterCommon {
 public:
-  D2MArgMaxRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-                    ttcore::MemorySpace defaultInputMemSpace,
-                    ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
-                    bool collapseTensors, bool enableMulticastInference)
+  D2MArgMaxDecompositionRewriter(const TypeConverter &typeConverter,
+                                 mlir::MLIRContext *ctx,
+                                 ttcore::MemorySpace defaultInputMemSpace,
+                                 ttcore::MemorySpace defaultOutputMemSpace,
+                                 bool ttnnMode, bool collapseTensors,
+                                 bool enableMulticastInference)
       : OpConversionPattern<ttir::ArgMaxOp>(typeConverter, ctx),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
                                ttnnMode, collapseTensors,
@@ -5411,13 +5414,10 @@ private:
       }
     }
 
-    // NOTE: the decomposition computes indices in F32 (bf16 lacks the integer
-    // precision for large indices). We deliberately do NOT typecast the whole
-    // input to F32 here -- that would materialize a full-width F32 tensor in
-    // L1 before any chunking, which overflows for large reduction dims. Instead
-    // we slice the (native-dtype) input into chunks below and typecast each
-    // chunk to F32 individually, so no full-width F32 buffer ever exists.
-    const bool needsF32Cast = !argMaxInputTy.getElementType().isF32();
+    // NOTE: the decomposition computes indices in f32 (bf16 lacks the integer
+    // precision for large indices). We do not typecast the entire tensor all at
+    // once. Typecasting is done per-chunk to avoid materializing a full f32
+    // tensor.
 
     const int64_t rAxis =
         (reduceDim == d2m::ReduceDim::C) ? logicalRank - 2 : logicalRank - 1;
@@ -5469,15 +5469,6 @@ private:
                                                rewriter.getI32ArrayAttr(ends),
                                                rewriter.getI32ArrayAttr(step))
                                            .getResult();
-
-      // NOTE: we deliberately do NOT pre-cast the chunk to F32 here. Doing so
-      // materializes a full-width F32 buffer (chunk-width == N when unchunked),
-      // which is a large persistent L1 tensor and a primary source of L1
-      // pressure. Instead buildArgMaxChunk keeps the input in its native dtype
-      // (e.g. bf16) through the value-domain stages (reduce_max, eq) and casts
-      // to F32 per-tile inside the index-math region (stage 3b onward), so no
-      // full-width F32 copy of the input ever exists.
-      (void)needsF32Cast;
 
       ArgMaxCoreResult core = buildArgMaxChunk(rewriter, loc, chunk, chunkTy,
                                                reduceDim, noCollapse, base, N);
@@ -5679,6 +5670,14 @@ private:
           op, "D2M argmax with rank > 2 not supported.");
     }
 
+    const std::size_t otherDim =
+        (dimArg == d2m::ReduceDim::C) ? logicalRank - 1 : logicalRank - 2;
+    if (inputTy.getDimSize(otherDim) > 32) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M argmax with non-reduced dim size > 32 not supported at the "
+              "moment.");
+    }
+
     // The LLK only reduces columns (collapsing rows), so a ReduceDim::R request
     // is served by transposing the input, reducing along C, and transposing the
     // reduced result back.  Emit ttir.permute on both ends and let
@@ -5718,7 +5717,8 @@ private:
     auto [arangeInsUnused, arangeOutputs] = toLayoutOperandsAndResults(
         rewriter, {SmallVector<Value>{}, arangeOrigOutputs}, true);
 
-    // Creating a scratch tile for arange.
+    // Creating a scratch 1x1 tile for arange. Same mechanism as
+    // D2MArangeOpRewriter.
     auto arangeTensorType =
         mlir::cast<RankedTensorType>(arangeOutputs.front().getType());
     auto arangeLayout =
@@ -5918,10 +5918,11 @@ private:
     // The LLK needs row-major bytes, but the d2m.generic/linalg.generic
     // machinery operates on tiles. To trick the compiler, we physically
     // untilize the data using createOptimalLayoutOp above, then reinterpret
-    // cast it as a tile, so that as far as the compiler is concerned, the data
-    // is tilized. createOptimalLayoutOp is what does the physical movement of
-    // data, reinterpret cast is a simple relabeling. Caveat: nothing in the IR
-    // records that these tile-labeled operands are really row-major.
+    // cast it as a tile, so that the data appears to be tilized even though its
+    // data is in row-major layout. createOptimalLayoutOp is what does the
+    // physical movement of data, reinterpret cast is a simple relabeling.
+    // Caveat: nothing in the IR records that these tile-labeled operands are
+    // really row-major.
     rowMajorValues = relabelRowMajorAsTile(rewriter, loc, rowMajorValues);
 
     // Give the same pseudo row-major treatment to indices. The indices however
@@ -6172,7 +6173,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,
     D2MBroadcastRewriter,
-    // Argmax
+    // Argmax (using the LLK version)
     D2MArgMaxLLKRewriter,
     // Tensor manipulation/View ops.
     D2MConcatRewriter,

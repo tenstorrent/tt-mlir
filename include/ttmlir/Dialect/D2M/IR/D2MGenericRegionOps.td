@@ -873,10 +873,14 @@ def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max", D2M_Tile
   let hasVerifier = 1;
 }
 
-def D2M_TileArgMaxOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_argmax", D2M_TileComputeOpTraitBundle> {
+def D2M_TileArgMaxOp : D2M_GenericRegionComputeOp<"tile_argmax", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M Tile ArgMax Op";
   let description = [{
-    The `tile_argmax` operation computes the max of all elements in the input values along with its index over the columns (i.e. the output is a row). Requires the input values and indices to be in row-major layout. Indices must be properly filled in and passed by the callee.
+    The `tile_argmax` operation computes the max of all elements in the input values along
+    with its index over the columns (i.e. the output is a row). Requires the input values
+    and indices to be in row-major layout. Indices must be properly filled in and passed
+    by the callee. The val_acc_out and idx_acc_out are the accumulator tiles that can be used
+    to reduce large reduction dims.
   }];
 
   let arguments = (ins TTCore_Tile:$values,
