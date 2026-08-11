@@ -548,8 +548,8 @@ def EmitPy_CaseOp : EmitPy_Op<"case",
   }];
 
   let hasVerifier = 1;
-  // Nothing comma-led may follow `$branches`: the generated parser reads
-  // trailing regions for as long as it sees a comma.
+  // A variadic region is parsed by reading trailing regions while a comma
+  // follows, so nothing comma-led may come after `$branches`.
   let assemblyFormat = [{
     $index (`args` $index_args^ `:` `(` type($index_args) `)`)?
     `branches` $branches (`->` `(` type($results)^ `)`)? attr-dict

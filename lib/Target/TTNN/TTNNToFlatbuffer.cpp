@@ -4378,9 +4378,9 @@ createOp(FlatbufferObjectCache &cache, WhileOp op,
   auto parentFunc = op->getParentOfType<func::FuncOp>();
 
   // Number the loop by its position among the function's loops in pre-order,
-  // so that nested and sibling loops get distinguishable program names.
-  // `chisel.ops.IRModule` reconstructs these names to map a region program
-  // back onto the region it came from, and walks in the same order.
+  // so that nested and sibling loops get distinguishable program names. The
+  // numbering is derived from the IR alone, so a reader of the binary can
+  // recover which region a program came from.
   unsigned loopIndex = 0;
   parentFunc.walk<WalkOrder::PreOrder>([&](WhileOp other) {
     if (other == op) {
@@ -4441,9 +4441,9 @@ createOp(FlatbufferObjectCache &cache, CaseOp op,
   auto parentFunc = op->getParentOfType<func::FuncOp>();
 
   // Number the case by its position among the function's cases in pre-order,
-  // so that nested and sibling cases get distinguishable program names.
-  // `chisel.ops.IRModule` reconstructs these names to map a region program
-  // back onto the branch it came from, and walks in the same order.
+  // so that nested and sibling cases get distinguishable program names. The
+  // numbering is derived from the IR alone, so a reader of the binary can
+  // recover which branch a program came from.
   unsigned caseIndex = 0;
   parentFunc.walk<WalkOrder::PreOrder>([&](CaseOp other) {
     if (other == op) {
@@ -5471,8 +5471,9 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   auto constEvalFuncHashes = computeConstEvalFuncHashesSHA256(moduleOp);
 
   // Regions of control-flow ops become extra programs appended after the ones
-  // derived from functions. They are private: they have no standalone meaning
-  // and `ttrt run` must not try to invoke them directly.
+  // derived from functions. They are marked private: only the op that owns the
+  // region can supply their inputs, so they have no standalone meaning and are
+  // not entry points.
   //
   // Program bodies are built up as plain C++ vectors of offsets and only turned
   // into flatbuffer vectors by CreateProgramDirect, so finishing a nested

@@ -3950,10 +3950,9 @@ def TTNN_CaseOp : TTNN_Op<"case", [
 
   let regions = (region VariadicRegion<SizedRegion<1>>:$branches);
 
-  // Nothing comma-led may follow `$branches`: the generated parser reads
-  // trailing regions for as long as it sees a comma. The result clause is
-  // optional so that a branch run purely for effect round-trips, since an empty
-  // type list will not parse from inside the parentheses.
+  // A variadic region is parsed by reading trailing regions while a comma
+  // follows, so nothing comma-led may come after `$branches`. The result clause
+  // is optional because an empty type list will not parse inside parentheses.
   let assemblyFormat = [{
     `index` `(` $index `:` type($index) `)`
     (`captures` `(` $captures^ `:` type($captures) `)`)?
