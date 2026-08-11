@@ -9935,6 +9935,80 @@ class StableHLOBuilder(Builder):
 
         return op.result
 
+    ############### stablehlo.CustomCallOp @tt.sparse_sdpa ###############
+
+    @tag(stablehlo.CustomCallOp)
+    def sparse_sdpa(
+        self,
+        query: Operand,
+        kv: Operand,
+        indices: Operand,
+        v_dim: int,
+        scale: Optional[float] = None,
+        k_chunk_size: int = 128,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Emit a `stablehlo.custom_call @tt.sparse_sdpa`.
+
+        Sparse top-k MLA prefill attention. Operands are passed in canonical
+        order: query [B, H, S, K_DIM], kv [B, 1, T, K_DIM],
+        indices [B, 1, S, TOPK] -> out [B, H, S, v_dim]. `v_dim`, `scale` and
+        `k_chunk_size` are carried as string-valued frontend attributes;
+        `scale` defaults to `1 / sqrt(K_DIM)` downstream.
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.sparse_sdpa)
+
+        inputs = [query, kv, indices]
+
+        # Output is [B, H, S, v_dim]: the query shape with its latent head dim
+        # narrowed to the width of V.
+        output_shape = list(self.get_shape(query))[:-1] + [v_dim]
+        output_type = self._create_ranked_tensor_type(
+            output_shape, self.get_type(query)
+        )
+
+        # tt.sparse_sdpa carries its parameters as string-valued attributes.
+        frontend_attrs = {
+            "v_dim": StringAttr.get(str(v_dim)),
+            "k_chunk_size": StringAttr.get(str(k_chunk_size)),
+        }
+        if scale is not None:
+            frontend_attrs["scale"] = StringAttr.get(str(scale))
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            [output_type],
+            inputs,
+            "tt.sparse_sdpa",
+            api_version=IntegerAttr.get(IntegerType.get_signless(32), 0),
+            loc=loc,
+        )
+        op.operation.attributes["mhlo.frontend_attributes"] = DictAttr.get(
+            frontend_attrs, self._ctx
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        op_golden_function = get_custom_call_golden_function("tt.sparse_sdpa")
+        golden_output = op_golden_function(
+            self._get_golden_tensor(query),
+            self._get_golden_tensor(kv),
+            self._get_golden_tensor(indices),
+            v_dim,
+            scale,
+        )
+        self._set_golden_tensor(op.result, golden_output)
+
+        return op.result
+
     # ----- Public Shardy Attribute Generators ----
 
     def mesh_axis_attr(

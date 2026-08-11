@@ -113,6 +113,33 @@ getIndexerScoreDsaClusterAxis(ttcore::CompositeOp compositeOp) {
   return attrs.getAs<mlir::IntegerAttr>("cluster_axis");
 }
 
+// Attributes recovered from a "sparse_sdpa" composite, shared by its validate,
+// build and promotion-guard callbacks.
+struct SparseSdpaCompositeArgs {
+  uint32_t vDim;
+  FloatAttr scale;     // null when the tt-metal default is meant to be used.
+  uint32_t kChunkSize; // tt-metal default when the attribute is absent.
+};
+
+static SparseSdpaCompositeArgs
+extractSparseSdpaArgs(ttcore::CompositeOp compositeOp) {
+  DictionaryAttr attrs = compositeOp.getCompositeAttributes().value_or(nullptr);
+  TT_assert(attrs);
+
+  auto vDimAttr = attrs.getAs<mlir::IntegerAttr>("v_dim");
+  TT_assert(vDimAttr);
+  auto kChunkSizeAttr = attrs.getAs<mlir::IntegerAttr>("k_chunk_size");
+
+  SparseSdpaCompositeArgs args;
+  args.vDim = static_cast<uint32_t>(vDimAttr.getValue().getZExtValue());
+  args.scale = attrs.getAs<FloatAttr>("scale");
+  args.kChunkSize =
+      kChunkSizeAttr
+          ? static_cast<uint32_t>(kChunkSizeAttr.getValue().getZExtValue())
+          : 128;
+  return args;
+}
+
 static void registerBuiltinComposites() {
   auto &registry = getCompositeRegistry();
   if (!registry.empty()) {
@@ -244,6 +271,54 @@ static void registerBuiltinComposites() {
       // composite falls back to inlining its decomposition instead of
       // failing the pass.
       [](ttcore::CompositeOp compositeOp) -> LogicalResult {
+        ModuleOp moduleOp = compositeOp->getParentOfType<ModuleOp>();
+        auto sysDesc = moduleOp
+                           ? moduleOp->getAttrOfType<ttcore::SystemDescAttr>(
+                                 ttcore::SystemDescAttr::name)
+                           : nullptr;
+        // Without a system descriptor in scope (e.g. running the pass in
+        // isolation) the architecture is unknown; allow promotion and defer the
+        // check to the metal runtime, which fails on non-Blackhole devices.
+        if (!sysDesc) {
+          return success();
+        }
+        ttcore::Arch arch = sysDesc.getChipDesc(0).getArch().getValue();
+        return success(arch == ttcore::Arch::Blackhole);
+      }};
+
+  registry["sparse_sdpa"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 3u);
+
+        SparseSdpaCompositeArgs args = extractSparseSdpaArgs(compositeOp);
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<SparseSdpaOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], args.vDim, args.scale, args.kChunkSize);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        SparseSdpaCompositeArgs args = extractSparseSdpaArgs(compositeOp);
+        return builder.create<SparseSdpaOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], args.vDim, args.scale, args.kChunkSize);
+      },
+      // Promotion guard: ttnn::transformer::sparse_sdpa is a Blackhole-only,
+      // single-batch kernel. Anywhere else, veto promotion so the composite
+      // falls back to inlining its decomposition instead of failing the pass.
+      [](ttcore::CompositeOp compositeOp) -> LogicalResult {
+        auto queryType = mlir::dyn_cast<RankedTensorType>(
+            compositeOp.getInputs()[0].getType());
+        if (!queryType || queryType.getRank() != 4 ||
+            queryType.getShape()[0] != 1) {
+          return failure();
+        }
+
         ModuleOp moduleOp = compositeOp->getParentOfType<ModuleOp>();
         auto sysDesc = moduleOp
                            ? moduleOp->getAttrOfType<ttcore::SystemDescAttr>(

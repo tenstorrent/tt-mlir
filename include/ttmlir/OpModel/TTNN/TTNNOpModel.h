@@ -1015,6 +1015,28 @@ struct OpModel<IndexerScoreDsaOp> {
                TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// SparseSdpaOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<SparseSdpaOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> kvShape, TTNNLayoutAttr kvLayout,
+      llvm::ArrayRef<int64_t> indicesShape, TTNNLayoutAttr indicesLayout,
+      uint32_t vDim, std::optional<llvm::APFloat> scale, uint32_t kChunkSize,
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+               llvm::ArrayRef<int64_t> kvShape, TTNNLayoutAttr kvLayout,
+               llvm::ArrayRef<int64_t> indicesShape,
+               TTNNLayoutAttr indicesLayout, uint32_t vDim,
+               std::optional<llvm::APFloat> scale, uint32_t kChunkSize,
+               TTNNLayoutAttr outputLayout);
+};
+
 //===-----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp
 // ===----------------------------------------------------------------------===//
