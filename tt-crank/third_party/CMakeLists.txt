@@ -103,6 +103,8 @@ ExternalProject_Add(tt-mlir-ep
         ${CMAKE_COMMAND} --build <BINARY_DIR>
     INSTALL_COMMAND ${CMAKE_COMMAND} -E env ${TT_KURBLA_MLIR_ENV}
         ${CMAKE_COMMAND} --install <BINARY_DIR> --component SharedLib
+    COMMAND ${CMAKE_COMMAND} -E env ${TT_KURBLA_MLIR_ENV}
+        ${CMAKE_COMMAND} --install <BINARY_DIR> --component DistributedRuntime
     # Declare the install outputs we consume so Ninja can wire the dependency
     # graph; without this it errors with "no known rule to make" on link.
     BUILD_BYPRODUCTS
@@ -169,3 +171,56 @@ set_target_properties(tt_kurbla::tracy PROPERTIES
 # Expose the source + install dirs to the parent CMake scope.
 set(TT_KURBLA_TTMLIR_SOURCE_DIR  "${_TTMLIR_SRC}" PARENT_SCOPE)
 set(TT_KURBLA_TTMLIR_INSTALL_DIR "${_TTMLIR_INSTALL_DIR}" PARENT_SCOPE)
+
+# ---------------------------------------------------------------------------
+# Wheel payload: harvest the tt-mlir install tree. scikit-build-core turns these
+# install() rules into wheel platlib contents. All tagged `COMPONENT
+# wheel_payload EXCLUDE_FROM_ALL` because editable installs also run
+# `cmake --install` — keep those keywords BEFORE any FILES_MATCHING/PATTERN,
+# which swallow every argument after them.
+#
+# NOTE the wheel writer dereferences symlinks, so soname chains like
+# libtt-umd.so.0 -> .0.74.0 materialize as concrete files.
+
+# (a) Runtime shared libraries. .so only: skips ~140 MB of .a archives and the
+#     lib/cmake export files.
+install(DIRECTORY "${_TTMLIR_INSTALL_DIR}/lib/"
+    DESTINATION "tt_kurbla/lib"
+    USE_SOURCE_PERMISSIONS
+    COMPONENT wheel_payload
+    EXCLUDE_FROM_ALL
+    FILES_MATCHING PATTERN "*.so*")
+
+# (b) All of bin/: the Tracy CLI pair that python/tracy points PROFILER_BIN_DIR
+#     at, plus ttmlir/runtime/distributed/worker.
+install(DIRECTORY "${_TTMLIR_INSTALL_DIR}/bin/"
+    DESTINATION "tt_kurbla/bin"
+    USE_SOURCE_PERMISSIONS
+    COMPONENT wheel_payload
+    EXCLUDE_FROM_ALL)
+
+# (c) tt-metal tree, resolved as TT_METAL_HOME at runtime. Excludes sfpi
+#     (provisioned separately by `tt-kurbla-install-sfpi`) and _ttnn.so
+#     (shipped from tt_kurbla/lib).
+install(DIRECTORY "${_TTMLIR_INSTALL_DIR}/tt-metal/"
+    DESTINATION "tt_kurbla/tt-metal"
+    USE_SOURCE_PERMISSIONS
+    COMPONENT wheel_payload
+    EXCLUDE_FROM_ALL
+    PATTERN "sfpi" EXCLUDE
+    PATTERN "_ttnn.so" EXCLUDE)
+
+# (d) Re-export _original trees as REAL directories — the wheel writer can't carry
+#     the build-tree symlinks from cmake/Tracy.cmake. python/{ttnn,tracy} import
+#     from these; _wrapper.py loads _ttnn.so from tt_kurbla/lib instead.
+install(DIRECTORY "${_TTMLIR_INSTALL_DIR}/tt-metal/ttnn/ttnn/"
+    DESTINATION "ttnn/_original"
+    USE_SOURCE_PERMISSIONS
+    COMPONENT wheel_payload
+    EXCLUDE_FROM_ALL
+    PATTERN "_ttnn.so" EXCLUDE)
+install(DIRECTORY "${_TTMLIR_INSTALL_DIR}/tt-metal/tools/tracy/"
+    DESTINATION "tracy/_original"
+    USE_SOURCE_PERMISSIONS
+    COMPONENT wheel_payload
+    EXCLUDE_FROM_ALL)

@@ -15,10 +15,13 @@ if(PROJECT_IS_TOP_LEVEL)
     enable_testing()
 endif()
 
-# Embed each target's link-path dirs into its INSTALL_RPATH automatically.
-# Without this, the nanobind .so we install to site-packages can't find
-# libtt_kurbla.so in the build tree at import time. Set before any add_subdirectory.
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+option(TT_KURBLA_WHEEL "Configure the build for a distributable Python wheel" OFF)
+
+# Dev builds resolve deps from the build tree; wheels set $ORIGIN per target.
+# Must precede add_subdirectory — targets capture this at creation.
+if(NOT TT_KURBLA_WHEEL)
+    set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+endif()
 
 option(TT_KURBLA_BUILD_TESTS "Build tt-kurbla unit tests" ${PROJECT_IS_TOP_LEVEL})
 option(TT_KURBLA_BUILD_PYTHON_EXT

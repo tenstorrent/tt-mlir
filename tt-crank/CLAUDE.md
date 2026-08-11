@@ -7,11 +7,14 @@ source venv/activate
 ./scripts/build [debug|release|san]   # configure + build
 ./scripts/test [sim]                  # run C++ tests (sim = route through ttsim)
 ./scripts/install-py                  # editable-install the Python extension
+uv build --wheel                      # build a distributable wheel into dist/
 pytest tests/python/                  # run Python tests
 pytest tests/python/ --sim            # Python tests via ttsim
 ```
 
 `./scripts/install-py` does an editable `uv pip install -e .` with `SKBUILD_BUILD_DIR` pointed at the existing `build/` symlink, so cmake artifacts stay consistent with a normal `./scripts/build` run. It bootstraps `build/` via `./scripts/build` if it doesn't exist yet. Run it once after the first build, then re-run whenever the C++ extension sources change.
+
+`uv build --wheel` needs no wrapper: everything that differs from a dev build is in the `[[tool.scikit-build.overrides]]` block of `pyproject.toml`. It builds in `build_wheel/` and leaves the `build` symlink alone — wheels link with `$ORIGIN` RPATHs and dev builds with absolute build-tree paths, so sharing one dir relinks everything on each switch. tt-metal lives in the shared submodule tree, so it is not rebuilt; don't run a wheel build and `./scripts/build` concurrently.
 
 ## C++ conventions
 
