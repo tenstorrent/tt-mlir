@@ -714,6 +714,84 @@ def _layout_probe(collected: list):
         _tl.Layout.__init__ = prev_init
 
 
+@contextlib.contextmanager
+def _mesh_probe(collected_shards: list, collected_meshes: list):
+    """Record every ``d2m.mesh_shard`` / ``d2m.mesh`` call built inside.
+
+    Observationally wraps the package-level functions (delegating via
+    ``*args/**kwargs``) and appends each shard's ``shard_dims`` tuple /
+    each declared mesh shape.  Used by ``_verify_mesh_applied`` to detect
+    materializers that silently ignore a swept sharding strategy.
+    """
+    import d2m_jit as _d2m
+
+    prev_shard = _d2m.mesh_shard
+    prev_mesh = _d2m.mesh
+
+    def _probing_shard(*args, **kwargs):
+        dims = kwargs.get("shard_dims", args[2] if len(args) > 2 else None)
+        if dims is not None:
+            collected_shards.append(tuple(dims))
+        return prev_shard(*args, **kwargs)
+
+    def _probing_mesh(*args, **kwargs):
+        shape = kwargs.get("shape", args[0] if args else None)
+        if shape is not None:
+            collected_meshes.append(tuple(shape))
+        return prev_mesh(*args, **kwargs)
+
+    _d2m.mesh_shard = _probing_shard
+    _d2m.mesh = _probing_mesh
+    try:
+        yield
+    finally:
+        _d2m.mesh_shard = prev_shard
+        _d2m.mesh = prev_mesh
+
+
+def _verify_mesh_applied(
+    config: "AutotuneConfig", collected_shards: list, collected_meshes: list
+) -> Optional[str]:
+    """Return an error string if a swept sharding knob never reached the mesh.
+
+    Unlike ``_verify_config_applied`` this is strict about absence: a config
+    that requests ``shards`` but built zero ``mesh_shard`` ops means the
+    materializer ignored the strategy entirely — its timing would be a
+    duplicate of some other config ranked under a different id.  Like the
+    layout guard it is necessary-but-not-sufficient (a value must *appear*;
+    it is not matched to the correct tensor).  Configs without mesh knobs
+    are skipped.
+    """
+    if config.shards is None and config.mesh_shape is None:
+        return None
+
+    if config.mesh_shape is not None and tuple(config.mesh_shape) not in {
+        tuple(m) for m in collected_meshes
+    }:
+        return (
+            f"requested mesh_shape {tuple(config.mesh_shape)} was never "
+            f"declared (built {sorted(set(collected_meshes))}); the "
+            f"materializer likely ignores the config's mesh"
+        )
+
+    if config.shards is not None:
+        built = {tuple(s) for s in collected_shards}
+        if not built:
+            return (
+                "requested a sharding strategy but no mesh_shard was ever "
+                "built; the materializer likely ignores per-tensor shard_dims"
+            )
+        for sd in config.shards:
+            if tuple(sd) not in built:
+                return (
+                    f"requested shard_dims {list(sd)} was never applied "
+                    f"(built {sorted(built)}); the materializer likely "
+                    f"ignores per-tensor shard_dims"
+                )
+
+    return None
+
+
 def _verify_config_applied(config: "AutotuneConfig", collected: list) -> Optional[str]:
     """Return an error string if a requested knob never reached a Layout.
 
@@ -1095,6 +1173,8 @@ class Autotuner:
         expected = None
         error_msg: Optional[str] = None
         probed_layouts: list = []
+        probed_shards: list = []
+        probed_meshes: list = []
 
         try:
             native_log_dir.mkdir(parents=True, exist_ok=True)
@@ -1122,7 +1202,9 @@ class Autotuner:
                     # Measured run.  Probe every Layout it builds so we can
                     # verify the requested knobs actually reached the device.
                     _Builder.reset()
-                    with _layout_probe(probed_layouts):
+                    with _layout_probe(probed_layouts), _mesh_probe(
+                        probed_shards, probed_meshes
+                    ):
                         actual, expected = run_bench(
                             bench,
                             tensors=overridden_tensors,
@@ -1152,6 +1234,8 @@ class Autotuner:
         # than let it into the ranking.
         if error_msg is None:
             guard_msg = _verify_config_applied(config, probed_layouts)
+            if guard_msg is None:
+                guard_msg = _verify_mesh_applied(config, probed_shards, probed_meshes)
             if guard_msg is not None:
                 error_msg = f"config not applied: {guard_msg}"
                 kernel_ns = None
@@ -1294,7 +1378,43 @@ class Autotuner:
                     "mem_space) configs; joint_block_shapes / joint_mem_spaces are "
                     "ignored.  Use strategy='sweep' to tune per-tensor knobs."
                 )
-            return self._run_hill_climb(bench, name, seed=seed, max_rounds=max_rounds)
+            # Sharding strategy is a small categorical axis: sweep it
+            # exhaustively as an outer loop, hill-climbing grid/block/mem
+            # inside each strategy (with candidates derived from its shards).
+            results: list[AutotuneResult] = []
+            for axis in self._resolve_mesh_axes(bench):
+                if axis is None:
+                    results.extend(
+                        self._run_hill_climb(
+                            bench, name, seed=seed, max_rounds=max_rounds
+                        )
+                    )
+                    continue
+                mesh_shape, topology, strategy_name, shards = axis
+                try:
+                    view = self._shard_view(bench, mesh_shape, shards)
+                except ValueError as exc:
+                    print(
+                        f"  WARNING: skipping mesh {mesh_shape} strategy "
+                        f"{strategy_name!r}: {exc}"
+                    )
+                    continue
+                results.extend(
+                    self._run_hill_climb(
+                        bench,
+                        name,
+                        seed=seed,
+                        max_rounds=max_rounds,
+                        view_bench=view,
+                        mesh_fields={
+                            "mesh_shape": mesh_shape,
+                            "mesh_topology": topology,
+                            "strategy": strategy_name,
+                            "shards": shards,
+                        },
+                    )
+                )
+            return results
 
         cfgs = configs if configs is not None else self.generate_configs(bench)
 
@@ -1321,6 +1441,8 @@ class Autotuner:
         *,
         seed: Optional[AutotuneConfig] = None,
         max_rounds: int = 10,
+        view_bench: Optional[KernelBench] = None,
+        mesh_fields: Optional[dict] = None,
     ) -> list[AutotuneResult]:
         """Coordinate-descent hill-climb over grid × block × mem_space.
 
@@ -1336,19 +1458,30 @@ class Autotuner:
         candidate block with the closest total tile count to the current
         block is used as a proxy.  Once the best grid is found, the block
         axis is swept properly for that grid.
+
+        For a mesh strategy, ``view_bench`` (the shard-view of *bench*) is
+        the source of grid/block candidates while execution still uses
+        *bench* (full shapes — the materializer does the sharding), and
+        ``mesh_fields`` is attached to every proposed config.
         """
         knobs = self.knobs
         n_tensors = len(bench.tensors)
+        view = view_bench if view_bench is not None else bench
+        mesh_fields = mesh_fields or {}
+
+        def _uniform(grid_shape, block_shape, mem_space) -> AutotuneConfig:
+            return AutotuneConfig(
+                grid_shape=tuple(grid_shape),
+                blocks=[list(block_shape) for _ in range(n_tensors)],
+                mems=[mem_space] * n_tensors,
+                **mesh_fields,
+            )
 
         # Determine seed config (uniform: hill-climb tunes shared knobs only).
         if seed is None:
-            ts = bench.tensors[0]
-            seed = AutotuneConfig.uniform(
-                grid_shape=tuple(bench.grid_shape),
-                block_shape=list(ts.block_shape),
-                mem_space="L1",
-                n_tensors=n_tensors,
-            )
+            seed = _uniform(bench.grid_shape, bench.tensors[0].block_shape, "L1")
+        elif mesh_fields:
+            seed = dataclasses.replace(seed, **mesh_fields)
 
         evaluated: dict[str, AutotuneResult] = {}
         results: list[AutotuneResult] = []
@@ -1404,16 +1537,14 @@ class Autotuner:
             improved = False
 
             # --- Axis 1: grid ---
-            all_grids = valid_grid_shapes(bench, knobs_hc)
+            all_grids = valid_grid_shapes(view, knobs_hc)
             grid_candidates = []
             for g in all_grids:
-                blocks = valid_block_shapes(bench, g, knobs_hc)
+                blocks = valid_block_shapes(view, g, knobs_hc)
                 if not blocks:
                     continue
                 adapted_block = _closest_block(current.blocks[0], blocks)
-                grid_candidates.append(
-                    AutotuneConfig.uniform(g, adapted_block, current.mems[0], n_tensors)
-                )
+                grid_candidates.append(_uniform(g, adapted_block, current.mems[0]))
             best_grid_r = _best_of(grid_candidates)
             if best_grid_r is not None and _better(best_grid_r, current_result):
                 current = best_grid_r.config
@@ -1421,12 +1552,9 @@ class Autotuner:
                 improved = True
 
             # --- Axis 2: block (for current grid) ---
-            all_blocks = valid_block_shapes(bench, current.grid_shape, knobs_hc)
+            all_blocks = valid_block_shapes(view, current.grid_shape, knobs_hc)
             block_candidates = [
-                AutotuneConfig.uniform(
-                    current.grid_shape, b, current.mems[0], n_tensors
-                )
-                for b in all_blocks
+                _uniform(current.grid_shape, b, current.mems[0]) for b in all_blocks
             ]
             best_block_r = _best_of(block_candidates)
             if best_block_r is not None and _better(best_block_r, current_result):
@@ -1436,9 +1564,7 @@ class Autotuner:
 
             # --- Axis 3: mem_space ---
             mem_candidates = [
-                AutotuneConfig.uniform(
-                    current.grid_shape, current.blocks[0], m, n_tensors
-                )
+                _uniform(current.grid_shape, current.blocks[0], m)
                 for m in mem_spaces_list
             ]
             best_mem_r = _best_of(mem_candidates)

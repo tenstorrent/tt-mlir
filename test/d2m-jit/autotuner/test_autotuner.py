@@ -424,7 +424,6 @@ def test_run_config_stamps_shard_dims_and_mesh(tmp_path):
         strategy="cols",
     )
     result = tuner.run_config(bench, cfg, bench_name="spy")
-    assert result.error is None
     ts = seen["tensors"][0]
     assert ts.shard_dims == [-1, 1]
     assert ts.block_shape == [2, 2]
@@ -434,6 +433,31 @@ def test_run_config_stamps_shard_dims_and_mesh(tmp_path):
     assert seen["mesh"].topology is None
     # Original bench specs are untouched.
     assert bench.tensors[0].shard_dims is None
+    # The spy never builds a d2m.mesh / mesh_shard, so the applied-config
+    # guard must reject the run rather than rank an unapplied strategy.
+    assert result.error is not None and "config not applied" in result.error
+
+
+def test_verify_mesh_applied():
+    cfg = A.AutotuneConfig(
+        grid_shape=(1, 1),
+        blocks=[[1, 1]],
+        mems=["L1"],
+        mesh_shape=(1, 2),
+        shards=[[0, 1]],
+        strategy="cols",
+    )
+    # Everything requested was observed -> no error.
+    assert A._verify_mesh_applied(cfg, [(0, 1)], [(1, 2)]) is None
+    # Mesh never declared.
+    assert "mesh_shape" in A._verify_mesh_applied(cfg, [(0, 1)], [])
+    # No mesh_shard at all (strategy silently ignored).
+    assert "no mesh_shard" in A._verify_mesh_applied(cfg, [], [(1, 2)])
+    # Wrong shard_dims applied.
+    assert "shard_dims" in A._verify_mesh_applied(cfg, [(1, 0)], [(1, 2)])
+    # Single-device configs are skipped.
+    plain = A.AutotuneConfig(grid_shape=(1, 1), blocks=[[1, 1]], mems=["L1"])
+    assert A._verify_mesh_applied(plain, [], []) is None
 
 
 # ---------------------------------------------------------------------------
