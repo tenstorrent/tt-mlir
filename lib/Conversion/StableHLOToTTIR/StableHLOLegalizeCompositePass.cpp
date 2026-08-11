@@ -1656,7 +1656,8 @@ public:
 //
 // Operand/attribute mapping:
 //   - Operands: [query, key, value] or [query, key, value, attention_mask].
-//     Shapes are passed through unchanged; the TTIR generic verifier enforces
+//     4D shapes are passed through unchanged; 3D query/key/value are promoted
+//     to 4D with a unit head dim. The TTIR generic verifier enforces
 //     [B, Hq, Sq, D] / [B, Hkv, Sk, D] / [1|B, 1|Hq, Sq, Sk] layouts.
 //   - Attributes: only `is_causal` and `scale` are forwarded from the
 //     composite. Other attributes that PyTorch SDPA may set
@@ -1707,12 +1708,41 @@ static LogicalResult convertToTTIRScaledDotProductAttention(
     }
   }
 
+  auto queryType = mlir::cast<RankedTensorType>(operands[0].getType());
+  int64_t queryRank = queryType.getRank();
+  if (queryRank != 3 && queryRank != 4) {
+    return rewriter.notifyMatchFailure(srcOp, "query rank must be 3 or 4");
+  }
+  bool needsHeadDim = queryRank == 3;
+  if (needsHeadDim) {
+    for (Value operand : operands.take_front(3)) {
+      if (mlir::cast<RankedTensorType>(operand.getType()).getRank() != 3) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "query, key and value must all have the same rank");
+      }
+    }
+  }
+
+  auto insertHeadDim = [&](Value value) -> Value {
+    auto type = mlir::cast<RankedTensorType>(value.getType());
+    SmallVector<int64_t> shape(type.getShape().begin(), type.getShape().end());
+    shape.insert(shape.begin() + 1, 1);
+    auto promotedType = RankedTensorType::get(shape, type.getElementType());
+    return rewriter.create<ttir::ReshapeOp>(
+        srcOp->getLoc(), promotedType, value,
+        rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(shape)));
+  };
+
   // The first 3 operands are always query, key, value. A 4th operand
   // (attention_mask) is present only when is_causal is false.
   bool hasAttnMask = !isCausal && numOperands == 4;
   SmallVector<Value> sdpaOperands = {operands[0], operands[1], operands[2]};
+  if (needsHeadDim) {
+    for (Value &operand : sdpaOperands) {
+      operand = insertHeadDim(operand);
+    }
+  }
   if (hasAttnMask) {
-    // Left-pad mask with unit dims to 4D — matches PyTorch broadcast semantics.
     Value mask = operands[3];
     auto maskType = mlir::cast<RankedTensorType>(mask.getType());
     int64_t maskRank = maskType.getRank();
@@ -1720,7 +1750,12 @@ static LogicalResult convertToTTIRScaledDotProductAttention(
       return rewriter.notifyMatchFailure(srcOp,
                                          "attention_mask rank must be <= 4");
     }
-    if (maskRank < 4) {
+    if (needsHeadDim && maskRank == 3) {
+      // A [B, Sq, Sk] mask takes the head dim in the same position as query.
+      mask = insertHeadDim(mask);
+    } else if (maskRank < 4) {
+      // Left-pad mask with unit dims to 4D — matches PyTorch broadcast
+      // semantics.
       SmallVector<int64_t> paddedShape(4 - maskRank, 1);
       paddedShape.append(maskType.getShape().begin(),
                          maskType.getShape().end());
@@ -1739,8 +1774,25 @@ static LogicalResult convertToTTIRScaledDotProductAttention(
   namedAttrs.push_back(rewriter.getNamedAttr(
       "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
 
-  rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
-      srcOp, outputType, sdpaOperands, namedAttrs);
+  if (!needsHeadDim) {
+    rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
+        srcOp, outputType, sdpaOperands, namedAttrs);
+    return success();
+  }
+
+  SmallVector<int64_t> promotedShape(outputType.getShape().begin(),
+                                     outputType.getShape().end());
+  promotedShape.insert(promotedShape.begin() + 1, 1);
+  auto promotedOutputType =
+      RankedTensorType::get(promotedShape, outputType.getElementType());
+
+  Value sdpaResult = rewriter.create<ttir::ScaledDotProductAttentionOp>(
+      srcOp->getLoc(), promotedOutputType, sdpaOperands, namedAttrs);
+
+  rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+      srcOp, outputType, sdpaResult,
+      rewriter.getI32ArrayAttr(
+          llvm::to_vector_of<int32_t>(outputType.getShape())));
   return success();
 }
 
