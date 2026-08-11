@@ -21,16 +21,95 @@ namespace mlir::tt::ttnn {
 
 namespace {
 
-// Returns the input value whose device buffer op's result aliases, or a null
-// Value if op allocates its own buffer (i.e. is not acting as a view).
+// Maps a control flow region's block argument to the operand it is bound to.
+// A `ttnn.while` region observes `inits ++ captures`; a `ttnn.case` branch
+// observes just the captures.
+Value getBoundOperand(Operation *op, unsigned argNumber) {
+  if (auto whileOp = mlir::dyn_cast<WhileOp>(op)) {
+    unsigned numInits = whileOp.getInits().size();
+    if (argNumber < numInits) {
+      return whileOp.getInits()[argNumber];
+    }
+    return whileOp.getCaptures()[argNumber - numInits];
+  }
+  return mlir::cast<CaseOp>(op).getCaptures()[argNumber];
+}
+
+// The block argument a region hands straight back out as `resultNumber`, or a
+// null value if the region computes that result itself.
+BlockArgument getForwardedArgument(Region &region, unsigned resultNumber) {
+  auto yieldOp =
+      mlir::dyn_cast_if_present<YieldOp>(region.front().getTerminator());
+  if (!yieldOp || resultNumber >= yieldOp.getNumOperands()) {
+    return BlockArgument();
+  }
+  return mlir::dyn_cast<BlockArgument>(yieldOp.getOperand(resultNumber));
+}
+
+// The operands a control flow op may hand back as `resultNumber` without
+// touching them, i.e. the buffers that result may turn out to alias.
 //
-// Today, only view-eligible reshapes alias their input. This helper is the
-// single place that knowledge lives so that the rest of the pass is decoupled
-// from it. A future ViewOpInterface can replace the body without touching the
-// pass logic.
-Value getViewSource(Operation *op) {
+// A `ttnn.while` result is only reported when the binding holds for every
+// iteration: a capture is bound to the same value throughout, and a carried
+// value forwarded into its own slot is never overwritten with anything else.
+// A carried value forwarded into a *different* slot depends on the iteration
+// count, so nothing is reported for it.
+llvm::SmallVector<Value> getForwardedOperands(Operation *op,
+                                              unsigned resultNumber) {
+  llvm::SmallVector<Value> operands;
+
+  if (auto whileOp = mlir::dyn_cast<WhileOp>(op)) {
+    BlockArgument arg = getForwardedArgument(whileOp.getBody(), resultNumber);
+    if (arg && (arg.getArgNumber() >= whileOp.getInits().size() ||
+                arg.getArgNumber() == resultNumber)) {
+      operands.push_back(getBoundOperand(op, arg.getArgNumber()));
+    }
+    return operands;
+  }
+
+  if (auto caseOp = mlir::dyn_cast<CaseOp>(op)) {
+    // Exactly one branch runs, so the result may alias whatever any of them
+    // forwards.
+    for (Region &branch : caseOp.getBranches()) {
+      if (BlockArgument arg = getForwardedArgument(branch, resultNumber)) {
+        Value operand = getBoundOperand(op, arg.getArgNumber());
+        if (!llvm::is_contained(operands, operand)) {
+          operands.push_back(operand);
+        }
+      }
+    }
+  }
+
+  return operands;
+}
+
+// Returns the value whose device buffer `value` aliases, or a null Value if it
+// names a buffer of its own (i.e. is not acting as a view).
+//
+// Two things alias today: a view-eligible reshape aliases its input, and a
+// control flow op result aliases the operand a region forwards straight out of
+// it - the runtime publishes a second handle on that same buffer. This helper
+// is the single place that knowledge lives so that the rest of the pass is
+// decoupled from it. A future ViewOpInterface can replace the body without
+// touching the pass logic.
+//
+// A `ttnn.case` result whose branches forward *different* operands has no
+// single source and so none is reported here; `collectDoNotForceRoots` keeps
+// those buffers out of the forcing decision instead.
+Value getViewSource(Value value) {
+  Operation *op = value.getDefiningOp();
+  if (!op) {
+    return Value();
+  }
   if (canReshapeBeView(op)) {
     return op->getOperand(0);
+  }
+  if (mlir::isa<WhileOp, CaseOp>(op)) {
+    llvm::SmallVector<Value> forwarded =
+        getForwardedOperands(op, mlir::cast<OpResult>(value).getResultNumber());
+    if (forwarded.size() == 1) {
+      return forwarded.front();
+    }
   }
   return Value();
 }
@@ -64,8 +143,7 @@ Value canonicalRoot(Value value, llvm::DenseMap<Value, Value> &valueToRoot) {
       current = it->second;
       break;
     }
-    Operation *defOp = current.getDefiningOp();
-    Value source = defOp ? getViewSource(defOp) : Value();
+    Value source = getViewSource(current);
     if (!source) {
       break;
     }
@@ -86,9 +164,15 @@ Value canonicalRoot(Value value, llvm::DenseMap<Value, Value> &valueToRoot) {
 // when its input variable is the last one referencing that buffer. This
 // becomes a problem when several handles alias one buffer: e.g. a
 // view-eligible reshape op returns a tensor that points to its input's device
-// buffer. Deallocate ops are inserted in the IR per SSA value by the
-// `TTNNDeallocate` pass. However, in the mentioned case, they act as no-ops,
+// buffer, and a control flow op returns the operand a region forwarded straight
+// out of it. Deallocate ops are inserted in the IR per SSA value by the
+// `TTNNDeallocate` pass. However, in the mentioned cases, they act as no-ops,
 // so the buffer is never freed. This can result in L1 allocation failure.
+//
+// Getting the aliasing wrong the other way round is worse than a leak: forcing
+// a deallocation of a buffer another live handle still names frees it out from
+// under that handle. So an alias that cannot be resolved to a single buffer
+// keeps every handle involved out of the forcing decision entirely.
 //
 // For each underlying buffer, this pass walks that buffer's deallocate ops from
 // bottom to top and sets the force flag to true on the last one in program
@@ -151,6 +235,25 @@ private:
             for (BlockArgument arg : block.getArguments()) {
               doNotForceRoots.insert(canonicalRoot(arg, valueToRoot));
             }
+          }
+        }
+      }
+
+      // A control flow result whose branches forward different operands aliases
+      // one of them, but which is only known at runtime, so it has no single
+      // root. Neither the result nor any candidate may be force-freed:
+      // whichever way the branch goes, one of the two handles outlives the
+      // other.
+      if (mlir::isa<WhileOp, CaseOp>(op)) {
+        for (OpResult result : op->getResults()) {
+          llvm::SmallVector<Value> forwarded =
+              getForwardedOperands(op, result.getResultNumber());
+          if (forwarded.size() < 2) {
+            continue;
+          }
+          doNotForceRoots.insert(canonicalRoot(result, valueToRoot));
+          for (Value operand : forwarded) {
+            doNotForceRoots.insert(canonicalRoot(operand, valueToRoot));
           }
         }
       }
