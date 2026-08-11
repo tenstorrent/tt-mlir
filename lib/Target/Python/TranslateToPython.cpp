@@ -1179,7 +1179,7 @@ static LogicalResult printOperation(PythonEmitter &emitter, CaseOp caseOp) {
         os << "pass\n";
       }
     } else {
-      // One tuple assignment, matching the while loop's carry-back, so a branch
+      // One tuple assignment, so a branch
       // that yields the same variables in a different order cannot clobber one
       // it still has to read.
       llvm::interleaveComma(names, os);

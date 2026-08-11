@@ -195,9 +195,9 @@ private:
       return;
     }
 
-    // Control flow ops carry regions that become their own flatbuffer
-    // programs. Hoisting one into a const-eval function would move those
-    // programs with it, which nothing downstream expects.
+    // Hoisting a region-carrying op would move its regions into the const-eval
+    // function along with it, and a region is not something const-eval knows
+    // how to evaluate.
     if (op->getNumRegions() > 0) {
       return;
     }

@@ -38,9 +38,9 @@ table WhileOp {
 // here by index and executed by a nested ProgramExecutor. Every branch program
 // takes `captures` as its inputs and returns one value per output.
 //
-// The runtime reads `index` back to host and runs exactly one branch. Following
-// StableHLO, an index outside `[0, len(branch_program_ids))` - which includes
-// any negative one - selects the last branch.
+// The runtime reads `index` back to host and runs exactly one branch. An index
+// outside `[0, len(branch_program_ids))` - which includes any negative one -
+// selects the last branch, so there is always a branch to run.
 table CaseOp {
   // Single-element si32 tensor in system memory.
   index: tt.target.ttnn.TensorRef;
