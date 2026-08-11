@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "assert.hpp"
+#include "cast.hpp"
 #include "engine/device.hpp"
 #include <ATen/core/Tensor.h>
 #include <c10/util/Exception.h>
@@ -17,17 +18,29 @@
 
 namespace tt::kurbla::torch_backend {
 
-// Tensor pin that prevents torch tensor deallocation.
+// Pin over a borrowed torch tensor: keeps its host buffer alive
+// as long as we need it (via the ref-counted Storage) and detects
+// in-place writes (via the version counter).
 struct TensorPin {
     static constexpr std::int64_t invalid_tensor_version = -1;
 
-    explicit TensorPin(at::Tensor torch_tensor)
-        : tensor{std::move(torch_tensor)},
-          version{!tensor.is_inference() ? tensor._version() : TensorPin::invalid_tensor_version} {}
+    explicit TensorPin(const at::Tensor &torch_tensor)
+        : storage{torch_tensor.storage()}, version_counter{torch_tensor.unsafeGetTensorImpl()->version_counter()},
+          version{version_counter.enabled() ? as<std::int64_t>(version_counter.current_version())
+                                            : TensorPin::invalid_tensor_version} {}
 
-    at::Tensor tensor;
+    // A disabled counter means in-place writes to the borrowed buffer cannot
+    // be detected. Most likely the tensor was created in inference mode -
+    // torch only guarantees that direction (inference implies disabled version counting).
+    bool unsafe_borrow() const { return !version_counter.enabled(); }
 
-    // Tensor version from pinned tensor.
+    // Owns the borrowed host buffer (keeps it alive after the source tensor dies).
+    c10::Storage storage;
+
+    // Shared version counter of the pinned tensor (refcounted, outlives the impl).
+    c10::VariableVersion version_counter;
+
+    // Tensor version captured at pin time.
     std::int64_t version;
 };
 
@@ -50,22 +63,6 @@ public:
     std::vector<::tt::runtime::Tensor> to_host(bool untilize);
 
     bool borrowed() { return pin_.has_value(); }
-
-    const at::Tensor &pinned_tensor() {
-        TORCH_CHECK(borrowed(), "Tensor is not borrowed.");
-        return pin_->tensor;
-    }
-
-    std::int64_t pinned_tensor_version() {
-        TORCH_CHECK(borrowed(), "Tensor is not borrowed.");
-        return pin_->version;
-    }
-
-    bool pin_version_match() {
-        TORCH_CHECK(borrowed(), "Tensor is not borrowed.");
-        return (pin_->version == TensorPin::invalid_tensor_version && pin_->tensor.is_inference()) ||
-               (pin_->version == pin_->tensor._version());
-    }
 
 private:
     // Runtime tensor that represents tensor storage.

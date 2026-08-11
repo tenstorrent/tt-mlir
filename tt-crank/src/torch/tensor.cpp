@@ -96,18 +96,26 @@ void TensorStorage::replace(const at::Tensor &other) {
 }
 
 void TensorStorage::check_version() {
-    if (borrowed() && pinned_tensor().is_inference() && warn_on_inference_enabled()) {
-        if (static uint64_t c = 0; c++ == 0) {
-            log_warning(tt::LogAlways, "User is running program in inference mode, which disables tensor version "
-                                       "checking.");
-            log_warning(tt::LogAlways, "This check ensures that tensors are not modified in-place. To verify that such "
-                                       "ops does not exist, run forward without inference mode.");
-            log_warning(tt::LogAlways, "Once assured that inference is safe, you can disable this warning with: "
-                                       "TT_KURBLA_WARN_ON_INFERENCE_DISABLED=1");
-        }
+    if (!borrowed()) {
+        return;
     }
 
-    TORCH_CHECK(!borrowed() || pin_version_match(), "Tensor modified in-place.");
+    if (pin_->unsafe_borrow()) {
+        if (warn_on_unsafe_borrow_enabled()) {
+            if (static uint64_t c = 0; c++ == 0) {
+                log_warning(tt::LogAlways, "Borrowed tensor does not track versions (most likely the program runs in "
+                                           "inference mode), which disables in-place modification checking.");
+                log_warning(tt::LogAlways, "To verify that no in-place modifications occur, run forward without "
+                                           "inference mode.");
+                log_warning(tt::LogAlways, "Once assured the borrow is safe, you can disable this warning with: "
+                                           "TT_KURBLA_WARN_ON_UNSAFE_BORROW_DISABLED=1");
+            }
+        }
+        return;
+    }
+
+    TORCH_CHECK(pin_->version == as<std::int64_t>(pin_->version_counter.current_version()),
+                "Tensor modified in-place.");
 }
 
 std::vector<::tt::runtime::Tensor> TensorStorage::to_host(bool untilize) {
