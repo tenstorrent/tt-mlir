@@ -4,17 +4,12 @@
 
 """Autotune the ``mesh_sigmoid`` KernelBench from ``test_mesh.py``.
 
-The mesh bench's materializer declares a (1, 2) device mesh, shards the full
-input across both devices, and gathers the result back, so the autotuner
-sweeps per-shard grid/block/mem knobs while every config runs on the full
-mesh.  Two caveats are specific to mesh benches (see the bench's comments):
-
-* Auto-generated grid/block candidates are derived from the bench's FULL
-  tensor shapes, but the kernel executes on per-device shards — pass explicit
-  ``AutotuneKnobs.grid_shapes`` valid for the shard, as done here.
-* ``kernel_ns`` from a multi-chip profiler trace is unreliable (perf-analyzer
-  does not separate per-device cycle clocks), so this test asserts
-  correctness (PCC) and completion, never timing.
+The bench declares its (1, 2) mesh and legal joint sharding strategies; the
+autotuner sweeps (strategy × grid × block × mem), deriving grid/block
+candidates from each strategy's per-device shard shapes.  ``kernel_ns`` on a
+multi-chip trace is the max over devices (per-device breakdown on
+``AutotuneResult.device_kernel_ns``); these tests still assert correctness
+(PCC) and completion rather than timing, for run-to-run stability.
 """
 
 import pytest
@@ -27,30 +22,34 @@ from test_mesh import KERNEL_BENCHES, requires_mesh
 
 pytestmark = pytest.mark.device_only(reason="autotuner is a silicon-only feature")
 
-# Per-device shard is (128, 128) = 4x4 tiles with block [1, 1]; both grids
-# divide the shard's block counts, so every config is feasible.
+# Both grids divide every strategy's shard block counts (cols shard
+# (128, 128) = 4x4 tiles, rows (64, 256) = 2x8 with block [1, 1]), so every
+# (strategy, grid) config is feasible.
 _GRIDS = [(1, 1), (2, 2)]
+_STRATEGIES = ["cols", "rows"]
 
 
 def test_generate_configs_mesh_bench_explicit_grids():
     """Pure config-space check: explicit per-shard grids pass through
-    unchanged and combine with the bench's default block/mem (focused mode).
-    No silicon needed."""
+    unchanged and combine with the bench's default block/mem (focused mode)
+    under every declared strategy.  No silicon needed."""
     bench = KERNEL_BENCHES["mesh_sigmoid"]
     knobs = A.AutotuneKnobs(grid_shapes=_GRIDS)
     cfgs = A.Autotuner(knobs=knobs, verbose=False).generate_configs(bench)
-    assert [c.id for c in cfgs] == ["g1x1_b1x1_mL1", "g2x2_b1x1_mL1"]
+    assert [c.id for c in cfgs] == [
+        f"g{gy}x{gx}_b1x1_mL1_mesh1x2_s{s}" for s in _STRATEGIES for gy, gx in _GRIDS
+    ]
 
 
 @requires_mesh
 def test_autotune_mesh_sigmoid_on_device(tmp_path):
-    """End-to-end autotune of the mesh bench on a real 1x2 mesh.
+    """End-to-end autotune of the mesh bench on a real 1x2 mesh, sweeping
+    every declared sharding strategy.
 
     Asserts the device contract per config: the swept knob reached a
     constructed Layout (``_verify_config_applied``) and the gathered full
     tensor passes PCC against the golden — ``error is None`` means both held.
-    Timing is deliberately not asserted (multi-chip ``kernel_ns`` caveat
-    above, plus run-to-run variance).
+    Timing is deliberately not asserted (run-to-run variance).
     """
     bench = KERNEL_BENCHES["mesh_sigmoid"]
     tuner = A.Autotuner(
@@ -64,7 +63,8 @@ def test_autotune_mesh_sigmoid_on_device(tmp_path):
     tuner.save_results("mesh_sigmoid", results)
     tuner.save_summary({"mesh_sigmoid": results})
 
-    assert len(results) == len(_GRIDS)
+    assert len(results) == len(_GRIDS) * len(_STRATEGIES)
+    assert {r.config.strategy for r in results} == set(_STRATEGIES)
     for result in results:
         assert result.error is None, f"config {result.config_id} failed: {result.error}"
         assert result.pcc is not None

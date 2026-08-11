@@ -473,6 +473,97 @@ def eltwise_block_run(kernel, inputs, tensors, grid_shape):
     return out.to_host()
 
 
+def mesh_block_run(kernel, inputs, tensors, grid_shape, mesh: MeshSpec):
+    """Stock materializer for elementwise-block kernels on a device mesh.
+
+    The mesh analogue of ``eltwise_block_run``: shard every input across the
+    mesh per its spec's ``shard_dims`` (``None`` = replicate), run the same
+    kernel with the same per-shard grid/block config on every device's shard,
+    and gather the output back to the full tensor using the first input's
+    mapping (elementwise ⇒ the output is partitioned like the inputs).
+
+    All PER-DEVICE SHARDS must share the same shape, block_shape, and dtype
+    (asserted at runtime) — the full shapes may differ (e.g. one input
+    sharded, another replicated, as long as the shards agree).  The shard
+    must be tile-aligned, its tile counts must divide evenly by block_shape,
+    and the block counts by the grid.  Violations raise ``AssertionError``
+    immediately rather than silently under-computing work.
+
+    Runtime caveat: ``-1`` (replicate) entries in ``shard_dims`` work for
+    INPUTS (the runtime's shard path skips them) but not for the gathered
+    output — the gather path wraps ``-1`` to the last tensor dim and fails
+    with "dims must be unique".  Map extent-1 mesh axes to a real dim
+    (factor 1) instead, and keep ``tensors[0]`` (whose mapping the gather
+    uses) free of ``-1``.
+    """
+    import d2m_jit as d2m
+
+    ts = tensors[0]
+    rank = len(ts.shape)
+    shard_shapes = [shard_shape_for_spec(mesh, spec) for spec in tensors]
+    shard = shard_shapes[0]
+    for i, other in enumerate(shard_shapes[1:], 1):
+        assert other == shard, f"tensor[{i}].shard {other} != tensor[0].shard {shard}"
+    for i, other in enumerate(tensors[1:], 1):
+        assert list(other.block_shape) == list(
+            ts.block_shape
+        ), f"tensor[{i}].block_shape {other.block_shape} != tensor[0].block_shape {ts.block_shape}"
+        assert (
+            other.dtype == ts.dtype
+        ), f"tensor[{i}].dtype {other.dtype} != tensor[0].dtype {ts.dtype}"
+
+    H, W = shard[-2], shard[-1]
+    bm, bn = ts.block_shape[0], ts.block_shape[1]
+    gy, gx = grid_shape
+
+    assert H % 32 == 0, f"shard[-2]={H} is not tile-aligned (must be a multiple of 32)"
+    assert W % 32 == 0, f"shard[-1]={W} is not tile-aligned (must be a multiple of 32)"
+    tiles_m, tiles_n = H // 32, W // 32
+    assert (
+        tiles_m % bm == 0
+    ), f"shard M tiles ({tiles_m}) not evenly divisible by block_shape[0]={bm}"
+    assert (
+        tiles_n % bn == 0
+    ), f"shard N tiles ({tiles_n}) not evenly divisible by block_shape[1]={bn}"
+    blocks_m, blocks_n = tiles_m // bm, tiles_n // bn
+    assert (
+        blocks_m % gy == 0
+    ), f"shard M blocks ({blocks_m}) not evenly divisible by grid_shape[0]={gy}"
+    assert (
+        blocks_n % gx == 0
+    ), f"shard N blocks ({blocks_n}) not evenly divisible by grid_shape[1]={gx}"
+
+    d2m.mesh(tuple(mesh.shape), topology=mesh.topology)
+
+    def _dims(spec):
+        return (
+            list(spec.shard_dims)
+            if spec.shard_dims is not None
+            else [-1] * len(mesh.shape)
+        )
+
+    # One Layout + mesh_shard per input so each tensor's swept ``mem_space``
+    # and ``shard_dims`` are honored; the output inherits the first input's
+    # placement and mapping.
+    ins = [
+        d2m.mesh_shard(
+            t,
+            layout_from_spec(spec, grid_shape=[gy, gx], shape=shard),
+            shard_dims=_dims(spec),
+            shard_shape=shard_factors(mesh.shape, _dims(spec), rank),
+        )
+        for t, spec in zip(inputs, tensors)
+    ]
+    out = d2m.empty(layout_from_spec(ts, grid_shape=[gy, gx], shape=shard))
+    kernel(*ins, out, blocks_m // gy, blocks_n // gx, grid=(gy, gx))
+    gathered = d2m.mesh_gather(
+        out,
+        shard_dims=_dims(ts),
+        shard_shape=shard_factors(mesh.shape, _dims(ts), rank),
+    )
+    return gathered.to_host()
+
+
 def run_bench(bench: KernelBench, *, tensors=None, grid_shape=None, mesh=None):
     """Execute one bench and return ``(actual, expected)`` torch tensors.
 
