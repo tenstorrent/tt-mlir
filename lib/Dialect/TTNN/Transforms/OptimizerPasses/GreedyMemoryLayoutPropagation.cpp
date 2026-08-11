@@ -110,10 +110,10 @@ public:
         ScalarDataTypeAnalysisInput(&overrideOutputLayout));
     auto scalarTypes = scalarDataTypeAnalysis.getResult();
     fprintf(stderr, "[mla-timing] Step1 done in %lld ms  (%zu scalar types)\n",
-            std::chrono::duration_cast<std::chrono::milliseconds>(
+            (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tStep1)
                 .count(),
-            scalarTypes.size());
+            (size_t)scalarTypes.size());
 
     TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                  "ScalarDataTypeAnalysis found {0} unique scalar types.",
@@ -132,7 +132,7 @@ public:
     size_t _numTensorTypes = tensorTypePossibleLayouts.size();
     fprintf(stderr,
             "[mla-timing] Step2 done in %lld ms  (%zu tensor types)\n",
-            std::chrono::duration_cast<std::chrono::milliseconds>(
+            (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tStep2)
                 .count(),
             _numTensorTypes);
@@ -216,7 +216,7 @@ public:
         fprintf(stderr,
                 "[mla-timing]   op[%zu] done  %lld ms  layouts=%zu  configs=%zu\n",
                 _step3OpIdx,
-                std::chrono::duration_cast<std::chrono::milliseconds>(
+                (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - _tOp)
                     .count(),
                 legalOpLayoutAnalysis.getResult().size(),
@@ -225,7 +225,7 @@ public:
       });
     });
     fprintf(stderr, "[mla-timing] Step3 done in %lld ms  (%zu ops)\n",
-            std::chrono::duration_cast<std::chrono::milliseconds>(
+            (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tStep3)
                 .count(),
             _step3OpIdx);
@@ -233,7 +233,7 @@ public:
     // Step 4: Run layout propagation for each forward device function.
     fprintf(stderr,
             "[mla-timing] Step4: MemoryLayoutPropagation  legalConfigs=%zu ...\n",
-            legalConfigs.size());
+            (size_t)legalConfigs.size());
     auto _tStep4 = std::chrono::steady_clock::now();
     moduleOp->walk([&](func::FuncOp func) {
       if (!ttmlir::utils::isForwardDeviceFunc(func)) {
@@ -269,7 +269,7 @@ public:
           std::move(observer));
       propagation.run();
       fprintf(stderr, "[mla-timing]   propagation.run() done  %lld ms\n",
-              std::chrono::duration_cast<std::chrono::milliseconds>(
+              (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
                   std::chrono::steady_clock::now() - _tProp)
                   .count());
 
@@ -291,11 +291,11 @@ public:
       }
     });
     fprintf(stderr, "[mla-timing] Step4 done in %lld ms\n",
-            std::chrono::duration_cast<std::chrono::milliseconds>(
+            (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tStep4)
                 .count());
     fprintf(stderr, "[mla-timing] GreedyMemoryLayoutPropagation TOTAL %lld ms\n",
-            std::chrono::duration_cast<std::chrono::milliseconds>(
+            (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tMLA)
                 .count());
 #endif

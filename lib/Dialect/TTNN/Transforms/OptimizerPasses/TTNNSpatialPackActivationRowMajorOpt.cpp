@@ -408,13 +408,11 @@ private:
       // Insert to_memory_config(DRAM TILE) after r_final.
       auto rFinalTy = mlir::cast<RankedTensorType>(r_final.getResult().getType());
       auto tileTy   = mkDRAMTileTy(rFinalTy);
-      auto tileLo   = mlir::cast<TTNNLayoutAttr>(tileTy.getEncoding());
-      auto tileMemCfg = MemoryConfigAttr::get(tileLo);
 
       OpBuilder b(r_final->getContext());
       b.setInsertionPointAfter(r_final);
       auto mcTile = b.create<ttnn::ToMemoryConfigOp>(
-          r_final.getLoc(), tileTy, r_final.getResult(), tileMemCfg);
+          r_final.getLoc(), tileTy, r_final.getResult());
 
       // Redirect all uses of r_final (except the new mc op itself) to mcTile.
       SmallPtrSet<Operation *, 1> except{mcTile.getOperation()};
@@ -656,13 +654,9 @@ private:
     // from DRAM — avoids the CB clash where rm_reshape_interleaved CBs overlap
     // with any still-live L1 buffer.
     auto dramRMUnTy = mkDRAMRowMajorTy(rOutSrcTy);
-    auto layoutAttr = ttnn::LayoutAttr::get(rOut->getContext(), Layout::RowMajor);
     OpBuilder ob(rOut->getContext());
     ob.setInsertionPoint(rOut);
-    auto toRM = ob.create<ttnn::ToLayoutOp>(rOut.getLoc(), dramRMUnTy, rOutSrc,
-                                             layoutAttr,
-                                             /*dtype=*/nullptr,
-                                             /*memory_config=*/nullptr);
+    auto toRM = ob.create<ttnn::ToLayoutOp>(rOut.getLoc(), dramRMUnTy, rOutSrc);
 
     // Redirect rOut to consume toRM's DRAM RM output; make rOut output DRAM RM
     // (cheap re-stride — no tile boundary crossing, no CB clash).
@@ -690,13 +684,11 @@ private:
 
     if (!hasDramTileFinal) {
       auto tileTy    = mkDRAMTileTy(dramRMTy);
-      auto tileLo    = mlir::cast<TTNNLayoutAttr>(tileTy.getEncoding());
-      auto tileMemCfg = MemoryConfigAttr::get(tileLo);
 
       OpBuilder b(rOut->getContext());
       b.setInsertionPointAfter(rOut);
       auto mcTile = b.create<ttnn::ToMemoryConfigOp>(
-          rOut.getLoc(), tileTy, rOut.getResult(), tileMemCfg);
+          rOut.getLoc(), tileTy, rOut.getResult());
 
       SmallPtrSet<Operation *, 1> except{mcTile.getOperation()};
       rOut.getResult().replaceAllUsesExcept(mcTile.getResult(), except);

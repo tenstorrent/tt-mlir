@@ -399,7 +399,7 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
                 "[cfg-timing] Conv2d @%s done  %lld ms"
                 "  configs_generated=%zu  total_op_configs=%zu\n",
                 _locStr.c_str(),
-                std::chrono::duration_cast<std::chrono::milliseconds>(
+                (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - _tCfg)
                     .count(),
                 _cfgGenCount, analysisResult.size());

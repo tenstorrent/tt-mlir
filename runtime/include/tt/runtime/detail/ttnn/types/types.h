@@ -313,9 +313,6 @@ public:
   ::ttnn::GlobalSemaphore getOrCreateImplicitGlobalSemaphore(
       uintptr_t opKey,
       const std::function<::ttnn::GlobalSemaphore()> &factory) {
-    if (parentContext) {
-      return parentContext->getOrCreateImplicitGlobalSemaphore(opKey, factory);
-    }
     auto it = implicitOpSemaphores.find(opKey);
     if (it == implicitOpSemaphores.end()) {
       it = implicitOpSemaphores.emplace(opKey, factory()).first;
@@ -330,9 +327,6 @@ public:
   ::ttnn::Tensor getOrCreateImplicitPrecomputedGrid(
       uintptr_t opKey,
       const std::function<::ttnn::Tensor()> &factory) {
-    if (parentContext) {
-      return parentContext->getOrCreateImplicitPrecomputedGrid(opKey, factory);
-    }
     auto it = implicitOpPrecomputedGrids.find(opKey);
     if (it == implicitOpPrecomputedGrids.end()) {
       it = implicitOpPrecomputedGrids.emplace(opKey, factory()).first;

@@ -76,13 +76,13 @@ public:
               funcIdx, func.getName().str().c_str());
       auto _tSpill = std::chrono::steady_clock::now();
       L1SpillManagement<SumL1MemoryTracker> spill(
-          func, deviceGrid, l1BudgetPerCore, chipDesc.getUsableL1Size(),
+          func, deviceGrid, l1BudgetPerCore, ttcore::getOpChipDescAttr(moduleOp).getUsableL1Size(),
           std::move(observer));
       spill.run();
       fprintf(stderr, "[l1spill-timing]   func[%zu] '%s' spill.run() done  %lld ms\n",
               funcIdx,
               func.getName().str().c_str(),
-              std::chrono::duration_cast<std::chrono::milliseconds>(
+              (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
                   std::chrono::steady_clock::now() - _tSpill)
                   .count());
       ++funcIdx;
@@ -122,7 +122,7 @@ public:
       return WalkResult::advance();
     });
     fprintf(stderr, "[l1spill-timing] GreedyL1SpillManagement TOTAL  %lld ms\n",
-            std::chrono::duration_cast<std::chrono::milliseconds>(
+            (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tTotal)
                 .count());
 #endif

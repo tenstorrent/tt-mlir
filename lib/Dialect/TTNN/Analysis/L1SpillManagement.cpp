@@ -593,7 +593,7 @@ bool L1SpillManagement<MemoryTracker>::willAliasSourceInL1(
 
 template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
-    Operation *op, int64_t pos, const ScheduleData &data, uint64_t opL1Usage,
+    Operation *op, int64_t pos, ScheduleData &data, uint64_t opL1Usage,
     uint64_t cbPeakUsage, uint64_t l1Size) {
   // A view-eligible reshape aliases its source's existing L1 slot, so it
   // consumes no fresh L1. Skip fit/CB-overlap checks that assume new allocation.
@@ -664,7 +664,8 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
                      "    CB_ZONE_EVICT: cbPeakUsage={0} cbVT={1}, evicting "
                      "high-virtual tensor to prevent CB-tensor clash",
                      cbPeakUsage, cbVT);
-        evictValue(victim, pos, data);
+        size_t cbZoneCampaignMin = SIZE_MAX;
+        evictValue(victim, pos, data, cbZoneCampaignMin);
         anyEvicted = true;
       }
       if (anyEvicted) {
@@ -703,8 +704,9 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
           toEvict.push_back(operand);
         }
       }
+      size_t largeTensorCampaignMin = SIZE_MAX;
       for (Value victim : toEvict) {
-        evictValue(victim, pos, data);
+        evictValue(victim, pos, data, largeTensorCampaignMin);
       }
       demoteToDram(op);
       evictForDramCBGrowth(op, pos, data, cbPeakUsage);
@@ -1179,7 +1181,7 @@ bool L1SpillManagement<MemoryTracker>::evictUntil(
 template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
                                                        int64_t pos,
-                                                       const ScheduleData &data,
+                                                       ScheduleData &data,
                                                        uint64_t opL1Usage,
                                                        uint64_t outputL1Size) {
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
@@ -1232,7 +1234,7 @@ uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
 
 template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
-    Operation *op, int64_t pos, const ScheduleData &data, uint64_t opL1Usage,
+    Operation *op, int64_t pos, ScheduleData &data, uint64_t opL1Usage,
     uint64_t cbPeakUsage, uint64_t outputL1Size) {
   // Add the same safety cushion as wouldCBsOverlapTensors to account for
   // unmodeled runtime fragmentation from transient internal op allocations.
@@ -1757,7 +1759,7 @@ void L1SpillManagement<MemoryTracker>::evictForCBOverlap(
 
 template <typename MemoryTracker>
 void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
-    Operation *op, int64_t pos, const ScheduleData &data,
+    Operation *op, int64_t pos, ScheduleData &data,
     uint64_t knownCBPeak) {
 
   auto inputLayouts = utils::extractInputLayouts(op);

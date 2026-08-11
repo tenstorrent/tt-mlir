@@ -305,7 +305,7 @@ public:
           }
           fprintf(stderr, "[valfd-timing]   op[%zu] validated_ok  %lld ms\n",
                   _opIdx,
-                  std::chrono::duration_cast<std::chrono::milliseconds>(
+                  (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
                       std::chrono::steady_clock::now() - _tOp)
                       .count());
           ++_opIdx;
@@ -354,13 +354,13 @@ public:
                          operation->getName(), operation->getLoc());
             fprintf(stderr, "[valfd-timing]   op[%zu] FALLBACK_FIXED  %lld ms\n",
                     _opIdx,
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                    (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - _tOp)
                         .count());
           } else {
             fprintf(stderr, "[valfd-timing]   op[%zu] FALLBACK_FAILED  %lld ms\n",
                     _opIdx,
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                    (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - _tOp)
                         .count());
             emitValidationFailureError(operation, originalResult,
@@ -384,7 +384,7 @@ public:
     fprintf(stderr,
             "[valfd-timing] OperationValidationAndFallback TOTAL  %lld ms"
             "  checked=%zu  fixed=%zu\n",
-            std::chrono::duration_cast<std::chrono::milliseconds>(
+            (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tTotal)
                 .count(),
             totalOperationsChecked, operationsFixed);

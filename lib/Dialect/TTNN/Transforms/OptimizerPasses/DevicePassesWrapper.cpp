@@ -64,7 +64,7 @@ public:
       auto _tMock = std::chrono::steady_clock::now();
       op_model::SingletonDeviceContext::getInstance().openMockDevice();
       fprintf(stderr, "[dev-wrap-timing]   openMockDevice() done  %lld ms\n",
-              std::chrono::duration_cast<std::chrono::milliseconds>(
+              (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
                   std::chrono::steady_clock::now() - _tMock)
                   .count());
     }
@@ -120,7 +120,7 @@ public:
     // Clean up the attribute after the nested passes complete.
     op->removeAttr(utils::g_TensorL1UsageCapAttrName);
     fprintf(stderr, "[dev-wrap-timing] DevicePassesWrapper TOTAL  %lld ms\n",
-            std::chrono::duration_cast<std::chrono::milliseconds>(
+            (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tTotal)
                 .count());
   }

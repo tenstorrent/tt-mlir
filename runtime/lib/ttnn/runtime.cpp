@@ -1427,11 +1427,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     break;
   }
   case ::tt::target::ttnn::OpType::GridSampleOp: {
-    tensorRef = opContext.type_as_GridSampleOp()->out();
+    tensorRefs = {opContext.type_as_GridSampleOp()->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::PixelUnshuffleOp: {
-    tensorRef = opContext.type_as_PixelUnshuffleOp()->out();
+    tensorRefs = {opContext.type_as_PixelUnshuffleOp()->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::ConstantOp: {

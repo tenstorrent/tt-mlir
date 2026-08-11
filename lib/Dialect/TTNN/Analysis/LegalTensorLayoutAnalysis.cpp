@@ -267,7 +267,7 @@ void LegalTensorLayoutAnalysis::analysisImplementation() {
   });
 
   fprintf(stderr, "[lta-timing] LegalTensorLayoutAnalysis DONE  %lld ms  types=%zu\n",
-          std::chrono::duration_cast<std::chrono::milliseconds>(
+          (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
               std::chrono::steady_clock::now() - _tTotal)
               .count(),
           typeIdx);
@@ -304,7 +304,7 @@ void LegalTensorLayoutAnalysis::processTensorType(RankedTensorType tensorType,
   }
 
   fprintf(stderr, "[lta-timing]   type[%zu] done  %lld ms  layouts=%zu\n", idx,
-          std::chrono::duration_cast<std::chrono::milliseconds>(
+          (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
               std::chrono::steady_clock::now() - _t)
               .count(),
           layouts.size());

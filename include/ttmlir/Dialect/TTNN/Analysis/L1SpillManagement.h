@@ -389,20 +389,20 @@ private:
   /// Output cannot fit contiguously in the free list. Evict farthest-last-use
   /// tensors until the output fits, then re-validate. Returns L1 bytes to add
   /// to live set (0 if demoted to DRAM).
-  uint64_t handleNoFit(Operation *op, int64_t pos, const ScheduleData &data,
+  uint64_t handleNoFit(Operation *op, int64_t pos, ScheduleData &data,
                        uint64_t opL1Usage, uint64_t outputL1Size);
 
   /// CB fragmentation recovery: evict tensors in the CB danger zone,
   /// re-validate, or demote output to DRAM. Returns L1 bytes to add to live
   /// set (0 if demoted).
   uint64_t handleFragmentation(Operation *op, int64_t pos,
-                               const ScheduleData &data, uint64_t opL1Usage,
+                               ScheduleData &data, uint64_t opL1Usage,
                                uint64_t cbPeakUsage, uint64_t outputL1Size);
 
   /// Run contiguous-fit and CB-fragmentation checks on a validated op's
   /// output. Returns the (possibly updated) L1 size to add to the live set,
   /// or 0 if the output was demoted to DRAM.
-  uint64_t ensureFitsL1(Operation *op, int64_t pos, const ScheduleData &data,
+  uint64_t ensureFitsL1(Operation *op, int64_t pos, ScheduleData &data,
                         uint64_t opL1Usage, uint64_t cbPeakUsage,
                         uint64_t l1Size);
 
@@ -466,7 +466,7 @@ private:
   /// in the static CB region), which can significantly increase the CB
   /// footprint.
   void evictForDramCBGrowth(Operation *op, int64_t pos,
-                            const ScheduleData &data,
+                            ScheduleData &data,
                             uint64_t knownCBPeak = 0);
 
   /// Collect downstream consumers of an op, following through spill ops.

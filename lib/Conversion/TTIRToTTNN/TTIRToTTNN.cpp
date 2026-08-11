@@ -3183,7 +3183,7 @@ public:
     input = rewriter.create<ttnn::PermuteOp>(
         loc, nhwcInputType, input,
         rewriter.getDenseI64ArrayAttr(nchwToNhwc),
-        /*memory_config=*/nullptr, /*pad_value=*/mlir::FloatAttr());
+        /*pad_value=*/mlir::FloatAttr());
 
     // TTIR grid has shape (N, 2, H_out, W_out) where dim 1 holds (x, y) coordinate pairs.
     // TTNN grid_sample expects (N, H_out, W_out, 2). Permute [0, 2, 3, 1].
@@ -3197,7 +3197,7 @@ public:
     grid = rewriter.create<ttnn::PermuteOp>(
         loc, permutedGridType, grid,
         rewriter.getDenseI64ArrayAttr(gridPermutation),
-        /*memory_config=*/nullptr, /*pad_value=*/mlir::FloatAttr());
+        /*pad_value=*/mlir::FloatAttr());
 
     // The TTIR output type is NCHW (N, C, H_out, W_out).
     // The TTNN GridSampleOp produces NHWC (N, H_out, W_out, C).
@@ -3227,7 +3227,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(
         op, ttirOutputType, ttnnResult,
         rewriter.getDenseI64ArrayAttr(nhwcToNchw),
-        /*memory_config=*/nullptr, /*pad_value=*/mlir::FloatAttr());
+        /*pad_value=*/mlir::FloatAttr());
 
     return success();
   }

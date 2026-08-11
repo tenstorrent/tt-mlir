@@ -4588,10 +4588,6 @@ GridSampleOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                const OpConfig &opConfig) {
   assert(inputs.size() == 2);
 
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
@@ -5197,42 +5193,6 @@ TopKOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputShape, inputs[0], getK(), getDim(), getLargest(), getSorted(),
       opConfig.outputLayout);
 }
-//===----------------------------------------------------------------------===//
-// CreateGlobalSemaphoreOp - TTNN Op Model Interface
-//===----------------------------------------------------------------------===//
-
-llvm::Expected<op_model::OpConstraints>
-CreateGlobalSemaphoreOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
-}
-
-llvm::Expected<size_t>
-CreateGlobalSemaphoreOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                                      const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
-}
-
-//===----------------------------------------------------------------------===//
-// ResetGlobalSemaphoreOp - TTNN Op Model Interface
-//===----------------------------------------------------------------------===//
-
-llvm::Expected<op_model::OpConstraints>
-ResetGlobalSemaphoreOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
-}
-
-llvm::Expected<size_t>
-ResetGlobalSemaphoreOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                                     const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
-}
-
 //===----------------------------------------------------------------------===//
 // PixelUnshuffleOp - TTNN Op Model Interface
 // NOTE: Constraint/runtime model not implemented — TTNNPixelUnshuffleL1Opt
