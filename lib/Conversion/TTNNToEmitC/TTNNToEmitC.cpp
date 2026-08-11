@@ -269,6 +269,39 @@ public:
 };
 } // namespace
 
+// EltwiseUnaryWithOptionalIntParameterOp conversion pattern
+//
+// For ops that take an optional int32_t parameter (like decimals for round).
+//
+namespace {
+template <typename SourceOp>
+class EltwiseUnaryWithOptionalIntParameterOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        /*decimals=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // EltwiseUnaryCompositeOp conversion pattern
 //
 namespace {
@@ -5856,6 +5889,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseUnaryWithOutputAndApproxModeOpConversionPattern<
                mlir::tt::ttnn::TanhOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AtanOp>,
+           EltwiseUnaryWithOptionalIntParameterOpConversionPattern<
+               mlir::tt::ttnn::RoundOp>,
            EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
                mlir::tt::ttnn::LogOp>>(typeConverter, ctx);
 

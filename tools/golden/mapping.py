@@ -5576,6 +5576,13 @@ def ttir_floor_golden(
     return torch.floor(input_tensor).to(output_dtype)
 
 
+def ttir_round_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.round(input_tensor).to(output_dtype)
+
+
 def ttir_exp_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -8898,6 +8905,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ErfcOp: torch.erfc,
     ttir.FloorOp: ttir_floor_golden,
     ttir.GeluOp: ttir_gelu_golden,
+    ttir.RoundOp: ttir_round_golden,
     ttir.GeluBackwardOp: ttir_gelu_backward_golden,
     ttir.IsFiniteOp: ttir_isfinite_golden,
     ttir.MishOp: torch.nn.functional.mish,

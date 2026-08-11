@@ -966,31 +966,34 @@ TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
     inputOutputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
   }
 
-  // Check output indices type - tt-metal generates UInt16 or UInt32 based on
-  // padded size. Bitonic sort pads to next power of 2, and uses UInt32 if
-  // padded size >= uint16_t::max
+  // UINT16 inputs are widened to FLOAT32 by ttnn::sort before padding, so the
+  // device operation always emits UINT32 indices for integer sort keys.
   auto indicesElementType = op.getIndices().getType().getElementType();
   TTNNOperandWorkarounds indicesWorkaround;
-  bool isUInt16 = indicesElementType.isInteger(16) &&
-                  indicesElementType.isUnsignedInteger();
   bool isUInt32 = indicesElementType.isInteger(32) &&
                   indicesElementType.isUnsignedInteger();
 
-  // Calculate padded size to determine UInt16 vs UInt32
-  auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
-  auto inputShape = inputType.getShape();
-  int64_t lastDim = inputShape[inputShape.size() - 1];
-  int64_t paddedLastDim = llvm::PowerOf2Ceil(lastDim);
-  constexpr int64_t uint16Max = std::numeric_limits<uint16_t>::max();
-
-  // Determine the correct indices type based on padded size, then only
-  // apply a workaround if the current type doesn't already match.
-  if (paddedLastDim < uint16Max) {
-    if (!isUInt16) {
-      indicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+  // Integer inputs are converted to UINT16 above, then widened to FLOAT32 in
+  // the TTNN sort composite. Keep the graph's index dtype aligned with the
+  // device output instead of selecting UINT16 from the padded logical width.
+  if (isa<IntegerType>(inputElementType)) {
+    if (!isUInt32) {
+      indicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
     }
   } else {
-    if (!isUInt32) {
+    // The device switches to UINT32 above the SFPU LO16-safe width, 256.
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto inputShape = inputType.getShape();
+    int64_t lastDim = inputShape[inputShape.size() - 1];
+    int64_t paddedLastDim = llvm::PowerOf2Ceil(lastDim);
+    constexpr int64_t maxUint16SafeWidth = 256;
+    bool isUInt16 = indicesElementType.isInteger(16) &&
+                    indicesElementType.isUnsignedInteger();
+    if (paddedLastDim <= maxUint16SafeWidth) {
+      if (!isUInt16) {
+        indicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+      }
+    } else if (!isUInt32) {
       indicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
     }
   }
