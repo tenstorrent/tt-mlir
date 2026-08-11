@@ -915,8 +915,12 @@ def _zeros_op(shape):
     return _zeros_block(block_ty)
 
 
-@syntax("empty", args_as_attr=[_shape_literal])
-def _empty_op(shape):
+@syntax(
+    "empty",
+    args_as_attr=[_shape_literal],
+    kwargs_as_attr={"dtype": _const_value},
+)
+def _empty_op(shape, dtype="fp32"):
     """Block-level uninitialised L1 scratch buffer (kernel-body `empty`).
 
     Registered as the kernel-body op `empty`; named `_empty_op` at module
@@ -924,9 +928,10 @@ def _empty_op(shape):
     the public `d2m.empty`.
 
     `shape` is a Python-literal list/tuple of block dimensions in tiles, e.g.
-    `empty([m_tiles, n_tiles])`. Produces an uninitialised
-    `tensor<shape x !ttcore.tile<32x32, f32>>` (via `tensor.empty`), intended as
-    an explicit destination buffer for `remote_load(buf, src, indices)`.
+    `empty([m_tiles, n_tiles])`. `dtype` defaults to `"fp32"` and accepts the
+    strings supported by `_to_data_type`. Produces an uninitialised tile tensor
+    via `tensor.empty`, intended as an explicit destination buffer for
+    `remote_load(buf, src, indices)`.
 
     Uses `tensor.empty` (not `d2m.empty`): for a cross-device CCL kernel a
     `d2m.empty` load buffer makes the backend split the datamovement work onto a
@@ -935,11 +940,9 @@ def _empty_op(shape):
     buffer the all_gather rewriter emits and keeps the fabric chain on one
     thread.
 
-    The tile element type is f32; this matches `zeros(...)`. A dtype override
-    is a follow-up once a non-f32 CCL needs it.
     """
     ctx = get_default_loc_context()
-    tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, float32)
+    tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, _to_data_type(dtype))
     return tensor.empty(list(shape), tile_ty)
 
 
