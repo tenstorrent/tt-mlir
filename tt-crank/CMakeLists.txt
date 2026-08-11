@@ -23,6 +23,10 @@ if(NOT TT_KURBLA_WHEEL)
     set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 endif()
 
+# Silence the per-file "-- Installing:"/"-- Up-to-date:" messages on install.
+# Set before any add_subdirectory so it applies to third-party install rules too.
+set(CMAKE_INSTALL_MESSAGE NEVER)
+
 option(TT_KURBLA_BUILD_TESTS "Build tt-kurbla unit tests" ${PROJECT_IS_TOP_LEVEL})
 option(TT_KURBLA_BUILD_PYTHON_EXT
     "Build Python extension modules (set ON by scikit-build-core; OFF for C++-only builds)"
