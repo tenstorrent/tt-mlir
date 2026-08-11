@@ -2358,7 +2358,10 @@ def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
     - `grad` (Tensor): gradient of the parameter.
     - `exp_avg` (Tensor): first moment estimate.
     - `exp_avg_sq` (Tensor): second moment estimate.
-    - `beta1_pow`, `beta2_pow` (Tensor): beta1^t and beta2^t bias-correction terms.
+    - `beta1_pow`, `beta2_pow` (Tensor): beta1^t and beta2^t bias-correction
+      terms. Each must be a single-element f32 tensor of rank 1 or higher: they
+      are read back to the host as plain floats, and rank 0 does not survive the
+      TTNN layout path.
     - `max_exp_avg_sq` (Optional Tensor): max second moment for AMSGrad. Its
       presence implies amsgrad, and requires the matching result.
 

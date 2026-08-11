@@ -7260,22 +7260,14 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
   auto sameShape = [&](RankedTensorType t) { return t.getShape() == shape; };
 
   // The bias-correction terms are read back to host as plain floats, so they
-  // must hold exactly one f32 element (rank 0, or any shape whose dims are 1).
-  auto verifyScalarF32 = [&](RankedTensorType t,
-                             llvm::StringRef name) -> ::mlir::LogicalResult {
-    if (t.getNumElements() != 1) {
-      return emitOpError() << name << " must have exactly one element, got "
-                           << t.getNumElements();
-    }
-    if (!t.getElementType().isF32()) {
-      return emitOpError() << name << " must be f32, got " << t.getElementType();
-    }
-    return success();
-  };
-  if (failed(verifyScalarF32(getBeta1Pow().getType(), "beta1_pow"))) {
+  // must hold exactly one f32 element.
+  auto emitError = [&]() { return emitOpError(); };
+  if (failed(ttmlir::utils::verifyHostReadableScalar(getBeta1Pow().getType(),
+                                                     "beta1_pow", emitError))) {
     return failure();
   }
-  if (failed(verifyScalarF32(getBeta2Pow().getType(), "beta2_pow"))) {
+  if (failed(ttmlir::utils::verifyHostReadableScalar(getBeta2Pow().getType(),
+                                                     "beta2_pow", emitError))) {
     return failure();
   }
 

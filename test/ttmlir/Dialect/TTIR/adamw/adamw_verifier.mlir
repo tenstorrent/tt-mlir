@@ -37,12 +37,14 @@ module {
 
 // -----
 
-// A rank-0 scalar is also accepted.
+// Rank 0 is rejected: it does not survive the TTNN layout path, so it is caught
+// here rather than in the backend.
 module {
-  func.func @rank0_scalar_ok(%param: tensor<64x64xf32>, %grad: tensor<64x64xf32>,
-                             %exp_avg: tensor<64x64xf32>, %exp_avg_sq: tensor<64x64xf32>,
-                             %beta1_pow: tensor<f32>, %beta2_pow: tensor<f32>)
+  func.func @rank0_scalar_rejected(%param: tensor<64x64xf32>, %grad: tensor<64x64xf32>,
+                                   %exp_avg: tensor<64x64xf32>, %exp_avg_sq: tensor<64x64xf32>,
+                                   %beta1_pow: tensor<f32>, %beta2_pow: tensor<f32>)
       -> tensor<64x64xf32> {
+    // expected-error @+1 {{beta1_pow must have rank of at least 1}}
     %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %beta1_pow, %beta2_pow) <{
         lr = 1.000000e-03 : f32, beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
         epsilon = 1.000000e-08 : f32, weight_decay = 1.000000e-02 : f32}>

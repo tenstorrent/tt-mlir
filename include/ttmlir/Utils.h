@@ -11,6 +11,8 @@
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Diagnostics.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Error.h"
@@ -817,6 +819,32 @@ inline mlir::Operation *findFirstUserInBlock(mlir::Operation *op) {
     }
   }
   return firstUser;
+}
+
+/// Verify that a tensor operand carries exactly one f32 element, so it can be
+/// read back to the host as a plain `float`.
+///
+/// Rank 0 is rejected on purpose: the TTNN lowering tilizes and lays out every
+/// operand, and a rank-0 tensor does not survive that path, so accepting it
+/// here would only defer the failure to the backend.
+///
+/// @param type The operand type to check.
+/// @param name Operand name, used in the diagnostic.
+/// @param emitError Callback producing the diagnostic to attach the message to.
+inline mlir::LogicalResult verifyHostReadableScalar(
+    mlir::RankedTensorType type, llvm::StringRef name,
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitError) {
+  if (type.getRank() == 0) {
+    return emitError() << name << " must have rank of at least 1";
+  }
+  if (type.getNumElements() != 1) {
+    return emitError() << name << " must have exactly one element, got "
+                       << type.getNumElements();
+  }
+  if (!type.getElementType().isF32()) {
+    return emitError() << name << " must be f32, got " << type.getElementType();
+  }
+  return mlir::success();
 }
 
 } // namespace ttmlir::utils

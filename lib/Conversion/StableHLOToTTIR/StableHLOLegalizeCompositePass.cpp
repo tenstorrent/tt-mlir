@@ -2003,8 +2003,32 @@ public:
     namedAttrs.push_back(rewriter.getNamedAttr(
         "stochastic_rounding", rewriter.getBoolAttr(stochasticRounding)));
 
-    rewriter.replaceOpWithNewOp<ttir::AdamWOp>(
-        srcOp, srcOp.getResultTypes(), adaptor.getOperands(), namedAttrs);
+    // beta1_pow / beta2_pow are operands rather than attributes, but they get
+    // the same F32 normalization the hyperparameters above get: a frontend
+    // tracing a bf16 model hands them over in the model's own float width, and
+    // the ttir.adamw verifier only accepts f32.
+    constexpr size_t kBeta1PowIndex = 4;
+    constexpr size_t kBeta2PowIndex = 5;
+    SmallVector<Value> operands(adaptor.getOperands());
+    for (size_t index : {kBeta1PowIndex, kBeta2PowIndex}) {
+      auto operandType =
+          mlir::cast<RankedTensorType>(operands[index].getType());
+      if (operandType.getElementType().isF32()) {
+        continue;
+      }
+      if (!mlir::isa<FloatType>(operandType.getElementType())) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "tenstorrent.adamw bias-correction operands must be float");
+      }
+      operands[index] = rewriter.create<ttir::TypecastOp>(
+          srcOp.getLoc(),
+          RankedTensorType::get(operandType.getShape(), rewriter.getF32Type(),
+                                operandType.getEncoding()),
+          operands[index]);
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::AdamWOp>(srcOp, srcOp.getResultTypes(),
+                                               operands, namedAttrs);
     return success();
   }
 };

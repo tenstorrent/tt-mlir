@@ -3767,21 +3767,13 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
   auto sameShape = [&](RankedTensorType t) { return t.getShape() == shape; };
 
   // Mirrors the ttir.adamw check: the runtime reads these two back as floats.
-  auto verifyScalarF32 = [&](RankedTensorType t,
-                             llvm::StringRef name) -> ::mlir::LogicalResult {
-    if (t.getNumElements() != 1) {
-      return emitOpError() << name << " must have exactly one element, got "
-                           << t.getNumElements();
-    }
-    if (!t.getElementType().isF32()) {
-      return emitOpError() << name << " must be f32, got " << t.getElementType();
-    }
-    return success();
-  };
-  if (failed(verifyScalarF32(getBeta1Pow().getType(), "beta1_pow"))) {
+  auto emitError = [&]() { return emitOpError(); };
+  if (failed(ttmlir::utils::verifyHostReadableScalar(getBeta1Pow().getType(),
+                                                     "beta1_pow", emitError))) {
     return failure();
   }
-  if (failed(verifyScalarF32(getBeta2Pow().getType(), "beta2_pow"))) {
+  if (failed(ttmlir::utils::verifyHostReadableScalar(getBeta2Pow().getType(),
+                                                     "beta2_pow", emitError))) {
     return failure();
   }
 

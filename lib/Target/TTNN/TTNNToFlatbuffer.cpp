@@ -1645,11 +1645,14 @@ createOp(FlatbufferObjectCache &cache, AdamWOp op) {
         getOperandThroughDPSOps(op.getMaxExpAvgSq()));
   }
 
+  // `beta1_pow` / `beta2_pow` are the last two fields of the table, appended
+  // rather than inserted so the preceding field ids stay put.
   return ::tt::target::ttnn::CreateAdamWOp(
-      *cache.fbb, param, grad, expAvg, expAvgSq, beta1Pow, beta2Pow, maxExpAvgSq,
+      *cache.fbb, param, grad, expAvg, expAvgSq, maxExpAvgSq,
       op.getLr().convertToFloat(), op.getBeta1().convertToFloat(),
       op.getBeta2().convertToFloat(), op.getEpsilon().convertToFloat(),
-      op.getWeightDecay().convertToFloat(), op.getStochasticRounding());
+      op.getWeightDecay().convertToFloat(), op.getStochasticRounding(),
+      beta1Pow, beta2Pow);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::SDPAForwardOp>

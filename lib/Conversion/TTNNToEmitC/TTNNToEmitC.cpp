@@ -3498,17 +3498,51 @@ public:
 // AdamWOp conversion pattern (emits ::ttml::metal::adamw)
 //
 namespace {
+// Finds a `util_scalar_to_float` call on `tensor` that already dominates
+// `before` in the same block, so the value can be reused instead of read back
+// again. A training step holds one adamw op per parameter and all of them read
+// the same two bias-correction tensors, so without this the emitted program
+// does two device-to-host syncs per parameter rather than two per step.
+//
+// Reuse is dropped if anything between the two points touches the tensor, since
+// that op may have written to it.
+mlir::Value findDominatingScalarReadback(mlir::Value tensor,
+                                         mlir::Operation *before) {
+  // The last op to touch the tensor before this point. Anything else in that
+  // spot may have written to it, so only a readback there can be reused.
+  mlir::Operation *lastUser = nullptr;
+  for (mlir::Operation *user : tensor.getUsers()) {
+    if (user->getBlock() != before->getBlock() ||
+        !user->isBeforeInBlock(before)) {
+      continue;
+    }
+    if (!lastUser || lastUser->isBeforeInBlock(user)) {
+      lastUser = user;
+    }
+  }
+
+  auto callOp = mlir::dyn_cast_or_null<emitc::CallOpaqueOp>(lastUser);
+  if (!callOp ||
+      callOp.getCallee() != ttnn_to_emitc::kScalarToFloatFunctionName) {
+    return mlir::Value();
+  }
+  return callOp.getResult(0);
+}
+
 // Emits `float util_scalar_to_float(const ttnn::Tensor &)`, which reads a
-// single-element tensor back to the host as a float. Declared in
-// tools/ttnn-standalone/ttnn-precompiled.hpp.
-mlir::Value emitScalarReadback(mlir::Value tensor, mlir::Location loc,
+// single-element tensor back to the host as a float. Declared in the
+// `ttnn-precompiled.hpp` preludes under `tools/ttnn-standalone` and
+// `tools/tt-alchemist/templates/cpp`.
+mlir::Value emitScalarReadback(mlir::Value tensor, mlir::Operation *srcOp,
                                ConversionPatternRewriter &rewriter) {
+  if (mlir::Value existing = findDominatingScalarReadback(tensor, srcOp)) {
+    return existing;
+  }
   auto floatType = rewriter.getType<emitc::OpaqueType>("float");
   return rewriter
       .create<emitc::CallOpaqueOp>(
-          loc, floatType, ttnn_to_emitc::kScalarToFloatFunctionName,
-          /*args=*/nullptr, /*template_args=*/nullptr,
-          mlir::ValueRange{tensor})
+          srcOp->getLoc(), floatType, ttnn_to_emitc::kScalarToFloatFunctionName,
+          /*args=*/nullptr, /*template_args=*/nullptr, mlir::ValueRange{tensor})
       .getResult(0);
 }
 
@@ -3517,6 +3551,16 @@ mlir::Value emitScalarReadback(mlir::Value tensor, mlir::Location loc,
 // six decimals and would flatten epsilon (1e-8) to `0.000000f`.
 mlir::Attribute emitFloatLiteral(llvm::APFloat value,
                                  ConversionPatternRewriter &rewriter) {
+  // `APFloat::toString` spells these `inf` / `nan`, which are not C++ literals.
+  if (value.isInfinity()) {
+    return rewriter.getAttr<emitc::OpaqueAttr>(
+        value.isNegative() ? "-::std::numeric_limits<float>::infinity()"
+                           : "::std::numeric_limits<float>::infinity()");
+  }
+  if (value.isNaN()) {
+    return rewriter.getAttr<emitc::OpaqueAttr>(
+        "::std::numeric_limits<float>::quiet_NaN()");
+  }
   llvm::SmallString<24> literal;
   value.toString(literal);
   return rewriter.getAttr<emitc::OpaqueAttr>(literal.str());
@@ -3544,14 +3588,15 @@ public:
     // `beta1_pow` / `beta2_pow` are single-element tensors in the IR, so that
     // the graph stays the same for every optimizer step, but
     // `ttml::metal::adamw` takes them as floats. Read the two scalars back
-    // before the call and pass the results by value.
+    // before the call and pass the results by value, reusing an earlier
+    // readback of the same tensor when there is one.
     mlir::Value beta1Pow =
-        emitScalarReadback(adaptor.getBeta1Pow(), srcOp.getLoc(), rewriter);
+        emitScalarReadback(adaptor.getBeta1Pow(), srcOp, rewriter);
     mlir::Value beta2Pow =
-        emitScalarReadback(adaptor.getBeta2Pow(), srcOp.getLoc(), rewriter);
+        emitScalarReadback(adaptor.getBeta2Pow(), srcOp, rewriter);
 
-    // The emitter identifies a tensor argument by the position of the operand it
-    // comes from, so operands must be emitted in the op's own operand order:
+    // The emitter identifies a tensor argument by the position of the operand
+    // it comes from, so operands must be emitted in the op's own operand order:
     // param, grad, exp_avg, exp_avg_sq, beta1_pow, beta2_pow, max_exp_avg_sq.
     // The two readback results are not operands of `srcOp`, so they take the
     // positions of the tensors they replace explicitly. Reordering to match

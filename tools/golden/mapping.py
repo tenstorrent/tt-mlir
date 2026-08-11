@@ -1181,9 +1181,6 @@ def adamw_golden(
     lr = unpack_mlir_attr(lr)
     beta1 = unpack_mlir_attr(beta1)
     beta2 = unpack_mlir_attr(beta2)
-    # The bias-correction terms are single-element tensors now, not attributes.
-    beta1_pow = float(torch.as_tensor(beta1_pow).reshape(-1)[0])
-    beta2_pow = float(torch.as_tensor(beta2_pow).reshape(-1)[0])
     epsilon = unpack_mlir_attr(epsilon)
     weight_decay = unpack_mlir_attr(weight_decay)
 
@@ -1195,8 +1192,11 @@ def adamw_golden(
         torch.mul(torch.mul(grad_f, grad_f), 1.0 - beta2),
     )
 
-    bias_correction1 = 1.0 - beta1_pow
-    bias_correction2 = 1.0 - beta2_pow
+    # The bias-correction terms are single-element tensors, not attributes. They
+    # stay tensors here so each shard uses its own value and broadcasts against
+    # the moments, rather than collapsing the whole map to one shard's scalar.
+    bias_correction1 = torch.sub(torch.ones_like(beta1_pow), beta1_pow)
+    bias_correction2 = torch.sub(torch.ones_like(beta2_pow), beta2_pow)
     m_hat = torch.div(new_exp_avg, bias_correction1)
 
     if max_exp_avg_sq is not None:

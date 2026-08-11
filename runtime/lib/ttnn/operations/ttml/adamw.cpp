@@ -5,19 +5,26 @@
 #include "operations/ttml/adamw.h"
 #include "metal/common/const_utils.hpp"     // ttml::metal::StochasticRounding
 #include "metal/optimizers/adamw/adamw.hpp" // ttml::metal::adamw
+#include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::ttml {
 
 namespace {
+// Reads a single-element tensor back to host. This is a device-to-host sync,
+// and it happens twice per adamw op, i.e. twice per parameter per step, not
+// twice per step: a training graph holds one adamw op per parameter and they
+// all read the same two tensors.
+//
 // TODO(agobeljic): Remove this once ttml::AdamW accepts beta_pow as tensor.
 float scalarValueOf(const ::ttnn::Tensor &tensor, const char *name) {
-  LOG_ASSERT(tensor.logical_volume() == 1,
-             "AdamW: ", name, " must hold exactly one element, got ",
-             tensor.logical_volume());
-  const ::ttnn::Tensor host = ::ttnn::from_device(tensor);
-  const std::vector<float> values = host.to_vector<float>();
-  LOG_ASSERT(!values.empty(), "AdamW: ", name, " read back empty");
-  return values.front();
+  LOG_ASSERT(tensor.logical_volume() == 1, "AdamW: ", name,
+             " must hold exactly one element, got ", tensor.logical_volume());
+  // `to_vector<float>` is only valid for a float32 tensor; check the dtype here
+  // so a mismatch names the operand instead of failing inside tt-metal.
+  LOG_ASSERT(tensor.dtype() == ::ttnn::DataType::FLOAT32, "AdamW: ", name,
+             " must be float32, got ", static_cast<int>(tensor.dtype()),
+             " (::ttnn::DataType)");
+  return utils::getScalarFromTensor<float>(::ttnn::from_device(tensor));
 }
 } // namespace
 

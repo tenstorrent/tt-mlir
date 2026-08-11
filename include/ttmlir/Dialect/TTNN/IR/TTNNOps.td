@@ -2690,11 +2690,13 @@ def TTNN_AdamWOp : TTNN_InplaceOp<"adamw", [OpModelExempt]> {
       AMSGrad) are all mutated in place, so the op has no results. `amsgrad` is
       implied by the presence of `max_exp_avg_sq`.
 
-      `beta1_pow` / `beta2_pow` are single-element f32 tensors carrying beta^t
-      for the current step. They are operands rather than attributes so the
-      graph does not change from step to step and can be compiled once; the
-      runtime reads the two scalars back to feed `ttml::metal::adamw`, whose
-      API takes floats.
+      `beta1_pow` / `beta2_pow` are single-element f32 tensors of rank 1 or
+      higher, carrying beta^t for the current step. They are operands rather
+      than attributes so the graph does not change from step to step and can be
+      compiled once; the runtime reads the two scalars back to feed
+      `ttml::metal::adamw`, whose API takes floats. That readback is a
+      device-to-host sync per adamw op, so it costs two syncs per parameter per
+      step, not two per step.
     }];
 
     let arguments = (ins Arg<AnyRankedTensor, "parameter tensor (updated in place)", [MemWrite]>:$param,

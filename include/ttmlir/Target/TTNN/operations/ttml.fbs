@@ -8,8 +8,6 @@ table AdamWOp {
   grad: tt.target.ttnn.TensorRef;
   exp_avg: tt.target.ttnn.TensorRef;
   exp_avg_sq: tt.target.ttnn.TensorRef;
-  beta1_pow: tt.target.ttnn.TensorRef;
-  beta2_pow: tt.target.ttnn.TensorRef;
   max_exp_avg_sq: tt.target.ttnn.TensorRef;
   lr: float;
   beta1: float;
@@ -17,6 +15,11 @@ table AdamWOp {
   epsilon: float;
   weight_decay: float;
   stochastic_rounding: bool = false;
+  // Appended, not inserted: a table field's id comes from its position, so
+  // adding these in the middle would shift every field after them and make
+  // previously serialized binaries decode into the wrong slots.
+  beta1_pow: tt.target.ttnn.TensorRef;
+  beta2_pow: tt.target.ttnn.TensorRef;
 }
 
 table SDPAForwardOp {
