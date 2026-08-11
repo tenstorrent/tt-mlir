@@ -62,9 +62,9 @@ public:
       auto _t = std::chrono::steady_clock::now();
       processConvOp<ttnn::Conv2dOp, ttnn::PrepareConv2dWeightsOp,
                     ttnn::PrepareConv2dBiasOp>(convOp, moduleOp, rewriter);
-      fprintf(stderr, "[prep2d-timing]   conv2d[%zu] done  %ld ms\n",
+      fprintf(stderr, "[prep2d-timing]   conv2d[%zu] done  %lld ms\n",
               _conv2dIdx,
-              (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::duration_cast<std::chrono::milliseconds>(
                   std::chrono::steady_clock::now() - _t)
                   .count());
       ++_conv2dIdx;
@@ -85,18 +85,18 @@ public:
                     ttnn::PrepareConvTranspose2dBiasOp>(convOp, moduleOp,
                                                         rewriter);
       fprintf(stderr,
-              "[prep2d-timing]   conv_transpose2d[%zu] done  %ld ms\n",
+              "[prep2d-timing]   conv_transpose2d[%zu] done  %lld ms\n",
               _convT2dIdx,
-              (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::duration_cast<std::chrono::milliseconds>(
                   std::chrono::steady_clock::now() - _t)
                   .count());
       ++_convT2dIdx;
     });
 
     fprintf(stderr,
-            "[prep2d-timing] TTNNPrepareConv2dWeightsAndBias TOTAL  %ld ms"
+            "[prep2d-timing] TTNNPrepareConv2dWeightsAndBias TOTAL  %lld ms"
             "  conv2d=%zu  conv_transpose2d=%zu\n",
-            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tTotal)
                 .count(),
             _conv2dIdx, _convT2dIdx);

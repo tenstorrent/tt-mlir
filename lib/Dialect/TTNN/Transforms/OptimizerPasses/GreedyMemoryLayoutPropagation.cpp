@@ -109,8 +109,8 @@ public:
     scalarDataTypeAnalysis.init(
         ScalarDataTypeAnalysisInput(&overrideOutputLayout));
     auto scalarTypes = scalarDataTypeAnalysis.getResult();
-    fprintf(stderr, "[mla-timing] Step1 done in %ld ms  (%zu scalar types)\n",
-            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+    fprintf(stderr, "[mla-timing] Step1 done in %lld ms  (%zu scalar types)\n",
+            std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tStep1)
                 .count(),
             scalarTypes.size());
@@ -131,8 +131,8 @@ public:
         legalTensorLayoutAnalysis.getResult();
     size_t _numTensorTypes = tensorTypePossibleLayouts.size();
     fprintf(stderr,
-            "[mla-timing] Step2 done in %ld ms  (%zu tensor types)\n",
-            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+            "[mla-timing] Step2 done in %lld ms  (%zu tensor types)\n",
+            std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tStep2)
                 .count(),
             _numTensorTypes);
@@ -179,23 +179,21 @@ public:
         RankedTensorType tensorType =
             mlir::cast<RankedTensorType>(op->getResult(0).getType());
 
-        // Build shape and loc strings for timing print
-        std::string _shapeStr = "[";
-        for (size_t _i = 0; _i < tensorType.getShape().size(); ++_i) {
-          if (_i > 0) _shapeStr += ",";
-          _shapeStr += std::to_string(tensorType.getShape()[_i]);
-        }
-        _shapeStr += "]";
+        // Build loc string for timing print
         std::string _locStr;
         {
           llvm::raw_string_ostream _ss(_locStr);
           op->getLoc().print(_ss);
         }
         fprintf(stderr,
-                "[mla-timing]   op[%zu] %-40s  shape=%s  loc=%s\n",
+                "[mla-timing]   op[%zu] %-36s  shape=[",
                 _step3OpIdx,
-                op->getName().getStringRef().str().c_str(),
-                _shapeStr.c_str(), _locStr.c_str());
+                op->getName().getStringRef().str().c_str());
+        for (size_t _i = 0; _i < tensorType.getShape().size(); ++_i) {
+          if (_i > 0) fprintf(stderr, ",");
+          fprintf(stderr, "%lld", (long long)tensorType.getShape()[_i]);
+        }
+        fprintf(stderr, "]  loc=%s\n", _locStr.c_str());
         auto _tOp = std::chrono::steady_clock::now();
 
         auto tensorLayouts = tensorTypePossibleLayouts.find(tensorType);
@@ -216,9 +214,9 @@ public:
         legalConfigs[op] = legalOpConfigAnalysis.getResult();
 
         fprintf(stderr,
-                "[mla-timing]   op[%zu] done  %ld ms  layouts=%zu  configs=%zu\n",
+                "[mla-timing]   op[%zu] done  %lld ms  layouts=%zu  configs=%zu\n",
                 _step3OpIdx,
-                (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - _tOp)
                     .count(),
                 legalOpLayoutAnalysis.getResult().size(),
@@ -226,8 +224,8 @@ public:
         ++_step3OpIdx;
       });
     });
-    fprintf(stderr, "[mla-timing] Step3 done in %ld ms  (%zu ops)\n",
-            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+    fprintf(stderr, "[mla-timing] Step3 done in %lld ms  (%zu ops)\n",
+            std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tStep3)
                 .count(),
             _step3OpIdx);
@@ -270,8 +268,8 @@ public:
           static_cast<size_t>(maxReshardCandidatesPerType),
           std::move(observer));
       propagation.run();
-      fprintf(stderr, "[mla-timing]   propagation.run() done  %ld ms\n",
-              (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+      fprintf(stderr, "[mla-timing]   propagation.run() done  %lld ms\n",
+              std::chrono::duration_cast<std::chrono::milliseconds>(
                   std::chrono::steady_clock::now() - _tProp)
                   .count());
 
@@ -292,12 +290,12 @@ public:
         }
       }
     });
-    fprintf(stderr, "[mla-timing] Step4 done in %ld ms\n",
-            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+    fprintf(stderr, "[mla-timing] Step4 done in %lld ms\n",
+            std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tStep4)
                 .count());
-    fprintf(stderr, "[mla-timing] GreedyMemoryLayoutPropagation TOTAL %ld ms\n",
-            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+    fprintf(stderr, "[mla-timing] GreedyMemoryLayoutPropagation TOTAL %lld ms\n",
+            std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tMLA)
                 .count());
 #endif

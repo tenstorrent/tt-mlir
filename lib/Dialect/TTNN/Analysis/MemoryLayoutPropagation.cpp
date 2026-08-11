@@ -401,16 +401,16 @@ void MemoryLayoutPropagation::run() {
       llvm::raw_string_ostream _ss(_locStr);
       op->getLoc().print(_ss);
       fprintf(stderr,
-              "[prop-timing]   op[%zu] %-40s  loc=%s  legalCfgs=%zu\n",
+              "[prop-timing]   op[%zu] %-36s  loc=%s  legalCfgs=%zu\n",
               opIndex, op->getName().getStringRef().str().c_str(),
               _locStr.c_str(), legalConfigs.find(op)->second.size());
     }
     auto _tOp = std::chrono::steady_clock::now();
     beamState[op] = processOp(op);
     fprintf(stderr,
-            "[prop-timing]   op[%zu] done  %ld ms  beamCandidates=%zu\n",
+            "[prop-timing]   op[%zu] done  %lld ms  beamCandidates=%zu\n",
             opIndex,
-            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tOp)
                 .count(),
             beamState[op].size());
@@ -445,8 +445,8 @@ void MemoryLayoutPropagation::run() {
                "MemoryLayoutPropagation: processed {0} ops with beamWidth={1}",
                opIndex, beamWidth);
 
-  fprintf(stderr, "[prop-timing] Forward pass done  %ld ms  ops=%zu\n",
-          (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+  fprintf(stderr, "[prop-timing] Forward pass done  %lld ms  ops=%zu\n",
+          std::chrono::duration_cast<std::chrono::milliseconds>(
               std::chrono::steady_clock::now() - _tFwd)
               .count(),
           opIndex);
@@ -457,8 +457,8 @@ void MemoryLayoutPropagation::run() {
             beamWidth);
     auto _tBeam = std::chrono::steady_clock::now();
     consolidateBeam();
-    fprintf(stderr, "[prop-timing] consolidateBeam() done  %ld ms\n",
-            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+    fprintf(stderr, "[prop-timing] consolidateBeam() done  %lld ms\n",
+            std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tBeam)
                 .count());
   }
@@ -473,12 +473,12 @@ void MemoryLayoutPropagation::run() {
   fprintf(stderr, "[prop-timing] applyToIR() START\n");
   auto _tApply = std::chrono::steady_clock::now();
   applyToIR();
-  fprintf(stderr, "[prop-timing] applyToIR() done  %ld ms\n",
-          (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+  fprintf(stderr, "[prop-timing] applyToIR() done  %lld ms\n",
+          std::chrono::duration_cast<std::chrono::milliseconds>(
               std::chrono::steady_clock::now() - _tApply)
               .count());
-  fprintf(stderr, "[prop-timing] MemoryLayoutPropagation::run() TOTAL  %ld ms\n",
-          (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+  fprintf(stderr, "[prop-timing] MemoryLayoutPropagation::run() TOTAL  %lld ms\n",
+          std::chrono::duration_cast<std::chrono::milliseconds>(
               std::chrono::steady_clock::now() - _tTotal)
               .count());
 }

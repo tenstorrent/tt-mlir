@@ -351,15 +351,15 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
         bool _large = _spatial > 100000;
         auto _ks = convOp.getKernelSize();
         fprintf(stderr,
-                "[cfg-timing] Conv2d @%s  H=%d W=%d C_in=%d C_out=%d K=%dx%d"
-                "  spatial=%ld  large=%s"
+                "[cfg-timing] Conv2d @%s  H=%u W=%u C_in=%u C_out=%u K=%ux%u"
+                "  spatial=%lld  large=%s"
                 "  actBlockH_opts=%zu  reshard_opts=%zu"
                 "  actDbl_opts=%zu  wgtDbl_opts=%zu  input_layouts=%zu\n",
                 _locStr.c_str(),
-                (int)convOp.getInputHeight(), (int)convOp.getInputWidth(),
-                (int)convOp.getInChannels(), (int)convOp.getOutChannels(),
-                (int)_ks[0], (int)_ks[1],
-                (long)_spatial, _large ? "YES" : "no",
+                (unsigned)convOp.getInputHeight(), (unsigned)convOp.getInputWidth(),
+                (unsigned)convOp.getInChannels(), (unsigned)convOp.getOutChannels(),
+                (unsigned)_ks[0], (unsigned)_ks[1],
+                (long long)_spatial, _large ? "YES" : "no",
                 effectiveSearchSpace.actBlockHOverride.size(),
                 effectiveSearchSpace.reshardIfNotOptimal.size(),
                 effectiveSearchSpace.enableActDoubleBuffer.size(),
@@ -396,10 +396,10 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
 
         analysisResult = std::move(newLegalConfigs);
         fprintf(stderr,
-                "[cfg-timing] Conv2d @%s done  %ld ms"
+                "[cfg-timing] Conv2d @%s done  %lld ms"
                 "  configs_generated=%zu  total_op_configs=%zu\n",
                 _locStr.c_str(),
-                (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - _tCfg)
                     .count(),
                 _cfgGenCount, analysisResult.size());

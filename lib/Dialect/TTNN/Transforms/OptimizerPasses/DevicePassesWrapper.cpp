@@ -63,8 +63,8 @@ public:
       fprintf(stderr, "[dev-wrap-timing]   openMockDevice() START\n");
       auto _tMock = std::chrono::steady_clock::now();
       op_model::SingletonDeviceContext::getInstance().openMockDevice();
-      fprintf(stderr, "[dev-wrap-timing]   openMockDevice() done  %ld ms\n",
-              (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+      fprintf(stderr, "[dev-wrap-timing]   openMockDevice() done  %lld ms\n",
+              std::chrono::duration_cast<std::chrono::milliseconds>(
                   std::chrono::steady_clock::now() - _tMock)
                   .count());
     }
@@ -104,23 +104,23 @@ public:
     fprintf(stderr, "[dev-wrap-timing]   runPipeline(nestedPm) START\n");
     auto _tPipe = std::chrono::steady_clock::now();
     auto pipelineResult = runPipeline(nestedPm, getOperation());
-    long _pipMs =
-        (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+    long long _pipMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - _tPipe)
             .count();
     if (failed(pipelineResult) || nestedPassEmittedError) {
-      fprintf(stderr, "[dev-wrap-timing]   runPipeline(nestedPm) done  %ld ms  FAIL\n",
-              _pipMs);
+      fprintf(stderr, "[dev-wrap-timing]   runPipeline(nestedPm) done  %lld ms  %s\n",
+              _pipMs, "FAIL");
       signalPassFailure();
       return;
     }
-    fprintf(stderr, "[dev-wrap-timing]   runPipeline(nestedPm) done  %ld ms  OK\n",
-            _pipMs);
+    fprintf(stderr, "[dev-wrap-timing]   runPipeline(nestedPm) done  %lld ms  %s\n",
+            _pipMs, "OK");
 
     // Clean up the attribute after the nested passes complete.
     op->removeAttr(utils::g_TensorL1UsageCapAttrName);
-    fprintf(stderr, "[dev-wrap-timing] DevicePassesWrapper TOTAL  %ld ms\n",
-            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+    fprintf(stderr, "[dev-wrap-timing] DevicePassesWrapper TOTAL  %lld ms\n",
+            std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tTotal)
                 .count());
   }

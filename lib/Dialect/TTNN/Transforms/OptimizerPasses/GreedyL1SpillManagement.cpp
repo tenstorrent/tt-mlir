@@ -79,10 +79,10 @@ public:
           func, deviceGrid, l1BudgetPerCore, chipDesc.getUsableL1Size(),
           std::move(observer));
       spill.run();
-      fprintf(stderr, "[l1spill-timing]   func[%zu] '%s' spill.run() done  %ld ms\n",
+      fprintf(stderr, "[l1spill-timing]   func[%zu] '%s' spill.run() done  %lld ms\n",
               funcIdx,
               func.getName().str().c_str(),
-              (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::duration_cast<std::chrono::milliseconds>(
                   std::chrono::steady_clock::now() - _tSpill)
                   .count());
       ++funcIdx;
@@ -121,8 +121,8 @@ public:
 
       return WalkResult::advance();
     });
-    fprintf(stderr, "[l1spill-timing] GreedyL1SpillManagement TOTAL  %ld ms\n",
-            (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+    fprintf(stderr, "[l1spill-timing] GreedyL1SpillManagement TOTAL  %lld ms\n",
+            std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _tTotal)
                 .count());
 #endif
