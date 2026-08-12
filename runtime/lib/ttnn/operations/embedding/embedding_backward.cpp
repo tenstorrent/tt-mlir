@@ -31,8 +31,12 @@ void run(const ::tt::target::ttnn::EmbeddingBackwardOp *op,
   if (op->dtype()) {
     dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->dtype()));
   }
-  ::ttnn::Tensor out =
-      ::ttnn::embedding_bw(input, weight, inGrad, dtype, memoryConfig);
+  ::ttnn::Tensor preallocatedOutput =
+      ::tt::runtime::ttnn::operations::utils::allocateTensorOnDevice(
+          op->out(), context.getMeshDevice());
+
+  ::ttnn::Tensor out = ::ttnn::embedding_bw(input, weight, inGrad, dtype,
+                                            memoryConfig, preallocatedOutput);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
