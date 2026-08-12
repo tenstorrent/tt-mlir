@@ -475,6 +475,15 @@ def test_distributed_rms_norm(
 
             return gathered
 
+    # Without weight, DistributedRMSNorm decomposes to RMSNormPreAllGather.
+    # Metal #52081 sizes intermediate DFBs as FP32 when fp32_dest_acc_en=true;
+    # with default pipeline fp32_dest_acc_en=true, local Wt=128 (global W=8192
+    # on mesh 1x2) overflows L1. This golden checks the distributed op pattern,
+    # not intermediate dtype, so disable fp32 dest acc for that case only.
+    pipeline_options = None
+    if shape == (1, 1, 32, 8192) and not has_weight:
+        pipeline_options = ["compute-cfg-fp32-dest-acc-en=false"]
+
     compile_and_execute_ttir(
         module,
         mesh_name="mesh",
@@ -482,6 +491,7 @@ def test_distributed_rms_norm(
         **get_request_kwargs(request),
         device=device,
         target=target,
+        pipeline_options=pipeline_options,
     )
 
 
