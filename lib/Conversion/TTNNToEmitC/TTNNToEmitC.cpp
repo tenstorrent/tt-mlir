@@ -4178,7 +4178,8 @@ public:
 
     // Args must match tt-metal invoke parameter order:
     // input, dtype, residual_input, compute_kernel_config,
-    // program_config, memory_config, use_2d_core_grid
+    // program_config, memory_config, use_2d_core_grid,
+    // fast_and_approximate_mode
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDtypeAttr()),
@@ -4187,6 +4188,7 @@ public:
         emitter.emit(srcOp.getProgramConfig()),
         emitter.emit(srcOp.getMemoryConfig()),
         emitter.emit(srcOp.getUse_2dCoreGrid()),
+        /*fast_and_approximate_mode=*/emitter.emit(false),
     };
 
     emitter.replaceOp(*this, args);
@@ -4317,7 +4319,8 @@ public:
 
     // Args must match tt-metal invoke parameter order:
     // input, dtype, residual_input, compute_kernel_config,
-    // program_config, memory_config, recip_tensor
+    // program_config, memory_config, recip_tensor,
+    // fast_and_approximate_mode
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDtypeAttr()),
@@ -4326,6 +4329,7 @@ public:
         emitter.emit(srcOp.getProgramConfig()),
         emitter.emit(srcOp.getMemoryConfig()),
         emitter.emit(srcOp.getRecip()),
+        /*fast_and_approximate_mode=*/emitter.emit(false),
     };
 
     emitter.replaceOp(*this, args);

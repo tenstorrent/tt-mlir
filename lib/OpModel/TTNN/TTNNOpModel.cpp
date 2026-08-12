@@ -7503,7 +7503,8 @@ llvm::Expected<OpConstraints> OpModel<RMSNormPreAllGatherOp>::getOpConstraints(
         /*compute_kernel_config=*/std::nullopt,
         /*program_config=*/std::nullopt,
         detail::getNullableMemoryConfig(outputLayout),
-        /*use_2d_core_grid=*/use2DCoreGrid);
+        /*use_2d_core_grid=*/use2DCoreGrid,
+        /*fast_and_approximate_mode=*/false);
   };
 
   return operation::getOpConstraintsWithState(inputLayout.getContext(), query);
@@ -7537,14 +7538,14 @@ llvm::Expected<size_t> OpModel<RMSNormPreAllGatherOp>::getOpRuntime(
   }
 
   auto query = [=]() {
-    return ::ttnn::graph::query_op_runtime(
-        ::ttnn::rms_norm_pre_all_gather, device, inputSpec,
-        /*dtype=*/metalDtype,
-        /*residual_input_tensor=*/residualInputSpec,
-        /*compute_kernel_config=*/std::nullopt,
-        /*program_config=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*use_2d_core_grid=*/use2DCoreGrid);
+    return QUERY_OP_RUNTIME(::ttnn::rms_norm_pre_all_gather, device, inputSpec,
+                            /*dtype=*/metalDtype,
+                            /*residual_input_tensor=*/residualInputSpec,
+                            /*compute_kernel_config=*/std::nullopt,
+                            /*program_config=*/std::nullopt,
+                            detail::getNullableMemoryConfig(outputLayout),
+                            /*use_2d_core_grid=*/use2DCoreGrid,
+                            /*fast_and_approximate_mode=*/false);
   };
   return operation::getOpRuntime(query);
 #else
@@ -7680,7 +7681,8 @@ OpModel<LayerNormPreAllGatherOp>::getOpConstraints(
         /*compute_kernel_config=*/std::nullopt,
         /*program_config=*/std::nullopt,
         detail::getNullableMemoryConfig(outputLayout),
-        /*recip_tensor=*/recipSpec);
+        /*recip_tensor=*/recipSpec,
+        /*fast_and_approximate_mode=*/false);
   };
 
   return operation::getOpConstraintsWithState(inputLayout.getContext(), query);
@@ -7716,14 +7718,15 @@ llvm::Expected<size_t> OpModel<LayerNormPreAllGatherOp>::getOpRuntime(
   }
 
   auto query = [=]() {
-    return ::ttnn::graph::query_op_runtime(
-        ::ttnn::layer_norm_pre_all_gather, device, inputSpec,
-        /*dtype=*/metalDtype,
-        /*residual_input_tensor=*/residualInputSpec,
-        /*compute_kernel_config=*/std::nullopt,
-        /*program_config=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*recip_tensor=*/recipSpec);
+    return QUERY_OP_RUNTIME(::ttnn::layer_norm_pre_all_gather, device,
+                            inputSpec,
+                            /*dtype=*/metalDtype,
+                            /*residual_input_tensor=*/residualInputSpec,
+                            /*compute_kernel_config=*/std::nullopt,
+                            /*program_config=*/std::nullopt,
+                            detail::getNullableMemoryConfig(outputLayout),
+                            /*recip_tensor=*/recipSpec,
+                            /*fast_and_approximate_mode=*/false);
   };
 
   return operation::getOpRuntime(query);
