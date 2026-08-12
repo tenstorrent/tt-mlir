@@ -31,12 +31,12 @@ void run(const ::tt::target::ttnn::EmbeddingBackwardOp *op,
   if (op->dtype()) {
     dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->dtype()));
   }
-  ::ttnn::Tensor preallocatedOutput =
-      ::tt::runtime::ttnn::operations::utils::allocateTensorOnDevice(
-          op->out(), context.getMeshDevice());
+  ::ttnn::Tensor out =
+      ::ttnn::embedding_bw(input, weight, inGrad, dtype, memoryConfig);
 
-  ::ttnn::Tensor out = ::ttnn::embedding_bw(input, weight, inGrad, dtype,
-                                            memoryConfig, preallocatedOutput);
+  const auto *fbShape = op->out()->desc()->shape();
+  std::vector<int32_t> declaredShape(fbShape->begin(), fbShape->end());
+  out = ::ttnn::reshape(out, declaredShape, memoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
