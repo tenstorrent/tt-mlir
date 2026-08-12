@@ -54,6 +54,9 @@ struct TopKL1Budget {
   int64_t usableBytes = 0;
   /// Per reduction tile a leaf core holds, across its shard-sized buffers.
   int64_t bytesPerLeafTile = 0;
+  /// The `bytesPerLeafTile` subset still live once the leaf has run: its
+  /// outputs, which the first merge round's gather reads.
+  int64_t bytesPerLiveLeafTile = 0;
   /// Per partial tile a merge core gathers: the leaf's outputs, values paired
   /// with indices.
   int64_t bytesPerMergeTile = 0;

@@ -57,7 +57,8 @@ bool scanPowerOfTwoFirst(int64_t lo, int64_t hi,
 }
 
 /// Smallest legal group count for one merge round: divides `bands`, at most
-/// `mergeCap` bands per group, a core count this grid can hold. 0 when none.
+/// `mergeCap(round)` bands per group, a core count this grid can hold. 0 when
+/// none.
 int64_t pickMergeGroupCount(int64_t bands, int64_t mergeCap,
                             llvm::ArrayRef<int64_t> workerGridShape) {
   for (int64_t groups = 1; groups < bands; ++groups) {
@@ -74,13 +75,16 @@ int64_t pickMergeGroupCount(int64_t bands, int64_t mergeCap,
 }
 
 /// Walks the merge chain from `bands` down to 1, recording each round's group
-/// count. Nullopt when a level has no grid-legal divisor in [2, mergeCap].
+/// count. Nullopt when a level has no grid-legal divisor in [2,
+/// mergeCap(round)].
 std::optional<llvm::SmallVector<int64_t>>
-buildMergeSchedule(int64_t bands, int64_t mergeCap,
+buildMergeSchedule(int64_t bands, llvm::function_ref<int64_t(int64_t)> mergeCap,
                    llvm::ArrayRef<int64_t> workerGridShape) {
   llvm::SmallVector<int64_t> schedule;
   while (bands > 1) {
-    int64_t groups = pickMergeGroupCount(bands, mergeCap, workerGridShape);
+    int64_t groups = pickMergeGroupCount(
+        bands, mergeCap(static_cast<int64_t>(schedule.size())),
+        workerGridShape);
     if (groups == 0) {
       return std::nullopt;
     }
@@ -116,10 +120,12 @@ TopKL1Budget topKL1Budget(GenericOp leaf, ttcore::ChipDescAttr chipDesc,
   // Merge rounds carry the leaf's outputs, never its input.
   for (Value output : leaf.getOutputs()) {
     auto type = mlir::cast<mlir::RankedTensorType>(output.getType());
-    budget.bytesPerMergeTile +=
+    const int64_t bufferBytes =
         static_cast<int64_t>(
             ttcore::getElementSizeBytes(type.getElementType())) *
         numBuffers;
+    budget.bytesPerMergeTile += bufferBytes;
+    budget.bytesPerLiveLeafTile += bufferBytes;
   }
   TT_assertv((budget.bytesPerLeafTile > 0 && budget.bytesPerMergeTile > 0),
              "topk leaf has no shard-sized operand");
@@ -155,12 +161,12 @@ mlir::FailureOr<TopKShardingStrategy> selectTopKShardingStrategy(
   strategy.paddedReductionTiles = fullReductionTiles;
   strategy.paddedNonTargetTiles = nonTargetTiles;
 
-  // Bands one merge core may gather: L1 left over once its leaf shard and the
-  // fixed buffers are paid for, divided by what a band's partial costs there.
-  // A gathered band spans the core's whole non-target extent.
-  auto mergeCapFor = [&](int64_t leafTilesPerCore, int64_t ntTiles) {
-    const int64_t remaining = budget.usableBytes - budget.fixedBytes -
-                              leafTilesPerCore * budget.bytesPerLeafTile;
+  auto mergeCapFor = [&](int64_t round, int64_t leafTilesPerCore,
+                         int64_t ntTiles) {
+    const int64_t leafBytesLive =
+        (round == 0) ? leafTilesPerCore * budget.bytesPerLiveLeafTile : 0;
+    const int64_t remaining =
+        budget.usableBytes - budget.fixedBytes - leafBytesLive;
     return remaining /
            (budget.bytesPerMergeTile * strategy.outputReductionTiles * ntTiles);
   };
@@ -190,7 +196,11 @@ mlir::FailureOr<TopKShardingStrategy> selectTopKShardingStrategy(
     }
     if (bands > 1) {
       std::optional<llvm::SmallVector<int64_t>> schedule = buildMergeSchedule(
-          bands, mergeCapFor(bandTiles * ntTiles, ntTiles), workerGridShape);
+          bands,
+          [&](int64_t round) {
+            return mergeCapFor(round, bandTiles * ntTiles, ntTiles);
+          },
+          workerGridShape);
       if (!schedule) {
         return false;
       }
