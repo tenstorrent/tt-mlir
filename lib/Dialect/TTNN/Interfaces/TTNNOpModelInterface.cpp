@@ -5168,6 +5168,10 @@ void accumulateConstraintsForD2MOp(op_model::OpConstraints &lhs,
       d2m_subgraph_constraints_comp_fn(lhs.cbL1PeakSize, rhs.cbL1PeakSize);
   lhs.tensorL1PeakSize = d2m_subgraph_constraints_comp_fn(lhs.tensorL1PeakSize,
                                                           rhs.tensorL1PeakSize);
+  lhs.dataflowBufferL1PeakSize = d2m_subgraph_constraints_comp_fn(
+      lhs.dataflowBufferL1PeakSize, rhs.dataflowBufferL1PeakSize);
+  lhs.scratchpadL1PeakSize = d2m_subgraph_constraints_comp_fn(
+      lhs.scratchpadL1PeakSize, rhs.scratchpadL1PeakSize);
   lhs.peakL1MemorySize = d2m_subgraph_constraints_comp_fn(lhs.peakL1MemorySize,
                                                           rhs.peakL1MemorySize);
   lhs.outputL1BufferSize = d2m_subgraph_constraints_comp_fn(
@@ -5226,7 +5230,7 @@ llvm::Expected<op_model::OpConstraints> D2MSubgraphOp::getOpConstraints(
   ValueToLayoutMap valueToLayout =
       buildValueToLayoutMap(inputs, block, opConfig);
 
-  op_model::OpConstraints ret(0, 0, 0, 0, {opConfig.outputLayout});
+  op_model::OpConstraints ret(0, 0, 0, 0, 0, 0, {opConfig.outputLayout});
 
   for (mlir::Operation &op : block.getOperations()) {
     auto backend = mlir::dyn_cast<OpModel>(&op);
@@ -5253,7 +5257,8 @@ llvm::Expected<op_model::OpConstraints> D2MSubgraphOp::getOpConstraints(
         valueToLayout.lookup(op.getResult(0));
     OpConfig internalOpConfig(internalOpOutputLayout);
 
-    op_model::OpConstraints opConstraints(0, 0, 0, 0, {internalOpOutputLayout});
+    op_model::OpConstraints opConstraints(0, 0, 0, 0, 0, 0,
+                                          {internalOpOutputLayout});
 
     auto estimated =
         estimateOpConstraints(&op, internalOpInputLayouts, internalOpConfig);

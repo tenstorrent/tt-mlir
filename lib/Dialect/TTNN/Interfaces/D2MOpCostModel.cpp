@@ -72,6 +72,8 @@ estimateElementwiseConstraints(Operation *op,
   return op_model::OpConstraints(
       /*cbL1PeakSize=*/0,
       /*tensorL1PeakSize=*/tensorPeak,
+      /*dataflowBufferL1PeakSize=*/0,
+      /*scratchpadL1PeakSize=*/0,
       /*peakL1MemorySize=*/tensorPeak,
       /*outputL1BufferSize=*/outputL1,
       llvm::SmallVector<TTNNLayoutAttr>{opConfig.outputLayout});
@@ -89,6 +91,8 @@ estimateReductionConstraints(Operation *op,
   return op_model::OpConstraints(
       /*cbL1PeakSize=*/0,
       /*tensorL1PeakSize=*/peak,
+      /*dataflowBufferL1PeakSize=*/0,
+      /*scratchpadL1PeakSize=*/0,
       /*peakL1MemorySize=*/peak,
       /*outputL1BufferSize=*/outputL1,
       llvm::SmallVector<TTNNLayoutAttr>{opConfig.outputLayout});
@@ -107,6 +111,8 @@ estimateMatmulConstraints(Operation *op,
   return op_model::OpConstraints(
       /*cbL1PeakSize=*/0,
       /*tensorL1PeakSize=*/peak,
+      /*dataflowBufferL1PeakSize=*/0,
+      /*scratchpadL1PeakSize=*/0,
       /*peakL1MemorySize=*/peak,
       /*outputL1BufferSize=*/outputL1,
       llvm::SmallVector<TTNNLayoutAttr>{opConfig.outputLayout});
