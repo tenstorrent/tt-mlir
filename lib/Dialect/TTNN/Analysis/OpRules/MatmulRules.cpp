@@ -305,9 +305,12 @@ static std::optional<DSPlan> buildDSPlan(Operation *op) {
       computeShardParams(M, K, N, *numDRAMBanks, kNumIn0Cores,
                          numAvailableCores, weightDataType, l1Available);
   if (!params) {
-    // No in0_block_w dividing K-per-core leaves room for the circular buffers.
+    // Either no in0_block_w dividing K-per-core leaves room for the circular
+    // buffers, or the largest one that does is a degenerate fraction of
+    // K-per-core (see kMinBlockWidthFraction in MatmulProgramConfig.cpp).
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "DS declined ({0}): shard params do not fit L1 (M={1} K={2} "
+                 "DS declined ({0}): no in0_block_w both fits L1 and avoids a "
+                 "degenerate block count (M={1} K={2} "
                  "N={3} banks={4} in0Cores={5} cores={6} l1Available={7})",
                  op->getName().getStringRef(), M, K, N, *numDRAMBanks,
                  kNumIn0Cores, numAvailableCores, l1Available);

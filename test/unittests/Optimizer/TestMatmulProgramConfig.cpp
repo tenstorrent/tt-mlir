@@ -92,8 +92,14 @@ TEST(MatmulDRAMShardParams, BlackholeBankCountChangesShardWidth) {
 // Keep this a sweep. At any single generous budget the chosen in0_block_w is
 // capped at K-per-core for both dtypes, so comparing them there would assert
 // nothing. N is the wide case so the in1 CB dominates the budget.
+//
+// kWideN is 8192 rather than something larger because kMinBlockWidthFraction
+// declines a block width below half of K-per-core: at N=32768 neither dtype can
+// reach in0_block_w=8 within any swept budget, so both return nullopt and the
+// sweep stops discriminating. 8192 still puts in1 in charge of the budget while
+// leaving in0_block_w in the accepted range.
 TEST(MatmulDRAMShardParams, Bfp4NeverFitsWorseThanBfp8) {
-  constexpr int64_t kWideN = 32768;
+  constexpr int64_t kWideN = 8192;
   bool sawBfp4OnlyFit = false;
 
   for (int64_t l1 : {600000, 700000, 800000, 900000, 1000000, 1100000,
@@ -133,24 +139,51 @@ TEST(MatmulDRAMShardParams, DeclinesWhenFixedCBsExceedBudget) {
 // fits. Keep these assertions unconditional: guarding them behind
 // p.has_value() would let the test pass silently the moment the geometry stops
 // fitting, which is the regression worth catching.
+//
+// N=8192 walks down exactly one divisor, 16 -> 8, which is the widest reduction
+// kMinBlockWidthFraction still accepts. Anything wider is declined instead --
+// see WideNBlockCollapseDeclined.
 TEST(MatmulDRAMShardParams, WideNWalksIn0BlockWDown) {
-  auto p = computeShardParams(kM, kK, /*N=*/32768, kWormholeBanks, kNumIn0Cores,
+  auto p = computeShardParams(kM, kK, /*N=*/8192, kWormholeBanks, kNumIn0Cores,
                               kWormholeCores, ttcore::DataType::BFP_BFloat8,
                               kL1Available);
   ASSERT_TRUE(p.has_value());
 
-  // 32768 pads to a multiple of 32*12=384 -> 33024, /12 = 2752 = 86 tiles/bank.
-  EXPECT_EQ(p->nPadded, 33024);
-  EXPECT_EQ(p->shardWTiles, 86);
+  // 8192 pads to a multiple of 32*12=384 -> 8448, /12 = 704 = 22 tiles/bank.
+  EXPECT_EQ(p->nPadded, 8448);
+  EXPECT_EQ(p->shardWTiles, 22);
 
   // The search starts at K-per-core (128/8 = 16) and must come down to fit.
   EXPECT_LT(p->in0BlockW, 16);
+  EXPECT_EQ(p->in0BlockW, 8);
 
   // Invariants tt-metal checks regardless of where the search lands.
   EXPECT_EQ(p->perCoreM, 1);
   EXPECT_GT(p->in0BlockW, 0);
   EXPECT_EQ((kK / 32) / kNumIn0Cores % p->in0BlockW, 0);
   EXPECT_EQ(p->nPadded % (32 * kWormholeBanks), 0);
+}
+
+// Past half of K-per-core the DS path declines instead of emitting the config.
+// N=32768 leaves room only for in0_block_w=2 out of K-per-core=16, i.e. 64
+// block iterations instead of 8.
+TEST(MatmulDRAMShardParams, WideNBlockCollapseDeclined) {
+  auto p = computeShardParams(kM, kK, /*N=*/32768, kWormholeBanks, kNumIn0Cores,
+                              kWormholeCores, ttcore::DataType::BFP_BFloat8,
+                              kL1Available);
+  EXPECT_FALSE(p.has_value());
+}
+
+// The shape that motivated the guard: qwen_2_5_3b's down-projection on an
+// 8-bank part. K=11008 is 344 tiles, so K-per-core is the prime 43 and the only
+// legal block widths are 43 and 1. 43 does not fit, so the search would emit
+// in0_block_w=1 -- 344 serialized blocks, measured at -28.1% e2e on p150.
+TEST(MatmulDRAMShardParams, PrimeKPerCoreCollapseDeclined) {
+  constexpr int64_t kBlackholeL1Available = 1400832; // 0.95 * (1572864 - 98304)
+  auto p = computeShardParams(
+      kM, /*K=*/11008, /*N=*/2048, kBlackholeBanks, kNumIn0Cores,
+      kBlackholeCores, ttcore::DataType::BFP_BFloat8, kBlackholeL1Available);
+  EXPECT_FALSE(p.has_value());
 }
 
 } // namespace

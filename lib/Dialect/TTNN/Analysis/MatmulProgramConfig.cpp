@@ -305,6 +305,25 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
 
 static constexpr int64_t kTileSize = 32;
 
+// Smallest in0_block_w the DS path will accept, as a divisor of kPerCore: the
+// fitted block width must be at least kPerCore / kMinBlockWidthFraction.
+//
+// This is a calibrated policy number, not a derived one. in0_block_w below half
+// of kPerCore means the CB budget forced the search past the first divisor, and
+// the kernel's block loop runs num_blocks = kTiles / in0_block_w rounds of
+// mcast + compute, so the cost grows in inverse proportion. Measured on the
+// tt-xla decode benchmarks (bs32, isl128), grouped by whether the walk-down
+// happened at all:
+//
+//   in0_block_w at max   n=9   +3.30% median sps   (7 up / 2 down)
+//   in0_block_w reduced  n=8   -6.60% median sps   (2 up / 6 down)
+//
+// The extreme is a prime kPerCore: K=11008 gives kTiles=344 and kPerCore=43, so
+// the only divisors are 43 and 1. 43 does not fit L1 on an 8-bank part, so the
+// search lands on in0_block_w=1 -- 344 serialized blocks instead of 8, measured
+// at -28.1% on p150.
+static constexpr int64_t kMinBlockWidthFraction = 2;
+
 static int64_t padToDRAMBanks(int64_t n, int64_t numBanks) {
   int64_t lcm = kTileSize * numBanks;
   return ((n + lcm - 1) / lcm) * lcm;
@@ -391,6 +410,13 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   }
 
   if (!found) {
+    return std::nullopt;
+  }
+
+  // Decline rather than emit a degenerate block width. Falling back to the
+  // 1D/2D mcast configs is measurably better than a DS config whose block loop
+  // has been stretched out by L1 pressure (see kMinBlockWidthFraction).
+  if (p.in0BlockW * kMinBlockWidthFraction < kPerCore) {
     return std::nullopt;
   }
 
