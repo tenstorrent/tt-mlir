@@ -880,7 +880,8 @@ def D2M_TileArgMaxOp : D2M_GenericRegionComputeOp<"tile_argmax", D2M_TileCompute
     with its index over the columns (i.e. the output is a row). Requires the input values
     and indices to be in row-major layout. Indices must be properly filled in and passed
     by the callee. The val_acc_out and idx_acc_out are the accumulator tiles that can be used
-    to reduce large reduction dims.
+    to reduce large reduction dims. Tie-breaking behavior is different from PyTorch, the LLK
+    picks the highest index in case of a tie.
   }];
 
   let arguments = (ins TTCore_Tile:$values,

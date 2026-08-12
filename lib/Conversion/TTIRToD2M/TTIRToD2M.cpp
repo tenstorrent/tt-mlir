@@ -4897,6 +4897,7 @@ private:
         ->getResult(0);
   }
 
+  // Only support dim=0 or dim=1 at the moment.
   LogicalResult
   matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {

@@ -3252,7 +3252,7 @@ public:
       rewriter.create<ttkernel::InitSFPUOp>(loc, cbValues, outCB);
     }
 
-    // Always reduce all 32 tiles and always accumulate. For a 1x1 tile case,
+    // Always reduce all 32 rows and always accumulate. For a 1x1 tile case,
     // accumulate doesn't change anything.
     constexpr int32_t kNumRows = 32;
     constexpr bool accumulate = true;
