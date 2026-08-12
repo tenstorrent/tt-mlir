@@ -99,17 +99,17 @@ public:
     auto newWeightType =
         ttnn::utils::RankedTensorTypeFactory::create(weightType, dtype);
 
-    // Blockfloat targets (BFP_BFloat4, BFP_BFloat8) go through a host-side
-    // typecast via: from_device → typecast (host) → to_device.
-    // The host typecast dispatches to tt-metal's host packer for BFP
-    // formats. Const-eval results are cached at compile time, so the
-    // host roundtrip is paid once per cached weight per program.
-    //
-    // Other targets (e.g. BFloat16 per-tensor override) keep the existing
-    // single-`typecast` device codepath.
+    // PROTOTYPE(pilkic): bfp8 weight casts run on device. The host-packer
+    // detour (from_device → host typecast → to_device, PR #8140) exists
+    // because the device typecast kernel showed worse relative-RMS than
+    // tt-metal's host packer — observed as a **bfp4** accuracy regression on
+    // GPT-OSS-120B (#8138). The host packer is single-threaded (~50 MB/s) and
+    // costs minutes of warmup on large models, and llama-class bfp8 measures
+    // clean through the device kernel (PCC 0.998/0.997 vs CPU reference), so
+    // keep the host path only for bfp4 where the regression was actually
+    // seen.
     mlir::Value newWeight;
-    if (dtype == ttcore::DataType::BFP_BFloat4 ||
-        dtype == ttcore::DataType::BFP_BFloat8) {
+    if (dtype == ttcore::DataType::BFP_BFloat4) {
       auto hostInputType = ttnn::utils::RankedTensorTypeFactory::create(
           mlir::cast<RankedTensorType>(weight.getType()),
           ttnn::BufferType::SystemMemory);
@@ -126,7 +126,7 @@ public:
           op.getLoc(), newWeightType, typecastOp.getResult(), device);
       newWeight = toDevOp.getResult();
     } else {
-      // Single device typecast for non-blockfloat targets.
+      // Single device typecast for bfp8 and non-blockfloat targets.
       auto typecastOp =
           rewriter.create<TypecastOp>(op.getLoc(), newWeightType, weight);
       newWeight = typecastOp.getResult();
