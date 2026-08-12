@@ -91,6 +91,16 @@ static bool isBarrierOp(mlir::Operation *op) {
   return mlir::isa<CCL>(op) || mlir::isa<MeshShardOp, MeshPartitionOp>(op);
 }
 
+// Check if an op only moves/reinterprets data (no arithmetic): its output bits
+// are a permutation/selection/rewrap of input bits, so it is bit-exact in any
+// dtype and gains nothing from the f32 promotion that CPU hoisting applies.
+static bool isDataMovementOp(mlir::Operation *op) {
+  return mlir::isa<TransposeOp, PermuteOp, ReshapeOp, SqueezeOp, UnsqueezeOp,
+                   ConcatOp, BroadcastOp, SliceStaticOp, SliceDynamicOp,
+                   RepeatOp, RepeatInterleaveOp, PadOp, TypecastOp, GatherOp,
+                   ConstantOp, ZerosOp, OnesOp, FullOp, ArangeOp>(op);
+}
+
 // Walk backward from a value through transparent ops in a single traversal.
 // If the chain terminates at a creation skippable op, return it.
 static llvm::SmallVector<mlir::Operation *> traceCreationOpChain(Value v) {
@@ -181,6 +191,18 @@ analyzeConstEval(func::FuncOp funcOp) {
   // Build a CPUHoistedOpsDescriptor descriptor for each segment.
   llvm::SmallVector<CPUHoistedOpsDescriptor> descriptors;
   for (const auto &segment : segments) {
+    // Skip segments that only move data (transpose/concat/reshape/... chains,
+    // typical for weight preprocessing). Both stated motivations for hoisting
+    // are void for them: f32 promotion adds no precision to a bit-exact
+    // permutation of the input, and the promotion itself doubles the host
+    // traffic. Executing them on device instead avoids the single-threaded
+    // host round-trip that dominates large-model warmup. Segments containing
+    // any real arithmetic keep hoisting as a whole, preserving the accuracy
+    // rationale where it applies.
+    if (llvm::all_of(segment, isDataMovementOp)) {
+      continue;
+    }
+
     // Verify all ops can be lowered to Linalg. If any op fails, skip
     // CPU-hoisting this segment.
     auto *unlowerableOp = llvm::find_if(segment, [&](mlir::Operation *op) {
