@@ -90,6 +90,7 @@ union OpType {
   GlobalAvgPool2dOp,
   GroupNormOp,
   IndexerScoreDsaOp,
+  LayerNormForwardOp,
   LayerNormOp,
   LayerNormPreAllGatherOp,
   LayerNormPostAllGatherOp,

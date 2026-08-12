@@ -1313,6 +1313,29 @@ public:
 } // namespace
 
 namespace {
+class LayerNormForwardOpConversionPattern
+    : public OpConversionPattern<ttir::LayerNormForwardOp> {
+public:
+  using OpConversionPattern<ttir::LayerNormForwardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::LayerNormForwardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    if (failed(getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                resultTypes))) {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::LayerNormForwardOp>(
+        op, resultTypes, adaptor.getInput(), adaptor.getWeight(),
+        adaptor.getBias(), op.getEpsilonAttr(), op.getReturnMeanRstdAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class DistributedRMSNormOpConversionPattern
     : public OpConversionPattern<ttir::DistributedRMSNormOp> {
 public:
@@ -3887,6 +3910,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            AdamWOpConversionPattern,
            SDPAForwardOpConversionPattern,
            SDPABackwardOpConversionPattern,
+           LayerNormForwardOpConversionPattern,
            RMSNormOpConversionPattern,
            DistributedRMSNormOpConversionPattern,
            DistributedLayerNormOpConversionPattern,
