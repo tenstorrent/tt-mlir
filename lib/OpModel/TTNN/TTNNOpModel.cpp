@@ -147,6 +147,16 @@ executeConstraintQuery(Callable &callable) {
  * @param callable A callable object that performs the query.
  * @return A tuple containing query results or a string error.
  */
+// TODO(#9216): Metal 2.0 splits program scratch into CB / DFB / scratchpad.
+// Fold them into the legacy cbL1PeakSize slot until OpConstraints exposes
+// separate fields.
+inline size_t
+programScratchL1PeakSize(const ::ttnn::graph::ResourceUsage &usage) {
+  return usage.cb_peak_size_per_core +
+         usage.dataflow_buffer_peak_size_per_core +
+         usage.scratchpad_peak_size_per_core;
+}
+
 template <class Callable>
 llvm::Expected<OpConstraints> getOpConstraints(MLIRContext *context,
                                                Callable &callable) {
@@ -173,7 +183,7 @@ llvm::Expected<OpConstraints> getOpConstraints(MLIRContext *context,
         context, outputTensorSpec, deviceGrid));
   }
 
-  return OpConstraints(response.resource_usage.cb_peak_size_per_core,
+  return OpConstraints(programScratchL1PeakSize(response.resource_usage),
                        response.resource_usage.l1_buffers_peak_per_core,
                        response.resource_usage.peak_memory_usage_per_core,
                        response.resource_usage.l1_output_buffer_per_core,
@@ -291,7 +301,7 @@ llvm::Expected<OpConstraints> getOpConstraintsWithState(MLIRContext *context,
                                 static_cast<uint64_t>(record.size_per_bank)});
   }
 
-  return OpConstraints(out.response.resource_usage.cb_peak_size_per_core,
+  return OpConstraints(programScratchL1PeakSize(out.response.resource_usage),
                        out.response.resource_usage.l1_buffers_peak_per_core,
                        out.response.resource_usage.peak_memory_usage_per_core,
                        out.response.resource_usage.l1_output_buffer_per_core,
