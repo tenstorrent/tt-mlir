@@ -5172,6 +5172,10 @@ void accumulateConstraintsForD2MOp(op_model::OpConstraints &lhs,
                                                           rhs.peakL1MemorySize);
   lhs.outputL1BufferSize = d2m_subgraph_constraints_comp_fn(
       lhs.outputL1BufferSize, rhs.outputL1BufferSize);
+  lhs.dataflowBufferL1PeakSize = d2m_subgraph_constraints_comp_fn(
+      lhs.dataflowBufferL1PeakSize, rhs.dataflowBufferL1PeakSize);
+  lhs.scratchpadL1PeakSize = d2m_subgraph_constraints_comp_fn(
+      lhs.scratchpadL1PeakSize, rhs.scratchpadL1PeakSize);
 }
 
 // Map each SSA value in the block to its layout. Block args 0..inputs.size()-1

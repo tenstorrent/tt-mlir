@@ -173,11 +173,14 @@ llvm::Expected<OpConstraints> getOpConstraints(MLIRContext *context,
         context, outputTensorSpec, deviceGrid));
   }
 
-  return OpConstraints(response.resource_usage.cb_peak_size_per_core,
-                       response.resource_usage.l1_buffers_peak_per_core,
-                       response.resource_usage.peak_memory_usage_per_core,
-                       response.resource_usage.l1_output_buffer_per_core,
-                       layoutAttrs);
+  return OpConstraints(
+      response.resource_usage.cb_peak_size_per_core,
+      response.resource_usage.l1_buffers_peak_per_core,
+      response.resource_usage.peak_memory_usage_per_core,
+      response.resource_usage.l1_output_buffer_per_core, layoutAttrs,
+      /*allocations=*/{},
+      response.resource_usage.dataflow_buffer_peak_size_per_core,
+      response.resource_usage.scratchpad_peak_size_per_core);
 }
 
 /**
@@ -291,11 +294,14 @@ llvm::Expected<OpConstraints> getOpConstraintsWithState(MLIRContext *context,
                                 static_cast<uint64_t>(record.size_per_bank)});
   }
 
-  return OpConstraints(out.response.resource_usage.cb_peak_size_per_core,
-                       out.response.resource_usage.l1_buffers_peak_per_core,
-                       out.response.resource_usage.peak_memory_usage_per_core,
-                       out.response.resource_usage.l1_output_buffer_per_core,
-                       layoutAttrs, std::move(outputAllocations));
+  return OpConstraints(
+      out.response.resource_usage.cb_peak_size_per_core,
+      out.response.resource_usage.l1_buffers_peak_per_core,
+      out.response.resource_usage.peak_memory_usage_per_core,
+      out.response.resource_usage.l1_output_buffer_per_core, layoutAttrs,
+      std::move(outputAllocations),
+      out.response.resource_usage.dataflow_buffer_peak_size_per_core,
+      out.response.resource_usage.scratchpad_peak_size_per_core);
 }
 
 template <class Callable>

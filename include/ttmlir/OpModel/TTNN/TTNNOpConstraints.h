@@ -42,22 +42,28 @@ struct OpConstraints {
   // (build-from-records) query. Empty on the stateless path. The L1 spill path
   // keeps these for still-live tensors and rebuilds allocator state from them.
   llvm::SmallVector<OpModelAllocationRecord> outputAllocations;
+  size_t dataflowBufferL1PeakSize; // DataflowBuffer L1 peak allocation in bytes
+  size_t scratchpadL1PeakSize;     // Scratchpad L1 peak allocation in bytes
   // ---------------------------------------------------------------------------
   // Parameterized constructor, should be used in most cases
   OpConstraints(size_t cbPeak, size_t tensorPeak, size_t peakMemory,
                 size_t outputBuffer,
                 llvm::SmallVector<tt::ttnn::TTNNLayoutAttr> layouts,
-                llvm::SmallVector<OpModelAllocationRecord> allocations = {})
+                llvm::SmallVector<OpModelAllocationRecord> allocations = {},
+                size_t dataflowBufferPeak = 0, size_t scratchpadPeak = 0)
       : cbL1PeakSize(cbPeak), tensorL1PeakSize(tensorPeak),
         peakL1MemorySize(peakMemory), outputL1BufferSize(outputBuffer),
         outputLayouts(std::move(layouts)),
-        outputAllocations(std::move(allocations)) {}
+        outputAllocations(std::move(allocations)),
+        dataflowBufferL1PeakSize(dataflowBufferPeak),
+        scratchpadL1PeakSize(scratchpadPeak) {}
   // ---------------------------------------------------------------------------
   // Default constructor, should be used only when the default value is intended
   // to be used, eg. when TTMLIR_ENABLE_OPMODEL is not defined.
   OpConstraints()
       : cbL1PeakSize(0), tensorL1PeakSize(0), peakL1MemorySize(0),
-        outputL1BufferSize(0), outputLayouts({}), outputAllocations({}) {}
+        outputL1BufferSize(0), outputLayouts({}), outputAllocations({}),
+        dataflowBufferL1PeakSize(0), scratchpadL1PeakSize(0) {}
 };
 
 } // namespace mlir::tt::ttnn::op_model

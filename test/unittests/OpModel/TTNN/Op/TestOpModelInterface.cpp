@@ -135,7 +135,8 @@ TEST_P(UnaryOpModelTest, TestOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(totalPeakSize, 0);
@@ -171,7 +172,8 @@ TEST_P(UnaryOpModelTest, TestOpInterfaceNullOutput) {
             params.expectedResult.expectedLegal);
 
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   EXPECT_GE(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
   EXPECT_GE(totalPeakSize, 0);
@@ -375,7 +377,8 @@ TEST_P(BinaryOpModelTest, TestOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(totalPeakSize, 0);
@@ -412,7 +415,8 @@ TEST_P(BinaryOpModelTest, TestOpInterfaceNullOutput) {
             params.expectedResult.expectedLegal);
 
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   EXPECT_GE(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
   EXPECT_GE(totalPeakSize, 0);
@@ -463,7 +467,8 @@ TEST_P(BinaryBitwiseOpModelTest, TestOpInterface) {
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize,
-               outputLayoutReadBack, outputAllocationsReadBack] =
+               outputLayoutReadBack, outputAllocationsReadBack,
+               dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GE(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -620,7 +625,8 @@ TEST_F(OpModelBase, PowScalarOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
 
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -672,7 +678,8 @@ TEST_F(OpModelBase, BitwiseNotOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -731,7 +738,8 @@ TEST_F(OpModelBase, LogicalRightShiftOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -789,7 +797,8 @@ TEST_F(OpModelBase, LogicalLeftShiftOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -822,7 +831,8 @@ TEST_F(OpModelBase, SqrtOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -854,7 +864,8 @@ TEST_F(OpModelBase, SigmoidOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -886,7 +897,8 @@ TEST_F(OpModelBase, SoftmaxOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -924,7 +936,8 @@ TEST_F(OpModelBase, LinearOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -964,7 +977,8 @@ TEST_F(OpModelBase, LinearOpInterfaceNullOutput) {
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
@@ -1028,7 +1042,8 @@ TEST_F(OpModelBase, MatmulOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -1065,7 +1080,8 @@ TEST_F(OpModelBase, MatmulOpInterfaceNullOutput) {
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
@@ -1131,7 +1147,8 @@ void testReductionOp(OpModelBase *testFixture, mlir::OpBuilder &builder,
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(totalPeakSize, 0);
@@ -1220,7 +1237,8 @@ TEST_F(OpModelBase, ArgMaxOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize,
-                 outputLayoutReadBack, outputAllocationsReadBack] = l1;
+                 outputLayoutReadBack, outputAllocationsReadBack,
+                 dataflowBufferL1PeakSize, scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_EQ(l1PeakSize, 0);
     EXPECT_GT(totalPeakSize, 0);
@@ -1254,7 +1272,8 @@ TEST_F(OpModelBase, ProdOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(totalPeakSize, 0);
@@ -1290,7 +1309,8 @@ TEST_F(OpModelBase, ScatterOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(totalPeakSize, 0);
@@ -1331,7 +1351,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -1351,7 +1372,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   if (cachedConstraintsExp) {
     auto l1 = cachedConstraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -1398,7 +1420,8 @@ TEST_F(OpModelBase, SliceStaticOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -1444,7 +1467,8 @@ TEST_F(OpModelBase, SliceDynamicOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(totalPeakSize, 0);
@@ -1491,7 +1515,8 @@ TEST_F(OpModelBase, toLayoutOp) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
@@ -1533,7 +1558,8 @@ TEST_F(OpModelBase, toMemoryConfigOp) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
@@ -1572,7 +1598,8 @@ TEST_F(OpModelBase, concatOp) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -1605,7 +1632,8 @@ TEST_F(OpModelBase, transposeOp) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -1639,7 +1667,8 @@ TEST_F(OpModelBase, cumSumOp) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -1673,7 +1702,8 @@ TEST_F(OpModelBase, cumProdOp) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -1711,7 +1741,8 @@ TEST_F(OpModelBase, TopKOp) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -1755,7 +1786,8 @@ TEST_F(OpModelBase, ConcatenateHeadsOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -1800,7 +1832,8 @@ TEST_F(OpModelBase, RotaryEmbeddingLlamaOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -1841,7 +1874,8 @@ TEST_F(OpModelBase, RotaryEmbeddingOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -1898,7 +1932,8 @@ TEST_F(OpModelBase, NLPCreateQKVHeadsDecodeOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(outputSize, 0);
@@ -1949,7 +1984,8 @@ TEST_F(OpModelBase, SplitQueryKeyValueAndSplitHeadsOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -2030,7 +2066,8 @@ TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
       getInputLayouts(sdpAttentionDecode), OpConfig(queryLayout));
   if (constraintsExp) {
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = constraintsExp.get();
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = constraintsExp.get();
 
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(totalPeakSize, 0);
@@ -2114,7 +2151,8 @@ TEST_F(OpModelBase,
       getInputLayouts(sdpAttentionDecode), OpConfig(queryLayout));
   if (constraintsExp) {
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = constraintsExp.get();
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = constraintsExp.get();
 
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(totalPeakSize, 0);
@@ -2206,7 +2244,8 @@ TEST_F(OpModelBase, DISABLED_PagedScaledDotProductAttentionDecodeOpInterface) {
       getInputLayouts(sdpAttentionDecode), OpConfig(queryLayout));
   if (constraintsExp) {
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = constraintsExp.get();
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = constraintsExp.get();
 
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(totalPeakSize, 0);
@@ -2297,7 +2336,8 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
                                                  OpConfig(queryLayout));
   if (constraintsExp) {
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = constraintsExp.get();
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = constraintsExp.get();
 
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(totalPeakSize, 0);
@@ -2377,7 +2417,8 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterfaceWithAttentionSink) {
                                                  OpConfig(queryLayout));
   if (constraintsExp) {
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = constraintsExp.get();
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = constraintsExp.get();
 
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(totalPeakSize, 0);
@@ -2463,7 +2504,8 @@ TEST_F(OpModelBase, ChunkedScaledDotProductAttentionOpInterface) {
       getInputLayouts(chunkedSdpAttention), OpConfig(queryLayout));
   if (constraintsExp) {
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = constraintsExp.get();
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = constraintsExp.get();
 
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(totalPeakSize, 0);
@@ -2515,7 +2557,8 @@ TEST_F(OpModelBase, NLPConcatHeadsOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -2550,7 +2593,8 @@ TEST_F(OpModelBase, repeatInterleaveOp) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -2587,7 +2631,8 @@ TEST_F(OpModelBase, repeatOp) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -2623,7 +2668,8 @@ TEST_F(OpModelBase, padOp) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -2660,7 +2706,8 @@ TEST_F(OpModelBase, sortOp) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -2732,7 +2779,8 @@ TEST_F(OpModelBase, maxPool2dWithIndicesOp) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -2763,7 +2811,8 @@ TEST_F(OpModelBase, typecastOp) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -2800,7 +2849,8 @@ TEST_F(OpModelBase, bitcastConvertOp) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -2864,7 +2914,8 @@ TEST_F(OpModelBase, Conv2dInterface) {
   auto constraintsExp = getOpConstraints(conv2d.getOperation());
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
@@ -2927,7 +2978,8 @@ TEST_F(OpModelBase, Conv1dInterface) {
   auto constraintsExp = getOpConstraints(conv1d.getOperation());
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
@@ -3119,7 +3171,8 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
       getInputLayouts(conv2d), OpConfig(/*outputLayout=*/nullptr));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
@@ -3280,7 +3333,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
                Conv2dAttrs{goodConvConfig, std::nullopt}));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
 
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
@@ -3345,7 +3399,8 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
 
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
@@ -3410,7 +3465,8 @@ TEST_F(OpModelBase, Conv3dInterface) {
   auto constraintsExp = getOpConstraints(conv3d.getOperation());
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   // Conv3d (experimental) ignores the requested L1 output memory config and
   // forces output to DRAM (copies input's memory config). Therefore:
   // - outputSize (l1_output_buffer_per_core) = 0 (output is in DRAM, not L1)
@@ -3522,7 +3578,8 @@ TEST_F(OpModelBase, Conv3dInterfaceConfigs) {
       << llvm::toString(goodConstraintsExp.takeError());
   {
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = goodConstraintsExp.get();
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = goodConstraintsExp.get();
     EXPECT_GT(cbSize, 0);
   }
 
@@ -3541,7 +3598,8 @@ TEST_F(OpModelBase, Conv3dInterfaceConfigs) {
       << llvm::toString(fallbackConstraintsExp.takeError());
   {
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = fallbackConstraintsExp.get();
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = fallbackConstraintsExp.get();
     EXPECT_GT(cbSize, 0);
   }
 }
@@ -3606,7 +3664,8 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
                Conv2dAttrs{goodConvConfig, std::nullopt}));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
@@ -3712,7 +3771,8 @@ TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
   auto constraintsExp = getOpConstraints(prepareConv2dWeights.getOperation());
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   EXPECT_EQ(cbSize, 0);
   EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
@@ -3832,7 +3892,8 @@ TEST_F(OpModelBase, PrepareConv2dBiasTest) {
   auto constraintsExp = getOpConstraints(prepareConv2dBias.getOperation());
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   EXPECT_EQ(cbSize, 0);
   EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
@@ -3906,7 +3967,8 @@ TEST_F(OpModelBase, maxPool2DOp) {
     }
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -3974,7 +4036,8 @@ TEST_F(OpModelBase, avgPool2DOp) {
   }
   auto l1 = constraintsExp.get();
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = l1;
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = l1;
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
@@ -4015,7 +4078,7 @@ TEST_F(OpModelBase, globalAvgPool2dOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
   auto l1 = constraintsExp.get();
-  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts, outputAllocations] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts, outputAllocations, dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       l1;
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
@@ -4054,7 +4117,8 @@ TEST_F(OpModelBase, LeakyReluOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
@@ -4086,7 +4150,8 @@ TEST_F(OpModelBase, GeluBackwardOp) {
            << llvm::toString(constraintsExpNone.takeError()) << std::endl;
   }
   const auto &[cbSizeNone, l1PeakSizeNone, totalPeakSizeNone, outputSizeNone,
-               outputLayoutNone, outputAllocationsNone] =
+               outputLayoutNone, outputAllocationsNone,
+               dataflowBufferL1PeakSizeNone, scratchpadL1PeakSizeNone] =
       constraintsExpNone.get();
   EXPECT_EQ(cbSizeNone, 12288);
   EXPECT_EQ(l1PeakSizeNone, 6144);
@@ -4114,7 +4179,8 @@ TEST_F(OpModelBase, GeluBackwardOp) {
            << llvm::toString(constraintsExpTanh.takeError()) << std::endl;
   }
   const auto &[cbSizeTanh, l1PeakSizeTanh, totalPeakSizeTanh, outputSizeTanh,
-               outputLayoutTanh, outputAllocationsTanh] =
+               outputLayoutTanh, outputAllocationsTanh,
+               dataflowBufferL1PeakSizeTanh, scratchpadL1PeakSizeTanh] =
       constraintsExpTanh.get();
   EXPECT_EQ(cbSizeTanh, 12288);
   EXPECT_EQ(l1PeakSizeTanh, 6144);
@@ -4155,7 +4221,8 @@ TEST_F(OpModelBase, clampScalarOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
@@ -4187,7 +4254,8 @@ TEST_F(OpModelBase, clampTensorOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
@@ -4218,7 +4286,8 @@ TEST_F(OpModelBase, permuteOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
@@ -4267,7 +4336,8 @@ TEST_F(OpModelBase, upsampleOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
@@ -4302,7 +4372,8 @@ TEST_F(OpModelBase, EmbeddingOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -4347,7 +4418,8 @@ TEST_F(OpModelBase, EmbeddingOpNullOutputLayout) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -4393,7 +4465,8 @@ TEST_F(OpModelBase, EmbeddingBackwardOp) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -4520,7 +4593,8 @@ TEST_F(OpModelBase, WhereOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -4567,7 +4641,8 @@ TEST_F(OpModelBase, batchNormOp) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -4622,7 +4697,8 @@ TEST_F(OpModelBase, batchNormOpL1Memory) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -4666,7 +4742,8 @@ TEST_F(OpModelBase, batchNormOpTraining) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
 
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack, outputAllocationsReadBack] =
+                outputLayoutReadBack, outputAllocationsReadBack,
+                dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
         constraintsExp.get();
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
@@ -4702,7 +4779,8 @@ TEST_F(OpModelBase, batchNormOpTrainingMinimal) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
 
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack, outputAllocationsReadBack] =
+                outputLayoutReadBack, outputAllocationsReadBack,
+                dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
         constraintsExp.get();
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
@@ -4758,7 +4836,8 @@ TEST_F(OpModelBase, batchNormOpTrainingL1Memory) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
 
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack, outputAllocationsReadBack] =
+                outputLayoutReadBack, outputAllocationsReadBack,
+                dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
         constraintsExp.get();
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
@@ -4800,7 +4879,8 @@ TEST_F(OpModelBase, rmsNormOp) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -4835,7 +4915,8 @@ TEST_F(OpModelBase, rmsNormOpMinimal) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -4885,7 +4966,8 @@ TEST_F(OpModelBase, rmsNormOpL1Memory) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -4922,7 +5004,8 @@ TEST_F(OpModelBase, rmsNormPreAllGatherOp) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -4960,7 +5043,8 @@ TEST_F(OpModelBase, rmsNormPreAllGatherOpWithResidual) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -5001,7 +5085,8 @@ TEST_F(OpModelBase, rmsNormPreAllGatherOpWithL1Memory) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -5042,7 +5127,8 @@ TEST_F(OpModelBase, layerNormOp) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -5077,7 +5163,8 @@ TEST_F(OpModelBase, layerNormOpMinimal) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -5127,7 +5214,8 @@ TEST_F(OpModelBase, layerNormOpL1Memory) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -5162,7 +5250,8 @@ TEST_F(OpModelBase, layerNormPreAllGatherOp) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -5198,7 +5287,8 @@ TEST_F(OpModelBase, layerNormPreAllGatherOpWithResidual) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -5237,7 +5327,8 @@ TEST_F(OpModelBase, layerNormPreAllGatherOpL1Memory) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -5278,7 +5369,8 @@ TEST_F(OpModelBase, layerNormPostAllGatherOp) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -5315,7 +5407,8 @@ TEST_F(OpModelBase, layerNormPostAllGatherOpMinimal) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -5367,7 +5460,8 @@ TEST_F(OpModelBase, layerNormPostAllGatherOpL1Memory) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -5413,7 +5507,8 @@ TEST_F(OpModelBase, groupNormOp) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -5466,7 +5561,8 @@ TEST_F(OpModelBase, groupNormOpL1Memory) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack, outputAllocationsReadBack] =
+              outputLayoutReadBack, outputAllocationsReadBack,
+              dataflowBufferL1PeakSize, scratchpadL1PeakSize] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
@@ -5509,7 +5605,8 @@ TEST_F(OpModelBase, EmptyOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_EQ(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -5543,7 +5640,8 @@ TEST_F(OpModelBase, ArangeOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_EQ(cbSize, 0);
     EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
@@ -5587,7 +5685,8 @@ TEST_P(NamedFullOpModelTest, TestOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(totalPeakSize, 0);
@@ -5638,7 +5737,8 @@ TEST_F(OpModelBase, FullOpInterface) {
   if (constraintsExpI) {
     auto l1 = constraintsExpI.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_EQ(cbSize, 0);
     EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
@@ -5658,7 +5758,8 @@ TEST_F(OpModelBase, FullOpInterface) {
   if (constraintsExpF) {
     auto l1 = constraintsExpF.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_EQ(cbSize, 0);
     EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
@@ -5693,7 +5794,8 @@ TEST_F(OpModelBase, ConstantOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_EQ(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -5732,7 +5834,8 @@ TEST_F(OpModelBase, ConstantOpInterfaceBF16) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_EQ(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(outputSize, 0);
@@ -5768,7 +5871,8 @@ TEST_F(OpModelBase, ConstantOpInterfaceNullOutputLayout) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_EQ(cbSize, 0);
     EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
@@ -5805,7 +5909,8 @@ TEST_F(OpModelBase, RandOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
@@ -5829,7 +5934,8 @@ TEST_F(OpModelBase, RandOpInterface) {
   if (constraintsExpCustom) {
     auto l1 = constraintsExpCustom.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
@@ -5888,7 +5994,8 @@ TEST_F(OpModelBase, FillCacheOpInterface) {
   if (constraintsExp) {
     auto constraints = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = constraints;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = constraints;
     // Basic validation that constraints are reasonable
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
@@ -5938,7 +6045,8 @@ TEST_F(OpModelBase, UpdateCacheOpInterface) {
   if (constraintsExp) {
     auto constraints = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = constraints;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = constraints;
     // Basic validation that constraints are reasonable
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
@@ -5998,7 +6106,8 @@ TEST_F(OpModelBase, PagedUpdateCacheOpInterface) {
   if (constraintsExp) {
     auto constraints = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = constraints;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = constraints;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -6057,7 +6166,8 @@ TEST_F(OpModelBase, PagedFillCacheOpInterface) {
   if (constraintsExp) {
     auto constraints = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = constraints;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = constraints;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -6113,7 +6223,8 @@ TEST_F(OpModelBase, QuantizeOpInterface) {
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
 
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
@@ -6169,7 +6280,8 @@ TEST_F(OpModelBase, QuantizeOpInterfaceNullOutput) {
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
 
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
@@ -6238,7 +6350,8 @@ TEST_F(OpModelBase, RequantizeOpInterface) {
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
 
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
@@ -6308,7 +6421,8 @@ TEST_F(OpModelBase, RequantizeOpInterfaceNullOutput) {
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
 
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
@@ -6364,7 +6478,8 @@ TEST_F(OpModelBase, DequantizeOpInterface) {
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
 
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
@@ -6421,7 +6536,8 @@ TEST_F(OpModelBase, DequantizeOpInterfaceNullOutput) {
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
 
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
@@ -6466,7 +6582,8 @@ TEST_F(OpModelBase, AssignOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
@@ -6506,7 +6623,8 @@ TEST_F(OpModelBase, AssignOpInterfaceL1Output) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -6549,7 +6667,8 @@ TEST_F(OpModelBase, AssignOpInterfaceWithOutputDtype) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = l1;
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = l1;
     EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -6582,7 +6701,8 @@ TEST_F(OpModelBase, DropoutOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(outputSize, 0);
@@ -6604,7 +6724,8 @@ TEST_F(OpModelBase, DropoutOpInterface) {
   if (constraintsExpCustom) {
     auto l1 = constraintsExpCustom.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                outputAllocations] = l1;
+                outputAllocations, dataflowBufferL1PeakSize,
+                scratchpadL1PeakSize] = l1;
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(outputSize, 0);
@@ -6741,7 +6862,8 @@ TEST_F(OpModelBase, GatherOpInterface) {
   auto constraintsExp = getOpConstraints(gatherOp.getOperation());
   if (constraintsExp) {
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = constraintsExp.get();
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = constraintsExp.get();
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(outputSize, 0);
@@ -6824,7 +6946,8 @@ TEST_F(OpModelBase, PagedFlashMultiLatentAttentionDecodeOpInterface) {
   auto constraintsExp = getOpConstraints(mlaOp.getOperation());
   if (constraintsExp) {
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = constraintsExp.get();
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = constraintsExp.get();
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(totalPeakSize, 0);
@@ -6921,7 +7044,8 @@ TEST_F(OpModelBase, FlashMlaPrefillOpInterface) {
   auto constraintsExp = getOpConstraints(mlaOp.getOperation());
   if (constraintsExp) {
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = constraintsExp.get();
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = constraintsExp.get();
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(totalPeakSize, 0);
@@ -6981,7 +7105,8 @@ TEST_F(OpModelBase, FlashMlaPrefillOpInterfaceWithValue) {
   auto constraintsExp = getOpConstraints(mlaOp.getOperation());
   if (constraintsExp) {
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = constraintsExp.get();
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = constraintsExp.get();
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(totalPeakSize, 0);
@@ -7042,7 +7167,8 @@ TEST_F(OpModelBase, FlashMlaPrefillOpInterfaceWithMask) {
   auto constraintsExp = getOpConstraints(mlaOp.getOperation());
   if (constraintsExp) {
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = constraintsExp.get();
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = constraintsExp.get();
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(totalPeakSize, 0);
@@ -7116,7 +7242,8 @@ TEST_F(OpModelBase, IndexerScoreDsaOpInterface) {
                  << llvm::toString(constraintsExp.takeError());
   }
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-               outputAllocations] = constraintsExp.get();
+               outputAllocations, dataflowBufferL1PeakSize,
+               scratchpadL1PeakSize] = constraintsExp.get();
   EXPECT_GE(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
   EXPECT_GE(totalPeakSize, 0);
@@ -7189,7 +7316,8 @@ TEST_F(OpModelBase, SamplingOp) {
   auto constraintsExp = getOpConstraints(samplingOp.getOperation());
   if (constraintsExp) {
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
-                 outputAllocations] = constraintsExp.get();
+                 outputAllocations, dataflowBufferL1PeakSize,
+                 scratchpadL1PeakSize] = constraintsExp.get();
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     // outputSize is l1_output_buffer_per_core; ttnn::sampling's signature
