@@ -176,11 +176,10 @@ llvm::Expected<OpConstraints> getOpConstraints(MLIRContext *context,
   return OpConstraints(
       response.resource_usage.cb_peak_size_per_core,
       response.resource_usage.l1_buffers_peak_per_core,
-      response.resource_usage.peak_memory_usage_per_core,
-      response.resource_usage.l1_output_buffer_per_core, layoutAttrs,
-      /*allocations=*/{},
       response.resource_usage.dataflow_buffer_peak_size_per_core,
-      response.resource_usage.scratchpad_peak_size_per_core);
+      response.resource_usage.scratchpad_peak_size_per_core,
+      response.resource_usage.peak_memory_usage_per_core,
+      response.resource_usage.l1_output_buffer_per_core, layoutAttrs);
 }
 
 /**
@@ -297,11 +296,11 @@ llvm::Expected<OpConstraints> getOpConstraintsWithState(MLIRContext *context,
   return OpConstraints(
       out.response.resource_usage.cb_peak_size_per_core,
       out.response.resource_usage.l1_buffers_peak_per_core,
+      out.response.resource_usage.dataflow_buffer_peak_size_per_core,
+      out.response.resource_usage.scratchpad_peak_size_per_core,
       out.response.resource_usage.peak_memory_usage_per_core,
       out.response.resource_usage.l1_output_buffer_per_core, layoutAttrs,
-      std::move(outputAllocations),
-      out.response.resource_usage.dataflow_buffer_peak_size_per_core,
-      out.response.resource_usage.scratchpad_peak_size_per_core);
+      std::move(outputAllocations));
 }
 
 template <class Callable>
