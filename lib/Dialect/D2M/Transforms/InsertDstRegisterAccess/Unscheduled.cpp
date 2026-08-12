@@ -134,6 +134,11 @@ collectDstAccesses(GenericOp gOp, Region &region,
     const SmallVector<int64_t> accumOperandIndices =
         getAccumClassificationOperandIndices(computeOp);
 
+    // Ops whose LLK addresses hidden slices relative to an operand slot need
+    // their DST inputs spread apart (see `getDstInputSliceStride`).
+    const unsigned inputSliceStride =
+        static_cast<unsigned>(computeOp.getDstInputSliceStride());
+
     int numLoads = 0;
     std::optional<int> firstInputDstSlice;
     for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
@@ -144,7 +149,8 @@ collectDstAccesses(GenericOp gOp, Region &region,
       auto potentialLoad = computeOp->getOperand(operandIdx)
                                .getDefiningOp<affine::AffineLoadOp>();
       if (potentialLoad && notDstMemspace(potentialLoad)) {
-        int dstSlice = static_cast<int>(dstAllocator.allocateInput());
+        int dstSlice = static_cast<int>(
+            dstAllocator.allocateInputStrided(inputSliceStride));
         if (numLoads == 0) {
           firstInputDstSlice = dstSlice;
         }

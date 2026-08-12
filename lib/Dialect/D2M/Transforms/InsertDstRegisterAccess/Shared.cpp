@@ -165,6 +165,33 @@ unsigned DstSliceAllocator::allocateInput() {
   return id;
 }
 
+unsigned DstSliceAllocator::allocateInputStrided(unsigned stride) {
+  TT_assertv(stride >= 1u, "Stride must be at least 1");
+  if (stride == 1u) {
+    return allocateInput();
+  }
+
+  TT_assertv(sliceStack.size() >= stride,
+             "Out of dst slices for strided input allocation");
+
+  // The reserved slices are addressed by the LLK as `base + k`, so they must be
+  // physically consecutive.  `initSliceStack` pushes descending ids, making
+  // `pop_back_val` yield them in ascending order; assert rather than assume it.
+  unsigned base = sliceStack.pop_back_val();
+  for (unsigned k = 1; k < stride; ++k) {
+    unsigned reserved = sliceStack.pop_back_val();
+    TT_assertv(reserved == base + k,
+               "Strided input allocation requires consecutive dst slices");
+  }
+
+  currSliceIndex = base;
+  inputStack.push_back(base);
+
+  debugDumpDstSliceAllocator("== ALLOCATE INPUT (strided) ==", sliceStack,
+                             inputStack, scratchSlots, base);
+  return base;
+}
+
 unsigned DstSliceAllocator::allocateOutput() {
   TT_assertv(!sliceStack.empty(), "Out of dst slices");
 
@@ -199,6 +226,15 @@ unsigned DstSliceAllocator::getCurrSliceIndex() const {
 unsigned DstSliceAllocator::getFirstInputSliceIndex() const {
   TT_assertv(!inputStack.empty(), "No input slots allocated");
   return inputStack.front();
+}
+
+unsigned DstSliceAllocator::getNumInputSlices() const {
+  return static_cast<unsigned>(inputStack.size());
+}
+
+unsigned DstSliceAllocator::getInputSliceIndex(unsigned n) const {
+  TT_assertv(n < inputStack.size(), "Input slice index out of range");
+  return inputStack[n];
 }
 
 void DstSliceAllocator::deallocateIntermediate(unsigned id) {
@@ -661,9 +697,30 @@ std::pair<Type, int> inferDstInfoFromAllAccesses(const CopyInfoMap &copyInfos) {
   Type elementType = nullptr;
   int maxDstSlice = -1;
 
+  // Returns the scalar bit width backing a DST memref element type, or 0 if it
+  // cannot be determined. DST slots are physically 32-bit and untyped; the
+  // element type on the acquire_dst memref is compiler bookkeeping that the
+  // no-op dst_reinterpret_cast reconciles at each access. When a region mixes
+  // element types (e.g. tile_argmax writes a bf16 value tile and an si32 index
+  // tile into distinct slots), the buffer must be typed by the widest
+  // access, otherwise a wider store (si32) would be narrowed into a smaller
+  // slot type (bf16) and lose bits / fail the affine.store verifier.
+  auto scalarBitWidth = [](Type memrefElementType) -> unsigned {
+    Type scalar = memrefElementType;
+    if (auto tile = mlir::dyn_cast<ttcore::TileType>(memrefElementType)) {
+      scalar = tile.getElementType();
+    }
+    if (scalar.isIntOrFloat()) {
+      return scalar.getIntOrFloatBitWidth();
+    }
+    return 0;
+  };
+
   auto updateInfo = [&](MemRefType memref, int idx) {
-    if (elementType == nullptr) {
-      elementType = memref.getElementType();
+    Type candidate = memref.getElementType();
+    if (elementType == nullptr ||
+        scalarBitWidth(candidate) > scalarBitWidth(elementType)) {
+      elementType = candidate;
     }
     maxDstSlice = std::max(maxDstSlice, idx);
   };
@@ -1205,6 +1262,21 @@ void generateLoadSideCopy(PatternRewriter &rewriter, const DstAccess &access,
   auto loc = access.getLoc();
   Value cb = access.getMemRef();
 
+  // The DST buffer is typed by the widest access in the region; a narrower
+  // operand (e.g. tile_argmax's bf16 value loaded into an si32 DST slot) must
+  // be reinterpret-cast to the DST element type before the store, mirroring
+  // the store-side paths. DstReinterpretCastOp is a no-op at TTKernel lowering.
+  auto reinterpretToDst = [&](Value value) -> Value {
+    auto dstType = cast<MemRefType>(dst.getType());
+    if (value.getType() != dstType.getElementType()) {
+      value = rewriter
+                  .create<d2m::DstReinterpretCastOp>(
+                      loc, dstType.getElementType(), value)
+                  .getResult();
+    }
+    return value;
+  };
+
   switch (access.kind) {
   case DstAccessKind::AffineLoad: {
     auto cbLoad = rewriter.create<affine::AffineLoadOp>(loc, cb, l1AccessMap,
@@ -1217,6 +1289,7 @@ void generateLoadSideCopy(PatternRewriter &rewriter, const DstAccess &access,
       clonedBcast->setOperand(0, valueToStore);
       valueToStore = clonedBcast->getResult(0);
     }
+    valueToStore = reinterpretToDst(valueToStore);
     rewriter.create<affine::AffineStoreOp>(loc, valueToStore, dst, dstAccessMap,
                                            dstAccessIndices);
     break;
@@ -1224,8 +1297,9 @@ void generateLoadSideCopy(PatternRewriter &rewriter, const DstAccess &access,
   case DstAccessKind::MemrefLoad: {
     auto cbLoad =
         rewriter.create<memref::LoadOp>(loc, cb, access.getMemrefIndices());
-    rewriter.create<affine::AffineStoreOp>(loc, cbLoad.getResult(), dst,
-                                           dstAccessMap, dstAccessIndices);
+    rewriter.create<affine::AffineStoreOp>(loc,
+                                           reinterpretToDst(cbLoad.getResult()),
+                                           dst, dstAccessMap, dstAccessIndices);
     break;
   }
   default:
