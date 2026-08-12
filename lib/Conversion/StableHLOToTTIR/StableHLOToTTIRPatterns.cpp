@@ -5772,6 +5772,31 @@ public:
     auto startIndicesType = startIndices.getType();
     auto startIndicesElemType = startIndicesType.getElementType();
     int64_t D = reshapedInput.getType().getShape()[1];
+
+    // StableHLO gather semantics clamp out-of-bounds start indices to
+    // [0, dim(operand, d) - slice_sizes[d]] (spec §gather); the ttir.gather
+    // and ttnn.gather path does not clamp, so OOB indices read garbage on
+    // device (tt-mlir#9211). This pattern lowers single-index gathers
+    // (numFlattenedIndexingDims == 1), so the normalized index is a single
+    // component and clamping it to [0, rows - 1] is spec-exact whenever the
+    // indexed dim has slice size 1. Partial-slice (needsExpansion) gathers are
+    // left unchanged: their clamp bound is rows - slice_size per component,
+    // applied before expansion — out of scope here (not emitted by kUPS).
+    auto indexedDimInfo =
+        StableHLOGatherToEmbeddingPattern::computeIndexedDimInfo(srcOp);
+    int64_t numRows = reshapedInput.getType().getShape()[0];
+    if (!indexedDimInfo.needsExpansion && numRows > 0) {
+      startIndices = mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
+          rewriter
+              .create<ttir::ClampScalarOp>(
+                  ttmlir::utils::appendLocationSuffix(
+                      srcOp->getLoc(), "_clampStartIndices"),
+                  startIndices.getType(), startIndices,
+                  rewriter.getI32IntegerAttr(0),
+                  rewriter.getI32IntegerAttr(numRows - 1))
+              .getResult());
+    }
+
     int64_t B = 1;
     for (int64_t dim : startIndicesType.getShape()) {
       B *= dim;
