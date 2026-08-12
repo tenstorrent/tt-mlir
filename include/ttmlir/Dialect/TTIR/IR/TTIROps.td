@@ -2486,6 +2486,48 @@ def TTIR_SDPABackwardOp : TTIR_NamedOp<"sdpa_bw"> {
   let hasVerifier = 1;
 }
 
+def TTIR_LayerNormForwardOp : TTIR_NamedOp<"layernorm_fw", [SameVariadicResultSize]> {
+  let summary = "Layer normalization forward (ttml).";
+  let description = [{
+    Training-oriented fused layer normalization forward pass, backed by the ttml
+    metal op `ttml::metal::layernorm_fw`. Normalization is always over the last
+    dimension:
+
+      mean = E[x]
+      rstd = 1 / sqrt(Var[x] + epsilon)
+      output = (x - mean) * rstd * weight + bias
+
+    Inputs:
+    - `input` (Tensor): `[... x C]`, normalized over the trailing `C` dimension.
+    - `weight` (Tensor): `[C]` scale (metal's `gamma`); any shape whose only
+      non-unit dimension is the trailing `C` is accepted.
+    - `bias` (Tensor): `[C]` shift (metal's `beta`), same shape rules as
+      `weight`.
+
+    Attributes:
+    - `epsilon`: numerical-stability constant added to the variance.
+    - `return_mean_rstd`: when true, also returns the per-row statistics used by
+      the backward pass.
+
+    Outputs:
+    - `output` (Tensor): same shape as `input`.
+    - `mean` (Optional Tensor): `[... x 1]`, present iff `return_mean_rstd`.
+    - `rstd` (Optional Tensor): `[... x 1]`, present iff `return_mean_rstd`.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$weight,
+                       AnyRankedTensor:$bias,
+                       DefaultValuedAttr<F32Attr, "1e-05">:$epsilon,
+                       DefaultValuedAttr<BoolAttr, "false">:$return_mean_rstd);
+
+  let results = (outs AnyRankedTensor:$output,
+                      Optional<AnyRankedTensor>:$mean,
+                      Optional<AnyRankedTensor>:$rstd);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_DistributedRMSNormOp : TTIR_NamedOp<"distributed_rms_norm", [AttrSizedOperandSegments]> {
   let summary = "Distributed RMS normalization with all-gather operation";
   let description = [{

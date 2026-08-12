@@ -1196,6 +1196,49 @@ TTNNOperandsWorkaroundsFactory::createSDPABackwardOpOperandsWorkarounds(
   return operandsWorkaround;
 }
 
+// Create workarounds for the ttml layernorm_fw op. The backing metal op
+// (ttml::metal::layernorm_fw) requires every tensor it touches to be bf16,
+// tiled and interleaved in DRAM (see the TT_FATALs in
+// layernorm_fw_device_operation.cpp).
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createLayerNormForwardOpOperandsWorkarounds(
+    Operation *op) {
+  TTNNOperandWorkarounds tileDramBf16;
+  tileDramBf16.tensorLayoutWorkaround = Layout::Tile;
+  tileDramBf16.tensorBufferTypeWorkaround = BufferType::DRAM;
+  tileDramBf16.tensorMemoryLayoutWorkaround = TensorMemoryLayoutAttr::get(
+      op->getContext(), TensorMemoryLayout::Interleaved);
+  tileDramBf16.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  auto layerNormForwardOp = cast<LayerNormForwardOp>(op);
+
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+
+  // Input, weight, bias.
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(tileDramBf16);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(tileDramBf16);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(tileDramBf16);
+
+  // Output.
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(tileDramBf16);
+
+  if (layerNormForwardOp.getMean()) {
+    operandsWorkaround =
+        operandsWorkaround.addOutputOperandWorkaround(tileDramBf16);
+  }
+  if (layerNormForwardOp.getRstd()) {
+    operandsWorkaround =
+        operandsWorkaround.addOutputOperandWorkaround(tileDramBf16);
+  }
+
+  return operandsWorkaround;
+}
+
 // Create workarounds for SDPA decode op: cast f32 inputs to bf16.
 // tt-metal SDPA only supports bf16/bfp8_b/bfp4_b.
 // Issue page: https://github.com/tenstorrent/tt-metal/issues/36717

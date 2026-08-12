@@ -1603,6 +1603,17 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {op->grad_query(), op->grad_key(), op->grad_value()};
     break;
   }
+  case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
+    auto *op = opContext.type_as_LayerNormForwardOp();
+    tensorRefs = {op->out()};
+    if (op->mean()) {
+      tensorRefs.push_back(op->mean());
+    }
+    if (op->rstd()) {
+      tensorRefs.push_back(op->rstd());
+    }
+    break;
+  }
   case ::tt::target::ttnn::OpType::AdamWOp:
   case ::tt::target::ttnn::OpType::FillCacheOp:
   case ::tt::target::ttnn::OpType::PagedFillCacheOp:
@@ -1984,6 +1995,11 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     if (op->attention_mask()) {
       tensorRefs.push_back(op->attention_mask());
     }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
+    auto *op = opContext.type_as_LayerNormForwardOp();
+    tensorRefs = {op->input(), op->weight(), op->bias()};
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {

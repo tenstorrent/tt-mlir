@@ -3844,6 +3844,74 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// LayerNormForwardOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::LayerNormForwardOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType weightType = getWeight().getType();
+  RankedTensorType biasType = getBias().getType();
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("input must be rank 4 (B, N, S, C)");
+  }
+  if (weightType.getRank() != 4 || biasType.getRank() != 4) {
+    return emitOpError("weight and bias must be rank 4 (1, 1, 1, C)");
+  }
+
+  int64_t normalizedSize = inputType.getDimSize(3);
+  llvm::SmallVector<int64_t, 4> expectedParamShape{1, 1, 1, normalizedSize};
+  if (weightType.getShape() != llvm::ArrayRef<int64_t>(expectedParamShape)) {
+    return emitOpError("weight must have shape (1, 1, 1, ")
+           << normalizedSize << ")";
+  }
+  if (biasType.getShape() != llvm::ArrayRef<int64_t>(expectedParamShape)) {
+    return emitOpError("bias must have shape (1, 1, 1, ")
+           << normalizedSize << ")";
+  }
+
+  RankedTensorType outputType = getOutput().getType();
+  if (outputType.getShape() != inputType.getShape()) {
+    return emitOpError("output must have the same shape as input");
+  }
+
+  // The kernel reads and writes every tensor at the same data format, so a
+  // mismatch here cannot be fixed up by the workarounds pass.
+  mlir::Type elementType = inputType.getElementType();
+  if (weightType.getElementType() != elementType ||
+      biasType.getElementType() != elementType ||
+      outputType.getElementType() != elementType) {
+    return emitOpError(
+        "input, weight, bias and output must have the same element type");
+  }
+
+  // mean and rstd are computed by the same kernel pass, so they come as a pair.
+  if (getReturnMeanRstd() != static_cast<bool>(getMean()) ||
+      getReturnMeanRstd() != static_cast<bool>(getRstd())) {
+    return emitOpError("mean and rstd results must be present iff "
+                       "return_mean_rstd is true");
+  }
+
+  if (getMean()) {
+    llvm::SmallVector<int64_t, 4> expectedStatsShape(inputType.getShape());
+    expectedStatsShape.back() = 1;
+    llvm::ArrayRef<int64_t> expectedStats(expectedStatsShape);
+    if (getMean().getType().getShape() != expectedStats) {
+      return emitOpError("mean must have shape (B, N, S, 1)");
+    }
+    if (getRstd().getType().getShape() != expectedStats) {
+      return emitOpError("rstd must have shape (B, N, S, 1)");
+    }
+    if (getMean().getType().getElementType() != elementType ||
+        getRstd().getType().getElementType() != elementType) {
+      return emitOpError("mean and rstd must have the same element type as "
+                         "input");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // DitRMSNormUnaryFusedOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::DitRMSNormUnaryFusedOp::verify() {
