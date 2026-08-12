@@ -365,11 +365,9 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
       // 2-sub-merge. This keeps the accumulator canonical at (0, 1).
       if (numTilesInner % 2 == 1) {
         Value tailIdx = idxVal(numTilesInner - 1);
-        // Prime the raw tail tile into a valid sorted run (sorts one tile;
-        // tileA==tileB is harmless).
         rewriter.create<TileTopkLocalSortOp>(
             loc, inputValues, bufIdxFilled, outValues, outIndices,
-            /*idir=*/i32Attr(0), /*i_end_phase=*/i32Attr(logk - 1),
+            /*idir=*/i32Attr(0), /*i_end_phase=*/i32Attr(4),
             /*i_start_phase=*/zeroI32, /*tileA=*/flat(tailIdx),
             /*tileB=*/flat(tailIdx), /*is_group_start=*/boolAttr(true),
             /*is_group_end=*/i1Val(true), /*rfo=*/falseVal);
@@ -452,7 +450,8 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
           Value tailTileIdx = flat(tailRawIdx);
           rewriter.create<TileTopkLocalSortOp>(
               loc, inputValues, bufIdxFilled, outValues, outIndices,
-              /*idir=*/i32Attr(0), /*i_end_phase=*/i32Attr(4),
+              /*idir=*/i32Attr(0),
+              /*i_end_phase=*/i32Attr(4),
               /*i_start_phase=*/i32Val(0), /*tileA=*/tailTileIdx,
               /*tileB=*/tailTileIdx, /*is_group_start=*/boolAttr(true),
               /*is_group_end=*/i1Val(true), /*rfo=*/falseVal);

@@ -185,6 +185,19 @@ static void addTopkIndexBuffers(GenericOp genericOp) {
   // One index tile per value tile, plus the lane pattern they all derive from.
   allocScratch(inputType.getShape(), utils::kTopkIndexBufferAttr);
   allocScratch({utils::kTopkLaneTileRows, 1}, utils::kTopkLaneBufferAttr);
+
+  // A seed no remote_load fills is written and read by compute alone, so it is
+  // scratch rather than a CB: nothing would supply its reserve/push half.
+  Value seed = topkBlock.getScratchIdxTile();
+  bool filledByDMA = llvm::any_of(seed.getUsers(), [&](Operation *user) {
+    auto load = mlir::dyn_cast<RemoteLoadOp>(user);
+    return load && load.getLocalBuffer() == seed;
+  });
+  if (auto seedAlloc =
+          mlir::dyn_cast_or_null<memref::AllocOp>(seed.getDefiningOp());
+      seedAlloc && !filledByDMA) {
+    seedAlloc->setAttr("d2m.scratch_buffer", builder.getUnitAttr());
+  }
 }
 
 class D2MInsertScratchBuffers

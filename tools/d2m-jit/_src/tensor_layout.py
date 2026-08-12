@@ -312,10 +312,18 @@ class Layout:
         device_shape = self.get_device_shape(ctx, grid_shape)
         return _mlir().RankedTensorType.get(device_shape, elem_type, encoding=layout)
 
-    def build_to_device(self, ctx, val):
+    def build_to_device(self, ctx, val, virtual_grid_maps=None):
+        """`virtual_grid_maps` is an (inverse, forward) affine map pair folding
+        `grid_shape` onto physical cores; caller-built to avoid pulling MLIR in
+        at module scope."""
         d2m = _mlir().d2m
+        inverse, forward = virtual_grid_maps or (None, None)
         output_type = self.build_device_tensor_type(ctx)
-        output = d2m.empty(output_type)
+        output = d2m.empty(
+            output_type,
+            virtual_grid_inverse_mapping=inverse,
+            virtual_grid_forward_mapping=forward,
+        )
         res = d2m.ToLayoutOp([output_type], val, output).result
         return self.build_blocked_view(ctx, res)
 

@@ -475,19 +475,18 @@ class D2MCompiler(ast.NodeVisitor):
         self.symbol_tables[-1][target.id] = self.visit(node.value)
 
     def _assign_unpacked(self, node, target):
-        """Bind `a, b = <multi-result call>`.
-
-        Only syntax functions that return a Python tuple (e.g. an op with two
-        block results) can be unpacked; a single MLIR value has no elements to
-        distribute.
-        """
+        """Bind `a, b = <multi-result call>`; the right-hand side must be
+        sized (a tuple or an op's OpResultList), not a single MLIR value."""
         for element in target.elts:
             if not isinstance(element, ast.Name):
                 raise NotImplementedError(
                     f"Assign target {type(element).__name__} not supported"
                 )
         value = self.visit(node.value)
-        if not isinstance(value, (tuple, list)):
+        unpackable = isinstance(value, (tuple, list)) or (
+            not isinstance(value, Value) and hasattr(value, "__len__")
+        )
+        if not unpackable:
             self._fail(
                 node,
                 TypeError(
