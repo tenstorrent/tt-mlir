@@ -317,6 +317,30 @@ bool validateMask(Value mask, ArrayRef<int64_t> qShape, int64_t kSeqLen) {
 
 } // namespace
 
+// True if `v` transitively reads a tensor shaped like the score matrix. torch's
+// NaN guard builds its predicate from the scores; a caller-supplied row mask
+// does not. Only the former can be reasoned about from the absence of a mask.
+static bool readsScoreShape(Value v, Value scores) {
+  ArrayRef<int64_t> shape =
+      mlir::cast<RankedTensorType>(scores.getType()).getShape();
+  SmallVector<Value> worklist{v};
+  llvm::SmallPtrSet<Operation *, 16> seen;
+  while (!worklist.empty()) {
+    Value current = worklist.pop_back_val();
+    if (auto type = mlir::dyn_cast<RankedTensorType>(current.getType())) {
+      if (type.getShape() == shape) {
+        return true;
+      }
+    }
+    Operation *def = current.getDefiningOp();
+    if (!def || !seen.insert(def).second) {
+      continue;
+    }
+    worklist.append(def->getOperands().begin(), def->getOperands().end());
+  }
+  return false;
+}
+
 mlir::LogicalResult
 SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
                                    mlir::PatternRewriter &rewriter) const {
@@ -598,6 +622,16 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
       /*attention_sink=*/attentionSink);
 
   Value result = newOp.getResult();
+
+  // Only a mask can introduce -inf, so with no mask a score-derived predicate
+  // is uniformly false and the select is an identity. Dropping it frees the
+  // score matmul it is the last reader of. A caller-supplied predicate is
+  // preserved.
+  if (nanSafeRowCond && !c.mask &&
+      readsScoreShape(nanSafeRowCond, c.softmax.getInput())) {
+    nanSafeRowCond = nullptr;
+  }
+
   if (nanSafeRowCond) {
     // Re-apply the NaN-safety select on the SDPA output. Zeroing whole rows of
     // the attention weights equals zeroing the same output rows (the matmul

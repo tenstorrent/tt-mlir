@@ -23,6 +23,8 @@ import torch
 import autotuner as A
 from runner import KernelBench, TensorSpec
 
+pytestmark = pytest.mark.device_only(reason="autotuner is a silicon-only feature")
+
 _KERNELS_DIR = pathlib.Path(__file__).parent.parent / "kernels"
 
 

@@ -2154,13 +2154,50 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult ToLayoutOp::verify() {
-  return verifyTTNNLayoutInterface<ToLayoutOp>(*this);
+  if (mlir::failed(verifyTTNNLayoutInterface<ToLayoutOp>(*this))) {
+    return mlir::failure();
+  }
+
+  // ttnn.to_layout is the narrow layout op: it may only change the page layout
+  // (tile <-> row-major) and, optionally, the data type. It must not change
+  // memory config or device placement - those aggregate changes belong to
+  // ttnn.to_tensor_spec, which the TTNNDecomposeLayouts pass breaks down into
+  // to_device / to_memory_config / typecast / to_layout.
+  auto inputLayout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
+      getInput().getType().getEncoding());
+  auto outputLayout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
+      getResult().getType().getEncoding());
+  if (!inputLayout) {
+    return emitOpError("Input tensor type missing layout attribute");
+  }
+  if (!outputLayout) {
+    return emitOpError("Output tensor type missing layout attribute");
+  }
+
+  if (inputLayout.getBufferType() != outputLayout.getBufferType()) {
+    return emitOpError("ttnn.to_layout cannot change buffer type from '")
+           << stringifyBufferType(inputLayout.getBufferType()) << "' to '"
+           << stringifyBufferType(outputLayout.getBufferType())
+           << "'; use ttnn.to_tensor_spec for memory-config or device "
+              "placement changes";
+  }
+  if (inputLayout.getMemLayoutOpt() != outputLayout.getMemLayoutOpt()) {
+    return emitOpError("ttnn.to_layout cannot change tensor memory layout; use "
+                       "ttnn.to_tensor_spec for memory-config changes");
+  }
+  if (inputLayout.getGridShape() != outputLayout.getGridShape()) {
+    return emitOpError("ttnn.to_layout cannot change grid shape; use"
+                       "ttnn.to_tensor_spec for memory-config changes");
+  }
+
+  return mlir::success();
 }
 
 namespace {
-// ToLayoutOp can be folded if its input has the same layout as the output of
-// ToLayoutOp.
-mlir::OpFoldResult foldIdentityToLayoutOp(ttnn::ToLayoutOp op) {
+// A ToLayout-style op (ttnn.to_layout / ttnn.to_tensor_spec) can be folded if
+// its input has the same layout as the output of the op.
+template <typename OpTy>
+mlir::OpFoldResult foldIdentityToLayoutOp(OpTy op) {
   mlir::RankedTensorType inputType = op.getInput().getType();
   ttnn::TTNNLayoutAttr inputLayout =
       mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
@@ -2197,9 +2234,11 @@ mlir::OpFoldResult foldIdentityToLayoutOp(ttnn::ToLayoutOp op) {
 //      -----------------------
 //                |
 //
-mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
-  // Get the input operand and verify that the previous op is ToLayoutOp.
-  ttnn::ToLayoutOp producerOp = op.getInput().getDefiningOp<ttnn::ToLayoutOp>();
+template <typename OpTy>
+mlir::OpFoldResult foldConsecutiveToLayoutOp(OpTy op) {
+  // Get the input operand and verify that the previous op is the same op type.
+  mlir::Value inputValue = op.getInput();
+  OpTy producerOp = inputValue.template getDefiningOp<OpTy>();
 
   if (!producerOp) {
     return nullptr;
@@ -2261,11 +2300,65 @@ mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
 
   return op.getResult();
 }
+} // namespace
 
-// A ToLayoutOp whose input is produced by a TypecastOp can read the
+// Returns true iff input/result data types differ, i.e. this to_layout
+// actually performs a dtype conversion alongside the layout change.
+bool ttnn::ToLayoutOp::hasDtypeChange() {
+  auto inputDtype = ttnn::getDtypeFromValue(getInput());
+  auto resultDtype = ttnn::getDtypeFromValue(getResult());
+
+  // If we can't determine one of the dtypes, conservatively assume there is
+  // no dtype change so we don't drive a dtype-aware code path with stale
+  // information.
+  if (!inputDtype || !resultDtype) {
+    return false;
+  }
+
+  return inputDtype.getValue() != resultDtype.getValue();
+}
+
+// ToLayoutOp folder
+mlir::OpFoldResult ttnn::ToLayoutOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldIdentityToLayoutOp(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = foldConsecutiveToLayoutOp(*this)) {
+    return foldResult;
+  }
+
+  return nullptr;
+}
+
+//===----------------------------------------------------------------------===//
+// ToTensorSpecOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult ToTensorSpecOp::verify() {
+  return verifyTTNNLayoutInterface<ToTensorSpecOp>(*this);
+}
+
+// Returns true iff input/result data types differ, i.e. this to_tensor_spec
+// actually performs a dtype conversion alongside the layout change.
+bool ttnn::ToTensorSpecOp::hasDtypeChange() {
+  auto inputDtype = ttnn::getDtypeFromValue(getInput());
+  auto resultDtype = ttnn::getDtypeFromValue(getResult());
+
+  // If we can't determine one of the dtypes, conservatively assume there is
+  // no dtype change so we don't drive a dtype-aware code path with stale
+  // information.
+  if (!inputDtype || !resultDtype) {
+    return false;
+  }
+
+  return inputDtype.getValue() != resultDtype.getValue();
+}
+
+// A ToTensorSpecOp whose input is produced by a TypecastOp can read the
 // pre-typecast value directly when the net dtype is a lossless round-trip:
 //
-//   x --typecast--> mid --to_layout(+layout L)--> out,   with out == dtype(x)
+//  x --typecast--> mid --to_tensor_spec(+layout L)--> out, with out == dtype(x)
 //
 // Collapsing cast(cast(x, mid), out) into cast(x, out) is value-preserving only
 // when the typecast widened losslessly (mid exactly represents x), so narrowing
@@ -2275,7 +2368,8 @@ mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
 // FP->Int->FP. TTNN carries no conservative_folding attribute (it does not
 // survive TTIR->TTNN lowering), so we require a provably lossless producer
 // rather than relying on caller intent.
-mlir::OpFoldResult foldTypecastIntoToLayoutOp(ttnn::ToLayoutOp op) {
+static mlir::OpFoldResult
+foldTypecastIntoToTensorSpecOp(ttnn::ToTensorSpecOp op) {
   ttnn::TypecastOp typecastOp = op.getInput().getDefiningOp<ttnn::TypecastOp>();
   if (!typecastOp) {
     return nullptr;
@@ -2305,26 +2399,9 @@ mlir::OpFoldResult foldTypecastIntoToLayoutOp(ttnn::ToLayoutOp op) {
 
   return op.getResult();
 }
-} // namespace
 
-// Returns true iff input/result data types differ, i.e. this to_layout
-// actually performs a dtype conversion alongside the layout change.
-bool ttnn::ToLayoutOp::hasDtypeChange() {
-  auto inputDtype = ttnn::getDtypeFromValue(getInput());
-  auto resultDtype = ttnn::getDtypeFromValue(getResult());
-
-  // If we can't determine one of the dtypes, conservatively assume there is
-  // no dtype change so we don't drive a dtype-aware code path with stale
-  // information.
-  if (!inputDtype || !resultDtype) {
-    return false;
-  }
-
-  return inputDtype.getValue() != resultDtype.getValue();
-}
-
-// ToLayoutOp folder
-mlir::OpFoldResult ttnn::ToLayoutOp::fold(FoldAdaptor adaptor) {
+// ToTensorSpecOp folder
+mlir::OpFoldResult ttnn::ToTensorSpecOp::fold(FoldAdaptor adaptor) {
   if (auto foldResult = foldIdentityToLayoutOp(*this)) {
     return foldResult;
   }
@@ -2333,20 +2410,21 @@ mlir::OpFoldResult ttnn::ToLayoutOp::fold(FoldAdaptor adaptor) {
     return foldResult;
   }
 
-  if (auto foldResult = foldTypecastIntoToLayoutOp(*this)) {
+  if (auto foldResult = foldTypecastIntoToTensorSpecOp(*this)) {
     return foldResult;
   }
 
   return nullptr;
 }
 
-// ToLayoutOp canonicalization.
-void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
+// ToTensorSpecOp canonicalization.
+void mlir::tt::ttnn::ToTensorSpecOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // Merge to layout op into TTNN creation ops.
-  patterns.add(+[](mlir::tt::ttnn::ToLayoutOp toLayoutOp,
+  // Merge to tensor spec op into TTNN creation ops.
+  patterns.add(+[](ToTensorSpecOp toTensorSpecOp,
                    mlir::PatternRewriter &rewriter) {
-    Operation *creationOp = toLayoutOp.getInput().getDefiningOp();
+    mlir::Value inputValue = toTensorSpecOp.getInput();
+    Operation *creationOp = inputValue.getDefiningOp();
     if (!creationOp ||
         !creationOp
              ->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>()) {
@@ -2364,18 +2442,18 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     }
 
     auto ttnnLayoutAttr =
-        mlir::dyn_cast<TTNNLayoutAttr>(toLayoutOp.getType().getEncoding());
+        mlir::dyn_cast<TTNNLayoutAttr>(toTensorSpecOp.getType().getEncoding());
     if (!ttnnLayoutAttr) {
       return failure();
     }
 
     MemoryConfigAttr targetMemoryConfigAttr =
         mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-            toLayoutOp.getOperation())
+            toTensorSpecOp.getOperation())
             .getMemoryConfigAttr();
 
-    // If the to layout op tends to move the tensor to host, we can't merge it
-    // into creation op if creation op doesn't support execution on host. For
+    // If the to tensor spec op tends to move the tensor to host, we can't merge
+    // it into creation op if creation op doesn't support execution on host. For
     // example Rand and Empty op can only work on device.
     if (!creationOp->hasTrait<CanExecuteOnHostTrait>() &&
         (!targetMemoryConfigAttr ||
@@ -2399,7 +2477,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     if (!deviceOperandInterface.getDevice() && newBufferType &&
         isDeviceBufferType(newBufferType.getValue())) {
       deviceOperandInterface.setDevice(
-          utils::getOrInsertDevice(rewriter, toLayoutOp));
+          utils::getOrInsertDevice(rewriter, toTensorSpecOp));
     } else if (deviceOperandInterface.getDevice() && newBufferType &&
                isSystemBufferType(newBufferType.getValue())) {
       // If the new buffer type is a system buffer type, we need to remove
@@ -2416,17 +2494,18 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
             .setElementType(ttnnLayoutAttr.getScalarElementType()));
 
     rewriter.finalizeOpModification(tensorSpecOp);
-    rewriter.replaceAllOpUsesWith(toLayoutOp, tensorSpecOp);
-    rewriter.eraseOp(toLayoutOp);
+    rewriter.replaceAllOpUsesWith(toTensorSpecOp, tensorSpecOp);
+    rewriter.eraseOp(toTensorSpecOp);
     return success();
   });
 
-  // Merging to layout op into TTNN empty op on host should produce ttnn.zeros
-  // op on host.
-  patterns.add(+[](mlir::tt::ttnn::ToLayoutOp toLayoutOp,
+  // Merging to tensor spec op into TTNN empty op on host should produce
+  // ttnn.zeros op on host.
+  patterns.add(+[](ToTensorSpecOp toTensorSpecOp,
                    mlir::PatternRewriter &rewriter) {
-    // Check if the toLayoutOp is being applied on a TTNN empty op
-    EmptyOp emptyOp = toLayoutOp.getInput().getDefiningOp<ttnn::EmptyOp>();
+    // Check if the toTensorSpecOp is being applied on a TTNN empty op
+    mlir::Value inputValue = toTensorSpecOp.getInput();
+    EmptyOp emptyOp = inputValue.getDefiningOp<ttnn::EmptyOp>();
     if (!emptyOp) {
       return mlir::failure();
     }
@@ -2439,10 +2518,10 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     // Verify that the target buffer type is a system memory.
     BufferTypeAttr bufferTypeAttr = nullptr;
     if (mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-            toLayoutOp.getOperation())
+            toTensorSpecOp.getOperation())
             .getMemoryConfigAttr()) {
       bufferTypeAttr = mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-                           toLayoutOp.getOperation())
+                           toTensorSpecOp.getOperation())
                            .getMemoryConfigAttr()
                            .getBufferType();
     }
@@ -2455,10 +2534,11 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     // encoding via the TTNN_DtypeOpInterface and no longer needs to be passed
     // through the builder.
     auto zerosOp = rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ZerosOp>(
-        emptyOp, toLayoutOp.getType(), /*device=*/nullptr, emptyOp.getShape());
+        emptyOp, toTensorSpecOp.getType(), /*device=*/nullptr,
+        emptyOp.getShape());
 
-    rewriter.replaceAllOpUsesWith(toLayoutOp, zerosOp);
-    rewriter.eraseOp(toLayoutOp);
+    rewriter.replaceAllOpUsesWith(toTensorSpecOp, zerosOp);
+    rewriter.eraseOp(toTensorSpecOp);
     return mlir::success();
   });
 }
@@ -3674,6 +3754,85 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
       return emitOpError("bias tensor must be 1D with size matching the last "
                          "dimension of input");
     }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AdamWOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::AdamWOp::verify() {
+  llvm::ArrayRef<int64_t> shape = getParam().getType().getShape();
+  auto sameShape = [&](RankedTensorType t) { return t.getShape() == shape; };
+
+  if (!sameShape(getGrad().getType())) {
+    return emitOpError("grad must have the same shape as param");
+  }
+  if (!sameShape(getExpAvg().getType())) {
+    return emitOpError("exp_avg must have the same shape as param");
+  }
+  if (!sameShape(getExpAvgSq().getType())) {
+    return emitOpError("exp_avg_sq must have the same shape as param");
+  }
+  if (getMaxExpAvgSq() && !sameShape(getMaxExpAvgSq().getType())) {
+    return emitOpError("max_exp_avg_sq must have the same shape as param");
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SDPAForwardOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::SDPAForwardOp::verify() {
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType valueType = getValue().getType();
+
+  if (queryType.getRank() != 4 || keyType.getRank() != 4 ||
+      valueType.getRank() != 4) {
+    return emitOpError("query, key and value must be rank 4 (B, H, S, D)");
+  }
+
+  ttcore::AttentionMaskType maskType = getMaskType();
+  if (maskType == ttcore::AttentionMaskType::Arbitrary && !getAttentionMask()) {
+    return emitOpError(
+        "attention_mask is required when mask_type is 'arbitrary'");
+  }
+  if (maskType != ttcore::AttentionMaskType::Arbitrary && getAttentionMask()) {
+    return emitOpError(
+        "attention_mask is only allowed when mask_type is 'arbitrary'");
+  }
+
+  if (getReturnIntermediates() != static_cast<bool>(getIntermediates())) {
+    return emitOpError("intermediates result must be present iff "
+                       "return_intermediates is true");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SDPABackwardOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::SDPABackwardOp::verify() {
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType valueType = getValue().getType();
+
+  if (queryType.getRank() != 4 || keyType.getRank() != 4 ||
+      valueType.getRank() != 4) {
+    return emitOpError("query, key and value must be rank 4 (B, H, S, D)");
+  }
+
+  ttcore::AttentionMaskType maskType = getMaskType();
+  if (maskType == ttcore::AttentionMaskType::Arbitrary && !getAttentionMask()) {
+    return emitOpError(
+        "attention_mask is required when mask_type is 'arbitrary'");
+  }
+  if (maskType != ttcore::AttentionMaskType::Arbitrary && getAttentionMask()) {
+    return emitOpError(
+        "attention_mask is only allowed when mask_type is 'arbitrary'");
   }
 
   return success();
@@ -6723,6 +6882,72 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
       resultType.getShape()[3] != headDimV) {
     return emitOpError(
         "Result shape must be [batch, num_query_heads, seq_len, head_dim_v]");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// IndexerScoreDsaOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::IndexerScoreDsaOp::verify() {
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType weightsType = getWeights().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  if (queryType.getRank() != 4) {
+    return emitOpError("Query must be a 4D tensor [B, Hi, Sq, D]");
+  }
+  if (keyType.getRank() != 4) {
+    return emitOpError("Key must be a 4D tensor [B, 1, T, D]");
+  }
+  if (weightsType.getRank() != 4) {
+    return emitOpError("Weights must be a 4D tensor [B, Hi, Sq, 1]");
+  }
+  if (resultType.getRank() != 4) {
+    return emitOpError("Result must be a 4D tensor [B, 1, Sq, T]");
+  }
+
+  int64_t batch = queryType.getShape()[0];
+  int64_t numHeads = queryType.getShape()[1];
+  int64_t querySeqLen = queryType.getShape()[2];
+  int64_t headDim = queryType.getShape()[3];
+  int64_t keySeqLen = keyType.getShape()[2];
+
+  // Batch size must be 1 (tt-metal op restriction)
+  if (batch != 1) {
+    return emitOpError("Query batch size (dim 0) must be 1, got ") << batch;
+  }
+
+  if (keyType.getShape()[0] != batch) {
+    return emitOpError("Key batch size must match query batch size");
+  }
+  if (keyType.getShape()[1] != 1) {
+    return emitOpError("Key must have a single head (dim 1 must be 1)");
+  }
+  if (keyType.getShape()[3] != headDim) {
+    return emitOpError("Key head dim must match query head dim");
+  }
+
+  if (weightsType.getShape()[0] != batch ||
+      weightsType.getShape()[1] != numHeads ||
+      weightsType.getShape()[2] != querySeqLen ||
+      weightsType.getShape()[3] != 1) {
+    return emitOpError(
+        "Weights shape must be [batch, num_heads, query_seq_len, 1]");
+  }
+
+  if (resultType.getShape()[0] != batch || resultType.getShape()[1] != 1 ||
+      resultType.getShape()[2] != querySeqLen ||
+      resultType.getShape()[3] != keySeqLen) {
+    return emitOpError(
+        "Result shape must be [batch, 1, query_seq_len, key_seq_len]");
+  }
+
+  if (queryType.getElementType() != keyType.getElementType()) {
+    return emitOpError("Query and key must have the same element type");
   }
 
   return success();

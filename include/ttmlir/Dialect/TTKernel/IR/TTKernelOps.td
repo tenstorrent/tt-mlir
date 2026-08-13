@@ -190,6 +190,19 @@ def TTKernel_PackReconfigDataFormatOp : TTKernel_Op<"pack_reconfig_data_format">
     }];
 }
 
+def TTKernel_ReconfigDataFormatSrcAOp : TTKernel_Op<"reconfig_data_format_srca"> {
+    let summary = "Reconfigure Src A data format for the given input CB.";
+    let description = [{
+      Reconfigures the srcA data format for a new operand, always re-deriving the int8/unsigned state from the new format.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in_cb);
+
+    let assemblyFormat = [{
+      `(` $in_cb `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_CopyTileInitOp : TTKernel_InitOp<"copy_tile_init"> {
     let summary = "Perform the init for copy tile. This does not reconfigure the unpacker data types.";
     let description = [{
@@ -725,6 +738,33 @@ def TTKernel_SFPUReduceInitOp : TTKernel_InitOp<"sfpu_reduce_init"> {
     }];
 
     let hasVerifier = 1;
+}
+
+def TTKernel_MaxReduceWithIndicesInitOp : TTKernel_InitOp<"max_reduce_with_indices_init"> {
+    let summary = "Init for max_reduce_with_indices.";
+    let description = [{
+      Initializes max_reduce_with_indices. Must be called before max_reduce_with_indices.
+    }];
+}
+
+def TTKernel_MaxReduceWithIndicesTileOp : TTKernel_SFPUOp<"max_reduce_with_indices"> {
+    let summary = "Max reduce with indices operation";
+    let description = [{
+      Performs MaxPool with indices algorithm on the data tile and index tile
+      that are pre-loaded in DST register. The DST register buffer must be in
+      acquired state via *acquire_dst* call. This call is blocking and is only
+      available on the compute engine. The chunk operand is only used when the
+      accumulate flag is true, controlling when the intermediate data is stored
+      to the accumulators. When accumulate is true, the chunk operand must be
+      zero on the first iteration of a reduction loop and non-zero for the rest
+      of the loop.
+    }];
+
+    let arguments = (ins IndexLike:$idst,
+                         IndexLike:$idst_idx,
+                         IndexLike:$chunk,
+                         DefaultValuedAttr<I32Attr, "32">:$num_rows,
+                         DefaultValuedAttr<BoolAttr, "false">:$accumulate);
 }
 
 def TTKernel_SFPUReduceTileOp : TTKernel_SFPUOp<"sfpu_reduce"> {
@@ -4298,10 +4338,10 @@ def TTKernel_SetupFabricConnectionsOp : TTKernel_Op<"experimental.setup_fabric_c
   let summary = "SetupFabricConnections";
   let description = [{
     Setup fabric connections for inter-device communication. The connection scheme
-    is derived from the attribute `TTMetal_FabricConnectionConfigAttr` in the
-    `EnqueueProgramOp`.
+    is selected by the owning kernel's `fabric_config_index`, which indexes into
+    `EnqueueProgramOp`'s `fabricConnectionConfigs` table.
 
-   `TTMetal_FabricConnectionConfigAttr` specifies:
+    `FabricConnectionConfig` specifies:
       - `noc_index`: Which NOC the fabric uses (must match kernel's NocConfig)
       - `topology`: The routing scheme to use for the mesh device (e.g. Line, Ring)
       - `cluster_axis`: The axis along which the to route for 1D topologies

@@ -14,7 +14,7 @@ module attributes {} {
     // but the output layout doesn't match the expected one, so it inserts a revert to row-major layout with bf16.
 
     // CHECK: %[[SUM_RES:.*]] = "ttnn.sum"
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK-SAME: (%[[SUM_RES]]
     // CHECK-SAME: -> tensor<1x1x1x1xbf16,
     // CHECK-SAME: memref<{{.*}}x{{.*}}, #ttnn.buffer_type

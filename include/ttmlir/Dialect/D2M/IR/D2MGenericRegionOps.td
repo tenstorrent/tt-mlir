@@ -873,6 +873,40 @@ def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max", D2M_Tile
   let hasVerifier = 1;
 }
 
+def D2M_TileArgMaxOp : D2M_GenericRegionComputeOp<"tile_argmax", D2M_TileComputeOpTraitBundle> {
+  let summary = "D2M Tile ArgMax Op";
+  let description = [{
+    The `tile_argmax` operation computes the max of all elements in the input values along
+    with its index over the columns (i.e. the output is a row). Requires the input values
+    and indices to be in row-major layout. Indices must be properly filled in and passed
+    by the callee. The val_acc_out and idx_acc_out are the accumulator tiles that can be used
+    to reduce large reduction dims. Tie-breaking behavior is different from PyTorch, the LLK
+    picks the highest index in case of a tie.
+  }];
+
+  let arguments = (ins TTCore_Tile:$values,
+                       TTCore_Tile:$indices);
+  let results = (outs TTCore_Tile:$out_values,
+                      TTCore_Tile:$out_indices,
+                      TTCore_Tile:$val_acc_out,
+                      TTCore_Tile:$idx_acc_out);
+
+  let extraClassDeclaration = [{
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      return {0, 1};
+    }
+    bool getDstRegInPlace() {
+      return true;
+    }
+    // The `max_reduce_with_indices` LLK addresses its value/index accumulators
+    // implicitly at `idst + 1` / `idst_idx + 1`, so the index tile must land
+    // two slices above the value tile rather than adjacent to it.
+    int64_t getDstInputSliceStride() {
+      return 2;
+    }
+  }];
+}
+
 def D2M_TileReduceMeanOp : D2M_GenericRegionComputeOp<"tile_reduce_mean", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M Tile Reduce Mean Op";
   let description = [{
@@ -3369,10 +3403,15 @@ def D2M_TopkBlockOp : D2M_GenericRegionComputeOp<"topk_block",
       decomposed post-bufferization by `d2m-decompose-topk` into
       `tile_topk_local_sort`, `tile_topk_merge`, and `tile_topk_rebuild`.
 
-      The scratch_idx_tile is a pre-filled full-shape index buffer containing
-      the arange of original element indices (generated upstream in TTIRToD2M
-      via arange + broadcast generics). `d2m-decompose-topk` consumes this
-      buffer directly.
+      `generate_indices` selects where the index buffer paired with the value
+      tiles comes from:
+
+      - false (the default): scratch_idx_tile already holds one index tile
+        per value tile. Used by merge stages, whose indices can't be
+        recomputed.
+      - true: scratch_idx_tile is just a 1x1 scratch tile, and
+        `d2m-decompose-topk` builds the index buffer in-kernel from the
+        core's grid coordinate. Used by a leaf topk over raw input.
   }];
 
   let arguments = (ins
@@ -3383,7 +3422,8 @@ def D2M_TopkBlockOp : D2M_GenericRegionComputeOp<"topk_block",
       I32Attr:$k,
       I64Attr:$num_elements,
       BoolAttr:$stable_sort,
-      I32Attr:$dim);
+      I32Attr:$dim,
+      DefaultValuedAttr<BoolAttr, "false">:$generate_indices);
 
   let results = (outs
       AnyRankedTensorOrMemRef:$result_values,
@@ -3393,14 +3433,16 @@ def D2M_TopkBlockOp : D2M_GenericRegionComputeOp<"topk_block",
     OpBuilder<(ins "Value":$inputValues, "Value":$scratchIdxTile,
                     "Value":$outValues, "Value":$outIndices,
                     "int32_t":$k, "int64_t":$numElements,
-                    "bool":$stableSort, "int32_t":$dim), [{
+                    "bool":$stableSort, "int32_t":$dim,
+                    CArg<"bool", "false">:$generateIndices), [{
       build($_builder, $_state,
             outValues.getType(), outIndices.getType(),
             inputValues, scratchIdxTile, outValues, outIndices,
             $_builder.getI32IntegerAttr(k),
             $_builder.getI64IntegerAttr(numElements),
             $_builder.getBoolAttr(stableSort),
-            $_builder.getI32IntegerAttr(dim));
+            $_builder.getI32IntegerAttr(dim),
+            $_builder.getBoolAttr(generateIndices));
     }]>
   ];
 

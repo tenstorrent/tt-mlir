@@ -14,7 +14,9 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include <limits>
 #include <numeric>
+#include <optional>
 
 namespace mlir::tt::d2m::utils {
 
@@ -72,31 +74,42 @@ static DstExecutionClass classifyLinalgExecutionClass(linalg::GenericOp op) {
 static std::optional<int64_t>
 getMaxDstTilesForLinalgOp(linalg::GenericOp op,
                           unsigned maxDstPhysicalSizeTiles) {
-  TT_assertv(op.getOutputs().size() == 1u,
-             "expected exactly one linalg.generic output");
-  auto outputShapedType =
-      mlir::dyn_cast<ShapedType>(op.getOutputs().front().getType());
-  if (!outputShapedType) {
+  if (op.getOutputs().empty()) {
     return std::nullopt;
   }
-
-  auto tileType =
-      mlir::dyn_cast<ttcore::TileType>(outputShapedType.getElementType());
-  if (!tileType) {
-    return std::nullopt;
+  // Each output may have a different tile datatype (argmax: bf16 values +
+  // int32 indices). 32-bit tiles halve DST capacity, so size by the most
+  // constraining output, not just output 0.
+  unsigned dstLogicalSizeTiles = std::numeric_limits<unsigned>::max();
+  for (Value out : op.getOutputs()) {
+    auto sty = mlir::dyn_cast<ShapedType>(out.getType());
+    if (!sty) {
+      return std::nullopt;
+    }
+    auto tt = mlir::dyn_cast<ttcore::TileType>(sty.getElementType());
+    if (!tt) {
+      return std::nullopt;
+    }
+    unsigned perOut = ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
+        tt.getElementType());
+    dstLogicalSizeTiles = std::min(dstLogicalSizeTiles, perOut);
   }
-
-  unsigned dstLogicalSizeTiles =
-      ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
-          tileType.getElementType());
   if (maxDstPhysicalSizeTiles > 0) {
     dstLogicalSizeTiles =
         std::min(dstLogicalSizeTiles, maxDstPhysicalSizeTiles);
   }
-  int64_t maxDstTiles =
-      classifyLinalgExecutionClass(op) == DstExecutionClass::FPU
+  // SFPU ops only get half of DST, and whatever is left is split evenly because
+  // every output must be resident simultaneously.
+  int64_t coResidentTiles = op.getOutputs().size();
+  int64_t tilesOnHW =
+      (classifyLinalgExecutionClass(op) == DstExecutionClass::FPU)
           ? static_cast<int64_t>(dstLogicalSizeTiles)
           : static_cast<int64_t>(dstLogicalSizeTiles) / 2;
+  if (tilesOnHW < coResidentTiles) {
+    return std::nullopt;
+  }
+  int64_t maxDstTiles = tilesOnHW / coResidentTiles;
+
   return maxDstTiles;
 }
 
@@ -275,47 +288,46 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
   bool sawMultiTileShard = false;
 
   for (linalg::GenericOp linalgOp : linalgOps) {
-    if (linalgOp.getOutputs().size() != 1u) {
-      linalgOp.emitOpError("expected exactly one output");
-      return std::nullopt;
+    // A linalg.generic may have more than one output (e.g. tile_argmax, which
+    // writes both a reduced-value and a reduced-index tile). Compute packing
+    // info per output rather than assuming a single DPS init.
+    for (Value outputValue : linalgOp.getOutputs()) {
+      auto outputShapedType = mlir::dyn_cast<ShapedType>(outputValue.getType());
+      if (!outputShapedType || !outputShapedType.hasStaticShape()) {
+        linalgOp.emitOpError(
+            "expected static shaped output to compute shard size");
+        return std::nullopt;
+      }
+      int64_t shardSizeTiles =
+          ttmlir::utils::volume<int64_t>(outputShapedType.getShape());
+
+      if (shardSizeTiles == 1) {
+        singleTileOutputValues.push_back(outputValue);
+        continue;
+      }
+      sawMultiTileShard = true;
+
+      std::optional<int64_t> maxDstTiles =
+          getMaxDstTilesForLinalgOp(linalgOp, maxDstPhysicalSizeTiles);
+      if (!maxDstTiles) {
+        linalgOp.emitOpError("failed to compute max DST tile capacity");
+        return std::nullopt;
+      }
+
+      int64_t numTilesPerFlip =
+          getLargestLegalChunkSize(shardSizeTiles, *maxDstTiles);
+
+      int64_t numDstFlips = shardSizeTiles / numTilesPerFlip;
+      TT_assertv(numDstFlips > 0, "expected positive DST flip count");
+      TT_assertv(numDstFlips >= 2,
+                 "expected num_dst_flips >= 2 for shardSizeTiles={0} and "
+                 "numTilesPerFlip={1}",
+                 shardSizeTiles, numTilesPerFlip);
+
+      pendingResults.push_back(PendingDSTPackingResult{
+          outputValue, shardSizeTiles, numTilesPerFlip, numDstFlips});
+      numDstFlipsPerOp.push_back(numDstFlips);
     }
-
-    Value outputValue = linalgOp.getOutputs().front();
-    auto outputShapedType = mlir::dyn_cast<ShapedType>(outputValue.getType());
-    if (!outputShapedType || !outputShapedType.hasStaticShape()) {
-      linalgOp.emitOpError(
-          "expected static shaped output to compute shard size");
-      return std::nullopt;
-    }
-    int64_t shardSizeTiles =
-        ttmlir::utils::volume<int64_t>(outputShapedType.getShape());
-
-    if (shardSizeTiles == 1) {
-      singleTileOutputValues.push_back(outputValue);
-      continue;
-    }
-    sawMultiTileShard = true;
-
-    std::optional<int64_t> maxDstTiles =
-        getMaxDstTilesForLinalgOp(linalgOp, maxDstPhysicalSizeTiles);
-    if (!maxDstTiles) {
-      linalgOp.emitOpError("failed to compute max DST tile capacity");
-      return std::nullopt;
-    }
-
-    int64_t numTilesPerFlip =
-        getLargestLegalChunkSize(shardSizeTiles, *maxDstTiles);
-
-    int64_t numDstFlips = shardSizeTiles / numTilesPerFlip;
-    TT_assertv(numDstFlips > 0, "expected positive DST flip count");
-    TT_assertv(numDstFlips >= 2,
-               "expected num_dst_flips >= 2 for shardSizeTiles={0} and "
-               "numTilesPerFlip={1}",
-               shardSizeTiles, numTilesPerFlip);
-
-    pendingResults.push_back(PendingDSTPackingResult{
-        outputValue, shardSizeTiles, numTilesPerFlip, numDstFlips});
-    numDstFlipsPerOp.push_back(numDstFlips);
   }
 
   // In a fused d2m.generic, multiple linalg.generic ops can have different

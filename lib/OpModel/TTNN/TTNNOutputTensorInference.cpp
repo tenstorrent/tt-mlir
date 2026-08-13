@@ -17,7 +17,8 @@
 
 // Forward declarations of internal helpers from TTNNOpModel.cpp
 namespace mlir::tt::ttnn::op_model {
-llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
+llvm::Expected<::tt::tt_metal::TensorSpec>
+getPrepareConv2dWeightsOpOutputTensorSpec(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
     uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
@@ -28,7 +29,7 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
     std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig, bool hasBias,
     bool transpose, llvm::ArrayRef<int32_t> output_padding = {});
 
-llvm::Expected<::ttnn::TensorSpec>
+llvm::Expected<::tt::tt_metal::TensorSpec>
 getPrepareMoEComputeW0W1WeightsOpOutputTensorSpec(
     llvm::ArrayRef<int64_t> w0Shape, TTNNLayoutAttr w0Layout,
     llvm::ArrayRef<int64_t> w1Shape, TTNNLayoutAttr w1Layout,
@@ -38,7 +39,7 @@ getPrepareMoEComputeW0W1WeightsOpOutputTensorSpec(
     std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
     uint32_t intermediateSize);
 
-llvm::Expected<::ttnn::TensorSpec>
+llvm::Expected<::tt::tt_metal::TensorSpec>
 getPrepareMoEComputeW2WeightsOpOutputTensorSpec(
     llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
@@ -63,7 +64,7 @@ getPreparedConv2dWeightsOutputTensor(Conv2dOp *op,
   auto inputLayout = mlir::cast<TTNNLayoutAttr>(input.getEncoding());
   auto weightLayout = mlir::cast<TTNNLayoutAttr>(weight.getEncoding());
 
-  llvm::Expected<::ttnn::TensorSpec> outputTensorSpec =
+  llvm::Expected<::tt::tt_metal::TensorSpec> outputTensorSpec =
       getPrepareConv2dWeightsOpOutputTensorSpec(
           input.getShape(), inputLayout, weight.getShape(), weightLayout,
           op->getInChannels(), op->getOutChannels(), op->getBatchSize(),
@@ -105,7 +106,7 @@ getPreparedConvTranspose2dWeightsOutputTensor(ConvTranspose2dOp *op,
   auto inputLayout = mlir::cast<TTNNLayoutAttr>(input.getEncoding());
   auto weightLayout = mlir::cast<TTNNLayoutAttr>(weight.getEncoding());
 
-  llvm::Expected<::ttnn::TensorSpec> outputTensorSpec =
+  llvm::Expected<::tt::tt_metal::TensorSpec> outputTensorSpec =
       getPrepareConv2dWeightsOpOutputTensorSpec(
           input.getShape(), inputLayout, weight.getShape(), weightLayout,
           op->getInChannels(), op->getOutChannels(), op->getBatchSize(),

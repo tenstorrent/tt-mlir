@@ -21,6 +21,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
@@ -30,6 +31,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
+#include "llvm/Support/LogicalResult.h"
 #include <algorithm>
 #include <cstdint>
 #include <memory>
@@ -272,22 +274,37 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   llvm_unreachable("Expected load or subview op");
 }
 
-// Get DST index from where a compute op result is stored.
-// Handles both affine.store and memref.store.
-// When a value has multiple stores to different DST memrefs (due to value
-// reuse across DST regions after LICM), we prefer stores in the same block
-// as the defining op. This ensures we get the DST index for the correct
-// allocation context.
-static Value getDstIdxFromResult(Value d2mOpResult) {
-  memref::StoreOp storeOp;
-  for (Operation *op : d2mOpResult.getUsers()) {
-    auto maybeStore = mlir::dyn_cast<memref::StoreOp>(op);
-    if (maybeStore && ttcore::getMemorySpace(maybeStore.getMemRef()) ==
-                          ttcore::MemorySpace::RegisterDst) {
-      storeOp = mlir::cast<memref::StoreOp>(op);
-      break;
+// Finds the memref.store that writes `value` (or a dst_reinterpret_cast of it)
+// back into RegisterDst; null if none. The cast case covers results whose
+// element type differs from the DST buffer type (e.g. tile_argmax's bf16 value
+// stored into an si32 DST slot).
+static memref::StoreOp findDstStoreForValue(Value value) {
+  auto directStore = [](Value v) -> memref::StoreOp {
+    for (Operation *op : v.getUsers()) {
+      auto maybeStore = mlir::dyn_cast<memref::StoreOp>(op);
+      if (maybeStore && ttcore::getMemorySpace(maybeStore.getMemRef()) ==
+                            ttcore::MemorySpace::RegisterDst) {
+        return maybeStore;
+      }
+    }
+    return {};
+  };
+
+  if (memref::StoreOp store = directStore(value)) {
+    return store;
+  }
+  for (Operation *op : value.getUsers()) {
+    if (auto cast = mlir::dyn_cast<d2m::DstReinterpretCastOp>(op)) {
+      if (memref::StoreOp store = directStore(cast.getResult())) {
+        return store;
+      }
     }
   }
+  return {};
+}
+
+static Value getDstIdxFromResult(Value d2mOpResult) {
+  memref::StoreOp storeOp = findDstStoreForValue(d2mOpResult);
   assert(storeOp && "Expected store op.");
   assert(storeOp.getIndices().size() == 1 &&
          "Expected single index in store op");
@@ -764,6 +781,8 @@ public:
                                                         nullptr, outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
+    // Need to reconfigure Src A to the correct data format.
+    rewriter.create<ttkernel::ReconfigDataFormatSrcAOp>(store.getLoc(), cb);
     rewriter.create<ttkernel::CopyTileInitOp>(store.getLoc(), cb);
     rewriter.replaceOpWithNewOp<ttkernel::CopyTileOp>(store, cb, cbIndex,
                                                       dstIndex);
@@ -778,6 +797,8 @@ public:
     auto storeIdx =
         computeLinearIndex(store.getLoc(), store.getMemRefType().getShape(),
                            adaptor.getIndices(), rewriter);
+    // Need to reconfigure the packer to the correct data format.
+    rewriter.create<ttkernel::PackReconfigDataFormatOp>(store.getLoc(), cb);
     rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
         store, dst, cb, storeIdx, rewriter.getBoolAttr(true));
     return success();
@@ -3124,6 +3145,190 @@ public:
 } // namespace
 
 namespace {
+class D2MArgMaxRewriter : public OpConversionPattern<d2m::TileArgMaxOp> {
+private:
+  // Returns the reduction loop whose IV is the 'chunk' counter for the LLK, or
+  // null for the single-tile case.
+  static Operation *findReductionLoop(Operation *op, Value dstIndex) {
+    for (Operation *loop : getEnclosingLoops(op)) {
+      Value loopIV = getSingleBlockLoopIV(loop);
+      if (!loopIV || valueDependsOn(dstIndex, loopIV)) {
+        continue;
+      }
+      return loop;
+    }
+    return nullptr;
+  }
+
+  // The L1 CB carrying `result` out of the region. Walk result -> DST store
+  // (through any dst_reinterpret_cast) to learn the slice, then find the load
+  // of that same slice whose value is stored to L1. Used to carry the running
+  // maximum values and indices across loop iterations.
+  static Value findL1CbForResult(ConversionPatternRewriter &rewriter,
+                                 Value result) {
+    // The DST store that parks this result (through any reinterpret cast).
+    memref::StoreOp dstStore = findDstStoreForValue(result);
+    if (!dstStore || dstStore.getIndices().size() != 1) {
+      return {};
+    }
+    Value dstSlice = dstStore.getIndices().front();
+
+    // The drain load reading that same slice, and where its value lands in L1.
+    for (Operation *dstUser : dstStore.getMemRef().getUsers()) {
+      auto load = mlir::dyn_cast<memref::LoadOp>(dstUser);
+      if (!load || load.getIndices().size() != 1 ||
+          load.getIndices().front() != dstSlice) {
+        continue;
+      }
+      // The loaded tile may pass through a reinterpret cast before the store.
+      SmallVector<Value> candidates{load.getResult()};
+      for (Operation *loadUser : load.getResult().getUsers()) {
+        if (auto cast = mlir::dyn_cast<d2m::DstReinterpretCastOp>(loadUser)) {
+          candidates.push_back(cast.getResult());
+        }
+      }
+      for (Value candidate : candidates) {
+        for (Operation *storeUser : candidate.getUsers()) {
+          auto store = mlir::dyn_cast<memref::StoreOp>(storeUser);
+          if (store && ttcore::getMemorySpace(store.getMemRef()) ==
+                           ttcore::MemorySpace::DeviceL1) {
+            return rewriter.getRemappedValue(store.getMemRef());
+          }
+        }
+      }
+    }
+    return {};
+  }
+
+  // Emit `reconfig_data_format_srca` + `copy_tile_init` + `copy_tile` to stage
+  // one tile from `cb` into DST slice `dstSlice`. Since we're working with
+  // different data types (values vs. indices), src A needs to be reconfigured
+  // before each copy.
+  static void emitReconfiguredCopyTile(ConversionPatternRewriter &rewriter,
+                                       Location loc, Value cb, Value cbIndex,
+                                       Value dstSlice) {
+    rewriter.create<ttkernel::ReconfigDataFormatSrcAOp>(loc, cb);
+    rewriter.create<ttkernel::CopyTileInitOp>(loc, cb);
+    rewriter.create<ttkernel::CopyTileOp>(loc, cb, cbIndex, dstSlice);
+  }
+
+public:
+  using OpConversionPattern<d2m::TileArgMaxOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileArgMaxOp op, d2m::TileArgMaxOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+
+    // DST slot indices of the in-place reduced value and index tiles, taken
+    // from the memref.store of each result. The slots are distinct and we fall
+    // back to value's operand slot if the intermediate is dead.
+    auto slotForResultOrOperand = [&](Value result, Value operand) -> Value {
+      if (memref::StoreOp store = findDstStoreForValue(result)) {
+        return store.getIndices().front();
+      }
+      // In-place: result slot == operand slot. Read the slot straight from the
+      // (pre-conversion) DST operand load's index operand, an index SSA value
+      // that survives conversion.
+      auto load = mlir::cast<memref::LoadOp>(operand.getDefiningOp());
+      assert(ttcore::getMemorySpace(load.getMemRef()) ==
+                 ttcore::MemorySpace::RegisterDst &&
+             "Expected in-place argmax operand to load from RegisterDst");
+      return load.getIndices().front();
+    };
+
+    Value idst = slotForResultOrOperand(op.getOutValues(), op.getValues());
+    Value idstIdx = slotForResultOrOperand(op.getOutIndices(), op.getIndices());
+    ensureDominatesInsertionPoint(rewriter, idst);
+    ensureDominatesInsertionPoint(rewriter, idstIdx);
+
+    // Configure the SFPU input/output CB formats before the compute op.
+    Value cbValues = getInCB(rewriter, op);
+    Value outCB = getOutCB(rewriter, op);
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      setInsertionPointAfterOperands(rewriter, {cbValues, outCB},
+                                     /*allowHoisting*/ true);
+      rewriter.create<ttkernel::InitSFPUOp>(loc, cbValues, outCB);
+    }
+
+    // Always reduce all 32 rows and always accumulate. For a 1x1 tile case,
+    // accumulate doesn't change anything.
+    constexpr int32_t kNumRows = 32;
+    constexpr bool accumulate = true;
+
+    Operation *reductionLoop = findReductionLoop(op, idst);
+    Value chunk = reductionLoop ? getSingleBlockLoopIV(reductionLoop) : Value();
+    if (!chunk) {
+      // No reduction loop: single-tile case, chunk is unused by the LLK.
+      chunk = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+    }
+
+    // In accumulate mode the LLK keeps running value/index maxima in the slices
+    // it addresses implicitly at `idst + 1` / `idst_idx + 1`. Due to
+    // tile_regs_commit() flippiing the DST reg slots, the accumulators get
+    // corrupted. So, after the first iteration, we reload the accumulators from
+    // L1 at the beginning of each iteration.
+    if (accumulate && op.getNumResults() > 3u) {
+      Value valAccCb = findL1CbForResult(rewriter, op.getResult(2));
+      Value idxAccCb = findL1CbForResult(rewriter, op.getResult(3));
+      if (valAccCb && idxAccCb) {
+        auto emitReloads = [&]() {
+          Value one = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+          Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+          emitReconfiguredCopyTile(
+              rewriter, loc, valAccCb, zero,
+              rewriter.create<arith::AddIOp>(loc, idst, one));
+          emitReconfiguredCopyTile(
+              rewriter, loc, idxAccCb, zero,
+              rewriter.create<arith::AddIOp>(loc, idstIdx, one));
+        };
+
+        // On chunk 0 the accumulator slice must be CLEARED rather than
+        // reloaded. We only clear values, since those are being compared and
+        // swapped, and indices simply follow the values.
+        auto emitClear = [&]() {
+          Value one = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+          Value valAccSlice = rewriter.create<arith::AddIOp>(loc, idst, one);
+          Value negInf = rewriter.create<arith::ConstantOp>(
+              loc, rewriter.getF32Type(),
+              rewriter.getF32FloatAttr(
+                  -std::numeric_limits<float>::infinity()));
+          rewriter.create<ttkernel::FillTileInitOp>(loc);
+          rewriter.create<ttkernel::FillTileOp>(loc, valAccSlice, negInf);
+        };
+
+        if (reductionLoop) {
+          Value firstIteration =
+              getLoopLowerBoundValue(rewriter, loc, reductionLoop);
+          Value notFirstIteration = rewriter.create<arith::CmpIOp>(
+              loc, arith::CmpIPredicate::ne, chunk, firstIteration);
+          auto ifOp = rewriter.create<scf::IfOp>(loc, notFirstIteration,
+                                                 /*withElseRegion=*/true);
+          OpBuilder::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+          emitReloads();
+          rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
+          emitClear();
+        }
+      }
+    }
+
+    // Initialize the max_reduce_with_indices LLK (primes the replay buffer, so
+    // must be done right before the LLK call).
+    rewriter.create<ttkernel::MaxReduceWithIndicesInitOp>(loc);
+
+    rewriter.create<ttkernel::MaxReduceWithIndicesTileOp>(
+        loc, idst, idstIdx, chunk, rewriter.getI32IntegerAttr(kNumRows),
+        rewriter.getBoolAttr(accumulate));
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class D2MCoreIndexRewriter : public OpConversionPattern<d2m::CoreIndexOp> {
 public:
   using OpConversionPattern<d2m::CoreIndexOp>::OpConversionPattern;
@@ -4003,7 +4208,8 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreSetOp>,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,
                ttkernel::D2MSemaphoreWaitRewriter,
-               ttkernel::D2MDeviceSynchronizeRewriter>(typeConverter, ctx);
+               ttkernel::D2MDeviceSynchronizeRewriter,
+               ttkernel::D2MArgMaxRewriter>(typeConverter, ctx);
 
   patterns.add<ttkernel::D2MGetArgRewriter>(typeConverter, ctx,
                                             forceCompileTimeArgs);

@@ -525,6 +525,22 @@ void populateTTModule(nb::module_ &m) {
         return self.getValue();
       });
 
+  nb::enum_<tt::ttcore::AttentionMaskType>(m, "AttentionMaskType")
+      .value("NoMask", tt::ttcore::AttentionMaskType::None)
+      .value("Causal", tt::ttcore::AttentionMaskType::Causal)
+      .value("Arbitrary", tt::ttcore::AttentionMaskType::Arbitrary);
+
+  tt_attribute_class<tt::ttcore::AttentionMaskTypeAttr>(m,
+                                                        "AttentionMaskTypeAttr")
+      .def_static("get",
+                  [](MlirContext ctx, tt::ttcore::AttentionMaskType maskType) {
+                    return wrap(tt::ttcore::AttentionMaskTypeAttr::get(
+                        unwrap(ctx), maskType));
+                  })
+      .def_prop_ro("value", [](tt::ttcore::AttentionMaskTypeAttr self) {
+        return self.getValue();
+      });
+
   nb::enum_<tt::ttcore::MeshShardType>(m, "MeshShardType")
       .value("Replicate", tt::ttcore::MeshShardType::Replicate)
       .value("Maximal", tt::ttcore::MeshShardType::Maximal)

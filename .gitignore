@@ -58,5 +58,7 @@ env/build/
 **/dist/
 
 # Generated Artifacts
-generated/*
-test/python/golden/generated/*
+**/generated/
+
+# System descriptor snapshots (d2m-jit artifact)
+current.ttsys

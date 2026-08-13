@@ -41,6 +41,7 @@
 #include "operations/experimental/conv3d/conv3d.hpp"
 #include "operations/experimental/conv3d/prepare_conv3d_weights.hpp"
 #include "operations/experimental/dropout/dropout.hpp"
+#include "operations/experimental/indexer_score/indexer_score.hpp"
 #include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
 #include "operations/experimental/unary_backward/gelu_backward/gelu_backward.hpp"
 #include "operations/kv_cache/kv_cache.hpp"
@@ -93,12 +94,20 @@
 #include <cstddef>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <tuple>
 #include <vector>
 
 template <typename... T>
 std::vector<ttnn::Tensor> util_create_vec(T &&...t) {
   return std::vector<ttnn::Tensor>{std::forward<T>(t)...};
+}
+
+// Unwraps a std::optional<T> into a T. Used to extract tensors from ttml metal
+// ops that return std::vector<std::optional<ttnn::Tensor>>.
+template <typename T>
+T util_get_optional_value(const std::optional<T> &opt) {
+  return opt.value();
 }
 
 namespace ttnn {
@@ -233,8 +242,7 @@ uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
 ::ttnn::Tensor loadTensor(const std::string &filePath, ttnn::Layout layout,
                           ttnn::DataType dtype, ttnn::MeshDevice *device,
                           ttnn::MemoryConfig memoryConfig) {
-  ::ttnn::Tensor loadedTensor =
-      ::tt::tt_metal::load_tensor_flatbuffer(filePath);
+  ::ttnn::Tensor loadedTensor = ::ttnn::load_tensor_flatbuffer(filePath);
 
   assert(loadedTensor.device() == nullptr && "loaded tensor must be on host");
 

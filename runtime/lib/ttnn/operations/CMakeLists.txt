@@ -1,5 +1,7 @@
 find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Development.Embed)
 
+add_subdirectory(ttml)
+
 if (NOT TTNN_RUNTIME_ENABLED)
   add_library(TTRuntimeTTNNOps INTERFACE)
   return()
@@ -120,6 +122,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/paged_flash_multi_latent_attention_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/paged_scaled_dot_product_attention_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/flash_mla_prefill.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/transformer/indexer_score_dsa.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/chunked_scaled_dot_product_attention.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
 )

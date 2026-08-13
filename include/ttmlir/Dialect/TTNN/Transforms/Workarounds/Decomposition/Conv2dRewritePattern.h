@@ -35,7 +35,7 @@ mlir::Value moveToHostRowMajorIfNeeded(ConvOp op,
     desiredDataType = ttcore::DataType::BFloat16;
   }
 
-  return utils::createToLayoutOp(
+  return utils::createToTensorSpecOp(
       op, value, rewriter, Layout::RowMajor, BufferType::SystemMemory,
       /*targetTensorMemoryLayout=*/nullptr, desiredDataType, locSuffix);
 }

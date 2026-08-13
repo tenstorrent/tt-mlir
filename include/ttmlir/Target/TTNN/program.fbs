@@ -28,11 +28,13 @@ include "ttmlir/Target/TTNN/operations/reduction.fbs";
 include "ttmlir/Target/TTNN/operations/tensor_serialization.fbs";
 include "ttmlir/Target/TTNN/operations/trace.fbs";
 include "ttmlir/Target/TTNN/operations/transformer.fbs";
+include "ttmlir/Target/TTNN/operations/ttml.fbs";
 include "ttmlir/Target/TTNN/operations/global_semaphore.fbs";
 
 namespace tt.target.ttnn;
 
 union OpType {
+  AdamWOp,
   AggregateTensorOp,
   AllGatherOp,
   AllReduceAsyncOp,
@@ -86,6 +88,7 @@ union OpType {
   GetDeviceOp,
   GlobalAvgPool2dOp,
   GroupNormOp,
+  IndexerScoreDsaOp,
   LayerNormOp,
   LayerNormPreAllGatherOp,
   LayerNormPostAllGatherOp,
@@ -134,6 +137,8 @@ union OpType {
   ScaledDotProductAttentionDecodeOp,
   FlashMlaPrefillOp,
   ScatterOp,
+  SDPAForwardOp,
+  SDPABackwardOp,
   SelectiveReduceCombineOp,
   SliceOp,
   SoftmaxOp,

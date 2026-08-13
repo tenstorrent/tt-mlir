@@ -1623,6 +1623,102 @@ createOp(FlatbufferObjectCache &cache, BatchNormTrainingOp op) {
       weight, bias, memoryConfig, output, computeConfig.value_or(0));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::AdamWOp>
+createOp(FlatbufferObjectCache &cache, AdamWOp op) {
+  auto param = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getParam()));
+  auto grad = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGrad()));
+  auto expAvg = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpAvg()));
+  auto expAvgSq = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpAvgSq()));
+
+  // Optional AMSGrad max second moment: offset 0 when absent.
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> maxExpAvgSq = 0;
+  if (op.getMaxExpAvgSq()) {
+    maxExpAvgSq = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getMaxExpAvgSq()));
+  }
+
+  return ::tt::target::ttnn::CreateAdamWOp(
+      *cache.fbb, param, grad, expAvg, expAvgSq, maxExpAvgSq,
+      op.getLr().convertToFloat(), op.getBeta1().convertToFloat(),
+      op.getBeta2().convertToFloat(), op.getBeta1Pow().convertToFloat(),
+      op.getBeta2Pow().convertToFloat(), op.getEpsilon().convertToFloat(),
+      op.getWeightDecay().convertToFloat(), op.getStochasticRounding());
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::SDPAForwardOp>
+createOp(FlatbufferObjectCache &cache, SDPAForwardOp op) {
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+  auto value = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getValue()));
+
+  // Optional attention mask: offset 0 when absent.
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> attentionMask = 0;
+  if (op.getAttentionMask()) {
+    attentionMask = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getAttentionMask()));
+  }
+
+  auto output = cache.getOrCreateNoSharding(
+      op.getOutput(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+
+  // Optional log-sum-exp intermediates: offset 0 when absent.
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> intermediates = 0;
+  if (op.getIntermediates()) {
+    intermediates = cache.getOrCreateNoSharding(op.getIntermediates(),
+                                                tensorValueToFlatbuffer,
+                                                /*local_shape*/ std::nullopt);
+  }
+
+  return ::tt::target::ttnn::CreateSDPAForwardOp(
+      *cache.fbb, query, key, value, attentionMask,
+      static_cast<uint32_t>(op.getMaskType()),
+      op.getDropoutProbability().convertToFloat(), op.getReturnIntermediates(),
+      output, intermediates);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::SDPABackwardOp>
+createOp(FlatbufferObjectCache &cache, SDPABackwardOp op) {
+  auto gradOutput = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGradOutput()));
+  auto attnOutput = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getAttnOutput()));
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+  auto value = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getValue()));
+  auto intermediates = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getIntermediates()));
+
+  // Optional attention mask: offset 0 when absent.
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> attentionMask = 0;
+  if (op.getAttentionMask()) {
+    attentionMask = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getAttentionMask()));
+  }
+
+  auto gradQuery = cache.getOrCreateNoSharding(
+      op.getGradQuery(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+  auto gradKey = cache.getOrCreateNoSharding(
+      op.getGradKey(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+  auto gradValue = cache.getOrCreateNoSharding(
+      op.getGradValue(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateSDPABackwardOp(
+      *cache.fbb, gradOutput, attnOutput, query, key, value, intermediates,
+      attentionMask, static_cast<uint32_t>(op.getMaskType()),
+      op.getDropoutProbability().convertToFloat(), gradQuery, gradKey,
+      gradValue);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::RMSNormOp>
 createOp(FlatbufferObjectCache &cache, RMSNormOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -3532,6 +3628,27 @@ createOp(FlatbufferObjectCache &cache, FlashMlaPrefillOp op) {
       out, memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::IndexerScoreDsaOp>
+createOp(FlatbufferObjectCache &cache, IndexerScoreDsaOp op) {
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+  auto weights = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getWeights()));
+  auto chunkStartIdx = op.getChunkStartIdx();
+  ::flatbuffers::Optional<uint32_t> clusterAxis;
+  if (auto axis = op.getClusterAxis()) {
+    clusterAxis = *axis;
+  }
+  auto out =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateIndexerScoreDsaOp(
+      *cache.fbb, query, key, weights, chunkStartIdx, out, clusterAxis);
+}
+
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
 createKernelArgs(FlatbufferObjectCache &cache,
                  llvm::ArrayRef<mlir::Attribute> argsAttrs) {
@@ -4834,6 +4951,18 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, batchNormTrainingOp),
                            debugString, locInfo);
   }
+  if (auto adamwOp = dyn_cast<AdamWOp>(op); adamwOp) {
+    return createOperation(cache, createOp(cache, adamwOp), debugString,
+                           locInfo);
+  }
+  if (auto sdpaForwardOp = dyn_cast<SDPAForwardOp>(op); sdpaForwardOp) {
+    return createOperation(cache, createOp(cache, sdpaForwardOp), debugString,
+                           locInfo);
+  }
+  if (auto sdpaBackwardOp = dyn_cast<SDPABackwardOp>(op); sdpaBackwardOp) {
+    return createOperation(cache, createOp(cache, sdpaBackwardOp), debugString,
+                           locInfo);
+  }
   if (auto rmsNormOp = dyn_cast<RMSNormOp>(op); rmsNormOp) {
     return createOperation(cache, createOp(cache, rmsNormOp), debugString,
                            locInfo);
@@ -5001,6 +5130,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto flashMlaPrefillOp = dyn_cast<FlashMlaPrefillOp>(op);
       flashMlaPrefillOp) {
     return createOperation(cache, createOp(cache, flashMlaPrefillOp),
+                           debugString, locInfo);
+  }
+  if (auto indexerScoreDsaOp = dyn_cast<IndexerScoreDsaOp>(op);
+      indexerScoreDsaOp) {
+    return createOperation(cache, createOp(cache, indexerScoreDsaOp),
                            debugString, locInfo);
   }
   if (auto dtOp = dyn_cast<DistributeTensorOp>(op); dtOp) {

@@ -1086,6 +1086,96 @@ TTNNOperandsWorkaroundsFactory::createFlashMlaPrefillOpOperandsWorkarounds(
   return operandsWorkaround;
 }
 
+// Create workarounds for the ttml sdpa_fw op. The backing metal op
+// (ttml::metal::sdpa_fw) requires Q/K/V, the optional mask and the output to be
+// bf16, and the optional log-sum-exp intermediates to be f32 (see the TT_FATALs
+// in sdpa_fw_device_operation.cpp).
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSDPAForwardOpOperandsWorkarounds(
+    Operation *op) {
+  TTNNOperandWorkarounds bf16Workaround;
+  bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  TTNNOperandWorkarounds f32Workaround;
+  f32Workaround.tensorDataTypeWorkaround = ttcore::DataType::Float32;
+
+  auto sdpaForwardOp = cast<SDPAForwardOp>(op);
+
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+
+  // Query, key, value: cast to bf16 if not already.
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+
+  // Attention mask (optional): also bf16.
+  if (sdpaForwardOp.getAttentionMask()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  }
+
+  // Output: bf16.
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(bf16Workaround);
+
+  // Intermediates (optional): must stay f32.
+  if (sdpaForwardOp.getIntermediates()) {
+    operandsWorkaround =
+        operandsWorkaround.addOutputOperandWorkaround(f32Workaround);
+  }
+
+  return operandsWorkaround;
+}
+
+// Create workarounds for the ttml sdpa_bw op. The backing metal op
+// (ttml::metal::sdpa_bw) requires the gradient, forward output, Q/K/V, the
+// optional mask and the gradient outputs to be bf16, and the log-sum-exp
+// intermediates to be f32.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSDPABackwardOpOperandsWorkarounds(
+    Operation *op) {
+  TTNNOperandWorkarounds bf16Workaround;
+  bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  TTNNOperandWorkarounds f32Workaround;
+  f32Workaround.tensorDataTypeWorkaround = ttcore::DataType::Float32;
+
+  auto sdpaBackwardOp = cast<SDPABackwardOp>(op);
+
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(f32Workaround);
+
+  if (sdpaBackwardOp.getAttentionMask()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  }
+
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(bf16Workaround);
+
+  return operandsWorkaround;
+}
+
 // Create workarounds for SDPA decode op: cast f32 inputs to bf16.
 // tt-metal SDPA only supports bf16/bfp8_b/bfp4_b.
 // Issue page: https://github.com/tenstorrent/tt-metal/issues/36717

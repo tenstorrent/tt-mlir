@@ -375,6 +375,19 @@ public:
   static TTNNOperandsWorkarounds
   createFlashMlaPrefillOpOperandsWorkarounds(Operation *op);
 
+  // Create workarounds for the ttml sdpa_fw op: force bf16 for Q/K/V/mask and
+  // the output, and f32 for the (optional) log-sum-exp intermediates. The
+  // backing metal op (ttml::metal::sdpa_fw) TT_FATALs on any other dtype.
+  static TTNNOperandsWorkarounds
+  createSDPAForwardOpOperandsWorkarounds(Operation *op);
+
+  // Create workarounds for the ttml sdpa_bw op: force bf16 for the gradient,
+  // forward output, Q/K/V, mask and the gradient outputs, and f32 for the
+  // log-sum-exp intermediates. The backing metal op (ttml::metal::sdpa_bw)
+  // TT_FATALs on any other dtype.
+  static TTNNOperandsWorkarounds
+  createSDPABackwardOpOperandsWorkarounds(Operation *op);
+
   // Create workarounds for sparse_matmul op operands.
   // Sparsity tensor must be in ROW_MAJOR layout.
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39126

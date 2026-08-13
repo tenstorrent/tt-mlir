@@ -1152,6 +1152,72 @@ def batch_norm_golden(
     return result
 
 
+def adamw_golden(
+    param: GoldenMapTensor,
+    grad: GoldenMapTensor,
+    exp_avg: GoldenMapTensor,
+    exp_avg_sq: GoldenMapTensor,
+    max_exp_avg_sq: Optional[GoldenMapTensor] = None,
+    lr=1e-3,
+    beta1=0.9,
+    beta2=0.999,
+    beta1_pow=0.9,
+    beta2_pow=0.999,
+    epsilon=1e-8,
+    weight_decay=0.0,
+    stochastic_rounding=False,
+    output_type_mlir=None,
+    **kwargs,
+) -> GoldenMapTensor:
+    """Reference for the fused ttml AdamW step. Mirrors tt-train's CPUAdamW:
+
+      m   = beta1*m + (1-beta1)*g ; v = beta2*v + (1-beta2)*g^2
+      denom = sqrt(v / (1-beta2_pow)) + eps      (amsgrad: sqrt(max(v)/(1-beta2_pow))+eps)
+      param = param - lr*(m/(1-beta1_pow))/denom - lr*weight_decay*param
+
+    Uses torch.* ops only (GoldenMapTensor does not support python operators).
+    Returns the updated parameter and moments, one per op result.
+    """
+    lr = unpack_mlir_attr(lr)
+    beta1 = unpack_mlir_attr(beta1)
+    beta2 = unpack_mlir_attr(beta2)
+    beta1_pow = unpack_mlir_attr(beta1_pow)
+    beta2_pow = unpack_mlir_attr(beta2_pow)
+    epsilon = unpack_mlir_attr(epsilon)
+    weight_decay = unpack_mlir_attr(weight_decay)
+
+    # grad is bf16; compute in fp32 to match the kernel's internal precision.
+    grad_f = grad.to(torch.float32)
+    new_exp_avg = torch.add(torch.mul(exp_avg, beta1), torch.mul(grad_f, 1.0 - beta1))
+    new_exp_avg_sq = torch.add(
+        torch.mul(exp_avg_sq, beta2),
+        torch.mul(torch.mul(grad_f, grad_f), 1.0 - beta2),
+    )
+
+    bias_correction1 = 1.0 - beta1_pow
+    bias_correction2 = 1.0 - beta2_pow
+    m_hat = torch.div(new_exp_avg, bias_correction1)
+
+    if max_exp_avg_sq is not None:
+        new_max = torch.maximum(max_exp_avg_sq, new_exp_avg_sq)
+        denom = torch.add(torch.sqrt(torch.div(new_max, bias_correction2)), epsilon)
+    else:
+        denom = torch.add(
+            torch.sqrt(torch.div(new_exp_avg_sq, bias_correction2)), epsilon
+        )
+
+    update = torch.mul(torch.div(m_hat, denom), lr)
+    decay = torch.mul(param, lr * weight_decay)
+    result = torch.sub(torch.sub(param, update), decay)
+
+    if output_type_mlir is not None:
+        result = result.to(mlir_type_to_torch_dtype(output_type_mlir))
+
+    if max_exp_avg_sq is not None:
+        return result, new_exp_avg, new_exp_avg_sq, new_max
+    return result, new_exp_avg, new_exp_avg_sq
+
+
 def rms_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor] = None,
@@ -5843,7 +5909,14 @@ def ttir_topk_golden(
         input_tensor, k=k, dim=dim, largest=largest, sorted=True
     )
 
-    return values.to(output_dtype), indices.to(torch.uint16)
+    # Index dtype is UInt16 if the tile-padded reduction dim fits, else UInt32.
+    TILE_SIZE = 32
+    reduction_dim = dim if dim >= 0 else dim + input_tensor.ndim
+    reduction_size = input_tensor.shape[reduction_dim]
+    padded_reduction_size = ((reduction_size + TILE_SIZE - 1) // TILE_SIZE) * TILE_SIZE
+    index_dtype = torch.uint16 if padded_reduction_size <= 0xFFFF else torch.uint32
+
+    return values.to(output_dtype), indices.to(index_dtype)
 
 
 def ttir_topk_router_gpt_golden(
@@ -8389,6 +8462,165 @@ def ttir_sdpa_golden(
     return output.to(output_dtype)
 
 
+def sdpa_fw_golden(
+    query: GoldenMapTensor,
+    key: GoldenMapTensor,
+    value: GoldenMapTensor,
+    attention_mask: Optional[GoldenMapTensor] = None,
+    mask_type: int = 1,
+    dropout_probability: float = 0.0,
+    return_intermediates: bool = False,
+    output_type_mlir: Type = None,
+    **kwargs,
+) -> Tuple[GoldenMapTensor, ...]:
+    """Reference for the fused ttml SDPA forward (ttml::metal::sdpa_fw).
+
+    Computes softmax(Q @ K^T / sqrt(D) + mask) @ V and, when requested, the
+    per-row log-sum-exp intermediates. mask_type: 0=none, 1=causal, 2=arbitrary.
+    Uses torch.* free functions only (GoldenMapTensor does not support python
+    operators). Returns a tuple, one entry per op result.
+    """
+    if not isinstance(mask_type, int):
+        mask_type = int(unpack_mlir_attr(mask_type))
+
+    q_heads = query.shape[1]
+    kv_heads = key.shape[1]
+    k = key
+    v = value
+    if q_heads != kv_heads:
+        assert q_heads % kv_heads == 0
+        num_repeats = q_heads // kv_heads
+        k = torch.repeat_interleave(key, num_repeats, dim=1)
+        v = torch.repeat_interleave(value, num_repeats, dim=1)
+
+    # ttml::metal::sdpa_fw folds a fixed 1/sqrt(D) scale into the kernel.
+    scale = 1.0 / (float(query.shape[-1]) ** 0.5)
+    qk = torch.matmul(query.float(), k.float().transpose(-2, -1))
+    qk = torch.mul(qk, scale)
+
+    if mask_type == 1:  # Causal
+        seq_len_q = qk.shape[-2]
+        seq_len_k = qk.shape[-1]
+        causal_mask = torch.triu(
+            torch.full((seq_len_q, seq_len_k), float("-inf")), diagonal=1
+        )
+        qk = torch.add(qk, causal_mask)
+    elif mask_type == 2 and attention_mask is not None:  # Arbitrary
+        qk = torch.add(qk, attention_mask.float())
+
+    attn_weights = torch.softmax(qk, dim=-1)
+    output = torch.matmul(attn_weights, v.float())
+
+    if output_type_mlir is not None:
+        output = output.to(mlir_type_to_torch_dtype(output_type_mlir))
+
+    if return_intermediates:
+        # Intermediate log-sum-exp is stored one FP32 tile (width 32) per row.
+        lse = torch.logsumexp(qk, dim=-1, keepdim=True)
+        lse = torch.broadcast_to(lse, (lse.shape[0], lse.shape[1], lse.shape[2], 32))
+        return output, lse.float()
+
+    return (output,)
+
+
+def sdpa_bw_golden(
+    grad_output: GoldenMapTensor,
+    attn_output: GoldenMapTensor,
+    query: GoldenMapTensor,
+    key: GoldenMapTensor,
+    value: GoldenMapTensor,
+    intermediates: GoldenMapTensor,
+    attention_mask: Optional[GoldenMapTensor] = None,
+    mask_type: int = 1,
+    dropout_probability: float = 0.0,
+    **kwargs,
+) -> Tuple[GoldenMapTensor, ...]:
+    """Reference for the fused ttml SDPA backward (ttml::metal::sdpa_bw).
+
+    Given the upstream gradient and the forward tensors, computes the gradients
+    w.r.t. query, key and value. Recomputes the forward attention weights and
+    applies the standard SDPA backward formulas (matching the composite
+    implementation in tt-train's scaled_dot_product_attention.cpp). mask_type:
+    0=none, 1=causal, 2=arbitrary. Uses torch.* free functions only. Returns a
+    tuple (grad_query, grad_key, grad_value).
+    """
+    if not isinstance(mask_type, int):
+        mask_type = int(unpack_mlir_attr(mask_type))
+
+    q_heads = query.shape[1]
+    kv_heads = key.shape[1]
+    num_repeats = q_heads // kv_heads if q_heads != kv_heads else 1
+    q = query.float()
+    k_full = (
+        torch.repeat_interleave(key.float(), num_repeats, dim=1)
+        if num_repeats > 1
+        else key.float()
+    )
+    v_full = (
+        torch.repeat_interleave(value.float(), num_repeats, dim=1)
+        if num_repeats > 1
+        else value.float()
+    )
+
+    # Reconstruct the forward attention weights the same way the metal kernel
+    # does: P = exp(scale * Q @ K^T + mask - lse), where `lse` is the per-row
+    # log-sum-exp carried in `intermediates`. Using the provided intermediates
+    # keeps this golden faithful to ttml::metal::sdpa_bw even when the intermediates/attn_output are not a
+    # self-consistent forward pass.
+    scale = 1.0 / (float(query.shape[-1]) ** 0.5)
+    qk = torch.mul(torch.matmul(q, torch.transpose(k_full, -2, -1)), scale)
+    if mask_type == 1:  # Causal
+        seq_len_q = qk.shape[-2]
+        seq_len_k = qk.shape[-1]
+        causal_mask = torch.triu(
+            torch.full((seq_len_q, seq_len_k), float("-inf")), diagonal=1
+        )
+        qk = torch.add(qk, causal_mask)
+    elif mask_type == 2 and attention_mask is not None:  # Arbitrary
+        qk = torch.add(qk, attention_mask.float())
+    lse = torch.narrow(intermediates.float(), -1, 0, 1)
+    p = torch.exp(torch.sub(qk, lse))  # (B, Hq, S, S)
+
+    grad_out = grad_output.float()  # (B, Hq, S, Dv)
+
+    # dV = P^T @ dO ; dP = dO @ V^T.
+    dv_full = torch.matmul(torch.transpose(p, -2, -1), grad_out)  # (B, Hq, S, Dv)
+    dp = torch.matmul(grad_out, torch.transpose(v_full, -2, -1))  # (B, Hq, S, S)
+
+    # Softmax backward. The metal kernel uses the per-row scalar
+    # u = rowsum(dO ⊙ attn_output) (== sum_k dP·P for a consistent forward), so
+    # mirror that using the provided attn_output: dS = P * (dP - u) * scale.
+    u = torch.sum(
+        torch.mul(grad_out, attn_output.float()), dim=-1, keepdim=True
+    )  # (B, Hq, S, 1)
+    ds = torch.mul(p, torch.sub(dp, u))
+    ds = torch.mul(ds, scale)
+
+    # dQ = dS @ K ; dK = dS^T @ Q.
+    dq = torch.matmul(ds, k_full)  # (B, Hq, S, D)
+    dk_full = torch.matmul(torch.transpose(ds, -2, -1), q)  # (B, Hq, S, D)
+
+    # Sum gradients over the query groups sharing each KV head (GQA).
+    if num_repeats > 1:
+        batch = query.shape[0]
+        seq_len = query.shape[2]
+        head_dim = key.shape[-1]
+        head_dim_v = value.shape[-1]
+        dk = torch.sum(
+            torch.reshape(dk_full, (batch, kv_heads, num_repeats, seq_len, head_dim)),
+            dim=2,
+        )
+        dv = torch.sum(
+            torch.reshape(dv_full, (batch, kv_heads, num_repeats, seq_len, head_dim_v)),
+            dim=2,
+        )
+    else:
+        dk = dk_full
+        dv = dv_full
+
+    return dq.to(query.dtype), dk.to(key.dtype), dv.to(value.dtype)
+
+
 def flash_mla_prefill_golden(
     query: GoldenMapTensor,
     key: GoldenMapTensor,
@@ -8420,6 +8652,56 @@ def flash_mla_prefill_golden(
     )
 
     return output.to(output_dtype)
+
+
+def indexer_score_dsa_golden(
+    query: GoldenMapTensor,
+    key: GoldenMapTensor,
+    weights: GoldenMapTensor,
+    chunk_start_idx: int,
+) -> GoldenMapTensor:
+    """
+    Golden for the tt.indexer_score_dsa custom_call (DSA lightning-indexer
+    scorer).
+
+    Mirrors the primitive decomposition:
+        score[b, s, t] = sum_h relu(q[b, h, s, :] . k[b, t, :]) * weights[b, h, s]
+    with an additive causal mask: key ``t`` is visible to query ``s`` iff
+    ``t <= chunk_start_idx + s``; masked (future) positions get ``-inf``.
+
+    Shapes: query [B, Hi, Sq, D], key [B, 1, T, D], weights [B, Hi, Sq, 1]
+    -> score [B, 1, Sq, T].
+    """
+    output_dtype = query.dtype
+
+    # Compute in f32 for golden accuracy, then cast back to the query dtype.
+    q = query.float()  # [B, Hi, Sq, D]
+    k = key.float()  # [B, 1, T, D]
+    w = weights.float()  # [B, Hi, Sq, 1]
+
+    _, _, query_seq_len, _ = q.shape
+    key_seq_len = k.shape[2]
+
+    # QK^T per head against K's single kv-head: [B, Hi, Sq, T].
+    qk = torch.einsum("bhsd,btd->bhst", q, k[:, 0])
+    qk = torch.relu(qk)
+
+    # Per-head gate weights broadcast over the key dim, then sum over heads.
+    weighted = torch.mul(qk, w)  # [B, Hi, Sq, T]
+    score = torch.sum(weighted, dim=1, keepdim=True)  # [B, 1, Sq, T]
+
+    # Causal additive mask (plain torch constants): visible iff
+    # t <= chunk_start_idx + s. Broadcasting-adds onto the per-shard score.
+    row_idx = torch.arange(query_seq_len).view(1, 1, query_seq_len, 1)
+    col_idx = torch.arange(key_seq_len).view(1, 1, 1, key_seq_len)
+    visible = (row_idx + chunk_start_idx) >= col_idx
+    mask_add = torch.where(
+        visible,
+        torch.zeros((), dtype=torch.float32),
+        torch.full((), float("-inf"), dtype=torch.float32),
+    )
+
+    return (score + mask_add).to(output_dtype)
 
 
 def ttir_paged_sdpa_decode_golden(
@@ -8822,6 +9104,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.Upsample2dOp: upsample2d_golden,
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
     ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
+    ttir.AdamWOp: adamw_golden,
+    ttir.SDPAForwardOp: sdpa_fw_golden,
+    ttir.SDPABackwardOp: sdpa_bw_golden,
     ttir.LayerNormOp: ttir_layer_norm_golden,
     ttir.SplitQueryKeyValueAndSplitHeadsOp: ttir_split_query_key_value_and_split_heads_golden,
     ttir.GroupNormOp: ttir_group_norm_golden,
@@ -9060,6 +9345,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.ConstantOp: ttnn_constant_golden,
     # Layout/Device operations
     ttnn.ToLayoutOp: ttnn_to_layout_golden,
+    ttnn.ToTensorSpecOp: ttnn_to_layout_golden,
     ttnn.ToDeviceOp: ttnn_to_device_golden,
     ttnn.FromDeviceOp: ttnn_from_device_golden,
     # CCL (Collective Communication Library) operations
@@ -9082,6 +9368,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
 # StableHLO custom_call goldens
 STABLEHLO_CUSTOM_CALL_GOLDEN_MAPPINGS: Dict[str, Callable] = {
     "tt.flash_mla_prefill": flash_mla_prefill_golden,
+    "tt.indexer_score_dsa": indexer_score_dsa_golden,
 }
 
 

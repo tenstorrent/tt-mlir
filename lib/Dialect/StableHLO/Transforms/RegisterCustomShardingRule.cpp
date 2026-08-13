@@ -6,6 +6,7 @@
 #include "shardy/dialect/sdy/transforms/propagation/op_sharding_rule_builder.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -48,6 +49,11 @@ static constexpr llvm::StringLiteral moeExpertTokenRemapTargetName =
 
 static constexpr llvm::StringLiteral flashMlaPrefillTargetName =
     "tt.flash_mla_prefill";
+
+static constexpr llvm::StringLiteral indexerScoreDsaTargetName =
+    "tt.indexer_score_dsa";
+
+static constexpr llvm::StringLiteral samplingTargetName = "tt.sampling";
 
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
@@ -174,6 +180,42 @@ getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
   if (!qType || !kType || !vType || !outType) {
     op.getOperation()->emitWarning() << "SDPA requires ranked tensor types";
     return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // 3D SDPA is [B, S, D], a single implicit head. S and D are the
+  // softmax/contraction axes, so only batch can be sharded.
+  if (qType.getRank() == 3) {
+    if (kType.getRank() != 3 || vType.getRank() != 3 ||
+        outType.getRank() != 3) {
+      op.getOperation()->emitWarning()
+          << "SDPA requires Q/K/V/Out to have the same rank";
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+
+    ArrayRef<int64_t> qShape3D = qType.getShape();
+    if (qShape3D != outType.getShape() ||
+        kType.getShape() != vType.getShape() || qShape3D != kType.getShape()) {
+      op.getOperation()->emitWarning()
+          << "SDPA shape validation failed: incompatible Q/K/V/Out dimensions";
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+
+    int64_t numOperands3D = op.getNumOperands();
+    sdy::OpShardingRuleBuilder builder3D(op);
+    auto makeOpDims3D = [&](int64_t dim) -> SmallVector<int64_t> {
+      SmallVector<int64_t> dims(numOperands3D, sdy::kNullDim);
+      dims[0] = dim;
+      dims[1] = dim;
+      dims[2] = dim;
+      return dims;
+    };
+    builder3D.addFactor(makeOpDims3D(0), {0}, qShape3D[0],
+                        sdy::FactorType::kPassThrough);
+    builder3D.addFactor(makeOpDims3D(1), {1}, qShape3D[1],
+                        sdy::FactorType::kNeedReplication);
+    builder3D.addFactor(makeOpDims3D(2), {2}, qShape3D[2],
+                        sdy::FactorType::kNeedReplication);
+    return builder3D.build();
   }
 
   // SDPA operates on 4D tensors: [B, H, S, D]
@@ -503,23 +545,140 @@ getFlashMlaPrefillShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
-static mlir::sdy::OpShardingRuleAttr buildHeadShardedCustomCallRule(
-    mlir::stablehlo::CustomCallOp op, llvm::ArrayRef<int64_t> operandHeadDims,
-    llvm::ArrayRef<int64_t> resultHeadDims, int64_t headSize) {
-  assert(static_cast<int64_t>(operandHeadDims.size()) == op.getNumOperands() &&
-         "operandHeadDims size must match number of operands");
-  assert(static_cast<int64_t>(resultHeadDims.size()) == op.getNumResults() &&
-         "resultHeadDims size must match number of results");
+// Sharding rule for the `tt.indexer_score_dsa` custom_call (DSA
+// lightning-indexer scorer).
+//
+// Tensor layout (matches the StableHLO conversion at
+// StableHLOToTTIRPatterns.cpp:9374):
+//   query   : [B, Hi, Sq, D]   Hi query heads, query seq Sq, head dim D
+//   key      : [B, 1,  T,  D]   single (shared) kv head, key seq T
+//   weights : [B, Hi, Sq, 1]   per-head gate
+//   score   : [B, 1,  Sq, T]   heads summed away
+//
+//   score[b, s, t] = sum_h relu(q[b,h,s,:] . k[b,t,:]) * weights[b,h,s]
+//   masked to -inf where t > chunk_start_idx + s.
+//
+// Factor design:
+//   - Batch    (kPassThrough,     size B)  : q/key/weights/out dim 0. Data
+//       parallel; every batch element is independent.
+//   - Heads    (kReduction,       size Hi) : query dim 1 + weights dim 1. The
+//       head dim is summed away, so it is absent from the output (kNullDim) and
+//       the key's single shared head stays replicated (kNullDim). Sharding it
+//       makes each device compute a partial per-head sum; Shardy inserts an
+//       all_reduce(sum) to combine them, giving tensor parallelism over heads.
+//   - Query seq (kPassThrough,     size Sq): query/weights dim 2, out dim 2.
+//       Sequence parallelism. The fused op is SP-aware: it takes
+//       `chunk_start_idx` to be the absolute position of rank 0's first query
+//       row and masks device `rank` against `chunk_start_idx + rank * Sq_local
+//       + s`, deriving `rank` from that device's position in the mesh. So a
+//       sharded Sq still masks causally against the full, replicated key
+//       sequence. No collective is needed: the output's query dim carries the
+//       same sharding.
+//   - Key seq   (kNeedReplication, size T) : key dim 2, out dim 3. The whole
+//       key history must be resident on every device for the causal mask over
+//       absolute key positions to be exact.
+//   - Head dim  (kNeedReplication, size D) : query/key dim 3. Contracted
+//       internally by the q.k dot product.
+//
+// Sharding Sq alongside Batch or Heads requires the caller to set the
+// `cluster_axis` frontend attribute, naming the mesh axis Sq is sharded on.
+// Without it the op guesses the rank from a flat index over all of the query's
+// devices, which only matches when Sq is the one sharded factor.
+//
+// Sharding Sq also needs Blackhole, where the composite promotes to
+// ttnn.indexer_score_dsa. Elsewhere it falls back to a decomposition whose
+// causal mask is the same on every device, so ranks past 0 mask wrongly.
+static mlir::sdy::OpShardingRuleAttr
+getIndexerScoreDsaShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 3 || op.getNumResults() != 1) {
+    op.getOperation()->emitWarning()
+        << "indexer_score_dsa expects 3 operands (query, key, weights) and 1 "
+           "result";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
 
-  mlir::sdy::OpShardingRuleBuilder builder(op);
+  auto qType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto kType = llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto wType = llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
+  auto outType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
 
-  SmallVector<int64_t> resolvedOperandDims(operandHeadDims.begin(),
-                                           operandHeadDims.end());
-  SmallVector<int64_t> resolvedResultDims(resultHeadDims.begin(),
-                                          resultHeadDims.end());
+  if (!qType || !kType || !wType || !outType) {
+    op.getOperation()->emitWarning()
+        << "indexer_score_dsa requires ranked tensor types";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
 
-  builder.addFactor(resolvedOperandDims, resolvedResultDims, headSize,
-                    mlir::sdy::FactorType::kPassThrough);
+  if (qType.getRank() != 4 || kType.getRank() != 4 || wType.getRank() != 4 ||
+      outType.getRank() != 4) {
+    op.getOperation()->emitWarning() << "indexer_score_dsa requires 4D tensors";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  ArrayRef<int64_t> qShape = qType.getShape();
+  ArrayRef<int64_t> kShape = kType.getShape();
+  ArrayRef<int64_t> wShape = wType.getShape();
+  ArrayRef<int64_t> outShape = outType.getShape();
+
+  int64_t B = qShape[0];
+  int64_t Hi = qShape[1];
+  int64_t Sq = qShape[2];
+  int64_t D = qShape[3];
+  int64_t T = kShape[2];
+
+  auto isStaticPositiveDim = [](int64_t dim) {
+    return !ShapedType::isDynamic(dim) && dim > 0;
+  };
+  if (!isStaticPositiveDim(B) || !isStaticPositiveDim(Hi) ||
+      !isStaticPositiveDim(Sq) || !isStaticPositiveDim(D) ||
+      !isStaticPositiveDim(T)) {
+    op.getOperation()->emitWarning() << "indexer_score_dsa requires static, "
+                                        "positive B/Hi/Sq/D/T dimensions";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Cross-operand shape consistency (see layout above). The key's head dim and
+  // the output's head dim are the summed-away single head, so both must be 1;
+  // the weights gate dim is likewise 1.
+  if (kShape[0] != B || wShape[0] != B || outShape[0] != B || // B
+      wShape[1] != Hi ||                                      // Hi (q, weights)
+      kShape[1] != 1 || outShape[1] != 1 ||                   // single kv head
+      wShape[2] != Sq || outShape[2] != Sq ||                 // Sq
+      kShape[3] != D ||                                       // D (q, key)
+      outShape[3] != T ||                                     // T (key, out)
+      wShape[3] != 1) {                                       // weights gate
+    op.getOperation()->emitWarning()
+        << "indexer_score_dsa shape validation failed";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  sdy::OpShardingRuleBuilder builder(op);
+
+  // Operand order: query(0), key(1), weights(2). Result: score(0).
+
+  // Batch (dim 0): kPassThrough — data parallel across all tensors.
+  builder.addFactor({0, 0, 0}, {0}, B, sdy::FactorType::kPassThrough);
+
+  // Heads (query dim 1 + weights dim 1): kReduction. Summed away, so absent
+  // from the output; the key's single shared head stays replicated. Sharding
+  // yields per-device partial sums combined by an all_reduce(sum).
+  builder.addFactor({1, sdy::kNullDim, 1}, {sdy::kNullDim}, Hi,
+                    sdy::FactorType::kReduction);
+
+  // Query sequence (query/weights dim 2, out dim 2): kPassThrough — sequence
+  // parallelism. The fused op reconstructs each device's absolute query offset
+  // from its SP rank, so the local causal mask stays correct against the full
+  // (replicated) key sequence.
+  builder.addFactor({2, sdy::kNullDim, 2}, {2}, Sq,
+                    sdy::FactorType::kPassThrough);
+
+  // Key sequence (key dim 2, out dim 3): kNeedReplication.
+  builder.addFactor({sdy::kNullDim, 2, sdy::kNullDim}, {3}, T,
+                    sdy::FactorType::kNeedReplication);
+
+  // Head dim (query/key dim 3): kNeedReplication — contracted internally.
+  builder.addFactor({3, 3, sdy::kNullDim}, {sdy::kNullDim}, D,
+                    sdy::FactorType::kNeedReplication);
+
   return builder.build();
 }
 
@@ -527,10 +686,23 @@ static mlir::sdy::OpShardingRuleAttr buildHeadShardedCustomCallRule(
 static mlir::sdy::OpShardingRuleAttr
 getChunkedSdpaShardingRule(mlir::stablehlo::CustomCallOp op) {
   // Chunked prefill SDPA over paged K/V:
-  //  0: query  [num_users, num_heads, chunk_len, head_size]
-  //  1: key    [num_blocks_total, num_kv_heads, block_size, head_size]
-  //  2: value  [num_blocks_total, num_kv_heads, block_size, head_size]
-  //  3: page_table, 4: chunk_start_idx (null-shardable)
+  //  0: query           [num_users, num_heads, chunk_len, head_size]
+  //  1: key             [num_blocks_total, num_kv_heads, block_size, head_size]
+  //  2: value           [num_blocks_total, num_kv_heads, block_size, head_size]
+  //  3: page_table      [num_users, max_blocks_per_seq]
+  //  4: chunk_start_idx [1] (null-shardable)
+  //
+  // Sharding propagates along two dims: the head dim, carried by query, key,
+  // value and output, and the users/batch dim, carried by query, page_table
+  // and output.
+  constexpr int64_t expectedNumOperands = 5;
+  if (op.getNumOperands() != expectedNumOperands) {
+    op.getOperation()->emitWarning()
+        << "Chunked SDPA: expected " << expectedNumOperands << " operands, got "
+        << op.getNumOperands() << ".";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
   auto queryType = llvm::cast<RankedTensorType>(op.getOperand(0).getType());
   auto keyType = llvm::cast<RankedTensorType>(op.getOperand(1).getType());
   auto valueType = llvm::cast<RankedTensorType>(op.getOperand(2).getType());
@@ -554,10 +726,11 @@ getChunkedSdpaShardingRule(mlir::stablehlo::CustomCallOp op) {
     return mlir::sdy::OpShardingRuleAttr();
   }
 
-  // Query [U, H, chunk_len, D], K/V [B, H, S, D], and output all carry the
-  // head dim at index 1.
-  const int64_t headDim = 1;
+  mlir::sdy::OpShardingRuleBuilder builder(op);
 
+  // 1. Head dim sharding. Query [U, H, chunk_len, D], K/V [B, H, S, D] and
+  //    output all carry the head dim at index 1.
+  const int64_t headDim = 1;
   int64_t headSize = queryType.getShape()[headDim];
 
   SmallVector<int64_t> operandHeadDims(op.getNumOperands(),
@@ -569,8 +742,27 @@ getChunkedSdpaShardingRule(mlir::stablehlo::CustomCallOp op) {
   operandHeadDims[2] = headDim; // value
   resultHeadDims[0] = headDim;  // output
 
-  return buildHeadShardedCustomCallRule(op, operandHeadDims, resultHeadDims,
-                                        headSize);
+  builder.addFactor(operandHeadDims, resultHeadDims, headSize,
+                    mlir::sdy::FactorType::kPassThrough);
+
+  // 2. Users/batch dim sharding. Query, page_table and output carry the users
+  //    dim at index 0. K/V dim 0 is num_blocks_total rather than users, so the
+  //    paged cache stays replicated, and chunk_start_idx has no users dim.
+  const int64_t usersDim = 0;
+  int64_t numUsers = queryType.getShape()[usersDim];
+
+  SmallVector<int64_t> operandUsersDims(op.getNumOperands(),
+                                        mlir::sdy::kNullDim);
+  SmallVector<int64_t> resultUsersDims(op.getNumResults(), mlir::sdy::kNullDim);
+
+  operandUsersDims[0] = usersDim; // query
+  operandUsersDims[3] = usersDim; // page_table
+  resultUsersDims[0] = usersDim;  // output
+
+  builder.addFactor(operandUsersDims, resultUsersDims, numUsers,
+                    mlir::sdy::FactorType::kPassThrough);
+
+  return builder.build();
 }
 
 static mlir::sdy::OpShardingRuleAttr
@@ -1625,6 +1817,79 @@ getArgMaxShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// Sharding rule for the `tt.sampling` custom_call.
+//
+// Operands: 0: input_values  [batch, candidates]
+//           1: input_indices [batch, candidates]
+//           2: k             [batch]
+//           3: p             [batch]
+//           4: temp          [batch]
+// Result:                    [batch]
+//
+// Batch dim: kPassThrough, so under data parallelism each device samples its
+//   own rows. The ttnn kernel assigns one Tensix core per user and takes at
+//   most 32 rows per invocation, so the batch must shard rather than gather.
+// Candidate dim: kNeedReplication. A row's candidate set has to stay whole for
+//   softmax, top-k and multinomial.
+static mlir::sdy::OpShardingRuleAttr
+getSamplingShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 5 || op.getNumResults() != 1) {
+    op->emitWarning("tt.sampling sharding rule expects 5 operands and 1 "
+                    "result; falling back to replication");
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto valuesType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto resultType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+  if (!valuesType || !resultType || valuesType.getRank() != 2 ||
+      resultType.getRank() != 1) {
+    op->emitWarning("tt.sampling sharding rule expects input_values of rank 2 "
+                    "and a result of rank 1; falling back to replication");
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  int64_t batchSize = valuesType.getShape()[0];
+  int64_t candidateSize = valuesType.getShape()[1];
+
+  if (resultType.getShape()[0] != batchSize) {
+    op->emitWarning("tt.sampling sharding rule expects the result batch dim to "
+                    "match input_values; falling back to replication");
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // input_indices must match input_values exactly; k, p and temp must agree on
+  // the batch dim. A mismatch would make the factor sizes below inconsistent
+  // with the operand shapes, which Shardy rejects when verifying the rule.
+  for (unsigned i = 1; i < op.getNumOperands(); ++i) {
+    auto operandType =
+        llvm::dyn_cast<RankedTensorType>(op.getOperand(i).getType());
+    bool shapeOk =
+        operandType && (i == 1 ? operandType.getShape() == valuesType.getShape()
+                               : operandType.getRank() == 1 &&
+                                     operandType.getShape()[0] == batchSize);
+    if (!shapeOk) {
+      op->emitWarning("tt.sampling sharding rule expects operand ")
+          << i
+          << " to match input_values on the batch dim; falling back to "
+             "replication";
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+  }
+
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+
+  builder.addFactor({0, 0, 0, 0, 0}, {0}, batchSize,
+                    mlir::sdy::FactorType::kPassThrough);
+
+  builder.addFactor(
+      {1, 1, mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+      {mlir::sdy::kNullDim}, candidateSize,
+      mlir::sdy::FactorType::kNeedReplication);
+
+  return builder.build();
+}
+
 // Sharding rule for RMS norm custom_call (converted from composite).
 //
 // Operands:
@@ -1813,6 +2078,21 @@ private:
       return shardOpFunc(op);
     }
 
+    // Check if xla.sdy.custom_sharding_rule is present and parse it.
+    // ShardingRuleOpInterface is invoked whenever createOpShardingRule is
+    // called. Since shardy sometimes drop sharding rules and rematerializes it
+    // later, for example insert-explicit-reshards, we need a way to restore
+    // custom user-provided sharding rules.
+    if (llvm::StringRef ruleStr = shardy_utils::getUserShardingRuleStr(op);
+        !ruleStr.empty()) {
+      // The rule string was already validated by
+      // RegisterUserShardingRulePass, so a parse failure here is not possible.
+      if (auto rule =
+              shardy_utils::parseUserShardingRule(ruleStr, op.getContext())) {
+        return rule;
+      }
+    }
+
     op.getOperation()->emitWarning()
         << "StableHLO CustomCallOp sharding rule is not defined for target '"
         << target << "'";
@@ -1841,12 +2121,14 @@ private:
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
           {utils::kTTRMSNormCustomCallTargetName, getRMSNormShardingRule},
           {flashMlaPrefillTargetName, getFlashMlaPrefillShardingRule},
+          {indexerScoreDsaTargetName, getIndexerScoreDsaShardingRule},
           {utils::kTTTopKCustomCallTargetName, getTopKShardingRule},
           {utils::kTTTopKValuesCustomCallTargetName, getTopKShardingRule},
           {utils::kTTTopKIndicesCustomCallTargetName, getTopKShardingRule},
           {utils::kTTArgMaxCustomCallTargetName, getArgMaxShardingRule},
           {utils::kTTGatherDimCustomCallTargetName, getGatherDimShardingRule},
           {utils::kTTGatherCustomCallTargetName, getGatherDimShardingRule},
+          {samplingTargetName, getSamplingShardingRule},
       };
 };
 

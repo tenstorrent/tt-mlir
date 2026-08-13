@@ -7582,6 +7582,288 @@ class TTIRBuilder(Builder):
 
         return gt_module, gt_builder
 
+    ############### ttir.AdamWOp ###############
+
+    @tag(ttir.AdamWOp)
+    def adamw(
+        self,
+        param: Operand,
+        grad: Operand,
+        exp_avg: Operand,
+        exp_avg_sq: Operand,
+        max_exp_avg_sq: Optional[Operand] = None,
+        lr: float = 1e-3,
+        beta1: float = 0.9,
+        beta2: float = 0.999,
+        beta1_pow: float = 0.9,
+        beta2_pow: float = 0.999,
+        epsilon: float = 1e-8,
+        weight_decay: float = 0.0,
+        stochastic_rounding: bool = False,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.adamw)
+        lr_attr = FloatAttr.get_f32(lr)
+        beta1_attr = FloatAttr.get_f32(beta1)
+        beta2_attr = FloatAttr.get_f32(beta2)
+        beta1_pow_attr = FloatAttr.get_f32(beta1_pow)
+        beta2_pow_attr = FloatAttr.get_f32(beta2_pow)
+        epsilon_attr = FloatAttr.get_f32(epsilon)
+        weight_decay_attr = FloatAttr.get_f32(weight_decay)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(param)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        param0 = self._get_golden_tensor(param)
+        grad0 = self._get_golden_tensor(grad)
+        exp_avg0 = self._get_golden_tensor(exp_avg)
+        exp_avg_sq0 = self._get_golden_tensor(exp_avg_sq)
+        max_exp_avg_sq0 = (
+            self._get_golden_tensor(max_exp_avg_sq)
+            if max_exp_avg_sq is not None
+            else None
+        )
+
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            param0,
+            grad0,
+            exp_avg0,
+            exp_avg_sq0,
+            max_exp_avg_sq0,
+            lr_attr,
+            beta1_attr,
+            beta2_attr,
+            beta1_pow_attr,
+            beta2_pow_attr,
+            epsilon_attr,
+            weight_decay_attr,
+            stochastic_rounding,
+            mlir_output_type,
+        )
+
+        param_out = self._create_ranked_tensor_type(
+            golden_output[0].shape, mlir_output_type
+        )
+        exp_avg_out = self._get_type(exp_avg)
+        exp_avg_sq_out = self._get_type(exp_avg_sq)
+        max_exp_avg_sq_out = (
+            self._get_type(max_exp_avg_sq) if max_exp_avg_sq is not None else None
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            param_out,
+            exp_avg_out,
+            exp_avg_sq_out,
+            max_exp_avg_sq_out,
+            param,
+            grad,
+            exp_avg,
+            exp_avg_sq,
+            lr_attr,
+            beta1_attr,
+            beta2_attr,
+            beta1_pow_attr,
+            beta2_pow_attr,
+            epsilon_attr,
+            weight_decay_attr,
+            max_exp_avg_sq=max_exp_avg_sq,
+            stochastic_rounding=stochastic_rounding,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        op_results = list(op.operation.results)
+        for op_result, golden in zip(op_results, golden_output):
+            self._set_golden_tensor(op_result, golden)
+
+        return tuple(op_results)
+
+    ############### ttir.SDPAForwardOp ###############
+
+    @tag(ttir.SDPAForwardOp)
+    def sdpa_fw(
+        self,
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        attention_mask: Optional[Operand] = None,
+        mask_type: AttentionMaskType = AttentionMaskType.Causal,
+        dropout_probability: float = 0.0,
+        return_intermediates: bool = False,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.sdpa_fw)
+        mask_type_attr = ttcore.ir.AttentionMaskTypeAttr.get(self._ctx, mask_type.value)
+        dropout_attr = FloatAttr.get_f32(dropout_probability)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(query)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        query0 = self._get_golden_tensor(query)
+        key0 = self._get_golden_tensor(key)
+        value0 = self._get_golden_tensor(value)
+        attention_mask0 = (
+            self._get_golden_tensor(attention_mask)
+            if attention_mask is not None
+            else None
+        )
+
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            query0,
+            key0,
+            value0,
+            attention_mask0,
+            int(mask_type.value.value),
+            dropout_probability,
+            return_intermediates,
+            mlir_output_type,
+        )
+
+        output_type_ranked = self._create_ranked_tensor_type(
+            golden_output[0].shape, mlir_output_type
+        )
+        intermediates_type = None
+        if return_intermediates:
+            intermediates_type = self._create_ranked_tensor_type(
+                golden_output[1].shape,
+                self._get_type_from_torch_dtype(torch.float32),
+            )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            output_type_ranked,
+            intermediates_type,
+            query,
+            key,
+            value,
+            attention_mask=attention_mask,
+            mask_type=mask_type_attr,
+            dropout_probability=dropout_attr,
+            return_intermediates=return_intermediates,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        op_results = list(op.operation.results)
+        for op_result, golden in zip(op_results, golden_output):
+            self._set_golden_tensor(op_result, golden)
+
+        if len(op_results) == 1:
+            return op_results[0]
+        return tuple(op_results)
+
+    ############### ttir.SDPABackwardOp ###############
+
+    @tag(ttir.SDPABackwardOp)
+    def sdpa_bw(
+        self,
+        grad_output: Operand,
+        attn_output: Operand,
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        intermediates: Operand,
+        attention_mask: Optional[Operand] = None,
+        mask_type: AttentionMaskType = AttentionMaskType.Arbitrary,
+        dropout_probability: float = 0.0,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.sdpa_bw)
+        mask_type_attr = ttcore.ir.AttentionMaskTypeAttr.get(self._ctx, mask_type.value)
+        dropout_attr = FloatAttr.get_f32(dropout_probability)
+
+        grad_output0 = self._get_golden_tensor(grad_output)
+        attn_output0 = self._get_golden_tensor(attn_output)
+        query0 = self._get_golden_tensor(query)
+        key0 = self._get_golden_tensor(key)
+        value0 = self._get_golden_tensor(value)
+        intermediates0 = self._get_golden_tensor(intermediates)
+        attention_mask0 = (
+            self._get_golden_tensor(attention_mask)
+            if attention_mask is not None
+            else None
+        )
+
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            grad_output0,
+            attn_output0,
+            query0,
+            key0,
+            value0,
+            intermediates0,
+            attention_mask0,
+            int(mask_type.value.value),
+            dropout_probability,
+        )
+
+        grad_query_type = self._create_ranked_tensor_type(
+            golden_output[0].shape, self.get_type(query)
+        )
+        grad_key_type = self._create_ranked_tensor_type(
+            golden_output[1].shape, self.get_type(key)
+        )
+        grad_value_type = self._create_ranked_tensor_type(
+            golden_output[2].shape, self.get_type(value)
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            grad_query_type,
+            grad_key_type,
+            grad_value_type,
+            grad_output,
+            attn_output,
+            query,
+            key,
+            value,
+            intermediates,
+            attention_mask=attention_mask,
+            mask_type=mask_type_attr,
+            dropout_probability=dropout_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        op_results = list(op.operation.results)
+        for op_result, golden in zip(op_results, golden_output):
+            self._set_golden_tensor(op_result, golden)
+
+        return tuple(op_results)
+
     ############### ttir.BatchNormInferenceOp ###############
 
     @tag(ttir.BatchNormInferenceOp)

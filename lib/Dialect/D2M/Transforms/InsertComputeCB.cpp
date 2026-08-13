@@ -111,6 +111,20 @@ traceCBUse(OpOperand &startUse, GenericOp generic) {
   return std::nullopt;
 }
 
+// Compute-local L1 allocations, not CBs: no datamovement thread fills or drains
+// them, so a consumer naming one as an operand must not get a CB wait.
+static bool isComputeLocalBuffer(Value cb) {
+  Operation *definingOp = cb.getDefiningOp();
+  return definingOp && (definingOp->getAttr("d2m.scratch_buffer") ||
+                        utils::isReductionScalerBuffer(definingOp));
+}
+
+// collapse_shape / subview compute an address into a CB; they do not wait
+// for or produce tiles. They are often hoisted above the loop that uses them.
+static bool isCBViewOp(Operation *op) {
+  return mlir::isa<memref::CollapseShapeOp, memref::SubViewOp>(op);
+}
+
 // Find the "raw" compute spans in a compute block: the outermost ancestor of
 // each compute op that is not itself a synchronizable op (i.e. a lowered
 // scf.for nest or a bare TileMatmulBlock containing memref.load/store + tile
@@ -338,6 +352,9 @@ static LogicalResult insertCBOpsForCompute(
       }
     }
     for (OpOperand &operand : op->getOpOperands()) {
+      if (isComputeLocalBuffer(operand.get())) {
+        continue;
+      }
       if (sync.isConsumer(operand)) {
         add(consumers, operand.get(), op, &operand);
       }
@@ -401,14 +418,22 @@ static LogicalResult insertCBOpsForCompute(
   // Do NOT seed with the raw anchors: a raw span anchor may be the whole
   // enclosing loop (which lives *outside* `block`), and including it unlifted
   // would drag the bracket out of the transfer-depth block.
-  auto bracket = [&](CBSync &sync,
-                     Block *block) -> std::pair<Operation *, Operation *> {
+  //
+  // skipViewOwners: producers need views in the bracket so they can be
+  // rewritten next to the reserve. Self-produced consumers must not -- a
+  // hoisted view would pull the wait before this region's own push -- unless
+  // the views are all there is, since an empty bracket has nowhere to sync.
+  auto bracket =
+      [&](CBSync &sync, Block *block,
+          bool skipViewOwners) -> std::pair<Operation *, Operation *> {
     SmallVector<Operation *> boundary;
-    auto lift = [&](Operation *op) {
+    SmallVector<Operation *> viewOwners;
+    auto liftInto = [&](Operation *op, SmallVector<Operation *> &into) {
       if (Operation *a = block->findAncestorOpInBlock(*op)) {
-        boundary.push_back(a);
+        into.push_back(a);
       }
     };
+    auto lift = [&](Operation *op) { liftInto(op, boundary); };
     for (Operation *anchor : sync.anchors) {
       lift(anchor);
       // A CB read into an SSA value (e.g. a hoisted, loop-invariant reduction
@@ -424,9 +449,17 @@ static LogicalResult insertCBOpsForCompute(
       }
     }
     for (OpOperand *use : sync.uses) {
-      lift(use->getOwner());
+      Operation *owner = use->getOwner();
+      bool deferred = skipViewOwners && isCBViewOp(owner);
+      liftInto(owner, deferred ? viewOwners : boundary);
     }
 
+    if (boundary.empty()) {
+      boundary = std::move(viewOwners);
+    }
+    if (boundary.empty()) {
+      return {nullptr, nullptr};
+    }
     llvm::sort(boundary, byProgramOrder);
     return {boundary.front(), boundary.back()};
   };
@@ -446,7 +479,11 @@ static LogicalResult insertCBOpsForCompute(
                 "cadence mismatch)";
     }
 
-    auto [first, last] = bracket(sync, anchorBlock);
+    // If this region also produces `cb`, ignore hoisted views so the wait
+    // lands at the real read (after the push), not at the shared view.
+    auto [first, last] =
+        bracket(sync, anchorBlock, /*skipViewOwners=*/producers.count(cb) > 0);
+
     rewriter.setInsertionPoint(first);
     auto cbHandle =
         d2m::getOrCreateCB(rewriter, generic, computeBlock, cbOperandIdx);
@@ -460,7 +497,28 @@ static LogicalResult insertCBOpsForCompute(
     rewriter.setInsertionPointAfter(last);
     rewriter.create<PopOp>(last->getLoc(), cbHandle);
 
+    auto afterWait = [&](Operation *op) {
+      Operation *inBlock = waitOp->getBlock()->findAncestorOpInBlock(*op);
+      return inBlock && waitOp->isBeforeInBlock(inBlock);
+    };
+
     for (OpOperand *use : sync.uses) {
+      Operation *owner = use->getOwner();
+      if (isCBViewOp(owner) && !afterWait(owner)) {
+        // The view sits before the wait (typically shared with the producer).
+        // Rewriting it would break dominance; moving it would break the
+        // producer. Clone after the wait and retarget only later uses.
+        rewriter.setInsertionPointAfter(waitOp);
+        Operation *clone = rewriter.clone(*owner);
+        clone->setOperand(use->getOperandNumber(), waitOp.getResult());
+        for (OpOperand &viewUse :
+             llvm::make_early_inc_range(owner->getResult(0).getUses())) {
+          if (viewUse.getOwner() != clone && afterWait(viewUse.getOwner())) {
+            viewUse.set(clone->getResult(0));
+          }
+        }
+        continue;
+      }
       use->set(waitOp.getResult());
     }
   }
@@ -479,7 +537,7 @@ static LogicalResult insertCBOpsForCompute(
                 "fan-out is not yet supported (would deadlock on a "
                 "reserve/push cadence mismatch)";
     }
-    auto [first, last] = bracket(sync, anchorBlock);
+    auto [first, last] = bracket(sync, anchorBlock, /*skipViewOwners=*/false);
 
     rewriter.setInsertionPoint(first);
     auto cbHandle =

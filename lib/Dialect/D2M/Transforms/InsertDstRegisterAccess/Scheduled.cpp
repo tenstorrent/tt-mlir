@@ -38,124 +38,165 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
   CopyInfoMap copyInfos;
   DstSliceAllocator dstAllocator(dstCapacity);
   DstIntermediatesMap dstIntermediates;
-  region.walk<WalkOrder::PreOrder>(
-      [&](OperandLoadStoreRegisterOpInterface computeOp) {
-        auto notDstMemspace = [](auto loadStoreOp) {
-          return loadStoreOp &&
-                 ttcore::getMemorySpace(loadStoreOp.getMemRef()) !=
-                     ttcore::MemorySpace::RegisterDst;
-        };
+  region.walk<WalkOrder::PreOrder>([&](OperandLoadStoreRegisterOpInterface
+                                           computeOp) {
+    auto notDstMemspace = [](auto loadStoreOp) {
+      return loadStoreOp && ttcore::getMemorySpace(loadStoreOp.getMemRef()) !=
+                                ttcore::MemorySpace::RegisterDst;
+    };
 
-        int numLoads = 0;
+    int numLoads = 0;
 
-        int totalCBLoads = 0;
-        for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
-          if (computeOp.isScalarOperand(operandIdx)) {
-            continue;
+    int totalCBLoads = 0;
+    for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
+      if (computeOp.isScalarOperand(operandIdx)) {
+        continue;
+      }
+      Value operand = computeOp->getOperand(operandIdx);
+      if ((operand.getDefiningOp<affine::AffineLoadOp>() &&
+           notDstMemspace(operand.getDefiningOp<affine::AffineLoadOp>())) ||
+          (operand.getDefiningOp<memref::LoadOp>() &&
+           notDstMemspace(operand.getDefiningOp<memref::LoadOp>()))) {
+        ++totalCBLoads;
+      }
+    }
+    const bool noAccumGuardForLoads = totalCBLoads >= 2;
+    const SmallVector<Value> carriedOutputRegions =
+        getObviousCarriedOutputRegions(computeOp);
+    const SmallVector<int64_t> accumOperandIndices =
+        getAccumClassificationOperandIndices(computeOp);
+
+    // Ops whose LLK addresses hidden slices relative to an operand slot
+    // need their DST inputs spread apart (see `getDstInputSliceStride`).
+    const unsigned inputSliceStride =
+        static_cast<unsigned>(computeOp.getDstInputSliceStride());
+
+    for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
+      if (computeOp.isScalarOperand(operandIdx)) {
+        continue;
+      }
+
+      ++numLoads;
+
+      Value operand = computeOp->getOperand(operandIdx);
+      if (auto affineLoad = operand.getDefiningOp<affine::AffineLoadOp>();
+          affineLoad && notDstMemspace(affineLoad)) {
+        collectDstLoadWithAccumAnalysis(
+            affineLoad, operandIdx, carriedOutputRegions, accumOperandIndices,
+            copyInfos, dstAllocator.allocateInputStrided(inputSliceStride),
+            outermostInnerComputeLoop, noAccumGuardForLoads);
+      } else if (auto memrefLoad = operand.getDefiningOp<memref::LoadOp>();
+                 memrefLoad && notDstMemspace(memrefLoad)) {
+        collectDstLoadWithAccumAnalysis(
+            memrefLoad, operandIdx, carriedOutputRegions, accumOperandIndices,
+            copyInfos, dstAllocator.allocateInputStrided(inputSliceStride),
+            outermostInnerComputeLoop, noAccumGuardForLoads);
+      }
+    }
+
+    // An in-place op with more than one result (e.g. tile_argmax, whose
+    // result 0 is the reduced value tile and result 1 the reduced index
+    // tile) reuses each operand's DST slot for the corresponding result.
+    // The LLK requires the two tiles in DISTINCT slots, so route result i
+    // to the slot its i-th operand was loaded into rather than reusing a
+    // single currSliceIndex for every output store.
+    const bool multiResultInPlace =
+        computeOp.getDstRegInPlace() && computeOp->getNumResults() > 1u;
+
+    for (auto *user : computeOp->getUsers()) {
+      auto affineStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
+      auto memrefStore = mlir::dyn_cast<memref::StoreOp>(user);
+      bool isAffineStore = affineStore && notDstMemspace(affineStore);
+      bool isMemrefStore = memrefStore && notDstMemspace(memrefStore);
+
+      if (isAffineStore || isMemrefStore) {
+        bool dstRegInPlace = computeOp.getDstRegInPlace();
+        bool rhsIsScalar = computeOp.isScalarOperand(1);
+
+        int64_t dstSliceIndex = -1;
+        if (multiResultInPlace) {
+          // Identify which result of the compute op this store consumes and
+          // map it to that result's in-place DST slot.
+          Value stored =
+              isAffineStore ? affineStore.getValue() : memrefStore.getValue();
+          auto opResult = mlir::cast<OpResult>(stored);
+          unsigned resultIdx = opResult.getResultNumber();
+          const unsigned numInputSlices = dstAllocator.getNumInputSlices();
+          if (resultIdx < numInputSlices) {
+            dstSliceIndex = dstAllocator.getInputSliceIndex(resultIdx);
+          } else {
+            // Results beyond the staged inputs are backed by the slices the
+            // strided allocation reserved next to each input (see
+            // `getDstInputSliceStride`): an LLK that keeps running state
+            // alongside each operand addresses it at `slot + k`.  Result
+            // `numInputSlices + n` pairs with input `n`, offset by its
+            // position within the stride window.
+            const unsigned pairedInput = resultIdx % numInputSlices;
+            const unsigned strideOffset =
+                1u + (resultIdx / numInputSlices) - 1u;
+            dstSliceIndex =
+                dstAllocator.getInputSliceIndex(pairedInput) + strideOffset;
+            TT_assertv(strideOffset < static_cast<unsigned>(
+                                          computeOp.getDstInputSliceStride()),
+                       "In-place result index exceeds the reserved DST "
+                       "stride window");
           }
-          Value operand = computeOp->getOperand(operandIdx);
-          if ((operand.getDefiningOp<affine::AffineLoadOp>() &&
-               notDstMemspace(operand.getDefiningOp<affine::AffineLoadOp>())) ||
-              (operand.getDefiningOp<memref::LoadOp>() &&
-               notDstMemspace(operand.getDefiningOp<memref::LoadOp>()))) {
-            ++totalCBLoads;
-          }
+        } else if (dstRegInPlace || rhsIsScalar) {
+          TT_assertv(!dstAllocator.didStoreToDst(),
+                     "Multiple stores from last op to dst not supported");
+          dstSliceIndex = dstAllocator.getCurrSliceIndex();
+        } else if (numLoads >= 2) {
+          TT_assertv(!dstAllocator.didStoreToDst(),
+                     "Multiple stores from last op to dst not supported");
+          dstSliceIndex = dstAllocator.getFirstInputSliceIndex();
+          dstAllocator.deallocateAllButFirstInput();
+          dstAllocator.setStoreToDst();
+        } else {
+          TT_assertv(!dstAllocator.didStoreToDst(),
+                     "Multiple stores from last op to dst not supported");
+          dstSliceIndex = dstAllocator.allocateOutput();
+          dstAllocator.setStoreToDst();
         }
-        const bool noAccumGuardForLoads = totalCBLoads >= 2;
-        const SmallVector<Value> carriedOutputRegions =
-            getObviousCarriedOutputRegions(computeOp);
-        const SmallVector<int64_t> accumOperandIndices =
-            getAccumClassificationOperandIndices(computeOp);
 
-        for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
-          if (computeOp.isScalarOperand(operandIdx)) {
-            continue;
-          }
+        if (isAffineStore) {
+          collectDstStoreAccess(affineStore, copyInfos, dstSliceIndex,
+                                outermostInnerComputeLoop);
+        } else {
+          collectDstStoreAccess(memrefStore, copyInfos, dstSliceIndex,
+                                outermostInnerComputeLoop);
+        }
+      } else if (user->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+        TT_assertv(computeOp->hasOneUse(),
+                   "Currently we do not support multiple users in the "
+                   "same compute dst region.");
+        TT_assert(computeOp->getNumResults() == 1u);
+        TT_assert(!dstIntermediates.contains(computeOp));
 
-          ++numLoads;
+        bool hasTileInputs = numLoads > 0;
+        bool overwriteInput = hasTileInputs && (computeOp.getDstRegInPlace() ||
+                                                computeOp.isScalarOperand(1));
 
-          Value operand = computeOp->getOperand(operandIdx);
-          if (auto affineLoad = operand.getDefiningOp<affine::AffineLoadOp>();
-              affineLoad && notDstMemspace(affineLoad)) {
-            collectDstLoadWithAccumAnalysis(
-                affineLoad, operandIdx, carriedOutputRegions,
-                accumOperandIndices, copyInfos, dstAllocator.allocateInput(),
-                outermostInnerComputeLoop, noAccumGuardForLoads);
-          } else if (auto memrefLoad = operand.getDefiningOp<memref::LoadOp>();
-                     memrefLoad && notDstMemspace(memrefLoad)) {
-            collectDstLoadWithAccumAnalysis(
-                memrefLoad, operandIdx, carriedOutputRegions,
-                accumOperandIndices, copyInfos, dstAllocator.allocateInput(),
-                outermostInnerComputeLoop, noAccumGuardForLoads);
-          }
+        int32_t allocatedIndex;
+        if (overwriteInput) {
+          allocatedIndex = dstAllocator.getCurrSliceIndex();
+        } else if (numLoads >= 2) {
+          allocatedIndex = dstAllocator.getFirstInputSliceIndex();
+          dstAllocator.deallocateAllButFirstInput();
+        } else {
+          allocatedIndex = dstAllocator.allocateOutput();
         }
 
-        for (auto *user : computeOp->getUsers()) {
-          auto affineStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
-          auto memrefStore = mlir::dyn_cast<memref::StoreOp>(user);
-          bool isAffineStore = affineStore && notDstMemspace(affineStore);
-          bool isMemrefStore = memrefStore && notDstMemspace(memrefStore);
+        dstIntermediates[computeOp] = {allocatedIndex,
+                                       outermostInnerComputeLoop};
+      }
+    }
 
-          if (isAffineStore || isMemrefStore) {
-            TT_assertv(!dstAllocator.didStoreToDst(),
-                       "Multiple stores from last op to dst not supported");
-
-            bool dstRegInPlace = computeOp.getDstRegInPlace();
-            bool rhsIsScalar = computeOp.isScalarOperand(1);
-
-            int64_t dstSliceIndex = -1;
-            if (dstRegInPlace || rhsIsScalar) {
-              dstSliceIndex = dstAllocator.getCurrSliceIndex();
-            } else if (numLoads >= 2) {
-              dstSliceIndex = dstAllocator.getFirstInputSliceIndex();
-              dstAllocator.deallocateAllButFirstInput();
-              dstAllocator.setStoreToDst();
-            } else {
-              dstSliceIndex = dstAllocator.allocateOutput();
-              dstAllocator.setStoreToDst();
-            }
-
-            if (isAffineStore) {
-              collectDstStoreAccess(affineStore, copyInfos, dstSliceIndex,
-                                    outermostInnerComputeLoop);
-            } else {
-              collectDstStoreAccess(memrefStore, copyInfos, dstSliceIndex,
-                                    outermostInnerComputeLoop);
-            }
-          } else if (user->hasTrait<D2MGenericRegionComputeOpTrait>()) {
-            TT_assertv(computeOp->hasOneUse(),
-                       "Currently we do not support multiple users in the "
-                       "same compute dst region.");
-            TT_assert(computeOp->getNumResults() == 1u);
-            TT_assert(!dstIntermediates.contains(computeOp));
-
-            bool hasTileInputs = numLoads > 0;
-            bool overwriteInput =
-                hasTileInputs &&
-                (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1));
-
-            int32_t allocatedIndex;
-            if (overwriteInput) {
-              allocatedIndex = dstAllocator.getCurrSliceIndex();
-            } else if (numLoads >= 2) {
-              allocatedIndex = dstAllocator.getFirstInputSliceIndex();
-              dstAllocator.deallocateAllButFirstInput();
-            } else {
-              allocatedIndex = dstAllocator.allocateOutput();
-            }
-
-            dstIntermediates[computeOp] = {allocatedIndex,
-                                           outermostInnerComputeLoop};
-          }
-        }
-
-        // Reserve any per-op DST scratch slices.
-        for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n;
-             ++i) {
-          setDstScratchIndex(computeOp, dstAllocator.allocateScratch(),
-                             outermostInnerComputeLoop);
-        }
-      });
+    // Reserve any per-op DST scratch slices.
+    for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n; ++i) {
+      setDstScratchIndex(computeOp, dstAllocator.allocateScratch(),
+                         outermostInnerComputeLoop);
+    }
+  });
 
   // Simple copy patterns from DecomposeMasking (memref.load -> memref.store).
   auto isL1Memspace = [](Value memref) {
