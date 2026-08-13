@@ -14,6 +14,40 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_FLATTENORCONVERTCOMPOSITESPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
+// Returns the size of the channel dimension of a group_norm composite's
+// activation operand (operand 0), or std::nullopt for any other composite or if
+// the shape/attributes are not in the expected form.
+//
+// `num_groups` in the composite attributes describes the *global* channel
+// layout. Sharding the channel dimension shrinks the activation without
+// touching that attribute, so ReoutlineCompositePass needs the pre-sharding
+// size to rescale it. See rescaleGroupNormNumGroups() in
+// ReoutlineComposite.cpp.
+static std::optional<int64_t>
+getGroupNormGlobalChannels(mlir::stablehlo::CompositeOp comp,
+                           mlir::DictionaryAttr compAttrs) {
+  if (comp.getName() != utils::kTTGroupNormCompositeName ||
+      comp.getNumOperands() == 0) {
+    return std::nullopt;
+  }
+  auto channelDim = llvm::dyn_cast_or_null<mlir::IntegerAttr>(
+      compAttrs.get(utils::kGroupNormChannelDimKey));
+  auto actType =
+      llvm::dyn_cast<mlir::RankedTensorType>(comp.getOperand(0).getType());
+  if (!channelDim || !actType) {
+    return std::nullopt;
+  }
+  // channel_dim may be given as a negative (from-the-end) index.
+  int64_t dim = channelDim.getInt();
+  if (dim < 0) {
+    dim += actType.getRank();
+  }
+  if (dim < 0 || dim >= actType.getRank() || actType.isDynamicDim(dim)) {
+    return std::nullopt;
+  }
+  return actType.getDimSize(dim);
+}
+
 // Inline a single stablehlo.composite op. Returns success if it was flattened.
 static mlir::LogicalResult
 flattenOneComposite(mlir::stablehlo::CompositeOp comp,
@@ -111,6 +145,12 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
       cloned->setAttr(utils::kReoutlineOrigNameAttr, origName);
       // { approximate = "tanh" }
       cloned->setAttr(utils::kReoutlineCompAttrsAttr, origCompAttrs);
+      // 512, when the group_norm activation is <1x512x1x40x64> pre-sharding.
+      if (std::optional<int64_t> globalChannels =
+              getGroupNormGlobalChannels(comp, origCompAttrs)) {
+        cloned->setAttr(utils::kReoutlineGlobalChannelsAttr,
+                        builder.getI64IntegerAttr(*globalChannels));
+      }
       seeded = true;
     }
     clonedOps.push_back(cloned);
