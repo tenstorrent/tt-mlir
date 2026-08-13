@@ -24,13 +24,25 @@ import torch.nn.functional as F
 from ..tensor_layout import _to_data_type
 from .tensors import SimBlock, SimTensor, block_extent, TILE
 
-# --- current-core thread-local (SPMD) ---------------------------------------
+# --- current-core / current-device thread-locals (SPMD) ----------------------
 
 _state = threading.local()
 
 
 def _set_current_core(core):
     _state.core = core
+
+
+def _set_current_device(device):
+    """Row-major mesh device index for the running kernel iteration, or None
+    outside a kernel. `SimTensor.buffer` resolves per-device buffers through
+    this (SIMULATOR_SPEC.md §14.4); kernel bodies never see it -- the device
+    DSL has no device-index op either."""
+    _state.device = device
+
+
+def _get_current_device():
+    return getattr(_state, "device", None)
 
 
 def core_index(index):

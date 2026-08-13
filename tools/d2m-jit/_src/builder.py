@@ -47,6 +47,7 @@ from .layout_math import (
     reduction_layout,
     resolve_reshape,
     MeshShard,
+    validate_mesh_decl as _validate_mesh_decl,
     validate_mesh_mapping as _validate_mesh_mapping,
     shard_logical_shape as _shard_logical_shape,
     set_current_mesh as _set_current_mesh,
@@ -275,32 +276,7 @@ class _Builder:
 
     def set_mesh(self, shape, topology=None):
         """Declare the device mesh used by this graph."""
-        shape = tuple(shape)
-        if not shape or any(
-            not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0
-            for dim in shape
-        ):
-            raise ValueError(f"mesh shape must contain positive integers, got {shape}")
-        if len(shape) != 2:
-            raise ValueError(f"TTMetal requires a rank-2 mesh, got shape {shape}")
-        if topology is not None:
-            topology = tuple(topology)
-            if len(topology) != len(shape):
-                raise ValueError(
-                    "mesh topology must have one entry per mesh dimension, "
-                    f"got shape {shape} and topology {topology}"
-                )
-            invalid = [
-                value
-                for value in topology
-                if value not in {"disabled", "linear", "ring"}
-            ]
-            if invalid:
-                raise ValueError(
-                    "mesh topology entries must be 'disabled', 'linear', or "
-                    f"'ring', got {invalid}"
-                )
-        requested_topology = list(topology) if topology is not None else None
+        shape, requested_topology = _validate_mesh_decl(shape, topology)
         if self._mesh_shape is not None:
             if (
                 self._mesh_shape == list(shape)

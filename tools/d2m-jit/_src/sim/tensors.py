@@ -4,8 +4,9 @@
 
 """Value types for the d2m-jit simulator.
 
-`SimTensor`  -- host handle, the sim analog of `LazyTensor`. Wraps a single
-                tile-padded torch buffer plus its `Layout`.
+`SimTensor`  -- host handle, the sim analog of `LazyTensor`. Wraps one
+                tile-padded torch buffer per mesh device (a single buffer in
+                the no-mesh case) plus its `Layout`.
 `SimBlock`   -- the in-kernel `!tensor` tile-block value that `remote_load`
                 returns and the block-level ops consume. A 2-D block of
                 `bm x bn` tiles of 32x32, stored as a torch tensor of shape
@@ -157,17 +158,46 @@ class SimBlock:
 
 
 class SimTensor:
-    """Host handle wrapping a tile-padded torch buffer + its Layout."""
+    """Host handle wrapping per-device tile-padded torch buffers + a Layout.
 
-    __slots__ = ("layout", "buffer", "is_view", "mesh")
+    `.buffers` holds one buffer per mesh device in row-major mesh order --
+    length 1 when no mesh is declared, so the single-device case is the
+    degenerate form (SIMULATOR_SPEC.md §14.1). `.layout` always describes the
+    per-device shard.
+    """
+
+    __slots__ = ("layout", "buffers", "is_view", "mesh")
 
     def __init__(self, layout: Layout, buffer, is_view: bool = False, mesh=None):
         self.layout = layout
-        self.buffer = buffer
+        # Accept a single torch buffer (the ubiquitous single-device case) or
+        # a per-device list.
+        self.buffers = list(buffer) if isinstance(buffer, (list, tuple)) else [buffer]
         self.is_view = is_view
         # MeshShard metadata when this tensor is marked for a mesh gather;
         # None otherwise (the common single-device case).
         self.mesh = mesh
+
+    @property
+    def buffer(self):
+        """The backing buffer: inside a kernel SPMD loop this resolves to the
+        current device's buffer; on host code it is valid only for
+        single-buffer tensors -- per-device tensors must be handled
+        mesh-aware (gather via mesh_gather + to_host, or iterate `.buffers`),
+        so a bare `.buffer` read cannot silently alias shard 0."""
+        if len(self.buffers) == 1:
+            return self.buffers[0]
+        from . import ops
+
+        device = ops._get_current_device()
+        if device is None:
+            raise RuntimeError(
+                f"this SimTensor holds per-device buffers ({len(self.buffers)} "
+                "mesh devices) and has no single `.buffer` outside a kernel; "
+                "gather it with mesh_gather + to_host, or operate on "
+                "`.buffers` explicitly"
+            )
+        return self.buffers[device]
 
     def to_logical(self):
         """Slice the device buffer back to the logical shape (a clone)."""
@@ -188,5 +218,5 @@ class SimTensor:
     def __repr__(self):
         return (
             f"SimTensor(shape={self.layout.logical_shape}, "
-            f"dtype={self.buffer.dtype}, is_view={self.is_view})"
+            f"dtype={self.buffers[0].dtype}, is_view={self.is_view})"
         )

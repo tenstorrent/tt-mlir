@@ -144,6 +144,20 @@ def _reset_builder():
     _Builder.reset()
 
 
+@pytest.fixture(scope="function", autouse=True)
+def _clear_mesh_mirror():
+    """Clear the process-global mesh mirror between tests. The device builder
+    clears it whenever a fresh graph starts, but the sim has no graph lifecycle
+    (SIMULATOR_SPEC.md §14.2), so a `d2m.mesh(...)` declared by one test would
+    otherwise leak per-device allocation into every test that runs after it."""
+    yield
+    # `layout_math` is deliberately MLIR-free, so this import is safe in the
+    # binding-free simulator lane.
+    from d2m_jit._src.layout_math import clear_current_mesh
+
+    clear_current_mesh()
+
+
 def pytest_generate_tests(metafunc):
     """Parametrize the generic pattern tests over every spec declared in the
     bundled pattern files (test/d2m-jit/patterns/*.py). Adding a pattern file with

@@ -113,6 +113,13 @@ class SimKernel:
                         f"SimTensor but a scalar was already seen; tensor "
                         f"arguments must precede scalars"
                     )
+                if len(a.buffers) > 1:
+                    # Per-device execution (the outer mesh-device loop,
+                    # SIMULATOR_SPEC.md §14.4) is not implemented yet (#9202).
+                    raise NotImplementedError(
+                        "sim kernels over per-device (mesh) tensors are not "
+                        "supported yet"
+                    )
                 lazy += 1
             elif isinstance(a, int) and not isinstance(a, bool):
                 saw_scalar = True

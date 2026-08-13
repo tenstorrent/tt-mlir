@@ -12,6 +12,11 @@ from d2m_jit._src.builder import _Builder
 pytestmark = pytest.mark.machines("n300")
 
 
+@pytest.mark.device_only(
+    reason="asserts device-builder MLIR state (the ttcore.meshes module attr); "
+    "the sim mesh declaration only records the layout_math mirror "
+    "(SIMULATOR_SPEC.md §14.2)"
+)
 def test_mesh_configuration():
     d2m.mesh((1, 2), topology=("linear", "ring"))
     builder = _Builder.get()
@@ -39,6 +44,9 @@ def test_mesh_gather_derives_full_shape():
     assert gathered.mesh.full_shape == [64, 128]
 
 
+@pytest.mark.device_only(
+    reason="mesh_shard has no sim backing yet (SIMULATOR_SPEC.md §14.3, #9202)"
+)
 def test_mesh_shard_round_trip_1x2():
     d2m.mesh((1, 2), topology=("linear", "ring"))
     layout = d2m.Layout(
@@ -61,6 +69,9 @@ def test_mesh_shard_round_trip_1x2():
     assert torch.allclose(result, full, atol=1e-2)
 
 
+@pytest.mark.device_only(
+    reason="mesh_shard has no sim backing yet (SIMULATOR_SPEC.md §14.3, #9202)"
+)
 def test_mesh_compute_round_trip_1x2():
     @d2m.kernel
     def sigmoid_kernel(input_, output, m_blocks, n_blocks):

@@ -39,6 +39,7 @@ import pytest
 import torch
 
 import d2m_jit.sim as d2m
+from d2m_jit._src.layout_math import current_mesh
 from utils import assert_pcc
 
 
@@ -152,6 +153,149 @@ def test_kernel_rejects_declarative_form():
     out = d2m.empty(layout)
     with pytest.raises(NotImplementedError):
         add(a, a, out, 1, 1, grid=(1, 1), iterator_types=["parallel", "parallel"])
+
+
+# --- mesh: declaration + per-device storage (SPEC §14.1-14.2) -----------------
+#
+# The mesh mirror is process-global (no graph lifecycle in sim); the autouse
+# `_clear_mesh_mirror` fixture in the parent conftest clears it between tests,
+# so declarations here cannot leak per-device allocation into the rest of the
+# suite.
+
+
+@pytest.fixture
+def mesh_1x2():
+    d2m.mesh((1, 2), topology=("linear", "ring"))
+
+
+def test_mesh_declaration_validates_like_device():
+    """Validation is the shared `validate_mesh_decl`, so shapes/topologies the
+    device builder rejects fail identically here."""
+    with pytest.raises(ValueError, match="positive integers"):
+        d2m.mesh((1, 0))
+    with pytest.raises(ValueError, match="rank-2 mesh"):
+        d2m.mesh((2,))
+    with pytest.raises(ValueError, match="one entry per mesh dimension"):
+        d2m.mesh((1, 2), topology=("linear",))
+    with pytest.raises(ValueError, match="'disabled', 'linear'"):
+        d2m.mesh((1, 2), topology=("linear", "mobius"))
+    assert current_mesh() is None  # rejected declarations record nothing
+
+    d2m.mesh((1, 2), topology=("linear", "ring"))
+    assert current_mesh()["shape"] == [1, 2]
+    # No graph lifecycle in sim: redeclaration replaces (SPEC §14.2).
+    d2m.mesh((2, 2))
+    assert current_mesh()["shape"] == [2, 2]
+    assert current_mesh()["topology"] is None
+
+
+def test_allocations_are_per_device_under_mesh(mesh_1x2):
+    layout = _layout((32, 32))
+    t = d2m.zeros(layout)
+    assert len(t.buffers) == 2
+    # Distinct buffers: mutating one device's copy leaves the other intact.
+    t.buffers[0] += 1.0
+    assert torch.count_nonzero(t.buffers[1]).item() == 0
+    # No single `.buffer` outside a kernel -- host code must be mesh-aware,
+    # so a bare read cannot silently alias shard 0 (SPEC §14.1).
+    with pytest.raises(RuntimeError, match="per-device buffers"):
+        _ = t.buffer
+    with pytest.raises(RuntimeError, match="per-device buffers"):
+        t.to_host()
+
+
+def test_host_ops_apply_per_device(mesh_1x2):
+    layout = _layout((32, 64))
+    data = torch.randn(32, 64)
+    t = d2m.to_layout(data, layout)  # replicated onto both devices
+    assert len(t.buffers) == 2
+    assert torch.equal(t.buffers[0], t.buffers[1])
+    assert t.buffers[0] is not t.buffers[1]
+
+    v = d2m.permute(t, 1, 0)  # views permute every device's buffer
+    assert len(v.buffers) == 2
+    assert v.buffers[1].shape == (64, 32)
+
+    r = d2m.reshape(t, 64, 32)  # host roundtrips run per device
+    assert len(r.buffers) == 2
+    assert torch.equal(r.buffers[1][:64, :32], data.reshape(64, 32))
+
+
+def test_mesh_shard_places_chunks_like_the_runtime(mesh_1x2):
+    """1x2 mesh, cols sharded: device 0 gets the left half, device 1 the right
+    (row-major device order, meshshard_utils.cpp::shard placement)."""
+    layout = _layout((32, 32))
+    full = torch.randn(32, 64)
+    shard = d2m.mesh_shard(full, layout, shard_dims=[0, 1], shard_shape=[1, 2])
+    assert len(shard.buffers) == 2
+    assert torch.equal(shard.buffers[0], full[:, :32])
+    assert torch.equal(shard.buffers[1], full[:, 32:])
+    assert shard.mesh.full_shape == [32, 64]
+    assert shard.mesh.shard_dims == [0, 1]
+    assert shard.mesh.shard_shape == [1, 2]
+
+
+def test_mesh_shard_2x2_quadrants():
+    d2m.mesh((2, 2))
+    layout = _layout((32, 32))
+    full = torch.randn(64, 64)
+    shard = d2m.mesh_shard(full, layout, shard_dims=[0, 1], shard_shape=[2, 2])
+    # Row-major over the mesh: (0,0) (0,1) (1,0) (1,1).
+    assert torch.equal(shard.buffers[0], full[:32, :32])
+    assert torch.equal(shard.buffers[1], full[:32, 32:])
+    assert torch.equal(shard.buffers[2], full[32:, :32])
+    assert torch.equal(shard.buffers[3], full[32:, 32:])
+
+
+def test_mesh_shard_replicates_along_minus1_axes():
+    """A `-1` mesh axis replicates: every device along it gets a copy of the
+    same chunk, matching the runtime's replicate fill (SPEC §14.3)."""
+    d2m.mesh((2, 2))
+    layout = _layout((32, 32))
+    full = torch.randn(32, 64)
+    shard = d2m.mesh_shard(full, layout, shard_dims=[-1, 1], shard_shape=[1, 2])
+    assert torch.equal(shard.buffers[0], full[:, :32])
+    assert torch.equal(shard.buffers[1], full[:, 32:])
+    assert torch.equal(shard.buffers[2], full[:, :32])
+    assert torch.equal(shard.buffers[3], full[:, 32:])
+
+
+def test_mesh_shard_validates_like_device(mesh_1x2):
+    """The TypeError/RuntimeError/ValueError messages mirror
+    `builder.mesh_shard`; the mapping checks are the shared
+    `validate_mesh_mapping`/`shard_logical_shape`."""
+    layout = _layout((32, 32))
+    full = torch.randn(32, 64)
+    with pytest.raises(TypeError, match="expects a torch.Tensor"):
+        d2m.mesh_shard([[1.0]], layout, shard_dims=[0, 1], shard_shape=[1, 2])
+    with pytest.raises(ValueError, match="does not match mesh"):
+        d2m.mesh_shard(full, layout, shard_dims=[0, 1], shard_shape=[2, 2])
+    with pytest.raises(ValueError, match="not divisible"):
+        d2m.mesh_shard(
+            torch.randn(32, 63), layout, shard_dims=[0, 1], shard_shape=[1, 2]
+        )
+    with pytest.raises(ValueError, match="expected per-device shape"):
+        d2m.mesh_shard(full, _layout((32, 64)), shard_dims=[0, 1], shard_shape=[1, 2])
+
+
+def test_mesh_shard_requires_a_mesh():
+    with pytest.raises(RuntimeError, match="requires a preceding mesh"):
+        d2m.mesh_shard(
+            torch.randn(32, 64),
+            _layout((32, 32)),
+            shard_dims=[0, 1],
+            shard_shape=[1, 2],
+        )
+
+
+def test_kernel_over_per_device_tensors_rejected_for_now(mesh_1x2):
+    """Per-device *execution* is the SPEC §14.4 step of #9202; until it lands,
+    kernels over mesh tensors fail loud instead of computing shard 0 only."""
+    layout = _layout((32, 32))
+    a = d2m.to_layout(torch.randn(32, 32), layout)
+    out = d2m.empty(layout)
+    with pytest.raises(NotImplementedError, match="per-device"):
+        add(a, a, out, 1, 1, grid=(1, 1))
 
 
 # --- async / semaphores ------------------------------------------------------

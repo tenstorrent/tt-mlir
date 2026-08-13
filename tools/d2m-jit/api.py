@@ -115,10 +115,14 @@ arange = _dispatch("arange")
 reshape = _dispatch("reshape")
 spatial = _dispatch("spatial")
 
-# Mesh declaration (`mesh`) and `mesh_shard` stay on the device builder (they own
-# the `ttcore.meshes` module attribute / emit `d2m.mesh_shard`). `mesh_gather` is
-# pure metadata derivation, so it dispatches and has a sim backing that operates
-# on SimTensors under `backend="sim"`.
+# The mesh surface dispatches. `mesh`: the device builder owns the
+# `ttcore.meshes` module attribute, while the sim only records the declaration
+# in the `layout_math` mirror (SIMULATOR_SPEC.md §14.2). `mesh_shard`: the
+# device builder emits `d2m.mesh_shard`, while the sim splits the full host
+# tensor into per-device buffers (§14.3). `mesh_gather` is pure metadata
+# derivation on both backends (the sim's actual gather is tracked in #9202).
+mesh = _dispatch("mesh")
+mesh_shard = _dispatch("mesh_shard")
 mesh_gather = _dispatch("mesh_gather")
 
 

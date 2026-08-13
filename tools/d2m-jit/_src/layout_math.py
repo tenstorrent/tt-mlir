@@ -155,6 +155,35 @@ class MeshShard:
         self.shard_shape = list(shard_shape)
 
 
+def validate_mesh_decl(shape, topology):
+    """Shared validation for a `mesh()` declaration (device builder and sim
+    raise identical errors). Returns the normalized `(shape, topology)` as
+    a list and a list-or-None."""
+    shape = tuple(shape)
+    if not shape or any(
+        not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0 for dim in shape
+    ):
+        raise ValueError(f"mesh shape must contain positive integers, got {shape}")
+    if len(shape) != 2:
+        raise ValueError(f"TTMetal requires a rank-2 mesh, got shape {shape}")
+    if topology is not None:
+        topology = tuple(topology)
+        if len(topology) != len(shape):
+            raise ValueError(
+                "mesh topology must have one entry per mesh dimension, "
+                f"got shape {shape} and topology {topology}"
+            )
+        invalid = [
+            value for value in topology if value not in {"disabled", "linear", "ring"}
+        ]
+        if invalid:
+            raise ValueError(
+                "mesh topology entries must be 'disabled', 'linear', or "
+                f"'ring', got {invalid}"
+            )
+    return list(shape), list(topology) if topology is not None else None
+
+
 def validate_mesh_mapping(mesh_shape, tensor_rank, shard_dims, shard_shape):
     if len(shard_dims) != len(mesh_shape):
         raise ValueError(

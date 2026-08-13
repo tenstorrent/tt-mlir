@@ -30,6 +30,8 @@ from .host import (
     permute,
     reduction_layout,
     to_host,
+    mesh,
+    mesh_shard,
     mesh_gather,
 )
 from .run import kernel
@@ -51,6 +53,8 @@ __all__ = [
     "permute",
     "reduction_layout",
     "to_host",
+    "mesh",
+    "mesh_shard",
     "mesh_gather",
     "kernel",
 ]

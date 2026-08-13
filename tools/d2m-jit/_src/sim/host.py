@@ -11,6 +11,7 @@ information that changes output values, so they are descriptor-only here.
 """
 
 import inspect
+import itertools
 
 import torch
 
@@ -19,18 +20,39 @@ from ..layout_math import (
     reduction_layout,
     resolve_reshape,
     MeshShard,
+    validate_mesh_decl,
     validate_mesh_mapping,
+    shard_logical_shape,
     current_mesh,
+    set_current_mesh,
 )
 from .tensors import SimTensor, tile_padded_shape, torch_dtype
 
 
-def _alloc(layout: Layout, fill=None):
+def _num_devices():
+    """Device count of the declared mesh (1 with no mesh declared)."""
+    mesh = current_mesh()
+    if mesh is None:
+        return 1
+    n = 1
+    for dim in mesh["shape"]:
+        n *= dim
+    return n
+
+
+def _alloc_one(layout: Layout, fill=None):
     shape = tile_padded_shape(layout)
     dtype = torch_dtype(layout)
     if fill is None or fill == 0:
         return torch.zeros(shape, dtype=dtype)
     return torch.full(shape, fill, dtype=dtype)
+
+
+def _alloc(layout: Layout, fill=None):
+    """One tile-padded buffer per mesh device, replicated fill -- under a mesh
+    every tensor exists once per chip (SIMULATOR_SPEC.md §14.1). A single
+    buffer when no mesh is declared."""
+    return [_alloc_one(layout, fill) for _ in range(_num_devices())]
 
 
 def to_layout(input_, layout: Layout) -> SimTensor:
@@ -41,21 +63,26 @@ def to_layout(input_, layout: Layout) -> SimTensor:
             f"to_layout shape mismatch: src {input_.layout.logical_shape} "
             f"vs target {layout.logical_shape}"
         )
-        logical = input_.to_logical()
-        buf = _alloc(layout)
+        # Re-layout is per-device: each of the source's buffers materialises
+        # into a fresh buffer (SIMULATOR_SPEC.md §14.1).
         r, c = layout.logical_shape
-        buf[:r, :c] = logical.to(buf.dtype)
-        return SimTensor(layout, buf, is_view=False)
+        bufs = []
+        for src in input_.buffers:
+            buf = _alloc_one(layout)
+            buf[:r, :c] = src[:r, :c].to(buf.dtype)
+            bufs.append(buf)
+        return SimTensor(layout, bufs, is_view=False)
 
     if isinstance(input_, torch.Tensor):
         assert list(input_.shape) == list(layout.logical_shape), (
             f"to_layout shape mismatch: tensor {list(input_.shape)} "
             f"vs layout {layout.logical_shape}"
         )
-        buf = _alloc(layout)
         r, c = layout.logical_shape
-        buf[:r, :c] = input_.to(buf.dtype)
-        return SimTensor(layout, buf, is_view=False)
+        bufs = _alloc(layout)
+        for buf in bufs:
+            buf[:r, :c] = input_.to(buf.dtype)
+        return SimTensor(layout, bufs, is_view=False)
 
     raise TypeError(
         f"to_layout expected a torch.Tensor or SimTensor, got "
@@ -123,8 +150,19 @@ def reshape(lt: SimTensor, *shape) -> SimTensor:
         raise TypeError(f"reshape expected a SimTensor, got {type(lt).__name__}")
 
     new_shape, dst_layout = resolve_reshape(lt.layout, shape)
-    host = lt.to_host().reshape(new_shape)
-    return to_layout(host, dst_layout)
+    if lt.is_view:
+        # Raises the canonical to_host view rejection -- the exact error the
+        # device path hits, since its reshape starts with a to_host roundtrip.
+        to_host(lt)
+    # The roundtrip is per-device (SIMULATOR_SPEC.md §14.1).
+    r, c = lt.layout.logical_shape
+    bufs = []
+    for src in lt.buffers:
+        buf = _alloc_one(dst_layout)
+        dr, dc = dst_layout.logical_shape
+        buf[:dr, :dc] = src[:r, :c].reshape(new_shape).to(buf.dtype)
+        bufs.append(buf)
+    return SimTensor(dst_layout, bufs)
 
 
 def spatial(inputs, outputs, grid_ranges, region_builders):
@@ -213,13 +251,13 @@ def _apply_perm(lt: SimTensor, perm) -> SimTensor:
         )
     if n != 2:
         raise NotImplementedError("sim views support rank-2 tensors only")
-    buf = lt.buffer.permute(*perm)
+    bufs = [buf.permute(*perm) for buf in lt.buffers]
     new_layout = lt.layout.replace(
         shape=[lt.layout.logical_shape[p] for p in perm],
         block_shape=[lt.layout.block_shape[p] for p in perm],
         grid_shape=[lt.layout.grid_shape[p] for p in perm],
     )
-    return SimTensor(new_layout, buf, is_view=True)
+    return SimTensor(new_layout, bufs, is_view=True)
 
 
 def permute(lt: SimTensor, *dims) -> SimTensor:
@@ -275,13 +313,77 @@ def view_layout(lt: SimTensor, remapping_fn) -> SimTensor:
 
 # --- mesh --------------------------------------------------------------------
 #
-# The mesh *declaration* (`d2m.mesh(...)`) stays on the device builder even under
-# `backend="sim"` (it owns the `ttcore.meshes` module attribute); it mirrors the
-# declared shape into `layout_math` so this backend can validate mesh ops without
-# importing the builder. Multi-device data movement is not simulated, so
+# The sim's mesh state is the `layout_math` mirror the device builder also
+# writes to -- `mesh()` here only records the declaration (no MLIR, no builder
+# scope; SIMULATOR_SPEC.md §14.2). `mesh_shard` performs the real full->shards
+# split (§14.3). The gather direction is not simulated yet (§14.5, #9202):
 # `mesh_gather` only derives/validates the gather metadata -- exactly the pure
 # descriptor math the device path runs -- so `.mesh.full_shape` matches the
-# device path. `mesh_shard` round-trips need real devices and stay device-only.
+# device path.
+
+
+def mesh(shape, topology=None):
+    """Sim analog of `builder.mesh`: declare the device mesh.
+
+    Validation is the shared `validate_mesh_decl`, so the errors match the
+    device path. `topology` is recorded but value-neutral -- the sim models no
+    fabric (SIMULATOR_SPEC.md §14.7). Lifecycle divergence (§14.2): the sim has
+    no graph lifecycle, so redeclaration simply replaces the current mesh;
+    consistency is enforced where it matters, at `mesh_shard` / `mesh_gather`
+    validation time.
+    """
+    shape, topology = validate_mesh_decl(shape, topology)
+    set_current_mesh(shape, topology, "mesh")
+
+
+def mesh_shard(input_, layout: Layout, shard_dims, shard_shape) -> SimTensor:
+    """Sim analog of `builder.mesh_shard`: distribute a full host tensor into
+    one `layout` shard per device.
+
+    Shapes and errors are the shared descriptor math (`shard_logical_shape`),
+    so they match the device path. Chunk placement matches the runtime
+    (`runtime/lib/ttmetal/meshshard_utils.cpp::shard`): walking mesh axes in
+    order, each non-`-1` entry of `shard_dims` splits its tensor dim evenly
+    across that mesh axis (so chunk indices run last-mesh-axis-fastest, the
+    runtime's `incrementIndices` order), and replicated (`-1`) axes do not
+    narrow -- every device along them gets a copy of the same chunk, matching
+    the runtime's replicate fill (SIMULATOR_SPEC.md §14.3).
+    """
+    if not isinstance(input_, torch.Tensor):
+        raise TypeError("mesh_shard expects a torch.Tensor containing the full tensor")
+    mesh = current_mesh()
+    if mesh is None:
+        raise RuntimeError("mesh_shard() requires a preceding mesh() declaration")
+
+    shard_dims = list(shard_dims)
+    shard_shape = list(shard_shape)
+    full_shape = list(input_.shape)
+    mesh_shape = mesh["shape"]
+    expected_shape = shard_logical_shape(
+        mesh_shape, full_shape, shard_dims, shard_shape
+    )
+    if list(layout.logical_shape) != expected_shape:
+        raise ValueError(
+            f"mesh_shard layout shape {list(layout.logical_shape)} does not "
+            f"match expected per-device shape {expected_shape}"
+        )
+
+    bufs = []
+    for coord in itertools.product(*[range(n) for n in mesh_shape]):
+        chunk = input_
+        for axis, m in enumerate(coord):
+            dim = shard_dims[axis]
+            if dim < 0:
+                continue
+            # Divisibility of the running extent is implied by
+            # shard_logical_shape's full-dim divisibility check.
+            extent = chunk.shape[dim] // mesh_shape[axis]
+            chunk = chunk.narrow(dim, m * extent, extent)
+        buf = _alloc_one(layout)
+        r, c = expected_shape
+        buf[:r, :c] = chunk.to(buf.dtype)
+        bufs.append(buf)
+    return SimTensor(layout, bufs, mesh=MeshShard(full_shape, shard_dims, shard_shape))
 
 
 def mesh_gather(lt: SimTensor, shard_dims=None, shard_shape=None) -> SimTensor:

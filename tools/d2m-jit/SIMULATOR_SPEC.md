@@ -16,7 +16,10 @@ full eltwise / reduction / matmul / view surface on torch with no device
 (`_src/sim/`, tests in `test/d2m-jit/sim/test_sim.py`). The `config.backend`
 switch (§2) is also wired: `import d2m_jit as d2m; d2m.config.backend = "sim"`
 (or `D2M_JIT_BACKEND=sim`) dispatches the canonical surface to the simulator
-(tests in `test/d2m-jit/sim/test_backend_switch.py`).
+(tests in `test/d2m-jit/sim/test_backend_switch.py`). Multi-device (mesh)
+support is designed in §14 and tracked in
+[#9202](https://github.com/tenstorrent/tt-mlir/issues/9202); not implemented
+yet.
 
 ---
 
@@ -121,8 +124,9 @@ A host handle wrapping a real torch tensor plus its `Layout`.
 | Field | Meaning |
 | --- | --- |
 | `.layout` | the `Layout` descriptor (reused unchanged from `_src/tensor_layout.py`) |
-| `.buffer` | the backing `torch.Tensor` in **tile-padded** shape — the logical shape rounded up to the tile grid (`tile_padded_shape`); logical dtype |
+| `.buffer` | the backing `torch.Tensor` in **tile-padded** shape — the logical shape rounded up to the tile grid (`tile_padded_shape`); logical dtype. Under a mesh this becomes a per-device resolving property over `.buffers` (§14.1) |
 | `.is_view` | `True` for `view` / `view_layout` / `permute` results — same semantics/rejection rule as device |
+| `.mesh` | `MeshShard` metadata (full shape / `shard_dims` / `shard_shape`) when the tensor is marked for a mesh gather; `None` otherwise (§14) |
 
 `.to_logical()` slices `.buffer` back to `layout.logical_shape` (a clone); that
 is what `to_host` returns.
@@ -389,6 +393,10 @@ and the `to_host`-on-view rejection are replicated; `test/d2m-jit/test_views.py`
 exercises them on both backends, since the whole-suite sim re-run (§11.4) covers
 that file unchanged.
 
+The mesh host ops (`mesh`, `mesh_shard`, `mesh_gather`) are specified in §14.
+`mesh` and `mesh_shard` are implemented (§14.2/§14.3); `mesh_gather` is still
+metadata-only (§14.5).
+
 ---
 
 ## 8. Error & parity behavior
@@ -430,6 +438,7 @@ here only:
 | f32 `full` precision | fp19-truncated | exact (unless quirk mode) |
 | synchronization | real semaphores/threads | serialized, no-op waits |
 | reduced-precision tiles | bf16/fp16 math | f32 (unless quirk mode) |
+| mesh gather over a replicated (`-1`) mesh axis | `TT_FATAL "dims must be unique"` (runtime bug: `concat` does not skip `-1` axes the way `shard` does) | correct gather — replicated axes contribute one copy (§14.5) |
 
 These make the sim result the algebraically-correct target, which is what lets
 the whole device suite re-run against it (§11.4). Note the sim is an oracle for
@@ -602,11 +611,14 @@ Deferred (🟡/🟢), out of v1:
   `config.backend` switch; exact numerics; runtime-free import (§2), asserted;
   tests in `test/d2m-jit/sim/`,
   plus the whole-suite sim re-run in CI (§11.4).
-- **v2 (🟡):** declarative generic forms (`indexing_maps` / `iterator_types` /
-  `block_factors` with `iter_index`/`block_index`/`block_offset`) and the
-  `!tensor.store` method that goes with them; async-generator (`yield`)
-  producer/consumer scheduling beyond pure serialization (currently rejected,
-  §5.5); DMA primitives as they land in `api.py`.
+- **v2 (🟡):** multi-device (mesh) execution — per-device buffers, sim
+  `mesh`/`mesh_shard`, real gather (§14, tracked in
+  [#9202](https://github.com/tenstorrent/tt-mlir/issues/9202)); declarative
+  generic forms (`indexing_maps` / `iterator_types` / `block_factors` with
+  `iter_index`/`block_index`/`block_offset`) and the `!tensor.store` method
+  that goes with them; async-generator (`yield`) producer/consumer scheduling
+  beyond pure serialization (currently rejected, §5.5); DMA primitives as they
+  land in `api.py`.
 
 Note that `SimKernel.__call__` *rejects* `indexing_maps` / `iterator_types`
 (`NotImplementedError`) but currently accepts and ignores `block_factors` and
@@ -628,3 +640,143 @@ values in the SPMD form, but the asymmetry is worth closing when v2 lands.
   quirk mode).
 - **Not a replacement for on-device tests** — it's the fast inner loop and the
   golden oracle that feeds them.
+
+---
+
+## 14. Multi-device (mesh) 🟡 — landing incrementally
+
+Tracked in [#9202](https://github.com/tenstorrent/tt-mlir/issues/9202); each
+subsection below carries its own status marker. Goal:
+run the mesh surface (`d2m.mesh` / `d2m.mesh_shard` / `d2m.mesh_gather` and
+kernels over sharded tensors) under the sim backend, so mesh kernels and
+sharding strategies can be developed and CI-tested without multi-chip hardware.
+
+The descriptor math is already shared: `MeshShard`, `validate_mesh_mapping`,
+`shard_logical_shape`, and the `current_mesh` mirror live MLIR-free in
+`_src/layout_math.py`, used by both backends. What is missing is per-device
+*storage*, per-device *execution*, and actual shard/gather *data movement*.
+
+### 14.1 Data model: per-device buffers ✅
+
+On device, every tensor under a mesh exists once per chip — sharded tensors
+hold different shards, everything else (allocations, replicated inputs) holds a
+copy per chip. The sim mirrors that:
+
+- `SimTensor` stores `.buffers`, a **list of tile-padded torch buffers in
+  row-major mesh order** (`len == prod(mesh_shape)`; length 1 when no mesh is
+  declared — the existing single-device case is the degenerate form).
+- `.buffer` becomes a property: inside a kernel it resolves through the
+  `_current_device` thread-local (§14.4), so every existing `.buffer` consumer
+  in `ops.py` works unchanged. Outside a kernel it is valid only for
+  single-buffer tensors and raises on per-device tensors — host code must be
+  explicitly mesh-aware (fail loud, §8 style), which prevents silent
+  shard-0 reads.
+- `.layout` still describes the **per-device shard** (as `LazyTensor.layout`
+  does on device); `.mesh` carries the full-tensor mapping exactly as today.
+- Under an active mesh, `to_layout` / `empty` / `zeros` / `full` / `arange`
+  allocate one buffer per device (replicated fill). Value-transforming host ops
+  (`to_layout`-from-`SimTensor`, `tilize`/`untilize`, `reshape`, views/permute)
+  apply uniformly to every buffer.
+
+### 14.2 `mesh` declaration ✅
+
+A sim-native `mesh(shape, topology=None)` in `_src/sim/host.py` that validates
+and calls `layout_math.set_current_mesh` — no MLIR, no builder scope. It joins
+the `_dispatch` table in `api.py` (device → `builder.mesh`, which owns the
+`ttcore.meshes` module attribute; sim → the mirror-only version) and is
+exported from the shadow module, which today has no `mesh` at all.
+
+`topology` is accepted and recorded but value-neutral (like the multicast args
+in §5.1): the sim models no fabric, so `("linear", "ring")` changes nothing.
+
+Lifecycle divergence (minor, documented): the device builder pins the mesh per
+lazy graph (redeclaring a different shape errors until `to_host` resets the
+graph). The sim has no graph lifecycle, so `mesh()` simply replaces the current
+mesh; consistency is enforced where it matters, at `mesh_shard` / `mesh_gather`
+validation time.
+
+### 14.3 `mesh_shard` — full tensor → per-device shards ✅
+
+Sim implementation in `_src/sim/host.py`; flipped from device-only to
+`_dispatch` in `api.py`. Semantics match the runtime
+(`runtime/lib/ttmetal/meshshard_utils.cpp::shard`) exactly:
+
+1. Validate with the shared `shard_logical_shape(mesh_shape, full_shape,
+   shard_dims, shard_shape)` — same shapes, same error messages as device.
+2. Chunk the full host tensor along each tensor dim named by a non-`-1` entry
+   of `shard_dims`, producing one chunk per point of the sharded mesh axes
+   (indices increment last-axis-fastest, matching `incrementIndices`).
+3. Along `-1` (replicated) mesh axes, **copy**: every device on that axis gets
+   the same chunk (matching the runtime's replicate fill).
+4. Each chunk lands as a tile-padded buffer at its row-major device slot;
+   the result carries `.mesh = MeshShard(full_shape, shard_dims, shard_shape)`
+   and a shard-shaped `.layout`, exactly like the device `LazyTensor`.
+
+### 14.4 Execution: SPMD over devices × cores 🟡 (kernels over per-device tensors currently raise `NotImplementedError`)
+
+The device runs the *same program* on every chip; data differences come only
+through the shards. The sim adds one outer loop to §4:
+
+```
+for d in range(num_devices):            # row-major mesh order
+    _current_device = d
+    for y in range(Y):
+        for x in range(X):
+            _current_core = (y, x)
+            body(*tensor_args, *scalar_args)
+```
+
+`_current_device` is a thread-local next to `_current_core` in `ops.py`; it
+exists so `.buffer` resolution (§14.1) picks the right per-device buffer inside
+`remote_load` / `remote_store` and the block ops. **Kernel bodies need no
+changes and get no device-index op** — there is none in the device DSL either.
+Devices run sequentially and share nothing during a kernel call: `remote_*`
+addressing stays within the current device's buffer, so cross-device
+communication is impossible to express (§14.7).
+
+### 14.5 `mesh_gather` / `to_host` — shards → full tensor 🟡 (metadata-only today)
+
+`mesh_gather` keeps its current metadata behavior (attach/validate `MeshShard`
+via the shared math), and `to_host` does the actual gather for mesh-marked
+tensors, mirroring the device split (`builder.py` gathers in
+`_emit_returns_and_finalise`; the runtime concatenates in
+`concatDistributedHostBuffers`):
+
+- Concatenate per-device logical shards along the tensor dims named by
+  `shard_dims`, inverting the placement order of §14.3.
+- Replicated (`-1`) mesh axes contribute **one** copy (shard 0 along that
+  axis). This is deliberately *more correct* than the runtime, whose `concat`
+  fails to skip `-1` axes and dies with `TT_FATAL "dims must be unique"` —
+  a §9 divergence (see the table there). The sim is the oracle for intended
+  semantics; matching a bug we want fixed upstream would be backwards, and
+  correct gather is what gives sim a working "replicate" strategy baseline.
+- `to_host` of a per-device tensor **without** `.mesh` metadata raises,
+  directing the user to `mesh_gather` (device behavior for an ungathered
+  multi-device tensor is runtime-defined; fail loud rather than guess).
+
+### 14.6 Testing
+
+Follows §11's structure — shared tests carry their own torch goldens and run on
+both backends; the sim suite covers only what shared tests cannot:
+
+- `test/d2m-jit/test_mesh.py` keeps its `machines("n300")` gate for the device
+  backend but gains a deviceless lane (the whole-suite sim re-run covers it on
+  the hardware runner; a backend-parametrized or sim-marked lane covers
+  no-device runners).
+- Sim-suite additions (`test/d2m-jit/sim/test_sim.py`): shard → kernel → gather
+  round trips against pure-torch goldens, per-device shard placement (incl.
+  replicate copies), the replicate-gather divergence assertion (a §9-class
+  assertion no shared test can make), the ungathered-`to_host` rejection, and
+  the `.buffer`-on-per-device-tensor rejection.
+- The §11.4 `device_only` audit: any mesh test asserting on-silicon contracts
+  (e.g. real multi-chip timing) gets the marker with a root-cause reason.
+
+### 14.7 Non-goals
+
+- **No fabric/CCL semantics** beyond shard/gather: no link topology, no
+  cross-device DMA, no all-gather/reduce-scatter primitives (none exist in the
+  DSL yet; add sim backings as they land, per §5.5's DMA rule).
+- **No timing** — same as §13; the mesh autotuner can use sim for *correctness*
+  of sharding strategies, not for picking winners.
+- **No real concurrency across devices** — sequential device loop, same
+  ordering caveats as §5.5/§9.
