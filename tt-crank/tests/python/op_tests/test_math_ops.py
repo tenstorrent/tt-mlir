@@ -1,4 +1,4 @@
-"""Tests for scalar-lift and trig math ops: pow, add/mul/div scalars, cos, sin, neg, silu, softmax."""
+"""Tests for scalar-lift and trig math ops: pow, add/mul/div scalars, cos, sin, neg, log, silu, softmax."""
 
 import pytest
 import torch
@@ -69,6 +69,13 @@ def test_sin(shape: tuple) -> None:
 def test_neg(shape: tuple) -> None:
     a = torch.randn(shape, dtype=torch.bfloat16)
     assert_close_cpu_vs_tt(torch.neg, a)
+
+
+@pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])
+def test_log(shape: tuple) -> None:
+    # Strictly positive input: log is undefined at and below zero.
+    a = torch.rand(shape, dtype=torch.bfloat16) + 0.5
+    assert_close_cpu_vs_tt(torch.log, a, atol=1e-2, rtol=1e-2)
 
 
 @pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])

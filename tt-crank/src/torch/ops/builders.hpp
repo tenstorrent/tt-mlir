@@ -160,6 +160,9 @@ mlir::Value build_sin(ModuleBuilder &mb, mlir::Value input);
 // Emit TTIR for element-wise negation.
 mlir::Value build_neg(ModuleBuilder &mb, mlir::Value input);
 
+// Emit TTIR for element-wise natural logarithm.
+mlir::Value build_log(ModuleBuilder &mb, mlir::Value input);
+
 // Emit TTIR for element-wise SiLU activation.
 mlir::Value build_silu(ModuleBuilder &mb, mlir::Value input);
 

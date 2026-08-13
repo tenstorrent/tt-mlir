@@ -432,6 +432,32 @@ def test_compile_neg(shape: tuple[int, ...]) -> None:
 
 
 @pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_log(shape: tuple[int, ...]) -> None:
+    class _Log(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.log(x)
+
+    # Strictly positive input: log is undefined at and below zero.
+    x = torch.rand(shape, dtype=torch.bfloat16) + 0.5
+    _assert_compile_matches_eager(_Log(), x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_log_backward(shape: tuple[int, ...]) -> None:
+    """log's backward is grad / self, which aot emits as aten.div.Tensor."""
+    def loss_fn(x: torch.Tensor) -> torch.Tensor:
+        return torch.log(x).sum(dim=-1, keepdim=True)
+
+    x_cpu = (torch.rand(shape, dtype=torch.bfloat16) + 0.5).requires_grad_(True)
+    loss_fn(x_cpu).sum().backward()
+
+    x_tt = x_cpu.detach().to("tt").requires_grad_(True)
+    torch.compile(loss_fn, backend="tt")(x_tt).sum().backward()
+
+    torch.testing.assert_close(x_tt.grad.cpu(), x_cpu.grad, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
 def test_compile_silu(shape: tuple[int, ...]) -> None:
     class _SiLU(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:

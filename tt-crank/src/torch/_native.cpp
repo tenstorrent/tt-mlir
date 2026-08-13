@@ -248,6 +248,10 @@ public:
         assert_builder();
         return tk::build_neg(*mb_, input);
     }
+    mlir::Value log(mlir::Value input) {
+        assert_builder();
+        return tk::build_log(*mb_, input);
+    }
     mlir::Value silu(mlir::Value input) {
         assert_builder();
         return tk::build_silu(*mb_, input);
@@ -749,6 +753,7 @@ NB_MODULE(_native, m) {
         .def("cos", &PyModuleBuilder::cos, "input"_a)
         .def("sin", &PyModuleBuilder::sin, "input"_a)
         .def("neg", &PyModuleBuilder::neg, "input"_a)
+        .def("log", &PyModuleBuilder::log, "input"_a)
         .def("silu", &PyModuleBuilder::silu, "input"_a)
         .def("sigmoid", &PyModuleBuilder::sigmoid, "input"_a)
         .def("floor_divide", &PyModuleBuilder::floor_divide, "lhs"_a, "rhs"_a)
