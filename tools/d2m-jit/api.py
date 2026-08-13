@@ -967,35 +967,31 @@ def topk_merge(values, indices, k, dim):
     return _topk_block(values, k, dim, indices=indices)
 
 
-def _topk_narrow(input, k, dim, transposed):
+@syntax(
+    "topk_extract",
+    args_as_attr=[False, _int_attr_from_ast, _int_attr_from_ast],
+    kwargs_as_attr={"transpose": _bool_attr_from_ast},
+)
+def topk_extract(input, k, dim, transpose=True):
+    """Narrow a `topk` result to the `ceil(k / 32)` tiles the top-K occupies.
+
+    `transpose=True` (last step of a chain) undoes `topk`'s pre-transpose;
+    `transpose=False` keeps the sort orientation a following merge needs.
+    """
     block_ty = input.type
     if not isinstance(block_ty, RankedTensorType):
-        raise TypeError(f"topk narrow input must be a ranked tensor, got {block_ty}")
+        raise TypeError(f"topk extract input must be a ranked tensor, got {block_ty}")
     rank = block_ty.rank
     reduce_axis = _normalize_reduce_axis(dim, rank)
     k = _dim_to_int(k, what="topk k")
     output_tiles = (k + _TILE_WIDTH - 1) // _TILE_WIDTH
+    transpose = _normalize_bool_literal(transpose, "transpose")
     return _topk_extract_block(
         input,
         reduce_axis,
         output_tiles,
-        transposed=transposed and reduce_axis == rank - 1,
+        transposed=transpose and reduce_axis == rank - 1,
     )
-
-
-@syntax("topk_compact", args_as_attr=[False, _int_attr_from_ast, _int_attr_from_ast])
-def topk_compact(input, k, dim):
-    """Narrow a `topk` result to its live tiles, keeping the sort orientation
-    (unlike `topk_extract`) since the next merge round still needs it."""
-    return _topk_narrow(input, k, dim, transposed=False)
-
-
-@syntax("topk_extract", args_as_attr=[False, _int_attr_from_ast, _int_attr_from_ast])
-def topk_extract(input, k, dim):
-    """Narrow a `topk` result to the `ceil(k / 32)` tiles the top-K occupies,
-    undoing `topk`'s pre-transpose. Last step of a chain; use `topk_compact`
-    between merge rounds instead."""
-    return _topk_narrow(input, k, dim, transposed=True)
 
 
 @syntax("!tensor")
@@ -1323,18 +1319,6 @@ class TensorBlock:
     def reduce_mean(ast_self: TensorBlock, dim) -> TensorBlock:
         """Same as `d2m.reduce_mean(self, dim)`."""
         return reduce_mean(ast_self, dim)
-
-    def topk(ast_self: TensorBlock, k, dim):
-        """Same as `d2m.topk(self, k, dim)`; returns `(values, indices)`."""
-        return topk(ast_self, k, dim)
-
-    def topk_extract(ast_self: TensorBlock, k, dim):
-        """Same as `d2m.topk_extract(self, k, dim)`."""
-        return topk_extract(ast_self, k, dim)
-
-    def topk_compact(ast_self: TensorBlock, k, dim):
-        """Same as `d2m.topk_compact(self, k, dim)`."""
-        return topk_compact(ast_self, k, dim)
 
     def store(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
         return d2m.store(ast_self, rhs)
@@ -1913,8 +1897,6 @@ def _topk_extract_block(block, reduce_axis, output_tiles, transposed):
             if transposed
             else d2m.tile_typecast(dst.type, src)
         )
-        if hasattr(result, "result"):
-            result = result.result
         linalg.yield_([result])
     return generic.result
 

@@ -649,23 +649,7 @@ class LazyTensor:
 
 # --- Virtual grids -----------------------------------------------------------
 # A grid wider than the worker grid on either axis is folded onto physical
-# cores by a pair of affine maps: `d2m.empty` carries the full (grid, shard)
-# remap, the consuming generic's GridAttr carries the grid-only pair.
-
-_g_worker_grid_unavailable = False
-
-
-def _worker_grid_or_none():
-    """The worker grid, or None when no system descriptor is reachable (in
-    which case every grid is left unvirtualized)."""
-    global _g_worker_grid_unavailable
-    if _g_worker_grid_unavailable:
-        return None
-    try:
-        return _device_worker_grid()
-    except Exception:
-        _g_worker_grid_unavailable = True
-        return None
+# cores by a pair of affine maps.
 
 
 def _legal_physical_grid(volume, worker_grid):
@@ -699,15 +683,18 @@ def _fold_exprs(ctx, src_grid, dst_grid):
 
 
 def _virtual_grid_maps(ctx, grid_shape):
-    """(empty inverse, empty forward, GridAttr forward); Nones if `grid_shape`
-    fits. The empty's forward carries the shard dims through untouched, the
-    GridAttr's drops them."""
+    """(inverse, forward) grid-only fold maps, or (None, None) if `grid_shape`
+    already fits. Both drop the shard dims; see `_shard_carrying_forward`."""
     grid_shape = list(grid_shape)
-    worker_grid = _worker_grid_or_none()
-    if worker_grid is None or len(grid_shape) != 2:
-        return None, None, None
+    try:
+        worker_grid = _device_worker_grid()
+    except Exception:
+        # No system descriptor: leave every grid unvirtualized.
+        return None, None
+    if len(grid_shape) != 2:
+        return None, None
     if grid_shape[0] <= worker_grid[0] and grid_shape[1] <= worker_grid[1]:
-        return None, None, None
+        return None, None
 
     volume = grid_shape[0] * grid_shape[1]
     physical = _legal_physical_grid(volume, worker_grid)
@@ -720,21 +707,30 @@ def _virtual_grid_maps(ctx, grid_shape):
     to_virtual = _fold_exprs(ctx, physical, grid_shape)
     # The leading zero is the device index every grid mapping carries.
     zero = AffineExpr.get_constant(0, ctx)
-    shard_dims = [AffineDimExpr.get(2), AffineDimExpr.get(3)]
     return (
         AffineMap.get(2, 0, [zero, *to_virtual]),
-        AffineMap.get(4, 0, [*to_physical, *shard_dims]),
         AffineMap.get(2, 0, [zero, *to_physical]),
+    )
+
+
+def _shard_carrying_forward(forward):
+    """`d2m.empty`'s forward map: the grid-only fold with the shard dims
+    appended. Carries no leading device index, so that result is dropped."""
+    if forward is None:
+        return None
+    grid_results = list(forward.results)[1:]
+    return AffineMap.get(
+        4, 0, [*grid_results, AffineDimExpr.get(2), AffineDimExpr.get(3)]
     )
 
 
 def _empty_on_grid(ctx, tensor_type, grid_shape):
     """`d2m.empty` at `tensor_type`, folded onto physical cores if it overflows."""
-    inverse, forward, _ = _virtual_grid_maps(ctx, grid_shape)
+    inverse, forward = _virtual_grid_maps(ctx, grid_shape)
     return d2m.empty(
         tensor_type,
         virtual_grid_inverse_mapping=inverse,
-        virtual_grid_forward_mapping=forward,
+        virtual_grid_forward_mapping=_shard_carrying_forward(forward),
     )
 
 
@@ -778,8 +774,10 @@ def to_layout(input_, layout: Layout) -> LazyTensor:
         )
         with b.ctx, b.loc, b.insert_point:
             bb_arg = b.add_host_input(layout, input_)
-            inverse, forward, _ = _virtual_grid_maps(b.ctx, layout.grid_shape)
-            dev = layout.build_to_device(b.ctx, bb_arg, (inverse, forward))
+            inverse, forward = _virtual_grid_maps(b.ctx, layout.grid_shape)
+            dev = layout.build_to_device(
+                b.ctx, bb_arg, (inverse, _shard_carrying_forward(forward))
+            )
         return LazyTensor(layout, dev, b.generation)
 
     raise TypeError(
@@ -1893,12 +1891,12 @@ def _make_grid_attr(ctx, grid, grid_offset=(0, 0)):
     if len(offset) != 2:
         raise ValueError(f"grid_offset must be 2D, got {offset}")
     if offset[0] == 0 and offset[1] == 0:
-        inverse, _, forward = _virtual_grid_maps(ctx, grid)
+        inverse, forward = _virtual_grid_maps(ctx, grid)
         if forward is None:
             return ttcore.ir.GridAttr.get(ctx, grid)
         return ttcore.ir.GridAttr.get(ctx, grid, forward, inverse)
 
-    if _virtual_grid_maps(ctx, grid)[2] is not None:
+    if _virtual_grid_maps(ctx, grid)[1] is not None:
         raise ValueError(
             f"grid {grid} overflows the worker grid and would need folding, "
             f"which cannot be combined with the d2m.spatial offset {offset}"

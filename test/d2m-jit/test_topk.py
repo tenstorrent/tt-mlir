@@ -3,11 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Block-level `topk` via `d2m.topk_block`, driven as an explicit kernel chain
-rather than through ttir.topk. Banded shapes add `topk_compact` + `topk_merge`
-rounds between the leaf sort and the final extract."""
+rather than through ttir.topk. Banded shapes add a `topk_extract(transpose=
+False)` + `topk_merge` round between the leaf sort and the final extract."""
 
 import functools
-import math
 
 import pytest
 import torch
@@ -20,9 +19,10 @@ pytestmark = pytest.mark.device_only(
 )
 
 _TILE = 32
-# Conservative budget in `_live_tiles` units; `_live_tiles` undercounts actual
-# L1 usage, so this only picks between legal splits, not a hard guarantee.
-_L1_BUDGET_TILES = 300
+# Reduction tiles per core to aim for when banding. Not an L1 bound -- `_check`
+# catches a real overflow; this just keeps large shapes off the single-core
+# split so the merge path stays exercised.
+_TILES_PER_CORE = 48
 
 
 # --- kernels -----------------------------------------------------------------
@@ -75,7 +75,11 @@ def _compact_kernel(k, dim):
     def kern(in_t, out_t):
         m = core_index(0)
         n = core_index(1)
-        remote_store(out_t, [m, n], topk_compact(remote_load(in_t, [m, n]), k, dim))
+        remote_store(
+            out_t,
+            [m, n],
+            topk_extract(remote_load(in_t, [m, n]), k, dim, transpose=False),
+        )
 
     return kern
 
@@ -104,14 +108,9 @@ def _worker_grid():
 
 def _fits_grid(cores, worker_grid):
     """True when `cores` factors into a rectangle the worker grid holds."""
-    return any(
-        cores % f == 0
-        and (
-            (f <= worker_grid[0] and cores // f <= worker_grid[1])
-            or (cores // f <= worker_grid[0] and f <= worker_grid[1])
-        )
-        for f in range(1, math.isqrt(cores) + 1)
-    )
+    from d2m_jit._src.builder import _legal_physical_grid
+
+    return _legal_physical_grid(cores, worker_grid) is not None
 
 
 def _merge_schedule(bands, merge_cap, worker_grid):
@@ -136,39 +135,19 @@ def _merge_schedule(bands, merge_cap, worker_grid):
     return schedule
 
 
-def _live_tiles(band_tiles, nt_per_core, compact_tiles, bands, merge_cap, worker_grid):
-    """Tiles one core holds at once across the whole chain, summed rather than
-    peak since every intermediate is a func-level L1 allocation live for the
-    whole program."""
-    leaf = band_tiles * nt_per_core
-    live = leaf * 6
-    if bands > 1:
-        groups, fan_in = bands, 1
-        for survivors in _merge_schedule(bands, merge_cap, worker_grid) or []:
-            fan_in = max(fan_in, groups // survivors)
-            groups = survivors
-        gathered = fan_in * compact_tiles * nt_per_core
-        live += 4 * gathered + 2 * compact_tiles * nt_per_core
-    return live
-
-
-def _split_order(cores, band_limit, nt_limit, nt_tiles):
-    """Candidate (bands, nt_shards) splits, cheapest-shaped first: one core,
-    then banding alone, then data-parallel alone, then both."""
-
-    def power_of_two_first(hi):
-        counts = range(2, hi + 1)
-        yield from (c for c in counts if not c & (c - 1))
-        yield from (c for c in counts if c & (c - 1))
-
-    yield 1, 1
-    for bands in power_of_two_first(cores):
+def _split_order(cores, band_limit, nt_limit, nt_tiles, red_tiles):
+    """Candidate (bands, nt_shards) splits, most-spread first: bands enough to
+    hit `_TILES_PER_CORE`, then coarser, then data-parallel, then both, then
+    one core."""
+    wanted = min(cores, max(1, -(-red_tiles // _TILES_PER_CORE)))
+    for bands in range(wanted, 1, -1):
         yield bands, 1
     for nt_shards in range(min(nt_tiles, cores), 1, -1):
         yield 1, nt_shards
-    for bands in power_of_two_first(band_limit):
+    for bands in range(band_limit, 1, -1):
         for nt_shards in range(2, nt_limit + 1):
             yield bands, nt_shards
+    yield 1, 1
 
 
 def _plan(shape, k, dim, merge_cap=4):
@@ -182,7 +161,6 @@ def _plan(shape, k, dim, merge_cap=4):
     # topk_block merges reduction tiles pairwise, so a band is never one tile.
     local_red_tiles = max(2, full_red_tiles)
     nt_tiles = -(-shape[1 - dim] // _TILE)
-    compact_tiles = -(-k // _TILE)
 
     def candidate(bands, nt_shards):
         band_tiles = local_red_tiles if bands == 1 else -(-full_red_tiles // bands)
@@ -198,21 +176,16 @@ def _plan(shape, k, dim, merge_cap=4):
             return None
         if bands > 1 and _merge_schedule(bands, merge_cap, worker_grid) is None:
             return None
-        live = _live_tiles(
-            band_tiles, nt_per_core, compact_tiles, bands, merge_cap, worker_grid
-        )
-        return live, (bands, band_tiles, nt_shards, nt_per_core)
+        return bands, band_tiles, nt_shards, nt_per_core
 
-    thinnest = None
-    for bands, nt_shards in _split_order(cores, band_limit, nt_limit, nt_tiles):
+    # First legal split wins; `_check` skips it if L1 overflows.
+    for bands, nt_shards in _split_order(
+        cores, band_limit, nt_limit, nt_tiles, full_red_tiles
+    ):
         entry = candidate(bands, nt_shards)
-        if entry is None:
-            continue
-        if entry[0] <= _L1_BUDGET_TILES:
-            return entry[1]
-        if thinnest is None or entry[0] < thinnest[0]:
-            thinnest = entry
-    return thinnest[1] if thinnest else None
+        if entry is not None:
+            return entry
+    return None
 
 
 # --- input / reference -------------------------------------------------------
@@ -246,18 +219,6 @@ def _pad_for_tiles(tensor, dim, red_tiles, nt_tiles):
     return out
 
 
-def _mismatch_report(got, want, label, limit=8):
-    """Positions where `got` and `want` differ, listed rather than elided."""
-    bad = (got != want).nonzero()
-    lines = [f"{label}: {len(bad)} of {want.numel()} positions differ"]
-    for pos in bad[:limit].tolist():
-        at = tuple(pos)
-        lines.append(f"  {at}: got {got[at].item()} want {want[at].item()}")
-    if len(bad) > limit:
-        lines.append(f"  ... {len(bad) - limit} more")
-    return "\n".join(lines)
-
-
 def _assert_topk(vals, idx, tensor, k, dim, value_atol=0.002):
     """Check which elements were selected (exact), then how precisely their
     values came back (tolerance). Both sort along `dim` first since order is
@@ -273,10 +234,12 @@ def _assert_topk(vals, idx, tensor, k, dim, value_atol=0.002):
 
     want = expected.values.sort(dim=dim).values
     selected = tensor.gather(dim, idx.to(torch.int64)).sort(dim=dim).values
-    assert torch.equal(selected, want), _mismatch_report(
-        idx.to(torch.int64).sort(dim=dim).values,
-        expected.indices.sort(dim=dim).values,
-        "topk selected the wrong elements; index sets",
+    torch.testing.assert_close(
+        selected,
+        want,
+        rtol=0,
+        atol=0,
+        msg=lambda default: f"topk selected the wrong elements: {default}",
     )
 
     diff = (vals.to(torch.float32).sort(dim=dim).values - want).abs().max().item()
@@ -401,7 +364,7 @@ def _check(shape, k, dim):
     try:
         vals, idx = _run_topk_chain(tensor, k, dim, plan)
     except Exception as exc:
-        # A thinnest-split L1 overflow is a shape property, not a regression.
+        # An L1 overflow is a shape property, not a regression.
         if "exceeds memory capacity" not in str(exc):
             raise
         pytest.skip(f"{shape} k={k} dim={dim} split {plan} does not fit L1: {exc}")

@@ -483,26 +483,16 @@ class D2MCompiler(ast.NodeVisitor):
                     f"Assign target {type(element).__name__} not supported"
                 )
         value = self.visit(node.value)
-        unpackable = isinstance(value, (tuple, list)) or (
-            not isinstance(value, Value) and hasattr(value, "__len__")
-        )
-        if not unpackable:
+        try:
+            # A single MLIR value is not iterable, so it raises here too.
+            bindings = list(zip(target.elts, value, strict=True))
+        except (TypeError, ValueError) as exc:
             self._fail(
                 node,
-                TypeError(
-                    f"cannot unpack into {len(target.elts)} names: the "
-                    "right-hand side produces a single value"
-                ),
+                exc,
+                hint=f"the left-hand side names {len(target.elts)} values",
             )
-        if len(value) != len(target.elts):
-            self._fail(
-                node,
-                ValueError(
-                    f"expected {len(target.elts)} values to unpack, got "
-                    f"{len(value)}"
-                ),
-            )
-        for element, result in zip(target.elts, value):
+        for element, result in bindings:
             self.symbol_tables[-1][element.id] = result
 
     def visit_AugAssign(self, node):
