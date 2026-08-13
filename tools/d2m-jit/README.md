@@ -510,3 +510,14 @@ value-neutral in sim — see SIMULATOR_SPEC.md §3).
 
 See [TODO.md](TODO.md) for active pipeline gaps, missing API surface
 (in-kernel typecast, DMA primitives, init helpers, ...), and other follow-ups.
+
+## Status docs (work paused 2026-08-13)
+
+d2m-jit is on hold. These record where each piece stood, what is and is not
+implemented, whether it supports multichip, and what unmerged branch work
+exists:
+
+- [AUTOTUNER_STATUS.md](AUTOTUNER_STATUS.md) — the kernel autotuner.
+- [SIMULATOR_STATUS.md](SIMULATOR_STATUS.md) — the torch simulator (design lives
+  in [SIMULATOR_SPEC.md](SIMULATOR_SPEC.md)).
+- [TESTING_STATUS.md](TESTING_STATUS.md) — test harness, markers, and CI.

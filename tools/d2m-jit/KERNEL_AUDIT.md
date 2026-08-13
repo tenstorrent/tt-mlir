@@ -8,17 +8,26 @@ lands.
 Status legend matches [TODO.md](TODO.md): 🔴 blocker · 🟡 missing surface
 · 🟢 nice to have · ✅ available today.
 
+> **Statuses re-verified 2026-08-13** against `main` @ `6d27eedfdf`. Four rows
+> that this document had as blockers have since been fixed and are now ✅:
+> matmul accumulator init (#8891), multicast on real grids (#8892), in-kernel
+> `typecast`, and `tile_transpose`. The corresponding `TODO.md` "Pipeline gaps"
+> entries were deleted by those PRs, which is why older `[TODO §1]` / `[TODO §2]`
+> cross-references in this file and in `SIMULATOR_SPEC.md` no longer resolve —
+> they have been rewritten in place. Everything still marked 🔴/🟡 below was
+> *not* re-tested; treat those as of the last time someone tried.
+
 ---
 
 ## 1. Surface available today
 
 | Capability | Status | Notes |
 | --- | --- | --- |
-| Per-tile eltwise (41 unary, 13 binary) | ✅ | `_eltwise_block` wraps `d2m.tile_*` in `linalg.generic` over the tensor of tiles |
+| Per-tile eltwise (41 unary, 19 binary) | ✅ | `_eltwise_block` wraps `d2m.tile_*` in `linalg.generic` over the tensor of tiles |
 | `where` ternary select | ✅ | Mask-and-blend |
-| Matmul (`@`, `d2m.matmul`) | 🟡 | Only with zeros-prefilled accumulator; single-tile-per-shard verified |
+| Matmul (`@`, `d2m.matmul`) | ✅ | Accumulator init fixed in #8891; standalone `a @ b` gets a generated in-kernel zero block, explicit K loops use `zeros([m, n])` + `+=`. Multi-K and tiled M/N/K verified on device (`test_matmul.py`) |
 | `remote_load` / `remote_store` | ✅ | Per-shard DMA shortcut |
-| `remote_load` w/ multicast | 🔴 | `SplitUnifiedThread` assertion on grids > 1×1 ([TODO §2](TODO.md)) |
+| `remote_load` w/ multicast | ✅ | The `SplitUnifiedThread` assertion was fixed in #8892; exercised on a 2×2 grid by `test_matmul.py::test_mcast_overwrite_grid_2x2` |
 | `scf.for` / `scf.if` in kernel body | ✅ | Loop & branch |
 | `async` / `await` / semaphores | ✅ | Multi-thread sync primitives |
 | **Views** (`view`, `view_layout`, `permute`) | ✅ | Metadata reinterpretation, no data movement |
@@ -26,8 +35,8 @@ Status legend matches [TODO.md](TODO.md): 🔴 blocker · 🟡 missing surface
 | `zeros`, `full`, `empty` | ✅ | Host-side fill + `to_layout` |
 | Float reductions (`reduce_sum`, `reduce_max`, `reduce_mean`) | ✅ | Keepdim row/col reductions using `tile_reduce_*`, reduction output layouts, implicit eltwise broadcast; cross-core reductions need a core gather/redistribute op |
 | Broadcast (`tile_bcast`) | ✅ | `d2m.tile_bcast`, row/col/2d shorthands, method forms; lit + pytest coverage |
-| In-kernel typecast (`tile_typecast`) | 🔴 | Host-side only via `tilize(dtype=...)` |
-| Per-tile transpose (`tile_transpose`) | 🔴 | Not exposed — but logical permute via views is free |
+| In-kernel typecast (`tile_typecast`) | ✅ | Exposed as `d2m.typecast(x, dtype)` / `x.typecast(dtype)` (`api.py`), lowering to `d2m.tile_typecast` |
+| Per-tile transpose (`tile_transpose`) | ✅ | Exposed as `d2m.tile_transpose(x)` / method form; distinct from logical `permute`, which is a free view |
 | Row/col mask helpers | 🔴 | Causal-mask building block missing |
 | Multi-output kernels | 🟡 | `num_outs` exists in the API, untested for >1 |
 | DMA primitives (`dma_read`, `embedding`, `indexed_row_copy`, ...) | 🟡 | Not exposed; shortcuts via `remote_load` cover many cases |
@@ -75,8 +84,13 @@ qk_matmul_kernel(Q, K_T, qk, ..., grid=g)   # Q @ K_T, no DMA between
   via `where`, dropout-shape kernels (sans RNG).
 - **Activation kernels:** GELU, SiLU, ReLU, sigmoid, tanh, hardsigmoid,
   SELU — anything in the unary table.
-- **Single-tile-per-shard matmul:** `out = d2m.zeros(L)` prefill + `@`
-  inside the kernel. Verified by `test_matmul_correctness_via_zeros`.
+- **Matmul, including multi-K and tiled M/N/K:** a kernel-body `zeros([m, n])`
+  accumulator plus `c += a @ b`; no host-side prefill needed (a raw
+  `d2m.empty` output is fine since #8891 — verified on device at PCC 1.0).
+  Covered by `test_matmul.py::test_matmul_correctness_multi_k_loop_carried_accumulator`
+  and `…_tiled_mnk_loop_carried_accumulator`.
+- **Multicast matmul on a real grid:** `remote_load(..., mcast_start_index=,
+  mcast_shape=)` across a 2×2 grid (`test_mcast_overwrite_grid_2x2`).
 - **GEMM → activation chained via views:** matmul kernel writes `out`,
   next kernel reads `view(out, ...)` for elementwise activation, no DMA
   between.
@@ -93,12 +107,10 @@ qk_matmul_kernel(Q, K_T, qk, ..., grid=g)   # Q @ K_T, no DMA between
 ### 🟡 Buildable with workarounds / scope cuts
 
 - **SDPA at 1-tile granularity** (S ≤ 32, single head): Q×Kᵀ via
-  permute-view + zeros-prefilled matmul + manually composed row softmax from
-  reductions.
-- **Multi-head attention scaffolding:** per-head views are free; the
-  *compute* hits broadcast and matmul-accumulator limits.
-- **MoE expert MLP body** (linear + GELU + linear): chained via views,
-  but only single-tile shards until the matmul accumulator bug lands.
+  permute-view + matmul + manually composed row softmax from reductions.
+- **Multi-head attention scaffolding:** per-head views are free; the *compute*
+  hits the cross-core reduction gap (below), not matmul limits any more.
+- **MoE expert MLP body** (linear + GELU + linear): chained via views.
 - **Embedding lookup:** doable via `remote_load` with computed indices
   instead of the missing `embedding` DMA primitive.
 
@@ -109,15 +121,14 @@ qk_matmul_kernel(Q, K_T, qk, ..., grid=g)   # Q @ K_T, no DMA between
 - **LayerNorm / RMSNorm / GroupNorm over wide rows** — reduction tiles and
   one-tile output layouts exist, but reductions spanning cores need a core
   gather/redistribute op.
-- **Flash Attention** — needs softmax + multi-K matmul accumulation
-  ([TODO §1](TODO.md)) + multicast on real grids
-  ([TODO §2](TODO.md)) + online-softmax state across blocks.
+- **Flash Attention** — multi-K matmul accumulation and real-grid multicast are
+  both available now; what remains is online-softmax state across blocks
+  (running max / running sum carried between K blocks) and multi-output kernels
+  to read that state back.
 - **MoE top-k / sparse dispatch** — no top-k primitive; sparse dispatch
   needs `indexed_row_copy` / `embedding` DMA primitives.
 - **Causal masks** — `where` covers the predicate, but no helper to
   *build* a triangular mask cheaply (`write_row_mask_tile`).
-- **Real-grid matmul throughput** — multicast assertion + accumulator
-  init together cap matmul to per-shard.
 
 ---
 
@@ -266,10 +277,11 @@ What's enabling each piece:
 - **Chained matmuls:** `probs` from softmax flows into `pv_kernel`
   without a `to_layout` round-trip.
 
-What's still blocking even this single-head version on real shapes:
-- Multi-K matmul accumulation for D > 32 ([TODO §1](TODO.md)).
-- Multicast for real grids ([TODO §2](TODO.md)).
-- `tile_typecast` for the standard bf16-K/V + fp32-softmax recipe.
+All three pieces this sketch needs — multi-K matmul accumulation for D > 32,
+multicast on real grids, and `typecast` for the standard bf16-K/V + fp32-softmax
+recipe — have landed. What is left is the cross-core reduction gap in
+`softmax_row_wide` when a row spans cores (§5.1); within a core the sketch
+should build as written.
 
 ### 4.5 Flash attention (block-wise, online softmax)
 
@@ -312,10 +324,10 @@ def flash_attn_inner(Q, K, V, O, l_state, m_state, S_q, S_kv, D):
     remote_store(out, [block_q_idx, 0], O * recip(l_state))
 ```
 
-Blockers beyond reductions: per-tile `tile_transpose` (or pre-permuted
-K, which views already give us), multi-K matmul
-accumulation, multi-output kernels (we'd want `m_state` / `l_state` as
-state we can read back for debugging).
+Blockers beyond reductions: `tile_transpose` and multi-K matmul accumulation are
+both available now (as is pre-permuted K via views), so the remaining gap is
+multi-output kernels — we'd want `m_state` / `l_state` as state we can read back
+for debugging. `num_outs` exists in the API but is untested for > 1.
 
 ### 4.6 MoE: gate softmax + expert dispatch sketch
 
@@ -352,27 +364,28 @@ nothing else does:
 
 ## 5. Critical-path unlocks, ranked
 
+Items 2–4 of the original ranking are **done**: matmul accumulator init (#8891),
+`SplitUnifiedThread` for multicast (#8892), and in-kernel `typecast`. A
+multi-tile GEMM and the §4.4 single-head SDPA chain should therefore be
+buildable today — neither has actually been demoed, which is the natural first
+thing to try on return. What remains, ranked:
+
 1. **Add core gather/redistribute for cross-core reductions.** Reductions cover
    the per-core pieces, but the DSL needs an op that gathers partial results
    from multiple cores and redistributes the reduced values to the output-owning
-   cores.
-2. **Fix matmul accumulator init** ([TODO §1](TODO.md) —
-   `D2MToTTKernel` fill-pattern handling). Unlocks multi-K matmul →
-   real GEMM, real attention Q×Kᵀ across K, FFN.
-3. **Fix `SplitUnifiedThread` for multicast** ([TODO §2](TODO.md)).
-   Unlocks scalable matmul/attention across the grid.
-4. **`tile_typecast`** — bf16 K/V with fp32 softmax accumulator is the
-   standard SDPA recipe and isn't expressible until this lands.
-5. **Row/col mask helpers** — final piece for causal attention once
-   1–3 land.
-6. **Init helpers** (`full_tile`, `arange_block`) — small but every
-   sketch above relies on `full_tile(value=...)`-style seeding.
+   cores. This is now the single blocker on wide-row softmax / LayerNorm /
+   RMSNorm and on multi-head attention compute.
+2. **Multi-output kernels** (`num_outs > 1`) — needed to carry and inspect
+   online-softmax state (§4.5); the API knob exists but is untested.
+3. **Row/col mask helpers** (`write_row_mask_tile`) — final piece for causal
+   attention.
+4. **Init helpers** (`full_tile`, `arange_block`) — small but every sketch above
+   relies on `full_tile(value=...)`-style seeding.
 
-After (1) + (2), we can plausibly demo:
+After (1), we can plausibly demo:
 
 - softmax kernel (§4.1, §4.2)
 - RMSNorm (§4.3)
-- a multi-tile GEMM
 - single-head SDPA chained from a Q×Kᵀ view-matmul kernel into a
   softmax kernel into a ×V kernel (§4.4) — all stitched with views so
   no data hits DRAM between stages.

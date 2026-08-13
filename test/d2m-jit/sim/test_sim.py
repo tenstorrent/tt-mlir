@@ -101,9 +101,13 @@ def test_empty_is_zero():
 
 def test_matmul_into_empty_needs_no_prefill():
     """Because sim `empty` is zero, matmul into a raw `empty` output is the
-    correct product. On device this hits the undefined-accumulator bug (TODO §1),
-    which is why the device matmul tests prefill with `zeros` or carry an
-    accumulator -- so this assertion is sim-only by construction (§9)."""
+    correct product.
+
+    This was written as a sim-only assertion: device matmul into a raw `empty`
+    used to hit an undefined-accumulator bug. That was fixed in #8891 (standalone
+    `a @ b` gets a generated in-kernel zero block as the DPS init) and a device
+    run now returns the correct product too, so it is no longer a §9 divergence
+    -- kept as shadow-surface matmul coverage."""
     lhs, rhs = torch.randn(32, 32), torch.randn(32, 32)
     layout = _layout((32, 32))
     out = d2m.empty(layout)  # deliberately not zeros()

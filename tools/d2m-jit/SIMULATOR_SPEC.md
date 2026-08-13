@@ -229,9 +229,10 @@ fidelity).
   or `block_shape` (non-tiled), then `SimBlock.from_2d(slice)`. **Multicast
   args (`mcast_start_index`/`mcast_shape`/`mcast_dims`) are accepted and
   ignored** — in sim every core reads from the shared global buffer, so the
-  result is identical. (This means the sim *runs* multicast kernels that
-  currently hit the device `SplitUnifiedThread` assertion, [TODO §2] — a
-  feature, flagged in output as "device-divergent: multicast".)
+  result is identical. (This used to be a divergence, since device multicast on
+  grids > 1×1 hit a `SplitUnifiedThread` assertion; that was fixed in #8892 and
+  the device path is now exercised on a 2×2 grid by
+  `test_matmul.py::test_mcast_overwrite_grid_2x2`, so both backends agree.)
 - `remote_store(dst, [i, j], block)` → writes `block.to_2d()` into the same
   slice of `dst.buffer` (shape-checked against the block extent). Overwrite
   (not accumulate); store index is global (no core-relative resolution in this
@@ -307,11 +308,14 @@ the logical 2-D form: `lhs.to_2d() @ rhs.to_2d()` (`(M*32,K*32) @ (K*32,N*32) �
 (M*32,N*32)`); `transpose_b=True` transposes the rhs 2-D form (rhs stored
 `(N,K)`). Result is re-tiled via `SimBlock.from_2d`.
 
-The sim computes the **correct** product. It deliberately does **not**
-reproduce the device's undefined-accumulator bug ([TODO §1]) — `d2m.empty`
-outputs are zero in sim, so `matmul_kernel` is correct whether the caller
-pre-fills with `zeros` or not. This divergence is intended (sim = oracle for
-the *intended* semantics); it is noted in §9.
+The sim computes the **correct** product, and `d2m.empty` outputs are zero in
+sim, so `matmul_kernel` is correct whether the caller pre-fills with `zeros` or
+not. This was written as an intended divergence from a device
+undefined-accumulator bug; that bug was fixed in #8891 (standalone `a @ b` now
+gets a generated in-kernel zero block for the `linalg.generic` DPS init), and a
+device run of the §9 case — standalone `a @ b` into a raw `d2m.empty` — returns
+the correct product at PCC 1.0. So the two backends agree here; the row was
+dropped from §9.
 
 The explicit-K-loop idiom the README prescribes — a kernel-body
 `zeros([m, n])` accumulator plus `c += a @ b` — works in sim too. In-kernel
@@ -425,11 +429,16 @@ here only:
 | Area | Device | Sim |
 | --- | --- | --- |
 | `empty` contents | undefined | zero |
-| matmul into `empty` | garbage (accumulator bug, [TODO §1]) | correct product |
-| multicast on grid > 1×1 | `SplitUnifiedThread` assert ([TODO §2]) | runs correctly |
 | f32 `full` precision | fp19-truncated | exact (unless quirk mode) |
 | synchronization | real semaphores/threads | serialized, no-op waits |
 | reduced-precision tiles | bf16/fp16 math | f32 (unless quirk mode) |
+
+Two rows were removed on 2026-08-13 because the device-side bugs behind them
+were fixed and both backends now agree: *matmul into `empty`* (accumulator init,
+#8891 — re-verified on device at PCC 1.0) and *multicast on grid > 1×1*
+(`SplitUnifiedThread`, #8892 — covered by `test_mcast_overwrite_grid_2x2`).
+`empty`-is-zero remains a real divergence, so a kernel that reads uninitialised
+output still behaves differently on the two backends.
 
 These make the sim result the algebraically-correct target, which is what lets
 the whole device suite re-run against it (§11.4). Note the sim is an oracle for
@@ -551,7 +560,9 @@ Deferred (🟡/🟢), out of v1:
    it did twice before the reasons were audited against actual root causes.
 
    The reason should name the root cause, not the symptom. Four classes appear:
-   intended divergences (§9 — multicast); error type/message parity (§8 —
+   ops the sim models differently by design (§5.1 — the multicast test, whose
+   per-shard output pattern is exactly what the sim's ignore-mcast-and-store-
+   globally model does not reproduce); error type/message parity (§8 —
    `test_errors.py`, the reduce-dim rejections, staleness); device-only machinery
    with no sim analog (the pass-pipeline debug knobs, `runner`-driven rewrite and
    e2e tests, and the RoPE kernel — which derives its half-roll `view_layout`
