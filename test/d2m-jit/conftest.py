@@ -29,6 +29,17 @@ def _num_devices():
 
     Unknown (no system desc, no runtime bindings) counts as a single-chip box:
     single-device tests still run and multi-chip tests skip."""
+    if _sim_backend_requested():
+        # The simulator uses no devices, so resolving a descriptor here would be
+        # both pointless and expensive: with SYSTEM_DESC_PATH unset,
+        # `_get_system_desc_path()` opens the device to query one (and writes a
+        # `current.ttsys` into the CWD) -- during *collection*, on the one path
+        # that is supposed to need no device at all. Reporting a single-chip box
+        # is also the right answer for the machines filter: multi-chip tests
+        # drive `mesh`/`mesh_shard`, which the backend switch does not dispatch
+        # (SIMULATOR_SPEC.md §3), so they must skip under sim regardless of what
+        # hardware this system happens to have.
+        return 1
     try:
         # Imported lazily: the simulator suite runs with no MLIR bindings.
         from _ttmlir_runtime import binary

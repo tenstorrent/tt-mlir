@@ -4,8 +4,8 @@
 
 """Co-located testing infrastructure for d2m-jit patterns.
 
-A pattern file under ``test/d2m-jit/patterns/`` declares its own tests as
-module-level data, so one file is the complete, self-contained unit:
+A pattern file under ``test/d2m-jit/kernels/patterns/`` declares its own tests
+as module-level data, so one file is the complete, self-contained unit:
 kernel + rewrite + tests. The generic runner in ``test/d2m-jit`` discovers
 these declarations and turns them into pytest cases — adding pattern #1001
 is a zero-diff change to the harness.
@@ -44,9 +44,12 @@ Two declaration kinds:
   opposite route — there a scalar becomes an ``index`` function param so the
   binary stays parameterised and the runtime supplies its value per call.
 
-Not implemented yet:
-
-* **Autotuning** — perf traces per config to rank execution parameters.
+``KernelBench`` is also what the autotuner consumes: it sweeps
+``grid_shape`` / ``block_shape`` / ``mem_space`` over a bench and ranks configs
+by device ``kernel_ns`` (``test/d2m-jit/autotuner/autotuner.py``). Materializers
+should build every ``d2m.Layout`` via ``layout_from_spec`` so the swept
+per-tensor knobs actually reach a layout — the autotuner fails any config whose
+knob it cannot observe.
 """
 
 from __future__ import annotations
@@ -270,21 +273,14 @@ def parse_func_io(ttir_text: str):
 
 # ----------------------------------------------------------------------
 # PCC
+#
+# Re-exported from `utils` rather than reimplemented: the test modules import
+# `assert_pcc` from both places, and two copies of the same math drift. `utils`
+# owns it because it is the bindings-free module (the simulator suite imports
+# from it), so the dependency can only point this way.
 # ----------------------------------------------------------------------
 
-
-def compute_pcc(golden, actual) -> float:
-    """Compute Pearson correlation coefficient between two tensors."""
-    combined = torch.stack([golden.flatten().float(), actual.flatten().float()])
-    pcc = torch.corrcoef(combined)[0, 1].item()
-    return pcc
-
-
-def assert_pcc(golden, actual, threshold: float = 0.99):
-    pcc = compute_pcc(golden, actual)
-    assert (
-        pcc >= threshold
-    ), f"Expected pcc {pcc} >= {threshold}\ngolden:\n{golden}\nactual:\n{actual}"
+from utils import assert_pcc, compute_pcc  # noqa: F401 -- re-export
 
 
 # ----------------------------------------------------------------------
