@@ -237,6 +237,11 @@ def _(mb, x):
     return mb.neg(x)
 
 
+@_lowering(_aten.log.default)
+def _(mb, x):
+    return mb.log(x)
+
+
 @_lowering(_aten.silu.default)
 def _(mb, x):
     return mb.silu(x)
