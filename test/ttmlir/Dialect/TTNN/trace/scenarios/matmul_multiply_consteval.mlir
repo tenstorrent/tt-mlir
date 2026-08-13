@@ -9,12 +9,14 @@ module {
   // CHECK: "ttnn.matmul"
 
   // CHECK-LABEL: func.func private @trace_0_matmul_with_multiply
-  // CHECK: %[[TILED_ARG:.*]] = "ttnn.to_layout"(%arg0)
-  // CHECK: "ttnn.multiply"(%arg1, %[[TILED_ARG]])
+  // CHECK: %[[TILED_ARG:.*]] = "ttnn.to_layout"(%arg1)
+  // CHECK: "ttnn.multiply"(%arg0, %[[TILED_ARG]])
 
   // CHECK-LABEL: func.func private @run_and_capture_trace_0_matmul_with_multiply
   // CHECK: "ttnn.write_tensor"
-  // CHECK: "ttnn.deallocate"
+  // The capture function emits no copies and no deallocations of its own.
+  // CHECK-NOT: "ttnn.copy"
+  // CHECK-NOT: "ttnn.deallocate"
   // CHECK: "ttnn.begin_trace_capture"
   // CHECK: "ttnn.end_trace_capture"
   // CHECK: "ttnn.execute_trace"
@@ -26,7 +28,7 @@ module {
   func.func @matmul_with_multiply(%arg0: tensor<64x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg1: tensor<32x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<64x64xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}) -> tensor<64x64xbf16> {
     // CHECK: %[[GET_DEVICE:.+]] = "ttnn.get_device"()
     // CHECK: %[[LOAD_CACHED_RESULT:.+]] = ttcore.load_cached(@matmul_with_multiply_const_eval_0, [%arg0, %arg1])
-    // CHECK: %[[TRACE_RESULT:.+]] = "ttnn.capture_or_execute_trace"(%[[GET_DEVICE]], %arg2, %[[LOAD_CACHED_RESULT]]) <{capture_callee = @run_and_capture_trace_0_matmul_with_multiply, execute_callee = @execute_trace_0_matmul_with_multiply, operandSegmentSizes = array<i32: 1, 2, 0>}>
+    // CHECK: %[[TRACE_RESULT:.+]] = "ttnn.capture_or_execute_trace"(%[[GET_DEVICE]], %[[LOAD_CACHED_RESULT]], %arg2) <{allocate_slots_callee = @allocate_slots_trace_0_matmul_with_multiply, capture_callee = @run_and_capture_trace_0_matmul_with_multiply, execute_callee = @execute_trace_0_matmul_with_multiply, operandSegmentSizes = array<i32: 1, 2, 0>}>
     // CHECK-NOT: "ttnn.multiply"
     // CHECK-NOT: "ttnn.matmul"
     // CHECK: return %[[TRACE_RESULT]]

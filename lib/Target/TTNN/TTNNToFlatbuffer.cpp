@@ -3270,6 +3270,16 @@ createOp(FlatbufferObjectCache &cache, WriteTensorOp op) {
                                                  deviceTensor, blocking, cqId);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::CopyOp>
+createOp(FlatbufferObjectCache &cache, CopyOp op) {
+  auto src = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getSrc()));
+  auto dst = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDst()));
+
+  return ::tt::target::ttnn::CreateCopyOp(*cache.fbb, src, dst);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::BeginTraceCaptureOp>
 createOp(FlatbufferObjectCache &cache, BeginTraceCaptureOp op) {
   ::mlir::Value device = getOperandThroughDPSOps(op.getDevice());
@@ -3342,9 +3352,16 @@ createOp(FlatbufferObjectCache &cache, CaptureOrExecuteTraceOp op,
          "Program name not found in program index map!");
   const uint32_t executeProgramIdx = executeIt->second;
 
+  auto allocateSlotsIt =
+      programIndexMap.find(op.getAllocateSlotsCallee().str());
+  assert(allocateSlotsIt != programIndexMap.end() &&
+         "Program name not found in program index map!");
+  const uint32_t allocateSlotsProgramIdx = allocateSlotsIt->second;
+
   return ::tt::target::ttnn::CreateCaptureOrExecuteTraceOpDirect(
       *cache.fbb, cache.at<::tt::target::DeviceRef>(device), captureProgramIdx,
-      executeProgramIdx, &inputs, &outputs, &semaphoreInputs);
+      executeProgramIdx, allocateSlotsProgramIdx, &inputs, &outputs,
+      &semaphoreInputs);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ConcatenateHeadsOp>
@@ -5041,6 +5058,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto writeTensorOp = dyn_cast<WriteTensorOp>(op); writeTensorOp) {
     return createOperation(cache, createOp(cache, writeTensorOp), debugString,
+                           locInfo);
+  }
+  if (auto copyOp = dyn_cast<CopyOp>(op); copyOp) {
+    return createOperation(cache, createOp(cache, copyOp), debugString,
                            locInfo);
   }
   if (auto beginTraceCaptureOp = dyn_cast<BeginTraceCaptureOp>(op);

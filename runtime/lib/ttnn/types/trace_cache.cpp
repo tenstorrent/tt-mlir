@@ -55,25 +55,18 @@ void TraceCache::erase(const MainProgramKey &key) {
   cache.erase(outerIt);
 }
 
-void TraceCache::erase(const MainProgramKey &key,
-                       const CaptureExecuteProgramKey &captureExecuteKey) {
+TraceData TraceCache::take(const MainProgramKey &key,
+                           const CaptureExecuteProgramKey &captureExecuteKey) {
   auto outerIt = cache.find(key);
-  if (outerIt == cache.end()) {
-    return;
-  }
+  LOG_ASSERT(outerIt != cache.end(), "Trace entry must be in the cache");
 
   auto innerIt = outerIt->second.find(captureExecuteKey);
-  if (innerIt == outerIt->second.end()) {
-    return;
-  }
+  LOG_ASSERT(innerIt != outerIt->second.end(),
+             "Trace entry must be in the cache");
 
-  std::shared_ptr<::ttnn::MeshDevice> lockedDevice = meshDevice.lock();
-  if (lockedDevice && lockedDevice->is_initialized()) {
-    ::ttnn::operations::trace::release_trace(lockedDevice.get(),
-                                             innerIt->second.traceId);
-  }
-
-  outerIt->second.erase(captureExecuteKey);
+  TraceData traceData = std::move(innerIt->second);
+  outerIt->second.erase(innerIt);
+  return traceData;
 }
 
 } // namespace tt::runtime::ttnn
