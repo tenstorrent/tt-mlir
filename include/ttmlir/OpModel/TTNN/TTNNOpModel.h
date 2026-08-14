@@ -2307,5 +2307,66 @@ struct OpModel<AdamWOp> {
       bool stochasticRounding, TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// SDPAForwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<SDPAForwardOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+      llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+      std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+      std::optional<TTNNLayoutAttr> attentionMaskLayout,
+      ttcore::AttentionMaskType maskType, llvm::APFloat dropoutProbability,
+      bool returnIntermediates, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+               llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+               llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+               std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+               std::optional<TTNNLayoutAttr> attentionMaskLayout,
+               ttcore::AttentionMaskType maskType,
+               llvm::APFloat dropoutProbability, bool returnIntermediates,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// SDPABackwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<SDPABackwardOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> gradOutputShape, TTNNLayoutAttr gradOutputLayout,
+      llvm::ArrayRef<int64_t> attnOutputShape, TTNNLayoutAttr attnOutputLayout,
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+      llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+      llvm::ArrayRef<int64_t> intermediatesShape,
+      TTNNLayoutAttr intermediatesLayout,
+      std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+      std::optional<TTNNLayoutAttr> attentionMaskLayout,
+      ttcore::AttentionMaskType maskType, llvm::APFloat dropoutProbability,
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> gradOutputShape, TTNNLayoutAttr gradOutputLayout,
+      llvm::ArrayRef<int64_t> attnOutputShape, TTNNLayoutAttr attnOutputLayout,
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+      llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+      llvm::ArrayRef<int64_t> intermediatesShape,
+      TTNNLayoutAttr intermediatesLayout,
+      std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+      std::optional<TTNNLayoutAttr> attentionMaskLayout,
+      ttcore::AttentionMaskType maskType, llvm::APFloat dropoutProbability,
+      TTNNLayoutAttr outputLayout);
+};
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

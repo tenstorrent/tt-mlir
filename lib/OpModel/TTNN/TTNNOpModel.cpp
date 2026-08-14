@@ -9301,4 +9301,205 @@ llvm::Expected<size_t> OpModel<AdamWOp>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// SDPAForwardOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<SDPAForwardOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+    std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+    std::optional<TTNNLayoutAttr> attentionMaskLayout,
+    ttcore::AttentionMaskType maskType, llvm::APFloat dropoutProbability,
+    bool returnIntermediates, TTNNLayoutAttr outputLayout,
+    const MockAllocatorState *initialState) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec valueSpec,
+      detail::convertToTensorSpec(device, valueShape, valueLayout));
+  std::optional<::tt::tt_metal::TensorSpec> attentionMaskSpec =
+      detail::convertToOptionalTensorSpec(device, attentionMaskShape,
+                                          attentionMaskLayout);
+
+  const auto maskTypeValue =
+      static_cast<::ttml::metal::AttentionMaskType>(maskType);
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
+  auto sdpaForwardOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        ::ttml::metal::sdpa_fw, device, initialStateOpt, querySpec, keySpec,
+        valueSpec, maskTypeValue, attentionMaskSpec,
+        dropoutProbability.convertToFloat(), returnIntermediates);
+  };
+
+  return operation::getOpConstraintsWithState(queryLayout.getContext(),
+                                              sdpaForwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<SDPAForwardOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+    std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+    std::optional<TTNNLayoutAttr> attentionMaskLayout,
+    ttcore::AttentionMaskType maskType, llvm::APFloat dropoutProbability,
+    bool returnIntermediates, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec valueSpec,
+      detail::convertToTensorSpec(device, valueShape, valueLayout));
+  std::optional<::tt::tt_metal::TensorSpec> attentionMaskSpec =
+      detail::convertToOptionalTensorSpec(device, attentionMaskShape,
+                                          attentionMaskLayout);
+
+  const auto maskTypeValue =
+      static_cast<::ttml::metal::AttentionMaskType>(maskType);
+  auto sdpaForwardOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttml::metal::sdpa_fw, device, querySpec, keySpec,
+                            valueSpec, maskTypeValue, attentionMaskSpec,
+                            dropoutProbability.convertToFloat(),
+                            returnIntermediates);
+  };
+
+  return operation::getOpRuntime(sdpaForwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// SDPABackwardOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<SDPABackwardOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> gradOutputShape, TTNNLayoutAttr gradOutputLayout,
+    llvm::ArrayRef<int64_t> attnOutputShape, TTNNLayoutAttr attnOutputLayout,
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+    llvm::ArrayRef<int64_t> intermediatesShape,
+    TTNNLayoutAttr intermediatesLayout,
+    std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+    std::optional<TTNNLayoutAttr> attentionMaskLayout,
+    ttcore::AttentionMaskType maskType, llvm::APFloat dropoutProbability,
+    TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec gradOutputSpec,
+      detail::convertToTensorSpec(device, gradOutputShape, gradOutputLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec attnOutputSpec,
+      detail::convertToTensorSpec(device, attnOutputShape, attnOutputLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec valueSpec,
+      detail::convertToTensorSpec(device, valueShape, valueLayout));
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec intermediatesSpec,
+                   detail::convertToTensorSpec(device, intermediatesShape,
+                                               intermediatesLayout));
+  std::optional<::tt::tt_metal::TensorSpec> attentionMaskSpec =
+      detail::convertToOptionalTensorSpec(device, attentionMaskShape,
+                                          attentionMaskLayout);
+
+  const auto maskTypeValue =
+      static_cast<::ttml::metal::AttentionMaskType>(maskType);
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
+  auto sdpaBackwardOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        ::ttml::metal::sdpa_bw, device, initialStateOpt, gradOutputSpec,
+        attnOutputSpec, querySpec, keySpec, valueSpec, intermediatesSpec,
+        maskTypeValue, attentionMaskSpec, dropoutProbability.convertToFloat());
+  };
+
+  return operation::getOpConstraintsWithState(gradOutputLayout.getContext(),
+                                              sdpaBackwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<SDPABackwardOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> gradOutputShape, TTNNLayoutAttr gradOutputLayout,
+    llvm::ArrayRef<int64_t> attnOutputShape, TTNNLayoutAttr attnOutputLayout,
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+    llvm::ArrayRef<int64_t> intermediatesShape,
+    TTNNLayoutAttr intermediatesLayout,
+    std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+    std::optional<TTNNLayoutAttr> attentionMaskLayout,
+    ttcore::AttentionMaskType maskType, llvm::APFloat dropoutProbability,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec gradOutputSpec,
+      detail::convertToTensorSpec(device, gradOutputShape, gradOutputLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec attnOutputSpec,
+      detail::convertToTensorSpec(device, attnOutputShape, attnOutputLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec valueSpec,
+      detail::convertToTensorSpec(device, valueShape, valueLayout));
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec intermediatesSpec,
+                   detail::convertToTensorSpec(device, intermediatesShape,
+                                               intermediatesLayout));
+  std::optional<::tt::tt_metal::TensorSpec> attentionMaskSpec =
+      detail::convertToOptionalTensorSpec(device, attentionMaskShape,
+                                          attentionMaskLayout);
+
+  const auto maskTypeValue =
+      static_cast<::ttml::metal::AttentionMaskType>(maskType);
+  auto sdpaBackwardOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttml::metal::sdpa_bw, device, gradOutputSpec,
+                            attnOutputSpec, querySpec, keySpec, valueSpec,
+                            intermediatesSpec, maskTypeValue, attentionMaskSpec,
+                            dropoutProbability.convertToFloat());
+  };
+
+  return operation::getOpRuntime(sdpaBackwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 } // namespace mlir::tt::ttnn::op_model
