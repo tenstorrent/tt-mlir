@@ -29,4 +29,12 @@ def TTMetal_LocalSemaphore : TTMetal_Type<"LocalSemaphore", "local_semaphore"> {
   let description = "Local semaphore type in TTMetal dialect";
 }
 
+def TTMetal_GlobalCB : TTMetal_Type<"GlobalCB", "global_cb"> {
+  let summary = "TTMetal global circular buffer";
+  let description = [{
+    Host-side handle for a tt-metal experimental GlobalCircularBuffer.
+    Attached to enqueue_program at a shared remote CB port (conventionally 31).
+  }];
+}
+
 #endif  // TTMLIR_TTMLIR_DIALECT_TTMETAL_TTMETALOPSTYPES_TD

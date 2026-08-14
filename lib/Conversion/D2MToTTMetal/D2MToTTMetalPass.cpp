@@ -6,12 +6,14 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.h"
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
+#include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -102,6 +104,9 @@ struct ConvertD2MToTTMetal
     target.addLegalOp<d2m::SpatialOp>();
 
     TypeConverter typeConverter;
+    typeConverter.addConversion([](d2m::GlobalCBType type) {
+      return ttmetal::GlobalCBType::get(type.getContext());
+    });
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());

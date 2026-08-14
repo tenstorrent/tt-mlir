@@ -220,6 +220,10 @@ public:
       if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
         argMapping[operandIndex] = args.size();
         args.push_back(operand);
+      } else if (mlir::isa<ttmetal::GlobalCBType, d2m::GlobalCBType>(
+                     operand.getType())) {
+        argMapping[operandIndex] = args.size();
+        args.push_back(operand);
       } else if (mlir::isa<ttmetal::LocalSemaphoreType>(operand.getType())) {
         argMapping[operandIndex] = args.size();
         args.push_back(operand);
@@ -555,6 +559,39 @@ public:
 } // namespace
 
 namespace {
+constexpr int64_t kRemoteCBPort = 31;
+
+static int64_t getGlobalCBSlotPageSize(d2m::GlobalCBType gcbType) {
+  mlir::ShapedType slot = gcbType.getUnderlying();
+  Type elem = slot.getElementType();
+  if (auto tile = mlir::dyn_cast<ttcore::TileType>(elem)) {
+    return static_cast<int64_t>(tile.getSizeBytes());
+  }
+  return static_cast<int64_t>((elem.getIntOrFloatBitWidth() / 8) *
+                              slot.getNumElements());
+}
+
+class D2MCreateGlobalCBRewriter
+    : public OpConversionPattern<d2m::CreateGlobalCBOp> {
+public:
+  using OpConversionPattern<d2m::CreateGlobalCBOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::CreateGlobalCBOp op,
+                  d2m::CreateGlobalCBOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto gcbType = mlir::cast<d2m::GlobalCBType>(op.getResult().getType());
+    int64_t size = getGlobalCBSlotPageSize(gcbType) * op.getNumSlots();
+    rewriter.replaceOpWithNewOp<ttmetal::CreateGlobalCircularBufferOp>(
+        op, ttmetal::GlobalCBType::get(rewriter.getContext()), op.getMapping(),
+        rewriter.getI64IntegerAttr(size),
+        rewriter.getI64IntegerAttr(kRemoteCBPort));
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class D2MResetGlobalSemaphoreRewriter
     : public OpConversionPattern<d2m::ResetGlobalSemaphoreOp> {
 public:
@@ -734,6 +771,19 @@ private:
           size_t unifiedIdx = unifiedArgs_.size();
           unifiedArgs_.push_back(arg);
           globalSemaphoreArgMap_.insert({{op, localIdx}, unifiedIdx});
+          continue;
+        }
+        if (mlir::isa<ttmetal::GlobalCBType>(arg.getType())) {
+          auto it = ioToUnifiedIdx_.find(arg);
+          size_t unifiedIdx;
+          if (it == ioToUnifiedIdx_.end()) {
+            unifiedIdx = unifiedArgs_.size();
+            ioToUnifiedIdx_.insert({arg, unifiedIdx});
+            unifiedArgs_.push_back(arg);
+          } else {
+            unifiedIdx = it->second;
+          }
+          ioArgMap_.insert({{op, localIdx}, unifiedIdx});
           continue;
         }
         if (mlir::isa<ttmetal::LocalSemaphoreType>(arg.getType())) {
@@ -958,6 +1008,7 @@ void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
       ttmetal::D2MToDeviceRewriter, ttmetal::D2MToHostRewriter,
       ttmetal::D2MMeshShardRewriter, ttmetal::D2MCreateGlobalSemaphoreRewriter,
+      ttmetal::D2MCreateGlobalCBRewriter,
       ttmetal::D2MResetGlobalSemaphoreRewriter,
       ttmetal::D2MCreateLocalSemaphoreRewriter, ttmetal::D2MViewLayoutRewriter>(
       ctx);
