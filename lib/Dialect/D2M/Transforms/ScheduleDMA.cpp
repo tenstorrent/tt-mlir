@@ -15,6 +15,8 @@
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/ADT/SetVector.h"
+
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MSCHEDULEDMA
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
@@ -144,23 +146,50 @@ static void assignDmCoreIndices(
 }
 
 // Assign CBs to threads to balance workload.
+// DRAM multicast loads are pinned to distinct threads first so two DRAM
+// mcasts cannot land on the same NOC (assignNoCsToThreads asserts this).
 // Returns a vector of DMAThreadAssignment, one per hardware thread.
-static SmallVector<DMAThreadAssignment>
-assignCBsToThreads(const DenseMap<unsigned, size_t> &cbWorkloads,
-                   unsigned numThreads) {
+static SmallVector<DMAThreadAssignment> assignCBsToThreads(
+    const DenseMap<unsigned, size_t> &cbWorkloads,
+    const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps,
+    unsigned numThreads) {
   SmallVector<DMAThreadAssignment> assignments(numThreads);
 
-  // Sort CBs by workload (descending) for greedy assignment.
+  llvm::SetVector<unsigned> dramMcastCBs;
+  for (const auto &[op, cbIdx] : dmaOps) {
+    auto load = mlir::dyn_cast_or_null<RemoteLoadOp>(op);
+    if (!load || !load.isMcast()) {
+      continue;
+    }
+    if (ttcore::getMemorySpace(load.getMemref()) !=
+        ttcore::MemorySpace::DeviceDRAM) {
+      continue;
+    }
+    dramMcastCBs.insert(cbIdx);
+  }
+
+  unsigned mcastThread = 0;
+  for (unsigned cbIdx : dramMcastCBs) {
+    TT_assertv(mcastThread < numThreads,
+               "Too many DRAM mcast CBs for available DM threads.");
+    assignments[mcastThread].assignedCBs.insert(cbIdx);
+    auto it = cbWorkloads.find(cbIdx);
+    assignments[mcastThread].workload +=
+        it != cbWorkloads.end() ? it->second : 0;
+    ++mcastThread;
+  }
+
   SmallVector<std::pair<unsigned, size_t>> sortedCBs;
   for (const auto &[cbIdx, workload] : cbWorkloads) {
+    if (dramMcastCBs.contains(cbIdx)) {
+      continue;
+    }
     sortedCBs.push_back({cbIdx, workload});
   }
   llvm::sort(sortedCBs,
              [](const auto &a, const auto &b) { return a.second > b.second; });
 
-  // Greedy assignment: assign each CB to the thread with smallest workload.
   for (const auto &[cbIdx, workload] : sortedCBs) {
-    // Find thread with minimum workload.
     unsigned minThreadIdx = 0;
     size_t minWorkload = assignments[0].workload;
     for (unsigned i = 1; i < numThreads; ++i) {
@@ -309,7 +338,7 @@ public:
 
     // Assign CBs to threads.
     SmallVector<DMAThreadAssignment> assignments =
-        assignCBsToThreads(cbWorkloads, numThreadsToUse);
+        assignCBsToThreads(cbWorkloads, dmaOps, numThreadsToUse);
 
     assignDmCoreIndices(assignments, dmaOps, numDatamovementThreads);
 
