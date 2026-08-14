@@ -14,10 +14,11 @@ import inspect
 
 import torch
 
-from ..tensor_layout import Layout
+from ..tensor_layout import Layout, float32, int32
 from ..layout_math import (
     reduction_layout,
     resolve_reshape,
+    validate_topk,
     MeshShard,
     validate_mesh_mapping,
     current_mesh,
@@ -179,6 +180,49 @@ def spatial(inputs, outputs, grid_ranges, region_builders):
     for build_region in builders:
         build_region()
     return tuple(output_lts)
+
+
+# --- topk --------------------------------------------------------------------
+
+
+class TopKResult:
+    """Sim analog of `api.TopKResult`, with the same unpack / `to_host()`
+    surface. `.values` / `.indices` are already the logical result here: the
+    device's non-target padding is physical, and the sim has none."""
+
+    __slots__ = ("values", "indices")
+
+    def __init__(self, values, indices):
+        self.values = values
+        self.indices = indices
+
+    def to_host(self):
+        return to_host(self.values, self.indices)
+
+    def __iter__(self):
+        return iter((self.values, self.indices))
+
+
+def topk(input, k, dim=-1, grid=None, merge_cap=None) -> TopKResult:
+    """Sim analog of `api.topk`: `torch.topk` over the logical tensor.
+
+    `grid` and `merge_cap` only shape the device's core split, so they are
+    accepted and ignored -- which also means a shape the device rejects for
+    having no legal split still runs here (SIMULATOR_SPEC.md §9).
+    """
+    if not isinstance(input, torch.Tensor):
+        raise TypeError(f"topk expected a torch.Tensor, got {type(input).__name__}")
+    dim = validate_topk(tuple(input.shape), k, dim)
+
+    values, indices = torch.topk(input.to(torch.float32), k, dim=dim)
+    out_shape = list(input.shape)
+    out_shape[dim] = k
+
+    def placed(tensor, dtype):
+        layout = Layout(shape=out_shape, dtype=dtype, block_shape=[1] * len(out_shape))
+        return to_layout(tensor, layout)
+
+    return TopKResult(placed(values, float32), placed(indices.to(torch.int32), int32))
 
 
 # --- views -------------------------------------------------------------------

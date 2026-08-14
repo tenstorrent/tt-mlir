@@ -186,17 +186,18 @@ static void addTopkIndexBuffers(GenericOp genericOp) {
   allocScratch(inputType.getShape(), utils::kTopkIndexBufferAttr);
   allocScratch({utils::kTopkLaneTileRows, 1}, utils::kTopkLaneBufferAttr);
 
-  // Written and read by compute alone, so scratch rather than a CB: nothing
-  // would supply its reserve/push half.
+  // A seed no remote_load fills is written and read by compute alone, so it is
+  // scratch rather than a CB: nothing would supply its reserve/push half. Only
+  // d2m-jit's kernel-local seed qualifies; emitLeafTopk passes one as a generic
+  // operand, so a remote_load fills it and it stays a CB.
   Value seed = topkBlock.getScratchIdxTile();
-  assert(llvm::none_of(seed.getUsers(),
-                       [&](Operation *user) {
-                         auto load = mlir::dyn_cast<RemoteLoadOp>(user);
-                         return load && load.getLocalBuffer() == seed;
-                       }) &&
-         "generate_indices seed must not be DMA-filled");
+  bool filledByDMA = llvm::any_of(seed.getUsers(), [&](Operation *user) {
+    auto load = mlir::dyn_cast<RemoteLoadOp>(user);
+    return load && load.getLocalBuffer() == seed;
+  });
   if (auto seedAlloc =
-          mlir::dyn_cast_or_null<memref::AllocOp>(seed.getDefiningOp())) {
+          mlir::dyn_cast_or_null<memref::AllocOp>(seed.getDefiningOp());
+      seedAlloc && !filledByDMA) {
     seedAlloc->setAttr("d2m.scratch_buffer", builder.getUnitAttr());
   }
 }

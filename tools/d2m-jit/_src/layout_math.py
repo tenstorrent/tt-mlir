@@ -15,6 +15,7 @@ Kept free of `ttmlir` and `torch` imports so `import d2m_jit.sim` stays usable
 with no tt-metal build (SIMULATOR_SPEC.md §1/§2).
 """
 
+from .errors import D2mJitError
 from .tensor_layout import Layout
 
 
@@ -134,6 +135,36 @@ def resolve_reshape(layout: Layout, shape):
         grid_shape=grid_shape,
     )
     return new_shape, dst_layout
+
+
+# --- topk limits -------------------------------------------------------------
+#
+# The device plans a core split and the sim just calls `torch.topk`, but both
+# must reject the same inputs -- otherwise the sim stops being an oracle for
+# exactly the arguments a caller would use it to check.
+
+# topk's sort network merges tile pairs into a single sorted run, so a reduced
+# axis never spans fewer tiles than this, and K tops out at their lanes.
+TOPK_MIN_REDUCTION_TILES = 2
+TOPK_MAX_K = 64
+
+
+def validate_topk(shape, k, dim):
+    """Reject what no backend can run and return `dim` normalized to [0, 2).
+
+    Grid-dependent rejections (no legal split, a shard that overflows L1) stay
+    on the device side; the sim has neither a grid nor an allocator.
+    """
+    if len(shape) != 2:
+        raise D2mJitError(f"topk expects a 2D tensor, got rank {len(shape)}")
+    dim = dim % 2
+    if not isinstance(k, int) or k < 1 or k > TOPK_MAX_K:
+        raise D2mJitError(f"topk k must be an int in [1, {TOPK_MAX_K}], got {k!r}")
+    if k > shape[dim]:
+        raise D2mJitError(
+            f"topk k ({k}) exceeds the {shape[dim]} elements dim {dim} holds"
+        )
+    return dim
 
 
 # --- mesh sharding descriptor math ------------------------------------------

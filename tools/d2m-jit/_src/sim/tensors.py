@@ -29,6 +29,7 @@ _TORCH_BY_NAME = {
     "Float32": torch.float32,
     "Float16": torch.float16,
     "BFloat16": torch.bfloat16,
+    "Int32": torch.int32,
 }
 
 

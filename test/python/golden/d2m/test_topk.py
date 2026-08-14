@@ -116,7 +116,7 @@ SINGLE_CORE_TOPK_SHAPES = [
     # Single-tile non-target dim; the reduction dim still merges and rebuilds.
     pytest.param((32, 256), 64, -1, id="32x256_k64_dim1"),
     pytest.param((256, 32), 64, 0, id="256x32_k64_dim0"),
-    # Large target dim (many tiles in reduction), k > 32.
+    # Large target dim (many tiles in reduction), k > 32.a
     pytest.param((32, 1376), 64, -1, id="32x1376_k64_dim1"),
     pytest.param((1376, 32), 64, 0, id="1376x32_k64_dim0"),
     # Ragged (non-power-of-2 tile count)
@@ -131,18 +131,18 @@ MULTI_CORE_TOPK_SHAPES = [
     # Non-target dim is a single tile (32), on dim 0; target dim (dim=1) is
     # any multiple of 32.
     pytest.param((32, 5504), 16, -1, id="32x5504_k16_dim1"),
-    pytest.param((32, 96256), 16, -1, id="32x96256_k16_dim1"),
+    pytest.param((32, 114688), 16, -1, id="32x114688_k16_dim1"),
     pytest.param((35, 7639), 16, -1, id="35x7639_k16_dim1"),
     # Transposed equivalents: non-target dim is a single tile (32), on dim 1;
     # target dim (dim=0) is any multiple of 32.
     pytest.param((8192, 32), 16, 0, id="8192x32_k16_dim0"),
-    pytest.param((96256, 32), 16, 0, id="96256x32_k16_dim0"),
+    pytest.param((114688, 32), 16, 0, id="114688x32_k16_dim0"),
     pytest.param((7639, 35), 16, 0, id="7639x35_k16_dim0"),
     # k > 32: each core's partial spans two reduction tiles.
     pytest.param((32, 8192), 48, -1, id="32x8192_k48_dim1"),
-    pytest.param((32, 96256), 64, -1, id="32x96256_k64_dim1"),
+    pytest.param((32, 114688), 64, -1, id="32x114688_k64_dim1"),
     pytest.param((8192, 32), 48, 0, id="8192x32_k48_dim0"),
-    pytest.param((96256, 32), 64, 0, id="96256x32_k64_dim0"),
+    pytest.param((114688, 32), 64, 0, id="114688x32_k64_dim0"),
     # data parallel
     pytest.param((32, 8192), 16, 0, id="32x8192_k16_dim0"),
     pytest.param((8192, 32), 16, -1, id="8192x32_k16_dim1"),

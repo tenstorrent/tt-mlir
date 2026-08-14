@@ -24,6 +24,11 @@ from ._src.tensor_layout import (
     int32,
     _to_data_type,
 )
+from ._src.layout_math import (
+    TOPK_MAX_K as _TOPK_MAX_K,
+    TOPK_MIN_REDUCTION_TILES as _TOPK_MIN_REDUCTION_TILES,
+    validate_topk as _validate_topk,
+)
 from ._src import builder as _builder
 from ._src.builder import (
     CompiledKernel,
@@ -49,7 +54,6 @@ from ._src.rewrite import (
     infer_layout,
     apply_patterns,
 )
-
 
 # --- Backend dispatch (config.backend) --------------------------------------
 #
@@ -79,20 +83,26 @@ def _use_sim():
     return b == "sim"
 
 
-def _dispatch(name):
+def _dispatch(name, device_fn=None):
     """Build a host-function wrapper that routes to the device or sim impl of
     `name` based on `config.backend` at call time.
+
+    `device_fn` defaults to `_builder.<name>`; pass it for a host op whose
+    device impl lives here instead, because it emits kernels the DSL defines.
 
     The wrapper is tagged with `_d2m_dispatch_name` so the host-op surface is
     discoverable: `test_backend_switch.py` audits that every dispatched host op
     has a sim backing, mirroring the `@syntax` audit for in-kernel ops."""
-    device_fn = getattr(_builder, name)
+    device_fn = getattr(_builder, name) if device_fn is None else device_fn
 
     @functools.wraps(device_fn)
     def wrapper(*args, **kwargs):
         impl = getattr(_sim(), name) if _use_sim() else device_fn
         return impl(*args, **kwargs)
 
+    # `wraps` would name the wrapper after the impl; the op's own name is what
+    # `help()` and tracebacks should show.
+    wrapper.__name__ = wrapper.__qualname__ = name
     wrapper._d2m_dispatch_name = name
     return wrapper
 
@@ -950,8 +960,8 @@ def topk(input, k, dim):
     `dim` follows torch/numpy axis numbering for a 2D tile block: `0` selects
     down rows, `1` selects across columns.
 
-    Must be the only compute in its kernel. `k` <= 64; `dim=1` requires
-    pre-transposed input (undone by `topk_extract`).
+    Must be the only compute in its kernel. `k` is capped at `_TOPK_MAX_K`;
+    `dim=1` requires pre-transposed input (undone by `topk_extract`).
     """
     return _topk_block(input, k, dim)
 
@@ -973,7 +983,7 @@ def topk_merge(values, indices, k, dim):
     kwargs_as_attr={"transpose": _bool_attr_from_ast},
 )
 def topk_extract(input, k, dim, transpose=True):
-    """Narrow a `topk` result to the `ceil(k / 32)` tiles the top-K occupies.
+    """Narrow a `topk` result to the tiles the top-K occupies, `k` lanes wide.
 
     `transpose=True` (last step of a chain) undoes `topk`'s pre-transpose;
     `transpose=False` keeps the sort orientation a following merge needs.
@@ -984,7 +994,7 @@ def topk_extract(input, k, dim, transpose=True):
     rank = block_ty.rank
     reduce_axis = _normalize_reduce_axis(dim, rank)
     k = _dim_to_int(k, what="topk k")
-    output_tiles = (k + _TILE_WIDTH - 1) // _TILE_WIDTH
+    output_tiles = _topk_output_tiles(k)
     transpose = _normalize_bool_literal(transpose, "transpose")
     return _topk_extract_block(
         input,
@@ -1776,10 +1786,12 @@ def _reduce_block(
     return generic.result
 
 
-# topk's sort network merges tile pairs down to a single sorted run, so the
-# LLK's usable K tops out at two tiles' worth of lanes.
-_TOPK_MAX_K = 64
 _TILE_WIDTH = 32
+
+
+def _topk_output_tiles(k):
+    """Tiles the sorted top-K occupies once compacted to the front of the axis."""
+    return -(-k // _TILE_WIDTH)
 
 
 def _topk_block(input, k, dim, indices=None):
@@ -1801,10 +1813,11 @@ def _topk_block(input, k, dim, indices=None):
 
     if k < 1 or k > _TOPK_MAX_K:
         raise ValueError(f"topk k must be in [1, {_TOPK_MAX_K}], got {k}")
-    if reduction_tiles < 2:
+    if reduction_tiles < _TOPK_MIN_REDUCTION_TILES:
         raise ValueError(
             "topk merges tile pairs, so the reduced block axis must span at "
-            f"least 2 tiles; axis {reduce_axis} spans {reduction_tiles}"
+            f"least {_TOPK_MIN_REDUCTION_TILES} tiles; axis {reduce_axis} "
+            f"spans {reduction_tiles}"
         )
     if k > reduction_tiles * _TILE_WIDTH:
         raise ValueError(
@@ -1835,10 +1848,10 @@ def _topk_block(input, k, dim, indices=None):
         scratch,
         d2m.empty(block_ty),
         d2m.empty(idx_block_ty),
-        k,
-        reduction_tiles * _TILE_WIDTH,
-        False,  # stable_sort
-        reduce_axis,
+        k=k,
+        num_elements=reduction_tiles * _TILE_WIDTH,
+        stable_sort=False,
+        dim=reduce_axis,
         generate_indices=indices is None,
     )
     return values, indices_out
@@ -1982,3 +1995,393 @@ def _matmul_block(lhs, rhs, transpose_b=False, acc=None):
             result = result.result
         linalg.yield_([result])
     return generic.result
+
+
+# Bands one merge round folds together, unless `topk(merge_cap=)` says otherwise.
+# A policy default, not a derived bound: a fan-in too wide for L1 fails in the
+# allocator, which `topk` reports rather than predicting here.
+_TOPK_MERGE_CAP = 4
+
+
+@functools.lru_cache(maxsize=None)
+def _topk_transpose_kernel():
+    @kernel
+    def kern(in_t, out_t):
+        m = core_index(0)
+        n = core_index(1)
+        remote_store(out_t, [m, n], tile_transpose(remote_load(in_t, [m, n])))
+
+    return kern
+
+
+@functools.lru_cache(maxsize=None)
+def _topk_sort_kernel(k, dim):
+    @kernel
+    def kern(in_t, out_vals, out_idx):
+        m = core_index(0)
+        n = core_index(1)
+        vals, idx = topk(remote_load(in_t, [m, n]), k, dim)
+        remote_store(out_vals, [m, n], vals)
+        remote_store(out_idx, [m, n], idx)
+
+    return kern
+
+
+@functools.lru_cache(maxsize=None)
+def _topk_merge_kernel(k, dim):
+    @kernel
+    def kern(vals_t, idx_t, out_vals, out_idx):
+        m = core_index(0)
+        n = core_index(1)
+        vals, idx = topk_merge(
+            remote_load(vals_t, [m, n]), remote_load(idx_t, [m, n]), k, dim
+        )
+        remote_store(out_vals, [m, n], vals)
+        remote_store(out_idx, [m, n], idx)
+
+    return kern
+
+
+@functools.lru_cache(maxsize=None)
+def _topk_compact_kernel(k, dim):
+    @kernel
+    def kern(in_t, out_t):
+        m = core_index(0)
+        n = core_index(1)
+        remote_store(
+            out_t,
+            [m, n],
+            topk_extract(remote_load(in_t, [m, n]), k, dim, transpose=False),
+        )
+
+    return kern
+
+
+@functools.lru_cache(maxsize=None)
+def _topk_extract_kernel(k, dim):
+    @kernel
+    def kern(in_t, out_t):
+        m = core_index(0)
+        n = core_index(1)
+        remote_store(out_t, [m, n], topk_extract(remote_load(in_t, [m, n]), k, dim))
+
+    return kern
+
+
+class _TopKPlan:
+    """How one topk is split: `bands` slices the reduction dim (partial top-k,
+    closed by a merge tree), `nt_shards` slices the non-target dim (already
+    final)."""
+
+    __slots__ = ("bands", "band_tiles", "nt_shards", "nt_per_core", "merge_schedule")
+
+    def __init__(self, bands, band_tiles, nt_shards, nt_per_core, merge_schedule):
+        self.bands = bands
+        self.band_tiles = band_tiles
+        self.nt_shards = nt_shards
+        self.nt_per_core = nt_per_core
+        self.merge_schedule = merge_schedule
+
+    def __repr__(self):
+        return (
+            f"_TopKPlan(bands={self.bands}, band_tiles={self.band_tiles}, "
+            f"nt_shards={self.nt_shards}, nt_per_core={self.nt_per_core})"
+        )
+
+
+@functools.lru_cache(maxsize=None)
+def _topk_worker_grid():
+    """The device's worker grid, which every split is ultimately folded onto."""
+    return _builder._device_worker_grid()
+
+
+def _topk_fits_grid(cores, worker_grid):
+    """True when `cores` factors into a rectangle the worker grid holds."""
+    return _builder._legal_physical_grid(cores, worker_grid) is not None
+
+
+def _topk_merge_schedule(bands, worker_grid, merge_cap=_TOPK_MERGE_CAP):
+    """Group count surviving each merge round, outermost first, ending at 1.
+    None when no round satisfies `merge_cap` and the grid."""
+    schedule = []
+    while bands > 1:
+        groups = next(
+            (
+                g
+                for g in range(1, bands)
+                if bands % g == 0
+                and bands // g <= merge_cap
+                and _topk_fits_grid(g, worker_grid)
+            ),
+            None,
+        )
+        if groups is None:
+            return None
+        schedule.append(groups)
+        bands = groups
+    return schedule
+
+
+def _topk_split_order(cores, band_limit, nt_limit, nt_tiles, red_tiles):
+    """Candidate (bands, nt_shards) splits, most-spread first: banding, then
+    data-parallel, then both, then one core -- so a shape is single-core only
+    because every split above was rejected, never by a size threshold."""
+    # A pure band split folds across the whole grid, so it is bounded by the
+    # core count, not by one axis; `band_limit` only caps the 2D case below.
+    for bands in range(min(cores, red_tiles // _TOPK_MIN_REDUCTION_TILES), 1, -1):
+        yield bands, 1
+    for nt_shards in range(min(nt_tiles, cores), 1, -1):
+        yield 1, nt_shards
+    for bands in range(band_limit, 1, -1):
+        for nt_shards in range(2, nt_limit + 1):
+            yield bands, nt_shards
+    yield 1, 1
+
+
+def _topk_plan(shape, k, dim, grid=None, merge_cap=_TOPK_MERGE_CAP):
+    """The split for `shape` on `grid`, or None when none is legal there.
+
+    Legality here is grid geometry only -- band counts, placement, and a merge
+    tree that closes. Whether the result fits L1 is the allocator's call, and it
+    is the one that actually knows; `topk` surfaces its failure rather than
+    trying to predict it from tile counts."""
+    worker_grid = tuple(grid) if grid is not None else _topk_worker_grid()
+    cores = worker_grid[0] * worker_grid[1]
+    band_limit = worker_grid[1] if dim == 1 else min(worker_grid)
+    nt_limit = worker_grid[0] if dim == 1 else worker_grid[1]
+
+    full_red_tiles = -(-shape[dim] // _TILE_WIDTH)
+    local_red_tiles = max(_TOPK_MIN_REDUCTION_TILES, full_red_tiles)
+    nt_tiles = -(-shape[1 - dim] // _TILE_WIDTH)
+
+    def candidate(bands, nt_shards):
+        band_tiles = local_red_tiles if bands == 1 else -(-full_red_tiles // bands)
+        nt_per_core = -(-nt_tiles // nt_shards)
+        if bands > 1 and band_tiles < _TOPK_MIN_REDUCTION_TILES:
+            return None
+        placeable = (
+            bands <= band_limit and nt_shards <= nt_limit
+            if bands > 1 and nt_shards > 1
+            else _topk_fits_grid(bands * nt_shards, worker_grid)
+        )
+        if not placeable:
+            return None
+        schedule = []
+        if bands > 1:
+            schedule = _topk_merge_schedule(bands, worker_grid, merge_cap)
+            if schedule is None:
+                return None
+        return _TopKPlan(bands, band_tiles, nt_shards, nt_per_core, schedule)
+
+    for bands, nt_shards in _topk_split_order(
+        cores, band_limit, nt_limit, nt_tiles, full_red_tiles
+    ):
+        plan = candidate(bands, nt_shards)
+        if plan is not None:
+            return plan
+    return None
+
+
+def _topk_layout(shape, dtype, block_shape, grid):
+    return Layout(
+        shape=tuple(shape),
+        dtype=dtype,
+        block_shape=list(block_shape),
+        grid_shape=list(grid),
+    )
+
+
+def _topk_pad_for_tiles(tensor, dim, red_tiles, nt_tiles):
+    """Pad to whole tiles: the reduction with -inf so padding can never win,
+    the non-target with zeros since those slices are sliced back off."""
+    import torch
+
+    padded = list(tensor.shape)
+    padded[dim] = red_tiles * _TILE_WIDTH
+    padded[1 - dim] = nt_tiles * _TILE_WIDTH
+    if tuple(padded) == tuple(tensor.shape):
+        return tensor
+    out = torch.zeros(padded, dtype=tensor.dtype)
+    out.narrow(dim, tensor.shape[dim], padded[dim] - tensor.shape[dim]).fill_(
+        float("-inf")
+    )
+    out[tuple(slice(0, s) for s in tensor.shape)] = tensor
+    return out
+
+
+def _topk_run_chain(tensor, k, dim, plan):
+    """transpose -> leaf sort -> (compact -> merge)* -> extract, one kernel per
+    `d2m.generic`. Stays in the leaf's transposed orientation until the final
+    extract; transposing between rounds desynchronises values from indices."""
+    bands, band_tiles = plan.bands, plan.band_tiles
+    nt_shards, nt_per_core = plan.nt_shards, plan.nt_per_core
+    logical = tuple(tensor.shape)
+    red_tiles, nt_tiles = bands * band_tiles, nt_shards * nt_per_core
+    padded = _topk_pad_for_tiles(tensor, dim, red_tiles, nt_tiles)
+
+    def axes(reduction, non_target):
+        return [non_target, reduction] if dim == 1 else [reduction, non_target]
+
+    grid = tuple(axes(bands, nt_shards))
+    compact_tiles = _topk_output_tiles(k)
+
+    def shaped(reduction_tiles):
+        return tuple(x * _TILE_WIDTH for x in axes(reduction_tiles, nt_tiles))
+
+    def buf(reduction_tiles, block_red, dtype, g):
+        return empty(
+            _topk_layout(
+                shaped(reduction_tiles), dtype, axes(block_red, nt_per_core), tuple(g)
+            )
+        )
+
+    src = to_layout(
+        padded,
+        _topk_layout(shaped(red_tiles), float32, axes(band_tiles, nt_per_core), grid),
+    )
+    if dim == 1:
+        turned = buf(red_tiles, band_tiles, float32, grid)
+        _topk_transpose_kernel()(src, turned, grid=grid)
+        src = turned
+
+    vals = buf(red_tiles, band_tiles, float32, grid)
+    idxs = buf(red_tiles, band_tiles, int32, grid)
+    _topk_sort_kernel(k, dim)(src, vals, idxs, grid=grid, num_outs=2)
+
+    if bands > 1:
+        groups = bands
+        live = groups * compact_tiles
+        part_vals = buf(live, compact_tiles, float32, grid)
+        part_idx = buf(live, compact_tiles, int32, grid)
+        _topk_compact_kernel(k, dim)(vals, part_vals, grid=grid)
+        _topk_compact_kernel(k, dim)(idxs, part_idx, grid=grid)
+        vals, idxs = part_vals, part_idx
+
+        for survivors in plan.merge_schedule:
+            fan_in = groups // survivors
+            round_grid = tuple(axes(survivors, nt_shards))
+            block_red = fan_in * compact_tiles
+            gathered = axes(block_red, nt_per_core)
+            vals = to_layout(
+                vals, _topk_layout(shaped(live), float32, gathered, round_grid)
+            )
+            idxs = to_layout(
+                idxs, _topk_layout(shaped(live), int32, gathered, round_grid)
+            )
+            merged_vals = buf(live, block_red, float32, round_grid)
+            merged_idx = buf(live, block_red, int32, round_grid)
+            _topk_merge_kernel(k, dim)(
+                vals, idxs, merged_vals, merged_idx, grid=round_grid, num_outs=2
+            )
+
+            groups, live = survivors, survivors * compact_tiles
+            vals = buf(live, compact_tiles, float32, round_grid)
+            idxs = buf(live, compact_tiles, int32, round_grid)
+            _topk_compact_kernel(k, dim)(merged_vals, vals, grid=round_grid)
+            _topk_compact_kernel(k, dim)(merged_idx, idxs, grid=round_grid)
+        grid = tuple(axes(1, nt_shards))
+
+    out_grid = grid
+    out_logical = list(shaped(compact_tiles))
+    out_logical[dim] = k
+    out_vals = empty(
+        _topk_layout(out_logical, float32, axes(compact_tiles, nt_per_core), out_grid)
+    )
+    out_idx = empty(
+        _topk_layout(out_logical, int32, axes(compact_tiles, nt_per_core), out_grid)
+    )
+    _topk_extract_kernel(k, dim)(vals, out_vals, grid=out_grid)
+    _topk_extract_kernel(k, dim)(idxs, out_idx, grid=out_grid)
+    return out_vals, out_idx, logical
+
+
+# d2m-allocate reports an L1 overflow through one of these; both are plain
+# diagnostics, so matching the text is the only handle on them.
+_TOPK_L1_FAILURE_MARKERS = ("feasible allocation", "exceeds memory capacity")
+
+
+class TopKResult:
+    """`topk`'s device results, plus the crop back to the caller's shape.
+
+    The chain pads the non-target dim to whole tiles, and cropping needs the
+    results on the host -- but `to_host` resets the builder, so `topk` cannot
+    crop without forcing execution. `result.to_host()` reads back and crops in
+    one step; `.values` / `.indices` stay reachable (still padded) for callers
+    who keep building on device.
+
+        vals, idx = d2m.topk(t, 8, dim=1).to_host()
+    """
+
+    __slots__ = ("values", "indices", "_logical", "_dim", "plan", "grid")
+
+    def __init__(self, values, indices, logical, dim, plan=None, grid=None):
+        self.values = values
+        self.indices = indices
+        self._logical = logical
+        self._dim = dim
+        self.plan = plan
+        self.grid = grid
+
+    def to_host(self):
+        """Read both results back and crop the non-target padding off.
+
+        This is where the pipeline actually runs, so an L1 overflow surfaces
+        here rather than at `topk`. Report it against the split that caused it:
+        the allocator knows the shard does not fit, but not that a smaller grid
+        would have avoided it."""
+        try:
+            host_vals, host_idx = to_host(self.values, self.indices)
+        except Exception as exc:
+            if not any(marker in str(exc) for marker in _TOPK_L1_FAILURE_MARKERS):
+                raise
+            raise D2mJitError(
+                f"topk split {self.plan} on a {list(self.grid or ())} grid does "
+                f"not fit L1: each core holds "
+                f"{self.plan.band_tiles * self.plan.nt_per_core} tiles. Retry "
+                f"with a smaller grid= or merge_cap=.\n{exc}"
+            ) from exc
+        keep = [slice(None), slice(None)]
+        keep[1 - self._dim] = slice(0, self._logical[1 - self._dim])
+        return host_vals[tuple(keep)], host_idx[tuple(keep)]
+
+    def __iter__(self):
+        """Unpack as `(values, indices)` -- the device tensors, still padded."""
+        return iter((self.values, self.indices))
+
+
+def _topk_host(input, k, dim=-1, grid=None, merge_cap=_TOPK_MERGE_CAP):
+    """Top-K along `dim` of a 2D host (torch) tensor -- the host-level analogue
+    of `torch.topk`, where the in-kernel `topk` builtin sorts one core's shard.
+
+    Plans a split and emits the whole chain. Returns a `TopKResult`; its
+    `to_host()` gives `(values, indices)` cropped back to the input's width,
+    with int32 indices into the unpadded input. `k` is capped at `_TOPK_MAX_K`.
+
+    `grid` defaults to the device's worker grid; pass a smaller one (or a lower
+    `merge_cap`) to shrink the per-core shard when a split does not fit L1. The
+    planner checks grid geometry only -- fit is the allocator's call, and its
+    failure is reported as a `D2mJitError` naming the split that caused it.
+
+    Device-only. Raises `D2mJitError` when no split is legal on `grid`.
+    """
+    shape = tuple(input.shape)
+    dim = _validate_topk(shape, k, dim)
+
+    used_grid = tuple(grid) if grid is not None else _topk_worker_grid()
+    plan = _topk_plan(shape, k, dim, used_grid, merge_cap)
+    if plan is None:
+        raise D2mJitError(
+            f"topk {shape} k={k} dim={dim} has no legal split on a "
+            f"{list(used_grid)} grid: no band count leaves a band of "
+            f"{_TOPK_MIN_REDUCTION_TILES} tiles with a merge tree the grid can "
+            "hold, and no non-target slice fits either"
+        )
+
+    return TopKResult(*_topk_run_chain(input, k, dim, plan), dim, plan, used_grid)
+
+
+# Host callers get the chain; kernel bodies still resolve `topk` to the block op,
+# since `@syntax` keyed it into `D2MCompiler._syntax` by string. The device impl
+# is passed explicitly because it lives here, not on `_builder`: it emits the
+# chain out of `@kernel` bodies, which the DSL surface above defines.
+topk = _dispatch("topk", _topk_host)

@@ -31,6 +31,7 @@ from .host import (
     reduction_layout,
     to_host,
     mesh_gather,
+    topk,
 )
 from .run import kernel
 
@@ -52,5 +53,6 @@ __all__ = [
     "reduction_layout",
     "to_host",
     "mesh_gather",
+    "topk",
     "kernel",
 ]

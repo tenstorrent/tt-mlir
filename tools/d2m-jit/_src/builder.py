@@ -707,21 +707,22 @@ def _virtual_grid_maps(ctx, grid_shape):
     to_virtual = _fold_exprs(ctx, physical, grid_shape)
     # The leading zero is the device index every grid mapping carries.
     zero = AffineExpr.get_constant(0, ctx)
+    grid_rank = len(grid_shape)
     return (
-        AffineMap.get(2, 0, [zero, *to_virtual]),
-        AffineMap.get(2, 0, [zero, *to_physical]),
+        AffineMap.get(grid_rank, 0, [zero, *to_virtual]),
+        AffineMap.get(grid_rank, 0, [zero, *to_physical]),
     )
 
 
 def _shard_carrying_forward(forward):
-    """`d2m.empty`'s forward map: the grid-only fold with the shard dims
-    appended. Carries no leading device index, so that result is dropped."""
+    """`d2m.empty`'s forward map: the grid-only fold with one shard dim per grid
+    axis appended. Carries no leading device index, so that result is dropped."""
     if forward is None:
         return None
     grid_results = list(forward.results)[1:]
-    return AffineMap.get(
-        4, 0, [*grid_results, AffineDimExpr.get(2), AffineDimExpr.get(3)]
-    )
+    grid_rank = forward.n_dims
+    shard_dims = [AffineDimExpr.get(grid_rank + axis) for axis in range(grid_rank)]
+    return AffineMap.get(grid_rank * 2, 0, [*grid_results, *shard_dims])
 
 
 def _empty_on_grid(ctx, tensor_type, grid_shape):

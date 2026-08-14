@@ -104,8 +104,17 @@ def test_every_device_syntax_name_has_a_sim_backing():
 
     # `!tensor.store` belongs to the declarative generic form, and
     # `__matmul_acc__` is supplied by native Python `+=` on a SimBlock; both are
-    # v2 items tracked in SIMULATOR_SPEC.md §12.
-    known_gaps = {"!tensor.store", "__matmul_acc__"}
+    # v2 items tracked in SIMULATOR_SPEC.md §12. The topk block ops back the
+    # host-level `topk`, which has its own sim impl -- only hand-written kernels
+    # reach them, and their transposed input and grid-derived indices are not
+    # modelled here.
+    known_gaps = {
+        "!tensor.store",
+        "__matmul_acc__",
+        "topk",
+        "topk_merge",
+        "topk_extract",
+    }
     assert (
         set(missing) <= known_gaps
     ), f"device syntax names with no sim backing: {sorted(set(missing) - known_gaps)}"
