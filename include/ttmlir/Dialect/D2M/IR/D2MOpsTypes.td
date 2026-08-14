@@ -115,4 +115,40 @@ def D2M_GlobalSemaphore : D2M_Type<"GlobalSemaphore", "global_semaphore"> {
     let description = "Global semaphore type used with semaphore wait/set ops to synchronize cores.";
 }
 
+def D2M_GlobalCB : D2M_Type<"GlobalCB", "global_cb"> {
+    let summary = "D2M global circular buffer type.";
+    let description = [{
+      Inter-core circular buffer connecting sender cores to receiver cores.
+      Distinct from !d2m.cb, which is an intra-core thread queue. Backed by
+      tt-metal experimental GlobalCircularBuffer at lowering.
+      Parameterized by the per-slot shaped type.
+    }];
+    let parameters = (ins "ShapedType":$underlying);
+    let assemblyFormat = "`<` $underlying `>`";
+
+    let skipDefaultBuilders = 1;
+    let builders = [
+      TypeBuilder<(ins "mlir::ShapedType":$underlying), [{
+        return $_get($_ctxt, underlying);
+      }]>,
+      TypeBuilderWithInferredContext<(ins "mlir::ShapedType":$underlying), [{
+        return $_get(underlying.getContext(), underlying);
+      }]>,
+    ];
+
+    let extraClassDeclaration = [{
+      mlir::Type getElementType() {
+        return getUnderlying().getElementType();
+      }
+
+      bool hasTensorType() {
+        return mlir::isa<RankedTensorType>(getUnderlying());
+      }
+
+      bool hasMemRefType() {
+        return mlir::isa<MemRefType>(getUnderlying());
+      }
+    }];
+}
+
 #endif  // TTMLIR_D2M_DIALECT_D2M_IR_D2MOPSTYPES_TD

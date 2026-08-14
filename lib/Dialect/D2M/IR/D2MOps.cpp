@@ -31,6 +31,7 @@
 
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
 #include "mlir/IR/ValueRange.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
 
@@ -323,6 +324,41 @@ mlir::LogicalResult d2m::CreateGlobalSemaphoreOp::bufferize(
   if (!mlir::isa<d2m::GlobalSemaphoreType>(getResult().getType())) {
     return emitOpError()
            << "CreateGlobalSemaphoreOp result should be a GlobalSemaphore type";
+  }
+
+  return success();
+}
+
+::mlir::LogicalResult d2m::CreateGlobalCBOp::verify() {
+  if (getNumSlots() < 1) {
+    return emitOpError("num_slots must be >= 1");
+  }
+
+  auto gcbType = mlir::dyn_cast<d2m::GlobalCBType>(getResult().getType());
+  if (!gcbType) {
+    return emitOpError("result must be !d2m.global_cb");
+  }
+
+  mlir::ShapedType underlying = gcbType.getUnderlying();
+  if (!mlir::isa<RankedTensorType, MemRefType>(underlying)) {
+    return emitOpError("global_cb slot type must be a ranked tensor or memref");
+  }
+
+  if (auto memref = mlir::dyn_cast<MemRefType>(underlying)) {
+    if (memref.getMemorySpace()) {
+      if (ttcore::getMemorySpace(memref) != ttcore::MemorySpace::DeviceL1) {
+        return emitOpError("global_cb memref slot type must be in L1");
+      }
+    }
+  }
+
+  SmallVector<d2m::SenderReceiversAttr> expanded;
+  if (failed(getMapping().expand(expanded))) {
+    return emitOpError("failed to expand global_cb mapping");
+  }
+  if (expanded.empty()) {
+    return emitOpError("global_cb mapping expanded to zero sender-receiver "
+                       "pairs");
   }
 
   return success();
@@ -2303,6 +2339,95 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
 
   return success();
 }
+
+static bool coordInCoreRange(ttcore::CoreRangeAttr range,
+                             ttcore::CoreCoordAttr coord) {
+  return coord.getY() >= range.getStartCoord().getY() &&
+         coord.getY() <= range.getEndCoord().getY() &&
+         coord.getX() >= range.getStartCoord().getX() &&
+         coord.getX() <= range.getEndCoord().getX();
+}
+
+static bool rangeInCoreRange(ttcore::CoreRangeAttr outer,
+                             ttcore::CoreRangeAttr inner) {
+  return coordInCoreRange(outer, inner.getStartCoord()) &&
+         coordInCoreRange(outer, inner.getEndCoord());
+}
+
+static LogicalResult verifySpatialGlobalCBs(d2m::SpatialOp spatial,
+                                            mlir::ArrayAttr gridRangesAttr) {
+  DenseMap<Value, SmallVector<unsigned>> gcbRegionIndices;
+  for (auto [regionIdx, region] : llvm::enumerate(spatial.getRegions())) {
+    auto genericOps = llvm::to_vector(region.getOps<d2m::GenericOp>());
+    if (genericOps.size() != 1) {
+      continue;
+    }
+    for (Value arg : genericOps.front().getAdditionalArgs()) {
+      if (!mlir::isa<d2m::GlobalCBType>(arg.getType())) {
+        continue;
+      }
+      auto createOp = arg.getDefiningOp<d2m::CreateGlobalCBOp>();
+      if (!createOp) {
+        return spatial.emitOpError(
+            "global_cb additional arg must be defined by d2m.create_global_cb");
+      }
+      if (createOp->getParentOfType<d2m::SpatialOp>()) {
+        return spatial.emitOpError(
+            "d2m.create_global_cb must be defined outside d2m.spatial");
+      }
+      gcbRegionIndices[arg].push_back(regionIdx);
+    }
+  }
+
+  for (auto &[gcb, regionIdxs] : gcbRegionIndices) {
+    if (regionIdxs.size() != 2) {
+      return spatial.emitOpError(
+          "each global_cb must be captured by exactly two spatial regions");
+    }
+    auto createOp = gcb.getDefiningOp<d2m::CreateGlobalCBOp>();
+    SmallVector<d2m::SenderReceiversAttr> pairs;
+    if (failed(createOp.getMapping().expand(pairs)) || pairs.empty()) {
+      return spatial.emitOpError("failed to expand global_cb mapping");
+    }
+
+    auto range0 =
+        mlir::cast<ttcore::CoreRangeAttr>(gridRangesAttr[regionIdxs[0]]);
+    auto range1 =
+        mlir::cast<ttcore::CoreRangeAttr>(gridRangesAttr[regionIdxs[1]]);
+
+    bool sendersIn0 = true;
+    bool sendersIn1 = true;
+    bool recvsIn0 = true;
+    bool recvsIn1 = true;
+    for (d2m::SenderReceiversAttr pair : pairs) {
+      if (!coordInCoreRange(range0, pair.getSender())) {
+        sendersIn0 = false;
+      }
+      if (!coordInCoreRange(range1, pair.getSender())) {
+        sendersIn1 = false;
+      }
+      for (ttcore::CoreRangeAttr recv : pair.getReceivers()) {
+        if (!rangeInCoreRange(range0, recv)) {
+          recvsIn0 = false;
+        }
+        if (!rangeInCoreRange(range1, recv)) {
+          recvsIn1 = false;
+        }
+      }
+    }
+
+    bool prod0Cons1 = sendersIn0 && recvsIn1 && !sendersIn1 && !recvsIn0;
+    bool prod1Cons0 = sendersIn1 && recvsIn0 && !sendersIn0 && !recvsIn1;
+    if (!prod0Cons1 && !prod1Cons0) {
+      return spatial.emitOpError()
+             << "global_cb senders must be contained in one spatial region "
+                "and receivers in the other";
+    }
+  }
+
+  return success();
+}
+
 // Spatialop verification
 ::mlir::LogicalResult d2m::SpatialOp::verify() {
   mlir::ArrayAttr gridRangesAttr = getGridRanges();
@@ -2382,6 +2507,10 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
                << regionBox.end[0] << ", " << regionBox.end[1] << "]";
       }
     }
+  }
+
+  if (failed(verifySpatialGlobalCBs(*this, gridRangesAttr))) {
+    return failure();
   }
 
   return success();

@@ -95,4 +95,25 @@ def D2M_ResolutionStage : I32EnumAttr<"ResolutionStage", "D2M ResolutionStage", 
   let cppNamespace = "::mlir::tt::d2m";
 }
 
+// Compact encoding of tt-metal GlobalCircularBuffer sender_receiver_core_mapping.
+def D2M_GlobalCBMappingKindZip : I32EnumAttrCase<"Zip", 0, "zip">;
+def D2M_GlobalCBMappingKindRowFanout : I32EnumAttrCase<"RowFanout", 1, "row_fanout">;
+def D2M_GlobalCBMappingKindExplicit : I32EnumAttrCase<"Explicit", 2, "explicit">;
+
+def D2M_GlobalCBMappingKind : I32EnumAttr<"GlobalCBMappingKind",
+    "D2M GlobalCB mapping kind", [
+  D2M_GlobalCBMappingKindZip,
+  D2M_GlobalCBMappingKindRowFanout,
+  D2M_GlobalCBMappingKindExplicit
+]> {
+  let summary = "How sender cores map onto receiver cores for a global CB.";
+  let description = [{
+    zip: pair sender and receiver CoreRanges 1:1 in row-major (y, x) order.
+    row_fanout: each sender (y, xs) maps to the full receiver row y (sender
+    width must be 1). explicit: an irregular list of sender-receiver pairs.
+  }];
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::d2m";
+}
+
 #endif // TTMLIR_D2M_DIALECT_D2M_IR_D2MOPSENUMS_TD

@@ -552,6 +552,32 @@ def D2M_CreateGlobalSemaphoreOp : D2M_Op<"create_global_semaphore",
   let hasVerifier = 1;
 }
 
+def D2M_CreateGlobalCBOp : D2M_Op<"create_global_cb"> {
+  let summary = "Global circular buffer allocation operation (D2M).";
+  let description = [{
+    Create a global circular buffer connecting sender cores to receiver cores.
+    The mapping attr encodes tt-metal sender_receiver_core_mapping compactly
+    (zip, row_fanout, or explicit pairs). The result type's wrapped shape is
+    the per-slot payload. Distinct from !d2m.cb (intra-core thread queue).
+
+    Example (8x4 / 8x4 1:1 zip):
+    ```
+    %gcb = d2m.create_global_cb {
+      mapping = #d2m.global_cb_mapping<zip,
+        sender = #ttcore.core_range<(0, 0), (7, 3)>,
+        receiver = #ttcore.core_range<(0, 4), (7, 7)>>,
+      num_slots = 2 : i64
+    } : !d2m.global_cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+    ```
+  }];
+
+  let arguments = (ins D2M_GlobalCBMappingAttr:$mapping, I64Attr:$num_slots);
+  let results = (outs D2M_GlobalCB:$result);
+
+  let assemblyFormat = "attr-dict `:` type($result)";
+  let hasVerifier = 1;
+}
+
 def D2M_ResetGlobalSemaphoreOp : D2M_Op<"reset_global_semaphore"> {
   let summary = "Global semaphore reset operation (D2M).";
 

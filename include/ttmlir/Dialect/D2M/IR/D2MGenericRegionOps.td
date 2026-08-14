@@ -3566,4 +3566,88 @@ def D2M_OperandAliasOp : D2M_GenericRegionOp<"operand_alias", [
   }];
 }
 
+//===----------------------------------------------------------------------===//
+// D2M Global Circular Buffer region ops (inter-core, DM thread)
+//===----------------------------------------------------------------------===//
+
+class D2M_GlobalCBAcquireOp<string mnemonic> : D2M_GenericRegionOp<mnemonic,
+  [ MemoryEffects<[MemRead, MemWrite]> ]> {
+  let arguments = (ins D2M_GlobalCB:$global_cb);
+  let results = (outs AnyRankedTensorOrMemRef:$result);
+
+  let builders = [
+    OpBuilder<(ins "Value":$global_cb), [{
+      build($_builder, $_state,
+            mlir::cast<GlobalCBType>(global_cb.getType()).getUnderlying(),
+            global_cb);
+    }]>
+  ];
+
+  let assemblyFormat = [{ $global_cb attr-dict `:` type($global_cb) `->` type($result) }];
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    GlobalCBType getGlobalCBType() {
+      return mlir::cast<GlobalCBType>(getGlobalCb().getType());
+    }
+  }];
+}
+
+def D2M_GlobalCBReserveOp : D2M_GlobalCBAcquireOp<"global_cb_reserve"> {
+  let summary = "Reserve space on a global circular buffer (sender).";
+  let description = [{
+    Sender-side acquire. Blocks until each associated receiver has free slots.
+    Maps to tt-metal `remote_cb_reserve_back`. Must run on a datamovement
+    thread; compute/LLK cannot use the remote CB config.
+  }];
+}
+
+def D2M_GlobalCBWaitOp : D2M_GlobalCBAcquireOp<"global_cb_wait"> {
+  let summary = "Wait for data on a global circular buffer (receiver).";
+  let description = [{
+    Receiver-side acquire. Blocks until the sender has pushed data.
+    Maps to tt-metal `remote_cb_wait_front`. Must run on a datamovement
+    thread. Result is the per-slot payload in receiver L1.
+  }];
+}
+
+def D2M_GlobalCBPushOp : D2M_GenericRegionOp<"global_cb_push",
+  [ MemoryEffects<[MemRead, MemWrite]> ]> {
+  let summary = "Write pages and signal a global circular buffer (sender).";
+  let description = [{
+    Combined NOC write plus push. `src` is the local payload copied to each
+    associated receiver. Maps to tt-metal
+    `remote_cb_push_back_and_write_pages`. Must be preceded by
+    `d2m.global_cb_reserve` in the same datamovement region.
+  }];
+  let arguments = (ins D2M_GlobalCB:$global_cb, AnyRankedTensorOrMemRef:$src);
+  let assemblyFormat = [{ $global_cb `,` $src attr-dict `:` type($global_cb) `,` type($src) }];
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    GlobalCBType getGlobalCBType() {
+      return mlir::cast<GlobalCBType>(getGlobalCb().getType());
+    }
+  }];
+}
+
+def D2M_GlobalCBPopOp : D2M_GenericRegionOp<"global_cb_pop",
+  [ MemoryEffects<[MemRead, MemWrite]> ]> {
+  let summary = "Release a global circular buffer slot (receiver).";
+  let description = [{
+    Receiver-side release. Signals the sender that the slot is free.
+    Maps to tt-metal `remote_cb_pop_front`. Must be preceded by
+    `d2m.global_cb_wait` in the same datamovement region.
+  }];
+  let arguments = (ins D2M_GlobalCB:$global_cb);
+  let assemblyFormat = [{ $global_cb attr-dict `:` type($global_cb) }];
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    GlobalCBType getGlobalCBType() {
+      return mlir::cast<GlobalCBType>(getGlobalCb().getType());
+    }
+  }];
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD

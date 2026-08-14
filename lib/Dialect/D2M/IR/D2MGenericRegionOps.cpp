@@ -2491,3 +2491,55 @@ PopOp::bufferize(mlir::RewriterBase &rewriter,
                  mlir::bufferization::BufferizationState &) {
   return bufferizeCBOp(*this, rewriter, options);
 }
+
+static LogicalResult verifyGlobalCBOnDatamovementThread(Operation *op) {
+  auto genericOp = op->getParentOfType<GenericOp>();
+  if (!genericOp) {
+    return success();
+  }
+  Region *region = ttmlir::utils::getRegionWithParentOfType<GenericOp>(op);
+  if (!region) {
+    return success();
+  }
+  ThreadType threadType =
+      genericOp.getRegionThreadType(region->getRegionNumber());
+  if (threadType != ThreadType::Datamovement) {
+    return op->emitOpError("must be in a datamovement region, got ")
+           << stringifyEnum(threadType);
+  }
+  return success();
+}
+
+mlir::LogicalResult GlobalCBReserveOp::verify() {
+  if (failed(verifyGlobalCBOnDatamovementThread(*this))) {
+    return failure();
+  }
+  if (getGlobalCBType().getUnderlying() != getResult().getType()) {
+    return emitOpError("result type does not match global_cb slot type");
+  }
+  return success();
+}
+
+mlir::LogicalResult GlobalCBWaitOp::verify() {
+  if (failed(verifyGlobalCBOnDatamovementThread(*this))) {
+    return failure();
+  }
+  if (getGlobalCBType().getUnderlying() != getResult().getType()) {
+    return emitOpError("result type does not match global_cb slot type");
+  }
+  return success();
+}
+
+mlir::LogicalResult GlobalCBPushOp::verify() {
+  if (failed(verifyGlobalCBOnDatamovementThread(*this))) {
+    return failure();
+  }
+  if (getGlobalCBType().getUnderlying() != getSrc().getType()) {
+    return emitOpError("src type does not match global_cb slot type");
+  }
+  return success();
+}
+
+mlir::LogicalResult GlobalCBPopOp::verify() {
+  return verifyGlobalCBOnDatamovementThread(*this);
+}

@@ -16,6 +16,7 @@
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/Interfaces/FoldInterfaces.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 // Ensure enum helpers (FieldParser, etc.) are visible before attrs
@@ -28,6 +29,7 @@
 
 using namespace mlir;
 using namespace mlir::tt::d2m;
+namespace ttcore = mlir::tt::ttcore;
 
 // Custom assembly format for D2M_ThreadAttr.
 //
@@ -91,6 +93,266 @@ void ThreadAttr::print(::mlir::AsmPrinter &printer) const {
     printer << ", dm_core = " << getDmCoreIndex();
   }
   printer << ">";
+}
+
+namespace {
+
+int64_t coreCount(ttcore::CoreRangeAttr range) {
+  ttcore::CoreCoordAttr start = range.getStartCoord();
+  ttcore::CoreCoordAttr end = range.getEndCoord();
+  return (end.getY() - start.getY() + 1) * (end.getX() - start.getX() + 1);
+}
+
+void appendCores(ttcore::CoreRangeAttr range,
+                 SmallVectorImpl<std::pair<int64_t, int64_t>> &cores) {
+  ttcore::CoreCoordAttr start = range.getStartCoord();
+  ttcore::CoreCoordAttr end = range.getEndCoord();
+  for (int64_t y = start.getY(); y <= end.getY(); ++y) {
+    for (int64_t x = start.getX(); x <= end.getX(); ++x) {
+      cores.emplace_back(y, x);
+    }
+  }
+}
+
+bool hasDuplicateCores(ArrayRef<std::pair<int64_t, int64_t>> cores,
+                       function_ref<InFlightDiagnostic()> emitError,
+                       StringRef what) {
+  DenseSet<std::pair<int64_t, int64_t>> seen;
+  for (auto core : cores) {
+    if (!seen.insert(core).second) {
+      emitError() << "duplicate " << what << " core (" << core.first << ", "
+                  << core.second << ")";
+      return true;
+    }
+  }
+  return false;
+}
+
+LogicalResult
+verifyExplicitPairs(ArrayRef<SenderReceiversAttr> pairs,
+                    function_ref<InFlightDiagnostic()> emitError) {
+  if (pairs.empty()) {
+    return emitError() << "explicit mapping must contain at least one pair";
+  }
+
+  SmallVector<std::pair<int64_t, int64_t>> senders;
+  SmallVector<std::pair<int64_t, int64_t>> receivers;
+  for (SenderReceiversAttr pair : pairs) {
+    ttcore::CoreCoordAttr sender = pair.getSender();
+    senders.emplace_back(sender.getY(), sender.getX());
+    for (ttcore::CoreRangeAttr recv : pair.getReceivers()) {
+      appendCores(recv, receivers);
+    }
+  }
+  if (hasDuplicateCores(senders, emitError, "sender")) {
+    return failure();
+  }
+  if (hasDuplicateCores(receivers, emitError, "receiver")) {
+    return failure();
+  }
+
+  DenseSet<std::pair<int64_t, int64_t>> receiverSet(receivers.begin(),
+                                                    receivers.end());
+  for (auto sender : senders) {
+    if (receiverSet.contains(sender)) {
+      return emitError() << "sender core (" << sender.first << ", "
+                         << sender.second << ") overlaps a receiver core";
+    }
+  }
+  return success();
+}
+
+} // namespace
+
+::mlir::LogicalResult SenderReceiversAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ttcore::CoreCoordAttr /*sender*/,
+    ::llvm::ArrayRef<ttcore::CoreRangeAttr> receivers) {
+  if (receivers.empty()) {
+    return emitError() << "sender_receivers must have at least one receiver "
+                          "core range";
+  }
+  return success();
+}
+
+::mlir::LogicalResult GlobalCBMappingAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    GlobalCBMappingKind kind, ttcore::CoreRangeAttr sender,
+    ttcore::CoreRangeAttr receiver,
+    ::llvm::ArrayRef<SenderReceiversAttr> pairs) {
+  switch (kind) {
+  case GlobalCBMappingKind::Zip: {
+    if (!sender || !receiver) {
+      return emitError() << "zip mapping requires sender and receiver "
+                            "core ranges";
+    }
+    if (!pairs.empty()) {
+      return emitError() << "zip mapping cannot include explicit pairs";
+    }
+    if (coreCount(sender) != coreCount(receiver)) {
+      return emitError() << "zip mapping requires equal sender and receiver "
+                            "core counts, got "
+                         << coreCount(sender) << " and " << coreCount(receiver);
+    }
+    if (sender.intersects(receiver)) {
+      return emitError() << "zip mapping sender and receiver core ranges "
+                            "must be disjoint";
+    }
+    return success();
+  }
+  case GlobalCBMappingKind::RowFanout: {
+    if (!sender || !receiver) {
+      return emitError() << "row_fanout mapping requires sender and "
+                            "receiver core ranges";
+    }
+    if (!pairs.empty()) {
+      return emitError() << "row_fanout mapping cannot include explicit pairs";
+    }
+    int64_t senderWidth =
+        sender.getEndCoord().getX() - sender.getStartCoord().getX() + 1;
+    int64_t senderHeight =
+        sender.getEndCoord().getY() - sender.getStartCoord().getY() + 1;
+    int64_t receiverHeight =
+        receiver.getEndCoord().getY() - receiver.getStartCoord().getY() + 1;
+    if (senderWidth != 1) {
+      return emitError() << "row_fanout mapping requires sender width 1, got "
+                         << senderWidth;
+    }
+    if (senderHeight != receiverHeight) {
+      return emitError()
+             << "row_fanout mapping requires equal sender and receiver "
+                "heights, got "
+             << senderHeight << " and " << receiverHeight;
+    }
+    if (sender.intersects(receiver)) {
+      return emitError() << "row_fanout mapping sender and receiver core "
+                            "ranges must be disjoint";
+    }
+    return success();
+  }
+  case GlobalCBMappingKind::Explicit:
+    if (sender || receiver) {
+      return emitError() << "explicit mapping cannot include sender/receiver "
+                            "core ranges";
+    }
+    return verifyExplicitPairs(pairs, emitError);
+  }
+  return emitError() << "unknown global_cb mapping kind";
+}
+
+mlir::Attribute GlobalCBMappingAttr::parse(::mlir::AsmParser &parser,
+                                           ::mlir::Type) {
+  if (parser.parseLess()) {
+    return {};
+  }
+
+  FailureOr<GlobalCBMappingKind> kind =
+      FieldParser<GlobalCBMappingKind>::parse(parser);
+  if (failed(kind)) {
+    return {};
+  }
+
+  if (parser.parseComma()) {
+    return {};
+  }
+
+  if (*kind == GlobalCBMappingKind::Explicit) {
+    SmallVector<SenderReceiversAttr> pairs;
+    auto parsePair = [&]() -> ParseResult {
+      SenderReceiversAttr pair;
+      if (parser.parseAttribute(pair)) {
+        return failure();
+      }
+      pairs.push_back(pair);
+      return success();
+    };
+    if (parser.parseCommaSeparatedList(AsmParser::Delimiter::Square,
+                                       parsePair) ||
+        parser.parseGreater()) {
+      return {};
+    }
+    return GlobalCBMappingAttr::getChecked(
+        [&] { return parser.emitError(parser.getCurrentLocation()); },
+        parser.getContext(), *kind, /*sender=*/nullptr, /*receiver=*/nullptr,
+        pairs);
+  }
+
+  ttcore::CoreRangeAttr sender;
+  ttcore::CoreRangeAttr receiver;
+  if (parser.parseKeyword("sender") || parser.parseEqual() ||
+      parser.parseAttribute(sender) || parser.parseComma() ||
+      parser.parseKeyword("receiver") || parser.parseEqual() ||
+      parser.parseAttribute(receiver) || parser.parseGreater()) {
+    return {};
+  }
+  return GlobalCBMappingAttr::getChecked(
+      [&] { return parser.emitError(parser.getCurrentLocation()); },
+      parser.getContext(), *kind, sender, receiver, /*pairs=*/{});
+}
+
+void GlobalCBMappingAttr::print(::mlir::AsmPrinter &printer) const {
+  printer << "<";
+  printer.printStrippedAttrOrType(getKind());
+  if (getKind() == GlobalCBMappingKind::Explicit) {
+    printer << ", [";
+    llvm::interleaveComma(getPairs(), printer, [&](SenderReceiversAttr pair) {
+      printer.printAttribute(pair);
+    });
+    printer << "]>";
+    return;
+  }
+  printer << ", sender = ";
+  printer.printAttribute(getSender());
+  printer << ", receiver = ";
+  printer.printAttribute(getReceiver());
+  printer << ">";
+}
+
+::mlir::LogicalResult GlobalCBMappingAttr::expand(
+    ::llvm::SmallVectorImpl<SenderReceiversAttr> &expanded) const {
+  expanded.clear();
+  MLIRContext *ctx = getContext();
+  switch (getKind()) {
+  case GlobalCBMappingKind::Explicit:
+    llvm::append_range(expanded, getPairs());
+    return success();
+  case GlobalCBMappingKind::Zip: {
+    SmallVector<std::pair<int64_t, int64_t>> senders;
+    SmallVector<std::pair<int64_t, int64_t>> receivers;
+    appendCores(getSender(), senders);
+    appendCores(getReceiver(), receivers);
+    if (senders.size() != receivers.size()) {
+      return failure();
+    }
+    for (auto [senderYX, recvYX] : llvm::zip(senders, receivers)) {
+      auto sender =
+          ttcore::CoreCoordAttr::get(ctx, senderYX.first, senderYX.second);
+      auto recvCoord =
+          ttcore::CoreCoordAttr::get(ctx, recvYX.first, recvYX.second);
+      auto recvRange = ttcore::CoreRangeAttr::get(ctx, recvCoord, recvCoord);
+      expanded.push_back(SenderReceiversAttr::get(ctx, sender, {recvRange}));
+    }
+    return success();
+  }
+  case GlobalCBMappingKind::RowFanout: {
+    SmallVector<std::pair<int64_t, int64_t>> senders;
+    appendCores(getSender(), senders);
+    ttcore::CoreRangeAttr receiver = getReceiver();
+    int64_t recvStartX = receiver.getStartCoord().getX();
+    int64_t recvEndX = receiver.getEndCoord().getX();
+    for (auto senderYX : senders) {
+      auto sender =
+          ttcore::CoreCoordAttr::get(ctx, senderYX.first, senderYX.second);
+      auto rowStart =
+          ttcore::CoreCoordAttr::get(ctx, senderYX.first, recvStartX);
+      auto rowEnd = ttcore::CoreCoordAttr::get(ctx, senderYX.first, recvEndX);
+      auto recvRange = ttcore::CoreRangeAttr::get(ctx, rowStart, rowEnd);
+      expanded.push_back(SenderReceiversAttr::get(ctx, sender, {recvRange}));
+    }
+    return success();
+  }
+  }
+  return failure();
 }
 
 #include "ttmlir/Dialect/D2M/IR/D2MOpsDialect.cpp.inc"
