@@ -17,14 +17,64 @@ namespace mlir::tt::ttir {
 
 namespace {
 
-// Resolves `value` to a single integer, looking through the shape-only ops a
-// frontend leaves around a scalar constant. Returns nullopt for anything that
-// is not a compile-time-known scalar integer.
+std::optional<llvm::APInt> matchScalarIntConstant(Value value);
+
+mlir::IntegerType getScalarIntType(Value value) {
+  auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(value.getType());
+  if (!tensorType) {
+    return nullptr;
+  }
+  return mlir::dyn_cast<mlir::IntegerType>(tensorType.getElementType());
+}
+
+// Frontends express loop bounds as 32- or 64-bit integers; a cast to any other
+// width is more likely to be changing the value than to be bookkeeping.
+bool isSupportedCastType(mlir::IntegerType type) {
+  return type && (type.getWidth() == 32 || type.getWidth() == 64);
+}
+
+// Looks through a typecast a frontend left around a scalar constant. Only
+// integer casts that change width between 32 and 64 bits or change signedness
+// qualify, and only when the constant survives them: everything downstream
+// reads these values as signed, so a cast that drops bits or flips the sign
+// would silently change the trip count.
+std::optional<llvm::APInt>
+matchTypecastIntConstant(ttir::TypecastOp typecastOp) {
+  mlir::IntegerType inputType = getScalarIntType(typecastOp.getInput());
+  mlir::IntegerType resultType = getScalarIntType(typecastOp.getResult());
+  if (!isSupportedCastType(inputType) || !isSupportedCastType(resultType)) {
+    return std::nullopt;
+  }
+
+  std::optional<llvm::APInt> input =
+      matchScalarIntConstant(typecastOp.getInput());
+  if (!input) {
+    return std::nullopt;
+  }
+
+  llvm::APInt converted = inputType.isUnsigned()
+                              ? input->zextOrTrunc(resultType.getWidth())
+                              : input->sextOrTrunc(resultType.getWidth());
+  if (resultType.isUnsigned() && converted.isNegative()) {
+    return std::nullopt;
+  }
+  if (converted.sextOrTrunc(inputType.getWidth()) != *input) {
+    return std::nullopt;
+  }
+  return converted;
+}
+
+// Resolves `value` to a single integer, looking through the shape-only ops and
+// casts a frontend leaves around a scalar constant. Returns nullopt for
+// anything that is not a compile-time-known scalar integer.
 std::optional<llvm::APInt> matchScalarIntConstant(Value value) {
   while (Operation *definingOp = value.getDefiningOp()) {
     if (isa<ttir::ReshapeOp, ttir::BroadcastOp>(definingOp)) {
       value = definingOp->getOperand(0);
       continue;
+    }
+    if (auto typecastOp = mlir::dyn_cast<ttir::TypecastOp>(definingOp)) {
+      return matchTypecastIntConstant(typecastOp);
     }
     break;
   }
@@ -76,10 +126,7 @@ std::optional<llvm::APInt> matchLoopInvariantConstant(ttir::WhileOp whileOp,
 struct InductionComparison {
   unsigned inductionIndex;
   llvm::APInt limit;
-  // True when the loop runs while the induction variable is below the limit
-  // (LT/LE), false when it runs while above (GT/GE).
   bool ascending;
-  // True for the inclusive forms (LE/GE).
   bool inclusive;
 };
 

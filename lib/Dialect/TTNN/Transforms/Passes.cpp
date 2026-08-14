@@ -123,9 +123,6 @@ public:
   // detected).
   LogicalResult checkAndInsertDeallocation(IRRewriter &rewriter, Value value,
                                            Operation *lastOp) {
-    // A value whose last use is a terminator escapes its block, so its owner
-    // is responsible for freeing it. For ttnn.yield that owner is the loop:
-    // values yielded by a while body become the next iteration's inputs.
     if (isa<func::ReturnOp, ttnn::YieldOp>(lastOp)) {
       return success();
     }

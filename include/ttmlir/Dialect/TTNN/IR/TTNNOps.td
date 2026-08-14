@@ -4124,7 +4124,8 @@ def TTNN_WhileOp : TTNN_Op<"while", [
     IsolatedFromAbove,
     RecursiveMemoryEffects,
     SingleBlockImplicitTerminator<"::mlir::tt::ttnn::YieldOp">,
-    OpModelExempt]> {
+    TTCore_NonCacheableTrait,
+    OpModelExempt,]> {
   let summary = "While loop.";
   let description = [{
     Repeatedly executes `body` while `cond` yields true, threading the
