@@ -23,15 +23,8 @@ if (TTMLIR_ENABLE_OPMODEL)
     set(TTNN_LIBS TTMETAL_LIBRARY DEVICE_LIBRARY TTNN_LIBRARY TT_STL_LIBRARY TRACY_LIBRARY)
     target_link_libraries(${LIB_NAME} PUBLIC ${TTNN_LIBS} PRIVATE TTMLIRTTNNUtils)
 
-    # A few TTNN ops are backed by tt-train's metal ops rather than a ttnn::
-    # symbol (e.g. ttnn.adamw -> ttml::metal::adamw). Their declarations live
-    # under ${TTML_SOURCE_DIR}, and the public MetalHeaders.h includes them, so
-    # the path must be PUBLIC (as TTMETAL_INCLUDE_DIRS above is) -- anything
-    # reaching MetalHeaders.h via Conversion.h needs it too, e.g. TestConversion.
-    # SYSTEM keeps third-party warnings out of our builds.
-    # No -march=x86-64-v3 here (unlike runtime/lib/ttnn/operations/ttml): the
-    # ttml headers we consume are enums plus out-of-line declarations, so no ttml
-    # inline code is compiled here and there is no ABI surface to match.
+    # TTML-backed ops require TTML headers and metal implementations.
+    # The include path is public because MetalHeaders.h exposes these headers.
     target_include_directories(${LIB_NAME} SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTML_SOURCE_DIR}>")
     target_link_libraries(${LIB_NAME} PRIVATE ttml_metal_ops)
 
