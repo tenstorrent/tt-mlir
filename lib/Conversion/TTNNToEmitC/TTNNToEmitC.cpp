@@ -6191,7 +6191,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            RMSNormPreAllGatherOpConversionPattern,
            DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,
            LayerNormPreAllGatherOpConversionPattern,
-           LayerNormPostAllGatherOpConversionPattern, RMSNormPostAllGatherOpConversionPattern,
+           LayerNormPostAllGatherOpConversionPattern,
+           RMSNormPostAllGatherOpConversionPattern,
            GroupNormOpConversionPattern>(typeConverter, ctx);
 
   // CCL ops
