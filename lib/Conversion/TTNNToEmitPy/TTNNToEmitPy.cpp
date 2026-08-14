@@ -5490,23 +5490,14 @@ namespace {
 // Lowers `ttnn.while` to an `emitpy.while`:
 //
 //   for _ in range(N):                       # counted loops
+//
+//   OR
+//
 //   while True:                              # data-dependent loops
-//       <cond ops>                           # data-dependent loops only
+//       <cond ops>
 //       if <cond>.to_torch().item() == 0: break
 //       <body ops>
 //
-// Loop-carried values stay in SSA all the way down: the ttnn op's inits become
-// the loop's inits, the two regions' block arguments become the loop body's
-// block arguments, and the ttnn op's results become the loop's results. Naming
-// them is left to the emitter, the only place that can allocate names without
-// colliding with existing ones.
-//
-// A counted loop drops its condition region: `range` bounds the loop, so the
-// predicate is never evaluated.
-//
-// As in the EmitC lowering, the yields are converted by their own pattern so
-// that the values they carry have already been converted by the time they are
-// used.
 
 constexpr llvm::StringLiteral kWhileYieldRoleAttr = "ttnn.while_yield_role";
 constexpr llvm::StringLiteral kWhileYieldCond = "cond";
