@@ -5134,6 +5134,38 @@ public:
 } // namespace
 
 namespace {
+class CopyOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::CopyOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return mlir::tt::ttnn::CopyOp::getOperationName().str();
+  }
+  std::string getPrefixSwapPattern() const override { return "ttnn::copy"; }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::CopyOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::CopyOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::CopyOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getSrc()),
+        emitter.emit(srcOp.getDst()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class BeginTraceCaptureOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
           mlir::tt::ttnn::BeginTraceCaptureOp> {
@@ -5371,41 +5403,42 @@ public:
       rewriter.create<emitc::AssignOp>(
           loc, getGlobalVariable(rewriter, loc, isFirstCall), falseC);
 
-      // v = capture_callee(args...)
+      // Slot allocation and capture are separate programs: allocation runs once
+      // and yields the persistent slots, then capture is invoked against them.
+      // Standalone code has no trace cache, so it only ever captures once, but
+      // it follows the same two-step shape as the runtime.
+      //
+      // v = allocate_slots_callee(device-resident args...)
       auto autoTy = emitc::OpaqueType::get(ctx, "auto");
-      auto captureTuple = rewriter.create<emitc::CallOpaqueOp>(
-          loc, autoTy, srcOp.getCaptureCallee(), nullptr, nullptr,
-          block->getArguments());
+      auto [deviceResidentIndices, hostStagedIndices] =
+          srcOp.partitionInputIndices();
+      llvm::SmallVector<mlir::Value> deviceResidentArgs;
+      llvm::SmallVector<mlir::Value> hostStagedArgs;
+      for (size_t i : deviceResidentIndices) {
+        deviceResidentArgs.push_back(block->getArgument(i));
+      }
+      for (size_t i : hostStagedIndices) {
+        hostStagedArgs.push_back(block->getArgument(i));
+      }
 
-      // trace_id = std::get<0>(v);
-      auto getTraceId = rewriter.create<emitc::CallOpaqueOp>(
-          loc, traceId.getType(), "::std::get", /*args=*/nullptr,
-          /*template_args=*/
-          rewriter.getArrayAttr({rewriter.getI32IntegerAttr(0)}),
-          captureTuple.getResult(0));
-      rewriter.create<emitc::AssignOp>(
-          loc, getGlobalVariable(rewriter, loc, traceId),
-          getTraceId.getResult(0));
+      auto slotsTuple = rewriter.create<emitc::CallOpaqueOp>(
+          loc, autoTy, srcOp.getAllocateSlotsCallee(), nullptr, nullptr,
+          deviceResidentArgs);
 
-      // input_i = std::get<inputBaseIndex + i>(v)
-      const size_t inputBaseIndex = 1;
+      // input_i = std::get<i>(v); output_i = std::get<nInputs + i>(v)
       for (size_t i = 0; i < traceInputVariable.size(); ++i) {
         auto getResult = rewriter.create<emitc::CallOpaqueOp>(
             loc, traceInputVariable[i].getType(), "::std::get",
             /*args=*/nullptr,
             /*template_args=*/
-            rewriter.getArrayAttr(
-                {rewriter.getI32IntegerAttr(inputBaseIndex + i)}),
-            ValueRange{captureTuple.getResult(0)});
+            rewriter.getArrayAttr({rewriter.getI32IntegerAttr(i)}),
+            ValueRange{slotsTuple.getResult(0)});
         rewriter.create<emitc::AssignOp>(
             loc, getGlobalVariable(rewriter, loc, traceInputVariable[i]),
             getResult.getResult(0));
       }
 
-      // output_i = std::get<traceOutputBaseIndex + i>(v)
-      // Output slots also serve as the actual outputs for the first invocation.
-      const size_t traceOutputBaseIndex =
-          inputBaseIndex + traceInputVariable.size();
+      const size_t traceOutputBaseIndex = traceInputVariable.size();
       for (size_t i = 0; i < traceOutputVariable.size(); ++i) {
         auto getResult = rewriter.create<emitc::CallOpaqueOp>(
             loc, traceOutputVariable[i].getType(), "::std::get",
@@ -5413,7 +5446,7 @@ public:
             /*template_args=*/
             rewriter.getArrayAttr(
                 {rewriter.getI32IntegerAttr(traceOutputBaseIndex + i)}),
-            captureTuple.getResult(0));
+            slotsTuple.getResult(0));
         rewriter.create<emitc::AssignOp>(
             loc, getGlobalVariable(rewriter, loc, traceOutputVariable[i]),
             getResult.getResult(0));
@@ -5423,6 +5456,22 @@ public:
         rewriter.create<emitc::AssignOp>(loc, returnVariable[i],
                                          getResult.getResult(0));
       }
+
+      // trace_id = capture_callee(host-staged args..., slots...)
+      llvm::SmallVector<mlir::Value> captureArgs(hostStagedArgs);
+      for (auto &inputVariable : traceInputVariable) {
+        captureArgs.push_back(loadGlobalVariable(rewriter, loc, inputVariable));
+      }
+      for (auto &outputVariable : traceOutputVariable) {
+        captureArgs.push_back(
+            loadGlobalVariable(rewriter, loc, outputVariable));
+      }
+      auto captureCall = rewriter.create<emitc::CallOpaqueOp>(
+          loc, traceId.getType(), srcOp.getCaptureCallee(), nullptr, nullptr,
+          captureArgs);
+      rewriter.create<emitc::AssignOp>(
+          loc, getGlobalVariable(rewriter, loc, traceId),
+          captureCall.getResult(0));
 
       rewriter.create<emitc::YieldOp>(loc);
     }
@@ -6080,6 +6129,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Trace ops
   //
   patterns.add<WriteTensorOpConversionPattern>(typeConverter, ctx);
+  patterns.add<CopyOpConversionPattern>(typeConverter, ctx);
   patterns.add<BeginTraceCaptureOpConversionPattern>(typeConverter, ctx);
   patterns.add<EndTraceCaptureOpConversionPattern>(typeConverter, ctx);
   patterns.add<CaptureOrExecuteTraceOpConversionPattern>(typeConverter, ctx);
