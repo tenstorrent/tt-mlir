@@ -47,6 +47,15 @@ OutputHints SDPARuleBook::getOutputHints(
 }
 
 //===----------------------------------------------------------------------===//
+// TTMLSDPAForwardRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+TTMLSDPAForwardRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
+  return layout_filter_utils::rejectAllSharded;
+}
+
+//===----------------------------------------------------------------------===//
 // SDPADecodeRuleBook
 //===----------------------------------------------------------------------===//
 

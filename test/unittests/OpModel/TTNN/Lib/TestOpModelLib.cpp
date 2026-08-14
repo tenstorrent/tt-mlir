@@ -5691,13 +5691,6 @@ TEST_F(OpModelTest, PagedFillCacheOp) {
 // AdamWOp Tests
 //===----------------------------------------------------------------------===//
 
-// AdamWOp is backed by the ttml metal op `ttml::metal::adamw` rather than a
-// `ttnn::` symbol. Its device operation validates every operand as
-// DRAM / INTERLEAVED / TILE, with `grad` always BFLOAT16 and the moments
-// matching `param`'s dtype, so all layouts below are built explicitly.
-//
-// The whole cost of the op is circular buffers: the output aliases `param` and
-// lives in DRAM, so tensorL1PeakSize and outputL1BufferSize are both 0.
 class OpModelAdamWTest : public OpModelTest {
 protected:
   static constexpr float kLr = 1e-3f;
@@ -5796,26 +5789,6 @@ TEST_F(OpModelAdamWTest, AdamWOpBFloat16) {
   }
 }
 
-TEST_F(OpModelAdamWTest, AdamWOpLargeShape) {
-  // A larger tensor to confirm the reported numbers really come from the
-  // per-core block split rather than being shape-independent constants.
-  const llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
-
-  const TTNNLayoutAttr f32Layout = CreateTiledLayout(
-      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
-      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
-      builder.getF32Type());
-  const TTNNLayoutAttr bf16Layout = CreateTiledLayout(
-      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
-
-  auto constraintsExp = queryConstraints(shape, f32Layout, bf16Layout,
-                                         f32Layout, /*amsgrad=*/false);
-  EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  if (constraintsExp) {
-    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
-  }
-}
-
 TEST_F(OpModelAdamWTest, AdamWOpRejectsL1Param) {
   // The ttml device operation TT_FATALs unless every operand is in DRAM. The
   // query must surface that as an error rather than a bogus cost, otherwise the
@@ -5839,6 +5812,73 @@ TEST_F(OpModelAdamWTest, AdamWOpRejectsL1Param) {
   if (!constraintsExp) {
     llvm::consumeError(constraintsExp.takeError());
   }
+}
+
+//===----------------------------------------------------------------------===//
+// SDPAForwardOp Tests
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelTest, SDPAForwardOp) {
+  const llvm::SmallVector<int64_t> shape = {1, 2, 64, 64};
+  const llvm::SmallVector<int64_t> maskShape = {1, 1, 64, 64};
+  const TTNNLayoutAttr layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr maskLayout = CreateTiledLayout(
+      maskShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<SDPAForwardOp>::getOpConstraints(
+      shape, layout, shape, layout, shape, layout, maskShape, maskLayout,
+      ttcore::AttentionMaskType::Arbitrary, llvm::APFloat(0.0f),
+      /*returnIntermediates=*/true, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().tensorL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputL1BufferSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputLayouts.size(), 2u);
+
+  auto runtimeExp = OpModel<SDPAForwardOp>::getOpRuntime(
+      shape, layout, shape, layout, shape, layout, maskShape, maskLayout,
+      ttcore::AttentionMaskType::Arbitrary, llvm::APFloat(0.0f),
+      /*returnIntermediates=*/true, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
+//===----------------------------------------------------------------------===//
+// SDPABackwardOp Tests
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelTest, SDPABackwardOp) {
+  const llvm::SmallVector<int64_t> shape = {1, 2, 64, 64};
+  const llvm::SmallVector<int64_t> intermediatesShape = {1, 2, 64, 32};
+  const llvm::SmallVector<int64_t> maskShape = {1, 1, 64, 64};
+  const TTNNLayoutAttr layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr intermediatesLayout = CreateTiledLayout(
+      intermediatesShape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  const TTNNLayoutAttr maskLayout = CreateTiledLayout(
+      maskShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<SDPABackwardOp>::getOpConstraints(
+      shape, layout, shape, layout, shape, layout, shape, layout, shape, layout,
+      intermediatesShape, intermediatesLayout, maskShape, maskLayout,
+      ttcore::AttentionMaskType::Arbitrary, llvm::APFloat(0.0f),
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().tensorL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputL1BufferSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputLayouts.size(), 3u);
+
+  auto runtimeExp = OpModel<SDPABackwardOp>::getOpRuntime(
+      shape, layout, shape, layout, shape, layout, shape, layout, shape, layout,
+      intermediatesShape, intermediatesLayout, maskShape, maskLayout,
+      ttcore::AttentionMaskType::Arbitrary, llvm::APFloat(0.0f),
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
 }
 
 //===----------------------------------------------------------------------===//

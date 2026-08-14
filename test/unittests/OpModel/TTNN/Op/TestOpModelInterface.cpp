@@ -6316,6 +6316,97 @@ TEST_F(OpModelBase, AdamWOpInterfaceAmsgrad) {
   }
 }
 
+TEST_F(OpModelBase, SDPAForwardOpInterface) {
+  llvm::SmallVector<int64_t> shape = {1, 2, 64, 64};
+  auto layout = CreateTiledLayout(shape, BufferType::DRAM,
+                                  TensorMemoryLayout::Interleaved);
+  auto tensorType =
+      createRankedTensorType(shape, builder.getBF16Type(), layout);
+  auto query = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto key = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto value = createEmptyTensor(shape, builder.getBF16Type(), layout);
+
+  auto sdpaForward = builder.create<SDPAForwardOp>(
+      builder.getUnknownLoc(), TypeRange{tensorType}, query, key, value,
+      /*attention_mask=*/Value(),
+      ttcore::AttentionMaskTypeAttr::get(&context,
+                                         ttcore::AttentionMaskType::Causal),
+      builder.getF32FloatAttr(0.0f), builder.getBoolAttr(false));
+
+  auto backend = dyn_cast<OpModel>(sdpaForward.getOperation());
+  ASSERT_TRUE(backend);
+  auto inputLayouts = getInputLayouts(sdpaForward.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 3u);
+
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+    ASSERT_EQ(constraintsExp.get().outputLayouts.size(), 1u);
+  } else {
+    FAIL() << "Missing constraints for SDPAForwardOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for SDPAForwardOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, SDPABackwardOpInterface) {
+  llvm::SmallVector<int64_t> shape = {1, 2, 64, 64};
+  llvm::SmallVector<int64_t> intermediatesShape = {1, 2, 64, 32};
+  auto layout = CreateTiledLayout(shape, BufferType::DRAM,
+                                  TensorMemoryLayout::Interleaved);
+  auto intermediatesLayout = CreateTiledLayout(
+      intermediatesShape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  auto tensorType =
+      createRankedTensorType(shape, builder.getBF16Type(), layout);
+
+  auto gradOutput = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto attnOutput = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto query = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto key = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto value = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto intermediates = createEmptyTensor(
+      intermediatesShape, builder.getF32Type(), intermediatesLayout);
+
+  auto sdpaBackward = builder.create<SDPABackwardOp>(
+      builder.getUnknownLoc(), TypeRange{tensorType, tensorType, tensorType},
+      gradOutput, attnOutput, query, key, value, intermediates,
+      /*attention_mask=*/Value(),
+      ttcore::AttentionMaskTypeAttr::get(&context,
+                                         ttcore::AttentionMaskType::Causal),
+      builder.getF32FloatAttr(0.0f));
+
+  auto backend = dyn_cast<OpModel>(sdpaBackward.getOperation());
+  ASSERT_TRUE(backend);
+  auto inputLayouts = getInputLayouts(sdpaBackward.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 6u);
+
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+    ASSERT_EQ(constraintsExp.get().outputLayouts.size(), 3u);
+  } else {
+    FAIL() << "Missing constraints for SDPABackwardOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for SDPABackwardOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, QuantizeOpInterface) {
   llvm::SmallVector<int64_t> inputShape = {32, 64};
   llvm::SmallVector<int64_t> scaleShape = {64};
