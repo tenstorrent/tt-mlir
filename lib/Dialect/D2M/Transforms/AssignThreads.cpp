@@ -83,6 +83,12 @@ static void lowerDMAOpsToExplicitCB(GenericOp generic, Block *block,
     }
     Value localBuffer = storeOp.getLocalBuffer();
     assert(localBuffer && "could not find associated local buffer for store");
+    // Wait-result slots are not generic operands; leave implicit so they
+    // lower as DMA from the remote CB read pointer.
+    if (localBuffer.getDefiningOp<GlobalCBWaitOp>() ||
+        !llvm::is_contained(generic.getOperands(), localBuffer)) {
+      continue;
+    }
     unsigned cbOperandIdx = generic.getOperandIndex(localBuffer);
 
     rewriter.setInsertionPoint(storeOp);
@@ -124,7 +130,8 @@ static void lowerDMAOpsToExplicitCB(GenericOp generic, Block *block,
 // remain in implicit form and d2m-insert-compute-cb inspects them to add the
 // matching compute-side CB synchronization, then erases them.
 static std::optional<ThreadType> classifyOp(Operation *op) {
-  if (mlir::isa<RemoteLoadOp, RemoteStoreOp, LocalCopyOp>(op)) {
+  if (mlir::isa<RemoteLoadOp, RemoteStoreOp, LocalCopyOp, GlobalCBReserveOp,
+                GlobalCBWaitOp, GlobalCBPushOp, GlobalCBPopOp>(op)) {
     return ThreadType::Datamovement;
   }
   // semaphore_wait is replicated into both threads; leave untagged.

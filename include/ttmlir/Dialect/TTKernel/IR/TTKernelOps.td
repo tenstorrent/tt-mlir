@@ -3264,7 +3264,7 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front", [TTKernel_DeviceZoneOp
 //===----------------------------------------------------------------------===//
 
 def TTKernel_RemoteCBReserveBackOp
-    : TTKernel_Op<"experimental.remote_cb_reserve_back"> {
+    : TTKernel_Op<"remote_cb_reserve_back"> {
     let summary = "Reserve pages on a remote circular buffer (sender).";
     let description = [{
       Maps to tt-metal experimental::remote_cb_reserve_back.
@@ -3277,7 +3277,7 @@ def TTKernel_RemoteCBReserveBackOp
 }
 
 def TTKernel_RemoteCBWaitFrontOp
-    : TTKernel_Op<"experimental.remote_cb_wait_front"> {
+    : TTKernel_Op<"remote_cb_wait_front"> {
     let summary = "Wait for pages on a remote circular buffer (receiver).";
     let description = [{
       Maps to tt-metal experimental::remote_cb_wait_front.
@@ -3289,7 +3289,7 @@ def TTKernel_RemoteCBWaitFrontOp
 }
 
 def TTKernel_RemoteCBPopFrontOp
-    : TTKernel_Op<"experimental.remote_cb_pop_front"> {
+    : TTKernel_Op<"remote_cb_pop_front"> {
     let summary = "Release pages on a remote circular buffer (receiver).";
     let description = [{
       Maps to tt-metal experimental::remote_cb_pop_front.
@@ -3301,7 +3301,7 @@ def TTKernel_RemoteCBPopFrontOp
 }
 
 def TTKernel_RemoteCBPushBackAndWritePagesOp
-    : TTKernel_Op<"experimental.remote_cb_push_back_and_write_pages"> {
+    : TTKernel_Op<"remote_cb_push_back_and_write_pages"> {
     let summary = "NOC-write pages and push a remote circular buffer (sender).";
     let description = [{
       Maps to tt-metal experimental::remote_cb_push_back_and_write_pages.
@@ -3317,13 +3317,27 @@ def TTKernel_RemoteCBPushBackAndWritePagesOp
 }
 
 def TTKernel_UpdateRemoteCBConfigInL1Op
-    : TTKernel_Op<"experimental.update_remote_cb_config_in_l1"> {
+    : TTKernel_Op<"update_remote_cb_config_in_l1"> {
     let summary = "Persist remote CB read/write pointers to L1.";
     let description = [{
       Maps to tt-metal experimental::update_remote_cb_config_in_l1.
       Must run at the end of a kernel that uses a remote CB.
     }];
     let arguments = (ins I32:$cbId);
+    let assemblyFormat = [{
+      `(` $cbId `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GetRemoteCBReadPtrOp
+    : TTKernel_Op<"get_remote_cb_read_ptr"> {
+    let summary = "L1 address of the current remote CB front page.";
+    let description = [{
+      Receiver-side read pointer. Emits
+      get_remote_receiver_cb_interface(cb_id).fifo_rd_ptr.
+    }];
+    let arguments = (ins I32:$cbId);
+    let results = (outs I32:$readPtr);
     let assemblyFormat = [{
       `(` $cbId `)` attr-dict `:` functional-type(operands, results)
     }];

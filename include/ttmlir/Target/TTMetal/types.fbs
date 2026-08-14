@@ -85,10 +85,25 @@ table LocalSemaphoreRef {
   initial_value: uint32;
 }
 
+table GlobalCBSenderReceivers {
+  sender: Dim2d;
+  receivers: [Dim2dRange];
+}
+
+table GlobalCBRef {
+  global_id: uint32;
+  size: uint64;
+  page_size: uint64;
+  remote_port: uint32;
+  data_type: DataType;
+  pairs: [GlobalCBSenderReceivers];
+}
+
 union ArgRef {
   BufferRef,
   GlobalSemaphoreRef,
   LocalSemaphoreRef,
+  GlobalCBRef,
 }
 
 table CBRef {

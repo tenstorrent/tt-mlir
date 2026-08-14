@@ -3571,7 +3571,11 @@ def D2M_OperandAliasOp : D2M_GenericRegionOp<"operand_alias", [
 //===----------------------------------------------------------------------===//
 
 class D2M_GlobalCBAcquireOp<string mnemonic> : D2M_GenericRegionOp<mnemonic,
-  [ MemoryEffects<[MemRead, MemWrite]> ]> {
+  [ MemoryEffects<[MemRead, MemWrite]>,
+    DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead", "bufferizesToMemoryWrite", "bufferize",
+      "getAliasingValues"
+    ]> ]> {
   let arguments = (ins D2M_GlobalCB:$global_cb);
   let results = (outs AnyRankedTensorOrMemRef:$result);
 
@@ -3612,7 +3616,11 @@ def D2M_GlobalCBWaitOp : D2M_GlobalCBAcquireOp<"global_cb_wait"> {
 }
 
 def D2M_GlobalCBPushOp : D2M_GenericRegionOp<"global_cb_push",
-  [ MemoryEffects<[MemRead, MemWrite]> ]> {
+  [ MemoryEffects<[MemRead, MemWrite]>,
+    DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead", "bufferizesToMemoryWrite", "bufferize",
+      "getAliasingValues"
+    ]> ]> {
   let summary = "Write pages and signal a global circular buffer (sender).";
   let description = [{
     Combined NOC write plus push. `src` is the local payload copied to each

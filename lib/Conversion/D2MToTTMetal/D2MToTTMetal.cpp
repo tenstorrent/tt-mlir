@@ -581,10 +581,13 @@ public:
                   d2m::CreateGlobalCBOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto gcbType = mlir::cast<d2m::GlobalCBType>(op.getResult().getType());
-    int64_t size = getGlobalCBSlotPageSize(gcbType) * op.getNumSlots();
+    int64_t pageSize = getGlobalCBSlotPageSize(gcbType);
+    int64_t size = pageSize * op.getNumSlots();
+    ttcore::DataType dtype = ttcore::getDataType(gcbType.getElementType());
     rewriter.replaceOpWithNewOp<ttmetal::CreateGlobalCircularBufferOp>(
         op, ttmetal::GlobalCBType::get(rewriter.getContext()), op.getMapping(),
-        rewriter.getI64IntegerAttr(size),
+        rewriter.getI64IntegerAttr(size), rewriter.getI64IntegerAttr(pageSize),
+        ttcore::DataTypeAttr::get(rewriter.getContext(), dtype),
         rewriter.getI64IntegerAttr(kRemoteCBPort));
     return success();
   }

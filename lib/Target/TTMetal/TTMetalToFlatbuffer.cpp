@@ -5,6 +5,7 @@
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
@@ -145,6 +146,17 @@ static target::Dim2dRange toFlatbuffer(CoreRangeAttr coreRange) {
   const auto size = coreRange.getSize();
   return target::Dim2dRange(target::Dim2d(offset[0], offset[1]),
                             target::Dim2d(size[0], size[1]));
+}
+
+static target::Dim2dRange toFlatbuffer(ttcore::CoreRangeAttr coreRange) {
+  ttcore::CoreCoordAttr start = coreRange.getStartCoord();
+  ttcore::CoreCoordAttr end = coreRange.getEndCoord();
+  int32_t y0 = static_cast<int32_t>(start.getY());
+  int32_t x0 = static_cast<int32_t>(start.getX());
+  int32_t y1 = static_cast<int32_t>(end.getY());
+  int32_t x1 = static_cast<int32_t>(end.getX());
+  return target::Dim2dRange(target::Dim2d(y0, x0),
+                            target::Dim2d(y1 - y0 + 1, x1 - x0 + 1));
 }
 
 static std::array<int32_t, 2> calculateCoreRangeSetShapeExtents(
@@ -888,6 +900,42 @@ localSemaphoreValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
       *cache.fbb, cache.nextGlobalId(), initialValue);
 }
 
+static flatbuffers::Offset<target::metal::GlobalCBRef>
+globalCBValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
+                          tt::ttmetal::CreateGlobalCircularBufferOp createOp) {
+  auto mapping =
+      mlir::dyn_cast<d2m::GlobalCBMappingAttr>(createOp.getMapping());
+  assert(mapping && "create_global_circular_buffer mapping must be "
+                    "#d2m.global_cb_mapping");
+  SmallVector<d2m::SenderReceiversAttr> expanded;
+  if (failed(mapping.expand(expanded))) {
+    llvm_unreachable("failed to expand global_cb mapping");
+  }
+
+  std::vector<flatbuffers::Offset<target::metal::GlobalCBSenderReceivers>>
+      pairs;
+  pairs.reserve(expanded.size());
+  for (d2m::SenderReceiversAttr pair : expanded) {
+    ttcore::CoreCoordAttr sender = pair.getSender();
+    target::Dim2d senderDim(static_cast<int32_t>(sender.getY()),
+                            static_cast<int32_t>(sender.getX()));
+    std::vector<target::Dim2dRange> receivers;
+    receivers.reserve(pair.getReceivers().size());
+    for (ttcore::CoreRangeAttr range : pair.getReceivers()) {
+      receivers.push_back(toFlatbuffer(range));
+    }
+    pairs.push_back(target::metal::CreateGlobalCBSenderReceiversDirect(
+        *cache.fbb, &senderDim, &receivers));
+  }
+
+  return target::metal::CreateGlobalCBRefDirect(
+      *cache.fbb, cache.nextGlobalId(),
+      static_cast<uint64_t>(createOp.getSize()),
+      static_cast<uint64_t>(createOp.getPageSize()),
+      static_cast<uint32_t>(createOp.getRemotePort()),
+      toFlatbuffer(cache, createOp.getDataType()), &pairs);
+}
+
 static flatbuffers::Offset<target::metal::KernelArg>
 toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
   target::metal::KernelArgType argType;
@@ -1243,6 +1291,9 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
             argTypes.push_back(target::metal::ArgRef::LocalSemaphoreRef);
             args.push_back(
                 cache.at<target::metal::LocalSemaphoreRef>(arg).Union());
+          } else if (mlir::isa<tt::ttmetal::GlobalCBType>(arg.getType())) {
+            argTypes.push_back(target::metal::ArgRef::GlobalCBRef);
+            args.push_back(cache.at<target::metal::GlobalCBRef>(arg).Union());
           } else if (isSupportedScalarType(arg.getType())) {
             argTypes.push_back(target::metal::ArgRef::BufferRef);
             args.push_back(cache.at<target::metal::BufferRef>(arg).Union());
@@ -1466,6 +1517,15 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                                   globalSemaphoreValueToFlatbuffer,
                                   createGlobalSemaphoreOp.getAddress()),
                 createGlobalSemaphoreOp.getInitialValue(), &coreRangeSet),
+            op);
+      } else if (auto createGlobalCBOp = dyn_cast_if_present<
+                     tt::ttmetal::CreateGlobalCircularBufferOp>(op);
+                 createGlobalCBOp) {
+        cqBuilder.appendCommand(
+            target::metal::CreateCreateGlobalCircularBufferCommand(
+                fbb,
+                cache.getOrCreate(createGlobalCBOp.getResult(),
+                                  globalCBValueToFlatbuffer, createGlobalCBOp)),
             op);
       } else if (auto resetGlobalSemaphoreOp =
                      dyn_cast_if_present<tt::ttmetal::ResetGlobalSemaphoreOp>(

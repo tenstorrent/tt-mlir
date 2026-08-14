@@ -35,6 +35,10 @@ table CreateLocalSemaphoreCommand {
   ref: LocalSemaphoreRef;
 }
 
+table CreateGlobalCircularBufferCommand {
+  ref: GlobalCBRef;
+}
+
 table EnqueueWriteBufferCommand {
   src: BufferRef;
   dst: BufferRef;
@@ -100,6 +104,7 @@ union CommandType {
   CreateGlobalSemaphoreCommand,
   ResetGlobalSemaphoreCommand,
   CreateLocalSemaphoreCommand,
+  CreateGlobalCircularBufferCommand,
   EnqueueRecordEventCommand,
   EnqueueWaitForEventCommand,
   EventSynchronizeCommand,

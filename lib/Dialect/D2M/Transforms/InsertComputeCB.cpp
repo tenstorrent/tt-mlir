@@ -18,6 +18,7 @@
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -677,8 +678,15 @@ public:
           cbTransferDepth; // generic operand index --> loop nest depth of its
                            // DMA marker
       dmBlock->walk([&](ShardDMAOpInterface dma) {
-        cbTransferDepth[getDMACBPort(generic, dma.getOperation())] =
-            forDepth(dma.getOperation());
+        Operation *op = dma.getOperation();
+        if (auto store = dyn_cast<RemoteStoreOp>(op)) {
+          if (!store.isExplicitCBForm() && store.getLocalBuffer() &&
+              !llvm::is_contained(generic.getOperands(),
+                                  store.getLocalBuffer())) {
+            return;
+          }
+        }
+        cbTransferDepth[getDMACBPort(generic, op)] = forDepth(op);
       });
       if (failed(insertCBOpsForCompute(computeBlock, rewriter, aliasedLoadCBs,
                                        aliasedStoreCBs, cbTransferDepth))) {

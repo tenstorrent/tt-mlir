@@ -2492,6 +2492,123 @@ PopOp::bufferize(mlir::RewriterBase &rewriter,
   return bufferizeCBOp(*this, rewriter, options);
 }
 
+static bool sameSlotShape(Type a, Type b) {
+  auto sa = mlir::dyn_cast<ShapedType>(a);
+  auto sb = mlir::dyn_cast<ShapedType>(b);
+  return sa && sb && sa.getShape() == sb.getShape() &&
+         sa.getElementType() == sb.getElementType();
+}
+
+template <typename AcquireOp>
+static bool globalCBAcquireBufferizesToMemoryRead(
+    AcquireOp, mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+template <typename AcquireOp>
+static bool globalCBAcquireBufferizesToMemoryWrite(
+    AcquireOp, mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+template <typename AcquireOp>
+static mlir::LogicalResult
+bufferizeGlobalCBAcquire(AcquireOp op, mlir::RewriterBase &rewriter,
+                         const mlir::bufferization::BufferizationOptions &,
+                         mlir::bufferization::BufferizationState &) {
+  if (!mlir::isa<RankedTensorType>(op.getResult().getType())) {
+    return mlir::failure();
+  }
+  auto tensorType = mlir::cast<RankedTensorType>(op.getResult().getType());
+  auto memrefType = MemRefType::get(
+      tensorType.getShape(), tensorType.getElementType(),
+      MemRefLayoutAttrInterface{},
+      mlir::tt::ttcore::MemorySpaceAttr::get(
+          op.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1));
+  auto newOp =
+      rewriter.create<AcquireOp>(op.getLoc(), memrefType, op.getGlobalCb());
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, op,
+                                                     newOp.getResult());
+  return mlir::success();
+}
+
+mlir::bufferization::AliasingValueList GlobalCBReserveOp::getAliasingValues(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return {};
+}
+
+bool GlobalCBReserveOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &state) {
+  return globalCBAcquireBufferizesToMemoryRead(*this, operand, state);
+}
+
+bool GlobalCBReserveOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &state) {
+  return globalCBAcquireBufferizesToMemoryWrite(*this, operand, state);
+}
+
+mlir::LogicalResult GlobalCBReserveOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  return bufferizeGlobalCBAcquire(*this, rewriter, options, state);
+}
+
+mlir::bufferization::AliasingValueList
+GlobalCBWaitOp::getAliasingValues(mlir::OpOperand &,
+                                  const mlir::bufferization::AnalysisState &) {
+  return {};
+}
+
+bool GlobalCBWaitOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &state) {
+  return globalCBAcquireBufferizesToMemoryRead(*this, operand, state);
+}
+
+bool GlobalCBWaitOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &state) {
+  return globalCBAcquireBufferizesToMemoryWrite(*this, operand, state);
+}
+
+mlir::LogicalResult GlobalCBWaitOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  return bufferizeGlobalCBAcquire(*this, rewriter, options, state);
+}
+
+mlir::bufferization::AliasingValueList
+GlobalCBPushOp::getAliasingValues(mlir::OpOperand &,
+                                  const mlir::bufferization::AnalysisState &) {
+  return {};
+}
+
+bool GlobalCBPushOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return true;
+}
+
+bool GlobalCBPushOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+mlir::LogicalResult GlobalCBPushOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  if (!mlir::isa<RankedTensorType>(getSrc().getType())) {
+    return mlir::failure();
+  }
+  mlir::FailureOr<Value> srcBuffer =
+      mlir::bufferization::getBuffer(rewriter, getSrc(), options, state);
+  if (failed(srcBuffer)) {
+    return srcBuffer;
+  }
+  rewriter.replaceOpWithNewOp<GlobalCBPushOp>(*this, getGlobalCb(), *srcBuffer);
+  return mlir::success();
+}
+
 static LogicalResult verifyGlobalCBOnDatamovementThread(Operation *op) {
   auto genericOp = op->getParentOfType<GenericOp>();
   if (!genericOp) {
@@ -2503,8 +2620,9 @@ static LogicalResult verifyGlobalCBOnDatamovementThread(Operation *op) {
   }
   ThreadType threadType =
       genericOp.getRegionThreadType(region->getRegionNumber());
-  if (threadType != ThreadType::Datamovement) {
-    return op->emitOpError("must be in a datamovement region, got ")
+  if (threadType != ThreadType::Datamovement &&
+      threadType != ThreadType::Unified) {
+    return op->emitOpError("must be in a datamovement or unified region, got ")
            << stringifyEnum(threadType);
   }
   return success();
@@ -2514,7 +2632,8 @@ mlir::LogicalResult GlobalCBReserveOp::verify() {
   if (failed(verifyGlobalCBOnDatamovementThread(*this))) {
     return failure();
   }
-  if (getGlobalCBType().getUnderlying() != getResult().getType()) {
+  if (!sameSlotShape(getGlobalCBType().getUnderlying(),
+                     getResult().getType())) {
     return emitOpError("result type does not match global_cb slot type");
   }
   return success();
@@ -2524,7 +2643,8 @@ mlir::LogicalResult GlobalCBWaitOp::verify() {
   if (failed(verifyGlobalCBOnDatamovementThread(*this))) {
     return failure();
   }
-  if (getGlobalCBType().getUnderlying() != getResult().getType()) {
+  if (!sameSlotShape(getGlobalCBType().getUnderlying(),
+                     getResult().getType())) {
     return emitOpError("result type does not match global_cb slot type");
   }
   return success();
@@ -2534,7 +2654,7 @@ mlir::LogicalResult GlobalCBPushOp::verify() {
   if (failed(verifyGlobalCBOnDatamovementThread(*this))) {
     return failure();
   }
-  if (getGlobalCBType().getUnderlying() != getSrc().getType()) {
+  if (!sameSlotShape(getGlobalCBType().getUnderlying(), getSrc().getType())) {
     return emitOpError("src type does not match global_cb slot type");
   }
   return success();

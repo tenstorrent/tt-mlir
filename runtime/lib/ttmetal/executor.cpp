@@ -27,6 +27,9 @@
 #include "ttmlir/Version.h"
 #include "types_generated.h"
 
+#include <tt-metalium/circular_buffer_config.hpp>
+#include <tt-metalium/global_circular_buffer.hpp>
+
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -71,6 +74,7 @@ private:
   void execute(const target::metal::CreateGlobalSemaphoreCommand *command);
   void execute(const target::metal::ResetGlobalSemaphoreCommand *command);
   void execute(const target::metal::CreateLocalSemaphoreCommand *command);
+  void execute(const target::metal::CreateGlobalCircularBufferCommand *command);
 
   std::uint64_t generateUniqueProgramRuntimeId() {
     return nextProgramRuntimeId++;
@@ -83,6 +87,9 @@ private:
       meshBuffers;
   std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
       global_semaphores;
+  std::unordered_map<std::uint32_t,
+                     tt_metal::experimental::GlobalCircularBuffer>
+      global_cbs;
 
   // Local semaphores. Indexed by global_id. We only store their initial value
   // here and lookup during their creation.
@@ -241,6 +248,10 @@ void MCQExecutor::execute(const target::metal::Command *command) {
     execute(command->type_as_CreateLocalSemaphoreCommand());
     break;
   }
+  case target::metal::CommandType::CreateGlobalCircularBufferCommand: {
+    execute(command->type_as_CreateGlobalCircularBufferCommand());
+    break;
+  }
   case target::metal::CommandType::NONE: {
     LOG_FATAL("Unsupported CommandType::NONE");
     break;
@@ -356,6 +367,25 @@ void MCQExecutor::execute(
                                             command->ref()->initial_value());
 }
 
+void MCQExecutor::execute(
+    const target::metal::CreateGlobalCircularBufferCommand *command) {
+  ZoneScopedN("CreateGlobalCircularBufferCommand");
+  const target::metal::GlobalCBRef *ref = command->ref();
+  LOG_ASSERT(global_cbs.find(ref->global_id()) == global_cbs.end(),
+             "Global circular buffer with id ", ref->global_id(),
+             " already exists.");
+  std::vector<std::pair<tt_metal::CoreCoord, tt_metal::CoreRangeSet>> mapping;
+  mapping.reserve(ref->pairs()->size());
+  for (const target::metal::GlobalCBSenderReceivers *pair : *ref->pairs()) {
+    tt_metal::CoreCoord sender(pair->sender()->x(), pair->sender()->y());
+    mapping.emplace_back(sender, common::toCoreRangeSet(pair->receivers()));
+  }
+  auto gcb = tt_metal::experimental::CreateGlobalCircularBuffer(
+      meshDevice, mapping, static_cast<uint32_t>(ref->size()),
+      tt_metal::BufferType::L1);
+  global_cbs.emplace(ref->global_id(), std::move(gcb));
+}
+
 void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
                           const char *loc, const char *debugInfo) {
   ZoneScopedN("EnqueueProgramCommand");
@@ -462,6 +492,30 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
       tt_metal::CircularBufferConfig config =
           createCircularBufferConfig(cbRef, meshBuffers);
       tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
+    }
+
+    if (command->arg_refs() && command->arg_refs_type()) {
+      for (size_t i = 0; i < command->arg_refs_type()->size(); ++i) {
+        if (command->arg_refs_type()->Get(i) !=
+            target::metal::ArgRef::GlobalCBRef) {
+          continue;
+        }
+        const auto *gcbRef =
+            reinterpret_cast<const target::metal::GlobalCBRef *>(
+                command->arg_refs()->Get(i));
+        auto gcbIt = global_cbs.find(gcbRef->global_id());
+        LOG_ASSERT(gcbIt != global_cbs.end(),
+                   "Global circular buffer id referenced by enqueue args was "
+                   "never created ",
+                   gcbRef->global_id());
+        tt_metal::CircularBufferConfig config(
+            static_cast<uint32_t>(gcbRef->page_size()));
+        config.remote_index(static_cast<uint8_t>(gcbRef->remote_port()))
+            .set_page_size(static_cast<uint32_t>(gcbRef->page_size()))
+            .set_data_format(common::toDataFormat(gcbRef->data_type()));
+        tt_metal::experimental::CreateCircularBuffer(
+            program, gcbIt->second.all_cores(), config, gcbIt->second);
+      }
     }
 
     // Fabric-configured kernels have device-specific runtime args, so emit a

@@ -83,7 +83,8 @@ def TTMetal_CreateGlobalCircularBufferOp : TTMetal_Op<"create_global_circular_bu
       shared remote CB index (conventionally 31) and is not remapped when
       spatial regions merge.
     }];
-    let arguments = (ins AnyAttr:$mapping, I64Attr:$size,
+    let arguments = (ins AnyAttr:$mapping, I64Attr:$size, I64Attr:$page_size,
+                         TTCore_DataTypeAttr:$data_type,
                          DefaultValuedAttr<I64Attr, "31">:$remote_port);
     let results = (outs TTMetal_GlobalCB:$result);
     let assemblyFormat = "attr-dict `:` type($result)";

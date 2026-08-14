@@ -13,20 +13,22 @@ module {
     %rows = arith.constant 1 : i32
     %coal = arith.constant 1 : i32
     %psz = arith.constant 4096 : i32
-    "ttkernel.experimental.remote_cb_reserve_back"(%port, %pages) : (i32, i32) -> ()
-    "ttkernel.experimental.remote_cb_push_back_and_write_pages"(%port, %addr, %pages, %rows, %coal, %psz) : (i32, i32, i32, i32, i32, i32) -> ()
-    "ttkernel.experimental.update_remote_cb_config_in_l1"(%port) : (i32) -> ()
+    "ttkernel.remote_cb_reserve_back"(%port, %pages) : (i32, i32) -> ()
+    "ttkernel.remote_cb_push_back_and_write_pages"(%port, %addr, %pages, %rows, %coal, %psz) : (i32, i32, i32, i32, i32, i32) -> ()
+    "ttkernel.update_remote_cb_config_in_l1"(%port) : (i32) -> ()
     return
   }
 
   // CHECK-LABEL: func.func @remote_cb_receiver
   // CHECK: emitc.call_opaque "experimental::remote_cb_wait_front"
+  // CHECK: get_remote_receiver_cb_interface
   // CHECK: emitc.call_opaque "experimental::remote_cb_pop_front"
   func.func @remote_cb_receiver() attributes {ttkernel.thread = #ttkernel.thread<noc>} {
     %port = arith.constant 31 : i32
     %pages = arith.constant 1 : i32
-    "ttkernel.experimental.remote_cb_wait_front"(%port, %pages) : (i32, i32) -> ()
-    "ttkernel.experimental.remote_cb_pop_front"(%port, %pages) : (i32, i32) -> ()
+    "ttkernel.remote_cb_wait_front"(%port, %pages) : (i32, i32) -> ()
+    %ptr = "ttkernel.get_remote_cb_read_ptr"(%port) : (i32) -> i32
+    "ttkernel.remote_cb_pop_front"(%port, %pages) : (i32, i32) -> ()
     return
   }
 }

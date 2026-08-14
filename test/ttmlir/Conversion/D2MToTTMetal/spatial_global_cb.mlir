@@ -12,6 +12,7 @@ module {
   // CHECK-LABEL: func.func @spatial_global_cb_zip
   // CHECK: %[[GCB:.*]] = ttmetal.create_global_circular_buffer
   // CHECK-SAME: mapping = #d2m.global_cb_mapping<zip, sender = #ttcore.core_range<(0,0), (0,0)>, receiver = #ttcore.core_range<(1,1), (1,1)>>
+  // CHECK-SAME: page_size = 4096
   // CHECK-SAME: size = 8192
   // CHECK: "ttmetal.enqueue_program"({{.*}}%[[GCB]]{{.*}})
   // CHECK-NOT: d2m.spatial

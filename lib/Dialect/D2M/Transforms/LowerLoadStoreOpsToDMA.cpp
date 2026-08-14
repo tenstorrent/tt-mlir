@@ -226,6 +226,21 @@ public:
           remoteStore, "remote operand must be a memref, not a tensor");
     }
 
+    if (!remoteStore.isExplicitCBForm()) {
+      Value localMemref = remoteStore.getLocalBuffer();
+      if (!localMemref || !mlir::isa<MemRefType>(localMemref.getType())) {
+        return rewriter.notifyMatchFailure(
+            remoteStore, "implicit remote_store requires a memref local "
+                         "buffer (e.g. global_cb_wait result)");
+      }
+      Value dmaTx = rewriter.create<DMAWriteOp>(
+          loc, localMemref, remoteStore.getMemref(), remoteStore.getIndices(),
+          remoteStore.getStartDevice(), remoteStore.getDeviceMcastShape());
+      rewriter.eraseOp(remoteStore);
+      rewriter.create<DMAWaitOp>(loc, dmaTx);
+      return success();
+    }
+
     CBType cbType = remoteStore.getCbType();
     if (!cbType.getUnderlyingAs<MemRefType>()) {
       return rewriter.notifyMatchFailure(

@@ -7,10 +7,10 @@ module {
   // CHECK-LABEL: func.func private @sender
   // CHECK: %[[PORT:.*]] = arith.constant 31 : i32
   // CHECK: %[[CB:.*]] = ttkernel.get_common_arg_val
-  // CHECK: ttkernel.experimental.remote_cb_reserve_back(%[[PORT]], %{{.*}})
+  // CHECK: ttkernel.remote_cb_reserve_back(%[[PORT]], %{{.*}})
   // CHECK: %[[ADDR:.*]] = ttkernel.get_read_ptr(%[[CB]])
-  // CHECK: ttkernel.experimental.remote_cb_push_back_and_write_pages(%[[PORT]], %[[ADDR]], %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}})
-  // CHECK: ttkernel.experimental.update_remote_cb_config_in_l1(%{{.*}})
+  // CHECK: ttkernel.remote_cb_push_back_and_write_pages(%[[PORT]], %[[ADDR]], %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}})
+  // CHECK: ttkernel.update_remote_cb_config_in_l1(%{{.*}})
   func.func private @sender() attributes {d2m.thread = #d2m.thread<datamovement>} {
     %gcb = d2m.get_arg(0) : !d2m.global_cb<!slot>
     %src = d2m.get_arg(1) : !slot
@@ -21,9 +21,9 @@ module {
 
   // CHECK-LABEL: func.func private @receiver
   // CHECK: %[[PORT:.*]] = arith.constant 31 : i32
-  // CHECK: ttkernel.experimental.remote_cb_wait_front(%[[PORT]], %{{.*}})
-  // CHECK: ttkernel.experimental.remote_cb_pop_front(%[[PORT]], %{{.*}})
-  // CHECK: ttkernel.experimental.update_remote_cb_config_in_l1(%{{.*}})
+  // CHECK: ttkernel.remote_cb_wait_front(%[[PORT]], %{{.*}})
+  // CHECK: ttkernel.remote_cb_pop_front(%[[PORT]], %{{.*}})
+  // CHECK: ttkernel.update_remote_cb_config_in_l1(%{{.*}})
   func.func private @receiver() attributes {d2m.thread = #d2m.thread<datamovement>} {
     %gcb = d2m.get_arg(0) : !d2m.global_cb<!slot>
     %got = d2m.global_cb_wait %gcb : !d2m.global_cb<!slot> -> !slot

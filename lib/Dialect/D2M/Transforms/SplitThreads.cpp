@@ -18,6 +18,7 @@
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 namespace mlir::tt::d2m {
@@ -155,6 +156,13 @@ static LogicalResult checkComputeSyncScope(GenericOp generic) {
       return; // a view, not an access
     }
     if (isa<ShardDMAOpInterface>(op)) {
+      if (auto store = dyn_cast<RemoteStoreOp>(op)) {
+        if (!store.isExplicitCBForm() && store.getLocalBuffer() &&
+            !llvm::is_contained(generic.getOperands(),
+                                store.getLocalBuffer())) {
+          return;
+        }
+      }
       unsigned port = getDMACBPort(generic, op);
       dmaBlocks[port].insert(op->getBlock());
       if (topLevelNest(op, regionBlock)) {
@@ -238,7 +246,9 @@ static void collectComputeOpsToErase(Block *block,
       collectComputeOpsToErase(forOp.getBody(), eraseSet);
       continue;
     }
-    bool isDMAOp = isa<ShardDMAOpInterface, DeviceSynchronizeOp>(&op);
+    bool isDMAOp =
+        isa<ShardDMAOpInterface, DeviceSynchronizeOp, GlobalCBReserveOp,
+            GlobalCBWaitOp, GlobalCBPushOp, GlobalCBPopOp>(&op);
     bool isReplicated = isa<SemaphoreWaitOp>(&op);
     if (!isDMAOp && !isReplicated) {
       eraseSet.insert(&op);

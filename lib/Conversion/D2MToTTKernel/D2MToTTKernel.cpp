@@ -2383,14 +2383,17 @@ public:
   LogicalResult
   matchAndRewrite(D2MAcquireOp op, typename D2MAcquireOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    if (!op.getResult().use_empty()) {
-      return rewriter.notifyMatchFailure(
-          op, "global_cb acquire result uses are not lowered yet");
-    }
     auto numPages = intConstant<int32_t>(rewriter, op.getLoc(), 1);
     rewriter.create<TTKernelAcquireOp>(op.getLoc(), adaptor.getGlobalCb(),
                                        numPages);
-    rewriter.eraseOp(op);
+    if (op.getResult().use_empty()) {
+      rewriter.eraseOp(op);
+      return success();
+    }
+    // Receiver wait result is the remote CB front address.
+    Value readPtr = rewriter.create<ttkernel::GetRemoteCBReadPtrOp>(
+        op.getLoc(), adaptor.getGlobalCb());
+    rewriter.replaceOp(op, readPtr);
     return success();
   }
 };
@@ -2873,6 +2876,24 @@ private:
   const d2m::CBProducerConsumer *cbProducerConsumer;
 };
 
+static Value
+materializeDMASrcL1Addr(OpBuilder &rewriter, d2m::DMAWriteOp op,
+                        Value adaptorSrc,
+                        const d2m::CBProducerConsumer *cbProducerConsumer) {
+  if (adaptorSrc.getType().isInteger(32)) {
+    return adaptorSrc;
+  }
+  if (op.getSrc().getDefiningOp<d2m::GlobalCBWaitOp>()) {
+    Value port = intConstant<int32_t>(rewriter, op.getLoc(), 31);
+    return rewriter.create<ttkernel::GetRemoteCBReadPtrOp>(op.getLoc(), port);
+  }
+  auto srcCBMapping = cbProducerConsumer->get(op.getSrc());
+  if (srcCBMapping == d2m::ThreadCBOrientation::Producer) {
+    return rewriter.create<ttkernel::GetWritePtrOp>(op.getLoc(), adaptorSrc);
+  }
+  return rewriter.create<ttkernel::GetReadPtrOp>(op.getLoc(), adaptorSrc);
+}
+
 class D2MDMAWriteRewriter : public OpConversionPattern<d2m::DMAWriteOp> {
 public:
   D2MDMAWriteRewriter(TypeConverter &typeConverter, MLIRContext *context,
@@ -2948,15 +2969,8 @@ public:
 
       // Both src and dst are local, use the metal cb pointers to determine
       // addressing
-      Value srcL1Start;
-      auto srcCBMapping = cbProducerConsumer->get(op.getSrc());
-      if (srcCBMapping == d2m::ThreadCBOrientation::Producer) {
-        srcL1Start = rewriter.create<ttkernel::GetWritePtrOp>(op.getLoc(),
-                                                              adaptor.getSrc());
-      } else {
-        srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(op.getLoc(),
-                                                             adaptor.getSrc());
-      }
+      Value srcL1Start = materializeDMASrcL1Addr(rewriter, op, adaptor.getSrc(),
+                                                 cbProducerConsumer);
       auto dstCBMapping = cbProducerConsumer->get(op.getDst());
       TT_assertv((dstCBMapping == d2m::ThreadCBOrientation::Producer ||
                   dstCBMapping == d2m::ThreadCBOrientation::ProducerConsumer ||
@@ -3023,8 +3037,15 @@ public:
                             transferSize, nocId);
       }
     } else if (op.isDstRemote()) {
-      auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
-          rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
+      Value srcL1Addr;
+      if (adaptor.getSrc().getType().isInteger(32) ||
+          op.getSrc().getDefiningOp<d2m::GlobalCBWaitOp>()) {
+        srcL1Addr = materializeDMASrcL1Addr(rewriter, op, adaptor.getSrc(),
+                                            cbProducerConsumer);
+      } else {
+        srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
+            rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
+      }
       auto dstEndpoint = buildNocEndpoint(rewriter, op.getLoc(),
                                           adaptor.getDst(), op.getDstIndices(),
                                           chipDesc, op.getDstMemorySpace());

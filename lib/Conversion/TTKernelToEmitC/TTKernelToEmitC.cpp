@@ -30,6 +30,7 @@
 #include "llvm/ADT/StringSet.h"
 
 #include <array>
+#include <cstdint>
 #include <functional>
 #include <string>
 
@@ -99,6 +100,11 @@ static std::string datatypeToDataformatStr(ttcore::DataType dtype) {
 static std::string getTTKernelCalleeName(llvm::StringRef opName) {
   opName.consume_front("ttkernel.");
   if (opName.consume_front("experimental.")) {
+    return ("experimental::" + opName).str();
+  }
+  // Metal remote CB APIs are experimental::; TTKernel mnemonics are unprefixed.
+  if (opName.starts_with("remote_cb_") ||
+      opName == "update_remote_cb_config_in_l1") {
     return ("experimental::" + opName).str();
   }
   return opName.str();
@@ -2566,6 +2572,31 @@ public:
     return success();
   }
 };
+
+class GetRemoteCBReadPtrToEmitC
+    : public OpConversionPattern<ttkernel::GetRemoteCBReadPtrOp> {
+public:
+  using OpConversionPattern<
+      ttkernel::GetRemoteCBReadPtrOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::GetRemoteCBReadPtrOp op,
+                  ttkernel::GetRemoteCBReadPtrOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    std::string varName = "remote_cb_rd_ptr_";
+    varName += std::to_string(reinterpret_cast<uintptr_t>(op.getOperation()));
+    rewriter.create<emitc::VerbatimOp>(
+        op.getLoc(),
+        rewriter.getStringAttr("uint32_t " + varName +
+                               " = get_remote_receiver_cb_interface({})."
+                               "fifo_rd_ptr;"),
+        adaptor.getOperands());
+    auto literal = rewriter.create<emitc::LiteralOp>(
+        op.getLoc(), rewriter.getI32Type(), varName);
+    rewriter.replaceOp(op, literal.getResult());
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -2937,8 +2968,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::RemoteCBPopFrontOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::RemoteCBPushBackAndWritePagesOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::UpdateRemoteCBConfigInL1Op>>(
-        typeConverter, context);
+        TTKernelToEmitCOpaqueRewriter<ttkernel::UpdateRemoteCBConfigInL1Op>,
+        GetRemoteCBReadPtrToEmitC>(typeConverter, context);
 
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::RemoteSramWriteU32Op>>(
         typeConverter, context, "noc_semaphore_set_remote");

@@ -47,6 +47,11 @@ collectDMAOps(Block *block,
     }
 
     if (auto dmaOp = mlir::dyn_cast<ShardDMAOpInterface>(&op)) {
+      if (auto store = mlir::dyn_cast<RemoteStoreOp>(&op)) {
+        if (!store.isExplicitCBForm()) {
+          continue;
+        }
+      }
       dmaOps.push_back({&op, dmaOp.getCBPort()});
     }
   }

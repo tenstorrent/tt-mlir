@@ -116,7 +116,7 @@ func.func @mapping_outside_spatial(
 #l1 = #ttcore.memory_space<l1>
 !slot = memref<1x1x!ttcore.tile<32x32, f32>, #l1>
 
-// CHECK: must be in a datamovement region
+// CHECK: must be in a datamovement or unified region
 func.func @wrong_thread(
     %out0: memref<1x1x!ttcore.tile<32x32, f32>, #l1>,
     %out1: memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
