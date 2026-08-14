@@ -8,6 +8,8 @@
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.h"
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -42,6 +44,35 @@ namespace mlir::tt::d2m {
 } // namespace mlir::tt::d2m
 
 namespace {
+
+constexpr int32_t kRemoteCBPort = 31;
+
+static bool usesRemoteCB(func::FuncOp funcOp) {
+  bool found = false;
+  funcOp.walk([&](Operation *op) {
+    if (isa<ttkernel::RemoteCBReserveBackOp, ttkernel::RemoteCBWaitFrontOp,
+            ttkernel::RemoteCBPushBackAndWritePagesOp,
+            ttkernel::RemoteCBPopFrontOp>(op)) {
+      found = true;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  return found;
+}
+
+static void insertRemoteCBConfigUpdates(func::FuncOp funcOp) {
+  if (!usesRemoteCB(funcOp)) {
+    return;
+  }
+  OpBuilder builder(funcOp.getContext());
+  funcOp.walk([&](func::ReturnOp ret) {
+    builder.setInsertionPoint(ret);
+    Value port = builder.create<arith::ConstantOp>(
+        ret.getLoc(), builder.getI32IntegerAttr(kRemoteCBPort));
+    builder.create<ttkernel::UpdateRemoteCBConfigInL1Op>(ret.getLoc(), port);
+  });
+}
 
 struct ConvertD2MToTTKernel
     : public d2m::impl::ConvertD2MToTTKernelBase<ConvertD2MToTTKernel> {
@@ -83,6 +114,7 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<d2m::EmptyOp>();
     target.addLegalOp<d2m::MeshShardOp>();
     target.addLegalOp<d2m::CreateGlobalSemaphoreOp>();
+    target.addLegalOp<d2m::CreateGlobalCBOp>();
     target.addLegalOp<d2m::ResetGlobalSemaphoreOp>();
     target.addLegalOp<d2m::CreateLocalSemaphoreOp>();
     target.addLegalOp<d2m::SpatialOp>();
@@ -172,6 +204,9 @@ struct ConvertD2MToTTKernel
     typeConverter.addConversion([](d2m::GlobalSemaphoreType globalSemaphore) {
       return ttkernel::L1AddrType::get(globalSemaphore.getContext());
     });
+    typeConverter.addConversion([](d2m::GlobalCBType globalCB) {
+      return IntegerType::get(globalCB.getContext(), 32);
+    });
 
     d2m::CBProducerConsumer cbProducerConsumer =
         getAnalysis<d2m::CBProducerConsumer>();
@@ -216,6 +251,8 @@ struct ConvertD2MToTTKernel
       signalPassFailure();
       return;
     }
+
+    insertRemoteCBConfigUpdates(funcOp);
 
     // The d2m.thread attr is kept until the end of this pass, when body
     // rewrites have consumed nocIndex.

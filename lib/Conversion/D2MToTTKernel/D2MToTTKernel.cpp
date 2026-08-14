@@ -2357,6 +2357,90 @@ public:
 
 namespace {
 
+// Shared remote CB hardware port. Sender and receiver use the same index;
+// spatial merge must not remap it like local cb_ports.
+constexpr int32_t kRemoteCBPort = 31;
+
+static int32_t getGlobalCBSlotPageSize(d2m::GlobalCBType gcbType) {
+  mlir::ShapedType slot = gcbType.getUnderlying();
+  Type elem = slot.getElementType();
+  if (auto tile = mlir::dyn_cast<ttcore::TileType>(elem)) {
+    return static_cast<int32_t>(tile.getSizeBytes());
+  }
+  return static_cast<int32_t>((elem.getIntOrFloatBitWidth() / 8) *
+                              slot.getNumElements());
+}
+
+static Value remoteCBPortConstant(OpBuilder &rewriter, Location loc) {
+  return intConstant<int32_t>(rewriter, loc, kRemoteCBPort);
+}
+
+template <typename D2MAcquireOp, typename TTKernelAcquireOp>
+class D2MGlobalCBAcquireRewriter : public OpConversionPattern<D2MAcquireOp> {
+public:
+  using OpConversionPattern<D2MAcquireOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(D2MAcquireOp op, typename D2MAcquireOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (!op.getResult().use_empty()) {
+      return rewriter.notifyMatchFailure(
+          op, "global_cb acquire result uses are not lowered yet");
+    }
+    auto numPages = intConstant<int32_t>(rewriter, op.getLoc(), 1);
+    rewriter.create<TTKernelAcquireOp>(op.getLoc(), adaptor.getGlobalCb(),
+                                       numPages);
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class D2MGlobalCBPopRewriter : public OpConversionPattern<d2m::GlobalCBPopOp> {
+public:
+  using OpConversionPattern<d2m::GlobalCBPopOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::GlobalCBPopOp op, d2m::GlobalCBPopOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto numPages = intConstant<int32_t>(rewriter, op.getLoc(), 1);
+    rewriter.replaceOpWithNewOp<RemoteCBPopFrontOp>(op, adaptor.getGlobalCb(),
+                                                    numPages);
+    return success();
+  }
+};
+
+class D2MGlobalCBPushRewriter
+    : public OpConversionPattern<d2m::GlobalCBPushOp> {
+public:
+  using OpConversionPattern<d2m::GlobalCBPushOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::GlobalCBPushOp op, d2m::GlobalCBPushOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Value localAddr = adaptor.getSrc();
+    if (mlir::isa<ttkernel::CBType>(localAddr.getType())) {
+      localAddr = rewriter.create<GetReadPtrOp>(op.getLoc(), localAddr);
+    } else if (!localAddr.getType().isInteger(32)) {
+      return rewriter.notifyMatchFailure(
+          op, "global_cb_push src must lower to i32 L1 address or CB");
+    }
+
+    auto numPages = intConstant<int32_t>(rewriter, op.getLoc(), 1);
+    auto numRows = intConstant<int32_t>(rewriter, op.getLoc(), 1);
+    auto coalesced = intConstant<int32_t>(rewriter, op.getLoc(), 1);
+    auto pageSize = intConstant<int32_t>(
+        rewriter, op.getLoc(), getGlobalCBSlotPageSize(op.getGlobalCBType()));
+    rewriter.replaceOpWithNewOp<RemoteCBPushBackAndWritePagesOp>(
+        op, adaptor.getGlobalCb(), localAddr, numPages, numRows, coalesced,
+        pageSize);
+    return success();
+  }
+};
+
+} // namespace
+
+namespace {
+
 static Value castCBTypeAsAddress(OpBuilder &rewriter, Location loc, Value cb) {
   // This is required because we blanket convert Memrefs into CBs with a type
   // converter, however there are actually two paths a memref can take:
@@ -3527,6 +3611,9 @@ public:
       arg = rewriter.getAttr<ArgAttr>(ArgType::BufferAddress,
                                       op.getOperandIndex());
       argResultType = rewriter.getI32Type();
+    } else if (mlir::isa<d2m::GlobalCBType>(op.getResult().getType())) {
+      rewriter.replaceOp(op, remoteCBPortConstant(rewriter, op.getLoc()));
+      return success();
     } else if (mlir::isa<d2m::GlobalSemaphoreType>(op.getResult().getType())) {
       arg = rewriter.getAttr<ArgAttr>(ArgType::GlobalSemaphore,
                                       op.getOperandIndex());
@@ -3718,6 +3805,10 @@ public:
         ArgAttr arg = builder.getAttr<ArgAttr>(ArgType::BufferAddress,
                                                getArgOp.getOperandIndex());
         insertKernelArg(rtArgs, ctArgs, arg);
+        return;
+      }
+
+      if (mlir::isa<d2m::GlobalCBType>(argType)) {
         return;
       }
 
@@ -4199,6 +4290,10 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MCBOpRewriter<d2m::ReserveOp, ttkernel::CBReserveBackOp, ttkernel::CBPushBackOp>,
                ttkernel::D2MCBReleaseOpRewriter<d2m::PushOp, ttkernel::CBPushBackOp>,
                ttkernel::D2MCBReleaseOpRewriter<d2m::PopOp, ttkernel::CBPopFrontOp>,
+               ttkernel::D2MGlobalCBAcquireRewriter<d2m::GlobalCBReserveOp, ttkernel::RemoteCBReserveBackOp>,
+               ttkernel::D2MGlobalCBAcquireRewriter<d2m::GlobalCBWaitOp, ttkernel::RemoteCBWaitFrontOp>,
+               ttkernel::D2MGlobalCBPushRewriter,
+               ttkernel::D2MGlobalCBPopRewriter,
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
                ttkernel::D2MMeshPositionRewriter,

@@ -124,12 +124,13 @@ public:
         Type argType = arg.getType();
 
         if (!mlir::isa<MemRefType, d2m::LocalSemaphoreType,
-                       d2m::GlobalSemaphoreType, IndexType, IntegerType,
-                       FloatType>(argType)) {
+                       d2m::GlobalSemaphoreType, d2m::GlobalCBType, IndexType,
+                       IntegerType, FloatType>(argType)) {
           generic.emitOpError(
               "unsupported argument type in d2m.generic operands: ")
               << argType
-              << "; only memref, semaphore, and scalar types are supported";
+              << "; only memref, semaphore, global_cb, and scalar types are "
+                 "supported";
           signalPassFailure();
           return;
         }

@@ -3260,6 +3260,76 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front", [TTKernel_DeviceZoneOp
 }
 
 //===----------------------------------------------------------------------===//
+// TTKernel remote CB operations (inter-core Global Circular Buffer)
+//===----------------------------------------------------------------------===//
+
+def TTKernel_RemoteCBReserveBackOp
+    : TTKernel_Op<"experimental.remote_cb_reserve_back"> {
+    let summary = "Reserve pages on a remote circular buffer (sender).";
+    let description = [{
+      Maps to tt-metal experimental::remote_cb_reserve_back.
+      cb_id is the remote CB port (conventionally 31).
+    }];
+    let arguments = (ins I32:$cbId, I32:$numPages);
+    let assemblyFormat = [{
+      `(` $cbId `,` $numPages `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_RemoteCBWaitFrontOp
+    : TTKernel_Op<"experimental.remote_cb_wait_front"> {
+    let summary = "Wait for pages on a remote circular buffer (receiver).";
+    let description = [{
+      Maps to tt-metal experimental::remote_cb_wait_front.
+    }];
+    let arguments = (ins I32:$cbId, I32:$numPages);
+    let assemblyFormat = [{
+      `(` $cbId `,` $numPages `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_RemoteCBPopFrontOp
+    : TTKernel_Op<"experimental.remote_cb_pop_front"> {
+    let summary = "Release pages on a remote circular buffer (receiver).";
+    let description = [{
+      Maps to tt-metal experimental::remote_cb_pop_front.
+    }];
+    let arguments = (ins I32:$cbId, I32:$numPages);
+    let assemblyFormat = [{
+      `(` $cbId `,` $numPages `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_RemoteCBPushBackAndWritePagesOp
+    : TTKernel_Op<"experimental.remote_cb_push_back_and_write_pages"> {
+    let summary = "NOC-write pages and push a remote circular buffer (sender).";
+    let description = [{
+      Maps to tt-metal experimental::remote_cb_push_back_and_write_pages.
+      local_addr is the L1 source address of the payload.
+    }];
+    let arguments = (ins I32:$cbId, I32:$localAddr, I32:$numPages, I32:$numRows,
+                         I32:$coalescedPagesPerRow, I32:$pageSize);
+    let assemblyFormat = [{
+      `(` $cbId `,` $localAddr `,` $numPages `,` $numRows `,`
+          $coalescedPagesPerRow `,` $pageSize `)`
+      attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_UpdateRemoteCBConfigInL1Op
+    : TTKernel_Op<"experimental.update_remote_cb_config_in_l1"> {
+    let summary = "Persist remote CB read/write pointers to L1.";
+    let description = [{
+      Maps to tt-metal experimental::update_remote_cb_config_in_l1.
+      Must run at the end of a kernel that uses a remote CB.
+    }];
+    let arguments = (ins I32:$cbId);
+    let assemblyFormat = [{
+      `(` $cbId `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+//===----------------------------------------------------------------------===//
 // TTKernel Tile operations
 //===----------------------------------------------------------------------===//
 

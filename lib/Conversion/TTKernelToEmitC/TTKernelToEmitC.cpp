@@ -2931,6 +2931,15 @@ public:
     patterns.add<TTKernelToEmitCCBResultMethodRewriter<ttkernel::GetReadPtrOp>>(
         typeConverter, context, state, "get_read_ptr");
 
+    patterns.add<
+        TTKernelToEmitCOpaqueRewriter<ttkernel::RemoteCBReserveBackOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::RemoteCBWaitFrontOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::RemoteCBPopFrontOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::RemoteCBPushBackAndWritePagesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::UpdateRemoteCBConfigInL1Op>>(
+        typeConverter, context);
+
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::RemoteSramWriteU32Op>>(
         typeConverter, context, "noc_semaphore_set_remote");
 

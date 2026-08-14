@@ -261,6 +261,11 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"experimental::tilize_block",                     {"api/compute/tilize.h", ""}},
         {"experimental::untilize_block",                   {"api/compute/untilize.h", ""}},
         {"experimental::pack_untilize_block",              {"api/compute/pack_untilize.h", ""}},
+        {"experimental::remote_cb_reserve_back",           {"", "api/remote_circular_buffer.h"}},
+        {"experimental::remote_cb_wait_front",             {"", "api/remote_circular_buffer.h"}},
+        {"experimental::remote_cb_pop_front",              {"", "api/remote_circular_buffer.h"}},
+        {"experimental::remote_cb_push_back_and_write_pages", {"", "api/remote_circular_buffer.h"}},
+        {"experimental::update_remote_cb_config_in_l1",    {"", "api/remote_circular_buffer.h"}},
 
         // Numeric.
         {"bfloat16_greater",                               {"api/numeric/bfloat16.h", "api/numeric/bfloat16.h"}},
