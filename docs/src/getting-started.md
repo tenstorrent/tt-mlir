@@ -46,7 +46,7 @@ Full developer dependencies as packaged in our docker image:
 On MacOS we need to install the latest version of [cmake](https://cmake.org/), and [ninja](https://ninja-build.org/) which can be done using Homebrew with (Docs for installing Homebrew: https://brew.sh).
 
 ```bash
-brew install cmake ninja
+brew install cmake ninja googletest python@3.12
 ```
 
 ### Clone the tt-mlir Repo
