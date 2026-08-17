@@ -7,10 +7,14 @@
 
 namespace mlir::tt::ttnn {
 
-// All operands must be DRAM-interleaved, so the filter is operand-independent.
+// All operands must be tiled and DRAM-interleaved, so the filter is
+// operand-independent.
 LayoutFilterFn
 AdamWRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
-  return layout_filter_utils::requireDRAMInterleaved;
+  return [](TTNNLayoutAttr layout) {
+    return layout_filter_utils::requireTiled(layout) &&
+           layout_filter_utils::requireDRAMInterleaved(layout);
+  };
 }
 
 } // namespace mlir::tt::ttnn

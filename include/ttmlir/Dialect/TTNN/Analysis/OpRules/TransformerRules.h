@@ -47,14 +47,22 @@ struct SDPARuleBook : OpRuleBook {
 };
 
 /// TTML SDPA forward:
-/// Inherits NULL-only hints and no reshards; requires interleaved inputs.
+/// Inherits NULL-only hints and no reshards; requires tiled, interleaved
+/// inputs.
 struct TTMLSDPAForwardRuleBook : SDPARuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 };
 
 /// TTML SDPA backward:
-/// Inherits NULL-only hints and no reshards; all input layouts are allowed.
-struct TTMLSDPABackwardRuleBook : SDPARuleBook {};
+/// Tiled inputs, NULL-only hints, and no reshard exploration to bound the
+/// seven-operand search. Sharded inputs remain allowed.
+struct TTMLSDPABackwardRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
 
 /// ScaledDotProductAttentionDecodeOp / PagedScaledDotProductAttentionDecodeOp:
 /// Per-operand input layout filtering.

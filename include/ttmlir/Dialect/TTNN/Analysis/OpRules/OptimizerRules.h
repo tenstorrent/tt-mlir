@@ -22,7 +22,7 @@ namespace mlir::tt::ttnn {
 //   - Layout::TILE
 //===----------------------------------------------------------------------===//
 
-/// AdamW: every operand must be DRAM-interleaved (see above).
+/// AdamW: every operand must be tiled and DRAM-interleaved (see above).
 struct AdamWRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 };
