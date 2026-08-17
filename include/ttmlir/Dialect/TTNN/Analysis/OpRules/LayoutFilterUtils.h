@@ -50,6 +50,11 @@ inline bool requireRowMajor(TTNNLayoutAttr layout) {
   return layout.getLayout() == Layout::RowMajor;
 }
 
+/// Accept only TILE candidates.
+inline bool requireTiled(TTNNLayoutAttr layout) {
+  return layout.getLayout() == Layout::Tile;
+}
+
 /// Reject width-sharded layouts. Returns true if the layout should be kept.
 inline bool rejectWidthSharded(TTNNLayoutAttr layout) {
   auto ml = layout.getMemLayout();
