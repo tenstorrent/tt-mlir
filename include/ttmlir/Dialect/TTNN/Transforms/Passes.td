@@ -373,7 +373,11 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
             "Fuse unary activation ops into eltwise binary ops.">
     Option<"enableRingSDPAFusion",
             "enable-ring-sdpa",
-            "bool", /*default=*/"false",
+            // TEMPORARY (local experiment): flipped to true to exercise the ring
+            // path on silicon. Nothing plumbs this option from a pipeline
+            // option, so the default is the only way to reach the pattern.
+            // Revert to "false" before this leaves a scratch branch.
+            "bool", /*default=*/"true",
             "Rewrite an exposed sequence-parallel K/V all-gather feeding a "
             "plain SDPA into the ring variant, which overlaps the K/V "
             "transfer with the attention compute. Disabled by default: the "

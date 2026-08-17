@@ -261,6 +261,22 @@ void LegalTensorLayoutAnalysis::analysisImplementation() {
 }
 
 void LegalTensorLayoutAnalysis::processTensorType(RankedTensorType tensorType) {
+  // A degenerate tensor -- any extent zero -- has no layouts worth enumerating,
+  // and asking for them is not harmless: shard-grid fitting divides by an extent
+  // derived from the shape, so a zero reaches tt-metal's
+  // get_shape_fits_shard_grid_error as a zero divisor and raises SIGFPE.
+  //
+  // Such types are legitimate. Ops with optional outputs shape the unused ones
+  // to zero extent to say "absent" --
+  // exp_ring_joint_scaled_dot_product_attention gives its joint result the query
+  // shape with a zero sequence extent when no joint inputs are present,
+  // mirroring tt-metal's compute_output_specs. Being exempt from op-model
+  // validation does not keep an op's result types out of this analysis, which
+  // walks every tensor type in the module.
+  if (llvm::is_contained(tensorType.getShape(), 0)) {
+    return;
+  }
+
   // Generate all possible layouts for this tensor type
   std::vector<TTNNLayoutAttr> layouts = generateLayouts(tensorType);
 

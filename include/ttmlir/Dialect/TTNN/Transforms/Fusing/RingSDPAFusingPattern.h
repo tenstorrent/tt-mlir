@@ -42,6 +42,24 @@ private:
   // with `keyGather` on every CCL attribute. Null otherwise.
   static AllGatherOp matchPairedGather(Value v, AllGatherOp keyGather);
 
+  // Peels an optional head/sequence transpose off `v`, returning the value
+  // behind it.
+  //
+  // The collective does not always run in the layout SDPA consumes. diffusers
+  // builds Q/K/V as [B, S, H, D] (`unflatten(2, (heads, -1))`), gathers K/V on
+  // that S axis, and transposes to the [B, H, S, D] SDPA wants only immediately
+  // before the op -- so the all-gather sits behind a permute and states its
+  // `all_gather_dim` in the pre-transpose layout.
+  //
+  // Only the exact head/sequence swap {0, 2, 1, 3} is accepted, since that is
+  // the transpose which leaves the gather's sequence axis recoverable. Peeling
+  // it moves the match into the gather's layout; the rewrite re-applies the swap
+  // to the *local* K/V shards, which is strictly cheaper than transposing the
+  // gathered ones (one shard rather than the whole sequence).
+  //
+  // Sets `permute` to the peeled op (null when there is none).
+  static Value peelHeadSeqTranspose(Value v, PermuteOp &permute);
+
   // Peels an optional padding slice off `v`, returning the value behind it.
   //
   // Frontends that pad the sequence to `TILE_SIZE * SP` have to slice the

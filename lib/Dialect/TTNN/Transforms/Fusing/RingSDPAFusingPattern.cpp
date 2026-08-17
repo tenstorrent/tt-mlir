@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttnn::fusing {
 
@@ -18,6 +19,41 @@ static constexpr llvm::StringLiteral kJointStrategy = "rear";
 // which is the configuration the ring path has actually been exercised with.
 static constexpr uint32_t kNumWorkersPerLink = 5;
 static constexpr uint32_t kNumBuffersPerChannel = 32;
+
+// The ring kernel asserts on exactly two links
+// (exp_ring_joint_sdpa_device_operation.cpp:228), so this is a requirement
+// rather than a tuning choice.
+static constexpr uint32_t kNumLinks = 2;
+
+// The head/sequence swap on a rank-4 tensor: [B, S, H, D] <-> [B, H, S, D].
+// Self-inverse, so the same array serves for peeling and for re-applying.
+static constexpr int64_t kHeadSeqSwap[] = {0, 2, 1, 3};
+
+static Value createHeadSeqTranspose(mlir::PatternRewriter &rewriter,
+                                    Location loc, Value input) {
+  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  llvm::SmallVector<int64_t> outputShape = ttmlir::utils::applyPermutation(
+      inputType.getShape(), llvm::ArrayRef<int64_t>(kHeadSeqSwap));
+  RankedTensorType outputType =
+      utils::RankedTensorTypeFactory::create(inputType, outputShape);
+  return rewriter.create<PermuteOp>(
+      loc, outputType, input,
+      rewriter.getDenseI64ArrayAttr(llvm::ArrayRef<int64_t>(kHeadSeqSwap)),
+      /*pad_value=*/mlir::FloatAttr());
+}
+
+Value RingSDPAFusing::peelHeadSeqTranspose(Value v, PermuteOp &permute) {
+  permute = nullptr;
+  auto candidate = v.getDefiningOp<PermuteOp>();
+  if (!candidate || !candidate->hasOneUse()) {
+    return v;
+  }
+  if (candidate.getPermutation() != llvm::ArrayRef<int64_t>(kHeadSeqSwap)) {
+    return v;
+  }
+  permute = candidate;
+  return candidate.getInput();
+}
 
 AllGatherOp RingSDPAFusing::matchPairedGather(Value v, AllGatherOp keyGather) {
   auto gather = v.getDefiningOp<AllGatherOp>();
@@ -81,9 +117,14 @@ bool RingSDPAFusing::slicesAgree(SliceStaticOp a, SliceStaticOp b) {
          a.getStep() == b.getStep();
 }
 
-// Largest tile-aligned power of two in [32, 512] that divides `extent`.
+// Largest tile-aligned power of two in [32, 2048] that divides `extent`.
+//
+// The upper bound matters: the kernel also requires the Q chunks of one head to
+// fit across the grid columns (`num_q_chunks <= sdpa_grid_x`, ~8), so a cap that
+// is too low turns a long per-device sequence into too many chunks. At 512 a
+// local sequence of 8192 yields 16 chunks and is rejected; 2048 yields 4.
 static uint64_t chooseChunkSize(int64_t extent) {
-  for (uint64_t chunk = 512; chunk > 32; chunk /= 2) {
+  for (uint64_t chunk = 2048; chunk > 32; chunk /= 2) {
     if (extent % static_cast<int64_t>(chunk) == 0) {
       return chunk;
     }
@@ -135,12 +176,31 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
   }
   const int64_t seqDim = rank - 2;
 
+  // Peel a head/sequence transpose, if the collective ran in [B, S, H, D] and
+  // was only swapped into SDPA's [B, H, S, D] at the last moment. Everything
+  // below the peel is stated in the gather's layout, so the sequence and head
+  // axes move with it.
+  PermuteOp keyTranspose;
+  PermuteOp valueTranspose;
+  Value transposedKey = peelHeadSeqTranspose(srcOp.getKey(), keyTranspose);
+  Value transposedValue = peelHeadSeqTranspose(srcOp.getValue(), valueTranspose);
+  if (static_cast<bool>(keyTranspose) != static_cast<bool>(valueTranspose)) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "only one of key/value carries a head/sequence transpose");
+  }
+  // kHeadSeqSwap exchanges dims 1 and 2, so under the peel the sequence axis is
+  // at seqDim - 1 and the head axis at seqDim.
+  const int64_t gatherSeqDim = keyTranspose ? seqDim - 1 : seqDim;
+  const int64_t gatherHeadDim = keyTranspose ? seqDim : seqDim - 1;
+
   // Peel the frontend's padding trim, if present, so the all-gather underneath
   // it is still matchable. Its length becomes logical_n further down.
   SliceStaticOp keySlice;
   SliceStaticOp valueSlice;
-  Value gatheredKey = peelPaddingSlice(srcOp.getKey(), seqDim, keySlice);
-  Value gatheredValue = peelPaddingSlice(srcOp.getValue(), seqDim, valueSlice);
+  Value gatheredKey =
+      peelPaddingSlice(transposedKey, gatherSeqDim, keySlice);
+  Value gatheredValue =
+      peelPaddingSlice(transposedValue, gatherSeqDim, valueSlice);
   if (static_cast<bool>(keySlice) != static_cast<bool>(valueSlice)) {
     return rewriter.notifyMatchFailure(
         srcOp, "only one of key/value carries a padding slice");
@@ -168,7 +228,7 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
   // The gather must be on the sequence axis: that is what makes this a
   // sequence-parallel attention rather than some other collective that happens
   // to feed K/V.
-  if (keyGather.getAllGatherDim() != seqDim) {
+  if (keyGather.getAllGatherDim() != gatherSeqDim) {
     return rewriter.notifyMatchFailure(
         srcOp, "all_gather is not on the sequence axis");
   }
@@ -190,9 +250,9 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
   // that is already full length means the sequence is not SP-sharded here.
   Value key = keyGather.getInput();
   RankedTensorType shardedKeyType = mlir::cast<RankedTensorType>(key.getType());
-  const int64_t localSeqLen = shardedKeyType.getShape()[seqDim];
+  const int64_t localSeqLen = shardedKeyType.getShape()[gatherSeqDim];
   const int64_t gatheredSeqLen =
-      keyGather.getResult().getType().getShape()[seqDim];
+      keyGather.getResult().getType().getShape()[gatherSeqDim];
   if (queryType.getShape()[seqDim] != localSeqLen) {
     return rewriter.notifyMatchFailure(
         srcOp, "query sequence length does not match the pre-gather K/V");
@@ -201,7 +261,7 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
   // Remaining tt-metal validate() requirements that plain SDPA does not share.
   // TT_FATAL(NQH == NKH): no GQA on the ring path.
   if (queryType.getShape()[seqDim - 1] !=
-      shardedKeyType.getShape()[seqDim - 1]) {
+      shardedKeyType.getShape()[gatherHeadDim]) {
     return rewriter.notifyMatchFailure(
         srcOp, "ring SDPA requires equal query and key/value head counts");
   }
@@ -226,10 +286,10 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
   // to fit inside one shard, so a trim that would leave some device holding
   // only padding is rejected rather than silently widened.
   const int64_t logicalN =
-      keySlice
-          ? mlir::cast<mlir::IntegerAttr>(keySlice.getEnds().getValue()[seqDim])
-                .getInt()
-          : gatheredSeqLen;
+      keySlice ? mlir::cast<mlir::IntegerAttr>(
+                     keySlice.getEnds().getValue()[gatherSeqDim])
+                     .getInt()
+               : gatheredSeqLen;
   if (gatheredSeqLen - logicalN >= localSeqLen) {
     return rewriter.notifyMatchFailure(
         srcOp, "padding slice would leave a device with only padded tokens");
@@ -237,6 +297,16 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
 
   SDPAProgramConfigAttr programConfig =
       buildProgramConfig(srcOp, localSeqLen, gatheredSeqLen);
+
+  // The op takes K/V in the query's layout. When the transpose was peeled the
+  // shards are still in the gather's layout, so re-apply the swap here -- on one
+  // shard rather than on the gathered sequence, which is what the peel bought.
+  Value ringKey = key;
+  Value ringValue = valueGather.getInput();
+  if (keyTranspose) {
+    ringKey = createHeadSeqTranspose(rewriter, srcOp.getLoc(), ringKey);
+    ringValue = createHeadSeqTranspose(rewriter, srcOp.getLoc(), ringValue);
+  }
 
   // Result shapes follow tt-metal's
   // ExpRingJointSDPADeviceOperation::compute_output_specs exactly.
@@ -259,7 +329,7 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
   auto ringOp = rewriter.create<ExpRingJointScaledDotProductAttentionOp>(
       srcOp.getLoc(),
       /*result=*/srcOp.getResult().getType(), jointResultType, statsType,
-      /*query=*/srcOp.getQuery(), key, /*value=*/valueGather.getInput(),
+      /*query=*/srcOp.getQuery(), ringKey, /*value=*/ringValue,
       /*joint_query=*/Value(), /*joint_key=*/Value(), /*joint_value=*/Value(),
       /*persistent_output_buffer_k=*/Value(),
       /*persistent_output_buffer_v=*/Value(),
@@ -268,8 +338,17 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
       /*logical_n=*/rewriter.getI64IntegerAttr(logicalN),
       /*dim=*/rewriter.getSI32IntegerAttr(seqDim),
       /*cluster_axis=*/rewriter.getUI32IntegerAttr(clusterAxis), programConfig,
-      /*num_links=*/keyGather.getNumLinksAttr(),
-      /*topology=*/keyGather.getTopologyAttr(),
+      // Neither can be lifted off the all-gather: both are optional there and
+      // the K/V gathers routinely carry neither, and in any case the ring kernel
+      // asserts on exact values rather than accepting whatever the gather used
+      // (exp_ring_joint_sdpa_device_operation.cpp:228-229 --
+      // `args.num_links == 2` and `args.topology == Ring`). So pin both. The
+      // mesh must be opened with a ring fabric on this cluster_axis, or the
+      // topology assert is satisfied while the hardware is not a ring and the
+      // kernel faults reading its run mailbox.
+      /*num_links=*/rewriter.getUI32IntegerAttr(kNumLinks),
+      /*topology=*/
+      ttcore::TopologyAttr::get(rewriter.getContext(), ttcore::Topology::Ring),
       /*sub_device_id=*/keyGather.getSubDeviceIdAttr(),
       /*scale=*/srcOp.getScaleAttr(),
       /*num_workers_per_link=*/rewriter.getUI32IntegerAttr(kNumWorkersPerLink),
