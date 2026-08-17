@@ -1633,6 +1633,8 @@ createOp(FlatbufferObjectCache &cache, AdamWOp op) {
       getOperandThroughDPSOps(op.getExpAvg()));
   auto expAvgSq = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getExpAvgSq()));
+  auto lr =
+      cache.at<::tt::target::ttnn::TensorRef>(getOperandThroughDPSOps(op.getLr()));
   auto beta1Pow = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getBeta1Pow()));
   auto beta2Pow = cache.at<::tt::target::ttnn::TensorRef>(
@@ -1645,14 +1647,13 @@ createOp(FlatbufferObjectCache &cache, AdamWOp op) {
         getOperandThroughDPSOps(op.getMaxExpAvgSq()));
   }
 
-  // `beta1_pow` / `beta2_pow` are the last two fields of the table, appended
+  // `beta1_pow` / `beta2_pow` / `lr` are the last fields of the table, appended
   // rather than inserted so the preceding field ids stay put.
   return ::tt::target::ttnn::CreateAdamWOp(
       *cache.fbb, param, grad, expAvg, expAvgSq, maxExpAvgSq,
-      op.getLr().convertToFloat(), op.getBeta1().convertToFloat(),
-      op.getBeta2().convertToFloat(), op.getEpsilon().convertToFloat(),
-      op.getWeightDecay().convertToFloat(), op.getStochasticRounding(),
-      beta1Pow, beta2Pow);
+      op.getBeta1().convertToFloat(), op.getBeta2().convertToFloat(),
+      op.getEpsilon().convertToFloat(), op.getWeightDecay().convertToFloat(),
+      op.getStochasticRounding(), beta1Pow, beta2Pow, lr);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::SDPAForwardOp>

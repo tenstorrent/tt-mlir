@@ -200,20 +200,29 @@ def test_sdpa_fw(shape: Shape, target: str, request, device):
 ADAMW_BETA1 = 0.9
 ADAMW_BETA2 = 0.999
 ADAMW_STEP = 10
+ADAMW_LR = 1e-3
 
 
 def adamw_state_goldens(
-    builder: TTIRBuilder, exp_avg_sq: Operand, beta1_pow: Operand, beta2_pow: Operand
+    builder: TTIRBuilder,
+    exp_avg_sq: Operand,
+    lr: Operand,
+    beta1_pow: Operand,
+    beta2_pow: Operand,
 ):
     """Optimizer state that random inputs cannot stand in for.
 
     `exp_avg_sq` is a second moment, so it is non-negative, and `beta1_pow` /
     `beta2_pow` hold beta^step for the current step. The bias correction divides
     by `1 - beta^step`, which a random normal would drive to zero or negative.
+    `lr` is a learning rate, so a random normal is meaningless for it too.
     """
     return {
         exp_avg_sq: builder._get_golden_tensor(exp_avg_sq).apply_shardwise(
             lambda s: s.abs()
+        ),
+        lr: builder._get_golden_tensor(lr).apply_shardwise(
+            lambda s: torch.full_like(s, ADAMW_LR)
         ),
         beta1_pow: builder._get_golden_tensor(beta1_pow).apply_shardwise(
             lambda s: torch.full_like(s, ADAMW_BETA1**ADAMW_STEP)
@@ -231,10 +240,11 @@ def test_adamw(shape: Shape, target: str, request, device):
         # beta1_pow / beta2_pow are single-element tensor inputs, so a training
         # step's bias correction never changes the graph.
         @builder.func(
-            [shape, shape, shape, shape, (1,), (1,)],
+            [shape, shape, shape, shape, (1,), (1,), (1,)],
             [
                 torch.float32,
                 torch.bfloat16,
+                torch.float32,
                 torch.float32,
                 torch.float32,
                 torch.float32,
@@ -246,22 +256,23 @@ def test_adamw(shape: Shape, target: str, request, device):
             grad: Operand,
             exp_avg: Operand,
             exp_avg_sq: Operand,
+            lr: Operand,
             beta1_pow: Operand,
             beta2_pow: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
             builder.set_goldens_from_builder_tensor(
-                adamw_state_goldens(builder, exp_avg_sq, beta1_pow, beta2_pow), {}
+                adamw_state_goldens(builder, exp_avg_sq, lr, beta1_pow, beta2_pow), {}
             )
             return builder.adamw(
                 param,
                 grad,
                 exp_avg,
                 exp_avg_sq,
+                lr,
                 beta1_pow,
                 beta2_pow,
-                lr=1e-3,
                 beta1=ADAMW_BETA1,
                 beta2=ADAMW_BETA2,
                 epsilon=1e-8,
@@ -281,10 +292,11 @@ def test_adamw(shape: Shape, target: str, request, device):
 def test_adamw_fused_forward(shape: Shape, target: str, request, device):
     def module(builder: TTIRBuilder):
         @builder.func(
-            [shape, shape, shape, shape, (1,), (1,)],
+            [shape, shape, shape, shape, (1,), (1,), (1,)],
             [
                 torch.float32,
                 torch.bfloat16,
+                torch.float32,
                 torch.float32,
                 torch.float32,
                 torch.float32,
@@ -296,13 +308,14 @@ def test_adamw_fused_forward(shape: Shape, target: str, request, device):
             grad: Operand,
             exp_avg: Operand,
             exp_avg_sq: Operand,
+            lr: Operand,
             beta1_pow: Operand,
             beta2_pow: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
             builder.set_goldens_from_builder_tensor(
-                adamw_state_goldens(builder, exp_avg_sq, beta1_pow, beta2_pow), {}
+                adamw_state_goldens(builder, exp_avg_sq, lr, beta1_pow, beta2_pow), {}
             )
             act = builder.abs(param)
             param_out, _, _ = builder.adamw(
@@ -310,6 +323,7 @@ def test_adamw_fused_forward(shape: Shape, target: str, request, device):
                 grad,
                 exp_avg,
                 exp_avg_sq,
+                lr,
                 beta1_pow,
                 beta2_pow,
                 lr=1.0,

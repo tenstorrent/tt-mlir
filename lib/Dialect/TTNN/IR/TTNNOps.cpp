@@ -3768,6 +3768,10 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 
   // Mirrors the ttir.adamw check: the runtime reads these two back as floats.
   auto emitError = [&]() { return emitOpError(); };
+  if (failed(ttmlir::utils::verifyHostReadableScalar(getLr().getType(), "lr",
+                                                     emitError))) {
+    return failure();
+  }
   if (failed(ttmlir::utils::verifyHostReadableScalar(getBeta1Pow().getType(),
                                                      "beta1_pow", emitError))) {
     return failure();

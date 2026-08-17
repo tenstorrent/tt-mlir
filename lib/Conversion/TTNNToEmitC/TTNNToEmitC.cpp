@@ -3585,11 +3585,12 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AdamWOp> emitter(
         srcOp, adaptor, rewriter);
 
-    // `beta1_pow` / `beta2_pow` are single-element tensors in the IR, so that
-    // the graph stays the same for every optimizer step, but
-    // `ttml::metal::adamw` takes them as floats. Read the two scalars back
+    // `lr` / `beta1_pow` / `beta2_pow` are single-element tensors in the IR, so
+    // that the graph stays the same for every optimizer step, but
+    // `ttml::metal::adamw` takes them as floats. Read the three scalars back
     // before the call and pass the results by value, reusing an earlier
     // readback of the same tensor when there is one.
+    mlir::Value lr = emitScalarReadback(adaptor.getLr(), srcOp, rewriter);
     mlir::Value beta1Pow =
         emitScalarReadback(adaptor.getBeta1Pow(), srcOp, rewriter);
     mlir::Value beta2Pow =
@@ -3597,14 +3598,17 @@ public:
 
     // The emitter identifies a tensor argument by the position of the operand
     // it comes from, so operands must be emitted in the op's own operand order:
-    // param, grad, exp_avg, exp_avg_sq, beta1_pow, beta2_pow, max_exp_avg_sq.
-    // The two readback results are not operands of `srcOp`, so they take the
+    // param, grad, exp_avg, exp_avg_sq, lr, beta1_pow, beta2_pow,
+    // max_exp_avg_sq.
+    // The three readback results are not operands of `srcOp`, so they take the
     // positions of the tensors they replace explicitly. Reordering to match
     // ttml's signature happens in `args` below, not here.
     mlir::Attribute param = emitter.emit(srcOp.getParam());
     mlir::Attribute grad = emitter.emit(srcOp.getGrad());
     mlir::Attribute expAvg = emitter.emit(srcOp.getExpAvg());
     mlir::Attribute expAvgSq = emitter.emit(srcOp.getExpAvgSq());
+    mlir::Attribute lrArg =
+        emitter.emit(lr, srcOp.getLrMutable().getOperandNumber());
     mlir::Attribute beta1PowArg =
         emitter.emit(beta1Pow, srcOp.getBeta1PowMutable().getOperandNumber());
     mlir::Attribute beta2PowArg =
@@ -3621,7 +3625,7 @@ public:
         expAvg,
         expAvgSq,
         maxExpAvgSq,
-        emitFloatLiteral(srcOp.getLr(), rewriter),
+        lrArg,
         emitFloatLiteral(srcOp.getBeta1(), rewriter),
         emitFloatLiteral(srcOp.getBeta2(), rewriter),
         beta1PowArg,

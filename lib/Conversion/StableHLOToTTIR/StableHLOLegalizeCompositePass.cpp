@@ -1958,14 +1958,14 @@ public:
       return failure();
     }
     size_t numOperands = adaptor.getOperands().size();
-    if (numOperands != 6 && numOperands != 7) {
+    if (numOperands != 7 && numOperands != 8) {
       return rewriter.notifyMatchFailure(
-          srcOp, "tenstorrent.adamw must have 6 or 7 operands (param, grad, "
-                 "exp_avg, exp_avg_sq, beta1_pow, beta2_pow, "
+          srcOp, "tenstorrent.adamw must have 7 or 8 operands (param, grad, "
+                 "exp_avg, exp_avg_sq, lr, beta1_pow, beta2_pow, "
                  "[max_exp_avg_sq]).");
     }
 
-    if (srcOp.getNumResults() != numOperands - 3) {
+    if (srcOp.getNumResults() != numOperands - 4) {
       return rewriter.notifyMatchFailure(
           srcOp, "tenstorrent.adamw must have one result per updated operand "
                  "(param, exp_avg, exp_avg_sq, [max_exp_avg_sq]).");
@@ -1979,8 +1979,8 @@ public:
 
     // Copy the required F32 hyperparameters through, normalizing to F32 so the
     // ttir.adamw verifier accepts them regardless of the source float width.
-    static constexpr StringRef kFloatAttrs[] = {"lr", "beta1", "beta2",
-                                                "epsilon", "weight_decay"};
+    static constexpr StringRef kFloatAttrs[] = {"beta1", "beta2", "epsilon",
+                                                "weight_decay"};
 
     SmallVector<NamedAttribute> namedAttrs;
     for (StringRef name : kFloatAttrs) {
@@ -2003,14 +2003,15 @@ public:
     namedAttrs.push_back(rewriter.getNamedAttr(
         "stochastic_rounding", rewriter.getBoolAttr(stochasticRounding)));
 
-    // beta1_pow / beta2_pow are operands rather than attributes, but they get
-    // the same F32 normalization the hyperparameters above get: a frontend
+    // lr / beta1_pow / beta2_pow are operands rather than attributes, but they
+    // get the same F32 normalization the hyperparameters above get: a frontend
     // tracing a bf16 model hands them over in the model's own float width, and
     // the ttir.adamw verifier only accepts f32.
-    constexpr size_t kBeta1PowIndex = 4;
-    constexpr size_t kBeta2PowIndex = 5;
+    constexpr size_t kLrIndex = 4;
+    constexpr size_t kBeta1PowIndex = 5;
+    constexpr size_t kBeta2PowIndex = 6;
     SmallVector<Value> operands(adaptor.getOperands());
-    for (size_t index : {kBeta1PowIndex, kBeta2PowIndex}) {
+    for (size_t index : {kLrIndex, kBeta1PowIndex, kBeta2PowIndex}) {
       auto operandType =
           mlir::cast<RankedTensorType>(operands[index].getType());
       if (operandType.getElementType().isF32()) {
@@ -2018,7 +2019,7 @@ public:
       }
       if (!mlir::isa<FloatType>(operandType.getElementType())) {
         return rewriter.notifyMatchFailure(
-            srcOp, "tenstorrent.adamw bias-correction operands must be float");
+            srcOp, "tenstorrent.adamw scalar operands must be float");
       }
       operands[index] = rewriter.create<ttir::TypecastOp>(
           srcOp.getLoc(),

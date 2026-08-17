@@ -9,17 +9,20 @@ table AdamWOp {
   exp_avg: tt.target.ttnn.TensorRef;
   exp_avg_sq: tt.target.ttnn.TensorRef;
   max_exp_avg_sq: tt.target.ttnn.TensorRef;
-  lr: float;
   beta1: float;
   beta2: float;
   epsilon: float;
   weight_decay: float;
   stochastic_rounding: bool = false;
-  // Appended, not inserted: a table field's id comes from its position, so
-  // adding these in the middle would shift every field after them and make
-  // previously serialized binaries decode into the wrong slots.
+  // The tensor forms of lr / beta1_pow / beta2_pow replace the float fields
+  // that used to sit above, and are appended rather than put back in place: a
+  // table field's id comes from its position, so this keeps the surrounding
+  // fields where they are. Dropping the three floats does renumber the fields
+  // that followed them, which is fine only because nothing reads a binary
+  // serialized before this change.
   beta1_pow: tt.target.ttnn.TensorRef;
   beta2_pow: tt.target.ttnn.TensorRef;
+  lr: tt.target.ttnn.TensorRef;
 }
 
 table SDPAForwardOp {

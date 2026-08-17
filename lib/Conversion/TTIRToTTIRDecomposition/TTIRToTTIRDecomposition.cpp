@@ -1070,8 +1070,8 @@ public:
         reshapeToRank4IfNeeded(rewriter, loc, adaptor.getGrad()),
         reshapeToRank4IfNeeded(rewriter, loc, adaptor.getExpAvg()),
         reshapeToRank4IfNeeded(rewriter, loc, adaptor.getExpAvgSq()),
-        adaptor.getBeta1Pow(), adaptor.getBeta2Pow(), maxExpAvgSq4D,
-        adaptor.getLr(), adaptor.getBeta1(), adaptor.getBeta2(),
+        adaptor.getLr(), adaptor.getBeta1Pow(), adaptor.getBeta2Pow(),
+        maxExpAvgSq4D, adaptor.getBeta1(), adaptor.getBeta2(),
         adaptor.getEpsilon(), adaptor.getWeightDecay(),
         adaptor.getStochasticRounding());
 

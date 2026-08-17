@@ -7259,9 +7259,13 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
   llvm::ArrayRef<int64_t> shape = getParam().getType().getShape();
   auto sameShape = [&](RankedTensorType t) { return t.getShape() == shape; };
 
-  // The bias-correction terms are read back to host as plain floats, so they
-  // must hold exactly one f32 element.
+  // lr and the bias-correction terms are read back to host as plain floats,
+  // so each must hold exactly one f32 element.
   auto emitError = [&]() { return emitOpError(); };
+  if (failed(ttmlir::utils::verifyHostReadableScalar(getLr().getType(), "lr",
+                                                     emitError))) {
+    return failure();
+  }
   if (failed(ttmlir::utils::verifyHostReadableScalar(getBeta1Pow().getType(),
                                                      "beta1_pow", emitError))) {
     return failure();

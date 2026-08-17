@@ -1233,8 +1233,8 @@ public:
 
     rewriter.create<ttnn::AdamWOp>(
         op.getLoc(), adaptor.getParam(), adaptor.getGrad(), adaptor.getExpAvg(),
-        adaptor.getExpAvgSq(), adaptor.getBeta1Pow(), adaptor.getBeta2Pow(),
-        adaptor.getMaxExpAvgSq(), adaptor.getLr(), adaptor.getBeta1(),
+        adaptor.getExpAvgSq(), adaptor.getLr(), adaptor.getBeta1Pow(),
+        adaptor.getBeta2Pow(), adaptor.getMaxExpAvgSq(), adaptor.getBeta1(),
         adaptor.getBeta2(), adaptor.getEpsilon(), adaptor.getWeightDecay(),
         adaptor.getStochasticRounding());
 

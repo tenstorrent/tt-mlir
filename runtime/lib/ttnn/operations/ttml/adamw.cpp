@@ -11,9 +11,9 @@ namespace tt::runtime::ttnn::operations::ttml {
 
 namespace {
 // Reads a single-element tensor back to host. This is a device-to-host sync,
-// and it happens twice per adamw op, i.e. twice per parameter per step, not
-// twice per step: a training graph holds one adamw op per parameter and they
-// all read the same two tensors.
+// and it happens three times per adamw op, i.e. three times per parameter per
+// step, not three times per step: a training graph holds one adamw op per
+// parameter and they all read the same three tensors.
 //
 // TODO(agobeljic): Remove this once ttml::AdamW accepts beta_pow as tensor.
 float scalarValueOf(const ::ttnn::Tensor &tensor, const char *name) {
@@ -39,6 +39,8 @@ void run(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context) {
   const ::ttnn::Tensor &expAvgSq =
       tensorPool.getTTNNTensorAndValidate(op->exp_avg_sq());
 
+  const float lr =
+      scalarValueOf(tensorPool.getTTNNTensorAndValidate(op->lr()), "lr");
   const float beta1Pow = scalarValueOf(
       tensorPool.getTTNNTensorAndValidate(op->beta1_pow()), "beta1_pow");
   const float beta2Pow = scalarValueOf(
@@ -55,7 +57,7 @@ void run(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context) {
                                 : ::ttml::metal::StochasticRounding::Disabled;
 
   // param, exp_avg, exp_avg_sq (and max_exp_avg_sq) are all updated in place.
-  ::ttml::metal::adamw(param, grad, expAvg, expAvgSq, maxExpAvgSq, op->lr(),
+  ::ttml::metal::adamw(param, grad, expAvg, expAvgSq, maxExpAvgSq, lr,
                        op->beta1(), op->beta2(), beta1Pow, beta2Pow,
                        op->epsilon(), op->weight_decay(), stochasticRounding);
 }

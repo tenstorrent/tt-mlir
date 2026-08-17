@@ -2358,15 +2358,22 @@ def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
     - `grad` (Tensor): gradient of the parameter.
     - `exp_avg` (Tensor): first moment estimate.
     - `exp_avg_sq` (Tensor): second moment estimate.
+    - `lr` (Tensor): learning rate.
     - `beta1_pow`, `beta2_pow` (Tensor): beta1^t and beta2^t bias-correction
-      terms. Each must be a single-element f32 tensor of rank 1 or higher: they
-      are read back to the host as plain floats, and rank 0 does not survive the
-      TTNN layout path.
+      terms.
+
+      `lr` and the two bias-correction terms are operands rather than attributes
+      because all three change from step to step -- `lr` under any schedule, the
+      bias correction always -- and an attribute would put that value in the IR,
+      giving a different graph, and so a recompile, on every step.
+
+      Each must be a single-element f32 tensor of rank 1 or higher: they are read
+      back to the host as plain floats, and rank 0 does not survive the TTNN
+      layout path.
     - `max_exp_avg_sq` (Optional Tensor): max second moment for AMSGrad. Its
       presence implies amsgrad, and requires the matching result.
 
     Attributes:
-    - `lr`: learning rate.
     - `beta1`, `beta2`: exponential decay rates for the moment estimates.
     - `epsilon`: numerical-stability constant.
     - `weight_decay`: decoupled weight-decay coefficient.
@@ -2380,10 +2387,10 @@ def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
                        AnyRankedTensor:$grad,
                        AnyRankedTensor:$exp_avg,
                        AnyRankedTensor:$exp_avg_sq,
+                       AnyRankedTensor:$lr,
                        AnyRankedTensor:$beta1_pow,
                        AnyRankedTensor:$beta2_pow,
                        Optional<AnyRankedTensor>:$max_exp_avg_sq,
-                       F32Attr:$lr,
                        F32Attr:$beta1,
                        F32Attr:$beta2,
                        F32Attr:$epsilon,

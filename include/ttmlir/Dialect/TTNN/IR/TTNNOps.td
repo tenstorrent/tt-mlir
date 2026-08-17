@@ -2703,10 +2703,10 @@ def TTNN_AdamWOp : TTNN_InplaceOp<"adamw", [OpModelExempt]> {
                          AnyRankedTensor:$grad,
                          Arg<AnyRankedTensor, "first moment estimate", [MemWrite]>:$exp_avg,
                          Arg<AnyRankedTensor, "second moment estimate", [MemWrite]>:$exp_avg_sq,
+                         AnyRankedTensor:$lr,
                          AnyRankedTensor:$beta1_pow,
                          AnyRankedTensor:$beta2_pow,
                          Arg<Optional<AnyRankedTensor>, "max second moment estimate (amsgrad)", [MemWrite]>:$max_exp_avg_sq,
-                         F32Attr:$lr,
                          F32Attr:$beta1,
                          F32Attr:$beta2,
                          F32Attr:$epsilon,
@@ -2715,15 +2715,14 @@ def TTNN_AdamWOp : TTNN_InplaceOp<"adamw", [OpModelExempt]> {
 
     let builders = [
       OpBuilder<(ins "Value":$param, "Value":$grad,
-                     "Value":$exp_avg, "Value":$exp_avg_sq,
+                     "Value":$exp_avg, "Value":$exp_avg_sq, "Value":$lr,
                      "Value":$beta1_pow, "Value":$beta2_pow,
-                     "llvm::APFloat":$lr, "llvm::APFloat":$beta1,
-                     "llvm::APFloat":$beta2, "llvm::APFloat":$epsilon,
-                     "llvm::APFloat":$weight_decay),
+                     "llvm::APFloat":$beta1, "llvm::APFloat":$beta2,
+                     "llvm::APFloat":$epsilon, "llvm::APFloat":$weight_decay),
       [{
-        build($_builder, $_state, param, grad, exp_avg, exp_avg_sq, beta1_pow,
-              beta2_pow, /*max_exp_avg_sq=*/nullptr, lr, beta1, beta2, epsilon,
-              weight_decay, /*stochastic_rounding=*/false);
+        build($_builder, $_state, param, grad, exp_avg, exp_avg_sq, lr,
+              beta1_pow, beta2_pow, /*max_exp_avg_sq=*/nullptr, beta1, beta2,
+              epsilon, weight_decay, /*stochastic_rounding=*/false);
       }]>
     ];
 

@@ -26,14 +26,13 @@ module {
                       %grad: tensor<64x64xf32, #param_layout>,
                       %exp_avg: tensor<64x64xf32, #param_layout>,
                       %exp_avg_sq: tensor<64x64xf32, #param_layout>,
-                      %beta1_pow: tensor<1xf32, #scalar_layout>,
+                      %lr: tensor<1xf32, #scalar_layout>, %beta1_pow: tensor<1xf32, #scalar_layout>,
                       %beta2_pow: tensor<1xf32, #scalar_layout>) {
-    "ttnn.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %beta1_pow, %beta2_pow) <{
-        lr = 1.000000e-03 : f32, beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
+    "ttnn.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow) <{ beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
         epsilon = 1.000000e-08 : f32, weight_decay = 1.000000e-02 : f32}>
         : (tensor<64x64xf32, #param_layout>, tensor<64x64xf32, #param_layout>,
            tensor<64x64xf32, #param_layout>, tensor<64x64xf32, #param_layout>,
-           tensor<1xf32, #scalar_layout>, tensor<1xf32, #scalar_layout>) -> ()
+           tensor<1xf32, #scalar_layout>, tensor<1xf32, #scalar_layout>, tensor<1xf32, #scalar_layout>) -> ()
     return
   }
 }
@@ -55,15 +54,14 @@ module {
                                   %grad: tensor<64x64xf32, #param_layout>,
                                   %exp_avg: tensor<64x64xf32, #param_layout>,
                                   %exp_avg_sq: tensor<64x64xf32, #param_layout>,
-                                  %beta1_pow: tensor<4xf32, #scalar_layout_4>,
+                                  %lr: tensor<1xf32, #scalar_layout>, %beta1_pow: tensor<4xf32, #scalar_layout_4>,
                                   %beta2_pow: tensor<1xf32, #scalar_layout>) {
     // expected-error @+1 {{beta1_pow must have exactly one element, got 4}}
-    "ttnn.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %beta1_pow, %beta2_pow) <{
-        lr = 1.000000e-03 : f32, beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
+    "ttnn.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow) <{ beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
         epsilon = 1.000000e-08 : f32, weight_decay = 1.000000e-02 : f32}>
         : (tensor<64x64xf32, #param_layout>, tensor<64x64xf32, #param_layout>,
            tensor<64x64xf32, #param_layout>, tensor<64x64xf32, #param_layout>,
-           tensor<4xf32, #scalar_layout_4>, tensor<1xf32, #scalar_layout>) -> ()
+           tensor<1xf32, #scalar_layout>, tensor<4xf32, #scalar_layout_4>, tensor<1xf32, #scalar_layout>) -> ()
     return
   }
 }
@@ -85,15 +83,14 @@ module {
                                    %grad: tensor<64x64xf32, #param_layout>,
                                    %exp_avg: tensor<64x64xf32, #param_layout>,
                                    %exp_avg_sq: tensor<64x64xf32, #param_layout>,
-                                   %beta1_pow: tensor<1xf32, #scalar_layout>,
+                                   %lr: tensor<1xf32, #scalar_layout>, %beta1_pow: tensor<1xf32, #scalar_layout>,
                                    %beta2_pow: tensor<1xbf16, #scalar_layout_bf16>) {
     // expected-error @+1 {{beta2_pow must be f32, got 'bf16'}}
-    "ttnn.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %beta1_pow, %beta2_pow) <{
-        lr = 1.000000e-03 : f32, beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
+    "ttnn.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow) <{ beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
         epsilon = 1.000000e-08 : f32, weight_decay = 1.000000e-02 : f32}>
         : (tensor<64x64xf32, #param_layout>, tensor<64x64xf32, #param_layout>,
            tensor<64x64xf32, #param_layout>, tensor<64x64xf32, #param_layout>,
-           tensor<1xf32, #scalar_layout>, tensor<1xbf16, #scalar_layout_bf16>) -> ()
+           tensor<1xf32, #scalar_layout>, tensor<1xf32, #scalar_layout>, tensor<1xbf16, #scalar_layout_bf16>) -> ()
     return
   }
 }
@@ -115,15 +112,14 @@ module {
                              %grad: tensor<64x64xf32, #param_layout>,
                              %exp_avg: tensor<64x64xf32, #param_layout>,
                              %exp_avg_sq: tensor<64x64xf32, #param_layout>,
-                             %beta1_pow: tensor<f32, #scalar_layout_rank0>,
+                             %lr: tensor<1xf32, #scalar_layout>, %beta1_pow: tensor<f32, #scalar_layout_rank0>,
                              %beta2_pow: tensor<1xf32, #scalar_layout>) {
     // expected-error @+1 {{beta1_pow must have rank of at least 1}}
-    "ttnn.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %beta1_pow, %beta2_pow) <{
-        lr = 1.000000e-03 : f32, beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
+    "ttnn.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow) <{ beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
         epsilon = 1.000000e-08 : f32, weight_decay = 1.000000e-02 : f32}>
         : (tensor<64x64xf32, #param_layout>, tensor<64x64xf32, #param_layout>,
            tensor<64x64xf32, #param_layout>, tensor<64x64xf32, #param_layout>,
-           tensor<f32, #scalar_layout_rank0>, tensor<1xf32, #scalar_layout>) -> ()
+           tensor<1xf32, #scalar_layout>, tensor<f32, #scalar_layout_rank0>, tensor<1xf32, #scalar_layout>) -> ()
     return
   }
 }
