@@ -23,6 +23,30 @@ module {
     return %0#0 : tensor<1x1x64x64xbf16>
   }
 
+  // AdamW supports f32 state tensors, but the gradient is converted to bf16 by
+  // the input workaround. The optimizer must also select the tiled,
+  // DRAM-interleaved layouts required by the backing kernel.
+  func.func @adamw_optimizer_f32(%param: tensor<1x1x64x64xf32>, %grad: tensor<1x1x64x64xf32>,
+                                 %exp_avg: tensor<1x1x64x64xf32>, %exp_avg_sq: tensor<1x1x64x64xf32>)
+      -> tensor<1x1x64x64xf32> {
+    // CHECK-LABEL: func.func @adamw_optimizer_f32
+    // CHECK: %[[GRAD_BF16:.*]] = "ttnn.typecast"(%{{.*}}) : {{.*}} -> tensor<1x1x64x64xbf16
+    // CHECK: "ttnn.adamw"(%{{[^,]+}}, %[[GRAD_BF16]], %{{[^,]+}}, %{{[^)]+}})
+    // CHECK-SAME: : (tensor<1x1x64x64xf32, #ttnn_layout{{[^>]*}}>, tensor<1x1x64x64xbf16, #ttnn_layout{{[^>]*}}>, tensor<1x1x64x64xf32, #ttnn_layout{{[^>]*}}>, tensor<1x1x64x64xf32, #ttnn_layout{{[^>]*}}>)
+    // CHECK-SAME: -> ()
+    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq) <{
+        lr = 1.000000e-03 : f32,
+        beta1 = 0.899999976 : f32,
+        beta2 = 0.999000012 : f32,
+        beta1_pow = 0.899999976 : f32,
+        beta2_pow = 0.999000012 : f32,
+        epsilon = 1.000000e-08 : f32,
+        weight_decay = 1.000000e-02 : f32}>
+        : (tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>)
+          -> (tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>)
+    return %0#0 : tensor<1x1x64x64xf32>
+  }
+
   // AdamW with AMSGrad (5 operands). The presence of max_exp_avg_sq is what
   // enables amsgrad in ttml, and it exercises the 5-input path through the
   // op model interface.
