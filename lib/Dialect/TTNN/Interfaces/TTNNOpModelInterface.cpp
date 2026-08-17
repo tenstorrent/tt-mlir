@@ -890,10 +890,11 @@ ReciprocalOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // RoundOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-RoundOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                          const OpConfig &opConfig) {
-  return detail::getUnaryOpConstraints(*this, inputs, opConfig);
+llvm::Expected<op_model::OpConstraints> RoundOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  return detail::getUnaryOpConstraints(*this, inputs, opConfig, liveRecords);
 }
 
 llvm::Expected<size_t>

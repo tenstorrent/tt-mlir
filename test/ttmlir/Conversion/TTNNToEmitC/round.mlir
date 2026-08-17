@@ -5,7 +5,7 @@
 
 func.func @round_test(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   // CHECK: emitc.call_opaque "ttnn::round"
-  // CHECK-SAME: args = [0 : index, #emitc.opaque<"::std::nullopt">, #emitc.opaque<"::ttnn::MemoryConfig
+  // CHECK-SAME: args = [0 : index, #emitc.opaque<"::std::nullopt">, #ttnn.memory_config<#dram, <interleaved>>]
   %1 = "ttir.round"(%arg0) : (tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
 }

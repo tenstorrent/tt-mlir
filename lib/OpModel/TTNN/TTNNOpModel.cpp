@@ -1479,26 +1479,27 @@ template struct UnaryEltwiseWithFastApproxModeOpModel<GeluOp>;
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<OpConstraints> OpModel<RoundOp>::getOpConstraints(
-    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-    TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout) {
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
 
   auto query = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::round, device, inputSpec, std::nullopt,
-                                detail::getNullableMemoryConfig(outputLayout));
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        ::ttnn::round, device, initialStateOpt, inputSpec, std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout));
   };
 
-  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
-                                     query);
+  return operation::getOpConstraintsWithState(inputLayout.getContext(), query);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -1512,12 +1513,9 @@ OpModel<RoundOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   auto query = [=]() {
     return QUERY_OP_RUNTIME(::ttnn::round, device, inputSpec, std::nullopt,
