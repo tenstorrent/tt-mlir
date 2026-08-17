@@ -234,8 +234,6 @@ static std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
 // ===----------------------------------------------------------------------===//
 
 void LegalTensorLayoutAnalysis::analysisImplementation() {
-  auto _tTotal = std::chrono::steady_clock::now();
-  fprintf(stderr, "[lta-timing] LegalTensorLayoutAnalysis START\n");
 
   mlir::ModuleOp moduleOp = mlir::cast<mlir::ModuleOp>(op);
   llvm::DenseSet<RankedTensorType> processedTypes;
@@ -266,22 +264,10 @@ void LegalTensorLayoutAnalysis::analysisImplementation() {
     }
   });
 
-  fprintf(stderr, "[lta-timing] LegalTensorLayoutAnalysis DONE  %lld ms  types=%zu\n",
-          (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
-              std::chrono::steady_clock::now() - _tTotal)
-              .count(),
-          typeIdx);
 }
 
 void LegalTensorLayoutAnalysis::processTensorType(RankedTensorType tensorType,
                                                   size_t idx) {
-  fprintf(stderr, "[lta-timing]   type[%zu] shape=[", idx);
-  for (size_t i = 0; i < tensorType.getShape().size(); ++i) {
-    if (i > 0) fprintf(stderr, ",");
-    fprintf(stderr, "%lld", (long long)tensorType.getShape()[i]);
-  }
-  fprintf(stderr, "] ...\n");
-  auto _t = std::chrono::steady_clock::now();
 
   // Generate all possible layouts for this tensor type
   std::vector<TTNNLayoutAttr> layouts = generateLayouts(tensorType);
@@ -303,11 +289,6 @@ void LegalTensorLayoutAnalysis::processTensorType(RankedTensorType tensorType,
         .push_back(layout);
   }
 
-  fprintf(stderr, "[lta-timing]   type[%zu] done  %lld ms  layouts=%zu\n", idx,
-          (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
-              std::chrono::steady_clock::now() - _t)
-              .count(),
-          layouts.size());
 }
 
 std::vector<TTNNLayoutAttr>

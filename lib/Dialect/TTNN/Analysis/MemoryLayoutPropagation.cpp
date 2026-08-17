@@ -336,11 +336,6 @@ void recordEdges(func::FuncOp func, LayoutPropagationObserver *observer,
 } // namespace observer_recording
 
 void MemoryLayoutPropagation::run() {
-  auto _tTotal = std::chrono::steady_clock::now();
-  fprintf(stderr,
-          "[prop-timing] MemoryLayoutPropagation::run() START  func='%s'"
-          "  beamWidth=%zu\n",
-          func.getName().str().c_str(), beamWidth);
 
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "MemoryLayoutPropagation::run() starting for func {0}",
@@ -349,7 +344,6 @@ void MemoryLayoutPropagation::run() {
   observer->onStart(func.getName(), beamWidth);
 
   size_t opIndex = 0;
-  auto _tFwd = std::chrono::steady_clock::now();
   // Forward pass: propagate layouts in scheduled (IR) order.
   func->walk([&](Operation *op) {
     if (!optimizer_utils::isBeamSearchTarget(op)) {
@@ -396,24 +390,7 @@ void MemoryLayoutPropagation::run() {
                  op->getName(), op->getLoc(),
                  legalConfigs.find(op)->second.size());
 
-    {
-      std::string _locStr;
-      llvm::raw_string_ostream _ss(_locStr);
-      op->getLoc().print(_ss);
-      fprintf(stderr,
-              "[prop-timing]   op[%zu] %-36s  loc=%s  legalCfgs=%zu\n",
-              opIndex, op->getName().getStringRef().str().c_str(),
-              _locStr.c_str(), legalConfigs.find(op)->second.size());
-    }
-    auto _tOp = std::chrono::steady_clock::now();
     beamState[op] = processOp(op);
-    fprintf(stderr,
-            "[prop-timing]   op[%zu] done  %lld ms  beamCandidates=%zu\n",
-            opIndex,
-            (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - _tOp)
-                .count(),
-            beamState[op].size());
 
     if (!beamState[op].empty()) {
       const auto &chosen = beamState[op][0];
@@ -445,22 +422,10 @@ void MemoryLayoutPropagation::run() {
                "MemoryLayoutPropagation: processed {0} ops with beamWidth={1}",
                opIndex, beamWidth);
 
-  fprintf(stderr, "[prop-timing] Forward pass done  %lld ms  ops=%zu\n",
-          (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
-              std::chrono::steady_clock::now() - _tFwd)
-              .count(),
-          opIndex);
 
   // Backward pass: consolidate beam at fork points (only for K > 1).
   if (beamWidth > 1) {
-    fprintf(stderr, "[prop-timing] consolidateBeam() START  beamWidth=%zu\n",
-            beamWidth);
-    auto _tBeam = std::chrono::steady_clock::now();
     consolidateBeam();
-    fprintf(stderr, "[prop-timing] consolidateBeam() done  %lld ms\n",
-            (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - _tBeam)
-                .count());
   }
 
   observer_recording::recordFinalChoices(func, observer.get(), beamState,
@@ -470,17 +435,7 @@ void MemoryLayoutPropagation::run() {
   observer->onEnd(opIndex);
 
   // Apply resolved configs to IR.
-  fprintf(stderr, "[prop-timing] applyToIR() START\n");
-  auto _tApply = std::chrono::steady_clock::now();
   applyToIR();
-  fprintf(stderr, "[prop-timing] applyToIR() done  %lld ms\n",
-          (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
-              std::chrono::steady_clock::now() - _tApply)
-              .count());
-  fprintf(stderr, "[prop-timing] MemoryLayoutPropagation::run() TOTAL  %lld ms\n",
-          (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
-              std::chrono::steady_clock::now() - _tTotal)
-              .count());
 }
 
 llvm::SmallVector<BeamCandidate, 0>

@@ -162,15 +162,12 @@ public:
     // it.
     op_model::ScopedSingletonDeviceGuard deviceGuard(getOperation());
 
-    auto _tTotal = std::chrono::steady_clock::now();
-    fprintf(stderr, "[valfd-timing] OperationValidationAndFallback START\n");
 
     ModuleOp moduleOp = getOperation();
 
     size_t totalOperationsChecked = 0;
     size_t operationsFixed = 0;
     bool validationFailed = false;
-    size_t _opIdx = 0;
 
     moduleOp->walk([&](func::FuncOp func) {
       func.walk([&](Operation *operation) -> WalkResult {
@@ -233,17 +230,6 @@ public:
 
         totalOperationsChecked++;
 
-        {
-          std::string _locStr;
-          llvm::raw_string_ostream _ss(_locStr);
-          operation->getLoc().print(_ss);
-          fprintf(stderr,
-                  "[valfd-timing]   op[%zu] %-36s  loc=%s\n",
-                  _opIdx,
-                  operation->getName().getStringRef().str().c_str(),
-                  _locStr.c_str());
-        }
-        auto _tOp = std::chrono::steady_clock::now();
 
         // Extract input layouts from the operation
         std::vector<TTNNLayoutAttr> inputLayouts =
@@ -303,12 +289,6 @@ public:
                 "Operation {} at {} passed validation with original config",
                 operation->getName(), operation->getLoc());
           }
-          fprintf(stderr, "[valfd-timing]   op[%zu] validated_ok  %lld ms\n",
-                  _opIdx,
-                  (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
-                      std::chrono::steady_clock::now() - _tOp)
-                      .count());
-          ++_opIdx;
         } else {
           // Try fallback configurations
           bool fixed = false;
@@ -352,24 +332,13 @@ public:
             TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                          "Operation {} at {} fixed with fallback configuration",
                          operation->getName(), operation->getLoc());
-            fprintf(stderr, "[valfd-timing]   op[%zu] FALLBACK_FIXED  %lld ms\n",
-                    _opIdx,
-                    (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now() - _tOp)
-                        .count());
           } else {
-            fprintf(stderr, "[valfd-timing]   op[%zu] FALLBACK_FAILED  %lld ms\n",
-                    _opIdx,
-                    (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now() - _tOp)
-                        .count());
             emitValidationFailureError(operation, originalResult,
                                        maxFallbackAttempts);
             validationFailed = true;
             signalPassFailure();
             return WalkResult::interrupt();
           }
-          ++_opIdx;
         }
         return WalkResult::advance();
       });
@@ -381,13 +350,6 @@ public:
                  validationFailed ? "FAILED" : "complete",
                  totalOperationsChecked,
                  validationFailed ? " before failure" : "", operationsFixed);
-    fprintf(stderr,
-            "[valfd-timing] OperationValidationAndFallback TOTAL  %lld ms"
-            "  checked=%zu  fixed=%zu\n",
-            (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - _tTotal)
-                .count(),
-            totalOperationsChecked, operationsFixed);
 #endif // TTMLIR_ENABLE_OPMODEL
   }
 
