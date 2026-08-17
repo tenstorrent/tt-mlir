@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
@@ -2133,8 +2134,10 @@ public:
     namedAttrs.push_back(rewriter.getNamedAttr(
         "return_intermediates", rewriter.getBoolAttr(returnIntermediates)));
 
-    rewriter.replaceOpWithNewOp<ttir::SDPAForwardOp>(
-        srcOp, srcOp.getResultTypes(), adaptor.getOperands(), namedAttrs);
+    rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
+        srcOp, srcOp.getResultTypes(), adaptor.getOperands(),
+        rewriter.getStringAttr("sdpa_fw"), srcOp.getDecomposition(),
+        rewriter.getDictionaryAttr(namedAttrs));
     return success();
   }
 };
@@ -2207,8 +2210,10 @@ public:
     namedAttrs.push_back(rewriter.getNamedAttr(
         "dropout_probability", rewriter.getF32FloatAttr(dropout)));
 
-    rewriter.replaceOpWithNewOp<ttir::SDPABackwardOp>(
-        srcOp, srcOp.getResultTypes(), adaptor.getOperands(), namedAttrs);
+    rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
+        srcOp, srcOp.getResultTypes(), adaptor.getOperands(),
+        rewriter.getStringAttr("sdpa_bw"), srcOp.getDecomposition(),
+        rewriter.getDictionaryAttr(namedAttrs));
     return success();
   }
 };
@@ -2221,6 +2226,7 @@ struct LegalizeStableHLOCompositeToTTIR
 
     ConversionTarget target(*context);
     target.addLegalDialect<ttir::TTIRDialect>();
+    target.addLegalOp<ttcore::CompositeOp>();
     // StableHLO is intentionally not marked as either legal or illegal.
 
     RewritePatternSet patterns(context);

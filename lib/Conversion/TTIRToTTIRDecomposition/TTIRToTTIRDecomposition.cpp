@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Types.h"
@@ -19,6 +20,10 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/Location.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 #include <algorithm>
 #include <cassert>
 #include <numeric>
@@ -1005,15 +1010,15 @@ collapseShapeToRank4(llvm::ArrayRef<int64_t> shape) {
   return {1, leading, height, width};
 }
 
-mlir::Value reshapeValue(ConversionPatternRewriter &rewriter, Location loc,
+mlir::Value reshapeValue(mlir::OpBuilder &builder, Location loc,
                          mlir::Value value,
                          llvm::ArrayRef<int64_t> targetShape) {
   auto valueType = mlir::cast<RankedTensorType>(value.getType());
   auto resultType = RankedTensorType::get(
       targetShape, valueType.getElementType(), valueType.getEncoding());
   llvm::SmallVector<int32_t> targetI32(targetShape.begin(), targetShape.end());
-  return rewriter.create<ttir::ReshapeOp>(loc, resultType, value,
-                                          rewriter.getI32ArrayAttr(targetI32));
+  return builder.create<ttir::ReshapeOp>(loc, resultType, value,
+                                         builder.getI32ArrayAttr(targetI32));
 }
 
 mlir::Value reshapeToRank4IfNeeded(ConversionPatternRewriter &rewriter,
@@ -1024,6 +1029,51 @@ mlir::Value reshapeToRank4IfNeeded(ConversionPatternRewriter &rewriter,
   }
   return reshapeValue(rewriter, loc, value,
                       collapseShapeToRank4(valueType.getShape()));
+}
+
+static FlatSymbolRefAttr
+createRank4DecompositionWrapper(ttcore::CompositeOp op, TypeRange inputTypes4D,
+                                TypeRange resultTypes4D,
+                                ConversionPatternRewriter &rewriter) {
+  ModuleOp moduleOp = op->getParentOfType<ModuleOp>();
+  StringRef decompositionName = op.getDecomposition();
+  func::FuncOp decomposition =
+      moduleOp.lookupSymbol<func::FuncOp>(decompositionName);
+  assert(decomposition);
+
+  std::string wrapperName = (decompositionName + "_rank4").str();
+  // Ensure that the name is unique.
+  for (unsigned suffix = 0; moduleOp.lookupSymbol(wrapperName); ++suffix) {
+    wrapperName = (decompositionName + "_rank4_" + Twine(suffix)).str();
+  }
+
+  OpBuilder moduleBuilder(moduleOp.getContext());
+  moduleBuilder.setInsertionPointToEnd(moduleOp.getBody());
+  mlir::Location loc = op->getLoc();
+  auto wrapper = moduleBuilder.create<func::FuncOp>(
+      loc, wrapperName,
+      moduleBuilder.getFunctionType(inputTypes4D, resultTypes4D));
+  wrapper.setPrivate();
+  Block *entry = wrapper.addEntryBlock();
+  OpBuilder builder = OpBuilder::atBlockBegin(entry);
+
+  SmallVector<Value> decompositionInputs;
+  for (auto [argument, type] :
+       llvm::zip(entry->getArguments(), decomposition.getArgumentTypes())) {
+    decompositionInputs.push_back(reshapeValue(
+        builder, loc, argument, cast<RankedTensorType>(type).getShape()));
+  }
+  auto call = builder.create<func::CallOp>(op.getLoc(), decomposition,
+                                           decompositionInputs);
+
+  SmallVector<Value> wrapperResults;
+  for (auto [result, type] : llvm::zip(call.getResults(), resultTypes4D)) {
+    wrapperResults.push_back(reshapeValue(
+        builder, loc, result, cast<RankedTensorType>(type).getShape()));
+  }
+  builder.create<func::ReturnOp>(op.getLoc(), wrapperResults);
+
+  return FlatSymbolRefAttr::get(rewriter.getContext(), wrapperName);
 }
 
 } // namespace
@@ -1095,36 +1145,27 @@ public:
 // independent across the leading batch/head dims, so collapse every operand up
 // to 4D and reshape the results back to their original rank.
 namespace {
-struct SDPAForwardPattern : public OpConversionPattern<ttir::SDPAForwardOp> {
+struct SDPAForwardPattern : public OpConversionPattern<ttcore::CompositeOp> {
 public:
-  using OpConversionPattern<ttir::SDPAForwardOp>::OpConversionPattern;
+  using OpConversionPattern<ttcore::CompositeOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::SDPAForwardOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttcore::CompositeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto rankOf = [](mlir::Value value) {
-      return mlir::cast<RankedTensorType>(value.getType()).getRank();
+    if (op.getCompositeName() != "sdpa_fw") {
+      return failure();
+    }
+
+    auto isRank4 = [](mlir::Value value) {
+      return mlir::cast<RankedTensorType>(value.getType()).getRank() == 4;
     };
 
     // Only reshape when some operand/result is not already rank 4; otherwise
     // this pattern would keep re-matching its own (already 4D) output.
-    bool needsReshape =
-        rankOf(adaptor.getQuery()) != 4 || rankOf(adaptor.getKey()) != 4 ||
-        rankOf(adaptor.getValue()) != 4 ||
-        (adaptor.getAttentionMask() &&
-         rankOf(adaptor.getAttentionMask()) != 4) ||
-        llvm::any_of(op.getResults(),
-                     [&](mlir::Value result) { return rankOf(result) != 4; });
-    if (!needsReshape) {
+    if (llvm::all_of(adaptor.getInputs(), isRank4) &&
+        llvm::all_of(op.getResults(), isRank4)) {
       return rewriter.notifyMatchFailure(op, "already 4D");
     }
-
-    Location loc = op.getLoc();
-
-    mlir::Value mask4D =
-        adaptor.getAttentionMask()
-            ? reshapeToRank4IfNeeded(rewriter, loc, adaptor.getAttentionMask())
-            : mlir::Value();
 
     llvm::SmallVector<mlir::Type> resultTypes4D;
     for (mlir::Type type : op.getResultTypes()) {
@@ -1140,13 +1181,17 @@ public:
           shape4D, tensorType.getElementType(), tensorType.getEncoding()));
     }
 
-    auto sdpa4D = rewriter.create<ttir::SDPAForwardOp>(
-        loc, resultTypes4D,
-        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getQuery()),
-        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getKey()),
-        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getValue()), mask4D,
-        op.getMaskTypeAttr(), op.getDropoutProbabilityAttr(),
-        op.getReturnIntermediatesAttr());
+    Location loc = op.getLoc();
+    auto inputs4D = llvm::map_to_vector(
+        adaptor.getInputs(), [&rewriter, loc](mlir::Value value) {
+          return reshapeToRank4IfNeeded(rewriter, loc, value);
+        });
+
+    auto decomposition = createRank4DecompositionWrapper(
+        op, TypeRange(inputs4D), resultTypes4D, rewriter);
+    auto sdpa4D = rewriter.create<ttcore::CompositeOp>(
+        loc, resultTypes4D, inputs4D, op.getCompositeNameAttr(), decomposition,
+        op.getCompositeAttributesAttr());
 
     llvm::SmallVector<mlir::Value> restored;
     for (auto [result4D, originalType] :
@@ -1169,38 +1214,26 @@ public:
 // independent across the leading batch/head dims, so collapse every operand up
 // to 4D and reshape the results back to their original rank.
 namespace {
-struct SDPABackwardPattern : public OpConversionPattern<ttir::SDPABackwardOp> {
+struct SDPABackwardPattern : public OpConversionPattern<ttcore::CompositeOp> {
 public:
-  using OpConversionPattern<ttir::SDPABackwardOp>::OpConversionPattern;
+  using OpConversionPattern<ttcore::CompositeOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::SDPABackwardOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttcore::CompositeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto rankOf = [](mlir::Value value) {
-      return mlir::cast<RankedTensorType>(value.getType()).getRank();
+    if (op.getCompositeName() != "sdpa_bw") {
+      return failure();
+    }
+
+    auto isRank4 = [](mlir::Value value) {
+      return mlir::cast<RankedTensorType>(value.getType()).getRank() == 4;
     };
 
     // Only reshape when some operand/result is not already rank 4.
-    bool needsReshape =
-        rankOf(adaptor.getGradOutput()) != 4 ||
-        rankOf(adaptor.getAttnOutput()) != 4 ||
-        rankOf(adaptor.getQuery()) != 4 || rankOf(adaptor.getKey()) != 4 ||
-        rankOf(adaptor.getValue()) != 4 ||
-        rankOf(adaptor.getIntermediates()) != 4 ||
-        (adaptor.getAttentionMask() &&
-         rankOf(adaptor.getAttentionMask()) != 4) ||
-        llvm::any_of(op.getResults(),
-                     [&](mlir::Value result) { return rankOf(result) != 4; });
-    if (!needsReshape) {
+    if (llvm::all_of(adaptor.getInputs(), isRank4) &&
+        llvm::all_of(op->getResults(), isRank4)) {
       return rewriter.notifyMatchFailure(op, "already 4D");
     }
-
-    Location loc = op.getLoc();
-
-    mlir::Value mask4D =
-        adaptor.getAttentionMask()
-            ? reshapeToRank4IfNeeded(rewriter, loc, adaptor.getAttentionMask())
-            : mlir::Value();
 
     llvm::SmallVector<mlir::Type> resultTypes4D;
     for (mlir::Type type : op.getResultTypes()) {
@@ -1216,15 +1249,17 @@ public:
           shape4D, tensorType.getElementType(), tensorType.getEncoding()));
     }
 
-    auto sdpa4D = rewriter.create<ttir::SDPABackwardOp>(
-        loc, resultTypes4D,
-        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getGradOutput()),
-        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getAttnOutput()),
-        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getQuery()),
-        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getKey()),
-        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getValue()),
-        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getIntermediates()),
-        mask4D, op.getMaskTypeAttr(), op.getDropoutProbabilityAttr());
+    Location loc = op.getLoc();
+    auto inputs4D = llvm::map_to_vector(
+        adaptor.getInputs(), [&rewriter, loc](mlir::Value value) {
+          return reshapeToRank4IfNeeded(rewriter, loc, value);
+        });
+
+    auto decomposition = createRank4DecompositionWrapper(
+        op, TypeRange(inputs4D), resultTypes4D, rewriter);
+    auto sdpa4D = rewriter.create<ttcore::CompositeOp>(
+        loc, resultTypes4D, inputs4D, op.getCompositeNameAttr(), decomposition,
+        op.getCompositeAttributesAttr());
 
     llvm::SmallVector<mlir::Value> restored;
     for (auto [result4D, originalType] :
