@@ -61,12 +61,6 @@ private:
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::GetDeviceOp>(op);
     shouldHoist &=
         !(op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>());
-    // PrepareGridSampleGridOp runs on the CPU path (calls from_device / host
-    // math) and must not enter the trace region.  It is sunk before the first
-    // hoistable op together with its grid-chain dependencies so its DRAM result
-    // is ready before the trace starts.
-    shouldHoist &=
-        !::mlir::isa<mlir::tt::ttnn::PrepareGridSampleGridOp>(op);
     return shouldHoist;
   }
 
@@ -905,52 +899,10 @@ private:
         }
       }
 
-      // Build a set of all ops in the hoistable range for dependency lookup.
-      llvm::SmallPtrSet<Operation *, 32> opsInRange(allOps.begin() + firstHoistable,
-                                                    allOps.begin() + lastHoistable + 1);
-
-      // Collect all ops in the hoistable range that must be sunk to the
-      // pre-trace section rather than cloned into the trace function.
-      //
-      // Two categories:
-      //   1. Creation ops (TTCoreCreationOpTrait) — no data dependency on
-      //      surrounding compute; sink them as "regular trace inputs".
-      //   2. PrepareGridSampleGridOp — calls from_device/host math, so it must
-      //      not execute during trace capture.  Its entire dependency chain
-      //      (within the hoistable range) must also be sunk so that operands
-      //      remain valid when the op is positioned before the trace boundary.
-      llvm::SmallPtrSet<Operation *, 16> opsToSinkSet;
-
-      // Recursively collect the transitive operand chain of a
-      // PrepareGridSampleGridOp that lives inside the hoistable range.
-      std::function<void(Operation *)> collectGridChain;
-      collectGridChain = [&](Operation *op) {
-        if (!opsInRange.count(op) || !opsToSinkSet.insert(op).second) {
-          return;
-        }
-        for (mlir::Value operand : op->getOperands()) {
-          if (!mlir::isa<RankedTensorType>(operand.getType())) {
-            continue;
-          }
-          if (Operation *defOp = operand.getDefiningOp()) {
-            collectGridChain(defOp);
-          }
-        }
-      };
-
-      for (size_t i = firstHoistable; i <= lastHoistable; i++) {
-        if (mlir::isa<mlir::tt::ttnn::PrepareGridSampleGridOp>(allOps[i])) {
-          collectGridChain(allOps[i]);
-        }
-      }
-
       // Classify each op in [firstHoistable, lastHoistable].
       llvm::SmallVector<Operation *> creationOpsToSink;
       for (size_t i = firstHoistable; i <= lastHoistable; i++) {
-        if (opsToSinkSet.count(allOps[i])) {
-          // PrepareGridSampleGridOp or its grid-chain dependency.
-          creationOpsToSink.push_back(allOps[i]);
-        } else if (shouldHoistOp(allOps[i])) {
+        if (shouldHoistOp(allOps[i])) {
           opsToHoist.push_back(allOps[i]);
         } else if (allOps[i]->hasTrait<
                        mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>()) {
@@ -962,9 +914,8 @@ private:
         }
       }
 
-      // Move the pre-trace ops (creation ops + PrepareGridSampleGridOp and its
-      // grid-chain deps) to before the first hoistable op.  The ops are already
-      // in block order, so moving them in order preserves dominance.
+      // Move the creation ops to before the first hoistable op. The ops are
+      // already in block order, so moving them in order preserves dominance.
       for (Operation *creationOp : creationOpsToSink) {
         creationOp->moveBefore(allOps[firstHoistable]);
       }

@@ -210,37 +210,37 @@ TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
 
-// Factory method to create a set of workarounds for GridSampleOp. GridSampleOp
-// expects input in row-major BF16 layout (NHWC spatial sampling pattern).
-// The grid must also be row-major, but its dtype depends on the execution path:
-//   - bilinear + align_corners=False: BF16 (kernel reads grid coordinates directly)
-//   - nearest or bilinear + align_corners=True: float32 (passed to
-//     prepare_grid_sample_grid on host, which requires float32 precision)
+// Factory method to create a set of workarounds for GridSampleOp.
+//
+// ROW_MAJOR is the op's only hard operand requirement -- the kernel asserts on
+// it for both tensors:
+//   TT_FATAL(input_tensor.layout() == Layout::ROW_MAJOR, ...)
+//   TT_FATAL(grid_tensor.layout()  == Layout::ROW_MAJOR, ...)
+//
+// Element type is deliberately left alone. tt-metal accepts BFLOAT16 or FLOAT32
+// for both the input and a non-precomputed grid, and derives the output dtype
+// from the input (`output_data_type = input_tensor.dtype()`), so pinning any of
+// them here would only insert casts the op never asked for. This used to force
+// BFloat16 on the input and output, which cost a typecast of the whole feature
+// map on the way in and a cast of the whole result on the way out whenever the
+// graph ran in f32.
+//
+// Note in particular that requesting FLOAT32 for a grid that arrived as bf16
+// would be pointless: the kernel widens bf16 coordinates to fp32 itself
+// (`bf16_to_fp32`) and runs identical fp32 arithmetic on both paths, so the
+// upcast would carry the already-rounded values and change nothing but the
+// tensor size. Coordinate precision has to be preserved upstream, at the graph
+// input, not recovered here.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createGridSampleOpOperandsWorkarounds(
-    mlir::Operation *op) {
-  auto gridSampleOp = mlir::cast<mlir::tt::ttnn::GridSampleOp>(op);
-  std::string mode = gridSampleOp.getMode().str();
-  bool alignCorners = gridSampleOp.getAlignCorners();
-
-  bool usesPrecomputedGrid = (mode == "nearest") || alignCorners;
-
-  TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
-  rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
-  rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround =
-      ttcore::DataType::BFloat16;
-
-  // Grid: ROW_MAJOR always; BF16 only for non-precomputed bilinear path.
-  TTNNOperandWorkarounds gridWorkaround;
-  gridWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
-  if (!usesPrecomputedGrid) {
-    gridWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
-  }
+    mlir::Operation * /*op*/) {
+  TTNNOperandWorkarounds rowMajorWorkaround;
+  rowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround) // input
-      .addInputOperandWorkaround(gridWorkaround)               // grid
-      .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
+      .addInputOperandWorkaround(rowMajorWorkaround)  // input
+      .addInputOperandWorkaround(rowMajorWorkaround)  // grid
+      .addOutputOperandWorkaround(rowMajorWorkaround);
 }
 
 // Factory method to create a set of workarounds for GatherOp. The GatherOp

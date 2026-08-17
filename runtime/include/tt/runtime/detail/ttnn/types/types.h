@@ -320,20 +320,6 @@ public:
     return it->second;
   }
 
-  // Returns a cached precomputed grid tensor for `opKey`, creating it on first
-  // use via `factory`. The grid is computed once and reused across inferences;
-  // the key is the flatbuffer PrepareGridSampleGridOp pointer, which is stable
-  // for the lifetime of the loaded binary.
-  const ::ttnn::Tensor &getOrCreatePreparedGrid(
-      uintptr_t opKey,
-      const std::function<::ttnn::Tensor()> &factory) {
-    auto it = preparedGridCache.find(opKey);
-    if (it == preparedGridCache.end()) {
-      it = preparedGridCache.emplace(opKey, factory()).first;
-    }
-    return it->second;
-  }
-
   Binary &getExecutableHandle() { return executableHandle; }
 
   //
@@ -348,10 +334,6 @@ private:
 
   // Op-implicit GlobalSemaphores keyed by flatbuffer op pointer; root only.
   std::unordered_map<uintptr_t, ::ttnn::GlobalSemaphore> implicitOpSemaphores;
-
-  // Precomputed grids for PrepareGridSampleGridOp, keyed by flatbuffer op
-  // pointer. Computed once on first inference; stable for binary's lifetime.
-  std::unordered_map<uintptr_t, ::ttnn::Tensor> preparedGridCache;
 
   common::DylibManager dylibManager;
 

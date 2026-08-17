@@ -69,6 +69,30 @@ static void eraseWithDeallocs(Operation *op) {
   op->erase();
 }
 
+// Matches a layout-changing op whose result has page layout `wantLayout`,
+// returning its input Value (null on mismatch).
+//
+// This pass runs before TTNNDecomposeLayouts, so layout changes are still
+// represented as the aggregate ttnn.to_tensor_spec op rather than the
+// decomposed ttnn.to_layout / to_device / to_memory_config triple. Accept both
+// forms so the pattern matches regardless of where in the pipeline it runs.
+static Value matchLayoutChange(Operation *op, Layout wantLayout) {
+  Value input;
+  if (auto toLayout = mlir::dyn_cast_or_null<ttnn::ToLayoutOp>(op)) {
+    input = toLayout.getInput();
+  } else if (auto toSpec =
+                 mlir::dyn_cast_or_null<ttnn::ToTensorSpecOp>(op)) {
+    input = toSpec.getInput();
+  } else {
+    return nullptr;
+  }
+  auto lo = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+      mlir::cast<RankedTensorType>(op->getResult(0).getType()).getEncoding());
+  if (!lo || lo.getLayout() != wantLayout)
+    return nullptr;
+  return input;
+}
+
 } // namespace
 
 class TTNNGridSampleLayoutOptimizerPass
@@ -89,29 +113,36 @@ public:
     for (ttnn::GridSampleOp gsOp : gsOps) {
       ++scanned;
 
-      // ── STEP 1: grid input must come from to_layout(ROW_MAJOR) ─────────────
       Value gridVal = gsOp.getGrid();
       auto *gridDef = gridVal.getDefiningOp();
       if (!gridDef) continue;
 
-      auto rmToLayout = mlir::dyn_cast<ttnn::ToLayoutOp>(gridDef);
-      if (!rmToLayout) continue;
-      {
-        auto lo = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
-            mlir::cast<RankedTensorType>(rmToLayout.getResult().getType())
-                .getEncoding());
-        if (!lo || lo.getLayout() != Layout::RowMajor) continue;
+      // ── STEP 1: grid must come from a layout change to ROW_MAJOR ──────────
+      Operation *rmLayoutOp = gridDef;
+      Value beforeRm = matchLayoutChange(rmLayoutOp, Layout::RowMajor);
+      if (!beforeRm) {
+        continue;
       }
 
       // ── STEP 2: optionally skip to_memory_config(DRAM) if present ──────────
-      Value beforeRm = rmToLayout.getInput();
+      // Note: newer TTNN encodes the destination memory config in the result
+      // type's TTNNLayoutAttr rather than as an inline `memory_config`
+      // attribute on the op, so read the buffer type from the result type and
+      // fall back to the attribute only when present (older IR).
       ttnn::ToMemoryConfigOp memCfgOp = nullptr;
       if (auto *defOp = beforeRm.getDefiningOp()) {
         if (auto mco = mlir::dyn_cast<ttnn::ToMemoryConfigOp>(defOp)) {
-          auto mcoCfg = mco.getMemoryConfig();
-          if (mcoCfg &&
-              mlir::cast<BufferTypeAttr>(mcoCfg->getBufferType()).getValue() ==
-                  BufferType::DRAM) {
+          std::optional<BufferType> bufType;
+          if (auto mcoCfg = mco.getMemoryConfig()) {
+            bufType =
+                mlir::cast<BufferTypeAttr>(mcoCfg->getBufferType()).getValue();
+          } else if (auto lo = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+                         mlir::cast<RankedTensorType>(
+                             mco.getResult().getType())
+                             .getEncoding())) {
+            bufType = lo.getBufferType();
+          }
+          if (bufType && *bufType == BufferType::DRAM) {
             memCfgOp = mco;
             beforeRm = mco.getInput();
           }
@@ -121,33 +152,35 @@ public:
       // ── STEP 3: must be from a ReshapeOp with TILE layout ──────────────────
       auto tileReshape =
           mlir::dyn_cast_or_null<ttnn::ReshapeOp>(beforeRm.getDefiningOp());
-      if (!tileReshape) continue;
+      if (!tileReshape) {
+        continue;
+      }
       {
         auto lo = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
             mlir::cast<RankedTensorType>(tileReshape.getResult().getType())
                 .getEncoding());
-        if (!lo || lo.getLayout() != Layout::Tile) continue;
+        if (!lo || lo.getLayout() != Layout::Tile) {
+          continue;
+        }
       }
 
-      // ── STEP 4: Reshape input must come from to_layout(TILE) ───────────────
-      auto tileToLayout = mlir::dyn_cast_or_null<ttnn::ToLayoutOp>(
-          tileReshape.getInput().getDefiningOp());
-      if (!tileToLayout) continue;
-      {
-        auto lo = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
-            mlir::cast<RankedTensorType>(tileToLayout.getResult().getType())
-                .getEncoding());
-        if (!lo || lo.getLayout() != Layout::Tile) continue;
+      // ── STEP 4: Reshape input must come from a layout change to TILE ──────
+      Operation *tileLayoutOp = tileReshape.getInput().getDefiningOp();
+      Value lutArg = matchLayoutChange(tileLayoutOp, Layout::Tile);
+      if (!lutArg) {
+        continue;
       }
 
       // ── STEP 5: original LUT must be ROW_MAJOR DRAM/SystemMemory ───────────
-      Value lutArg = tileToLayout.getInput();
       auto lutRtt  = mlir::cast<RankedTensorType>(lutArg.getType());
       auto lutLo   = mlir::dyn_cast_or_null<TTNNLayoutAttr>(lutRtt.getEncoding());
-      if (!lutLo || lutLo.getLayout() != Layout::RowMajor) continue;
-      if (lutLo.getBufferType() != BufferType::DRAM &&
-          lutLo.getBufferType() != BufferType::SystemMemory)
+      if (!lutLo || lutLo.getLayout() != Layout::RowMajor) {
         continue;
+      }
+      if (lutLo.getBufferType() != BufferType::DRAM &&
+          lutLo.getBufferType() != BufferType::SystemMemory) {
+        continue;
+      }
 
       // ── All checks passed — build optimized IR ─────────────────────────────
 
@@ -211,9 +244,9 @@ public:
 
           auto l1Type = utils::RankedTensorTypeFactory::create(
               rmDramType, l1Layout);
+
           auto toL1 = builder.create<ttnn::ToMemoryConfigOp>(
               gsOp.getLoc(), l1Type, newReshape.getResult());
-
           gridForSample = toL1.getResult();
           ++l1Sharded;
         }
@@ -232,11 +265,11 @@ public:
       gsOp.getGridMutable().assign(gridForSample);
 
       // Erase the old dead chain.
-      eraseWithDeallocs(rmToLayout);
+      eraseWithDeallocs(rmLayoutOp);
       if (memCfgOp)
         eraseWithDeallocs(memCfgOp);
       eraseWithDeallocs(tileReshape);
-      eraseWithDeallocs(tileToLayout);
+      eraseWithDeallocs(tileLayoutOp);
 
       ++optimized;
     }

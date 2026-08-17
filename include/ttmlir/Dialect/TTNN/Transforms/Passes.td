@@ -342,14 +342,17 @@ def TTNNPrepareConv3dWeights : Pass<"ttnn-prepare-conv3d-weights", "::mlir::Modu
 def TTNNPrepareGridSampleGrid : Pass<"ttnn-prepare-grid-sample-grid", "::mlir::ModuleOp"> {
   let summary = "Insert PrepareGridSampleGridOp before GridSampleOps that need a precomputed grid.";
   let description = [{
-    For GridSampleOps with nearest mode (or align_corners=true), the tt-metal
-    kernel requires the coordinate grid to be preprocessed with
-    prepare_grid_sample_grid before dispatch. This pass inserts a
-    PrepareGridSampleGridOp before each such GridSampleOp and sets
-    use_precomputed_grid=true on the GridSampleOp so the runtime skips the
-    redundant host preprocessing. The PrepareGridSampleGridOp is non-hoistable
-    and sinks outside the trace region, making the precomputed grid a proper
-    trace input slot managed by TraceData.inputTensors.
+    Inserts a PrepareGridSampleGridOp before each GridSampleOp with nearest mode
+    (or align_corners=true) and sets use_precomputed_grid=true on it, so the
+    coordinate grid is resolved on host instead of on device.
+
+    Not part of the default pipeline. The tt-metal kernel used to require a
+    host-precomputed grid for these modes; it now resolves the pixel index on
+    device from the raw [-1,1] grid, so GridSampleOp consumes the grid directly.
+    Precomputing costs a from_device round trip on every inference -- the grid is
+    an activation rather than a constant, so the result cannot be cached across
+    inferences -- and it blocks keeping the grid in L1. Enable this pass only for
+    targets that still require a precomputed grid.
   }];
 }
 

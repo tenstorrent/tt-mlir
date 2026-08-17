@@ -3535,11 +3535,13 @@ def TTNN_PrepareGridSampleGridOp : TTNN_Op<"prepare_grid_sample_grid"> {
       with use_precomputed_grid=true. For nearest mode the output shape equals the
       input grid shape; for bilinear the last dimension expands from 2 to 6.
 
-      This op is inserted by TTNNPrepareGridSampleGrid before each GridSampleOp
-      that requires a precomputed grid (nearest mode or align_corners=true). It is
-      intentionally left outside the trace region (non-hoistable) so it executes
-      on the CPU path and its DRAM result is fed to the trace as a regular input
-      slot, avoiding any from_device call inside the trace.
+      Not inserted by the default pipeline. ttnn::grid_sample now computes the
+      pixel/weight resolution on device for every mode, so GridSampleOp consumes
+      the raw grid directly with use_precomputed_grid=false. Precomputing on host
+      would force a from_device round trip on every inference -- the grid is an
+      activation, not a constant, so its result cannot be cached across
+      inferences. The op is kept for explicit opt-in and for targets that still
+      require a precomputed grid.
     }];
     let arguments = (ins AnyRankedTensor:$grid,
                          I32Attr:$input_n,

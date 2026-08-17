@@ -518,14 +518,22 @@ void createTTIRToTTNNCommonPipeline(
     // and the pass falls back to TILE_WIDTH for c_in_block.
     devicePm.addPass(mlir::tt::ttnn::createTTNNPrepareConv3dWeights());
 
-    // Materialize PrepareGridSampleGridOp for every GridSampleOp that requires
-    // a precomputed coordinate grid (nearest mode or align_corners=true). Runs
-    // unconditionally for both trace and non-trace paths:
-    //   - Non-trace: the op runs inline each inference on the CPU path.
-    //   - Trace: TTNNTraceHoistTransform sinks it before the trace region so
-    //     its DRAM result becomes a proper trace input slot, eliminating the
-    //     need for the implicit precomputed grid cache in the runtime.
-    devicePm.addPass(mlir::tt::ttnn::createTTNNPrepareGridSampleGrid());
+    // NOTE: PrepareGridSampleGridOp materialization is intentionally disabled.
+    //
+    // It existed because ttnn::grid_sample rejected nearest mode unless the
+    // coordinate grid had been precomputed on host (use_precomputed_grid=true),
+    // so the compiler had to insert a host-side preparation op. That
+    // restriction has since been lifted in tt-metal: the nearest kernel
+    // computes the pixel index on-device from a raw [-1,1] grid (align_corners
+    // handled in-kernel), and nearest tie-breaking now uses round-half-to-even
+    // to match PyTorch's std::nearbyint on both the device and host paths.
+    //
+    // With grid_sample consuming the raw grid directly, use_precomputed_grid
+    // stays at its default of false and the preparation op is unnecessary. It
+    // also cost a host round trip per inference and blocked keeping the grid in
+    // L1, since the trace input-slot mechanism only accepts host-typed values.
+    //
+    // devicePm.addPass(mlir::tt::ttnn::createTTNNPrepareGridSampleGrid());
 
     if (options.enableCreateD2MSubgraphs) {
       TTNNPipelineD2MPassOptions d2mOptions;
