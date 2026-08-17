@@ -31,9 +31,14 @@ struct OpModelAllocationRecord {
  */
 
 struct OpConstraints {
-  size_t cbL1PeakSize;       // CB L1 peak allocation in bytes
-  size_t tensorL1PeakSize;   // Tensor L1 peak allocation in bytes
-  size_t peakL1MemorySize;   // Peak memory (CB+L1) allocation in bytes
+  // Program-scope temporary L1 peak in bytes.
+  // TODO(#9216): metal reports CB / dataflow-buffer / scratchpad separately
+  // after Metal 2.0; TTNNOpModel folds those three into this field so existing
+  // consumers keep seeing "scratch L1" under the old CB-era name.
+  size_t cbL1PeakSize;
+  size_t tensorL1PeakSize; // Tensor L1 peak allocation in bytes
+  size_t
+      peakL1MemorySize; // Peak memory (scratch+tensor L1) allocation in bytes
   size_t outputL1BufferSize; // Output L1 buffer allocation in bytes
   llvm::SmallVector<tt::ttnn::TTNNLayoutAttr>
       outputLayouts; // Layouts of all output tensors (one layout per output

@@ -4087,6 +4087,7 @@ public:
         emitter.emit(srcOp.getProgramConfig(), "program_config"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
         emitter.emit(srcOp.getUse_2dCoreGrid(), "use_2d_core_grid"),
+        emitter.emit(false, "fast_and_approximate_mode"),
     };
 
     emitter.replaceOp(*this, args);
@@ -4209,6 +4210,7 @@ public:
         emitter.emit(srcOp.getProgramConfig(), "program_config"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
         emitter.emit(srcOp.getRecip(), "recip_tensor"),
+        emitter.emit(false, "fast_and_approximate_mode"),
     };
 
     emitter.replaceOp(*this, args);
