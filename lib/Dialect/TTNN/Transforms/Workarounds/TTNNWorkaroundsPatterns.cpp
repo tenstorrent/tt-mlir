@@ -587,5 +587,5 @@ const std::set<mlir::StringRef>
         ttnn::SparseMatmulOp::getOperationName(),
         // ArgMax is intentionally absent: at opt-level >= 1 ArgMaxRuleBook's
         // RowMajor input siblings supply its ROW_MAJOR input (tt-metal #46340).
-};
+        ttnn::SDPABackwardOp::getOperationName()};
 } // namespace mlir::tt::ttnn
