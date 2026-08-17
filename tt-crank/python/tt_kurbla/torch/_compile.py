@@ -147,6 +147,30 @@ def _(mb, x, dim, keepdim=False, *, dtype=None):
     return mb.sum(x, list(dim), keepdim)
 
 
+# any's three overloads differ only in how the reduced dims are spelled: none at
+# all (reduce everything), one int, or an optional list where None again means
+# everything. mb.any takes the normalized list, with [] for the full reduction.
+#
+# Skip _prepare_op_args: the output dtype is Bool, and typecasting the input to
+# i1 would truncate instead of testing against zero. mb.any does that test.
+@_lowering(_aten.any.default)
+@_skip_prepare(_aten.any.default)
+def _(mb, x):
+    return mb.any(x, [], False)
+
+
+@_lowering(_aten.any.dim)
+@_skip_prepare(_aten.any.dim)
+def _(mb, x, dim, keepdim=False):
+    return mb.any(x, [int(dim)], keepdim)
+
+
+@_lowering(_aten.any.dims)
+@_skip_prepare(_aten.any.dims)
+def _(mb, x, dim=None, keepdim=False):
+    return mb.any(x, [] if dim is None else [int(d) for d in dim], keepdim)
+
+
 @_lowering(_aten.detach.default)
 def _(mb, x):
     # Autograd bookkeeping only — no data movement. The aot joint graph emits
@@ -261,6 +285,24 @@ def _(mb, x, min=None, max=None):
 @_lowering(_aten.floor_divide.default)
 def _(mb, a, b):
     return mb.floor_divide(a, b)
+
+
+def _remainder(mb, lhs, rhs):
+    """torch.remainder is a *floored* modulo: the result takes the divisor's sign,
+    so `-1 % 3 == 2`. ttir.remainder is the truncated (fmod) variant instead, so
+    build this from floor division: lhs - floor(lhs / rhs) * rhs.
+    """
+    return mb.sub(lhs, mb.mul(mb.floor_divide(lhs, rhs), rhs))
+
+
+@_lowering(_aten.remainder.Scalar)
+def _(mb, x, other):
+    return _remainder(mb, x, mb.scalar_like(x, float(other)))
+
+
+@_lowering(_aten.remainder.Tensor)
+def _(mb, lhs, rhs):
+    return _remainder(mb, lhs, rhs)
 
 
 @_lowering(_aten.gelu.default)
@@ -670,6 +712,29 @@ def _(mb, x, dtype=None, layout=None, device=None, pin_memory=None, non_blocking
     if dtype is not None:
         return mb.typecast(x, _to_runtime_dtype(dtype))
     return x
+
+
+@_lowering(_aten.copy.default)
+def _(mb, self, src, non_blocking=False):
+    # Functionalized `copy_`: the result is `src` taken to self's shape and dtype.
+    # _prepare_op_args has already cast src to the output (i.e. self's) dtype, so
+    # only the broadcast is left. Shows up wherever a slice assignment gets
+    # functionalized into slice + copy + slice_scatter.
+    return _broadcast_to(mb, src, list(self.shape))
+
+
+@_lowering(_aten.constant_pad_nd.default)
+def _(mb, x, pad, value=0.0):
+    # aten lists the amounts from the *last* dimension backwards as (low, high)
+    # pairs, covering only the trailing dims it touches; mb.pad wants one pair
+    # per dim in dim order. Negative amounts crop, which mb.pad handles.
+    rank = len(x.shape)
+    low = [0] * rank
+    high = [0] * rank
+    for i in range(len(pad) // 2):
+        low[rank - 1 - i] = int(pad[2 * i])
+        high[rank - 1 - i] = int(pad[2 * i + 1])
+    return mb.pad(x, low, high, float(value))
 
 
 @_lowering(_aten._unsafe_view.default)

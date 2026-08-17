@@ -196,6 +196,47 @@ def test_all(dim: int, keepdim: bool) -> None:
     assert_close_cpu_vs_tt(lambda t: torch.all(t, dim=dim, keepdim=keepdim), x)
 
 
+def _scattered_bool(shape: tuple[int, ...]) -> torch.Tensor:
+    """Bool tensor with True only in the even rows of column 0. Reducing it with
+    `any` over either dim gives a mix of True and False — a dense random mask
+    would answer True everywhere and hide a broken reduction.
+    """
+    x = torch.zeros(shape, dtype=torch.bool)
+    x[::2, 0] = True
+    return x
+
+
+@pytest.mark.parametrize("keepdim", [True, False])
+@pytest.mark.parametrize("dim", [0, 1, -1], ids=["dim0", "dim1", "dim_neg1"])
+def test_any_dim(dim: int, keepdim: bool) -> None:
+    x = _scattered_bool((64, 128))
+    assert_close_cpu_vs_tt(lambda t: torch.any(t, dim=dim, keepdim=keepdim), x)
+
+
+@pytest.mark.parametrize("keepdim", [True, False])
+@pytest.mark.parametrize("dim", [[0], [0, 1], [-1]], ids=["one", "both", "neg"])
+def test_any_dims(dim: list[int], keepdim: bool) -> None:
+    x = _scattered_bool((64, 128))
+    assert_close_cpu_vs_tt(lambda t: torch.any(t, dim=dim, keepdim=keepdim), x)
+
+
+# Reduction over every element, so the result is a rank-0 Bool scalar. Both
+# outcomes are covered: an all-False input must not come back True.
+@pytest.mark.parametrize("any_true", [True, False], ids=["some_true", "all_false"])
+def test_any_all(any_true: bool) -> None:
+    x = _scattered_bool((64, 128)) if any_true else torch.zeros((64, 128), dtype=torch.bool)
+    assert_close_cpu_vs_tt(torch.any, x)
+
+
+# Non-Bool input: torch counts any nonzero element as true, which the reduction
+# has to express as `!= 0` — a cast to i1 would truncate 0.5 to False.
+@pytest.mark.parametrize("dim", [1, -1], ids=["dim1", "dim_neg1"])
+def test_any_nonbool(dim: int) -> None:
+    x = torch.zeros((64, 128), dtype=torch.bfloat16)
+    x[::2, 0] = 0.5
+    assert_close_cpu_vs_tt(lambda t: torch.any(t, dim=dim), x)
+
+
 # in-place relu_: the result aliases self, so assert correctness AND that the
 # returned tensor is the same object whose storage was mutated.
 @pytest.mark.parametrize("shape", [(64, 128), (32, 32), (32, 64, 32)])

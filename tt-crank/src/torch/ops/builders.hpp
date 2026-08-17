@@ -227,6 +227,13 @@ mlir::Value build_cat(ModuleBuilder &mb, llvm::ArrayRef<mlir::Value> inputs, int
 mlir::Value build_slice(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> begins,
                         llvm::ArrayRef<int64_t> ends, llvm::ArrayRef<int64_t> step);
 
+// Emit TTIR for constant padding. `low`/`high` carry one amount per dimension,
+// in dimension order (not aten's reversed, trailing-dims-only list — callers
+// convert). A negative amount crops that edge instead of padding it, matching
+// aten::constant_pad_nd; ttir.pad only grows, so crops become a leading slice.
+mlir::Value build_pad(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> low,
+                      llvm::ArrayRef<std::int64_t> high, double value);
+
 // Emit TTIR arange creation op. Returns a 1D tensor of shape
 // [ceil((end - start) / step)] with element type `dtype`. No tensor inputs —
 // callers must pass an empty inputs list to ModuleBuilder::init.
@@ -291,10 +298,13 @@ mlir::Value build_tril(ModuleBuilder &mb, mlir::Value input, int64_t diagonal);
 // Input must be a floating-point type. Output is Bool (i1).
 mlir::Value build_isneginf(ModuleBuilder &mb, mlir::Value input);
 
-// Emit TTIR for logical AND reduction along `dims`. Empty `dims` reduces over all
-// dimensions. `keepdim` controls whether reduced dimensions are retained as size 1.
-// Input and output are Bool (i1).
+// Emit TTIR for logical AND / OR reduction along `dims` (aten::all / aten::any).
+// Empty `dims` reduces over all dimensions. `keepdim` controls whether reduced
+// dimensions are retained as size 1. A non-Bool input is tested against zero
+// first, so any nonzero element counts as true (torch's semantics). Output is
+// Bool (i1).
 mlir::Value build_all(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> dims, bool keepdim);
+mlir::Value build_any(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> dims, bool keepdim);
 
 // Emit TTIR for element-wise less-than-or-equal comparison:
 //   result[i] = (lhs[i] <= rhs[i])

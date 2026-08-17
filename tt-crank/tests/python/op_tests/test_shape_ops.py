@@ -1,7 +1,8 @@
-"""Tests for shape-manipulation ops: unsqueeze, squeeze, expand, transpose, permute, tril."""
+"""Tests for shape-manipulation ops: unsqueeze, squeeze, expand, transpose, permute, tril, pad."""
 
 import pytest
 import torch
+import torch.nn.functional as F
 
 from tt_kurbla.torch.testing import assert_close_cpu_vs_tt
 
@@ -72,3 +73,30 @@ def test_permute(shape: tuple, perm: tuple) -> None:
 def test_tril(shape: tuple, diagonal: int) -> None:
     a = torch.randn(shape, dtype=torch.bfloat16)
     assert_close_cpu_vs_tt(lambda x: torch.tril(x, diagonal=diagonal), a)
+
+
+# F.pad's amounts run from the last dim backwards and may be negative, in which
+# case that edge is cropped rather than padded. Both signs, mixed within one dim
+# and spread over several dims. The (1, 128, 15) cases pad or crop a trailing
+# dim that is neither tile-aligned nor a multiple of the amount.
+@pytest.mark.parametrize(
+    "shape,pad",
+    [
+        ((32, 64), (8, 8)),
+        ((1, 128, 15), (3, 0)),
+        ((1, 128, 15), (-11, 0)),
+        ((32, 64), (-4, -4)),
+        ((32, 64), (4, -6)),
+        ((32, 64), (1, 1, 2, 2)),
+        ((2, 3, 4, 5), (1, 1, 0, 2, 3, 0)),
+        ((2, 3, 4, 5), (-1, -2, 2, 0, -1, 1)),
+    ],
+)
+def test_pad(shape: tuple, pad: tuple) -> None:
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(lambda x: F.pad(x, pad), a)
+
+
+def test_pad_nonzero_value() -> None:
+    a = torch.randn((32, 64), dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(lambda x: F.pad(x, (4, 4), value=2.5), a)
