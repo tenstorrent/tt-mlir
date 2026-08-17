@@ -4509,6 +4509,140 @@ TEST_F(OpModelBase, CacheOpConstraintsMissesTest) {
   EXPECT_EQ(stats2.misses, 2);
 }
 
+TEST_F(OpModelBase, CacheFailureIsCachedTest) {
+  opConstraintsCache().clear();
+  opRuntimeCache().clear();
+
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  auto input1 = createEmptyTensor(tensorShape);
+  auto input2 = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+  auto sub = builder.create<SubtractOp>(builder.getUnknownLoc(), outputType,
+                                        mlir::ValueRange{input1, input2});
+
+  // test the constraints cache:
+  auto failingConstraintsCompute =
+      [](int marker) -> llvm::Expected<op_model::OpConstraints> {
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   "synthetic failure");
+  };
+
+  auto firstConstraintsExp = opConstraintsCache().getOrCompute(
+      failingConstraintsCompute, sub.getOperation(), 42);
+  ASSERT_FALSE(static_cast<bool>(firstConstraintsExp));
+  std::string firstConstraintsMessage =
+      llvm::toString(firstConstraintsExp.takeError());
+
+  auto constraintsStats = opConstraintsCache().getStats();
+  EXPECT_EQ(constraintsStats.hits, 0);
+  EXPECT_EQ(constraintsStats.misses, 1);
+  EXPECT_EQ(opConstraintsCache().size(), 1u);
+
+  // Repeating the same query must hit the failure cache, returning the same
+  // error message.
+  auto secondConstraintsExp = opConstraintsCache().getOrCompute(
+      failingConstraintsCompute, sub.getOperation(), 42);
+  ASSERT_FALSE(static_cast<bool>(secondConstraintsExp));
+  EXPECT_EQ(llvm::toString(secondConstraintsExp.takeError()),
+            firstConstraintsMessage);
+
+  constraintsStats = opConstraintsCache().getStats();
+  EXPECT_EQ(constraintsStats.hits, 1);
+  EXPECT_EQ(constraintsStats.misses, 1);
+  EXPECT_EQ(opConstraintsCache().size(), 1u);
+
+  // test the runtime cache:
+  auto failingRuntimeCompute = [](int marker) -> llvm::Expected<size_t> {
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   "synthetic failure");
+  };
+
+  auto firstRuntimeExp = opRuntimeCache().getOrCompute(failingRuntimeCompute,
+                                                       sub.getOperation(), 42);
+  ASSERT_FALSE(static_cast<bool>(firstRuntimeExp));
+  std::string firstRuntimeMessage = llvm::toString(firstRuntimeExp.takeError());
+
+  auto runtimeStats = opRuntimeCache().getStats();
+  EXPECT_EQ(runtimeStats.hits, 0);
+  EXPECT_EQ(runtimeStats.misses, 1);
+  EXPECT_EQ(opRuntimeCache().size(), 1u);
+
+  // Repeating the same query must hit the failure cache, returning the same
+  // error message.
+  auto secondRuntimeExp = opRuntimeCache().getOrCompute(failingRuntimeCompute,
+                                                        sub.getOperation(), 42);
+  ASSERT_FALSE(static_cast<bool>(secondRuntimeExp));
+  EXPECT_EQ(llvm::toString(secondRuntimeExp.takeError()), firstRuntimeMessage);
+
+  runtimeStats = opRuntimeCache().getStats();
+  EXPECT_EQ(runtimeStats.hits, 1);
+  EXPECT_EQ(runtimeStats.misses, 1);
+  EXPECT_EQ(opRuntimeCache().size(), 1u);
+}
+
+TEST_F(OpModelBase, CacheOpNotSupportedErrorIsNotCachedTest) {
+  opConstraintsCache().clear();
+  opRuntimeCache().clear();
+
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  auto input1 = createEmptyTensor(tensorShape);
+  auto input2 = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+  auto sub = builder.create<SubtractOp>(builder.getUnknownLoc(), outputType,
+                                        mlir::ValueRange{input1, input2});
+
+  // test the constraints cache:
+  auto unsupportedConstraintsCompute =
+      [](int marker) -> llvm::Expected<op_model::OpConstraints> {
+    return llvm::make_error<detail::OpNotSupportedError>(
+        "SyntheticOp", detail::ReasonForLackOfSupport::NeedsMemoryIO,
+        "getOpConstraints");
+  };
+
+  auto firstConstraintsExp = opConstraintsCache().getOrCompute(
+      unsupportedConstraintsCompute, sub.getOperation(), 7);
+  ASSERT_FALSE(static_cast<bool>(firstConstraintsExp));
+  EXPECT_TRUE(firstConstraintsExp.errorIsA<detail::OpNotSupportedError>());
+  llvm::consumeError(firstConstraintsExp.takeError());
+
+  // OpNotSupportedError is not memoized.
+  auto secondConstraintsExp = opConstraintsCache().getOrCompute(
+      unsupportedConstraintsCompute, sub.getOperation(), 7);
+  ASSERT_FALSE(static_cast<bool>(secondConstraintsExp));
+  EXPECT_TRUE(secondConstraintsExp.errorIsA<detail::OpNotSupportedError>());
+  llvm::consumeError(secondConstraintsExp.takeError());
+
+  auto constraintsStats = opConstraintsCache().getStats();
+  EXPECT_EQ(constraintsStats.hits, 0);
+  EXPECT_EQ(constraintsStats.misses, 2);
+  EXPECT_EQ(opConstraintsCache().size(), 0u);
+
+  // test the runtime cache:
+  auto unsupportedRuntimeCompute = [](int marker) -> llvm::Expected<size_t> {
+    return llvm::make_error<detail::OpNotSupportedError>(
+        "SyntheticOp", detail::ReasonForLackOfSupport::NeedsMemoryIO,
+        "getOpRuntime");
+  };
+
+  auto firstRuntimeExp = opRuntimeCache().getOrCompute(
+      unsupportedRuntimeCompute, sub.getOperation(), 7);
+  ASSERT_FALSE(static_cast<bool>(firstRuntimeExp));
+  EXPECT_TRUE(firstRuntimeExp.errorIsA<detail::OpNotSupportedError>());
+  llvm::consumeError(firstRuntimeExp.takeError());
+
+  // OpNotSupportedError is not memoized.
+  auto secondRuntimeExp = opRuntimeCache().getOrCompute(
+      unsupportedRuntimeCompute, sub.getOperation(), 7);
+  ASSERT_FALSE(static_cast<bool>(secondRuntimeExp));
+  EXPECT_TRUE(secondRuntimeExp.errorIsA<detail::OpNotSupportedError>());
+  llvm::consumeError(secondRuntimeExp.takeError());
+
+  auto runtimeStats = opRuntimeCache().getStats();
+  EXPECT_EQ(runtimeStats.hits, 0);
+  EXPECT_EQ(runtimeStats.misses, 2);
+  EXPECT_EQ(opRuntimeCache().size(), 0u);
+}
+
 TEST_F(OpModelBase, WhereOpInterface) {
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   auto input1 = createEmptyTensor(tensorShape);

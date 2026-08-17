@@ -64,10 +64,9 @@ public:
 
   // Statistics about cache performance.
   struct CacheStats {
-    size_t hits = 0;             // Number of cache hits
-    size_t misses = 0;           // Number of cache misses
-    size_t entries = 0;          // Total number of entries in the cache
-    size_t rejectionEntries = 0; // Subset of entries that are rejections
+    size_t hits = 0;    // Number of cache hits
+    size_t misses = 0;  // Number of cache misses
+    size_t entries = 0; // Total number of entries in the cache
   };
 
   // Get current cache statistics.
@@ -96,15 +95,13 @@ public:
     const double missRatio =
         (static_cast<double>(stats.misses) / total) * 100.0;
 
-    std::string statsStr =
-        "  Cache Statistics (" + std::to_string(total) + " total accesses):\n" +
-        "    Hits: " + std::to_string(stats.hits) + " (" +
-        std::to_string(hitRatio) + "%)\n" +
-        "    Misses: " + std::to_string(stats.misses) + " (" +
-        std::to_string(missRatio) + "%)\n" +
-        "    Size: " + std::to_string(size()) + "\n" +
-        "    Rejection entries: " + std::to_string(stats.rejectionEntries) +
-        "\n";
+    std::string statsStr = "  Cache Statistics (" + std::to_string(total) +
+                           " total accesses):\n" +
+                           "    Hits: " + std::to_string(stats.hits) + " (" +
+                           std::to_string(hitRatio) + "%)\n" +
+                           "    Misses: " + std::to_string(stats.misses) +
+                           " (" + std::to_string(missRatio) + "%)\n" +
+                           "    Size: " + std::to_string(size()) + "\n";
     return statsStr;
   }
 
@@ -159,7 +156,7 @@ public:
     llvm::Error error = result.takeError();
     // We don't cache OpNotSupportedError - the caller depends on the exact
     // type.
-    if (!cacheFailures || error.isA<detail::OpNotSupportedError>()) {
+    if (error.isA<detail::OpNotSupportedError>()) {
       return std::move(error);
     }
     // takeError() consumed the error, so hand back an equivalent one.
@@ -172,8 +169,7 @@ public:
 
 private:
   // Private constructor - only accessible by friend functions.
-  explicit TTNNOpModelCache(bool cacheFailures)
-      : cacheFailures(cacheFailures) {}
+  TTNNOpModelCache() = default;
 
   ~TTNNOpModelCache() = default;
 
@@ -219,7 +215,6 @@ private:
     mlir::TypeID opTypeID = op->getName().getTypeID();
     if (failures[opTypeID].try_emplace(hash, std::move(message)).second) {
       stats.entries++;
-      stats.rejectionEntries++;
     }
   }
 
@@ -232,15 +227,13 @@ private:
   // efficient to use it as a key in the cache.
   //
   // Kept separate from SuccessCache: llvm::Error/Expected is not suitable for
-  // storing in cache, so a rejection is a plain string, turned into a fresh
+  // storing in cache, so a failure is a plain string, turned into a fresh
   // Error on each hit.
   using SuccessCache = llvm::DenseMap<llvm::hash_code, ValueT>;
   using SuccessCacheMap = llvm::DenseMap<mlir::TypeID, SuccessCache>;
   using FailureCache = llvm::DenseMap<llvm::hash_code, std::string>;
   using FailureCacheMap = llvm::DenseMap<mlir::TypeID, FailureCache>;
 
-  // Should rejections be cached?
-  const bool cacheFailures;
   SuccessCacheMap values;
   FailureCacheMap failures;
   CacheStats stats;
@@ -256,13 +249,12 @@ inline TTNNOpModelCache<op_model::OpConstraints> &opConstraintsCache() {
   //  §6.7 [stmt.dcl] p4 If control enters the declaration concurrently while
   //  the variable is being initialized, the concurrent execution shall wait for
   //  completion of the initialization.
-  static TTNNOpModelCache<op_model::OpConstraints> instance(
-      /*cacheFailures=*/true);
+  static TTNNOpModelCache<op_model::OpConstraints> instance;
   return instance;
 }
 
 inline TTNNOpModelCache<size_t> &opRuntimeCache() {
-  static TTNNOpModelCache<size_t> instance(/*cacheFailures=*/false);
+  static TTNNOpModelCache<size_t> instance;
   return instance;
 }
 
