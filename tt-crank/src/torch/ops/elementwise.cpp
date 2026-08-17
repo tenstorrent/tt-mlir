@@ -938,6 +938,54 @@ at::Tensor tt_log(const at::Tensor &self) {
     return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
 }
 
+at::Tensor tt_exp(const at::Tensor &self) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::exp: tensor must be on tt backend");
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result = build_exp(mb, mb.args()[0]);
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
+}
+
+at::Tensor tt_log1p(const at::Tensor &self) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::log1p: tensor must be on tt backend");
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result = build_log1p(mb, mb.args()[0]);
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
+}
+
+// The optional `dtype` asks for accumulation in a wider type than the input;
+// ttir.cumsum accumulates in the input's element type, so only a same-dtype (or
+// absent) request maps onto it.
+at::Tensor tt_cumsum(const at::Tensor &self, int64_t dim, std::optional<at::ScalarType> dtype) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::cumsum: tensor must be on tt backend");
+    TORCH_CHECK(!dtype.has_value() || *dtype == self.scalar_type(),
+                "tt-kurbla aten::cumsum: dtype must match the input's (", self.scalar_type(), "), got ", *dtype);
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    int64_t rank = std::max<int64_t>(self.dim(), 1);
+    auto result = build_cumsum(mb, mb.args()[0], (dim % rank + rank) % rank);
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
+}
+
+// full_like takes its shape from `self` and, unless `dtype` overrides it, its
+// element type too. `self`'s contents are never read, so it is not an operand:
+// the module is input-less like arange's.
+at::Tensor tt_full_like(const at::Tensor &self, const at::Scalar &fill_value, std::optional<at::ScalarType> dtype,
+                        std::optional<at::Layout> /*layout*/, std::optional<at::Device> /*device*/,
+                        std::optional<bool> /*pin_memory*/, std::optional<at::MemoryFormat> /*memory_format*/) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::full_like: tensor must be on tt backend");
+    auto out_dtype = dtype.value_or(self.scalar_type());
+    auto mb = ModuleBuilder::init({});
+    auto result = build_full(mb, self.sizes(), fill_value.toDouble(), mlir_element_type_for(out_dtype));
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), out_dtype);
+}
+
 at::Tensor tt_neg(const at::Tensor &self) {
     TORCH_CHECK(is_tt(self), "tt-kurbla aten::neg: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
@@ -1067,6 +1115,23 @@ mlir::Value build_neg(ModuleBuilder &mb, mlir::Value input) {
 mlir::Value build_log(ModuleBuilder &mb, mlir::Value input) {
     auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     return mb.create<mlir::tt::ttir::LogOp>(result_type, input).getResult();
+}
+
+mlir::Value build_exp(ModuleBuilder &mb, mlir::Value input) {
+    auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    return mb.create<mlir::tt::ttir::ExpOp>(result_type, input).getResult();
+}
+
+mlir::Value build_log1p(ModuleBuilder &mb, mlir::Value input) {
+    auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    return mb.create<mlir::tt::ttir::Log1pOp>(result_type, input).getResult();
+}
+
+mlir::Value build_cumsum(ModuleBuilder &mb, mlir::Value input, int64_t dim) {
+    auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    int64_t rank = as<int64_t>(result_type.getRank());
+    TT_FATAL(dim >= 0 && dim < rank, "build_cumsum: dim {} out of range for rank {}", dim, rank);
+    return mb.create<mlir::tt::ttir::CumSumOp>(result_type, input, dim).getResult();
 }
 
 mlir::Value build_silu(ModuleBuilder &mb, mlir::Value input) {
@@ -1937,6 +2002,10 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("sin", TORCH_FN(tt_sin));
     m.impl("neg", TORCH_FN(tt_neg));
     m.impl("log", TORCH_FN(tt_log));
+    m.impl("exp", TORCH_FN(tt_exp));
+    m.impl("log1p", TORCH_FN(tt_log1p));
+    m.impl("cumsum", TORCH_FN(tt_cumsum));
+    m.impl("full_like", TORCH_FN(tt_full_like));
     m.impl("arange", TORCH_FN(tt_arange));
     m.impl("arange.start", TORCH_FN(tt_arange_start));
     m.impl("arange.start_step", TORCH_FN(tt_arange_start_step));

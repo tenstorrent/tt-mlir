@@ -64,6 +64,11 @@ mlir::Value build_mean(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std:
 // `keepdim` controls whether reduced dimensions are retained as size-1.
 mlir::Value build_sum(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims, bool keepdim);
 
+// Emit TTIR for a cumulative sum along `dim` (which must already be
+// non-negative). Unlike the reductions above this keeps the input shape: every
+// position holds the running total up to and including itself.
+mlir::Value build_cumsum(ModuleBuilder &mb, mlir::Value input, int64_t dim);
+
 // The `at::sum_to` analogue for MLIR values: reduce `input` to `target` by
 // summing away broadcasted dims — leading dims beyond `target`'s rank, plus dims
 // where `target` is size 1 but `input` is larger (with keepdim). A no-op when
@@ -162,6 +167,13 @@ mlir::Value build_neg(ModuleBuilder &mb, mlir::Value input);
 
 // Emit TTIR for element-wise natural logarithm.
 mlir::Value build_log(ModuleBuilder &mb, mlir::Value input);
+
+// Emit TTIR for element-wise natural exponential.
+mlir::Value build_exp(ModuleBuilder &mb, mlir::Value input);
+
+// Emit TTIR for element-wise log(1 + x). Stays accurate for |x| near zero,
+// where log(1 + x) computed in two steps loses the small addend to rounding.
+mlir::Value build_log1p(ModuleBuilder &mb, mlir::Value input);
 
 // Emit TTIR for element-wise SiLU activation.
 mlir::Value build_silu(ModuleBuilder &mb, mlir::Value input);

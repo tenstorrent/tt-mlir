@@ -264,6 +264,18 @@ public:
         assert_builder();
         return tk::build_log(*mb_, input);
     }
+    mlir::Value exp(mlir::Value input) {
+        assert_builder();
+        return tk::build_exp(*mb_, input);
+    }
+    mlir::Value log1p(mlir::Value input) {
+        assert_builder();
+        return tk::build_log1p(*mb_, input);
+    }
+    mlir::Value cumsum(mlir::Value input, std::int64_t dim) {
+        assert_builder();
+        return tk::build_cumsum(*mb_, input, dim);
+    }
     mlir::Value silu(mlir::Value input) {
         assert_builder();
         return tk::build_silu(*mb_, input);
@@ -768,6 +780,9 @@ NB_MODULE(_native, m) {
         .def("sin", &PyModuleBuilder::sin, "input"_a)
         .def("neg", &PyModuleBuilder::neg, "input"_a)
         .def("log", &PyModuleBuilder::log, "input"_a)
+        .def("exp", &PyModuleBuilder::exp, "input"_a)
+        .def("log1p", &PyModuleBuilder::log1p, "input"_a)
+        .def("cumsum", &PyModuleBuilder::cumsum, "input"_a, "dim"_a)
         .def("silu", &PyModuleBuilder::silu, "input"_a)
         .def("sigmoid", &PyModuleBuilder::sigmoid, "input"_a)
         .def("floor_divide", &PyModuleBuilder::floor_divide, "lhs"_a, "rhs"_a)
