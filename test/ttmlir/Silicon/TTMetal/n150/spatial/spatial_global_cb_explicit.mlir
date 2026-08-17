@@ -3,24 +3,24 @@
 // RUN: ttmlir-translate --ttmetal-to-flatbuffer -o %t.ttm %t.mlir
 // RUN: ttrt run %t.ttm
 
-// Zip mapping example: sender (0,0) <-> receiver (1,1), 1:1.
+// Explicit mapping example: irregular sender (0,0) -> receiver (2,1).
 
-// CHECK-LABEL: func.func @spatial_global_cb_identity
+// CHECK-LABEL: func.func @spatial_global_cb_explicit
 // CHECK: ttmetal.create_global_circular_buffer
-// CHECK-SAME: mapping = #d2m.global_cb_mapping<zip, sender = #ttcore.core_range<(0,0), (0,0)>, receiver = #ttcore.core_range<(1,1), (1,1)>>
+// CHECK-SAME: mapping = #d2m.global_cb_mapping<explicit, [#d2m.sender_receivers<(0,0), [<(2,1), (2,1)>]>]>
 // CHECK: "ttmetal.enqueue_program"
 
 #layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 #map = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #map1 = affine_map<(d0, d1) -> (0, d0, d1)>
-#map2 = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>
-#map3 = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>
+#map2 = affine_map<(d0, d1, d2, d3) -> (d0 + 2, d1 + 1, d2, d3)>
+#map3 = affine_map<(d0, d1) -> (0, d0 - 2, d1 - 1)>
 #map4 = affine_map<(d0, d1) -> (d0, d1)>
 #parallel = #ttcore.iterator_type<parallel>
 !slot = tensor<1x1x!ttcore.tile<32x32, bf16>>
 
 module {
-  func.func @spatial_global_cb_identity(%arg0: tensor<32x32xbf16>) -> (tensor<32x32xbf16>, tensor<32x32xbf16>) attributes {tt.function_type = "forward_device"} {
+  func.func @spatial_global_cb_explicit(%arg0: tensor<32x32xbf16>) -> (tensor<32x32xbf16>, tensor<32x32xbf16>) attributes {tt.function_type = "forward_device"} {
     %0 = d2m.empty() {virtualGridForwardMapping = #map, virtualGridInverseMapping = #map1} : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>
     %1 = d2m.to_layout %arg0, %0 : tensor<32x32xbf16> into tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout> -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>
     %view_in = d2m.view_layout %1 remapping = #map : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout> -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>
@@ -29,12 +29,12 @@ module {
     %o1 = d2m.empty() {virtualGridForwardMapping = #map2, virtualGridInverseMapping = #map3} : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>
     %view_out1 = d2m.view_layout %o1 remapping = #map : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout> -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>
     %gcb = d2m.create_global_cb {
-      mapping = #d2m.global_cb_mapping<zip,
-        sender = #ttcore.core_range<(0, 0), (0, 0)>,
-        receiver = #ttcore.core_range<(1, 1), (1, 1)>>,
+      mapping = #d2m.global_cb_mapping<explicit, [
+        #d2m.sender_receivers<(0, 0), [#ttcore.core_range<(2, 1), (2, 1)>]>
+      ]>,
       num_slots = 1 : i64
     } : !d2m.global_cb<!slot>
-    %r:2 = d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]}
+    %r:2 = d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(2, 1), (2, 1)>]}
         ins(%view_in : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>)
         outs(%view_out0, %view_out1 : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>, tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>) {
       ^region0():
