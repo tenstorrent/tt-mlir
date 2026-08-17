@@ -1,1 +1,1 @@
-nanobind==2.12.0
+nanobind==2.14.0

@@ -10,6 +10,12 @@ list(APPEND CMAKE_PREFIX_PATH "${Python3_SITEARCH}" "${Python3_SITELIB}")
 if (NOT TARGET Python::Module AND TARGET Python3::Module)
   add_library(Python::Module ALIAS Python3::Module)
 endif()
+# nanobind 2.14 nanobind-config.cmake requires both Python::Interpreter
+# and Python::Module. find_package(Python3) only creates Python3::*
+# targets, so alias Interpreter like the existing Module alias.
+if (NOT TARGET Python::Interpreter AND TARGET Python3::Interpreter)
+  add_executable(Python::Interpreter ALIAS Python3::Interpreter)
+endif()
 if (NOT DEFINED Python_EXECUTABLE AND DEFINED Python3_EXECUTABLE)
   set(Python_EXECUTABLE "${Python3_EXECUTABLE}" CACHE FILEPATH "" FORCE)
 endif()
