@@ -1289,6 +1289,57 @@ mlir::Value build_slice(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int
         .getResult();
 }
 
+mlir::Value build_pad(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> low,
+                      llvm::ArrayRef<std::int64_t> high, double value) {
+    auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto shape = input_type.getShape();
+    int64_t rank = as<int64_t>(shape.size());
+    TT_FATAL(as<int64_t>(low.size()) == rank && as<int64_t>(high.size()) == rank,
+             "build_pad: low/high must have one entry per dim (rank {})", rank);
+
+    // A negative amount crops instead of pads, which ttir.pad can't express —
+    // it only grows. Crop with a slice first, then pad whatever is left.
+    bool crops = false;
+    llvm::SmallVector<int64_t> begins, ends, steps;
+    for (int64_t i = 0; i < rank; ++i) {
+        int64_t lo = low[as<std::size_t>(i)];
+        int64_t hi = high[as<std::size_t>(i)];
+        int64_t dim = shape[as<std::size_t>(i)];
+        begins.push_back(lo < 0 ? -lo : 0);
+        ends.push_back(hi < 0 ? dim + hi : dim);
+        steps.push_back(1);
+        crops = crops || lo < 0 || hi < 0;
+        TT_FATAL(ends.back() > begins.back(), "build_pad: crop of dim {} (size {}) by ({}, {}) leaves nothing", i, dim,
+                 lo, hi);
+    }
+    if (crops) {
+        input = build_slice(mb, input, begins, ends, steps);
+    }
+
+    bool pads = false;
+    llvm::SmallVector<int32_t> padding;
+    for (int64_t i = 0; i < rank; ++i) {
+        padding.push_back(as<int32_t>(std::max<int64_t>(low[as<std::size_t>(i)], 0)));
+        padding.push_back(as<int32_t>(std::max<int64_t>(high[as<std::size_t>(i)], 0)));
+        pads = pads || padding[padding.size() - 2] > 0 || padding.back() > 0;
+    }
+    if (!pads) {
+        return input;
+    }
+
+    auto cropped = mlir::cast<mlir::RankedTensorType>(input.getType()).getShape();
+    llvm::SmallVector<int64_t> out_shape;
+    for (int64_t i = 0; i < rank; ++i) {
+        out_shape.push_back(cropped[as<std::size_t>(i)] + padding[as<std::size_t>(2 * i)] +
+                            padding[as<std::size_t>(2 * i + 1)]);
+    }
+    auto result_type = mlir::RankedTensorType::get(out_shape, input_type.getElementType());
+    return mb
+        .create<mlir::tt::ttir::PadOp>(result_type, input, mb.attrs().getDenseI32ArrayAttr(padding),
+                                       mb.attrs().getF32FloatAttr(as<float>(value)))
+        .getResult();
+}
+
 mlir::Value build_arange(ModuleBuilder &mb, int64_t start, int64_t end, int64_t step, mlir::Type dtype) {
     TT_FATAL(step != 0, "build_arange: step must be non-zero");
     int64_t n = std::max<int64_t>(0, (end - start + step - 1) / step);
@@ -1608,8 +1659,24 @@ mlir::Value build_isneginf(ModuleBuilder &mb, mlir::Value input) {
     return mb.create<mlir::tt::ttir::LogicalAndOp>(bool_type, isinf, is_neg).getResult();
 }
 
+// ReduceAndOp/ReduceOrOp are i1-in, i1-out, but torch's all/any take any dtype
+// and treat every nonzero element as true. A typecast to i1 would truncate
+// instead of testing, so compare against zero (the same trick build_logical_not
+// uses on non-Bool input).
+static mlir::Value coerce_to_bool(ModuleBuilder &mb, mlir::Value input) {
+    auto elem = mlir::cast<mlir::RankedTensorType>(input.getType()).getElementType();
+    if (elem.isInteger(1)) {
+        return input;
+    }
+    return build_ne(mb, input, build_scalar(mb, elem, 0.0));
+}
+
 mlir::Value build_all(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> dims, bool keepdim) {
-    return build_reduce<mlir::tt::ttir::ReduceAndOp>(mb, input, dims, keepdim);
+    return build_reduce<mlir::tt::ttir::ReduceAndOp>(mb, coerce_to_bool(mb, input), dims, keepdim);
+}
+
+mlir::Value build_any(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> dims, bool keepdim) {
+    return build_reduce<mlir::tt::ttir::ReduceOrOp>(mb, coerce_to_bool(mb, input), dims, keepdim);
 }
 
 namespace {
@@ -1778,6 +1845,66 @@ at::Tensor &tt_all_out(const at::Tensor &self_in, int64_t dim, bool keepdim, at:
     return write_result_into(out, result);
 }
 
+// Shared body of the three any.* out kernels. `dims` is empty for a reduction
+// over every element (rank-0 result); build_any normalizes negative dims.
+at::Tensor &tt_any_reduce_out(const at::Tensor &self, llvm::ArrayRef<int64_t> dims, bool keepdim, at::Tensor &out) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::any: tensor must be on tt backend");
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result_v = build_any(mb, mb.args()[0], dims, keepdim);
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result_v.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result_v});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    auto result = wrap_tt_tensor(std::move(outputs[0]), out_shape, at::ScalarType::Bool);
+    return write_result_into(out, result);
+}
+
+// constant_pad_nd: aten lists the pad amounts from the *last* dimension
+// backwards as (low, high) pairs, and only for the trailing dims it touches.
+// Spread them over one low/high entry per dim, in dim order, for build_pad.
+at::Tensor tt_constant_pad_nd(const at::Tensor &self, at::IntArrayRef pad, const at::Scalar &value) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::constant_pad_nd: tensor must be on tt backend");
+    TORCH_CHECK(pad.size() % 2 == 0, "tt-kurbla aten::constant_pad_nd: pad must have an even length, got ", pad.size());
+    int64_t rank = self.dim();
+    TORCH_CHECK(as<int64_t>(pad.size()) <= 2 * rank, "tt-kurbla aten::constant_pad_nd: pad covers ", pad.size() / 2,
+                " dims but the tensor has rank ", rank);
+
+    std::vector<int64_t> low(as<std::size_t>(rank), 0);
+    std::vector<int64_t> high(as<std::size_t>(rank), 0);
+    for (std::size_t i = 0; i < pad.size() / 2; ++i) {
+        auto dim = as<std::size_t>(rank - 1 - as<int64_t>(i));
+        low[dim] = pad[2 * i];
+        high[dim] = pad[2 * i + 1];
+    }
+
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result_v = build_pad(mb, mb.args()[0], low, high, value.toDouble());
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result_v.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result_v});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, self.scalar_type());
+}
+
+// any.all_out: logical OR over every element, into a rank-0 `out`.
+at::Tensor &tt_any_all_out(const at::Tensor &self, at::Tensor &out) {
+    return tt_any_reduce_out(self, {}, /*keepdim=*/false, out);
+}
+
+// any.out: logical OR reduction along a single `dim`.
+at::Tensor &tt_any_out(const at::Tensor &self, int64_t dim, bool keepdim, at::Tensor &out) {
+    return tt_any_reduce_out(self, {dim}, keepdim, out);
+}
+
+// any.dims_out: logical OR reduction along `dim`; dim=None means every dimension.
+at::Tensor &tt_any_dims_out(const at::Tensor &self, at::OptionalIntArrayRef dim, bool keepdim, at::Tensor &out) {
+    llvm::SmallVector<int64_t> dims;
+    if (dim.has_value()) {
+        dims.assign(dim.value().begin(), dim.value().end());
+    }
+    return tt_any_reduce_out(self, dims, keepdim, out);
+}
+
 } // namespace
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
@@ -1827,6 +1954,10 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("where.self_out", TORCH_FN(tt_where_out));
     m.impl("isneginf.out", TORCH_FN(tt_isneginf_out));
     m.impl("all.out", TORCH_FN(tt_all_out));
+    m.impl("any.all_out", TORCH_FN(tt_any_all_out));
+    m.impl("any.out", TORCH_FN(tt_any_out));
+    m.impl("any.dims_out", TORCH_FN(tt_any_dims_out));
+    m.impl("constant_pad_nd", TORCH_FN(tt_constant_pad_nd));
     m.impl("tril.out", TORCH_FN(tt_tril_out));
     m.impl("index_copy.out", TORCH_FN(tt_index_copy_out));
     m.impl("le.Tensor_out", TORCH_FN(tt_le_tensor_out));

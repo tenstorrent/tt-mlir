@@ -10,6 +10,7 @@ the result against the eager CPU output.
 import pytest
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from tt_kurbla.torch.testing import DeviceType, ExecutionMode, assert_close_cpu_vs_tt
 from tt_kurbla.torch._compile import _compile_options, CompileOption, BfpDtype, MathFidelity
@@ -815,6 +816,115 @@ def test_compile_sum(shape: tuple[int, ...], dim: list[int], keepdim: bool) -> N
 
     x = torch.randn(shape, dtype=torch.bfloat16)
     _assert_compile_matches_eager(_Sum(dim, keepdim), x, atol=0.05, rtol=0.05)
+
+
+def _scattered_input() -> torch.Tensor:
+    """Zeros except the even rows of column 0. A `> 0.5` mask over this answers
+    `any` with a mix of True and False along either dim, unlike a dense random
+    mask which is True almost everywhere."""
+    x = torch.zeros((32, 64), dtype=torch.bfloat16)
+    x[::2, 0] = 1.0
+    return x
+
+
+@pytest.mark.parametrize(
+    "dim,keepdim",
+    [(None, False), (1, False), (-1, True), ([0, 1], False), ([0, 1], True)],
+    ids=["all", "dim1", "dim_neg1_keepdim", "dims", "dims_keepdim"],
+)
+def test_compile_any(dim: int | list[int] | None, keepdim: bool) -> None:
+    """aten::any.{default,dim,dims} in a compiled graph. The mask is built inside
+    forward so reduce_or consumes a comparison result, and dim=None reduces to a
+    rank-0 Bool output."""
+    class _Any(nn.Module):
+        def __init__(self, d: int | list[int] | None, k: bool) -> None:
+            super().__init__()
+            self.d = d
+            self.k = k
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            mask = x > 0.5
+            if self.d is None:
+                return torch.any(mask)
+            return torch.any(mask, dim=self.d, keepdim=self.k)
+
+    _assert_compile_matches_eager(_Any(dim, keepdim), _scattered_input())
+
+
+def test_compile_all_via_any() -> None:
+    """`torch.all` has no lowering of its own on the compile path: aten decomposes
+    it to logical_not/any.dims/logical_not, so this covers any.dims reached through
+    that route (the shape of an attention-mask check inside a traced model)."""
+    class _All(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.all(x > 0.5)
+
+    _assert_compile_matches_eager(_All(), _scattered_input())
+
+
+def test_compile_slice_assign_strided() -> None:
+    """A strided slice assignment functionalizes into slice + copy + slice_scatter,
+    and slice_scatter decomposes onto arange/remainder/index/where."""
+    class _Interleave(nn.Module):
+        def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            out = x.clone()
+            out[..., 1:64:3] = y[..., 1:64:3]
+            return out
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    y = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Interleave(), x, y)
+
+
+def test_compile_slice_assign_broadcast() -> None:
+    """aten::copy.default where src is narrower than the destination slice, so the
+    lowering has to broadcast rather than pass the value straight through."""
+    class _Fill(nn.Module):
+        def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            out = x.clone()
+            out[:, 0:32] = y[:, 0:1]
+            return out
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    y = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Fill(), x, y)
+
+
+@pytest.mark.parametrize("divisor", [3, -3], ids=["pos", "neg"])
+def test_compile_remainder_scalar(divisor: int) -> None:
+    """aten::remainder.Scalar on an integer input, both divisor signs. torch's
+    remainder is floored (the result follows the divisor's sign), so this would
+    fail against a truncating fmod lowering."""
+    class _Rem(nn.Module):
+        def __init__(self, d: int) -> None:
+            super().__init__()
+            self.d = d
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.remainder(x, self.d)
+
+    x = torch.arange(-128, 128, dtype=torch.int32).repeat(4).reshape(32, 32)
+    _assert_compile_matches_eager(_Rem(divisor), x)
+
+
+@pytest.mark.parametrize(
+    "pad",
+    [(3, 0), (-11, 0), (4, -6), (2, 2, 1, 0)],
+    ids=["grow_left", "crop", "mixed_signs", "two_dims"],
+)
+def test_compile_pad(pad: tuple[int, ...]) -> None:
+    """aten::constant_pad_nd.default. Covers a one-sided grow, a negative amount
+    (which crops that edge instead), both signs within one dim, and two dims at
+    once."""
+    class _Pad(nn.Module):
+        def __init__(self, p: tuple[int, ...]) -> None:
+            super().__init__()
+            self.p = p
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return F.pad(x, self.p)
+
+    _assert_compile_matches_eager(_Pad(pad), torch.randn((1, 128, 15), dtype=torch.bfloat16))
 
 
 def test_compile_le() -> None:

@@ -139,6 +139,18 @@ public:
         return tk::build_sum(*mb_, input, dims, keepdim);
     }
 
+    // Empty `dims` reduces over every dimension, matching aten::any's dim=None.
+    mlir::Value any(mlir::Value input, std::vector<std::int64_t> dims, bool keepdim) {
+        assert_builder();
+        return tk::build_any(*mb_, input, dims, keepdim);
+    }
+
+    // One `low`/`high` amount per dimension, in dimension order; negative crops.
+    mlir::Value pad(mlir::Value input, std::vector<std::int64_t> low, std::vector<std::int64_t> high, double value) {
+        assert_builder();
+        return tk::build_pad(*mb_, input, low, high, value);
+    }
+
     mlir::Value threshold_backward(mlir::Value grad_output, mlir::Value self, double threshold) {
         assert_builder();
         return tk::build_threshold_backward(*mb_, grad_output, self, threshold);
@@ -731,6 +743,8 @@ NB_MODULE(_native, m) {
         .def("reshape", &PyModuleBuilder::reshape, "input"_a, "new_shape"_a)
         .def("mean", &PyModuleBuilder::mean, "input"_a, "dims"_a, "keepdim"_a = false)
         .def("sum", &PyModuleBuilder::sum, "input"_a, "dims"_a, "keepdim"_a = false)
+        .def("any", &PyModuleBuilder::any, "input"_a, "dims"_a, "keepdim"_a = false)
+        .def("pad", &PyModuleBuilder::pad, "input"_a, "low"_a, "high"_a, "value"_a = 0.0)
         .def("threshold_backward", &PyModuleBuilder::threshold_backward, "grad_output"_a, "self"_a, "threshold"_a)
         .def("mse_loss", &PyModuleBuilder::mse_loss, "self"_a, "target"_a, "reduction"_a)
         .def("mse_loss_backward", &PyModuleBuilder::mse_loss_backward, "grad_output"_a, "self"_a, "target"_a,
