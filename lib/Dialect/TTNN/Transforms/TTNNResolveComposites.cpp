@@ -288,6 +288,109 @@ static void registerBuiltinComposites() {
         ttcore::Arch arch = sysDesc.getChipDesc(0).getArch().getValue();
         return success(arch == ttcore::Arch::Blackhole);
       }};
+
+  registry["sdpa_fw"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert((compositeOp.getInputs().size() == 3u ||
+                   compositeOp.getInputs().size() == 4u));
+
+        auto optAttrs = compositeOp.getCompositeAttributes();
+        TT_assert(optAttrs);
+        DictionaryAttr attrs = *optAttrs;
+
+        auto maskType = attrs.getAs<ttcore::AttentionMaskTypeAttr>("mask_type");
+        auto dropoutProbability =
+            attrs.getAs<mlir::FloatAttr>("dropout_probability");
+        auto returnIntermediates =
+            attrs.getAs<mlir::BoolAttr>("return_intermediates");
+        TT_assert(maskType);
+        TT_assert(dropoutProbability);
+        TT_assert(returnIntermediates);
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<SDPAForwardOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2],
+            compositeOp.getInputs().size() == 4u ? compositeOp.getInputs()[3]
+                                                 : Value(),
+            maskType, dropoutProbability, returnIntermediates);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        TT_assert((compositeOp.getInputs().size() == 3u ||
+                   compositeOp.getInputs().size() == 4u));
+
+        DictionaryAttr attrs = *compositeOp.getCompositeAttributes();
+
+        auto maskType = attrs.getAs<ttcore::AttentionMaskTypeAttr>("mask_type");
+        auto dropoutProbability =
+            attrs.getAs<mlir::FloatAttr>("dropout_probability");
+        auto returnIntermediates =
+            attrs.getAs<mlir::BoolAttr>("return_intermediates");
+
+        return builder.create<SDPAForwardOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2],
+            compositeOp.getInputs().size() == 4u ? compositeOp.getInputs()[3]
+                                                 : Value(),
+            maskType, dropoutProbability, returnIntermediates);
+      },
+      /*promotionGuard=*/nullptr};
+
+  registry["sdpa_bw"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert((compositeOp.getInputs().size() == 6u ||
+                   compositeOp.getInputs().size() == 7u));
+
+        auto optAttrs = compositeOp.getCompositeAttributes();
+        TT_assert(optAttrs);
+        DictionaryAttr attrs = *optAttrs;
+
+        auto maskType = attrs.getAs<ttcore::AttentionMaskTypeAttr>("mask_type");
+        auto dropoutProbability =
+            attrs.getAs<mlir::FloatAttr>("dropout_probability");
+        TT_assert(maskType);
+        TT_assert(dropoutProbability);
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<SDPABackwardOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], compositeOp.getInputs()[3],
+            compositeOp.getInputs()[4], compositeOp.getInputs()[5],
+            compositeOp.getInputs().size() == 7u ? compositeOp.getInputs()[6]
+                                                 : Value(),
+            maskType, dropoutProbability);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        TT_assert((compositeOp.getInputs().size() == 6u ||
+                   compositeOp.getInputs().size() == 7u));
+
+        DictionaryAttr attrs = *compositeOp.getCompositeAttributes();
+
+        auto maskType = attrs.getAs<ttcore::AttentionMaskTypeAttr>("mask_type");
+        auto dropoutProbability =
+            attrs.getAs<mlir::FloatAttr>("dropout_probability");
+
+        return builder.create<SDPABackwardOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], compositeOp.getInputs()[3],
+            compositeOp.getInputs()[4], compositeOp.getInputs()[5],
+            compositeOp.getInputs().size() == 7u ? compositeOp.getInputs()[6]
+                                                 : Value(),
+            maskType, dropoutProbability);
+      },
+      /*promotionGuard=*/nullptr};
 }
 
 // Inline the decomposition function body at the composite ops location,
@@ -332,9 +435,10 @@ static LogicalResult inlineDecomposition(ttcore::CompositeOp compositeOp,
 
 // Try to create the typed op for a registered composite.
 //
-// Returns nullptr when the composite should be inlined instead — either because
-// the resolution mode is Inline, the composite is not in the registry, a
-// promotion guard vetoed promotion, or validation failed (in Validate mode).
+// Returns nullptr when the composite should be inlined instead — either
+// because the resolution mode is Inline, the composite is not in the
+// registry, a promotion guard vetoed promotion, or validation failed (in
+// Validate mode).
 static Operation *tryCreateTypedOp(ttcore::CompositeOp compositeOp,
                                    OpBuilder &builder,
                                    CompositeResolution resolution) {

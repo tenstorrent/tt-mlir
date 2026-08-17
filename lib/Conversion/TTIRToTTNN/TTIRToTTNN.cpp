@@ -1263,53 +1263,6 @@ public:
     return success();
   }
 };
-
-class SDPAForwardOpConversionPattern
-    : public OpConversionPattern<ttir::SDPAForwardOp> {
-public:
-  using OpConversionPattern<ttir::SDPAForwardOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::SDPAForwardOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    SmallVector<Type> resultTypes;
-    if (failed(getTypeConverter()->convertTypes(op->getResultTypes(),
-                                                resultTypes))) {
-      return failure();
-    }
-
-    rewriter.replaceOpWithNewOp<ttnn::SDPAForwardOp>(
-        op, resultTypes, adaptor.getQuery(), adaptor.getKey(),
-        adaptor.getValue(), adaptor.getAttentionMask(), op.getMaskTypeAttr(),
-        op.getDropoutProbabilityAttr(), op.getReturnIntermediatesAttr());
-    return success();
-  }
-};
-} // namespace
-
-namespace {
-class SDPABackwardOpConversionPattern
-    : public OpConversionPattern<ttir::SDPABackwardOp> {
-public:
-  using OpConversionPattern<ttir::SDPABackwardOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::SDPABackwardOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    SmallVector<Type> resultTypes;
-    if (failed(getTypeConverter()->convertTypes(op->getResultTypes(),
-                                                resultTypes))) {
-      return failure();
-    }
-
-    rewriter.replaceOpWithNewOp<ttnn::SDPABackwardOp>(
-        op, resultTypes, adaptor.getGradOutput(), adaptor.getAttnOutput(),
-        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
-        adaptor.getIntermediates(), adaptor.getAttentionMask(),
-        op.getMaskTypeAttr(), op.getDropoutProbabilityAttr());
-    return success();
-  }
-};
 } // namespace
 
 namespace {
@@ -3886,8 +3839,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern,
            AdamWOpConversionPattern,
-           SDPAForwardOpConversionPattern,
-           SDPABackwardOpConversionPattern,
            RMSNormOpConversionPattern,
            DistributedRMSNormOpConversionPattern,
            DistributedLayerNormOpConversionPattern,

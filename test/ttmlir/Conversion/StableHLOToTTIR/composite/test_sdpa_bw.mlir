@@ -9,8 +9,9 @@ module {
       %query: tensor<1x8x64x64xbf16>, %key: tensor<1x8x64x64xbf16>,
       %value: tensor<1x8x64x64xbf16>, %intermediates: tensor<1x8x64x32xf32>)
       -> (tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>) {
-    // CHECK: "ttir.sdpa_bw"
+    // CHECK: "ttcore.composite"
     // CHECK-SAME: mask_type = #ttcore.attention_mask_type<causal>
+    // CHECK-SAME: composite_name = "sdpa_bw"
     // CHECK-NOT: stablehlo.composite
     %0:3 = stablehlo.composite "tenstorrent.sdpa_bw" %grad_output, %attn_output, %query, %key, %value, %intermediates {
       composite_attributes = {
@@ -40,8 +41,9 @@ module {
       %value: tensor<1x8x64x64xbf16>, %intermediates: tensor<1x8x64x32xf32>,
       %mask: tensor<1x1x64x64xbf16>)
       -> (tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>) {
-    // CHECK: "ttir.sdpa_bw"
+    // CHECK: "ttcore.composite"
     // CHECK-SAME: mask_type = #ttcore.attention_mask_type<arbitrary>
+    // CHECK-SAME: composite_name = "sdpa_bw"
     // CHECK-NOT: stablehlo.composite
     %0:3 = stablehlo.composite "tenstorrent.sdpa_bw" %grad_output, %attn_output, %query, %key, %value, %intermediates, %mask {
       composite_attributes = {
