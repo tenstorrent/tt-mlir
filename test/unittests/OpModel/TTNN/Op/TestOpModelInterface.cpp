@@ -5180,7 +5180,8 @@ TEST_F(OpModelBase, rmsNormPostAllGatherOp) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack] = constraintsExp.get();
+              outputLayoutReadBack, outputAllocationsReadBack] =
+      constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
@@ -5216,7 +5217,8 @@ TEST_F(OpModelBase, rmsNormPostAllGatherOpMinimal) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack] = constraintsExp.get();
+              outputLayoutReadBack, outputAllocationsReadBack] =
+      constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
@@ -5267,7 +5269,8 @@ TEST_F(OpModelBase, rmsNormPostAllGatherOpL1Memory) {
   }
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack] = constraintsExp.get();
+              outputLayoutReadBack, outputAllocationsReadBack] =
+      constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GE(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);

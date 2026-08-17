@@ -1927,7 +1927,7 @@ createOp(FlatbufferObjectCache &cache, RMSNormPostAllGatherOp op) {
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
 
-  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
 
   std::optional<
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>

@@ -4755,13 +4755,14 @@ TEST_P(OpModelRMSNormPostAllGatherParam, RMSNormPostAllGatherParam) {
   // Test getOpConstraints
   auto constraintsExp =
       op_model::OpModel<RMSNormPostAllGatherOp>::getOpConstraints(
-          CreateWorkerGrid(), inputShape, inputLayout, statsShape, statsLayout,
-          weightShape, weightLayout, biasShape, biasLayout, epsilon, dtypeOpt,
+          inputShape, inputLayout, statsShape, statsLayout, weightShape,
+          weightLayout, biasShape, biasLayout, epsilon, dtypeOpt,
           use2DCoreGridOpt, outputLayout);
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBacks] = constraintsExp.get();
+                outputLayoutReadBacks, outputAllocationsReadBacks] =
+        constraintsExp.get();
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(totalPeakSize, 0);

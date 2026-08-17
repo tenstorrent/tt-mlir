@@ -1375,11 +1375,7 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormPostAllGatherOp: {
-    tensorRef = opContext.type_as_RMSNormPostAllGatherOp()->out();
-    break;
-  }
-  case ::tt::target::ttnn::OpType::RMSNormPostAllGatherOp: {
-    tensorRef = opContext.type_as_RMSNormPostAllGatherOp()->out();
+    tensorRefs = {opContext.type_as_RMSNormPostAllGatherOp()->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {

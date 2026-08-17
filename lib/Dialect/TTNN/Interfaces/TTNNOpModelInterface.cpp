@@ -4520,23 +4520,17 @@ static RMSNormPostAllGatherOptionalArgs unpackRMSNormPostAllGatherOptionalArgs(
 
 llvm::Expected<op_model::OpConstraints>
 RMSNormPostAllGatherOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-  ttcore::GridAttr deviceGrid =
-      ttcore::lookupDevice(getOperation()).getWorkerGrid();
-
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
   const auto inputShape = getInput().getType().getShape();
   const auto statsShape = getStats().getType().getShape();
 
   RMSNormPostAllGatherOptionalArgs optionalArgs =
       unpackRMSNormPostAllGatherOptionalArgs(inputs, *this);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<RMSNormPostAllGatherOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], statsShape, inputs[1],
+  return detail::constraintsDispatch(
+      *this, liveRecords, inputShape, inputs[0], statsShape, inputs[1],
       optionalArgs.weightShape, optionalArgs.weightLayout,
       optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(), getDtype(),
       getUse_2dCoreGrid(), opConfig.outputLayout);

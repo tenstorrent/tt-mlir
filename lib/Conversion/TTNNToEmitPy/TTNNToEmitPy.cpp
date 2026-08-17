@@ -4168,9 +4168,7 @@ public:
         emitter.emit(srcOp.getWeight(), "weight"),
         emitter.emit(srcOp.getBias(), "bias"),
         emitter.emit(srcOp.getEpsilon(), "epsilon"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_config"),
         emitter.emit(srcOp.getProgramConfig(), "program_config"),
         emitter.emit(srcOp.getDtype(), "dtype"),
