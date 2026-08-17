@@ -1,4 +1,5 @@
-"""Tests for scalar-lift and trig math ops: pow, add/mul/div scalars, cos, sin, neg, log, silu, softmax."""
+"""Tests for scalar-lift and trig math ops: pow, add/mul/div scalars, cos, sin,
+neg, log, exp, log1p, cumsum, silu, softmax."""
 
 import pytest
 import torch
@@ -76,6 +77,30 @@ def test_log(shape: tuple) -> None:
     # Strictly positive input: log is undefined at and below zero.
     a = torch.rand(shape, dtype=torch.bfloat16) + 0.5
     assert_close_cpu_vs_tt(torch.log, a, atol=1e-2, rtol=1e-2)
+
+
+@pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])
+def test_exp(shape: tuple) -> None:
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(torch.exp, a, atol=1e-2, rtol=1e-2)
+
+
+@pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])
+def test_log1p(shape: tuple) -> None:
+    # log1p is defined for x > -1, and is the accurate form near zero — which is
+    # where it earns its place over log(1 + x), so the range straddles it.
+    a = torch.rand(shape, dtype=torch.bfloat16) - 0.5
+    assert_close_cpu_vs_tt(torch.log1p, a, atol=1e-2, rtol=1e-2)
+
+
+@pytest.mark.parametrize("dim", [-1, 0, 1])
+@pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])
+def test_cumsum(shape: tuple, dim: int) -> None:
+    # Scaled down so the running total stays in a range bf16 can still resolve
+    # to the tolerance below: bf16 has 8 mantissa bits, and cumsum's error
+    # accumulates along the scanned dim.
+    a = torch.randn(shape, dtype=torch.bfloat16) * 0.1
+    assert_close_cpu_vs_tt(lambda x: torch.cumsum(x, dim=dim), a, atol=5e-2, rtol=5e-2)
 
 
 @pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])

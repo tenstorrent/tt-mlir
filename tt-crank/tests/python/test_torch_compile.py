@@ -459,6 +459,69 @@ def test_compile_log_backward(shape: tuple[int, ...]) -> None:
 
 
 @pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_exp(shape: tuple[int, ...]) -> None:
+    class _Exp(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.exp(x)
+
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Exp(), x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_log1p(shape: tuple[int, ...]) -> None:
+    class _Log1p(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.log1p(x)
+
+    # Straddles zero, where log1p is more accurate than log(1 + x). Stays above
+    # -1, below which it is undefined.
+    x = torch.rand(shape, dtype=torch.bfloat16) - 0.5
+    _assert_compile_matches_eager(_Log1p(), x, atol=0.05, rtol=0.05)
+
+
+def test_compile_softplus() -> None:
+    """softplus has no lowering of its own: aten decomposes it into exp/log1p
+    plus a threshold comparison, so this covers both reached through that route
+    (the shape of the gate in a linear-attention layer)."""
+    class _Softplus(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return nn.functional.softplus(x)
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Softplus(), x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("dim", [-1, 0, 1])
+def test_compile_cumsum(dim: int) -> None:
+    class _CumSum(nn.Module):
+        def __init__(self, d: int) -> None:
+            super().__init__()
+            self.d = d
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.cumsum(x, dim=self.d)
+
+    # Scaled down to keep the running total in a range bf16 resolves to the
+    # tolerance below; cumsum's error accumulates along the scanned dim.
+    x = torch.randn((32, 64), dtype=torch.bfloat16) * 0.1
+    _assert_compile_matches_eager(_CumSum(dim), x, atol=0.05, rtol=0.05)
+
+
+def test_compile_cumsum_widening_dtype() -> None:
+    """cumsum's `dtype` asks to accumulate wider than the input. The lowering
+    passes it over because the interpreter promotes the input to the node's output
+    dtype first, so f32 accumulation already happens — assert_close checks dtype,
+    which is what pins that down."""
+    class _CumSumF32(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.cumsum(x, dim=-1, dtype=torch.float32)
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16) * 0.1
+    _assert_compile_matches_eager(_CumSumF32(), x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
 def test_compile_silu(shape: tuple[int, ...]) -> None:
     class _SiLU(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -1137,6 +1200,32 @@ def test_compile_new_creation(factory: str) -> None:
 
     x = torch.randn((32, 64), dtype=torch.bfloat16)
     _assert_compile_matches_eager(_NewCreate(factory), x)
+
+
+@pytest.mark.parametrize("factory", ["zeros_like", "ones_like", "full_like", "full_like_dtype"])
+def test_compile_like_creation(factory: str) -> None:
+    """full_like takes its shape from the reference tensor rather than an explicit
+    size, and zeros_like/ones_like reach the backend as full_like too — core aten
+    decomposes them rather than giving them their own op."""
+    class _LikeCreate(nn.Module):
+        def __init__(self, factory: str) -> None:
+            super().__init__()
+            self.factory = factory
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            if self.factory == "zeros_like":
+                c = torch.zeros_like(x)
+            elif self.factory == "ones_like":
+                c = torch.ones_like(x)
+            elif self.factory == "full_like":
+                c = torch.full_like(x, 2.0)
+            else:
+                # An explicit dtype overrides the reference tensor's.
+                c = torch.full_like(x, 2.0, dtype=torch.float32).to(x.dtype)
+            return x + c
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_LikeCreate(factory), x)
 
 
 @pytest.mark.parametrize(

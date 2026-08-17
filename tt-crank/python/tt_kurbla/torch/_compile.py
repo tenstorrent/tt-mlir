@@ -266,6 +266,27 @@ def _(mb, x):
     return mb.log(x)
 
 
+@_lowering(_aten.exp.default)
+def _(mb, x):
+    return mb.exp(x)
+
+
+@_lowering(_aten.log1p.default)
+def _(mb, x):
+    return mb.log1p(x)
+
+
+# `dtype` (a wider accumulator) needs no handling here, and the mean/sum
+# reductions above drop it for the same reason: `_lower_op` takes each node's
+# target dtype from that node's own output meta, so a widening request has
+# already typecast the input up by the time the lowering runs and ttir.cumsum
+# accumulates at that width.
+# `dim` is normalized because ttir.cumsum's verifier rejects a negative one.
+@_lowering(_aten.cumsum.default)
+def _(mb, x, dim, dtype=None):
+    return mb.cumsum(x, int(dim) % max(len(x.shape), 1))
+
+
 @_lowering(_aten.silu.default)
 def _(mb, x):
     return mb.silu(x)
@@ -817,6 +838,18 @@ def _(mb, self, size, fill_value, dtype=None, layout=None, device=None, pin_memo
     if dtype is None:
         return mb.full_like(self, list(size), float(fill_value))
     return mb.full(list(size), float(fill_value), _to_runtime_dtype(dtype))
+
+
+# full_like is new_full with the shape taken from the reference tensor instead of
+# passed in. zeros_like/ones_like arrive here too: core aten decomposes them to
+# full_like rather than giving them their own op.
+@_lowering(_aten.full_like.default)
+@_skip_prepare(_aten.full_like.default)
+def _(mb, self, fill_value, dtype=None, layout=None, device=None, pin_memory=None, memory_format=None):
+    shape = list(self.shape)
+    if dtype is None:
+        return mb.full_like(self, shape, float(fill_value))
+    return mb.full(shape, float(fill_value), _to_runtime_dtype(dtype))
 
 
 def _is_tensor_schema_arg(
