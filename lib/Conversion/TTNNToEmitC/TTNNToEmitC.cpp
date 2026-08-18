@@ -3519,7 +3519,7 @@ public:
 
     // Arg order matches ttml::metal::adamw(param, grad, exp_avg, exp_avg_sq,
     // max_exp_avg_sq, lr, beta1, beta2, beta1_pow, beta2_pow, epsilon,
-    // weight_decay, stochastic_rounding).
+    // weight_decay, stochastic_rounding, stochastic_rounding_seed).
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getParam()),
         emitter.emit(srcOp.getGrad()),
@@ -3538,6 +3538,16 @@ public:
                 ? "::ttml::metal::StochasticRounding::Enabled"
                 : "::ttml::metal::StochasticRounding::Disabled"),
     };
+
+    // ttml requires a seed iff stochastic rounding is enabled; when it is
+    // disabled the trailing argument is left off so the ttml default
+    // (std::nullopt) applies. The op carries no seed, so the emitted program
+    // draws one per call, matching what the runtime does: a fixed seed would
+    // round every optimizer step identically.
+    if (srcOp.getStochasticRounding()) {
+      args.push_back(rewriter.getAttr<emitc::OpaqueAttr>(
+          "::std::optional<uint32_t>{::std::random_device{}()}"));
+    }
 
     emitter.replaceOp(*this, args);
     return success();

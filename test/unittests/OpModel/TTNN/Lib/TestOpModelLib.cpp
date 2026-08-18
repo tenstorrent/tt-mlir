@@ -5734,7 +5734,9 @@ TEST_F(OpModelAdamWTest, AdamWOpFloat32) {
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
 
   size_t cbSizeWithoutAmsgrad = 0;
-  if (constraintsExp) {
+  if (!constraintsExp) {
+    llvm::consumeError(constraintsExp.takeError());
+  } else {
     OpConstraints &opCstr = constraintsExp.get();
     EXPECT_GT(opCstr.cbL1PeakSize, 0);
     // Every operand is required to be in DRAM, so nothing lands in L1.
@@ -5753,7 +5755,9 @@ TEST_F(OpModelAdamWTest, AdamWOpFloat32) {
       queryConstraints(shape, f32Layout, bf16Layout, f32Layout,
                        /*amsgrad=*/true);
   EXPECT_TRUE(static_cast<bool>(amsgradConstraintsExp));
-  if (amsgradConstraintsExp && cbSizeWithoutAmsgrad > 0) {
+  if (!amsgradConstraintsExp) {
+    llvm::consumeError(amsgradConstraintsExp.takeError());
+  } else if (cbSizeWithoutAmsgrad > 0) {
     EXPECT_GT(amsgradConstraintsExp.get().cbL1PeakSize, cbSizeWithoutAmsgrad);
   }
 
@@ -5764,8 +5768,32 @@ TEST_F(OpModelAdamWTest, AdamWOpFloat32) {
       llvm::APFloat(kBeta1), llvm::APFloat(kBeta2), llvm::APFloat(kEpsilon),
       llvm::APFloat(kWeightDecay), /*stochasticRounding=*/false, f32Layout);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
-  if (runtimeExp) {
+  if (!runtimeExp) {
+    llvm::consumeError(runtimeExp.takeError());
+  } else {
     EXPECT_GT(runtimeExp.get(), 0);
+  }
+}
+
+TEST_F(OpModelAdamWTest, AdamWOpBFloat16) {
+  const llvm::SmallVector<int64_t> shape = {1, 1, 128, 128};
+
+  // With a BFLOAT16 param every operand is BFLOAT16, and stochastic rounding is
+  // only legal in this configuration.
+  const TTNNLayoutAttr bf16Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = queryConstraints(shape, bf16Layout, bf16Layout,
+                                         bf16Layout, /*amsgrad=*/false,
+                                         /*stochasticRounding=*/true);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  if (!constraintsExp) {
+    llvm::consumeError(constraintsExp.takeError());
+  } else {
+    OpConstraints &opCstr = constraintsExp.get();
+    EXPECT_GT(opCstr.cbL1PeakSize, 0);
+    EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
   }
 }
 
