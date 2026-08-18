@@ -6577,6 +6577,39 @@ def stablehlo_composite_golden(
             output_type_mlir=RankedTensorType(result_types[0]).element_type,
         )
 
+    if composite_name in ("tenstorrent.sdpa_fw", "tenstorrent.sdpa_bw"):
+        attrs = composite_attributes or {}
+        try:
+            mask_type_attr = attrs["mask_type"]
+        except KeyError:
+            mask_type_attr = None
+        try:
+            dropout_attr = attrs["dropout_probability"]
+        except KeyError:
+            dropout_attr = None
+        mask_type = (
+            int(unpack_mlir_attr(mask_type_attr))
+            if mask_type_attr is not None
+            else (1 if composite_name == "tenstorrent.sdpa_fw" else 2)
+        )
+        dropout_probability = (
+            float(unpack_mlir_attr(dropout_attr)) if dropout_attr is not None else 0.0
+        )
+        if composite_name == "tenstorrent.sdpa_fw":
+            result_types = list(decomposition_fn.type.results)
+            return sdpa_fw_golden(
+                *operand_tensors,
+                mask_type=mask_type,
+                dropout_probability=dropout_probability,
+                return_intermediates=len(result_types) == 2,
+                output_type_mlir=RankedTensorType(result_types[0]).element_type,
+            )
+        return sdpa_bw_golden(
+            *operand_tensors,
+            mask_type=mask_type,
+            dropout_probability=dropout_probability,
+        )
+
     if len(decomposition_fn.body.blocks) != 1:
         raise NotImplementedError(
             "stablehlo_composite_golden: multi-block decompositions are not supported."
@@ -9198,8 +9231,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
     ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
     ttir.AdamWOp: adamw_golden,
-    ttir.SDPAForwardOp: sdpa_fw_golden,
-    ttir.SDPABackwardOp: sdpa_bw_golden,
     ttir.LayerNormOp: ttir_layer_norm_golden,
     ttir.SplitQueryKeyValueAndSplitHeadsOp: ttir_split_query_key_value_and_split_heads_golden,
     ttir.GroupNormOp: ttir_group_norm_golden,
