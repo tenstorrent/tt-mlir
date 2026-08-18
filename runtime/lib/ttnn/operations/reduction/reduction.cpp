@@ -53,7 +53,22 @@ void run(const ::tt::target::ttnn::ReductionOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   case ::tt::target::ttnn::ReductionOpType::Sum: {
-    runReductionOp(op, tensorPool, ::ttnn::sum);
+    // ttnn::sum gained an extra output_layout arg; wrap so the extra
+    // parameter is not part of the std::function conversion.
+    runReductionOp(
+        op, tensorPool,
+        [](const ::ttnn::Tensor &input,
+           const std::optional<
+               std::variant<int, int64_t, ::ttsl::SmallVector<int>>> &dimArg,
+           const bool keepDim,
+           const std::optional<::ttnn::MemoryConfig> &memoryConfig,
+           const std::optional<::ttnn::DeviceComputeKernelConfig>
+               &computeConfig,
+           float scalar, bool correction,
+           const std::optional<::ttnn::CoreRangeSet> &subCoreGrids) {
+          return ::ttnn::sum(input, dimArg, keepDim, memoryConfig,
+                             computeConfig, scalar, correction, subCoreGrids);
+        });
     break;
   }
   case ::tt::target::ttnn::ReductionOpType::Mean: {

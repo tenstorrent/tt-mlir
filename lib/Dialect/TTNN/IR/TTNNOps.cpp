@@ -5451,6 +5451,33 @@ verifyReduceProdOp(tt::ttnn::ProdOp *reduceOp,
 }
 
 //===----------------------------------------------------------------------===//
+// CopyOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult CopyOp::verify() {
+  auto srcType = ::mlir::cast<RankedTensorType>(this->getSrc().getType());
+  auto dstType = ::mlir::cast<RankedTensorType>(this->getDst().getType());
+
+  // tt-metal's copy op requires both operands to be device tensors, and with a
+  // pre-allocated output it derives the output spec from the destination.
+  // Rather than replicate its compatibility rules, require the types to be
+  // identical: that is all the trace hoisting pass ever produces, and it keeps
+  // any mistake a compile-time error instead of a mid-trace-capture TT_FATAL.
+  if (!utils::isTensorOnDevice(srcType)) {
+    return emitOpError() << "Source tensor must be on device memory";
+  }
+  if (!utils::isTensorOnDevice(dstType)) {
+    return emitOpError() << "Destination tensor must be on device memory";
+  }
+  if (srcType != dstType) {
+    return emitOpError() << "Source and destination tensor types must match, "
+                         << "but got " << srcType << " and " << dstType;
+  }
+
+  return ::mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // TraceOps
 //===----------------------------------------------------------------------===//
 
@@ -5559,8 +5586,92 @@ void CaptureOrExecuteTraceOp::getEffects(
                        TraceResource::get());
 }
 
+std::pair<llvm::SmallVector<size_t>, llvm::SmallVector<size_t>>
+CaptureOrExecuteTraceOp::partitionInputIndices() {
+  llvm::SmallVector<size_t> deviceResidentIndices;
+  llvm::SmallVector<size_t> hostStagedIndices;
+  for (auto [i, input] : llvm::enumerate(getInputs())) {
+    auto tensorType = mlir::cast<RankedTensorType>(input.getType());
+    if (utils::isTensorOnDevice(tensorType)) {
+      deviceResidentIndices.push_back(i);
+    } else {
+      hostStagedIndices.push_back(i);
+    }
+  }
+  return {std::move(deviceResidentIndices), std::move(hostStagedIndices)};
+}
+
 ::mlir::LogicalResult CaptureOrExecuteTraceOp::verify() {
-  // Verify that the callee exists
+  auto opInputs = this->getInputs();
+  auto opSemaphoreInputs = this->getSemaphoreInputs();
+  auto opOutputs = this->getResults();
+
+  // An input already on device acts as its own persistent slot and is handed
+  // to the allocation program, while an input in system memory is staged into
+  // a freshly allocated slot by the capture program.
+  auto [deviceResidentIndices, hostStagedIndices] = partitionInputIndices();
+  llvm::SmallVector<mlir::Type> deviceResidentInputTypes;
+  llvm::SmallVector<mlir::Type> hostStagedInputTypes;
+  for (size_t i : deviceResidentIndices) {
+    deviceResidentInputTypes.push_back(opInputs[i].getType());
+  }
+  for (size_t i : hostStagedIndices) {
+    hostStagedInputTypes.push_back(opInputs[i].getType());
+  }
+
+  // Verify the slot allocation function: it takes the device-resident inputs
+  // and returns one slot per trace input followed by one slot per trace output.
+  FlatSymbolRefAttr allocateSlotsCalleeAttr =
+      this->getAllocateSlotsCalleeAttr();
+  func::FuncOp allocateSlotsFuncOp =
+      SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
+          *this, allocateSlotsCalleeAttr);
+  if (!allocateSlotsFuncOp) {
+    return emitOpError() << "'" << allocateSlotsCalleeAttr.getValue()
+                         << "' does not reference a function";
+  }
+
+  auto allocateSlotsInputTypes =
+      allocateSlotsFuncOp.getFunctionType().getInputs();
+  if (allocateSlotsInputTypes.size() != deviceResidentInputTypes.size()) {
+    return emitOpError() << "Slot allocation function '"
+                         << allocateSlotsCalleeAttr.getValue() << "' must take "
+                         << deviceResidentInputTypes.size()
+                         << " arguments (the device-resident inputs), but has "
+                         << allocateSlotsInputTypes.size();
+  }
+  for (size_t i = 0; i < deviceResidentInputTypes.size(); ++i) {
+    if (allocateSlotsInputTypes[i] != deviceResidentInputTypes[i]) {
+      return emitOpError() << "Slot allocation function argument " << i
+                           << " type mismatch: expected "
+                           << deviceResidentInputTypes[i] << ", but got "
+                           << allocateSlotsInputTypes[i];
+    }
+  }
+
+  auto slotTypes = allocateSlotsFuncOp.getFunctionType().getResults();
+  size_t expectedSlots = opInputs.size() + opOutputs.size();
+  if (slotTypes.size() != expectedSlots) {
+    return emitOpError() << "Slot allocation function '"
+                         << allocateSlotsCalleeAttr.getValue()
+                         << "' must return " << expectedSlots << " slots ("
+                         << opInputs.size() << " input slots + "
+                         << opOutputs.size() << " output slots), but returns "
+                         << slotTypes.size();
+  }
+  for (size_t i = 0; i < opOutputs.size(); ++i) {
+    if (slotTypes[opInputs.size() + i] != opOutputs[i].getType()) {
+      return emitOpError() << "Slot allocation function output slot " << i
+                           << " type mismatch: expected "
+                           << opOutputs[i].getType() << ", but got "
+                           << slotTypes[opInputs.size() + i];
+    }
+  }
+
+  // Verify the capture function. Its arguments are, in order: the host-staged
+  // inputs, every slot the allocation function returned, then the semaphores.
+  // The runtime forwards those slots straight through, both on the initial
+  // capture and on every recapture, so the types must match exactly.
   FlatSymbolRefAttr captureCalleeAttr = this->getCaptureCalleeAttr();
   func::FuncOp captureFuncOp =
       SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(*this,
@@ -5570,39 +5681,66 @@ void CaptureOrExecuteTraceOp::getEffects(
                          << "' does not reference a function";
   }
 
-  // Verify that the input arguments to this op match the capture_callee
-  // function's arguments.
   auto captureInputTypes = captureFuncOp.getFunctionType().getInputs();
-  auto opInputs = this->getInputs();
-  auto opSemaphoreInputs = this->getSemaphoreInputs();
-  size_t expectedCaptureInputs = opInputs.size() + opSemaphoreInputs.size();
-
+  size_t expectedCaptureInputs =
+      hostStagedInputTypes.size() + slotTypes.size() + opSemaphoreInputs.size();
   if (captureInputTypes.size() != expectedCaptureInputs) {
-    return emitOpError()
-           << "Number of input arguments (inputs + semaphore_inputs = "
-           << opInputs.size() << " + " << opSemaphoreInputs.size() << " = "
-           << expectedCaptureInputs << ") does not match capture function '"
-           << captureCalleeAttr.getValue() << "' input count ("
-           << captureInputTypes.size() << ")";
+    return emitOpError() << "Capture function '" << captureCalleeAttr.getValue()
+                         << "' must take " << expectedCaptureInputs
+                         << " arguments (" << hostStagedInputTypes.size()
+                         << " host-staged inputs + " << slotTypes.size()
+                         << " slots + " << opSemaphoreInputs.size()
+                         << " semaphores), but has "
+                         << captureInputTypes.size();
   }
 
-  for (size_t i = 0; i < opInputs.size(); ++i) {
-    if (opInputs[i].getType() != captureInputTypes[i]) {
-      return emitOpError() << "Input argument " << i << " type mismatch: "
-                           << "expected " << captureInputTypes[i]
-                           << " from capture function, but got "
-                           << opInputs[i].getType();
+  for (size_t i = 0; i < hostStagedInputTypes.size(); ++i) {
+    if (captureInputTypes[i] != hostStagedInputTypes[i]) {
+      return emitOpError() << "Capture function host-staged input argument "
+                           << i << " type mismatch: expected "
+                           << hostStagedInputTypes[i] << ", but got "
+                           << captureInputTypes[i];
+    }
+  }
+
+  for (size_t i = 0; i < slotTypes.size(); ++i) {
+    size_t captureIdx = hostStagedInputTypes.size() + i;
+    if (captureInputTypes[captureIdx] != slotTypes[i]) {
+      return emitOpError() << "Capture function slot argument " << i
+                           << " type mismatch: expected " << slotTypes[i]
+                           << " from slot allocation function, but got "
+                           << captureInputTypes[captureIdx];
     }
   }
 
   for (size_t i = 0; i < opSemaphoreInputs.size(); ++i) {
-    size_t captureIdx = opInputs.size() + i;
-    if (opSemaphoreInputs[i].getType() != captureInputTypes[captureIdx]) {
+    size_t captureIdx = hostStagedInputTypes.size() + slotTypes.size() + i;
+    if (captureInputTypes[captureIdx] != opSemaphoreInputs[i].getType()) {
       return emitOpError() << "Semaphore input argument " << i
                            << " type mismatch: "
                            << "expected " << captureInputTypes[captureIdx]
                            << " from capture function, but got "
                            << opSemaphoreInputs[i].getType();
+    }
+  }
+
+  auto captureResultTypes = captureFuncOp.getFunctionType().getResults();
+  if (captureResultTypes.size() != 1) {
+    return emitOpError() << "Capture function '" << captureCalleeAttr.getValue()
+                         << "' must return exactly one trace_id value, but "
+                            "returns "
+                         << captureResultTypes.size();
+  }
+  {
+    auto captureTraceIdType =
+        mlir::dyn_cast<mlir::RankedTensorType>(captureResultTypes[0]);
+    if (!captureTraceIdType || captureTraceIdType.getRank() != 0 ||
+        !mlir::isa_and_present<ttnn::TraceIdAttr>(
+            captureTraceIdType.getEncoding())) {
+      return emitOpError() << "Capture function '"
+                           << captureCalleeAttr.getValue()
+                           << "' must return a trace_id tensor (scalar ui32 "
+                              "with TraceIdAttr encoding)";
     }
   }
 
@@ -5623,24 +5761,12 @@ void CaptureOrExecuteTraceOp::getEffects(
                          << "' does not reference a function";
   }
 
-  // Verify that the outputs of this op match the trace function's outputs
-  auto traceOutputTypes = traceFuncOp.getFunctionType().getResults();
-  auto opOutputs = this->getResults();
-
-  if (traceOutputTypes.size() != opOutputs.size()) {
-    return emitOpError() << "Number of output results (" << opOutputs.size()
-                         << ") does not match trace function '"
-                         << traceFuncCalleeAttr.getValue() << "' output count ("
-                         << traceOutputTypes.size() << ")";
-  }
-
-  for (size_t i = 0; i < opOutputs.size(); ++i) {
-    if (opOutputs[i].getType() != traceOutputTypes[i]) {
-      return emitOpError() << "Output result " << i << " type mismatch: "
-                           << "expected " << traceOutputTypes[i]
-                           << " from trace function, but got "
-                           << opOutputs[i].getType();
-    }
+  // The trace function stores its results into the output slots rather than
+  // returning them.
+  if (traceFuncOp.getFunctionType().getNumResults() != 0) {
+    return emitOpError() << "Trace function '" << traceFuncCalleeAttr.getValue()
+                         << "' must return no results; it stores its outputs "
+                            "into the output slot arguments";
   }
 
   for (BlockArgument arg : traceFuncOp.getArguments()) {

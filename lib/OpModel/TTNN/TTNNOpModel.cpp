@@ -147,6 +147,16 @@ executeConstraintQuery(Callable &callable) {
  * @param callable A callable object that performs the query.
  * @return A tuple containing query results or a string error.
  */
+// TODO(#9216): Metal 2.0 splits program scratch into CB / DFB / scratchpad.
+// Fold them into the legacy cbL1PeakSize slot until OpConstraints exposes
+// separate fields.
+inline size_t
+programScratchL1PeakSize(const ::ttnn::graph::ResourceUsage &usage) {
+  return usage.cb_peak_size_per_core +
+         usage.dataflow_buffer_peak_size_per_core +
+         usage.scratchpad_peak_size_per_core;
+}
+
 template <class Callable>
 llvm::Expected<OpConstraints> getOpConstraints(MLIRContext *context,
                                                Callable &callable) {
@@ -173,7 +183,7 @@ llvm::Expected<OpConstraints> getOpConstraints(MLIRContext *context,
         context, outputTensorSpec, deviceGrid));
   }
 
-  return OpConstraints(response.resource_usage.cb_peak_size_per_core,
+  return OpConstraints(programScratchL1PeakSize(response.resource_usage),
                        response.resource_usage.l1_buffers_peak_per_core,
                        response.resource_usage.peak_memory_usage_per_core,
                        response.resource_usage.l1_output_buffer_per_core,
@@ -291,7 +301,7 @@ llvm::Expected<OpConstraints> getOpConstraintsWithState(MLIRContext *context,
                                 static_cast<uint64_t>(record.size_per_bank)});
   }
 
-  return OpConstraints(out.response.resource_usage.cb_peak_size_per_core,
+  return OpConstraints(programScratchL1PeakSize(out.response.resource_usage),
                        out.response.resource_usage.l1_buffers_peak_per_core,
                        out.response.resource_usage.peak_memory_usage_per_core,
                        out.response.resource_usage.l1_output_buffer_per_core,
@@ -7503,7 +7513,8 @@ llvm::Expected<OpConstraints> OpModel<RMSNormPreAllGatherOp>::getOpConstraints(
         /*compute_kernel_config=*/std::nullopt,
         /*program_config=*/std::nullopt,
         detail::getNullableMemoryConfig(outputLayout),
-        /*use_2d_core_grid=*/use2DCoreGrid);
+        /*use_2d_core_grid=*/use2DCoreGrid,
+        /*fast_and_approximate_mode=*/false);
   };
 
   return operation::getOpConstraintsWithState(inputLayout.getContext(), query);
@@ -7537,14 +7548,14 @@ llvm::Expected<size_t> OpModel<RMSNormPreAllGatherOp>::getOpRuntime(
   }
 
   auto query = [=]() {
-    return ::ttnn::graph::query_op_runtime(
-        ::ttnn::rms_norm_pre_all_gather, device, inputSpec,
-        /*dtype=*/metalDtype,
-        /*residual_input_tensor=*/residualInputSpec,
-        /*compute_kernel_config=*/std::nullopt,
-        /*program_config=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*use_2d_core_grid=*/use2DCoreGrid);
+    return QUERY_OP_RUNTIME(::ttnn::rms_norm_pre_all_gather, device, inputSpec,
+                            /*dtype=*/metalDtype,
+                            /*residual_input_tensor=*/residualInputSpec,
+                            /*compute_kernel_config=*/std::nullopt,
+                            /*program_config=*/std::nullopt,
+                            detail::getNullableMemoryConfig(outputLayout),
+                            /*use_2d_core_grid=*/use2DCoreGrid,
+                            /*fast_and_approximate_mode=*/false);
   };
   return operation::getOpRuntime(query);
 #else
@@ -7680,7 +7691,8 @@ OpModel<LayerNormPreAllGatherOp>::getOpConstraints(
         /*compute_kernel_config=*/std::nullopt,
         /*program_config=*/std::nullopt,
         detail::getNullableMemoryConfig(outputLayout),
-        /*recip_tensor=*/recipSpec);
+        /*recip_tensor=*/recipSpec,
+        /*fast_and_approximate_mode=*/false);
   };
 
   return operation::getOpConstraintsWithState(inputLayout.getContext(), query);
@@ -7716,14 +7728,15 @@ llvm::Expected<size_t> OpModel<LayerNormPreAllGatherOp>::getOpRuntime(
   }
 
   auto query = [=]() {
-    return ::ttnn::graph::query_op_runtime(
-        ::ttnn::layer_norm_pre_all_gather, device, inputSpec,
-        /*dtype=*/metalDtype,
-        /*residual_input_tensor=*/residualInputSpec,
-        /*compute_kernel_config=*/std::nullopt,
-        /*program_config=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*recip_tensor=*/recipSpec);
+    return QUERY_OP_RUNTIME(::ttnn::layer_norm_pre_all_gather, device,
+                            inputSpec,
+                            /*dtype=*/metalDtype,
+                            /*residual_input_tensor=*/residualInputSpec,
+                            /*compute_kernel_config=*/std::nullopt,
+                            /*program_config=*/std::nullopt,
+                            detail::getNullableMemoryConfig(outputLayout),
+                            /*recip_tensor=*/recipSpec,
+                            /*fast_and_approximate_mode=*/false);
   };
 
   return operation::getOpRuntime(query);

@@ -5,19 +5,24 @@
 #ifndef TTMLIR_OPMODEL_TTNN_TTNNOPSMODELCACHE_H
 #define TTMLIR_OPMODEL_TTNN_TTNNOPSMODELCACHE_H
 
+#include "ttmlir/Dialect/TTNN/Interfaces/OpModelError.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpConstraints.h"
 // Self-guards on TTMLIR_ENABLE_OPMODEL (expands to nothing when OpModel is
 // disabled); the device-generation lookup below is guarded separately.
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Hashing.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Error.h"
-#include "llvm/Support/raw_ostream.h"
 
+#include <cstdint>
 #include <optional>
+#include <string>
 #include <type_traits>
+#include <utility>
 
 namespace mlir::tt::ttnn {
 
@@ -29,9 +34,23 @@ class TTNNOpModelCache;
 TTNNOpModelCache<op_model::OpConstraints> &opConstraintsCache();
 TTNNOpModelCache<size_t> &opRuntimeCache();
 
+// Trimming down large error messages.
+inline std::string trimFailureMessage(std::string message) {
+  constexpr int keptLines = 8;
+  constexpr size_t keptBytes = 4096;
+  std::string bounded =
+      ttmlir::utils::firstNLines(std::move(message), keptLines);
+  if (bounded.size() > keptBytes) {
+    bounded.resize(keptBytes);
+  }
+  return bounded;
+}
+
 // A cache for TTNN operation model results. This cache stores the results of
 // getOpConstraints and getOpRuntime calls to avoid redundant computations.
 // Using this cache results in a 20-30% average compile time reduction.
+//
+// Failures are memoized too, not just accepted results.
 template <typename ValueT>
 class TTNNOpModelCache {
   // It is important to define the singleton accessor functions to prevent
@@ -55,11 +74,12 @@ public:
 
   // Clear the cache and reset statistics.
   void clear() {
-    cache.clear();
+    values.clear();
+    failures.clear();
     stats = CacheStats{};
   }
 
-  // Get the total number of cached items.
+  // Get the total number of cached items, accepted and rejected.
   size_t size() const { return stats.entries; }
 
   bool empty() const { return size() == 0; }
@@ -119,50 +139,83 @@ public:
     // overload (via ADL) for the type (provided at the end of this file).
     llvm::hash_code hashValue = llvm::hash_combine(std::forward<Args>(args)...);
 
-    // Try to read from cache first.
-    if (auto cached = tryGetFromCache(op, hashValue)) {
-      return *cached;
+    if (std::optional<llvm::Expected<ValueT>> cached =
+            tryGetFromCache(op, hashValue)) {
+      return std::move(*cached);
     }
 
     // Not in cache, compute the value.
     llvm::Expected<ValueT> result =
         std::forward<Callable>(computeFunc)(std::forward<Args>(args)...);
 
-    // If computation was successful, store the result.
     if (result) {
       storeInCache(op, hashValue, *result);
+      return result;
     }
 
-    return result;
+    llvm::Error error = result.takeError();
+    // We don't cache OpNotSupportedError - the caller depends on the exact
+    // type.
+    if (error.isA<detail::OpNotSupportedError>()) {
+      return std::move(error);
+    }
+    // takeError() consumed the error, so hand back an equivalent one.
+    std::string message = trimFailureMessage(llvm::toString(std::move(error)));
+    llvm::Error rejection =
+        llvm::createStringError(llvm::inconvertibleErrorCode(), message);
+    storeInCache(op, hashValue, std::move(message));
+    return rejection;
   }
 
 private:
   // Private constructor - only accessible by friend functions.
   TTNNOpModelCache() = default;
 
-  std::optional<ValueT> tryGetFromCache(Operation *op, llvm::hash_code hash) {
+  ~TTNNOpModelCache() = default;
+
+  // Returns std::nullopt on a miss.
+  std::optional<llvm::Expected<ValueT>> tryGetFromCache(Operation *op,
+                                                        llvm::hash_code hash) {
     mlir::TypeID opTypeID = op->getName().getTypeID();
-    typename Cache::iterator cacheIt = cache.find(opTypeID);
-    if (cacheIt == cache.end()) {
-      stats.misses++;
-      return std::nullopt;
+    typename SuccessCacheMap::const_iterator valueOpIt = values.find(opTypeID);
+    if (valueOpIt != values.end()) {
+      typename SuccessCache::const_iterator it = valueOpIt->second.find(hash);
+      if (it != valueOpIt->second.end()) {
+        stats.hits++;
+        return llvm::Expected<ValueT>(it->second);
+      }
     }
-
-    OpCache &opCache = cacheIt->second;
-    typename OpCache::iterator opCacheIt = opCache.find(hash);
-    if (opCacheIt == opCache.end()) {
-      stats.misses++;
-      return std::nullopt;
+    if (!failures.empty()) {
+      typename FailureCacheMap::const_iterator rejectionOpIt =
+          failures.find(opTypeID);
+      if (rejectionOpIt != failures.end()) {
+        typename FailureCache::const_iterator it =
+            rejectionOpIt->second.find(hash);
+        if (it != rejectionOpIt->second.end()) {
+          stats.hits++;
+          return llvm::Expected<ValueT>(llvm::createStringError(
+              llvm::inconvertibleErrorCode(), it->second));
+        }
+      }
     }
-
-    stats.hits++;
-    return opCacheIt->second;
+    stats.misses++;
+    return std::nullopt;
   }
 
+  // try_emplace rather than operator[]: a re-store of a key already present
+  // must not double-count `entries`, which is what size()/empty() report.
   void storeInCache(Operation *op, llvm::hash_code hash, const ValueT &value) {
     mlir::TypeID opTypeID = op->getName().getTypeID();
-    cache[opTypeID][hash] = value;
-    stats.entries++;
+    if (values[opTypeID].try_emplace(hash, value).second) {
+      stats.entries++;
+    }
+  }
+
+  void storeInCache(Operation *op, llvm::hash_code hash, std::string message) {
+    mlir::TypeID opTypeID = op->getName().getTypeID();
+    if (failures[opTypeID].try_emplace(hash, std::move(message)).second) {
+      stats.entries++;
+    }
   }
 
   // This class uses indirect hashing to enable caching for each op type
@@ -172,10 +225,17 @@ private:
   // According to llvm docs, mlir::TypeID is unique for each Operation*
   // (https://mlir.llvm.org/doxygen/classmlir_1_1TypeID.html), so it is safe and
   // efficient to use it as a key in the cache.
-  using OpCache = llvm::DenseMap<llvm::hash_code, ValueT>;
-  using Cache = llvm::DenseMap<mlir::TypeID, OpCache>;
+  //
+  // Kept separate from SuccessCache: llvm::Error/Expected is not suitable for
+  // storing in cache, so a failure is a plain string, turned into a fresh
+  // Error on each hit.
+  using SuccessCache = llvm::DenseMap<llvm::hash_code, ValueT>;
+  using SuccessCacheMap = llvm::DenseMap<mlir::TypeID, SuccessCache>;
+  using FailureCache = llvm::DenseMap<llvm::hash_code, std::string>;
+  using FailureCacheMap = llvm::DenseMap<mlir::TypeID, FailureCache>;
 
-  Cache cache;
+  SuccessCacheMap values;
+  FailureCacheMap failures;
   CacheStats stats;
   // MLIR context that owns any attributes/types stored in cached values.
   MLIRContext *context = nullptr;

@@ -46,7 +46,7 @@ void run(const ::tt::target::ttnn::RMSNormPreAllGatherOp *op,
   // Call TTNN RMS Norm Pre all-gather Op
   ::ttnn::Tensor output = ::ttnn::rms_norm_pre_all_gather(
       input, dtype, residual, computeConfig, programConfig, memoryConfig,
-      use2DCoreGrid);
+      use2DCoreGrid, /*fast_and_approximate_mode=*/false);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }

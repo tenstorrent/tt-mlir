@@ -28,7 +28,7 @@
 // CHECK-LABEL: func.func private @trace_0_single_add
 // CHECK:       emitc.call_opaque "ttnn::add"
 
-// --- run_and_capture_trace (write_tensor, begin/end trace, execute) ---
+// --- capture_trace (write_tensor, begin/end trace, execute) ---
 // CHECK-LABEL: func.func private @run_and_capture_trace_0_single_add
 // CHECK:       emitc.call_opaque "ttnn::copy_to_device"
 // CHECK:       emitc.call_opaque "ttnn::operations::trace::begin_trace_capture"
@@ -42,8 +42,11 @@
 // --- capture_or_execute wrapper ---
 // CHECK-LABEL: emitc.func @capture_or_execute_trace_0_single_add
 // CHECK:       if
-// CHECK:         call_opaque "run_and_capture_trace_0_single_add"
+// Slot allocation runs first and its tuple is unpacked into the globals; the
+// capture function is then called against those slots and returns the trace id.
+// CHECK:         call_opaque "allocate_slots_trace_0_single_add"
 // CHECK:         call_opaque "::std::get"
+// CHECK:         call_opaque "run_and_capture_trace_0_single_add"
 // CHECK:       } else {
 // CHECK:         call_opaque "execute_trace_0_single_add"
 // CHECK:       call_opaque "::std::make_tuple"
@@ -65,8 +68,11 @@ func.func @single_add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16> {ttco
 // --- capture_or_execute wrapper ---
 // CHECK-LABEL: emitc.func @capture_or_execute_trace_1_multi_output
 // CHECK:       if
-// CHECK:         call_opaque "run_and_capture_trace_1_multi_output"
+// Slot allocation runs first and its tuple is unpacked into the globals; the
+// capture function is then called against those slots and returns the trace id.
+// CHECK:         call_opaque "allocate_slots_trace_1_multi_output"
 // CHECK:         call_opaque "::std::get"
+// CHECK:         call_opaque "run_and_capture_trace_1_multi_output"
 // CHECK:       } else {
 // CHECK:         call_opaque "execute_trace_1_multi_output"
 // CHECK:       call_opaque "::std::make_tuple"
