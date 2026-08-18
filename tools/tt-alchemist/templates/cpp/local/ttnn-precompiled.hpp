@@ -81,21 +81,6 @@ T util_get_optional_value(const std::optional<T> &opt) {
   return opt.value();
 }
 
-// Reads a single-element tensor back to host as a float. ttml's optimizer ops
-// take the AdamW bias-correction terms by value, but they travel through the
-// graph as tensors so the program is identical every step. Each call is a
-// device-to-host sync.
-inline float util_scalar_to_float(const ::ttnn::Tensor &tensor) {
-  assert(tensor.logical_volume() == 1 && "expected scalar tensor");
-  assert(tensor.dtype() == ::ttnn::DataType::FLOAT32 &&
-         "expected float32 tensor");
-
-  const std::vector<float> values =
-      ::ttnn::from_device(tensor).to_vector<float>();
-  assert(!values.empty() && "scalar tensor read back empty");
-  return values.front();
-}
-
 namespace ttnn {
 
 // DeviceGetter class

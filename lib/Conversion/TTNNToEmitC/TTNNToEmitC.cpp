@@ -3498,14 +3498,6 @@ public:
 // AdamWOp conversion pattern (emits ::ttml::metal::adamw)
 //
 namespace {
-// Finds a `util_scalar_to_float` call on `tensor` that already dominates
-// `before` in the same block, so the value can be reused instead of read back
-// again. A training step holds one adamw op per parameter and all of them read
-// the same two bias-correction tensors, so without this the emitted program
-// does two device-to-host syncs per parameter rather than two per step.
-//
-// Reuse is dropped if anything between the two points touches the tensor, since
-// that op may have written to it.
 mlir::Value findDominatingScalarReadback(mlir::Value tensor,
                                          mlir::Operation *before) {
   // The last op to touch the tensor before this point. Anything else in that
@@ -3529,10 +3521,6 @@ mlir::Value findDominatingScalarReadback(mlir::Value tensor,
   return callOp.getResult(0);
 }
 
-// Emits `float util_scalar_to_float(const ttnn::Tensor &)`, which reads a
-// single-element tensor back to the host as a float. Declared in the
-// `ttnn-precompiled.hpp` preludes under `tools/ttnn-standalone` and
-// `tools/tt-alchemist/templates/cpp`.
 mlir::Value emitScalarReadback(mlir::Value tensor, mlir::Operation *srcOp,
                                ConversionPatternRewriter &rewriter) {
   if (mlir::Value existing = findDominatingScalarReadback(tensor, srcOp)) {
@@ -3546,9 +3534,6 @@ mlir::Value emitScalarReadback(mlir::Value tensor, mlir::Operation *srcOp,
       .getResult(0);
 }
 
-// Formats a float attribute as a C++ literal. `EmitCTTNNEmitter::emit` is not
-// used for these: it formats floats with `std::to_string`, which is fixed to
-// six decimals and would flatten epsilon (1e-8) to `0.000000f`.
 mlir::Attribute emitFloatLiteral(llvm::APFloat value,
                                  ConversionPatternRewriter &rewriter) {
   // `APFloat::toString` spells these `inf` / `nan`, which are not C++ literals.
@@ -3585,24 +3570,12 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AdamWOp> emitter(
         srcOp, adaptor, rewriter);
 
-    // `lr` / `beta1_pow` / `beta2_pow` are single-element tensors in the IR, so
-    // that the graph stays the same for every optimizer step, but
-    // `ttml::metal::adamw` takes them as floats. Read the three scalars back
-    // before the call and pass the results by value, reusing an earlier
-    // readback of the same tensor when there is one.
     mlir::Value lr = emitScalarReadback(adaptor.getLr(), srcOp, rewriter);
     mlir::Value beta1Pow =
         emitScalarReadback(adaptor.getBeta1Pow(), srcOp, rewriter);
     mlir::Value beta2Pow =
         emitScalarReadback(adaptor.getBeta2Pow(), srcOp, rewriter);
 
-    // The emitter identifies a tensor argument by the position of the operand
-    // it comes from, so operands must be emitted in the op's own operand order:
-    // param, grad, exp_avg, exp_avg_sq, lr, beta1_pow, beta2_pow,
-    // max_exp_avg_sq.
-    // The three readback results are not operands of `srcOp`, so they take the
-    // positions of the tensors they replace explicitly. Reordering to match
-    // ttml's signature happens in `args` below, not here.
     mlir::Attribute param = emitter.emit(srcOp.getParam());
     mlir::Attribute grad = emitter.emit(srcOp.getGrad());
     mlir::Attribute expAvg = emitter.emit(srcOp.getExpAvg());

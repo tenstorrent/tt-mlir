@@ -10,12 +10,6 @@
 namespace tt::runtime::ttnn::operations::ttml {
 
 namespace {
-// Reads a single-element tensor back to host. This is a device-to-host sync,
-// and it happens three times per adamw op, i.e. three times per parameter per
-// step, not three times per step: a training graph holds one adamw op per
-// parameter and they all read the same three tensors.
-//
-// TODO(agobeljic): Remove this once ttml::AdamW accepts beta_pow as tensor.
 float scalarValueOf(const ::ttnn::Tensor &tensor, const char *name) {
   LOG_ASSERT(tensor.logical_volume() == 1, "AdamW: ", name,
              " must hold exactly one element, got ", tensor.logical_volume());

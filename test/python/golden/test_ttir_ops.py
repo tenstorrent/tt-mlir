@@ -371,7 +371,6 @@ def test_adamw_fused_forward(shape: Shape, target: str, request, device):
                 lr,
                 beta1_pow,
                 beta2_pow,
-                lr=1.0,
                 beta1=ADAMW_BETA1,
                 beta2=ADAMW_BETA2,
                 weight_decay=1e-2,

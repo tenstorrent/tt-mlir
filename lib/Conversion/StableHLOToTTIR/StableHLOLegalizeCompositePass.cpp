@@ -2055,10 +2055,6 @@ public:
     namedAttrs.push_back(rewriter.getNamedAttr(
         "stochastic_rounding", rewriter.getBoolAttr(stochasticRounding)));
 
-    // lr / beta1_pow / beta2_pow are operands rather than attributes, but they
-    // get the same F32 normalization the hyperparameters above get: a frontend
-    // tracing a bf16 model hands them over in the model's own float width, and
-    // the ttir.adamw verifier only accepts f32.
     constexpr size_t kLrIndex = 4;
     constexpr size_t kBeta1PowIndex = 5;
     constexpr size_t kBeta2PowIndex = 6;

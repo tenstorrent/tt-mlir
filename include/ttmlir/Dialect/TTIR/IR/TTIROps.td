@@ -2361,15 +2361,6 @@ def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
     - `lr` (Tensor): learning rate.
     - `beta1_pow`, `beta2_pow` (Tensor): beta1^t and beta2^t bias-correction
       terms.
-
-      `lr` and the two bias-correction terms are operands rather than attributes
-      because all three change from step to step -- `lr` under any schedule, the
-      bias correction always -- and an attribute would put that value in the IR,
-      giving a different graph, and so a recompile, on every step.
-
-      Each must be a single-element f32 tensor of rank 1 or higher: they are read
-      back to the host as plain floats, and rank 0 does not survive the TTNN
-      layout path.
     - `max_exp_avg_sq` (Optional Tensor): max second moment for AMSGrad. Its
       presence implies amsgrad, and requires the matching result.
 
