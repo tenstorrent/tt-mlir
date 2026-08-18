@@ -36,3 +36,18 @@ table SDPAForwardOp {
   out: tt.target.ttnn.TensorRef;
   intermediates: tt.target.ttnn.TensorRef;
 }
+
+table SDPABackwardOp {
+  grad_output: tt.target.ttnn.TensorRef;
+  attn_output: tt.target.ttnn.TensorRef;
+  query: tt.target.ttnn.TensorRef;
+  key: tt.target.ttnn.TensorRef;
+  value: tt.target.ttnn.TensorRef;
+  intermediates: tt.target.ttnn.TensorRef;
+  attention_mask: tt.target.ttnn.TensorRef;
+  mask_type: uint32;
+  dropout_probability: float;
+  grad_query: tt.target.ttnn.TensorRef;
+  grad_key: tt.target.ttnn.TensorRef;
+  grad_value: tt.target.ttnn.TensorRef;
+}

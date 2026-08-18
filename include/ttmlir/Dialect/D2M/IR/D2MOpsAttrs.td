@@ -56,4 +56,57 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
 
 def D2M_ThreadArrayAttr : TypedArrayAttrBase<D2M_ThreadAttr, "">;
 
+def D2M_TopKPlacementAttr : AttrDef<D2M_Dialect, "TopKPlacement", [], "::mlir::Attribute"> {
+  let mnemonic = "topk_placement";
+  let summary = "One buffer of a multi-core topk, already placed on cores.";
+  let description = [{
+    A single buffer of a planned topk, with its grid already folded onto
+    physical cores by `d2m-grid-selection`.
+
+    `type` is the finished device type, carried verbatim because its dim
+    alignments come from a grid-dependent search that a logical shape plus a
+    grid cannot reproduce.
+
+    `grid` is the consuming `d2m.generic`'s grid. `vgmForward`/`vgmInverse` are
+    the wider `d2m.empty` virtual grid mapping over grid and shard dims, absent
+    when the grid needs neither virtualization nor a spatial-region offset.
+  }];
+  let parameters = (ins
+    "RankedTensorType":$type,
+    "::mlir::tt::ttcore::GridAttr":$grid,
+    OptionalParameter<"::mlir::AffineMapAttr">:$vgmForward,
+    OptionalParameter<"::mlir::AffineMapAttr">:$vgmInverse
+  );
+
+  let assemblyFormat = [{ `<` struct(params) `>` }];
+}
+
+def D2M_TopKPlanAttr : AttrDef<D2M_Dialect, "TopKPlan", [], "::mlir::Attribute"> {
+  let mnemonic = "topk_plan";
+  let summary = "How a topk is split across the worker grid, and where every buffer lands.";
+  let description = [{
+    Written by `d2m-grid-selection` onto the placeholder leaf `d2m.generic`, and
+    consumed by `d2m-build-topk-chain`, which erases that leaf and re-emits the
+    whole chain from here. It is the whole handoff, so the chain build derives
+    no shape and folds nothing, single core or not. The laid-out input grid
+    selection emits itself stays out of it, since only what is left to build
+    travels here.
+
+    `numShards` bands the reduction dim, `ntShards` slices the non-target dim.
+    `mergeSchedule` holds the group count surviving *after* each merge round,
+    outermost first, so its last element is always 1.
+
+    `placements` is consumed in order, so it must stay in the order
+    `planTopKBuffers` builds it.
+  }];
+  let parameters = (ins
+    "int64_t":$numShards,
+    "int64_t":$ntShards,
+    ArrayRefParameter<"int64_t">:$mergeSchedule,
+    ArrayRefParameter<"TopKPlacementAttr">:$placements
+  );
+
+  let assemblyFormat = [{ `<` struct(params) `>` }];
+}
+
 #endif // TTMLIR_D2M_DIALECT_D2M_IR_D2MOPSATTRS_TD

@@ -5386,7 +5386,7 @@ public:
 // EmitPy lowering for ttnn.sdpa_fw is intentionally unsupported. The emitted
 // Python would need to call the low-level ttml::metal::sdpa_fw primitive, but
 // tt-train's nanobind bindings only expose the high-level
-// AdamW optimizer class. We need to upstream those Python bindings.
+// SDPAForward class. We need to upstream those Python bindings.
 // See https://github.com/tenstorrent/tt-mlir/issues/9118.
 class SDPAForwardOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<
@@ -5402,6 +5402,32 @@ public:
         srcOp,
         "EmitPy lowering for ttnn.sdpa_fw is not supported: ttml does not "
         "expose the metal::sdpa_fw primitive through its Python bindings.");
+  }
+};
+} // namespace
+
+// SDPABackward conversion pattern.
+//
+// EmitPy lowering for ttnn.sdpa_bw is intentionally unsupported. The emitted
+// Python would need to call the low-level ttml::metal::sdpa_bw primitive, but
+// tt-train's nanobind bindings only expose the high-level
+// SDPABackward class. We need to upstream those Python bindings.
+// See https://github.com/tenstorrent/tt-mlir/issues/9118.
+namespace {
+class SDPABackwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::SDPABackwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::SDPABackwardOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SDPABackwardOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        "EmitPy lowering for ttnn.sdpa_bw is not supported: ttml does not "
+        "expose the metal::sdpa_bw primitive through its Python bindings.");
   }
 };
 } // namespace
@@ -5719,6 +5745,9 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // SDPAForward: deliberately declines conversion (see comment above).
   patterns.add<SDPAForwardOpConversionPattern>(typeConverter, ctx);
+
+  // SDPABackward: deliberately declines conversion (see comment above).
+  patterns.add<SDPABackwardOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

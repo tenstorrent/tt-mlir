@@ -154,6 +154,20 @@ def D2M_OperandLoadStoreRegisterOpInterface : OpInterface<"OperandLoadStoreRegis
       /*methodBody=*/"",
       /*defaultImplementation=*/"return 0;"
     >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns the stride, in DST slices, between consecutive operands that
+        are loaded from the DST register. The default of 1 packs them into
+        adjacent slices. `d2m.tile_argmax` returns 2 because `max_reduce_with_indices`
+        derives its value/index accumulators from `idst + 1` and `idst_idx + 1`;
+        placing the index tile at `idst + 1` would alias the value accumulator.
+      }],
+      /*retTy=*/"int64_t",
+      /*methodName=*/"getDstInputSliceStride",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return 1;"
+    >,
   ];
 }
 

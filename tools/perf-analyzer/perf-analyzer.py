@@ -512,6 +512,8 @@ def collect_perf_counters(profile_log: pathlib.Path) -> pd.DataFrame:
             row = {k.strip().lower(): v for k, v in row.items()}
             if row["timer_id"] == PERF_COUNTER_TIMER_ID:
                 raw_md = row["meta data"]
+                if not raw_md:
+                    continue
                 meta_data = json.loads(raw_md.replace(";", ",").replace("'", '"'))
                 perf_counter_events.append(
                     {
@@ -571,6 +573,19 @@ def get_perf_counter_stats(perf_counters: pd.DataFrame) -> dict:
     semaphore_full_wait_0 = get_value_ref_ratio("WAITING_FOR_NONFULL_SEM_0")
     semaphore_full_wait_1 = get_value_ref_ratio("WAITING_FOR_NONFULL_SEM_1")
     semaphore_full_wait_2 = get_value_ref_ratio("WAITING_FOR_NONFULL_SEM_2")
+    idx = ["run_host_id", "core_x", "core_y"]
+    tdma_bundle_cnt = (
+        get_counter_values("L1_0_TDMA_BUNDLE_0_RISC").groupby(level=idx).sum()
+        + get_counter_values("L1_0_TDMA_BUNDLE_1_TRISC").groupby(level=idx).sum()
+    ) / 2
+    tdma_bundle = (
+        tdma_bundle_cnt
+        / get_counter_ref_cnt("L1_0_TDMA_BUNDLE_0_RISC").groupby(level=idx).sum()
+    ).replace([float("inf"), -float("inf")], float("nan"))
+    fpu_efficiency = (
+        get_counter_values("FPU_COUNTER").groupby(level=idx).sum()
+        / get_counter_values("FPU_INSTRN_AVAILABLE_1").groupby(level=idx).sum()
+    ).replace([float("inf"), -float("inf")], float("nan"))
 
     noc_out = (
         get_counter_values("L1_0_NOC_RING0_OUTGOING_0")
@@ -590,15 +605,17 @@ def get_perf_counter_stats(perf_counters: pd.DataFrame) -> dict:
         "fpu utilization": get_stats_by_core(fpu_util),
         "mmio idle t0": get_stats_by_core(mmio_idle_t0),
         "sfpu idle t1": get_stats_by_core(sfpu_idle_t1),
-        "thcon idle t0": get_stats_by_core(thcon_idle_t0),
+        "thread control idle t0": get_stats_by_core(thcon_idle_t0),
         "move idle t0": get_stats_by_core(move_idle_t0),
-        "semaphore zero wait t0": get_stats_by_core(semaphore_zero_wait_0),
-        "semaphore zero wait t1": get_stats_by_core(semaphore_zero_wait_1),
-        "semaphore zero wait t2": get_stats_by_core(semaphore_zero_wait_2),
-        "semaphore full wait t0": get_stats_by_core(semaphore_full_wait_0),
-        "semaphore full wait t1": get_stats_by_core(semaphore_full_wait_1),
-        "semaphore full wait t2": get_stats_by_core(semaphore_full_wait_2),
+        "waiting for non-zero sem t0": get_stats_by_core(semaphore_zero_wait_0),
+        "waiting for non-zero sem t1": get_stats_by_core(semaphore_zero_wait_1),
+        "waiting for non-zero sem t2": get_stats_by_core(semaphore_zero_wait_2),
+        "waiting for non-full sem t0": get_stats_by_core(semaphore_full_wait_0),
+        "waiting for non-full sem t1": get_stats_by_core(semaphore_full_wait_1),
+        "waiting for non-full sem t2": get_stats_by_core(semaphore_full_wait_2),
         "noc vs compute": get_stats_by_core(noc_vs_compute),
+        "L1 TDMA bundle util": get_stats_by_core(tdma_bundle),
+        "fpu efficiency": get_stats_by_core(fpu_efficiency),
     }
 
 

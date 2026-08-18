@@ -119,6 +119,7 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   }
   pm.addPass(d2m::createD2MMaterializeViewReturns());
   pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
+  pm.addPass(d2m::createD2MBuildTopkChain());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MOptimizeMasks());
   pm.addPass(d2m::createD2MLowerToLayout());
@@ -133,7 +134,6 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
   pm.addPass(d2m::createD2MInsertScratchBuffers());
-  pm.addPass(d2m::createD2MDecomposeTopk());
 
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
@@ -184,6 +184,7 @@ void createD2MFrontendPipeline(OpPassManager &pm,
 
 void createD2MBackendPipeline(OpPassManager &pm,
                               const D2MPipelineOptions &options) {
+  pm.addPass(d2m::createD2MDecomposeTopk());
   pm.addPass(d2m::createD2MDecomposeArange());
 
   d2m::D2MGenericTileComputeLoopsOptions tileComputeLoopsOptions;

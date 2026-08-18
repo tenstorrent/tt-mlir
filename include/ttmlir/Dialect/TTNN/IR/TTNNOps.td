@@ -1152,6 +1152,10 @@ def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw"> {
     let summary = "Embedding backward op.";
     let description = [{
       Embedding backward operation. Generates the gradient of the embedding operation with respect to the input.
+
+      The gradient is returned as a 4D tensor of shape (1, 1, dictionary_size, embedding_size), matching
+      what tt-metal produces; the two leading unit dimensions have to be reshaped away by the producer of
+      this op if the consumer expects the 2D weight shape.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
@@ -2757,6 +2761,42 @@ def TTNN_SDPAForwardOp : TTNN_Op<"sdpa_fw", [OpModelExempt]> {
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::
             createSDPAForwardOpOperandsWorkarounds(this->getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_SDPABackwardOp : TTNN_Op<"sdpa_bw", [OpModelExempt]> {
+    let summary = "Scaled dot-product attention backward (ttml).";
+    let description = [{
+      Training-oriented fused scaled dot-product attention backward pass, backed
+      by the ttml metal op `ttml::metal::sdpa_bw`. Given the upstream gradient
+      and the forward pass tensors (output, Q, K, V and log-sum-exp
+      intermediates), computes the gradients w.r.t. query, key and value.
+
+      All tensors are rank 4 `(B, H, S, D)`. `attention_mask` is only valid when
+      `mask_type` is `arbitrary`.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$grad_output,
+                         AnyRankedTensor:$attn_output,
+                         AnyRankedTensor:$query,
+                         AnyRankedTensor:$key,
+                         AnyRankedTensor:$value,
+                         AnyRankedTensor:$intermediates,
+                         Optional<AnyRankedTensor>:$attention_mask,
+                         DefaultValuedAttr<TTCore_AttentionMaskTypeAttr, "::mlir::tt::ttcore::AttentionMaskType::Arbitrary">:$mask_type,
+                         DefaultValuedAttr<F32Attr, "0.0">:$dropout_probability);
+
+    let results = (outs AnyRankedTensor:$grad_query,
+                        AnyRankedTensor:$grad_key,
+                        AnyRankedTensor:$grad_value);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSDPABackwardOpOperandsWorkarounds(this->getOperation());
       }
     }];
 

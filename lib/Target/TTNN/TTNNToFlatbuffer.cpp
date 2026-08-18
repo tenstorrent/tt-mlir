@@ -1690,6 +1690,42 @@ createOp(FlatbufferObjectCache &cache, SDPAForwardOp op) {
       output, intermediates);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SDPABackwardOp>
+createOp(FlatbufferObjectCache &cache, SDPABackwardOp op) {
+  auto gradOutput = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGradOutput()));
+  auto attnOutput = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getAttnOutput()));
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+  auto value = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getValue()));
+  auto intermediates = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getIntermediates()));
+
+  // Optional attention mask: offset 0 when absent.
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> attentionMask = 0;
+  if (op.getAttentionMask()) {
+    attentionMask = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getAttentionMask()));
+  }
+
+  auto gradQuery = cache.getOrCreateNoSharding(
+      op.getGradQuery(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+  auto gradKey = cache.getOrCreateNoSharding(
+      op.getGradKey(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+  auto gradValue = cache.getOrCreateNoSharding(
+      op.getGradValue(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateSDPABackwardOp(
+      *cache.fbb, gradOutput, attnOutput, query, key, value, intermediates,
+      attentionMask, static_cast<uint32_t>(op.getMaskType()),
+      op.getDropoutProbability().convertToFloat(), gradQuery, gradKey,
+      gradValue);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::RMSNormOp>
 createOp(FlatbufferObjectCache &cache, RMSNormOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -4945,6 +4981,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto sdpaForwardOp = dyn_cast<SDPAForwardOp>(op); sdpaForwardOp) {
     return createOperation(cache, createOp(cache, sdpaForwardOp), debugString,
+                           locInfo);
+  }
+  if (auto sdpaBackwardOp = dyn_cast<SDPABackwardOp>(op); sdpaBackwardOp) {
+    return createOperation(cache, createOp(cache, sdpaBackwardOp), debugString,
                            locInfo);
   }
   if (auto rmsNormOp = dyn_cast<RMSNormOp>(op); rmsNormOp) {

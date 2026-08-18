@@ -1048,6 +1048,34 @@ public:
             op.getContext(), std::to_string(iterations)));
       }
       return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::MaxReduceWithIndicesTileOp>) {
+      // max_reduce_with_indices<num_rows, layout, accumulate, ITERATIONS>(
+      //     idst, idst_idx, chunk)
+      // Reduce the column via the ROW_MAJOR data layout path; `accumulate`
+      // mode is only valid for ROW_MAJOR (the LLK static_asserts against
+      // TILE), and it makes the LLK maintain running value/index maxima in the
+      // slices implicitly reserved at idst+1 / idst_idx+1.
+      SmallVector<Attribute, 3> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), std::to_string(op.getNumRows())));
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), "ckernel::DataLayout::ROW_MAJOR"));
+      // Only emit the trailing `accumulate` template argument when it departs
+      // from the LLK's default, so the common non-accumulating case keeps the
+      // shorter two-argument spelling.
+      if (op.getAccumulate()) {
+        template_args.push_back(
+            emitc::OpaqueAttr::get(op.getContext(), "true"));
+      }
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::MaxReduceWithIndicesInitOp>) {
+      // max_reduce_with_indices_init<layout>()
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), "ckernel::DataLayout::ROW_MAJOR"));
+      return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
   }
@@ -2657,6 +2685,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalUntilizeBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackUntilizeInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackUntilizeUninitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ReconfigDataFormatSrcAOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::ExperimentalPackUntilizeBlockOp>,
 
@@ -2882,7 +2911,9 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrFromBankIDOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::TensorAccessorOp>>(
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TensorAccessorOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MaxReduceWithIndicesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MaxReduceWithIndicesTileOp>>(
         typeConverter, context);
 
     patterns.add<TTKernelToEmitCCBVoidMethodRewriter<ttkernel::CBPushBackOp>>(

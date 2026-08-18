@@ -128,6 +128,14 @@ public:
   }
 
   unsigned allocateInput();
+
+  // Allocate an input slice that owns `stride` consecutive slices, returning
+  // the first.  The extra slices are consumed from the pool but never recorded
+  // as inputs: they model slices an LLK addresses implicitly relative to the
+  // operand slot (see `getDstInputSliceStride`), so nothing else may claim
+  // them and no store ever targets them directly.
+  unsigned allocateInputStrided(unsigned stride);
+
   unsigned allocateOutput();
   unsigned allocateScratch();
 
@@ -136,6 +144,15 @@ public:
 
   unsigned getCurrSliceIndex() const;
   unsigned getFirstInputSliceIndex() const;
+
+  // Indexed access into the input-slice stack. Needed by multi-result in-place
+  // compute ops (e.g. d2m.tile_argmax, which reduces both a value tile and an
+  // index tile in place): each result's store must resolve to the DST slot of
+  // the corresponding operand, so the store rewriter looks up slot N for
+  // result N rather than always taking the first.
+  unsigned getNumInputSlices() const;
+  unsigned getInputSliceIndex(unsigned n) const;
+
   void deallocateIntermediate(unsigned id);
   void deallocateAllButFirstInput();
 

@@ -2093,9 +2093,14 @@ mlir::OpFoldResult mlir::tt::ttnn::SliceStaticOp::fold(FoldAdaptor adaptor) {
     return emitOpError("Input gradient and output must have the same dtype");
   }
 
-  // outputType should have the same shape as weightType.
-  if (outputType.getShape() != weightType.getShape()) {
-    return emitOpError("Output must have the same shape as weight");
+  // tt-metal always returns the weight gradient as a 4D tensor of shape
+  // (1, 1, dictionary_size, embedding_size), i.e. the weight shape prefixed
+  // with two unit dimensions.
+  llvm::SmallVector<int64_t, 4> expectedOutputShape{
+      1, 1, weightType.getDimSize(0), weightType.getDimSize(1)};
+  if (!llvm::equal(expectedOutputShape, outputType.getShape())) {
+    return emitOpError() << "expected output shape of (" << expectedOutputShape
+                         << ") but got (" << outputType.getShape() << ")";
   }
 
   return success();
@@ -3822,6 +3827,32 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
   if (getReturnIntermediates() != static_cast<bool>(getIntermediates())) {
     return emitOpError("intermediates result must be present iff "
                        "return_intermediates is true");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SDPABackwardOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::SDPABackwardOp::verify() {
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType valueType = getValue().getType();
+
+  if (queryType.getRank() != 4 || keyType.getRank() != 4 ||
+      valueType.getRank() != 4) {
+    return emitOpError("query, key and value must be rank 4 (B, H, S, D)");
+  }
+
+  ttcore::AttentionMaskType maskType = getMaskType();
+  if (maskType == ttcore::AttentionMaskType::Arbitrary && !getAttentionMask()) {
+    return emitOpError(
+        "attention_mask is required when mask_type is 'arbitrary'");
+  }
+  if (maskType != ttcore::AttentionMaskType::Arbitrary && getAttentionMask()) {
+    return emitOpError(
+        "attention_mask is only allowed when mask_type is 'arbitrary'");
   }
 
   return success();

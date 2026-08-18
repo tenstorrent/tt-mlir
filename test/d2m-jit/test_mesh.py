@@ -2,43 +2,14 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import functools
-import json
-import os
-import re
-
 import pytest
 import torch
 
 import d2m_jit as d2m
 from d2m_jit._src.builder import _Builder
 
-try:
-    from _ttmlir_runtime import binary, runtime
-except (ImportError, ModuleNotFoundError):
-    binary = None
-    runtime = None
 
-
-@functools.lru_cache(maxsize=1)
-def _num_devices():
-    """Read the chip count without opening a runtime device."""
-    system_desc = os.environ.get("SYSTEM_DESC_PATH")
-    if binary is None or not system_desc:
-        return 0
-    try:
-        desc = binary.load_system_desc_from_path(system_desc).as_json()
-        desc = re.sub(r"\bnan\b", "NaN", desc)
-        desc = re.sub(r"\binf\b", "Infinity", desc)
-        return len(json.loads(desc)["system_desc"]["chip_desc_indices"])
-    except Exception:
-        return 0
-
-
-requires_mesh = pytest.mark.skipif(
-    runtime is None or _num_devices() < 2,
-    reason="requires SYSTEM_DESC_PATH for a system with at least two devices",
-)
+pytestmark = pytest.mark.machines("n300")
 
 
 def test_mesh_configuration():
@@ -68,7 +39,6 @@ def test_mesh_gather_derives_full_shape():
     assert gathered.mesh.full_shape == [64, 128]
 
 
-@requires_mesh
 def test_mesh_shard_round_trip_1x2():
     d2m.mesh((1, 2), topology=("linear", "ring"))
     layout = d2m.Layout(
@@ -91,7 +61,6 @@ def test_mesh_shard_round_trip_1x2():
     assert torch.allclose(result, full, atol=1e-2)
 
 
-@requires_mesh
 def test_mesh_compute_round_trip_1x2():
     @d2m.kernel
     def sigmoid_kernel(input_, output, m_blocks, n_blocks):

@@ -443,9 +443,25 @@ public:
           rewriter, ttmlir::utils::appendLocationSuffix(loc, "_4d_indices"));
     }
 
-    rewriter.replaceOpWithNewOp<ttnn::EmbeddingBackwardOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), inputIndices,
-        adaptor.getWeight(), reshapedGrad);
+    // tt-metal always returns the weight gradient as a 4D tensor of shape
+    // [1, 1, dictionary_size, embedding_size], so the ttnn op is typed that way
+    // and reshaped back to the 2D weight shape the ttir op declares.
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getType()));
+    llvm::SmallVector<int64_t, 4> gradient4DShape{
+        1, 1, outputType.getDimSize(0), outputType.getDimSize(1)};
+    auto gradient4DType = ttnn::utils::RankedTensorTypeFactory::create(
+        outputType, gradient4DShape);
+
+    auto embeddingBackwardOp = rewriter.create<ttnn::EmbeddingBackwardOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_embedding_bw"),
+        gradient4DType, inputIndices, adaptor.getWeight(), reshapedGrad);
+
+    llvm::SmallVector<int32_t, 2> outputShapeI32(outputType.getShape().begin(),
+                                                 outputType.getShape().end());
+    rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+        op, outputType, embeddingBackwardOp.getResult(),
+        rewriter.getI32ArrayAttr(outputShapeI32));
     return success();
   }
 };
@@ -1266,6 +1282,31 @@ public:
         op, resultTypes, adaptor.getQuery(), adaptor.getKey(),
         adaptor.getValue(), adaptor.getAttentionMask(), op.getMaskTypeAttr(),
         op.getDropoutProbabilityAttr(), op.getReturnIntermediatesAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class SDPABackwardOpConversionPattern
+    : public OpConversionPattern<ttir::SDPABackwardOp> {
+public:
+  using OpConversionPattern<ttir::SDPABackwardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SDPABackwardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    if (failed(getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                resultTypes))) {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::SDPABackwardOp>(
+        op, resultTypes, adaptor.getGradOutput(), adaptor.getAttnOutput(),
+        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
+        adaptor.getIntermediates(), adaptor.getAttentionMask(),
+        op.getMaskTypeAttr(), op.getDropoutProbabilityAttr());
     return success();
   }
 };
@@ -3845,6 +3886,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BatchNormTrainingOpConversionPattern,
            AdamWOpConversionPattern,
            SDPAForwardOpConversionPattern,
+           SDPABackwardOpConversionPattern,
            RMSNormOpConversionPattern,
            DistributedRMSNormOpConversionPattern,
            DistributedLayerNormOpConversionPattern,

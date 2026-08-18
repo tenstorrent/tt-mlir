@@ -13,6 +13,10 @@ module attributes {} {
     // CHECK: "ttnn.typecast"
     // CHECK-SAME: -> tensor<1x1x1x32xui32
     // CHECK: "ttnn.embedding_bw"
+    // CHECK-SAME: -> tensor<1x1x512x128xbf16
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: <{shape = [512 : i32, 128 : i32]}>
+    // CHECK-SAME: -> tensor<512x128xbf16
     %1 = "ttir.embedding_backward"(%arg0, %arg1, %arg2) : (tensor<32xsi32>, tensor<512x128xbf16>, tensor<32x128xbf16>) -> tensor<512x128xbf16>
     return %1 : tensor<512x128xbf16>
   }

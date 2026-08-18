@@ -924,6 +924,27 @@ def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {
   ];
 }
 
+def D2MBuildTopkChain : Pass<"d2m-build-topk-chain", "::mlir::ModuleOp"> {
+  let summary = "Build a `topk_block` chain from its placement plan";
+  let description = [{
+    Replaces every placeholder `topk_block` carrying a `d2m.topk_plan` with the
+    chain that plan describes: the input laid out banded and/or data-parallel,
+    a leaf topk per core, the bands collapsed by a merge tree (`mergeSchedule`)
+    built on `d2m.composite_view` gathers, and the extracts that narrow the
+    result to `k` and cast its indices to the type the user asked for.
+
+    Must run after `d2m-grid-selection`, which is what chose the split, folded
+    every buffer's grid onto physical cores, and wrote the plan. Every buffer
+    built here comes from the plan, including the single-core case.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::linalg::LinalgDialect",
+    "::mlir::tensor::TensorDialect",
+    "::mlir::arith::ArithDialect"
+  ];
+}
+
 def D2MDecomposeTopk : Pass<"d2m-decompose-topk", "::mlir::ModuleOp"> {
   let summary = "Decompose topk_block ops into low-level tile operations";
   let description = [{

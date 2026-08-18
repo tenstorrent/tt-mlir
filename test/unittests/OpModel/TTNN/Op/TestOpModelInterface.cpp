@@ -4380,9 +4380,13 @@ TEST_F(OpModelBase, EmbeddingBackwardOp) {
                         CreateRowMajorLayout(weightShape, BufferType::DRAM,
                                              TensorMemoryLayout::Interleaved));
   auto inGradient = createEmptyTensor(inGradientShape);
+  // tt-metal returns the weight gradient as (1, 1, dictionary_size,
+  // embedding_size).
+  llvm::SmallVector<int64_t> outputShape = {1, 1, weightShape[0],
+                                            weightShape[1]};
   auto outputType = createRankedTensorType(
-      inGradientShape, builder.getBF16Type(),
-      CreateTiledLayout(inGradientShape, BufferType::L1,
+      outputShape, builder.getBF16Type(),
+      CreateTiledLayout(outputShape, BufferType::L1,
                         TensorMemoryLayout::Interleaved));
 
   auto embeddingBackward = builder.create<EmbeddingBackwardOp>(
