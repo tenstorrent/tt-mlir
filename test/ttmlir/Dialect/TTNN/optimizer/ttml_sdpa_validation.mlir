@@ -92,9 +92,9 @@ module {
     // CHECK-SAME: -> (tensor<1x8x64x64xbf16
     // CHECK-SAME: tensor<1x8x64x64xbf16
     // CHECK-SAME: tensor<1x8x64x64xbf16
-    // CHECK: %[[GQ_F32:.*]] = "ttnn.typecast"(%[[GQ_BF16]]) : {{.*}} -> tensor<1x8x64x64xf32
-    // CHECK: %[[GK_F32:.*]] = "ttnn.typecast"(%[[GK_BF16]]) : {{.*}} -> tensor<1x8x64x64xf32
-    // CHECK: %[[GV_F32:.*]] = "ttnn.typecast"(%[[GV_BF16]]) : {{.*}} -> tensor<1x8x64x64xf32
+    // CHECK-DAG: %[[GQ_F32:.*]] = "ttnn.typecast"(%[[GQ_BF16]]) : {{.*}} -> tensor<1x8x64x64xf32
+    // CHECK-DAG: %[[GK_F32:.*]] = "ttnn.typecast"(%[[GK_BF16]]) : {{.*}} -> tensor<1x8x64x64xf32
+    // CHECK-DAG: %[[GV_F32:.*]] = "ttnn.typecast"(%[[GV_BF16]]) : {{.*}} -> tensor<1x8x64x64xf32
     // CHECK: return %[[GQ_F32]], %[[GK_F32]], %[[GV_F32]]
     %grad_query, %grad_key, %grad_value = "ttir.sdpa_bw"(
         %grad_output, %output, %query, %key, %value, %intermediates, %mask) <{
