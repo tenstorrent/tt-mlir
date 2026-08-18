@@ -728,6 +728,49 @@ static SliceStaticOp findSliceThroughTMs(Value v) {
   return nullptr;
 }
 
+// Matches the flat-gather form of `freqs_cis[..., c]`: freqs_cis linearised,
+// one element looked up per output position. Returns the freqs_cis the gather
+// reads, or nullptr. Guard 3 in the caller rejects a gather over anything other
+// than the cache the sibling branch slices.
+//
+// Which column is selected is not recoverable, the index tensor being opaque
+// here. Callers must only use this for the column complementary to a branch
+// whose column a slice proved.
+static Value matchFlatGatherFreqs(Value v) {
+  auto embedding = dyn_cast_or_null<EmbeddingOp>(skipTMs(v).getDefiningOp());
+  if (!embedding) {
+    return nullptr;
+  }
+
+  // The lookup table must be a linearised copy of freqs_cis.
+  Value freqs = skipTMs(embedding.getWeight());
+  auto freqsType = mlir::dyn_cast<RankedTensorType>(freqs.getType());
+  auto indicesType =
+      mlir::dyn_cast<RankedTensorType>(embedding.getInput().getType());
+  if (!freqsType || !indicesType || !freqsType.hasStaticShape() ||
+      !indicesType.hasStaticShape()) {
+    return nullptr;
+  }
+
+  // One column is half of the trailing 2x2.
+  if (freqsType.getNumElements() != 2 * indicesType.getNumElements()) {
+    return nullptr;
+  }
+
+  return freqs;
+}
+
+// True when both values are the same tensor up to reshapes.
+static bool sameFreqsModuloReshape(Value a, Value b) {
+  auto root = [](Value v) {
+    while (auto reshape = dyn_cast_or_null<ReshapeOp>(v.getDefiningOp())) {
+      v = reshape.getInput();
+    }
+    return v;
+  };
+  return root(a) == root(b);
+}
+
 // For a slice on a 6D reshape of x at pair dim, returns the pair index
 // (0 or 1) if the slice has the form [..., 0:1, 0:1] or [..., 0:1, 1:2]
 // on the last two dims of a (..., 1, 2) shape. Returns nullopt otherwise.
@@ -814,45 +857,54 @@ static std::optional<int64_t> getColumnIndex(SliceStaticOp slice) {
 struct InterleavedBranch {
   MultiplyOp mulOp;
   SliceStaticOp xSlice;     // slice on the 6D reshape of x; pair index encoded
-  SliceStaticOp freqsSlice; // slice on freqs_cis; column index encoded
-  int64_t pairIdx;          // 0 or 1
-  int64_t colIdx;           // 0 or 1
+  SliceStaticOp freqsSlice; // slice on freqs_cis; unset when freqsIsGather
+  int64_t pairIdx = -1;     // 0 or 1
+  int64_t colIdx = -1;      // 0 or 1
   Value xReshape6D;         // the 6D reshape of x (slice's input)
-  Value freqsSrc;           // freqs_cis source tensor
+  Value freqsSrc;           // freqs_cis; linearised view when freqsIsGather
+  bool freqsIsGather = false;
 };
 
 // Try to interpret a MultiplyOp as one branch of the interleaved RoPE pattern.
-// Returns the populated branch if both operands trace back to a pair-slice on
-// x's 6D reshape and a column-slice on freqs_cis; nullopt otherwise.
+// Returns the populated branch if the x operand traces back to a pair-slice on
+// x's 6D reshape and the freqs operand to either a column-slice on freqs_cis or
+// its flat-gather form; nullopt otherwise.
 static std::optional<InterleavedBranch> matchBranch(MultiplyOp mulOp) {
   for (int swap = 0; swap < 2; ++swap) {
     Value xSide = mulOp.getOperand(swap);
     Value freqsSide = mulOp.getOperand(1 - swap);
 
     SliceStaticOp xSlice = findSliceThroughTMs(xSide);
-    SliceStaticOp freqsSlice = findSliceThroughTMs(freqsSide);
-    if (!xSlice || !freqsSlice) {
+    if (!xSlice) {
       continue;
     }
-
     auto pairIdx = getPairIndex(xSlice);
     if (!pairIdx) {
-      continue;
-    }
-    auto colIdx = getColumnIndex(freqsSlice);
-    if (!colIdx) {
       continue;
     }
 
     InterleavedBranch br;
     br.mulOp = mulOp;
     br.xSlice = xSlice;
-    br.freqsSlice = freqsSlice;
     br.pairIdx = *pairIdx;
-    br.colIdx = *colIdx;
     br.xReshape6D = xSlice.getOperand();
-    br.freqsSrc = freqsSlice.getOperand();
-    return br;
+
+    if (SliceStaticOp freqsSlice = findSliceThroughTMs(freqsSide)) {
+      if (auto colIdx = getColumnIndex(freqsSlice)) {
+        br.freqsSlice = freqsSlice;
+        br.colIdx = *colIdx;
+        br.freqsSrc = freqsSlice.getOperand();
+        br.freqsIsGather = false;
+        return br;
+      }
+    }
+
+    // colIdx stays unset; the caller derives it from the sibling branch.
+    if (Value gatheredFreqs = matchFlatGatherFreqs(freqsSide)) {
+      br.freqsSrc = gatheredFreqs;
+      br.freqsIsGather = true;
+      return br;
+    }
   }
   return std::nullopt;
 }
@@ -875,9 +927,22 @@ mlir::LogicalResult RoPEInterleavedPairFusingPattern::matchAndRewrite(
     return failure();
   }
 
-  // 3. Both branches must share the same x 6D reshape and same freqs_cis.
-  if (br0->xReshape6D != br1->xReshape6D || br0->freqsSrc != br1->freqsSrc) {
+  // 3. Both branches must share the same x 6D reshape and the same freqs_cis,
+  //    modulo reshape since the gather form reads a linearised view.
+  if (br0->xReshape6D != br1->xReshape6D ||
+      !sameFreqsModuloReshape(br0->freqsSrc, br1->freqsSrc)) {
     return failure();
+  }
+
+  // 3b. Only one branch may be gathered; its column is the sibling's
+  //     complement.
+  if (br0->freqsIsGather && br1->freqsIsGather) {
+    return failure();
+  }
+  if (br0->freqsIsGather) {
+    br0->colIdx = 1 - br1->colIdx;
+  } else if (br1->freqsIsGather) {
+    br1->colIdx = 1 - br0->colIdx;
   }
 
   // 4. The two branches must select pair indices {0, 1} and columns {0, 1}.
@@ -889,6 +954,12 @@ mlir::LogicalResult RoPEInterleavedPairFusingPattern::matchAndRewrite(
   if (br0->pairIdx != br0->colIdx || br1->pairIdx != br1->colIdx) {
     return failure();
   }
+
+  // 4b. Only the slice branch carries the (..., D/2, 2, 2) shape cos and sin
+  // are
+  //     sliced from below.
+  const InterleavedBranch &freqsBranch = br0->freqsIsGather ? *br1 : *br0;
+  Value freqsSrc = freqsBranch.freqsSrc;
 
   // 5. The x 6D reshape must come from a ReshapeOp that produced shape
   //    (..., D/2, 1, 2) from (..., D).
@@ -917,7 +988,7 @@ mlir::LogicalResult RoPEInterleavedPairFusingPattern::matchAndRewrite(
   }
 
   // 6. freqs_cis must be 6D shape (..., D/2, 2, 2).
-  auto freqsType = mlir::cast<RankedTensorType>(br0->freqsSrc.getType());
+  auto freqsType = mlir::cast<RankedTensorType>(freqsSrc.getType());
   ArrayRef<int64_t> freqsShape = freqsType.getShape();
   int64_t fRank = freqsShape.size();
   if (fRank != 6 || freqsShape[fRank - 3] != halfD ||
@@ -953,12 +1024,12 @@ mlir::LogicalResult RoPEInterleavedPairFusingPattern::matchAndRewrite(
   //    sin = freqs_cis[..., 1, 0]  (row 1, col 0)
   // First slice on the row dim (rank-2), then on the col dim (rank-1).
   SliceStaticOp cosRowSlice =
-      buildSliceOnDim(rewriter, loc, br0->freqsSrc, fRank - 2, 0, 1);
+      buildSliceOnDim(rewriter, loc, freqsSrc, fRank - 2, 0, 1);
   SliceStaticOp cosColSlice =
       buildSliceOnDim(rewriter, loc, cosRowSlice.getResult(), fRank - 1, 0, 1);
 
   SliceStaticOp sinRowSlice =
-      buildSliceOnDim(rewriter, loc, br0->freqsSrc, fRank - 2, 1, 2);
+      buildSliceOnDim(rewriter, loc, freqsSrc, fRank - 2, 1, 2);
   SliceStaticOp sinColSlice =
       buildSliceOnDim(rewriter, loc, sinRowSlice.getResult(), fRank - 1, 0, 1);
 
