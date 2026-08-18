@@ -2,8 +2,8 @@
 
 // Test mixed per-op and global weight dtype. Two matmuls:
 // - First matmul: op has per-op annotation "bfp_bf4" -> host-side chain to bfp4
-// - Second matmul: op has no annotation -> falls back to global bfp8
-// Both blockfloat targets emit the from_device -> typecast -> to_device chain.
+// - Second matmul: op has no annotation -> falls back to global bfp8; bfp8 emits a
+// single on-device typecast.
 
 #dram = #ttnn.buffer_type<dram>
 
@@ -28,12 +28,12 @@ module attributes {} {
     %0 = "ttnn.matmul"(%arg0, %arg1) {ttcore.weight_dtype = "bfp_bf4"} : (tensor<1x32x128xbf16, #ttnn.ttnn_layout<(d0, d1, d2) -> (d0, d1, d2), <1x1>, memref<1x1x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>>, tensor<1x128x256xbf16, #ttnn.ttnn_layout<(d0, d1, d2) -> (d0, d1, d2), <1x1>, memref<1x4x8x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>>) -> tensor<1x32x256xbf16, #ttnn.ttnn_layout<(d0, d1, d2) -> (d0, d1, d2), <1x1>, memref<1x1x8x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>>
 
     // Second matmul: no per-op annotation, falls back to global bfp8.
-    // CHECK: %[[FROM_DEV2:.*]] = "ttnn.from_device"(%arg2)
-    // CHECK: %[[TYPECAST2:.*]] = "ttnn.typecast"(%[[FROM_DEV2]])
+    // CHECK-NOT: "ttnn.from_device"
+    // CHECK: %[[TYPECAST2:.*]] = "ttnn.typecast"(%arg2)
     // CHECK-SAME: -> tensor<1x128x256x!ttcore.tile<32x32, bfp_bf8>
-    // CHECK: %[[TO_DEV2:.*]] = "ttnn.to_device"(%[[TYPECAST2]], %[[DEV]])
+    // CHECK-NOT: "ttnn.to_device"
 
-    // CHECK: %[[MM2:.*]] = "ttnn.matmul"(%arg0, %[[TO_DEV2]])
+    // CHECK: %[[MM2:.*]] = "ttnn.matmul"(%arg0, %[[TYPECAST2]])
     %1 = "ttnn.matmul"(%arg0, %arg2) : (tensor<1x32x128xbf16, #ttnn.ttnn_layout<(d0, d1, d2) -> (d0, d1, d2), <1x1>, memref<1x1x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>>, tensor<1x128x256xbf16, #ttnn.ttnn_layout<(d0, d1, d2) -> (d0, d1, d2), <1x1>, memref<1x4x8x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>>) -> tensor<1x32x256xbf16, #ttnn.ttnn_layout<(d0, d1, d2) -> (d0, d1, d2), <1x1>, memref<1x1x8x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>>
 
     return %0, %1 : tensor<1x32x256xbf16, #ttnn.ttnn_layout<(d0, d1, d2) -> (d0, d1, d2), <1x1>, memref<1x1x8x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>>, tensor<1x32x256xbf16, #ttnn.ttnn_layout<(d0, d1, d2) -> (d0, d1, d2), <1x1>, memref<1x1x8x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>>
