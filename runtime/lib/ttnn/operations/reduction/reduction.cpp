@@ -10,15 +10,8 @@
 #include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::reduction {
-static void runReductionOp(
-    const ::tt::target::ttnn::ReductionOp *op, ProgramTensorPool &tensorPool,
-    const std::function<::ttnn::Tensor(
-        const ::ttnn::Tensor &,
-        const std::optional<
-            std::variant<int, int64_t, ::ttsl::SmallVector<int>>> &,
-        const bool, const std::optional<::ttnn::MemoryConfig> &,
-        const std::optional<::ttnn::DeviceComputeKernelConfig> &, float, bool,
-        const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
+void run(const ::tt::target::ttnn::ReductionOp *op, ProgramContext &context) {
+  ProgramTensorPool &tensorPool = context.getTensorPool();
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
@@ -41,61 +34,30 @@ static void runReductionOp(
         utils::createDeviceComputeKernelConfig(op->compute_config());
   }
 
-  ::ttnn::Tensor out = ttnnOp(
-      in, dimArg, op->keep_dim(), outputMemoryConfig /* memory_config_arg */,
-      computeConfig /* compute_kernel_config */, 1.0f /* scalar */,
-      true /* correction */, std::nullopt /* sub_core_grids */);
-
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
-}
-
-void run(const ::tt::target::ttnn::ReductionOp *op, ProgramContext &context) {
-  ProgramTensorPool &tensorPool = context.getTensorPool();
+  ::ttnn::Tensor out;
   switch (op->type()) {
   case ::tt::target::ttnn::ReductionOpType::Sum: {
-    // ttnn::sum gained an extra output_layout arg; wrap so the extra
-    // parameter is not part of the std::function conversion.
-    runReductionOp(
-        op, tensorPool,
-        [](const ::ttnn::Tensor &input,
-           const std::optional<
-               std::variant<int, int64_t, ::ttsl::SmallVector<int>>> &dimArg,
-           const bool keepDim,
-           const std::optional<::ttnn::MemoryConfig> &memoryConfig,
-           const std::optional<::ttnn::DeviceComputeKernelConfig>
-               &computeConfig,
-           float scalar, bool correction,
-           const std::optional<::ttnn::CoreRangeSet> &subCoreGrids) {
-          return ::ttnn::sum(input, dimArg, keepDim, memoryConfig,
-                             computeConfig, scalar, correction, subCoreGrids);
-        });
+    out = ::ttnn::sum(in, dimArg, op->keep_dim(), outputMemoryConfig,
+                      computeConfig);
     break;
   }
   case ::tt::target::ttnn::ReductionOpType::Mean: {
-    runReductionOp(
-        op, tensorPool,
-        [](const ::ttnn::Tensor &input,
-           const std::optional<
-               std::variant<int, int64_t, ::ttsl::SmallVector<int>>> &dimArg,
-           const bool keepDim,
-           const std::optional<::ttnn::MemoryConfig> &memoryConfig,
-           const std::optional<::ttnn::DeviceComputeKernelConfig>
-               &computeConfig,
-           float scalar, bool correction,
-           const std::optional<::ttnn::CoreRangeSet> &subCoreGrids) {
-          return ::ttnn::mean(input, dimArg, keepDim, memoryConfig,
-                              computeConfig, scalar, correction, subCoreGrids);
-        });
+    out = ::ttnn::mean(in, dimArg, op->keep_dim(), outputMemoryConfig,
+                       computeConfig);
     break;
   }
   case ::tt::target::ttnn::ReductionOpType::Max: {
-    runReductionOp(op, tensorPool, ::ttnn::max);
+    out = ::ttnn::max(in, dimArg, op->keep_dim(), outputMemoryConfig,
+                      computeConfig);
     break;
   }
   case ::tt::target::ttnn::ReductionOpType::Min: {
-    runReductionOp(op, tensorPool, ::ttnn::min);
+    out = ::ttnn::min(in, dimArg, op->keep_dim(), outputMemoryConfig,
+                      computeConfig);
     break;
   }
   }
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::reduction
