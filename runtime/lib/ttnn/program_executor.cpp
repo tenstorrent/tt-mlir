@@ -782,7 +782,7 @@ void ProgramExecutor::syncAfterOpIfNeeded() {
   static const bool enabled =
       std::getenv("TT_RUNTIME_SYNC_AFTER_OP") != nullptr;
   if (enabled) {
-    ::tt::tt_metal::distributed::Synchronize(&context->getMeshDevice(),
+    ::tt::tt_metal::distributed::Synchronize(context->getMeshDevice(),
                                              std::nullopt);
   }
 }
