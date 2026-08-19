@@ -261,6 +261,17 @@ Consequences to expect:
 - **The single-op sweep scripts are Blackhole-specific.** `gen_downproj_tests.py` hardcodes core
   ranges for a 10x11 grid and 8-bank weight layouts; it needs regenerating for 8x8 / 12 banks.
 - **The profiler epoch bug may not be present.** Run the check in step 3 rather than assuming.
+- **The per-op numbers sum to device busy time, not to a step duration.** Summing `max-over-cores`
+  per op counts each op once, so it equals wall clock only if ops never overlap. Treat the total as a
+  device-vs-device quantity at fixed method — which is what makes the A/B valid — and do not invert it
+  into an it/s ceiling or subtract it from an end-to-end step to argue headroom. On p150 the DS total
+  for qwen_2_5_3b (21.97 ms) comes out *larger* than that model's decode-only e2e step (21.36 ms),
+  which is impossible for a duration and is how the conflation gets caught.
+- **If you compare against a tt-xla `perf_report_*.json`,** note `samples_per_sec` covers the whole
+  benchmark including prefill; the decode-only step is `(total_time - ttft)/steps` with
+  `steps = total_samples/batch_size` (`ttft` in ms, `total_time` in s). Prefill is 10-45% of the
+  prefill-inclusive figure on these models. Those values sit in the JSON's `measurements` list keyed by
+  `measurement_name`, not as top-level fields.
 
 ---
 
