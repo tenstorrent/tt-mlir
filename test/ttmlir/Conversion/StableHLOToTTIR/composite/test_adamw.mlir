@@ -64,19 +64,19 @@ module {
 
 // -----
 
-// The scalar operands are normalized to f32, the same way the float
-// attributes are: a frontend tracing a bf16 model hands them over in the
-// model's own float width, and ttir.adamw only accepts f32.
+// A frontend tracing a bf16 model hands the scalar operands over in the model's
+// own float width. They pass straight through: they are read back to host as
+// floats, and the readback converts, so no typecast is inserted. Only the float
+// *attributes* are normalized to f32.
 module {
   func.func @adamw_bf16_scalars(%param: tensor<64x64xf32>, %grad: tensor<64x64xf32>,
                                 %exp_avg: tensor<64x64xf32>, %exp_avg_sq: tensor<64x64xf32>,
                                 %lr: tensor<1xbf16>, %beta1_pow: tensor<1xbf16>, %beta2_pow: tensor<1xbf16>)
       -> tensor<64x64xf32> {
-    // CHECK-DAG: %[[LR:[0-9a-z_]+]] = "ttir.typecast"(%arg4{{.*}}) {{.*}} -> tensor<1xf32>
-    // CHECK-DAG: %[[BETA1:[0-9a-z_]+]] = "ttir.typecast"(%arg5{{.*}}) {{.*}} -> tensor<1xf32>
-    // CHECK-DAG: %[[BETA2:[0-9a-z_]+]] = "ttir.typecast"(%arg6{{.*}}) {{.*}} -> tensor<1xf32>
+    // CHECK-NOT: "ttir.typecast"
     // CHECK: "ttir.adamw"
-    // CHECK-SAME: (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32>) -> (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>)
+    // CHECK-SAME: beta1 = 0.899999976 : f32
+    // CHECK-SAME: (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>) -> (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>)
     %0:3 = stablehlo.composite "tenstorrent.adamw" %param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow {
       composite_attributes = {
         beta1 = 0.899999976 : f32,

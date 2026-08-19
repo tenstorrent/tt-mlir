@@ -1,12 +1,9 @@
-// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
-//
-// SPDX-License-Identifier: Apache-2.0
-
 // RUN: ttmlir-opt --split-input-file --verify-diagnostics %s
 
 // Mirrors test/ttmlir/Dialect/TTIR/adamw/adamw_verifier.mlir: the runtime reads
 // beta1_pow / beta2_pow back to host as plain floats, so ttnn.adamw holds them
-// to the same shape and dtype as ttir.adamw does.
+// to the same shape and dtype as ttir.adamw does - one element, any float
+// width.
 
 #dram = #ttnn.buffer_type<dram>
 
@@ -33,6 +30,24 @@ module {
         : (tensor<64x64xf32, #param_layout>, tensor<64x64xf32, #param_layout>,
            tensor<64x64xf32, #param_layout>, tensor<64x64xf32, #param_layout>,
            tensor<1xf32, #scalar_layout>, tensor<1xf32, #scalar_layout>, tensor<1xf32, #scalar_layout>) -> ()
+    return
+  }
+
+  // bf16 scalars are accepted too: the readback converts from any float width,
+  // so a bf16 model needs no typecast op just to feed the optimizer.
+  func.func @adamw_bf16_scalars_ok(%param: tensor<64x64xf32, #param_layout>,
+                                   %grad: tensor<64x64xf32, #param_layout>,
+                                   %exp_avg: tensor<64x64xf32, #param_layout>,
+                                   %exp_avg_sq: tensor<64x64xf32, #param_layout>,
+                                   %lr: tensor<1xbf16, #scalar_layout_bf16>,
+                                   %beta1_pow: tensor<1xbf16, #scalar_layout_bf16>,
+                                   %beta2_pow: tensor<1xbf16, #scalar_layout_bf16>) {
+    "ttnn.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow) <{ beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
+        epsilon = 1.000000e-08 : f32, weight_decay = 1.000000e-02 : f32}>
+        : (tensor<64x64xf32, #param_layout>, tensor<64x64xf32, #param_layout>,
+           tensor<64x64xf32, #param_layout>, tensor<64x64xf32, #param_layout>,
+           tensor<1xbf16, #scalar_layout_bf16>, tensor<1xbf16, #scalar_layout_bf16>,
+           tensor<1xbf16, #scalar_layout_bf16>) -> ()
     return
   }
 }
@@ -75,22 +90,22 @@ module {
                                   <interleaved>>
 #scalar_layout = #ttnn.ttnn_layout<(d0) -> (0, d0),
                                    <1x1>, memref<1x1xf32, #dram>, <interleaved>>
-#scalar_layout_bf16 = #ttnn.ttnn_layout<(d0) -> (0, d0),
-                                        <1x1>, memref<1x1xbf16, #dram>, <interleaved>>
+#scalar_layout_si32 = #ttnn.ttnn_layout<(d0) -> (0, d0),
+                                        <1x1>, memref<1x1xsi32, #dram>, <interleaved>>
 
 module {
-  func.func @beta2_pow_wrong_dtype(%param: tensor<64x64xf32, #param_layout>,
-                                   %grad: tensor<64x64xf32, #param_layout>,
-                                   %exp_avg: tensor<64x64xf32, #param_layout>,
-                                   %exp_avg_sq: tensor<64x64xf32, #param_layout>,
-                                   %lr: tensor<1xf32, #scalar_layout>, %beta1_pow: tensor<1xf32, #scalar_layout>,
-                                   %beta2_pow: tensor<1xbf16, #scalar_layout_bf16>) {
-    // expected-error @+1 {{beta2_pow must be f32, got 'bf16'}}
+  func.func @beta2_pow_not_float(%param: tensor<64x64xf32, #param_layout>,
+                                 %grad: tensor<64x64xf32, #param_layout>,
+                                 %exp_avg: tensor<64x64xf32, #param_layout>,
+                                 %exp_avg_sq: tensor<64x64xf32, #param_layout>,
+                                 %lr: tensor<1xf32, #scalar_layout>, %beta1_pow: tensor<1xf32, #scalar_layout>,
+                                 %beta2_pow: tensor<1xsi32, #scalar_layout_si32>) {
+    // expected-error @+1 {{beta2_pow must be a float, got 'si32'}}
     "ttnn.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow) <{ beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
         epsilon = 1.000000e-08 : f32, weight_decay = 1.000000e-02 : f32}>
         : (tensor<64x64xf32, #param_layout>, tensor<64x64xf32, #param_layout>,
            tensor<64x64xf32, #param_layout>, tensor<64x64xf32, #param_layout>,
-           tensor<1xf32, #scalar_layout>, tensor<1xf32, #scalar_layout>, tensor<1xbf16, #scalar_layout_bf16>) -> ()
+           tensor<1xf32, #scalar_layout>, tensor<1xf32, #scalar_layout>, tensor<1xsi32, #scalar_layout_si32>) -> ()
     return
   }
 }

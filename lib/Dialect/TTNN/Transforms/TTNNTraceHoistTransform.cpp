@@ -63,6 +63,11 @@ private:
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::GetDeviceOp>(op);
     shouldHoist &=
         !(op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>());
+    // ttnn.adamw reads its lr and bias-correction operands back to host, since
+    // ttml takes them as floats. A trace is captured once and replayed, so the
+    // readback would run only on the capturing step and every later replay
+    // would silently reuse that step's beta^t. Keep it out of the trace.
+    shouldHoist &= !::mlir::isa<mlir::tt::ttnn::AdamWOp>(op);
     return shouldHoist;
   }
 
@@ -1027,6 +1032,17 @@ private:
                        ->hasTrait<
                            mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>()) {
           creationOpsToSink.push_back(allOps[i]);
+        } else if (mlir::isa<mlir::tt::ttnn::AdamWOp>(allOps[i])) {
+          // Same reason as in shouldHoistOp: the host readback must run on
+          // every step, so adamw cannot sit inside a trace. Trailing adamw ops
+          // are fine (they stay outside the trace region); one in the middle
+          // cannot be, so say why instead of reporting a generic non-hoistable
+          // op.
+          return allOps[i]->emitError(
+              "ttnn.adamw cannot be traced: it reads its lr and "
+              "bias-correction operands back to host every step, and a trace "
+              "replays the capturing step's values. Keep the optimizer step at "
+              "the end of the traced function, or out of it");
         } else {
           // We found a non-hoistable op in the middle - this is an error
           return allOps[i]->emitError(

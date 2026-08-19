@@ -16,6 +16,7 @@ module {
     // The scalars are passed straight through, never reshaped to rank 4.
     // CHECK-NOT: "ttir.reshape"(%arg4)
     // CHECK-NOT: "ttir.reshape"(%arg5)
+    // CHECK-NOT: "ttir.reshape"(%arg6)
     // CHECK: "ttir.adamw"
     // CHECK-SAME: tensor<1xf32>, tensor<1xf32>, tensor<1xf32>
     // CHECK-SAME: -> (tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>)

@@ -313,6 +313,33 @@ public:
   //
   size_t getProgramIndex() const { return programIndex; }
 
+  //
+  // Host Scalar Cache Operations
+  //
+  // Some ops take a hyperparameter as a single-element tensor operand so the
+  // graph stays the same from step to step, but call an API that wants a plain
+  // float (e.g. ttml::metal::adamw and the AdamW bias-correction terms).
+  // Reading one back costs a device-to-host sync, and a training step holds one
+  // such op per parameter, all reading the same few scalars. Cache the value
+  // for the duration of the program run so the sync happens once per scalar
+  // instead of once per op.
+  //
+  // Keyed by TensorRef global id, which is unique per value in a program: an op
+  // that recomputes a scalar produces a new tensor with a new id, and the ops
+  // that read scalars back take them as read-only operands, so a cached value
+  // cannot go stale within one run.
+  std::optional<float> getCachedHostScalar(uint32_t globalId) const {
+    auto it = hostScalarCache.find(globalId);
+    if (it == hostScalarCache.end()) {
+      return std::nullopt;
+    }
+    return it->second;
+  }
+
+  void cacheHostScalar(uint32_t globalId, float value) {
+    hostScalarCache[globalId] = value;
+  }
+
 private:
   ProgramTensorPool tensorPool;
 
@@ -327,6 +354,10 @@ private:
 
   // The index of the program within the binary
   const size_t programIndex;
+
+  // Scalars already read back to host during this program run, by TensorRef
+  // global id. See getCachedHostScalar.
+  std::unordered_map<uint32_t, float> hostScalarCache;
 };
 
 } // namespace tt::runtime::ttnn

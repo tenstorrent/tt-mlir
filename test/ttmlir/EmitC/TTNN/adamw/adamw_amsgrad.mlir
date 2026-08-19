@@ -21,7 +21,7 @@ module {
     // CHECK: float [[BETA1:v[0-9]+]] = util_scalar_to_float([[BETA1_POW]]);
     // CHECK: float [[BETA2:v[0-9]+]] = util_scalar_to_float([[BETA2_POW]]);
     // Epsilon must survive as 1e-8 rather than being rounded down to zero.
-    // CHECK: {{^ *}}ttml::metal::adamw({{v[0-9]+}}, {{v[0-9]+}}, {{v[0-9]+}}, {{v[0-9]+}}, [[MAX_EXP_AVG_SQ]], [[LR]], 0.899999976, 0.999000012, [[BETA1]], [[BETA2]], 9.99999993E-9, 0.00999999977, ::ttml::metal::StochasticRounding::Enabled);
+    // CHECK: {{^ *}}ttml::metal::adamw({{v[0-9]+}}, {{v[0-9]+}}, {{v[0-9]+}}, {{v[0-9]+}}, [[MAX_EXP_AVG_SQ]], [[LR]], 0.899999976f, 0.999000012f, [[BETA1]], [[BETA2]], 9.99999993E-9f, 0.00999999977f, ::ttml::metal::StochasticRounding::Enabled);
     %0:4 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow, %max_exp_avg_sq) <{
         beta1 = 0.899999976 : f32,
         beta2 = 0.999000012 : f32,

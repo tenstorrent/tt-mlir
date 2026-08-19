@@ -115,14 +115,16 @@ T util_get_optional_value(const std::optional<T> &opt) {
 // take the AdamW bias-correction terms by value, but they travel through the
 // graph as tensors so the program is identical every step. Each call is a
 // device-to-host sync.
+//
+// Any float dtype works: `to_vector<float>` converts bf16 and the block-float
+// types on the host, and throws on a non-float one, so the assert below only
+// gives that failure a better message.
 inline float util_scalar_to_float(const ::ttnn::Tensor &tensor) {
   assert(tensor.logical_volume() == 1 && "expected scalar tensor");
-  assert(tensor.dtype() == ::ttnn::DataType::FLOAT32 &&
-         "expected float32 tensor");
 
-  const std::vector<float> values =
-      ::ttnn::from_device(tensor).to_vector<float>();
-  assert(!values.empty() && "scalar tensor read back empty");
+  // `to_vector` copies to host itself, so no explicit `from_device` is needed.
+  const std::vector<float> values = tensor.to_vector<float>();
+  assert(values.size() == 1 && "scalar tensor read back more than one element");
   return values.front();
 }
 

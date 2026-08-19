@@ -821,8 +821,13 @@ inline mlir::Operation *findFirstUserInBlock(mlir::Operation *op) {
   return firstUser;
 }
 
-/// Verify that a tensor operand carries exactly one f32 element, so it can be
+/// Verify that a tensor operand carries exactly one float element, so it can be
 /// read back to the host as a plain `float`.
+///
+/// Any float element type is accepted: the readback goes through
+/// `ttnn::Tensor::to_vector<float>`, which converts bf16 and the block-float
+/// types to float on the host. Requiring f32 here would only force a typecast
+/// op into the graph for a value that is read back and converted anyway.
 ///
 /// Rank 0 is rejected on purpose: the TTNN lowering tilizes and lays out every
 /// operand, and a rank-0 tensor does not survive that path, so accepting it
@@ -841,8 +846,9 @@ inline mlir::LogicalResult verifyHostReadableScalar(
     return emitError() << name << " must have exactly one element, got "
                        << type.getNumElements();
   }
-  if (!type.getElementType().isF32()) {
-    return emitError() << name << " must be f32, got " << type.getElementType();
+  if (!mlir::isa<mlir::FloatType>(type.getElementType())) {
+    return emitError() << name << " must be a float, got "
+                       << type.getElementType();
   }
   return mlir::success();
 }

@@ -3502,6 +3502,12 @@ mlir::Value findDominatingScalarReadback(mlir::Value tensor,
                                          mlir::Operation *before) {
   // The last op to touch the tensor before this point. Anything else in that
   // spot may have written to it, so only a readback there can be reused.
+  //
+  // This is deliberately conservative: after conversion every op is an opaque
+  // call, so a device op that merely reads the tensor (an lr schedule, say) is
+  // indistinguishable from one that writes it in place, and a fresh readback is
+  // emitted instead of reusing the value. That costs an extra sync, never a
+  // stale value. See adamw_shared_bias_correction.mlir for both cases.
   mlir::Operation *lastUser = nullptr;
   for (mlir::Operation *user : tensor.getUsers()) {
     if (user->getBlock() != before->getBlock() ||
@@ -3546,8 +3552,11 @@ mlir::Attribute emitFloatLiteral(llvm::APFloat value,
     return rewriter.getAttr<emitc::OpaqueAttr>(
         "::std::numeric_limits<float>::quiet_NaN()");
   }
+  // Suffixed with `f`: the value came from an f32 attribute, and an unsuffixed
+  // literal is a double, which the compiler then narrows at the call.
   llvm::SmallString<24> literal;
   value.toString(literal);
+  literal.push_back('f');
   return rewriter.getAttr<emitc::OpaqueAttr>(literal.str());
 }
 

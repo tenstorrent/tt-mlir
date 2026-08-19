@@ -2029,8 +2029,9 @@ public:
           srcOp, "tenstorrent.adamw must have composite_attributes.");
     }
 
-    // Copy the required F32 hyperparameters through, normalizing to F32 so the
-    // ttir.adamw verifier accepts them regardless of the source float width.
+    // Copy the required float hyperparameters through, normalizing to F32 so
+    // the ttir.adamw verifier accepts them regardless of the source float
+    // width.
     static constexpr StringRef kFloatAttrs[] = {"beta1", "beta2", "epsilon",
                                                 "weight_decay"};
 
@@ -2055,29 +2056,23 @@ public:
     namedAttrs.push_back(rewriter.getNamedAttr(
         "stochastic_rounding", rewriter.getBoolAttr(stochasticRounding)));
 
+    // lr / beta1_pow / beta2_pow pass straight through. They are read back to
+    // host as floats, and the readback converts from any float width, so a
+    // bf16 scalar from a bf16 model needs no typecast op inserted here.
     constexpr size_t kLrIndex = 4;
     constexpr size_t kBeta1PowIndex = 5;
     constexpr size_t kBeta2PowIndex = 6;
-    SmallVector<Value> operands(adaptor.getOperands());
     for (size_t index : {kLrIndex, kBeta1PowIndex, kBeta2PowIndex}) {
-      auto operandType =
-          mlir::cast<RankedTensorType>(operands[index].getType());
-      if (operandType.getElementType().isF32()) {
-        continue;
-      }
+      auto operandType = mlir::cast<RankedTensorType>(
+          adaptor.getOperands()[index].getType());
       if (!mlir::isa<FloatType>(operandType.getElementType())) {
         return rewriter.notifyMatchFailure(
             srcOp, "tenstorrent.adamw scalar operands must be float");
       }
-      operands[index] = rewriter.create<ttir::TypecastOp>(
-          srcOp.getLoc(),
-          RankedTensorType::get(operandType.getShape(), rewriter.getF32Type(),
-                                operandType.getEncoding()),
-          operands[index]);
     }
 
-    rewriter.replaceOpWithNewOp<ttir::AdamWOp>(srcOp, srcOp.getResultTypes(),
-                                               operands, namedAttrs);
+    rewriter.replaceOpWithNewOp<ttir::AdamWOp>(
+        srcOp, srcOp.getResultTypes(), adaptor.getOperands(), namedAttrs);
     return success();
   }
 };
