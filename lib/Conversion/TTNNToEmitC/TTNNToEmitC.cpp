@@ -3497,47 +3497,34 @@ public:
 //
 // AdamWOp conversion pattern (emits ::ttml::metal::adamw)
 //
-namespace {
-mlir::Value findDominatingScalarReadback(mlir::Value tensor,
-                                         mlir::Operation *before) {
-  // The last op to touch the tensor before this point. Anything else in that
-  // spot may have written to it, so only a readback there can be reused.
-  //
-  // Deliberately conservative in two directions, both of which cost an extra
-  // sync rather than risking a stale value:
-  //  - after conversion every op is an opaque call, so a device op that merely
-  //    reads the tensor (an lr schedule, say) is indistinguishable from one
-  //    that writes it in place, and blocks reuse. A `ttnn::deallocate` counts
-  //    as such a reader too. See adamw_shared_bias_correction.mlir and
-  //    adamw_readback_not_reused.mlir for both outcomes.
-  //  - only direct users are considered, so a write through an alias (the
-  //    result of a reshape or to_layout of this tensor) is invisible here.
-  //    Nothing in the pipeline produces that shape for a scalar operand today;
-  //    if that changes, this needs to walk the aliases as well.
+// Emits a `util_scalar_to_float` readback of a single-element tensor, or
+// reuses one: if the tensor's last user before `srcOp` in this block is
+// already such a readback, its result is returned instead of paying another
+// device-to-host sync. Only that exact shape is reused - after conversion
+// every op is an opaque call, so anything else touching the tensor in between
+// (even a pure reader or a deallocate) conservatively forces a fresh readback
+// rather than risking a stale value. Writes through an alias (a reshape or
+// to_layout result) are invisible to this check; nothing in the pipeline
+// produces that shape for a scalar operand today.
+static mlir::Value emitScalarReadback(mlir::Value tensor,
+                                      mlir::Operation *srcOp,
+                                      ConversionPatternRewriter &rewriter) {
   mlir::Operation *lastUser = nullptr;
   for (mlir::Operation *user : tensor.getUsers()) {
-    if (user->getBlock() != before->getBlock() ||
-        !user->isBeforeInBlock(before)) {
+    if (user->getBlock() != srcOp->getBlock() ||
+        !user->isBeforeInBlock(srcOp)) {
       continue;
     }
     if (!lastUser || lastUser->isBeforeInBlock(user)) {
       lastUser = user;
     }
   }
-
-  auto callOp = mlir::dyn_cast_or_null<emitc::CallOpaqueOp>(lastUser);
-  if (!callOp ||
-      callOp.getCallee() != ttnn_to_emitc::kScalarToFloatFunctionName) {
-    return mlir::Value();
+  if (auto callOp = mlir::dyn_cast_or_null<emitc::CallOpaqueOp>(lastUser);
+      callOp &&
+      callOp.getCallee() == ttnn_to_emitc::kScalarToFloatFunctionName) {
+    return callOp.getResult(0);
   }
-  return callOp.getResult(0);
-}
 
-mlir::Value emitScalarReadback(mlir::Value tensor, mlir::Operation *srcOp,
-                               ConversionPatternRewriter &rewriter) {
-  if (mlir::Value existing = findDominatingScalarReadback(tensor, srcOp)) {
-    return existing;
-  }
   auto floatType = rewriter.getType<emitc::OpaqueType>("float");
   return rewriter
       .create<emitc::CallOpaqueOp>(
@@ -3546,6 +3533,7 @@ mlir::Value emitScalarReadback(mlir::Value tensor, mlir::Operation *srcOp,
       .getResult(0);
 }
 
+namespace {
 class AdamWOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::AdamWOp> {
 private:
@@ -3571,6 +3559,9 @@ public:
     mlir::Value beta2Pow =
         emitScalarReadback(adaptor.getBeta2Pow(), srcOp, rewriter);
 
+    // The emitter maps values positionally, so emit in operand order (the
+    // readback floats sit at the lr/beta*_pow operand indices, ahead of
+    // max_exp_avg_sq), then arrange the args in ttml::metal::adamw's order.
     mlir::Attribute param = emitter.emit(srcOp.getParam());
     mlir::Attribute grad = emitter.emit(srcOp.getGrad());
     mlir::Attribute expAvg = emitter.emit(srcOp.getExpAvg());
@@ -3584,9 +3575,6 @@ public:
     // Optional operand: emits `::std::nullopt` when absent, i.e. amsgrad off.
     mlir::Attribute maxExpAvgSq = emitter.emit(srcOp.getMaxExpAvgSq());
 
-    // Arg order matches ttml::metal::adamw(param, grad, exp_avg, exp_avg_sq,
-    // max_exp_avg_sq, lr, beta1, beta2, beta1_pow, beta2_pow, epsilon,
-    // weight_decay, stochastic_rounding).
     llvm::SmallVector<mlir::Attribute> args{
         param,
         grad,

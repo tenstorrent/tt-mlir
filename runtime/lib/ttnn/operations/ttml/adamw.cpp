@@ -7,28 +7,17 @@
 #include "metal/optimizers/adamw/adamw.hpp" // ttml::metal::adamw
 #include "tt/runtime/detail/ttnn/utils.h"
 
+#include <tt-metalium/tensor/tensor_types.hpp> // tt::tt_metal::is_floating_point
+
 namespace tt::runtime::ttnn::operations::ttml {
 
 namespace {
-bool isFloatDataType(::ttnn::DataType dtype) {
-  switch (dtype) {
-  case ::ttnn::DataType::FLOAT32:
-  case ::ttnn::DataType::BFLOAT16:
-  case ::ttnn::DataType::BFLOAT8_B:
-  case ::ttnn::DataType::BFLOAT4_B:
-    return true;
-  default:
-    return false;
-  }
-}
-
-// Reads a single-element tensor operand back to host as a float, so it can be
-// handed to ttml, whose API takes the value rather than a tensor. The readback
-// is a blocking device-to-host sync, so the result is cached on the program
-// context: a step holds one adamw op per parameter and all of them read the
-// same lr and bias-correction tensors, which turns 3 syncs per parameter into
-// 3 syncs per step. The cache is keyed on the tensor's version as well as its
-// id, so a write into the same tensor mid-program is not served from it.
+// Reads a single-element tensor operand back to host as a float for ttml,
+// whose API takes the value rather than a tensor. The readback is a blocking
+// sync, so it is cached on the program context: every adamw op of a step reads
+// the same lr and bias-correction tensors, so a step costs 3 syncs rather than
+// 3 per parameter. The cache key includes the tensor's version, so a write
+// into the tensor mid-program is not served stale values.
 float scalarValueOf(ProgramContext &context,
                     const ::tt::target::ttnn::TensorRef *tensorRef,
                     const char *name) {
@@ -46,10 +35,9 @@ float scalarValueOf(ProgramContext &context,
   const ::ttnn::Tensor &tensor = wrapper.getTensor();
   LOG_ASSERT(tensor.logical_volume() == 1, "AdamW: ", name,
              " must hold exactly one element, got ", tensor.logical_volume());
-  // `to_vector<float>` converts from any float dtype, but not from an integer
-  // one; check the dtype here so a mismatch names the operand instead of
-  // failing inside tt-metal.
-  LOG_ASSERT(isFloatDataType(tensor.dtype()), "AdamW: ", name,
+  // Checked here so a non-float dtype names the operand instead of failing
+  // inside tt-metal's to_vector<float>.
+  LOG_ASSERT(::tt::tt_metal::is_floating_point(tensor.dtype()), "AdamW: ", name,
              " must be a float tensor, got ", static_cast<int>(tensor.dtype()),
              " (::ttnn::DataType)");
 

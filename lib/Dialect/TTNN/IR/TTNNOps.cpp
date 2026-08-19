@@ -3771,18 +3771,12 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
   llvm::ArrayRef<int64_t> shape = getParam().getType().getShape();
   auto sameShape = [&](RankedTensorType t) { return t.getShape() == shape; };
 
-  // Mirrors the ttir.adamw check: the runtime reads these two back as floats.
-  auto emitError = [&]() { return emitOpError(); };
-  if (failed(ttmlir::utils::verifyHostReadableScalar(getLr().getType(), "lr",
-                                                     emitError))) {
-    return failure();
-  }
-  if (failed(ttmlir::utils::verifyHostReadableScalar(getBeta1Pow().getType(),
-                                                     "beta1_pow", emitError))) {
-    return failure();
-  }
-  if (failed(ttmlir::utils::verifyHostReadableScalar(getBeta2Pow().getType(),
-                                                     "beta2_pow", emitError))) {
+  // Mirrors the ttir.adamw check: the runtime reads these back as floats.
+  if (failed(ttmlir::utils::verifyHostReadableScalars(
+          {{getLr().getType(), "lr"},
+           {getBeta1Pow().getType(), "beta1_pow"},
+           {getBeta2Pow().getType(), "beta2_pow"}},
+          [&]() { return emitOpError(); }))) {
     return failure();
   }
 

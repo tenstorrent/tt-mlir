@@ -2694,20 +2694,15 @@ def TTNN_AdamWOp : TTNN_InplaceOp<"adamw", [OpModelExempt]> {
       AMSGrad) are all mutated in place, so the op has no results. `amsgrad` is
       implied by the presence of `max_exp_avg_sq`.
 
-      `lr`, `beta1_pow` and `beta2_pow` are single-element float tensors of rank
-      1 or higher, carrying the learning rate and beta^t for the current step.
-      They are operands rather than attributes so the graph does not change from
-      step to step and can be compiled once; the runtime reads the three scalars
-      back to feed `ttml::metal::adamw`, whose API takes floats.
-
-      A readback is a blocking device-to-host sync. All the adamw ops of a step
-      share the same three scalars, and both backends read each one once - the
-      runtime caches per program run, EmitC reuses the value already read in the
-      block - so a step costs three syncs, not three per parameter.
-
-      The readback also means this op cannot live inside a trace: a trace is
-      captured once and replayed, so every replay would reuse the capturing
-      step's beta^t. The trace-hoist pass keeps it out of the trace region.
+      `lr`, `beta1_pow` and `beta2_pow` are single-element float tensors (rank
+      >= 1) carrying the learning rate and beta^t for the current step. They
+      are operands rather than attributes so the graph is identical every step
+      and compiles once; the runtime reads them back to host as floats for
+      `ttml::metal::adamw`. Each readback is a blocking sync, so both backends
+      dedupe it (runtime: per-program-run cache; EmitC: reuse within the
+      block), costing three syncs per step rather than per parameter. The
+      readback also keeps this op out of traces: a replayed trace would reuse
+      the capturing step's values.
     }];
 
     let arguments = (ins Arg<AnyRankedTensor, "parameter tensor (updated in place)", [MemWrite]>:$param,

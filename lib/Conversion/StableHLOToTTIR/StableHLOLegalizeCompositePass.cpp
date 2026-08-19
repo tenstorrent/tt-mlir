@@ -2056,11 +2056,9 @@ public:
     namedAttrs.push_back(rewriter.getNamedAttr(
         "stochastic_rounding", rewriter.getBoolAttr(stochasticRounding)));
 
-    // lr / beta1_pow / beta2_pow pass straight through. They are read back to
-    // host as floats, and the readback converts from any float width, so a
-    // bf16 scalar from a bf16 model needs no typecast op inserted here. Their
-    // shape and element type are the ttir.adamw verifier's business; checking
-    // them again here would only replace its diagnostic with a match failure.
+    // lr / beta1_pow / beta2_pow pass straight through: the host readback
+    // converts from any float width, so no typecast is needed, and their
+    // shape/type are the ttir.adamw verifier's business.
     rewriter.replaceOpWithNewOp<ttir::AdamWOp>(
         srcOp, srcOp.getResultTypes(), adaptor.getOperands(), namedAttrs);
     return success();

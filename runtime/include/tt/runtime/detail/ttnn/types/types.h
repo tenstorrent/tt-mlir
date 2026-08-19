@@ -316,23 +316,17 @@ public:
   //
   // Host Scalar Cache Operations
   //
-  // Some ops take a hyperparameter as a single-element tensor operand so the
-  // graph stays the same from step to step, but call an API that wants a plain
-  // float (e.g. ttml::metal::adamw and the AdamW bias-correction terms).
-  // Reading one back costs a device-to-host sync, and a training step holds one
-  // such op per parameter, all reading the same few scalars. Cache the value
-  // for the duration of the program run so the sync happens once per scalar
-  // instead of once per op.
+  // Some ops take a hyperparameter as a single-element tensor operand (so the
+  // graph is step-invariant) but call an API that wants a plain float, e.g.
+  // ttml::metal::adamw. Reading one back is a device-to-host sync and every
+  // such op in a step reads the same few scalars, so cache the value for the
+  // duration of the program run.
   //
-  // Keyed by TensorRef global id *and* the tensor's version. A global id alone
-  // is not enough: an op that overwrites a tensor in place -
-  // `ttnn.write_tensor` and `ttnn.copy` being the obvious ways to push a fresh
-  // lr onto an existing device tensor - keeps the id it was given. Every such
-  // op bumps the version (TTNNTensorWrapper::updateVersion), so the new
-  // contents land under a key that misses, and the next reader syncs again
-  // instead of reusing the value read before the write. An op that mutates a
-  // tensor in place without bumping its version would defeat this, so keep that
-  // contract when adding one.
+  // Keyed by TensorRef global id *and* the tensor's version: an op that
+  // overwrites a tensor in place (`ttnn.write_tensor`, `ttnn.copy`) keeps the
+  // id but bumps the version (TTNNTensorWrapper::updateVersion), so the next
+  // reader misses and syncs again instead of reusing a stale value. Any new
+  // in-place-mutating op must keep that contract.
   std::optional<float> getCachedHostScalar(uint32_t globalId,
                                            uint64_t version) const {
     auto it = hostScalarCache.find(globalId);

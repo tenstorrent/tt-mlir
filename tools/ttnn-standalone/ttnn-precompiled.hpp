@@ -111,14 +111,10 @@ T util_get_optional_value(const std::optional<T> &opt) {
   return opt.value();
 }
 
-// Reads a single-element tensor back to host as a float. ttml's optimizer ops
-// take the AdamW bias-correction terms by value, but they travel through the
-// graph as tensors so the program is identical every step. Each call is a
-// device-to-host sync.
-//
-// Any float dtype works: `to_vector<float>` converts bf16 and the block-float
-// types on the host, and throws on a non-float one, so the assert below only
-// gives that failure a better message.
+// Reads a single-element tensor back to host as a float (a blocking sync).
+// ttml's optimizer ops take the AdamW hyperparameters by value, but they
+// travel through the graph as tensors so the program is identical every step.
+// Any float dtype works: `to_vector<float>` converts on the host.
 inline float util_scalar_to_float(const ::ttnn::Tensor &tensor) {
   assert(tensor.logical_volume() == 1 && "expected scalar tensor");
 

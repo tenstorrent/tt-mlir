@@ -491,16 +491,6 @@ struct EmitCTypeConverter<T,
   // prints enough significant digits to recover the value, switching to
   // scientific notation when that is shorter.
   static std::string convert(mlir::APFloat value) {
-    if (value.isInfinity()) {
-      std::string result = value.isNegative() ? "-" : "";
-      result.append("::std::numeric_limits<" + TypeNameV<T> + ">::infinity()");
-      return result;
-    }
-
-    if (value.isNaN()) {
-      return "::std::numeric_limits<" + TypeNameV<T> + ">::quiet_NaN()";
-    }
-
     // Round to the target type first, so the digits printed are the ones that
     // survive the literal's own type rather than the source attribute's.
     llvm::APFloat rounded = value;
@@ -508,6 +498,19 @@ struct EmitCTypeConverter<T,
     rounded.convert(std::is_same_v<T, float> ? llvm::APFloat::IEEEsingle()
                                              : llvm::APFloat::IEEEdouble(),
                     llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+
+    // Check the non-finite classes on the *rounded* value: a finite f64 above
+    // FLT_MAX overflows to infinity when rounded to float, and letting it
+    // reach `toString` would emit `+Inf.0f`, which is not a C++ literal.
+    if (rounded.isInfinity()) {
+      std::string result = rounded.isNegative() ? "-" : "";
+      result.append("::std::numeric_limits<" + TypeNameV<T> + ">::infinity()");
+      return result;
+    }
+
+    if (rounded.isNaN()) {
+      return "::std::numeric_limits<" + TypeNameV<T> + ">::quiet_NaN()";
+    }
 
     llvm::SmallString<32> literal;
     rounded.toString(literal);

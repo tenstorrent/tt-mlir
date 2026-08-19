@@ -55,6 +55,14 @@ public:
   }
 
 private:
+  // Ops that read tensor data back to host cannot live inside a trace: a
+  // trace is captured once and replayed, so every replay would silently reuse
+  // the capturing step's value. ttnn.adamw reads lr and the bias-correction
+  // operands back, since ttml takes them as floats.
+  static bool performsHostReadback(Operation *op) {
+    return ::mlir::isa<mlir::tt::ttnn::AdamWOp>(op);
+  }
+
   bool shouldHoistOp(Operation *op) {
     bool shouldHoist = true;
     shouldHoist &= !::mlir::isa<func::ReturnOp>(op);
@@ -63,11 +71,7 @@ private:
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::GetDeviceOp>(op);
     shouldHoist &=
         !(op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>());
-    // ttnn.adamw reads its lr and bias-correction operands back to host, since
-    // ttml takes them as floats. A trace is captured once and replayed, so the
-    // readback would run only on the capturing step and every later replay
-    // would silently reuse that step's beta^t. Keep it out of the trace.
-    shouldHoist &= !::mlir::isa<mlir::tt::ttnn::AdamWOp>(op);
+    shouldHoist &= !performsHostReadback(op);
     return shouldHoist;
   }
 
@@ -1008,17 +1012,14 @@ private:
     // If we found hoistable ops, collect them until we hit non-hoistable ops at
     // the end
     if (startedCollecting) {
-      // ttnn.adamw cannot be traced (see shouldHoistOp) and, unlike the
-      // creation ops handled below, cannot be sunk above the trace either: it
-      // writes the parameters, so its position in the step is load-bearing. So
-      // the trace region simply ends before the first one. A training step is
-      // forward and backward compute followed by the optimizer, so the
-      // expensive part still gets traced; anything after the optimizer step
-      // (updating beta^t on device, for instance) stays outside the trace and
-      // runs every step, which is exactly what it needs to do.
+      // A host-readback op cannot be traced, and unlike the creation ops
+      // handled below it cannot be sunk above the trace either (it writes the
+      // parameters in place), so the trace region ends before the first one.
+      // A training step is compute followed by the optimizer, so the
+      // expensive part still gets traced.
       size_t traceEnd = allOps.size();
       for (size_t i = firstHoistable; i < allOps.size(); i++) {
-        if (mlir::isa<mlir::tt::ttnn::AdamWOp>(allOps[i])) {
+        if (performsHostReadback(allOps[i])) {
           traceEnd = i;
           break;
         }

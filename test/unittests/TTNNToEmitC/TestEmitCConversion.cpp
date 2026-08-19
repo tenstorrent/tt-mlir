@@ -179,6 +179,18 @@ TEST_F(EmitCConversionTest, ConvertFloatAttrPrecision) {
   EXPECT_EQ(EmitCTypeConverter<float>::convert(half), "0.5f");
 }
 
+// A finite f64 value that overflows float when rounded to the literal's own
+// type must still come out as an infinity() expression, not `+Inf.0f`.
+TEST_F(EmitCConversionTest, ConvertOverflowingF64ToFloatLiteral) {
+  mlir::FloatAttr huge = builder.getF64FloatAttr(1e300);
+  EXPECT_EQ(EmitCTypeConverter<float>::convert(huge),
+            "::std::numeric_limits<float>::infinity()");
+
+  mlir::FloatAttr negHuge = builder.getF64FloatAttr(-1e300);
+  EXPECT_EQ(EmitCTypeConverter<float>::convert(negHuge),
+            "-::std::numeric_limits<float>::infinity()");
+}
+
 TEST_F(EmitCConversionTest, ConvertCFPType) {
   float f32Val = 42.0;
   std::string converted = EmitCTypeConverter<float>::convert(f32Val);

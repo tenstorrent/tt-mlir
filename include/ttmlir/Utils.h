@@ -821,34 +821,32 @@ inline mlir::Operation *findFirstUserInBlock(mlir::Operation *op) {
   return firstUser;
 }
 
-/// Verify that a tensor operand carries exactly one float element, so it can be
-/// read back to the host as a plain `float`.
-///
-/// Any float element type is accepted: the readback goes through
-/// `ttnn::Tensor::to_vector<float>`, which converts bf16 and the block-float
-/// types to float on the host. Requiring f32 here would only force a typecast
-/// op into the graph for a value that is read back and converted anyway.
-///
-/// Rank 0 is rejected on purpose: the TTNN lowering tilizes and lays out every
-/// operand, and a rank-0 tensor does not survive that path, so accepting it
-/// here would only defer the failure to the backend.
-///
-/// @param type The operand type to check.
-/// @param name Operand name, used in the diagnostic.
-/// @param emitError Callback producing the diagnostic to attach the message to.
-inline mlir::LogicalResult verifyHostReadableScalar(
-    mlir::RankedTensorType type, llvm::StringRef name,
+/// Verify that each named tensor operand holds exactly one float element, so
+/// it can be read back to the host as a plain `float`. Any float width is
+/// accepted (the readback converts on the host, so requiring f32 would only
+/// force a pointless typecast into the graph). Rank 0 is rejected because the
+/// TTNN lowering tilizes every operand and a rank-0 tensor does not survive
+/// that path.
+inline mlir::LogicalResult verifyHostReadableScalars(
+    std::initializer_list<std::pair<mlir::RankedTensorType, llvm::StringRef>>
+        scalars,
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError) {
-  if (type.getRank() == 0) {
-    return emitError() << name << " must have rank of at least 1";
-  }
-  if (type.getNumElements() != 1) {
-    return emitError() << name << " must have exactly one element, got "
-                       << type.getNumElements();
-  }
-  if (!mlir::isa<mlir::FloatType>(type.getElementType())) {
-    return emitError() << name << " must be a float, got "
-                       << type.getElementType();
+  for (const auto &[type, name] : scalars) {
+    if (type.getRank() == 0) {
+      return emitError() << name << " must have rank of at least 1";
+    }
+    // getNumElements() asserts on dynamic shapes, so reject them first.
+    if (!type.hasStaticShape()) {
+      return emitError() << name << " must have a static shape";
+    }
+    if (type.getNumElements() != 1) {
+      return emitError() << name << " must have exactly one element, got "
+                         << type.getNumElements();
+    }
+    if (!mlir::isa<mlir::FloatType>(type.getElementType())) {
+      return emitError() << name << " must be a float, got "
+                         << type.getElementType();
+    }
   }
   return mlir::success();
 }
