@@ -5169,7 +5169,9 @@ public:
     auto startIndexMap = dimensionNumbers.getStartIndexMap();
 
     // Check if start indices tensor isn't 1D when we are indexing multiple
-    // dimensions because of matmul restrictions.
+    // dimensions. flattenStartIndices no longer uses a matmul and would handle
+    // the rank-1 case, but the surrounding output reshape/permute logic has no
+    // coverage for it, so keep rejecting it here.
     if (startIndexMap.size() > 1 && startIndicesShape.size() == 1) {
       return rewriter.notifyMatchFailure(
           srcOp, "Did not satisfy startIndicesShape.size() > 1 when "
@@ -5262,9 +5264,6 @@ public:
     auto indexVectorDim = dimensionNumbers.getIndexVectorDim();
 
     if (numIndexingDims > 1) {
-      srcOp->emitWarning("End results might be incorrect when indexing "
-                         "multiple dimensions of input because of typecast "
-                         "ops.");
       auto flattenedIndices = flattenStartIndices(
           rewriter, inputPermuted.getType().getShape(), srcOp.getOperand(),
           startIndices, originalStartIndexMap, indexVectorDim);
@@ -5363,20 +5362,23 @@ public:
   // If we are indexing multiple dims of input, we need to adjust start
   // indices to represent indices that index one flattened dimension.
   // - indexVectorDim represents in what dimension are indices, so first we
-  // permute to make sure it is the last dimension
-  // - matmul doesn't work with integers (which startIndices are when lowered
-  // from SHLO), so a typecast is added
-  // - then we add matmul to transform the indices
+  // permute to make sure it is the last dimension, then collapse to a dense 2-D
+  // [N, K] tensor
+  // - the K index components are folded into one linear index with exact
+  // integer arithmetic: multiply by a per-component strides constant, then add
+  // the K columns together. The win over the old matmul is the rank collapse,
+  // not the choice of ops: TTNN tilizes these operands too, but a dense [N, K]
+  // only pads the K axis to one tile column, whereas the original rank keeps
+  // every small trailing dim padded to a full 32-wide tile.
   // Example: indexingDimsSizes = [3, 5], startIndices[...] = (i, j) ->
   // startIndices[...] = 5 * i + j (because reshaped indexingDimSize is 15)
-  static ttir::MatmulOp
+  static ttir::ReshapeOp
   flattenStartIndices(ConversionPatternRewriter &rewriter,
                       ArrayRef<int64_t> inputShape, Value originalOperand,
                       mlir::TypedValue<mlir::RankedTensorType> startIndices,
                       ArrayRef<int64_t> startIndexMap, int64_t indexVectorDim) {
     auto startIndicesType = startIndices.getType();
     auto numIndexingDims = startIndexMap.size();
-    auto *ctx = rewriter.getContext();
 
     llvm::SmallVector<int64_t> startIndicesPermutation = llvm::filter_to_vector(
         llvm::seq<int64_t>(startIndicesType.getRank()),
@@ -5396,39 +5398,137 @@ public:
                 startIndices, startIndicesPermutation)
             .getResult();
 
-    // Typecast op because matmul needs float operands.
-    auto typecastResultType =
-        startIndicesPermuted.getType().clone(mlir::Float32Type::get(ctx));
-    ttir::TypecastOp typecastOp = rewriter.create<ttir::TypecastOp>(
+    // Collapse the permuted indices [d0, ..., d_{r-2}, K] into a dense 2-D
+    // tensor [N, K] before flattening. Keeping the original rank makes the
+    // index explode in TTNN tile layout (the small trailing dims each pad to a
+    // full 32-wide tile), whereas the dense [N, K] form only pads the rows.
+    // reshapeStartIndices later flattens this regardless, and neither the
+    // embedding input nor the gather output shape depends on this intermediate
+    // rank, so the collapse is numerically identical.
+    int64_t numFlattenedRows = std::accumulate(
+        permutedStartIndicesShape.begin(), permutedStartIndicesShape.end() - 1,
+        int64_t{1}, std::multiplies<>());
+    int64_t indexVectorSize = permutedStartIndicesShape.back();
+    auto startIndices2D = ttir::utils::createReshapeOp(
+        rewriter,
         ttmlir::utils::appendLocationSuffix(originalOperand.getLoc(),
-                                            "_typecast"),
-        typecastResultType, startIndicesPermuted);
+                                            "_flattenStartIndices2D"),
+        startIndicesPermuted, {numFlattenedRows, indexVectorSize});
+    auto indices2DType = mlir::cast<mlir::RankedTensorType>(
+        startIndices2D.getResult().getType());
+    assert(indexVectorSize == static_cast<int64_t>(numIndexingDims) &&
+           "startIndexMap size must match the index vector dim extent");
 
-    // Const op with correct strides to matmul indices with.
-    llvm::SmallVector<float> strides(numIndexingDims);
-    int dimensionOffset = 1;
-    for (int i = numIndexingDims - 1; i >= 0; i--) {
-      strides[i] = dimensionOffset;
-      dimensionOffset *= inputShape[i];
+    // The linear index is now accumulated in the index element type instead of
+    // f32, so a narrow index type would overflow on any non-trivial table
+    // (si16 indices into a 1000x1000 operand already need 20 bits). StableHLO
+    // permits any integer width here, so widen to 32 bits first; the old f32
+    // matmul path was width-independent and this keeps parity with it.
+    auto *ctx = rewriter.getContext();
+    auto indexElementType =
+        mlir::cast<mlir::IntegerType>(startIndicesType.getElementType());
+    mlir::IntegerType arithElementType =
+        indexElementType.getWidth() >= 32
+            ? indexElementType
+            : mlir::IntegerType::get(ctx, 32, indexElementType.getSignedness());
+
+    Value indices2D = startIndices2D.getResult();
+    if (arithElementType != indexElementType) {
+      indices2DType = mlir::RankedTensorType::get(indices2DType.getShape(),
+                                                  arithElementType,
+                                                  indices2DType.getEncoding());
+      indices2D = rewriter
+                      .create<ttir::TypecastOp>(
+                          ttmlir::utils::appendLocationSuffix(
+                              originalOperand.getLoc(), "_widenStartIndices"),
+                          indices2DType, indices2D)
+                      .getResult();
     }
-    auto tensorType = mlir::RankedTensorType::get(
-        {static_cast<long>(numIndexingDims), 1}, mlir::Float32Type::get(ctx));
-    auto denseAttr =
-        mlir::DenseElementsAttr::get(tensorType, llvm::ArrayRef(strides));
-    ttir::ConstantOp constantOp = rewriter.create<ttir::ConstantOp>(
+
+    // Strides constant [1, K] used to fold the K index components into a
+    // single linear offset.
+    llvm::SmallVector<llvm::APInt> strides;
+    strides.reserve(numIndexingDims);
+    {
+      int64_t dimensionOffset = 1;
+      llvm::SmallVector<int64_t> strideValues(numIndexingDims);
+      for (int i = numIndexingDims - 1; i >= 0; i--) {
+        strideValues[i] = dimensionOffset;
+        dimensionOffset *= inputShape[i];
+      }
+      for (int64_t s : strideValues) {
+        // Would require a table with more rows than the index type can
+        // address, i.e. >2^31 rows for the common si32 index.
+        assert(llvm::isIntN(arithElementType.getWidth(), s) &&
+               "flattened operand dim does not fit the index element type");
+        strides.emplace_back(arithElementType.getWidth(),
+                             static_cast<uint64_t>(s), /*isSigned=*/true);
+      }
+    }
+    auto stridesType = mlir::RankedTensorType::get(
+        {static_cast<int64_t>(1), static_cast<int64_t>(numIndexingDims)},
+        arithElementType);
+    ttir::ConstantOp stridesConstant = rewriter.create<ttir::ConstantOp>(
         ttmlir::utils::appendLocationSuffix(originalOperand.getLoc(),
-                                            "_constant"),
-        tensorType, denseAttr);
+                                            "_strides"),
+        stridesType, mlir::DenseElementsAttr::get(stridesType, strides));
 
-    // Return matmul op that transforms indices.
-    llvm::SmallVector<int64_t> matmulResultShape = permutedStartIndicesShape;
-    matmulResultShape[matmulResultShape.size() - 1] = 1;
-    auto matmulResultType =
-        mlir::RankedTensorType::get(matmulResultShape, Float32Type::get(ctx));
+    // Fold the K index components into one linear index: broadcast the strides
+    // [1, K] up to [N, K], element-wise multiply, then add the K columns
+    // together with K-1 elementwise adds.
+    //
+    // ttir.sum is deliberately NOT used for the fold. Integer reductions are
+    // routed through Float32 by the TTNN reduction workaround (tt-metal
+    // #21071, see createReductionOpOperandsWorkarounds), and Float32 only
+    // represents integers exactly below 2^24. A 96x32x100x100 operand already
+    // flattens to 30.72M rows, where the largest linear index (30719999) is
+    // odd and rounds up to 30720000 -- one row past the end of the table.
+    // Elementwise multiply and add carry no such workaround, so this fold is
+    // exact for any table the index element type can address.
+    auto broadcastedStrides = rewriter.create<ttir::BroadcastOp>(
+        ttmlir::utils::appendLocationSuffix(originalOperand.getLoc(),
+                                            "_broadcastStrides"),
+        indices2DType, stridesConstant.getResult(),
+        rewriter.getDenseI64ArrayAttr({numFlattenedRows, 1}));
+    auto scaledIndices = rewriter.create<ttir::MultiplyOp>(
+        ttmlir::utils::appendLocationSuffix(originalOperand.getLoc(),
+                                            "_scaleStartIndices"),
+        indices2DType, indices2D, broadcastedStrides.getResult());
 
-    return rewriter.create<ttir::MatmulOp>(originalOperand.getLoc(),
-                                           matmulResultType,
-                                           typecastOp.getResult(), constantOp);
+    auto linearIndexType = mlir::RankedTensorType::get(
+        {numFlattenedRows, static_cast<int64_t>(1)}, arithElementType);
+    llvm::SmallVector<int32_t> componentSteps(2, 1);
+    Value linearIndex;
+    for (int64_t k = 0; k < indexVectorSize; ++k) {
+      llvm::SmallVector<int32_t> begins{0, static_cast<int32_t>(k)};
+      llvm::SmallVector<int32_t> ends{static_cast<int32_t>(numFlattenedRows),
+                                      static_cast<int32_t>(k + 1)};
+      auto component = rewriter.create<ttir::SliceStaticOp>(
+          ttmlir::utils::appendLocationSuffix(originalOperand.getLoc(),
+                                              "_startIndexComponent"),
+          linearIndexType, scaledIndices.getResult(),
+          rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+          rewriter.getI32ArrayAttr(componentSteps));
+      linearIndex =
+          linearIndex
+              ? rewriter
+                    .create<ttir::AddOp>(
+                        ttmlir::utils::appendLocationSuffix(
+                            originalOperand.getLoc(), "_accumulateStartIndex"),
+                        linearIndexType, linearIndex, component.getResult())
+                    .getResult()
+              : component.getResult();
+    }
+
+    // Reshape the [N, 1] linear index to the "wide" [1, N]. The embedding
+    // consumes [1, N] and produces [1, N, 1] (tiles to N/32); leaving it "tall"
+    // as [N, 1] would yield [N, 1, 1] (N tiles) and OOM. Both gather callers
+    // already expect [1, N] (via reshapeStartIndices or the 2-D skip-path).
+    return ttir::utils::createReshapeOp(
+        rewriter,
+        ttmlir::utils::appendLocationSuffix(originalOperand.getLoc(),
+                                            "_flattenStartIndicesWide"),
+        linearIndex, {1, numFlattenedRows});
   }
 
   // If startIndicesShape[indexVectorDim] > 1, but we are actually slicing only
@@ -5646,18 +5746,21 @@ public:
                                               startIndicesType.getEncoding());
 
     // Build offset matrix [totalWindow, M]: row r has all elements =
-    // windowOffsets[r]. The caller routes startIndices through
-    // flattenStartIndices, which always produces float-typed indices, so we
-    // only need the float construction path here.
-    SmallVector<float> matrixData(totalWindow * M);
+    // windowOffsets[r]. flattenStartIndices produces integer-typed indices
+    // widened to at least 32 bits, so build the constant with the matching
+    // integer element type.
+    auto intElemType = mlir::cast<mlir::IntegerType>(elemType);
+    SmallVector<llvm::APInt> matrixData;
+    matrixData.reserve(totalWindow * M);
     for (int64_t row = 0; row < totalWindow; ++row) {
-      float v = static_cast<float>(windowOffsets[row]);
+      llvm::APInt v(intElemType.getWidth(),
+                    static_cast<uint64_t>(windowOffsets[row]),
+                    /*isSigned=*/true);
       for (int64_t col = 0; col < M; ++col) {
-        matrixData[row * M + col] = v;
+        matrixData.push_back(v);
       }
     }
-    auto offsetAttr =
-        DenseElementsAttr::get(expandedType, llvm::ArrayRef(matrixData));
+    auto offsetAttr = DenseElementsAttr::get(expandedType, matrixData);
 
     auto offsetConstant = rewriter.create<ttir::ConstantOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_windowOffsetConstant"),
