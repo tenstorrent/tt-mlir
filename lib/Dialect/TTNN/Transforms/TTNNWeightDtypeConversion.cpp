@@ -99,17 +99,15 @@ public:
     auto newWeightType =
         ttnn::utils::RankedTensorTypeFactory::create(weightType, dtype);
 
-    // Blockfloat targets (BFP_BFloat4, BFP_BFloat8) go through a host-side
-    // typecast via: from_device → typecast (host) → to_device.
-    // The host typecast dispatches to tt-metal's host packer for BFP
-    // formats. Const-eval results are cached at compile time, so the
-    // host roundtrip is paid once per cached weight per program.
+    // BFP_BFloat4 weights go through a host-side typecast via:
+    // from_device → typecast (host) → to_device.
     //
-    // Other targets (e.g. BFloat16 per-tensor override) keep the existing
-    // single-`typecast` device codepath.
+    // The host typecast dispatches to tt-metal's host packer for BFP
+    // formats, which provides better accuracy.
+    //
+    // Other targets keep the existing single-`typecast` device codepath.
     mlir::Value newWeight;
-    if (dtype == ttcore::DataType::BFP_BFloat4 ||
-        dtype == ttcore::DataType::BFP_BFloat8) {
+    if (dtype == ttcore::DataType::BFP_BFloat4) {
       auto hostInputType = ttnn::utils::RankedTensorTypeFactory::create(
           mlir::cast<RankedTensorType>(weight.getType()),
           ttnn::BufferType::SystemMemory);
@@ -126,7 +124,6 @@ public:
           op.getLoc(), newWeightType, typecastOp.getResult(), device);
       newWeight = toDevOp.getResult();
     } else {
-      // Single device typecast for non-blockfloat targets.
       auto typecastOp =
           rewriter.create<TypecastOp>(op.getLoc(), newWeightType, weight);
       newWeight = typecastOp.getResult();
