@@ -77,6 +77,18 @@ void run(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context) {
   ::ttml::metal::adamw(param, grad, expAvg, expAvgSq, maxExpAvgSq, lr,
                        op->beta1(), op->beta2(), beta1Pow, beta2Pow,
                        op->epsilon(), op->weight_decay(), stochasticRounding);
+
+  // This op mutates tensors in place, so it must keep the host-scalar cache
+  // contract itself (see ProgramContext::getCachedHostScalar): bump the
+  // version of everything written, so e.g. a single-element param later read
+  // as a scalar operand is not served its pre-update value.
+  tensorPool.getTTNNTensorWrapperAndValidate(op->param()).updateVersion();
+  tensorPool.getTTNNTensorWrapperAndValidate(op->exp_avg()).updateVersion();
+  tensorPool.getTTNNTensorWrapperAndValidate(op->exp_avg_sq()).updateVersion();
+  if (op->max_exp_avg_sq()) {
+    tensorPool.getTTNNTensorWrapperAndValidate(op->max_exp_avg_sq())
+        .updateVersion();
+  }
 }
 
 } // namespace tt::runtime::ttnn::operations::ttml
