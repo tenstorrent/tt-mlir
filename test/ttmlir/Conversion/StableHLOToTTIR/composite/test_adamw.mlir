@@ -9,13 +9,12 @@ module {
                    %lr: tensor<1xf32>, %beta1_pow: tensor<1xf32>, %beta2_pow: tensor<1xf32>)
       -> tensor<64x64xf32> {
     // CHECK: "ttir.adamw"
-    // CHECK-SAME: beta1 = 0.899999976 : f32
-    // CHECK-SAME: stochastic_rounding = false
-    // CHECK-SAME: weight_decay = 0.00999999977 : f32
+    // lr and the bias correction ride in as operands, never as attributes. The
+    // attribute dictionary is matched in full to say so: a trailing CHECK-NOT
+    // would be vacuous, since it only searches past the last match and
+    // attributes print before the operand types.
+    // CHECK-SAME: <{beta1 = 0.899999976 : f32, beta2 = 9.990000e-01 : f32, epsilon = 9.99999993E-9 : f32, stochastic_rounding = false, weight_decay = 0.00999999977 : f32}>
     // CHECK-SAME: (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32>) -> (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>)
-    // lr and the bias correction ride in as operands, never as attributes.
-    // CHECK-NOT: lr =
-    // CHECK-NOT: beta1_pow
     // CHECK-NOT: stablehlo.composite
     %0:3 = stablehlo.composite "tenstorrent.adamw" %param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow {
       composite_attributes = {
@@ -42,7 +41,7 @@ module {
                            %lr: tensor<1xf32>, %beta1_pow: tensor<1xf32>, %beta2_pow: tensor<1xf32>,
                            %max_exp_avg_sq: tensor<64x64xf32>) -> tensor<64x64xf32> {
     // CHECK: "ttir.adamw"
-    // CHECK-SAME: stochastic_rounding = true
+    // CHECK-SAME: <{beta1 = 0.899999976 : f32, beta2 = 9.990000e-01 : f32, epsilon = 9.99999993E-9 : f32, stochastic_rounding = true, weight_decay = 0.00999999977 : f32}>
     // CHECK-SAME: (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32>, tensor<64x64xf32>) -> (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>)
     // CHECK-NOT: stablehlo.composite
     %0:4 = stablehlo.composite "tenstorrent.adamw" %param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow, %max_exp_avg_sq {

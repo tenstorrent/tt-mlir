@@ -27,22 +27,23 @@ bool isFloatDataType(::ttnn::DataType dtype) {
 // is a blocking device-to-host sync, so the result is cached on the program
 // context: a step holds one adamw op per parameter and all of them read the
 // same lr and bias-correction tensors, which turns 3 syncs per parameter into
-// 3 syncs per step.
+// 3 syncs per step. The cache is keyed on the tensor's version as well as its
+// id, so a write into the same tensor mid-program is not served from it.
 float scalarValueOf(ProgramContext &context,
                     const ::tt::target::ttnn::TensorRef *tensorRef,
                     const char *name) {
-  LOG_ASSERT(tensorRef, "AdamW: ", name,
-             " is missing from the flatbuffer; the binary predates lr / "
-             "beta1_pow / beta2_pow becoming tensor operands and must be "
-             "recompiled");
+  LOG_ASSERT(tensorRef, "AdamW: ", name, " is missing from the flatbuffer");
+
+  const TTNNTensorWrapper &wrapper =
+      context.getTensorPool().getTTNNTensorWrapperAndValidate(tensorRef);
+  const uint64_t version = wrapper.getVersion();
 
   if (std::optional<float> cached =
-          context.getCachedHostScalar(tensorRef->global_id())) {
+          context.getCachedHostScalar(tensorRef->global_id(), version)) {
     return *cached;
   }
 
-  const ::ttnn::Tensor &tensor =
-      context.getTensorPool().getTTNNTensorAndValidate(tensorRef);
+  const ::ttnn::Tensor &tensor = wrapper.getTensor();
   LOG_ASSERT(tensor.logical_volume() == 1, "AdamW: ", name,
              " must hold exactly one element, got ", tensor.logical_volume());
   // `to_vector<float>` converts from any float dtype, but not from an integer
@@ -54,7 +55,7 @@ float scalarValueOf(ProgramContext &context,
 
   // `to_vector` copies to host itself, so no explicit `from_device` is needed.
   const float value = utils::getScalarFromTensor<float>(tensor);
-  context.cacheHostScalar(tensorRef->global_id(), value);
+  context.cacheHostScalar(tensorRef->global_id(), version, value);
   return value;
 }
 } // namespace

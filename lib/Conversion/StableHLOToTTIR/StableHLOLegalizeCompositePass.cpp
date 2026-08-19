@@ -2058,19 +2058,9 @@ public:
 
     // lr / beta1_pow / beta2_pow pass straight through. They are read back to
     // host as floats, and the readback converts from any float width, so a
-    // bf16 scalar from a bf16 model needs no typecast op inserted here.
-    constexpr size_t kLrIndex = 4;
-    constexpr size_t kBeta1PowIndex = 5;
-    constexpr size_t kBeta2PowIndex = 6;
-    for (size_t index : {kLrIndex, kBeta1PowIndex, kBeta2PowIndex}) {
-      auto operandType = mlir::cast<RankedTensorType>(
-          adaptor.getOperands()[index].getType());
-      if (!mlir::isa<FloatType>(operandType.getElementType())) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "tenstorrent.adamw scalar operands must be float");
-      }
-    }
-
+    // bf16 scalar from a bf16 model needs no typecast op inserted here. Their
+    // shape and element type are the ttir.adamw verifier's business; checking
+    // them again here would only replace its diagnostic with a match failure.
     rewriter.replaceOpWithNewOp<ttir::AdamWOp>(
         srcOp, srcOp.getResultTypes(), adaptor.getOperands(), namedAttrs);
     return success();

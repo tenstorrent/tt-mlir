@@ -18,5 +18,9 @@ void run(const ::tt::target::ttnn::CopyOp *op, ProgramContext &context) {
   ::ttnn::Tensor &dst = tensorPool.getTTNNTensorAndValidate(op->dst());
 
   ::ttnn::copy(src, dst);
+
+  // The destination keeps its global id but no longer holds the contents anyone
+  // may have cached from it. See ProgramContext::getCachedHostScalar.
+  tensorPool.getTTNNTensorWrapperAndValidate(op->dst()).updateVersion();
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

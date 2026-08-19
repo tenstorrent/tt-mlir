@@ -10,8 +10,13 @@ module {
                    %lr: tensor<1xf32>, %beta1_pow: tensor<1xf32>, %beta2_pow: tensor<1xf32>)
       -> tensor<1x1x64x64xbf16> {
     // CHECK: "ttnn.adamw"(%[[PARAM:[0-9a-z_]+]],
+    // The attribute dictionary is matched in full: lr and the bias correction
+    // are operands now, so the only way to assert they are not attributes is to
+    // pin down everything that is one. A bare CHECK-NOT would be vacuous here -
+    // it only searches after the last match, and attributes print before the
+    // operand types.
+    // CHECK-SAME: <{beta1 = 0.899999976 : f32, beta2 = 9.990000e-01 : f32, epsilon = 9.99999993E-9 : f32, stochastic_rounding = false, weight_decay = 0.00999999977 : f32}>
     // CHECK-SAME: -> ()
-    // CHECK-NOT: beta1_pow
     %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow) <{
         beta1 = 0.899999976 : f32,
         beta2 = 0.999000012 : f32,

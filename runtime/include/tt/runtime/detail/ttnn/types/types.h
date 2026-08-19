@@ -324,20 +324,26 @@ public:
   // for the duration of the program run so the sync happens once per scalar
   // instead of once per op.
   //
-  // Keyed by TensorRef global id, which is unique per value in a program: an op
-  // that recomputes a scalar produces a new tensor with a new id, and the ops
-  // that read scalars back take them as read-only operands, so a cached value
-  // cannot go stale within one run.
-  std::optional<float> getCachedHostScalar(uint32_t globalId) const {
+  // Keyed by TensorRef global id *and* the tensor's version. A global id alone
+  // is not enough: an op that overwrites a tensor in place -
+  // `ttnn.write_tensor` and `ttnn.copy` being the obvious ways to push a fresh
+  // lr onto an existing device tensor - keeps the id it was given. Every such
+  // op bumps the version (TTNNTensorWrapper::updateVersion), so the new
+  // contents land under a key that misses, and the next reader syncs again
+  // instead of reusing the value read before the write. An op that mutates a
+  // tensor in place without bumping its version would defeat this, so keep that
+  // contract when adding one.
+  std::optional<float> getCachedHostScalar(uint32_t globalId,
+                                           uint64_t version) const {
     auto it = hostScalarCache.find(globalId);
-    if (it == hostScalarCache.end()) {
+    if (it == hostScalarCache.end() || it->second.version != version) {
       return std::nullopt;
     }
-    return it->second;
+    return it->second.value;
   }
 
-  void cacheHostScalar(uint32_t globalId, float value) {
-    hostScalarCache[globalId] = value;
+  void cacheHostScalar(uint32_t globalId, uint64_t version, float value) {
+    hostScalarCache[globalId] = HostScalar{version, value};
   }
 
 private:
@@ -357,7 +363,11 @@ private:
 
   // Scalars already read back to host during this program run, by TensorRef
   // global id. See getCachedHostScalar.
-  std::unordered_map<uint32_t, float> hostScalarCache;
+  struct HostScalar {
+    uint64_t version;
+    float value;
+  };
+  std::unordered_map<uint32_t, HostScalar> hostScalarCache;
 };
 
 } // namespace tt::runtime::ttnn

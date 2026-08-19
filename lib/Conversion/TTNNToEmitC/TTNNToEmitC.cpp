@@ -3503,11 +3503,17 @@ mlir::Value findDominatingScalarReadback(mlir::Value tensor,
   // The last op to touch the tensor before this point. Anything else in that
   // spot may have written to it, so only a readback there can be reused.
   //
-  // This is deliberately conservative: after conversion every op is an opaque
-  // call, so a device op that merely reads the tensor (an lr schedule, say) is
-  // indistinguishable from one that writes it in place, and a fresh readback is
-  // emitted instead of reusing the value. That costs an extra sync, never a
-  // stale value. See adamw_shared_bias_correction.mlir for both cases.
+  // Deliberately conservative in two directions, both of which cost an extra
+  // sync rather than risking a stale value:
+  //  - after conversion every op is an opaque call, so a device op that merely
+  //    reads the tensor (an lr schedule, say) is indistinguishable from one
+  //    that writes it in place, and blocks reuse. A `ttnn::deallocate` counts
+  //    as such a reader too. See adamw_shared_bias_correction.mlir and
+  //    adamw_readback_not_reused.mlir for both outcomes.
+  //  - only direct users are considered, so a write through an alias (the
+  //    result of a reshape or to_layout of this tensor) is invisible here.
+  //    Nothing in the pipeline produces that shape for a scalar operand today;
+  //    if that changes, this needs to walk the aliases as well.
   mlir::Operation *lastUser = nullptr;
   for (mlir::Operation *user : tensor.getUsers()) {
     if (user->getBlock() != before->getBlock() ||
@@ -3538,26 +3544,6 @@ mlir::Value emitScalarReadback(mlir::Value tensor, mlir::Operation *srcOp,
           srcOp->getLoc(), floatType, ttnn_to_emitc::kScalarToFloatFunctionName,
           /*args=*/nullptr, /*template_args=*/nullptr, mlir::ValueRange{tensor})
       .getResult(0);
-}
-
-mlir::Attribute emitFloatLiteral(llvm::APFloat value,
-                                 ConversionPatternRewriter &rewriter) {
-  // `APFloat::toString` spells these `inf` / `nan`, which are not C++ literals.
-  if (value.isInfinity()) {
-    return rewriter.getAttr<emitc::OpaqueAttr>(
-        value.isNegative() ? "-::std::numeric_limits<float>::infinity()"
-                           : "::std::numeric_limits<float>::infinity()");
-  }
-  if (value.isNaN()) {
-    return rewriter.getAttr<emitc::OpaqueAttr>(
-        "::std::numeric_limits<float>::quiet_NaN()");
-  }
-  // Suffixed with `f`: the value came from an f32 attribute, and an unsuffixed
-  // literal is a double, which the compiler then narrows at the call.
-  llvm::SmallString<24> literal;
-  value.toString(literal);
-  literal.push_back('f');
-  return rewriter.getAttr<emitc::OpaqueAttr>(literal.str());
 }
 
 class AdamWOpConversionPattern
@@ -3608,12 +3594,12 @@ public:
         expAvgSq,
         maxExpAvgSq,
         lrArg,
-        emitFloatLiteral(srcOp.getBeta1(), rewriter),
-        emitFloatLiteral(srcOp.getBeta2(), rewriter),
+        emitter.emit(srcOp.getBeta1()),
+        emitter.emit(srcOp.getBeta2()),
         beta1PowArg,
         beta2PowArg,
-        emitFloatLiteral(srcOp.getEpsilon(), rewriter),
-        emitFloatLiteral(srcOp.getWeightDecay(), rewriter),
+        emitter.emit(srcOp.getEpsilon()),
+        emitter.emit(srcOp.getWeightDecay()),
         rewriter.getAttr<emitc::OpaqueAttr>(
             srcOp.getStochasticRounding()
                 ? "::ttml::metal::StochasticRounding::Enabled"

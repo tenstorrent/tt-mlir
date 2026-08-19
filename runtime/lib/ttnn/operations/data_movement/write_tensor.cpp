@@ -23,5 +23,10 @@ void run(const ::tt::target::ttnn::WriteTensorOp *op, ProgramContext &context) {
   // Note: copy_to_device replaced write_tensor and does not have a blocking
   // parameter. The operation is always blocking.
   ::ttnn::copy_to_device(hostTensor, deviceTensor, ttnnCqId);
+
+  // The destination keeps its global id but no longer holds the contents anyone
+  // may have cached from it. See ProgramContext::getCachedHostScalar.
+  tensorPool.getTTNNTensorWrapperAndValidate(op->device_tensor())
+      .updateVersion();
 }
 } // namespace tt::runtime::ttnn::operations::data_movement
