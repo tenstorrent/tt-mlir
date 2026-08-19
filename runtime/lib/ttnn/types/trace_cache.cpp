@@ -38,6 +38,29 @@ void TraceCache::insert(const MainProgramKey &key,
   cache[key][captureExecuteKey] = std::move(traceData);
 }
 
+TraceCache::~TraceCache() { releaseAll(); }
+
+void TraceCache::releaseAll() {
+  if (cache.empty()) {
+    return;
+  }
+
+  // The cache holds a weak_ptr precisely so a device that is already gone
+  // cannot turn this into a use-after-free; in that case the traces died with
+  // it and there is nothing left to release.
+  std::shared_ptr<::ttnn::MeshDevice> lockedDevice = meshDevice.lock();
+  if (lockedDevice && lockedDevice->is_initialized()) {
+    for (const auto &mainProgramEntry : cache) {
+      for (const auto &captureExecuteEntry : mainProgramEntry.second) {
+        ::ttnn::operations::trace::release_trace(
+            lockedDevice.get(), captureExecuteEntry.second.traceId);
+      }
+    }
+  }
+
+  cache.clear();
+}
+
 void TraceCache::erase(const MainProgramKey &key) {
   auto outerIt = cache.find(key);
   if (outerIt == cache.end()) {

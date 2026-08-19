@@ -648,6 +648,16 @@ void closeMeshDevice(Device parentMesh) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   ::tt::tt_metal::ReadMeshDeviceProfilerResults(ttnnMeshDevice);
 #endif
+
+  // Release captured traces before closing. Otherwise they stay registered on
+  // the device and their MeshTraceBuffers are destroyed inside close()'s
+  // SubDeviceManager teardown, which is the deepest and least controlled point
+  // of shutdown. Doing it here keeps trace teardown explicit and ordered.
+  if (std::shared_ptr<::tt::runtime::TraceCache> traceCacheHandle =
+          parentMesh.getTraceCache()) {
+    traceCacheHandle->as<TraceCache>(DeviceRuntime::TTNN).releaseAll();
+  }
+
   ttnnMeshDevice.close();
 }
 

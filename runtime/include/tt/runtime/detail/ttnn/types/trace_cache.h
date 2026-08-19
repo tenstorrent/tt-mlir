@@ -44,11 +44,25 @@ public:
   TraceCache(std::shared_ptr<::ttnn::MeshDevice> meshDevice)
       : meshDevice(meshDevice) {}
 
+  ~TraceCache();
+
   TraceCache(const TraceCache &) = delete;
   TraceCache &operator=(const TraceCache &) = delete;
 
   TraceCache(TraceCache &&) = delete;
   TraceCache &operator=(TraceCache &&) = delete;
+
+  /// Releases every trace still registered on the device and empties the cache.
+  ///
+  /// erase() releases traces, but nothing calls it for entries that are still
+  /// live at shutdown, so their MeshTraceBuffers survive until
+  /// MeshDevice::close() and are torn down from inside the close cascade —
+  /// which for an embedder that closes from a static destructor is after
+  /// thread_local teardown. Releasing them at a controlled point keeps that
+  /// work out of the close path.
+  ///
+  /// Safe to call more than once; the second call finds an empty cache.
+  void releaseAll();
 
   bool contains(const MainProgramKey &key,
                 const CaptureExecuteProgramKey &captureExecuteKey) const;
