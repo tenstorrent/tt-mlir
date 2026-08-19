@@ -2498,6 +2498,41 @@ INSTANTIATE_TEST_SUITE_P(
                         llvm::SmallVector<int64_t>{7, 8},
                         detail::ExpectedResult{true})));
 
+// Exercises the OpModel backend query for the experimental
+// dit_minimal_matmul_addcmul_fused kernel: out = residual + gate * (a @ b).
+TEST_F(OpModelTest, DitMatmulAddcmulFused) {
+  const llvm::SmallVector<int64_t> shapeA{32, 128};
+  const llvm::SmallVector<int64_t> shapeB{128, 256};
+  const llvm::SmallVector<int64_t> shapeO{32, 256};
+
+  const TTNNLayoutAttr layoutA = CreateTiledLayout(
+      shapeA, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutB = CreateTiledLayout(
+      shapeB, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutO = CreateTiledLayout(
+      shapeO, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<DitMatmulAddcmulFusedOp>::getOpConstraints(
+      shapeA, layoutA, shapeB, layoutB, shapeO, layoutO, shapeO, layoutO,
+      /*biasShape=*/std::nullopt, /*biasLayout=*/std::nullopt, layoutO,
+      /*computeKernelConfig=*/std::nullopt);
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBacks, outputAllocationsReadBacks] =
+      constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(totalPeakSize, 0);
+  EXPECT_GE(outputSize, 0);
+
+  auto runtimeExp = OpModel<DitMatmulAddcmulFusedOp>::getOpRuntime(
+      shapeA, layoutA, shapeB, layoutB, shapeO, layoutO, shapeO, layoutO,
+      /*biasShape=*/std::nullopt, /*biasLayout=*/std::nullopt, layoutO,
+      /*computeKernelConfig=*/std::nullopt);
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0u);
+}
+
 class OpModelMatmulParam
     : public OpModelTest,
       public testing::WithParamInterface<

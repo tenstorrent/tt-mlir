@@ -639,6 +639,53 @@ public:
 };
 } // namespace
 
+// DitMatmulAddcmulFused op conversion pattern
+//
+namespace {
+class DitMatmulAddcmulFusedOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::DitMatmulAddcmulFusedOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.dit_matmul_addcmul_fused";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.dit_minimal_matmul_addcmul_fused";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::DitMatmulAddcmulFusedOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::DitMatmulAddcmulFusedOp srcOp,
+                  mlir::tt::ttnn::DitMatmulAddcmulFusedOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::DitMatmulAddcmulFusedOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getA()),
+        emitter.emit(srcOp.getB()),
+        /*scalar=*/emitter.emitExpression("1.0"),
+        emitter.emit(srcOp.getResidual()),
+        emitter.emit(srcOp.getGate()),
+        emitter.emit(srcOp.getBias(), "bias_tensor"),
+        emitter.emit(std::nullopt, "config"),
+        emitter.emit(std::nullopt, "memory_config"),
+        emitter.emit(emitter.getOutputDtype(srcOp.getResult()), "dtype"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // AvgPool2d op conversion pattern
 //
 namespace {
@@ -5523,6 +5570,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   //
   // clang-format off
   patterns.add<MatmulOpConversionPattern, LinearOpConversionPattern,
+               DitMatmulAddcmulFusedOpConversionPattern,
                SparseMatmulOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 

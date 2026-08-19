@@ -3319,6 +3319,66 @@ MatmulOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// DitMatmulAddcmulFusedOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+DitMatmulAddcmulFusedOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<
+        llvm::ArrayRef<op_model::OpModelAllocationRecord>> /*liveRecords*/) {
+  assert(inputs.size() == (4 + (getBias() == nullptr ? 0 : 1)));
+
+  const auto inputShapeA = getA().getType().getShape();
+  const auto inputShapeB = getB().getType().getShape();
+  const auto residualShape = getResidual().getType().getShape();
+  const auto gateShape = getGate().getType().getShape();
+
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<TTNNLayoutAttr> biasLayout;
+  if (getBias()) {
+    biasShape = getBias().getType().getShape();
+    biasLayout = inputs[4];
+  }
+
+  std::optional<DeviceComputeKernelConfigAttr> computeConfig =
+      getComputeConfig();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<DitMatmulAddcmulFusedOp>::getOpConstraints, *this,
+      inputShapeA, inputs[0], inputShapeB, inputs[1], residualShape, inputs[2],
+      gateShape, inputs[3], biasShape, biasLayout, opConfig.outputLayout,
+      computeConfig);
+}
+
+llvm::Expected<size_t>
+DitMatmulAddcmulFusedOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                      const OpConfig &opConfig) {
+  assert(inputs.size() == (4 + (getBias() == nullptr ? 0 : 1)));
+
+  const auto inputShapeA = getA().getType().getShape();
+  const auto inputShapeB = getB().getType().getShape();
+  const auto residualShape = getResidual().getType().getShape();
+  const auto gateShape = getGate().getType().getShape();
+
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<TTNNLayoutAttr> biasLayout;
+  if (getBias()) {
+    biasShape = getBias().getType().getShape();
+    biasLayout = inputs[4];
+  }
+
+  std::optional<DeviceComputeKernelConfigAttr> computeConfig =
+      getComputeConfig();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<DitMatmulAddcmulFusedOp>::getOpRuntime, *this,
+      inputShapeA, inputs[0], inputShapeB, inputs[1], residualShape, inputs[2],
+      gateShape, inputs[3], biasShape, biasLayout, opConfig.outputLayout,
+      computeConfig);
+}
+
+//===----------------------------------------------------------------------===//
 // TopKRouterGptOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

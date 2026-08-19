@@ -1281,6 +1281,33 @@ struct OpModel<MatmulOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// DitMatmulAddcmulFusedOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<DitMatmulAddcmulFusedOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
+      llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+      llvm::ArrayRef<int64_t> residualShape, TTNNLayoutAttr residualLayout,
+      llvm::ArrayRef<int64_t> gateShape, TTNNLayoutAttr gateLayout,
+      std::optional<llvm::ArrayRef<int64_t>> biasShape,
+      std::optional<TTNNLayoutAttr> biasLayout, TTNNLayoutAttr outputLayout,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+          std::nullopt);
+
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
+      llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+      llvm::ArrayRef<int64_t> residualShape, TTNNLayoutAttr residualLayout,
+      llvm::ArrayRef<int64_t> gateShape, TTNNLayoutAttr gateLayout,
+      std::optional<llvm::ArrayRef<int64_t>> biasShape,
+      std::optional<TTNNLayoutAttr> biasLayout, TTNNLayoutAttr outputLayout,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+          std::nullopt);
+};
+
+//===----------------------------------------------------------------------===//
 // DeallocateOp
 //===----------------------------------------------------------------------===//
 

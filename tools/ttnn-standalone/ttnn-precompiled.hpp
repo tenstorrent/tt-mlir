@@ -43,6 +43,7 @@
 #include "operations/experimental/conv3d/prepare_conv3d_weights.hpp"
 #include "operations/experimental/dropout/dropout.hpp"
 #include "operations/experimental/indexer_score/indexer_score.hpp"
+#include "operations/experimental/transformer/dit_minimal_matmul_addcmul_fused/dit_minimal_matmul_addcmul_fused.hpp"
 #include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
 #include "operations/experimental/unary_backward/gelu_backward/gelu_backward.hpp"
 #include "operations/kv_cache/kv_cache.hpp"
