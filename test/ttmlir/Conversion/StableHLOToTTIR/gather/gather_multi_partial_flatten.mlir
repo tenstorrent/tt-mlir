@@ -23,7 +23,8 @@ module @test_gather_multi_partial {
     // CHECK: "ttir.constant"
     // CHECK: "ttir.broadcast"
     // CHECK: "ttir.multiply"
-    // CHECK: "ttir.sum"
+    // CHECK: "ttir.slice_static"
+    // CHECK: "ttir.add"
     // Window expansion producing a single set of expanded indices.
     // CHECK: "ttir.constant"
     // CHECK: "ttir.broadcast"

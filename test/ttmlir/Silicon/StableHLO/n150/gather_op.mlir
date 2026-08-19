@@ -55,8 +55,8 @@ module attributes {} {
   func.func @gather_5(%operand: tensor<2x7x512xf32>, %start_indices: tensor<2x2xi32>) -> (tensor<2x512xf32> {jax.result_info = "result"}) {
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.multiply"
-    // CHECK: "ttnn.typecast"
-    // CHECK: "ttnn.sum"
+    // CHECK: "ttnn.slice_static"
+    // CHECK: "ttnn.add"
     // CHECK: "ttnn.embedding"
     // CHECK-SAME: (tensor<2xui32, {{.+}}>, tensor<14x512xbf16, {{.+}}>) -> tensor<2x512xbf16, {{.+}}>
     %1 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [1], collapsed_slice_dims = [0, 1], start_index_map = [0, 1], index_vector_dim = 1>, indices_are_sorted = false, slice_sizes = array<i64: 1, 1, 512>}> : (tensor<2x7x512xf32>, tensor<2x2xi32>) -> tensor<2x512xf32>
@@ -96,8 +96,8 @@ module attributes {} {
   func.func @gather_9(%operand: tensor<3x2x3xf32>, %start_indices: tensor<1x2xi32>) -> (tensor<1x3xf32> {jax.result_info = "result"}) {
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.multiply"
-    // CHECK: "ttnn.typecast"
-    // CHECK: "ttnn.sum"
+    // CHECK: "ttnn.slice_static"
+    // CHECK: "ttnn.add"
     // CHECK: "ttnn.embedding"
     // CHECK-SAME: (tensor<1x1xui32, {{.+}}>, tensor<6x3xbf16, {{.+}}>) -> tensor<1x1x3xbf16, {{.+}}>
     // CHECK: "ttnn.reshape"
@@ -109,8 +109,8 @@ module attributes {} {
   func.func @gather_10(%operand: tensor<7x8x2xf32>, %start_indices: tensor<2x2x2xi32>) -> (tensor<2x2x2xf32> {jax.result_info = "result"}) {
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.multiply"
-    // CHECK: "ttnn.typecast"
-    // CHECK: "ttnn.sum"
+    // CHECK: "ttnn.slice_static"
+    // CHECK: "ttnn.add"
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.embedding"
     // CHECK-SAME: (tensor<4xui32, {{.+}}>, tensor<56x2xbf16, {{.+}}>) -> tensor<4x2xbf16, {{.+}}>
@@ -123,8 +123,8 @@ module attributes {} {
   func.func @gather_11(%operand: tensor<18x17x2xf32>, %start_indices: tensor<3x1x3x2xi32>) -> (tensor<3x1x3x2xf32> {jax.result_info = "result"}) {
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.multiply"
-    // CHECK: "ttnn.typecast"
-    // CHECK: "ttnn.sum"
+    // CHECK: "ttnn.slice_static"
+    // CHECK: "ttnn.add"
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.embedding"
     // CHECK-SAME: (tensor<9xui32, {{.+}}>, tensor<306x2xbf16, {{.+}}>) -> tensor<9x2xbf16, {{.+}}>
@@ -137,8 +137,8 @@ module attributes {} {
   func.func @gather_12(%operand: tensor<4x5x2x2xf32>, %start_indices: tensor<2x1x1x2xi32>) -> (tensor<2x1x1x2x2xf32> {jax.result_info = "result"}) {
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.multiply"
-    // CHECK: "ttnn.typecast"
-    // CHECK: "ttnn.sum"
+    // CHECK: "ttnn.slice_static"
+    // CHECK: "ttnn.add"
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.embedding"
     // CHECK-SAME: (tensor<2xui32, {{.+}}>, tensor<20x4xbf16, {{.+}}>) -> tensor<2x4xbf16, {{.+}}>
@@ -161,8 +161,8 @@ module attributes {} {
   func.func @gather_14(%operand: tensor<3x2x3x4xf32>, %start_indices: tensor<1x3xi32>) -> (tensor<1x4xf32> {jax.result_info = "result"}) {
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.multiply"
-    // CHECK: "ttnn.typecast"
-    // CHECK: "ttnn.sum"
+    // CHECK: "ttnn.slice_static"
+    // CHECK: "ttnn.add"
     // CHECK: "ttnn.embedding"
     // CHECK-SAME: (tensor<1x1xui32, {{.+}}>, tensor<18x4xbf16, {{.+}}>) -> tensor<1x1x4xbf16, {{.+}}>
     // CHECK: "ttnn.reshape"
@@ -186,8 +186,8 @@ module attributes {} {
     // CHECK: "ttnn.permute"
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.multiply"
-    // CHECK: "ttnn.typecast"
-    // CHECK: "ttnn.sum"
+    // CHECK: "ttnn.slice_static"
+    // CHECK: "ttnn.add"
     // CHECK: "ttnn.embedding"
     // CHECK-SAME: (tensor<3xui32, {{.+}}>, tensor<35x2xbf16, {{.+}}>) -> tensor<3x2xbf16, {{.+}}>
     // CHECK: "ttnn.permute"
