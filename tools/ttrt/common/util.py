@@ -55,6 +55,21 @@ def ttrt_datatype_to_torch_dtype(dtype) -> torch.dtype:
         return torch.bfloat16
     elif dtype == DataType.Int32:
         return torch.int32
+    elif dtype in (
+        DataType.BFP_Float8,
+        DataType.BFP_BFloat8,
+        DataType.BFP_Float4,
+        DataType.BFP_BFloat4,
+        DataType.BFP_Float2,
+        DataType.BFP_BFloat2,
+    ):
+        # Block-float formats have no torch equivalent. tt-metal unpacks them to
+        # float32 on host readback, so float32 is the dtype that matches the
+        # returned buffer's element count -- bfloat16 here yields
+        # "shape [...] is invalid for input of size N" with N doubled. This lets a
+        # graph that produces block-float outputs (e.g. a bfp8 KV cache) finish
+        # instead of raising.
+        return torch.float32
     else:
         raise ValueError(
             "Only F32, BF16, and unsigned integers are supported in the runtime"
@@ -1168,6 +1183,23 @@ class Binary(Flatbuffer):
                 return torch.int8
             if dtype == "Bool":
                 return torch.bool
+
+            # Block-float formats have no torch equivalent. Generate the host
+            # tensor in bfloat16 and let to_layout() produce the block-float
+            # device tensor: create_tensor() declares the runtime dtype from the
+            # torch tensor itself, and convert_input_layouts() then applies the
+            # flatbuffer's real layout (dtype included). Without this, any graph
+            # taking a block-float <input> -- e.g. a bfp8 KV cache -- cannot run
+            # at all.
+            if dtype in (
+                "BFP_Float8",
+                "BFP_BFloat8",
+                "BFP_Float4",
+                "BFP_BFloat4",
+                "BFP_Float2",
+                "BFP_BFloat2",
+            ):
+                return torch.bfloat16
 
             raise ValueError(f"unsupported dtype: {dtype}")
 
