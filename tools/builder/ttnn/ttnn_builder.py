@@ -8633,9 +8633,7 @@ class TTNNBuilder(Builder):
         self,
         old_op: ttnn.RMSNormPostAllGatherOp,
     ) -> Tuple[Module, TTNNBuilder]:
-        ttnn_op = self.get_opview_from_split(
-            TTNNBuilder.rms_norm_post_all_gather_split
-        )
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.rms_norm_post_all_gather_split)
 
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
@@ -8694,9 +8692,7 @@ class TTNNBuilder(Builder):
                     )
 
                     input0 = self._get_golden_tensor(old_op.input)
-                    rms_norm_post_all_gather_builder._set_golden_tensor(
-                        in0, input0
-                    )
+                    rms_norm_post_all_gather_builder._set_golden_tensor(in0, input0)
                     rms_norm_post_all_gather_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
 
@@ -8722,9 +8718,7 @@ class TTNNBuilder(Builder):
                         rms_norm_post_all_gather_builder._set_golden_tensor(
                             bias, bias_golden
                         )
-                        rms_norm_post_all_gather_builder._annotate_presharded_arg(
-                            bias
-                        )
+                        rms_norm_post_all_gather_builder._annotate_presharded_arg(bias)
                         ordered_inputs.append(bias)
 
                     ordered_outputs.append(new_op_result)
