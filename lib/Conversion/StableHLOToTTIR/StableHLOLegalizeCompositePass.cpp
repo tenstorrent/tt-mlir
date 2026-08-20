@@ -2082,28 +2082,33 @@ public:
           RankedTensorType::get(type.getShape(), rewriter.getF32Type());
       return rewriter.create<ttir::TypecastOp>(loc, f32Type, v);
     };
-    auto fullLike = [&](Value v, float fill) -> Value {
-      return rewriter.create<ttir::FullOp>(loc, v.getType(),
-                                           rewriter.getF32FloatAttr(fill));
-    };
-
     Value lr = toF32(adaptor.getOperands()[4]);
     Value beta1Pow = toF32(adaptor.getOperands()[5]);
     Value beta2Pow = toF32(adaptor.getOperands()[6]);
 
+    FloatAttr oneAttr = rewriter.getF32FloatAttr(1.0f);
     Value biasCorrection1 = rewriter.create<ttir::SubtractOp>(
-        loc, beta1Pow.getType(), fullLike(beta1Pow, 1.0f), beta1Pow);
+        loc, beta1Pow.getType(),
+        rewriter.create<ttir::FullOp>(loc, beta1Pow.getType(), oneAttr),
+        beta1Pow);
     Value stepSize =
         rewriter.create<ttir::DivOp>(loc, lr.getType(), lr, biasCorrection1);
     Value biasCorrection2 = rewriter.create<ttir::SubtractOp>(
-        loc, beta2Pow.getType(), fullLike(beta2Pow, 1.0f), beta2Pow);
+        loc, beta2Pow.getType(),
+        rewriter.create<ttir::FullOp>(loc, beta2Pow.getType(), oneAttr),
+        beta2Pow);
     Value invSqrtBc2 = rewriter.create<ttir::RsqrtOp>(
         loc, biasCorrection2.getType(), biasCorrection2);
     Value lrTimesWeightDecay = rewriter.create<ttir::MultiplyOp>(
         loc, lr.getType(), lr,
-        fullLike(lr, weightDecayAttr.getValue().convertToFloat()));
+        rewriter.create<ttir::FullOp>(
+            loc, lr.getType(),
+            rewriter.getF32FloatAttr(
+                weightDecayAttr.getValue().convertToFloat())));
     Value decayFactor = rewriter.create<ttir::SubtractOp>(
-        loc, lr.getType(), fullLike(lr, 1.0f), lrTimesWeightDecay);
+        loc, lr.getType(),
+        rewriter.create<ttir::FullOp>(loc, lr.getType(), oneAttr),
+        lrTimesWeightDecay);
 
     SmallVector<Value> operands{adaptor.getOperands()[0],
                                 adaptor.getOperands()[1],
