@@ -2046,10 +2046,6 @@ inline constexpr const char *kGetOptionalValueFunctionName =
 inline constexpr const char *kGetScalarFromTensorFunctionName =
     "::ttnn::getScalarFromTensor";
 
-// Name for the function that gets a scalar (float) from a `ttnn::Tensor`.
-inline constexpr const char *kScalarToFloatFunctionName =
-    "util_scalar_to_float";
-
 template <typename TTNNOp>
 class EmitCTTNNEmitter {
 public:

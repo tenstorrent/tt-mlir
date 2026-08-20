@@ -1249,9 +1249,9 @@ public:
 
     rewriter.create<ttnn::AdamWOp>(
         op.getLoc(), adaptor.getParam(), adaptor.getGrad(), adaptor.getExpAvg(),
-        adaptor.getExpAvgSq(), adaptor.getLr(), adaptor.getBeta1Pow(),
-        adaptor.getBeta2Pow(), adaptor.getMaxExpAvgSq(), adaptor.getBeta1(),
-        adaptor.getBeta2(), adaptor.getEpsilon(), adaptor.getWeightDecay(),
+        adaptor.getExpAvgSq(), adaptor.getStepSize(), adaptor.getInvSqrtBc2(),
+        adaptor.getDecayFactor(), adaptor.getMaxExpAvgSq(), adaptor.getBeta1(),
+        adaptor.getBeta2(), adaptor.getEpsilon(),
         adaptor.getStochasticRounding());
 
     SmallVector<Value> replacements{adaptor.getParam(), adaptor.getExpAvg(),

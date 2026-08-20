@@ -1,17 +1,17 @@
 // RUN: ttmlir-opt -split-input-file -verify-diagnostics %s
 
-// lr / beta1_pow / beta2_pow are read back to host as plain floats, so each must
-// hold exactly one float element. Any float width is fine: the readback
-// converts, so no typecast is forced into the graph.
+// step_size / inv_sqrt_bc2 / decay_factor go to ttml as single-element f32
+// device tensors (ttml::metal::adamw_tensor_scalars validates FLOAT32), so
+// each must hold exactly one f32 element.
 
 module {
-  func.func @beta1_pow_not_scalar(%param: tensor<64x64xf32>, %grad: tensor<64x64xf32>,
-                                  %exp_avg: tensor<64x64xf32>, %exp_avg_sq: tensor<64x64xf32>,
-                                  %lr: tensor<1xf32>, %beta1_pow: tensor<4xf32>, %beta2_pow: tensor<1xf32>)
+  func.func @inv_sqrt_bc2_not_scalar(%param: tensor<64x64xf32>, %grad: tensor<64x64xf32>,
+                                     %exp_avg: tensor<64x64xf32>, %exp_avg_sq: tensor<64x64xf32>,
+                                     %step_size: tensor<1xf32>, %inv_sqrt_bc2: tensor<4xf32>, %decay_factor: tensor<1xf32>)
       -> tensor<64x64xf32> {
-    // expected-error @+1 {{beta1_pow must have exactly one element, got 4}}
-    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow) <{ beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
-        epsilon = 1.000000e-08 : f32, weight_decay = 1.000000e-02 : f32}>
+    // expected-error @+1 {{inv_sqrt_bc2 must have exactly one element, got 4}}
+    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %step_size, %inv_sqrt_bc2, %decay_factor) <{ beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
+        epsilon = 1.000000e-08 : f32}>
         : (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<1xf32>, tensor<4xf32>, tensor<1xf32>)
           -> (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>)
     return %0#0 : tensor<64x64xf32>
@@ -20,16 +20,15 @@ module {
 
 // -----
 
-// A non-float scalar is rejected: the readback converts between float widths,
-// not from an integer.
+// A non-f32 scalar is rejected: ttml validates FLOAT32 for the scalar tensors.
 module {
-  func.func @beta2_pow_not_float(%param: tensor<64x64xf32>, %grad: tensor<64x64xf32>,
-                                 %exp_avg: tensor<64x64xf32>, %exp_avg_sq: tensor<64x64xf32>,
-                                 %lr: tensor<1xf32>, %beta1_pow: tensor<1xf32>, %beta2_pow: tensor<1xi32>)
+  func.func @decay_factor_not_f32(%param: tensor<64x64xf32>, %grad: tensor<64x64xf32>,
+                                  %exp_avg: tensor<64x64xf32>, %exp_avg_sq: tensor<64x64xf32>,
+                                  %step_size: tensor<1xf32>, %inv_sqrt_bc2: tensor<1xf32>, %decay_factor: tensor<1xi32>)
       -> tensor<64x64xf32> {
-    // expected-error @+1 {{beta2_pow must be a float, got 'i32'}}
-    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow) <{ beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
-        epsilon = 1.000000e-08 : f32, weight_decay = 1.000000e-02 : f32}>
+    // expected-error @+1 {{decay_factor must be f32, got 'i32'}}
+    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %step_size, %inv_sqrt_bc2, %decay_factor) <{ beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
+        epsilon = 1.000000e-08 : f32}>
         : (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xi32>)
           -> (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>)
     return %0#0 : tensor<64x64xf32>
@@ -38,16 +37,18 @@ module {
 
 // -----
 
-// bf16 scalars are accepted as they are, with no typecast: the host readback
-// converts from any float width.
+// bf16 scalars are rejected too: any width but f32 is. A bf16 model gets its
+// scalars widened once during composite legalization, before the derived
+// arithmetic, so nothing bf16 ever reaches this op.
 module {
-  func.func @bf16_scalars_ok(%param: tensor<64x64xf32>, %grad: tensor<64x64xf32>,
-                             %exp_avg: tensor<64x64xf32>, %exp_avg_sq: tensor<64x64xf32>,
-                             %lr: tensor<1xbf16>, %beta1_pow: tensor<1xbf16>, %beta2_pow: tensor<1xbf16>)
+  func.func @step_size_bf16(%param: tensor<64x64xf32>, %grad: tensor<64x64xf32>,
+                            %exp_avg: tensor<64x64xf32>, %exp_avg_sq: tensor<64x64xf32>,
+                            %step_size: tensor<1xbf16>, %inv_sqrt_bc2: tensor<1xf32>, %decay_factor: tensor<1xf32>)
       -> tensor<64x64xf32> {
-    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow) <{ beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
-        epsilon = 1.000000e-08 : f32, weight_decay = 1.000000e-02 : f32}>
-        : (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>)
+    // expected-error @+1 {{step_size must be f32, got 'bf16'}}
+    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %step_size, %inv_sqrt_bc2, %decay_factor) <{ beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
+        epsilon = 1.000000e-08 : f32}>
+        : (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<1xbf16>, tensor<1xf32>, tensor<1xf32>)
           -> (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>)
     return %0#0 : tensor<64x64xf32>
   }
@@ -60,11 +61,11 @@ module {
 module {
   func.func @rank0_scalar_rejected(%param: tensor<64x64xf32>, %grad: tensor<64x64xf32>,
                                    %exp_avg: tensor<64x64xf32>, %exp_avg_sq: tensor<64x64xf32>,
-                                   %lr: tensor<1xf32>, %beta1_pow: tensor<f32>, %beta2_pow: tensor<f32>)
+                                   %step_size: tensor<1xf32>, %inv_sqrt_bc2: tensor<f32>, %decay_factor: tensor<f32>)
       -> tensor<64x64xf32> {
-    // expected-error @+1 {{beta1_pow must have rank of at least 1}}
-    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow) <{ beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
-        epsilon = 1.000000e-08 : f32, weight_decay = 1.000000e-02 : f32}>
+    // expected-error @+1 {{inv_sqrt_bc2 must have rank of at least 1}}
+    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %step_size, %inv_sqrt_bc2, %decay_factor) <{ beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
+        epsilon = 1.000000e-08 : f32}>
         : (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<1xf32>, tensor<f32>, tensor<f32>)
           -> (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>)
     return %0#0 : tensor<64x64xf32>
@@ -73,17 +74,17 @@ module {
 
 // -----
 
-// A dynamic shape cannot be checked for its element count (and could not be
-// read back anyway), so it is rejected outright rather than tripping the
-// static-shape assert inside getNumElements().
+// A dynamic shape cannot be checked for its element count, so it is rejected
+// outright rather than tripping the static-shape assert inside
+// getNumElements().
 module {
-  func.func @lr_dynamic_shape(%param: tensor<64x64xf32>, %grad: tensor<64x64xf32>,
-                              %exp_avg: tensor<64x64xf32>, %exp_avg_sq: tensor<64x64xf32>,
-                              %lr: tensor<?xf32>, %beta1_pow: tensor<1xf32>, %beta2_pow: tensor<1xf32>)
+  func.func @step_size_dynamic_shape(%param: tensor<64x64xf32>, %grad: tensor<64x64xf32>,
+                                     %exp_avg: tensor<64x64xf32>, %exp_avg_sq: tensor<64x64xf32>,
+                                     %step_size: tensor<?xf32>, %inv_sqrt_bc2: tensor<1xf32>, %decay_factor: tensor<1xf32>)
       -> tensor<64x64xf32> {
-    // expected-error @+1 {{lr must have a static shape}}
-    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow) <{ beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
-        epsilon = 1.000000e-08 : f32, weight_decay = 1.000000e-02 : f32}>
+    // expected-error @+1 {{step_size must have a static shape}}
+    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %step_size, %inv_sqrt_bc2, %decay_factor) <{ beta1 = 0.899999976 : f32, beta2 = 0.999000012 : f32,
+        epsilon = 1.000000e-08 : f32}>
         : (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>, tensor<?xf32>, tensor<1xf32>, tensor<1xf32>)
           -> (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>)
     return %0#0 : tensor<64x64xf32>

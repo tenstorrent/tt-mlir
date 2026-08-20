@@ -111,19 +111,6 @@ T util_get_optional_value(const std::optional<T> &opt) {
   return opt.value();
 }
 
-// Reads a single-element tensor back to host as a float (a blocking sync).
-// ttml's optimizer ops take the AdamW hyperparameters by value, but they
-// travel through the graph as tensors so the program is identical every step.
-// Any float dtype works: `to_vector<float>` converts on the host.
-inline float util_scalar_to_float(const ::ttnn::Tensor &tensor) {
-  assert(tensor.logical_volume() == 1 && "expected scalar tensor");
-
-  // `to_vector` copies to host itself, so no explicit `from_device` is needed.
-  const std::vector<float> values = tensor.to_vector<float>();
-  assert(values.size() == 1 && "scalar tensor read back more than one element");
-  return values.front();
-}
-
 namespace ttnn {
 
 // DeviceGetter class

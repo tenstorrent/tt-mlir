@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import math
+
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple, Union
@@ -201,34 +203,40 @@ ADAMW_BETA1 = 0.9
 ADAMW_BETA2 = 0.999
 ADAMW_STEP = 10
 ADAMW_LR = 1e-3
+ADAMW_WEIGHT_DECAY = 1e-2
+
+# The step-varying scalars ride along as single-element tensors, in the exact
+# terms ttml::metal::adamw_tensor_scalars consumes.
+ADAMW_STEP_SIZE = ADAMW_LR / (1.0 - ADAMW_BETA1**ADAMW_STEP)
+ADAMW_INV_SQRT_BC2 = 1.0 / math.sqrt(1.0 - ADAMW_BETA2**ADAMW_STEP)
+ADAMW_DECAY_FACTOR = 1.0 - ADAMW_LR * ADAMW_WEIGHT_DECAY
 
 
 def adamw_state_goldens(
     builder: TTIRBuilder,
     exp_avg_sq: Operand,
-    lr: Operand,
-    beta1_pow: Operand,
-    beta2_pow: Operand,
+    step_size: Operand,
+    inv_sqrt_bc2: Operand,
+    decay_factor: Operand,
 ):
     """Optimizer state that random inputs cannot stand in for.
 
-    `exp_avg_sq` is a second moment, so it is non-negative, and `beta1_pow` /
-    `beta2_pow` hold beta^step for the current step. The bias correction divides
-    by `1 - beta^step`, which a random normal would drive to zero or negative.
-    `lr` is a learning rate, so a random normal is meaningless for it too.
+    `exp_avg_sq` is a second moment, so it is non-negative, and the scalar
+    operands hold the derived AdamW step quantities for the current step; a
+    random normal is meaningless for any of them.
     """
     return {
         exp_avg_sq: builder._get_golden_tensor(exp_avg_sq).apply_shardwise(
             lambda s: s.abs()
         ),
-        lr: builder._get_golden_tensor(lr).apply_shardwise(
-            lambda s: torch.full_like(s, ADAMW_LR)
+        step_size: builder._get_golden_tensor(step_size).apply_shardwise(
+            lambda s: torch.full_like(s, ADAMW_STEP_SIZE)
         ),
-        beta1_pow: builder._get_golden_tensor(beta1_pow).apply_shardwise(
-            lambda s: torch.full_like(s, ADAMW_BETA1**ADAMW_STEP)
+        inv_sqrt_bc2: builder._get_golden_tensor(inv_sqrt_bc2).apply_shardwise(
+            lambda s: torch.full_like(s, ADAMW_INV_SQRT_BC2)
         ),
-        beta2_pow: builder._get_golden_tensor(beta2_pow).apply_shardwise(
-            lambda s: torch.full_like(s, ADAMW_BETA2**ADAMW_STEP)
+        decay_factor: builder._get_golden_tensor(decay_factor).apply_shardwise(
+            lambda s: torch.full_like(s, ADAMW_DECAY_FACTOR)
         ),
     }
 
@@ -282,8 +290,8 @@ def test_sdpa_bw(shape: Shape, target: str, request, device):
 @pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 def test_adamw(shape: Shape, target: str, request, device):
     def module(builder: TTIRBuilder):
-        # beta1_pow / beta2_pow are single-element tensor inputs, so a training
-        # step's bias correction never changes the graph.
+        # The step-varying scalars are single-element tensor inputs, so a
+        # training step never changes the graph.
         @builder.func(
             [shape, shape, shape, shape, (1,), (1,), (1,)],
             [
@@ -301,27 +309,29 @@ def test_adamw(shape: Shape, target: str, request, device):
             grad: Operand,
             exp_avg: Operand,
             exp_avg_sq: Operand,
-            lr: Operand,
-            beta1_pow: Operand,
-            beta2_pow: Operand,
+            step_size: Operand,
+            inv_sqrt_bc2: Operand,
+            decay_factor: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
             builder.set_goldens_from_builder_tensor(
-                adamw_state_goldens(builder, exp_avg_sq, lr, beta1_pow, beta2_pow), {}
+                adamw_state_goldens(
+                    builder, exp_avg_sq, step_size, inv_sqrt_bc2, decay_factor
+                ),
+                {},
             )
             return builder.adamw(
                 param,
                 grad,
                 exp_avg,
                 exp_avg_sq,
-                lr,
-                beta1_pow,
-                beta2_pow,
+                step_size,
+                inv_sqrt_bc2,
+                decay_factor,
                 beta1=ADAMW_BETA1,
                 beta2=ADAMW_BETA2,
                 epsilon=1e-8,
-                weight_decay=1e-2,
             )
 
     compile_and_execute_ttir(
@@ -353,14 +363,17 @@ def test_adamw_fused_forward(shape: Shape, target: str, request, device):
             grad: Operand,
             exp_avg: Operand,
             exp_avg_sq: Operand,
-            lr: Operand,
-            beta1_pow: Operand,
-            beta2_pow: Operand,
+            step_size: Operand,
+            inv_sqrt_bc2: Operand,
+            decay_factor: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
             builder.set_goldens_from_builder_tensor(
-                adamw_state_goldens(builder, exp_avg_sq, lr, beta1_pow, beta2_pow), {}
+                adamw_state_goldens(
+                    builder, exp_avg_sq, step_size, inv_sqrt_bc2, decay_factor
+                ),
+                {},
             )
             act = builder.abs(param)
             param_out, _, _ = builder.adamw(
@@ -368,12 +381,11 @@ def test_adamw_fused_forward(shape: Shape, target: str, request, device):
                 grad,
                 exp_avg,
                 exp_avg_sq,
-                lr,
-                beta1_pow,
-                beta2_pow,
+                step_size,
+                inv_sqrt_bc2,
+                decay_factor,
                 beta1=ADAMW_BETA1,
                 beta2=ADAMW_BETA2,
-                weight_decay=1e-2,
             )
             return builder.add(param_out, act)
 

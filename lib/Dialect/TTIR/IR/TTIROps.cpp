@@ -7259,12 +7259,12 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
   llvm::ArrayRef<int64_t> shape = getParam().getType().getShape();
   auto sameShape = [&](RankedTensorType t) { return t.getShape() == shape; };
 
-  // lr and the bias-correction terms are read back to host as plain floats,
-  // so each must hold exactly one float element.
-  if (failed(ttmlir::utils::verifyHostReadableScalars(
-          {{getLr().getType(), "lr"},
-           {getBeta1Pow().getType(), "beta1_pow"},
-           {getBeta2Pow().getType(), "beta2_pow"}},
+  // The step-varying scalars go to ttml as single-element f32 device tensors
+  // (ttml::metal::adamw_tensor_scalars validates FLOAT32).
+  if (failed(ttmlir::utils::verifyScalarTensorOperands(
+          {{getStepSize().getType(), "step_size"},
+           {getInvSqrtBc2().getType(), "inv_sqrt_bc2"},
+           {getDecayFactor().getType(), "decay_factor"}},
           [&]() { return emitOpError(); }))) {
     return failure();
   }

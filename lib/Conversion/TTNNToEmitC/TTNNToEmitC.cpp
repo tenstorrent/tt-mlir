@@ -3495,51 +3495,15 @@ public:
 } // namespace
 
 //
-// AdamWOp conversion pattern (emits ::ttml::metal::adamw)
+// AdamWOp conversion pattern (emits ::ttml::metal::adamw_tensor_scalars)
 //
-// Emits a `util_scalar_to_float` readback of a single-element tensor, or
-// reuses one: if the tensor's last user before `srcOp` in this block is
-// already such a readback, its result is returned instead of paying another
-// device-to-host sync. Only that exact shape is reused - after conversion
-// every op is an opaque call, so anything else touching the tensor in between
-// (even a pure reader or a deallocate) conservatively forces a fresh readback
-// rather than risking a stale value. Writes through an alias (a reshape or
-// to_layout result) are invisible to this check; nothing in the pipeline
-// produces that shape for a scalar operand today.
-static mlir::Value emitScalarReadback(mlir::Value tensor,
-                                      mlir::Operation *srcOp,
-                                      ConversionPatternRewriter &rewriter) {
-  mlir::Operation *lastUser = nullptr;
-  for (mlir::Operation *user : tensor.getUsers()) {
-    if (user->getBlock() != srcOp->getBlock() ||
-        !user->isBeforeInBlock(srcOp)) {
-      continue;
-    }
-    if (!lastUser || lastUser->isBeforeInBlock(user)) {
-      lastUser = user;
-    }
-  }
-  if (auto callOp = mlir::dyn_cast_or_null<emitc::CallOpaqueOp>(lastUser);
-      callOp &&
-      callOp.getCallee() == ttnn_to_emitc::kScalarToFloatFunctionName) {
-    return callOp.getResult(0);
-  }
-
-  auto floatType = rewriter.getType<emitc::OpaqueType>("float");
-  return rewriter
-      .create<emitc::CallOpaqueOp>(
-          srcOp->getLoc(), floatType, ttnn_to_emitc::kScalarToFloatFunctionName,
-          /*args=*/nullptr, /*template_args=*/nullptr, mlir::ValueRange{tensor})
-      .getResult(0);
-}
-
 namespace {
 class AdamWOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::AdamWOp> {
 private:
   std::string getPrefixSearchPattern() const override { return "ttnn.adamw"; }
   std::string getPrefixSwapPattern() const override {
-    return "ttml::metal::adamw";
+    return "ttml::metal::adamw_tensor_scalars";
   }
 
 public:
@@ -3553,25 +3517,19 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AdamWOp> emitter(
         srcOp, adaptor, rewriter);
 
-    mlir::Value lr = emitScalarReadback(adaptor.getLr(), srcOp, rewriter);
-    mlir::Value beta1Pow =
-        emitScalarReadback(adaptor.getBeta1Pow(), srcOp, rewriter);
-    mlir::Value beta2Pow =
-        emitScalarReadback(adaptor.getBeta2Pow(), srcOp, rewriter);
-
     // The emitter maps values positionally, so emit in operand order (the
-    // readback floats sit at the lr/beta*_pow operand indices, ahead of
-    // max_exp_avg_sq), then arrange the args in ttml::metal::adamw's order.
+    // scalar tensors sit ahead of max_exp_avg_sq), then arrange the args in
+    // ttml::metal::adamw_tensor_scalars' order: (param, grad, exp_avg,
+    // exp_avg_sq, max_exp_avg_sq, step_size, inv_sqrt_bc2, decay_factor,
+    // beta1, beta2, epsilon, stochastic_rounding). The scalars stay device
+    // tensors: ttml reads them in the kernel, so no host readback is emitted.
     mlir::Attribute param = emitter.emit(srcOp.getParam());
     mlir::Attribute grad = emitter.emit(srcOp.getGrad());
     mlir::Attribute expAvg = emitter.emit(srcOp.getExpAvg());
     mlir::Attribute expAvgSq = emitter.emit(srcOp.getExpAvgSq());
-    mlir::Attribute lrArg =
-        emitter.emit(lr, srcOp.getLrMutable().getOperandNumber());
-    mlir::Attribute beta1PowArg =
-        emitter.emit(beta1Pow, srcOp.getBeta1PowMutable().getOperandNumber());
-    mlir::Attribute beta2PowArg =
-        emitter.emit(beta2Pow, srcOp.getBeta2PowMutable().getOperandNumber());
+    mlir::Attribute stepSize = emitter.emit(srcOp.getStepSize());
+    mlir::Attribute invSqrtBc2 = emitter.emit(srcOp.getInvSqrtBc2());
+    mlir::Attribute decayFactor = emitter.emit(srcOp.getDecayFactor());
     // Optional operand: emits `::std::nullopt` when absent, i.e. amsgrad off.
     mlir::Attribute maxExpAvgSq = emitter.emit(srcOp.getMaxExpAvgSq());
 
@@ -3581,13 +3539,12 @@ public:
         expAvg,
         expAvgSq,
         maxExpAvgSq,
-        lrArg,
+        stepSize,
+        invSqrtBc2,
+        decayFactor,
         emitter.emit(srcOp.getBeta1()),
         emitter.emit(srcOp.getBeta2()),
-        beta1PowArg,
-        beta2PowArg,
         emitter.emit(srcOp.getEpsilon()),
-        emitter.emit(srcOp.getWeightDecay()),
         rewriter.getAttr<emitc::OpaqueAttr>(
             srcOp.getStochasticRounding()
                 ? "::ttml::metal::StochasticRounding::Enabled"

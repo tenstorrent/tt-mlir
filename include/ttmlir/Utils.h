@@ -821,13 +821,12 @@ inline mlir::Operation *findFirstUserInBlock(mlir::Operation *op) {
   return firstUser;
 }
 
-/// Verify that each named tensor operand holds exactly one float element, so
-/// it can be read back to the host as a plain `float`. Any float width is
-/// accepted (the readback converts on the host, so requiring f32 would only
-/// force a pointless typecast into the graph). Rank 0 is rejected because the
-/// TTNN lowering tilizes every operand and a rank-0 tensor does not survive
-/// that path.
-inline mlir::LogicalResult verifyHostReadableScalars(
+/// Verify that each named tensor operand is a single-element f32 tensor, as
+/// consumed by ttml's tensor-scalar APIs (e.g.
+/// ttml::metal::adamw_tensor_scalars, which validates FLOAT32 on device).
+/// Rank 0 is rejected because the TTNN lowering tilizes every operand and a
+/// rank-0 tensor does not survive that path.
+inline mlir::LogicalResult verifyScalarTensorOperands(
     std::initializer_list<std::pair<mlir::RankedTensorType, llvm::StringRef>>
         scalars,
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError) {
@@ -843,8 +842,8 @@ inline mlir::LogicalResult verifyHostReadableScalars(
       return emitError() << name << " must have exactly one element, got "
                          << type.getNumElements();
     }
-    if (!mlir::isa<mlir::FloatType>(type.getElementType())) {
-      return emitError() << name << " must be a float, got "
+    if (!type.getElementType().isF32()) {
+      return emitError() << name << " must be f32, got "
                          << type.getElementType();
     }
   }

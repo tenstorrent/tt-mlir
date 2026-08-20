@@ -2687,48 +2687,45 @@ def TTNN_AdamWOp : TTNN_InplaceOp<"adamw", [OpModelExempt]> {
     let summary = "AdamW optimizer step (ttml).";
     let description = [{
       Fused AdamW optimizer step, backed by the ttml metal op
-      `ttml::metal::adamw`. Updates the parameter tensor from its gradient and the
-      first/second moment estimates, and updates the moments in place.
+      `ttml::metal::adamw_tensor_scalars`. Updates the parameter tensor from its
+      gradient and the first/second moment estimates, and updates the moments in
+      place.
 
       `param`, `exp_avg`, `exp_avg_sq` and the optional `max_exp_avg_sq` (used for
       AMSGrad) are all mutated in place, so the op has no results. `amsgrad` is
       implied by the presence of `max_exp_avg_sq`.
 
-      `lr`, `beta1_pow` and `beta2_pow` are single-element float tensors (rank
-      >= 1) carrying the learning rate and beta^t for the current step. They
-      are operands rather than attributes so the graph is identical every step
-      and compiles once; the runtime reads them back to host as floats for
-      `ttml::metal::adamw`. Each readback is a blocking sync, so both backends
-      dedupe it (runtime: per-program-run cache; EmitC: reuse within the
-      block), costing three syncs per step rather than per parameter. The
-      readback also keeps this op out of traces: a replayed trace would reuse
-      the capturing step's values.
+      `step_size` (lr / (1 - beta1^t)), `inv_sqrt_bc2` (1 / sqrt(1 - beta2^t))
+      and `decay_factor` (1 - lr * weight_decay) are single-element f32 tensors
+      (rank >= 1), the exact three step-varying immediates the ttml kernel
+      consumes. They are operands rather than attributes so the graph is
+      identical every step and compiles once; ttml reads them on device, so
+      there is no host readback and the op is trace-safe.
     }];
 
     let arguments = (ins Arg<AnyRankedTensor, "parameter tensor (updated in place)", [MemWrite]>:$param,
                          AnyRankedTensor:$grad,
                          Arg<AnyRankedTensor, "first moment estimate", [MemWrite]>:$exp_avg,
                          Arg<AnyRankedTensor, "second moment estimate", [MemWrite]>:$exp_avg_sq,
-                         AnyRankedTensor:$lr,
-                         AnyRankedTensor:$beta1_pow,
-                         AnyRankedTensor:$beta2_pow,
+                         AnyRankedTensor:$step_size,
+                         AnyRankedTensor:$inv_sqrt_bc2,
+                         AnyRankedTensor:$decay_factor,
                          Arg<Optional<AnyRankedTensor>, "max second moment estimate (amsgrad)", [MemWrite]>:$max_exp_avg_sq,
                          F32Attr:$beta1,
                          F32Attr:$beta2,
                          F32Attr:$epsilon,
-                         F32Attr:$weight_decay,
                          DefaultValuedAttr<BoolAttr, "false">:$stochastic_rounding);
 
     let builders = [
       OpBuilder<(ins "Value":$param, "Value":$grad,
-                     "Value":$exp_avg, "Value":$exp_avg_sq, "Value":$lr,
-                     "Value":$beta1_pow, "Value":$beta2_pow,
+                     "Value":$exp_avg, "Value":$exp_avg_sq, "Value":$step_size,
+                     "Value":$inv_sqrt_bc2, "Value":$decay_factor,
                      "llvm::APFloat":$beta1, "llvm::APFloat":$beta2,
-                     "llvm::APFloat":$epsilon, "llvm::APFloat":$weight_decay),
+                     "llvm::APFloat":$epsilon),
       [{
-        build($_builder, $_state, param, grad, exp_avg, exp_avg_sq, lr,
-              beta1_pow, beta2_pow, /*max_exp_avg_sq=*/nullptr, beta1, beta2,
-              epsilon, weight_decay, /*stochastic_rounding=*/false);
+        build($_builder, $_state, param, grad, exp_avg, exp_avg_sq, step_size,
+              inv_sqrt_bc2, decay_factor, /*max_exp_avg_sq=*/nullptr, beta1,
+              beta2, epsilon, /*stochastic_rounding=*/false);
       }]>
     ];
 

@@ -9,13 +9,12 @@ table AdamWOp {
   exp_avg: tt.target.ttnn.TensorRef;
   exp_avg_sq: tt.target.ttnn.TensorRef;
   max_exp_avg_sq: tt.target.ttnn.TensorRef;
-  lr: tt.target.ttnn.TensorRef;
+  step_size: tt.target.ttnn.TensorRef;
+  inv_sqrt_bc2: tt.target.ttnn.TensorRef;
+  decay_factor: tt.target.ttnn.TensorRef;
   beta1: float;
   beta2: float;
-  beta1_pow: tt.target.ttnn.TensorRef;
-  beta2_pow: tt.target.ttnn.TensorRef;
   epsilon: float;
-  weight_decay: float;
   stochastic_rounding: bool = false;
 }
 

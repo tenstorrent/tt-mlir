@@ -313,33 +313,6 @@ public:
   //
   size_t getProgramIndex() const { return programIndex; }
 
-  //
-  // Host Scalar Cache Operations
-  //
-  // Some ops take a hyperparameter as a single-element tensor operand (so the
-  // graph is step-invariant) but call an API that wants a plain float, e.g.
-  // ttml::metal::adamw. Reading one back is a device-to-host sync and every
-  // such op in a step reads the same few scalars, so cache the value for the
-  // duration of the program run.
-  //
-  // Keyed by TensorRef global id *and* the tensor's version: an op that
-  // overwrites a tensor in place (`ttnn.write_tensor`, `ttnn.copy`) keeps the
-  // id but bumps the version (TTNNTensorWrapper::updateVersion), so the next
-  // reader misses and syncs again instead of reusing a stale value. Any new
-  // in-place-mutating op must keep that contract.
-  std::optional<float> getCachedHostScalar(uint32_t globalId,
-                                           uint64_t version) const {
-    auto it = hostScalarCache.find(globalId);
-    if (it == hostScalarCache.end() || it->second.version != version) {
-      return std::nullopt;
-    }
-    return it->second.value;
-  }
-
-  void cacheHostScalar(uint32_t globalId, uint64_t version, float value) {
-    hostScalarCache[globalId] = HostScalar{version, value};
-  }
-
 private:
   ProgramTensorPool tensorPool;
 
@@ -354,14 +327,6 @@ private:
 
   // The index of the program within the binary
   const size_t programIndex;
-
-  // Scalars already read back to host during this program run, by TensorRef
-  // global id. See getCachedHostScalar.
-  struct HostScalar {
-    uint64_t version;
-    float value;
-  };
-  std::unordered_map<uint32_t, HostScalar> hostScalarCache;
 };
 
 } // namespace tt::runtime::ttnn

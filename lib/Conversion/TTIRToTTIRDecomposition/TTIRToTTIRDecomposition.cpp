@@ -1070,9 +1070,9 @@ public:
         reshapeToRank4IfNeeded(rewriter, loc, adaptor.getGrad()),
         reshapeToRank4IfNeeded(rewriter, loc, adaptor.getExpAvg()),
         reshapeToRank4IfNeeded(rewriter, loc, adaptor.getExpAvgSq()),
-        adaptor.getLr(), adaptor.getBeta1Pow(), adaptor.getBeta2Pow(),
-        maxExpAvgSq4D, adaptor.getBeta1(), adaptor.getBeta2(),
-        adaptor.getEpsilon(), adaptor.getWeightDecay(),
+        adaptor.getStepSize(), adaptor.getInvSqrtBc2(),
+        adaptor.getDecayFactor(), maxExpAvgSq4D, adaptor.getBeta1(),
+        adaptor.getBeta2(), adaptor.getEpsilon(),
         adaptor.getStochasticRounding());
 
     llvm::SmallVector<mlir::Value> restored;

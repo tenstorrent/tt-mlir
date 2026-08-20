@@ -2358,16 +2358,19 @@ def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
     - `grad` (Tensor): gradient of the parameter.
     - `exp_avg` (Tensor): first moment estimate.
     - `exp_avg_sq` (Tensor): second moment estimate.
-    - `lr` (Tensor): learning rate.
-    - `beta1_pow`, `beta2_pow` (Tensor): beta1^t and beta2^t bias-correction
-      terms.
+    - `step_size` (Tensor): lr / (1 - beta1^t), single-element f32.
+    - `inv_sqrt_bc2` (Tensor): 1 / sqrt(1 - beta2^t), single-element f32.
+    - `decay_factor` (Tensor): 1 - lr * weight_decay, single-element f32.
     - `max_exp_avg_sq` (Optional Tensor): max second moment for AMSGrad. Its
       presence implies amsgrad, and requires the matching result.
+
+    The step-varying scalars ride along as single-element device tensors (the
+    exact three immediates `ttml::metal::adamw_tensor_scalars` consumes), so
+    the graph is identical every step, compiles once, and is trace-safe.
 
     Attributes:
     - `beta1`, `beta2`: exponential decay rates for the moment estimates.
     - `epsilon`: numerical-stability constant.
-    - `weight_decay`: decoupled weight-decay coefficient.
     - `stochastic_rounding`: enable stochastic rounding (default false).
 
     Outputs: the updated `param`, `exp_avg`, `exp_avg_sq` and, when
@@ -2378,14 +2381,13 @@ def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
                        AnyRankedTensor:$grad,
                        AnyRankedTensor:$exp_avg,
                        AnyRankedTensor:$exp_avg_sq,
-                       AnyRankedTensor:$lr,
-                       AnyRankedTensor:$beta1_pow,
-                       AnyRankedTensor:$beta2_pow,
+                       AnyRankedTensor:$step_size,
+                       AnyRankedTensor:$inv_sqrt_bc2,
+                       AnyRankedTensor:$decay_factor,
                        Optional<AnyRankedTensor>:$max_exp_avg_sq,
                        F32Attr:$beta1,
                        F32Attr:$beta2,
                        F32Attr:$epsilon,
-                       F32Attr:$weight_decay,
                        DefaultValuedAttr<BoolAttr, "false">:$stochastic_rounding);
 
   let results = (outs AnyRankedTensor:$param_out,

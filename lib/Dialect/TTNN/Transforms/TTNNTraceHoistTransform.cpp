@@ -55,14 +55,6 @@ public:
   }
 
 private:
-  // Ops that read tensor data back to host cannot live inside a trace: a
-  // trace is captured once and replayed, so every replay would silently reuse
-  // the capturing step's value. ttnn.adamw reads lr and the bias-correction
-  // operands back, since ttml takes them as floats.
-  static bool performsHostReadback(Operation *op) {
-    return ::mlir::isa<mlir::tt::ttnn::AdamWOp>(op);
-  }
-
   bool shouldHoistOp(Operation *op) {
     bool shouldHoist = true;
     shouldHoist &= !::mlir::isa<func::ReturnOp>(op);
@@ -71,7 +63,6 @@ private:
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::GetDeviceOp>(op);
     shouldHoist &=
         !(op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>());
-    shouldHoist &= !performsHostReadback(op);
     return shouldHoist;
   }
 
@@ -1012,22 +1003,9 @@ private:
     // If we found hoistable ops, collect them until we hit non-hoistable ops at
     // the end
     if (startedCollecting) {
-      // A host-readback op cannot be traced, and unlike the creation ops
-      // handled below it cannot be sunk above the trace either (it writes the
-      // parameters in place), so the trace region ends before the first one.
-      // A training step is compute followed by the optimizer, so the
-      // expensive part still gets traced.
-      size_t traceEnd = allOps.size();
-      for (size_t i = firstHoistable; i < allOps.size(); i++) {
-        if (performsHostReadback(allOps[i])) {
-          traceEnd = i;
-          break;
-        }
-      }
-
       // Find the last hoistable op (before any trailing non-hoistable ops)
       size_t lastHoistable = firstHoistable;
-      for (size_t i = traceEnd - 1; i > firstHoistable; i--) {
+      for (size_t i = allOps.size() - 1; i > firstHoistable; i--) {
         if (shouldHoistOp(allOps[i])) {
           lastHoistable = i;
           break;
