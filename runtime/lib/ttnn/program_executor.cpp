@@ -87,6 +87,7 @@
 #include "operations/mlir_native/func_call.h"
 #include "operations/normalization/batch_norm.h"
 #include "operations/normalization/distributed_rms_norm.h"
+#include "operations/normalization/dit_rms_norm_unary_fused.h"
 #include "operations/normalization/group_norm.h"
 #include "operations/normalization/layer_norm.h"
 #include "operations/normalization/layer_norm_post_all_gather.h"
@@ -468,6 +469,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::RMSNormOp: {
     return operations::rms_norm::run(op->type_as_RMSNormOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::DitRMSNormUnaryFusedOp: {
+    return operations::dit_rms_norm_unary_fused::run(
+        op->type_as_DitRMSNormUnaryFusedOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::RMSNormPreAllGatherOp: {
     return operations::rms_norm_pre_all_gather::run(
         op->type_as_RMSNormPreAllGatherOp(), getContext());
@@ -777,7 +782,7 @@ void ProgramExecutor::syncAfterOpIfNeeded() {
   static const bool enabled =
       std::getenv("TT_RUNTIME_SYNC_AFTER_OP") != nullptr;
   if (enabled) {
-    ::tt::tt_metal::distributed::Synchronize(&context->getMeshDevice(),
+    ::tt::tt_metal::distributed::Synchronize(context->getMeshDevice(),
                                              std::nullopt);
   }
 }
