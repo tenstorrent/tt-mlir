@@ -1,0 +1,16 @@
+op_id,replay,op_name,cores,duration_ns
+1024,,CopyDeviceOperation,110,388091.5860014892
+7168,,CopyDeviceOperation,110,381277.7364110201
+13312,,CopyDeviceOperation,110,379664.9292628444
+4096,,CopyDeviceOperation,110,379338.79374534625
+10240,,CopyDeviceOperation,110,379120.625465376
+15360,,MatmulDeviceOperation,110,238720.77438570364
+9216,,MatmulDeviceOperation,110,238293.3730454207
+12288,,MatmulDeviceOperation,110,237915.11541325392
+3072,,MatmulDeviceOperation,110,237586.7460908414
+6144,,MatmulDeviceOperation,110,237495.1600893522
+11264,,InterleavedToShardedDeviceOperation,30,5117.64705882353
+14336,,InterleavedToShardedDeviceOperation,30,4791.511541325391
+2048,,InterleavedToShardedDeviceOperation,30,4679.82129560685
+5120,,InterleavedToShardedDeviceOperation,30,4657.483246463142
+8192,,InterleavedToShardedDeviceOperation,30,4565.8972449739385
