@@ -5764,6 +5764,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            RMSNormPreAllGatherOpConversionPattern, LayerNormOpConversionPattern,
            LayerNormPreAllGatherOpConversionPattern,
            LayerNormPostAllGatherOpConversionPattern,
+           RMSNormPostAllGatherOpConversionPattern,
            GroupNormOpConversionPattern>(typeConverter, ctx);
 
   // Transformers ops
