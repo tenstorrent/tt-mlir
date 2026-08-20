@@ -132,6 +132,35 @@ governs how close to that ceiling a shape gets; and the fix is exactly what tt-m
 fast path — GCB plus the tensor prefetcher, which moves reading off the bank cores into a
 streaming pipeline feeding many receivers.
 
+**The reader count is the device's DRAM bank count, and tt-metal derives it per arch.** The
+number 8 is not a tt-metal constant and is unrelated to tt-mlir's `kNumIn0Cores`; the two are
+different core sets that happen to coincide on Blackhole. `Device::get_optimal_dram_bank_to_logical_
+worker_assignment` (`tt_metal/impl/device/device.cpp:975`) takes `num_dram_banks =
+num_dram_channels()` and hands the physical DRAM coordinates to
+`get_optimal_dram_to_physical_worker_assignment` (`tt_metal/common/core_assignment.cpp:188`), which
+places one worker per bank at `worker_x = dram_core.x + 1` — the core immediately to the right of
+that bank's controller, with per-arch row fixups (`max(y, 2)` on Blackhole for its non-tensix rows
+0-1; `y+1` at rows 0 and 6 on Wormhole, plus harvested-row and dispatch-column walking). The
+program factory then sets `num_dram_banks = all_worker_cores_ordered.size()` and
+`num_worker_cores = num_dram_banks`, and the in1 kernel reads only its own bank —
+`dram_bank_id = get_arg_val<uint32_t>(3)`, used as `{.bank_id = dram_bank_id}` on every
+`noc_async_read`.
+
+From the SoC descriptors that gives **8 readers on Blackhole** (8 channels x 3.984 GiB = 31.9 GiB)
+against **12 on Wormhole** (6 physical channels split into 12 one-GiB views = 12 GiB). So the
+ceiling arithmetic above is Blackhole-specific: a Wormhole part has 1.5x the bank-local readers for
+the same weight bytes, with each bank carrying a narrower shard
+(`per_core_N_compute = div_up(N, num_dram_banks)`, so N/12 rather than N/8). **This predicts DS
+should fare better on Wormhole than on Blackhole**, which is the direction an n150 measurement would
+test. Not measured here — every number in this study is p150.
+
+By contrast the activation side does *not* scale with the arch: `kNumIn0Cores = 8` is a tt-mlir
+constant, so `kPerCore = kTiles / 8` and the eligibility gate `(K/32) % 8 == 0` are
+arch-independent, and the collapse guard therefore declines the same shapes on either part. Metal's
+only in0-side divisibility requirement is against the activation shard itself
+(`matmul_device_operation.cpp:1259`, `(shard_shape[1] / tile_width) % in0_block_w == 0`), so the
+hardcoded 8 stays legal on a 12-bank device.
+
 The Qwen2.5-3B down_proj at 101.4 GB/s is a *second, additive* problem on top of that ceiling
 (the prime-`k/core` trap below), which is why 3B is 1.88x rather than ~1.25x.
 
