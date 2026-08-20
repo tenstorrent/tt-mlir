@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/ConvRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/EmbeddingRules.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/LossRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/MatmulRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/MoeRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/NormalizationRules.h"
@@ -93,6 +94,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static PagedUpdateCacheRuleBook pagedUpdateCache;
   static ArgMaxRuleBook argMax;
   static AdamWRuleBook adamW;
+  static CrossEntropyForwardRuleBook crossEntropyForward;
 
   static llvm::StringMap<const OpRuleBook *> registry;
   static std::once_flag initFlag;
@@ -139,6 +141,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
     reg(ArgMaxOp::getOperationName(), &argMax);
     reg(AdamWOp::getOperationName(), &adamW);
+    reg(CrossEntropyForwardOp::getOperationName(), &crossEntropyForward);
   });
   auto it = registry.find(op->getName().getStringRef());
   return it != registry.end() ? *it->second : defaultRules;

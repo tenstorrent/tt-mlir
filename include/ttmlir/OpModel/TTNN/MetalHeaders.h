@@ -32,6 +32,7 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 }
 } // namespace ttnn::graph::detail
 
+#include "metal/ops/cross_entropy_fw/cross_entropy_fw.hpp"
 #include "metal/ops/layernorm_fw/layernorm_fw.hpp"
 #include "metal/ops/sdpa_bw/sdpa_bw.hpp"
 #include "metal/ops/sdpa_fw/sdpa_fw.hpp"

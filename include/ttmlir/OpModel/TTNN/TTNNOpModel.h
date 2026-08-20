@@ -12,6 +12,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Error.h"
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 
@@ -2450,6 +2451,25 @@ struct OpModel<LayerNormForwardOp> {
                llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
                llvm::ArrayRef<int64_t> biasShape, TTNNLayoutAttr biasLayout,
                llvm::APFloat epsilon, bool returnMeanRstd,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// CrossEntropyForwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<CrossEntropyForwardOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout,
+                   llvm::ArrayRef<int64_t> targetShape,
+                   TTNNLayoutAttr targetLayout, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> targetShape, TTNNLayoutAttr targetLayout,
                TTNNLayoutAttr outputLayout);
 };
 

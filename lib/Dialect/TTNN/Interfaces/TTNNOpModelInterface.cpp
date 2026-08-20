@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "TTNNOpConstraints.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpsModelCache.h"
@@ -4716,6 +4717,32 @@ LayerNormForwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<LayerNormForwardOp>::getOpRuntime, *this, inputShape,
       inputs[0], weightShape, inputs[1], biasShape, inputs[2], getEpsilon(),
       getReturnMeanRstd(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// CrossEntropyForwardOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints> CrossEntropyForwardOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  assert(inputs.size() == 2 && "CrossEntropyForwardOp must have 2 inputs");
+
+  return detail::constraintsDispatch(
+      *this, liveRecords, getInput().getType().getShape(), inputs[0],
+      getTarget().getType().getShape(), inputs[1], opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+CrossEntropyForwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  assert(inputs.size() == 2 && "CrossEntropyForwardOp must have 2 inputs");
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<CrossEntropyForwardOp>::getOpRuntime, *this,
+      getInput().getType().getShape(), inputs[0],
+      getTarget().getType().getShape(), inputs[1], opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

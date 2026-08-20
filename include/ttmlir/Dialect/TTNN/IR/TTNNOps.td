@@ -2971,7 +2971,7 @@ def TTNN_DitRMSNormUnaryFusedOp : TTNN_Op<"dit_rms_norm_unary_fused",
     let hasVerifier = 1;
 }
 
-def TTNN_CrossEntropyForwardOp : TTNN_Op<"cross_entropy_fw", [OpModelExempt]> {
+def TTNN_CrossEntropyForwardOp : TTNN_Op<"cross_entropy_fw"> {
     let summary = "Cross entropy loss forward pass (ttml).";
     let description = [{
       Per-row cross entropy loss against integer class indices, backed by the
