@@ -16,14 +16,13 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <array>
+#include <cmath>
 #include <optional>
 #include <string>
 #include <type_traits>
@@ -483,53 +482,32 @@ struct EmitCTypeConverter<T,
     return convert(attr.getValue());
   }
 
-  // Formats a finite value as a C++ floating point literal.
-  //
-  // Not `std::to_string`: that formats with `%f`, i.e. six digits after the
-  // decimal point, so anything smaller than 5e-7 comes out as `0.000000` - an
-  // `epsilon` of `1e-8` being the usual casualty. `APFloat::toString` instead
-  // prints enough significant digits to recover the value, switching to
-  // scientific notation when that is shorter.
   static std::string convert(mlir::APFloat value) {
-    // Round to the target type first, so the digits printed are the ones that
-    // survive the literal's own type rather than the source attribute's.
-    llvm::APFloat rounded = value;
-    bool losesInfo = false;
-    rounded.convert(std::is_same_v<T, float> ? llvm::APFloat::IEEEsingle()
-                                             : llvm::APFloat::IEEEdouble(),
-                    llvm::APFloat::rmNearestTiesToEven, &losesInfo);
-
-    // Check the non-finite classes on the *rounded* value: a finite f64 above
-    // FLT_MAX overflows to infinity when rounded to float, and letting it
-    // reach `toString` would emit `+Inf.0f`, which is not a C++ literal.
-    if (rounded.isInfinity()) {
-      std::string result = rounded.isNegative() ? "-" : "";
-      result.append("::std::numeric_limits<" + TypeNameV<T> + ">::infinity()");
-      return result;
-    }
-
-    if (rounded.isNaN()) {
-      return "::std::numeric_limits<" + TypeNameV<T> + ">::quiet_NaN()";
-    }
-
-    llvm::SmallString<32> literal;
-    rounded.toString(literal);
-    // A whole number prints without a decimal point or exponent, and `1f` is
-    // not a floating point literal in C++ (nor is a bare `1` a double one).
-    if (literal.find('.') == llvm::StringRef::npos &&
-        literal.find('E') == llvm::StringRef::npos) {
-      literal.append(".0");
-    }
-    if constexpr (std::is_same_v<T, float>) {
-      literal.push_back('f');
-    }
-    return literal.str().str();
+    return convert(value.convertToDouble());
   }
 
   template <typename U>
   static std::enable_if_t<std::is_floating_point_v<U>, std::string>
   convert(U value) {
-    return convert(llvm::APFloat(static_cast<double>(value)));
+    if (std::isfinite(value)) {
+      std::string result = std::to_string(static_cast<T>(value));
+      if constexpr (std::is_same_v<T, float>) {
+        result.append("f");
+      }
+      return result;
+    }
+
+    if (std::isinf(value)) {
+      std::string result = value > 0 ? "" : "-";
+      result.append("::std::numeric_limits<" + TypeNameV<T> + ">::infinity()");
+      return result;
+    }
+
+    if (std::isnan(value)) {
+      return "::std::numeric_limits<" + TypeNameV<T> + ">::quiet_NaN()";
+    }
+
+    llvm_unreachable("Unknown class of floating point value");
   }
 };
 
