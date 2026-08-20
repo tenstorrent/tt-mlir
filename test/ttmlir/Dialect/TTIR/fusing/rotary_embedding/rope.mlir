@@ -238,3 +238,115 @@ module {
     return %result : tensor<1x4x2x8xf32>
   }
 }
+
+// Column 1 read as a flat gather over a linearised freqs_cis instead of a
+// slice. The gathered column is inferred as the complement of the sliced one.
+// CHECK-LABEL: @rope_interleaved_pair_gathered_column
+// CHECK: "ttcore.composite"
+// CHECK-SAME: composite_name = "rotary_embedding"
+module {
+  func.func @rope_interleaved_pair_gathered_column(
+      %x: tensor<1x4x2x8xf32>,
+      %freqs: tensor<1x4x1x4x2x2xf32>,
+      %idx: tensor<1x4x1x4x2xi64>,
+      %zero: tensor<32xi64>,
+      %size: tensor<32xi64>) -> tensor<1x4x2x8xf32> {
+
+    // ---- col 0, sliced ----
+    %f0_slice = "ttir.slice_static"(%freqs) <{begins = [0:i32, 0:i32, 0:i32, 0:i32, 0:i32, 0:i32], ends = [1:i32, 4:i32, 1:i32, 4:i32, 2:i32, 1:i32], step = [1:i32, 1:i32, 1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x4x1x4x2x2xf32>) -> tensor<1x4x1x4x2x1xf32>
+    %f0_r1 = "ttir.reshape"(%f0_slice) <{shape = [1:i32, 4:i32, 4:i32, 2:i32]}> : (tensor<1x4x1x4x2x1xf32>) -> tensor<1x4x4x2xf32>
+    %f0_r2 = "ttir.reshape"(%f0_r1) <{shape = [1:i32, 4:i32, 1:i32, 4:i32, 2:i32]}> : (tensor<1x4x4x2xf32>) -> tensor<1x4x1x4x2xf32>
+    %f0_bc = "ttir.broadcast"(%f0_r2) <{broadcast_dimensions = array<i64: 1, 1, 2, 1, 1>}> : (tensor<1x4x1x4x2xf32>) -> tensor<1x4x2x4x2xf32>
+
+    // ---- col 1, gathered ----
+    %flat = "ttir.reshape"(%freqs) <{shape = [64:i32]}> : (tensor<1x4x1x4x2x2xf32>) -> tensor<64xf32>
+    %table = "ttir.reshape"(%flat) <{shape = [64:i32, 1:i32]}> : (tensor<64xf32>) -> tensor<64x1xf32>
+    %idx_flat = "ttir.reshape"(%idx) <{shape = [32:i32]}> : (tensor<1x4x1x4x2xi64>) -> tensor<32xi64>
+    %ge = "ttir.ge"(%idx_flat, %zero) : (tensor<32xi64>, tensor<32xi64>) -> tensor<32xi1>
+    %off = "ttir.add"(%idx_flat, %size) : (tensor<32xi64>, tensor<32xi64>) -> tensor<32xi64>
+    %sel = "ttir.where"(%ge, %idx_flat, %off) : (tensor<32xi1>, tensor<32xi64>, tensor<32xi64>) -> tensor<32xi64>
+    %idx_u = "ttir.typecast"(%sel) : (tensor<32xi64>) -> tensor<32xui32>
+    %idx_2d = "ttir.reshape"(%idx_u) <{shape = [1:i32, 32:i32]}> : (tensor<32xui32>) -> tensor<1x32xui32>
+    %emb = "ttir.embedding"(%idx_2d, %table) : (tensor<1x32xui32>, tensor<64x1xf32>) -> tensor<1x32x1xf32>
+    %e_flat = "ttir.reshape"(%emb) <{shape = [32:i32]}> : (tensor<1x32x1xf32>) -> tensor<32xf32>
+    %f1_r1 = "ttir.reshape"(%e_flat) <{shape = [1:i32, 4:i32, 4:i32, 2:i32]}> : (tensor<32xf32>) -> tensor<1x4x4x2xf32>
+    %f1_r2 = "ttir.reshape"(%f1_r1) <{shape = [1:i32, 4:i32, 1:i32, 4:i32, 2:i32]}> : (tensor<1x4x4x2xf32>) -> tensor<1x4x1x4x2xf32>
+    %f1_bc = "ttir.broadcast"(%f1_r2) <{broadcast_dimensions = array<i64: 1, 1, 2, 1, 1>}> : (tensor<1x4x1x4x2xf32>) -> tensor<1x4x2x4x2xf32>
+
+    %x_6d = "ttir.reshape"(%x) <{shape = [1:i32, 4:i32, 2:i32, 4:i32, 1:i32, 2:i32]}> : (tensor<1x4x2x8xf32>) -> tensor<1x4x2x4x1x2xf32>
+
+    %x0_slice = "ttir.slice_static"(%x_6d) <{begins = [0:i32, 0:i32, 0:i32, 0:i32, 0:i32, 0:i32], ends = [1:i32, 4:i32, 2:i32, 4:i32, 1:i32, 1:i32], step = [1:i32, 1:i32, 1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x4x2x4x1x2xf32>) -> tensor<1x4x2x4x1x1xf32>
+    %x0_r1 = "ttir.reshape"(%x0_slice) <{shape = [1:i32, 4:i32, 2:i32, 4:i32]}> : (tensor<1x4x2x4x1x1xf32>) -> tensor<1x4x2x4xf32>
+    %x0_r2 = "ttir.reshape"(%x0_r1) <{shape = [1:i32, 4:i32, 2:i32, 4:i32, 1:i32]}> : (tensor<1x4x2x4xf32>) -> tensor<1x4x2x4x1xf32>
+    %x0_bc = "ttir.broadcast"(%x0_r2) <{broadcast_dimensions = array<i64: 1, 1, 1, 1, 2>}> : (tensor<1x4x2x4x1xf32>) -> tensor<1x4x2x4x2xf32>
+
+    %x1_slice = "ttir.slice_static"(%x_6d) <{begins = [0:i32, 0:i32, 0:i32, 0:i32, 0:i32, 1:i32], ends = [1:i32, 4:i32, 2:i32, 4:i32, 1:i32, 2:i32], step = [1:i32, 1:i32, 1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x4x2x4x1x2xf32>) -> tensor<1x4x2x4x1x1xf32>
+    %x1_r1 = "ttir.reshape"(%x1_slice) <{shape = [1:i32, 4:i32, 2:i32, 4:i32]}> : (tensor<1x4x2x4x1x1xf32>) -> tensor<1x4x2x4xf32>
+    %x1_r2 = "ttir.reshape"(%x1_r1) <{shape = [1:i32, 4:i32, 2:i32, 4:i32, 1:i32]}> : (tensor<1x4x2x4xf32>) -> tensor<1x4x2x4x1xf32>
+    %x1_bc = "ttir.broadcast"(%x1_r2) <{broadcast_dimensions = array<i64: 1, 1, 1, 1, 2>}> : (tensor<1x4x2x4x1xf32>) -> tensor<1x4x2x4x2xf32>
+
+    %cos_branch = "ttir.multiply"(%f0_bc, %x0_bc) : (tensor<1x4x2x4x2xf32>, tensor<1x4x2x4x2xf32>) -> tensor<1x4x2x4x2xf32>
+    %sin_branch = "ttir.multiply"(%f1_bc, %x1_bc) : (tensor<1x4x2x4x2xf32>, tensor<1x4x2x4x2xf32>) -> tensor<1x4x2x4x2xf32>
+    %sum = "ttir.add"(%cos_branch, %sin_branch) : (tensor<1x4x2x4x2xf32>, tensor<1x4x2x4x2xf32>) -> tensor<1x4x2x4x2xf32>
+
+    %result = "ttir.reshape"(%sum) <{shape = [1:i32, 4:i32, 2:i32, 8:i32]}> : (tensor<1x4x2x4x2xf32>) -> tensor<1x4x2x8xf32>
+    return %result : tensor<1x4x2x8xf32>
+  }
+}
+
+// Both columns gathered — neither column is proven, so nothing to infer from.
+// CHECK-LABEL: @rope_interleaved_pair_both_gathered_no_fuse
+// CHECK-NOT: "ttcore.composite"
+// CHECK: "ttir.add"
+module {
+  func.func @rope_interleaved_pair_both_gathered_no_fuse(
+      %x: tensor<1x4x2x8xf32>,
+      %freqs: tensor<1x4x1x4x2x2xf32>,
+      %idx0: tensor<1x4x1x4x2xi64>,
+      %idx1: tensor<1x4x1x4x2xi64>,
+      %zero: tensor<32xi64>,
+      %size: tensor<32xi64>) -> tensor<1x4x2x8xf32> {
+
+    %flat = "ttir.reshape"(%freqs) <{shape = [64:i32]}> : (tensor<1x4x1x4x2x2xf32>) -> tensor<64xf32>
+    %table = "ttir.reshape"(%flat) <{shape = [64:i32, 1:i32]}> : (tensor<64xf32>) -> tensor<64x1xf32>
+
+    %i0_flat = "ttir.reshape"(%idx0) <{shape = [32:i32]}> : (tensor<1x4x1x4x2xi64>) -> tensor<32xi64>
+    %ge0 = "ttir.ge"(%i0_flat, %zero) : (tensor<32xi64>, tensor<32xi64>) -> tensor<32xi1>
+    %off0 = "ttir.add"(%i0_flat, %size) : (tensor<32xi64>, tensor<32xi64>) -> tensor<32xi64>
+    %sel0 = "ttir.where"(%ge0, %i0_flat, %off0) : (tensor<32xi1>, tensor<32xi64>, tensor<32xi64>) -> tensor<32xi64>
+    %u0 = "ttir.typecast"(%sel0) : (tensor<32xi64>) -> tensor<32xui32>
+    %u0_2d = "ttir.reshape"(%u0) <{shape = [1:i32, 32:i32]}> : (tensor<32xui32>) -> tensor<1x32xui32>
+    %emb0 = "ttir.embedding"(%u0_2d, %table) : (tensor<1x32xui32>, tensor<64x1xf32>) -> tensor<1x32x1xf32>
+    %e0_r1 = "ttir.reshape"(%emb0) <{shape = [1:i32, 4:i32, 1:i32, 4:i32, 2:i32]}> : (tensor<1x32x1xf32>) -> tensor<1x4x1x4x2xf32>
+    %f0_bc = "ttir.broadcast"(%e0_r1) <{broadcast_dimensions = array<i64: 1, 1, 2, 1, 1>}> : (tensor<1x4x1x4x2xf32>) -> tensor<1x4x2x4x2xf32>
+
+    %i1_flat = "ttir.reshape"(%idx1) <{shape = [32:i32]}> : (tensor<1x4x1x4x2xi64>) -> tensor<32xi64>
+    %ge1 = "ttir.ge"(%i1_flat, %zero) : (tensor<32xi64>, tensor<32xi64>) -> tensor<32xi1>
+    %off1 = "ttir.add"(%i1_flat, %size) : (tensor<32xi64>, tensor<32xi64>) -> tensor<32xi64>
+    %sel1 = "ttir.where"(%ge1, %i1_flat, %off1) : (tensor<32xi1>, tensor<32xi64>, tensor<32xi64>) -> tensor<32xi64>
+    %u1 = "ttir.typecast"(%sel1) : (tensor<32xi64>) -> tensor<32xui32>
+    %u1_2d = "ttir.reshape"(%u1) <{shape = [1:i32, 32:i32]}> : (tensor<32xui32>) -> tensor<1x32xui32>
+    %emb1 = "ttir.embedding"(%u1_2d, %table) : (tensor<1x32xui32>, tensor<64x1xf32>) -> tensor<1x32x1xf32>
+    %e1_r1 = "ttir.reshape"(%emb1) <{shape = [1:i32, 4:i32, 1:i32, 4:i32, 2:i32]}> : (tensor<1x32x1xf32>) -> tensor<1x4x1x4x2xf32>
+    %f1_bc = "ttir.broadcast"(%e1_r1) <{broadcast_dimensions = array<i64: 1, 1, 2, 1, 1>}> : (tensor<1x4x1x4x2xf32>) -> tensor<1x4x2x4x2xf32>
+
+    %x_6d = "ttir.reshape"(%x) <{shape = [1:i32, 4:i32, 2:i32, 4:i32, 1:i32, 2:i32]}> : (tensor<1x4x2x8xf32>) -> tensor<1x4x2x4x1x2xf32>
+
+    %x0_slice = "ttir.slice_static"(%x_6d) <{begins = [0:i32, 0:i32, 0:i32, 0:i32, 0:i32, 0:i32], ends = [1:i32, 4:i32, 2:i32, 4:i32, 1:i32, 1:i32], step = [1:i32, 1:i32, 1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x4x2x4x1x2xf32>) -> tensor<1x4x2x4x1x1xf32>
+    %x0_r1 = "ttir.reshape"(%x0_slice) <{shape = [1:i32, 4:i32, 2:i32, 4:i32]}> : (tensor<1x4x2x4x1x1xf32>) -> tensor<1x4x2x4xf32>
+    %x0_r2 = "ttir.reshape"(%x0_r1) <{shape = [1:i32, 4:i32, 2:i32, 4:i32, 1:i32]}> : (tensor<1x4x2x4xf32>) -> tensor<1x4x2x4x1xf32>
+    %x0_bc = "ttir.broadcast"(%x0_r2) <{broadcast_dimensions = array<i64: 1, 1, 1, 1, 2>}> : (tensor<1x4x2x4x1xf32>) -> tensor<1x4x2x4x2xf32>
+
+    %x1_slice = "ttir.slice_static"(%x_6d) <{begins = [0:i32, 0:i32, 0:i32, 0:i32, 0:i32, 1:i32], ends = [1:i32, 4:i32, 2:i32, 4:i32, 1:i32, 2:i32], step = [1:i32, 1:i32, 1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x4x2x4x1x2xf32>) -> tensor<1x4x2x4x1x1xf32>
+    %x1_r1 = "ttir.reshape"(%x1_slice) <{shape = [1:i32, 4:i32, 2:i32, 4:i32]}> : (tensor<1x4x2x4x1x1xf32>) -> tensor<1x4x2x4xf32>
+    %x1_r2 = "ttir.reshape"(%x1_r1) <{shape = [1:i32, 4:i32, 2:i32, 4:i32, 1:i32]}> : (tensor<1x4x2x4xf32>) -> tensor<1x4x2x4x1xf32>
+    %x1_bc = "ttir.broadcast"(%x1_r2) <{broadcast_dimensions = array<i64: 1, 1, 1, 1, 2>}> : (tensor<1x4x2x4x1xf32>) -> tensor<1x4x2x4x2xf32>
+
+    %cos_branch = "ttir.multiply"(%f0_bc, %x0_bc) : (tensor<1x4x2x4x2xf32>, tensor<1x4x2x4x2xf32>) -> tensor<1x4x2x4x2xf32>
+    %sin_branch = "ttir.multiply"(%f1_bc, %x1_bc) : (tensor<1x4x2x4x2xf32>, tensor<1x4x2x4x2xf32>) -> tensor<1x4x2x4x2xf32>
+    %sum = "ttir.add"(%cos_branch, %sin_branch) : (tensor<1x4x2x4x2xf32>, tensor<1x4x2x4x2xf32>) -> tensor<1x4x2x4x2xf32>
+
+    %result = "ttir.reshape"(%sum) <{shape = [1:i32, 4:i32, 2:i32, 8:i32]}> : (tensor<1x4x2x4x2xf32>) -> tensor<1x4x2x8xf32>
+    return %result : tensor<1x4x2x8xf32>
+  }
+}
