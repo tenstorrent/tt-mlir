@@ -5115,6 +5115,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, rmsNormPreAllGatherOp),
                            debugString, locInfo);
   }
+  if (auto rmsNormPostAllGatherOp = dyn_cast<RMSNormPostAllGatherOp>(op);
+      rmsNormPostAllGatherOp) {
+    return createOperation(cache, createOp(cache, rmsNormPostAllGatherOp),
+                           debugString, locInfo);
+  }
   if (auto layerNormOp = dyn_cast<LayerNormOp>(op); layerNormOp) {
     return createOperation(cache, createOp(cache, layerNormOp), debugString,
                            locInfo);
