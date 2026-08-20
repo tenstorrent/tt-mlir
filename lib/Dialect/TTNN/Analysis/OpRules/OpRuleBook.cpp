@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/MatmulRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/MoeRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/NormalizationRules.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/OptimizerRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/ReductionRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TransformerRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TypecastRules.h"
@@ -76,6 +77,8 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static RepeatRuleBook repeat;
   static ConcatenateHeadsRuleBook concatHeads;
   static SDPARuleBook sdpa;
+  static TTMLSDPAForwardRuleBook ttmlSdpaForward;
+  static TTMLSDPABackwardRuleBook ttmlSdpaBackward;
   static SDPADecodeRuleBook sdpaDecode;
   static EmbeddingRuleBook embedding;
   static TypecastRuleBook typecast;
@@ -88,6 +91,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static PagedFillCacheRuleBook pagedFillCache;
   static PagedUpdateCacheRuleBook pagedUpdateCache;
   static ArgMaxRuleBook argMax;
+  static AdamWRuleBook adamW;
 
   static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
   static std::once_flag initFlag;
@@ -114,6 +118,8 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(ConcatenateHeadsOp::getOperationName(), &concatHeads);
     reg(NLPConcatHeadsDecodeOp::getOperationName(), &sdpa);
     reg(ScaledDotProductAttentionOp::getOperationName(), &sdpa);
+    reg(SDPAForwardOp::getOperationName(), &ttmlSdpaForward);
+    reg(SDPABackwardOp::getOperationName(), &ttmlSdpaBackward);
     reg(ScaledDotProductAttentionDecodeOp::getOperationName(), &sdpaDecode);
     reg(PagedScaledDotProductAttentionDecodeOp::getOperationName(),
         &sdpaDecode);
@@ -131,6 +137,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(PagedFillCacheOp::getOperationName(), &pagedFillCache);
     reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
     reg(ArgMaxOp::getOperationName(), &argMax);
+    reg(AdamWOp::getOperationName(), &adamW);
   });
   auto it = registry.find(op->getName());
   return it != registry.end() ? *it->second : defaultRules;

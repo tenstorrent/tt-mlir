@@ -46,6 +46,28 @@ struct SDPARuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
+/// TTML SDPA forward:
+/// The TTML kernel requires tiled, interleaved inputs; filtering them and
+/// disabling reshards prune unsupported candidates rather than tune
+/// performance. The backend derives both output layouts from the query, so
+/// only the NULL output hint is valid.
+struct TTMLSDPAForwardRuleBook : SDPARuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+};
+
+/// TTML SDPA backward:
+/// The TTML kernels require tiled inputs but support both interleaved and
+/// sharded memory. Grad-Q/K/V inherit the Q/K/V memory configs, so only the
+/// NULL output hint is valid. Reshard exploration is disabled solely to bound
+/// the seven-operand search, at the cost of not optimizing input sharding.
+struct TTMLSDPABackwardRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
 /// ScaledDotProductAttentionDecodeOp / PagedScaledDotProductAttentionDecodeOp:
 /// Per-operand input layout filtering.
 /// - Q (operand 0): DRAM (any) or L1-sharded -- L1-interleaved rejected

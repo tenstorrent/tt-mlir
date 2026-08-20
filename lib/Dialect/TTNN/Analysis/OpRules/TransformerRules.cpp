@@ -47,6 +47,35 @@ OutputHints SDPARuleBook::getOutputHints(
 }
 
 //===----------------------------------------------------------------------===//
+// TTMLSDPAForwardRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+TTMLSDPAForwardRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
+  return [](TTNNLayoutAttr layout) {
+    return layout_filter_utils::requireTiled(layout) &&
+           layout_filter_utils::rejectAllSharded(layout);
+  };
+}
+
+//===----------------------------------------------------------------------===//
+// TTMLSDPABackwardRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+TTMLSDPABackwardRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
+  return layout_filter_utils::requireTiled;
+}
+
+bool TTMLSDPABackwardRuleBook::shouldExploreReshards() const { return false; }
+
+OutputHints TTMLSDPABackwardRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
+  // The backend derives grad-Q/K/V layouts from Q/K/V.
+  return layout_filter_utils::nullHintOnly();
+}
+
+//===----------------------------------------------------------------------===//
 // SDPADecodeRuleBook
 //===----------------------------------------------------------------------===//
 

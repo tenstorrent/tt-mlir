@@ -2683,7 +2683,7 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_Compute
     let hasVerifier = 1;
 }
 
-def TTNN_AdamWOp : TTNN_InplaceOp<"adamw", [OpModelExempt]> {
+def TTNN_AdamWOp : TTNN_InplaceOp<"adamw"> {
     let summary = "AdamW optimizer step (ttml).";
     let description = [{
       Fused AdamW optimizer step, backed by the ttml metal op
@@ -2726,7 +2726,7 @@ def TTNN_AdamWOp : TTNN_InplaceOp<"adamw", [OpModelExempt]> {
     let hasVerifier = 1;
 }
 
-def TTNN_SDPAForwardOp : TTNN_Op<"sdpa_fw", [OpModelExempt]> {
+def TTNN_SDPAForwardOp : TTNN_Op<"sdpa_fw"> {
     let summary = "Scaled dot-product attention forward (ttml).";
     let description = [{
       Training-oriented fused scaled dot-product attention forward pass, backed
@@ -2760,7 +2760,7 @@ def TTNN_SDPAForwardOp : TTNN_Op<"sdpa_fw", [OpModelExempt]> {
     let hasVerifier = 1;
 }
 
-def TTNN_SDPABackwardOp : TTNN_Op<"sdpa_bw", [OpModelExempt]> {
+def TTNN_SDPABackwardOp : TTNN_Op<"sdpa_bw"> {
     let summary = "Scaled dot-product attention backward (ttml).";
     let description = [{
       Training-oriented fused scaled dot-product attention backward pass, backed

@@ -6214,6 +6214,199 @@ TEST_F(OpModelBase, PagedFillCacheOpInterface) {
   }
 }
 
+// AdamWOp mutates its operands in place and has no results, so the generic
+// getOpConstraints(Operation*) helper cannot be used (it reads getResult(0)).
+// The ttml kernel also requires every operand in DRAM / INTERLEAVED / TILE with
+// `grad` always BFLOAT16, whereas getInputLayouts() would default unencoded
+// operands to L1 -- hence the explicit layouts on each tensor.
+TEST_F(OpModelBase, AdamWOpInterface) {
+  llvm::SmallVector<int64_t> shape = {1, 1, 128, 128};
+
+  auto f32Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  auto bf16Layout = CreateTiledLayout(shape, BufferType::DRAM,
+                                      TensorMemoryLayout::Interleaved);
+
+  auto param = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
+  auto grad = createEmptyTensor(shape, builder.getBF16Type(), bf16Layout);
+  auto expAvg = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
+  auto expAvgSq = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
+
+  auto adamW = builder.create<AdamWOp>(
+      builder.getUnknownLoc(), param, grad, expAvg, expAvgSq,
+      /*lr=*/llvm::APFloat(1e-3f), /*beta1=*/llvm::APFloat(0.9f),
+      /*beta2=*/llvm::APFloat(0.999f), /*beta1_pow=*/llvm::APFloat(0.9f),
+      /*beta2_pow=*/llvm::APFloat(0.999f), /*epsilon=*/llvm::APFloat(1e-8f),
+      /*weight_decay=*/llvm::APFloat(0.01f));
+
+  auto backend = dyn_cast<OpModel>(adamW.getOperation());
+  ASSERT_TRUE(backend);
+
+  auto inputLayouts = getInputLayouts(adamW.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 4u);
+
+  // OpConfig() carries a null output layout, which is what the optimizer passes
+  // for an op with no results.
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    auto constraints = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
+                outputAllocations] = constraints;
+    EXPECT_GT(cbSize, 0);
+    // All operands are DRAM-resident, so the op holds nothing in L1.
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing constraints for AdamWOp; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for AdamWOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+// Same op with the optional max_exp_avg_sq operand present, which is what
+// enables AMSGrad in ttml. Exercises the 5-input path through the interface.
+TEST_F(OpModelBase, AdamWOpInterfaceAmsgrad) {
+  llvm::SmallVector<int64_t> shape = {1, 1, 128, 128};
+
+  auto f32Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  auto bf16Layout = CreateTiledLayout(shape, BufferType::DRAM,
+                                      TensorMemoryLayout::Interleaved);
+
+  auto param = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
+  auto grad = createEmptyTensor(shape, builder.getBF16Type(), bf16Layout);
+  auto expAvg = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
+  auto expAvgSq = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
+  auto maxExpAvgSq = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
+
+  auto adamW = builder.create<AdamWOp>(
+      builder.getUnknownLoc(), param, grad, expAvg, expAvgSq, maxExpAvgSq,
+      /*lr=*/builder.getF32FloatAttr(1e-3f),
+      /*beta1=*/builder.getF32FloatAttr(0.9f),
+      /*beta2=*/builder.getF32FloatAttr(0.999f),
+      /*beta1_pow=*/builder.getF32FloatAttr(0.9f),
+      /*beta2_pow=*/builder.getF32FloatAttr(0.999f),
+      /*epsilon=*/builder.getF32FloatAttr(1e-8f),
+      /*weight_decay=*/builder.getF32FloatAttr(0.01f),
+      /*stochastic_rounding=*/builder.getBoolAttr(false));
+
+  auto backend = dyn_cast<OpModel>(adamW.getOperation());
+  ASSERT_TRUE(backend);
+
+  auto inputLayouts = getInputLayouts(adamW.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 5u);
+
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  } else {
+    FAIL() << "Missing constraints for AdamWOp with amsgrad; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+}
+
+TEST_F(OpModelBase, SDPAForwardOpInterface) {
+  llvm::SmallVector<int64_t> shape = {1, 2, 64, 64};
+  auto layout = CreateTiledLayout(shape, BufferType::DRAM,
+                                  TensorMemoryLayout::Interleaved);
+  auto tensorType =
+      createRankedTensorType(shape, builder.getBF16Type(), layout);
+  auto query = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto key = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto value = createEmptyTensor(shape, builder.getBF16Type(), layout);
+
+  auto sdpaForward = builder.create<SDPAForwardOp>(
+      builder.getUnknownLoc(), TypeRange{tensorType}, query, key, value,
+      /*attention_mask=*/Value(),
+      ttcore::AttentionMaskTypeAttr::get(&context,
+                                         ttcore::AttentionMaskType::Causal),
+      builder.getF32FloatAttr(0.0f), builder.getBoolAttr(false));
+
+  auto backend = dyn_cast<OpModel>(sdpaForward.getOperation());
+  ASSERT_TRUE(backend);
+  auto inputLayouts = getInputLayouts(sdpaForward.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 3u);
+
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+    ASSERT_EQ(constraintsExp.get().outputLayouts.size(), 1u);
+  } else {
+    FAIL() << "Missing constraints for SDPAForwardOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for SDPAForwardOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, SDPABackwardOpInterface) {
+  llvm::SmallVector<int64_t> shape = {1, 2, 64, 64};
+  llvm::SmallVector<int64_t> intermediatesShape = {1, 2, 64, 32};
+  auto layout = CreateTiledLayout(shape, BufferType::DRAM,
+                                  TensorMemoryLayout::Interleaved);
+  auto intermediatesLayout = CreateTiledLayout(
+      intermediatesShape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  auto tensorType =
+      createRankedTensorType(shape, builder.getBF16Type(), layout);
+
+  auto gradOutput = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto attnOutput = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto query = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto key = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto value = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto intermediates = createEmptyTensor(
+      intermediatesShape, builder.getF32Type(), intermediatesLayout);
+
+  auto sdpaBackward = builder.create<SDPABackwardOp>(
+      builder.getUnknownLoc(), TypeRange{tensorType, tensorType, tensorType},
+      gradOutput, attnOutput, query, key, value, intermediates,
+      /*attention_mask=*/Value(),
+      ttcore::AttentionMaskTypeAttr::get(&context,
+                                         ttcore::AttentionMaskType::Causal),
+      builder.getF32FloatAttr(0.0f));
+
+  auto backend = dyn_cast<OpModel>(sdpaBackward.getOperation());
+  ASSERT_TRUE(backend);
+  auto inputLayouts = getInputLayouts(sdpaBackward.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 6u);
+
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+    ASSERT_EQ(constraintsExp.get().outputLayouts.size(), 3u);
+  } else {
+    FAIL() << "Missing constraints for SDPABackwardOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for SDPABackwardOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, QuantizeOpInterface) {
   llvm::SmallVector<int64_t> inputShape = {32, 64};
   llvm::SmallVector<int64_t> scaleShape = {64};

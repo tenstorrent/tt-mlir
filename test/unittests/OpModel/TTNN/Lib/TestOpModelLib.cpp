@@ -5688,6 +5688,180 @@ TEST_F(OpModelTest, PagedFillCacheOp) {
 }
 
 //===----------------------------------------------------------------------===//
+// AdamWOp Tests
+//===----------------------------------------------------------------------===//
+
+class OpModelAdamWTest : public OpModelTest {
+protected:
+  static constexpr float kLr = 1e-3f;
+  static constexpr float kBeta1 = 0.9f;
+  static constexpr float kBeta2 = 0.999f;
+  static constexpr float kEpsilon = 1e-8f;
+  static constexpr float kWeightDecay = 0.01f;
+
+  llvm::Expected<OpConstraints>
+  queryConstraints(llvm::ArrayRef<int64_t> shape, TTNNLayoutAttr paramLayout,
+                   TTNNLayoutAttr gradLayout, TTNNLayoutAttr momentLayout,
+                   bool amsgrad, bool stochasticRounding = false) {
+    std::optional<llvm::ArrayRef<int64_t>> maxExpAvgSqShape;
+    std::optional<TTNNLayoutAttr> maxExpAvgSqLayout;
+    if (amsgrad) {
+      maxExpAvgSqShape = shape;
+      maxExpAvgSqLayout = momentLayout;
+    }
+    return OpModel<AdamWOp>::getOpConstraints(
+        shape, paramLayout, shape, gradLayout, shape, momentLayout, shape,
+        momentLayout, maxExpAvgSqShape, maxExpAvgSqLayout, llvm::APFloat(kLr),
+        llvm::APFloat(kBeta1), llvm::APFloat(kBeta2), llvm::APFloat(kBeta1),
+        llvm::APFloat(kBeta2), llvm::APFloat(kEpsilon),
+        llvm::APFloat(kWeightDecay), stochasticRounding,
+        /*outputLayout=*/paramLayout);
+  }
+};
+
+TEST_F(OpModelAdamWTest, AdamWOpFloat32) {
+  const llvm::SmallVector<int64_t> shape = {1, 1, 128, 128};
+
+  const TTNNLayoutAttr f32Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  const TTNNLayoutAttr bf16Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = queryConstraints(shape, f32Layout, bf16Layout,
+                                         f32Layout, /*amsgrad=*/false);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  size_t cbSizeWithoutAmsgrad = 0;
+  if (constraintsExp) {
+    OpConstraints &opCstr = constraintsExp.get();
+    EXPECT_GT(opCstr.cbL1PeakSize, 0);
+    // Every operand is required to be in DRAM, so nothing lands in L1.
+    EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+    // Captures the updated parameter, even though it is an in-place update.
+    EXPECT_EQ(opCstr.outputLayouts.size(), 1);
+    cbSizeWithoutAmsgrad = opCstr.cbL1PeakSize;
+  }
+
+  // AMSGrad is implied by the presence of max_exp_avg_sq (ttml forwards
+  // `max_exp_avg_sq.has_value()` as the amsgrad flag), and it allocates an
+  // extra set of circular buffers. This is what proves the optional operand is
+  // actually threaded through to the kernel rather than dropped.
+  auto amsgradConstraintsExp =
+      queryConstraints(shape, f32Layout, bf16Layout, f32Layout,
+                       /*amsgrad=*/true);
+  EXPECT_TRUE(static_cast<bool>(amsgradConstraintsExp));
+  if (amsgradConstraintsExp && cbSizeWithoutAmsgrad > 0) {
+    EXPECT_GT(amsgradConstraintsExp.get().cbL1PeakSize, cbSizeWithoutAmsgrad);
+  }
+
+  auto runtimeExp = OpModel<AdamWOp>::getOpRuntime(
+      shape, f32Layout, shape, bf16Layout, shape, f32Layout, shape, f32Layout,
+      /*maxExpAvgSqShape=*/std::nullopt, /*maxExpAvgSqLayout=*/std::nullopt,
+      llvm::APFloat(kLr), llvm::APFloat(kBeta1), llvm::APFloat(kBeta2),
+      llvm::APFloat(kBeta1), llvm::APFloat(kBeta2), llvm::APFloat(kEpsilon),
+      llvm::APFloat(kWeightDecay), /*stochasticRounding=*/false, f32Layout);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  }
+}
+
+TEST_F(OpModelAdamWTest, AdamWOpRejectsL1Param) {
+  // The ttml device operation TT_FATALs unless every operand is in DRAM. The
+  // query must surface that as an error rather than a bogus cost, otherwise the
+  // optimizer could pick an L1 layout that fails at runtime.
+  const llvm::SmallVector<int64_t> shape = {1, 1, 128, 128};
+
+  const TTNNLayoutAttr f32LayoutL1 =
+      CreateTiledLayout(shape, BufferType::L1, TensorMemoryLayout::Interleaved,
+                        /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+                        builder.getF32Type());
+  const TTNNLayoutAttr f32Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  const TTNNLayoutAttr bf16Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = queryConstraints(shape, f32LayoutL1, bf16Layout,
+                                         f32Layout, /*amsgrad=*/false);
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  if (!constraintsExp) {
+    llvm::consumeError(constraintsExp.takeError());
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// SDPAForwardOp Tests
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelTest, SDPAForwardOp) {
+  const llvm::SmallVector<int64_t> shape = {1, 2, 64, 64};
+  const llvm::SmallVector<int64_t> maskShape = {1, 1, 64, 64};
+  const TTNNLayoutAttr layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr maskLayout = CreateTiledLayout(
+      maskShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<SDPAForwardOp>::getOpConstraints(
+      shape, layout, shape, layout, shape, layout, maskShape, maskLayout,
+      ttcore::AttentionMaskType::Arbitrary, llvm::APFloat(0.0f),
+      /*returnIntermediates=*/true, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().tensorL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputL1BufferSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputLayouts.size(), 2u);
+
+  auto runtimeExp = OpModel<SDPAForwardOp>::getOpRuntime(
+      shape, layout, shape, layout, shape, layout, maskShape, maskLayout,
+      ttcore::AttentionMaskType::Arbitrary, llvm::APFloat(0.0f),
+      /*returnIntermediates=*/true, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
+//===----------------------------------------------------------------------===//
+// SDPABackwardOp Tests
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelTest, SDPABackwardOp) {
+  const llvm::SmallVector<int64_t> shape = {1, 2, 64, 64};
+  const llvm::SmallVector<int64_t> intermediatesShape = {1, 2, 64, 32};
+  const llvm::SmallVector<int64_t> maskShape = {1, 1, 64, 64};
+  const TTNNLayoutAttr layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr intermediatesLayout = CreateTiledLayout(
+      intermediatesShape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  const TTNNLayoutAttr maskLayout = CreateTiledLayout(
+      maskShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<SDPABackwardOp>::getOpConstraints(
+      shape, layout, shape, layout, shape, layout, shape, layout, shape, layout,
+      intermediatesShape, intermediatesLayout, maskShape, maskLayout,
+      ttcore::AttentionMaskType::Arbitrary, llvm::APFloat(0.0f),
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().tensorL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputL1BufferSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputLayouts.size(), 3u);
+
+  auto runtimeExp = OpModel<SDPABackwardOp>::getOpRuntime(
+      shape, layout, shape, layout, shape, layout, shape, layout, shape, layout,
+      intermediatesShape, intermediatesLayout, maskShape, maskLayout,
+      ttcore::AttentionMaskType::Arbitrary, llvm::APFloat(0.0f),
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
+//===----------------------------------------------------------------------===//
 // QuantizeOp Tests
 //===----------------------------------------------------------------------===//
 
