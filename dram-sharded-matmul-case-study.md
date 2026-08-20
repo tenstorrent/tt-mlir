@@ -26,9 +26,19 @@ tt-mlir currently picks.
 | DS, best of an exhaustive legal sweep (`in0 on 43 cores, w=8`) | **85.6 us** | 279.7 GB/s |
 | Interleaved 1D multicast, same shape | **65.6 us** | 365.3 GB/s |
 
-Whole traced decode step, full graphs: **DS 21.96 ms vs no-DS 13.88 ms** (1.58x), ceiling
-45.5 vs 72.0 iterations/s. Matmul carries essentially all of it: 16.61 ms vs 8.84 ms across
-the same 181 operations. The one-time const-eval prologue is also ~2x worse under DS
+GB/s throughout is derived, not measured: `K * N * bytes_per_element / duration_ns` over the
+weight tensor (1 B/ns == 1 GB/s), with bytes per element taken from the shape's own dtype
+(bfp8 = 1.0625, bfp4 = 0.5625). Weights are the whole numerator because the activation and
+output sit in L1 for these ops, so only the weight crosses DRAM. It is therefore an *effective
+weight-read rate* that assumes each weight is fetched once per invocation.
+
+Summed device kernel time over the whole traced region, full graphs: **DS 21.96 ms vs no-DS
+13.88 ms** (1.58x). Matmul carries essentially all of it: 16.61 ms vs 8.84 ms across the same
+181 operations. That total is device *busy* time, not a step duration: it adds each op's
+longest-core span, which equals wall clock only if ops never overlap. Treat it as a
+device-vs-device quantity at fixed method — do not invert it into an iterations/s figure or
+subtract it from an end-to-end step. (This model's DS total in fact exceeds its decode-only
+end-to-end step of 21.36 ms, which is how the conflation gets caught.) The one-time const-eval prologue is also ~2x worse under DS
 (43.75 vs 21.38 ms) because the DRAM-sharded weights cost more to prepare.
 
 Tuning the DS config recovers most of the self-inflicted loss (235.6 -> 85.6 us, worth
@@ -196,10 +206,10 @@ hanging the device. Worth a guarded prototype, not a blind one.
 
 ## Recommendations
 
-1. **For this model today, turn DS off.** 13.88 ms vs 21.96 ms per decode step. No DS
-   configuration tt-mlir can emit beats that.
+1. **For this model today, turn DS off.** 13.88 ms vs 21.96 ms of summed device kernel time
+   per decode step. No DS configuration tt-mlir can emit beats that.
 2. **Make `kNumIn0Cores` per-op anyway** — worth 5.43 ms/iteration (down_proj 236.3 -> 85.6 us,
-   step 21.96 -> ~16.5 ms, ceiling 45.5 -> ~60 it/s). Feed the *existing* `in0BlockW` search
+   summed device time 21.96 -> ~16.5 ms). Feed the *existing* `in0BlockW` search
    `numIn0Cores = 43` and it selects `w=8` unaided; no change to that loop. It cannot be a
    constant bump: the gate at `MatmulRules.cpp:219` requires
    `(K/kTileSize) % kNumIn0Cores == 0`, and 43 would decline the K=2048 shapes
