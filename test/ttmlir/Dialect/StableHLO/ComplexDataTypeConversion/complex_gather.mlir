@@ -1,3 +1,4 @@
+// REQUIRES: stablehlo
 // RUN: ttmlir-opt --stablehlo-complex-data-type-conversion -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
