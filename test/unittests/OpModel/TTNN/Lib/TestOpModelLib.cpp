@@ -5862,6 +5862,48 @@ TEST_F(OpModelTest, SDPABackwardOp) {
 }
 
 //===----------------------------------------------------------------------===//
+// CrossEntropyForwardOp Tests
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelTest, CrossEntropyForwardOp) {
+  const llvm::SmallVector<int64_t> inputShape = {4, 1, 32, 64};
+  const llvm::SmallVector<int64_t> targetShape = {4, 32};
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr targetLayout =
+      TTNNLayoutAttr::Builder(
+          &context, targetShape,
+          builder.getIntegerType(/*width=*/32, /*isSigned=*/false))
+          .setBufferType(BufferType::DRAM)
+          .setMemoryLayout(TensorMemoryLayout::Interleaved)
+          .setGridShape(GetVirtualGridShape(
+              targetShape, TensorMemoryLayout::Interleaved, BufferType::DRAM))
+          .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+
+  auto constraintsExp = OpModel<CrossEntropyForwardOp>::getOpConstraints(
+      inputShape, inputLayout, targetShape, targetLayout,
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp->cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp->tensorL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp->outputL1BufferSize, 0);
+  ASSERT_EQ(constraintsExp->outputLayouts.size(), 1u);
+
+  const TTNNLayoutAttr outputLayout = constraintsExp->outputLayouts.front();
+  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+  EXPECT_EQ(outputLayout.getDataType(), ttcore::DataType::BFloat16);
+  EXPECT_EQ(outputLayout.getBufferType(), BufferType::DRAM);
+  EXPECT_EQ(outputLayout.getMemLayout().getValue(),
+            TensorMemoryLayout::Interleaved);
+
+  auto runtimeExp = OpModel<CrossEntropyForwardOp>::getOpRuntime(
+      inputShape, inputLayout, targetShape, targetLayout,
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(*runtimeExp, 0);
+}
+
+//===----------------------------------------------------------------------===//
 // QuantizeOp Tests
 //===----------------------------------------------------------------------===//
 

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Utils.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -9615,6 +9616,68 @@ llvm::Expected<size_t> OpModel<SDPABackwardOp>::getOpRuntime(
   };
 
   return operation::getOpRuntime(sdpaBackwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// CrossEntropyForwardOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<CrossEntropyForwardOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> targetShape, TTNNLayoutAttr targetLayout,
+    TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec targetSpec,
+      detail::convertToTensorSpec(device, targetShape, targetLayout));
+
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
+  auto crossEntropyForwardOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(::ttml::metal::cross_entropy_fw,
+                                           device, initialStateOpt, inputSpec,
+                                           targetSpec);
+  };
+
+  return operation::getOpConstraintsWithState(inputLayout.getContext(),
+                                              crossEntropyForwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<CrossEntropyForwardOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> targetShape, TTNNLayoutAttr targetLayout,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec targetSpec,
+      detail::convertToTensorSpec(device, targetShape, targetLayout));
+
+  auto crossEntropyForwardQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttml::metal::cross_entropy_fw, device, inputSpec,
+                            targetSpec);
+  };
+
+  return operation::getOpRuntime(crossEntropyForwardQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
