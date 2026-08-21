@@ -23,6 +23,8 @@
 #weight = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 21 + d1 * 7 + d2, d3), <1x1>, memref<1344x7xbf16, #system_memory>>
 // A ttnn.while condition result: a single-element host-resident ui32 tensor.
 #pred = #ttnn.ttnn_layout<() -> (0, 0), <1x1>, memref<1x1xui32, #system_memory>>
+// A ttnn.case index: a single-element host-resident si32 tensor.
+#index = #ttnn.ttnn_layout<() -> (0, 0), <1x1>, memref<1x1xsi32, #system_memory>>
 #bias = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 + d1 + d2, d3), <1x1>, memref<1x64xbf16, #system_memory>>
 #conv_out = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 213216 + d1 * 213216 + d2, d3), <1x1>, memref<6663x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 
@@ -148,6 +150,144 @@ module {
       ttnn.yield %out : tensor<64x128xbf16, #l2>
     } -> (tensor<64x128xbf16, #l2>)
     return %0 : tensor<64x128xbf16, #l2>
+  }
+
+  // A case branch borrows its captures the same way a while region borrows its
+  // block arguments, so the exemption has to cover branch regions too - the
+  // pass keys off block arguments of any region op, not off `ttnn.while`.
+  // CHECK-LABEL: func.func @case_borrowed_capture
+  func.func @case_borrowed_capture(%arg0: tensor<64x128xbf16, #l2>, %arg1: tensor<si32, #index>) -> tensor<64x128xbf16, #l2> {
+    // CHECK: ttnn.case
+    %0 = ttnn.case index(%arg1 : tensor<si32, #index>) captures(%arg0 : tensor<64x128xbf16, #l2>) branches {
+    ^bb0(%cap: tensor<64x128xbf16, #l2>):
+      %v1 = "ttnn.reshape"(%cap) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
+      %v2 = "ttnn.reshape"(%cap) <{shape = [1 : i32, 1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x1x64x128xbf16, #l4>
+      %out = "ttnn.add"(%cap, %cap) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+      // The views alias the capture, which the caller owns, so none of these
+      // deallocations may be forced.
+      // CHECK-NOT: force = true
+      "ttnn.deallocate"(%v1) <{force = false}> : (tensor<1x64x128xbf16, #l3>) -> ()
+      "ttnn.deallocate"(%v2) <{force = false}> : (tensor<1x1x64x128xbf16, #l4>) -> ()
+      // CHECK: ttnn.yield
+      ttnn.yield %out : tensor<64x128xbf16, #l2>
+    }, {
+    ^bb0(%cap: tensor<64x128xbf16, #l2>):
+      // CHECK: ttnn.yield
+      ttnn.yield %cap : tensor<64x128xbf16, #l2>
+    } -> (tensor<64x128xbf16, #l2>)
+    return %0 : tensor<64x128xbf16, #l2>
+  }
+
+  // A region that yields one of its block arguments unchanged makes the op's
+  // result a second handle on that operand's buffer, which the runtime publishes
+  // as such. The two therefore share a root, and here that root escapes through
+  // the return, so neither deallocation may be forced.
+  //
+  // Without the aliasing, %arg0's deallocation would look like the last use of a
+  // buffer of its own and get forced, freeing the buffer %0 still names.
+  // CHECK-LABEL: func.func @case_forwards_capture
+  func.func @case_forwards_capture(%arg0: tensor<64x128xbf16, #l2>, %arg1: tensor<si32, #index>) -> tensor<64x128xbf16, #l2> {
+    // CHECK: ttnn.case
+    %v = "ttnn.reshape"(%arg0) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
+    %0 = ttnn.case index(%arg1 : tensor<si32, #index>) captures(%arg0 : tensor<64x128xbf16, #l2>) branches {
+    ^bb0(%cap: tensor<64x128xbf16, #l2>):
+      ttnn.yield %cap : tensor<64x128xbf16, #l2>
+    }, {
+    ^bb0(%cap: tensor<64x128xbf16, #l2>):
+      %a = "ttnn.add"(%cap, %cap) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+      ttnn.yield %a : tensor<64x128xbf16, #l2>
+    } -> (tensor<64x128xbf16, #l2>)
+    // CHECK-NOT: "ttnn.deallocate"
+    "ttnn.deallocate"(%v) <{force = false}> : (tensor<1x64x128xbf16, #l3>) -> ()
+    "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    // CHECK: return
+    return %0 : tensor<64x128xbf16, #l2>
+  }
+
+  // The same for a loop body that carries a value through untouched: result 0
+  // aliases init %arg0, so %arg0's deallocation must not be forced while the
+  // returned result still names that buffer.
+  // CHECK-LABEL: func.func @while_forwards_carry
+  func.func @while_forwards_carry(%arg0: tensor<64x128xbf16, #l2>, %arg1: tensor<ui32, #pred>) -> tensor<64x128xbf16, #l2> {
+    // CHECK: ttnn.while
+    %v = "ttnn.reshape"(%arg0) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
+    %0 = ttnn.while inits(%arg0 : tensor<64x128xbf16, #l2>) captures(%arg1 : tensor<ui32, #pred>) {trip_count = 2 : i64} cond {
+    ^bb0(%acc: tensor<64x128xbf16, #l2>, %p: tensor<ui32, #pred>):
+      ttnn.yield %p : tensor<ui32, #pred>
+    } do {
+    ^bb0(%acc: tensor<64x128xbf16, #l2>, %p: tensor<ui32, #pred>):
+      ttnn.yield %acc : tensor<64x128xbf16, #l2>
+    } -> (tensor<64x128xbf16, #l2>)
+    // CHECK-NOT: "ttnn.deallocate"
+    "ttnn.deallocate"(%v) <{force = false}> : (tensor<1x64x128xbf16, #l3>) -> ()
+    "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    // CHECK: return
+    return %0 : tensor<64x128xbf16, #l2>
+  }
+
+  // Branches that forward *different* captures leave the result aliasing one of
+  // them, but which is only known at runtime. The handles are grouped rather
+  // than merged: they name distinct buffers, only one of which is shared.
+  //
+  // Here the result escapes through the return, so nothing may be forced - but
+  // the deallocations must still be kept. Each one frees whichever buffer it
+  // alone owns, and dropping them would leak the captures.
+  //
+  // Each capture is given a view so that its root has two deallocations: without
+  // the grouping the bottom-most of each pair would be forced, freeing a buffer
+  // the returned result may still name.
+  // CHECK-LABEL: func.func @case_forwards_ambiguous
+  func.func @case_forwards_ambiguous(%arg0: tensor<64x128xbf16, #l2>, %arg1: tensor<si32, #index>) -> tensor<64x128xbf16, #l2> {
+    %a = "ttnn.add"(%arg0, %arg0) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    %b = "ttnn.add"(%a, %a) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    %va = "ttnn.reshape"(%a) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
+    %vb = "ttnn.reshape"(%b) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
+    // CHECK: ttnn.case
+    %0 = ttnn.case index(%arg1 : tensor<si32, #index>) captures(%a, %b : tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) branches {
+    ^bb0(%c0: tensor<64x128xbf16, #l2>, %c1: tensor<64x128xbf16, #l2>):
+      ttnn.yield %c0 : tensor<64x128xbf16, #l2>
+    }, {
+    ^bb0(%c0: tensor<64x128xbf16, #l2>, %c1: tensor<64x128xbf16, #l2>):
+      ttnn.yield %c1 : tensor<64x128xbf16, #l2>
+    } -> (tensor<64x128xbf16, #l2>)
+    // All four survive, none forced.
+    // CHECK-NOT: force = true
+    // CHECK-COUNT-4: "ttnn.deallocate"
+    // CHECK-NOT: "ttnn.deallocate"
+    "ttnn.deallocate"(%va) <{force = false}> : (tensor<1x64x128xbf16, #l3>) -> ()
+    "ttnn.deallocate"(%vb) <{force = false}> : (tensor<1x64x128xbf16, #l3>) -> ()
+    "ttnn.deallocate"(%a) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    "ttnn.deallocate"(%b) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    // CHECK: return
+    return %0 : tensor<64x128xbf16, #l2>
+  }
+
+  // The same ambiguity, but nothing escapes: the result is consumed here and
+  // only %r is returned. Every deallocation is kept, since each frees whichever
+  // buffer it alone owns, and the bottom-most is forced to free the one that is
+  // shared - whose refcount never drops to zero on its own. Dropping any of
+  // them would hold a buffer to the end of the function.
+  // CHECK-LABEL: func.func @case_forwards_ambiguous_local
+  func.func @case_forwards_ambiguous_local(%arg0: tensor<64x128xbf16, #l2>, %arg1: tensor<si32, #index>) -> tensor<64x128xbf16, #l2> {
+    %a = "ttnn.add"(%arg0, %arg0) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    %b = "ttnn.add"(%a, %a) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    // CHECK: ttnn.case
+    %0 = ttnn.case index(%arg1 : tensor<si32, #index>) captures(%a, %b : tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) branches {
+    ^bb0(%c0: tensor<64x128xbf16, #l2>, %c1: tensor<64x128xbf16, #l2>):
+      ttnn.yield %c0 : tensor<64x128xbf16, #l2>
+    }, {
+    ^bb0(%c0: tensor<64x128xbf16, #l2>, %c1: tensor<64x128xbf16, #l2>):
+      ttnn.yield %c1 : tensor<64x128xbf16, #l2>
+    } -> (tensor<64x128xbf16, #l2>)
+    %r = "ttnn.multiply"(%0, %0) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    // CHECK: "ttnn.deallocate"(%{{[0-9]+}}) <{force = false}>
+    // CHECK: "ttnn.deallocate"(%{{[0-9]+}}) <{force = false}>
+    // CHECK: "ttnn.deallocate"(%{{[0-9]+}}) <{force = true}>
+    "ttnn.deallocate"(%a) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    "ttnn.deallocate"(%b) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    "ttnn.deallocate"(%0) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    // CHECK: return
+    return %r : tensor<64x128xbf16, #l2>
   }
 
   // No aliasing: a single deallocate per buffer already frees with force = false

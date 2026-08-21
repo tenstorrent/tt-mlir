@@ -5319,22 +5319,25 @@ namespace {
 //
 // The yields are lowered by their own pattern, which runs later - only by then
 // have the values they yield been converted to EmitC types - so they need a way
-// back to the variables they must assign: this maps each generated emitc.for to
-// the lvalues holding that loop's carried values.
-using WhileLoopVariableMap =
+// back to the variables they must assign: this maps each generated emitc.for or
+// emitc.switch to the lvalues holding the values its regions produce.
+using ControlFlowVariableMap =
     llvm::DenseMap<Operation *, llvm::SmallVector<Value>>;
 
-// Distinguishes the two yields once they live in the same emitc.for body.
+// Distinguishes the two yields once they live in the same emitc.for body, and
+// marks a case branch's yield, whose destination variables are found through
+// the enclosing emitc.switch instead.
 constexpr llvm::StringLiteral kWhileYieldRoleAttr = "ttnn.while_yield_role";
 constexpr llvm::StringLiteral kWhileYieldCond = "cond";
 constexpr llvm::StringLiteral kWhileYieldBody = "body";
+constexpr llvm::StringLiteral kCaseYieldRoleAttr = "ttnn.case_yield";
 
 class WhileOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::WhileOp> {
 public:
-  WhileOpConversionPattern(const TypeConverter &typeConverter,
-                           MLIRContext *context,
-                           std::shared_ptr<WhileLoopVariableMap> loopVariables)
+  WhileOpConversionPattern(
+      const TypeConverter &typeConverter, MLIRContext *context,
+      std::shared_ptr<ControlFlowVariableMap> loopVariables)
       : TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::WhileOp>(
             typeConverter, context),
         loopVariables(std::move(loopVariables)) {}
@@ -5428,27 +5431,146 @@ public:
   }
 
 private:
-  std::shared_ptr<WhileLoopVariableMap> loopVariables;
+  std::shared_ptr<ControlFlowVariableMap> loopVariables;
 };
 
-// Lowers the `ttnn.yield`s that WhileOpConversionPattern moved into an
-// emitc.for body.
-class WhileYieldOpConversionPattern
+// Lowers `ttnn.case` to an `emitc.switch` over mutable local variables.
+//
+//   ::ttnn::Tensor r0{}, ...;
+//   int32_t idx{};
+//   idx = <index>.to_vector<int32_t>()[0];
+//   switch (idx) {
+//   case 0: { <branch 0 ops>; r0 = ...; break; }
+//   ...
+//   default: { <last branch ops>; r0 = ...; }
+//   }
+//   // results are r0, ...
+//
+// The last branch becomes the `default` arm, which is what reproduces the op's
+// rule that an out-of-range index selects it - no explicit clamp is needed.
+//
+// Like `emitc.for`, `emitc.switch` has no results, so the values the branches
+// produce live in `emitc.variable` lvalues.
+class CaseOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::CaseOp> {
+public:
+  CaseOpConversionPattern(
+      const TypeConverter &typeConverter, MLIRContext *context,
+      std::shared_ptr<ControlFlowVariableMap> regionVariables)
+      : TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::CaseOp>(
+            typeConverter, context),
+        regionVariables(std::move(regionVariables)) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::CaseOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    MLIRContext *ctx = rewriter.getContext();
+    mlir::Location loc = srcOp.getLoc();
+
+    auto ttnnTensorType =
+        emitc::OpaqueType::get(ctx, ttnn_to_emitc::TypeNameV<::ttnn::Tensor>);
+    auto lvalueType = emitc::LValueType::get(ttnnTensorType);
+    auto selectorType = emitc::OpaqueType::get(ctx, "int32_t");
+
+    // One mutable variable per result, assigned by whichever branch runs.
+    llvm::SmallVector<Value> produced;
+    for (size_t i = 0, e = srcOp.getNumResults(); i < e; i++) {
+      auto variable = rewriter.create<emitc::VariableOp>(
+          loc, lvalueType,
+          emitc::OpaqueAttr::get(
+              ctx,
+              std::string(ttnn_to_emitc::TypeNameV<::ttnn::Tensor>) + "()"));
+      produced.push_back(variable.getResult());
+    }
+
+    // `emitc.switch` selects on a scalar, so the index has to be read out of
+    // the tensor into one first. It is read signed so that a negative index
+    // matches no case and falls through to the default arm.
+    auto selectorVariable = rewriter.create<emitc::VariableOp>(
+        loc, emitc::LValueType::get(selectorType),
+        emitc::OpaqueAttr::get(ctx, "0"));
+    rewriter.create<emitc::VerbatimOp>(
+        loc, "{} = {}.to_vector<int32_t>()[0];",
+        ValueRange{selectorVariable.getResult(), adaptor.getIndex()});
+    Value selector =
+        rewriter.create<emitc::LoadOp>(loc, selectorType, selectorVariable)
+            .getResult();
+
+    // The last branch is the default arm, so only the leading ones get a case
+    // label.
+    const size_t numBranches = srcOp.getBranches().size();
+    llvm::SmallVector<int64_t> caseValues =
+        llvm::to_vector(llvm::seq<int64_t>(0, numBranches - 1));
+
+    auto switchOp = rewriter.create<emitc::SwitchOp>(
+        loc, selector, caseValues,
+        /*caseRegionsCount=*/static_cast<unsigned>(caseValues.size()));
+    (*regionVariables)[switchOp.getOperation()] = produced;
+
+    // Branch blocks take the captures, which come straight from the op's
+    // operands.
+    llvm::SmallVector<Value> branchArgs(adaptor.getCaptures());
+    auto inlineBranch = [&](Block &block, Region &destination) {
+      // The builder leaves a variadic region empty, so the arm's block and its
+      // terminator are created here. The `ttnn.yield` being inlined becomes
+      // assignments rather than a terminator, so the arm needs its own.
+      Block *arm = rewriter.createBlock(&destination);
+      rewriter.setInsertionPointToEnd(arm);
+      Operation *terminator = rewriter.create<emitc::YieldOp>(loc);
+
+      rewriter.modifyOpInPlace(block.getTerminator(), [&]() {
+        block.getTerminator()->setAttr(kCaseYieldRoleAttr,
+                                       rewriter.getUnitAttr());
+      });
+      rewriter.inlineBlockBefore(&block, terminator, branchArgs);
+    };
+
+    for (unsigned i = 0; i + 1 < numBranches; i++) {
+      inlineBranch(srcOp.getBranchBlock(i), switchOp.getCaseRegions()[i]);
+    }
+    inlineBranch(srcOp.getBranchBlock(static_cast<unsigned>(numBranches - 1)),
+                 switchOp.getDefaultRegion());
+
+    rewriter.setInsertionPointAfter(switchOp);
+    llvm::SmallVector<Value> results;
+    for (Value variable : produced) {
+      results.push_back(
+          rewriter.create<emitc::LoadOp>(loc, ttnnTensorType, variable)
+              .getResult());
+    }
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+
+private:
+  std::shared_ptr<ControlFlowVariableMap> regionVariables;
+};
+
+// Lowers the `ttnn.yield`s that WhileOpConversionPattern and
+// CaseOpConversionPattern moved into an emitc.for body or emitc.switch arm.
+class ControlFlowYieldOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::YieldOp> {
 public:
-  WhileYieldOpConversionPattern(
+  ControlFlowYieldOpConversionPattern(
       const TypeConverter &typeConverter, MLIRContext *context,
-      std::shared_ptr<WhileLoopVariableMap> loopVariables)
+      std::shared_ptr<ControlFlowVariableMap> regionVariables)
       : TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::YieldOp>(
             typeConverter, context),
-        loopVariables(std::move(loopVariables)) {}
+        regionVariables(std::move(regionVariables)) {}
 
   LogicalResult
   matchAndRewrite(mlir::tt::ttnn::YieldOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (srcOp->hasAttr(kCaseYieldRoleAttr)) {
+      auto switchOp = srcOp->getParentOfType<emitc::SwitchOp>();
+      return assignProduced(srcOp, adaptor, switchOp, rewriter);
+    }
+
     auto role = srcOp->getAttrOfType<StringAttr>(kWhileYieldRoleAttr);
     if (!role) {
-      return rewriter.notifyMatchFailure(srcOp, "yield is not part of a loop");
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "yield is not part of a control flow "
+                                         "op this pattern lowered");
     }
 
     if (role.getValue() == kWhileYieldCond) {
@@ -5458,11 +5580,20 @@ public:
       return success();
     }
 
-    auto forOp = srcOp->getParentOfType<emitc::ForOp>();
-    auto it = forOp ? loopVariables->find(forOp.getOperation())
-                    : loopVariables->end();
-    if (it == loopVariables->end()) {
-      return rewriter.notifyMatchFailure(srcOp, "no loop variables recorded");
+    return assignProduced(srcOp, adaptor,
+                          srcOp->getParentOfType<emitc::ForOp>(), rewriter);
+  }
+
+private:
+  // Writes the yielded values into the lvalues the parent op set aside for
+  // them, and drops the yield.
+  LogicalResult assignProduced(mlir::tt::ttnn::YieldOp srcOp, OpAdaptor adaptor,
+                               Operation *parentOp,
+                               ConversionPatternRewriter &rewriter) const {
+    auto it =
+        parentOp ? regionVariables->find(parentOp) : regionVariables->end();
+    if (it == regionVariables->end()) {
+      return rewriter.notifyMatchFailure(srcOp, "no variables recorded");
     }
 
     for (auto [variable, value] :
@@ -5473,8 +5604,7 @@ public:
     return success();
   }
 
-private:
-  std::shared_ptr<WhileLoopVariableMap> loopVariables;
+  std::shared_ptr<ControlFlowVariableMap> regionVariables;
 };
 } // namespace
 
@@ -6375,12 +6505,14 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Control flow ops
   //
-  // The while op and its yields share the loop-variable map.
+  // The region-bearing ops and the yield pattern share one variable map, so
+  // that a yield can find the lvalues its parent set aside for it.
   {
-    auto loopVariables = std::make_shared<WhileLoopVariableMap>();
-    patterns.add<WhileOpConversionPattern>(typeConverter, ctx, loopVariables);
-    patterns.add<WhileYieldOpConversionPattern>(typeConverter, ctx,
-                                                loopVariables);
+    auto regionVariables = std::make_shared<ControlFlowVariableMap>();
+    patterns.add<WhileOpConversionPattern>(typeConverter, ctx, regionVariables);
+    patterns.add<CaseOpConversionPattern>(typeConverter, ctx, regionVariables);
+    patterns.add<ControlFlowYieldOpConversionPattern>(typeConverter, ctx,
+                                                      regionVariables);
   }
 
   // Arith ops

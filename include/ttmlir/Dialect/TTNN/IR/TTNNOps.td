@@ -3961,6 +3961,62 @@ def TTNN_WhileOp : TTNN_Op<"while", [
   let hasVerifier = 1;
 }
 
+def TTNN_CaseOp : TTNN_Op<"case", [
+    IsolatedFromAbove,
+    RecursiveMemoryEffects,
+    SingleBlockImplicitTerminator<"::mlir::tt::ttnn::YieldOp">,
+    OpModelExempt]> {
+  let summary = "N-way branch.";
+  let description = [{
+    Executes exactly one of `branches`, selected by `index`, and produces the
+    values that branch yields. An index outside `[0, N)` - which includes any
+    negative one - selects the last branch.
+
+    Every branch takes the `captures` as its block arguments and yields one
+    value per result.
+
+    Two requirements are specific to this level, both materialized by
+    `TTNNLayout`:
+
+    - `index` must be a single-element `si32` tensor resident in system memory,
+      since the runtime reads it back to host to pick a branch. It stays signed
+      so that a negative index still reads as out of range;
+    - every branch must yield the op's result types exactly, since all branches
+      publish into the one set of outputs and a disagreement would leave the
+      consumer reading a tensor descriptor that does not describe the value.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$index,
+                       Variadic<AnyRankedTensor>:$captures);
+
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let regions = (region VariadicRegion<SizedRegion<1>>:$branches);
+
+  // A variadic region is parsed by reading trailing regions while a comma
+  // follows, so nothing comma-led may come after `$branches`. The result clause
+  // is optional because an empty type list will not parse inside parentheses.
+  let assemblyFormat = [{
+    `index` `(` $index `:` type($index) `)`
+    (`captures` `(` $captures^ `:` type($captures) `)`)?
+    attr-dict
+    `branches` $branches
+    (`->` `(` type($results)^ `)`)?
+  }];
+
+  let extraClassDeclaration = [{
+    ::mlir::Block &getBranchBlock(unsigned index) {
+      return getBranches()[index].front();
+    }
+
+    // Defined out-of-line: YieldOp is only forward declared at this point in
+    // the generated header.
+    ::mlir::tt::ttnn::YieldOp getBranchYield(unsigned index);
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTNN_GenericOp : TTNN_Op<"generic", [AttrSizedOperandSegments, MemoryEffects<[MemRead, MemWrite]>, TTCore_NonCacheableTrait, OpModelExempt]> {
     let summary = "Generic operation.";
     let description = [{

@@ -3816,6 +3816,50 @@ public:
   }
 };
 
+class CaseOpConversionPattern : public OpConversionPattern<ttir::CaseOp> {
+public:
+  using OpConversionPattern<ttir::CaseOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(ttir::CaseOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    const TypeConverter *typeConverter = this->getTypeConverter();
+
+    SmallVector<Type> resultTypes;
+    if (failed(
+            typeConverter->convertTypes(op->getResultTypes(), resultTypes))) {
+      return failure();
+    }
+
+    // `branches` is a variadic region, so the count is a builder parameter
+    // rather than something ODS can infer: the op is created with that many
+    // empty regions, each of which is then filled by inlining.
+    auto caseOp = rewriter.create<ttnn::CaseOp>(
+        op.getLoc(), resultTypes, adaptor.getIndex(), adaptor.getCaptures(),
+        /*branchesCount=*/op.getBranches().size());
+
+    for (auto [srcRegion, dstRegion] :
+         llvm::zip_equal(op.getBranches(), caseOp.getBranches())) {
+      rewriter.inlineRegionBefore(srcRegion, dstRegion, dstRegion.end());
+    }
+
+    for (Region &region : caseOp.getBranches()) {
+      Block &block = region.front();
+      TypeConverter::SignatureConversion signatureConv(block.getNumArguments());
+      for (auto [index, argType] : llvm::enumerate(block.getArgumentTypes())) {
+        Type convertedType = typeConverter->convertType(argType);
+        if (!convertedType) {
+          return failure();
+        }
+        signatureConv.addInputs(index, convertedType);
+      }
+      rewriter.applySignatureConversion(&block, signatureConv, typeConverter);
+    }
+
+    rewriter.replaceOp(op, caseOp.getResults());
+    return success();
+  }
+};
+
 class YieldOpConversionPattern : public OpConversionPattern<ttir::YieldOp> {
 public:
   using OpConversionPattern<ttir::YieldOp>::OpConversionPattern;
@@ -3991,6 +4035,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            TopKRouterGptOpConversionPattern,
            TTLangOpConversionPattern,
            WhileOpConversionPattern,
+           CaseOpConversionPattern,
            YieldOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
