@@ -30,7 +30,7 @@ import tempfile
 TTIR_INPUT = """\
 module {
   func.func @forward(%x: tensor<32x32xf32>) -> tensor<32x32xf32> {
-    %r = "ttir.exp"(%x) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+    %r = "ttir.exp"(%x) : (tensor<32x32xf32>) -> tensor<32x32xf32> loc(fused<{tt.profile.region = "test.exp"}>["input.mlir":1:1])
     return %r : tensor<32x32xf32>
   }
 }
@@ -68,6 +68,7 @@ def main():
         result = subprocess.run(
             [
                 ttmlir_opt,
+                "--mlir-print-debuginfo",
                 f"--d2m-python-rewrites=module-path={pattern_file}",
                 tmp_path,
             ],
@@ -91,3 +92,4 @@ if __name__ == "__main__":
 # CHECK:        d2m.generic
 # CHECK:        d2m.tile_exp
 # CHECK:        return %{{.*}} : tensor<32x32xf32>
+# CHECK:        tt.profile.region = "test.exp"

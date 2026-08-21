@@ -11,6 +11,7 @@ import glob
 import os
 import logging
 import portpicker
+from tt_adapter.mlir import parse_loc_string
 
 HOST = "localhost"
 # Use portpicker to pick a port for us. (say that 10 times fast)
@@ -160,6 +161,17 @@ def convert_command_and_assert(model_path):
         print(result.json())
         assert False
     return result.json()
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        'loc("relu_3"("MNISTLinear":4294967295:6))',
+        'loc(fused<{tt.profile.region = "decoder.mlp"}>["model.mlir":1:2])',
+    ],
+)
+def test_parse_nested_mlir_location(location):
+    assert parse_loc_string(location) == location.removeprefix("loc(").removesuffix(")")
 
 
 @pytest.mark.parametrize("model_path", get_test_files(TEST_LOAD_MODEL_PATHS))
