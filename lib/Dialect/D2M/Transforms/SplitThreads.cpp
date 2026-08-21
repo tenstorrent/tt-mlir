@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
+#include "ttmlir/Dialect/D2M/Utils/SynchronizableOpInterfaceUtils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -47,13 +48,15 @@ static unsigned getDMACBPort(GenericOp generic, Operation *op) {
         if (dma.isExplicitCBForm()) {
           return dma.getCBPort();
         }
-        return generic.getOperandIndex(dma.getLocalBuffer());
+        return generic.getOperandIndex(
+            utils::getSynchronizationRoot(dma.getLocalBuffer()));
       })
       .Case<LocalCopyOp>([&](LocalCopyOp copy) -> unsigned {
         if (copy.isExplicitCBForm()) {
           return copy.getCBPort();
         }
-        return generic.getOperandIndex(copy.getDst());
+        return generic.getOperandIndex(
+            utils::getSynchronizationRoot(copy.getDst()));
       })
       .Default([](Operation *) -> unsigned {
         llvm_unreachable("unexpected ShardDMAOpInterface op");
@@ -164,7 +167,8 @@ static LogicalResult checkComputeSyncScope(GenericOp generic) {
     }
     if (Operation *nest = topLevelNest(op, regionBlock)) {
       for (OpOperand &operand : op->getOpOperands()) {
-        auto it = cbValueToPort.find(operand.get());
+        auto it =
+            cbValueToPort.find(utils::getSynchronizationRoot(operand.get()));
         if (it != cbValueToPort.end() && isCBReadOperand(op, operand)) {
           consumerNests[it->second].insert(nest);
         }

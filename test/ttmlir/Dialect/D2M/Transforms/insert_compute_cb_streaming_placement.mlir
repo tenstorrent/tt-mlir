@@ -85,4 +85,36 @@ module attributes {ttcore.system_desc = #system_desc} {
     memref.dealloc %out_cb : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #l1>
     return
   }
+
+  // A compute-local accumulator is hoisted as an additional argument because
+  // it needs a fixed L1 address, but it is not a stream. In particular, a
+  // synchronizable interface op such as tile_untilize must not manufacture a
+  // wait/pop pair for it: the data-movement thread has no matching producer.
+  // CHECK-LABEL: func.func @untilize_compute_local_scratch
+  func.func @untilize_compute_local_scratch(
+      %out_dram: memref<1x1x32x32xbf16, #ttcore.interleaved<64x2>, #dram>) attributes {tt.function_type = "forward_device"} {
+    %acc = memref.alloc() {address = 1024 : i64, alignment = 16 : i64, d2m.scratch_buffer} : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 1>, #l1>
+    %out_cb = memref.alloc() {address = 3072 : i64, alignment = 16 : i64, d2m.synchronized_buffer = 1 : i32} : memref<32x32xbf16, #ttcore.cb_layout<64x2, 1>, #l1>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins()
+        outs(%out_dram : memref<1x1x32x32xbf16, #ttcore.interleaved<64x2>, #dram>)
+        additionalArgs(%acc, %out_cb : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 1>, #l1>, memref<32x32xbf16, #ttcore.cb_layout<64x2, 1>, #l1>) {
+      %out = d2m.get_cb(2) resolution_stage = compile : <memref<32x32xbf16, #ttcore.cb_layout<64x2, 1>, #l1>>
+      %c0 = arith.constant 0 : index
+      d2m.remote_store %out_dram[%c0, %c0] from %out : memref<1x1x32x32xbf16, #ttcore.interleaved<64x2>, #dram> from !d2m.cb<memref<32x32xbf16, #ttcore.cb_layout<64x2, 1>, #l1>>
+    }, {
+      // CHECK: }, {
+      // CHECK-NOT: d2m.get_cb(1)
+      // CHECK-NOT: d2m.wait
+      // CHECK: %[[OUT_CB:.*]] = d2m.get_cb(2)
+      // CHECK: %[[OUT:.*]] = d2m.reserve %[[OUT_CB]]
+      // CHECK: "d2m.tile_untilize_block"(%{{.*}}, %[[OUT]])
+      // CHECK: d2m.push %[[OUT_CB]]
+      // CHECK-NOT: d2m.pop
+      "d2m.tile_untilize_block"(%acc, %out_cb) : (memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 1>, #l1>, memref<32x32xbf16, #ttcore.cb_layout<64x2, 1>, #l1>) -> ()
+    }
+    memref.dealloc %out_cb : memref<32x32xbf16, #ttcore.cb_layout<64x2, 1>, #l1>
+    memref.dealloc %acc : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 1>, #l1>
+    return
+  }
 }
