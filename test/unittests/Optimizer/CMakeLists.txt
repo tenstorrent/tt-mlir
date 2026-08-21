@@ -4,6 +4,7 @@ add_mlir_unittest(OptimizerTests
     TestLegalTensorLayoutAnalysis.cpp
     TestConv2dConfigGenerator.cpp
     TestConv3dConfigHeuristic.cpp
+    TestReshapeDivergenceGuard.cpp
     PARTIAL_SOURCES_INTENDED
 )
 
