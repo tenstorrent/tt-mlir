@@ -756,6 +756,24 @@ static bool isConstantOne(mlir::Value value) {
   return attr && isOneAttr(attr);
 }
 
+// Check if the attribute is a constant tensor whose every element is one.
+// Element types other than float and integer are rejected, since their value
+// cannot be inspected as an APFloat/APInt.
+static bool isEveryElementOne(mlir::Attribute attr) {
+  auto elements = mlir::dyn_cast_if_present<mlir::ElementsAttr>(attr);
+  if (!elements || !elements.isSplat()) {
+    return false;
+  }
+  mlir::Type elementType = elements.getElementType();
+  if (mlir::isa<mlir::FloatType>(elementType)) {
+    return elements.getSplatValue<llvm::APFloat>().isExactlyValue(1.0);
+  }
+  if (mlir::isa<mlir::IntegerType>(elementType)) {
+    return elements.getSplatValue<llvm::APInt>().isOne();
+  }
+  return false;
+}
+
 //===----------------------------------------------------------------------===//
 // LogicalAndOp
 //===----------------------------------------------------------------------===//
@@ -9050,6 +9068,12 @@ foldSplatComparison(mlir::Operation *op, mlir::Attribute lhsAttr,
 //===----------------------------------------------------------------------===//
 
 ::mlir::OpFoldResult mlir::tt::ttir::PowOp::fold(FoldAdaptor adaptor) {
+  // pow(x, 1) -> x, but only when the base type matches the result type
+  // exactly, i.e. the base is neither broadcast nor type converted on the way
+  // to the result.
+  if (getLhs().getType() == getType() && isEveryElementOne(adaptor.getRhs())) {
+    return getLhs();
+  }
   return constantFoldEltwiseBinaryFloat(
       *this, adaptor.getLhs(), adaptor.getRhs(), ApplyToAPFloat(::powf));
 }
