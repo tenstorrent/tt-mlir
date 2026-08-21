@@ -93,6 +93,7 @@
 #include "operations/normalization/layer_norm_post_all_gather.h"
 #include "operations/normalization/layer_norm_pre_all_gather.h"
 #include "operations/normalization/rms_norm.h"
+#include "operations/normalization/rms_norm_post_all_gather.h"
 #include "operations/normalization/rms_norm_pre_all_gather.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/pool2d.h"
@@ -476,6 +477,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::RMSNormPreAllGatherOp: {
     return operations::rms_norm_pre_all_gather::run(
         op->type_as_RMSNormPreAllGatherOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::RMSNormPostAllGatherOp: {
+    return operations::rms_norm_post_all_gather::run(
+        op->type_as_RMSNormPostAllGatherOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
     return operations::distributed_rms_norm::run(

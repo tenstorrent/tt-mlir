@@ -4490,6 +4490,70 @@ RMSNormPreAllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// RMSNormPostAllGatherOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+struct RMSNormPostAllGatherOptionalArgs {
+  std::optional<llvm::ArrayRef<int64_t>> weightShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
+  std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+};
+static RMSNormPostAllGatherOptionalArgs unpackRMSNormPostAllGatherOptionalArgs(
+    const std::vector<TTNNLayoutAttr> &inputs, RMSNormPostAllGatherOp op) {
+  RMSNormPostAllGatherOptionalArgs ret;
+  // inputs[0] = input, inputs[1] = stats, optional operands follow.
+  size_t idx = 2;
+  if (op.getWeight()) {
+    ret.weightShape = op.getWeight().getType().getShape();
+    if (idx < inputs.size()) {
+      ret.weightLayout = inputs[idx++];
+    }
+  }
+  if (op.getBias()) {
+    ret.biasShape = op.getBias().getType().getShape();
+    if (idx < inputs.size()) {
+      ret.biasLayout = inputs[idx++];
+    }
+  }
+  return ret;
+}
+
+llvm::Expected<op_model::OpConstraints>
+RMSNormPostAllGatherOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  const auto inputShape = getInput().getType().getShape();
+  const auto statsShape = getStats().getType().getShape();
+
+  RMSNormPostAllGatherOptionalArgs optionalArgs =
+      unpackRMSNormPostAllGatherOptionalArgs(inputs, *this);
+
+  return detail::constraintsDispatch(
+      *this, liveRecords, inputShape, inputs[0], statsShape, inputs[1],
+      optionalArgs.weightShape, optionalArgs.weightLayout,
+      optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(), getDtype(),
+      getUse_2dCoreGrid(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+RMSNormPostAllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  const auto inputShape = getInput().getType().getShape();
+  const auto statsShape = getStats().getType().getShape();
+
+  RMSNormPostAllGatherOptionalArgs optionalArgs =
+      unpackRMSNormPostAllGatherOptionalArgs(inputs, *this);
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<RMSNormPostAllGatherOp>::getOpRuntime, *this,
+      inputShape, inputs[0], statsShape, inputs[1], optionalArgs.weightShape,
+      optionalArgs.weightLayout, optionalArgs.biasShape,
+      optionalArgs.biasLayout, getEpsilon(), getDtype(), getUse_2dCoreGrid(),
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // AdamWOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

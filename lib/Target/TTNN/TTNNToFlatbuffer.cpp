@@ -1903,6 +1903,57 @@ createOp(FlatbufferObjectCache &cache, RMSNormPreAllGatherOp op) {
       computeConfig.value_or(0), programConfig, use2DCoreGrid, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::RMSNormPostAllGatherOp>
+createOp(FlatbufferObjectCache &cache, RMSNormPostAllGatherOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  auto stats = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getStats()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> weight = 0;
+  if (op.getWeight()) {
+    weight = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getWeight()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias = 0;
+  if (op.getBias()) {
+    bias = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBias()));
+  }
+
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  ::flatbuffers::Offset<
+      ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig>
+      programConfig = 0;
+  if (op.getProgramConfig()) {
+    programConfig = toFlatbuffer(cache, op.getProgramConfig().value());
+  }
+
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
+
+  bool use2DCoreGrid = false;
+  if (op.getUse_2dCoreGrid()) {
+    use2DCoreGrid = op.getUse_2dCoreGrid().value();
+  }
+
+  return ::tt::target::ttnn::CreateRMSNormPostAllGatherOp(
+      *cache.fbb, input, stats, weight, bias, op.getEpsilon().convertToFloat(),
+      memoryConfig, computeConfig.value_or(0), programConfig, dtype,
+      use2DCoreGrid, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::LayerNormOp>
 createOp(FlatbufferObjectCache &cache, LayerNormOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -5062,6 +5113,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto rmsNormPreAllGatherOp = dyn_cast<RMSNormPreAllGatherOp>(op);
       rmsNormPreAllGatherOp) {
     return createOperation(cache, createOp(cache, rmsNormPreAllGatherOp),
+                           debugString, locInfo);
+  }
+  if (auto rmsNormPostAllGatherOp = dyn_cast<RMSNormPostAllGatherOp>(op);
+      rmsNormPostAllGatherOp) {
+    return createOperation(cache, createOp(cache, rmsNormPostAllGatherOp),
                            debugString, locInfo);
   }
   if (auto layerNormOp = dyn_cast<LayerNormOp>(op); layerNormOp) {
