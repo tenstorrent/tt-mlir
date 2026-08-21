@@ -3495,7 +3495,7 @@ public:
 } // namespace
 
 //
-// AdamWOp conversion pattern (emits ::ttml::metal::adamw)
+// AdamWOp conversion pattern (emits ::ttml::metal::adamw_tensor_scalars)
 //
 namespace {
 class AdamWOpConversionPattern
@@ -3503,7 +3503,7 @@ class AdamWOpConversionPattern
 private:
   std::string getPrefixSearchPattern() const override { return "ttnn.adamw"; }
   std::string getPrefixSwapPattern() const override {
-    return "ttml::metal::adamw";
+    return "ttml::metal::adamw_tensor_scalars";
   }
 
 public:
@@ -3517,22 +3517,34 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AdamWOp> emitter(
         srcOp, adaptor, rewriter);
 
-    // Arg order matches ttml::metal::adamw(param, grad, exp_avg, exp_avg_sq,
-    // max_exp_avg_sq, lr, beta1, beta2, beta1_pow, beta2_pow, epsilon,
-    // weight_decay, stochastic_rounding).
+    // The emitter maps values positionally, so emit in operand order (the
+    // scalar tensors sit ahead of max_exp_avg_sq), then arrange the args in
+    // ttml::metal::adamw_tensor_scalars' order: (param, grad, exp_avg,
+    // exp_avg_sq, max_exp_avg_sq, step_size, inv_sqrt_bc2, decay_factor,
+    // beta1, beta2, epsilon, stochastic_rounding). The scalars stay device
+    // tensors: ttml reads them in the kernel, so no host readback is emitted.
+    mlir::Attribute param = emitter.emit(srcOp.getParam());
+    mlir::Attribute grad = emitter.emit(srcOp.getGrad());
+    mlir::Attribute expAvg = emitter.emit(srcOp.getExpAvg());
+    mlir::Attribute expAvgSq = emitter.emit(srcOp.getExpAvgSq());
+    mlir::Attribute stepSize = emitter.emit(srcOp.getStepSize());
+    mlir::Attribute invSqrtBc2 = emitter.emit(srcOp.getInvSqrtBc2());
+    mlir::Attribute decayFactor = emitter.emit(srcOp.getDecayFactor());
+    // Optional operand: emits `::std::nullopt` when absent, i.e. amsgrad off.
+    mlir::Attribute maxExpAvgSq = emitter.emit(srcOp.getMaxExpAvgSq());
+
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getParam()),
-        emitter.emit(srcOp.getGrad()),
-        emitter.emit(srcOp.getExpAvg()),
-        emitter.emit(srcOp.getExpAvgSq()),
-        emitter.emit(srcOp.getMaxExpAvgSq()),
-        emitter.emit(srcOp.getLr()),
+        param,
+        grad,
+        expAvg,
+        expAvgSq,
+        maxExpAvgSq,
+        stepSize,
+        invSqrtBc2,
+        decayFactor,
         emitter.emit(srcOp.getBeta1()),
         emitter.emit(srcOp.getBeta2()),
-        emitter.emit(srcOp.getBeta1Pow()),
-        emitter.emit(srcOp.getBeta2Pow()),
         emitter.emit(srcOp.getEpsilon()),
-        emitter.emit(srcOp.getWeightDecay()),
         rewriter.getAttr<emitc::OpaqueAttr>(
             srcOp.getStochasticRounding()
                 ? "::ttml::metal::StochasticRounding::Enabled"

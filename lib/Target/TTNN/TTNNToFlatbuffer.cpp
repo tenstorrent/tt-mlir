@@ -1633,6 +1633,12 @@ createOp(FlatbufferObjectCache &cache, AdamWOp op) {
       getOperandThroughDPSOps(op.getExpAvg()));
   auto expAvgSq = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getExpAvgSq()));
+  auto stepSize = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getStepSize()));
+  auto invSqrtBc2 = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInvSqrtBc2()));
+  auto decayFactor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDecayFactor()));
 
   // Optional AMSGrad max second moment: offset 0 when absent.
   ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> maxExpAvgSq = 0;
@@ -1642,11 +1648,10 @@ createOp(FlatbufferObjectCache &cache, AdamWOp op) {
   }
 
   return ::tt::target::ttnn::CreateAdamWOp(
-      *cache.fbb, param, grad, expAvg, expAvgSq, maxExpAvgSq,
-      op.getLr().convertToFloat(), op.getBeta1().convertToFloat(),
-      op.getBeta2().convertToFloat(), op.getBeta1Pow().convertToFloat(),
-      op.getBeta2Pow().convertToFloat(), op.getEpsilon().convertToFloat(),
-      op.getWeightDecay().convertToFloat(), op.getStochasticRounding());
+      *cache.fbb, param, grad, expAvg, expAvgSq, maxExpAvgSq, stepSize,
+      invSqrtBc2, decayFactor, op.getBeta1().convertToFloat(),
+      op.getBeta2().convertToFloat(), op.getEpsilon().convertToFloat(),
+      op.getStochasticRounding());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::SDPAForwardOp>

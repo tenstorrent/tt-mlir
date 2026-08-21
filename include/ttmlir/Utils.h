@@ -11,6 +11,8 @@
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Diagnostics.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Error.h"
@@ -817,6 +819,35 @@ inline mlir::Operation *findFirstUserInBlock(mlir::Operation *op) {
     }
   }
   return firstUser;
+}
+
+/// Verify that each named tensor operand is a single-element f32 tensor, as
+/// consumed by ttml's tensor-scalar APIs (e.g.
+/// ttml::metal::adamw_tensor_scalars, which validates FLOAT32 on device).
+/// Rank 0 is rejected because the TTNN lowering tilizes every operand and a
+/// rank-0 tensor does not survive that path.
+inline mlir::LogicalResult verifyScalarTensorOperands(
+    std::initializer_list<std::pair<mlir::RankedTensorType, llvm::StringRef>>
+        scalars,
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitError) {
+  for (const auto &[type, name] : scalars) {
+    if (type.getRank() == 0) {
+      return emitError() << name << " must have rank of at least 1";
+    }
+    // getNumElements() asserts on dynamic shapes, so reject them first.
+    if (!type.hasStaticShape()) {
+      return emitError() << name << " must have a static shape";
+    }
+    if (type.getNumElements() != 1) {
+      return emitError() << name << " must have exactly one element, got "
+                         << type.getNumElements();
+    }
+    if (!type.getElementType().isF32()) {
+      return emitError() << name << " must be f32, got "
+                         << type.getElementType();
+    }
+  }
+  return mlir::success();
 }
 
 } // namespace ttmlir::utils

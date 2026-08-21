@@ -2010,13 +2010,14 @@ public:
       return failure();
     }
     size_t numOperands = adaptor.getOperands().size();
-    if (numOperands != 4 && numOperands != 5) {
+    if (numOperands != 7 && numOperands != 8) {
       return rewriter.notifyMatchFailure(
-          srcOp, "tenstorrent.adamw must have 4 or 5 operands (param, grad, "
-                 "exp_avg, exp_avg_sq, [max_exp_avg_sq]).");
+          srcOp, "tenstorrent.adamw must have 7 or 8 operands (param, grad, "
+                 "exp_avg, exp_avg_sq, lr, beta1_pow, beta2_pow, "
+                 "[max_exp_avg_sq]).");
     }
 
-    if (srcOp.getNumResults() != numOperands - 1) {
+    if (srcOp.getNumResults() != numOperands - 4) {
       return rewriter.notifyMatchFailure(
           srcOp, "tenstorrent.adamw must have one result per updated operand "
                  "(param, exp_avg, exp_avg_sq, [max_exp_avg_sq]).");
@@ -2028,11 +2029,11 @@ public:
           srcOp, "tenstorrent.adamw must have composite_attributes.");
     }
 
-    // Copy the required F32 hyperparameters through, normalizing to F32 so the
-    // ttir.adamw verifier accepts them regardless of the source float width.
-    static constexpr StringRef kFloatAttrs[] = {
-        "lr",        "beta1",   "beta2",       "beta1_pow",
-        "beta2_pow", "epsilon", "weight_decay"};
+    // Copy the required float hyperparameters through, normalizing to F32 so
+    // the ttir.adamw verifier accepts them regardless of the source float
+    // width. weight_decay is consumed below (folded into decay_factor) rather
+    // than forwarded.
+    static constexpr StringRef kFloatAttrs[] = {"beta1", "beta2", "epsilon"};
 
     SmallVector<NamedAttribute> namedAttrs;
     for (StringRef name : kFloatAttrs) {
@@ -2046,6 +2047,13 @@ public:
           name, rewriter.getF32FloatAttr(attr.getValueAsDouble())));
     }
 
+    auto weightDecayAttr =
+        mlir::dyn_cast_or_null<FloatAttr>(compositeAttrs.get("weight_decay"));
+    if (!weightDecayAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.adamw requires float 'weight_decay' attribute");
+    }
+
     // stochastic_rounding is optional and defaults to false.
     bool stochasticRounding = false;
     if (auto srAttr = mlir::dyn_cast_or_null<BoolAttr>(
@@ -2055,8 +2063,66 @@ public:
     namedAttrs.push_back(rewriter.getNamedAttr(
         "stochastic_rounding", rewriter.getBoolAttr(stochasticRounding)));
 
-    rewriter.replaceOpWithNewOp<ttir::AdamWOp>(
-        srcOp, srcOp.getResultTypes(), adaptor.getOperands(), namedAttrs);
+    // ttml::metal::adamw_tensor_scalars takes the step-varying scalars as
+    // single-element f32 device tensors:
+    //   step_size    = lr / (1 - beta1^t)
+    //   inv_sqrt_bc2 = 1 / sqrt(1 - beta2^t)
+    //   decay_factor = 1 - lr * weight_decay
+    // Derive them here from the composite's lr / beta1_pow / beta2_pow
+    // operands with device ops, so a training step never touches the host.
+    // Every parameter's composite shares the same scalar SSA values, so CSE
+    // collapses the per-composite copies of this chain to one per step.
+    Location loc = srcOp.getLoc();
+    auto toF32 = [&](Value v) -> Value {
+      auto type = mlir::cast<RankedTensorType>(v.getType());
+      if (type.getElementType().isF32()) {
+        return v;
+      }
+      auto f32Type =
+          RankedTensorType::get(type.getShape(), rewriter.getF32Type());
+      return rewriter.create<ttir::TypecastOp>(loc, f32Type, v);
+    };
+    Value lr = toF32(adaptor.getOperands()[4]);
+    Value beta1Pow = toF32(adaptor.getOperands()[5]);
+    Value beta2Pow = toF32(adaptor.getOperands()[6]);
+
+    FloatAttr oneAttr = rewriter.getF32FloatAttr(1.0f);
+    Value biasCorrection1 = rewriter.create<ttir::SubtractOp>(
+        loc, beta1Pow.getType(),
+        rewriter.create<ttir::FullOp>(loc, beta1Pow.getType(), oneAttr),
+        beta1Pow);
+    Value stepSize =
+        rewriter.create<ttir::DivOp>(loc, lr.getType(), lr, biasCorrection1);
+    Value biasCorrection2 = rewriter.create<ttir::SubtractOp>(
+        loc, beta2Pow.getType(),
+        rewriter.create<ttir::FullOp>(loc, beta2Pow.getType(), oneAttr),
+        beta2Pow);
+    Value invSqrtBc2 = rewriter.create<ttir::RsqrtOp>(
+        loc, biasCorrection2.getType(), biasCorrection2);
+    Value lrTimesWeightDecay = rewriter.create<ttir::MultiplyOp>(
+        loc, lr.getType(), lr,
+        rewriter.create<ttir::FullOp>(
+            loc, lr.getType(),
+            rewriter.getF32FloatAttr(
+                weightDecayAttr.getValue().convertToFloat())));
+    Value decayFactor = rewriter.create<ttir::SubtractOp>(
+        loc, lr.getType(),
+        rewriter.create<ttir::FullOp>(loc, lr.getType(), oneAttr),
+        lrTimesWeightDecay);
+
+    SmallVector<Value> operands{adaptor.getOperands()[0],
+                                adaptor.getOperands()[1],
+                                adaptor.getOperands()[2],
+                                adaptor.getOperands()[3],
+                                stepSize,
+                                invSqrtBc2,
+                                decayFactor};
+    if (numOperands == 8) {
+      operands.push_back(adaptor.getOperands()[7]);
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::AdamWOp>(srcOp, srcOp.getResultTypes(),
+                                               operands, namedAttrs);
     return success();
   }
 };

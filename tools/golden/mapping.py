@@ -1157,34 +1157,34 @@ def adamw_golden(
     grad: GoldenMapTensor,
     exp_avg: GoldenMapTensor,
     exp_avg_sq: GoldenMapTensor,
+    step_size: GoldenMapTensor,
+    inv_sqrt_bc2: GoldenMapTensor,
+    decay_factor: GoldenMapTensor,
     max_exp_avg_sq: Optional[GoldenMapTensor] = None,
-    lr=1e-3,
     beta1=0.9,
     beta2=0.999,
-    beta1_pow=0.9,
-    beta2_pow=0.999,
     epsilon=1e-8,
-    weight_decay=0.0,
     stochastic_rounding=False,
     output_type_mlir=None,
     **kwargs,
 ) -> GoldenMapTensor:
-    """Reference for the fused ttml AdamW step. Mirrors tt-train's CPUAdamW:
+    """Reference for the fused ttml AdamW step, in the exact terms
+    ttml::metal::adamw_tensor_scalars consumes:
+
+      step_size    = lr / (1 - beta1_pow)
+      inv_sqrt_bc2 = 1 / sqrt(1 - beta2_pow)
+      decay_factor = 1 - lr * weight_decay
 
       m   = beta1*m + (1-beta1)*g ; v = beta2*v + (1-beta2)*g^2
-      denom = sqrt(v / (1-beta2_pow)) + eps      (amsgrad: sqrt(max(v)/(1-beta2_pow))+eps)
-      param = param - lr*(m/(1-beta1_pow))/denom - lr*weight_decay*param
+      denom = sqrt(v)*inv_sqrt_bc2 + eps    (amsgrad: sqrt(max(v))*inv_sqrt_bc2+eps)
+      param = param*decay_factor - step_size*m/denom
 
     Uses torch.* ops only (GoldenMapTensor does not support python operators).
     Returns the updated parameter and moments, one per op result.
     """
-    lr = unpack_mlir_attr(lr)
     beta1 = unpack_mlir_attr(beta1)
     beta2 = unpack_mlir_attr(beta2)
-    beta1_pow = unpack_mlir_attr(beta1_pow)
-    beta2_pow = unpack_mlir_attr(beta2_pow)
     epsilon = unpack_mlir_attr(epsilon)
-    weight_decay = unpack_mlir_attr(weight_decay)
 
     # grad is bf16; compute in fp32 to match the kernel's internal precision.
     grad_f = grad.to(torch.float32)
@@ -1194,21 +1194,17 @@ def adamw_golden(
         torch.mul(torch.mul(grad_f, grad_f), 1.0 - beta2),
     )
 
-    bias_correction1 = 1.0 - beta1_pow
-    bias_correction2 = 1.0 - beta2_pow
-    m_hat = torch.div(new_exp_avg, bias_correction1)
-
+    # The scalars are single-element tensors, not attributes. They stay tensors
+    # here so each shard uses its own value and broadcasts against the moments,
+    # rather than collapsing the whole map to one shard's scalar.
     if max_exp_avg_sq is not None:
         new_max = torch.maximum(max_exp_avg_sq, new_exp_avg_sq)
-        denom = torch.add(torch.sqrt(torch.div(new_max, bias_correction2)), epsilon)
+        denom = torch.add(torch.mul(torch.sqrt(new_max), inv_sqrt_bc2), epsilon)
     else:
-        denom = torch.add(
-            torch.sqrt(torch.div(new_exp_avg_sq, bias_correction2)), epsilon
-        )
+        denom = torch.add(torch.mul(torch.sqrt(new_exp_avg_sq), inv_sqrt_bc2), epsilon)
 
-    update = torch.mul(torch.div(m_hat, denom), lr)
-    decay = torch.mul(param, lr * weight_decay)
-    result = torch.sub(torch.sub(param, update), decay)
+    update = torch.mul(torch.div(new_exp_avg, denom), step_size)
+    result = torch.sub(torch.mul(param, decay_factor), update)
 
     if output_type_mlir is not None:
         result = result.to(mlir_type_to_torch_dtype(output_type_mlir))

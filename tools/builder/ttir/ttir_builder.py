@@ -7591,27 +7591,22 @@ class TTIRBuilder(Builder):
         grad: Operand,
         exp_avg: Operand,
         exp_avg_sq: Operand,
+        step_size: Operand,
+        inv_sqrt_bc2: Operand,
+        decay_factor: Operand,
         max_exp_avg_sq: Optional[Operand] = None,
-        lr: float = 1e-3,
         beta1: float = 0.9,
         beta2: float = 0.999,
-        beta1_pow: float = 0.9,
-        beta2_pow: float = 0.999,
         epsilon: float = 1e-8,
-        weight_decay: float = 0.0,
         stochastic_rounding: bool = False,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.adamw)
-        lr_attr = FloatAttr.get_f32(lr)
         beta1_attr = FloatAttr.get_f32(beta1)
         beta2_attr = FloatAttr.get_f32(beta2)
-        beta1_pow_attr = FloatAttr.get_f32(beta1_pow)
-        beta2_pow_attr = FloatAttr.get_f32(beta2_pow)
         epsilon_attr = FloatAttr.get_f32(epsilon)
-        weight_decay_attr = FloatAttr.get_f32(weight_decay)
 
         if output_type is None:
             mlir_output_type = self.get_type(param)
@@ -7622,6 +7617,9 @@ class TTIRBuilder(Builder):
         grad0 = self._get_golden_tensor(grad)
         exp_avg0 = self._get_golden_tensor(exp_avg)
         exp_avg_sq0 = self._get_golden_tensor(exp_avg_sq)
+        step_size0 = self._get_golden_tensor(step_size)
+        inv_sqrt_bc20 = self._get_golden_tensor(inv_sqrt_bc2)
+        decay_factor0 = self._get_golden_tensor(decay_factor)
         max_exp_avg_sq0 = (
             self._get_golden_tensor(max_exp_avg_sq)
             if max_exp_avg_sq is not None
@@ -7634,14 +7632,13 @@ class TTIRBuilder(Builder):
             grad0,
             exp_avg0,
             exp_avg_sq0,
+            step_size0,
+            inv_sqrt_bc20,
+            decay_factor0,
             max_exp_avg_sq0,
-            lr_attr,
             beta1_attr,
             beta2_attr,
-            beta1_pow_attr,
-            beta2_pow_attr,
             epsilon_attr,
-            weight_decay_attr,
             stochastic_rounding,
             mlir_output_type,
         )
@@ -7669,13 +7666,12 @@ class TTIRBuilder(Builder):
             grad,
             exp_avg,
             exp_avg_sq,
-            lr_attr,
+            step_size,
+            inv_sqrt_bc2,
+            decay_factor,
             beta1_attr,
             beta2_attr,
-            beta1_pow_attr,
-            beta2_pow_attr,
             epsilon_attr,
-            weight_decay_attr,
             max_exp_avg_sq=max_exp_avg_sq,
             stochastic_rounding=stochastic_rounding,
             loc=loc,

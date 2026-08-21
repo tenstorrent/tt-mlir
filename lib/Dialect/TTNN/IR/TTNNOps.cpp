@@ -3771,6 +3771,16 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
   llvm::ArrayRef<int64_t> shape = getParam().getType().getShape();
   auto sameShape = [&](RankedTensorType t) { return t.getShape() == shape; };
 
+  // Mirrors the ttir.adamw check: ttml consumes these as single-element f32
+  // device tensors.
+  if (failed(ttmlir::utils::verifyScalarTensorOperands(
+          {{getStepSize().getType(), "step_size"},
+           {getInvSqrtBc2().getType(), "inv_sqrt_bc2"},
+           {getDecayFactor().getType(), "decay_factor"}},
+          [&]() { return emitOpError(); }))) {
+    return failure();
+  }
+
   if (!sameShape(getGrad().getType())) {
     return emitOpError("grad must have the same shape as param");
   }
