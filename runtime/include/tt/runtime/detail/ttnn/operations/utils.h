@@ -46,6 +46,14 @@ createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfig *config);
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
     const ::tt::target::ttnn::DeviceComputeKernelConfig *config);
 
+// Metal APIs take std::optional<const DeviceComputeKernelConfig>. Passing
+// std::optional<DeviceComputeKernelConfig> can drop the value at the ABI
+// boundary, so fp32_dest_acc_en falls back to false. Always construct the
+// const-qualified optional explicitly.
+std::optional<const ::ttnn::DeviceComputeKernelConfig>
+toMetalDeviceComputeKernelConfig(
+    const ::tt::target::ttnn::DeviceComputeKernelConfig *config);
+
 ::ttnn::prim::LayerNormProgramConfig
 createLayerNormShardedMultiCoreProgramConfig(
     const ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig *config);

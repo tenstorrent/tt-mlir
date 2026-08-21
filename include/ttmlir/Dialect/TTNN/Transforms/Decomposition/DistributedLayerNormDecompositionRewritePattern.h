@@ -19,6 +19,8 @@ namespace mlir::tt::ttnn::decomposition {
 //   3. layer_norm_post_all_gather: normalize using gathered global statistics
 // If residual is present, an explicit add(input, residual) is emitted first
 // and norm_input is passed to both pre and post ops.
+// Rank < 4 is first reshaped to 1x1xHxW (metal indexes output_shape[3]); the
+// greedy rewriter then decomposes the wrapped rank-4 op.
 class DistributedLayerNormDecompositionRewritePattern
     : public OpRewritePattern<ttnn::DistributedLayerNormOp> {
 public:

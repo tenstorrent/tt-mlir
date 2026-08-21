@@ -28,3 +28,52 @@ module @SDPA_Sharding_GQA_Head attributes {mhlo.cross_program_prefetches = [], m
     return %0 : tensor<1x8x32x128xbf16>
   }
 }
+
+// -----
+
+// Cross-attention: Q sequence differs from K/V (text) sequence. Head sharding
+// on Q must propagate to the result; an empty rule used to let the result keep
+// full heads while Q was partitioned.
+// CHECK-LABEL: module @SDPA_Sharding_CrossAttn_Head
+module @SDPA_Sharding_CrossAttn_Head attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_attributes = {xla.sdy.meshes = "{mesh = #sdy.mesh<[\22_axis_0\22=2]>}"}, mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+  func.func @main(%arg0: tensor<1x8x32x128xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "query"}, %arg1: tensor<1x8x4x128xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "key"}, %arg2: tensor<1x8x4x128xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "value"}) -> tensor<1x8x32x128xbf16> {
+    // CHECK-NOT: stablehlo.all_gather
+    // CHECK: stablehlo.custom_call @tt.scaled_dot_product_attention
+    // CHECK-SAME: tensor<1x4x32x128xbf16>, tensor<1x4x4x128xbf16>, tensor<1x4x4x128xbf16>
+    // CHECK-SAME: -> tensor<1x4x32x128xbf16>
+    %0 = stablehlo.custom_call @tt.scaled_dot_product_attention(%arg0, %arg1, %arg2) {api_version = 0 : i32, mhlo.frontend_attributes = {is_causal = "False"}} : (tensor<1x8x32x128xbf16>, tensor<1x8x4x128xbf16>, tensor<1x8x4x128xbf16>) -> tensor<1x8x32x128xbf16>
+    return %0 : tensor<1x8x32x128xbf16>
+  }
+}
+
+// -----
+
+// Padded self-attention: Q is padded on the sequence dim, K/V are sliced back
+// to the unpadded length. Same head-tying contract as cross-attn.
+// CHECK-LABEL: module @SDPA_Sharding_PaddedSelfAttn_Head
+module @SDPA_Sharding_PaddedSelfAttn_Head attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_attributes = {xla.sdy.meshes = "{mesh = #sdy.mesh<[\22_axis_0\22=2]>}"}, mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+  func.func @main(%arg0: tensor<1x8x32x128xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "query"}, %arg1: tensor<1x8x30x128xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "key"}, %arg2: tensor<1x8x30x128xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "value"}) -> tensor<1x8x32x128xbf16> {
+    // CHECK-NOT: stablehlo.all_gather
+    // CHECK: stablehlo.custom_call @tt.scaled_dot_product_attention
+    // CHECK-SAME: tensor<1x4x32x128xbf16>, tensor<1x4x30x128xbf16>, tensor<1x4x30x128xbf16>
+    // CHECK-SAME: -> tensor<1x4x32x128xbf16>
+    %0 = stablehlo.custom_call @tt.scaled_dot_product_attention(%arg0, %arg1, %arg2) {api_version = 0 : i32, mhlo.frontend_attributes = {is_causal = "False"}} : (tensor<1x8x32x128xbf16>, tensor<1x8x30x128xbf16>, tensor<1x8x30x128xbf16>) -> tensor<1x8x32x128xbf16>
+    return %0 : tensor<1x8x32x128xbf16>
+  }
+}
+
+// -----
+
+// Sequence-parallel Q against a shorter, replicated K (cross-attn / gathered
+// KV). Q seq is kPassThrough so the local query shard is not all-gathered.
+// CHECK-LABEL: module @SDPA_Sharding_CrossAttn_QuerySeq
+module @SDPA_Sharding_CrossAttn_QuerySeq attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_attributes = {xla.sdy.meshes = "{mesh = #sdy.mesh<[\22_axis_0\22=2]>}"}, mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+  func.func @main(%arg0: tensor<1x8x32x128xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {}, {\22_axis_0\22}, {}]>"}, mhlo.sharding = "{devices=[1,1,2,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "query"}, %arg1: tensor<1x8x4x128xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "key"}, %arg2: tensor<1x8x4x128xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "value"}) -> tensor<1x8x32x128xbf16> {
+    // CHECK-NOT: stablehlo.all_gather
+    // CHECK: stablehlo.custom_call @tt.scaled_dot_product_attention
+    // CHECK-SAME: tensor<1x8x16x128xbf16>, tensor<1x8x4x128xbf16>, tensor<1x8x4x128xbf16>
+    // CHECK-SAME: -> tensor<1x8x16x128xbf16>
+    %0 = stablehlo.custom_call @tt.scaled_dot_product_attention(%arg0, %arg1, %arg2) {api_version = 0 : i32, mhlo.frontend_attributes = {is_causal = "False"}} : (tensor<1x8x32x128xbf16>, tensor<1x8x4x128xbf16>, tensor<1x8x4x128xbf16>) -> tensor<1x8x32x128xbf16>
+    return %0 : tensor<1x8x32x128xbf16>
+  }
+}

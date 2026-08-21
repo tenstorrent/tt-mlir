@@ -27,14 +27,14 @@ namespace mlir::tt::ttnn {
 //   Step 1 (layout + dtype): perform the layout (tilize/untilize) and dtype
 //     (typecast) changes. If a single `to_layout` can do both (float-family
 //     RM -> TILE on device) it is emitted as one op; otherwise a separate
-//     `typecast` and `to_layout` are emitted, ordered by the input tilization
-//     (input TILE -> typecast then untilize; input RM -> tilize then typecast).
-//     The typecast runs on device for any dtype, so as long as one
-//     side is device-capable the layout op is ordered to run on that dtype.
-//     When neither dtype can tilize/untilize on device (e.g. uint8 <-> uint8),
-//     only the tilize/untilize itself round-trips to host; the typecast still
-//     runs on device (as a TILE->TILE cast) unless the work is genuinely
-//     host-resident (both sides on host, or a CPU-hoisted boundary).
+//     `typecast` and `to_layout` are emitted, ordered by the input tilization.
+//     Metal's device typecast on TILE f32↔bf16 can leave the dtype unchanged
+//     and untilize, so those casts are emitted as untilize → typecast →
+//     tilize (or untilize then typecast when the result stays row-major).
+//     Other TILE typecasts still run as TILE→TILE. When neither dtype can
+//     tilize/untilize on device (e.g. uint8 <-> uint8), only the
+//     tilize/untilize itself round-trips to host; the typecast still runs on
+//     device unless the work is genuinely host-resident.
 //
 //   Step 2 (memory move): a single memory move places the tensor in the output
 //     memory. If the input memory is preferred, the move is appended after step
@@ -117,6 +117,17 @@ private:
            dataType == ttcore::DataType::UInt32 ||
            dataType == ttcore::DataType::UInt16 ||
            dataType == ttcore::DataType::Int32;
+  }
+
+  // Metal device typecast of TILE f32↔bf16 can leave dtype unchanged and
+  // untilize. Convert those in row-major instead of as a TILE→TILE cast.
+  bool needsRowMajorDeviceTypecast(ttcore::DataType from,
+                                   ttcore::DataType to) const {
+    auto isF32OrBf16 = [](ttcore::DataType dt) {
+      return dt == ttcore::DataType::Float32 ||
+             dt == ttcore::DataType::BFloat16;
+    };
+    return from != to && isF32OrBf16(from) && isF32OrBf16(to);
   }
 
   // ttnn.to_layout only performs a real numeric conversion within the float
@@ -284,6 +295,29 @@ private:
     RankedTensorType resultType =
         utils::RankedTensorTypeFactory::create(currentType, targetDtype);
     return createOp<ttnn::TypecastOp>(rewriter, resultType, current);
+  }
+
+  // Untilize, typecast in row-major, then restore TILE. Deshard first when
+  // the input is sharded so untilize runs on an interleaved tensor.
+  mlir::Value createTiledF32Bf16TypecastViaRowMajor(
+      IRRewriter &rewriter, mlir::Value current,
+      ttcore::DataType targetDtype) const {
+    RankedTensorType currentType =
+        mlir::cast<RankedTensorType>(current.getType());
+    TTNNLayoutAttr encoding =
+        mlir::cast<TTNNLayoutAttr>(currentType.getEncoding());
+    if (encoding.hasShardedTensorMemoryLayout()) {
+      TTNNLayoutAttr dramEncoding =
+          TTNNLayoutAttr::Builder(encoding, currentType.getShape())
+              .setBufferType(BufferType::DRAM)
+              .setMemoryLayout(TensorMemoryLayout::Interleaved)
+              .setGridShape({1, 1})
+              .build();
+      current = createToMemoryConfigOp(rewriter, current, dramEncoding);
+    }
+    current = createToLayoutOp(rewriter, current, Layout::RowMajor);
+    current = createTypecastOp(rewriter, current, targetDtype);
+    return createToLayoutOp(rewriter, current, Layout::Tile);
   }
 
   mlir::Value createToMemoryConfigOp(IRRewriter &rewriter, mlir::Value current,
@@ -463,6 +497,12 @@ private:
       return createLayoutStep(rewriter, current, output, padWorkaround);
     }
     if (!needsLayoutChange && needDtype) {
+      if (onDevice && input.isTiled() && output.isTiled() &&
+          needsRowMajorDeviceTypecast(input.getDataType(),
+                                      output.getDataType())) {
+        return createTiledF32Bf16TypecastViaRowMajor(rewriter, current,
+                                                     output.getDataType());
+      }
       return createTypecastOp(rewriter, current, output.getDataType());
     }
 
@@ -478,6 +518,13 @@ private:
     // layout change on whichever side (input or output dtype) is
     // device-capable, keeping the typecast on device too.
     if (input.isTiled()) {
+      // Do not typecast TILE f32↔bf16 on device. Untilize on the input dtype,
+      // then typecast in row-major.
+      if (needsRowMajorDeviceTypecast(input.getDataType(),
+                                      output.getDataType())) {
+        current = createLayoutStep(rewriter, current, output, padWorkaround);
+        return createTypecastOp(rewriter, current, output.getDataType());
+      }
       // Untilize on the output dtype (typecast first) when it can run on
       // device.
       if (isOnDeviceLayoutChangeSupportedForDataType(output.getDataType())) {

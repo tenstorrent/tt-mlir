@@ -4,12 +4,74 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedLayerNormDecompositionRewritePattern.h"
 
+#include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttnn::decomposition {
+namespace {
+
+// Metal's layer_norm_pre/post_all_gather wrappers default fp32_dest_acc_en to
+// false. Welford fatals on Float32 input unless that flag is true (precision
+// is otherwise silently lost in the unpacker). Match RMSNorm's high-precision
+// default so bf16 is also legal.
+DeviceComputeKernelConfigAttr
+createDistributedLayerNormComputeConfig(MLIRContext *context) {
+  return DeviceComputeKernelConfigAttr::get(
+      context,
+      /*mathFidelity=*/MathFidelity::HiFi4,
+      /*mathApproxMode=*/BoolAttr::get(context, false),
+      /*fp32DestAccEn=*/BoolAttr::get(context, true),
+      /*packerL1Acc=*/BoolAttr::get(context, true),
+      /*dstFullSyncEn=*/nullptr);
+}
+
+// layer_norm_pre_all_gather's runtime indexes output_shape[3], so it expects
+// a rank-4 tensor. Left-pad lower-rank inputs with ones, run the existing
+// rank-4 decomposition on the wrapped op, then reshape the result back.
+LogicalResult rewriteDistributedLayerNormWithReshape(
+    ttnn::DistributedLayerNormOp op, PatternRewriter &rewriter,
+    ArrayRef<int64_t> targetShape) {
+  Location loc = op.getLoc();
+  RankedTensorType resultType =
+      mlir::cast<RankedTensorType>(op.getResult().getType());
+
+  mlir::Value reshapedInput =
+      ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<mlir::TypedValue<RankedTensorType>>(op.getInput()),
+          targetShape, rewriter, loc)
+          .getResult();
+
+  mlir::Value reshapedResidual = op.getResidual();
+  if (reshapedResidual) {
+    reshapedResidual =
+        ttir_to_ttnn::utils::generateReshape(
+            mlir::cast<mlir::TypedValue<RankedTensorType>>(reshapedResidual),
+            targetShape, rewriter, loc)
+            .getResult();
+  }
+
+  RankedTensorType canonicalResultType =
+      utils::RankedTensorTypeFactory::create(resultType, targetShape);
+
+  auto newOp = rewriter.create<ttnn::DistributedLayerNormOp>(
+      loc, canonicalResultType, reshapedInput, op.getWeight(), op.getBias(),
+      reshapedResidual, op.getDevice(), op.getClusterAxis(), op.getEpsilon());
+
+  mlir::Value reshapedResult =
+      ttir_to_ttnn::utils::generateReshape(newOp.getResult(),
+                                           resultType.getShape(), rewriter, loc)
+          .getResult();
+
+  rewriter.replaceOp(op, reshapedResult);
+  return success();
+}
+
+} // namespace
 
 LogicalResult DistributedLayerNormDecompositionRewritePattern::matchAndRewrite(
     ttnn::DistributedLayerNormOp op, PatternRewriter &rewriter) const {
@@ -22,6 +84,19 @@ LogicalResult DistributedLayerNormDecompositionRewritePattern::matchAndRewrite(
 
   Location loc = op.getLoc();
   int64_t rank = inputType.getRank();
+  // The decomposition lowers through layer_norm_pre_all_gather, whose runtime
+  // expects a rank-4 tensor. Left-pad lower-rank shapes with ones so HxW and
+  // 1xHxW become 1x1xHxW before decomposition. The greedy rewriter then
+  // matches the wrapped rank-4 op and emits pre/post all-gather with
+  // all_gather_dim on the last axis.
+  if (rank < 4) {
+    SmallVector<int64_t> canonicalShapeForPreAllGather;
+    canonicalShapeForPreAllGather.append(4 - rank, 1);
+    canonicalShapeForPreAllGather.append(inputShape.begin(), inputShape.end());
+    return rewriteDistributedLayerNormWithReshape(
+        op, rewriter, canonicalShapeForPreAllGather);
+  }
+
   uint32_t clusterAxis = op.getClusterAxis();
 
   // Determine how many devices are along the cluster axis by inspecting the
@@ -67,12 +142,15 @@ LogicalResult DistributedLayerNormDecompositionRewritePattern::matchAndRewrite(
   RankedTensorType statsType = RankedTensorType::get(
       statsShape, inputType.getElementType(), statsEncoding);
 
+  DeviceComputeKernelConfigAttr computeConfig =
+      createDistributedLayerNormComputeConfig(rewriter.getContext());
+
   auto preAllGatherOp = rewriter.create<ttnn::LayerNormPreAllGatherOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_pre_all_gather"), statsType,
       normInput,
       /*residual_input=*/mlir::Value{},
       /*recip=*/mlir::Value{},
-      /*compute_config=*/nullptr,
+      computeConfig,
       /*program_config=*/nullptr);
 
   // --- Step 3: all_gather ---
@@ -103,8 +181,7 @@ LogicalResult DistributedLayerNormDecompositionRewritePattern::matchAndRewrite(
   auto postAllGatherOp = rewriter.create<ttnn::LayerNormPostAllGatherOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_post_all_gather"), resultType,
       normInput, allGatherOp.getResult(), op.getWeight(), op.getBias(),
-      op.getEpsilonAttr(),
-      /*compute_config=*/nullptr,
+      op.getEpsilonAttr(), computeConfig,
       /*program_config=*/nullptr);
 
   rewriter.replaceOp(op, postAllGatherOp.getResult());

@@ -1363,9 +1363,128 @@ public:
   }
 };
 
-// Special handling for tenstorrent.layer_norm -> ttir.layer_norm
-// Converts normalized_shape tensor attribute to DenseI64ArrayAttr
-// and sets operandSegmentSizes for AttrSizedOperandSegments
+// Converts stablehlo.custom_call @tenstorrent.distributed_layer_norm into a
+// ttir.distributed_layer_norm. The custom call is produced after Shardy has
+// expanded a hidden-dimension shard into all_gather + layer_norm + all_slice.
+class CustomCallDistributedLayerNormConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getCallTargetNameAttr() !=
+        mlir::tt::stablehlo::utils::kDistributedLayerNormTargetName) {
+      return failure();
+    }
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CustomCallOp must have exactly one result.");
+    }
+
+    auto compositeAttrs =
+        mlir::dyn_cast_or_null<DictionaryAttr>(srcOp->getDiscardableAttr(
+            mlir::tt::stablehlo::utils::kCustomCallCompositeAttrsKey));
+    if (!compositeAttrs) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "missing attributes on converted custom_call op");
+    }
+
+    auto clusterAxisAttr =
+        mlir::dyn_cast_or_null<IntegerAttr>(compositeAttrs.get("cluster_axis"));
+    if (!clusterAxisAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "distributed_layer_norm requires integer cluster_axis");
+    }
+
+    SmallVector<NamedAttribute> namedAttrs;
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "cluster_axis",
+        rewriter.getUI32IntegerAttr(
+            static_cast<uint32_t>(clusterAxisAttr.getInt()))));
+    if (auto epsilonAttr = compositeAttrs.get("epsilon")) {
+      namedAttrs.push_back(rewriter.getNamedAttr("epsilon", epsilonAttr));
+    }
+
+    // The fused StableHLO form has input and optional weight/bias. Residual is
+    // not part of the frontend layer_norm composite.
+    size_t numOperands = adaptor.getOperands().size();
+    if (numOperands < 1 || numOperands > 3) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "distributed_layer_norm expects input and optional weight/bias");
+    }
+    SmallVector<int32_t> segmentSizes{
+        1, static_cast<int32_t>(numOperands >= 2),
+        static_cast<int32_t>(numOperands >= 3), 0};
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+    rewriter.replaceOpWithNewOp<ttir::DistributedLayerNormOp>(
+        srcOp, outputType, adaptor.getOperands(), namedAttrs);
+    return success();
+  }
+};
+
+// Converts layer norm attributes and operands shared by composite and
+// custom_call forms to ttir.layer_norm.
+static LogicalResult
+convertToTTIRLayerNorm(Operation *srcOp, ValueRange operands,
+                       DictionaryAttr compositeAttrs,
+                       ConversionPatternRewriter &rewriter) {
+  auto outputType =
+      mlir::cast<RankedTensorType>(srcOp->getResult(0).getType());
+
+  auto normalizedShapeAttr = compositeAttrs.get("normalized_shape");
+  SmallVector<int64_t> normalizedShapeVec;
+
+  if (auto denseAttr =
+          mlir::dyn_cast<DenseIntElementsAttr>(normalizedShapeAttr)) {
+    for (auto val : denseAttr.getValues<int64_t>()) {
+      normalizedShapeVec.push_back(val);
+    }
+  } else if (auto arrayAttr = mlir::dyn_cast<ArrayAttr>(normalizedShapeAttr)) {
+    for (auto attr : arrayAttr) {
+      normalizedShapeVec.push_back(mlir::cast<IntegerAttr>(attr).getInt());
+    }
+  } else {
+    return rewriter.notifyMatchFailure(
+        srcOp, "normalized_shape must be a dense tensor or array attribute");
+  }
+
+  auto normalizedShapeDenseAttr =
+      rewriter.getDenseI64ArrayAttr(normalizedShapeVec);
+
+  SmallVector<NamedAttribute> namedAttrs;
+  namedAttrs.push_back(
+      rewriter.getNamedAttr("normalized_shape", normalizedShapeDenseAttr));
+  if (auto epsilonAttr = compositeAttrs.get("epsilon")) {
+    namedAttrs.push_back(rewriter.getNamedAttr("epsilon", epsilonAttr));
+  }
+
+  // ttir.layer_norm has AttrSizedOperandSegments: [input, weight, bias].
+  size_t numOperands = operands.size();
+  SmallVector<int32_t> segmentSizes;
+  if (numOperands == 3) {
+    segmentSizes = {1, 1, 1};
+  } else if (numOperands == 2) {
+    segmentSizes = {1, 1, 0};
+  } else {
+    segmentSizes = {1, 0, 0};
+  }
+
+  namedAttrs.push_back(rewriter.getNamedAttr(
+      "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
+
+  rewriter.replaceOpWithNewOp<ttir::LayerNormOp>(
+      srcOp, outputType, operands, namedAttrs);
+  return success();
+}
+
+// Special handling for tenstorrent.layer_norm -> ttir.layer_norm.
 class TenstorrentLayerNormConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
 
@@ -1386,58 +1505,44 @@ public:
           srcOp, "CompositeOp must have exactly one result.");
     }
 
-    auto outputType =
-        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+    return convertToTTIRLayerNorm(srcOp, adaptor.getOperands(),
+                                  srcOp.getCompositeAttributes(), rewriter);
+  }
+};
 
-    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+// Converts stablehlo.custom_call @tenstorrent.layer_norm -> ttir.layer_norm.
+// Used in the sharded path where composites with custom sharding rules were
+// converted to custom_calls by FlattenOrConvertCompositesPass. Fusion may
+// rewrite a gather/scatter sandwich into distributed_layer_norm first; this
+// pattern handles leftover unreplicated layer_norm custom_calls (e.g. after
+// an all_gather of the hidden dim with no scatter-back).
+class CustomCallLayerNormConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
 
-    auto normalizedShapeAttr = compositeAttrs.get("normalized_shape");
-    SmallVector<int64_t> normalizedShapeVec;
+public:
+  CustomCallLayerNormConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CustomCallOp>(context) {}
 
-    if (auto denseAttr =
-            mlir::dyn_cast<DenseIntElementsAttr>(normalizedShapeAttr)) {
-      for (auto val : denseAttr.getValues<int64_t>()) {
-        normalizedShapeVec.push_back(val);
-      }
-    } else if (auto arrayAttr =
-                   mlir::dyn_cast<ArrayAttr>(normalizedShapeAttr)) {
-      for (auto attr : arrayAttr) {
-        normalizedShapeVec.push_back(mlir::cast<IntegerAttr>(attr).getInt());
-      }
-    } else {
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getCallTargetNameAttr() != kTTLayerNormCustomCallTargetName ||
+        !srcOp->hasAttr(kHasCustomShardingAttr)) {
+      return failure();
+    }
+    if (srcOp.getNumResults() != 1) {
       return rewriter.notifyMatchFailure(
-          srcOp, "normalized_shape must be a dense tensor or array attribute");
+          srcOp, "CustomCallOp must have exactly one result.");
     }
-
-    auto normalizedShapeDenseAttr =
-        rewriter.getDenseI64ArrayAttr(normalizedShapeVec);
-
-    auto epsilonAttr = compositeAttrs.get("epsilon");
-
-    SmallVector<NamedAttribute> namedAttrs;
-    namedAttrs.push_back(
-        rewriter.getNamedAttr("normalized_shape", normalizedShapeDenseAttr));
-    if (epsilonAttr) {
-      namedAttrs.push_back(rewriter.getNamedAttr("epsilon", epsilonAttr));
+    auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
+        srcOp->getDiscardableAttr(kCustomCallCompositeAttrsKey));
+    if (!compositeAttrs) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "missing attributes on converted custom_call op");
     }
-
-    // ttir.layer_norm has AttrSizedOperandSegments: [input, weight, bias]
-    size_t numOperands = adaptor.getOperands().size();
-    SmallVector<int32_t> segmentSizes;
-    if (numOperands == 3) { // input, weight, bias
-      segmentSizes = {1, 1, 1};
-    } else if (numOperands == 2) { // input, weight
-      segmentSizes = {1, 1, 0};
-    } else { // input only
-      segmentSizes = {1, 0, 0};
-    }
-
-    namedAttrs.push_back(rewriter.getNamedAttr(
-        "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
-
-    rewriter.replaceOpWithNewOp<ttir::LayerNormOp>(
-        srcOp, outputType, adaptor.getOperands(), namedAttrs);
-    return success();
+    return convertToTTIRLayerNorm(srcOp, adaptor.getOperands(), compositeAttrs,
+                                  rewriter);
   }
 };
 
@@ -2253,7 +2358,9 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<CustomCallRMSNormConversionPattern>(context);
   patterns.add<CustomCallDistributedRMSNormConversionPattern>(context);
+  patterns.add<CustomCallDistributedLayerNormConversionPattern>(context);
   patterns.add<TenstorrentLayerNormConversionPattern>(context);
+  patterns.add<CustomCallLayerNormConversionPattern>(context);
   patterns.add<TenstorrentGroupNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
   patterns.add<TenstorrentTopKConversionPattern>(context);

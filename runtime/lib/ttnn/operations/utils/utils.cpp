@@ -446,29 +446,48 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
     const ::tt::target::ttnn::DeviceComputeKernelConfig *config) {
   ::ttnn::WormholeComputeKernelConfig computeKernelConfig;
 
-  if (config->math_fidelity()) {
+  // Copy each optional with has_value(), not operator bool(). FlatBuffers
+  // Optional<bool> can convert to the stored bool, so `if (fp32_dest_acc_en())`
+  // would skip a present false and leave the C++ default (also false). More
+  // importantly, a present true must always be copied: metal's
+  // init_device_compute_kernel_config passthroughs a filled optional as-is,
+  // so a dropped true leaves fp32_dest_acc_en=false and Welford fatals on
+  // Float32.
+  if (auto mathFidelity = config->math_fidelity(); mathFidelity.has_value()) {
     computeKernelConfig.math_fidelity =
-        ::tt::runtime::ttnn::utils::toTTNNMathFidelity(
-            *config->math_fidelity());
+        ::tt::runtime::ttnn::utils::toTTNNMathFidelity(*mathFidelity);
   }
 
-  if (config->math_approx_mode()) {
-    computeKernelConfig.math_approx_mode = *config->math_approx_mode();
+  if (auto mathApproxMode = config->math_approx_mode();
+      mathApproxMode.has_value()) {
+    computeKernelConfig.math_approx_mode = *mathApproxMode;
   }
 
-  if (config->fp32_dest_acc_en()) {
-    computeKernelConfig.fp32_dest_acc_en = *config->fp32_dest_acc_en();
+  if (auto fp32DestAccEn = config->fp32_dest_acc_en();
+      fp32DestAccEn.has_value()) {
+    computeKernelConfig.fp32_dest_acc_en = *fp32DestAccEn;
   }
 
-  if (config->packer_l1_acc()) {
-    computeKernelConfig.packer_l1_acc = *config->packer_l1_acc();
+  if (auto packerL1Acc = config->packer_l1_acc(); packerL1Acc.has_value()) {
+    computeKernelConfig.packer_l1_acc = *packerL1Acc;
   }
 
-  if (config->dst_full_sync_en()) {
-    computeKernelConfig.dst_full_sync_en = *config->dst_full_sync_en();
+  if (auto dstFullSyncEn = config->dst_full_sync_en();
+      dstFullSyncEn.has_value()) {
+    computeKernelConfig.dst_full_sync_en = *dstFullSyncEn;
   }
 
   return computeKernelConfig;
+}
+
+std::optional<const ::ttnn::DeviceComputeKernelConfig>
+toMetalDeviceComputeKernelConfig(
+    const ::tt::target::ttnn::DeviceComputeKernelConfig *config) {
+  if (!config) {
+    return std::nullopt;
+  }
+  return std::optional<const ::ttnn::DeviceComputeKernelConfig>(
+      createDeviceComputeKernelConfig(config));
 }
 
 ::ttnn::operations::transformer::SDPAProgramConfig

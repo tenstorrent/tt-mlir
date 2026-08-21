@@ -14,6 +14,9 @@
 // TILE HEIGHT_SHARDED L1 output (same shape logically, padded internally to 1x1 tiles).
 #ttnn_layout_l1_hs_tile_bf16_nontile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,0)>]>>
 
+#ttnn_layout_dram_tile_f32 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout_dram_tile_bf16 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+
 module attributes {} {
 
     // Moving a ui16 tensor from device L1 row-major to device DRAM tiled:
@@ -46,5 +49,33 @@ module attributes {} {
         // CHECK-NEXT: return %[[RESHARD]]
         %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<32x4xbf16, #ttnn_layout_l1_hs_rm_bf16_nontile>) -> tensor<32x4xbf16, #ttnn_layout_l1_hs_tile_bf16_nontile>
         return %0 : tensor<32x4xbf16, #ttnn_layout_l1_hs_tile_bf16_nontile>
+    }
+
+    // Metal device typecast of TILE f32↔bf16 can leave dtype unchanged. Emit
+    // untilize → typecast → tilize so the conversion runs in row-major.
+    func.func @device_dram_tile_f32_to_dram_tile_bf16(%arg0: tensor<64x128xf32, #ttnn_layout_dram_tile_f32>) -> tensor<64x128xbf16, #ttnn_layout_dram_tile_bf16> {
+        // CHECK-LABEL: func.func @device_dram_tile_f32_to_dram_tile_bf16
+        // CHECK: %[[UNTILIZE:.*]] = "ttnn.to_layout"(%arg0)
+        // CHECK-SAME: memref<64x128xf32
+        // CHECK-NEXT: %[[CAST:.*]] = "ttnn.typecast"(%[[UNTILIZE]])
+        // CHECK-SAME: tensor<64x128xbf16
+        // CHECK-NEXT: %[[TILIZE:.*]] = "ttnn.to_layout"(%[[CAST]])
+        // CHECK-SAME: !ttcore.tile<32x32, bf16>
+        // CHECK-NEXT: return %[[TILIZE]]
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<64x128xf32, #ttnn_layout_dram_tile_f32>) -> tensor<64x128xbf16, #ttnn_layout_dram_tile_bf16>
+        return %0 : tensor<64x128xbf16, #ttnn_layout_dram_tile_bf16>
+    }
+
+    func.func @device_dram_tile_bf16_to_dram_tile_f32(%arg0: tensor<64x128xbf16, #ttnn_layout_dram_tile_bf16>) -> tensor<64x128xf32, #ttnn_layout_dram_tile_f32> {
+        // CHECK-LABEL: func.func @device_dram_tile_bf16_to_dram_tile_f32
+        // CHECK: %[[UNTILIZE:.*]] = "ttnn.to_layout"(%arg0)
+        // CHECK-SAME: memref<64x128xbf16
+        // CHECK-NEXT: %[[CAST:.*]] = "ttnn.typecast"(%[[UNTILIZE]])
+        // CHECK-SAME: tensor<64x128xf32
+        // CHECK-NEXT: %[[TILIZE:.*]] = "ttnn.to_layout"(%[[CAST]])
+        // CHECK-SAME: !ttcore.tile<32x32, f32>
+        // CHECK-NEXT: return %[[TILIZE]]
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<64x128xbf16, #ttnn_layout_dram_tile_bf16>) -> tensor<64x128xf32, #ttnn_layout_dram_tile_f32>
+        return %0 : tensor<64x128xf32, #ttnn_layout_dram_tile_f32>
     }
 }

@@ -14,7 +14,7 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_FUSEDISTRIBUTEDCUSTOMCALLSPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
-// Determine the cluster axis (0 or 1) from an all_gather's replica_groups.
+// Determine the cluster axis (0 or 1) from a collective's replica_groups.
 //
 // For a 2D mesh [x, y]:
 //   replica_groups = [[0, 1, 2, 3], [4, 5, 6, 7]] -> cluster_axis = 1
@@ -40,14 +40,108 @@ determineClusterAxis(mlir::DenseIntElementsAttr replicaGroups,
   return success();
 }
 
-// Fuse all_gather + custom_call @tenstorrent.rms_norm + sdy.all_slice into a
-// single custom_call @tenstorrent.distributed_rms_norm that operates on local
-// (per-device) tensors which handles cross-device reduction internally.
-class FuseRMSNormWithCCLPattern
-    : public OpRewritePattern<mlir::stablehlo::CustomCallOp> {
-  using OpRewritePattern::OpRewritePattern;
+static int64_t normalizeDim(int64_t dim, int64_t rank) {
+  if (dim < 0) {
+    dim += rank;
+  }
+  return dim;
+}
 
+// True when `gather` concatenates the last dim (trading some other dim for a
+// full last dim) and `scatter` is its inverse. Shardy emits this sandwich on a
+// 2D mesh instead of all_gather + all_slice when another dim is already
+// sharded (Wan AdaLN: split L, concat D).
+static bool isInverseLastDimAllToAll(mlir::stablehlo::AllToAllOp gather,
+                                     mlir::stablehlo::AllToAllOp scatter) {
+  if (!gather || !scatter) {
+    return false;
+  }
+  if (gather.getNumOperands() != 1 || scatter.getNumOperands() != 1) {
+    return false;
+  }
+  if (gather.getReplicaGroups() != scatter.getReplicaGroups()) {
+    return false;
+  }
+  if (gather.getSplitCount() != scatter.getSplitCount()) {
+    return false;
+  }
+
+  auto localType =
+      mlir::dyn_cast<RankedTensorType>(gather.getOperand(0).getType());
+  auto gatheredType =
+      mlir::dyn_cast<RankedTensorType>(gather.getResult(0).getType());
+  auto scatterResultType =
+      mlir::dyn_cast<RankedTensorType>(scatter.getResult(0).getType());
+  if (!localType || !gatheredType || !scatterResultType) {
+    return false;
+  }
+  if (localType != scatterResultType) {
+    return false;
+  }
+
+  const int64_t rank = localType.getRank();
+  if (gatheredType.getRank() != rank) {
+    return false;
+  }
+  const int64_t lastDim = rank - 1;
+  const int64_t splitCount = gather.getSplitCount();
+  if (splitCount <= 1) {
+    return false;
+  }
+
+  const int64_t gatherSplit = normalizeDim(gather.getSplitDimension(), rank);
+  const int64_t gatherConcat = normalizeDim(gather.getConcatDimension(), rank);
+  const int64_t scatterSplit =
+      normalizeDim(scatter.getSplitDimension(), rank);
+  const int64_t scatterConcat =
+      normalizeDim(scatter.getConcatDimension(), rank);
+
+  // Gather must materialize a full last dim by splitting some other dim.
+  if (gatherConcat != lastDim || gatherSplit == lastDim || gatherSplit < 0 ||
+      gatherSplit >= rank) {
+    return false;
+  }
+  if (scatterSplit != gatherConcat || scatterConcat != gatherSplit) {
+    return false;
+  }
+
+  ArrayRef<int64_t> inShape = localType.getShape();
+  ArrayRef<int64_t> outShape = gatheredType.getShape();
+  if (inShape[gatherSplit] % splitCount != 0) {
+    return false;
+  }
+  if (outShape[gatherSplit] != inShape[gatherSplit] / splitCount) {
+    return false;
+  }
+  if (outShape[gatherConcat] != inShape[gatherConcat] * splitCount) {
+    return false;
+  }
+  for (int64_t d = 0; d < rank; ++d) {
+    if (d == gatherSplit || d == gatherConcat) {
+      continue;
+    }
+    if (inShape[d] != outShape[d]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// Fuse all_gather/all_to_all + normalization custom_call + scatter-back into a
+// distributed normalization custom_call that operates on local (per-device)
+// tensors and handles cross-device reduction internally.
+class FuseNormalizationWithCCLPattern
+    : public OpRewritePattern<mlir::stablehlo::CustomCallOp> {
 public:
+  FuseNormalizationWithCCLPattern(MLIRContext *context,
+                                  StringRef sourceTargetName,
+                                  StringRef distributedTargetName,
+                                  unsigned maxOperands)
+      : OpRewritePattern(context), sourceTargetName(sourceTargetName),
+        distributedTargetName(distributedTargetName),
+        maxOperands(maxOperands) {}
+
   LogicalResult matchAndRewrite(mlir::stablehlo::CustomCallOp customCallOp,
                                 PatternRewriter &rewriter) const override {
 
@@ -57,7 +151,7 @@ public:
       return failure();
     }
 
-    if (customCallOp.getCallTargetName() != kTTRMSNormCustomCallTargetName) {
+    if (customCallOp.getCallTargetName() != sourceTargetName) {
       return failure();
     }
 
@@ -71,61 +165,123 @@ public:
                                          "at least one operand is required");
     }
 
-    // Reject fusion when bias is present (3 operands: input, weight, bias).
-    // distributed_rms_norm interprets the 3rd operand as residual, not bias.
-    if (customCallOp.getNumOperands() > 2) {
+    // RMS norm accepts input and optional weight. Layer norm additionally
+    // accepts bias. Neither frontend composite has a residual operand.
+    if (customCallOp.getNumOperands() > maxOperands) {
       return rewriter.notifyMatchFailure(
-          customCallOp, "cannot fuse rms_norm with bias into distributed "
-                        "variant (bias vs residual pos. operand mismatch)");
+          customCallOp, "normalization custom_call has unsupported operands");
     }
 
-    // Check that the input (operand 0) comes from an all_gather.
-    auto inputAllGather = customCallOp.getOperand(0)
-                              .getDefiningOp<mlir::stablehlo::AllGatherOp>();
-    if (!inputAllGather) {
-      return rewriter.notifyMatchFailure(
-          customCallOp, "rms_norm operand does not come from an all_gather op");
-    }
-
-    // Check that the custom_call has exactly one user and that it matches
-    // sdy.all_slice in either composite or decomposed
-    // (reshape+all_to_all+slice+ reshape) form.
     if (!customCallOp.getResult(0).hasOneUse()) {
       return rewriter.notifyMatchFailure(
-          customCallOp, "rms_norm result has multiple uses, cannot fuse");
+          customCallOp,
+          "normalization result has multiple uses, cannot fuse");
+    }
+
+    mlir::Value gatheredInput = customCallOp.getOperand(0);
+    mlir::Value localInput;
+    mlir::DenseIntElementsAttr replicaGroups;
+    mlir::Operation *gatherOp = nullptr;
+    bool gatherIsAllToAll = false;
+
+    if (auto inputAllGather =
+            gatheredInput.getDefiningOp<mlir::stablehlo::AllGatherOp>()) {
+      auto inputType = mlir::dyn_cast<RankedTensorType>(
+          inputAllGather.getOperand(0).getType());
+      if (!inputType) {
+        return rewriter.notifyMatchFailure(
+            customCallOp, "normalization input must be ranked");
+      }
+      int64_t inputGatherDim = inputAllGather.getAllGatherDim();
+      if (inputGatherDim < 0) {
+        inputGatherDim += inputType.getRank();
+      }
+      if (inputGatherDim != inputType.getRank() - 1) {
+        return rewriter.notifyMatchFailure(
+            customCallOp,
+            "distributed normalization requires gathering the last dimension");
+      }
+      localInput = inputAllGather.getOperand(0);
+      replicaGroups = inputAllGather.getReplicaGroups();
+      gatherOp = inputAllGather;
+    } else if (auto inputAllToAll =
+                   gatheredInput
+                       .getDefiningOp<mlir::stablehlo::AllToAllOp>()) {
+      gatherIsAllToAll = true;
+      localInput = inputAllToAll.getOperand(0);
+      replicaGroups = inputAllToAll.getReplicaGroups();
+      gatherOp = inputAllToAll;
+    } else {
+      return rewriter.notifyMatchFailure(
+          customCallOp, "normalization input does not come from an all_gather "
+                        "or last-dim all_to_all op");
     }
 
     auto *soleUser = *customCallOp.getResult(0).getUsers().begin();
-    auto allSliceMatch = tryMatchAllSlice(soleUser);
-    if (!allSliceMatch) {
-      return rewriter.notifyMatchFailure(
-          customCallOp,
-          "rms_norm sole user is not an sdy.all_slice composite "
-          "or reshape -> all_to_all -> slice -> reshape sequence");
+    std::optional<ScatterMatch> scatterMatch;
+    if (gatherIsAllToAll) {
+      auto scatterAllToAll =
+          mlir::dyn_cast<mlir::stablehlo::AllToAllOp>(soleUser);
+      auto gatherAllToAll =
+          mlir::cast<mlir::stablehlo::AllToAllOp>(gatherOp);
+      if (!isInverseLastDimAllToAll(gatherAllToAll, scatterAllToAll)) {
+        return rewriter.notifyMatchFailure(
+            customCallOp,
+            "normalization sole user is not the inverse last-dim all_to_all");
+      }
+      scatterMatch =
+          ScatterMatch{scatterAllToAll.getResult(0).getType(), scatterAllToAll,
+                       /*intermediateOps=*/{}};
+    } else {
+      scatterMatch = tryMatchAllSlice(soleUser);
+      if (!scatterMatch) {
+        return rewriter.notifyMatchFailure(
+            customCallOp,
+            "normalization sole user is not an sdy.all_slice composite "
+            "or reshape -> all_to_all -> slice -> reshape sequence");
+      }
     }
 
-    // Derive cluster_axis from the input all_gather's replica_groups.
+    if (scatterMatch->resultType != localInput.getType()) {
+      return rewriter.notifyMatchFailure(
+          customCallOp,
+          "distributed normalization must return the local input shard shape");
+    }
+
     uint32_t clusterAxis = 0;
-    if (failed(determineClusterAxis(inputAllGather.getReplicaGroups(),
-                                    clusterAxis))) {
+    if (failed(determineClusterAxis(replicaGroups, clusterAxis))) {
       return rewriter.notifyMatchFailure(
           customCallOp, "failed to determine cluster_axis from replica_groups");
     }
 
-    // Gather the local operands (bypassing the all_gathers).
+    // Gather the local operands (bypassing the all_gathers on affine params).
     // Verify that all gathered operands use the same replica_groups as the
-    // input all_gather, so the derived cluster_axis is consistent.
+    // input collective, so the derived cluster_axis is consistent.
     SmallVector<mlir::Value> localOperands;
-    localOperands.push_back(inputAllGather.getOperand(0));
+    localOperands.push_back(localInput);
     for (unsigned i = 1; i < customCallOp.getNumOperands(); ++i) {
       mlir::Value operand = customCallOp.getOperand(i);
       if (auto opAllGather =
               operand.getDefiningOp<mlir::stablehlo::AllGatherOp>()) {
-        if (opAllGather.getReplicaGroups() !=
-            inputAllGather.getReplicaGroups()) {
+        if (opAllGather.getReplicaGroups() != replicaGroups) {
           return rewriter.notifyMatchFailure(
               customCallOp,
               "operand all_gathers have mismatched replica_groups");
+        }
+        auto operandType = mlir::dyn_cast<RankedTensorType>(
+            opAllGather.getOperand(0).getType());
+        int64_t operandGatherDim = opAllGather.getAllGatherDim();
+        if (!operandType) {
+          return rewriter.notifyMatchFailure(
+              customCallOp, "normalization affine operand must be ranked");
+        }
+        if (operandGatherDim < 0) {
+          operandGatherDim += operandType.getRank();
+        }
+        if (operandGatherDim != operandType.getRank() - 1) {
+          return rewriter.notifyMatchFailure(
+              customCallOp,
+              "normalization affine operands must gather their last dimension");
         }
         localOperands.push_back(opAllGather.getOperand(0));
       } else {
@@ -139,7 +295,8 @@ public:
     SmallVector<NamedAttribute> newAttrEntries;
     if (origAttrs) {
       for (auto entry : origAttrs) {
-        // Skip normalized_shape since distributed_rms_norm does not need it.
+        // Distributed normalization ops operate on the local last dimension
+        // and do not need the original global normalized shape.
         if (entry.getName() != "normalized_shape") {
           newAttrEntries.push_back(entry);
         }
@@ -152,9 +309,9 @@ public:
 
     // Create the distributed custom_call with the local result type.
     auto distributedCall = rewriter.create<mlir::stablehlo::CustomCallOp>(
-        customCallOp.getLoc(), mlir::TypeRange{allSliceMatch->resultType},
+        customCallOp.getLoc(), mlir::TypeRange{scatterMatch->resultType},
         localOperands,
-        rewriter.getStringAttr(utils::kDistributedRmsNormTargetName),
+        rewriter.getStringAttr(distributedTargetName),
         /*has_side_effect=*/nullptr,
         /*backend_config=*/nullptr,
         /*api_version=*/nullptr,
@@ -165,9 +322,11 @@ public:
     distributedCall->setDiscardableAttr(utils::kCustomCallCompositeAttrsKey,
                                         newCompositeAttrs);
 
-    // Collect all_gathers to potentially erase after the custom_call is gone.
     SmallVector<mlir::stablehlo::AllGatherOp> allGathersToCleanup;
-    allGathersToCleanup.push_back(inputAllGather);
+    if (auto inputAllGather =
+            mlir::dyn_cast<mlir::stablehlo::AllGatherOp>(gatherOp)) {
+      allGathersToCleanup.push_back(inputAllGather);
+    }
     for (unsigned i = 1; i < customCallOp.getNumOperands(); ++i) {
       if (auto opAllGather =
               customCallOp.getOperand(i)
@@ -177,19 +336,22 @@ public:
     }
 
     // Replace the scatter-back result with the distributed custom_call result.
-    rewriter.replaceOp(allSliceMatch->resultOp, distributedCall.getResults());
+    rewriter.replaceOp(scatterMatch->resultOp, distributedCall.getResults());
 
-    // For the decomposed form, erase the intermediate ops in reverse use-def
-    // order (slice before all_to_all before reshape1) now that they have no
-    // users.
-    for (auto *op : llvm::reverse(allSliceMatch->intermediateOps)) {
+    // For the decomposed all_slice form, erase the intermediate ops in reverse
+    // use-def order (slice before all_to_all before reshape1) now that they
+    // have no users.
+    for (auto *op : llvm::reverse(scatterMatch->intermediateOps)) {
       rewriter.eraseOp(op);
     }
 
-    // Erase the original rms_norm custom_call (now has no users).
+    // Erase the original normalization custom_call (now has no users).
     rewriter.eraseOp(customCallOp);
 
-    // Erase all_gathers if they have no remaining users.
+    if (gatherIsAllToAll && gatherOp->use_empty()) {
+      rewriter.eraseOp(gatherOp);
+    }
+
     for (auto allGather : allGathersToCleanup) {
       if (allGather.getResult(0).use_empty()) {
         rewriter.eraseOp(allGather);
@@ -200,8 +362,13 @@ public:
   }
 
 private:
-  // Describes the scatter-back portion that follows custom_call @rms_norm.
-  // Two forms are supported:
+  StringRef sourceTargetName;
+  StringRef distributedTargetName;
+  unsigned maxOperands;
+
+  // Describes the scatter-back portion that follows the normalization
+  // custom_call.
+  // Forms:
   //
   //   Composite (sdy.all_slice input was fully replicated):
   //     rms_norm -> stablehlo.composite "sdy.all_slice..."
@@ -211,18 +378,22 @@ private:
   //   ShardyToStableHLOAllSliceOpRewritePattern since input_is_fully_replicated
   //   == false):
   //     rms_norm -> reshape -> all_to_all -> slice -> reshape
-  struct AllSliceMatch {
+  //
+  //   Inverse all_to_all (2D-mesh AdaLN): last-dim all_to_all -> norm ->
+  //     inverse all_to_all. Matched separately; resultOp is the scatter
+  //     all_to_all.
+  struct ScatterMatch {
     mlir::Type resultType;
     mlir::Operation *resultOp;
     SmallVector<mlir::Operation *> intermediateOps;
   };
 
   // Try to match sdy.all_slice in either its composite or decomposed form.
-  static std::optional<AllSliceMatch> tryMatchAllSlice(mlir::Operation *op) {
+  static std::optional<ScatterMatch> tryMatchAllSlice(mlir::Operation *op) {
     // Composite form.
     if (auto composite = mlir::dyn_cast<mlir::stablehlo::CompositeOp>(op)) {
       if (composite.getName().starts_with("sdy.all_slice")) {
-        return AllSliceMatch{composite.getResult(0).getType(), composite, {}};
+        return ScatterMatch{composite.getResult(0).getType(), composite, {}};
       }
       return std::nullopt;
     }
@@ -250,10 +421,10 @@ private:
       return std::nullopt;
     }
 
-    return AllSliceMatch{reshape2.getResult().getType(),
-                         reshape2.getOperation(),
-                         {reshape1.getOperation(), allToAll.getOperation(),
-                          slice.getOperation()}};
+    return ScatterMatch{reshape2.getResult().getType(),
+                        reshape2.getOperation(),
+                        {reshape1.getOperation(), allToAll.getOperation(),
+                         slice.getOperation()}};
   }
 };
 
@@ -269,7 +440,12 @@ public:
     MLIRContext *ctx = module.getContext();
 
     RewritePatternSet patterns(ctx);
-    patterns.add<FuseRMSNormWithCCLPattern>(ctx);
+    patterns.add<FuseNormalizationWithCCLPattern>(
+        ctx, utils::kTTRMSNormCustomCallTargetName,
+        utils::kDistributedRmsNormTargetName, /*maxOperands=*/2);
+    patterns.add<FuseNormalizationWithCCLPattern>(
+        ctx, utils::kTTLayerNormCustomCallTargetName,
+        utils::kDistributedLayerNormTargetName, /*maxOperands=*/3);
 
     GreedyRewriteConfig config;
     config.enableConstantCSE(false);

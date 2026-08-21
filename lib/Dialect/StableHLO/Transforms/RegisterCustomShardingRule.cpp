@@ -231,15 +231,15 @@ getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
   ArrayRef<int64_t> outShape = outType.getShape();
 
   // Grouped-Query / Multi-Query Attention support:
-  //   Q/Out: [B, num_q_heads,  S, D]
-  //   K/V:   [B, num_kv_heads, S, D]
+  //   Q/Out: [B, num_q_heads,  Sq, D]
+  //   K/V:   [B, num_kv_heads, Sk, D]
   // Constraints:
   //   - Q and Output must have the same shape
   //   - K and V must have the same shape
-  //   - B, S, D must match across all tensors
+  //   - B and D must match across Q/K/V
+  //   - Sq may differ from Sk (cross-attn, padded self-attn)
   //   - num_q_heads must be divisible by num_kv_heads (GQA group ratio)
   if (kShape != vShape || qShape != outShape || qShape[0] != kShape[0] || // B
-      qShape[2] != kShape[2] ||                                           // S
       qShape[3] != kShape[3]) {                                           // D
     op.getOperation()->emitWarning()
         << "SDPA shape validation failed: incompatible Q/K/V/Out dimensions";
@@ -248,6 +248,7 @@ getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
 
   int64_t qHeads = qShape[1];
   int64_t kvHeads = kShape[1];
+  bool sameSequence = qShape[2] == kShape[2];
 
   // Supported SDPA head layouts:
   //   - MHA: qHeads == kvHeads
@@ -257,12 +258,12 @@ getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
   // Branch explicitly between the identical-head MHA case and the grouped-head
   // GQA/MQA case for clarity.
 
-  // For standard MHA (qHeads == kvHeads) with no extra operands, all tensors
-  // have identical shapes so we can use the efficient addPointwise builder.
-  // When an attention_mask is present its shape differs from Q (e.g.
-  // [1, 1, S, S] vs [B, H, S, D]), so addPointwise cannot be used; fall through
-  // to the explicit per-operand builder below, which leaves the mask unsharded.
-  if (qHeads == kvHeads && op.getNumOperands() == 3) {
+  // For standard MHA (qHeads == kvHeads) with matching sequence lengths and no
+  // extra operands, all tensors have identical shapes so we can use the
+  // efficient addPointwise builder. Cross-attn / padded self-attn (Sq != Sk)
+  // and an attention_mask (shape differs from Q) cannot use addPointwise; fall
+  // through to the explicit per-operand builder below.
+  if (qHeads == kvHeads && sameSequence && op.getNumOperands() == 3) {
     auto getFactorType = [](int64_t dim) -> mlir::sdy::FactorType {
       if (dim == 0 || dim == 1) {
         return mlir::sdy::FactorType::kPassThrough;
@@ -279,7 +280,7 @@ getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
   };
   if (!isStaticPositiveDim(qShape[0]) || !isStaticPositiveDim(qHeads) ||
       !isStaticPositiveDim(kvHeads) || !isStaticPositiveDim(qShape[2]) ||
-      !isStaticPositiveDim(qShape[3])) {
+      !isStaticPositiveDim(kShape[2]) || !isStaticPositiveDim(qShape[3])) {
     op.getOperation()->emitWarning()
         << "SDPA GQA/MQA path requires static, positive B/H/S/D dimensions";
     return mlir::sdy::OpShardingRuleAttr();
@@ -292,21 +293,28 @@ getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
     return mlir::sdy::OpShardingRuleAttr();
   }
 
-  // GQA/MQA path: Q/Out have more heads than K/V, so we cannot use
-  // addPointwise (requires identical shapes), so build the B/H/S/D factors
-  // explicitly.
+  // Explicit B/H/S/D factors. Used for GQA/MQA (Q/K shapes differ on heads),
+  // masked SDPA (mask shape differs from Q), and Sq != Sk (cross-attn or
+  // padded self-attn). addPointwise requires identical operand/result shapes.
   //
   // Dimension assignment:
-  //   dim 0 -> Batch         (kPassThrough)
-  //   dim 1 -> Head          (kPassThrough via explicit head factor)
-  //   dim 2 -> Sequence len  (kNeedReplication)
-  //   dim 3 -> Hidden size   (kNeedReplication)
+  //   dim 0 -> Batch            (kPassThrough)
+  //   dim 1 -> Head             (kPassThrough via explicit head factor)
+  //   dim 2 -> Sequence         (see below)
+  //   dim 3 -> Hidden size      (kNeedReplication)
   //
   // Head dimension: single factor with size = qHeads linking Q/K/V/Out dim 1.
   // For GQA, K/V dim 1 (kvHeads) differs from the factor size (qHeads), but
   // Shardy handles this proportionally: sharding by F gives qHeads/F Q-heads
   // and kvHeads/F KV-heads, preserving the GQA ratio.
   // This is the same pattern used by paged SDPA decode.
+  //
+  // Sequence: output sequence always matches Q, not K. When Sq == Sk a single
+  // kNeedReplication factor keeps vanilla SDPA from running on a partial KV
+  // shard. When Sq != Sk the lengths cannot share a factor; Q/Out seq is
+  // kPassThrough (sequence-parallel Q is local-Q × full-K) and K/V seq is
+  // kNeedReplication (full KV must be resident). Same split as
+  // getIndexerScoreDsaShardingRule.
   int64_t numOperands = op.getNumOperands();
 
   sdy::OpShardingRuleBuilder builder(op);
@@ -330,10 +338,19 @@ getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
   builder.addFactor(makeOpDims(1, 1, 1), {1}, qHeads,
                     sdy::FactorType::kPassThrough);
 
-  // Sequence length (dim 2): kNeedReplication — cannot shard without
-  // distributed attention support.
-  builder.addFactor(makeOpDims(2, 2, 2), {2}, qShape[2],
-                    sdy::FactorType::kNeedReplication);
+  if (sameSequence) {
+    // Sequence length (dim 2): kNeedReplication — cannot shard without
+    // distributed attention support.
+    builder.addFactor(makeOpDims(2, 2, 2), {2}, qShape[2],
+                      sdy::FactorType::kNeedReplication);
+  } else {
+    // Q/Out sequence: kPassThrough — result matches Q, including an SP shard.
+    builder.addFactor(makeOpDims(2, sdy::kNullDim, sdy::kNullDim), {2},
+                      qShape[2], sdy::FactorType::kPassThrough);
+    // K/V sequence: kNeedReplication — full KV must be on every device.
+    builder.addFactor(makeOpDims(sdy::kNullDim, 2, 2), {sdy::kNullDim},
+                      kShape[2], sdy::FactorType::kNeedReplication);
+  }
 
   // Hidden size (dim 3): kNeedReplication — cannot shard.
   builder.addFactor(makeOpDims(3, 3, 3), {3}, qShape[3],
@@ -1890,7 +1907,8 @@ getSamplingShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
-// Sharding rule for RMS norm custom_call (converted from composite).
+// Sharding rule for RMS norm and layer norm custom_calls (converted from
+// composites).
 //
 // Operands:
 //   operand 0: input  [batch dims..., normalized dims...]
@@ -1899,10 +1917,10 @@ getSamplingShardingRule(mlir::stablehlo::CustomCallOp op) {
 // Result: same shape as input.
 //
 // Batch dimensions can be freely sharded. Normalized dimensions require
-// replication because RMS norm reduces over them and Shardy needs to
-// insert collectives to handle cross-device reduction ops.
+// replication because both normalization operations reduce over them and
+// Shardy needs to insert collectives to handle cross-device reduction ops.
 static mlir::sdy::OpShardingRuleAttr
-getRMSNormShardingRule(mlir::stablehlo::CustomCallOp op) {
+getNormalizationShardingRule(mlir::stablehlo::CustomCallOp op) {
   auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
   if (!inputType) {
     return mlir::sdy::OpShardingRuleAttr();
@@ -1943,7 +1961,8 @@ getRMSNormShardingRule(mlir::stablehlo::CustomCallOp op) {
                       mlir::sdy::FactorType::kPassThrough);
   }
 
-  // Normalized dimensions: need replication because RMS norm reduces over them.
+  // Normalized dimensions need replication because normalization reduces over
+  // them.
   for (int64_t i = 0; i < numNormalizedDims; i++) {
     int64_t inputDim = numBatchDims + i;
     SmallVector<int64_t> operandDims(numOperands, mlir::sdy::kNullDim);
@@ -2119,7 +2138,9 @@ private:
           {allToAllDispatchTargetName, getAllToAllDispatchShardingRule},
           {allToAllCombineTargetName, getAllToAllCombineShardingRule},
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
-          {utils::kTTRMSNormCustomCallTargetName, getRMSNormShardingRule},
+          {utils::kTTRMSNormCustomCallTargetName, getNormalizationShardingRule},
+          {utils::kTTLayerNormCustomCallTargetName,
+           getNormalizationShardingRule},
           {flashMlaPrefillTargetName, getFlashMlaPrefillShardingRule},
           {indexerScoreDsaTargetName, getIndexerScoreDsaShardingRule},
           {utils::kTTTopKCustomCallTargetName, getTopKShardingRule},

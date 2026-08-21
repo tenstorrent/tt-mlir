@@ -45,6 +45,10 @@ inline constexpr llvm::StringLiteral
 inline constexpr llvm::StringLiteral
     kTTRMSNormCustomCallTargetName("tenstorrent.rms_norm");
 
+// Target name for the layer norm custom_call op.
+inline constexpr llvm::StringLiteral
+    kTTLayerNormCustomCallTargetName("tenstorrent.layer_norm");
+
 // Target names for the topk custom_call ops.
 inline constexpr llvm::StringLiteral
     kTTTopKCustomCallTargetName("tenstorrent.topk");
@@ -74,15 +78,20 @@ inline constexpr llvm::StringLiteral
 // with ops and sharding (currently these passes are
 // FlattenOrConvertCompositesPass and RegisterCustomShardingRulePass).
 inline constexpr llvm::StringLiteral kCompositesWithCustomSharding[] = {
-    kTTRMSNormCustomCallTargetName,    kTTTopKCustomCallTargetName,
-    kTTTopKValuesCustomCallTargetName, kTTTopKIndicesCustomCallTargetName,
-    kTTArgMaxCustomCallTargetName,     kTTSDPACompositeName,
-    kTTGatherCustomCallTargetName,     kTTGatherDimCustomCallTargetName,
+    kTTRMSNormCustomCallTargetName,    kTTLayerNormCustomCallTargetName,
+    kTTTopKCustomCallTargetName,       kTTTopKValuesCustomCallTargetName,
+    kTTTopKIndicesCustomCallTargetName, kTTArgMaxCustomCallTargetName,
+    kTTSDPACompositeName,              kTTGatherCustomCallTargetName,
+    kTTGatherDimCustomCallTargetName,
 };
 
 // Target name for the distributed RMS norm custom_call op.
 inline constexpr llvm::StringLiteral
     kDistributedRmsNormTargetName("tenstorrent.distributed_rms_norm");
+
+// Target name for the distributed layer norm custom_call op.
+inline constexpr llvm::StringLiteral
+    kDistributedLayerNormTargetName("tenstorrent.distributed_layer_norm");
 
 // Create a new private function with the provided ops within the module.
 // - Captures become function arguments (in declared order).
