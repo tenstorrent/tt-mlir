@@ -86,6 +86,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static SplitQKVRuleBook splitQKV;
   static RmsNormRuleBook rmsNorm;
   static MeshPartitionRuleBook meshPartition;
+  static CCLRuleBook ccl;
   static MoeRuleBook moe;
   static FillCacheRuleBook fillCache;
   static PagedFillCacheRuleBook pagedFillCache;
@@ -131,6 +132,9 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(SplitQueryKeyValueAndSplitHeadsOp::getOperationName(), &splitQKV);
     reg(RMSNormOp::getOperationName(), &rmsNorm);
     reg(MeshPartitionOp::getOperationName(), &meshPartition);
+    reg(AllGatherOp::getOperationName(), &ccl);
+    reg(ReduceScatterOp::getOperationName(), &ccl);
+    reg(AllReduceOp::getOperationName(), &ccl);
     reg(PrepareMoEComputeW0W1WeightsOp::getOperationName(), &moe);
     reg(PrepareMoEComputeW2WeightsOp::getOperationName(), &moe);
     reg(FillCacheOp::getOperationName(), &fillCache);
