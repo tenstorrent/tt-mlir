@@ -17,17 +17,23 @@ module {
     // CHECK: %[[OUTPUT:.*]], %[[INTERMEDIATES:.*]] = "ttnn.sdpa_fw"
     // CHECK: %[[GQ:.*]], %[[GK:.*]], %[[GV:.*]] = "ttnn.sdpa_bw"(%{{.*}}, %[[OUTPUT]], %{{.*}}, %{{.*}}, %{{.*}}, %[[INTERMEDIATES]],
     // CHECK: return %[[GQ]], %[[GK]], %[[GV]]
-    %output, %intermediates = "ttir.sdpa_fw"(%query, %key, %value, %mask) <{
-        mask_type = #ttcore.attention_mask_type<arbitrary>,
-        dropout_probability = 0.000000e+00 : f32,
-        return_intermediates = true}>
+    %output, %intermediates = "ttcore.composite"(%query, %key, %value, %mask) <{
+        composite_name = "sdpa_fw",
+        decomposition = @sdpa_fw_bf16_decomposition,
+        composite_attributes = {
+          mask_type = #ttcore.attention_mask_type<arbitrary>,
+          dropout_probability = 0.000000e+00 : f32,
+          return_intermediates = true}}>
         : (tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>,
            tensor<1x8x64x64xbf16>, tensor<1x1x64x64xbf16>)
           -> (tensor<1x8x64x64xbf16>, tensor<1x8x64x32xf32>)
-    %grad_query, %grad_key, %grad_value = "ttir.sdpa_bw"(
+    %grad_query, %grad_key, %grad_value = "ttcore.composite"(
         %grad_output, %output, %query, %key, %value, %intermediates, %mask) <{
-        mask_type = #ttcore.attention_mask_type<arbitrary>,
-        dropout_probability = 0.000000e+00 : f32}>
+        composite_name = "sdpa_bw",
+        decomposition = @sdpa_bw_bf16_decomposition,
+        composite_attributes = {
+          mask_type = #ttcore.attention_mask_type<arbitrary>,
+          dropout_probability = 0.000000e+00 : f32}}>
         : (tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>,
            tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>,
            tensor<1x8x64x64xbf16>, tensor<1x8x64x32xf32>,
@@ -58,10 +64,13 @@ module {
     // CHECK-SAME: tensor<1x8x64x32xf32
     // CHECK: %[[OUTPUT_F32:.*]] = "ttnn.typecast"(%[[OUTPUT_BF16]]) : {{.*}} -> tensor<1x8x64x64xf32
     // CHECK: return %[[OUTPUT_F32]]
-    %output, %intermediates = "ttir.sdpa_fw"(%query, %key, %value, %mask) <{
-        mask_type = #ttcore.attention_mask_type<arbitrary>,
-        dropout_probability = 0.000000e+00 : f32,
-        return_intermediates = true}>
+    %output, %intermediates = "ttcore.composite"(%query, %key, %value, %mask) <{
+        composite_name = "sdpa_fw",
+        decomposition = @sdpa_fw_f32_decomposition,
+        composite_attributes = {
+          mask_type = #ttcore.attention_mask_type<arbitrary>,
+          dropout_probability = 0.000000e+00 : f32,
+          return_intermediates = true}}>
         : (tensor<1x8x64x64xf32>, tensor<1x8x64x64xf32>,
            tensor<1x8x64x64xf32>, tensor<1x1x64x64xf32>)
           -> (tensor<1x8x64x64xf32>, tensor<1x8x64x32xf32>)
@@ -96,10 +105,13 @@ module {
     // CHECK-DAG: %[[GK_F32:.*]] = "ttnn.typecast"(%[[GK_BF16]]) : {{.*}} -> tensor<1x8x64x64xf32
     // CHECK-DAG: %[[GV_F32:.*]] = "ttnn.typecast"(%[[GV_BF16]]) : {{.*}} -> tensor<1x8x64x64xf32
     // CHECK: return %[[GQ_F32]], %[[GK_F32]], %[[GV_F32]]
-    %grad_query, %grad_key, %grad_value = "ttir.sdpa_bw"(
+    %grad_query, %grad_key, %grad_value = "ttcore.composite"(
         %grad_output, %output, %query, %key, %value, %intermediates, %mask) <{
-        mask_type = #ttcore.attention_mask_type<arbitrary>,
-        dropout_probability = 0.000000e+00 : f32}>
+        composite_name = "sdpa_bw",
+        decomposition = @sdpa_bw_f32_decomposition,
+        composite_attributes = {
+          mask_type = #ttcore.attention_mask_type<arbitrary>,
+          dropout_probability = 0.000000e+00 : f32}}>
         : (tensor<1x8x64x64xf32>, tensor<1x8x64x64xf32>,
            tensor<1x8x64x64xf32>, tensor<1x8x64x64xf32>,
            tensor<1x8x64x64xf32>, tensor<1x8x64x32xf32>,
@@ -127,13 +139,66 @@ module {
     %query = "ttir.multiply"(%q0, %q1)
         : (tensor<1x8x128x64xbf16>, tensor<1x8x128x64xbf16>)
           -> tensor<1x8x128x64xbf16>
-    %output = "ttir.sdpa_fw"(%query, %key, %value) <{
-        mask_type = #ttcore.attention_mask_type<causal>,
-        dropout_probability = 0.000000e+00 : f32,
-        return_intermediates = false}>
+    %output = "ttcore.composite"(%query, %key, %value) <{
+        composite_name = "sdpa_fw",
+        decomposition = @sdpa_fw_128_decomposition,
+        composite_attributes = {
+          mask_type = #ttcore.attention_mask_type<causal>,
+          dropout_probability = 0.000000e+00 : f32,
+          return_intermediates = false}}>
         : (tensor<1x8x128x64xbf16>, tensor<1x8x128x64xbf16>,
            tensor<1x8x128x64xbf16>)
           -> tensor<1x8x128x64xbf16>
     return %output : tensor<1x8x128x64xbf16>
+  }
+
+  func.func private @sdpa_fw_bf16_decomposition(
+      %query: tensor<1x8x64x64xbf16>, %key: tensor<1x8x64x64xbf16>,
+      %value: tensor<1x8x64x64xbf16>, %mask: tensor<1x1x64x64xbf16>)
+      -> (tensor<1x8x64x64xbf16>, tensor<1x8x64x32xf32>) {
+    %intermediates = "ttir.empty"() : () -> tensor<1x8x64x32xf32>
+    return %query, %intermediates : tensor<1x8x64x64xbf16>,
+        tensor<1x8x64x32xf32>
+  }
+
+  func.func private @sdpa_bw_bf16_decomposition(
+      %grad_output: tensor<1x8x64x64xbf16>,
+      %attn_output: tensor<1x8x64x64xbf16>,
+      %query: tensor<1x8x64x64xbf16>, %key: tensor<1x8x64x64xbf16>,
+      %value: tensor<1x8x64x64xbf16>,
+      %intermediates: tensor<1x8x64x32xf32>,
+      %mask: tensor<1x1x64x64xbf16>)
+      -> (tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>,
+          tensor<1x8x64x64xbf16>) {
+    return %query, %key, %value : tensor<1x8x64x64xbf16>,
+        tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>
+  }
+
+  func.func private @sdpa_fw_f32_decomposition(
+      %query: tensor<1x8x64x64xf32>, %key: tensor<1x8x64x64xf32>,
+      %value: tensor<1x8x64x64xf32>, %mask: tensor<1x1x64x64xf32>)
+      -> (tensor<1x8x64x64xf32>, tensor<1x8x64x32xf32>) {
+    %intermediates = "ttir.empty"() : () -> tensor<1x8x64x32xf32>
+    return %query, %intermediates : tensor<1x8x64x64xf32>,
+        tensor<1x8x64x32xf32>
+  }
+
+  func.func private @sdpa_bw_f32_decomposition(
+      %grad_output: tensor<1x8x64x64xf32>,
+      %attn_output: tensor<1x8x64x64xf32>,
+      %query: tensor<1x8x64x64xf32>, %key: tensor<1x8x64x64xf32>,
+      %value: tensor<1x8x64x64xf32>,
+      %intermediates: tensor<1x8x64x32xf32>,
+      %mask: tensor<1x1x64x64xf32>)
+      -> (tensor<1x8x64x64xf32>, tensor<1x8x64x64xf32>,
+          tensor<1x8x64x64xf32>) {
+    return %query, %key, %value : tensor<1x8x64x64xf32>,
+        tensor<1x8x64x64xf32>, tensor<1x8x64x64xf32>
+  }
+
+  func.func private @sdpa_fw_128_decomposition(
+      %query: tensor<1x8x128x64xbf16>, %key: tensor<1x8x128x64xbf16>,
+      %value: tensor<1x8x128x64xbf16>) -> tensor<1x8x128x64xbf16> {
+    return %query : tensor<1x8x128x64xbf16>
   }
 }

@@ -3570,6 +3570,8 @@ class StableHLOBuilder(Builder):
         self,
         decomp_fn: func.FuncOp,
         arg_goldens: Sequence[Any],
+        composite_name: Optional[str] = None,
+        composite_attributes: Optional[DictAttr] = None,
     ) -> Union[Any, Tuple[Any, ...]]:
         """
         Compute the golden for a ``stablehlo.composite`` by delegating to the
@@ -3578,7 +3580,12 @@ class StableHLOBuilder(Builder):
         the same global golden mapping.
         """
         composite_golden = get_golden_function(stablehlo.CompositeOp)
-        return composite_golden(*arg_goldens, decomposition_fn=decomp_fn)
+        return composite_golden(
+            *arg_goldens,
+            decomposition_fn=decomp_fn,
+            composite_name=composite_name,
+            composite_attributes=composite_attributes,
+        )
 
     ################ stablehlo.CompositeOp ###############
 
@@ -3592,7 +3599,7 @@ class StableHLOBuilder(Builder):
         unit_attrs: Optional[List[str]] = None,
         sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
         composite_attributes: Optional[DictAttr] = None,
-    ) -> OpResult:
+    ) -> Union[OpResult, Tuple[OpResult, ...]]:
         # Accept either a symbol name (for parse/split re-emission flows that
         # already populated _func_name_to_op) or a func.FuncOp directly (for
         # Python-authored builders where the user just produced the private
@@ -3616,14 +3623,10 @@ class StableHLOBuilder(Builder):
 
         operand_goldens = [self._get_golden_tensor(o) for o in operands]
         golden_output = self._golden_from_stablehlo_decomposition(
-            decomp_fn, operand_goldens
+            decomp_fn, operand_goldens, composite_name, composite_attributes
         )
 
         result_types = list(decomp_fn.type.results)
-        if len(result_types) != 1:
-            raise NotImplementedError(
-                "stablehlo.composite with multiple results is not supported yet."
-            )
 
         op_loc = Location.name(loc) if loc is not None else self._get_location()
 
@@ -3642,8 +3645,6 @@ class StableHLOBuilder(Builder):
             regions=0,
             loc=op_loc,
         )
-        op_result = new_op.results[0]
-
         if sharding_attr is not None:
             new_op.attributes["sdy.sharding"] = sharding_attr
 
@@ -3651,9 +3652,18 @@ class StableHLOBuilder(Builder):
             for attr_name in unit_attrs:
                 new_op.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        self._set_golden_tensor(op_result, golden_output)
+        op_results = list(new_op.results)
+        golden_outputs = (
+            golden_output if isinstance(golden_output, tuple) else (golden_output,)
+        )
+        if len(golden_outputs) != len(op_results):
+            raise ValueError(
+                "stablehlo.composite golden result count does not match op result count."
+            )
+        for op_result, golden in zip(op_results, golden_outputs):
+            self._set_golden_tensor(op_result, golden)
 
-        return op_result
+        return op_results[0] if len(op_results) == 1 else tuple(op_results)
 
     @parse(stablehlo.CompositeOp)
     def composite_parser(
@@ -3744,16 +3754,16 @@ class StableHLOBuilder(Builder):
                         regions=0,
                         loc=old_op.location,
                     )
-                    new_op_result = new_op.results[0]
 
-                    old_op_result = self._get_golden_tensor(old_op.results[0])
-                    composite_builder._set_golden_tensor(new_op_result, old_op_result)
+                    for new_result, old_result in zip(new_op.results, old_op.results):
+                        result_golden = self._get_golden_tensor(old_result)
+                        composite_builder._set_golden_tensor(new_result, result_golden)
+                        ordered_outputs.append(new_result)
                     for inp, old_operand in zip(inputs, old_op.operands):
                         input_golden = self._get_golden_tensor(old_operand)
                         composite_builder._set_golden_tensor(inp, input_golden)
                         composite_builder._annotate_presharded_arg(inp)
                         ordered_inputs.append(inp)
-                    ordered_outputs.append(new_op_result)
 
                     return new_op
 
