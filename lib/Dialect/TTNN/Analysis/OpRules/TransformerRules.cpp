@@ -76,6 +76,27 @@ OutputHints TTMLSDPABackwardRuleBook::getOutputHints(
 }
 
 //===----------------------------------------------------------------------===//
+// TTMLLayerNormForwardRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn TTMLLayerNormForwardRuleBook::getInputLayoutFilter(
+    unsigned /*operandIdx*/) const {
+  return [](TTNNLayoutAttr layout) {
+    return layout_filter_utils::requireTiled(layout) &&
+           layout_filter_utils::requireDRAMInterleaved(layout);
+  };
+}
+
+bool TTMLLayerNormForwardRuleBook::shouldExploreReshards() const {
+  return false;
+}
+
+OutputHints TTMLLayerNormForwardRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
+  return layout_filter_utils::nullHintOnly();
+}
+
+//===----------------------------------------------------------------------===//
 // SDPADecodeRuleBook
 //===----------------------------------------------------------------------===//
 

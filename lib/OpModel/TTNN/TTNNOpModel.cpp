@@ -9628,4 +9628,74 @@ llvm::Expected<size_t> OpModel<SDPABackwardOp>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// LayerNormForwardOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<LayerNormForwardOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+    llvm::ArrayRef<int64_t> biasShape, TTNNLayoutAttr biasLayout,
+    llvm::APFloat epsilon, bool returnMeanRstd, TTNNLayoutAttr outputLayout,
+    const MockAllocatorState *initialState) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec weightSpec,
+      detail::convertToTensorSpec(device, weightShape, weightLayout));
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec biasSpec,
+                   detail::convertToTensorSpec(device, biasShape, biasLayout));
+
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
+  auto layerNormForwardOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        ::ttml::metal::layernorm_fw, device, initialStateOpt, inputSpec,
+        weightSpec, biasSpec, epsilon.convertToFloat(), returnMeanRstd);
+  };
+
+  return operation::getOpConstraintsWithState(inputLayout.getContext(),
+                                              layerNormForwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<LayerNormForwardOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+    llvm::ArrayRef<int64_t> biasShape, TTNNLayoutAttr biasLayout,
+    llvm::APFloat epsilon, bool returnMeanRstd, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec weightSpec,
+      detail::convertToTensorSpec(device, weightShape, weightLayout));
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec biasSpec,
+                   detail::convertToTensorSpec(device, biasShape, biasLayout));
+
+  auto layerNormForwardOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttml::metal::layernorm_fw, device, inputSpec,
+                            weightSpec, biasSpec, epsilon.convertToFloat(),
+                            returnMeanRstd);
+  };
+
+  return operation::getOpRuntime(layerNormForwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 } // namespace mlir::tt::ttnn::op_model

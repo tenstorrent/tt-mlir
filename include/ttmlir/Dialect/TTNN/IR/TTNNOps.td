@@ -2797,7 +2797,7 @@ def TTNN_SDPABackwardOp : TTNN_Op<"sdpa_bw"> {
 }
 
 def TTNN_LayerNormForwardOp : TTNN_Op<"layernorm_fw",
-    [SameVariadicResultSize, OpModelExempt]> {
+    [SameVariadicResultSize]> {
     let summary = "Layer normalization forward (ttml).";
     let description = [{
       Training-oriented fused layer normalization forward pass, backed by the
