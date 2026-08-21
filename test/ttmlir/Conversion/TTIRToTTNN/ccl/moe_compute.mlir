@@ -1,17 +1,20 @@
 // RUN: ttmlir-opt --split-input-file --ttir-to-ttnn-backend-pipeline="mesh-shape=1,1" %s | FileCheck %s
 // Serialization round-trip: the prelude ttnn.allocate_moe_compute_semaphore +
-// ttnn.empty and the wired ttnn.moe_compute must serialize to a flatbuffer
-// (covers TTNNToFlatbuffer + the op-output-ref switches in runtime.cpp). Runs
-// in CI with no device (moe_compute is OpModelExempt).
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="mesh-shape=1,1" %s | ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn
+// ttnn.zeros and the wired ttnn.moe_compute must serialize to a flatbuffer
+// (covers TTNNToFlatbuffer + the op-output-ref switches in runtime.cpp). Write
+// the pipeline output with -o instead of piping stdout: with OpModel enabled the
+// backend runs device placement, which emits tt-metal/UMD logs to stdout that
+// would otherwise corrupt the MLIR fed to ttmlir-translate.
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="mesh-shape=1,1" %s -o %t_rt.mlir
+// RUN: ttmlir-translate --ttnn-to-flatbuffer %t_rt.mlir -o %t.ttnn
 // SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
 // ttir.moe_compute takes raw per-expert weights; TTIRToTTNN inserts
 // ttnn.prepare_moe_compute_w0_w1_weights + ttnn.prepare_moe_compute_w2_weights
-// and a default mux_core_range_set ((1,1)-(3,3)). The combine output buffer
-// (ttnn.empty) and semaphore (ttnn.allocate_moe_compute_semaphore) are bound in
+// and a default mux_core_range_set ((5,5)-(7,7)). The combine output buffer
+// (ttnn.zeros) and semaphore (ttnn.allocate_moe_compute_semaphore) are bound in
 // the prelude by MoeComputeOp's DistributedOpInterface hooks.
 module attributes {} {
   func.func @moe_compute_inserts_weight_prep(
@@ -44,7 +47,7 @@ module attributes {} {
 // CHECK-SAME: mux_core_range_set = #ttnn.core_range_set
 // CHECK-SAME: output_height_shard_dim = 4 : ui32
 // CHECK-SAME: -> !ttnn.global_semaphore
-// CHECK: %[[OUT:[0-9]+]] = "ttnn.empty"(%[[DEV]])
+// CHECK: %[[OUT:[0-9]+]] = "ttnn.zeros"(%[[DEV]])
 // CHECK: "ttnn.prepare_moe_compute_w0_w1_weights"
 // CHECK: "ttnn.prepare_moe_compute_w2_weights"
 // moe_compute consumes the prelude-allocated output buffer + semaphore.
