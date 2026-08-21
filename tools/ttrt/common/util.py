@@ -4,8 +4,10 @@
 
 import importlib.util
 import json
+import operator
 import os
 import shutil
+from functools import reduce
 from pprint import pprint
 import re
 
@@ -269,6 +271,44 @@ def convert_input_layouts(device, inputs, fbb, program_index):
             ttrt.runtime.to_layout(inputs[input_index], device, input_layout, True)
         )
     return inputs_converted
+
+
+def is_scalar_input(desc):
+    """Heuristic: a TTMetal scalar program input is serialized as a single-element,
+    non-sharded TensorRef (see scalarValueToFlatbuffer / isSupportedScalarType in
+    lib/Target/TTMetal/TTMetalToFlatbuffer.cpp). The flatbuffer carries no explicit
+    is_scalar flag (TODO #3127), so we key off volume==1 here. Such inputs must be
+    bound via create_scalar_tensor (packed as a uint32_t in the MetalTensor variant)
+    rather than as a host tensor, otherwise the kernel's KernelArgScalar lookup hits
+    `std::get: wrong index for variant`."""
+    if desc.get("shard_status") == "Presharded":
+        return False
+    shape = desc.get("shape", [])
+    return len(shape) > 0 and reduce(operator.mul, shape, 1) == 1
+
+
+def create_scalar_input(tensor_shards, desc, logging, use_golden):
+    """Bind a scalar program input. When a golden value is available it is used
+    verbatim; otherwise the value is a placeholder (1) -- ttrt has no way to know
+    the intended scalar, and scalars often drive kernel control flow (loop bounds,
+    core offsets), so a placeholder may produce wrong results or faults."""
+    import ttrt.runtime
+
+    dtype = Binary.Program.from_data_type(desc["layout"]["memory_desc"]["data_type"])
+
+    if use_golden:
+        value = tensor_shards[0].reshape(()).item()
+    else:
+        value = 1
+        logging.warning(
+            f"scalar program input bound to placeholder value {value} "
+            f"(no golden available); pass --enable-golden or expect incorrect "
+            f"results if this scalar drives kernel control flow"
+        )
+
+    if dtype.is_floating_point:
+        return ttrt.runtime.create_scalar_tensor(float(value))
+    return ttrt.runtime.create_scalar_tensor(int(value))
 
 
 def create_tensor(tensor_shards, mesh_shape):
