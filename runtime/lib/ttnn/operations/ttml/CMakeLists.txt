@@ -10,6 +10,7 @@ endif()
 
 add_library(TTRuntimeTTMLOps STATIC
   adamw.cpp
+  layernorm_fw.cpp
   sdpa_fw.cpp
   sdpa_bw.cpp
 )

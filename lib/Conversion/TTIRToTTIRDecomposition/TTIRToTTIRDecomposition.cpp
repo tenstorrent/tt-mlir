@@ -1102,23 +1102,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::SDPAForwardOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto rankOf = [](mlir::Value value) {
-      return mlir::cast<RankedTensorType>(value.getType()).getRank();
-    };
-
-    // Only reshape when some operand/result is not already rank 4; otherwise
-    // this pattern would keep re-matching its own (already 4D) output.
-    bool needsReshape =
-        rankOf(adaptor.getQuery()) != 4 || rankOf(adaptor.getKey()) != 4 ||
-        rankOf(adaptor.getValue()) != 4 ||
-        (adaptor.getAttentionMask() &&
-         rankOf(adaptor.getAttentionMask()) != 4) ||
-        llvm::any_of(op.getResults(),
-                     [&](mlir::Value result) { return rankOf(result) != 4; });
-    if (!needsReshape) {
-      return rewriter.notifyMatchFailure(op, "already 4D");
-    }
-
     Location loc = op.getLoc();
 
     mlir::Value mask4D =
@@ -1176,25 +1159,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::SDPABackwardOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto rankOf = [](mlir::Value value) {
-      return mlir::cast<RankedTensorType>(value.getType()).getRank();
-    };
-
-    // Only reshape when some operand/result is not already rank 4.
-    bool needsReshape =
-        rankOf(adaptor.getGradOutput()) != 4 ||
-        rankOf(adaptor.getAttnOutput()) != 4 ||
-        rankOf(adaptor.getQuery()) != 4 || rankOf(adaptor.getKey()) != 4 ||
-        rankOf(adaptor.getValue()) != 4 ||
-        rankOf(adaptor.getIntermediates()) != 4 ||
-        (adaptor.getAttentionMask() &&
-         rankOf(adaptor.getAttentionMask()) != 4) ||
-        llvm::any_of(op.getResults(),
-                     [&](mlir::Value result) { return rankOf(result) != 4; });
-    if (!needsReshape) {
-      return rewriter.notifyMatchFailure(op, "already 4D");
-    }
-
     Location loc = op.getLoc();
 
     mlir::Value mask4D =
@@ -1229,6 +1193,59 @@ public:
     llvm::SmallVector<mlir::Value> restored;
     for (auto [result4D, originalType] :
          llvm::zip(sdpa4D.getResults(), op.getResultTypes())) {
+      restored.push_back(
+          reshapeValue(rewriter, loc, result4D,
+                       mlir::cast<RankedTensorType>(originalType).getShape()));
+    }
+    rewriter.replaceOp(op, restored);
+    return success();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// LayerNorm forward decomposition pattern
+//===----------------------------------------------------------------------===//
+
+// ttml::metal::layernorm_fw only accepts rank-4 tensors: (B, N, S, C) for the
+// input and (1, 1, 1, C) for weight/bias. Normalization is over the last
+// dimension only, so the leading dims can be padded (rank < 4) or collapsed
+// (rank > 4) freely; the results are reshaped back to their original rank.
+namespace {
+struct LayerNormForwardPattern
+    : public OpConversionPattern<ttir::LayerNormForwardOp> {
+public:
+  using OpConversionPattern<ttir::LayerNormForwardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::LayerNormForwardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+
+    llvm::SmallVector<mlir::Type> resultTypes4D;
+    for (mlir::Type type : op.getResultTypes()) {
+      auto tensorType = mlir::cast<RankedTensorType>(type);
+      llvm::SmallVector<int64_t, 4> shape4D;
+      if (tensorType.getRank() == 4) {
+        shape4D.assign(tensorType.getShape().begin(),
+                       tensorType.getShape().end());
+      } else {
+        shape4D = collapseShapeToRank4(tensorType.getShape());
+      }
+      resultTypes4D.push_back(RankedTensorType::get(
+          shape4D, tensorType.getElementType(), tensorType.getEncoding()));
+    }
+
+    auto layerNorm4D = rewriter.create<ttir::LayerNormForwardOp>(
+        loc, resultTypes4D,
+        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getInput()),
+        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getWeight()),
+        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getBias()),
+        op.getEpsilonAttr(), op.getReturnMeanRstdAttr());
+
+    llvm::SmallVector<mlir::Value> restored;
+    for (auto [result4D, originalType] :
+         llvm::zip(layerNorm4D.getResults(), op.getResultTypes())) {
       restored.push_back(
           reshapeValue(rewriter, loc, result4D,
                        mlir::cast<RankedTensorType>(originalType).getShape()));
@@ -2272,6 +2289,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<AdamWPattern>(typeConverter, ctx);
   patterns.add<SDPAForwardPattern>(typeConverter, ctx);
   patterns.add<SDPABackwardPattern>(typeConverter, ctx);
+  patterns.add<LayerNormForwardPattern>(typeConverter, ctx);
   patterns.add<QuantizeOpPattern>(typeConverter, ctx);
   patterns.add<DequantizeOpPattern>(typeConverter, ctx);
   patterns.add<RequantizeOpPattern>(typeConverter, ctx);

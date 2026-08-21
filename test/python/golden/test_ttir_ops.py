@@ -242,6 +242,38 @@ def test_sdpa_bw(shape: Shape, target: str, request, device):
     )
 
 
+@pytest.mark.parametrize("shape", [(1, 1, 128, 256)], ids=shape_str)
+@pytest.mark.parametrize("return_mean_rstd", [False, True], ids=["no_stats", "stats"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_layernorm_fw(
+    shape: Shape, return_mean_rstd: bool, target: str, request, device
+):
+    param_shape = (1, 1, 1, shape[-1])
+
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [shape, param_shape, param_shape],
+            [torch.bfloat16, torch.bfloat16, torch.bfloat16],
+        )
+        def layernorm_fw(
+            input: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.layernorm_fw(
+                input, weight, bias, return_mean_rstd=return_mean_rstd
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 @pytest.mark.parametrize("shape", [(1, 1, 64, 64)], ids=shape_str)
 @pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 def test_adamw(shape: Shape, target: str, request, device):

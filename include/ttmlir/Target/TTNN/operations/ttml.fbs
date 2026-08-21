@@ -31,6 +31,17 @@ table SDPAForwardOp {
   intermediates: tt.target.ttnn.TensorRef;
 }
 
+table LayerNormForwardOp {
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  epsilon: float;
+  return_mean_rstd: bool = false;
+  out: tt.target.ttnn.TensorRef;
+  mean: tt.target.ttnn.TensorRef;
+  rstd: tt.target.ttnn.TensorRef;
+}
+
 table SDPABackwardOp {
   grad_output: tt.target.ttnn.TensorRef;
   attn_output: tt.target.ttnn.TensorRef;

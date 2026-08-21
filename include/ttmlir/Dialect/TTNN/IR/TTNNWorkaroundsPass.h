@@ -391,6 +391,12 @@ public:
   static TTNNOperandsWorkarounds
   createSDPABackwardOpOperandsWorkarounds(Operation *op);
 
+  // Create workarounds for the ttml layernorm_fw op: force bf16, tile layout
+  // and DRAM interleaved memory for every operand and result. The backing metal
+  // op (ttml::metal::layernorm_fw) TT_FATALs on anything else.
+  static TTNNOperandsWorkarounds
+  createLayerNormForwardOpOperandsWorkarounds(Operation *op);
+
   // Create workarounds for sparse_matmul op operands.
   // Sparsity tensor must be in ROW_MAJOR layout.
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39126

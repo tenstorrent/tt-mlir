@@ -4655,6 +4655,41 @@ SDPABackwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// LayerNormForwardOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints> LayerNormForwardOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  assert(inputs.size() == 3 && "LayerNormForwardOp must have 3 inputs");
+
+  auto inputShape = getInput().getType().getShape();
+  auto weightShape = getWeight().getType().getShape();
+  auto biasShape = getBias().getType().getShape();
+
+  return detail::constraintsDispatch(
+      *this, liveRecords, inputShape, inputs[0], weightShape, inputs[1],
+      biasShape, inputs[2], getEpsilon(), getReturnMeanRstd(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+LayerNormForwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
+  assert(inputs.size() == 3 && "LayerNormForwardOp must have 3 inputs");
+
+  auto inputShape = getInput().getType().getShape();
+  auto weightShape = getWeight().getType().getShape();
+  auto biasShape = getBias().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<LayerNormForwardOp>::getOpRuntime, *this, inputShape,
+      inputs[0], weightShape, inputs[1], biasShape, inputs[2], getEpsilon(),
+      getReturnMeanRstd(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
