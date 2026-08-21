@@ -597,8 +597,8 @@ class D2MBuilder(Builder):
         Args:
             inputs: Variadic ins operands.
             outputs: Variadic outs (DPS inits).
-            grid_ranges: One ((y, x), (y, x)) pair per region: inclusive start
-                and inclusive end, same as ttcore.core_range<start, end> today.
+            grid_ranges: One ((offset_y, offset_x), (size_y, size_x)) pair per
+                region, matching ttcore.core_range<offset, size>.
             region_builders: One no-argument callable per core range / region.
             result_types: Result tensor types.
             unit_attrs: Optional unit attributes on the spatial op.
@@ -613,10 +613,14 @@ class D2MBuilder(Builder):
         ), "len(region_builders) must match len(grid_ranges)"
 
         with self._ctx, self._loc:
-            range_attrs: List[Attribute] = []
-            for (sy, sx), (ey, ex) in grid_ranges:
-                text = f"#ttcore.core_range<({sy}, {sx}), ({ey}, {ex})>"
-                range_attrs.append(Attribute.parse(text, self._ctx))
+            range_attrs = [
+                ttcore.ir.CoreRangeAttr.get(
+                    self._ctx,
+                    ttcore.ir.CoreCoordAttr.get(self._ctx, offset_y, offset_x),
+                    [size_y, size_x],
+                )
+                for (offset_y, offset_x), (size_y, size_x) in grid_ranges
+            ]
             grid_attr = ArrayAttr.get(range_attrs)
             if isinstance(loc, str):
                 loc = Location.name(loc, context=self._ctx)
