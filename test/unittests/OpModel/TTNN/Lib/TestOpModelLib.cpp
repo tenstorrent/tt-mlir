@@ -5862,6 +5862,43 @@ TEST_F(OpModelTest, SDPABackwardOp) {
 }
 
 //===----------------------------------------------------------------------===//
+// LayerNormForwardOp Tests
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelTest, LayerNormForwardOp) {
+  const llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 256};
+  const llvm::SmallVector<int64_t> parameterShape = {1, 1, 1, 256};
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr parameterLayout = CreateTiledLayout(
+      parameterShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<LayerNormForwardOp>::getOpConstraints(
+      inputShape, inputLayout, parameterShape, parameterLayout, parameterShape,
+      parameterLayout, llvm::APFloat(1e-5f),
+      /*returnMeanRstd=*/true, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().tensorL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputL1BufferSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputLayouts.size(), 3u);
+
+  auto runtimeExp = OpModel<LayerNormForwardOp>::getOpRuntime(
+      inputShape, inputLayout, parameterShape, parameterLayout, parameterShape,
+      parameterLayout, llvm::APFloat(1e-5f),
+      /*returnMeanRstd=*/true, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+
+  auto outputOnlyConstraintsExp = OpModel<LayerNormForwardOp>::getOpConstraints(
+      inputShape, inputLayout, parameterShape, parameterLayout, parameterShape,
+      parameterLayout, llvm::APFloat(1e-5f),
+      /*returnMeanRstd=*/false, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(outputOnlyConstraintsExp));
+  EXPECT_EQ(outputOnlyConstraintsExp.get().outputLayouts.size(), 1u);
+}
+
+//===----------------------------------------------------------------------===//
 // QuantizeOp Tests
 //===----------------------------------------------------------------------===//
 

@@ -6407,6 +6407,53 @@ TEST_F(OpModelBase, SDPABackwardOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, LayerNormForwardOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 256};
+  llvm::SmallVector<int64_t> parameterShape = {1, 1, 1, 256};
+  llvm::SmallVector<int64_t> statisticsShape = {1, 1, 128, 1};
+  auto inputLayout = CreateTiledLayout(inputShape, BufferType::DRAM,
+                                       TensorMemoryLayout::Interleaved);
+  auto parameterLayout = CreateTiledLayout(parameterShape, BufferType::DRAM,
+                                           TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
+  auto weight =
+      createEmptyTensor(parameterShape, builder.getBF16Type(), parameterLayout);
+  auto bias =
+      createEmptyTensor(parameterShape, builder.getBF16Type(), parameterLayout);
+  auto outputType =
+      createRankedTensorType(inputShape, builder.getBF16Type(), inputLayout);
+  auto statisticsType = createRankedTensorType(statisticsShape);
+
+  auto layerNormForward = builder.create<LayerNormForwardOp>(
+      builder.getUnknownLoc(),
+      TypeRange{outputType, statisticsType, statisticsType}, input, weight,
+      bias, builder.getF32FloatAttr(1e-5f), builder.getBoolAttr(true));
+
+  auto backend = dyn_cast<OpModel>(layerNormForward.getOperation());
+  ASSERT_TRUE(backend);
+  auto inputLayouts = getInputLayouts(layerNormForward.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 3u);
+
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+    ASSERT_EQ(constraintsExp.get().outputLayouts.size(), 3u);
+  } else {
+    FAIL() << "Missing constraints for LayerNormForwardOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for LayerNormForwardOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, QuantizeOpInterface) {
   llvm::SmallVector<int64_t> inputShape = {32, 64};
   llvm::SmallVector<int64_t> scaleShape = {64};

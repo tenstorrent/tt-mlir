@@ -2400,5 +2400,26 @@ struct OpModel<SDPABackwardOp> {
       TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// LayerNormForwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<LayerNormForwardOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+      llvm::ArrayRef<int64_t> biasShape, TTNNLayoutAttr biasLayout,
+      llvm::APFloat epsilon, bool returnMeanRstd, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+               llvm::ArrayRef<int64_t> biasShape, TTNNLayoutAttr biasLayout,
+               llvm::APFloat epsilon, bool returnMeanRstd,
+               TTNNLayoutAttr outputLayout);
+};
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
