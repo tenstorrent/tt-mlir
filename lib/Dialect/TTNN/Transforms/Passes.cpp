@@ -123,7 +123,7 @@ public:
   // detected).
   LogicalResult checkAndInsertDeallocation(IRRewriter &rewriter, Value value,
                                            Operation *lastOp) {
-    if (isa<func::ReturnOp>(lastOp)) {
+    if (isa<func::ReturnOp, ttnn::YieldOp>(lastOp)) {
       return success();
     }
 
@@ -185,8 +185,13 @@ public:
       assert(func.getBody().hasOneBlock() &&
              "found func that didn't have one block!");
       Liveness liveness(func.getOperation());
-      const LivenessBlockInfo *livenessInfo =
-          liveness.getLiveness(&func.getBody().front());
+
+      // Liveness is per block, so it has to be looked up from the block that
+      // owns the value rather than from the function's entry block: values
+      // defined inside a region (a ttnn.while body, say) live in their own.
+      auto livenessFor = [&](Value value) {
+        return liveness.getLiveness(value.getParentBlock());
+      };
 
       // Collect all values to deallocate with their last usage operations.
       SmallVector<std::pair<Value, Operation *>> valuesToDeallocate;
@@ -200,7 +205,7 @@ public:
           if (!isa<RankedTensorType>(arg.getType())) {
             continue;
           }
-          Operation *lastOp = getLastValueUsageOp(livenessInfo, arg);
+          Operation *lastOp = getLastValueUsageOp(livenessFor(arg), arg);
           valuesToDeallocate.push_back({arg, lastOp});
         }
       }
@@ -237,7 +242,7 @@ public:
             continue;
           }
 
-          Operation *lastOp = getLastValueUsageOp(livenessInfo, result);
+          Operation *lastOp = getLastValueUsageOp(livenessFor(result), result);
           valuesToDeallocate.push_back({result, lastOp});
         }
       });
