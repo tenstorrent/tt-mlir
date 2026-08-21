@@ -553,8 +553,7 @@ struct TTIRToTTNNCommonPipelineOptions
                                   "enable-create-d2m-subgraphs to be enabled.");
     }
 
-    if (enableCreateD2MSubgraphs &&
-        enableD2MElementwiseFusion.getNumOccurrences() == 0) {
+    if (enableCreateD2MSubgraphs && !enableD2MElementwiseFusion.hasValue()) {
       enableD2MElementwiseFusion = true;
     }
   }
@@ -568,23 +567,21 @@ struct TTIRToTTNNCommonPipelineOptions
           ". Must be 0, 1, or 2.");
     }
 
-    // Only apply optimization_level if user didn't explicitly set the option.
-    // Use getNumOccurrences() to detect explicit user settings.
-    if (optimizerPassEnabled.getNumOccurrences() == 0) {
+    // Only apply optimization_level to options not explicitly set (via CLI or
+    // direct assignment).
+    if (!optimizerPassEnabled.hasValue()) {
       optimizerPassEnabled = (optimizationLevel >= 1);
     }
-    if (enableFusingConv2dWithMultiplyPattern.getNumOccurrences() == 0) {
+    if (!enableFusingConv2dWithMultiplyPattern.hasValue()) {
       enableFusingConv2dWithMultiplyPattern = (optimizationLevel >= 1);
     }
-    if (memoryLayoutAnalysisEnabled.getNumOccurrences() == 0) {
+    if (!memoryLayoutAnalysisEnabled.hasValue()) {
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
     }
-    if (computeCfgMathFidelity.getNumOccurrences() == 0 &&
-        optimizationLevel > 0) {
+    if (!computeCfgMathFidelity.hasValue() && optimizationLevel > 0) {
       computeCfgMathFidelity = OptionalMathFidelity::Undefined;
     }
-    if (computeCfgFp32DestAccEn.getNumOccurrences() == 0 &&
-        optimizationLevel > 0) {
+    if (!computeCfgFp32DestAccEn.hasValue() && optimizationLevel > 0) {
       computeCfgFp32DestAccEn = std::optional<bool>(std::nullopt);
     }
   }
