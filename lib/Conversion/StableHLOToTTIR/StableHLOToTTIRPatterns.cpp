@@ -880,11 +880,21 @@ public:
     // Default momentum for batch norm training
     FloatAttr momentumAttr = rewriter.getF32FloatAttr(1.0f);
 
-    auto runningMean = rewriter.create<ttir::ZerosOp>(
-        loc, meanType, llvm::to_vector_of<int32_t>(meanType.getShape()));
-    auto runningVariance = rewriter.create<ttir::OnesOp>(
-        loc, varianceType,
-        llvm::to_vector_of<int32_t>(varianceType.getShape()));
+    // stablehlo.batch_norm_training has no running-stats operands (it returns
+    // batch_mean/batch_var as results), but ttnn.batch_norm_training requires
+    // them and declares them [MemWrite] (updated in place). Use ttir.empty
+    // (NonCacheableTrait) rather than ttir.zeros / ttir.ones so CSE cannot
+    // merge these scratch buffers with the scale=ones / offset=zeros constants
+    // that XLA passes in. Without this, the same SSA value can end up in both
+    // a [MemWrite] running-stats slot and the read-only weight/bias slot, and
+    // tt-metal's training-mode batch_norm clobbers weight/bias when it updates
+    // running stats in place — producing output_std == input_std^2 instead of
+    // ~1.0 (root cause of MapTR PCC=0.05 and any LayerNorm-via-XLA model).
+    // Uninitialized values are safe here because momentum=1.0 below means
+    // new_running = 1.0*batch + 0.0*old_running, and the running stats are
+    // not returned to the XLA caller.
+    auto runningMean = rewriter.create<ttir::EmptyOp>(loc, meanType);
+    auto runningVariance = rewriter.create<ttir::EmptyOp>(loc, varianceType);
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::BatchNormTrainingOp>(
         srcOp, TypeRange{outputType, meanType, varianceType},
