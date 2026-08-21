@@ -174,7 +174,7 @@ For more information visit [pre-commit](https://pre-commit.com/)
 
 Build the documentation by doing the following:
 
-1. Make sure you have `mdbook`, `doxygen`, `sphinx`, and `sphinx-markdown-builder` installed.
+1. Make sure you have `mdbook`, `doxygen`, and the Sphinx stack from `docs/requirements.txt` (`sphinx`, `sphinx-rtd-theme`, `sphinx-markdown-builder`).
 
 2. Build the docs:
 
