@@ -4,6 +4,7 @@ add_mlir_unittest(OptimizerTests
     TestLegalTensorLayoutAnalysis.cpp
     TestConv2dConfigGenerator.cpp
     TestConv3dConfigHeuristic.cpp
+    TestPipelineOptionResolution.cpp
     PARTIAL_SOURCES_INTENDED
 )
 
@@ -13,6 +14,7 @@ target_link_libraries(OptimizerTests
     MLIRTTTransforms
     MLIRTTNNAnalysis
     MLIRTTNNValidation
+    MLIRTTNNPipelines
 )
 
 if (TTMLIR_ENABLE_OPMODEL)
