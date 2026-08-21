@@ -23,6 +23,12 @@ inline constexpr llvm::StringLiteral
     kReoutlineArgOperandIndicesAttr("reoutline.arg_operand_indices");
 inline constexpr llvm::StringLiteral
     kReoutlineResultPosAttr("reoutline.result_pos");
+// Size of the channel dimension of a group_norm composite's activation operand
+// before sharding. Stamped on the seed op alongside kReoutlineCompAttrsAttr so
+// that re-outlining can rescale the (global) `num_groups` attribute to the
+// local shape. See rescaleGroupNormNumGroups() in ReoutlineComposite.cpp.
+inline constexpr llvm::StringLiteral
+    kReoutlineGlobalChannelsAttr("reoutline.global_channels");
 
 // Composite op related string definitions.
 inline constexpr llvm::StringLiteral kCompDecompositionKey("decomposition");
@@ -66,6 +72,13 @@ inline constexpr llvm::StringLiteral
 // Composite name emitted by the frontend for scaled_dot_product_attention.
 inline constexpr llvm::StringLiteral
     kTTSDPACompositeName("tenstorrent.scaled_dot_product_attention");
+
+// Composite name emitted by the frontend for group_norm.
+inline constexpr llvm::StringLiteral
+    kTTGroupNormCompositeName("tenstorrent.group_norm");
+// Keys of the group_norm composite attributes that describe the channel layout.
+inline constexpr llvm::StringLiteral kGroupNormNumGroupsKey("num_groups");
+inline constexpr llvm::StringLiteral kGroupNormChannelDimKey("channel_dim");
 
 // Composite names that have custom sharding rules. These composites are
 // converted to stablehlo.custom_call ops so that Shardy can propagate shardings

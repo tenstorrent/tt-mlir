@@ -69,6 +69,9 @@ mlir::func::FuncOp createPrivateFunction(
     if (cloned->hasAttr(utils::kReoutlineResultPosAttr)) {
       cloned->removeAttr(utils::kReoutlineResultPosAttr);
     }
+    if (cloned->hasAttr(utils::kReoutlineGlobalChannelsAttr)) {
+      cloned->removeAttr(utils::kReoutlineGlobalChannelsAttr);
+    }
   }
 
   // Emit return with remapped escape values.
