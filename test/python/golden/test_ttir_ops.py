@@ -323,6 +323,46 @@ def test_adamw_fused_forward(shape: Shape, target: str, request, device):
     )
 
 
+# input is (N, 1, H, W) logits and target is (N, H) class indices; W is the
+# number of classes. Both a tile-aligned and a non-tile-aligned W are covered:
+# a ragged W makes the kernel take its DO_MASK_W path.
+@pytest.mark.parametrize(
+    "input_shape,target_shape",
+    [((4, 1, 32, 64), (4, 32)), ((2, 1, 32, 100), (2, 32))],
+    ids=["4x1x32x64", "2x1x32x100"],
+)
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_cross_entropy_fw(
+    input_shape: Shape, target_shape: Shape, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [input_shape, target_shape],
+            [torch.bfloat16, torch.uint32],
+        )
+        def cross_entropy_fw(
+            input: Operand,
+            target_idx: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # The random target tensor has to hold valid class indices, i.e. be
+            # in [0, W). ttml reads them as UINT32.
+            num_classes = input_shape[-1]
+            valid_target = torch.randint(
+                0, num_classes, target_shape, dtype=torch.int32
+            ).to(torch.uint32)
+            builder.set_goldens({target_idx: valid_target}, {})
+            return builder.cross_entropy_fw(input, target_idx)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 @x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])

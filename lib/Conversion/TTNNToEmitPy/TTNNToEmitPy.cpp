@@ -5506,6 +5506,31 @@ public:
         "expose the metal::sdpa_fw primitive through its Python bindings.");
   }
 };
+
+// CrossEntropyForward conversion pattern.
+//
+// EmitPy lowering for ttnn.cross_entropy_fw is intentionally unsupported, for
+// the same reason as ttnn.adamw above: the emitted Python would need the
+// low-level ttml::metal::cross_entropy_fw primitive.
+// See https://github.com/tenstorrent/tt-mlir/issues/9118.
+class CrossEntropyForwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::CrossEntropyForwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::CrossEntropyForwardOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::CrossEntropyForwardOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp, "EmitPy lowering for ttnn.cross_entropy_fw is not supported: "
+               "ttml does not expose the metal::cross_entropy_fw primitive "
+               "through its Python bindings.");
+  }
+};
 } // namespace
 
 // SDPABackward conversion pattern.
@@ -5852,6 +5877,9 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // SDPABackward: deliberately declines conversion (see comment above).
   patterns.add<SDPABackwardOpConversionPattern>(typeConverter, ctx);
+
+  // CrossEntropyForward: deliberately declines conversion, same reason.
+  patterns.add<CrossEntropyForwardOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

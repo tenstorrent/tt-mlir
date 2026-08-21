@@ -12,6 +12,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Error.h"
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 
@@ -2402,6 +2403,25 @@ struct OpModel<SDPABackwardOp> {
       std::optional<TTNNLayoutAttr> attentionMaskLayout,
       ttcore::AttentionMaskType maskType, llvm::APFloat dropoutProbability,
       TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// CrossEntropyForwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<CrossEntropyForwardOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout,
+                   llvm::ArrayRef<int64_t> targetShape,
+                   TTNNLayoutAttr targetLayout, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> targetShape, TTNNLayoutAttr targetLayout,
+               TTNNLayoutAttr outputLayout);
 };
 
 } // namespace mlir::tt::ttnn::op_model

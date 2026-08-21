@@ -7864,6 +7864,48 @@ class TTIRBuilder(Builder):
 
         return tuple(op_results)
 
+    ############### ttir.CrossEntropyForwardOp ###############
+
+    @tag(ttir.CrossEntropyForwardOp)
+    def cross_entropy_fw(
+        self,
+        input: Operand,
+        target: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.cross_entropy_fw)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(input)
+        target0 = self._get_golden_tensor(target)
+
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, target0, mlir_output_type)
+
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(result, input, target, loc=loc)
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        op_result = op.result
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
     ############### ttir.BatchNormInferenceOp ###############
 
     @tag(ttir.BatchNormInferenceOp)

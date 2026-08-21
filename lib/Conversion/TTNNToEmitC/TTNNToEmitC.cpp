@@ -3704,6 +3704,45 @@ public:
 } // namespace
 
 //
+// CrossEntropyForwardOp conversion pattern
+// (emits ::ttml::metal::cross_entropy_fw)
+//
+namespace {
+class CrossEntropyForwardOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::CrossEntropyForwardOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.cross_entropy_fw";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttml::metal::cross_entropy_fw";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::CrossEntropyForwardOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = mlir::tt::ttnn::CrossEntropyForwardOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::CrossEntropyForwardOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::CrossEntropyForwardOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getTarget()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+//
 // BatchNormTrainingOp conversion pattern
 //
 namespace {
@@ -6149,6 +6188,13 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            SDPAForwardOpConversionPattern, SDPABackwardOpConversionPattern,
            BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
            DitRMSNormUnaryFusedOpConversionPattern,
+           RMSNormPreAllGatherOpConversionPattern,
+           SDPAForwardOpConversionPattern, BatchNormTrainingOpConversionPattern,
+           RMSNormOpConversionPattern, RMSNormPreAllGatherOpConversionPattern,
+           SDPAForwardOpConversionPattern, BatchNormTrainingOpConversionPattern,
+           RMSNormOpConversionPattern, RMSNormPreAllGatherOpConversionPattern,
+           CrossEntropyForwardOpConversionPattern,
+           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
            RMSNormPreAllGatherOpConversionPattern,
            DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,
            LayerNormPreAllGatherOpConversionPattern,
