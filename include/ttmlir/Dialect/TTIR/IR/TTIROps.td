@@ -3747,7 +3747,6 @@ def TTIR_UpdateCacheOp : TTIR_InplaceOp<"update_cache", [TTIR_CacheOpInterface]>
                        AnyRankedTensor:$update_index,
                        I32Attr:$batch_offset);
 
-  let hasCanonicalizer = 1;
   let hasVerifier = 1;
 }
 

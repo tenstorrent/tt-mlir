@@ -564,7 +564,7 @@ def TTNNKVCacheDtypeConversion: Pass<"ttnn-kv-cache-dtype-conversion", "::mlir::
   let description = [{
     This pass changes KV cache function argument types to a target dtype and inserts
     ttnn.typecast ops on the input operands of ttnn.fill_cache and
-    ttnn.update_cache so written data matches the new cache format.
+    ttnn.paged_fill_cache so written data matches the new cache format.
   }];
 
   list<Option> options = [
