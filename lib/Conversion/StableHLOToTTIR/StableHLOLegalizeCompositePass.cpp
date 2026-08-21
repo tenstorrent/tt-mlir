@@ -1441,6 +1441,8 @@ public:
   }
 };
 
+// Legalize the stablehlo.composite Shardy emits for sdy.all_slice into a chain
+// of ttir.mesh_partition ops, one per mesh axis that still has to be applied.
 class ShardyAllSliceToTTIRMeshPartitionConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
 public:
@@ -1455,79 +1457,133 @@ public:
       return failure();
     }
 
-    if (srcOp->getNumOperands() != 1) {
+    if (srcOp->getNumOperands() != 1 || srcOp->getNumResults() != 1) {
       return rewriter.notifyMatchFailure(
-          srcOp,
-          "sdy.all_slice composite op must have exactly one input operand");
+          srcOp, "sdy.all_slice composite op must have exactly one input "
+                 "operand and one result.");
     }
 
     DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
-    auto maybeOutShardingAttr = compositeAttrs.get("out_sharding");
-    if (!maybeOutShardingAttr) {
-      return rewriter.notifyMatchFailure(srcOp,
-                                         "out_sharding attribute is required");
-    }
-    // Extract the out_sharding attribute
-    mlir::ModuleOp moduleOp = srcOp->getParentOfType<mlir::ModuleOp>();
-    mlir::sdy::MeshOp globalMeshOp = shardy_utils::getMeshOps(moduleOp)[0];
-    mlir::sdy::TensorShardingAttr outShardingAttr =
-        mlir::cast<mlir::sdy::TensorShardingAttr>(maybeOutShardingAttr);
-
-    // Calculate the attributes for the ttir.mesh_shard op.
-    llvm::Expected<mlir::tt::shardy_utils::ShardyMeshSharding>
-        shardyMeshSharding =
-            mlir::tt::shardy_utils::ShardyMeshSharding::generate(
-                globalMeshOp.getMeshAttr(), outShardingAttr,
-                mlir::tt::ttcore::ShardStatus::Unsharded,
-                ttcore::MeshShardDirection::FullToShard);
-    if (auto err = shardyMeshSharding.takeError()) {
+    auto outShardingAttr =
+        mlir::dyn_cast_if_present<mlir::sdy::TensorShardingAttr>(
+            compositeAttrs ? compositeAttrs.get("out_sharding")
+                           : mlir::Attribute());
+    if (!outShardingAttr) {
       return rewriter.notifyMatchFailure(
-          srcOp, "Error trying to parse shardy annotation when legalizing "
-                 "sdy.all_slice composite op.");
+          srcOp, "out_sharding attribute is required and must be a shardy "
+                 "tensor sharding.");
     }
-    auto shardDims = shardyMeshSharding->getShardDims();
-    llvm::SmallVector<int32_t> tensorDims;
-    llvm::SmallVector<uint32_t> clusterAxes;
-    for (auto [dimIdx, dim] : llvm::enumerate(shardDims)) {
-      if (dim >= 0) {
-        tensorDims.push_back(static_cast<int32_t>(dim));
-        clusterAxes.push_back(static_cast<uint32_t>(dimIdx));
-      }
+    if (!outShardingAttr.isFullyClosed()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "sdy.all_slice with an open out_sharding dimension is "
+                 "currently not supported.");
     }
-    rewriter.setInsertionPoint(srcOp);
+    // Resolve the mesh the sharding itself names rather than assuming the
+    // module's first one.
+    mlir::sdy::MeshAttr meshAttr = outShardingAttr.getMesh(srcOp);
+    if (!meshAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Could not resolve the mesh referenced by out_sharding.");
+    }
+    llvm::ArrayRef<mlir::sdy::MeshAxisAttr> meshAxes = meshAttr.getAxes();
+    llvm::SmallDenseMap<llvm::StringRef, uint32_t> clusterAxisByName;
+    for (auto [idx, meshAxis] : llvm::enumerate(meshAxes)) {
+      clusterAxisByName[meshAxis.getName()] = static_cast<uint32_t>(idx);
+    }
 
-    mlir::Value currInput = adaptor.getOperands().front();
-    auto meshShape = shardyMeshSharding->getMeshShape();
-    // Replace the composite op with 1 or more ttir.mesh_partition ops.
-    for (size_t i = 0; i < tensorDims.size(); ++i) {
-      auto currInputType = mlir::cast<RankedTensorType>(currInput.getType());
-      llvm::SmallVector<int64_t> newShape(currInputType.getShape().begin(),
-                                          currInputType.getShape().end());
-      if (static_cast<size_t>(tensorDims[i]) >= newShape.size()) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "Invalid mesh partition dimension index.");
-      }
-      if (static_cast<size_t>(clusterAxes[i]) >= meshShape.size()) {
-        return rewriter.notifyMatchFailure(srcOp, "Invalid mesh axis index.");
-      }
-      // Compute new shape for the result tensor, with original dimension
-      // divided by mesh axis size
-      int64_t meshAxisSize = meshShape[clusterAxes[i]];
-      if (newShape[tensorDims[i]] == ShapedType::kDynamic ||
-          newShape[tensorDims[i]] % meshAxisSize != 0) {
-        return rewriter.notifyMatchFailure(
-            srcOp,
-            "Dimension size must be static and divisible by mesh axis size.");
-      }
-      newShape[tensorDims[i]] = newShape[tensorDims[i]] / meshAxisSize;
-      auto resultType =
-          mlir::RankedTensorType::get(newShape, currInputType.getElementType(),
-                                      currInputType.getEncoding());
-      currInput = rewriter.create<ttir::MeshPartitionOp>(
-          srcOp->getLoc(), resultType, currInput,
-          rewriter.getSI32IntegerAttr(tensorDims[i]),
-          rewriter.getUI32IntegerAttr(clusterAxes[i]));
+    auto operandType =
+        mlir::cast<RankedTensorType>(adaptor.getOperands().front().getType());
+    auto resultType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+    int64_t rank = operandType.getRank();
+    if (resultType.getRank() != rank || outShardingAttr.getRank() != rank) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "sdy.all_slice operand, result and out_sharding ranks must "
+                 "all match.");
     }
+    if (operandType.getElementType() != resultType.getElementType()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "sdy.all_slice must not change the element type.");
+    }
+
+    // Mesh axes to slice along, as {tensor dim, cluster axis} pairs in the
+    // order they have to be applied.
+    llvm::SmallVector<std::pair<int32_t, uint32_t>> outstandingAxes;
+    for (int64_t dim = 0; dim < rank; ++dim) {
+      int64_t inDimSize = operandType.getDimSize(dim);
+      int64_t outDimSize = resultType.getDimSize(dim);
+      if (ShapedType::isDynamic(inDimSize) ||
+          ShapedType::isDynamic(outDimSize) || outDimSize <= 0 ||
+          inDimSize % outDimSize != 0) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "sdy.all_slice result shape is not an integral shard of its "
+                   "operand shape.");
+      }
+      // How much of this dim's sharding out_sharding still has to apply.
+      int64_t pendingDivisor = inDimSize / outDimSize;
+
+      // The mesh axes out_sharding shards this dim over, major -> minor.
+      // Unit-sized axes divide nothing, so drop them.
+      llvm::SmallVector<uint32_t> clusterAxes;
+      for (mlir::sdy::AxisRefAttr axisRef :
+           outShardingAttr.getDimSharding(dim).getAxes()) {
+        if (axisRef.getSubAxisInfo()) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "sdy.all_slice with sub-axis partitioning is currently "
+                     "not supported.");
+        }
+        auto clusterAxis = clusterAxisByName.find(axisRef.getName());
+        if (clusterAxis == clusterAxisByName.end()) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "out_sharding references an axis that the mesh does not "
+                     "have.");
+        }
+        if (meshAxes[clusterAxis->second].getSize() > 1) {
+          clusterAxes.push_back(clusterAxis->second);
+        }
+      }
+
+      // Consume axes minor-most first until the outstanding divisor is used up;
+      // whatever is left is the major prefix the operand already carries.
+      size_t firstOutstanding = clusterAxes.size();
+      while (pendingDivisor > 1 && firstOutstanding > 0) {
+        int64_t axisSize =
+            meshAxes[clusterAxes[firstOutstanding - 1]].getSize();
+        if (pendingDivisor % axisSize != 0) {
+          break;
+        }
+        pendingDivisor /= axisSize;
+        --firstOutstanding;
+      }
+      if (pendingDivisor != 1) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Could not reconcile sdy.all_slice out_sharding with its "
+                   "declared result shape.");
+      }
+      for (uint32_t clusterAxis :
+           llvm::ArrayRef(clusterAxes).drop_front(firstOutstanding)) {
+        outstandingAxes.emplace_back(static_cast<int32_t>(dim), clusterAxis);
+      }
+    }
+
+    // Replace the composite op with 0 or more ttir.mesh_partition ops. The
+    // reconciliation above guarantees the last one has the declared result
+    // shape, so no unresolved materialization is left behind.
+    rewriter.setInsertionPoint(srcOp);
+    llvm::SmallVector<int64_t> currShape(operandType.getShape());
+    mlir::Value currInput = adaptor.getOperands().front();
+    for (auto [dim, clusterAxis] : outstandingAxes) {
+      currShape[dim] /= meshAxes[clusterAxis].getSize();
+      auto currType = mlir::RankedTensorType::get(
+          currShape, operandType.getElementType(), operandType.getEncoding());
+      currInput = rewriter.create<ttir::MeshPartitionOp>(
+          srcOp->getLoc(), currType, currInput,
+          rewriter.getSI32IntegerAttr(dim),
+          rewriter.getUI32IntegerAttr(clusterAxis));
+    }
+    assert(llvm::ArrayRef(currShape) == resultType.getShape() &&
+           "sdy.all_slice legalization must preserve the declared result "
+           "shape.");
     rewriter.replaceOp(srcOp, currInput);
     return success();
   }
