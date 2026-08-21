@@ -1393,6 +1393,13 @@ def TTNN_ConcatOp : TTNN_Op<"concat"> {
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createConcatOpOperandsWorkarounds(this->getOperation());
+      }
+    }];
+
     let hasVerifier = 1;
 }
 
