@@ -1780,6 +1780,42 @@ def test_reduce_window_op(test_fn: Callable, target: str, request, device):
     )
 
 
+def _make_gather_indices(
+    input_shape: Shape,
+    indices_shape: Tuple,
+    start_index_map: List[int],
+    slice_sizes: List[int],
+    index_vector_dim: int,
+) -> torch.Tensor:
+    """Build a deterministic, in-bounds start_indices tensor.
+
+    Spread over each component's valid range rather than pinned to 0: all-zero
+    indices collapse every component to flat index 0, masking index-math errors.
+    """
+    g = torch.Generator().manual_seed(0)
+    rank = len(indices_shape)
+
+    # index_vector_dim == rank: implicit trailing vector dim, one component.
+    if index_vector_dim == rank:
+        dim = start_index_map[0]
+        hi = input_shape[dim] - slice_sizes[dim]
+        return torch.randint(0, hi + 1, indices_shape, dtype=torch.int32, generator=g)
+
+    indices = torch.zeros(indices_shape, dtype=torch.int32)
+    num_components = indices_shape[index_vector_dim]
+    assert num_components == len(start_index_map)
+    for k in range(num_components):
+        dim = start_index_map[k]
+        hi = input_shape[dim] - slice_sizes[dim]
+        selector = [slice(None)] * rank
+        selector[index_vector_dim] = k
+        component = indices[tuple(selector)]
+        indices[tuple(selector)] = torch.randint(
+            0, hi + 1, component.shape, dtype=torch.int32, generator=g
+        )
+    return indices
+
+
 @pytest.mark.parametrize(
     "input_shape,input_dtype,indices_shape,start_index_map,offset_dims,slice_sizes,collapsed_slice_dims",
     [
@@ -1805,11 +1841,22 @@ def test_reduce_window_op(test_fn: Callable, target: str, request, device):
             # Multi-partial indexed dims - f32.
             [],
         ),
+        pytest.param(
+            (1, 12, 12, 768),
+            torch.float32,
+            (16, 12, 3),
+            # Size-1 batch dim dropped from the multi-dim flatten - f32.
+            [0, 1, 2],
+            [2],
+            [1, 1, 1, 768],
+            [0, 1, 2],
+        ),
     ],
     ids=[
         "simple_1d-f32",
         "complex_indices-f32",
         "multi_partial-f32",
+        "multi_partial_batch_dropped-f32",
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -1828,8 +1875,6 @@ def test_gather(
     def module_gather(builder: StableHLOBuilder):
         @builder.func([input_shape], [input_dtype])
         def gather_func(in0: Operand, builder: StableHLOBuilder):
-            indices = builder.constant(torch.zeros(indices_shape, dtype=torch.int32))
-
             operand_batching_dims = []
             start_indices_batching_dims = []
 
@@ -1837,6 +1882,16 @@ def test_gather(
                 index_vector_dim = len(indices_shape)
             else:
                 index_vector_dim = len(indices_shape) - 1
+
+            indices = builder.constant(
+                _make_gather_indices(
+                    input_shape,
+                    indices_shape,
+                    start_index_map,
+                    slice_sizes,
+                    index_vector_dim,
+                )
+            )
 
             return builder.gather(
                 in0,
