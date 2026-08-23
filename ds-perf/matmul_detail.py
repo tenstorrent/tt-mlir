@@ -28,6 +28,18 @@ def program_config(attrs):
     return "default"
 
 
+def fused_activation(attrs):
+    """The activation folded into the matmul, if any. It lives inside program_config,
+    and whether it is present changes what the matmul costs -- so a DS-vs-multicast
+    comparison has to hold it fixed."""
+    if isinstance(attrs, str):
+        m = re.search(r"fused_activation=([^;)]*)", attrs)
+        if m and "nullopt" not in m.group(1):
+            a = re.search(r"UnaryOpType::(\w+)", m.group(1))
+            return a.group(1) if a else m.group(1)[:16]
+    return ""
+
+
 def gather_in0(attrs):
     if isinstance(attrs, str):
         m = re.search(r"gather_in0'?\s*[:=]\s*'?(\w+)", attrs)
@@ -89,6 +101,7 @@ def main():
             "ns": d,
             "cfg": program_config(r.get("ATTRIBUTES")),
             "gather_in0": gather_in0(r.get("ATTRIBUTES")),
+            "act": fused_activation(r.get("ATTRIBUTES")),
             "in0_mem": short_mem(r.get("INPUT_0_MEMORY")),
             "in1_mem": short_mem(r.get("INPUT_1_MEMORY")),
             "in1_dtype": str(r.get("INPUT_1_DATATYPE", "")).replace("DataType::", ""),
