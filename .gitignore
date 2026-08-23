@@ -60,5 +60,8 @@ env/build/
 # Generated Artifacts
 **/generated/
 
+# Auto-generated per-dialect op docs (produced at docs build time)
+docs/src/autogen/
+
 # System descriptor snapshots (d2m-jit artifact)
 current.ttsys
