@@ -90,8 +90,7 @@ buildDRAMShardedProgramConfig(MLIRContext *ctx, const DRAMShardParams &p,
 // Build the compute-kernel config for a DRAM-sharded matmul (math fidelity
 // follows the weight dtype; fp32 dest-accumulate and packer-L1-accumulate
 // enabled).
-DeviceComputeKernelConfigAttr
-buildComputeConfig(MLIRContext *ctx, ttcore::DataType weightDataType);
+DeviceComputeKernelConfigAttr buildComputeConfig(MLIRContext *ctx);
 
 } // namespace mlir::tt::ttnn
 
