@@ -32,9 +32,17 @@ inline constexpr llvm::StringLiteral g_L1ConstEvalUsageAttrName =
 inline constexpr llvm::StringLiteral g_ConstEvalAllowedAttrName =
     "ttnn.const_eval_allowed";
 
+// Attribute name for the flag that disables DRAM-sharded matmul generation.
+inline constexpr llvm::StringLiteral g_DisableDRAMShardedMatmulAttrName =
+    "ttnn.disable_dram_sharded_matmul";
+
 // Helper function to retrieve tensor L1 usage cap from module attribute.
 // Returns the configured cap if found, otherwise returns the default value.
 float getTensorL1UsageCap(Operation *op, float defaultValue = 0.95f);
+
+// Whether DRAM-sharded matmul generation is disabled, per the module attribute
+// set by DevicePassesWrapper. Returns false when the attribute is absent.
+bool isDRAMShardedMatmulDisabled(Operation *op);
 
 // Helper function to retrieve the per-core L1 usage reserved for the retained
 // (permanent) tensors.

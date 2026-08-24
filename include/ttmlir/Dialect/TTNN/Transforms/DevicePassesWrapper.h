@@ -24,6 +24,10 @@ struct DevicePassesWrapperOptions {
   // This is set as a module attribute by DevicePassesWrapper, making it
   // accessible to all nested passes via utils::getTensorL1UsageCap()
   float tensorL1UsageCap = 0.95f;
+  // When true, suppresses generation of DRAM-sharded matmuls in the optimizer.
+  // This is set as a module attribute by DevicePassesWrapper, making it
+  // accessible to the matmul rule book via utils::isDRAMShardedMatmulDisabled()
+  bool disableDRAMShardedMatmul = false;
 };
 
 // Creates a pass that wraps device-dependent passes with device lifecycle
