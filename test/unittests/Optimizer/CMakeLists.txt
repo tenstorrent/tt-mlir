@@ -5,6 +5,7 @@ add_mlir_unittest(OptimizerTests
     TestConv2dConfigGenerator.cpp
     TestConv3dConfigHeuristic.cpp
     TestPipelineOptionResolution.cpp
+    TestMatmulProgramConfig.cpp
     PARTIAL_SOURCES_INTENDED
 )
 
