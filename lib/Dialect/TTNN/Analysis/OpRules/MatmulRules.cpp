@@ -156,6 +156,16 @@ static std::optional<std::pair<Value, Value>> getMatmulOperands(Operation *op) {
 static bool isDSEligible(Operation *op, Value activation, Value weight) {
   [[maybe_unused]] StringRef opName = op->getName().getStringRef();
 
+  // Respect the disable-dram-sharded-matmul pipeline option (set as a module
+  // attribute by DevicePassesWrapper). Every DS entry point reaches this
+  // through buildDSPlan, so gating here covers all of them.
+  if (ttnn::utils::isDRAMShardedMatmulDisabled(op)) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "DS declined ({0}): disabled by disable-dram-sharded-matmul",
+                 opName);
+    return false;
+  }
+
   if (!isBfpDRAMInterleaved(weight)) {
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "DS declined ({0}): weight is not a tiled bfp4/bfp8 "
