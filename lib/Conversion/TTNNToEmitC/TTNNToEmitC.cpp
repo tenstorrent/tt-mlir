@@ -415,6 +415,17 @@ public:
   matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    // ttnn.multiply's optional lhs_activation has no representation here, and
+    // silently dropping it would change the numerics with no diagnostic.
+    if constexpr (std::is_same_v<SourceOp, mlir::tt::ttnn::MultiplyOp>) {
+      if (srcOp.getLhsActivation()) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "ttnn.multiply with lhs_activation is not supported by this "
+            "conversion; it is only lowered through the flatbuffer path");
+      }
+    }
+
     ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{

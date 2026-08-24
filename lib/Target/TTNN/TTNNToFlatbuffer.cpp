@@ -2122,8 +2122,19 @@ createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
 
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
 
-  return ::tt::target::ttnn::CreateEltwiseBinaryOp(
-      *cache.fbb, type, lhs, rhs, outputDtype, memoryConfig, out);
+  // Optional in-kernel activation applied to operand A (SwiGLU's
+  // multiply(silu(lhs), rhs)). ttnn.multiply is the only binary op that carries
+  // it, and the only one the runtime plumbs it for.
+  ::flatbuffers::Offset<::flatbuffers::String> lhsActivation = 0;
+  if constexpr (std::is_same_v<EltwiseBinaryOp, MultiplyOp>) {
+    if (auto act = op.getLhsActivation()) {
+      lhsActivation = cache.fbb->CreateString(act->str());
+    }
+  }
+
+  return ::tt::target::ttnn::CreateEltwiseBinaryOp(*cache.fbb, type, lhs, rhs,
+                                                   outputDtype, memoryConfig,
+                                                   out, lhsActivation);
 }
 
 template <typename EltwiseBinaryCompositeOp>

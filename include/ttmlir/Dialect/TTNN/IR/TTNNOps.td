@@ -591,7 +591,33 @@ def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply"> {
     let summary = "Eltwise multiply.";
     let description = [{
       Eltwise multiply operation.
+
+      `lhs_activation` optionally names a unary activation the kernel applies to
+      operand A before the multiply, so a producer's activation costs no separate
+      op -- SwiGLU's `multiply(silu(gate), up)`. Only "silu" is accepted; it is
+      carried to ttnn as `lhs_activations`.
+
+      It lives on this op rather than on the eltwise-binary base class because
+      this is the only binary op the runtime plumbs it for, and the paths that
+      cannot represent it (EmitC, EmitPy, TTNN-to-TTIR) reject it rather than
+      drop it.
     }];
+
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs,
+                         OptionalAttr<StrAttr>:$lhs_activation);
+
+    // Keep the (resultType, lhs, rhs) builder every existing call site uses;
+    // lhs_activation is left unset and only the fused-SwiGLU path sets it.
+    let builders = [
+      OpBuilder<(ins "::mlir::Type":$result, "::mlir::Value":$lhs,
+                     "::mlir::Value":$rhs), [{
+        $_state.addOperands({lhs, rhs});
+        $_state.addTypes({result});
+      }]>,
+    ];
+
+    let hasVerifier = 1;
 }
 
 def TTNN_LogicalRightShiftOp: TTNN_ElementwiseBinaryOp<"logical_right_shift">{

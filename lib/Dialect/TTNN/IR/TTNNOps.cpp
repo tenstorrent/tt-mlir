@@ -97,6 +97,19 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
+// MultiplyOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::MultiplyOp::verify() {
+  std::optional<llvm::StringRef> activation = getLhsActivation();
+  if (activation && *activation != "silu") {
+    return emitOpError() << "lhs_activation must be \"silu\", but got \""
+                         << *activation << "\"";
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // DropoutOp
 //===----------------------------------------------------------------------===//
 
