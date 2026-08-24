@@ -422,9 +422,12 @@ getMemoryConfig(const MemoryConfigAttr &memConfigAttr) {
 
 bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
                         const ::tt::tt_metal::CoreCoord &computeGridSize) {
-  // Check the shard bounding box
+  // Check the shard bounding box against the compute grid.
+  // DRAM-sharded tensors use DRAM bank addresses which are outside the compute
+  // core address space, so skip this check for DRAM buffers.
   auto memoryConfig = tensorSpec.memory_config();
-  if (memoryConfig.is_sharded() && memoryConfig.shard_spec().has_value()) {
+  if (memoryConfig.is_sharded() && memoryConfig.shard_spec().has_value() &&
+      memoryConfig.buffer_type() != ::tt::tt_metal::BufferType::DRAM) {
     ::tt::tt_metal::CoreRange shardBoundingBox =
         memoryConfig.shard_spec().value().grid.bounding_box();
     ::tt::tt_metal::CoreRangeSet deviceWorkerCores{::tt::tt_metal::CoreRange{
