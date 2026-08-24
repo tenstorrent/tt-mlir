@@ -28,7 +28,8 @@ public:
                       const DevicePassesWrapperOptions &options)
       : populatePipeline(std::move(populatePipeline)),
         externalDevice(options.devicePtr),
-        tensorL1UsageCap(options.tensorL1UsageCap) {}
+        tensorL1UsageCap(options.tensorL1UsageCap),
+        disableDRAMShardedMatmul(options.disableDRAMShardedMatmul) {}
 
   StringRef getArgument() const override { return "device-passes-wrapper"; }
 
@@ -42,6 +43,7 @@ public:
     copy->externalDevice = externalDevice;
     copy->populatePipeline = populatePipeline;
     copy->tensorL1UsageCap = tensorL1UsageCap;
+    copy->disableDRAMShardedMatmul = disableDRAMShardedMatmul;
     return copy;
   }
 
@@ -64,6 +66,8 @@ public:
     OpBuilder builder(op->getContext());
     op->setAttr(utils::g_TensorL1UsageCapAttrName,
                 builder.getF32FloatAttr(tensorL1UsageCap));
+    op->setAttr(utils::g_DisableDRAMShardedMatmulAttrName,
+                builder.getBoolAttr(disableDRAMShardedMatmul));
 
     // Create nested pass manager and populate it.
     OpPassManager nestedPm(getOperation()->getName());
@@ -96,14 +100,16 @@ public:
       return;
     }
 
-    // Clean up the attribute after the nested passes complete.
+    // Clean up the attributes after the nested passes complete.
     op->removeAttr(utils::g_TensorL1UsageCapAttrName);
+    op->removeAttr(utils::g_DisableDRAMShardedMatmulAttrName);
   }
 
 private:
   std::function<void(OpPassManager &)> populatePipeline;
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> externalDevice;
   float tensorL1UsageCap;
+  bool disableDRAMShardedMatmul;
 };
 } // namespace
 
