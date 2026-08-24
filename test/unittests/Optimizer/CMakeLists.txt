@@ -21,6 +21,7 @@ if (TTMLIR_ENABLE_OPMODEL)
         TestOpModelStrategy.cpp
         TestBeamSearch.cpp
         TestReshardCandidates.cpp
+        TestDRAMShardedMatmulEligibility.cpp
         PARTIAL_SOURCES_INTENDED
     )
 
