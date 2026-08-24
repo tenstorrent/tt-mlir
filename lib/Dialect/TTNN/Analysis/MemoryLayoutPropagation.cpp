@@ -970,6 +970,31 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
                                 maxInputCandidatesPerOperand);
     }
 
+    // Inject op-specific extra reshard candidates (e.g. DRAM width-sharded
+    // weight and L1 1x8 activation for DS matmul) before standard reshards so
+    // they are not displaced when the candidate list reaches the cap.
+    for (TTNNLayoutAttr extraLayout :
+         getRuleBook(op).getExtraInputReshardCandidates(op, operandIdx)) {
+      bool alreadyPresent =
+          llvm::any_of(candidatesForOperand, [&](const InputCandidate &ic) {
+            return ic.layout == extraLayout;
+          });
+      if (alreadyPresent) {
+        continue;
+      }
+      size_t producerBeamSize = producerBeam ? producerBeam->size() : 1;
+      for (size_t pIdx = 0; pIdx < producerBeamSize; ++pIdx) {
+        if (candidatesForOperand.size() >= maxInputCandidatesPerOperand) {
+          break;
+        }
+        InputCandidate ic;
+        ic.layout = extraLayout;
+        ic.producerCandidateIndex = pIdx;
+        ic.isReshard = true;
+        candidatesForOperand.push_back(ic);
+      }
+    }
+
     addReshardCandidates(candidatesForOperand, op, operandIdx, operand,
                          currentLayout, tensorType, producerBeam, producerOp,
                          resultIdx, maxInputCandidatesPerOperand);
@@ -1485,23 +1510,24 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
     }
   }
 
-  // Take the producer's layout and apply the reshard target's buffer type,
-  // memory layout, grid, and page layout (element type). Tracking the element
-  // type is what lets a tile -> row-major sibling reshard materialize.
-  TTNNLayoutAttr producerLayout =
-      utils::getLayoutAttrFromTensor(producerTensorType);
-  Type reshardElementType = ttnn::utils::getElementType(
-      reshardLayout.getContext(), reshardLayout.getLayout(),
-      reshardLayout.getDataType());
-  TTNNLayoutAttr outputLayout =
-      TTNNLayoutAttr::Builder(producerLayout, producerTensorType.getShape())
-          .setBufferType(reshardLayout.getBufferType())
-          .setMemoryLayout(reshardLayout.getMemLayout())
-          .setGridShape(reshardLayout.getGridShape())
-          .setElementType(reshardElementType)
-          .buildWithCanonicalCorePlacement(deviceAttr);
+  // Use reshardLayout directly instead of rebuilding it from the producer's
+  // layout via Builder. reshardLayout is already a complete layout for this
+  // tensor -- it is the layout the rule book asked for and the op model
+  // validated against -- so reconstructing it from a different seed can only
+  // diverge from it.
+  //
+  // The Builder path seeded from the producer and copied over only the buffer
+  // type, memory layout, grid and element type. Each of those setters
+  // early-returns when the value is unchanged, and only a *null* core range set
+  // gets filled by buildWithCanonicalCorePlacement, so a producer that already
+  // matches the target's buffer type, memory layout and grid keeps its own
+  // placement rather than taking the target's.
+  //
+  // This also subsumes the page-layout (element type) override that path
+  // needed: reshardLayout carries its own element type, so a tile -> row-major
+  // sibling reshard materializes without reconstructing it.
   RankedTensorType newTensorType =
-      utils::RankedTensorTypeFactory::create(producerTensorType, outputLayout);
+      utils::RankedTensorTypeFactory::create(producerTensorType, reshardLayout);
 
   // Dedup: reuse a shared reshard for consumers of the same producer requesting
   // the same target layout.
@@ -1530,7 +1556,7 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
   // sequence. Pure memory-config reshards stay ttnn.to_memory_config.
   bool pageLayoutChanges =
       utils::getLayoutAttrFromTensor(producerTensorType).getLayout() !=
-      outputLayout.getLayout();
+      reshardLayout.getLayout();
   Operation *reshardOp =
       pageLayoutChanges
           ? builder.create<ToLayoutOp>(loc, newTensorType, operand)
