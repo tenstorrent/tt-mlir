@@ -44,7 +44,23 @@ class TTNNToTTIRElementwiseConversionPattern
 public:
   using TTNNToTTIROpConversionPattern<SrcOp,
                                       DestOp>::TTNNToTTIROpConversionPattern;
-  // Reuse base; this exists simply for clarity and potential future extensions
+  using Adaptor = typename SrcOp::Adaptor;
+
+  mlir::LogicalResult
+  matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    // The base rebuilds the op from operands alone, so ttnn.multiply's optional
+    // lhs_activation would be dropped without a diagnostic. TTIR has no
+    // equivalent; refuse rather than silently change the numerics.
+    if constexpr (std::is_same_v<SrcOp, mlir::tt::ttnn::MultiplyOp>) {
+      if (srcOp.getLhsActivation()) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "ttnn.multiply with lhs_activation has no TTIR equivalent");
+      }
+    }
+    return TTNNToTTIROpConversionPattern<SrcOp, DestOp>::matchAndRewrite(
+        srcOp, adaptor, rewriter);
+  }
 };
 
 template <typename SrcOp, typename DestOp>

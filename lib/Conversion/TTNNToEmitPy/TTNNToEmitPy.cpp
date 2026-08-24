@@ -303,6 +303,17 @@ public:
   matchAndRewrite(TTNNOpTy eltwiseBinaryOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    // ttnn.multiply's optional lhs_activation has no representation here, and
+    // silently dropping it would change the numerics with no diagnostic.
+    if constexpr (std::is_same_v<TTNNOpTy, mlir::tt::ttnn::MultiplyOp>) {
+      if (eltwiseBinaryOp.getLhsActivation()) {
+        return rewriter.notifyMatchFailure(
+            eltwiseBinaryOp,
+            "ttnn.multiply with lhs_activation is not supported by this "
+            "conversion; it is only lowered through the flatbuffer path");
+      }
+    }
+
     ttnn_to_emitpy::EmitPyTTNNEmitter<TTNNOpTy> emitter(eltwiseBinaryOp,
                                                         adaptor, rewriter);
 
