@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/OpRuleBook.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -87,6 +88,20 @@ public:
                              TensorMemoryLayout::HeightSharded, gridShape);
   }
 
+  TTNNLayoutAttr createL1WidthShardedLayout(
+      const llvm::ArrayRef<int64_t> &tensorShape,
+      const llvm::ArrayRef<int64_t> &gridShape = {1, 8}) {
+    return createTiledLayout(tensorShape, BufferType::L1,
+                             TensorMemoryLayout::WidthSharded, gridShape);
+  }
+
+  TTNNLayoutAttr createL1BlockShardedLayout(
+      const llvm::ArrayRef<int64_t> &tensorShape,
+      const llvm::ArrayRef<int64_t> &gridShape = {8, 8}) {
+    return createTiledLayout(tensorShape, BufferType::L1,
+                             TensorMemoryLayout::BlockSharded, gridShape);
+  }
+
   // Create a simple AddOp for testing.
   AddOp createMockAddOp(const llvm::ArrayRef<int64_t> &inputShape = {1, 1, 32,
                                                                      32}) {
@@ -127,6 +142,32 @@ public:
     return builder.create<ReshapeOp>(builder.getUnknownLoc(), outputTensorType,
                                      input.getResult(),
                                      builder.getI32ArrayAttr(outputShapeI32));
+  }
+
+  // Create a PermuteOp for testing. The default permutation transposes the
+  // last two (non-unit) dims, so it is not a permute-nop.
+  PermuteOp createMockPermuteOp(
+      const llvm::ArrayRef<int64_t> &inputShape = {1, 1, 32, 64},
+      const llvm::ArrayRef<int64_t> &permutation = {0, 1, 3, 2}) {
+    auto inputLayout = createL1InterleavedLayout(inputShape);
+    auto inputTensorType = mlir::RankedTensorType::get(
+        inputShape, builder.getBF16Type(), inputLayout);
+
+    llvm::SmallVector<int64_t> outputShape;
+    for (int64_t dim : permutation) {
+      outputShape.push_back(inputShape[dim]);
+    }
+    auto outputLayout = createDRAMInterleavedLayout(outputShape);
+    auto outputTensorType = mlir::RankedTensorType::get(
+        outputShape, builder.getBF16Type(), outputLayout);
+
+    auto input = builder.create<OnesOp>(
+        builder.getUnknownLoc(), inputTensorType,
+        /*device=*/nullptr, ShapeAttr::get(&context, inputShape));
+
+    return builder.create<PermuteOp>(
+        builder.getUnknownLoc(), outputTensorType, input.getResult(),
+        builder.getDenseI64ArrayAttr(permutation), /*pad_value=*/nullptr);
   }
 
   // Create a MatmulOp for testing.
@@ -250,6 +291,119 @@ TEST_F(OpModelStrategyTest, ReshapeOpSkipsL1Sharding) {
   }
 }
 
+// PermuteOp has its own rule book (#7988); reshape-specific output-hint
+// changes must not leak into it. Permute output hints are non-sharded only.
+TEST_F(OpModelStrategyTest, PermuteOpSkipsL1Sharding) {
+  auto permuteOp = createMockPermuteOp();
+  auto legalConfigs = createElementwiseLegalConfigs();
+
+  OutputHints hints = getOutputHints(permuteOp, legalConfigs);
+
+  // The sharded config is dropped, and there are no sharded fallbacks.
+  EXPECT_LT(hints.hints.size(), legalConfigs.size());
+  EXPECT_TRUE(hints.fallbackHints.empty());
+
+  for (const auto &hint : hints.hints) {
+    if (hint.outputLayout && hint.outputLayout.getMemLayout()) {
+      EXPECT_FALSE(
+          isShardedMemoryLayout(hint.outputLayout.getMemLayout().getValue()));
+    }
+  }
+}
+
+// The split itself: permute must not resolve to reshape's rule book, or a
+// reshape-only rule change silently applies to permute too (#7988).
+TEST_F(OpModelStrategyTest, PermuteAndReshapeHaveDistinctRuleBooks) {
+  auto permuteOp = createMockPermuteOp();
+  auto reshapeOp = createMockReshapeOp();
+
+  const OpRuleBook &permuteRules = getRuleBook(permuteOp);
+  const OpRuleBook &reshapeRules = getRuleBook(reshapeOp);
+
+  // Distinct rule-book instances, and neither is the default rule book (which
+  // explores reshards).
+  EXPECT_NE(&permuteRules, &reshapeRules);
+  EXPECT_FALSE(permuteRules.shouldExploreReshards());
+  EXPECT_FALSE(reshapeRules.shouldExploreReshards());
+}
+
+// A view-eligible reshape uses the NULL-hint-only branch. The equivalent
+// permute-nop does not: PermuteRuleBook has no view branch, so it keeps the
+// same non-sharded hints as any other permute.
+TEST_F(OpModelStrategyTest, ViewReshapeUsesNullHintOnlyButPermuteNopDoesNot) {
+  // Same trailing dims -> canReshapeBeView holds.
+  auto viewReshapeOp = createMockReshapeOp(/*inputShape=*/{1, 1, 32, 32},
+                                           /*outputShape=*/{1, 32, 32});
+  auto legalConfigs = createElementwiseLegalConfigs();
+
+  OutputHints reshapeHints = getOutputHints(viewReshapeOp, legalConfigs);
+  EXPECT_EQ(reshapeHints.hints.size(), 1u);
+  EXPECT_FALSE(reshapeHints.hints[0].outputLayout);
+
+  auto nopPermuteOp = createMockPermuteOp(/*inputShape=*/{1, 1, 32, 32},
+                                          /*permutation=*/{0, 1, 2, 3});
+  OutputHints permuteHints = getOutputHints(nopPermuteOp, legalConfigs);
+  EXPECT_GT(permuteHints.hints.size(), 1u);
+}
+
+// A permute-nop is still not view-eligible for hint purposes: unlike reshape,
+// PermuteRuleBook has no NULL-hint-only branch.
+TEST_F(OpModelStrategyTest, PermuteNopStillSkipsL1Sharding) {
+  auto permuteOp = createMockPermuteOp(/*inputShape=*/{1, 1, 32, 32},
+                                       /*permutation=*/{0, 1, 2, 3});
+  auto legalConfigs = createElementwiseLegalConfigs();
+
+  OutputHints hints = getOutputHints(permuteOp, legalConfigs);
+
+  EXPECT_GT(hints.hints.size(), 1u);
+  for (const auto &hint : hints.hints) {
+    if (hint.outputLayout && hint.outputLayout.getMemLayout()) {
+      EXPECT_FALSE(
+          isShardedMemoryLayout(hint.outputLayout.getMemLayout().getValue()));
+    }
+  }
+}
+
+TEST_F(OpModelStrategyTest,
+       ReshapeNonViewKeepsBlockAndHeightShardedDropsWidth) {
+  // Last dim changes (256 -> 128), so canReshapeBeView is false: this
+  // exercises the non-view path, which should keep interleaved +
+  // block/height-sharded outputs and drop only width-sharded (issue #8020).
+  // Output is 8 tiles tall, 4 tiles wide, so the grids below divide cleanly.
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 256};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 256, 128};
+  auto reshapeOp = createMockReshapeOp(inputShape, outputShape);
+
+  std::vector<OpConfig> legalConfigs;
+  legalConfigs.emplace_back(createDRAMInterleavedLayout(outputShape));
+  legalConfigs.emplace_back(createL1InterleavedLayout(outputShape));
+  legalConfigs.emplace_back(
+      createL1ShardedLayout(outputShape, {8, 1})); // height [M, 1]
+  legalConfigs.emplace_back(
+      createL1BlockShardedLayout(outputShape, {8, 4})); // block [M, N]
+  legalConfigs.emplace_back(
+      createL1WidthShardedLayout(outputShape, {1, 4})); // width [1, N]
+
+  OutputHints hints = getOutputHints(reshapeOp, legalConfigs);
+
+  bool sawBlockSharded = false;
+  bool sawHeightSharded = false;
+  for (const auto &hint : hints.hints) {
+    if (!hint.outputLayout || !hint.outputLayout.getMemLayout()) {
+      continue;
+    }
+    auto memLayout = hint.outputLayout.getMemLayout().getValue();
+    // Width-sharded must be filtered out.
+    EXPECT_NE(memLayout, TensorMemoryLayout::WidthSharded);
+    sawBlockSharded |= (memLayout == TensorMemoryLayout::BlockSharded);
+    sawHeightSharded |= (memLayout == TensorMemoryLayout::HeightSharded);
+  }
+
+  // Block- and height-sharded outputs are preserved (supported natively).
+  EXPECT_TRUE(sawBlockSharded);
+  EXPECT_TRUE(sawHeightSharded);
+}
+
 TEST_F(OpModelStrategyTest, UnknownOpUsesDefaultStrategy) {
   // Use AddOp as a stand-in for "default" path testing.
   auto addOp = createMockAddOp();
@@ -273,6 +427,11 @@ TEST_F(OpModelStrategyTest, ShouldExploreReshardsElementwiseTrue) {
 TEST_F(OpModelStrategyTest, ShouldExploreReshardsReshapeFalse) {
   auto reshapeOp = createMockReshapeOp();
   EXPECT_FALSE(shouldExploreReshards(reshapeOp));
+}
+
+TEST_F(OpModelStrategyTest, ShouldExploreReshardsPermuteFalse) {
+  auto permuteOp = createMockPermuteOp();
+  EXPECT_FALSE(shouldExploreReshards(permuteOp));
 }
 
 TEST_F(OpModelStrategyTest, ShouldExploreReshardsMatmulTrue) {
