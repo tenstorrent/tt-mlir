@@ -416,7 +416,7 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
   // a separate op is inserted at apply time.
   UnaryWithParamAttr fusedAct;
   auto progConfig = buildDRAMShardedProgramConfig(ctx, p, fusedAct);
-  auto computeConfig = buildComputeConfig(ctx, p.weightDataType);
+  auto computeConfig = buildComputeConfig(ctx);
 
   return OpConfig(l1OutLayout, MatmulAttrs{progConfig, computeConfig});
 }

@@ -453,16 +453,10 @@ buildDRAMShardedProgramConfig(MLIRContext *ctx, const DRAMShardParams &p,
       ctx, p.in0BlockW, p.perCoreM, p.perCoreN, fusedAct);
 }
 
-DeviceComputeKernelConfigAttr
-buildComputeConfig(MLIRContext *ctx, ttcore::DataType weightDataType) {
-  // bfp4 weights run at LoFi, bfp8 at HiFi2 — the split models are observed to
-  // need in practice, rather than a rule derived from the formats.
-  MathFidelity fidelity = (weightDataType == ttcore::DataType::BFP_BFloat4)
-                              ? MathFidelity::LoFi
-                              : MathFidelity::HiFi2;
+DeviceComputeKernelConfigAttr buildComputeConfig(MLIRContext *ctx) {
   return DeviceComputeKernelConfigAttr::get(
       ctx,
-      /*mathFidelity=*/fidelity,
+      /*mathFidelity=*/MathFidelity::LoFi,
       /*mathApproxMode=*/mlir::BoolAttr{},
       /*fp32DestAccEn=*/mlir::BoolAttr::get(ctx, true),
       /*packerL1Acc=*/mlir::BoolAttr::get(ctx, true),

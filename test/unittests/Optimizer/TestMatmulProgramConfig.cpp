@@ -190,22 +190,18 @@ TEST(MatmulDRAMShardParams, PrimeKPerCoreCollapseDeclined) {
   EXPECT_FALSE(p.has_value());
 }
 
-// Math fidelity follows the weight dtype. Nothing else pins this: the DS lit
-// tests only FileCheck matmul_program_config, not the compute config.
+// Every DS matmul runs at LoFi regardless of weight dtype. Nothing else pins
+// this: the DS lit tests only FileCheck matmul_program_config, not the compute
+// config.
 class MatmulDRAMComputeConfig : public ::testing::Test {
 protected:
   void SetUp() override { context.loadDialect<TTNNDialect>(); }
   mlir::MLIRContext context;
 };
 
-TEST_F(MatmulDRAMComputeConfig, Bfp4RunsLoFi) {
-  auto cfg = buildComputeConfig(&context, ttcore::DataType::BFP_BFloat4);
+TEST_F(MatmulDRAMComputeConfig, AlwaysLoFi) {
+  auto cfg = buildComputeConfig(&context);
   EXPECT_EQ(cfg.getMathFidelity(), MathFidelity::LoFi);
-}
-
-TEST_F(MatmulDRAMComputeConfig, Bfp8RunsHiFi2) {
-  auto cfg = buildComputeConfig(&context, ttcore::DataType::BFP_BFloat8);
-  EXPECT_EQ(cfg.getMathFidelity(), MathFidelity::HiFi2);
 }
 
 } // namespace

@@ -89,11 +89,9 @@ MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
 buildDRAMShardedProgramConfig(MLIRContext *ctx, const DRAMShardParams &p,
                               UnaryWithParamAttr fusedAct);
 
-// Build the compute-kernel config for a DRAM-sharded matmul (math fidelity
-// follows the weight dtype; fp32 dest-accumulate and packer-L1-accumulate
-// enabled).
-DeviceComputeKernelConfigAttr
-buildComputeConfig(MLIRContext *ctx, ttcore::DataType weightDataType);
+// Build the compute-kernel config for a DRAM-sharded matmul (LoFi; fp32
+// dest-accumulate and packer-L1-accumulate enabled).
+DeviceComputeKernelConfigAttr buildComputeConfig(MLIRContext *ctx);
 
 } // namespace mlir::tt::ttnn
 
