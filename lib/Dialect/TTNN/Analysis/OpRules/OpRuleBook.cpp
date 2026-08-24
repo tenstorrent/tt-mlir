@@ -14,7 +14,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TypecastRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
-#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/StringMap.h"
 
 #include <mutex>
 
@@ -89,12 +89,11 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static PagedUpdateCacheRuleBook pagedUpdateCache;
   static ArgMaxRuleBook argMax;
 
-  static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
+  static llvm::StringMap<const OpRuleBook *> registry;
   static std::once_flag initFlag;
   std::call_once(initFlag, [&] {
-    MLIRContext *ctx = op->getContext();
     auto reg = [&](StringRef name, const OpRuleBook *rb) {
-      registry[OperationName(name, ctx)] = rb;
+      registry[name] = rb;
     };
     reg(Conv2dOp::getOperationName(), &conv2d);
     reg(ConvTranspose2dOp::getOperationName(), &conv2d);
@@ -132,7 +131,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
     reg(ArgMaxOp::getOperationName(), &argMax);
   });
-  auto it = registry.find(op->getName());
+  auto it = registry.find(op->getName().getStringRef());
   return it != registry.end() ? *it->second : defaultRules;
 }
 
