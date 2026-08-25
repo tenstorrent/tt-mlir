@@ -481,9 +481,27 @@ buildDRAMShardedProgramConfig(MLIRContext *ctx, const DRAMShardParams &p,
 
 DeviceComputeKernelConfigAttr
 buildComputeConfig(MLIRContext *ctx, ttcore::DataType weightDataType) {
-  MathFidelity fidelity = (weightDataType == ttcore::DataType::BFP_BFloat4)
-                              ? MathFidelity::LoFi
-                              : MathFidelity::HiFi2;
+  // MVMULs issued per tile-MAC are replay_buf_len * fidelity_loops
+  // (llk_math_matmul.h), so HiFi2 costs twice LoFi's issue slots for the same product
+  // and HiFi4 four times. A block-float weight shares one exponent across its block
+  // and carries too few mantissa bits for the extra passes to recover anything, so
+  // there the fidelity buys no accuracy and only spends issue slots -- which bind on
+  // any shape that is not already DRAM-bound. Wider weight types have the mantissa
+  // bits to justify the second pass.
+  MathFidelity fidelity;
+  switch (weightDataType) {
+  case ttcore::DataType::BFP_BFloat8:
+  case ttcore::DataType::BFP_Float8:
+  case ttcore::DataType::BFP_BFloat4:
+  case ttcore::DataType::BFP_Float4:
+  case ttcore::DataType::BFP_BFloat2:
+  case ttcore::DataType::BFP_Float2:
+    fidelity = MathFidelity::LoFi;
+    break;
+  default:
+    fidelity = MathFidelity::HiFi2;
+    break;
+  }
   return DeviceComputeKernelConfigAttr::get(
       ctx,
       /*mathFidelity=*/fidelity,
