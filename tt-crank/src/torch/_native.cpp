@@ -272,6 +272,10 @@ public:
         assert_builder();
         return tk::build_log1p(*mb_, input);
     }
+    mlir::Value sqrt(mlir::Value input) {
+        assert_builder();
+        return tk::build_sqrt(*mb_, input);
+    }
     mlir::Value cumsum(mlir::Value input, std::int64_t dim) {
         assert_builder();
         return tk::build_cumsum(*mb_, input, dim);
@@ -782,6 +786,7 @@ NB_MODULE(_native, m) {
         .def("log", &PyModuleBuilder::log, "input"_a)
         .def("exp", &PyModuleBuilder::exp, "input"_a)
         .def("log1p", &PyModuleBuilder::log1p, "input"_a)
+        .def("sqrt", &PyModuleBuilder::sqrt, "input"_a)
         .def("cumsum", &PyModuleBuilder::cumsum, "input"_a, "dim"_a)
         .def("silu", &PyModuleBuilder::silu, "input"_a)
         .def("sigmoid", &PyModuleBuilder::sigmoid, "input"_a)

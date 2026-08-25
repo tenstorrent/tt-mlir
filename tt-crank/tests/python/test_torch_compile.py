@@ -266,6 +266,17 @@ def test_compile_rsqrt(shape: tuple[int, ...]) -> None:
     _assert_compile_matches_eager(_Rsqrt(), x, atol=0.01, rtol=0.01)
 
 
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_sqrt(shape: tuple[int, ...]) -> None:
+    """Single aten::sqrt in a compiled graph. Positive inputs only."""
+    class _Sqrt(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.sqrt(x)
+
+    x = torch.rand(shape, dtype=torch.bfloat16).add(0.1)
+    _assert_compile_matches_eager(_Sqrt(), x, atol=0.01, rtol=0.01)
+
+
 @pytest.mark.parametrize(
     "src_shape,dst_shape",
     [

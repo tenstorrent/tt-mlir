@@ -956,6 +956,15 @@ at::Tensor tt_log1p(const at::Tensor &self) {
     return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
 }
 
+at::Tensor tt_sqrt(const at::Tensor &self) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::sqrt: tensor must be on tt backend");
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result = build_sqrt(mb, mb.args()[0]);
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
+}
+
 // The optional `dtype` asks for accumulation in a wider type than the input;
 // ttir.cumsum accumulates in the input's element type, so only a same-dtype (or
 // absent) request maps onto it.
@@ -1125,6 +1134,11 @@ mlir::Value build_exp(ModuleBuilder &mb, mlir::Value input) {
 mlir::Value build_log1p(ModuleBuilder &mb, mlir::Value input) {
     auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     return mb.create<mlir::tt::ttir::Log1pOp>(result_type, input).getResult();
+}
+
+mlir::Value build_sqrt(ModuleBuilder &mb, mlir::Value input) {
+    auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    return mb.create<mlir::tt::ttir::SqrtOp>(result_type, input).getResult();
 }
 
 mlir::Value build_cumsum(ModuleBuilder &mb, mlir::Value input, int64_t dim) {
@@ -2004,6 +2018,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("log", TORCH_FN(tt_log));
     m.impl("exp", TORCH_FN(tt_exp));
     m.impl("log1p", TORCH_FN(tt_log1p));
+    m.impl("sqrt", TORCH_FN(tt_sqrt));
     m.impl("cumsum", TORCH_FN(tt_cumsum));
     m.impl("full_like", TORCH_FN(tt_full_like));
     m.impl("arange", TORCH_FN(tt_arange));

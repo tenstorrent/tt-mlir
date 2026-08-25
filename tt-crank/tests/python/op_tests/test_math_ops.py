@@ -1,5 +1,5 @@
 """Tests for scalar-lift and trig math ops: pow, add/mul/div scalars, cos, sin,
-neg, log, exp, log1p, cumsum, silu, softmax."""
+neg, log, exp, log1p, sqrt, cumsum, silu, softmax."""
 
 import pytest
 import torch
@@ -91,6 +91,14 @@ def test_log1p(shape: tuple) -> None:
     # where it earns its place over log(1 + x), so the range straddles it.
     a = torch.rand(shape, dtype=torch.bfloat16) - 0.5
     assert_close_cpu_vs_tt(torch.log1p, a, atol=1e-2, rtol=1e-2)
+
+
+@pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])
+def test_sqrt(shape: tuple) -> None:
+    # Non-negative input: sqrt is undefined below zero. The offset also keeps the
+    # values off zero, where sqrt's derivative blows up and bf16 loses precision.
+    a = torch.rand(shape, dtype=torch.bfloat16) + 0.1
+    assert_close_cpu_vs_tt(torch.sqrt, a, atol=1e-2, rtol=1e-2)
 
 
 @pytest.mark.parametrize("dim", [-1, 0, 1])
