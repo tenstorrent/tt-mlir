@@ -40,9 +40,9 @@ namespace mlir::tt::ttir::fusing {
 // on K (either side of the transpose), and on the score tensor (post-matmul).
 // Double-scaling (both pre- and post-) is rejected as ambiguous.
 //
-// GQA: a head-dim ttir.repeat_interleave that expands K/V from Hkv to Hq heads
-// (through an optional typecast) is peeled from both K and V so the un-expanded
-// tensors feed the op, which handles Hkv < Hq natively.
+// GQA expansions on K/V are left in place; SDPAHeadExpansionFusingPattern
+// below fuses them into the op this pattern creates. Recognising the attention
+// math and normalising the op's operands are separate jobs.
 //
 // Attention sink ("softmax padding column"): a sink logit concat'd as an extra
 // score column before softmax and sliced off after is recognised — the trailing
@@ -55,6 +55,24 @@ public:
 
   mlir::LogicalResult
   matchAndRewrite(MatmulOp srcOp,
+                  mlir::PatternRewriter &rewriter) const override;
+};
+
+// Fuses a GQA head-expansion on the K/V operands into an existing
+// ttir.scaled_dot_product_attention. SDPA broadcasts Hkv heads up to Hq
+// natively, so an expansion ahead of the op is not needed.
+//
+// Anchored on the op, so it covers both paths: the decomposed matmul+softmax
+// form that SDPAFusingPattern fuses first, and frontends that emit the atomic
+// op directly with K/V pre-expanded. It matches on a head-dim
+// ttir.repeat_interleave.
+class SDPAHeadExpansionFusingPattern
+    : public mlir::OpRewritePattern<ScaledDotProductAttentionOp> {
+public:
+  using OpRewritePattern<ScaledDotProductAttentionOp>::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(ScaledDotProductAttentionOp op,
                   mlir::PatternRewriter &rewriter) const override;
 };
 

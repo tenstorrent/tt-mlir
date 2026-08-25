@@ -17,11 +17,6 @@ from conftest import get_request_kwargs
 
 pytestmark = [
     pytest.mark.frontend("ttir"),
-    pytest.mark.skip_config(
-        ("p150",),
-        ("p300",),
-        reason="Optimizer mock device grid mismatch on Blackhole (https://github.com/tenstorrent/tt-mlir/issues/7809)",
-    ),
 ]
 
 
@@ -155,7 +150,8 @@ REAL_MODEL_SHAPES = [
 ALL_SHAPES = DECODE_SHAPES + PREFILL_SHAPES + REAL_MODEL_SHAPES
 
 # Only GQA shapes (Hq != Hkv) — used by the repeat_interleave test, whose whole
-# point is exercising the native-GQA peel (a no-op when Hq == Hkv).
+# point is exercising the native-GQA head-expansion fusing (a no-op when
+# Hq == Hkv).
 GQA_SHAPES = [p for p in ALL_SHAPES if p.values[0].is_gqa]
 
 # Attention-sink shapes are MHA (Hq == Hkv) so the per-head sink is [1, Hq, 1, 1]
@@ -430,6 +426,34 @@ def assert_sdpa_fused(mlir_path: str, q_seq: int):
         assert check_op(mlir_path, "scaled_dot_product_attention_decode")
     else:
         assert check_op(mlir_path, "scaled_dot_product_attention")
+
+
+def assert_head_expansion_fused(mlir_path: str, sdpa_shapes: SDPAShapes):
+    """The head-expansion feeding SDPA must be fused into the sdpa op itself.
+
+    Verify that the expanding repeat op is not present in the IR.
+    """
+    if not sdpa_shapes.is_gqa:
+        return
+    narrow = "x".join(str(d) for d in sdpa_shapes.key)
+    expanded = "x".join(
+        str(d)
+        for d in (
+            sdpa_shapes.batch,
+            sdpa_shapes.q_heads,
+            sdpa_shapes.kv_seq,
+            sdpa_shapes.head_dim,
+        )
+    )
+    with open(mlir_path) as f:
+        ir = f.read()
+    for line in ir.splitlines():
+        if "ttnn.repeat" in line:
+            assert expanded not in line, (
+                f"tensor<{expanded}x...> repeated: KV was expanded to Hq "
+                f"heads, not fused into the op"
+            )
+    assert narrow in ir, f"no tensor<{narrow}x...> operand: KV is not Hkv-head"
 
 
 def compile_and_run_sdpa(module_fn, target, request):
@@ -812,6 +836,7 @@ def test_sdpa_gqa_repeat_interleave_div_scale(
 
     mlir_path = compile_and_run_sdpa(module, target, request)
     assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
+    assert_head_expansion_fused(mlir_path, sdpa_shapes)
 
 
 @pytest.mark.parametrize("sdpa_shapes", SINK_SHAPES)
