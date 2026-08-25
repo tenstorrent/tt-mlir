@@ -65,10 +65,6 @@ MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
 buildDRAMShardedProgramConfig(MLIRContext *ctx, const DRAMShardParams &p,
                               UnaryWithParamAttr fusedAct);
 
-// Math fidelity follows the weight dtype.
-DeviceComputeKernelConfigAttr
-buildComputeConfig(MLIRContext *ctx, ttcore::DataType weightDataType);
-
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_MATMULPROGRAMCONFIG_H
