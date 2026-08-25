@@ -214,9 +214,9 @@ SliceRuleBook::getOutputHints(Operation * /*op*/,
 /// Check if a reshape can be optimized to a view (no kernel launch) by
 /// tt-metal. Mirrors the `this_is_view` condition in tt-metal's
 /// reshape.cpp:378-384. Only applies to ReshapeOp — PermuteOp has its own
-/// NOP optimization (is_permute_nop) with different conditions.
-/// TODO(#7988): Split PermuteOp into its own PermuteRuleBook to avoid this
-/// op-kind check.
+/// NOP optimization (`canPermuteBeView`, below) with different conditions.
+/// Like the other view predicates, this self-guards on its op kind so that
+/// `isAliasingViewOp` can dispatch it over any operation.
 bool canReshapeBeView(Operation *op) {
   if (!mlir::isa<ReshapeOp>(op)) {
     return false;
@@ -425,8 +425,8 @@ bool isAliasingViewOp(Operation *op) {
 
 LayoutFilterFn
 ReshapeRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
-  // Reshape/Permute: width-sharded inputs round-trip through interleaved
-  // internally in tt-metal; height/block sharding is handled natively.
+  // Reshape: width-sharded inputs round-trip through interleaved internally in
+  // tt-metal; height/block sharding is handled natively.
   // https://github.com/tenstorrent/tt-mlir/issues/7681
   return layout_filter_utils::rejectWidthSharded;
 }
@@ -445,6 +445,31 @@ OutputHints ReshapeRuleBook::getOutputHints(
     return layout_filter_utils::nullHintOnly();
   }
   // Non-view reshape: sharded output not beneficial, use non-sharded configs.
+  return layout_filter_utils::nonShardedOutputHints(legalConfigs);
+}
+
+//===----------------------------------------------------------------------===//
+// PermuteRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+PermuteRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
+  // Permute: width-sharded inputs round-trip through interleaved internally in
+  // tt-metal; height/block sharding is handled natively.
+  // https://github.com/tenstorrent/tt-mlir/issues/7681
+  return layout_filter_utils::rejectWidthSharded;
+}
+
+bool PermuteRuleBook::shouldExploreReshards() const { return false; }
+
+OutputHints PermuteRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> &legalConfigs) const {
+  // Sharded output not beneficial for permute: use non-sharded configs.
+  // TODO(rpavlovicTT): `canPermuteBeView` already models tt-metal's
+  // permute-nop, but is only consumed by `isAliasingViewOp` today. A view
+  // branch returning `nullHintOnly()` here (mirroring reshape) would keep the
+  // zero-copy path off the optimizer's DRAM->L1 upgrades; that is a behavior
+  // change and is deliberately left out of the #7988 split.
   return layout_filter_utils::nonShardedOutputHints(legalConfigs);
 }
 

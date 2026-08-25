@@ -62,7 +62,14 @@ bool OpRuleBook::preferCandidate(Operation * /*op*/, const BeamCandidate &a,
 }
 
 //===----------------------------------------------------------------------===//
-// Registry: maps OperationName -> OpRuleBook
+// Registry: maps op name -> OpRuleBook
+//
+// Keyed by the op's string name, not by `OperationName`: an `OperationName` is
+// only meaningful within the `MLIRContext` it was built in, and this registry
+// is initialized once per process. Keying it by `OperationName` bound every
+// entry to whichever context happened to make the first query, so ops from any
+// later context missed the registry and silently fell back to `defaultRules`.
+// Op names are process-wide constants, so a name-keyed map is context-safe.
 //===----------------------------------------------------------------------===//
 
 const OpRuleBook &getRuleBook(Operation *op) {
@@ -73,6 +80,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static ConcatRuleBook concat;
   static SliceRuleBook slice;
   static ReshapeRuleBook reshape;
+  static PermuteRuleBook permute;
   static PadRuleBook pad;
   static RepeatRuleBook repeat;
   static ConcatenateHeadsRuleBook concatHeads;
@@ -93,12 +101,11 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static ArgMaxRuleBook argMax;
   static AdamWRuleBook adamW;
 
-  static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
+  static llvm::DenseMap<StringRef, const OpRuleBook *> registry;
   static std::once_flag initFlag;
   std::call_once(initFlag, [&] {
-    MLIRContext *ctx = op->getContext();
     auto reg = [&](StringRef name, const OpRuleBook *rb) {
-      registry[OperationName(name, ctx)] = rb;
+      registry[name] = rb;
     };
     reg(Conv2dOp::getOperationName(), &conv2d);
     reg(ConvTranspose2dOp::getOperationName(), &conv2d);
@@ -109,10 +116,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(SliceStaticOp::getOperationName(), &slice);
     reg(SliceDynamicOp::getOperationName(), &slice);
     reg(ReshapeOp::getOperationName(), &reshape);
-
-    // TODO(rpavlovicTT): split permute's from reshape's rule book
-    // https://github.com/tenstorrent/tt-mlir/issues/7988
-    reg(PermuteOp::getOperationName(), &reshape);
+    reg(PermuteOp::getOperationName(), &permute);
     reg(PadOp::getOperationName(), &pad);
     reg(RepeatOp::getOperationName(), &repeat);
     reg(ConcatenateHeadsOp::getOperationName(), &concatHeads);
@@ -139,7 +143,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(ArgMaxOp::getOperationName(), &argMax);
     reg(AdamWOp::getOperationName(), &adamW);
   });
-  auto it = registry.find(op->getName());
+  auto it = registry.find(op->getName().getStringRef());
   return it != registry.end() ? *it->second : defaultRules;
 }
 
