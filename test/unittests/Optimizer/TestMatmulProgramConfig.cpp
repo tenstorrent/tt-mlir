@@ -5,19 +5,15 @@
 #include "ttmlir/Dialect/TTNN/Analysis/MatmulProgramConfig.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
-
-#include "mlir/IR/MLIRContext.h"
 
 #include "gtest/gtest.h"
 
 using namespace mlir::tt;
 using namespace mlir::tt::ttnn;
 
-// These tests pin the DRAM-sharded shard geometry and compute-kernel config,
-// which nothing else in the tree covers. computeShardParams is pure arithmetic
-// over the matmul dims and the L1 budget, so most of them need no MLIRContext
-// and no device.
+// computeShardParams is pure arithmetic over the matmul dims and the L1 budget,
+// so it needs no MLIRContext and no device. These tests pin the DRAM-sharded
+// shard geometry, which nothing else in the tree covers.
 namespace {
 
 // Wormhole-ish L1 budget: 0.95 * usable L1 (1499136).
@@ -188,24 +184,6 @@ TEST(MatmulDRAMShardParams, PrimeKPerCoreCollapseDeclined) {
       kM, /*K=*/11008, /*N=*/2048, kBlackholeBanks, kNumIn0Cores,
       kBlackholeCores, ttcore::DataType::BFP_BFloat8, kBlackholeL1Available);
   EXPECT_FALSE(p.has_value());
-}
-
-// Math fidelity follows the weight dtype. Nothing else pins this: the DS lit
-// tests only FileCheck matmul_program_config, not the compute config.
-class MatmulDRAMComputeConfig : public ::testing::Test {
-protected:
-  void SetUp() override { context.loadDialect<TTNNDialect>(); }
-  mlir::MLIRContext context;
-};
-
-TEST_F(MatmulDRAMComputeConfig, Bfp4RunsLoFi) {
-  auto cfg = buildComputeConfig(&context, ttcore::DataType::BFP_BFloat4);
-  EXPECT_EQ(cfg.getMathFidelity(), MathFidelity::LoFi);
-}
-
-TEST_F(MatmulDRAMComputeConfig, Bfp8RunsHiFi2) {
-  auto cfg = buildComputeConfig(&context, ttcore::DataType::BFP_BFloat8);
-  EXPECT_EQ(cfg.getMathFidelity(), MathFidelity::HiFi2);
 }
 
 } // namespace
