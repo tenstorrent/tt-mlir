@@ -28,9 +28,9 @@ module {
       %arg2: tensor<32x32xbf16, #l1_sharded> {ttcore.argument_type = #ttcore.argument_type<parameter>}
   ) -> tensor<32x32xbf16, #l1_sharded> {
     // CHECK: ttcore.load_cached(@tagged_l1_const_eval_0, [%arg1, %arg2])
-    %tagged = "ttnn.add"(%arg1, %arg2) {ttnn.const_eval_allowed} : (tensor<32x32xbf16, #l1_sharded>, tensor<32x32xbf16, #l1_sharded>) -> tensor<32x32xbf16, #l1_sharded>
+    %tagged = "ttnn.add"(%arg1, %arg2) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> {ttnn.const_eval_allowed} : (tensor<32x32xbf16, #l1_sharded>, tensor<32x32xbf16, #l1_sharded>) -> tensor<32x32xbf16, #l1_sharded>
     // CHECK: "ttnn.add"(%arg0
-    %result = "ttnn.add"(%arg0, %tagged) : (tensor<32x32xbf16, #l1_sharded>, tensor<32x32xbf16, #l1_sharded>) -> tensor<32x32xbf16, #l1_sharded>
+    %result = "ttnn.add"(%arg0, %tagged) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<32x32xbf16, #l1_sharded>, tensor<32x32xbf16, #l1_sharded>) -> tensor<32x32xbf16, #l1_sharded>
     return %result : tensor<32x32xbf16, #l1_sharded>
   }
 }

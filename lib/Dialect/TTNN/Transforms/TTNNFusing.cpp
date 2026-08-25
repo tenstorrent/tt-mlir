@@ -12,6 +12,7 @@
 
 #include "llvm/ADT/SmallVector.h"
 
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/SDPAFusingPattern.h"
@@ -178,6 +179,35 @@ private:
 };
 
 namespace {
+bool hasInterveningWrite(Value value, Operation *from, Operation *to) {
+  if (from->getBlock() != to->getBlock()) {
+    return true;
+  }
+
+  for (Operation *op = from->getNextNode(); op && op != to;
+       op = op->getNextNode()) {
+    auto memoryEffectOp = dyn_cast<MemoryEffectOpInterface>(op);
+    if (!memoryEffectOp) {
+      continue;
+    }
+
+    SmallVector<MemoryEffects::EffectInstance> effects;
+    memoryEffectOp.getEffects(effects);
+    if (llvm::any_of(effects, [&](const auto &effect) {
+          if (!isa<MemoryEffects::Write>(effect.getEffect())) {
+            return false;
+          }
+
+          Value writtenValue = effect.getValue();
+          return !writtenValue || writtenValue == value;
+        })) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 class TTNNBinaryOpInputsActivation
     : public mlir::OpInterfaceRewritePattern<ElementwiseBinaryActivations> {
   using TTNNBinaryOpInputsActivation::OpInterfaceRewritePattern<
@@ -191,13 +221,15 @@ public:
         mlir::cast<ElementwiseBinary>(binaryOpWithActivations.getOperation());
     bool isFused = false;
 
-    if (auto lhsUnaryOp = getFusableUnaryOp(binaryOp.getLhs())) {
+    if (auto lhsUnaryOp =
+            getFusableUnaryOp(binaryOp.getLhs(), binaryOp.getOperation())) {
       fuseInputActivation(lhsUnaryOp, binaryOpWithActivations, rewriter,
                           /*isLhs=*/true);
       isFused = true;
     }
 
-    if (auto rhsUnaryOp = getFusableUnaryOp(binaryOp.getRhs())) {
+    if (auto rhsUnaryOp =
+            getFusableUnaryOp(binaryOp.getRhs(), binaryOp.getOperation())) {
       fuseInputActivation(rhsUnaryOp, binaryOpWithActivations, rewriter,
                           /*isLhs=*/false);
       isFused = true;
@@ -207,13 +239,15 @@ public:
   }
 
 private:
-  ElementwiseUnary getFusableUnaryOp(Value operand) const {
+  ElementwiseUnary getFusableUnaryOp(Value operand, Operation *binaryOp) const {
     if (!operand.hasOneUse()) {
       return {};
     }
 
     auto unaryOp = operand.getDefiningOp<ElementwiseUnary>();
-    if (unaryOp && unaryOp.getUnaryOpType() != UnaryOpType::Unknown) {
+    if (unaryOp && unaryOp.getUnaryOpType() != UnaryOpType::Unknown &&
+        !hasInterveningWrite(unaryOp.getInput(), unaryOp.getOperation(),
+                             binaryOp)) {
       return unaryOp;
     }
 

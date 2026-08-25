@@ -57,9 +57,9 @@ module {
     // CHECK-SAME: allocate_slots_callee = @allocate_slots_trace_0_main
     // CHECK-SAME: capture_callee = @run_and_capture_trace_0_main
     // CHECK-SAME: operandSegmentSizes = array<i32: 1, 2, 1>
-    %1 = "ttnn.add"(%arg0, %arg1) : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
+    %1 = "ttnn.add"(%arg0, %arg1) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
     "ttnn.reset_global_semaphore"(%sem) <{value = 0 : ui32}> : (!ttnn.global_semaphore) -> ()
-    %2 = "ttnn.multiply"(%1, %arg1) : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
+    %2 = "ttnn.multiply"(%1, %arg1) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
     return %2 : tensor<32x32xbf16, #layout>
   }
 }

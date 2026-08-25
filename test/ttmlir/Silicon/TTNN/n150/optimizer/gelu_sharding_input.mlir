@@ -10,7 +10,7 @@ func.func @gelu_sharding(%arg0: tensor<32x1x8192xbf16>) -> tensor<32x1x8192xbf16
     %1 = "ttir.add"(%arg0, %arg0) : (tensor<32x1x8192xbf16>, tensor<32x1x8192xbf16>) -> tensor<32x1x8192xbf16>
 
     // GELU operation with potential sharding: input [32,1,8192xbf16]
-    // CHECK: = "ttnn.gelu"{{.*}}#ttnn.ttnn_layout{{.*}}_sharded{{.*}} -> {{.*}}#ttnn.ttnn_layout{{.*}}width_sharded{{.*}}
+    // CHECK: = "ttnn.add"{{.*}}activations = [#ttnn.unary_with_param<op_type = gelu>]{{.*}}#ttnn.ttnn_layout{{.*}}width_sharded{{.*}} -> {{.*}}#ttnn.ttnn_layout{{.*}}width_sharded{{.*}}
     %2 = "ttir.gelu"(%1) : (tensor<32x1x8192xbf16>) -> tensor<32x1x8192xbf16>
 
     // Additional add to create chain (required for sharding policy to apply)
