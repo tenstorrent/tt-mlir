@@ -1595,15 +1595,11 @@ template <typename OpTy>
 llvm::Expected<OpConstraints> BinaryEltwiseOpModel<OpTy>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
     llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
-<<<<<<< HEAD
-    TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr,
-    const MockAllocatorState *initialState) {
-=======
     llvm::ArrayRef<UnaryWithParamAttr> postActivations,
     llvm::ArrayRef<UnaryWithParamAttr> lhsActivations,
     llvm::ArrayRef<UnaryWithParamAttr> rhsActivations,
-    TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr) {
->>>>>>> 5319cd9113 (Add activations to binary ops.)
+    TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr,
+    const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -1686,7 +1682,8 @@ llvm::Expected<OpConstraints> BinaryCompositeOpModel<OpTy>::getOpConstraints(
     llvm::ArrayRef<UnaryWithParamAttr> postActivations,
     llvm::ArrayRef<UnaryWithParamAttr> lhsActivations,
     llvm::ArrayRef<UnaryWithParamAttr> rhsActivations,
-    TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr /*opDtypeAttr*/) {
+    TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr /*opDtypeAttr*/,
+    const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();

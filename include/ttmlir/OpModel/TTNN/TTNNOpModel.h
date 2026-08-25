@@ -278,7 +278,8 @@ struct BinaryEltwiseOpModel {
       llvm::ArrayRef<UnaryWithParamAttr> postActivations,
       llvm::ArrayRef<UnaryWithParamAttr> lhsActivations,
       llvm::ArrayRef<UnaryWithParamAttr> rhsActivations,
-      TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr = nullptr);
+      TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr = nullptr,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
@@ -297,7 +298,8 @@ struct BinaryCompositeOpModel {
       llvm::ArrayRef<UnaryWithParamAttr> postActivations,
       llvm::ArrayRef<UnaryWithParamAttr> lhsActivations,
       llvm::ArrayRef<UnaryWithParamAttr> rhsActivations,
-      TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr = nullptr);
+      TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr = nullptr,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
