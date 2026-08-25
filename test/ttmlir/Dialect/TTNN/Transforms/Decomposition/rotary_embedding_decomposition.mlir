@@ -60,13 +60,13 @@ module {
     %cos_h = "ttnn.slice_static"(%arg1) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1 : i32, 4 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1x4x128xbf16, #full>) -> tensor<1x1x4x64xbf16, #half>
     %sin_h = "ttnn.slice_static"(%arg2) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1 : i32, 4 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1x4x128xbf16, #full>) -> tensor<1x1x4x64xbf16, #half>
     // first = x_lo*cos_h - x_hi*sin_h
-    %lo_cos = "ttnn.multiply"(%x_lo, %cos_h) : (tensor<1x1x4x64xbf16, #half>, tensor<1x1x4x64xbf16, #half>) -> tensor<1x1x4x64xbf16, #half>
-    %hi_sin = "ttnn.multiply"(%x_hi, %sin_h) : (tensor<1x1x4x64xbf16, #half>, tensor<1x1x4x64xbf16, #half>) -> tensor<1x1x4x64xbf16, #half>
-    %first = "ttnn.subtract"(%lo_cos, %hi_sin) : (tensor<1x1x4x64xbf16, #half>, tensor<1x1x4x64xbf16, #half>) -> tensor<1x1x4x64xbf16, #half>
+    %lo_cos = "ttnn.multiply"(%x_lo, %cos_h) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x4x64xbf16, #half>, tensor<1x1x4x64xbf16, #half>) -> tensor<1x1x4x64xbf16, #half>
+    %hi_sin = "ttnn.multiply"(%x_hi, %sin_h) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x4x64xbf16, #half>, tensor<1x1x4x64xbf16, #half>) -> tensor<1x1x4x64xbf16, #half>
+    %first = "ttnn.subtract"(%lo_cos, %hi_sin) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x4x64xbf16, #half>, tensor<1x1x4x64xbf16, #half>) -> tensor<1x1x4x64xbf16, #half>
     // second = x_hi*cos_h + x_lo*sin_h
-    %hi_cos = "ttnn.multiply"(%x_hi, %cos_h) : (tensor<1x1x4x64xbf16, #half>, tensor<1x1x4x64xbf16, #half>) -> tensor<1x1x4x64xbf16, #half>
-    %lo_sin = "ttnn.multiply"(%x_lo, %sin_h) : (tensor<1x1x4x64xbf16, #half>, tensor<1x1x4x64xbf16, #half>) -> tensor<1x1x4x64xbf16, #half>
-    %second = "ttnn.add"(%hi_cos, %lo_sin) : (tensor<1x1x4x64xbf16, #half>, tensor<1x1x4x64xbf16, #half>) -> tensor<1x1x4x64xbf16, #half>
+    %hi_cos = "ttnn.multiply"(%x_hi, %cos_h) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x4x64xbf16, #half>, tensor<1x1x4x64xbf16, #half>) -> tensor<1x1x4x64xbf16, #half>
+    %lo_sin = "ttnn.multiply"(%x_lo, %sin_h) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x4x64xbf16, #half>, tensor<1x1x4x64xbf16, #half>) -> tensor<1x1x4x64xbf16, #half>
+    %second = "ttnn.add"(%hi_cos, %lo_sin) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x4x64xbf16, #half>, tensor<1x1x4x64xbf16, #half>) -> tensor<1x1x4x64xbf16, #half>
     // result = concat(first, second, dim=3)
     %result = "ttnn.concat"(%first, %second) <{dim = 3 : si32}> : (tensor<1x1x4x64xbf16, #half>, tensor<1x1x4x64xbf16, #half>) -> tensor<1x1x4x128xbf16, #full>
     return %result : tensor<1x1x4x128xbf16, #full>
@@ -119,9 +119,9 @@ module {
     %neg_hi = "ttnn.neg"(%x_hi) : (tensor<1x1x4x64xbf16, #half>) -> tensor<1x1x4x64xbf16, #half>
     %rotated = "ttnn.concat"(%neg_hi, %x_lo) <{dim = 3 : si32}> : (tensor<1x1x4x64xbf16, #half>, tensor<1x1x4x64xbf16, #half>) -> tensor<1x1x4x128xbf16, #full>
     // result = x * cos + rotate_half(x) * sin
-    %x_cos = "ttnn.multiply"(%arg0, %arg1) : (tensor<1x1x4x128xbf16, #full>, tensor<1x1x4x128xbf16, #full>) -> tensor<1x1x4x128xbf16, #full>
-    %rot_sin = "ttnn.multiply"(%rotated, %arg2) : (tensor<1x1x4x128xbf16, #full>, tensor<1x1x4x128xbf16, #full>) -> tensor<1x1x4x128xbf16, #full>
-    %result = "ttnn.add"(%x_cos, %rot_sin) : (tensor<1x1x4x128xbf16, #full>, tensor<1x1x4x128xbf16, #full>) -> tensor<1x1x4x128xbf16, #full>
+    %x_cos = "ttnn.multiply"(%arg0, %arg1) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x4x128xbf16, #full>, tensor<1x1x4x128xbf16, #full>) -> tensor<1x1x4x128xbf16, #full>
+    %rot_sin = "ttnn.multiply"(%rotated, %arg2) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x4x128xbf16, #full>, tensor<1x1x4x128xbf16, #full>) -> tensor<1x1x4x128xbf16, #full>
+    %result = "ttnn.add"(%x_cos, %rot_sin) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x4x128xbf16, #full>, tensor<1x1x4x128xbf16, #full>) -> tensor<1x1x4x128xbf16, #full>
     return %result : tensor<1x1x4x128xbf16, #full>
   }
 }

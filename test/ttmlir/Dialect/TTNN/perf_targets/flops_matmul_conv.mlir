@@ -83,7 +83,7 @@ module attributes {ttcore.system_desc = #system_desc} {
 
     // Not counted.
     %1 = "ttnn.relu"(%0) : (tensor<2048x128xbf16, #mm_a>) -> tensor<2048x128xbf16, #mm_a>
-    %2 = "ttnn.add"(%1, %0) : (tensor<2048x128xbf16, #mm_a>, tensor<2048x128xbf16, #mm_a>) -> tensor<2048x128xbf16, #mm_a>
+    %2 = "ttnn.add"(%1, %0) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<2048x128xbf16, #mm_a>, tensor<2048x128xbf16, #mm_a>) -> tensor<2048x128xbf16, #mm_a>
 
     // transpose_a: K comes from A[-2] = 64.
     %3 = "ttnn.matmul"(%ta, %tb) <{

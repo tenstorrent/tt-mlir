@@ -243,9 +243,12 @@ llvm::Expected<op_model::OpConstraints> getBinaryOpConstraints(
     opDtypeAttr = dtypeOp.getDtypeAttr();
   }
 
-  return constraintsDispatch(op, liveRecords, inputShapeA, inputs[0],
-                             inputShapeB, inputs[1], opConfig.outputLayout,
-                             opDtypeAttr);
+  return constraintsDispatch(
+      op, liveRecords, inputShapeA, inputs[0], inputShapeB, inputs[1],
+      detail::convertAttr<UnaryWithParamAttr>(op.getActivations()),
+      detail::convertAttr<UnaryWithParamAttr>(op.getInputTensorAActivations()),
+      detail::convertAttr<UnaryWithParamAttr>(op.getInputTensorBActivations()),
+      opConfig.outputLayout, opDtypeAttr);
 }
 
 template <typename OpT>
@@ -304,10 +307,9 @@ llvm::Expected<op_model::OpConstraints> getReductionOpConstraints(
         liveRecords) {
   assert(inputs.size() == 1);
   const auto inputShape = op.getInput().getType().getShape();
-  return constraintsDispatch(
-      op, liveRecords, inputShape, inputs[0],
-      detail::convertAttr<int64_t>(op.getDimArg()),
-      op.getKeepDim(), opConfig.outputLayout);
+  return constraintsDispatch(op, liveRecords, inputShape, inputs[0],
+                             detail::convertAttr<int64_t>(op.getDimArg()),
+                             op.getKeepDim(), opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -1720,11 +1722,11 @@ llvm::Expected<op_model::OpConstraints> SliceStaticOp::getOpConstraints(
 
   const auto inputShape = getInput().getType().getShape();
 
-  return detail::constraintsDispatch(
-      *this, liveRecords, inputShape, inputs[0],
-      detail::convertAttr<int64_t>(getBegins()),
-      detail::convertAttr<int64_t>(getEnds()),
-      detail::convertAttr<int64_t>(getStep()), opConfig.outputLayout);
+  return detail::constraintsDispatch(*this, liveRecords, inputShape, inputs[0],
+                                     detail::convertAttr<int64_t>(getBegins()),
+                                     detail::convertAttr<int64_t>(getEnds()),
+                                     detail::convertAttr<int64_t>(getStep()),
+                                     opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1757,8 +1759,7 @@ llvm::Expected<op_model::OpConstraints> SliceDynamicOp::getOpConstraints(
 
   return detail::constraintsDispatch(
       *this, liveRecords, inputShape, inputs[0], beginsShape, inputs[1],
-      endsShape, inputs[2],
-      detail::convertAttr<int64_t>(getStep()),
+      endsShape, inputs[2], detail::convertAttr<int64_t>(getStep()),
       opConfig.outputLayout);
 }
 

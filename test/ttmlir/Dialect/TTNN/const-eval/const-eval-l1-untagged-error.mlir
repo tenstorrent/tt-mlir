@@ -16,8 +16,8 @@ module {
       %arg2: tensor<32x32xbf16, #l1_sharded> {ttcore.argument_type = #ttcore.argument_type<parameter>}
   ) -> tensor<32x32xbf16, #l1_sharded> {
     // CHECK: error: {{.*}}const-eval candidate{{.*}}not tagged with 'ttnn.const_eval_allowed'
-    %untagged = "ttnn.add"(%arg1, %arg2) : (tensor<32x32xbf16, #l1_sharded>, tensor<32x32xbf16, #l1_sharded>) -> tensor<32x32xbf16, #l1_sharded>
-    %result = "ttnn.add"(%arg0, %untagged) : (tensor<32x32xbf16, #l1_sharded>, tensor<32x32xbf16, #l1_sharded>) -> tensor<32x32xbf16, #l1_sharded>
+    %untagged = "ttnn.add"(%arg1, %arg2) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<32x32xbf16, #l1_sharded>, tensor<32x32xbf16, #l1_sharded>) -> tensor<32x32xbf16, #l1_sharded>
+    %result = "ttnn.add"(%arg0, %untagged) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<32x32xbf16, #l1_sharded>, tensor<32x32xbf16, #l1_sharded>) -> tensor<32x32xbf16, #l1_sharded>
     return %result : tensor<32x32xbf16, #l1_sharded>
   }
 }

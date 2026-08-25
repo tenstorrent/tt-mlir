@@ -8,9 +8,8 @@
 
 module attributes {} {
   func.func @forward(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
-    // CHECK: "ttnn.add"{{.*}} -> tensor<64x128xbf16, #{{.*}}>
+    // CHECK: "ttnn.add"{{.*}}activations = [#ttnn.unary_with_param<op_type = relu>]{{.*}} -> tensor<64x128xbf16, #{{.*}}>
     %0 = "ttir.add"(%arg0, %arg1) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-    // CHECK: "ttnn.relu"{{.*}} -> tensor<64x128xbf16, #{{.*}}>
     %1 = "ttir.relu"(%0) : (tensor<64x128xbf16>) -> tensor<64x128xbf16>
     // Verify no spill ops were inserted with comfortable headroom.
     // CHECK-NOT: "ttnn.to_memory_config"
