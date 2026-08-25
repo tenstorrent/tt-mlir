@@ -49,15 +49,15 @@ static void runEltwiseBinaryOp(const ::tt::target::ttnn::EltwiseBinaryOp *op,
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  auto activations = toTTNNUnaryWithParamVector(op->activations());
+  auto outputActivations = toTTNNUnaryWithParamVector(op->output_activations());
   auto inputTensorAActivations =
       toTTNNUnaryWithParamVector(op->input_tensor_a_activations());
   auto inputTensorBActivations =
       toTTNNUnaryWithParamVector(op->input_tensor_b_activations());
 
-  ::ttnn::Tensor out =
-      ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig, std::nullopt,
-             activations, inputTensorAActivations, inputTensorBActivations);
+  ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
+                              std::nullopt, outputActivations,
+                              inputTensorAActivations, inputTensorBActivations);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

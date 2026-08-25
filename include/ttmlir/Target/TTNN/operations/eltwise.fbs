@@ -30,7 +30,7 @@ table EltwiseBinaryOp {
   rhs: tt.target.ttnn.TensorRef;
   output_dtype: tt.target.DataType = null;
   memory_config: tt.target.ttnn.MemoryConfig;
-  activations: [UnaryWithParam];
+  output_activations: [UnaryWithParam];
   input_tensor_a_activations: [UnaryWithParam];
   input_tensor_b_activations: [UnaryWithParam];
   out: tt.target.ttnn.TensorRef;
