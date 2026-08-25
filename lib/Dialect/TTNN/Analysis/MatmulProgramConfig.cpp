@@ -398,19 +398,4 @@ buildDRAMShardedProgramConfig(MLIRContext *ctx, const DRAMShardParams &p,
       ctx, p.in0BlockW, p.perCoreM, p.perCoreNStorage, fusedAct);
 }
 
-DeviceComputeKernelConfigAttr
-buildComputeConfig(MLIRContext *ctx, ttcore::DataType weightDataType) {
-  // Observed per weight dtype, not derived from the formats.
-  MathFidelity fidelity = (weightDataType == ttcore::DataType::BFP_BFloat4)
-                              ? MathFidelity::LoFi
-                              : MathFidelity::HiFi2;
-  return DeviceComputeKernelConfigAttr::get(
-      ctx,
-      /*mathFidelity=*/fidelity,
-      /*mathApproxMode=*/mlir::BoolAttr{},
-      /*fp32DestAccEn=*/mlir::BoolAttr::get(ctx, false),
-      /*packerL1Acc=*/mlir::BoolAttr::get(ctx, true),
-      /*dstFullSyncEn=*/mlir::BoolAttr{});
-}
-
 } // namespace mlir::tt::ttnn

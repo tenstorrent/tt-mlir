@@ -12,6 +12,11 @@
 
 module attributes {} {
   // CHECK-LABEL: func.func @ds_matmul_m32
+  // No compute-kernel config, same as every other matmul the optimizer emits:
+  // math fidelity and the accumulate knobs are tt-metal's to derive. Scoped
+  // ahead of the program config because compute_config would sort before it in
+  // the attribute dictionary.
+  // CHECK-NOT: compute_config
   // CHECK: matmul_program_config = #ttnn.matmul_multi_core_reuse_multi_cast_dram_sharded_program_config
   // CHECK-SAME: per_core_m = 1
   func.func @ds_matmul_m32(
