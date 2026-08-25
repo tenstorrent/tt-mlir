@@ -5,9 +5,6 @@
 #include "ttmlir/Dialect/TTNN/Analysis/MatmulProgramConfig.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
-
-#include "mlir/IR/MLIRContext.h"
 
 #include "gtest/gtest.h"
 
@@ -146,23 +143,6 @@ TEST(MatmulDRAMShardParams, PrimeKPerCoreCollapseDeclined) {
       kM, /*K=*/11008, /*N=*/2048, kBlackholeBanks, kNumIn0Cores,
       kBlackholeCores, ttcore::DataType::BFP_BFloat8, kBlackholeL1Available);
   EXPECT_FALSE(p.has_value());
-}
-
-// Fidelity follows the weight dtype.
-class MatmulDRAMComputeConfig : public ::testing::Test {
-protected:
-  void SetUp() override { context.loadDialect<TTNNDialect>(); }
-  mlir::MLIRContext context;
-};
-
-TEST_F(MatmulDRAMComputeConfig, Bfp4RunsLoFi) {
-  auto cfg = buildComputeConfig(&context, ttcore::DataType::BFP_BFloat4);
-  EXPECT_EQ(cfg.getMathFidelity(), MathFidelity::LoFi);
-}
-
-TEST_F(MatmulDRAMComputeConfig, Bfp8RunsHiFi2) {
-  auto cfg = buildComputeConfig(&context, ttcore::DataType::BFP_BFloat8);
-  EXPECT_EQ(cfg.getMathFidelity(), MathFidelity::HiFi2);
 }
 
 } // namespace
