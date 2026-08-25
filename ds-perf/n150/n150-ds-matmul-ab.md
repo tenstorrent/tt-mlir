@@ -84,8 +84,14 @@ Three of the four models it touches hand their DS win straight back. The model i
    exactly the degenerate two and keep every winner. See
    [what the guard did](#what-the-collapse-guard-did) and
    [the calibration](#calibrating-kminblockwidthfraction-for-n150).
-2. **`per_core_n == 1` with N >= 2048** — exceptionless across 8 of 8 such shapes, 1.04x to
+2. **`per_core_n == 1` with N >= 2048** (see the caveat below) — 8 of 8 such shapes, 1.04x to
    1.12x, spanning both `down` and `o_proj` in four unrelated models.
+
+Both signatures were measured with DS on HiFi2 and multicast on LoFi, which the shipped
+compiler does by construction. That confound is large enough to account for the smaller
+losses on its own, and a matched-fidelity A/B on p150 reverses the verdict on the shape
+signature 2 was drawn from. Read them as properties of the shipped configuration rather
+than of the DS kernel — see [the fidelity confounder](#the-fidelity-confounder).
 
 Scored against the control-shape noise floor the two rules flag 9 of 49 DS shapes and catch
 **9 of the 10 real losses with no false positives**; the one that slips through costs 50 µs.
@@ -152,6 +158,41 @@ Two groups never take the DS path and so measure only run-to-run variation betwe
 otherwise identical executions: `lm_head` (multicast in every compile) and the biased Qwen2.5
 `qkv`. Across every model measured their penalties stay inside **0.99x–1.02x**, so that is the
 noise floor, and each claim below is read against it rather than against 1.00x.
+
+### The fidelity confounder
+
+**Every DS-vs-multicast ratio in this report varies math fidelity along with the kernel.**
+`buildComputeConfig` (`MatmulProgramConfig.cpp`) attaches an explicit compute config to DS
+matmuls and nothing else, so a DS matmul ran the fidelity that function picked while its
+multicast counterpart took ttnn's default. Counted over every matmul instance in this
+measurement record:
+
+| variant | kernel | fidelity |
+|---|---|---|
+| DS | DS config | **HiFi2 97%**, LoFi 3% |
+| DS | multicast | LoFi 71%, HiFi2 29% |
+| no DS | multicast | **LoFi 87%**, HiFi2 13% |
+
+The 3% LoFi on the DS side is llama_3_1_8b's bfp4 gate/up, the one weight type
+`buildComputeConfig` exempted.
+
+The asymmetry matters because MVMULs issued per tile-MAC scale with `fidelity_loops`, and
+DS concentrates the output: `per_core_N` is 8–12 against multicast's 1–3 on the same shape,
+so DS issues 4–8x the tile-MACs per core. HiFi2 is a tax only DS can pay, and only DS was
+charged it.
+
+**What survives and what does not.** The headline direction is safe and if anything
+understated: DS won while carrying the tax, so the kernel advantage measured here is a
+floor. The two per-shape loss signatures are not safe. A fidelity-matched A/B on p150
+(`ds-perf/results/kernel_fidelity_matrix.csv`) reverses the verdict on all three shapes
+tested — multicast wins at HiFi2, DS wins at LoFi — and on `2048x2048` o_proj, the shape
+the `per_core_n == 1` rule was drawn from, matched fidelity gives parity (0.98x) rather
+than the 1.11x loss recorded below. A ladder sweep at LoFi
+(`ds-perf/results/ds_blockw_fidelity.csv`) further shows the DS path holding 96–98% of peak
+down to a K-step ratio of 15, which no threshold of 2 or 4 would keep.
+
+Both rules below should therefore be read as measured under the shipped configuration, not
+as properties of the DS kernel.
 
 ### The activation confounder
 
@@ -917,24 +958,21 @@ Two gaps remain, both worth closing:
    On the models measured that costs more than DS saves. Fusing the activation into the matmul
    *and* keeping DS — rather than trading one for the other — would make this branch a clear
    win rather than a wash.
-2. **Keep the guard, set `kMinBlockWidthFraction` to 4 for Wormhole.** Measured, not projected.
-   The guard declines 8 shape groups; the six with a true multicast baseline give up **10215 µs**
-   of matmul time to recover **615 µs**. On device the three models it wrongly touches hand back
-   their whole DS win — falcon3_7b 0.903x to 0.996x of no-DS, mistral_7b 0.931x to 0.989x,
-   llama_3_1_8b 0.933x to 0.965x — while qwen_3_8b, which it does not touch, holds 0.923x at
-   exactly 1.000x. It earns its keep on one model, qwen_2_5_7b, whose ratio-37 down runs at
-   133.9 GB/s and which improves 0.925x once declined. A fraction of 4 keeps that decline and
-   the ratio-16 lm_head decline, and keeps all five ratio-3/4 winners. The constant has to be
-   arch-dependent; the Blackhole calibration in the guard's own comment does not transfer.
-
-3. **Add a second decline rule: `per_core_n == 1` with a bandwidth-sized weight.** 8 of 8
-   shapes with `per_core_n == 1` and N >= 2048 lose (1.04x-1.12x), across `down` and `o_proj` in
-   four models; declining them recovers 627 µs. N = 2048 gives 64 N-tiles over 12 banks, one
-   output tile column per core, so each core reads only `in0_block_w` weight tiles and per-core
-   launch cost dominates. The weight-size half matters: the `per_core_n == 1` shapes with
-   N < 2048 (at most 4.6 MB) *win*, because at 143-169 GB/s neither path is bandwidth-bound.
-   This is exactly the shape of criterion [`../criteria.py`](../criteria.py) scores.
-
+2. **Keep the guard, but do not take the threshold from this report.** The
+   `kMinBlockWidthFraction = 2` finding stands: the guard as shipped declines shapes whose DS
+   configs are the fleet's fastest, and on device the three models it wrongly touches hand back
+   their whole win. The replacement value of 4 proposed here does **not** stand. It was fitted
+   to timings taken with DS on HiFi2, and a ladder sweep at LoFi
+   (`ds-perf/results/ds_blockw_fidelity.csv`) shows the DS path holding 96-98% of peak down to a
+   K-step ratio of 15 — every row a fraction of 4 would decline. On that evidence the cut belongs
+   near an absolute floor on `in0_block_w` (1 and 2 are bad at kPerCore 16, 43 and 90 alike;
+   6 and above are flat) rather than at any fraction of kPerCore. Measured on p150; the floor
+   needs the same ladder on 12 banks before a constant changes.
+3. **Do not add the `per_core_n == 1` rule.** At matched fidelity the shape it was drawn from,
+   `2048x2048` o_proj, is parity (0.98x) rather than a 1.11x loss
+   (`ds-perf/results/kernel_fidelity_matrix.csv`). The rule was measuring the HiFi2 tax that
+   `buildComputeConfig` charges DS and not multicast, so the fix is the fidelity assignment, not
+   a decline.
 4. **Bias blocks DS entirely for the Phi family.** A DRAM width-sharded bias would open DS to
    every biased projection, including all of Qwen2.5's qkv.
 

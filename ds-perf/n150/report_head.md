@@ -84,8 +84,14 @@ Three of the four models it touches hand their DS win straight back. The model i
    exactly the degenerate two and keep every winner. See
    [what the guard did](#what-the-collapse-guard-did) and
    [the calibration](#calibrating-kminblockwidthfraction-for-n150).
-2. **`per_core_n == 1` with N >= 2048** — exceptionless across 8 of 8 such shapes, 1.04x to
+2. **`per_core_n == 1` with N >= 2048** (see the caveat below) — 8 of 8 such shapes, 1.04x to
    1.12x, spanning both `down` and `o_proj` in four unrelated models.
+
+Both signatures were measured with DS on HiFi2 and multicast on LoFi, which the shipped
+compiler does by construction. That confound is large enough to account for the smaller
+losses on its own, and a matched-fidelity A/B on p150 reverses the verdict on the shape
+signature 2 was drawn from. Read them as properties of the shipped configuration rather
+than of the DS kernel — see [the fidelity confounder](#the-fidelity-confounder).
 
 Scored against the control-shape noise floor the two rules flag 9 of 49 DS shapes and catch
 **9 of the 10 real losses with no false positives**; the one that slips through costs 50 µs.

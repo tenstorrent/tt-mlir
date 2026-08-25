@@ -108,24 +108,21 @@ Two gaps remain, both worth closing:
    On the models measured that costs more than DS saves. Fusing the activation into the matmul
    *and* keeping DS — rather than trading one for the other — would make this branch a clear
    win rather than a wash.
-2. **Keep the guard, set `kMinBlockWidthFraction` to 4 for Wormhole.** Measured, not projected.
-   The guard declines 8 shape groups; the six with a true multicast baseline give up **10215 µs**
-   of matmul time to recover **615 µs**. On device the three models it wrongly touches hand back
-   their whole DS win — falcon3_7b 0.903x to 0.996x of no-DS, mistral_7b 0.931x to 0.989x,
-   llama_3_1_8b 0.933x to 0.965x — while qwen_3_8b, which it does not touch, holds 0.923x at
-   exactly 1.000x. It earns its keep on one model, qwen_2_5_7b, whose ratio-37 down runs at
-   133.9 GB/s and which improves 0.925x once declined. A fraction of 4 keeps that decline and
-   the ratio-16 lm_head decline, and keeps all five ratio-3/4 winners. The constant has to be
-   arch-dependent; the Blackhole calibration in the guard's own comment does not transfer.
-
-3. **Add a second decline rule: `per_core_n == 1` with a bandwidth-sized weight.** 8 of 8
-   shapes with `per_core_n == 1` and N >= 2048 lose (1.04x-1.12x), across `down` and `o_proj` in
-   four models; declining them recovers 627 µs. N = 2048 gives 64 N-tiles over 12 banks, one
-   output tile column per core, so each core reads only `in0_block_w` weight tiles and per-core
-   launch cost dominates. The weight-size half matters: the `per_core_n == 1` shapes with
-   N < 2048 (at most 4.6 MB) *win*, because at 143-169 GB/s neither path is bandwidth-bound.
-   This is exactly the shape of criterion [`../criteria.py`](../criteria.py) scores.
-
+2. **Keep the guard, but do not take the threshold from this report.** The
+   `kMinBlockWidthFraction = 2` finding stands: the guard as shipped declines shapes whose DS
+   configs are the fleet's fastest, and on device the three models it wrongly touches hand back
+   their whole win. The replacement value of 4 proposed here does **not** stand. It was fitted
+   to timings taken with DS on HiFi2, and a ladder sweep at LoFi
+   (`ds-perf/results/ds_blockw_fidelity.csv`) shows the DS path holding 96-98% of peak down to a
+   K-step ratio of 15 — every row a fraction of 4 would decline. On that evidence the cut belongs
+   near an absolute floor on `in0_block_w` (1 and 2 are bad at kPerCore 16, 43 and 90 alike;
+   6 and above are flat) rather than at any fraction of kPerCore. Measured on p150; the floor
+   needs the same ladder on 12 banks before a constant changes.
+3. **Do not add the `per_core_n == 1` rule.** At matched fidelity the shape it was drawn from,
+   `2048x2048` o_proj, is parity (0.98x) rather than a 1.11x loss
+   (`ds-perf/results/kernel_fidelity_matrix.csv`). The rule was measuring the HiFi2 tax that
+   `buildComputeConfig` charges DS and not multicast, so the fix is the fidelity assignment, not
+   a decline.
 4. **Bias blocks DS entirely for the Phi family.** A DRAM width-sharded bias would open DS to
    every biased projection, including all of Qwen2.5's qkv.
 

@@ -36,6 +36,41 @@ otherwise identical executions: `lm_head` (multicast in every compile) and the b
 `qkv`. Across every model measured their penalties stay inside **0.99x–1.02x**, so that is the
 noise floor, and each claim below is read against it rather than against 1.00x.
 
+### The fidelity confounder
+
+**Every DS-vs-multicast ratio in this report varies math fidelity along with the kernel.**
+`buildComputeConfig` (`MatmulProgramConfig.cpp`) attaches an explicit compute config to DS
+matmuls and nothing else, so a DS matmul ran the fidelity that function picked while its
+multicast counterpart took ttnn's default. Counted over every matmul instance in this
+measurement record:
+
+| variant | kernel | fidelity |
+|---|---|---|
+| DS | DS config | **HiFi2 97%**, LoFi 3% |
+| DS | multicast | LoFi 71%, HiFi2 29% |
+| no DS | multicast | **LoFi 87%**, HiFi2 13% |
+
+The 3% LoFi on the DS side is llama_3_1_8b's bfp4 gate/up, the one weight type
+`buildComputeConfig` exempted.
+
+The asymmetry matters because MVMULs issued per tile-MAC scale with `fidelity_loops`, and
+DS concentrates the output: `per_core_N` is 8–12 against multicast's 1–3 on the same shape,
+so DS issues 4–8x the tile-MACs per core. HiFi2 is a tax only DS can pay, and only DS was
+charged it.
+
+**What survives and what does not.** The headline direction is safe and if anything
+understated: DS won while carrying the tax, so the kernel advantage measured here is a
+floor. The two per-shape loss signatures are not safe. A fidelity-matched A/B on p150
+(`ds-perf/results/kernel_fidelity_matrix.csv`) reverses the verdict on all three shapes
+tested — multicast wins at HiFi2, DS wins at LoFi — and on `2048x2048` o_proj, the shape
+the `per_core_n == 1` rule was drawn from, matched fidelity gives parity (0.98x) rather
+than the 1.11x loss recorded below. A ladder sweep at LoFi
+(`ds-perf/results/ds_blockw_fidelity.csv`) further shows the DS path holding 96–98% of peak
+down to a K-step ratio of 15, which no threshold of 2 or 4 would keep.
+
+Both rules below should therefore be read as measured under the shipped configuration, not
+as properties of the DS kernel.
+
 ### The activation confounder
 
 The no-DS compile folds SiLU into the gate matmul via the program config's
