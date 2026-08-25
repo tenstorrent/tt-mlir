@@ -1,0 +1,6 @@
+op_id,replay,op_name,cores,duration_ns
+2048,,InterleavedToShardedDeviceOperation,80,246521.4814814815
+1024,,CopyDeviceOperation,80,246432.59259259258
+3072,,MatmulDeviceOperation,80,246145.92592592593
+4096,,CopyDeviceOperation,80,246049.62962962964
+5120,,InterleavedToShardedDeviceOperation,80,245722.22222222222
