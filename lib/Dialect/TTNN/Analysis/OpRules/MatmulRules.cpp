@@ -419,9 +419,14 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
   // a separate op is inserted at apply time.
   UnaryWithParamAttr fusedAct;
   auto progConfig = buildDRAMShardedProgramConfig(ctx, p, fusedAct);
-  auto computeConfig = buildComputeConfig(ctx, p.weightDataType);
 
-  return OpConfig(l1OutLayout, MatmulAttrs{progConfig, computeConfig});
+  // No compute-kernel config, matching every other matmul the optimizer emits:
+  // math fidelity, fp32 dest-accumulate and packer-L1-accumulate are left to
+  // tt-metal's defaults. It derives them from the program config and the output
+  // dtype, and leaving them unset is also what lets the global
+  // compute-kernel-config pipeline options reach a DS matmul at all --
+  // TTNNSetComputeKernelConfig only fills knobs the op has not already set.
+  return OpConfig(l1OutLayout, MatmulAttrs{progConfig, std::nullopt});
 }
 
 void MatmulRuleBook::applyDRAMShardedTransformation(
