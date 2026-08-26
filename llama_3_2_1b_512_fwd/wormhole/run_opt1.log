@@ -1,0 +1,2 @@
+Warning: not importing testing submodule since project was not built with runtime testing enabled. To enable, rebuild with: -DTTMLIR_ENABLE_RUNTIME_TESTS=ON
+loss=3.49609375 submit=3.5s
