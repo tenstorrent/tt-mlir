@@ -622,6 +622,15 @@ at::Tensor tt_tanh(const at::Tensor &self) {
     return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
 }
 
+at::Tensor tt_reciprocal(const at::Tensor &self) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::reciprocal: tensor must be on tt backend");
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result = build_reciprocal(mb, mb.args()[0]);
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
+}
+
 // The optional `dtype` asks for accumulation in a wider type than the input;
 // ttir.cumsum accumulates in the input's element type, so only a same-dtype (or
 // absent) request maps onto it.
@@ -1025,6 +1034,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("log1p", TORCH_FN(tt_log1p));
     m.impl("sqrt", TORCH_FN(tt_sqrt));
     m.impl("tanh", TORCH_FN(tt_tanh));
+    m.impl("reciprocal", TORCH_FN(tt_reciprocal));
     m.impl("cumsum", TORCH_FN(tt_cumsum));
     m.impl("full_like", TORCH_FN(tt_full_like));
     m.impl("arange", TORCH_FN(tt_arange));

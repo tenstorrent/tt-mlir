@@ -574,6 +574,11 @@ mlir::Value build_tanh(ModuleBuilder &mb, mlir::Value input) {
     return mb.create<mlir::tt::ttir::TanhOp>(result_type, input).getResult();
 }
 
+mlir::Value build_reciprocal(ModuleBuilder &mb, mlir::Value input) {
+    auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    return mb.create<mlir::tt::ttir::ReciprocalOp>(result_type, input).getResult();
+}
+
 mlir::Value build_cumsum(ModuleBuilder &mb, mlir::Value input, int64_t dim) {
     auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     int64_t rank = as<int64_t>(result_type.getRank());

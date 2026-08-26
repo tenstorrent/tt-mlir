@@ -288,6 +288,17 @@ def test_compile_tanh(shape: tuple[int, ...]) -> None:
     _assert_compile_matches_eager(_Tanh(), x, atol=0.01, rtol=0.01)
 
 
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_reciprocal(shape: tuple[int, ...]) -> None:
+    """Single aten::reciprocal in a compiled graph. Inputs kept away from zero."""
+    class _Reciprocal(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.reciprocal(x)
+
+    x = torch.rand(shape, dtype=torch.bfloat16).add(0.5)
+    _assert_compile_matches_eager(_Reciprocal(), x, atol=0.01, rtol=0.01)
+
+
 @pytest.mark.parametrize(
     "src_shape,dst_shape",
     [

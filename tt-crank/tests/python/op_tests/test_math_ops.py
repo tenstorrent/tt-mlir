@@ -1,5 +1,4 @@
-"""Tests for scalar-lift and trig math ops: pow, add/mul/div scalars, cos, sin,
-neg, log, exp, log1p, sqrt, tanh, cumsum, silu, softmax."""
+"""Tests for scalar-lift and trig math ops."""
 
 import pytest
 import torch
@@ -107,6 +106,14 @@ def test_tanh(shape: tuple) -> None:
     # around zero and the onset of saturation towards ±1.
     a = torch.rand(shape, dtype=torch.bfloat16) * 4 - 2
     assert_close_cpu_vs_tt(torch.tanh, a, atol=1e-2, rtol=1e-2)
+
+
+@pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])
+def test_reciprocal(shape: tuple) -> None:
+    # Reciprocal is mathematically undefined at zero, keep inputs in
+    # [0.5, 1.5], safely away from the singularity.
+    a = torch.rand(shape, dtype=torch.bfloat16) + 0.5
+    assert_close_cpu_vs_tt(torch.reciprocal, a, atol=1e-2, rtol=1e-2)
 
 
 @pytest.mark.parametrize("dim", [-1, 0, 1])
