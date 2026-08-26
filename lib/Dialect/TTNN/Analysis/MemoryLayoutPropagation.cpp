@@ -1585,20 +1585,36 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
   RankedTensorType newTensorType =
       utils::RankedTensorTypeFactory::create(producerTensorType, outputLayout);
 
+  // A tile <-> row-major page-layout change (RowMajor input siblings) is a
+  // retile, which ttnn.to_memory_config does not do -- emit a
+  // ttnn.to_tensor_spec, which TTNNDecomposeLayouts lowers into the
+  // untilize/tilize + memory-config sequence. Pure memory-config reshards stay
+  // ttnn.to_memory_config.
+  bool pageLayoutChanges =
+      producerLayout.getLayout() != outputLayout.getLayout();
+
   // Dedup: reuse a shared reshard for consumers of the same producer requesting
-  // the same target layout.
-  // Stays correct downstream: TTNNDeallocate frees it after its last consumer,
-  // and if the L1 spill pass evicts it for space it re-splits into per-consumer
-  // reshards.
+  // the same target layout. Only the ttnn.to_memory_config path is shared.
+  //
+  // Sharing a ToMemoryConfigOp is safe downstream: it carries an ordinary
+  // allocation record, so L1SpillManagement tracks it in liveValues and can
+  // evict it, and TTNNDeallocate frees it after its last consumer.
+  //
+  // A ToTensorSpecOp is deliberately left out. L1SpillManagement makes room
+  // for an L1 ToTensorSpecOp result but does not add it to liveValues, on the
+  // stated assumption that such a result is "always immediately consumed by
+  // the target op".
   std::pair<mlir::Value, mlir::Attribute> cacheKey{operand, reshardLayout};
-  if (auto it = reshardCache.find(cacheKey); it != reshardCache.end()) {
-    if (Operation *cachedOp = it->second.getDefiningOp();
-        cachedOp && cachedOp->getBlock() == consumerOp->getBlock() &&
-        cachedOp->isBeforeInBlock(consumerOp)) {
-      consumerOp->setOperand(operandIndex, it->second);
-      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                   "Reused shared memory reconfig op: {0}", cachedOp);
-      return;
+  if (!pageLayoutChanges) {
+    if (auto it = reshardCache.find(cacheKey); it != reshardCache.end()) {
+      if (Operation *cachedOp = it->second.getDefiningOp();
+          cachedOp && cachedOp->getBlock() == consumerOp->getBlock() &&
+          cachedOp->isBeforeInBlock(consumerOp)) {
+        consumerOp->setOperand(operandIndex, it->second);
+        TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                     "Reused shared memory reconfig op: {0}", cachedOp);
+        return;
+      }
     }
   }
 
@@ -1606,13 +1622,6 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
   Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
                                                      "_mem_reconfig");
 
-  // A tile <-> row-major page-layout change (RowMajor input siblings) is a
-  // retile, which ttnn.to_memory_config does not do -- emit a ttnn.to_layout,
-  // which TTNNDecomposeLayouts lowers into the untilize/tilize + memory-config
-  // sequence. Pure memory-config reshards stay ttnn.to_memory_config.
-  bool pageLayoutChanges =
-      utils::getLayoutAttrFromTensor(producerTensorType).getLayout() !=
-      outputLayout.getLayout();
   Operation *reshardOp =
       pageLayoutChanges
           ? builder.create<ToTensorSpecOp>(loc, newTensorType, operand)
@@ -1621,7 +1630,9 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
                 .getOperation();
 
   consumerOp->setOperand(operandIndex, reshardOp->getResult(0));
-  reshardCache[cacheKey] = reshardOp->getResult(0);
+  if (!pageLayoutChanges) {
+    reshardCache[cacheKey] = reshardOp->getResult(0);
+  }
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "Inserted reshard op: {0}", *reshardOp);
