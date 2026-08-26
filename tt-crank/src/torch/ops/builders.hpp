@@ -127,6 +127,7 @@ using ::tt::kurbla::build_sub;
 using ::tt::kurbla::build_sum;
 using ::tt::kurbla::build_sum_to;
 using ::tt::kurbla::build_t;
+using ::tt::kurbla::build_tanh;
 using ::tt::kurbla::build_threshold_backward;
 using ::tt::kurbla::build_transpose;
 using ::tt::kurbla::build_tril;

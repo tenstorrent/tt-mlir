@@ -277,6 +277,17 @@ def test_compile_sqrt(shape: tuple[int, ...]) -> None:
     _assert_compile_matches_eager(_Sqrt(), x, atol=0.01, rtol=0.01)
 
 
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_tanh(shape: tuple[int, ...]) -> None:
+    """Single aten::tanh in a compiled graph."""
+    class _Tanh(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.tanh(x)
+
+    x = torch.rand(shape, dtype=torch.bfloat16) * 4 - 2
+    _assert_compile_matches_eager(_Tanh(), x, atol=0.01, rtol=0.01)
+
+
 @pytest.mark.parametrize(
     "src_shape,dst_shape",
     [
