@@ -38,6 +38,14 @@
 
 namespace mlir::tt::ttnn::op_model {
 
+bool isMockDevice() {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return SingletonDeviceContext::getInstance().isMockDevice();
+#else
+  return false;
+#endif
+}
+
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 // Macros to wrap overloaded functions for use with
