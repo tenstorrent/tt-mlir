@@ -55,6 +55,10 @@ namespace mlir::tt::ttnn::op_model {
 
 using MockAllocatorState = ::tt::tt_metal::experimental::MockAllocatorState;
 
+// Returns true when op-model queries are using the internally managed mock
+// device. Returns false when op-model support is disabled.
+bool isMockDevice();
+
 // Build a MockAllocatorState representing the given live allocations, for the
 // stateful (build-from-records) constraint query. Confines all tt-metalium
 // interaction (extract + with_allocations + record conversion) to the op-model
