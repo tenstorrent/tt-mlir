@@ -23,7 +23,6 @@
 #include "torch/backend.hpp"
 #include "torch/ops/builders.hpp"
 #include "torch/tensor.hpp"
-#include "torch/ttir_module_builder.hpp"
 
 namespace tt::kurbla::torch_backend {
 

@@ -31,7 +31,6 @@
 #include "torch/ops/builders.hpp"
 #include "torch/ops/fallback.hpp"
 #include "torch/tensor.hpp"
-#include "torch/ttir_module_builder.hpp"
 #include <ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h>
 
 namespace nb = nanobind;

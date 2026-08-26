@@ -23,6 +23,7 @@
 #include "engine/compile.hpp"
 #include "engine/device.hpp"
 #include "engine/execution_payload.hpp"
+#include "torch/ops/builders.hpp"
 #include "torch/tensor.hpp"
 
 namespace tt::kurbla::torch_backend {
@@ -155,6 +156,14 @@ std::vector<::tt::runtime::Tensor> compile_and_run(mlir::OwningOpRef<mlir::Modul
 
 void register_allocator() {
     ::c10::SetAllocator(::c10::DeviceType::PrivateUse1, &g_allocator, /*priority=*/0);
+}
+
+TensorTypeSpec spec_for(const at::Tensor &t) {
+    return TensorTypeSpec{{t.sizes().begin(), t.sizes().end()}, to_runtime_dtype(t.scalar_type())};
+}
+
+mlir::Type mlir_element_type_for(c10::ScalarType torch_dtype) {
+    return ::tt::kurbla::to_mlir_element_type(::tt::kurbla::mlir_context(), to_runtime_dtype(torch_dtype));
 }
 
 ::tt::target::DataType to_runtime_dtype(c10::ScalarType torch_dtype) {

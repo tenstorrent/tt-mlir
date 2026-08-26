@@ -1,403 +1,138 @@
 #pragma once
 
-#include <optional>
+// This header re-exports ttir builders under the torch backend's namespace and adds
+// the ATen-typed conveniences the torch kernels use.
+
+#include <tuple>
+#include <type_traits>
 #include <utility>
 
-#include <mlir/IR/Types.h>
-#include <mlir/IR/Value.h>
+#include <ATen/core/ScalarType.h>
+#include <ATen/core/Tensor.h>
+#include <ATen/native/TypeProperties.h>
 
-#include "torch/ttir_module_builder.hpp"
-
-// TTIR emission helpers shared between the eager ATen kernels (each kernel
-// finalizes its own single-op module and runs it) and the torch.compile path
-// (the FX walker chains these many times into a single module). Keeping the
-// lowering in one place stops eager and compile from drifting apart — every
-// caller produces the same TTIR for the same input MLIR types.
-//
-// All helpers operate on mlir::Value handles owned by `mb`'s in-flight module.
-// Callers must pre-promote inputs to a shared element type before calling
-// (eager kernels use `promote_inputs`; the compile path mirrors that logic on
-// the MLIR element types).
+#include "engine/ttir_module_builder.hpp"
 
 namespace tt::kurbla::torch_backend {
 
-// Emit TTIR for `lhs + alpha * rhs`. `lhs` and `rhs` must already share an
-// element type — callers handle promotion (eager via `promote_inputs`,
-// compile via the FX walker's `_prepare_op_args`).
-mlir::Value build_add(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs, double alpha = 1.0);
+using ::tt::kurbla::ModuleBuilder;
+using ::tt::kurbla::TensorTypeSpec;
 
-// Emit TTIR for `lhs @ rhs` (2D matrix multiply). `lhs` and `rhs` must
-// already share an element type and be 2D ranked tensors.
-mlir::Value build_mm(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+// Spec for a TTIR function input, carrying the tensor's logical dtype.
+// The TTIR→TTNN rewriter demotes unsupported wide types (f64, i64, ...)
+// to their hardware alias at lowering time.
+TensorTypeSpec spec_for(const at::Tensor &t);
 
-// Emit TTIR for `beta*bias + alpha*(mat1 @ mat2)`. All inputs must already
-// share an element type. Uses LinearOp for the beta==alpha==1 fast path.
-mlir::Value build_addmm(ModuleBuilder &mb, mlir::Value bias, mlir::Value mat1, mlir::Value mat2, double beta = 1.0,
-                        double alpha = 1.0);
+// Torch scalar type → MLIR element type via the logical runtime dtype. May
+// return a type the hardware doesn't support directly; the rewriter handles it.
+mlir::Type mlir_element_type_for(c10::ScalarType torch_dtype);
 
-// Emit TTIR for 2D transpose (aten::t): swaps dim 0 and dim 1.
-mlir::Value build_t(ModuleBuilder &mb, mlir::Value input);
-
-// Emit TTIR for element-wise ReLU.
-mlir::Value build_relu(ModuleBuilder &mb, mlir::Value input);
-
-// Emit TTIR for `lhs - alpha * rhs`. Same type rules as build_add.
-mlir::Value build_sub(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs, double alpha = 1.0);
-
-// Emit TTIR for element-wise `lhs * rhs`. Inputs must share element type.
-mlir::Value build_mul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
-
-// Emit TTIR for element-wise reciprocal square root.
-mlir::Value build_rsqrt(ModuleBuilder &mb, mlir::Value input);
-
-// Emit TTIR for tensor reshape. `new_shape` must already have any -1 resolved;
-// total element count must match the input.
-mlir::Value build_reshape(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> new_shape);
-
-// Emit TTIR for mean reduction along `dims` (negative dims are normalised
-// against the input rank). Empty `dims` reduces over all dimensions.
-// `keepdim` controls whether reduced dimensions are retained as size-1.
-mlir::Value build_mean(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims, bool keepdim);
-
-// Emit TTIR for sum reduction along `dims` (negative dims are normalised
-// against the input rank). Empty `dims` reduces over all dimensions.
-// `keepdim` controls whether reduced dimensions are retained as size-1.
-mlir::Value build_sum(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims, bool keepdim);
-
-// Emit TTIR for a cumulative sum along `dim` (which must already be
-// non-negative). Unlike the reductions above this keeps the input shape: every
-// position holds the running total up to and including itself.
-mlir::Value build_cumsum(ModuleBuilder &mb, mlir::Value input, int64_t dim);
-
-// The `at::sum_to` analogue for MLIR values: reduce `input` to `target` by
-// summing away broadcasted dims — leading dims beyond `target`'s rank, plus dims
-// where `target` is size 1 but `input` is larger (with keepdim). A no-op when
-// the shapes already agree.
-mlir::Value build_sum_to(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> target);
-
-// Emit TTIR for `grad_output * (self > threshold)`. `grad_output` and `self`
-// must share shape and element type. The `self > threshold` mask is computed
-// at `self`'s element type, then cast to the gradient's element type so the
-// gate is a plain elementwise multiply.
-mlir::Value build_threshold_backward(ModuleBuilder &mb, mlir::Value grad_output, mlir::Value self, double threshold);
-
-// Emit TTIR for `aten::mse_loss`. `reduction` is an `at::Reduction` value:
-// None returns the elementwise squared error; Mean/Sum reduce over all
-// elements to a rank-0 scalar. `self` and `target` must share shape and
-// element type.
-mlir::Value build_mse_loss(ModuleBuilder &mb, mlir::Value self, mlir::Value target, std::int64_t reduction);
-
-// Emit TTIR for `aten::mse_loss_backward`:
-//   grad_input = grad_output * 2 * (self - target) / N
-// where N is the element count for `at::Reduction::Mean` and 1 otherwise.
-// `grad_output` is the (scalar, `[1]`) upstream gradient and broadcasts over
-// `self`'s shape. All tensor inputs must share element type.
-mlir::Value build_mse_loss_backward(ModuleBuilder &mb, mlir::Value grad_output, mlir::Value self, mlir::Value target,
-                                    std::int64_t reduction);
-
-// Emit TTIR for batch normalization inference:
-//   result = (operand - mean) / sqrt(variance + eps) * scale + offset
-// All five value inputs must share the same element type — callers must promote
-// first (eager via `promote_inputs`, compile via explicit `typecast` calls).
-// `eps` is embedded as an F32 attribute. `dimension` is hardcoded to 1 (NCHW).
-mlir::Value build_bn_inference(ModuleBuilder &mb, mlir::Value operand, mlir::Value scale, mlir::Value offset,
-                               mlir::Value mean, mlir::Value variance, float eps);
-
-// Emit a `ttir.constant` of `value` with `element_type` and shape `[1]` —
-// broadcasts against any tensor in downstream elementwise ops.
-mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double value);
-
-// Emit `ttir.zeros` / `ttir.ones` / `ttir.full`: a `shape`-shaped tensor of
-// `element_type` filled with 0, 1, or `value`. Back the zeros/ones/full/new_*
-// creation ops.
-mlir::Value build_zeros(ModuleBuilder &mb, llvm::ArrayRef<int64_t> shape, mlir::Type element_type);
-mlir::Value build_ones(ModuleBuilder &mb, llvm::ArrayRef<int64_t> shape, mlir::Type element_type);
-mlir::Value build_full(ModuleBuilder &mb, llvm::ArrayRef<int64_t> shape, double value, mlir::Type element_type);
-
-// Emit `ttir.all_reduce(reduce_type, cluster_axis)` over the runtime mesh axis
-// `cluster_axis` (caller-supplied). Output shape == input (per-chip) shape.
-mlir::Value build_all_reduce(ModuleBuilder &mb, mlir::Value input, const std::string &reduce_op,
-                             std::uint32_t cluster_axis);
-
-// Emit `ttir.all_gather(all_gather_dim=0, cluster_axis)`. Output dim 0 is
-// `group_size * input dim 0`; the gather dim is fixed at 0 by the
-// `all_gather_into_tensor` / `_allgather_base` contract.
-mlir::Value build_all_gather(ModuleBuilder &mb, mlir::Value input, std::int64_t group_size, std::uint32_t cluster_axis);
-
-// Emit `ttir.reduce_scatter(reduce_type=Sum, scatter_dim, cluster_axis)`.
-// Output dim `scatter_dim` is `input dim / group_size`. Sum only, matching
-// `build_all_reduce`. TTIR/TTNN reduce_scatter carry an arbitrary scatter_dim,
-// so we scatter the requested dim directly (no transpose-to-0 dance).
-mlir::Value build_reduce_scatter(ModuleBuilder &mb, mlir::Value input, std::int64_t group_size,
-                                 std::uint32_t cluster_axis, std::int64_t scatter_dim);
-
-// Emit `value * tensor` as a TTIR subgraph: a `ttir.constant` at `tensor`'s
-// element type, then a `ttir.multiply`. Shared cross-op helper.
-mlir::Value scale_tensor(ModuleBuilder &mb, mlir::Value tensor, double value);
-
-// Emit TTIR for tensor dimension permutation. `permutation[i]` gives the
-// source dimension index for output dimension `i`.
-mlir::Value build_permute(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> permutation);
-
-// Emit TTIR for 2D max pooling (no indices). Input is NCHW; the emitter
-// inserts NCHW→NHWC and NHWC→NCHW permutes around MaxPool2dOp internally.
-// `stride`, `padding`, and `dilation` are [H, W]; `padding` is applied symmetrically.
-mlir::Value build_max_pool2d(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> kernel_size,
-                             llvm::ArrayRef<int64_t> stride, llvm::ArrayRef<int64_t> padding,
-                             llvm::ArrayRef<int64_t> dilation, bool ceil_mode);
-
-// Emit TTIR for a 2D convolution (non-transposed). Input and output use NCHW
-// layout (batch_dim=0, channel_dim=1, height_dim=2, width_dim=3). Weight is
-// in OIHW layout matching PyTorch's ATen convention. `bias` may be null (no
-// bias); when present it must be 1D (C_out,) and is reshaped to (1,C_out,1,1)
-// inside the emitter. `stride`, `padding`, and `dilation` carry [H, W] values;
-// `padding` is applied symmetrically (same on all four sides per axis).
-mlir::Value build_conv2d(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias,
-                         llvm::ArrayRef<int64_t> stride, llvm::ArrayRef<int64_t> padding,
-                         llvm::ArrayRef<int64_t> dilation, int64_t groups);
-
-// Emit TTIR for element-wise cosine.
-mlir::Value build_cos(ModuleBuilder &mb, mlir::Value input);
-
-// Emit TTIR for element-wise sine.
-mlir::Value build_sin(ModuleBuilder &mb, mlir::Value input);
-
-// Emit TTIR for element-wise negation.
-mlir::Value build_neg(ModuleBuilder &mb, mlir::Value input);
-
-// Emit TTIR for element-wise natural logarithm.
-mlir::Value build_log(ModuleBuilder &mb, mlir::Value input);
-
-// Emit TTIR for element-wise natural exponential.
-mlir::Value build_exp(ModuleBuilder &mb, mlir::Value input);
-
-// Emit TTIR for element-wise log(1 + x). Stays accurate for |x| near zero,
-// where log(1 + x) computed in two steps loses the small addend to rounding.
-mlir::Value build_log1p(ModuleBuilder &mb, mlir::Value input);
-
-// Emit TTIR for element-wise square root.
-mlir::Value build_sqrt(ModuleBuilder &mb, mlir::Value input);
-
-// Emit TTIR for element-wise SiLU activation.
-mlir::Value build_silu(ModuleBuilder &mb, mlir::Value input);
-
-// Emit TTIR for element-wise sigmoid activation.
-mlir::Value build_sigmoid(ModuleBuilder &mb, mlir::Value input);
-
-// Emit TTIR for element-wise GELU activation. ttir.gelu lowers to
-// ttnn.gelu(fast_and_approximate_mode=false): the exact/accurate variant
-// (aten approximate="none"). A "tanh" request gets this same accurate op.
-mlir::Value build_gelu(ModuleBuilder &mb, mlir::Value input);
-
-// Emit TTIR for element-wise `lhs / rhs`. Inputs must share element type.
-mlir::Value build_div(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
-
-// Emit TTIR for element-wise floor division `floor(lhs / rhs)` (rounding toward
-// -inf). Integer inputs divide in float first so the sign rounds correctly, then
-// cast the floored quotient back. Inputs must share element type.
-mlir::Value build_floor_divide(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
-
-// Emit TTIR for element-wise clamp to [min_val, max_val] (ttir.clamp_scalar). A
-// missing bound (std::nullopt) becomes the widest value for the element type,
-// i.e. a no-op on that side.
-mlir::Value build_clamp(ModuleBuilder &mb, mlir::Value input, std::optional<double> min_val,
-                        std::optional<double> max_val);
-
-// Emit TTIR for element-wise `lhs ^ rhs`. Inputs must share element type.
-mlir::Value build_pow(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
-
-// Emit TTIR for softmax along `dim` (normalized to non-negative). Uses numeric
-// stability mode for PCC-accurate bf16/f32 computations.
-mlir::Value build_softmax(ModuleBuilder &mb, mlir::Value input, int64_t dim);
-
-// Emit TTIR for argmax reduction along `dim`. When `dim` has no value, reduces
-// over all dimensions. `keepdim` retains the reduced dimension as size 1.
-// Returns an i32-element result (PyTorch callers widen to i64 if needed).
-mlir::Value build_argmax(ModuleBuilder &mb, mlir::Value input, std::optional<int64_t> dim, bool keepdim);
-
-// Emit TTIR for tensor unsqueeze: inserts a size-1 dimension at position `dim`.
-// `dim` must be non-negative and already normalized against the output rank.
-mlir::Value build_unsqueeze(ModuleBuilder &mb, mlir::Value input, int64_t dim);
-
-// Emit TTIR for tensor squeeze: removes the size-1 dimension at position `dim`.
-// `dim` must be non-negative, already normalized, and the dimension must be size 1.
-mlir::Value build_squeeze(ModuleBuilder &mb, mlir::Value input, int64_t dim);
-
-// Emit TTIR for N-D transpose: swaps dimensions `dim0` and `dim1`. Both dims
-// must be non-negative and already normalized against the input rank.
-mlir::Value build_transpose(ModuleBuilder &mb, mlir::Value input, int64_t dim0, int64_t dim1);
-
-// Emit TTIR for broadcasting `input` to `target_shape`. Each dimension where
-// input size == 1 is replicated to match `target_shape`. Prepends implicit
-// size-1 dimensions via reshape if `target_shape.size() > input rank`.
-mlir::Value build_broadcast(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> target_shape);
-
-// Emit TTIR for tensor concatenation along `dim`. All values in `inputs` must
-// share element type; other dimensions must agree. `dim` is normalized inside.
-mlir::Value build_cat(ModuleBuilder &mb, llvm::ArrayRef<mlir::Value> inputs, int64_t dim);
-
-// Emit TTIR for static tensor slice. `begins`, `ends`, and `step` must have
-// length == input rank; values are in terms of the pre-slice shape. Negative
-// indices and None must be resolved by the caller before calling.
-mlir::Value build_slice(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> begins,
-                        llvm::ArrayRef<int64_t> ends, llvm::ArrayRef<int64_t> step);
-
-// Emit TTIR for constant padding. `low`/`high` carry one amount per dimension,
-// in dimension order (not aten's reversed, trailing-dims-only list — callers
-// convert). A negative amount crops that edge instead of padding it, matching
-// aten::constant_pad_nd; ttir.pad only grows, so crops become a leading slice.
-mlir::Value build_pad(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> low,
-                      llvm::ArrayRef<std::int64_t> high, double value);
-
-// Emit TTIR arange creation op. Returns a 1D tensor of shape
-// [ceil((end - start) / step)] with element type `dtype`. No tensor inputs —
-// callers must pass an empty inputs list to ModuleBuilder::init.
-mlir::Value build_arange(ModuleBuilder &mb, int64_t start, int64_t end, int64_t step, mlir::Type dtype);
-
-// Emit TTIR for aten::linear: `input @ weight.t() + bias`, with `weight` in torch's stored
-// [out_features, in_features] orientation. Maps to ttir.linear with transpose_b=true, so the
-// transpose never becomes a tensor.
+// Kernel-side convenience for native binary/ternary ops. Computes the
+// PyTorch-promoted dtype across `tensors` (using `at::result_type` semantics —
+// wrapped-scalar handling, etc.) and emits a `ttir.typecast` for each builder
+// arg that doesn't already match. Returns the promoted dtype followed by the
+// cast values, for structured binding:
 //
-// Keeping aten.linear a leaf is what makes this matter. Decomposed into aten.t + aten.mm (the
-// core_aten default), autograd saves the transposed weight for backward -- it is the actual
-// mm operand -- so every nn.Linear leaves a full transposed copy of its weight live across the
-// forward/backward boundary.
-mlir::Value build_linear(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias);
+//     auto [promoted, lhs, rhs] = promote_inputs(mb, a, b);
+//
+// `tensors` must be in the same order they were passed to `ModuleBuilder::init`.
+template <typename... Tensors> auto promote_inputs(ModuleBuilder &mb, const Tensors &...tensors) {
+    static_assert(sizeof...(Tensors) > 0, "promote_inputs: at least one input required");
+    static_assert((std::is_same_v<std::remove_cvref_t<Tensors>, at::Tensor> && ...),
+                  "promote_inputs: all arguments must be at::Tensor");
 
-// Emit TTIR for embedding lookup: `indices` (integer tensor) selects rows from
-// `weight` (float tensor). Do NOT call promote_inputs before this builder —
-// the dtype mismatch (int indices, float weight) is intentional.
-mlir::Value build_embedding(ModuleBuilder &mb, mlir::Value indices, mlir::Value weight);
+    at::native::ResultTypeState state{};
+    ((state = at::native::update_result_type_state(tensors, state)), ...);
+    const c10::ScalarType promoted = at::native::result_type(state);
+    const auto promoted_mlir = mlir_element_type_for(promoted);
 
-// Emit TTIR for torch.gather along `dim` (ttir.gather): `index` has the same rank
-// as `input`; the result takes `index`'s shape and `input`'s element type.
-mlir::Value build_gather(ModuleBuilder &mb, mlir::Value input, mlir::Value index, int64_t dim);
+    auto args = mb.args();
+    TORCH_CHECK(args.size() == sizeof...(Tensors), "promote_inputs: ModuleBuilder has ", args.size(),
+                " arg(s), expected ", sizeof...(Tensors));
 
-// Emit TTIR for N-D matrix multiplication. Handles batched matmul for rank >= 3
-// inputs. Inputs must share element type — callers must promote first.
-mlir::Value build_matmul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+    return [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+        return std::tuple{promoted, mb.insert_typecast(args[Is], promoted_mlir)...};
+    }(std::make_index_sequence<sizeof...(Tensors)>{});
+}
 
-// Emit TTIR for aten::matmul_backward: the gradients of `matmul(self, other)`
-// w.r.t. each input. `need_self`/`need_other` are aten's output_mask; a false
-// entry yields std::nullopt so the caller can restore the `None` autograd
-// expects. Inputs must share element type — callers must promote first.
-std::pair<std::optional<mlir::Value>, std::optional<mlir::Value>>
-build_matmul_backward(ModuleBuilder &mb, mlir::Value grad, mlir::Value self, mlir::Value other, bool need_self,
-                      bool need_other);
-
-// Emit TTIR for aten::linear_backward, given out = self @ weight.t():
-//   grad_self   = grad @ weight        (weight is already [out, in] -- no transpose needed)
-//   grad_weight = grad.t() @ self      (transpose folded onto ttir.matmul by build_mm)
-//   grad_bias   = grad summed over every leading dim
-// None of the transposes materializes, which is the point -- see build_linear. Returns
-// nullopt for any gradient the caller did not request.
-std::tuple<std::optional<mlir::Value>, std::optional<mlir::Value>, std::optional<mlir::Value>>
-build_linear_backward(ModuleBuilder &mb, mlir::Value self, mlir::Value grad, mlir::Value weight, bool need_self,
-                      bool need_weight, bool need_bias);
-
-// Emit TTIR for element-wise conditional selection:
-//   result[i] = condition[i] ? true_val[i] : false_val[i]
-// `condition` must be Bool (i1). `true_val` and `false_val` must share element
-// type — callers must promote first. Broadcasting is applied across all 3 inputs.
-mlir::Value build_where(ModuleBuilder &mb, mlir::Value condition, mlir::Value true_val, mlir::Value false_val);
-
-// Emit TTIR for lower-triangular extraction (aten::tril). Elements strictly above
-// the `diagonal`-th diagonal are zeroed. `diagonal` == 0 keeps the main diagonal;
-// positive values extend above it, negative values cut below it.
-// Input must be at least 2D; the last two dimensions define the [N, M] matrix.
-mlir::Value build_tril(ModuleBuilder &mb, mlir::Value input, int64_t diagonal);
-
-// Emit TTIR for element-wise negative infinity test:
-//   result[i] = (self[i] == -inf)
-// Decomposes as logical_and(logical_not(isfinite(self)), lt(self, 0)).
-// Input must be a floating-point type. Output is Bool (i1).
-mlir::Value build_isneginf(ModuleBuilder &mb, mlir::Value input);
-
-// Emit TTIR for logical AND / OR reduction along `dims` (aten::all / aten::any).
-// Empty `dims` reduces over all dimensions. `keepdim` controls whether reduced
-// dimensions are retained as size 1. A non-Bool input is tested against zero
-// first, so any nonzero element counts as true (torch's semantics). Output is
-// Bool (i1).
-mlir::Value build_all(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> dims, bool keepdim);
-mlir::Value build_any(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> dims, bool keepdim);
-
-// Emit TTIR for element-wise less-than-or-equal comparison:
-//   result[i] = (lhs[i] <= rhs[i])
-// `lhs` and `rhs` must share element type — callers must promote first.
-// Output is Bool (i1), broadcast-shaped from lhs and rhs.
-mlir::Value build_le(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
-
-// Emit TTIR for element-wise less-than comparison:
-//   result[i] = (lhs[i] < rhs[i])
-// `lhs` and `rhs` must share element type — callers must promote first.
-// Output is Bool (i1), broadcast-shaped from lhs and rhs.
-mlir::Value build_lt(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
-
-// Emit TTIR for element-wise greater-than comparison:
-//   result[i] = (lhs[i] > rhs[i])
-// `lhs` and `rhs` must share element type — callers must promote first.
-// Output is Bool (i1), broadcast-shaped from lhs and rhs.
-mlir::Value build_gt(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
-
-// Emit TTIR for element-wise greater-than-or-equal comparison:
-//   result[i] = (lhs[i] >= rhs[i])
-// `lhs` and `rhs` must share element type — callers must promote first.
-// Output is Bool (i1), broadcast-shaped from lhs and rhs.
-mlir::Value build_ge(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
-
-// Emit TTIR for element-wise equality comparison:
-//   result[i] = (lhs[i] == rhs[i])
-// `lhs` and `rhs` must share element type — callers must promote first.
-// Output is Bool (i1), broadcast-shaped from lhs and rhs.
-mlir::Value build_eq(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
-
-// Emit TTIR for element-wise inequality comparison:
-//   result[i] = (lhs[i] != rhs[i])
-// `lhs` and `rhs` must share element type — callers must promote first.
-// Output is Bool (i1), broadcast-shaped from lhs and rhs.
-mlir::Value build_ne(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
-
-// Emit TTIR for element-wise bitwise AND:
-//   result[i] = lhs[i] & rhs[i]
-// `lhs` and `rhs` must share element type — callers must promote first. Output
-// keeps that element type (Bool operands give logical AND).
-mlir::Value build_bitwise_and(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
-
-// Emit TTIR for element-wise bitwise OR:
-//   result[i] = lhs[i] | rhs[i]
-// `lhs` and `rhs` must share element type — callers must promote first. Output
-// keeps that element type (Bool operands give logical OR).
-mlir::Value build_bitwise_or(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
-
-// Emit TTIR for element-wise bitwise NOT:
-//   result[i] = ~input[i]
-// Output keeps the input element type (Bool operands give logical NOT).
-mlir::Value build_bitwise_not(ModuleBuilder &mb, mlir::Value input);
-
-// Emit TTIR for element-wise logical AND/OR/NOT. Unlike the bitwise builders
-// (which work on raw bit patterns and keep the integer element type), the
-// ttir.logical_* ops treat any nonzero operand as true, matching torch's
-// aten::logical_* semantics. The binary ops yield a Bool result directly; the
-// unary NOT is type-preserving, so a non-Bool input is lowered as x == 0.
-mlir::Value build_logical_and(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
-mlir::Value build_logical_or(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
-mlir::Value build_logical_not(ModuleBuilder &mb, mlir::Value input);
-
-// Emit TTIR for index_copy (aten::index_copy.default):
-//   result = self with source values scattered in at `index` positions along `dim`.
-// `index` must be a 1D integer tensor; `source` must be rank == self.rank.
-// Expands `index` to source.shape before emitting ScatterOp with Invalid reduce
-// (plain replace, no accumulation). Input `dim` must already be non-negative.
-mlir::Value build_index_copy(ModuleBuilder &mb, mlir::Value input, int64_t dim, mlir::Value index, mlir::Value source);
-
-// Emit TTIR for scaled dot-product attention (FlashAttention-2):
-//   output = softmax(Q @ K^T * scale + mask) @ V
-// `query`, `key`, `value` are `[B x H x Sq/Sk x D]`. `attn_mask` may be
-// a null `mlir::Value{}` when no explicit mask is used. When `is_causal`
-// is `true`, the op applies a lower-triangular causal mask internally.
-// `scale` defaults to `1 / sqrt(D)` when empty. Returns a tensor of the
-// same shape and type as `query`.
-mlir::Value build_sdpa(ModuleBuilder &mb, mlir::Value query, mlir::Value key, mlir::Value value, bool is_causal,
-                       std::optional<float> scale, mlir::Value attn_mask);
+using ::tt::kurbla::broadcast_shape;
+using ::tt::kurbla::build_add;
+using ::tt::kurbla::build_addmm;
+using ::tt::kurbla::build_all;
+using ::tt::kurbla::build_all_gather;
+using ::tt::kurbla::build_all_reduce;
+using ::tt::kurbla::build_any;
+using ::tt::kurbla::build_arange;
+using ::tt::kurbla::build_argmax;
+using ::tt::kurbla::build_bitwise_and;
+using ::tt::kurbla::build_bitwise_not;
+using ::tt::kurbla::build_bitwise_or;
+using ::tt::kurbla::build_bn_inference;
+using ::tt::kurbla::build_broadcast;
+using ::tt::kurbla::build_cat;
+using ::tt::kurbla::build_clamp;
+using ::tt::kurbla::build_conv2d;
+using ::tt::kurbla::build_cos;
+using ::tt::kurbla::build_cumsum;
+using ::tt::kurbla::build_div;
+using ::tt::kurbla::build_embedding;
+using ::tt::kurbla::build_eq;
+using ::tt::kurbla::build_exp;
+using ::tt::kurbla::build_floor_divide;
+using ::tt::kurbla::build_full;
+using ::tt::kurbla::build_gather;
+using ::tt::kurbla::build_ge;
+using ::tt::kurbla::build_gelu;
+using ::tt::kurbla::build_gt;
+using ::tt::kurbla::build_index_copy;
+using ::tt::kurbla::build_isneginf;
+using ::tt::kurbla::build_le;
+using ::tt::kurbla::build_linear;
+using ::tt::kurbla::build_linear_backward;
+using ::tt::kurbla::build_log;
+using ::tt::kurbla::build_log1p;
+using ::tt::kurbla::build_logical_and;
+using ::tt::kurbla::build_logical_not;
+using ::tt::kurbla::build_logical_or;
+using ::tt::kurbla::build_lt;
+using ::tt::kurbla::build_matmul;
+using ::tt::kurbla::build_matmul_backward;
+using ::tt::kurbla::build_max_pool2d;
+using ::tt::kurbla::build_mean;
+using ::tt::kurbla::build_mm;
+using ::tt::kurbla::build_mse_loss;
+using ::tt::kurbla::build_mse_loss_backward;
+using ::tt::kurbla::build_mul;
+using ::tt::kurbla::build_ne;
+using ::tt::kurbla::build_neg;
+using ::tt::kurbla::build_ones;
+using ::tt::kurbla::build_pad;
+using ::tt::kurbla::build_permute;
+using ::tt::kurbla::build_pow;
+using ::tt::kurbla::build_reduce;
+using ::tt::kurbla::build_reduce_scatter;
+using ::tt::kurbla::build_relu;
+using ::tt::kurbla::build_reshape;
+using ::tt::kurbla::build_rsqrt;
+using ::tt::kurbla::build_scalar;
+using ::tt::kurbla::build_sdpa;
+using ::tt::kurbla::build_sigmoid;
+using ::tt::kurbla::build_silu;
+using ::tt::kurbla::build_sin;
+using ::tt::kurbla::build_slice;
+using ::tt::kurbla::build_softmax;
+using ::tt::kurbla::build_sqrt;
+using ::tt::kurbla::build_squeeze;
+using ::tt::kurbla::build_sub;
+using ::tt::kurbla::build_sum;
+using ::tt::kurbla::build_sum_to;
+using ::tt::kurbla::build_t;
+using ::tt::kurbla::build_threshold_backward;
+using ::tt::kurbla::build_transpose;
+using ::tt::kurbla::build_tril;
+using ::tt::kurbla::build_unsqueeze;
+using ::tt::kurbla::build_where;
+using ::tt::kurbla::build_zeros;
+using ::tt::kurbla::scale_tensor;
 
 } // namespace tt::kurbla::torch_backend
