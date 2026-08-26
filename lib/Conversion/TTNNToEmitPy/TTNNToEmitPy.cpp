@@ -4169,7 +4169,7 @@ public:
         emitter.emit(srcOp.getBias(), "bias"),
         emitter.emit(srcOp.getEpsilon(), "epsilon"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
-        emitter.emit(srcOp.getComputeConfig(), "compute_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
         emitter.emit(srcOp.getProgramConfig(), "program_config"),
         emitter.emit(srcOp.getDtype(), "dtype"),
         emitter.emit(srcOp.getUse_2dCoreGrid(), "use_2d_core_grid"),
