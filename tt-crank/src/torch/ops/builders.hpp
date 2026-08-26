@@ -109,6 +109,7 @@ using ::tt::kurbla::build_ones;
 using ::tt::kurbla::build_pad;
 using ::tt::kurbla::build_permute;
 using ::tt::kurbla::build_pow;
+using ::tt::kurbla::build_reciprocal;
 using ::tt::kurbla::build_reduce;
 using ::tt::kurbla::build_reduce_scatter;
 using ::tt::kurbla::build_relu;

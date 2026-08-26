@@ -279,6 +279,10 @@ public:
         assert_builder();
         return tk::build_tanh(*mb_, input);
     }
+    mlir::Value reciprocal(mlir::Value input) {
+        assert_builder();
+        return tk::build_reciprocal(*mb_, input);
+    }
     mlir::Value cumsum(mlir::Value input, std::int64_t dim) {
         assert_builder();
         return tk::build_cumsum(*mb_, input, dim);
@@ -791,6 +795,7 @@ NB_MODULE(_native, m) {
         .def("log1p", &PyModuleBuilder::log1p, "input"_a)
         .def("sqrt", &PyModuleBuilder::sqrt, "input"_a)
         .def("tanh", &PyModuleBuilder::tanh, "input"_a)
+        .def("reciprocal", &PyModuleBuilder::reciprocal, "input"_a)
         .def("cumsum", &PyModuleBuilder::cumsum, "input"_a, "dim"_a)
         .def("silu", &PyModuleBuilder::silu, "input"_a)
         .def("sigmoid", &PyModuleBuilder::sigmoid, "input"_a)

@@ -286,6 +286,11 @@ def _(mb, x):
     return mb.tanh(x)
 
 
+@_lowering(_aten.reciprocal.default)
+def _(mb, x):
+    return mb.reciprocal(x)
+
+
 # `dtype` (a wider accumulator) needs no handling here, and the mean/sum
 # reductions above drop it for the same reason: `_lower_op` takes each node's
 # target dtype from that node's own output meta, so a widening request has
