@@ -35,6 +35,7 @@ add_library(tt_kurbla SHARED
     engine/compile_options.cpp
     engine/device.cpp
     engine/execution_payload.cpp
+    engine/ttir_module_builder.cpp
     # Static-init env shim runtime. Linked into the library so every consumer (tests,
     # Python wheel, future bindings) picks up the ttsim routing when the env var is set.
     # TT_KURBLA_SIM_DIR / TT_KURBLA_TT_METAL_HOME defs are wired in cmake/TTsim.cmake.
