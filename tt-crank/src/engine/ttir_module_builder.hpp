@@ -295,6 +295,9 @@ TT_KURBLA_API mlir::Value build_log1p(ModuleBuilder &mb, mlir::Value input);
 // Emit TTIR for element-wise square root.
 TT_KURBLA_API mlir::Value build_sqrt(ModuleBuilder &mb, mlir::Value input);
 
+// Emit TTIR for element-wise hyperbolic tangent.
+TT_KURBLA_API mlir::Value build_tanh(ModuleBuilder &mb, mlir::Value input);
+
 // Emit TTIR for element-wise SiLU activation.
 TT_KURBLA_API mlir::Value build_silu(ModuleBuilder &mb, mlir::Value input);
 

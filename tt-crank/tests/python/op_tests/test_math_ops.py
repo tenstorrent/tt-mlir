@@ -1,5 +1,5 @@
 """Tests for scalar-lift and trig math ops: pow, add/mul/div scalars, cos, sin,
-neg, log, exp, log1p, sqrt, cumsum, silu, softmax."""
+neg, log, exp, log1p, sqrt, tanh, cumsum, silu, softmax."""
 
 import pytest
 import torch
@@ -99,6 +99,14 @@ def test_sqrt(shape: tuple) -> None:
     # values off zero, where sqrt's derivative blows up and bf16 loses precision.
     a = torch.rand(shape, dtype=torch.bfloat16) + 0.1
     assert_close_cpu_vs_tt(torch.sqrt, a, atol=1e-2, rtol=1e-2)
+
+
+@pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])
+def test_tanh(shape: tuple) -> None:
+    # [-2, 2] covers tanh's whole interesting range: the near-linear region
+    # around zero and the onset of saturation towards ±1.
+    a = torch.rand(shape, dtype=torch.bfloat16) * 4 - 2
+    assert_close_cpu_vs_tt(torch.tanh, a, atol=1e-2, rtol=1e-2)
 
 
 @pytest.mark.parametrize("dim", [-1, 0, 1])
