@@ -8,6 +8,9 @@
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttnn/operations/eltwise/unary/common/unary_op_types.hpp"
 
+#include <string>
+#include <vector>
+
 namespace tt::runtime::ttnn::operations::eltwise::binary {
 
 // Build the operand-A in-kernel activations from the op's optional
@@ -24,9 +27,8 @@ lhsActivationsFromOp(const ::tt::target::ttnn::EltwiseBinaryOp *op) {
     return acts;
   }
   const std::string activation = op->lhs_activation()->str();
-  LOG_ASSERT(activation == "silu",
-             "Unsupported lhs_activation \"" + activation +
-                 "\" on eltwise binary op; only \"silu\" is supported");
+  LOG_ASSERT(activation == "silu", "Unsupported lhs_activation \"", activation,
+             "\" on eltwise binary op; only \"silu\" is supported");
   acts.emplace_back(::ttnn::operations::unary::UnaryOpType::SILU);
   return acts;
 }
@@ -59,6 +61,17 @@ static void runEltwiseBinaryOp(const ::tt::target::ttnn::EltwiseBinaryOp *op,
 void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
+
+  // lhs_activation sits on the shared EltwiseBinaryOp table but only the
+  // Multiply case below reads it, and only ttnn.multiply can carry it out of
+  // the compiler. Catch a mismatch here rather than let a future producer set
+  // it on another op type and have it silently ignored.
+  LOG_ASSERT(!op->lhs_activation() || op->lhs_activation()->size() == 0 ||
+                 op->type() ==
+                     ::tt::target::ttnn::EltwiseBinaryOpType::Multiply,
+             "lhs_activation is only supported on multiply, but was set on ",
+             ::tt::target::ttnn::EnumNameEltwiseBinaryOpType(op->type()));
+
   switch (op->type()) {
   /* Eltwise Binary */
   case ::tt::target::ttnn::EltwiseBinaryOpType::Add: {
@@ -70,15 +83,15 @@ void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
   case ::tt::target::ttnn::EltwiseBinaryOpType::Multiply: {
     // Fused SwiGLU: an optional in-kernel activation (silu) applied to operand
     // A (the gate output) before the multiply — avoids a separate silu op.
-    // Empty for a plain multiply. noActs/lhsActs outlive the call within this
-    // scope.
-    std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam> noActs;
+    // Empty for a plain multiply. noPostActs/lhsActs outlive the call within
+    // this scope.
+    std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam> noPostActs;
     std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam> lhsActs =
         lhsActivationsFromOp(op);
     runEltwiseBinaryOp(op, tensorPool, [&](auto &&...args) {
       return ::ttnn::multiply(std::forward<decltype(args)>(args)...,
                               /*optional_output=*/std::nullopt,
-                              /*post_activations=*/noActs,
+                              /*post_activations=*/noPostActs,
                               /*lhs_activations=*/lhsActs);
     });
     break;
