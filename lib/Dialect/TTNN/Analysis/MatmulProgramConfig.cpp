@@ -305,15 +305,19 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
 
 static constexpr int64_t kTileSize = 32;
 
-// Smallest in0_block_w the DS path will accept, as a divisor of kPerCore: the
-// fitted block width must be at least kPerCore / kMinBlockWidthFraction.
+// Smallest in0_block_w the DS path will accept. Below it the per-bank read
+// burst is too short to keep the bank busy and the 1D/2D mcast configs win
+// instead.
 //
-// The kernel's block loop runs num_blocks = kTiles / in0_block_w rounds of
-// mcast + compute, so a width the L1 budget forced below kPerCore costs
-// proportionally more. Below half of kPerCore the DS config is a loss against
-// the 1D/2D mcast configs it would replace. A policy number, determined
-// experimentally on p150, not derived.
-static constexpr int64_t kMinBlockWidthFraction = 2;
+// An absolute floor rather than a fraction of kPerCore: measured at matched
+// math fidelity, the cost tracks the block width itself, not its ratio to
+// kPerCore. A calibrated policy number, determined experimentally, and the two
+// architectures do not quite agree on it -- Blackhole's knee sits higher than
+// Wormhole's, so this is the more permissive of the two.
+//
+// A shape whose kPerCore is below this floor can never satisfy it, so DS is
+// declined for it outright. That is intended.
+static constexpr int64_t kMinBlockWidth = 3;
 
 static int64_t padToDRAMBanks(int64_t n, int64_t numBanks) {
   int64_t lcm = kTileSize * numBanks;
@@ -417,10 +421,8 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
     return std::nullopt;
   }
 
-  // Decline rather than emit a degenerate block width. Falling back to the
-  // 1D/2D mcast configs is measurably better than a DS config whose block loop
-  // has been stretched out by L1 pressure (see kMinBlockWidthFraction).
-  if (p.in0BlockW * kMinBlockWidthFraction < kPerCore) {
+  // Decline rather than emit a degenerate block width (see kMinBlockWidth).
+  if (p.in0BlockW < kMinBlockWidth) {
     return std::nullopt;
   }
 

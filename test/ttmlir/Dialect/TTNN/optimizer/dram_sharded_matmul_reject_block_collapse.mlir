@@ -2,14 +2,15 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 mock-system-desc-arch=blackhole" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// The DS path declines when the CB budget collapses in0_block_w (see
-// kMinBlockWidthFraction in MatmulProgramConfig.cpp).
+// The DS path declines when the CB budget collapses in0_block_w below
+// kMinBlockWidth (see MatmulProgramConfig.cpp).
 //
 // K = 11008 is 344 tiles, so K-per-core is 344/8 = 43 -- a prime, leaving 43 and
 // 1 as the only legal block widths. On an 8-bank part the in1 CB at in0_block_w
 // = 43 needs ~1.35 MB against a ~1.30 MB budget, so the search would otherwise
 // settle on in0_block_w = 1: 344 serialized mcast+compute rounds instead of 8.
-// That shape is qwen_2_5_3b's down-projection, measured at -28.1% e2e on p150.
+// That shape is qwen_2_5_3b's down-projection. in0_block_w = 1 is the one width
+// whose cost does not move with math fidelity on either architecture.
 //
 // Blackhole specifically: with 12 banks the per-bank weight shard is narrower, the
 // in1 CB fits at in0_block_w = 43, and the collapse never happens -- which is why

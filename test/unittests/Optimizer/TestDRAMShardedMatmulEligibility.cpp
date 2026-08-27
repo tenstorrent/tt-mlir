@@ -124,6 +124,36 @@ public:
     return op;
   }
 
+  // A matmul whose result is consumed by a collective rather than returned
+  // directly. The DS path declines these: no CCL implements the op-model
+  // interface (they all carry OpModelExempt, tt-mlir#4392), so the optimizer
+  // cannot weigh a DRAM-sharded output against what the collective needs and
+  // the mismatch becomes an inserted reshard on the collective's critical path.
+  MatmulOp buildMatmulFeedingAllReduce(llvm::ArrayRef<int64_t> actShape,
+                                       llvm::ArrayRef<int64_t> weightShape,
+                                       llvm::ArrayRef<int64_t> outShape,
+                                       ttcore::DataType weightDt) {
+    auto actType = tensorOf(actShape, ttcore::DataType::BFloat16);
+    auto weightType = tensorOf(weightShape, weightDt);
+    auto outType = tensorOf(outShape, ttcore::DataType::BFloat16);
+    mlir::Block *block = openFunc({actType, weightType}, outType);
+    auto op = builder.create<MatmulOp>(
+        builder.getUnknownLoc(), outType, block->getArgument(0),
+        block->getArgument(1), /*transpose_a=*/false, /*transpose_b=*/false,
+        /*matmul_program_config=*/mlir::Attribute(),
+        /*activation=*/mlir::StringAttr());
+    auto allReduce = builder.create<AllReduceOp>(
+        builder.getUnknownLoc(), outType, op.getResult(),
+        ttcore::ReduceTypeAttr::get(&context, ttcore::ReduceType::Sum),
+        /*cluster_axis=*/builder.getUI32IntegerAttr(0),
+        /*sub_device_id=*/mlir::IntegerAttr(),
+        /*num_links=*/mlir::IntegerAttr(),
+        /*topology=*/ttcore::TopologyAttr());
+    builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
+                                         allReduce.getResult());
+    return op;
+  }
+
   LinearOp buildLinear(llvm::ArrayRef<int64_t> actShape,
                        llvm::ArrayRef<int64_t> weightShape,
                        llvm::ArrayRef<int64_t> outShape,
@@ -189,6 +219,17 @@ TEST_F(DRAMShardedEligibilityTest, MatmulEligible) {
   auto op = buildMatmul({32, 4096}, {4096, 4096}, {32, 4096},
                         ttcore::DataType::BFP_BFloat8);
   EXPECT_TRUE(isDSEligible(op, {32, 4096}));
+}
+
+// The same decode-shaped projection that is eligible above is declined once its
+// result feeds a collective. Pairs with MatmulEligible as the control: the only
+// difference between the two is the consumer, so the decline is attributable to
+// the CCL and not to the geometry. See optimizer/dram_sharded_matmul_
+// reject_ccl_consumer.mlir for the end-to-end version.
+TEST_F(DRAMShardedEligibilityTest, MatmulFeedingCollectiveDeclined) {
+  auto op = buildMatmulFeedingAllReduce({32, 4096}, {4096, 4096}, {32, 4096},
+                                        ttcore::DataType::BFP_BFloat8);
+  EXPECT_FALSE(isDSEligible(op, {32, 4096}));
 }
 
 // A bias-free ttnn.linear is the same computation the DS kernel implements, so

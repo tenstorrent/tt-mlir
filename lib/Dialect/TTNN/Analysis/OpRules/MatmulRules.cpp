@@ -17,6 +17,8 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <cmath>
@@ -266,6 +268,54 @@ static std::optional<DSDeviceContext> getDSDeviceContext(Operation *op) {
       l1Available};
 }
 
+// TTNN collectives. None of them implements the op-model interface: every one
+// carries OpModelExempt because tt-metal exposes no constraint or runtime query
+// for it (tt-mlir#4392, "MissingMetalDefinition").
+static bool isCCLOp(Operation *op) {
+  return mlir::isa<AllGatherOp, AllReduceOp, AllReduceAsyncOp, ReduceScatterOp,
+                   PointToPointOp>(op);
+}
+
+// Ops that hand their operand on unchanged for the purpose of finding the
+// consumer that actually constrains the producer's layout. Mirrors the
+// view-like set in TTNNActivationDtypeLowering, plus ToLayoutOp: a layout cast
+// does not re-establish a layout the collective would accept, it just moves the
+// reconciliation one op further down.
+static bool isLayoutForwardingOp(Operation *op) {
+  return mlir::isa<ReshapeOp, SliceStaticOp, ToMemoryConfigOp, ToLayoutOp>(op);
+}
+
+// Whether this op's result reaches a collective without passing through an op
+// that establishes a layout of its own.
+//
+// Declining DS here is a policy call, not a correctness one. The optimizer can
+// cost the matmul but not the collective behind it, so it will happily pick a
+// DRAM-sharded output and leave the mismatch to an inserted ToMemoryConfigOp --
+// which then sits on the collective's critical path. Measured on qb2 (Blackhole
+// TP=4) that reshard costs 49-71 us per op on the row-parallel down projections
+// of llama_3_1_70b and qwen_2_5_coder_32b, against 10 us where the same flip
+// lands on a column-parallel gate/up with no collective behind it, and a net
+// throughput gain on single-chip p150 where there is no collective at all.
+// Until the CCLs are costable, do not offer DS into one.
+static bool resultFeedsCCL(Operation *op) {
+  llvm::SmallVector<Operation *, 8> worklist(op->getUsers().begin(),
+                                             op->getUsers().end());
+  llvm::SmallPtrSet<Operation *, 8> seen;
+  while (!worklist.empty()) {
+    Operation *user = worklist.pop_back_val();
+    if (!seen.insert(user).second) {
+      continue;
+    }
+    if (isCCLOp(user)) {
+      return true;
+    }
+    if (isLayoutForwardingOp(user)) {
+      worklist.append(user->getUsers().begin(), user->getUsers().end());
+    }
+  }
+  return false;
+}
+
 // Everything the DS path derives from an op: the operand types and the shard
 // geometry.
 //
@@ -305,6 +355,18 @@ static std::optional<DSPlan> buildDSPlan(Operation *op) {
     return std::nullopt;
   }
 
+  // Same choke point, same reasoning: the optimizer has no op model for
+  // collectives, so it cannot weigh a DRAM-sharded output against what the
+  // collective needs and the mismatch becomes an inserted reshard on the
+  // collective's critical path. See resultFeedsCCL.
+  if (resultFeedsCCL(op)) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "DS declined ({0}): result feeds a collective, which the "
+                 "optimizer cannot cost",
+                 opName);
+    return std::nullopt;
+  }
+
   std::optional<std::pair<Value, Value>> operands = getMatmulOperands(op);
   if (!operands) {
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
@@ -333,8 +395,8 @@ static std::optional<DSPlan> buildDSPlan(Operation *op) {
       getWeightLayout(weight).getDataType(), device->l1Available);
   if (!params) {
     // Either no in0_block_w dividing K-per-core leaves room for the circular
-    // buffers, or the largest one that does is a degenerate fraction of
-    // K-per-core (see kMinBlockWidthFraction in MatmulProgramConfig.cpp).
+    // buffers, or the largest one that does is below the accepted floor (see
+    // kMinBlockWidth in MatmulProgramConfig.cpp).
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "DS declined ({0}): no in0_block_w both fits L1 and avoids a "
                  "degenerate block count (M={1} K={2} "
