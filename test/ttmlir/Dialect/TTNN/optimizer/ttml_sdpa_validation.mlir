@@ -119,10 +119,13 @@ module {
       %key: tensor<1x8x128x64xbf16>,
       %value: tensor<1x8x128x64xbf16>)
       -> tensor<1x8x128x64xbf16> {
+    // The query reaches sdpa_fw through a single reshard: the multiply runs in
+    // its own layout and one to_memory_config converts straight to the
+    // interleaved layout sdpa_fw requires. This used to take two chained
+    // to_memory_config ops; the intermediate hop is now folded away.
     // CHECK-LABEL: func.func @sdpa_fw_query_from_l1_producer
     // CHECK: %[[MUL:.*]] = "ttnn.multiply"
-    // CHECK: %[[INTERLEAVED:.*]] = "ttnn.to_memory_config"(%[[MUL]])
-    // CHECK: %[[RESHARD:.*]] = "ttnn.to_memory_config"(%[[INTERLEAVED]])
+    // CHECK: %[[RESHARD:.*]] = "ttnn.to_memory_config"(%[[MUL]])
     // CHECK: "ttnn.sdpa_fw"(%[[RESHARD]],
     %query = "ttir.multiply"(%q0, %q1)
         : (tensor<1x8x128x64xbf16>, tensor<1x8x128x64xbf16>)
