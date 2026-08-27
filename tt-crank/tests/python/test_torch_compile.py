@@ -1091,18 +1091,48 @@ def test_compile_sigmoid(shape: tuple[int, ...]) -> None:
     _assert_compile_matches_eager(_Sigmoid(), x, atol=1e-2, rtol=1e-2)
 
 
-@pytest.mark.parametrize("lo,hi", [(-0.5, 0.5), (0.0, None), (None, 1.0)], ids=["both", "min_only", "max_only"])
-def test_compile_clamp(lo, hi) -> None:
+@pytest.mark.parametrize("min,max", [(-0.5, 0.5), (0.0, None), (None, 1.0)], ids=["both", "min_only", "max_only"])
+def test_compile_clamp(min, max) -> None:
     class _Clamp(nn.Module):
-        def __init__(self, lo, hi) -> None:
+        def __init__(self, min, max) -> None:
             super().__init__()
-            self.lo, self.hi = lo, hi
+            self.min, self.max = min, max
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
-            return torch.clamp(x, min=self.lo, max=self.hi)
+            return torch.clamp(x, min=self.min, max=self.max)
 
     x = torch.randn((32, 64), dtype=torch.bfloat16)
-    _assert_compile_matches_eager(_Clamp(lo, hi), x, atol=1e-2, rtol=1e-2)
+    _assert_compile_matches_eager(_Clamp(min, max), x, atol=1e-2, rtol=1e-2)
+
+
+@pytest.mark.parametrize("min", [-0.5, 0.0, 1.0])
+def test_compile_clamp_min(min: float) -> None:
+    """Single aten::clamp_min in a compiled graph — clamp with no upper bound."""
+    class _ClampMin(nn.Module):
+        def __init__(self, min: float) -> None:
+            super().__init__()
+            self.min = min
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.clamp_min(x, self.min)
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_ClampMin(min), x, atol=1e-2, rtol=1e-2)
+
+
+@pytest.mark.parametrize("max", [-0.5, 0.0, 1.0])
+def test_compile_clamp_max(max: float) -> None:
+    """Single aten::clamp_max in a compiled graph — clamp with no lower bound."""
+    class _ClampMax(nn.Module):
+        def __init__(self, max: float) -> None:
+            super().__init__()
+            self.max = max
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.clamp_max(x, self.max)
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_ClampMax(max), x, atol=1e-2, rtol=1e-2)
 
 
 def test_compile_floor_divide() -> None:

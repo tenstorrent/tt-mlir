@@ -318,6 +318,20 @@ def _(mb, x, min=None, max=None):
     return mb.clamp(x, None if min is None else float(min), None if max is None else float(max))
 
 
+# clamp_min is clamp with no upper bound.
+@_lowering(_aten.clamp_min.default)
+@_skip_prepare(_aten.clamp_min.default)
+def _(mb, x, min):
+    return mb.clamp(x, float(min), None)
+
+
+# clamp_max is clamp with no lower bound.
+@_lowering(_aten.clamp_max.default)
+@_skip_prepare(_aten.clamp_max.default)
+def _(mb, x, max):
+    return mb.clamp(x, None, float(max))
+
+
 @_lowering(_aten.floor_divide.default)
 def _(mb, a, b):
     return mb.floor_divide(a, b)

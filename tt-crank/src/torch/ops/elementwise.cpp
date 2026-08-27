@@ -735,6 +735,26 @@ at::Tensor tt_clamp(const at::Tensor &self, const std::optional<at::Scalar> &min
     return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
 }
 
+// clamp_min is clamp with no upper bound; both map onto ttir.clamp_scalar.
+at::Tensor tt_clamp_min(const at::Tensor &self, const at::Scalar &min) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::clamp_min: tensor must be on tt backend");
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result = build_clamp(mb, mb.args()[0], min.toDouble(), std::nullopt);
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
+}
+
+// clamp_max is clamp with no lower bound; both map onto ttir.clamp_scalar.
+at::Tensor tt_clamp_max(const at::Tensor &self, const at::Scalar &max) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::clamp_max: tensor must be on tt backend");
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result = build_clamp(mb, mb.args()[0], std::nullopt, max.toDouble());
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
+}
+
 at::Tensor tt_silu(const at::Tensor &self) {
     TORCH_CHECK(is_tt(self), "tt-kurbla aten::silu: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
@@ -1043,6 +1063,8 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("silu", TORCH_FN(tt_silu));
     m.impl("sigmoid", TORCH_FN(tt_sigmoid));
     m.impl("clamp", TORCH_FN(tt_clamp));
+    m.impl("clamp_min", TORCH_FN(tt_clamp_min));
+    m.impl("clamp_max", TORCH_FN(tt_clamp_max));
     m.impl("floor_divide", TORCH_FN(tt_floor_divide));
     m.impl("gelu", TORCH_FN(tt_gelu));
     m.impl("_softmax", TORCH_FN(tt_softmax));
