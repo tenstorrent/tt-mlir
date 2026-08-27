@@ -6534,6 +6534,8 @@ def stablehlo_convert_golden(
 def stablehlo_composite_golden(
     *operand_tensors: GoldenMapTensor,
     decomposition_fn=None,
+    composite_name=None,
+    composite_attributes=None,
     **_kwargs,
 ) -> GoldenMapTensor:
     """
@@ -6552,6 +6554,20 @@ def stablehlo_composite_golden(
             "stablehlo_composite_golden requires `decomposition_fn` keyword "
             "(the func.FuncOp referenced by the composite's `decomposition` "
             "symbol attribute)."
+        )
+
+    if composite_name == "tenstorrent.layernorm_fw":
+        attrs = composite_attributes or {}
+        try:
+            epsilon_attr = attrs["epsilon"]
+        except KeyError:
+            epsilon_attr = None
+        result_types = list(decomposition_fn.type.results)
+        return layernorm_fw_golden(
+            *operand_tensors,
+            epsilon=epsilon_attr,
+            return_mean_rstd=len(result_types) == 3,
+            output_type_mlir=RankedTensorType(result_types[0]).element_type,
         )
 
     if len(decomposition_fn.body.blocks) != 1:
@@ -8668,15 +8684,6 @@ def layernorm_fw_golden(
     output_type_mlir: Type = None,
     **kwargs,
 ) -> Tuple[GoldenMapTensor, ...]:
-    """Reference for the fused ttml layer norm forward (ttml::metal::layernorm_fw).
-
-    Normalizes over the last dimension and applies the affine transform:
-    output = (x - mean) * rstd * weight + bias, with rstd = 1 / sqrt(var + eps)
-    over the biased variance. When requested, also returns the per-row mean and
-    rstd used by the backward pass. Uses torch.* free functions only
-    (GoldenMapTensor does not support python operators). Returns a tuple, one
-    entry per op result.
-    """
     epsilon = unpack_mlir_attr(epsilon) if epsilon is not None else 1e-05
 
     x = input.float()
@@ -8684,11 +8691,9 @@ def layernorm_fw_golden(
     centered = torch.sub(x, mean)
     variance = torch.mean(torch.mul(centered, centered), dim=-1, keepdim=True)
     rstd = torch.rsqrt(torch.add(variance, epsilon))
-
-    # weight and bias only have a non-unit trailing dimension, so they broadcast
-    # over the leading dims of the normalized input as-is.
-    normalized = torch.mul(centered, rstd)
-    output = torch.add(torch.mul(normalized, weight.float()), bias.float())
+    output = torch.add(
+        torch.mul(torch.mul(centered, rstd), weight.float()), bias.float()
+    )
 
     output_dtype = (
         mlir_type_to_torch_dtype(output_type_mlir)
@@ -8696,10 +8701,8 @@ def layernorm_fw_golden(
         else input.dtype
     )
     output = output.to(output_dtype)
-
     if return_mean_rstd:
         return output, mean.to(output_dtype), rstd.to(output_dtype)
-
     return (output,)
 
 
@@ -9189,7 +9192,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.AdamWOp: adamw_golden,
     ttir.SDPAForwardOp: sdpa_fw_golden,
     ttir.SDPABackwardOp: sdpa_bw_golden,
-    ttir.LayerNormForwardOp: layernorm_fw_golden,
     ttir.LayerNormOp: ttir_layer_norm_golden,
     ttir.SplitQueryKeyValueAndSplitHeadsOp: ttir_split_query_key_value_and_split_heads_golden,
     ttir.GroupNormOp: ttir_group_norm_golden,

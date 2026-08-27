@@ -6,7 +6,8 @@
 
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/IR/Attributes.h"
@@ -2259,8 +2260,10 @@ public:
     namedAttrs.push_back(rewriter.getNamedAttr(
         "return_mean_rstd", rewriter.getBoolAttr(returnMeanRstd)));
 
-    rewriter.replaceOpWithNewOp<ttir::LayerNormForwardOp>(
-        srcOp, srcOp.getResultTypes(), adaptor.getOperands(), namedAttrs);
+    rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
+        srcOp, srcOp.getResultTypes(), adaptor.getOperands(),
+        rewriter.getStringAttr("layernorm_fw"), srcOp.getDecomposition(),
+        rewriter.getDictionaryAttr(namedAttrs));
     return success();
   }
 };
@@ -2273,6 +2276,7 @@ struct LegalizeStableHLOCompositeToTTIR
 
     ConversionTarget target(*context);
     target.addLegalDialect<ttir::TTIRDialect>();
+    target.addLegalDialect<ttcore::TTCoreDialect>();
     // StableHLO is intentionally not marked as either legal or illegal.
 
     RewritePatternSet patterns(context);

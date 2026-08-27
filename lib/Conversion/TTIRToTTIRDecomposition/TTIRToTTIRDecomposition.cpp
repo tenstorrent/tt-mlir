@@ -5,12 +5,14 @@
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 
 #include "ttmlir/Asserts.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
@@ -1005,15 +1007,14 @@ collapseShapeToRank4(llvm::ArrayRef<int64_t> shape) {
   return {1, leading, height, width};
 }
 
-mlir::Value reshapeValue(ConversionPatternRewriter &rewriter, Location loc,
-                         mlir::Value value,
+mlir::Value reshapeValue(OpBuilder &builder, Location loc, mlir::Value value,
                          llvm::ArrayRef<int64_t> targetShape) {
   auto valueType = mlir::cast<RankedTensorType>(value.getType());
   auto resultType = RankedTensorType::get(
       targetShape, valueType.getElementType(), valueType.getEncoding());
   llvm::SmallVector<int32_t> targetI32(targetShape.begin(), targetShape.end());
-  return rewriter.create<ttir::ReshapeOp>(loc, resultType, value,
-                                          rewriter.getI32ArrayAttr(targetI32));
+  return builder.create<ttir::ReshapeOp>(loc, resultType, value,
+                                         builder.getI32ArrayAttr(targetI32));
 }
 
 mlir::Value reshapeToRank4IfNeeded(ConversionPatternRewriter &rewriter,
@@ -1024,6 +1025,50 @@ mlir::Value reshapeToRank4IfNeeded(ConversionPatternRewriter &rewriter,
   }
   return reshapeValue(rewriter, loc, value,
                       collapseShapeToRank4(valueType.getShape()));
+}
+
+static FlatSymbolRefAttr
+createRank4DecompositionWrapper(ttcore::CompositeOp op, TypeRange inputTypes4D,
+                                TypeRange resultTypes4D,
+                                ConversionPatternRewriter &rewriter) {
+  ModuleOp moduleOp = op->getParentOfType<ModuleOp>();
+  StringRef decompositionName = op.getDecomposition();
+  func::FuncOp decomposition =
+      moduleOp.lookupSymbol<func::FuncOp>(decompositionName);
+  assert(decomposition);
+
+  std::string wrapperName = (decompositionName + "_rank4").str();
+  for (unsigned suffix = 0; moduleOp.lookupSymbol(wrapperName); ++suffix) {
+    wrapperName = (decompositionName + "_rank4_" + Twine(suffix)).str();
+  }
+
+  OpBuilder moduleBuilder(moduleOp.getContext());
+  moduleBuilder.setInsertionPointToEnd(moduleOp.getBody());
+  Location loc = op.getLoc();
+  auto wrapper = moduleBuilder.create<func::FuncOp>(
+      loc, wrapperName,
+      moduleBuilder.getFunctionType(inputTypes4D, resultTypes4D));
+  wrapper.setPrivate();
+  Block *entry = wrapper.addEntryBlock();
+  OpBuilder builder = OpBuilder::atBlockBegin(entry);
+
+  SmallVector<Value> decompositionInputs;
+  for (auto [argument, type] :
+       llvm::zip(entry->getArguments(), decomposition.getArgumentTypes())) {
+    decompositionInputs.push_back(reshapeValue(
+        builder, loc, argument, cast<RankedTensorType>(type).getShape()));
+  }
+  auto call =
+      builder.create<func::CallOp>(loc, decomposition, decompositionInputs);
+
+  SmallVector<Value> wrapperResults;
+  for (auto [result, type] : llvm::zip(call.getResults(), resultTypes4D)) {
+    wrapperResults.push_back(reshapeValue(
+        builder, loc, result, cast<RankedTensorType>(type).getShape()));
+  }
+  builder.create<func::ReturnOp>(loc, wrapperResults);
+
+  return FlatSymbolRefAttr::get(rewriter.getContext(), wrapperName);
 }
 
 } // namespace
@@ -1207,25 +1252,39 @@ public:
 // LayerNorm forward decomposition pattern
 //===----------------------------------------------------------------------===//
 
-// ttml::metal::layernorm_fw only accepts rank-4 tensors: (B, N, S, C) for the
-// input and (1, 1, 1, C) for weight/bias. Normalization is over the last
-// dimension only, so the leading dims can be padded (rank < 4) or collapsed
-// (rank > 4) freely; the results are reshaped back to their original rank.
+// ttml::metal::layernorm_fw only accepts rank-4 tensors. Normalize the
+// composite signature while preserving a valid decomposition fallback.
 namespace {
 struct LayerNormForwardPattern
-    : public OpConversionPattern<ttir::LayerNormForwardOp> {
+    : public OpConversionPattern<ttcore::CompositeOp> {
 public:
-  using OpConversionPattern<ttir::LayerNormForwardOp>::OpConversionPattern;
+  using OpConversionPattern<ttcore::CompositeOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::LayerNormForwardOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttcore::CompositeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
+    if (op.getCompositeName() != "layernorm_fw") {
+      return failure();
+    }
 
-    llvm::SmallVector<mlir::Type> resultTypes4D;
-    for (mlir::Type type : op.getResultTypes()) {
-      auto tensorType = mlir::cast<RankedTensorType>(type);
-      llvm::SmallVector<int64_t, 4> shape4D;
+    auto isRank4 = [](Value value) {
+      return cast<RankedTensorType>(value.getType()).getRank() == 4;
+    };
+    if (llvm::all_of(adaptor.getInputs(), isRank4) &&
+        llvm::all_of(op.getResults(), isRank4)) {
+      return rewriter.notifyMatchFailure(op, "already 4D");
+    }
+
+    Location loc = op.getLoc();
+    SmallVector<Value> inputs4D;
+    for (Value input : adaptor.getInputs()) {
+      inputs4D.push_back(reshapeToRank4IfNeeded(rewriter, loc, input));
+    }
+
+    SmallVector<Type> resultTypes4D;
+    for (Type type : op.getResultTypes()) {
+      auto tensorType = cast<RankedTensorType>(type);
+      SmallVector<int64_t, 4> shape4D;
       if (tensorType.getRank() == 4) {
         shape4D.assign(tensorType.getShape().begin(),
                        tensorType.getShape().end());
@@ -1236,19 +1295,18 @@ public:
           shape4D, tensorType.getElementType(), tensorType.getEncoding()));
     }
 
-    auto layerNorm4D = rewriter.create<ttir::LayerNormForwardOp>(
-        loc, resultTypes4D,
-        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getInput()),
-        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getWeight()),
-        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getBias()),
-        op.getEpsilonAttr(), op.getReturnMeanRstdAttr());
+    auto decomposition = createRank4DecompositionWrapper(
+        op, TypeRange(inputs4D), resultTypes4D, rewriter);
+    auto layerNorm4D = rewriter.create<ttcore::CompositeOp>(
+        loc, resultTypes4D, inputs4D, op.getCompositeNameAttr(), decomposition,
+        op.getCompositeAttributesAttr());
 
-    llvm::SmallVector<mlir::Value> restored;
+    SmallVector<Value> restored;
     for (auto [result4D, originalType] :
          llvm::zip(layerNorm4D.getResults(), op.getResultTypes())) {
       restored.push_back(
           reshapeValue(rewriter, loc, result4D,
-                       mlir::cast<RankedTensorType>(originalType).getShape()));
+                       cast<RankedTensorType>(originalType).getShape()));
     }
     rewriter.replaceOp(op, restored);
     return success();

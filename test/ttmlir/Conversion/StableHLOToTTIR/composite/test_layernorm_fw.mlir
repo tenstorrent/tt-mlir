@@ -6,9 +6,10 @@
 module {
   func.func @layernorm_fw(%input: tensor<1x1x128x256xbf16>, %weight: tensor<1x1x1x256xbf16>,
                           %bias: tensor<1x1x1x256xbf16>) -> tensor<1x1x128x256xbf16> {
-    // CHECK: "ttir.layernorm_fw"
-    // CHECK-SAME: epsilon = 9.99999974E-6 : f32
-    // CHECK-SAME: return_mean_rstd = false
+    // CHECK: "ttcore.composite"
+    // CHECK-SAME: composite_attributes = {epsilon = 9.99999974E-6 : f32, return_mean_rstd = false}
+    // CHECK-SAME: composite_name = "layernorm_fw"
+    // CHECK-SAME: decomposition = @tenstorrent.layernorm_fw.impl
     // CHECK-NOT: stablehlo.composite
     %0 = stablehlo.composite "tenstorrent.layernorm_fw" %input, %weight, %bias {
       composite_attributes = {
@@ -30,8 +31,10 @@ module {
   func.func @layernorm_fw_mean_rstd(%input: tensor<1x1x128x256xbf16>, %weight: tensor<1x1x1x256xbf16>,
                                     %bias: tensor<1x1x1x256xbf16>)
       -> (tensor<1x1x128x256xbf16>, tensor<1x1x128x1xbf16>, tensor<1x1x128x1xbf16>) {
-    // CHECK: "ttir.layernorm_fw"
-    // CHECK-SAME: return_mean_rstd = true
+    // CHECK: "ttcore.composite"
+    // CHECK-SAME: composite_attributes = {epsilon = 9.99999974E-6 : f32, return_mean_rstd = true}
+    // CHECK-SAME: composite_name = "layernorm_fw"
+    // CHECK-SAME: decomposition = @tenstorrent.layernorm_fw.mean_rstd.impl
     // CHECK-NOT: stablehlo.composite
     %0:3 = stablehlo.composite "tenstorrent.layernorm_fw" %input, %weight, %bias {
       composite_attributes = {

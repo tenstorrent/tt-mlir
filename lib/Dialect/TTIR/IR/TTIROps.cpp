@@ -7489,69 +7489,6 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// LayerNormForwardOp
-//===----------------------------------------------------------------------===//
-::mlir::LogicalResult mlir::tt::ttir::LayerNormForwardOp::verify() {
-  RankedTensorType inputType = getInput().getType();
-  RankedTensorType weightType = getWeight().getType();
-  RankedTensorType biasType = getBias().getType();
-
-  if (inputType.getRank() < 1) {
-    return emitOpError("input must have rank >= 1 (..., C)");
-  }
-
-  int64_t normalizedSize = inputType.getShape().back();
-
-  // Normalization is over the last dimension only, so weight and bias must be
-  // C-sized vectors. Any rank is accepted as long as no other dimension scales
-  // them; the decomposition reshapes them to the rank-4 (1, 1, 1, C) the kernel
-  // expects.
-  auto verifyParam = [&](RankedTensorType type,
-                         llvm::StringRef name) -> ::mlir::LogicalResult {
-    llvm::ArrayRef<int64_t> shape = type.getShape();
-    if (shape.empty() || shape.back() != normalizedSize ||
-        llvm::any_of(shape.drop_back(), [](int64_t dim) { return dim != 1; })) {
-      return emitOpError() << name << " must be a " << normalizedSize
-                           << "-element vector matching the last dimension of "
-                              "input, but got shape "
-                           << type;
-    }
-    return success();
-  };
-  if (failed(verifyParam(weightType, "weight")) ||
-      failed(verifyParam(biasType, "bias"))) {
-    return failure();
-  }
-
-  if (getOutput().getType().getShape() != inputType.getShape()) {
-    return emitOpError("output must have the same shape as input");
-  }
-
-  // mean and rstd are computed by the same kernel pass, so they come as a pair.
-  if (getReturnMeanRstd() != static_cast<bool>(getMean()) ||
-      getReturnMeanRstd() != static_cast<bool>(getRstd())) {
-    return emitOpError("mean and rstd results must be present iff "
-                       "return_mean_rstd is true");
-  }
-
-  if (getMean()) {
-    llvm::SmallVector<int64_t> expectedStatsShape(inputType.getShape());
-    expectedStatsShape.back() = 1;
-    llvm::ArrayRef<int64_t> expectedStats(expectedStatsShape);
-    if (getMean().getType().getShape() != expectedStats) {
-      return emitOpError("mean must have the shape of input with the last "
-                         "dimension reduced to 1");
-    }
-    if (getRstd().getType().getShape() != expectedStats) {
-      return emitOpError("rstd must have the shape of input with the last "
-                         "dimension reduced to 1");
-    }
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // DistributedRMSNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttir::DistributedRMSNormOp::verify() {

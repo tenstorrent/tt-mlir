@@ -8,13 +8,13 @@ from conftest import get_request_kwargs
 from typing import Callable, List, Optional, Tuple
 from collections import OrderedDict
 
-from ttmlir.ir import StringAttr
+from ttmlir.ir import DictAttr, FloatAttr, StringAttr
 from ttmlir.dialects import stablehlo
 
 from builder.base.builder_utils import Operand, Shape
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_apis import compile_and_execute_shlo
-from test_utils import shape_str, Marks
+from test_utils import shape_str, Marks, SkipIf
 
 pytestmark = pytest.mark.frontend("shlo")
 
@@ -240,6 +240,43 @@ def module_composite(builder: StableHLOBuilder):
             "jit_eltwise_add.my_add",
             [lhs, rhs],
             decomposition=add_impl,
+            unit_attrs=unit_attrs,
+        )
+
+
+def module_layernorm_fw_composite(builder: StableHLOBuilder):
+    shape = (1, 1, 128, 256)
+    param_shape = (1, 1, 1, 256)
+
+    @builder.func([shape, param_shape, param_shape], [torch.bfloat16] * 3)
+    def layernorm_fw_impl(
+        input: Operand,
+        weight: Operand,
+        bias: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        stats = builder.slice(input, [0, 0, 0, 0], [1, 1, 128, 1], [1, 1, 1, 1])
+        return input, stats, stats
+
+    layernorm_fw_impl.sym_visibility = StringAttr.get("private")
+    builder._nested_funcs.append(layernorm_fw_impl.name.value)
+
+    @builder.func([shape, param_shape, param_shape], [torch.bfloat16] * 3)
+    def layernorm_fw(
+        input: Operand,
+        weight: Operand,
+        bias: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        composite_attributes = DictAttr.get({"epsilon": FloatAttr.get_f32(1e-05)})
+        return builder.composite(
+            "tenstorrent.layernorm_fw",
+            [input, weight, bias],
+            decomposition=layernorm_fw_impl,
+            composite_attributes=composite_attributes,
             unit_attrs=unit_attrs,
         )
 
@@ -2254,6 +2291,17 @@ def test_composite_op(target: str, request, device):
         **get_request_kwargs(request),
         target=target,
         device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_layernorm_fw_composite(target: str, request, device):
+    compile_and_execute_shlo(
+        module_layernorm_fw_composite,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        ttir_pipeline_options=["composite-resolution=force-promote"],
     )
 
 
