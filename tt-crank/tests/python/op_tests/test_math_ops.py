@@ -116,6 +116,33 @@ def test_reciprocal(shape: tuple) -> None:
     assert_close_cpu_vs_tt(torch.reciprocal, a, atol=1e-2, rtol=1e-2)
 
 
+@pytest.mark.parametrize("min,max", [(-0.5, 0.5), (0.0, None), (None, 1.0)], ids=["both", "min_only", "max_only"])
+@pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])
+def test_clamp(shape: tuple, min: float | None, max: float | None) -> None:
+    # Clamp only selects between the input and a bound — no arithmetic error to
+    # tolerate, so the default (exact-ish) tolerances apply.
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(lambda x: torch.clamp(x, min=min, max=max), a)
+
+
+@pytest.mark.parametrize("min", [-0.5, 0.0, 1.0])
+@pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])
+def test_clamp_min(shape: tuple, min: float) -> None:
+    # clamp_min is clamp with no upper bound: selection only, no arithmetic
+    # error to tolerate.
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(lambda x: torch.clamp_min(x, min), a)
+
+
+@pytest.mark.parametrize("max", [-0.5, 0.0, 1.0])
+@pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])
+def test_clamp_max(shape: tuple, max: float) -> None:
+    # clamp_max is clamp with no lower bound: selection only, no arithmetic
+    # error to tolerate.
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(lambda x: torch.clamp_max(x, max), a)
+
+
 @pytest.mark.parametrize("dim", [-1, 0, 1])
 @pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])
 def test_cumsum(shape: tuple, dim: int) -> None:
