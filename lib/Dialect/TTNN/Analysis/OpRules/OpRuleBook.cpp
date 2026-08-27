@@ -94,7 +94,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static PagedUpdateCacheRuleBook pagedUpdateCache;
   static ArgMaxRuleBook argMax;
   static AdamWRuleBook adamW;
-  static CrossEntropyForwardRuleBook crossEntropyForward;
+  static CrossEntropyRuleBook crossEntropy;
 
   static llvm::StringMap<const OpRuleBook *> registry;
   static std::once_flag initFlag;
@@ -141,7 +141,8 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
     reg(ArgMaxOp::getOperationName(), &argMax);
     reg(AdamWOp::getOperationName(), &adamW);
-    reg(CrossEntropyForwardOp::getOperationName(), &crossEntropyForward);
+    reg(CrossEntropyForwardOp::getOperationName(), &crossEntropy);
+    reg(CrossEntropyBackwardOp::getOperationName(), &crossEntropy);
   });
   auto it = registry.find(op->getName().getStringRef());
   return it != registry.end() ? *it->second : defaultRules;
