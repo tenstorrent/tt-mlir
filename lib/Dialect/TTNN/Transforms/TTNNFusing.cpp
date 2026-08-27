@@ -597,8 +597,8 @@ public:
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
-    (void)applyPatternsGreedily(getOperation(), std::move(patterns));
     (void)applyPatternsGreedily(getOperation(), std::move(laterPatterns));
+    (void)applyPatternsGreedily(getOperation(), std::move(patterns));
   }
 };
 } // namespace
