@@ -3003,7 +3003,7 @@ def TTNN_CrossEntropyForwardOp : TTNN_Op<"cross_entropy_fw"> {
     let hasVerifier = 1;
 }
 
-def TTNN_CrossEntropyBackwardOp : TTNN_Op<"cross_entropy_bw", [OpModelExempt]> {
+def TTNN_CrossEntropyBackwardOp : TTNN_Op<"cross_entropy_bw"> {
     let summary = "Cross entropy loss backward pass (ttml).";
     let description = [{
       Gradient of the cross entropy loss w.r.t. the logits, backed by the ttml

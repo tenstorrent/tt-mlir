@@ -7741,4 +7741,69 @@ TEST_F(OpModelBase, CrossEntropyForwardOpInterface) {
   }
 }
 
+//===----------------------------------------------------------------------===//
+// CrossEntropyBackwardOp
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelBase, CrossEntropyBackwardOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {4, 1, 32, 64};
+  llvm::SmallVector<int64_t> targetShape = {4, 32};
+  llvm::SmallVector<int64_t> gradShape = {1, 1, 1, 1};
+  TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  TTNNLayoutAttr targetLayout =
+      TTNNLayoutAttr::Builder(
+          &context, targetShape,
+          builder.getIntegerType(/*width=*/32, /*isSigned=*/false))
+          .setBufferType(BufferType::DRAM)
+          .setMemoryLayout(TensorMemoryLayout::Interleaved)
+          .setGridShape(GetVirtualGridShape(
+              targetShape, TensorMemoryLayout::Interleaved, BufferType::DRAM))
+          .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  TTNNLayoutAttr gradLayout = CreateTiledLayout(
+      gradShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  auto outputType =
+      createRankedTensorType(inputShape, builder.getBF16Type(), outputLayout);
+  mlir::Value input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
+  mlir::Value target = createEmptyTensor(
+      targetShape, builder.getIntegerType(/*width=*/32, /*isSigned=*/false),
+      targetLayout);
+  mlir::Value grad =
+      createEmptyTensor(gradShape, builder.getBF16Type(), gradLayout);
+
+  auto crossEntropyBackward = builder.create<CrossEntropyBackwardOp>(
+      builder.getUnknownLoc(), outputType, input, target, grad,
+      builder.getF32FloatAttr(0.03125F));
+  auto backend = dyn_cast<OpModel>(crossEntropyBackward.getOperation());
+  ASSERT_TRUE(backend);
+
+  auto inputLayouts = getInputLayouts(crossEntropyBackward.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 3u);
+
+  auto constraintsExp =
+      backend.getOpConstraints(inputLayouts, /*opConfig=*/OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp->cbL1PeakSize, 0);
+    EXPECT_EQ(constraintsExp->tensorL1PeakSize, 0);
+    EXPECT_EQ(constraintsExp->outputL1BufferSize, 0);
+    ASSERT_EQ(constraintsExp->outputLayouts.size(), 1u);
+    ExpectLayoutsEQ(constraintsExp->outputLayouts.front(), outputLayout);
+  } else {
+    FAIL() << "Missing constraints for CrossEntropyBackwardOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, /*opConfig=*/OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(*runtimeExp, 0);
+  } else {
+    FAIL() << "Error getting runtime for CrossEntropyBackwardOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 } // namespace mlir::tt::ttnn

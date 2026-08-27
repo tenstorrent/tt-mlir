@@ -4746,6 +4746,37 @@ CrossEntropyForwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// CrossEntropyBackwardOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+CrossEntropyBackwardOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  assert(inputs.size() == 3 && "CrossEntropyBackwardOp must have 3 inputs");
+
+  return detail::constraintsDispatch(
+      *this, liveRecords, getInput().getType().getShape(), inputs[0],
+      getTarget().getType().getShape(), inputs[1],
+      getGrad().getType().getShape(), inputs[2], getScaler(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+CrossEntropyBackwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  assert(inputs.size() == 3 && "CrossEntropyBackwardOp must have 3 inputs");
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<CrossEntropyBackwardOp>::getOpRuntime, *this,
+      getInput().getType().getShape(), inputs[0],
+      getTarget().getType().getShape(), inputs[1],
+      getGrad().getType().getShape(), inputs[2], getScaler(),
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
