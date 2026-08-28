@@ -4989,6 +4989,7 @@ def TTIR_SqueezeOp : TTIR_NamedOp<"squeeze"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+    let hasCanonicalizeMethod = 1;
 }
 
 def TTIR_UnsqueezeOp : TTIR_NamedOp<"unsqueeze"> {
@@ -5036,6 +5037,7 @@ def TTIR_UnsqueezeOp : TTIR_NamedOp<"unsqueeze"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+    let hasCanonicalizeMethod = 1;
 }
 
 def TTIR_ClampScalarOp : TTIR_NamedOp<"clamp_scalar", [TTIR_ElementwiseUnary]> {
