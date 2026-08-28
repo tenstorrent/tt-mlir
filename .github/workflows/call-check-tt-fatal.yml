@@ -46,17 +46,17 @@ jobs:
         if: steps.versions.outputs.changed == 'true'
         shell: bash
         run: |
-          OLD=${{ steps.versions.outputs.old }}
-          NEW=${{ steps.versions.outputs.new }}
-          git init tt-metal-src
-          cd tt-metal-src
-          git remote add origin "$TT_METAL_REPO"
-          git sparse-checkout set "$WATCH_PATH"
-          git fetch --depth=1 --filter=blob:none origin "$OLD" "$NEW"
-          # Checking out each commit batch-prefetches the sparse cone's blobs,
-          # so the diff script's git show calls below run fully offline.
-          git checkout -q "$OLD"
-          git checkout -q "$NEW"
+          # Shallow, blobless, sparse clone: only files under WATCH_PATH at
+          # the one commit are downloaded into each folder.
+          clone_at() { # <dir> <sha>
+            git init -q "$1"
+            git -C "$1" remote add origin "$TT_METAL_REPO"
+            git -C "$1" sparse-checkout set "$WATCH_PATH"
+            git -C "$1" fetch -q --depth=1 --filter=blob:none origin "$2"
+            git -C "$1" -c advice.detachedHead=false checkout -q "$2"
+          }
+          clone_at tt-metal-old ${{ steps.versions.outputs.old }}
+          clone_at tt-metal-new ${{ steps.versions.outputs.new }}
 
       - name: Diff TT_FATAL calls
         if: steps.versions.outputs.changed == 'true'
@@ -67,9 +67,10 @@ jobs:
           NEW=${{ steps.versions.outputs.new }}
           echo "notify=false" >> "$GITHUB_OUTPUT"
           rc=0
-          python3 .github/scripts/tt_fatal_diff.py --repo tt-metal-src \
+          python3 .github/scripts/tt_fatal_diff.py tt-metal-old tt-metal-new \
             --path "$WATCH_PATH" --github-url "$TT_METAL_REPO" \
-            --slack-out tt_fatal_slack.txt "$OLD" "$NEW" > tt_fatal_diff.txt || rc=$?
+            --old-sha "$OLD" --new-sha "$NEW" \
+            --slack-out tt_fatal_slack.txt > tt_fatal_diff.txt || rc=$?
           {
             echo "## TT_FATAL diff ($OLD -> $NEW)"
             echo '```'

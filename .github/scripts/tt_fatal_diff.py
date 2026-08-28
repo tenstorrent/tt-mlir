@@ -2,43 +2,35 @@
 # SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""Report TT_FATAL changes between two tt-metal commits.
+"""Report TT_FATAL changes between two tt-metal checkouts.
 
 Extracts every TT_FATAL(...) call (full, multi-line, balanced-paren) from all
-source files under a given path at two commits and prints the calls that were
-added, removed, or modified. Intended to run on tt-metal uplift to flag
-validation changes in tt-train metal ops.
+source files under a given path in two checkout directories and prints the
+calls that were added, removed, or modified. Intended to run on tt-metal
+uplift to flag validation changes in tt-train metal ops; each directory is
+typically a sparse checkout of one commit.
 
 Usage:
-  tt_fatal_diff.py --repo /path/to/tt-metal OLD_COMMIT NEW_COMMIT \
-      [--path tt-train/sources/ttml/metal/ops] [--slack-out FILE]
+  tt_fatal_diff.py OLD_DIR NEW_DIR \
+      [--path tt-train/sources/ttml/metal/ops] \
+      [--old-sha SHA --new-sha SHA] [--slack-out FILE]
 
 The text diff is printed to stdout. With --slack-out, a Slack mrkdwn message
 with GitHub permalinks to the changed lines is also written to FILE, suitable
-for posting via a webhook.
+for posting via a webhook; this requires --old-sha and --new-sha to build the
+links.
 
 Exit code: 0 if no TT_FATAL changes, 2 if changes were found, 1 on error.
 """
 
 import argparse
 import difflib
+import os
 import re
-import subprocess
 import sys
 
 SOURCE_EXTENSIONS = (".cpp", ".hpp", ".h", ".cc", ".cxx", ".hxx", ".c")
 MACRO_RE = re.compile(r"\bTT_FATAL\s*\(")
-
-
-def git(repo, *args):
-    result = subprocess.run(
-        ["git", "-C", repo, *args],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"git {' '.join(args)} failed:\n{result.stderr.strip()}")
-    return result.stdout
 
 
 def strip_comments(text):
@@ -115,18 +107,21 @@ def normalize(call):
     return " ".join(call.split())
 
 
-def list_files(repo, commit, path):
-    out = git(repo, "ls-tree", "-r", "--name-only", commit, "--", path)
-    return [f for f in out.splitlines() if f.endswith(SOURCE_EXTENSIONS)]
-
-
-def calls_by_file(repo, commit, path):
+def calls_by_file(root, path):
+    """Map repo-relative file path -> TT_FATAL calls, for sources under root/path."""
     result = {}
-    for f in list_files(repo, commit, path):
-        text = git(repo, "show", f"{commit}:{f}")
-        calls = extract_calls(text)
-        if calls:
-            result[f] = calls
+    base = os.path.join(root, path)
+    for dirpath, dirnames, filenames in os.walk(base):
+        dirnames[:] = [d for d in dirnames if d != ".git"]
+        for name in sorted(filenames):
+            if not name.endswith(SOURCE_EXTENSIONS):
+                continue
+            full = os.path.join(dirpath, name)
+            with open(full, encoding="utf-8", errors="replace") as f:
+                calls = extract_calls(f.read())
+            if calls:
+                rel = os.path.relpath(full, root).replace(os.sep, "/")
+                result[rel] = calls
     return result
 
 
@@ -167,7 +162,7 @@ def collect_changes(old, new):
     return changes
 
 
-def render_text(changes, args):
+def render_text(changes, args, old_label, new_label):
     lines = []
     for f, modified, removed, added in changes:
         lines.append(f"\n== {f}")
@@ -183,7 +178,7 @@ def render_text(changes, args):
             lines.append(indent(new_call, "    + "))
     lines.append(
         f"\nTT_FATAL changes found in {args.path} "
-        f"between {args.old_commit} and {args.new_commit}"
+        f"between {old_label} and {new_label}"
     )
     return "\n".join(lines)
 
@@ -203,8 +198,9 @@ def excerpt(call, limit=140):
     return mrkdwn_escape(s)
 
 
-def render_slack(changes, args, old_sha, new_sha):
+def render_slack(changes, args):
     gh = args.github_url.rstrip("/")
+    old_sha, new_sha = args.old_sha, args.new_sha
     header = (
         f":warning: *TT_FATAL changes in `{args.path}`* "
         f"(tt-metal uplift <{gh}/compare/{old_sha}...{new_sha}|"
@@ -239,14 +235,15 @@ def render_slack(changes, args, old_sha, new_sha):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("old_commit", help="Older tt-metal commit (base)")
-    parser.add_argument("new_commit", help="Newer tt-metal commit")
-    parser.add_argument("--repo", required=True, help="Path to a tt-metal checkout")
+    parser.add_argument("old_dir", help="Checkout of the older tt-metal commit")
+    parser.add_argument("new_dir", help="Checkout of the newer tt-metal commit")
     parser.add_argument(
         "--path",
         default="tt-train/sources/ttml/metal/ops",
-        help="Repo path to inspect (default: %(default)s)",
+        help="Repo-relative path to inspect (default: %(default)s)",
     )
+    parser.add_argument("--old-sha", help="Commit SHA of old_dir, for Slack links")
+    parser.add_argument("--new-sha", help="Commit SHA of new_dir, for Slack links")
     parser.add_argument(
         "--slack-out",
         metavar="FILE",
@@ -265,28 +262,32 @@ def main():
     )
     args = parser.parse_args()
 
-    try:
-        old = calls_by_file(args.repo, args.old_commit, args.path)
-        new = calls_by_file(args.repo, args.new_commit, args.path)
-        changes = collect_changes(old, new)
-        if changes and args.slack_out:
-            old_sha = git(args.repo, "rev-parse", args.old_commit).strip()
-            new_sha = git(args.repo, "rev-parse", args.new_commit).strip()
-    except RuntimeError as e:
-        print(f"error: {e}", file=sys.stderr)
+    if args.slack_out and not (args.old_sha and args.new_sha):
+        print("error: --slack-out requires --old-sha and --new-sha", file=sys.stderr)
+        return 1
+    if not any(
+        os.path.isdir(os.path.join(d, args.path)) for d in (args.old_dir, args.new_dir)
+    ):
+        print(f"error: {args.path} not found in either directory", file=sys.stderr)
         return 1
 
+    old = calls_by_file(args.old_dir, args.path)
+    new = calls_by_file(args.new_dir, args.path)
+    changes = collect_changes(old, new)
+
+    old_label = args.old_sha or args.old_dir
+    new_label = args.new_sha or args.new_dir
     if not changes:
         print(
             f"No TT_FATAL changes in {args.path} "
-            f"between {args.old_commit} and {args.new_commit}"
+            f"between {old_label} and {new_label}"
         )
         return 0
 
-    print(render_text(changes, args))
+    print(render_text(changes, args, old_label, new_label))
     if args.slack_out:
         with open(args.slack_out, "w") as f:
-            f.write(render_slack(changes, args, old_sha, new_sha) + "\n")
+            f.write(render_slack(changes, args) + "\n")
     return 2
 
 
