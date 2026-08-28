@@ -16,6 +16,10 @@ jobs:
   pre-commit:
     uses: ./.github/workflows/call-pre-commit.yml
     secrets: inherit
+  check-tt-fatal:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/call-check-tt-fatal.yml
+    secrets: inherit
   build-image:
     uses: ./.github/workflows/call-build-docker.yml
     secrets: inherit

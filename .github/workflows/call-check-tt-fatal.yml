@@ -1,0 +1,97 @@
+name: Check TT_FATAL
+
+# On tt-metal uplift (TT_METAL_VERSION change in third_party/CMakeLists.txt),
+# report TT_FATAL changes in tt-train metal ops to Slack. Uses a sparse,
+# blobless tt-metal clone so only the watched path is downloaded (~seconds).
+
+on:
+  workflow_call:
+
+env:
+  TT_METAL_REPO: https://github.com/tenstorrent/tt-metal
+  WATCH_PATH: tt-train/sources/ttml/metal/ops
+
+jobs:
+  check-tt-fatal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Detect tt-metal version change
+        id: versions
+        shell: bash
+        run: |
+          extract() { sed -n 's/^set(TT_METAL_VERSION "\([0-9a-fA-F]*\)").*/\1/p'; }
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          BEFORE="${{ github.event.before }}"
+          NEW=$(extract < third_party/CMakeLists.txt)
+          OLD=""
+          case "$BEFORE" in
+            ""|0000000000000000000000000000000000000000) ;;
+            *)
+              git fetch --depth=1 origin "$BEFORE"
+              OLD=$(git show "$BEFORE:third_party/CMakeLists.txt" | extract || true)
+              ;;
+          esac
+          echo "tt-metal version: '$OLD' -> '$NEW'"
+          echo "old=$OLD" >> "$GITHUB_OUTPUT"
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          if [ -n "$OLD" ] && [ -n "$NEW" ] && [ "$OLD" != "$NEW" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tt-metal version unchanged; nothing to check"
+          fi
+
+      - name: Sparse checkout tt-metal at both versions
+        if: steps.versions.outputs.changed == 'true'
+        shell: bash
+        run: |
+          # Shallow, blobless, sparse clone: only files under WATCH_PATH at
+          # the one commit are downloaded into each folder.
+          clone_at() { # <dir> <sha>
+            git init -q "$1"
+            git -C "$1" remote add origin "$TT_METAL_REPO"
+            git -C "$1" sparse-checkout set "$WATCH_PATH"
+            git -C "$1" fetch -q --depth=1 --filter=blob:none origin "$2"
+            git -C "$1" -c advice.detachedHead=false checkout -q "$2"
+          }
+          clone_at tt-metal-old ${{ steps.versions.outputs.old }}
+          clone_at tt-metal-new ${{ steps.versions.outputs.new }}
+
+      - name: Diff TT_FATAL calls
+        if: steps.versions.outputs.changed == 'true'
+        id: diff
+        shell: bash
+        run: |
+          OLD=${{ steps.versions.outputs.old }}
+          NEW=${{ steps.versions.outputs.new }}
+          echo "notify=false" >> "$GITHUB_OUTPUT"
+          rc=0
+          python3 .github/scripts/tt_fatal_diff.py tt-metal-old tt-metal-new \
+            --path "$WATCH_PATH" --github-url "$TT_METAL_REPO" \
+            --old-sha "$OLD" --new-sha "$NEW" \
+            --slack-out tt_fatal_slack.txt > tt_fatal_diff.txt || rc=$?
+          {
+            echo "## TT_FATAL diff ($OLD -> $NEW)"
+            echo '```'
+            cat tt_fatal_diff.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$rc" -eq 2 ]; then
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            printf '\nFull diff: <%s|workflow run summary>\n' "$RUN_URL" >> tt_fatal_slack.txt
+            python3 -c 'import json,sys; json.dump({"text": open(sys.argv[1]).read()}, open(sys.argv[2], "w"))' \
+              tt_fatal_slack.txt tt_fatal_slack_payload.json
+            echo "notify=true" >> "$GITHUB_OUTPUT"
+          elif [ "$rc" -ne 0 ]; then
+            cat tt_fatal_diff.txt
+            exit "$rc"
+          fi
+
+      - name: Notify Slack
+        if: steps.diff.outputs.notify == 'true'
+        uses: slackapi/slack-github-action@v3.0.1
+        with:
+          webhook-type: webhook-trigger
+          webhook: ${{ secrets.SLACK_TT_FATAL_WATCH }}
+          payload-file-path: tt_fatal_slack_payload.json
