@@ -384,6 +384,11 @@ def _(mb, lhs, exp):
     return mb.pow(lhs, mb.scalar_like(lhs, float(exp)))
 
 
+@_lowering(_aten.pow.Scalar)
+def _(mb, base, exp):
+    return mb.pow(mb.scalar_like(exp, float(base)), exp)
+
+
 @_lowering(_aten.matmul.default, _aten.bmm.default)
 def _(mb, lhs, rhs):
     return mb.matmul(lhs, rhs)

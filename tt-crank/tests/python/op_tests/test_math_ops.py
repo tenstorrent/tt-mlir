@@ -18,6 +18,24 @@ def test_pow_tensor_scalar(exp: float, dtype: torch.dtype) -> None:
 
 
 @pytest.mark.parametrize("dtype", get_supported_dtypes())
+@pytest.mark.parametrize("base", [2.0, 0.5])
+def test_pow_scalar(base: float, dtype: torch.dtype) -> None:
+    # Positive base only, a negative base with a non-integer exponent is
+    # mathematically undefined.
+    a = torch.randn((32, 64), dtype=dtype)
+    assert_close_cpu_vs_tt(lambda x: torch.pow(base, x), a, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("dtype", get_supported_dtypes())
+@pytest.mark.parametrize("base", [-2.0, -0.5])
+def test_pow_scalar_negative_base(base: float, dtype: torch.dtype) -> None:
+    # A negative base is only defined for integer exponents, so the exponents come
+    # from randint here rather than the randn of test_pow_scalar.
+    a = torch.randint(-3, 4, (32, 64)).to(dtype)
+    assert_close_cpu_vs_tt(lambda x: torch.pow(base, x), a, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("dtype", get_supported_dtypes())
 @pytest.mark.parametrize("scalar", [2.0, -1.5, 0.5])
 def test_add_scalar(scalar: float, dtype: torch.dtype) -> None:
     a = torch.randn((32, 64), dtype=dtype)

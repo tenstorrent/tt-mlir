@@ -495,6 +495,19 @@ at::Tensor tt_pow_tensor_scalar(const at::Tensor &self, const at::Scalar &expone
     return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
 }
 
+// pow.Scalar is the mirror of pow.Tensor_Scalar: scalar base, tensor exponent.
+at::Tensor tt_pow_scalar(const at::Scalar &self, const at::Tensor &exponent) {
+    TORCH_CHECK(is_tt(exponent), "tt-kurbla aten::pow.Scalar: tensor must be on tt backend");
+    auto mb = ModuleBuilder::init({spec_for(exponent)});
+    auto exp_v = mb.args()[0];
+    auto elem_type = mlir::cast<mlir::RankedTensorType>(exp_v.getType()).getElementType();
+    auto base_v = build_scalar(mb, elem_type, self.toDouble());
+    auto result = build_pow(mb, base_v, exp_v);
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {exponent});
+    return wrap_tt_tensor(std::move(outputs[0]), exponent.sizes(), exponent.scalar_type());
+}
+
 at::Tensor tt_add_scalar(const at::Tensor &self, const at::Scalar &other, const at::Scalar &alpha) {
     TORCH_CHECK(is_tt(self), "tt-kurbla aten::add.Scalar: tensor must be on tt backend");
     double effective = other.toDouble() * alpha.toDouble();
@@ -1044,6 +1057,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("argmax", TORCH_FN(tt_argmax));
     m.impl("max.dim_max", TORCH_FN(tt_max_dim_max));
     m.impl("pow.Tensor_Scalar", TORCH_FN(tt_pow_tensor_scalar));
+    m.impl("pow.Scalar", TORCH_FN(tt_pow_scalar));
     m.impl("div.Tensor", TORCH_FN(tt_div_tensor));
     m.impl("div.Scalar", TORCH_FN(tt_div_scalar));
     m.impl("cos", TORCH_FN(tt_cos));
