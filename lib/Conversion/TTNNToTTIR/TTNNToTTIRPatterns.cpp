@@ -49,9 +49,6 @@ public:
   mlir::LogicalResult
   matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    // The base rebuilds the op from operands alone, so ttnn.multiply's optional
-    // lhs_activation would be dropped without a diagnostic. TTIR has no
-    // equivalent; refuse rather than silently change the numerics.
     if constexpr (std::is_same_v<SrcOp, mlir::tt::ttnn::MultiplyOp>) {
       if (srcOp.getLhsActivation()) {
         return rewriter.notifyMatchFailure(

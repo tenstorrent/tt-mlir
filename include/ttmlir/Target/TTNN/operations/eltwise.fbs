@@ -31,8 +31,7 @@ table EltwiseBinaryOp {
   output_dtype: tt.target.DataType = null;
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
-  // Optional in-kernel activation applied to operand A before the binary op
-  // (e.g. "silu" for SwiGLU: multiply(silu(lhs), rhs)). Empty/absent = none.
+  // Set only on Multiply, and only ever to "silu"; ignored on every other type.
   lhs_activation: string;
 }
 

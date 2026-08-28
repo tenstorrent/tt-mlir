@@ -13,13 +13,8 @@
 
 namespace tt::runtime::ttnn::operations::eltwise::binary {
 
-// Build the operand-A in-kernel activations from the op's optional
-// lhs_activation string (fused SwiGLU: multiply(silu(lhs), rhs)). Absent or
-// empty = no activation.
-//
-// Only "silu" is supported, and MultiplyOp::verify rejects anything else at
-// compile time. Fail loudly rather than silently dropping an activation the
-// graph asked for -- that would be wrong numerics with no diagnostic.
+// MultiplyOp::verify already rejects anything but "silu" at compile time; this
+// asserts because a dropped activation would be wrong numerics, silently.
 static std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam>
 lhsActivationsFromOp(const ::tt::target::ttnn::EltwiseBinaryOp *op) {
   std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam> acts;
@@ -62,10 +57,8 @@ void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  // lhs_activation sits on the shared EltwiseBinaryOp table but only the
-  // Multiply case below reads it, and only ttnn.multiply can carry it out of
-  // the compiler. Catch a mismatch here rather than let a future producer set
-  // it on another op type and have it silently ignored.
+  // The field is on the shared EltwiseBinaryOp table, so an op type other than
+  // multiply can carry it and have it silently ignored.
   LOG_ASSERT(!op->lhs_activation() || op->lhs_activation()->size() == 0 ||
                  op->type() ==
                      ::tt::target::ttnn::EltwiseBinaryOpType::Multiply,
@@ -81,10 +74,8 @@ void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::Multiply: {
-    // Fused SwiGLU: an optional in-kernel activation (silu) applied to operand
-    // A (the gate output) before the multiply — avoids a separate silu op.
-    // Empty for a plain multiply. noPostActs/lhsActs outlive the call within
-    // this scope.
+    // ttnn takes these as non-owning spans, so both vectors must outlive the
+    // call.
     std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam> noPostActs;
     std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam> lhsActs =
         lhsActivationsFromOp(op);

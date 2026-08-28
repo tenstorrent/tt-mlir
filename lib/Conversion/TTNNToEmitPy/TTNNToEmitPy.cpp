@@ -303,8 +303,6 @@ public:
   matchAndRewrite(TTNNOpTy eltwiseBinaryOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // ttnn.multiply's optional lhs_activation has no representation here, and
-    // silently dropping it would change the numerics with no diagnostic.
     if constexpr (std::is_same_v<TTNNOpTy, mlir::tt::ttnn::MultiplyOp>) {
       if (eltwiseBinaryOp.getLhsActivation()) {
         return rewriter.notifyMatchFailure(

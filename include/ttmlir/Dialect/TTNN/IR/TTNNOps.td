@@ -631,21 +631,19 @@ def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply"> {
       Eltwise multiply operation.
 
       `lhs_activation` optionally names a unary activation the kernel applies to
-      operand A before the multiply, so a producer's activation costs no separate
-      op -- SwiGLU's `multiply(silu(gate), up)`.
+      operand A before the multiply, so a producer's activation costs no
+      separate op -- SwiGLU's `multiply(silu(gate), up)`.
 
-      Only "silu" is accepted, because that is the only activation the fused
-      SwiGLU path needs. Adding another means mapping it in the verifier below
-      and in `lhsActivationsFromOp` in the runtime's eltwise binary.cpp; the
-      attribute is a single name rather than a list, so a chain of activations
-      would need a wider attribute first. It is carried to ttnn as
-      `lhs_activations`, which is plural because that ABI takes a vector -- this
-      op always passes a vector of at most one.
+      **Only "silu" is accepted, and only on this op.** Both limits are narrower
+      than the attribute's type suggests: it is a plain string, and the eltwise
+      binary base class and the flatbuffer table it serializes into are shared
+      with every other binary op. Adding an activation means mapping it in the
+      verifier and in `lhsActivationsFromOp` in the runtime.
 
-      It lives on this op rather than on the eltwise-binary base class because
-      this is the only binary op the runtime plumbs it for, and the paths that
-      cannot represent it (EmitC, EmitPy, TTNN-to-TTIR) reject it rather than
-      drop it.
+      This is a stopgap for the fused-SwiGLU path, not the intended shape. The
+      general mechanism -- pre- and post-activation lists on every eltwise
+      binary op -- is in flight; when it lands this attribute should fold into
+      it rather than persist alongside it.
     }];
 
     let arguments = (ins AnyRankedTensor:$lhs,
