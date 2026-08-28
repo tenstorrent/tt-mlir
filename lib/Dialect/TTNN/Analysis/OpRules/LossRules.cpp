@@ -12,13 +12,13 @@ CrossEntropyForwardRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
   if (operandIdx == 0) {
     return [](TTNNLayoutAttr layout) {
       return layout_filter_utils::requireTiled(layout) &&
-             layout_filter_utils::rejectAllSharded(layout);
+             layout_filter_utils::requireDRAMInterleaved(layout);
     };
   }
   if (operandIdx == 1) {
     return [](TTNNLayoutAttr layout) {
       return layout_filter_utils::requireRowMajor(layout) &&
-             layout_filter_utils::rejectAllSharded(layout);
+             layout_filter_utils::requireDRAMInterleaved(layout);
     };
   }
   return nullptr;

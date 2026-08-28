@@ -16,6 +16,7 @@ module {
     // CHECK-DAG: #[[INPUT_F32_LAYOUT:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}memref<4x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
     // CHECK-DAG: #[[TARGET_I32_LAYOUT:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}memref<1x1x!ttcore.tile<32x32, si32>, #dram>, <interleaved>>
     // CHECK-DAG: #[[OUTPUT_F32_LAYOUT:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}memref<4x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+    // CHECK-DAG: #[[ADD_L1_LAYOUT:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>{{.*}}>
 
     // CHECK-LABEL: func.func @cross_entropy_fw(
     // CHECK-SAME: %[[INPUT:[0-9a-z_]+]]: tensor<4x1x32x64xbf16, #[[INPUT_LAYOUT]]>
@@ -57,5 +58,32 @@ module {
         : (tensor<4x1x32x64xf32>, tensor<4x32xi32>)
           -> tensor<4x1x32x1xf32>
     return %loss : tensor<4x1x32x1xf32>
+  }
+
+  // The optimizer places the add output in L1, but ttml::metal::cross_entropy_fw
+  // requires all of its buffers in DRAM, so the input must be resharded back to
+  // DRAM interleaved before it reaches the kernel.
+  func.func @cross_entropy_fw_l1_producer(
+      %lhs: tensor<4x1x32x64xbf16>,
+      %rhs: tensor<4x1x32x64xbf16>,
+      %target: tensor<4x32xui32>) -> tensor<4x1x32x1xbf16> {
+    // CHECK-LABEL: func.func @cross_entropy_fw_l1_producer(
+    // CHECK: %[[SUM_L1:[0-9a-z_]+]] = "ttnn.add"
+    // CHECK-SAME: -> tensor<4x1x32x64xbf16, #[[ADD_L1_LAYOUT]]>
+    // CHECK: %[[SUM_DRAM:[0-9a-z_]+]] = "ttnn.to_memory_config"(%[[SUM_L1]])
+    // CHECK-SAME: -> tensor<4x1x32x64xbf16, #[[INPUT_LAYOUT]]>
+    // CHECK: %[[TARGET_RM:[0-9a-z_]+]] = "ttnn.to_layout"
+    // CHECK-SAME: -> tensor<4x32xui32, #[[TARGET_RM_LAYOUT]]>
+    // CHECK-NOT: "ttnn.to_memory_config"
+    // CHECK: %[[LOSS:[0-9a-z_]+]] = "ttnn.cross_entropy_fw"(%[[SUM_DRAM]], %[[TARGET_RM]])
+    // CHECK-SAME: -> tensor<4x1x32x1xbf16, #[[OUTPUT_LAYOUT]]>
+    // CHECK: return %[[LOSS]]
+    %sum = "ttir.add"(%lhs, %rhs)
+        : (tensor<4x1x32x64xbf16>, tensor<4x1x32x64xbf16>)
+          -> tensor<4x1x32x64xbf16>
+    %loss = "ttir.cross_entropy_fw"(%sum, %target)
+        : (tensor<4x1x32x64xbf16>, tensor<4x32xui32>)
+          -> tensor<4x1x32x1xbf16>
+    return %loss : tensor<4x1x32x1xbf16>
   }
 }

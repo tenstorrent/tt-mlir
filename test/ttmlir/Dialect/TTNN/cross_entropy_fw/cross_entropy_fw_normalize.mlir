@@ -46,3 +46,35 @@ module {
     return %0 : tensor<32x1xbf16>
   }
 }
+
+// -----
+
+// ttml::metal::cross_entropy_fw asserts that the input, target and output
+// buffers all live in DRAM, so L1-interleaved operands must be moved out.
+
+#dram = #ttnn.buffer_type<dram>
+#l1 = #ttnn.buffer_type<l1>
+#input_l1 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<2x3x!ttcore.tile<32x32, bf16>, #l1>, <interleaved>>
+#target_l1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x32xui32, #l1>, <interleaved>>
+#output_l1 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<2x1x!ttcore.tile<32x32, bf16>, #l1>, <interleaved>>
+#output_dram = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<2x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+
+// CHECK-DAG: #[[INPUT_DRAM:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}memref<2x3x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+// CHECK-DAG: #[[TARGET_DRAM:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}memref<2x32xui32, #dram>, <interleaved>>
+// CHECK-DAG: #[[OUTPUT_DRAM:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}memref<2x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+// CHECK-LABEL: func.func @l1_interleaved_operands
+module {
+  func.func @l1_interleaved_operands(%input: tensor<2x1x32x96xbf16, #input_l1>, %target: tensor<2x32xui32, #target_l1>)
+      -> tensor<2x1x32x1xbf16, #output_dram> {
+    // CHECK: %[[INPUT:[0-9]+]] = "ttnn.to_memory_config"(%arg0)
+    // CHECK-SAME: -> tensor<2x1x32x96xbf16, #[[INPUT_DRAM]]>
+    // CHECK: %[[TARGET:[0-9]+]] = "ttnn.to_memory_config"(%arg1)
+    // CHECK-SAME: -> tensor<2x32xui32, #[[TARGET_DRAM]]>
+    // CHECK: "ttnn.cross_entropy_fw"(%[[INPUT]], %[[TARGET]])
+    // CHECK-SAME: -> tensor<2x1x32x1xbf16, #[[OUTPUT_DRAM]]>
+    %0 = "ttnn.cross_entropy_fw"(%input, %target)
+        : (tensor<2x1x32x96xbf16, #input_l1>, tensor<2x32xui32, #target_l1>) -> tensor<2x1x32x1xbf16, #output_l1>
+    %1 = "ttnn.to_memory_config"(%0) : (tensor<2x1x32x1xbf16, #output_l1>) -> tensor<2x1x32x1xbf16, #output_dram>
+    return %1 : tensor<2x1x32x1xbf16, #output_dram>
+  }
+}
