@@ -187,14 +187,58 @@ def mrkdwn_escape(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def excerpt(call, limit=140):
-    """One-line, escaped, truncated body of a TT_FATAL call for Slack."""
-    s = re.sub(r"^TT_FATAL\s*\(\s*", "", normalize(call))
-    if s.endswith(")"):
-        s = s[:-1].rstrip()
-    s = s.replace("`", "'")
+def top_level_args(call):
+    """Split the body of a TT_FATAL call into its top-level arguments."""
+    body = re.sub(r"^TT_FATAL\s*\(\s*", "", normalize(call))
+    if body.endswith(")"):
+        body = body[:-1].rstrip()
+    parts = []
+    cur = []
+    depth = 0
+    i = 0
+    n = len(body)
+    while i < n:
+        c = body[i]
+        if c == '"' or c == "'":
+            quote = c
+            cur.append(c)
+            i += 1
+            while i < n:
+                cur.append(body[i])
+                if body[i] == "\\":
+                    i += 1
+                    if i < n:
+                        cur.append(body[i])
+                elif body[i] == quote:
+                    break
+                i += 1
+        elif c in "([{":
+            depth += 1
+            cur.append(c)
+        elif c in ")]}":
+            depth -= 1
+            cur.append(c)
+        elif c == "," and depth == 0:
+            parts.append("".join(cur).strip())
+            cur = []
+        else:
+            cur.append(c)
+        i += 1
+    if cur:
+        parts.append("".join(cur).strip())
+    return parts
+
+
+def excerpt(call, limit=90):
+    """Short link label for Slack: the condition (plus message if trivial)."""
+    parts = top_level_args(call)
+    s = parts[0] if parts else normalize(call)
+    if len(s) < 16 and len(parts) > 1:
+        s = f"{s}, {parts[1]}"
     if len(s) > limit:
         s = s[: limit - 1] + "…"
+    # "|" would terminate the Slack link label.
+    s = s.replace("|", "¦")
     return mrkdwn_escape(s)
 
 
@@ -208,16 +252,19 @@ def render_slack(changes, args):
     )
     lines = [header]
     for f, modified, removed, added in changes:
-        lines.append(f"\n*{f}*")
-        for line, call in added:
-            url = f"{gh}/blob/{new_sha}/{f}#L{line}"
-            lines.append(f"• Added <{url}|L{line}>: `{excerpt(call)}`")
-        for (_, _), (new_line, new_call) in modified:
-            url = f"{gh}/blob/{new_sha}/{f}#L{new_line}"
-            lines.append(f"• Modified <{url}|L{new_line}>: `{excerpt(new_call)}`")
-        for line, call in removed:
-            url = f"{gh}/blob/{old_sha}/{f}#L{line}"
-            lines.append(f"• Removed <{url}|was L{line}>: `{excerpt(call)}`")
+        entries = (
+            [(line, "added", call, new_sha) for line, call in added]
+            + [(nl, "modified", nc, new_sha) for _, (nl, nc) in modified]
+            + [(line, "removed", call, old_sha) for line, call in removed]
+        )
+        entries.sort()
+        file_sha = (
+            old_sha if all(kind == "removed" for _, kind, _, _ in entries) else new_sha
+        )
+        name = f.rsplit("/", 1)[-1]
+        lines.append(f"*<{gh}/blob/{file_sha}/{f}|{name}>*")
+        for line, kind, call, sha in entries:
+            lines.append(f"• {kind} <{gh}/blob/{sha}/{f}#L{line}|{excerpt(call)}>")
 
     out = []
     used = 0
@@ -257,7 +304,7 @@ def main():
     parser.add_argument(
         "--max-chars",
         type=int,
-        default=3500,
+        default=12000,
         help="Character budget for the Slack message (default: %(default)s)",
     )
     args = parser.parse_args()
