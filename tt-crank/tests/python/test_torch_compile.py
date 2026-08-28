@@ -627,6 +627,38 @@ def test_compile_pow_tensor_scalar(exp: float) -> None:
     _assert_compile_matches_eager(_Pow(exp), x, atol=0.05, rtol=0.05)
 
 
+@pytest.mark.parametrize("base", [2.0, 0.5])
+def test_compile_pow_scalar(base: float) -> None:
+    # Positive base only, a negative base with a non-integer exponent is
+    # mathematically undefined.
+    class _PowScalar(nn.Module):
+        def __init__(self, b: float) -> None:
+            super().__init__()
+            self.b = b
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.pow(self.b, x)
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_PowScalar(base), x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("base", [-2.0, -0.5])
+def test_compile_pow_scalar_negative_base(base: float) -> None:
+    # A negative base is only defined for integer exponents, so the exponents come
+    # from randint here rather than the randn of test_compile_pow_scalar.
+    class _PowScalar(nn.Module):
+        def __init__(self, b: float) -> None:
+            super().__init__()
+            self.b = b
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.pow(self.b, x)
+
+    x = torch.randint(-3, 4, (32, 64)).to(torch.bfloat16)
+    _assert_compile_matches_eager(_PowScalar(base), x, atol=0.05, rtol=0.05)
+
+
 @pytest.mark.parametrize("scalar", [2.0, -0.5])
 def test_compile_add_scalar(scalar: float) -> None:
     class _AddScalar(nn.Module):
