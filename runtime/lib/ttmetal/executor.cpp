@@ -325,7 +325,7 @@ void MCQExecutor::execute(
              "Global semaphore with id ", command->ref()->global_id(),
              " already exists.");
   auto global_semaphore = tt::tt_metal::experimental::CreateGlobalSemaphore(
-      meshDevice, common::toCoreRangeSet(command->core_range_set()),
+      *meshDevice, common::toCoreRangeSet(command->core_range_set()),
       command->initial_value(), tt_metal::BufferType::L1,
       deviceAddressValidator(command->ref()->address(),
                              target::BufferType::L1));
