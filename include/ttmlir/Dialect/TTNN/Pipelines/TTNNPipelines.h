@@ -343,6 +343,12 @@ struct TTIRToTTNNCommonPipelineOptions
           "Fuse permute ops into matmul/linear transpose attributes."),
       llvm::cl::init(false)};
 
+  // Enable fusing of unary activations into eltwise binary ops.
+  Option<bool> enableEltwiseActivationFusion{
+      *this, "enable-eltwise-activation-fusion",
+      llvm::cl::desc("Fuse unary activation ops into eltwise binary ops."),
+      llvm::cl::init(false)};
+
   // Push a matmul/linear output slice into the operand producing the sliced
   // dim so the op only computes the rows/columns that are used.
   Option<bool> enablePermuteSliceAfterMatmulFusion{

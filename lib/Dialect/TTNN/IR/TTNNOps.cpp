@@ -119,6 +119,10 @@ UnaryOpType FloorOp::getUnaryOpType() { return UnaryOpType::Floor; }
 
 llvm::SmallVector<mlir::FloatAttr> FloorOp::getParams() { return {}; }
 
+UnaryOpType RoundOp::getUnaryOpType() { return UnaryOpType::Round; }
+
+llvm::SmallVector<mlir::FloatAttr> RoundOp::getParams() { return {}; }
+
 UnaryOpType GeluOp::getUnaryOpType() { return UnaryOpType::Gelu; }
 
 llvm::SmallVector<mlir::FloatAttr> GeluOp::getParams() { return {}; }
