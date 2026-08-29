@@ -819,6 +819,8 @@ private:
       t.aiclkHz = 1350ULL * 1000ULL * 1000ULL; // 1.35 GHz
       return success();
     case ttcore::Arch::Quasar:
+      // Unreachable in practice: runOnOperation skips the pass on Quasar
+      // before reaching here. Kept for switch exhaustiveness.
       return module.emitError()
              << "TTNNCollectPerfMetrics: perf target estimate not calibrated "
                 "for arch 'quasar'.";
@@ -1056,6 +1058,22 @@ public:
                               "estimate.";
         signalPassFailure();
         return;
+      }
+
+      // Quasar has no calibrated DRAM-bandwidth / AICLK figures yet, so there
+      // is nothing meaningful to report. Skip the pass instead of failing the
+      // compile: an uncalibrated perf estimate must not block codegen.
+      {
+        auto systemDescAttr = module->getAttrOfType<ttcore::SystemDescAttr>(
+            ttcore::SystemDescAttr::name);
+        auto chipDescs = systemDescAttr.getChipDescs();
+        if (!chipDescs.empty() &&
+            chipDescs[0].getArch().getValue() == ttcore::Arch::Quasar) {
+          module.emitWarning()
+              << "TTNNCollectPerfMetrics: perf target estimate not calibrated "
+                 "for arch 'quasar'; skipping perf metrics collection.";
+          return;
+        }
       }
 
       FailureOr<PerfTargets> computed = computePerfTargets(module);
