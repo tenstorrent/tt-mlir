@@ -12,6 +12,8 @@
 #include "tt/runtime/detail/ttnn/layout_converter.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
+
+#include "ttnn/operations/experimental/quasar/to_layout/to_layout_op.hpp"
 #include "tt/runtime/detail/ttnn/types/trace_cache.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -191,10 +193,18 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
     untilizeOnDevice &= getArch() != ::tt::target::Arch::Blackhole;
   }
   if (untilizeOnDevice) {
-    ::ttnn::Tensor hostTensor = ::ttnn::from_device(
-        ::ttnn::to_layout(inputTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-                          std::nullopt),
-        blocking);
+    // Quasar reimplements the op stack; the mainline device untilize reached
+    // through ttnn::to_layout builds a DataMovementKernel and TT_FATALs there.
+    // Same substitution as operations/layout/to_layout.cpp -- this is the
+    // separate output-readback call site.
+    const bool isQuasar = getArch() == ::tt::target::Arch::Quasar;
+    ::ttnn::Tensor rowMajor =
+        isQuasar ? ::ttnn::operations::experimental::quasar::to_layout(
+                       inputTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+                       std::nullopt)
+                 : ::ttnn::to_layout(inputTensor, ::ttnn::Layout::ROW_MAJOR,
+                                     std::nullopt, std::nullopt);
+    ::ttnn::Tensor hostTensor = ::ttnn::from_device(rowMajor, blocking);
 
     std::optional<::ttnn::MeshEvent> meshEvent = std::nullopt;
     if (!blocking) {

@@ -15,6 +15,21 @@
 
 namespace tt::runtime::ttnn::operations::utils {
 
+// True when the current device is Quasar ("metal 2.0").
+//
+// Quasar reimplements the op stack under
+// ttnn::operations::experimental::quasar. The mainline ops do not merely
+// perform badly there, they are refused: their program factories construct
+// DataMovementKernel / ComputeKernel, whose constructors TT_FATAL on Quasar
+// ("... is not supported on Quasar. Use Quasar*Kernel instead.",
+// tt_metal/impl/kernels/kernel.hpp). Op runners therefore have to select the
+// Quasar entry point explicitly. Where the Quasar op takes the same arguments
+// this is a straight substitution; where it does not, the op has no Quasar
+// path yet and should fail loudly rather than silently mis-dispatch.
+inline bool isQuasar() {
+  return ::tt::runtime::ttnn::getArch() == ::tt::target::Arch::Quasar;
+}
+
 void eventSync(::ttnn::MeshDevice *meshDevice, const ::ttnn::QueueId &recordCq,
                const ::ttnn::QueueId &waitCq);
 

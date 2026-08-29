@@ -7,6 +7,8 @@
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
+#include "ttnn/operations/experimental/quasar/binary/binary.hpp"
+
 namespace tt::runtime::ttnn::operations::eltwise::binary {
 
 template <typename Fn>
@@ -34,96 +36,84 @@ static void runEltwiseBinaryOp(const ::tt::target::ttnn::EltwiseBinaryOp *op,
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
+// Run one eltwise binary op, selecting the Quasar entry point when the device
+// is Quasar (see utils::isQuasar() for why the mainline ops cannot be used
+// there). Every op dispatched through this macro has a Quasar counterpart in
+// ttnn::operations::experimental::quasar::binary whose leading
+// (lhs, rhs, output_dtype, memory_config) parameters match the mainline op's,
+// so the forwarded argument pack binds to both.
+#define RUN_ELTWISE_BINARY(NAME)                                               \
+  runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {                      \
+    return utils::isQuasar()                                                   \
+               ? ::ttnn::operations::experimental::quasar::binary::NAME(       \
+                     std::forward<decltype(args)>(args)...)                    \
+               : ::ttnn::NAME(std::forward<decltype(args)>(args)...);          \
+  })
+
 void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   /* Eltwise Binary */
   case ::tt::target::ttnn::EltwiseBinaryOpType::Add: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::add(std::forward<decltype(args)>(args)...);
-    });
+    RUN_ELTWISE_BINARY(add);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::Multiply: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::multiply(std::forward<decltype(args)>(args)...);
-    });
+    RUN_ELTWISE_BINARY(multiply);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::LogicalRightShift: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::logical_right_shift(std::forward<decltype(args)>(args)...);
-    });
+    RUN_ELTWISE_BINARY(logical_right_shift);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::Subtract: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::subtract(std::forward<decltype(args)>(args)...);
-    });
+    RUN_ELTWISE_BINARY(subtract);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::Equal: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::eq(std::forward<decltype(args)>(args)...);
-    });
+    RUN_ELTWISE_BINARY(eq);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::NotEqual: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::ne(std::forward<decltype(args)>(args)...);
-    });
+    RUN_ELTWISE_BINARY(ne);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::GreaterEqual: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::ge(std::forward<decltype(args)>(args)...);
-    });
+    RUN_ELTWISE_BINARY(ge);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::GreaterThan: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::gt(std::forward<decltype(args)>(args)...);
-    });
+    RUN_ELTWISE_BINARY(gt);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::LessEqual: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::le(std::forward<decltype(args)>(args)...);
-    });
+    RUN_ELTWISE_BINARY(le);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::LessThan: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::lt(std::forward<decltype(args)>(args)...);
-    });
+    RUN_ELTWISE_BINARY(lt);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::Divide: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::divide(std::forward<decltype(args)>(args)...);
-    });
+    RUN_ELTWISE_BINARY(divide);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::LogicalAnd: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::logical_and(std::forward<decltype(args)>(args)...);
-    });
+    RUN_ELTWISE_BINARY(logical_and);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::LogicalOr: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::logical_or(std::forward<decltype(args)>(args)...);
-    });
+    RUN_ELTWISE_BINARY(logical_or);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::LogicalXor: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::logical_xor(std::forward<decltype(args)>(args)...);
-    });
+    RUN_ELTWISE_BINARY(logical_xor);
     break;
   }
   }
 }
+
+#undef RUN_ELTWISE_BINARY
 
 } // namespace tt::runtime::ttnn::operations::eltwise::binary
