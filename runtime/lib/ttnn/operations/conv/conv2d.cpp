@@ -11,6 +11,8 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/types.hpp"
 
+#include "ttnn/operations/experimental/quasar/conv2d/conv2d.hpp"
+
 namespace tt::runtime::ttnn::operations::conv {
 using ::ttnn::Conv2dResultWithOptions;
 void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
@@ -80,15 +82,37 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
     sliceConfig = utils::createConv2dSliceConfig(op->conv2d_slice_config());
   }
 
-  Conv2dResultWithOptions result = ::ttnn::conv2d(
-      input, weight, &targetDevice, op->in_channels(), op->out_channels(),
-      op->batch_size(), op->input_height(), op->input_width(), kernelSize,
-      stride, padding, dilation, op->groups(), outputDtype, bias, conv2dConfig,
-      computeConfig, outputMemoryConfig, sliceConfig);
-
-  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result));
-
-  ::ttnn::Tensor out = std::get<::ttnn::Tensor>(result);
+  // Quasar reimplements conv2d; the mainline op's program spec rejects the
+  // Quasar compute config (TT_FATAL on holds_alternative<ComputeGen2Config> in
+  // tt_metal/impl/metal2_host_api/program_spec.cpp). The Quasar entry point
+  // takes the same arguments -- Conv2dConfig and Conv2dSliceConfig are the same
+  // underlying types -- but returns its own, structurally identical, result
+  // variant, so each branch unwraps its own.
+  ::ttnn::Tensor out;
+  if (utils::isQuasar()) {
+    // NOTE: this does not work yet. Quasar conv2d currently fails inside
+    // tt-metal with "Trying to construct a Gen2 compute config but the
+    // kernel's ComputeHardwareConfig does not hold a ComputeGen2Config"
+    // (tt_metal/impl/metal2_host_api/program_spec.cpp). Verified that passing
+    // compute_config_ = std::nullopt does not avoid it, so the Gen1/Gen2
+    // mismatch is inside the Quasar conv path rather than in what we pass.
+    // Left wired up so the next attempt starts from the real error.
+    auto result = ::ttnn::operations::experimental::quasar::conv2d(
+        input, weight, &targetDevice, op->in_channels(), op->out_channels(),
+        op->batch_size(), op->input_height(), op->input_width(), kernelSize,
+        stride, padding, dilation, op->groups(), outputDtype, bias,
+        conv2dConfig, computeConfig, outputMemoryConfig, sliceConfig);
+    LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result));
+    out = std::get<::ttnn::Tensor>(result);
+  } else {
+    Conv2dResultWithOptions result = ::ttnn::conv2d(
+        input, weight, &targetDevice, op->in_channels(), op->out_channels(),
+        op->batch_size(), op->input_height(), op->input_width(), kernelSize,
+        stride, padding, dilation, op->groups(), outputDtype, bias,
+        conv2dConfig, computeConfig, outputMemoryConfig, sliceConfig);
+    LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result));
+    out = std::get<::ttnn::Tensor>(result);
+  }
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
