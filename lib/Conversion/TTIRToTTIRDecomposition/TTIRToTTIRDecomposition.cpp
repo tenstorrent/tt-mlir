@@ -1285,21 +1285,21 @@ public:
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// LayerNorm forward decomposition pattern
+// LayerNorm decomposition pattern
 //===----------------------------------------------------------------------===//
 
-// ttml::metal::layernorm_fw only accepts rank-4 tensors. Normalize the
+// The TTML layernorm kernels only accept rank-4 tensors. Normalize the
 // composite signature while preserving a valid decomposition fallback.
 namespace {
-struct LayerNormForwardPattern
-    : public OpConversionPattern<ttcore::CompositeOp> {
+struct LayerNormPattern : public OpConversionPattern<ttcore::CompositeOp> {
 public:
   using OpConversionPattern<ttcore::CompositeOp>::OpConversionPattern;
 
   LogicalResult
   matchAndRewrite(ttcore::CompositeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (op.getCompositeName() != "layernorm_fw") {
+    if (op.getCompositeName() != "layernorm_fw" &&
+        op.getCompositeName() != "layernorm_bw") {
       return failure();
     }
 
@@ -2447,8 +2447,8 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<AdamWPattern>(typeConverter, ctx);
   patterns.add<SDPAForwardPattern>(typeConverter, ctx);
   patterns.add<SDPABackwardPattern>(typeConverter, ctx);
-  patterns.add<LayerNormForwardPattern>(typeConverter, ctx);
   patterns.add<CrossEntropyForwardPattern>(typeConverter, ctx);
+  patterns.add<LayerNormPattern>(typeConverter, ctx);
   patterns.add<QuantizeOpPattern>(typeConverter, ctx);
   patterns.add<DequantizeOpPattern>(typeConverter, ctx);
   patterns.add<RequantizeOpPattern>(typeConverter, ctx);

@@ -149,6 +149,33 @@ static void registerBuiltinComposites() {
       },
       /*promotionGuard=*/nullptr};
 
+  registry["layernorm_bw"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 5u);
+        TT_assert(compositeOp.getNumResults() == 3u);
+        auto attrs = compositeOp.getCompositeAttributes();
+        TT_assert((!attrs || attrs->empty()));
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<LayerNormBackwardOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], compositeOp.getInputs()[3],
+            compositeOp.getInputs()[4]);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        return builder.create<LayerNormBackwardOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], compositeOp.getInputs()[3],
+            compositeOp.getInputs()[4]);
+      },
+      /*promotionGuard=*/nullptr};
+
   registry["topk_router_gpt"] = CompositeEntry{
       // Validate
       [](ttcore::CompositeOp compositeOp,
