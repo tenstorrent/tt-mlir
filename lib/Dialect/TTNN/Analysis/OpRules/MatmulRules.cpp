@@ -156,16 +156,6 @@ static std::optional<std::pair<Value, Value>> getMatmulOperands(Operation *op) {
 static bool isDSEligible(Operation *op, Value activation, Value weight) {
   [[maybe_unused]] StringRef opName = op->getName().getStringRef();
 
-  // Respect the disable-dram-sharded-matmul pipeline option (set as a module
-  // attribute by DevicePassesWrapper). Every DS entry point reaches this
-  // through buildDSPlan, so gating here covers all of them.
-  if (ttnn::utils::isDRAMShardedMatmulDisabled(op)) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "DS declined ({0}): disabled by disable-dram-sharded-matmul",
-                 opName);
-    return false;
-  }
-
   if (!isBfpDRAMInterleaved(weight)) {
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "DS declined ({0}): weight is not a tiled bfp4/bfp8 "
@@ -301,6 +291,18 @@ struct DSPlan {
 // matmul (both operands and the output hint).
 static std::optional<DSPlan> buildDSPlan(Operation *op) {
   [[maybe_unused]] StringRef opName = op->getName().getStringRef();
+
+  // Respect the disable-dram-sharded-matmul pipeline option (set as a module
+  // attribute by DevicePassesWrapper). This is the choke point for the whole DS
+  // path: the output hint and the input reshard candidates both need a plan, and
+  // the transformation and hint-validation paths only ever see a program config
+  // one of those produced. Declining here therefore costs nothing downstream.
+  if (ttnn::utils::isDRAMShardedMatmulDisabled(op)) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "DS declined ({0}): disabled by disable-dram-sharded-matmul",
+                 opName);
+    return std::nullopt;
+  }
 
   std::optional<std::pair<Value, Value>> operands = getMatmulOperands(op);
   if (!operands) {
