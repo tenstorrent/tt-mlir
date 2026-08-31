@@ -21,6 +21,7 @@
 
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Types.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/Support/Casting.h"
@@ -7777,6 +7778,31 @@ llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
 // LayerNormPreAllGatherOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+// Match DistributedLayerNormDecompositionRewritePattern: metal Welford fatals
+// on Float32 unless fp32_dest_acc_en is true.
+static DeviceComputeKernelConfigAttr
+defaultDistributedLayerNormComputeConfig(MLIRContext *ctx) {
+  return DeviceComputeKernelConfigAttr::get(
+      ctx,
+      /*mathFidelity=*/MathFidelity::HiFi4,
+      /*mathApproxMode=*/BoolAttr::get(ctx, false),
+      /*fp32DestAccEn=*/BoolAttr::get(ctx, true),
+      /*packerL1Acc=*/BoolAttr::get(ctx, true),
+      /*dstFullSyncEn=*/nullptr);
+}
+
+static std::optional<::ttnn::DeviceComputeKernelConfig>
+resolveDistributedLayerNormComputeConfig(
+    MLIRContext *ctx,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
+  if (!computeKernelConfig || !*computeKernelConfig) {
+    computeKernelConfig = defaultDistributedLayerNormComputeConfig(ctx);
+  }
+  return conversion::getDeviceComputeKernelConfig(computeKernelConfig);
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints>
 OpModel<LayerNormPreAllGatherOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -7785,6 +7811,7 @@ OpModel<LayerNormPreAllGatherOp>::getOpConstraints(
     std::optional<llvm::ArrayRef<int64_t>> recipShape,
     std::optional<TTNNLayoutAttr> recipLayout,
     std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
     const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7809,12 +7836,16 @@ OpModel<LayerNormPreAllGatherOp>::getOpConstraints(
       initialState ? std::optional<MockAllocatorState>(*initialState)
                    : std::nullopt;
 
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      computeKernelConfigConverted = resolveDistributedLayerNormComputeConfig(
+          inputLayout.getContext(), computeKernelConfig);
+
   auto query = [=]() {
     return QUERY_OP_CONSTRAINTS_WITH_STATE(
         ::ttnn::layer_norm_pre_all_gather, device, initialStateOpt, inputSpec,
         /*dtype=*/metalDtype,
         /*residual_input_tensor=*/residualInputSpec,
-        /*compute_kernel_config=*/std::nullopt,
+        /*compute_kernel_config=*/computeKernelConfigConverted,
         /*program_config=*/std::nullopt,
         detail::getNullableMemoryConfig(outputLayout),
         /*recip_tensor=*/recipSpec,
@@ -7833,7 +7864,8 @@ llvm::Expected<size_t> OpModel<LayerNormPreAllGatherOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> residualInputLayout,
     std::optional<llvm::ArrayRef<int64_t>> recipShape,
     std::optional<TTNNLayoutAttr> recipLayout,
-    std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout) {
+    std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -7853,12 +7885,17 @@ llvm::Expected<size_t> OpModel<LayerNormPreAllGatherOp>::getOpRuntime(
     metalDtype = conversion::getDataType(dtype.value());
   }
 
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      computeKernelConfigConverted = resolveDistributedLayerNormComputeConfig(
+          inputLayout.getContext(), computeKernelConfig);
+
   auto query = [=]() {
     return QUERY_OP_RUNTIME(::ttnn::layer_norm_pre_all_gather, device,
                             inputSpec,
                             /*dtype=*/metalDtype,
                             /*residual_input_tensor=*/residualInputSpec,
-                            /*compute_kernel_config=*/std::nullopt,
+                            /*compute_kernel_config=*/
+                            computeKernelConfigConverted,
                             /*program_config=*/std::nullopt,
                             detail::getNullableMemoryConfig(outputLayout),
                             /*recip_tensor=*/recipSpec,
@@ -7883,7 +7920,9 @@ OpModel<LayerNormPostAllGatherOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-    TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
+    TTNNLayoutAttr outputLayout,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -7905,12 +7944,16 @@ OpModel<LayerNormPostAllGatherOp>::getOpConstraints(
       initialState ? std::optional<MockAllocatorState>(*initialState)
                    : std::nullopt;
 
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      computeKernelConfigConverted = resolveDistributedLayerNormComputeConfig(
+          inputLayout.getContext(), computeKernelConfig);
+
   auto query = [=]() {
     return QUERY_OP_CONSTRAINTS_WITH_STATE(
         ::ttnn::layer_norm_post_all_gather, device, initialStateOpt, inputSpec,
         statsSpec, epsilon.convertToFloat(), weightSpec, biasSpec,
         detail::getNullableMemoryConfig(outputLayout),
-        /*compute_kernel_config=*/std::nullopt,
+        /*compute_kernel_config=*/computeKernelConfigConverted,
         /*program_config=*/std::nullopt,
         /*dtype=*/std::nullopt);
   };
@@ -7928,7 +7971,8 @@ llvm::Expected<size_t> OpModel<LayerNormPostAllGatherOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-    TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr outputLayout,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -7946,12 +7990,17 @@ llvm::Expected<size_t> OpModel<LayerNormPostAllGatherOp>::getOpRuntime(
   std::optional<::tt::tt_metal::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      computeKernelConfigConverted = resolveDistributedLayerNormComputeConfig(
+          inputLayout.getContext(), computeKernelConfig);
+
   auto query = [=]() {
     return QUERY_OP_RUNTIME(::ttnn::layer_norm_post_all_gather, device,
                             inputSpec, statsSpec, epsilon.convertToFloat(),
                             weightSpec, biasSpec,
                             detail::getNullableMemoryConfig(outputLayout),
-                            /*compute_kernel_config=*/std::nullopt,
+                            /*compute_kernel_config=*/
+                            computeKernelConfigConverted,
                             /*program_config=*/std::nullopt,
                             /*dtype=*/std::nullopt);
   };

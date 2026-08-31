@@ -1935,6 +1935,8 @@ struct OpModel<LayerNormPreAllGatherOp> {
       std::optional<llvm::ArrayRef<int64_t>> recipShape,
       std::optional<TTNNLayoutAttr> recipLayout,
       std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+          std::nullopt,
       const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
@@ -1944,7 +1946,9 @@ struct OpModel<LayerNormPreAllGatherOp> {
                std::optional<llvm::ArrayRef<int64_t>> recipShape,
                std::optional<TTNNLayoutAttr> recipLayout,
                std::optional<ttcore::DataType> dtype,
-               TTNNLayoutAttr outputLayout);
+               TTNNLayoutAttr outputLayout,
+               std::optional<DeviceComputeKernelConfigAttr>
+                   computeKernelConfig = std::nullopt);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1961,6 +1965,8 @@ struct OpModel<LayerNormPostAllGatherOp> {
       std::optional<llvm::ArrayRef<int64_t>> biasShape,
       std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
       TTNNLayoutAttr outputLayout,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+          std::nullopt,
       const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
@@ -1970,7 +1976,9 @@ struct OpModel<LayerNormPostAllGatherOp> {
                std::optional<TTNNLayoutAttr> weightLayout,
                std::optional<llvm::ArrayRef<int64_t>> biasShape,
                std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-               TTNNLayoutAttr outputLayout);
+               TTNNLayoutAttr outputLayout,
+               std::optional<DeviceComputeKernelConfigAttr>
+                   computeKernelConfig = std::nullopt);
 };
 
 //===----------------------------------------------------------------------===//

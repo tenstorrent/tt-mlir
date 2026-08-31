@@ -103,4 +103,23 @@ LayoutScore RmsNormRuleBook::adjustScore(
   return base;
 }
 
+//===----------------------------------------------------------------------===//
+// LayerNormRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+LayerNormRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
+  LayoutFilterFn base = RmsNormRuleBook::getInputLayoutFilter(operandIdx);
+  if (operandIdx != 0) {
+    return base;
+  }
+
+  return [base](TTNNLayoutAttr layout) -> bool {
+    if (base && !base(layout)) {
+      return false;
+    }
+    return layout_filter_utils::requireTiled(layout);
+  };
+}
+
 } // namespace mlir::tt::ttnn

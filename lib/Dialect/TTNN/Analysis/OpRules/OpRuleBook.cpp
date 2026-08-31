@@ -85,6 +85,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static RotaryEmbeddingRuleBook rotaryEmbedding;
   static SplitQKVRuleBook splitQKV;
   static RmsNormRuleBook rmsNorm;
+  static LayerNormRuleBook layerNorm;
   static MeshPartitionRuleBook meshPartition;
   static MoeRuleBook moe;
   static FillCacheRuleBook fillCache;
@@ -130,6 +131,9 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(RotaryEmbeddingLlamaOp::getOperationName(), &rotaryEmbedding);
     reg(SplitQueryKeyValueAndSplitHeadsOp::getOperationName(), &splitQKV);
     reg(RMSNormOp::getOperationName(), &rmsNorm);
+    reg(LayerNormOp::getOperationName(), &layerNorm);
+    reg(LayerNormPreAllGatherOp::getOperationName(), &layerNorm);
+    reg(LayerNormPostAllGatherOp::getOperationName(), &layerNorm);
     reg(MeshPartitionOp::getOperationName(), &meshPartition);
     reg(PrepareMoEComputeW0W1WeightsOp::getOperationName(), &moe);
     reg(PrepareMoEComputeW2WeightsOp::getOperationName(), &moe);

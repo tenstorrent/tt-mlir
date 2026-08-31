@@ -4758,11 +4758,17 @@ LayerNormPreAllGatherOp::getOpConstraints(
   LayerNormPreAllGatherOptionalArgs optionalArgs =
       unpackLayerNormPreAllGatherOptionalArgs(inputs, *this);
 
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      getComputeConfigAttr()
+          ? std::optional<DeviceComputeKernelConfigAttr>(getComputeConfigAttr())
+          : std::nullopt;
+
   return detail::constraintsDispatch(
       *this, liveRecords, inputShape, inputs[0],
       optionalArgs.residualInputShape, optionalArgs.residualInputLayout,
       optionalArgs.recipShape, optionalArgs.recipLayout,
-      dataTypeAttrToOptional(getDtypeAttr()), opConfig.outputLayout);
+      dataTypeAttrToOptional(getDtypeAttr()), opConfig.outputLayout,
+      computeKernelConfig);
 }
 
 llvm::Expected<size_t>
@@ -4773,12 +4779,17 @@ LayerNormPreAllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   LayerNormPreAllGatherOptionalArgs optionalArgs =
       unpackLayerNormPreAllGatherOptionalArgs(inputs, *this);
 
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      getComputeConfigAttr()
+          ? std::optional<DeviceComputeKernelConfigAttr>(getComputeConfigAttr())
+          : std::nullopt;
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<LayerNormPreAllGatherOp>::getOpRuntime, *this,
       inputShape, inputs[0], optionalArgs.residualInputShape,
       optionalArgs.residualInputLayout, optionalArgs.recipShape,
       optionalArgs.recipLayout, dataTypeAttrToOptional(getDtypeAttr()),
-      opConfig.outputLayout);
+      opConfig.outputLayout, computeKernelConfig);
 }
 
 //===----------------------------------------------------------------------===//
@@ -4824,11 +4835,16 @@ LayerNormPostAllGatherOp::getOpConstraints(
   LayerNormPostAllGatherOptionalArgs optionalArgs =
       unpackLayerNormPostAllGatherOptionalArgs(inputs, *this);
 
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      getComputeConfigAttr()
+          ? std::optional<DeviceComputeKernelConfigAttr>(getComputeConfigAttr())
+          : std::nullopt;
+
   return detail::constraintsDispatch(
       *this, liveRecords, inputShape, inputs[0], statsShape, inputs[1],
       optionalArgs.weightShape, optionalArgs.weightLayout,
       optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
-      opConfig.outputLayout);
+      opConfig.outputLayout, computeKernelConfig);
 }
 
 llvm::Expected<size_t> LayerNormPostAllGatherOp::getOpRuntime(
@@ -4839,11 +4855,17 @@ llvm::Expected<size_t> LayerNormPostAllGatherOp::getOpRuntime(
   LayerNormPostAllGatherOptionalArgs optionalArgs =
       unpackLayerNormPostAllGatherOptionalArgs(inputs, *this);
 
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      getComputeConfigAttr()
+          ? std::optional<DeviceComputeKernelConfigAttr>(getComputeConfigAttr())
+          : std::nullopt;
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<LayerNormPostAllGatherOp>::getOpRuntime, *this,
       inputShape, inputs[0], statsShape, inputs[1], optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout,
+      computeKernelConfig);
 }
 
 //===----------------------------------------------------------------------===//

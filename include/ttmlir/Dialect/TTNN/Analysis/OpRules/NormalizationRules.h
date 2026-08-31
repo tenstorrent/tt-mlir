@@ -10,8 +10,7 @@
 namespace mlir::tt::ttnn {
 
 //===----------------------------------------------------------------------===//
-// Normalization ops: RMSNorm (LayerNorm has the same kernel dispatch logic
-// and could share rules in a follow-up).
+// Normalization ops: RMSNorm and LayerNorm share kernel dispatch.
 //
 // Kernel dispatch (layernorm_device_operation.cpp:16-22):
 //   input.is_sharded() ? LayerNormShardedProgramFactory
@@ -26,6 +25,9 @@ namespace mlir::tt::ttnn {
 //
 // Without an input filter, partial-grid sharded candidates reach op-model
 // validation and fail with TT_FATAL. The filter prunes them early.
+//
+// LayerNorm pre/post-all-gather also reject ROW_MAJOR activations: metal's
+// Welford path expects TILE, and RM trials only produce optimizer fatals.
 //===----------------------------------------------------------------------===//
 
 struct RmsNormRuleBook : OpRuleBook {
@@ -56,6 +58,12 @@ struct RmsNormRuleBook : OpRuleBook {
                           const OpConfig &config,
                           llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                           bool requiresReshard) const override;
+};
+
+/// LayerNorm / layer_norm_pre_all_gather / layer_norm_post_all_gather.
+/// Same height-shard and bbox rules as RMSNorm, plus TILE-only activations.
+struct LayerNormRuleBook : RmsNormRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 };
 
 } // namespace mlir::tt::ttnn
