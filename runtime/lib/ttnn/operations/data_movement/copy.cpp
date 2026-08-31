@@ -17,6 +17,16 @@ void run(const ::tt::target::ttnn::CopyOp *op, ProgramContext &context) {
   const ::ttnn::Tensor &src = tensorPool.getTTNNTensorAndValidate(op->src());
   ::ttnn::Tensor &dst = tensorPool.getTTNNTensorAndValidate(op->dst());
 
+  // ttnn::copy requires the input and output layouts to match. Since
+  // tt-metal#54212 ported argmax to Metal 2.0, ttnn::argmax can hand back a
+  // ROW_MAJOR tensor while the trace output slot it is copied into is TILE,
+  // which trips the layout assert in CopyDeviceOperation. Reconcile the layouts
+  // the same way updateTensorInPool does. Remove once tt-metal#54212 is fixed.
+  if (src.layout() != dst.layout()) {
+    ::ttnn::copy(::ttnn::to_layout(src, dst.layout()), dst);
+    return;
+  }
+
   ::ttnn::copy(src, dst);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement
