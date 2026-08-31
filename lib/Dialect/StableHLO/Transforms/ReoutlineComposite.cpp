@@ -213,6 +213,88 @@ computeSafeInsertAfter(llvm::ArrayRef<mlir::Value> captures,
   return latestDef;
 }
 
+// Find the local (post-sharding) size of dimension `channelDim` of the
+// composite's operand 0, using the operand mapping recorded on the flattened
+// ops by FlattenOrConvertCompositesPass. Returns nullopt if operand 0 is not
+// reachable from any op in the group with a static shape.
+static std::optional<int64_t>
+getLocalChannels(llvm::ArrayRef<mlir::Operation *> ops, int64_t channelDim) {
+  for (mlir::Operation *op : ops) {
+    auto argIndices = op->getAttrOfType<mlir::DenseI64ArrayAttr>(
+        utils::kReoutlineArgOperandIndicesAttr);
+    if (!argIndices) {
+      continue;
+    }
+    for (auto [pos, compOperandIdx] :
+         llvm::enumerate(argIndices.asArrayRef())) {
+      if (compOperandIdx != 0 || pos >= op->getNumOperands()) {
+        continue;
+      }
+      auto type =
+          llvm::dyn_cast<mlir::RankedTensorType>(op->getOperand(pos).getType());
+      if (!type) {
+        continue;
+      }
+      // channel_dim may be given as a negative (from-the-end) index.
+      int64_t dim = channelDim < 0 ? channelDim + type.getRank() : channelDim;
+      if (dim < 0 || dim >= type.getRank() || type.isDynamicDim(dim)) {
+        continue;
+      }
+      return type.getDimSize(dim);
+    }
+  }
+  return std::nullopt;
+}
+
+// `num_groups` on a group_norm composite counts groups over the *global*
+// channel dimension. Sharding that dimension shrinks the activation but leaves
+// the attribute untouched, and StableHLOLegalizeCompositePass builds
+// ttir.group_norm from the attribute rather than from the (correctly sharded)
+// decomposition body, so without this each device would normalize over the
+// wrong channel partition. 512 channels / 32 groups sharded 4 ways is 128
+// channels / 8 groups per device, not 128 channels / 32 groups.
+static mlir::DictionaryAttr
+rescaleGroupNormNumGroups(mlir::DictionaryAttr compAttrs,
+                          int64_t globalChannels,
+                          llvm::ArrayRef<mlir::Operation *> ops,
+                          mlir::Operation *seedOp, mlir::OpBuilder &builder) {
+  auto numGroupsAttr = llvm::dyn_cast_or_null<mlir::IntegerAttr>(
+      compAttrs.get(utils::kGroupNormNumGroupsKey));
+  auto channelDimAttr = llvm::dyn_cast_or_null<mlir::IntegerAttr>(
+      compAttrs.get(utils::kGroupNormChannelDimKey));
+  if (!numGroupsAttr || !channelDimAttr || globalChannels <= 0) {
+    return compAttrs;
+  }
+
+  std::optional<int64_t> localChannels =
+      getLocalChannels(ops, channelDimAttr.getInt());
+  // Channel dimension was left replicated: attributes are already correct.
+  if (!localChannels || *localChannels == globalChannels) {
+    return compAttrs;
+  }
+
+  int64_t numGroups = numGroupsAttr.getInt();
+  if (*localChannels <= 0 || globalChannels % *localChannels != 0 ||
+      numGroups % (globalChannels / *localChannels) != 0) {
+    // A group would straddle devices, which a local group_norm cannot express.
+    seedOp->emitWarning()
+        << "group_norm channel dimension sharded " << globalChannels << " -> "
+        << *localChannels << " does not split its " << numGroups
+        << " groups evenly; num_groups left unscaled and results will be "
+           "numerically wrong. Replicate the channel dimension instead.";
+    return compAttrs;
+  }
+
+  int64_t shards = globalChannels / *localChannels;
+  llvm::SmallVector<mlir::NamedAttribute> updated(compAttrs.getValue());
+  for (mlir::NamedAttribute &attr : updated) {
+    if (attr.getName() == utils::kGroupNormNumGroupsKey) {
+      attr.setValue(builder.getI64IntegerAttr(numGroups / shards));
+    }
+  }
+  return builder.getDictionaryAttr(updated);
+}
+
 // Replace the original ops range with a stablehlo.composite, wiring
 // captures/results. Erase the old ops.
 void replaceWithComposite(mlir::func::FuncOp parentFunc,
@@ -254,8 +336,11 @@ void replaceWithComposite(mlir::func::FuncOp parentFunc,
       mlir::SymbolRefAttr::get(ctx, callee.getSymName());
   mlir::DictionaryAttr compAttrs = mlir::DictionaryAttr::get(ctx);
   mlir::StringAttr targetName = builder.getStringAttr(callee.getSymName());
+  mlir::Operation *seedOp = nullptr;
+  std::optional<int64_t> globalChannels;
   for (mlir::Operation *op : opsToErase) {
     if (op->hasAttr(utils::kReoutlineSeedAttr)) {
+      seedOp = op;
       if (auto origName = op->getAttrOfType<mlir::StringAttr>(
               utils::kReoutlineOrigNameAttr)) {
         targetName = origName;
@@ -264,7 +349,19 @@ void replaceWithComposite(mlir::func::FuncOp parentFunc,
               utils::kReoutlineCompAttrsAttr)) {
         compAttrs = compAttr;
       }
+      if (auto channels = op->getAttrOfType<mlir::IntegerAttr>(
+              utils::kReoutlineGlobalChannelsAttr)) {
+        globalChannels = channels.getInt();
+      }
     }
+  }
+
+  // The restored attributes describe the pre-sharding shape; group_norm's
+  // num_groups has to follow the channel dimension down to the local shape.
+  if (globalChannels &&
+      targetName.getValue() == utils::kTTGroupNormCompositeName) {
+    compAttrs = rescaleGroupNormNumGroups(compAttrs, *globalChannels,
+                                          opsToErase, seedOp, builder);
   }
 
   mlir::OperationState state(loc,
