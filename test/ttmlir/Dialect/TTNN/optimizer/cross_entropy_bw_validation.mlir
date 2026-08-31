@@ -13,6 +13,7 @@ module {
     // CHECK-DAG: #[[INPUT_LAYOUT:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}memref<4x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
     // CHECK-DAG: #[[TARGET_TILED_LAYOUT:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}memref<1x1x!ttcore.tile<32x32, u32>, #dram>, <interleaved>>
     // CHECK-DAG: #[[TARGET_RM_LAYOUT:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}memref<4x32xui32, #dram>, <interleaved>>
+    // CHECK-DAG: #[[ADD_L1_LAYOUT:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>{{.*}}>
 
     // CHECK-LABEL: func.func @cross_entropy_bw(
     // CHECK-SAME: %[[INPUT:[0-9a-z_]+]]: tensor<4x1x32x64xbf16, #[[INPUT_LAYOUT]]>
@@ -60,5 +61,35 @@ module {
         : (tensor<4x1x32x64xf32>, tensor<4x32xi32>,
            tensor<1x1x1x1xf32>) -> tensor<4x1x32x64xf32>
     return %result : tensor<4x1x32x64xf32>
+  }
+
+  // The optimizer places the add output in L1, but the internal TTML
+  // cross-entropy primitive requires its input in DRAM. The logits must be
+  // resharded back to DRAM interleaved before the backward op.
+  func.func @cross_entropy_bw_l1_producer(
+      %lhs: tensor<4x1x32x64xbf16>,
+      %rhs: tensor<4x1x32x64xbf16>,
+      %target: tensor<4x32xui32>,
+      %grad: tensor<1x1x1x1xbf16>) -> tensor<4x1x32x64xbf16> {
+    // CHECK-LABEL: func.func @cross_entropy_bw_l1_producer(
+    // CHECK: %[[SUM_L1:[0-9a-z_]+]] = "ttnn.add"
+    // CHECK-SAME: -> tensor<4x1x32x64xbf16, #[[ADD_L1_LAYOUT]]>
+    // CHECK: %[[SUM_DRAM:[0-9a-z_]+]] = "ttnn.to_memory_config"(%[[SUM_L1]])
+    // CHECK-SAME: -> tensor<4x1x32x64xbf16, #[[INPUT_LAYOUT]]>
+    // CHECK: %[[TARGET_RM:[0-9a-z_]+]] = "ttnn.to_layout"
+    // CHECK-SAME: -> tensor<4x32xui32, #[[TARGET_RM_LAYOUT]]>
+    // CHECK-NOT: "ttnn.to_memory_config"
+    // CHECK: %[[RESULT:[0-9a-z_]+]] = "ttnn.cross_entropy_bw"(%[[SUM_DRAM]], %[[TARGET_RM]],
+    // CHECK-SAME: scaler = 3.125000e-02 : f32
+    // CHECK-SAME: -> tensor<4x1x32x64xbf16, #[[INPUT_LAYOUT]]>
+    // CHECK: return %[[RESULT]]
+    %sum = "ttir.add"(%lhs, %rhs)
+        : (tensor<4x1x32x64xbf16>, tensor<4x1x32x64xbf16>)
+          -> tensor<4x1x32x64xbf16>
+    %result = "ttir.cross_entropy_bw"(%sum, %target, %grad) <{
+        scaler = 3.125e-02 : f32}>
+        : (tensor<4x1x32x64xbf16>, tensor<4x32xui32>,
+           tensor<1x1x1x1xbf16>) -> tensor<4x1x32x64xbf16>
+    return %result : tensor<4x1x32x64xbf16>
   }
 }
