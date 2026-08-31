@@ -228,22 +228,28 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
 
 // Factory method to create a set of workarounds for CrossEntropyBackwardOp.
 //
-// Same calling convention as cross_entropy_fw above. `grad` only feeds the
-// trailing ttnn::multiply, which wants it tiled bf16 to match the kernel
-// output.
+// The internal primitive requires tiled BF16 DRAM `input` and row-major UINT32
+// DRAM `target`. `grad` and the result belong to the trailing `ttnn::multiply`
+// and are not restricted to DRAM.
 TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
     createCrossEntropyBackwardOpOperandsWorkarounds() {
   TTNNOperandWorkarounds targetRowMajorUInt32Workaround;
   targetRowMajorUInt32Workaround.tensorLayoutWorkaround = Layout::RowMajor;
   targetRowMajorUInt32Workaround.tensorDataTypeWorkaround =
       ttcore::DataType::UInt32;
+  targetRowMajorUInt32Workaround.tensorBufferTypeWorkaround = BufferType::DRAM;
 
   TTNNOperandWorkarounds tiledBf16Workaround;
   tiledBf16Workaround.tensorLayoutWorkaround = Layout::Tile;
   tiledBf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
 
+  TTNNOperandWorkarounds tiledBf16DRAMWorkaround;
+  tiledBf16DRAMWorkaround.tensorLayoutWorkaround = Layout::Tile;
+  tiledBf16DRAMWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  tiledBf16DRAMWorkaround.tensorBufferTypeWorkaround = BufferType::DRAM;
+
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
-      .addInputOperandWorkaround(tiledBf16Workaround)
+      .addInputOperandWorkaround(tiledBf16DRAMWorkaround)
       .addInputOperandWorkaround(targetRowMajorUInt32Workaround)
       .addInputOperandWorkaround(tiledBf16Workaround)
       .addOutputOperandWorkaround(tiledBf16Workaround);
