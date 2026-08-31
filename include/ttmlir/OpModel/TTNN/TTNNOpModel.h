@@ -2516,6 +2516,30 @@ struct OpModel<LayerNormForwardOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// LayerNormBackwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<LayerNormBackwardOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      llvm::ArrayRef<int64_t> gammaShape, TTNNLayoutAttr gammaLayout,
+      llvm::ArrayRef<int64_t> meanShape, TTNNLayoutAttr meanLayout,
+      llvm::ArrayRef<int64_t> rstdShape, TTNNLayoutAttr rstdLayout,
+      llvm::ArrayRef<int64_t> dL_doutShape, TTNNLayoutAttr dL_doutLayout,
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> gammaShape, TTNNLayoutAttr gammaLayout,
+               llvm::ArrayRef<int64_t> meanShape, TTNNLayoutAttr meanLayout,
+               llvm::ArrayRef<int64_t> rstdShape, TTNNLayoutAttr rstdLayout,
+               llvm::ArrayRef<int64_t> dL_doutShape,
+               TTNNLayoutAttr dL_doutLayout, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // CrossEntropyForwardOp
 //===----------------------------------------------------------------------===//
 

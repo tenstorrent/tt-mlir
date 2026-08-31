@@ -1660,6 +1660,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::LayerNormBackwardOp: {
+    auto *op = opContext.type_as_LayerNormBackwardOp();
+    tensorRefs = {op->dx(), op->dgamma(), op->dbeta()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {
     tensorRefs = {opContext.type_as_CrossEntropyForwardOp()->out()};
     break;
@@ -2086,6 +2091,12 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
     auto *op = opContext.type_as_LayerNormForwardOp();
     tensorRefs = {op->input(), op->weight(), op->bias()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LayerNormBackwardOp: {
+    auto *op = opContext.type_as_LayerNormBackwardOp();
+    tensorRefs = {op->input(), op->gamma(), op->mean(), op->rstd(),
+                  op->dl_dout()};
     break;
   }
   case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {

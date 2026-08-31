@@ -1771,6 +1771,23 @@ createOp(FlatbufferObjectCache &cache, LayerNormForwardOp op) {
       op.getReturnMeanRstd(), output, mean, rstd);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::LayerNormBackwardOp>
+createOp(FlatbufferObjectCache &cache, LayerNormBackwardOp op) {
+  auto getInput = [&](Value value) {
+    return cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(value));
+  };
+  auto getOutput = [&](Value value) {
+    return cache.getOrCreateNoSharding(value, tensorValueToFlatbuffer,
+                                       /*local_shape*/ std::nullopt);
+  };
+  return ::tt::target::ttnn::CreateLayerNormBackwardOp(
+      *cache.fbb, getInput(op.getInput()), getInput(op.getGamma()),
+      getInput(op.getMean()), getInput(op.getRstd()), getInput(op.getDLDout()),
+      getOutput(op.getDx()), getOutput(op.getDgamma()),
+      getOutput(op.getDbeta()));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::SDPABackwardOp>
 createOp(FlatbufferObjectCache &cache, SDPABackwardOp op) {
   auto gradOutput = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4739,6 +4756,11 @@ emitTTMLOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto layerNormForwardOp = dyn_cast<LayerNormForwardOp>(op);
       layerNormForwardOp) {
     return createOperation(cache, createOp(cache, layerNormForwardOp),
+                           debugString, locInfo);
+  }
+  if (auto layerNormBackwardOp = dyn_cast<LayerNormBackwardOp>(op);
+      layerNormBackwardOp) {
+    return createOperation(cache, createOp(cache, layerNormBackwardOp),
                            debugString, locInfo);
   }
   if (auto crossEntropyFwOp = dyn_cast<CrossEntropyForwardOp>(op);
