@@ -6,7 +6,8 @@
 
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/IR/Attributes.h"
@@ -2213,6 +2214,60 @@ public:
   }
 };
 
+class TenstorrentLayerNormForwardConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentLayerNormForwardConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.layernorm_fw") {
+      return failure();
+    }
+    if (adaptor.getOperands().size() != 3) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.layernorm_fw must have 3 operands (input, "
+                 "weight, bias).");
+    }
+    size_t numResults = srcOp.getNumResults();
+    if (numResults != 1 && numResults != 3) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.layernorm_fw must have 1 result (output) or 3 "
+                 "results (output, mean, rstd).");
+    }
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+
+    float epsilon = 1e-05F;
+    if (compositeAttrs) {
+      if (auto epsilonAttr = mlir::dyn_cast_or_null<FloatAttr>(
+              compositeAttrs.get("epsilon"))) {
+        epsilon = epsilonAttr.getValueAsDouble();
+      }
+    }
+
+    // mean and rstd are only produced as a pair, so their presence is implied
+    // by the result count.
+    bool returnMeanRstd = numResults == 3;
+
+    SmallVector<NamedAttribute> namedAttrs;
+    namedAttrs.push_back(
+        rewriter.getNamedAttr("epsilon", rewriter.getF32FloatAttr(epsilon)));
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "return_mean_rstd", rewriter.getBoolAttr(returnMeanRstd)));
+
+    rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
+        srcOp, srcOp.getResultTypes(), adaptor.getOperands(),
+        rewriter.getStringAttr("layernorm_fw"), srcOp.getDecomposition(),
+        rewriter.getDictionaryAttr(namedAttrs));
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -2221,6 +2276,7 @@ struct LegalizeStableHLOCompositeToTTIR
 
     ConversionTarget target(*context);
     target.addLegalDialect<ttir::TTIRDialect>();
+    target.addLegalDialect<ttcore::TTCoreDialect>();
     // StableHLO is intentionally not marked as either legal or illegal.
 
     RewritePatternSet patterns(context);
@@ -2250,6 +2306,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentAdamWConversionPattern>(context);
   patterns.add<TenstorrentSDPAForwardConversionPattern>(context);
   patterns.add<TenstorrentSDPABackwardConversionPattern>(context);
+  patterns.add<TenstorrentLayerNormForwardConversionPattern>(context);
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<CustomCallRMSNormConversionPattern>(context);
   patterns.add<CustomCallDistributedRMSNormConversionPattern>(context);

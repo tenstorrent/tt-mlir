@@ -2816,6 +2816,49 @@ def TTNN_SDPABackwardOp : TTNN_Op<"sdpa_bw"> {
     let hasVerifier = 1;
 }
 
+def TTNN_LayerNormForwardOp : TTNN_Op<"layernorm_fw",
+    [SameVariadicResultSize]> {
+    let summary = "Layer normalization forward (ttml).";
+    let description = [{
+      Training-oriented fused layer normalization forward pass, backed by the
+      ttml metal op `ttml::metal::layernorm_fw`. Normalizes `input` over its last
+      dimension and applies the affine transform
+      `output = (input - mean) * rstd * weight + bias`, where
+      `rstd = 1 / sqrt(var + epsilon)` and `mean`/`var` are the biased statistics
+      of the last dimension.
+
+      When `return_mean_rstd` is set the per-row `mean` and `rstd` are also
+      returned so the backward pass can reuse them. Both are produced together,
+      so they are either both present or both absent.
+
+      The backing kernel only accepts rank-4 tensors: `input` is `(B, N, S, C)`,
+      `weight` and `bias` are `(1, 1, 1, C)`, and `mean`/`rstd` are
+      `(B, N, S, 1)`. It also requires every tensor to be bfloat16, tiled and
+      interleaved in DRAM; those are satisfied by the workarounds pass rather
+      than the verifier, since the layout is not yet final when the op is
+      created.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         AnyRankedTensor:$bias,
+                         DefaultValuedAttr<F32Attr, "1e-05">:$epsilon,
+                         DefaultValuedAttr<BoolAttr, "false">:$return_mean_rstd);
+
+    let results = (outs AnyRankedTensor:$output,
+                        Optional<AnyRankedTensor>:$mean,
+                        Optional<AnyRankedTensor>:$rstd);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createLayerNormForwardOpOperandsWorkarounds(this->getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_DitRMSNormUnaryFusedOp : TTNN_Op<"dit_rms_norm_unary_fused",
     [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Fused RMSNorm + unary activation op.";

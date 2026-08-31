@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -150,6 +151,22 @@ struct TTIRToTTIRDecompositionPass
                (op.getAttentionMask().getType().getRank() == 4));
           bool resultsRank4 = llvm::all_of(op.getResultTypes(), [&](Type t) {
             return cast<RankedTensorType>(t).getRank() == 4;
+          });
+          return operandsRank4 && resultsRank4;
+        });
+
+    // ttml::metal::layernorm_fw only accepts rank-4 tensors. Other composites
+    // are unaffected by this decomposition.
+    target.addDynamicallyLegalOp<ttcore::CompositeOp>(
+        [&](ttcore::CompositeOp op) {
+          if (op.getCompositeName() != "layernorm_fw") {
+            return true;
+          }
+          bool operandsRank4 = llvm::all_of(op.getInputs(), [&](Value input) {
+            return cast<RankedTensorType>(input.getType()).getRank() == 4;
+          });
+          bool resultsRank4 = llvm::all_of(op.getResultTypes(), [&](Type type) {
+            return cast<RankedTensorType>(type).getRank() == 4;
           });
           return operandsRank4 && resultsRank4;
         });

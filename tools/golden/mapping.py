@@ -6541,6 +6541,8 @@ def stablehlo_convert_golden(
 def stablehlo_composite_golden(
     *operand_tensors: GoldenMapTensor,
     decomposition_fn=None,
+    composite_name=None,
+    composite_attributes=None,
     **_kwargs,
 ) -> GoldenMapTensor:
     """
@@ -6559,6 +6561,20 @@ def stablehlo_composite_golden(
             "stablehlo_composite_golden requires `decomposition_fn` keyword "
             "(the func.FuncOp referenced by the composite's `decomposition` "
             "symbol attribute)."
+        )
+
+    if composite_name == "tenstorrent.layernorm_fw":
+        attrs = composite_attributes or {}
+        try:
+            epsilon_attr = attrs["epsilon"]
+        except KeyError:
+            epsilon_attr = None
+        result_types = list(decomposition_fn.type.results)
+        return layernorm_fw_golden(
+            *operand_tensors,
+            epsilon=epsilon_attr,
+            return_mean_rstd=len(result_types) == 3,
+            output_type_mlir=RankedTensorType(result_types[0]).element_type,
         )
 
     if len(decomposition_fn.body.blocks) != 1:
@@ -8664,6 +8680,37 @@ def sdpa_bw_golden(
         dv = dv_full
 
     return dq.to(query.dtype), dk.to(key.dtype), dv.to(value.dtype)
+
+
+def layernorm_fw_golden(
+    input: GoldenMapTensor,
+    weight: GoldenMapTensor,
+    bias: GoldenMapTensor,
+    epsilon: FloatAttr = None,
+    return_mean_rstd: bool = False,
+    output_type_mlir: Type = None,
+    **kwargs,
+) -> Tuple[GoldenMapTensor, ...]:
+    epsilon = unpack_mlir_attr(epsilon) if epsilon is not None else 1e-05
+
+    x = input.float()
+    mean = torch.mean(x, dim=-1, keepdim=True)
+    centered = torch.sub(x, mean)
+    variance = torch.mean(torch.mul(centered, centered), dim=-1, keepdim=True)
+    rstd = torch.rsqrt(torch.add(variance, epsilon))
+    output = torch.add(
+        torch.mul(torch.mul(centered, rstd), weight.float()), bias.float()
+    )
+
+    output_dtype = (
+        mlir_type_to_torch_dtype(output_type_mlir)
+        if output_type_mlir is not None
+        else input.dtype
+    )
+    output = output.to(output_dtype)
+    if return_mean_rstd:
+        return output, mean.to(output_dtype), rstd.to(output_dtype)
+    return (output,)
 
 
 def flash_mla_prefill_golden(

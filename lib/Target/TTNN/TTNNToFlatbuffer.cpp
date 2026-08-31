@@ -1683,6 +1683,33 @@ createOp(FlatbufferObjectCache &cache, SDPAForwardOp op) {
       output, intermediates);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::LayerNormForwardOp>
+createOp(FlatbufferObjectCache &cache, LayerNormForwardOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto weight = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getWeight()));
+  auto bias = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getBias()));
+
+  auto output = cache.getOrCreateNoSharding(
+      op.getOutput(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+
+  // Optional statistics for the backward pass: offset 0 when absent.
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> mean = 0;
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> rstd = 0;
+  if (op.getMean()) {
+    mean = cache.getOrCreateNoSharding(op.getMean(), tensorValueToFlatbuffer,
+                                       /*local_shape*/ std::nullopt);
+    rstd = cache.getOrCreateNoSharding(op.getRstd(), tensorValueToFlatbuffer,
+                                       /*local_shape*/ std::nullopt);
+  }
+
+  return ::tt::target::ttnn::CreateLayerNormForwardOp(
+      *cache.fbb, input, weight, bias, op.getEpsilon().convertToFloat(),
+      op.getReturnMeanRstd(), output, mean, rstd);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::SDPABackwardOp>
 createOp(FlatbufferObjectCache &cache, SDPABackwardOp op) {
   auto gradOutput = cache.at<::tt::target::ttnn::TensorRef>(
@@ -5050,6 +5077,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto sdpaBackwardOp = dyn_cast<SDPABackwardOp>(op); sdpaBackwardOp) {
     return createOperation(cache, createOp(cache, sdpaBackwardOp), debugString,
                            locInfo);
+  }
+  if (auto layerNormForwardOp = dyn_cast<LayerNormForwardOp>(op);
+      layerNormForwardOp) {
+    return createOperation(cache, createOp(cache, layerNormForwardOp),
+                           debugString, locInfo);
   }
   if (auto rmsNormOp = dyn_cast<RMSNormOp>(op); rmsNormOp) {
     return createOperation(cache, createOp(cache, rmsNormOp), debugString,

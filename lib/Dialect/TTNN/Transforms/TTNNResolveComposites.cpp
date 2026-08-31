@@ -119,6 +119,36 @@ static void registerBuiltinComposites() {
     return;
   }
 
+  registry["layernorm_fw"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 3u);
+        auto attrs = compositeOp.getCompositeAttributes();
+        TT_assert(attrs);
+        auto epsilonAttr = (*attrs).getAs<FloatAttr>("epsilon");
+        auto returnMeanRstdAttr = (*attrs).getAs<BoolAttr>("return_mean_rstd");
+        TT_assert(epsilonAttr);
+        TT_assert(returnMeanRstdAttr);
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<LayerNormForwardOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], epsilonAttr, returnMeanRstdAttr);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        DictionaryAttr attrs = *compositeOp.getCompositeAttributes();
+        return builder.create<LayerNormForwardOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], attrs.getAs<FloatAttr>("epsilon"),
+            attrs.getAs<BoolAttr>("return_mean_rstd"));
+      },
+      /*promotionGuard=*/nullptr};
+
   registry["topk_router_gpt"] = CompositeEntry{
       // Validate
       [](ttcore::CompositeOp compositeOp,

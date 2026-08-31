@@ -5532,6 +5532,31 @@ public:
         "expose the metal::sdpa_bw primitive through its Python bindings.");
   }
 };
+
+// LayerNormForward conversion pattern.
+//
+// EmitPy lowering for ttnn.layernorm_fw is intentionally unsupported. The
+// emitted Python would need to call the low-level ttml::metal::layernorm_fw
+// primitive, but tt-train's nanobind bindings only expose the high-level
+// LayerNorm module. We need to upstream those Python bindings.
+// See https://github.com/tenstorrent/tt-mlir/issues/9118.
+class LayerNormForwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::LayerNormForwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::LayerNormForwardOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::LayerNormForwardOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        "EmitPy lowering for ttnn.layernorm_fw is not supported: ttml does not "
+        "expose the metal::layernorm_fw primitive through its Python "
+        "bindings.");
+  }
+};
 } // namespace
 
 namespace mlir::tt {
@@ -5853,6 +5878,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // SDPABackward: deliberately declines conversion (see comment above).
   patterns.add<SDPABackwardOpConversionPattern>(typeConverter, ctx);
+  patterns.add<LayerNormForwardOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
