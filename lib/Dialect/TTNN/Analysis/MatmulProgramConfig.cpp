@@ -439,6 +439,8 @@ TTNNLayoutAttr buildDRAMShardedWeightLayout(MLIRContext *ctx,
       // only fills a *null* core range set, and the setters above each
       // early-return when the value already matches, so a seed that is already
       // DRAM width-sharded on this grid would otherwise keep its own placement.
+      // Defensive rather than observed: sharded layouts in the IR are always
+      // canonically placed, so the seed's placement and this one agree today.
       .setCoreRangeSet(nullptr)
       .buildWithCanonicalCorePlacement(deviceAttr);
 }
