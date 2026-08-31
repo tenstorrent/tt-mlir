@@ -68,6 +68,7 @@ union OpType {
   DitRMSNormUnaryFusedOp,
   DropoutOp,
   EltwiseBinaryCompositeOp,
+  EltwiseBinaryCompositeWithoutFusedActivationOp,
   EltwiseBinaryCompositeScalarOp,
   EltwiseBinaryOp,
   EltwiseQuantizationOp,

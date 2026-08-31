@@ -249,11 +249,16 @@ void createTTNNFusingPass(OpPassManager &pm,
       wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
       uint32_t fallbackAttempts = options.maxFallbackAttempts;
+      bool enableEltwiseActivationFusion =
+          options.enableEltwiseActivationFusion;
       pm.addPass(createDevicePassesWrapper(
-          [fallbackAttempts](OpPassManager &innerPm) {
+          [fallbackAttempts,
+           enableEltwiseActivationFusion](OpPassManager &innerPm) {
             TTNNFusingOptions fusingOptions;
             fusingOptions.enableOpConstraints = true;
             fusingOptions.maxFallbackAttempts = fallbackAttempts;
+            fusingOptions.enableEltwiseActivationFusion =
+                enableEltwiseActivationFusion;
             innerPm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
           },
           wrapperOptions));
@@ -262,7 +267,10 @@ void createTTNNFusingPass(OpPassManager &pm,
           "TTNN optimizer passes require OpModel support to be enabled.");
 #endif
     } else {
-      pm.addPass(mlir::tt::ttnn::createTTNNFusing());
+      TTNNFusingOptions fusingOptions;
+      fusingOptions.enableEltwiseActivationFusion =
+          options.enableEltwiseActivationFusion;
+      pm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
     }
   }
 }

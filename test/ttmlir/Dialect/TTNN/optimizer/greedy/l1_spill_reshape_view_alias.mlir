@@ -29,7 +29,7 @@ module attributes {ttnn.tensor_l1_usage_cap = 1.400000e-01 : f32} {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
     // P0: forked producer in L1. ~64 KiB per core.
-    %P0 = "ttnn.add"(%arg0, %arg1) : (tensor<4096x512xbf16, #ttnn_layout_dram_2d>, tensor<4096x512xbf16, #ttnn_layout_dram_2d>) -> tensor<4096x512xbf16, #ttnn_layout_l1_2d>
+    %P0 = "ttnn.add"(%arg0, %arg1) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> {ttnn.output_l1_usage = 65536 : i64} : (tensor<4096x512xbf16, #ttnn_layout_dram_2d>, tensor<4096x512xbf16, #ttnn_layout_dram_2d>) -> tensor<4096x512xbf16, #ttnn_layout_l1_2d>
 
     // V: zero-copy view of P0 (last dim unchanged, leading-1 reshape, tile-aligned).
     %V = "ttnn.reshape"(%P0) <{shape = [1 : i32, 4096 : i32, 512 : i32]}> : (tensor<4096x512xbf16, #ttnn_layout_l1_2d>) -> tensor<1x4096x512xbf16, #ttnn_layout_l1_3d>
@@ -37,7 +37,7 @@ module attributes {ttnn.tensor_l1_usage_cap = 1.400000e-01 : f32} {
     // T validates with both P0 and V live.
     // alias-aware: additionalL1 ≈ 64 KiB.
     // double-count: additionalL1 ≈ 128 KiB → spill (or eviction of P0 or V).
-    %T = "ttnn.add"(%arg2, %arg3) : (tensor<4096x512xbf16, #ttnn_layout_dram_2d>, tensor<4096x512xbf16, #ttnn_layout_dram_2d>) -> tensor<4096x512xbf16, #ttnn_layout_l1_2d>
+    %T = "ttnn.add"(%arg2, %arg3) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> {ttnn.output_l1_usage = 65536 : i64} : (tensor<4096x512xbf16, #ttnn_layout_dram_2d>, tensor<4096x512xbf16, #ttnn_layout_dram_2d>) -> tensor<4096x512xbf16, #ttnn_layout_l1_2d>
 
     // Single-input consumers keep P0 and T alive past T's validation
     // without inflating each consumer's overallPeakL1Usage to >budget.
