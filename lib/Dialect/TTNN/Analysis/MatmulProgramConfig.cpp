@@ -360,15 +360,28 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   // actually accumulates per core before scattering to output storage cores.
   int64_t perCoreNCompute = p.shardWTiles;
 
-  // Use numIn0Cores for the output tensor buffer estimate to keep the budget
-  // conservative and avoid inflating in0BlockW (which doubles in1CB per step).
-  // perCoreNStorage is only used for the output layout grid, not CB sizing.
+  // Deliberately over-reserved. tt-metal allocates per_core_M *
+  // per_core_N_storage for the output shard -- p.perCoreN here -- but this
+  // reserves against the in0 core count, which is numWorkerCores / numIn0Cores
+  // times larger.
+  //
+  // The margin makes computeShardParams decline DS on shapes whose L1 is tight,
+  // and that is what keeps a DS matmul out of a state L1SpillManagement cannot
+  // resolve: it can neither demote nor spill one (tt-metal requires the sharded
+  // in0 and the sharded output), so it fails the compilation instead. See
+  // #9264. Once that pass can demote a DS matmul to a multicast config, this
+  // becomes p.perCoreM * p.perCoreN * kBf16Tile.
   int64_t outTensorBufPerCore =
       p.perCoreM * ((N / kTileSize) / numIn0Cores) * kBf16Tile;
   int64_t in0TensorBuf = p.perCoreM * kPerCore * kBf16Tile;
   int64_t cbBudget = l1Available - in0TensorBuf - outTensorBufPerCore;
 
   // Fixed CBs (independent of in0BlockW).
+  //
+  // Also over-reserved, and part of the same margin as outTensorBufPerCore:
+  // with bf16 partials the intermediate format equals the output format, so
+  // tt-metal puts both in one shared buffer rather than the two sized here. See
+  // #9264.
   int64_t outCB = p.perCoreM * perCoreNCompute * kBf16Tile;
   int64_t interm0CB = p.perCoreM * perCoreNCompute * kFp32Tile;
   int64_t fixedCost = outCB + interm0CB;
@@ -464,7 +477,9 @@ buildComputeConfig(MLIRContext *ctx, ttcore::DataType weightDataType) {
       ctx,
       /*mathFidelity=*/fidelity,
       /*mathApproxMode=*/mlir::BoolAttr{},
-      /*fp32DestAccEn=*/mlir::BoolAttr::get(ctx, true),
+      // bf16 partials through the packer are what tt-metal defaults a
+      // bf16-output matmul to.
+      /*fp32DestAccEn=*/mlir::BoolAttr::get(ctx, false),
       /*packerL1Acc=*/mlir::BoolAttr::get(ctx, true),
       /*dstFullSyncEn=*/mlir::BoolAttr{});
 }
