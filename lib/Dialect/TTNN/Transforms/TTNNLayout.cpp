@@ -893,6 +893,106 @@ private:
 } // namespace
 
 namespace {
+// Brings a `ttir.case` into the shape the runtime and the `ttnn.case` verifier
+// require:
+//
+//   - `index` is forced to a row-major `si32` tensor in system memory, since
+//     the runtime reads it back to host to pick a branch;
+//   - every branch's yielded values are relaid out to the op's result types, so
+//     that all branches agree on what they produce.
+class TTNNLayoutCaseOpRewriter : public OpRewritePattern<ttir::CaseOp> {
+public:
+  TTNNLayoutCaseOpRewriter(MLIRContext *ctx)
+      : OpRewritePattern<ttir::CaseOp>(ctx) {}
+
+  LogicalResult matchAndRewrite(ttir::CaseOp op,
+                                PatternRewriter &rewriter) const final {
+    bool modified = false;
+    modified |= rewriteIndex(op, rewriter);
+    modified |= rewriteBranchYields(op, rewriter);
+    return modified ? success() : failure();
+  }
+
+private:
+  bool rewriteIndex(ttir::CaseOp op, PatternRewriter &rewriter) const {
+    Value index = op.getIndex();
+    auto indexType = mlir::cast<RankedTensorType>(index.getType());
+
+    // Signed deliberately: an out-of-range index selects the last branch, and a
+    // negative index is out of range. A typecast to an unsigned type is a value
+    // conversion rather than a bit reinterpretation, so it would clamp -1 to 0
+    // and pick branch 0 instead.
+    Type int32Type = rewriter.getI32Type();
+    bool modified = false;
+
+    rewriter.setInsertionPoint(op);
+
+    // Typecast happens first, while the tensor is still tiled and on device.
+    if (indexType.getElementType() != int32Type) {
+      auto castType = RankedTensorType::get(
+          indexType.getShape(), int32Type,
+          TTNNLayoutAttr::Builder(
+              mlir::cast<TTNNLayoutAttr>(indexType.getEncoding()),
+              indexType.getShape())
+              .setElementType(ttcore::TileType::get(int32Type))
+              .build());
+      index = rewriter.create<ttir::TypecastOp>(
+          appendInputSuffix(op.getLoc(), 0), castType, index,
+          /*conservative_folding=*/false);
+      modified = true;
+    }
+
+    std::optional<Value> onHost =
+        createToLayoutOp(rewriter, appendInputSuffix(op.getLoc(), 0), index,
+                         BufferType::SystemMemory, /*tiled=*/false);
+    if (onHost) {
+      index = *onHost;
+      modified = true;
+    }
+
+    if (modified) {
+      rewriter.modifyOpInPlace(op, [&]() { op.setOperand(0, index); });
+    }
+    return modified;
+  }
+
+  bool rewriteBranchYields(ttir::CaseOp op, PatternRewriter &rewriter) const {
+    bool modified = false;
+
+    for (Region &region : op.getBranches()) {
+      auto yieldOp = mlir::cast<ttir::YieldOp>(region.front().getTerminator());
+
+      rewriter.setInsertionPoint(yieldOp);
+      for (OpOperand &operand : yieldOp->getOpOperands()) {
+        // Unlike a while body, which relaid out to its own block arguments, a
+        // branch has no per-branch target: all branches feed the one set of
+        // results, so the result type is what they all have to reach.
+        auto expectedType = mlir::cast<RankedTensorType>(
+            op.getResult(operand.getOperandNumber()).getType());
+        if (operand.get().getType() == expectedType) {
+          continue;
+        }
+        auto layout = mlir::cast<TTNNLayoutAttr>(expectedType.getEncoding());
+        std::optional<Value> relaidOut = createToLayoutOp(
+            rewriter,
+            appendInputSuffix(yieldOp.getLoc(), operand.getOperandNumber()),
+            operand.get(), layout.getBufferType(),
+            mlir::isa<ttcore::TileType>(layout.getElementType()));
+        if (!relaidOut) {
+          continue;
+        }
+        rewriter.modifyOpInPlace(yieldOp, [&]() {
+          yieldOp.setOperand(operand.getOperandNumber(), *relaidOut);
+        });
+        modified = true;
+      }
+    }
+    return modified;
+  }
+};
+} // namespace
+
+namespace {
 class TTNNLayout : public impl::TTNNLayoutBase<TTNNLayout> {
 public:
   using impl::TTNNLayoutBase<TTNNLayout>::TTNNLayoutBase;
@@ -939,6 +1039,7 @@ public:
       patterns.add<TTNNLayoutCompositeOpTypeRewriter>(&getContext());
 
       patterns.add<TTNNLayoutWhileOpRewriter>(&getContext());
+      patterns.add<TTNNLayoutCaseOpRewriter>(&getContext());
 
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();

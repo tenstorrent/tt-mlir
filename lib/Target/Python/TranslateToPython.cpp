@@ -145,6 +145,10 @@ struct PythonEmitter {
   /// Return the existing or a new name for a Value.
   StringRef getOrCreateName(Value value, std::string name);
 
+  /// Reserve a name for a Python local that no Value stands for, such as the
+  /// scratch variable an `emitpy.case` evaluates its index into.
+  std::string createName(std::string name);
+
   /// Return the textual representation of a subscript operation.
   std::string getSubscriptName(SubscriptOp op);
 
@@ -389,6 +393,14 @@ StringRef PythonEmitter::getOrCreateName(Value value, std::string name) {
     usedNames.top().insert(name);
   }
   return *valueMapper.begin(value);
+}
+
+std::string PythonEmitter::createName(std::string name) {
+  while (usedNames.top().count(name)) {
+    name = name + "_" + std::to_string(valueInScopeCount.top()++);
+  }
+  usedNames.top().insert(name);
+  return name;
 }
 
 std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
@@ -906,6 +918,14 @@ static LogicalResult printOperation(PythonEmitter &emitter,
       "while_yield operation should not be directly emitted");
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    CaseYieldOp yieldOp) {
+  // The branch's assignment is emitted by the parent, which is the only place
+  // that knows the variable names.
+  return yieldOp.emitOpError(
+      "case_yield operation should not be directly emitted");
+}
+
 // Helper function to build an expression string
 static FailureOr<std::string> buildExpressionString(ExpressionOp expressionOp,
                                                     PythonEmitter &emitter) {
@@ -1097,6 +1117,87 @@ static LogicalResult printOperation(PythonEmitter &emitter, WhileOp whileOp) {
   return success();
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter, CaseOp caseOp) {
+  raw_indented_ostream &os = emitter.ostream();
+
+  // The values every branch yields and the op's results are one set of Python
+  // variables. Name them once, here, so they go through the emitter's collision
+  // check.
+  //
+  // No Scope is opened for the branches: a Python if body does not introduce
+  // one, and the results have to stay visible after the chain.
+  SmallVector<std::string> names;
+  names.reserve(caseOp.getNumResults());
+  for (auto [index, result] : llvm::enumerate(caseOp.getResults())) {
+    names.emplace_back(
+        emitter.getOrCreateName(result, "branch_" + std::to_string(index)));
+  }
+
+  // Evaluated once, ahead of the chain: the index lives on the host and reading
+  // it is not free, so it must not be re-read per comparison.
+  std::string selector = emitter.createName("case_index");
+  os << selector << " = ";
+
+  auto items = caseOp.parseFormatString();
+  if (failed(items)) {
+    return failure();
+  }
+  size_t argIndex = 0;
+  for (auto &item : *items) {
+    if (auto *str = std::get_if<StringRef>(&item)) {
+      os << *str;
+    } else if (failed(emitter.emitOperand(caseOp.getIndexArgs()[argIndex++],
+                                          ""))) {
+      return failure();
+    }
+  }
+  os << "\n";
+
+  const size_t numBranches = caseOp.getBranches().size();
+  for (auto [index, region] : llvm::enumerate(caseOp.getBranches())) {
+    // The last branch is the else arm, so an index matching no branch selects
+    // it, which is the op's out-of-range rule.
+    if (index + 1 == numBranches) {
+      os << "else:\n";
+    } else {
+      os << (index == 0 ? "if " : "elif ") << selector << " == " << index
+         << ":\n";
+    }
+
+    Block &block = region.front();
+    os.indent();
+    for (Operation &branchOp : block.without_terminator()) {
+      if (failed(emitter.emitOperation(branchOp))) {
+        return failure();
+      }
+    }
+
+    if (names.empty()) {
+      // Nothing produced, so nothing to assign; the branch may well be empty
+      // too and Python has no empty block.
+      if (block.without_terminator().empty()) {
+        os << "pass\n";
+      }
+    } else {
+      // One tuple assignment, so a branch
+      // that yields the same variables in a different order cannot clobber one
+      // it still has to read.
+      llvm::interleaveComma(names, os);
+      os << " = ";
+      if (failed(interleaveCommaWithError(
+              caseOp.getBranchYield(static_cast<unsigned>(index)).getResults(),
+              os,
+              [&](Value value) { return emitter.emitOperand(value, ""); }))) {
+        return failure();
+      }
+      os << "\n";
+    }
+    os.unindent();
+  }
+
+  return success();
+}
+
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     ExpressionOp expressionOp) {
 
@@ -1169,8 +1270,8 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           .Case<CallOpaqueOp, ImportOp, AssignOp, GetAttrOp, SetAttrOp,
                 ConstantOp, SubscriptOp, ClassOp, GlobalOp, AssignGlobalOp,
                 GlobalStatementOp, CreateDictOp, ExpressionOp, YieldOp, IfOp,
-                WhileOp, WhileYieldOp, VerbatimOp, NestedFuncOp,
-                NestedFuncReturnOp, FileOp>(
+                WhileOp, WhileYieldOp, CaseOp, CaseYieldOp, VerbatimOp,
+                NestedFuncOp, NestedFuncReturnOp, FileOp>(
               [&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             registerDeferredValue(op.getResult(), op.getValue());
@@ -1191,7 +1292,7 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
     return success();
   }
 
-  if (!isa<IfOp, WhileOp>(op)) {
+  if (!isa<IfOp, WhileOp, CaseOp>(op)) {
     os << "\n";
   }
 

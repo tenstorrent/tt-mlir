@@ -4428,9 +4428,9 @@ createOp(FlatbufferObjectCache &cache, WhileOp op,
   auto parentFunc = op->getParentOfType<func::FuncOp>();
 
   // Number the loop by its position among the function's loops in pre-order,
-  // so that nested and sibling loops get distinguishable program names.
-  // `chisel.ops.IRModule` reconstructs these names to map a region program
-  // back onto the region it came from, and walks in the same order.
+  // so that nested and sibling loops get distinguishable program names. The
+  // numbering is derived from the IR alone, so a reader of the binary can
+  // recover which region a program came from.
   unsigned loopIndex = 0;
   parentFunc.walk<WalkOrder::PreOrder>([&](WhileOp other) {
     if (other == op) {
@@ -4485,14 +4485,72 @@ createOp(FlatbufferObjectCache &cache, WhileOp op,
       tripCount, &semaphoreInputs);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::CaseOp>
+createOp(FlatbufferObjectCache &cache, CaseOp op,
+         const RegionProgramEmitterFn &emitRegionProgram) {
+  auto parentFunc = op->getParentOfType<func::FuncOp>();
+
+  // Number the case by its position among the function's cases in pre-order,
+  // so that nested and sibling cases get distinguishable program names. The
+  // numbering is derived from the IR alone, so a reader of the binary can
+  // recover which branch a program came from.
+  unsigned caseIndex = 0;
+  parentFunc.walk<WalkOrder::PreOrder>([&](CaseOp other) {
+    if (other == op) {
+      return WalkResult::interrupt();
+    }
+    ++caseIndex;
+    return WalkResult::advance();
+  });
+
+  // The branches are serialized first so that their programs are complete
+  // before this op's table refers to them by index.
+  std::vector<uint32_t> branchProgramIds;
+  for (auto [branchIndex, region] : llvm::enumerate(op.getBranches())) {
+    branchProgramIds.push_back(emitRegionProgram(
+        cache, region,
+        llvm::formatv("{0}_case_{1}_branch_{2}", parentFunc.getSymName(),
+                      caseIndex, branchIndex)
+            .str()));
+  }
+
+  auto index = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getIndex()));
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> captures;
+  for (Value capture : op.getCaptures()) {
+    captures.push_back(cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(capture)));
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (Value output : op.getResults()) {
+    outputs.push_back(cache.getOrCreateNoSharding(
+        output, tensorValueToFlatbuffer, /*local_shape=*/std::nullopt));
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
+      semaphoreInputs;
+
+  return ::tt::target::ttnn::CreateCaseOpDirect(*cache.fbb, index,
+                                                &branchProgramIds, &captures,
+                                                &outputs, &semaphoreInputs);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
                   const std::string &debugString, const std::string &locInfo,
                   const llvm::StringMap<std::string> &constEvalFuncHashes,
                   const RegionProgramEmitterFn &emitRegionProgram) {
+  // The control flow ops come first in the chain because they are the only ones
+  // that need `emitRegionProgram`.
   if (auto whileOp = dyn_cast<WhileOp>(op); whileOp) {
     return createOperation(cache, createOp(cache, whileOp, emitRegionProgram),
+                           debugString, locInfo);
+  }
+  if (auto caseOp = dyn_cast<CaseOp>(op); caseOp) {
+    return createOperation(cache, createOp(cache, caseOp, emitRegionProgram),
                            debugString, locInfo);
   }
   if (auto getDeviceOp = dyn_cast<GetDeviceOp>(op); getDeviceOp) {
@@ -5472,8 +5530,9 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   auto constEvalFuncHashes = computeConstEvalFuncHashesSHA256(moduleOp);
 
   // Regions of control-flow ops become extra programs appended after the ones
-  // derived from functions. They are private: they have no standalone meaning
-  // and `ttrt run` must not try to invoke them directly.
+  // derived from functions. They are marked private: only the op that owns the
+  // region can supply their inputs, so they have no standalone meaning and are
+  // not entry points.
   //
   // Program bodies are built up as plain C++ vectors of offsets and only turned
   // into flatbuffer vectors by CreateProgramDirect, so finishing a nested
