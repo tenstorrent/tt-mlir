@@ -1883,12 +1883,14 @@ public:
     auto hasBiasAttr =
         rewriter.getBoolAttr(static_cast<bool>(adaptor.getBias_0()));
 
-    // Fabric-mux cores for the A2A combine; default to the 6U-test 3x3 block
-    // at (1,1)-(3,3) = 9 cores.
+    // Fabric-mux cores for the A2A combine: a 3x3 block at (5,5)-(7,7) = 9
+    // cores. Anchored bottom-right (not the top-left (1,1)-(3,3)) to stay clear
+    // of the column-0-anchored matmul ring + combine strip, so moe_compute's
+    // core placement fits on an 8x8 worker grid (e.g. n150/n300).
     MLIRContext *ctx = rewriter.getContext();
     ttnn::CoreRangeSetAttr muxCoreRangeSet = ttnn::CoreRangeSetAttr::get(
-        ctx, ttnn::CoreRangeAttr::get(ctx, ttnn::CoreCoordAttr::get(ctx, 1, 1),
-                                      ttnn::CoreCoordAttr::get(ctx, 3, 3)));
+        ctx, ttnn::CoreRangeAttr::get(ctx, ttnn::CoreCoordAttr::get(ctx, 5, 5),
+                                      ttnn::CoreCoordAttr::get(ctx, 7, 7)));
 
     // optional_output_tensor and cross_device_semaphore are left unbound here;
     // MoeComputeOp's DistributedOpInterface hooks binds them in the prelude.
