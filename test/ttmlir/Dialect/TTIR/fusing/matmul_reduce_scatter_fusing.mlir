@@ -44,14 +44,28 @@ func.func @linear_reduce_scatter(%x: tensor<32x128xbf16>, %w: tensor<128x64xbf16
 
 // -----
 
-// transpose_b set -> not fused (fused op does not model transpose).
-// CHECK-LABEL: func.func @no_fuse_transpose
+// transpose_b is folded into a permute of the weight to [K, N], then fused.
+// CHECK-LABEL: func.func @fuse_transpose_b
+// CHECK: "ttir.permute"
+// CHECK: "ttcore.composite"
+// CHECK-SAME: composite_name = "minimal_matmul_strided_reduce_scatter_async"
+func.func @fuse_transpose_b(%x: tensor<32x128xbf16>, %w: tensor<64x128xbf16>)
+    -> tensor<32x32xbf16> {
+  %0 = "ttir.matmul"(%x, %w) <{transpose_a = false, transpose_b = true}> : (tensor<32x128xbf16>, tensor<64x128xbf16>) -> tensor<32x64xbf16>
+  %1 = "ttir.reduce_scatter"(%0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 1 : si32}> : (tensor<32x64xbf16>) -> tensor<32x32xbf16>
+  return %1 : tensor<32x32xbf16>
+}
+
+// -----
+
+// transpose_a is not modeled by the fused kernel.
+// CHECK-LABEL: func.func @no_fuse_transpose_a
 // CHECK: "ttir.matmul"
 // CHECK: "ttir.reduce_scatter"
 // CHECK-NOT: ttcore.composite
-func.func @no_fuse_transpose(%x: tensor<32x128xbf16>, %w: tensor<64x128xbf16>)
+func.func @no_fuse_transpose_a(%x: tensor<128x32xbf16>, %w: tensor<128x64xbf16>)
     -> tensor<32x32xbf16> {
-  %0 = "ttir.matmul"(%x, %w) <{transpose_a = false, transpose_b = true}> : (tensor<32x128xbf16>, tensor<64x128xbf16>) -> tensor<32x64xbf16>
+  %0 = "ttir.matmul"(%x, %w) <{transpose_a = true, transpose_b = false}> : (tensor<128x32xbf16>, tensor<128x64xbf16>) -> tensor<32x64xbf16>
   %1 = "ttir.reduce_scatter"(%0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 1 : si32}> : (tensor<32x64xbf16>) -> tensor<32x32xbf16>
   return %1 : tensor<32x32xbf16>
 }
@@ -128,6 +142,51 @@ func.func @no_fuse_full_gate(%x: tensor<32x128xbf16>, %w: tensor<128x64xbf16>,
   %2 = "ttir.multiply"(%1, %gate) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
   %3 = "ttir.add"(%res, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
   return %3 : tensor<32x32xbf16>
+}
+
+// -----
+
+// DiT-style: 2D scatter, unsqueeze, then residual + broadcast gate.
+// CHECK-LABEL: func.func @addcmul_leading_unit_reshape
+// CHECK: "ttcore.composite"
+// CHECK-SAME: has_addcmul = true
+// CHECK-SAME: composite_name = "minimal_matmul_strided_reduce_scatter_async"
+func.func @addcmul_leading_unit_reshape(%x: tensor<32x128xbf16>, %w: tensor<128x64xbf16>,
+                                       %gate: tensor<1x1x32xbf16>, %res: tensor<1x32x32xbf16>)
+    -> tensor<1x32x32xbf16> {
+  %0 = "ttir.matmul"(%x, %w) <{transpose_a = false, transpose_b = false}> : (tensor<32x128xbf16>, tensor<128x64xbf16>) -> tensor<32x64xbf16>
+  %1 = "ttir.reduce_scatter"(%0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 1 : si32}> : (tensor<32x64xbf16>) -> tensor<32x32xbf16>
+  %2 = "ttir.reshape"(%1) <{shape = [1 : i32, 32 : i32, 32 : i32]}> : (tensor<32x32xbf16>) -> tensor<1x32x32xbf16>
+  %3 = "ttir.broadcast"(%gate) <{broadcast_dimensions = array<i64: 1, 32, 1>}> : (tensor<1x1x32xbf16>) -> tensor<1x32x32xbf16>
+  %4 = "ttir.multiply"(%2, %3) : (tensor<1x32x32xbf16>, tensor<1x32x32xbf16>) -> tensor<1x32x32xbf16>
+  %5 = "ttir.add"(%res, %4) : (tensor<1x32x32xbf16>, tensor<1x32x32xbf16>) -> tensor<1x32x32xbf16>
+  return %5 : tensor<1x32x32xbf16>
+}
+
+// -----
+
+// Wan FF2: transpose_b + scatter + unsqueeze + post-scatter bias + gated residual.
+// The bias is D/tp after the scatter, so addcmul is not fused; matmul+RS still is.
+// CHECK-LABEL: func.func @wan_ff2_transpose_scatter_bias_gate
+// CHECK: "ttir.permute"
+// CHECK: "ttcore.composite"
+// CHECK-SAME: has_addcmul = false
+// CHECK-SAME: composite_name = "minimal_matmul_strided_reduce_scatter_async"
+// CHECK: "ttir.add"
+// CHECK: "ttir.multiply"
+func.func @wan_ff2_transpose_scatter_bias_gate(%x: tensor<32x128xbf16>, %w: tensor<64x128xbf16>,
+                                              %bias: tensor<1x1x32xbf16>, %gate: tensor<1x1x32xbf16>,
+                                              %res: tensor<1x32x32xbf16>)
+    -> tensor<1x32x32xbf16> {
+  %0 = "ttir.matmul"(%x, %w) <{transpose_a = false, transpose_b = true}> : (tensor<32x128xbf16>, tensor<64x128xbf16>) -> tensor<32x64xbf16>
+  %1 = "ttir.reduce_scatter"(%0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 1 : si32}> : (tensor<32x64xbf16>) -> tensor<32x32xbf16>
+  %2 = "ttir.reshape"(%1) <{shape = [1 : i32, 32 : i32, 32 : i32]}> : (tensor<32x32xbf16>) -> tensor<1x32x32xbf16>
+  %3 = "ttir.broadcast"(%bias) <{broadcast_dimensions = array<i64: 1, 32, 1>}> : (tensor<1x1x32xbf16>) -> tensor<1x32x32xbf16>
+  %4 = "ttir.add"(%2, %3) : (tensor<1x32x32xbf16>, tensor<1x32x32xbf16>) -> tensor<1x32x32xbf16>
+  %5 = "ttir.broadcast"(%gate) <{broadcast_dimensions = array<i64: 1, 32, 1>}> : (tensor<1x1x32xbf16>) -> tensor<1x32x32xbf16>
+  %6 = "ttir.multiply"(%4, %5) : (tensor<1x32x32xbf16>, tensor<1x32x32xbf16>) -> tensor<1x32x32xbf16>
+  %7 = "ttir.add"(%res, %6) : (tensor<1x32x32xbf16>, tensor<1x32x32xbf16>) -> tensor<1x32x32xbf16>
+  return %7 : tensor<1x32x32xbf16>
 }
 
 // -----
