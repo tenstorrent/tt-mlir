@@ -165,15 +165,18 @@ func.func @addcmul_leading_unit_reshape(%x: tensor<32x128xbf16>, %w: tensor<128x
 
 // -----
 
-// Wan FF2: transpose_b + scatter + unsqueeze + post-scatter bias + gated residual.
-// The bias is D/tp after the scatter, so addcmul is not fused; matmul+RS still is.
+// Wan FF2: transpose_b + scatter + unsqueeze + post-scatter D/tp bias + gated
+// residual. Addcmul fuses as r + g*s (has_bias stays false); g*b is a small
+// multiply then a broadcast onto the residual (not a reshape of [1,1,N]).
 // CHECK-LABEL: func.func @wan_ff2_transpose_scatter_bias_gate
 // CHECK: "ttir.permute"
+// CHECK: "ttir.multiply"
+// CHECK: "ttir.broadcast"
 // CHECK: "ttcore.composite"
-// CHECK-SAME: has_addcmul = false
+// CHECK-SAME: has_addcmul = true
+// CHECK-SAME: has_bias = false
 // CHECK-SAME: composite_name = "minimal_matmul_strided_reduce_scatter_async"
 // CHECK: "ttir.add"
-// CHECK: "ttir.multiply"
 func.func @wan_ff2_transpose_scatter_bias_gate(%x: tensor<32x128xbf16>, %w: tensor<64x128xbf16>,
                                               %bias: tensor<1x1x32xbf16>, %gate: tensor<1x1x32xbf16>,
                                               %res: tensor<1x32x32xbf16>)

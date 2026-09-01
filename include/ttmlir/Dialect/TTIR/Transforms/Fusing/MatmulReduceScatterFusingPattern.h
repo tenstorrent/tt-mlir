@@ -33,9 +33,10 @@ public:
 // Fuses `residual + gate * reduce_scatter(matmul/linear(input, weight))` into
 // the same composite, mapping residual/gate to the addcmul operands (residual
 // -> addcmul_input1, gate -> addcmul_input2) with scalar = 1.0. Looks through
-// a leading-unit reshape and a broadcast on the gate so DiT's
-// `[M, N] -> [1, M, N]` unsqueeze and AdaLN broadcast do not block. Anchored on
-// AddOp; templated on the projection op (MatmulOp/LinearOp).
+// a leading-unit reshape, a broadcast on the gate, and a post-scatter
+// row-broadcast bias add (Wan FF2 `D/tp` bias). That bias is not fused
+// `has_bias`; it is reapplied after the composite as `gate * bias`. Anchored
+// on AddOp; templated on the projection op (MatmulOp/LinearOp).
 template <typename MatmulLikeOp>
 class MatmulReduceScatterAddcmulFusing : public mlir::OpRewritePattern<AddOp> {
 public:

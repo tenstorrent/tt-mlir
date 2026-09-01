@@ -112,11 +112,47 @@ Value skipViewOps(Value v) {
   return v;
 }
 
+// If `addOp` is `scatter_path + row-broadcast_bias` (Wan FF2 post-scatter
+// D/tp bias), return the scatter-side value; otherwise null. Does not look
+// through the add — callers pass the add's operands already view-stripped.
+Value scatterOperandOfPostScatterBiasAdd(AddOp addOp) {
+  if (!addOp.getResult().hasOneUse()) {
+    return Value();
+  }
+  Value lhs = skipViewOps(addOp.getLhs());
+  Value rhs = skipViewOps(addOp.getRhs());
+  if (lhs.getDefiningOp<ReduceScatterOp>() && isRowBroadcast(rhs)) {
+    return lhs;
+  }
+  if (rhs.getDefiningOp<ReduceScatterOp>() && isRowBroadcast(lhs)) {
+    return rhs;
+  }
+  return Value();
+}
+
+Value skipToScatter(Value v, Value *postScatterBias) {
+  v = skipViewOps(v);
+  if (auto addOp = v.getDefiningOp<AddOp>()) {
+    Value scatter = scatterOperandOfPostScatterBiasAdd(addOp);
+    if (scatter) {
+      if (postScatterBias) {
+        Value lhs = skipViewOps(addOp.getLhs());
+        // Keep the add's bias operand (broadcast and all) so `g * b` can
+        // be reapplied at the residual add's type without a new broadcast.
+        *postScatterBias = lhs.getDefiningOp<ReduceScatterOp>()
+                              ? addOp.getRhs()
+                              : addOp.getLhs();
+      }
+      return scatter;
+    }
+  }
+  return v;
+}
+
 // True if this reduce_scatter result flows into a gated-residual epilogue
-// (optionally through a leading-unit reshape, then a multiply then an add).
-// A post-scatter bias add between the reshape and the multiply is *not*
-// treated as that epilogue: that bias is sharded D/tp and must stay outside
-// the fused kernel (whose bias slot is the pre-scatter N).
+// (optionally through a leading-unit reshape, a post-scatter row-broadcast
+// bias add, then a multiply then an add). The bias add is not fused
+// `has_bias`; the addcmul pattern still owns that epilogue.
 bool feedsGatedResidualEpilogue(ReduceScatterOp reduceScatterOp) {
   if (!reduceScatterOp.getResult().hasOneUse()) {
     return false;
@@ -128,6 +164,12 @@ bool feedsGatedResidualEpilogue(ReduceScatterOp reduceScatterOp) {
       return false;
     }
     user = *reshapeOp.getResult().getUsers().begin();
+  }
+  if (auto biasAdd = mlir::dyn_cast<AddOp>(user)) {
+    if (!scatterOperandOfPostScatterBiasAdd(biasAdd)) {
+      return false;
+    }
+    user = *biasAdd.getResult().getUsers().begin();
   }
   auto mulOp = mlir::dyn_cast<MultiplyOp>(user);
   if (!mulOp || !mulOp.getResult().hasOneUse()) {
@@ -162,6 +204,45 @@ Value reshapeToType(OpBuilder &builder, Location loc, Value input,
                                   resultType.getShape().end());
   return builder.create<ReshapeOp>(loc, resultType, input,
                                     builder.getI32ArrayAttr(shapeI32));
+}
+
+// `r + g*(s+b) = (r+g*s) + g*b`. Multiply at the row-broadcast `[1, N]` /
+// `[1, 1, N]` layout (cheap), then broadcast onto the residual. Never reshape
+// a `[1, N]` tensor to `[1, M, N]` — those volumes differ.
+Value gatedPostScatterBias(PatternRewriter &rewriter, Location loc, Value gate,
+                            Value postScatterBias, RankedTensorType addType) {
+  SmallVector<int64_t> smallShape(addType.getRank(), 1);
+  smallShape.back() = addType.getDimSize(addType.getRank() - 1);
+  auto smallType = RankedTensorType::get(
+      smallShape, addType.getElementType(), addType.getEncoding());
+
+  auto canCollapseToSmall = [&](Value v) {
+    auto type = mlir::dyn_cast<RankedTensorType>(v.getType());
+    return type && type.getNumElements() == smallType.getNumElements();
+  };
+
+  Value g, b, gbFull;
+  Value gateSmall = skipViewOps(gate);
+  Value biasSmall = skipViewOps(postScatterBias);
+  if (canCollapseToSmall(gateSmall) && canCollapseToSmall(biasSmall) &&
+      succeeded(utils::broadcastValue(rewriter, gateSmall, smallType, g, loc,
+                                      /*frontUnsqueeze=*/true)) &&
+      succeeded(utils::broadcastValue(rewriter, biasSmall, smallType, b, loc,
+                                      /*frontUnsqueeze=*/true))) {
+    Value gb = rewriter.create<MultiplyOp>(loc, smallType, g, b);
+    if (succeeded(utils::broadcastValue(rewriter, gb, addType, gbFull, loc,
+                                       /*frontUnsqueeze=*/true))) {
+      return gbFull;
+    }
+  }
+
+  if (failed(utils::broadcastValue(rewriter, gate, addType, g, loc,
+                                     /*frontUnsqueeze=*/true)) ||
+      failed(utils::broadcastValue(rewriter, postScatterBias, addType, b, loc,
+                                    /*frontUnsqueeze=*/true))) {
+    return Value();
+  }
+  return rewriter.create<MultiplyOp>(loc, addType, g, b);
 }
 
 // Squeeze leading unit dims until `v` has `targetRank`. Used to capture a
@@ -374,8 +455,9 @@ MatmulReduceScatterAddcmulFusing<MatmulLikeOp>::matchAndRewrite(
   //   (`+ bias` applies only to the linear variant; matmul has no bias)
   //
   // walking backwards from the anchor `add`:  add -> multiply ->
-  // [leading-unit reshape / broadcast] -> reduce_scatter -> matmul. Both the
-  // add and the multiply are commutative, so we try each operand order.
+  // [leading-unit reshape / broadcast / post-scatter row-broadcast bias] ->
+  // reduce_scatter -> matmul. Both the add and the multiply are commutative,
+  // so we try each operand order.
   //
   // This maps to tt-metal's `addcmul` epilogue, whose fixed formula is
   //
@@ -384,8 +466,9 @@ MatmulReduceScatterAddcmulFusing<MatmulLikeOp>::matchAndRewrite(
   // The gated residual carries no coefficient in front of the product, so
   // `scalar` is the multiplicative identity (kAddcmulScalar == 1.0).
   //
-  // A post-scatter bias add is intentionally not skipped: that bias is
-  // sharded along D/tp and is not the fused kernel's pre-scatter N bias.
+  // A post-scatter D/tp bias is skipped for matching (it is not fused
+  // `has_bias`). Original math is `r + g * (s + b)`; the kernel computes
+  // `r + g * s`, so `g * b` is added after the composite.
 
   // add: one operand is the `gate * proj` multiply, the other is the residual.
   MultiplyOp gateMulOp = addOp.getLhs().getDefiningOp<MultiplyOp>();
@@ -398,10 +481,12 @@ MatmulReduceScatterAddcmulFusing<MatmulLikeOp>::matchAndRewrite(
     return mlir::failure();
   }
 
-  // multiply: one operand is the (possibly reshaped) scatter, the other
-  // the gate (which may itself be a broadcast of a row-broadcast tensor).
-  auto matchScatter = [](Value v) -> ReduceScatterOp {
-    return skipViewOps(v).getDefiningOp<ReduceScatterOp>();
+  // multiply: one operand is the (possibly reshaped / post-scatter-biased)
+  // scatter, the other the gate (which may itself be a broadcast of a
+  // row-broadcast tensor).
+  Value postScatterBias;
+  auto matchScatter = [&](Value v) -> ReduceScatterOp {
+    return skipToScatter(v, &postScatterBias).getDefiningOp<ReduceScatterOp>();
   };
   ReduceScatterOp reduceScatterOp = matchScatter(gateMulOp.getLhs());
   mlir::Value gate = gateMulOp.getRhs();
@@ -463,6 +548,17 @@ MatmulReduceScatterAddcmulFusing<MatmulLikeOp>::matchAndRewrite(
     return mlir::failure();
   }
 
+  auto addType = mlir::cast<RankedTensorType>(addOp.getResult().getType());
+  Value gatedBias;
+  if (postScatterBias) {
+    gatedBias = gatedPostScatterBias(rewriter, addOp.getLoc(), gate,
+                                     postScatterBias, addType);
+    if (!gatedBias) {
+      return rewriter.notifyMatchFailure(
+          addOp, "cannot broadcast gate * post-scatter bias onto residual");
+    }
+  }
+
   SmallVector<Value> captures{projOp.getA(), weight};
   if (bias) {
     captures.push_back(bias);
@@ -490,9 +586,12 @@ MatmulReduceScatterAddcmulFusing<MatmulLikeOp>::matchAndRewrite(
 
   // The fused kernel writes the scattered 2D layout. If the original add
   // was 3D (`[1, M, N]`), restore that for downstream users.
-  auto addType = mlir::cast<RankedTensorType>(addOp.getResult().getType());
   Value result = reshapeToType(rewriter, addOp.getLoc(),
                                  compositeOp.getResult(0), addType);
+  if (gatedBias) {
+    result =
+        rewriter.create<AddOp>(addOp.getLoc(), addType, result, gatedBias);
+  }
   rewriter.replaceOp(addOp, result);
   return mlir::success();
 }
