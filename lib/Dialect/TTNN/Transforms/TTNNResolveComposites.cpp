@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -214,31 +215,64 @@ static void registerBuiltinComposites() {
         FloatAttr scalar =
             hasAddcmul ? attrs.getAs<FloatAttr>("scalar") : FloatAttr();
 
-        // The tt-metal kernel asserts the scatter targets dim 3, so
-        // canonicalize the last-axis index (all the fusing pattern matches) to
-        // 3.
-        constexpr int32_t kMetalScatterDim = 3;
-        int64_t rank =
-            mlir::cast<RankedTensorType>(compositeOp.getResult(0).getType())
-                .getRank();
-        int64_t scatterDimValue = scatterDim.getValue().getSExtValue();
-        if (scatterDimValue < 0) {
-          scatterDimValue += rank;
-        }
-        int32_t dim = scatterDimValue == rank - 1
-                          ? kMetalScatterDim
-                          : static_cast<int32_t>(scatterDimValue);
-
         // The typed op needs a device handle; semaphores are left unbound and
         // materialized later by TTNNAllocateDistributedOpSemaphores.
         IRRewriter rewriter(builder.getContext());
         rewriter.setInsertionPoint(compositeOp);
+        Location loc = compositeOp.getLoc();
         Value device =
             ttnn::utils::getOrInsertDevice(rewriter, compositeOp).getResult();
 
-        return rewriter.create<MinimalMatmulStridedReduceScatterAsyncOp>(
-            compositeOp.getLoc(), compositeOp.getResultTypes(), input, weight,
-            bias, addcmulInput1, addcmulInput2,
+        // tt-metal's kernel indexes scatter dim 3 of a rank-4 activation
+        // (`shape[3]`). DiT/Wan fuse a 2D `[M, K]` matmul. Unsqueeze leading
+        // unit dims so the typed op is always rank 4 with dim = 3, then
+        // reshape the result back to the composite type.
+        constexpr int64_t kMetalRank = 4;
+        constexpr int32_t kMetalScatterDim = 3;
+        auto typeWithShape = [](RankedTensorType type,
+                                   ArrayRef<int64_t> newShape) {
+          if (type.getEncoding()) {
+            return utils::RankedTensorTypeFactory::create(type, newShape);
+          }
+          return RankedTensorType::get(newShape, type.getElementType());
+        };
+        auto unsqueezeToRank = [&](Value v) -> Value {
+          if (!v) {
+            return v;
+          }
+          auto type = mlir::cast<RankedTensorType>(v.getType());
+          if (type.getRank() >= kMetalRank) {
+            return v;
+          }
+          SmallVector<int64_t> newShape(kMetalRank - type.getRank(), 1);
+          newShape.append(type.getShape().begin(), type.getShape().end());
+          RankedTensorType newType = typeWithShape(type, newShape);
+          SmallVector<int32_t> shapeAttr(newShape.begin(), newShape.end());
+          return rewriter
+              .create<ReshapeOp>(loc, newType, v,
+                                 rewriter.getI32ArrayAttr(shapeAttr))
+              .getResult();
+        };
+
+        input = unsqueezeToRank(input);
+        addcmulInput1 = unsqueezeToRank(addcmulInput1);
+        addcmulInput2 = unsqueezeToRank(addcmulInput2);
+
+        auto origResultType =
+            mlir::cast<RankedTensorType>(compositeOp.getResult(0).getType());
+        Type fusedResultType = origResultType;
+        bool squeezeResult = origResultType.getRank() < kMetalRank;
+        if (squeezeResult) {
+          SmallVector<int64_t> newShape(kMetalRank - origResultType.getRank(),
+                                         1);
+          newShape.append(origResultType.getShape().begin(),
+                          origResultType.getShape().end());
+          fusedResultType = typeWithShape(origResultType, newShape);
+        }
+
+        auto fused = rewriter.create<MinimalMatmulStridedReduceScatterAsyncOp>(
+            loc, TypeRange{fusedResultType}, input, weight, bias, addcmulInput1,
+            addcmulInput2,
             /*multi_device_semaphore=*/ValueRange{},
             /*barrier_semaphore=*/Value(), device, clusterAxis, scalar,
             // The kernel only supports Ring topology, so pin it here. The mesh
@@ -251,7 +285,17 @@ static void registerBuiltinComposites() {
             /*dtype=*/ttcore::DataTypeAttr(),
             /*compute_config=*/DeviceComputeKernelConfigAttr(),
             /*num_workers_per_link=*/1u, /*num_buffers_per_channel=*/1u,
-            /*dim=*/dim);
+            /*dim=*/kMetalScatterDim);
+
+        if (!squeezeResult) {
+          return fused;
+        }
+        SmallVector<int32_t> origShapeAttr(origResultType.getShape().begin(),
+                                           origResultType.getShape().end());
+        return rewriter
+            .create<ReshapeOp>(loc, origResultType, fused.getResult(0),
+                               rewriter.getI32ArrayAttr(origShapeAttr))
+            .getOperation();
       },
       /*promotionGuard=*/nullptr};
 }

@@ -3214,11 +3214,22 @@ void MoeComputeOp::allocateSemaphores(::mlir::RewriterBase &rewriter) {}
   RankedTensorType inputType = getInput().getType();
   RankedTensorType weightType = getWeight().getType();
 
-  if (inputType.getRank() < 2) {
-    return emitOpError("input tensor must have rank >= 2");
+  if (inputType.getRank() != 4) {
+    return emitOpError(
+        "input tensor must have rank 4 (tt-metal indexes scatter dim 3)");
   }
   if (weightType.getRank() < 2) {
     return emitOpError("weight tensor must have rank >= 2");
+  }
+
+  int32_t dim = getDim();
+  if (dim < 0) {
+    dim += inputType.getRank();
+  }
+  if (dim != 3) {
+    return emitOpError("scatter dim must be 3 (last axis of the rank-4 "
+                       "activation), got ")
+           << getDim();
   }
 
   // The reduce-scatter is synchronized by exactly three global semaphores
