@@ -84,15 +84,15 @@ module {
     ^bb0(%acc: tensor<64x128xbf16, #l2>, %p: tensor<ui32, #pred>):
       %v1 = "ttnn.reshape"(%acc) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
       %v2 = "ttnn.reshape"(%acc) <{shape = [1 : i32, 1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x1x64x128xbf16, #l4>
-      %s1 = "ttnn.add"(%v1, %v1) : (tensor<1x64x128xbf16, #l3>, tensor<1x64x128xbf16, #l3>) -> tensor<1x64x128xbf16, #l3>
-      %s2 = "ttnn.add"(%v2, %v2) : (tensor<1x1x64x128xbf16, #l4>, tensor<1x1x64x128xbf16, #l4>) -> tensor<1x1x64x128xbf16, #l4>
+      %s1 = "ttnn.add"(%v1, %v1) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x64x128xbf16, #l3>, tensor<1x64x128xbf16, #l3>) -> tensor<1x64x128xbf16, #l3>
+      %s2 = "ttnn.add"(%v2, %v2) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x64x128xbf16, #l4>, tensor<1x1x64x128xbf16, #l4>) -> tensor<1x1x64x128xbf16, #l4>
       // Both of these resolve to root %acc, a borrowed block argument.
       // CHECK-NOT: "ttnn.deallocate"
       "ttnn.deallocate"(%v1) <{force = false}> : (tensor<1x64x128xbf16, #l3>) -> ()
       "ttnn.deallocate"(%v2) <{force = false}> : (tensor<1x1x64x128xbf16, #l4>) -> ()
       %o1 = "ttnn.reshape"(%s1) <{shape = [64 : i32, 128 : i32]}> : (tensor<1x64x128xbf16, #l3>) -> tensor<64x128xbf16, #l2>
       %o2 = "ttnn.reshape"(%s2) <{shape = [64 : i32, 128 : i32]}> : (tensor<1x1x64x128xbf16, #l4>) -> tensor<64x128xbf16, #l2>
-      %o = "ttnn.add"(%o1, %o2) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+      %o = "ttnn.add"(%o1, %o2) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
       // CHECK: ttnn.yield
       ttnn.yield %o : tensor<64x128xbf16, #l2>
     } -> (tensor<64x128xbf16, #l2>)
@@ -111,7 +111,7 @@ module {
       ttnn.yield %p : tensor<ui32, #pred>
     } do {
     ^bb0(%acc: tensor<64x128xbf16, #l2>, %p: tensor<ui32, #pred>):
-      %t = "ttnn.add"(%acc, %acc) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+      %t = "ttnn.add"(%acc, %acc) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
       %w1 = "ttnn.reshape"(%t) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
       %w2 = "ttnn.reshape"(%t) <{shape = [1 : i32, 1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x1x64x128xbf16, #l4>
       // CHECK-NOT: "ttnn.deallocate"
@@ -134,11 +134,11 @@ module {
       ttnn.yield %p : tensor<ui32, #pred>
     } do {
     ^bb0(%acc: tensor<64x128xbf16, #l2>, %p: tensor<ui32, #pred>):
-      %t = "ttnn.add"(%acc, %acc) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+      %t = "ttnn.add"(%acc, %acc) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
       %w1 = "ttnn.reshape"(%t) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
-      %u = "ttnn.add"(%w1, %w1) : (tensor<1x64x128xbf16, #l3>, tensor<1x64x128xbf16, #l3>) -> tensor<1x64x128xbf16, #l3>
+      %u = "ttnn.add"(%w1, %w1) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x64x128xbf16, #l3>, tensor<1x64x128xbf16, #l3>) -> tensor<1x64x128xbf16, #l3>
       %o = "ttnn.reshape"(%u) <{shape = [64 : i32, 128 : i32]}> : (tensor<1x64x128xbf16, #l3>) -> tensor<64x128xbf16, #l2>
-      %out = "ttnn.add"(%o, %o) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+      %out = "ttnn.add"(%o, %o) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
       // %t is body-local and not yielded, so its final deallocation is forced.
       // CHECK-NOT: "ttnn.deallocate"
       // CHECK: "ttnn.deallocate"(%{{[0-9]+}}) <{force = true}>

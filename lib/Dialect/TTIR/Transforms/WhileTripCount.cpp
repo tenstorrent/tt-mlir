@@ -38,6 +38,9 @@ bool isSupportedCastType(mlir::IntegerType type) {
 // qualify, and only when the constant survives them: everything downstream
 // reads these values as signed, so a cast that drops bits or flips the sign
 // would silently change the trip count.
+// Clang's static analyzer incorrectly models destruction of optional<APInt>
+// (llvm/llvm-project#119415).
+// NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
 std::optional<llvm::APInt>
 matchTypecastIntConstant(ttir::TypecastOp typecastOp) {
   mlir::IntegerType inputType = getScalarIntType(typecastOp.getInput());
@@ -63,6 +66,7 @@ matchTypecastIntConstant(ttir::TypecastOp typecastOp) {
   }
   return converted;
 }
+// NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
 // Resolves `value` to a single integer, looking through the shape-only ops and
 // casts a frontend leaves around a scalar constant. Returns nullopt for
