@@ -3465,6 +3465,34 @@ void AllToAllDispatchMetadataOp::allocateSemaphores(
     return emitOpError("expects at least one result tensor");
   }
 
+  int32_t chunks = getChunks();
+  if (chunks < 1) {
+    return emitOpError("chunks must be >= 1, got ") << chunks;
+  }
+  if (static_cast<int64_t>(getResults().size()) != chunks) {
+    return emitOpError("expects ")
+           << chunks << " result tensor(s) to match chunks, got "
+           << getResults().size();
+  }
+
+  int64_t n = weightType.getShape().back();
+  if (n % chunks != 0) {
+    return emitOpError("weight last dimension N (")
+           << n << ") must be divisible by chunks (" << chunks << ")";
+  }
+  int64_t chunkN = n / chunks;
+  for (auto result : getResults()) {
+    auto resultType = mlir::cast<RankedTensorType>(result.getType());
+    if (resultType.getRank() < 1) {
+      return emitOpError("result tensor must have rank >= 1");
+    }
+    if (resultType.getShape().back() != chunkN) {
+      return emitOpError("result last dimension (")
+             << resultType.getShape().back()
+             << ") must equal N/chunks (" << chunkN << ")";
+    }
+  }
+
   // bias is row-broadcast: its last dim must match the matmul output width N.
   if (getBias()) {
     RankedTensorType biasType = getBias().getType();

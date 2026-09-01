@@ -234,6 +234,11 @@ static void registerBuiltinComposites() {
         Value device =
             ttnn::utils::getOrInsertDevice(rewriter, compositeOp).getResult();
 
+        int32_t chunks = 1;
+        if (auto chunksAttr = attrs.getAs<IntegerAttr>("chunks")) {
+          chunks = static_cast<int32_t>(chunksAttr.getValue().getSExtValue());
+        }
+
         return rewriter.create<AllGatherMinimalMatmulAsyncOp>(
             compositeOp.getLoc(), compositeOp.getResultTypes(), input, weight,
             bias, addcmulInput1, addcmulInput2,
@@ -251,7 +256,7 @@ static void registerBuiltinComposites() {
             // default; the runtime replaces it with 24 (BH) / 48 (WH).
             /*force_transpose=*/true,
             /*num_workers_per_link=*/1u, /*num_buffers_per_channel=*/1u,
-            /*chunks=*/1,
+            chunks,
             /*dim=*/dim);
       },
       /*promotionGuard=*/nullptr};

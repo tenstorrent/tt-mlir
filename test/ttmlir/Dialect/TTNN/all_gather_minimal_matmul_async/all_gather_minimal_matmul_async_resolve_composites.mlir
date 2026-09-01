@@ -87,3 +87,41 @@ func.func private @agmm_addcmul_decomp(%x: tensor<32x128xbf16, #a>, %w: tensor<5
   %3 = "ttnn.add"(%res, %2) : (tensor<32x64xbf16, #o>, tensor<32x64xbf16, #o>) -> tensor<32x64xbf16, #o>
   return %3 : tensor<32x64xbf16, #o>
 }
+
+// -----
+
+#dram = #ttnn.buffer_type<dram>
+#a  = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#ag = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x16x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#w3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<16x6x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#fat = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x6x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#c  = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+
+// QKV chunks=3: promote carries chunks through; inline keeps the slices.
+// INLINE-LABEL: func.func @resolve_qkv_chunks
+// INLINE: "ttnn.all_gather"
+// INLINE: "ttnn.matmul"
+// INLINE: "ttnn.slice_static"
+// INLINE-NOT: all_gather_minimal_matmul_async
+//
+// PROMOTE-LABEL: func.func @resolve_qkv_chunks
+// PROMOTE: "ttnn.all_gather_minimal_matmul_async"
+// PROMOTE-SAME: chunks = 3 : si32
+// PROMOTE-NOT: ttcore.composite
+func.func @resolve_qkv_chunks(%x: tensor<32x128xbf16, #a>, %w: tensor<512x192xbf16, #w3>)
+    -> (tensor<32x64xbf16, #c>, tensor<32x64xbf16, #c>, tensor<32x64xbf16, #c>) {
+  %0:3 = "ttcore.composite"(%x, %w) <{
+      composite_attributes = {all_gather_dim = 1 : si32, chunks = 3 : si32, cluster_axis = 1 : ui32, has_addcmul = false, has_bias = false},
+      composite_name = "all_gather_minimal_matmul_async",
+      decomposition = @agmm_qkv_decomp}> : (tensor<32x128xbf16, #a>, tensor<512x192xbf16, #w3>) -> (tensor<32x64xbf16, #c>, tensor<32x64xbf16, #c>, tensor<32x64xbf16, #c>)
+  return %0#0, %0#1, %0#2 : tensor<32x64xbf16, #c>, tensor<32x64xbf16, #c>, tensor<32x64xbf16, #c>
+}
+func.func private @agmm_qkv_decomp(%x: tensor<32x128xbf16, #a>, %w: tensor<512x192xbf16, #w3>)
+    -> (tensor<32x64xbf16, #c>, tensor<32x64xbf16, #c>, tensor<32x64xbf16, #c>) attributes {tt.composite_decomposition} {
+  %0 = "ttnn.all_gather"(%x) <{all_gather_dim = 1 : si32, cluster_axis = 1 : ui32}> : (tensor<32x128xbf16, #a>) -> tensor<32x512xbf16, #ag>
+  %1 = "ttnn.matmul"(%0, %w) <{transpose_a = false, transpose_b = false}> : (tensor<32x512xbf16, #ag>, tensor<512x192xbf16, #w3>) -> tensor<32x192xbf16, #fat>
+  %q = "ttnn.slice_static"(%1) <{begins = [0 : i32, 0 : i32], ends = [32 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<32x192xbf16, #fat>) -> tensor<32x64xbf16, #c>
+  %k = "ttnn.slice_static"(%1) <{begins = [0 : i32, 64 : i32], ends = [32 : i32, 128 : i32], step = [1 : i32, 1 : i32]}> : (tensor<32x192xbf16, #fat>) -> tensor<32x64xbf16, #c>
+  %v = "ttnn.slice_static"(%1) <{begins = [0 : i32, 128 : i32], ends = [32 : i32, 192 : i32], step = [1 : i32, 1 : i32]}> : (tensor<32x192xbf16, #fat>) -> tensor<32x64xbf16, #c>
+  return %q, %k, %v : tensor<32x64xbf16, #c>, tensor<32x64xbf16, #c>, tensor<32x64xbf16, #c>
+}

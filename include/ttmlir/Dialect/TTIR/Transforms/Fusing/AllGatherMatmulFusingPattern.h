@@ -17,8 +17,9 @@ namespace mlir::tt::ttir::fusing {
 // TTNNResolveComposites). Templated on MatmulOp/LinearOp; the linear variant's
 // bias rides along into the composite (matmul has no bias). Bails on
 // transpose_a and multi-use gathers; transpose_b is materialized as a
-// permute of the weight to [K, N]. Defers to AllGatherMatmulAddcmulFusing
-// when a gated-residual epilogue follows.
+// permute of the weight to [K, N]. Equal last-dim slices of the projection
+// (Wan fused QKV) become `chunks=C` results. Defers to
+// AllGatherMatmulAddcmulFusing when a gated-residual epilogue follows.
 template <typename MatmulLikeOp>
 class AllGatherMatmulFusing : public mlir::OpRewritePattern<MatmulLikeOp> {
 public:

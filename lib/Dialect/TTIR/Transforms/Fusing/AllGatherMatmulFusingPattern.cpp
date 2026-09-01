@@ -17,6 +17,7 @@
 
 #include <atomic>
 #include <numeric>
+#include <optional>
 #include <type_traits>
 
 namespace mlir::tt::ttir::fusing {
@@ -186,16 +187,173 @@ void clearTransposeAttrs(Operation *op) {
   }
 }
 
-func::FuncOp buildDecompositionFunc(OpBuilder &builder, Location loc,
-                                    ArrayRef<Value> captures,
-                                    AllGatherOp allGatherOp, Operation *projOp,
-                                    bool clearProjTranspose, bool hasAddcmul,
-                                    Type resultType) {
+int64_t getArrayI64(ArrayAttr attr, unsigned i) {
+  return mlir::cast<IntegerAttr>(attr[i]).getInt();
+}
+
+// True if `slice` takes a full-extent contiguous range on every dim except
+// the last, where it takes `[begin, end)` with step 1.
+bool isContiguousLastDimSlice(SliceStaticOp sliceOp, RankedTensorType inputType,
+                               int64_t &begin, int64_t &end) {
+  int64_t rank = inputType.getRank();
+  ArrayAttr begins = sliceOp.getBeginsAttr();
+  ArrayAttr ends = sliceOp.getEndsAttr();
+  ArrayAttr steps = sliceOp.getStepAttr();
+  if (static_cast<int64_t>(begins.size()) != rank ||
+      static_cast<int64_t>(ends.size()) != rank ||
+      static_cast<int64_t>(steps.size()) != rank) {
+    return false;
+  }
+  ArrayRef<int64_t> shape = inputType.getShape();
+  for (int64_t i = 0; i < rank - 1; ++i) {
+    if (getArrayI64(begins, i) != 0 || getArrayI64(ends, i) != shape[i] ||
+        getArrayI64(steps, i) != 1) {
+      return false;
+    }
+  }
+  if (getArrayI64(steps, rank - 1) != 1) {
+    return false;
+  }
+  begin = getArrayI64(begins, rank - 1);
+  end = getArrayI64(ends, rank - 1);
+  return begin >= 0 && end > begin && end <= shape.back();
+}
+
+// If every user of `proj` (optionally through a leading-unit reshape) is a
+// last-dim slice, and those slices partition N into C>=2 equal parts with no
+// overlap/gap, return them in last-dim order. Otherwise empty.
+//
+// Wan self-attn QKV is the motivating case: one fused `to_qkv` linear to
+// `3*head_dim`, then three equal last-dim slices. Unequal Q vs K/V widths
+// stay unchunked (chunks=1).
+struct EqualLastDimChunks {
+  SmallVector<SliceStaticOp> slices;
+  ReshapeOp throughReshape;
+};
+
+std::optional<EqualLastDimChunks> matchEqualLastDimChunks(Value proj) {
+  EqualLastDimChunks result;
+  Value sliced = proj;
+
+  auto collectSlices = [&](Value src) -> bool {
+    result.slices.clear();
+    if (src.use_empty()) {
+      return false;
+    }
+    for (Operation *user : src.getUsers()) {
+      auto sliceOp = mlir::dyn_cast<SliceStaticOp>(user);
+      if (!sliceOp || sliceOp.getInput() != src) {
+        return false;
+      }
+      result.slices.push_back(sliceOp);
+    }
+    return !result.slices.empty();
+  };
+
+  if (!collectSlices(proj)) {
+    if (!proj.hasOneUse()) {
+      return std::nullopt;
+    }
+    auto reshapeOp = mlir::dyn_cast<ReshapeOp>(*proj.getUsers().begin());
+    if (!reshapeOp || !isLeadingUnitDimReshape(reshapeOp) ||
+        !collectSlices(reshapeOp.getResult())) {
+      return std::nullopt;
+    }
+    result.throughReshape = reshapeOp;
+    sliced = reshapeOp.getResult();
+  }
+
+  auto slicedType = mlir::dyn_cast<RankedTensorType>(sliced.getType());
+  if (!slicedType || slicedType.getRank() < 1) {
+    return std::nullopt;
+  }
+
+  struct Chunk {
+    int64_t begin;
+    int64_t end;
+    SliceStaticOp op;
+  };
+  SmallVector<Chunk> chunks;
+  chunks.reserve(result.slices.size());
+  for (SliceStaticOp sliceOp : result.slices) {
+    int64_t begin = 0;
+    int64_t end = 0;
+    if (!isContiguousLastDimSlice(sliceOp, slicedType, begin, end)) {
+      return std::nullopt;
+    }
+    chunks.push_back({begin, end, sliceOp});
+  }
+
+  if (chunks.size() < 2) {
+    return std::nullopt;
+  }
+
+  llvm::sort(chunks, [](const Chunk &a, const Chunk &b) {
+    return a.begin < b.begin;
+  });
+
+  int64_t n = slicedType.getShape().back();
+  int64_t width = chunks.front().end - chunks.front().begin;
+  if (width <= 0 || n % static_cast<int64_t>(chunks.size()) != 0 ||
+      n / static_cast<int64_t>(chunks.size()) != width ||
+      chunks.front().begin != 0 || chunks.back().end != n) {
+    return std::nullopt;
+  }
+  for (unsigned i = 1; i < chunks.size(); ++i) {
+    if (chunks[i].end - chunks[i].begin != width ||
+        chunks[i].begin != chunks[i - 1].end) {
+      return std::nullopt;
+    }
+  }
+
+  result.slices.clear();
+  for (const Chunk &chunk : chunks) {
+    result.slices.push_back(chunk.op);
+  }
+  return result;
+}
+
+// Last-dim slices of `proj` that the chunks=C fallback must reconstruct.
+SmallVector<Value>
+createLastDimChunkSlices(OpBuilder &builder, Location loc, Value proj,
+                          ArrayRef<SliceStaticOp> slices) {
+  auto projType = mlir::cast<RankedTensorType>(proj.getType());
+  int64_t rank = projType.getRank();
+  ArrayRef<int64_t> shape = projType.getShape();
+  SmallVector<Value> results;
+  results.reserve(slices.size());
+  SmallVector<int32_t> steps(rank, 1);
+  for (SliceStaticOp sliceOp : slices) {
+    ArrayAttr origBegins = sliceOp.getBeginsAttr();
+    ArrayAttr origEnds = sliceOp.getEndsAttr();
+    int64_t begin = getArrayI64(origBegins, origBegins.size() - 1);
+    int64_t end = getArrayI64(origEnds, origEnds.size() - 1);
+    SmallVector<int32_t> begins(rank, 0);
+    SmallVector<int32_t> ends(shape.begin(), shape.end());
+    begins.back() = static_cast<int32_t>(begin);
+    ends.back() = static_cast<int32_t>(end);
+    SmallVector<int64_t> chunkShape(shape);
+    chunkShape.back() = end - begin;
+    auto chunkType =
+        RankedTensorType::get(chunkShape, projType.getElementType(),
+                              projType.getEncoding());
+    results.push_back(builder.create<SliceStaticOp>(
+        loc, chunkType, proj, builder.getI32ArrayAttr(begins),
+        builder.getI32ArrayAttr(ends), builder.getI32ArrayAttr(steps)));
+  }
+  return results;
+}
+
+func::FuncOp buildDecompositionFunc(
+    OpBuilder &builder, Location loc, ArrayRef<Value> captures,
+    AllGatherOp allGatherOp, Operation *projOp, bool clearProjTranspose,
+    bool hasAddcmul, TypeRange resultTypes,
+    ArrayRef<SliceStaticOp> chunkSlices = {}) {
   auto argTypes =
       llvm::map_to_vector(captures, [](Value v) { return v.getType(); });
-  auto funcOp =
-      func::FuncOp::create(loc, getUniqueDecompName(),
-                           builder.getFunctionType(argTypes, {resultType}));
+  auto funcOp = func::FuncOp::create(
+      loc, getUniqueDecompName(),
+      builder.getFunctionType(argTypes, resultTypes));
   funcOp.setVisibility(SymbolTable::Visibility::Private);
   funcOp->setAttr(utils::kCompositeDecompositionAttr,
                   UnitAttr::get(builder.getContext()));
@@ -237,13 +395,21 @@ func::FuncOp buildDecompositionFunc(OpBuilder &builder, Location loc,
     result = addOp.getResult();
   }
 
-  fb.create<func::ReturnOp>(loc, result);
+  if (chunkSlices.empty()) {
+    fb.create<func::ReturnOp>(loc, result);
+    return funcOp;
+  }
+
+  SmallVector<Value> chunkResults =
+      createLastDimChunkSlices(fb, loc, result, chunkSlices);
+  fb.create<func::ReturnOp>(loc, chunkResults);
   return funcOp;
 }
 
 SmallVector<NamedAttribute> buildCompositeAttrs(OpBuilder &rewriter,
                                                AllGatherOp allGatherOp,
-                                               bool hasBias, bool hasAddcmul) {
+                                               bool hasBias, bool hasAddcmul,
+                                               int32_t chunks = 1) {
   mlir::MLIRContext *ctx = rewriter.getContext();
   SmallVector<NamedAttribute> attrs;
   attrs.emplace_back(
@@ -258,6 +424,12 @@ SmallVector<NamedAttribute> buildCompositeAttrs(OpBuilder &rewriter,
   if (hasAddcmul) {
     attrs.emplace_back(StringAttr::get(ctx, "scalar"),
                        rewriter.getF32FloatAttr(kAddcmulScalar));
+  }
+  // Omit chunks=1 so existing dumps / CHECKs stay unchanged; C>1 is the
+  // QKV split the fused kernel implements natively.
+  if (chunks > 1) {
+    attrs.emplace_back(StringAttr::get(ctx, "chunks"),
+                       rewriter.getSI32IntegerAttr(chunks));
   }
   return attrs;
 }
@@ -319,6 +491,22 @@ mlir::LogicalResult AllGatherMatmulFusing<MatmulLikeOp>::matchAndRewrite(
 
   auto projType = mlir::cast<RankedTensorType>(matmulOp.getResult().getType());
 
+  std::optional<EqualLastDimChunks> qkvChunks =
+      matchEqualLastDimChunks(matmulOp.getResult());
+  int32_t chunks = qkvChunks ? static_cast<int32_t>(qkvChunks->slices.size())
+                             : 1;
+
+  SmallVector<Type> resultTypes;
+  if (chunks > 1) {
+    SmallVector<int64_t> chunkShape(projType.getShape());
+    chunkShape.back() = projType.getShape().back() / chunks;
+    auto chunkType = RankedTensorType::get(
+        chunkShape, projType.getElementType(), projType.getEncoding());
+    resultTypes.assign(chunks, chunkType);
+  } else {
+    resultTypes.push_back(projType);
+  }
+
   // Captures feed the composite/decomposition in order: input, weight, [bias].
   SmallVector<Value> captures{allGatherOp.getInput(), weight};
   if (bias) {
@@ -331,17 +519,44 @@ mlir::LogicalResult AllGatherMatmulFusing<MatmulLikeOp>::matchAndRewrite(
   moduleBuilder.setInsertionPointToEnd(moduleOp.getBody());
   func::FuncOp decompFunc = buildDecompositionFunc(
       moduleBuilder, matmulOp.getLoc(), captures, allGatherOp, anchor,
-      /*clearProjTranspose=*/transposeB, /*hasAddcmul=*/false, projType);
+      /*clearProjTranspose=*/transposeB, /*hasAddcmul=*/false, resultTypes,
+      chunks > 1 ? ArrayRef<SliceStaticOp>(qkvChunks->slices)
+                  : ArrayRef<SliceStaticOp>());
   moduleBuilder.insert(decompFunc);
 
-  rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
-      anchor, TypeRange{projType}, captures,
+  rewriter.setInsertionPoint(matmulOp);
+  if (chunks == 1) {
+    rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
+        anchor, TypeRange{projType}, captures,
+        rewriter.getStringAttr(kCompositeName),
+        FlatSymbolRefAttr::get(rewriter.getContext(), decompFunc.getName()),
+        DictionaryAttr::get(rewriter.getContext(),
+                             buildCompositeAttrs(rewriter, allGatherOp,
+                                                 bias != nullptr,
+                                                 /*hasAddcmul=*/false)));
+    return mlir::success();
+  }
+
+  auto compositeOp = rewriter.create<ttcore::CompositeOp>(
+      matmulOp.getLoc(), resultTypes, captures,
       rewriter.getStringAttr(kCompositeName),
       FlatSymbolRefAttr::get(rewriter.getContext(), decompFunc.getName()),
       DictionaryAttr::get(rewriter.getContext(),
                            buildCompositeAttrs(rewriter, allGatherOp,
                                                bias != nullptr,
-                                               /*hasAddcmul=*/false)));
+                                               /*hasAddcmul=*/false, chunks)));
+
+  for (auto [i, sliceOp] : llvm::enumerate(qkvChunks->slices)) {
+    Value chunk = reshapeToType(
+        rewriter, sliceOp.getLoc(), compositeOp.getResult(i),
+        mlir::cast<RankedTensorType>(sliceOp.getResult().getType()));
+    rewriter.replaceOp(sliceOp, chunk);
+  }
+  if (qkvChunks->throughReshape &&
+      qkvChunks->throughReshape->use_empty()) {
+    rewriter.eraseOp(qkvChunks->throughReshape);
+  }
+  rewriter.eraseOp(anchor);
   return mlir::success();
 }
 
@@ -467,7 +682,7 @@ mlir::LogicalResult AllGatherMatmulAddcmulFusing<MatmulLikeOp>::matchAndRewrite(
   func::FuncOp decompFunc = buildDecompositionFunc(
       moduleBuilder, addOp.getLoc(), captures, allGatherOp,
       projOp.getOperation(), /*clearProjTranspose=*/transposeB,
-      /*hasAddcmul=*/true, projType);
+      /*hasAddcmul=*/true, TypeRange{projType});
   moduleBuilder.insert(decompFunc);
 
   auto compositeOp = rewriter.create<ttcore::CompositeOp>(

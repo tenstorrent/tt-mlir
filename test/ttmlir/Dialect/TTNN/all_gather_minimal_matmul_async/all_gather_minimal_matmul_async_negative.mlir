@@ -60,3 +60,19 @@ module {
     return %0 : tensor<32x64xbf16>
   }
 }
+
+// -----
+
+// chunks must match the number of result tensors.
+module {
+  func.func @chunks_result_count(%input: tensor<32x128xbf16>, %weight: tensor<128x96xbf16>) -> tensor<32x32xbf16> {
+    %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
+    // CHECK: error: 'ttnn.all_gather_minimal_matmul_async' op expects 3 result tensor(s) to match chunks, got 1
+    %0 = "ttnn.all_gather_minimal_matmul_async"(%input, %weight, %device) <{
+      cluster_axis = 1 : ui32,
+      chunks = 3 : si32,
+      operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0, 0, 1>
+    }> : (tensor<32x128xbf16>, tensor<128x96xbf16>, !ttnn.device) -> tensor<32x32xbf16>
+    return %0 : tensor<32x32xbf16>
+  }
+}

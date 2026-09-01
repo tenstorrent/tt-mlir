@@ -13,8 +13,8 @@
 // TTNNResolveComposites.
 //
 // composite_attributes print in sorted key order, so the CHECK-SAME lines are
-// ordered: all_gather_dim, cluster_axis, has_addcmul, has_bias[, scalar],
-// composite_name.
+// ordered: all_gather_dim, [chunks,] cluster_axis, has_addcmul, has_bias[, scalar],
+// composite_name. `chunks` is omitted when it is 1.
 
 // matmul(all_gather(x), W) -> composite. has_bias/has_addcmul both false.
 // CHECK-LABEL: func.func @all_gather_matmul
@@ -153,6 +153,60 @@ func.func @no_fuse_full_gate(%x: tensor<32x128xbf16>, %w: tensor<512x64xbf16>,
   %2 = "ttir.multiply"(%1, %gate) : (tensor<32x64xbf16>, tensor<32x64xbf16>) -> tensor<32x64xbf16>
   %3 = "ttir.add"(%res, %2) : (tensor<32x64xbf16>, tensor<32x64xbf16>) -> tensor<32x64xbf16>
   return %3 : tensor<32x64xbf16>
+}
+
+// Wan fused QKV: one projection to 3*head_dim, then three equal last-dim
+// slices. Fuses as chunks=3 and replaces the slices with composite results.
+// CHECK-LABEL: func.func @all_gather_linear_qkv_chunks
+// CHECK: "ttcore.composite"
+// CHECK-SAME: chunks = 3 : si32
+// CHECK-SAME: composite_name = "all_gather_minimal_matmul_async"
+// CHECK-NOT: "ttir.slice_static"
+func.func @all_gather_linear_qkv_chunks(%x: tensor<32x128xbf16>, %w: tensor<512x192xbf16>, %bias: tensor<1x192xbf16>)
+    -> (tensor<32x64xbf16>, tensor<32x64xbf16>, tensor<32x64xbf16>) {
+  %0 = "ttir.all_gather"(%x) <{all_gather_dim = 1 : si32, cluster_axis = 1 : ui32}> : (tensor<32x128xbf16>) -> tensor<32x512xbf16>
+  %1 = "ttir.linear"(%0, %w, %bias) <{transpose_a = false, transpose_b = false}> : (tensor<32x512xbf16>, tensor<512x192xbf16>, tensor<1x192xbf16>) -> tensor<32x192xbf16>
+  %q = "ttir.slice_static"(%1) <{begins = [0 : i32, 0 : i32], ends = [32 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<32x192xbf16>) -> tensor<32x64xbf16>
+  %k = "ttir.slice_static"(%1) <{begins = [0 : i32, 64 : i32], ends = [32 : i32, 128 : i32], step = [1 : i32, 1 : i32]}> : (tensor<32x192xbf16>) -> tensor<32x64xbf16>
+  %v = "ttir.slice_static"(%1) <{begins = [0 : i32, 128 : i32], ends = [32 : i32, 192 : i32], step = [1 : i32, 1 : i32]}> : (tensor<32x192xbf16>) -> tensor<32x64xbf16>
+  return %q, %k, %v : tensor<32x64xbf16>, tensor<32x64xbf16>, tensor<32x64xbf16>
+}
+
+// Same QKV split after a leading-unit reshape [M, N] -> [1, M, N].
+// CHECK-LABEL: func.func @all_gather_linear_qkv_chunks_reshape
+// CHECK: "ttcore.composite"
+// CHECK-SAME: chunks = 3 : si32
+// CHECK-SAME: composite_name = "all_gather_minimal_matmul_async"
+// CHECK: "ttir.reshape"
+// CHECK: "ttir.reshape"
+// CHECK: "ttir.reshape"
+// CHECK-NOT: "ttir.slice_static"
+func.func @all_gather_linear_qkv_chunks_reshape(%x: tensor<32x128xbf16>, %w: tensor<512x192xbf16>)
+    -> (tensor<1x32x64xbf16>, tensor<1x32x64xbf16>, tensor<1x32x64xbf16>) {
+  %0 = "ttir.all_gather"(%x) <{all_gather_dim = 1 : si32, cluster_axis = 1 : ui32}> : (tensor<32x128xbf16>) -> tensor<32x512xbf16>
+  %1 = "ttir.matmul"(%0, %w) <{transpose_a = false, transpose_b = false}> : (tensor<32x512xbf16>, tensor<512x192xbf16>) -> tensor<32x192xbf16>
+  %2 = "ttir.reshape"(%1) {shape = [1 : i32, 32 : i32, 192 : i32]} : (tensor<32x192xbf16>) -> tensor<1x32x192xbf16>
+  %q = "ttir.slice_static"(%2) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 32 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x32x192xbf16>) -> tensor<1x32x64xbf16>
+  %k = "ttir.slice_static"(%2) <{begins = [0 : i32, 0 : i32, 64 : i32], ends = [1 : i32, 32 : i32, 128 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x32x192xbf16>) -> tensor<1x32x64xbf16>
+  %v = "ttir.slice_static"(%2) <{begins = [0 : i32, 0 : i32, 128 : i32], ends = [1 : i32, 32 : i32, 192 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x32x192xbf16>) -> tensor<1x32x64xbf16>
+  return %q, %k, %v : tensor<1x32x64xbf16>, tensor<1x32x64xbf16>, tensor<1x32x64xbf16>
+}
+
+// Unequal last-dim slices must not set chunks (would be a wrong split).
+// The gather+linear still fuses; the slices remain.
+// CHECK-LABEL: func.func @no_qkv_chunks_unequal
+// CHECK: "ttcore.composite"
+// CHECK-SAME: {all_gather_dim = 1 : si32, cluster_axis = 1 : ui32, has_addcmul = false, has_bias = false}
+// CHECK-SAME: composite_name = "all_gather_minimal_matmul_async"
+// CHECK: "ttir.slice_static"
+// CHECK: "ttir.slice_static"
+func.func @no_qkv_chunks_unequal(%x: tensor<32x128xbf16>, %w: tensor<512x192xbf16>)
+    -> (tensor<32x64xbf16>, tensor<32x128xbf16>) {
+  %0 = "ttir.all_gather"(%x) <{all_gather_dim = 1 : si32, cluster_axis = 1 : ui32}> : (tensor<32x128xbf16>) -> tensor<32x512xbf16>
+  %1 = "ttir.matmul"(%0, %w) <{transpose_a = false, transpose_b = false}> : (tensor<32x512xbf16>, tensor<512x192xbf16>) -> tensor<32x192xbf16>
+  %q = "ttir.slice_static"(%1) <{begins = [0 : i32, 0 : i32], ends = [32 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<32x192xbf16>) -> tensor<32x64xbf16>
+  %kv = "ttir.slice_static"(%1) <{begins = [0 : i32, 64 : i32], ends = [32 : i32, 192 : i32], step = [1 : i32, 1 : i32]}> : (tensor<32x192xbf16>) -> tensor<32x128xbf16>
+  return %q, %kv : tensor<32x64xbf16>, tensor<32x128xbf16>
 }
 
 // The generated decomposition function is emitted and marked so fusing never

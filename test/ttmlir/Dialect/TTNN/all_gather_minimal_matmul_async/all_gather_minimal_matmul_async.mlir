@@ -24,6 +24,10 @@
 #ttnn_layout_w = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 // Output [M=32, N=64].
 #ttnn_layout_out = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+// Weight B[K=128, N=96] for chunks=3.
+#ttnn_layout_w3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x3x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+// One QKV chunk [M=32, N=32].
+#ttnn_layout_chunk = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 // Row-broadcast operands [*, N=64].
 #ttnn_layout_row = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 
@@ -67,5 +71,24 @@ module @test_all_gather_minimal_matmul_async attributes {} {
       operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 0, 0, 1>
     }> : (tensor<32x128xbf16, #ttnn_layout_in>, tensor<128x64xbf16, #ttnn_layout_w>, tensor<1x64xbf16, #ttnn_layout_row>, tensor<32x64xbf16, #ttnn_layout_out>, tensor<1x64xbf16, #ttnn_layout_row>, !ttnn.device) -> tensor<32x64xbf16, #ttnn_layout_out>
     return %0 : tensor<32x64xbf16, #ttnn_layout_out>
+  }
+
+  // QKV chunks=3: one fused matmul to N=96, three results with last dim 32.
+  // CHECK-LABEL: func.func @chunks3
+  func.func @chunks3(
+      %input: tensor<32x128xbf16, #ttnn_layout_in>,
+      %weight: tensor<128x96xbf16, #ttnn_layout_w3>)
+      -> (tensor<32x32xbf16, #ttnn_layout_chunk>,
+          tensor<32x32xbf16, #ttnn_layout_chunk>,
+          tensor<32x32xbf16, #ttnn_layout_chunk>) attributes {tt.function_type = "forward_device"} {
+    // CHECK: "ttnn.all_gather_minimal_matmul_async"
+    // CHECK-SAME: chunks = 3 : si32
+    %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
+    %0, %1, %2 = "ttnn.all_gather_minimal_matmul_async"(%input, %weight, %device) <{
+      cluster_axis = 1 : ui32,
+      chunks = 3 : si32,
+      operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0, 0, 1>
+    }> : (tensor<32x128xbf16, #ttnn_layout_in>, tensor<128x96xbf16, #ttnn_layout_w3>, !ttnn.device) -> (tensor<32x32xbf16, #ttnn_layout_chunk>, tensor<32x32xbf16, #ttnn_layout_chunk>, tensor<32x32xbf16, #ttnn_layout_chunk>)
+    return %0, %1, %2 : tensor<32x32xbf16, #ttnn_layout_chunk>, tensor<32x32xbf16, #ttnn_layout_chunk>, tensor<32x32xbf16, #ttnn_layout_chunk>
   }
 }
