@@ -24,6 +24,7 @@
 #include "stablehlo/dialect/StablehloOps.h"
 
 #include <limits>
+#include <optional>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -1701,10 +1702,25 @@ static LogicalResult convertToTTIRScaledDotProductAttention(
       isCausal = attr.getValue();
       namedAttrs.push_back(rewriter.getNamedAttr("is_causal", attr));
     }
-    if (auto attr = compositeAttrs.getAs<FloatAttr>("scale")) {
-      namedAttrs.push_back(rewriter.getNamedAttr(
-          "scale", rewriter.getF32FloatAttr(
-                       static_cast<float>(attr.getValueAsDouble()))));
+    // `scale` reaches us as whatever numeric attribute the frontend's Python
+    // value produced: a `float` becomes a FloatAttr, but an `int` (e.g. the
+    // cosine-attention `self.scale = 1`) becomes an IntegerAttr. Reading only
+    // FloatAttr silently drops the latter and leaves TTIR to fall back on its
+    // 1/sqrt(head_dim) default -- a wrong softmax temperature rather than an
+    // error, and invisible whenever the key length is 1.
+    if (Attribute attr = compositeAttrs.get("scale")) {
+      std::optional<float> scale;
+      if (auto floatAttr = mlir::dyn_cast<FloatAttr>(attr)) {
+        scale = static_cast<float>(floatAttr.getValueAsDouble());
+      } else if (auto intAttr = mlir::dyn_cast<IntegerAttr>(attr)) {
+        scale = static_cast<float>(intAttr.getValue().getSExtValue());
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp, "scaled_dot_product_attention `scale` must be a float or "
+                   "integer attribute.");
+      }
+      namedAttrs.push_back(
+          rewriter.getNamedAttr("scale", rewriter.getF32FloatAttr(*scale)));
     }
   }
 
