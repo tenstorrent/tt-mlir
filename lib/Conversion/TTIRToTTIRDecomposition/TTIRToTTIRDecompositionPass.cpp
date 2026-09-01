@@ -120,46 +120,13 @@ struct TTIRToTTIRDecompositionPass
       return op.getParam().getType().getRank() == 4;
     });
 
-    // ttml::metal::sdpa_fw only accepts 4D tensors; decompose when any operand
-    // or result is not already rank 4.
-    target.addDynamicallyLegalOp<ttir::SDPAForwardOp>(
-        [&](ttir::SDPAForwardOp op) {
-          bool operandsRank4 =
-              (op.getQuery().getType().getRank() == 4) &&
-              (op.getKey().getType().getRank() == 4) &&
-              (op.getValue().getType().getRank() == 4) &&
-              (!op.getAttentionMask() ||
-               (op.getAttentionMask().getType().getRank() == 4));
-          bool resultsRank4 = llvm::all_of(op.getResultTypes(), [&](Type t) {
-            return cast<RankedTensorType>(t).getRank() == 4;
-          });
-          return operandsRank4 && resultsRank4;
-        });
-
-    // ttml::metal::sdpa_bw only accepts 4D tensors; decompose when any operand
-    // or result is not already rank 4.
-    target.addDynamicallyLegalOp<ttir::SDPABackwardOp>(
-        [&](ttir::SDPABackwardOp op) {
-          bool operandsRank4 =
-              (op.getGradOutput().getType().getRank() == 4) &&
-              (op.getAttnOutput().getType().getRank() == 4) &&
-              (op.getQuery().getType().getRank() == 4) &&
-              (op.getKey().getType().getRank() == 4) &&
-              (op.getValue().getType().getRank() == 4) &&
-              (op.getIntermediates().getType().getRank() == 4) &&
-              (!op.getAttentionMask() ||
-               (op.getAttentionMask().getType().getRank() == 4));
-          bool resultsRank4 = llvm::all_of(op.getResultTypes(), [&](Type t) {
-            return cast<RankedTensorType>(t).getRank() == 4;
-          });
-          return operandsRank4 && resultsRank4;
-        });
-
-    // ttml::metal::layernorm_fw only accepts rank-4 tensors. Other composites
-    // are unaffected by this decomposition.
+    // The ttml::metal SDPA and layernorm_fw ops only accept rank-4 tensors.
+    // Other composites are unaffected by this decomposition.
     target.addDynamicallyLegalOp<ttcore::CompositeOp>(
         [&](ttcore::CompositeOp op) {
-          if (op.getCompositeName() != "layernorm_fw") {
+          StringRef compositeName = op.getCompositeName();
+          if (compositeName != "sdpa_fw" && compositeName != "sdpa_bw" &&
+              compositeName != "layernorm_fw") {
             return true;
           }
           bool operandsRank4 = llvm::all_of(op.getInputs(), [&](Value input) {

@@ -8,7 +8,7 @@ from conftest import get_request_kwargs
 from typing import Callable, List, Optional, Tuple
 from collections import OrderedDict
 
-from ttmlir.ir import DictAttr, FloatAttr, StringAttr
+from ttmlir.ir import DictAttr, FloatAttr, IntegerAttr, IntegerType, StringAttr
 from ttmlir.dialects import stablehlo
 
 from builder.base.builder_utils import Operand, Shape
@@ -276,6 +276,95 @@ def module_layernorm_fw_composite(builder: StableHLOBuilder):
             "tenstorrent.layernorm_fw",
             [input, weight, bias],
             decomposition=layernorm_fw_impl,
+            composite_attributes=composite_attributes,
+            unit_attrs=unit_attrs,
+        )
+
+
+def module_sdpa_fw_composite(builder: StableHLOBuilder):
+    shape = (1, 8, 64, 64)
+
+    @builder.func([shape, shape, shape], [torch.bfloat16] * 3)
+    def sdpa_fw_impl(
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return query
+
+    sdpa_fw_impl.sym_visibility = StringAttr.get("private")
+    builder._nested_funcs.append(sdpa_fw_impl.name.value)
+
+    @builder.func([shape, shape, shape], [torch.bfloat16] * 3)
+    def sdpa_fw(
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        composite_attributes = DictAttr.get(
+            {
+                "mask_type": IntegerAttr.get(IntegerType.get_signless(32), 1),
+                "dropout_probability": FloatAttr.get_f32(0.0),
+            }
+        )
+        return builder.composite(
+            "tenstorrent.sdpa_fw",
+            [query, key, value],
+            decomposition=sdpa_fw_impl,
+            composite_attributes=composite_attributes,
+            unit_attrs=unit_attrs,
+        )
+
+
+def module_sdpa_bw_composite(builder: StableHLOBuilder):
+    shape = (1, 8, 64, 64)
+    intermediates_shape = (1, 8, 64, 32)
+    input_shapes = [shape, shape, shape, shape, shape, intermediates_shape]
+    input_types = [torch.bfloat16] * 5 + [torch.float32]
+
+    @builder.func(input_shapes, input_types)
+    def sdpa_bw_impl(
+        grad_output: Operand,
+        attn_output: Operand,
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        intermediates: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return query, key, value
+
+    sdpa_bw_impl.sym_visibility = StringAttr.get("private")
+    builder._nested_funcs.append(sdpa_bw_impl.name.value)
+
+    @builder.func(input_shapes, input_types)
+    def sdpa_bw(
+        grad_output: Operand,
+        attn_output: Operand,
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        intermediates: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        composite_attributes = DictAttr.get(
+            {
+                "mask_type": IntegerAttr.get(IntegerType.get_signless(32), 1),
+                "dropout_probability": FloatAttr.get_f32(0.0),
+            }
+        )
+        return builder.composite(
+            "tenstorrent.sdpa_bw",
+            [grad_output, attn_output, query, key, value, intermediates],
+            decomposition=sdpa_bw_impl,
             composite_attributes=composite_attributes,
             unit_attrs=unit_attrs,
         )
@@ -2298,6 +2387,28 @@ def test_composite_op(target: str, request, device):
 def test_layernorm_fw_composite(target: str, request, device):
     compile_and_execute_shlo(
         module_layernorm_fw_composite,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_sdpa_fw_composite(target: str, request, device):
+    compile_and_execute_shlo(
+        module_sdpa_fw_composite,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_sdpa_bw_composite(target: str, request, device):
+    compile_and_execute_shlo(
+        module_sdpa_bw_composite,
         **get_request_kwargs(request),
         target=target,
         device=device,
