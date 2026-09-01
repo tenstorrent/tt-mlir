@@ -6,8 +6,8 @@
 // RUN: ttmlir-opt --ttcore-register-device --ttnn-resolve-composites="composite-resolution=force-promote" --split-input-file %s | FileCheck %s --check-prefix=PROMOTE
 
 // Resolution of the `minimal_matmul_strided_reduce_scatter_async` composite.
-// A 2D `[M, K]` activation must be unsqueezed to rank 4 before the typed
-// ttnn op (tt-metal indexes scatter dim 3) and the result squeezed back.
+// Rank-4 pad is a runtime view (`ttnn.unsqueeze`), not a compiler reshape.
+// CCL knobs are left unset for the runtime to fill like metal Wan.
 
 // INLINE-LABEL: func.func @rank2_matmul_reduce_scatter
 // INLINE-NOT: ttcore.composite
@@ -16,12 +16,9 @@
 // INLINE: "ttir.reduce_scatter"
 
 // PROMOTE-LABEL: func.func @rank2_matmul_reduce_scatter
-// PROMOTE: "ttnn.reshape"
-// PROMOTE-SAME: shape = [1 : i32, 1 : i32, 32 : i32, 128 : i32]
+// PROMOTE-NOT: "ttnn.reshape"
 // PROMOTE: "ttnn.minimal_matmul_strided_reduce_scatter_async"
-// PROMOTE-SAME: dim = 3
-// PROMOTE: "ttnn.reshape"
-// PROMOTE-SAME: shape = [32 : i32, 32 : i32]
+// PROMOTE-SAME: dim = 1
 func.func @rank2_matmul_reduce_scatter(%x: tensor<32x128xbf16>, %w: tensor<128x64xbf16>)
     -> tensor<32x32xbf16> {
   %dev = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device

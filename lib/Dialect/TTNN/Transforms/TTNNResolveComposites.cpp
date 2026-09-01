@@ -7,7 +7,6 @@
 #include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -223,56 +222,21 @@ static void registerBuiltinComposites() {
         Value device =
             ttnn::utils::getOrInsertDevice(rewriter, compositeOp).getResult();
 
-        // tt-metal's kernel indexes scatter dim 3 of a rank-4 activation
-        // (`shape[3]`). DiT/Wan fuse a 2D `[M, K]` matmul. Unsqueeze leading
-        // unit dims so the typed op is always rank 4 with dim = 3, then
-        // reshape the result back to the composite type.
-        constexpr int64_t kMetalRank = 4;
-        constexpr int32_t kMetalScatterDim = 3;
-        auto typeWithShape = [](RankedTensorType type,
-                                   ArrayRef<int64_t> newShape) {
-          if (type.getEncoding()) {
-            return utils::RankedTensorTypeFactory::create(type, newShape);
-          }
-          return RankedTensorType::get(newShape, type.getElementType());
-        };
-        auto unsqueezeToRank = [&](Value v) -> Value {
-          if (!v) {
-            return v;
-          }
-          auto type = mlir::cast<RankedTensorType>(v.getType());
-          if (type.getRank() >= kMetalRank) {
-            return v;
-          }
-          SmallVector<int64_t> newShape(kMetalRank - type.getRank(), 1);
-          newShape.append(type.getShape().begin(), type.getShape().end());
-          RankedTensorType newType = typeWithShape(type, newShape);
-          SmallVector<int32_t> shapeAttr(newShape.begin(), newShape.end());
-          return rewriter
-              .create<ReshapeOp>(loc, newType, v,
-                                 rewriter.getI32ArrayAttr(shapeAttr))
-              .getResult();
-        };
-
-        input = unsqueezeToRank(input);
-        addcmulInput1 = unsqueezeToRank(addcmulInput1);
-        addcmulInput2 = unsqueezeToRank(addcmulInput2);
-
-        auto origResultType =
-            mlir::cast<RankedTensorType>(compositeOp.getResult(0).getType());
-        Type fusedResultType = origResultType;
-        bool squeezeResult = origResultType.getRank() < kMetalRank;
-        if (squeezeResult) {
-          SmallVector<int64_t> newShape(kMetalRank - origResultType.getRank(),
-                                         1);
-          newShape.append(origResultType.getShape().begin(),
-                          origResultType.getShape().end());
-          fusedResultType = typeWithShape(origResultType, newShape);
-        }
-
-        auto fused = rewriter.create<MinimalMatmulStridedReduceScatterAsyncOp>(
-            loc, TypeRange{fusedResultType}, input, weight, bias, addcmulInput1,
-            addcmulInput2,
+        // Rank-4 is a metal kernel requirement (`shape[3]`), not a compiler
+        // layout. Wan uses `ttnn.unsqueeze` (a view) then `squeeze`. Inserting
+        // `ttnn.reshape` here materializes a DRAM sandwich around an
+        // OpModelExempt op. Leave the 2D `[M, K]` activation as-is; the
+        // runtime unsqueezes leading 1s before the kernel. Scatter along the
+        // last axis (`-1` / composite `scatter_dim`).
+        //
+        // Leave `num_links` / workers / buffers unset. Metal Wan fills them
+        // from `get_fused_mmrs_config` + `ccl_manager.num_links`; the runtime
+        // does the same. Hardcoding `1` under-provisions RS workers (deadlock
+        // risk) and kills overlap (`num_buffers_per_channel=None` in the
+        // MMRS table, not AGMM's 24/48).
+        return rewriter.create<MinimalMatmulStridedReduceScatterAsyncOp>(
+            loc, compositeOp.getResultTypes(), input, weight, bias,
+            addcmulInput1, addcmulInput2,
             /*multi_device_semaphore=*/ValueRange{},
             /*barrier_semaphore=*/Value(), device, clusterAxis, scalar,
             // The kernel only supports Ring topology, so pin it here. The mesh
@@ -284,18 +248,10 @@ static void registerBuiltinComposites() {
             /*num_links=*/IntegerAttr(), /*memory_config=*/MemoryConfigAttr(),
             /*dtype=*/ttcore::DataTypeAttr(),
             /*compute_config=*/DeviceComputeKernelConfigAttr(),
-            /*num_workers_per_link=*/1u, /*num_buffers_per_channel=*/1u,
-            /*dim=*/kMetalScatterDim);
-
-        if (!squeezeResult) {
-          return fused;
-        }
-        SmallVector<int32_t> origShapeAttr(origResultType.getShape().begin(),
-                                           origResultType.getShape().end());
-        return rewriter
-            .create<ReshapeOp>(loc, origResultType, fused.getResult(0),
-                               rewriter.getI32ArrayAttr(origShapeAttr))
-            .getOperation();
+            /*num_workers_per_link=*/IntegerAttr(),
+            /*num_buffers_per_channel=*/IntegerAttr(),
+            /*dim=*/static_cast<int32_t>(
+                scatterDim.getValue().getSExtValue()));
       },
       /*promotionGuard=*/nullptr};
 }

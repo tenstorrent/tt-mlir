@@ -52,8 +52,8 @@ table MinimalMatmulStridedReduceScatterAsyncOp {
   memory_config: tt.target.ttnn.MemoryConfig;
   dtype: tt.target.DataType = null;
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
-  num_workers_per_link: uint32;
-  num_buffers_per_channel: uint32;
+  num_workers_per_link: uint32 = null;
+  num_buffers_per_channel: uint32 = null;
   dim: int32;
   outputs: [tt.target.ttnn.TensorRef];
 }

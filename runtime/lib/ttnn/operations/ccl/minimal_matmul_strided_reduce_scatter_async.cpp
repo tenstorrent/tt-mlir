@@ -13,10 +13,14 @@
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
 #include "ttnn/operations/experimental/ccl/minimal_matmul_strided_reduce_scatter_async/minimal_matmul_strided_reduce_scatter_async.hpp"
 #include "ttnn/operations/experimental/minimal_matmul/device/minimal_matmul_device_operation_types.hpp"
+#include "ttnn/operations/data_movement/squeeze/squeeze.hpp"
+#include "ttnn/operations/data_movement/unsqueeze/unsqueeze.hpp"
 
 #include <tt-metalium/constants.hpp>
 
 #include <algorithm>
+#include <cstdint>
+#include <optional>
 
 namespace tt::runtime::ttnn::operations::ccl {
 
@@ -32,16 +36,53 @@ uint32_t largestDivisorAtMost(uint32_t value, uint32_t cap) {
   }
   return 1;
 }
+
+// Metal Wan `RowParallelLinear` uses `ttnn.unsqueeze` (a view) so the kernel
+// can index scatter dim 3. Loop until rank 4 to cover 2D DiT activations.
+::ttnn::Tensor unsqueezeToRank4(::ttnn::Tensor tensor) {
+  while (tensor.logical_shape().rank() < 4) {
+    tensor = ::ttnn::unsqueeze(tensor, 0);
+  }
+  return tensor;
+}
+
+::ttnn::Tensor squeezeToRank(::ttnn::Tensor tensor, size_t rank) {
+  while (tensor.logical_shape().rank() > rank) {
+    tensor = ::ttnn::squeeze(tensor, 0);
+  }
+  return tensor;
+}
+
+// `ccl_manager.num_links` in metal Wan tests: BH Galaxy ring = 2, WH 4x8
+// ring = 4. Smaller meshes use 1. Same heuristic as AGMM 6a.
+uint32_t defaultNumLinks(const ::ttnn::MeshDevice &mesh) {
+  if (mesh.num_devices() < 32) {
+    return 1;
+  }
+  return mesh.arch() == ::tt::ARCH::BLACKHOLE ? 2u : 4u;
+}
+
+// `FusedMMRSConfig.get_params`: workers = rs_zone // (2 * num_links) - 1
+// where rs_zone is the cores below the matmul grid.
+uint32_t defaultWorkersPerLink(uint32_t rsZoneCapacity, uint32_t numLinks) {
+  uint32_t denom = 2 * std::max(numLinks, 1u);
+  if (rsZoneCapacity / denom < 2) {
+    return 1;
+  }
+  return rsZoneCapacity / denom - 1;
+}
 } // namespace
 
 void run(const ::tt::target::ttnn::MinimalMatmulStridedReduceScatterAsyncOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Tensor &input =
+  const ::ttnn::Tensor &inputIn =
       tensorPool.getTTNNTensorAndValidate(op->input());
   const ::ttnn::Tensor &weight =
       tensorPool.getTTNNTensorAndValidate(op->weight());
+  const size_t origInputRank = inputIn.logical_shape().rank();
+  ::ttnn::Tensor input = unsqueezeToRank4(inputIn);
 
   std::optional<::ttnn::Tensor> bias = std::nullopt;
   if (op->bias()) {
@@ -50,12 +91,14 @@ void run(const ::tt::target::ttnn::MinimalMatmulStridedReduceScatterAsyncOp *op,
 
   std::optional<::ttnn::Tensor> addcmulInput1 = std::nullopt;
   if (op->addcmul_input1()) {
-    addcmulInput1 = tensorPool.getTTNNTensorAndValidate(op->addcmul_input1());
+    addcmulInput1 = unsqueezeToRank4(
+        tensorPool.getTTNNTensorAndValidate(op->addcmul_input1()));
   }
 
   std::optional<::ttnn::Tensor> addcmulInput2 = std::nullopt;
   if (op->addcmul_input2()) {
-    addcmulInput2 = tensorPool.getTTNNTensorAndValidate(op->addcmul_input2());
+    addcmulInput2 = unsqueezeToRank4(
+        tensorPool.getTTNNTensorAndValidate(op->addcmul_input2()));
   }
 
   std::optional<float> scalar = std::nullopt;
@@ -95,7 +138,8 @@ void run(const ::tt::target::ttnn::MinimalMatmulStridedReduceScatterAsyncOp *op,
     dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*op->dtype());
   }
 
-  uint32_t numLinks = op->num_links() ? op->num_links().value() : 1;
+  uint32_t numLinks = op->num_links() ? op->num_links().value()
+                                      : defaultNumLinks(context.getMeshDevice());
 
   std::optional<uint32_t> clusterAxis = std::nullopt;
   if (op->cluster_axis()) {
@@ -188,21 +232,37 @@ void run(const ::tt::target::ttnn::MinimalMatmulStridedReduceScatterAsyncOp *op,
   // (offset convention from tt-metal's test: CoreCoord(0, mm_core_grid.y)).
   ::ttnn::CoreCoord reduceScatterCoreGridOffset{0, mmCoresY};
 
+  // Metal Wan `FusedMMRSConfig.get_params` (not the AGMM ColParallelLinear
+  // knobs). Mux cores are `2 * num_links`; drop links until that split fits
+  // the RS zone and workers stay >= 1. `num_buffers_per_channel` is None in
+  // the MMRS tables — pass nullopt unless the compiler set it. Do not pass
+  // nullopt for workers: the C++ wrapper does `value_or(1)` and that
+  // under-provisions the RS (deadlock / no overlap).
+  uint32_t rsZoneCapacity = (gridY - mmCoresY) * gridX;
+  while (numLinks > 1 && rsZoneCapacity / (2 * numLinks) < 2) {
+    --numLinks;
+  }
+  std::optional<uint32_t> numWorkersPerLink =
+      op->num_workers_per_link()
+          ? std::optional<uint32_t>(op->num_workers_per_link().value())
+          : std::optional<uint32_t>(
+                defaultWorkersPerLink(rsZoneCapacity, numLinks));
+  std::optional<uint32_t> numBuffersPerChannel = std::nullopt;
+  if (op->num_buffers_per_channel()) {
+    numBuffersPerChannel = op->num_buffers_per_channel().value();
+  }
+
   std::vector<::ttnn::Tensor> outputs =
       ::ttnn::experimental::minimal_matmul_strided_reduce_scatter_async(
-          input, weight, static_cast<uint32_t>(op->dim()), multiDeviceSemaphore,
+          input, weight, /*dim=*/3u, multiDeviceSemaphore,
           reduceScatterCoreGridOffset, computeKernelConfig, numLinks,
           /*memory_config_mm=*/std::nullopt,
           /*rs_output_mem_config=*/memoryConfig,
           /*rs_intermediate_mem_config=*/std::nullopt, topology, clusterAxis,
           bias, /*fused_activation=*/std::nullopt, matmulConfig,
           barrierSemaphore, /*using_persistent_buffers=*/false,
-          /*sub_device_id=*/std::nullopt,
-          // Pass nullopt so tt-metal computes its own RS worker/buffer counts,
-          // matching how its reference test invokes the kernel (forcing these
-          // to 1 under-provisions the RS workers and deadlocks).
-          /*num_workers_per_link=*/std::nullopt,
-          /*num_buffers_per_channel=*/std::nullopt,
+          /*sub_device_id=*/std::nullopt, numWorkersPerLink,
+          numBuffersPerChannel,
           /*chunk_width_in_mm_blocks=*/std::make_optional(chunkWidthInMmBlocks),
           /*optional_rs_output_tensor=*/std::nullopt,
           /*fused_ternary_scalar=*/scalar, addcmulInput1, addcmulInput2, dtype);
@@ -221,6 +281,7 @@ void run(const ::tt::target::ttnn::MinimalMatmulStridedReduceScatterAsyncOp *op,
              "minimal_matmul_strided_reduce_scatter_async flatbuffer expects 1 "
              "output, got ",
              outputRefs->size());
-  tensorPool.insertTTNNTensorAndValidate(outputRefs->Get(0), outputs.back());
+  tensorPool.insertTTNNTensorAndValidate(
+      outputRefs->Get(0), squeezeToRank(outputs.back(), origInputRank));
 }
 } // namespace tt::runtime::ttnn::operations::ccl

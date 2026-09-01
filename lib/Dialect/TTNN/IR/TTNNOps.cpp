@@ -3214,21 +3214,23 @@ void MoeComputeOp::allocateSemaphores(::mlir::RewriterBase &rewriter) {}
   RankedTensorType inputType = getInput().getType();
   RankedTensorType weightType = getWeight().getType();
 
-  if (inputType.getRank() != 4) {
+  if (inputType.getRank() < 2 || inputType.getRank() > 4) {
     return emitOpError(
-        "input tensor must have rank 4 (tt-metal indexes scatter dim 3)");
+        "input tensor must have rank 2, 3, or 4 (the runtime unsqueezes "
+        "leading unit dims to rank 4 so tt-metal can index scatter dim 3)");
   }
   if (weightType.getRank() < 2) {
     return emitOpError("weight tensor must have rank >= 2");
   }
 
   int32_t dim = getDim();
+  int64_t rank = inputType.getRank();
   if (dim < 0) {
-    dim += inputType.getRank();
+    dim += rank;
   }
-  if (dim != 3) {
-    return emitOpError("scatter dim must be 3 (last axis of the rank-4 "
-                       "activation), got ")
+  if (dim != rank - 1) {
+    return emitOpError("scatter dim must be the last axis of the activation "
+                       "(tt-metal indexes dim 3 after unsqueeze-to-4D), got ")
            << getDim();
   }
 

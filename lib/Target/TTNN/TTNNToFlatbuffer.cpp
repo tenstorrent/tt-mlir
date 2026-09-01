@@ -1219,6 +1219,9 @@ createOp(FlatbufferObjectCache &cache,
                  : std::nullopt);
   auto topology = toFlatbuffer(cache, op.getTopology());
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
+  auto numWorkersPerLink = toFlatbuffer(cache, op.getNumWorkersPerLink());
+  auto numBuffersPerChannel =
+      toFlatbuffer(cache, op.getNumBuffersPerChannel());
   // `memory_config` is schema-optional; skip serialization when unset so we do
   // not dereference a null MemoryConfigAttr in toFlatbuffer.
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
@@ -1245,7 +1248,7 @@ createOp(FlatbufferObjectCache &cache,
           *cache.fbb, input, weight, bias, addcmulInput1, addcmulInput2,
           &multiDeviceSemaphore, barrierSemaphore, clusterAxis, scalar,
           topology, numLinks, memoryConfig, dtype, computeConfig,
-          op.getNumWorkersPerLink(), op.getNumBuffersPerChannel(), op.getDim(),
+          numWorkersPerLink, numBuffersPerChannel, op.getDim(),
           &outputs);
 }
 

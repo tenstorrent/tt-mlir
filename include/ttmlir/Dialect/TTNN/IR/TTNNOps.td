@@ -3305,9 +3305,13 @@ def TTNN_MinimalMatmulStridedReduceScatterAsyncOp: TTNN_Op<"minimal_matmul_strid
       The async collective is synchronized by the `multi_device_semaphore`
       global semaphores and `barrier_semaphore`; left unbound, these are
       materialized by `TTNNAllocateDistributedOpSemaphores` via the
-      `DistributedOpInterface`. `fused_activation`, `MinimalMatmulConfig`,
-      persistent buffers, and the reduce-scatter core-grid offset use tt-metal
-      defaults.
+      `DistributedOpInterface`. Rank-4 / scatter dim 3 is applied at
+      runtime as a view (`unsqueeze`), matching metal Wan. `num_links`,
+      `num_workers_per_link`, and `num_buffers_per_channel` are optional;
+      when unset the runtime fills them like `get_fused_mmrs_config`
+      (`num_buffers_per_channel` stays unset / metal `None`).
+      `fused_activation`, `MinimalMatmulConfig`, persistent buffers, and the
+      reduce-scatter core-grid offset use tt-metal defaults.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
@@ -3325,9 +3329,9 @@ def TTNN_MinimalMatmulStridedReduceScatterAsyncOp: TTNN_Op<"minimal_matmul_strid
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                          OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
-                         DefaultValuedAttr<UI32Attr, "1">:$num_workers_per_link,
-                         DefaultValuedAttr<UI32Attr, "1">:$num_buffers_per_channel,
-                         DefaultValuedAttr<SI32Attr, "0">:$dim);
+                         OptionalAttr<UI32Attr>:$num_workers_per_link,
+                         OptionalAttr<UI32Attr>:$num_buffers_per_channel,
+                         DefaultValuedAttr<SI32Attr, "-1">:$dim);
 
     let results = (outs Variadic<AnyRankedTensor>:$results);
 
