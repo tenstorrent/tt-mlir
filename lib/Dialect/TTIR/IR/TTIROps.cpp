@@ -3838,6 +3838,7 @@ template <typename OpTy>
 mlir::tt::ttir::SqueezeOp::canonicalize(mlir::tt::ttir::SqueezeOp op,
                                         ::mlir::PatternRewriter &rewriter) {
   // Rewrite `ttir.squeeze` as `ttir.reshape`.
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
   return normalizeToReshape(op, rewriter);
 }
 
@@ -4184,6 +4185,7 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
 mlir::tt::ttir::UnsqueezeOp::canonicalize(mlir::tt::ttir::UnsqueezeOp op,
                                           ::mlir::PatternRewriter &rewriter) {
   // Rewrite `ttir.unsqueeze` as `ttir.reshape`.
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
   return normalizeToReshape(op, rewriter);
 }
 
