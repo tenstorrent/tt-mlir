@@ -7,11 +7,13 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 
 #include "ttmlir/Asserts.h"
@@ -287,6 +289,81 @@ static void registerBuiltinComposites() {
         }
         ttcore::Arch arch = sysDesc.getChipDesc(0).getArch().getValue();
         return success(arch == ttcore::Arch::Blackhole);
+      }};
+
+  registry["minimal_matmul_strided_reduce_scatter_async"] = CompositeEntry{
+      // Validate — the fused collective op is OpModelExempt, so there are no
+      // op-model constraints to check; it is always promotable.
+      [](ttcore::CompositeOp, OpBuilder &) -> OpValidationResult {
+        return OpValidationResult::success();
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        DictionaryAttr attrs =
+            compositeOp.getCompositeAttributes().value_or(nullptr);
+        TT_assert(attrs);
+
+        auto readBool = [&](StringRef name) -> bool {
+          auto a = attrs.getAs<BoolAttr>(name);
+          return a && a.getValue();
+        };
+        bool hasBias = readBool("has_bias");
+        bool hasAddcmul = readBool("has_addcmul");
+
+        // Recover operands using the presence flags. Input order mirrors the
+        // composite: input, weight, [bias], [addcmul_input1, addcmul_input2].
+        auto inputs = compositeOp.getInputs();
+        Value input = inputs[0];
+        Value weight = inputs[1];
+        unsigned idx = 2;
+        Value bias = hasBias ? inputs[idx++] : Value();
+        Value addcmulInput1 = hasAddcmul ? inputs[idx++] : Value();
+        Value addcmulInput2 = hasAddcmul ? inputs[idx++] : Value();
+
+        auto clusterAxis = attrs.getAs<IntegerAttr>("cluster_axis");
+        auto scatterDim = attrs.getAs<IntegerAttr>("scatter_dim");
+        TT_assert(scatterDim);
+        FloatAttr scalar =
+            hasAddcmul ? attrs.getAs<FloatAttr>("scalar") : FloatAttr();
+
+        // The tt-metal kernel asserts the scatter targets dim 3, so
+        // canonicalize the last-axis index (all the fusing pattern matches) to
+        // 3.
+        constexpr int32_t kMetalScatterDim = 3;
+        int64_t rank =
+            mlir::cast<RankedTensorType>(compositeOp.getResult(0).getType())
+                .getRank();
+        int64_t scatterDimValue = scatterDim.getValue().getSExtValue();
+        if (scatterDimValue < 0) {
+          scatterDimValue += rank;
+        }
+        int32_t dim = scatterDimValue == rank - 1
+                          ? kMetalScatterDim
+                          : static_cast<int32_t>(scatterDimValue);
+
+        // The typed op needs a device handle; semaphores are left unbound and
+        // materialized later by TTNNAllocateDistributedOpSemaphores.
+        IRRewriter rewriter(builder.getContext());
+        rewriter.setInsertionPoint(compositeOp);
+        Value device =
+            ttnn::utils::getOrInsertDevice(rewriter, compositeOp).getResult();
+
+        return rewriter.create<MinimalMatmulStridedReduceScatterAsyncOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(), input, weight,
+            bias, addcmulInput1, addcmulInput2,
+            /*multi_device_semaphore=*/ValueRange{},
+            /*barrier_semaphore=*/Value(), device, clusterAxis, scalar,
+            // The kernel only supports Ring topology, so pin it here. The mesh
+            // must therefore be opened with a ring fabric (FABRIC_1D_RING) or
+            // it deadlocks.
+            /*topology=*/
+            ttcore::TopologyAttr::get(builder.getContext(),
+                                      ttcore::Topology::Ring),
+            /*num_links=*/IntegerAttr(), /*memory_config=*/MemoryConfigAttr(),
+            /*dtype=*/ttcore::DataTypeAttr(),
+            /*compute_config=*/DeviceComputeKernelConfigAttr(),
+            /*num_workers_per_link=*/1u, /*num_buffers_per_channel=*/1u,
+            /*dim=*/dim);
       }};
 }
 
