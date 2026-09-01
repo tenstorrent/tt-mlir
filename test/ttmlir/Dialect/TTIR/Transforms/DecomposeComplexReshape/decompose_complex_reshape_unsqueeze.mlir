@@ -1,7 +1,6 @@
 // RUN: ttmlir-opt --canonicalize --ttir-decompose-complex-reshape %s | FileCheck %s
 
-// The unsqueeze version of @singleton_transpose_append_trailing_one from decompose_complex_reshape.mlir.
-// Separate file because --canonicalize folds away the identity reshape that file's @no_transform_identity needs.
+// The unsqueeze version of @singleton_transpose_add_trailing_1_rank_increase from decompose_complex_reshape.mlir.
 // CHECK-LABEL: @singleton_transpose_from_unsqueeze
 // CHECK: %[[RESHAPE:.*]] = "ttir.reshape"(%arg0)
 // CHECK-SAME: (tensor<128xf32>) -> tensor<1x128xf32>
