@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // RUN: ttmlir-opt --ttir-fusing %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-fusing='enable-all-gather-matmul-fusion=false' %s | FileCheck %s --check-prefix=NOAGMM
 
 // Fuses an all_gather feeding a matmul/linear (optionally with a gated-residual
 // addcmul epilogue) at the TTIR level into a
@@ -21,6 +22,10 @@
 // CHECK-SAME: has_addcmul = false
 // CHECK-SAME: has_bias = false
 // CHECK-SAME: composite_name = "all_gather_minimal_matmul_async"
+// NOAGMM-LABEL: func.func @all_gather_matmul
+// NOAGMM: "ttir.all_gather"
+// NOAGMM: "ttir.matmul"
+// NOAGMM-NOT: ttcore.composite
 func.func @all_gather_matmul(%x: tensor<32x128xbf16>, %w: tensor<512x64xbf16>)
     -> tensor<32x64xbf16> {
   %0 = "ttir.all_gather"(%x) <{all_gather_dim = 1 : si32, cluster_axis = 1 : ui32}> : (tensor<32x128xbf16>) -> tensor<32x512xbf16>

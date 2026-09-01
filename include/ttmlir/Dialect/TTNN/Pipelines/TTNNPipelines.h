@@ -366,6 +366,15 @@ struct TTIRToTTNNCommonPipelineOptions
           "Fuse permute ops into matmul/linear transpose attributes."),
       llvm::cl::init(false)};
 
+  // Fuse last-axis all_gather + matmul/linear into
+  // all_gather_minimal_matmul_async. Default on; disable to A/B against
+  // unfused all_gather + linear.
+  Option<bool> enableAllGatherMatmulFusion{
+      *this, "enable-all-gather-matmul-fusion",
+      llvm::cl::desc("Fuse last-axis all_gather + matmul/linear into "
+                     "all_gather_minimal_matmul_async."),
+      llvm::cl::init(true)};
+
   // Push a matmul/linear output slice into the operand producing the sliced
   // dim so the op only computes the rows/columns that are used.
   Option<bool> enablePermuteSliceAfterMatmulFusion{

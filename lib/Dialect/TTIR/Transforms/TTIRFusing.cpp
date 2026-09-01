@@ -3683,11 +3683,13 @@ public:
       patterns.add<fusing::SDPAFusingPattern>(&getContext());
       patterns.add<fusing::TopKFusingPattern>(&getContext());
 
-      patterns.add<fusing::AllGatherMatmulFusing<MatmulOp>,
-                   fusing::AllGatherMatmulFusing<LinearOp>,
-                   fusing::AllGatherMatmulAddcmulFusing<MatmulOp>,
-                   fusing::AllGatherMatmulAddcmulFusing<LinearOp>>(
-          &getContext());
+      if (allGatherMatmulEnabled) {
+        patterns.add<fusing::AllGatherMatmulFusing<MatmulOp>,
+                     fusing::AllGatherMatmulFusing<LinearOp>,
+                     fusing::AllGatherMatmulAddcmulFusing<MatmulOp>,
+                     fusing::AllGatherMatmulAddcmulFusing<LinearOp>>(
+            &getContext());
+      }
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
