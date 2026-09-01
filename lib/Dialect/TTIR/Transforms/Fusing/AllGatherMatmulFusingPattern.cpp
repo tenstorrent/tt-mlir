@@ -16,6 +16,7 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <atomic>
+#include <numeric>
 #include <type_traits>
 
 namespace mlir::tt::ttir::fusing {
@@ -54,10 +55,10 @@ bool gathersLastAxis(AllGatherOp allGatherOp) {
 }
 
 // True if `v` is a per-channel (row-broadcast) tensor: every dim except the
-// last is 1, e.g. `[1, N]`. The fused addcmul epilogue applies the gate
-// per-channel, broadcasting it across the row (M) dim; a full `[M, N]` gate
-// would be silently collapsed to its first row (see the addcmul pattern), so
-// only a row-broadcast gate may fuse.
+// last is 1, e.g. `[1, N]` or `[1, 1, N]`. The fused addcmul epilogue applies
+// the gate per-channel, broadcasting it across the row (M) dim; a full
+// `[M, N]` gate would be silently collapsed to its first row, so only a
+// row-broadcast gate may fuse.
 bool isRowBroadcast(mlir::Value v) {
   auto type = mlir::dyn_cast<RankedTensorType>(v.getType());
   if (!type) {
@@ -67,24 +68,128 @@ bool isRowBroadcast(mlir::Value v) {
                       [](int64_t dim) { return dim == 1; });
 }
 
+// True if `reshape` only inserts or removes a leading unit dimension, e.g.
+// `[M, N] <-> [1, M, N]`. DiT lowers the projection in 2D then unsqueezes
+// a batch dim before the gated residual; that reshape must not block addcmul.
+bool isLeadingUnitDimReshape(ReshapeOp reshapeOp) {
+  auto inType = mlir::dyn_cast<RankedTensorType>(reshapeOp.getInput().getType());
+  auto outType =
+      mlir::dyn_cast<RankedTensorType>(reshapeOp.getResult().getType());
+  if (!inType || !outType) {
+    return false;
+  }
+  ArrayRef<int64_t> inShape = inType.getShape();
+  ArrayRef<int64_t> outShape = outType.getShape();
+  if (outType.getRank() == inType.getRank() + 1 && outShape.front() == 1 &&
+      outShape.drop_front() == inShape) {
+    return true;
+  }
+  if (inType.getRank() == outType.getRank() + 1 && inShape.front() == 1 &&
+      inShape.drop_front() == outShape) {
+    return true;
+  }
+  return false;
+}
+
+// Skip a one-use leading-unit reshape so matchers see the 2D projection
+// underneath. Returns `v` unchanged when there is no such reshape.
+Value skipLeadingUnitReshape(Value v) {
+  auto reshapeOp = v.getDefiningOp<ReshapeOp>();
+  if (!reshapeOp || !reshapeOp.getResult().hasOneUse() ||
+      !isLeadingUnitDimReshape(reshapeOp)) {
+    return v;
+  }
+  return reshapeOp.getInput();
+}
+
 // True if this matmul/linear result flows into a gated-residual epilogue
-// (a multiply then an add), which the addcmul pattern folds in whole.
+// (optionally through a leading-unit reshape, then a multiply then an add),
+// which the addcmul pattern folds in whole.
 template <typename MatmulLikeOp>
 bool feedsGatedResidualEpilogue(MatmulLikeOp matmulOp) {
   if (!matmulOp.getResult().hasOneUse()) {
     return false;
   }
-  auto mulOp =
-      mlir::dyn_cast<MultiplyOp>(*matmulOp.getResult().getUsers().begin());
+  Operation *user = *matmulOp.getResult().getUsers().begin();
+  if (auto reshapeOp = mlir::dyn_cast<ReshapeOp>(user)) {
+    if (!isLeadingUnitDimReshape(reshapeOp) ||
+        !reshapeOp.getResult().hasOneUse()) {
+      return false;
+    }
+    user = *reshapeOp.getResult().getUsers().begin();
+  }
+  auto mulOp = mlir::dyn_cast<MultiplyOp>(user);
   if (!mulOp || !mulOp.getResult().hasOneUse()) {
     return false;
   }
   return mlir::isa<AddOp>(*mulOp.getResult().getUsers().begin());
 }
 
+// Swap the last two dims of `input` so a `transpose_b` weight `[N, K]` becomes
+// the `[K, N]` layout the fused kernel expects. Lives outside the composite
+// (and is typically const-eval'd for parameter weights).
+Value createTransposePermute(OpBuilder &builder, Location loc, Value input) {
+  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  int64_t rank = inputType.getRank();
+  SmallVector<int64_t> permutation(rank);
+  std::iota(permutation.begin(), permutation.end(), 0);
+  std::swap(permutation[rank - 2], permutation[rank - 1]);
+
+  SmallVector<int64_t> permutedShape(inputType.getShape());
+  std::swap(permutedShape[rank - 2], permutedShape[rank - 1]);
+  auto permutedType = RankedTensorType::get(
+      permutedShape, inputType.getElementType(), inputType.getEncoding());
+  return builder.create<PermuteOp>(loc, permutedType, input, permutation);
+}
+
+Value reshapeToType(OpBuilder &builder, Location loc, Value input,
+                     RankedTensorType resultType) {
+  if (input.getType() == resultType) {
+    return input;
+  }
+  SmallVector<int32_t> shapeI32(resultType.getShape().begin(),
+                                resultType.getShape().end());
+  return builder.create<ReshapeOp>(loc, resultType, input,
+                                    builder.getI32ArrayAttr(shapeI32));
+}
+
+// Squeeze leading unit dims until `v` has `targetRank`. Used to capture a
+// 3D residual/gate against a 2D projection without changing addcmul math.
+Value squeezeLeadingUnitToRank(OpBuilder &builder, Location loc, Value v,
+                                int64_t targetRank) {
+  auto type = mlir::cast<RankedTensorType>(v.getType());
+  if (type.getRank() == targetRank) {
+    return v;
+  }
+  if (type.getRank() < targetRank) {
+    return Value();
+  }
+  ArrayRef<int64_t> shape = type.getShape();
+  int64_t leading = type.getRank() - targetRank;
+  if (!llvm::all_of(shape.take_front(leading),
+                     [](int64_t dim) { return dim == 1; })) {
+    return Value();
+  }
+  auto squeezedType =
+      RankedTensorType::get(shape.drop_front(leading), type.getElementType(),
+                             type.getEncoding());
+  return reshapeToType(builder, loc, v, squeezedType);
+}
+
+void clearTransposeAttrs(Operation *op) {
+  if (auto matmulOp = mlir::dyn_cast<MatmulOp>(op)) {
+    matmulOp.setTransposeA(false);
+    matmulOp.setTransposeB(false);
+  } else if (auto linearOp = mlir::dyn_cast<LinearOp>(op)) {
+    linearOp.setTransposeA(false);
+    linearOp.setTransposeB(false);
+  }
+}
+
 func::FuncOp buildDecompositionFunc(OpBuilder &builder, Location loc,
                                     ArrayRef<Value> captures,
-                                    ArrayRef<Operation *> ops,
+                                    AllGatherOp allGatherOp, Operation *projOp,
+                                    bool clearProjTranspose, bool hasAddcmul,
                                     Type resultType) {
   auto argTypes =
       llvm::map_to_vector(captures, [](Value v) { return v.getType(); });
@@ -98,20 +203,63 @@ func::FuncOp buildDecompositionFunc(OpBuilder &builder, Location loc,
   Block *block = funcOp.addEntryBlock();
   OpBuilder fb(block, block->end());
 
-  // Map each captured value to its matching block argument so cloned ops
-  // reference the function's arguments; clone() rewires chained results.
+  // Captures: input, weight, [bias], [residual, gate]. Map the original
+  // projection's A/B (and bias) onto those args so clone() rewires them even
+  // when the weight capture is a permute of the original B.
   IRMapping mapping;
-  for (auto [capture, arg] : llvm::zip(captures, block->getArguments())) {
-    mapping.map(capture, arg);
+  mapping.map(allGatherOp.getInput(), block->getArgument(0));
+  if (auto matmulOp = mlir::dyn_cast<MatmulOp>(projOp)) {
+    mapping.map(matmulOp.getB(), block->getArgument(1));
+  } else if (auto linearOp = mlir::dyn_cast<LinearOp>(projOp)) {
+    mapping.map(linearOp.getB(), block->getArgument(1));
+    if (linearOp.getBias()) {
+      mapping.map(linearOp.getBias(), block->getArgument(2));
+    }
   }
 
-  Operation *last = nullptr;
-  for (Operation *op : ops) {
-    last = fb.clone(*op, mapping);
+  Operation *clonedGather = fb.clone(*allGatherOp, mapping);
+  mapping.map(allGatherOp.getResult(), clonedGather->getResult(0));
+  Operation *clonedProj = fb.clone(*projOp, mapping);
+  if (clearProjTranspose) {
+    clearTransposeAttrs(clonedProj);
   }
 
-  fb.create<func::ReturnOp>(loc, last->getResults());
+  Value result = clonedProj->getResult(0);
+  if (hasAddcmul) {
+    // residual/gate are the last two captures; they are already squeezed to
+    // the projection rank so the fallback is a 2D mul+add.
+    unsigned residualIdx = captures.size() - 2;
+    Value residual = block->getArgument(residualIdx);
+    Value gate = block->getArgument(residualIdx + 1);
+    auto mulType = mlir::cast<RankedTensorType>(result.getType());
+    auto mulOp = fb.create<MultiplyOp>(loc, mulType, result, gate);
+    auto addOp = fb.create<AddOp>(loc, mulType, residual, mulOp.getResult());
+    result = addOp.getResult();
+  }
+
+  fb.create<func::ReturnOp>(loc, result);
   return funcOp;
+}
+
+SmallVector<NamedAttribute> buildCompositeAttrs(OpBuilder &rewriter,
+                                               AllGatherOp allGatherOp,
+                                               bool hasBias, bool hasAddcmul) {
+  mlir::MLIRContext *ctx = rewriter.getContext();
+  SmallVector<NamedAttribute> attrs;
+  attrs.emplace_back(
+      StringAttr::get(ctx, "all_gather_dim"),
+      rewriter.getSI32IntegerAttr(allGatherOp.getAllGatherDim()));
+  attrs.emplace_back(StringAttr::get(ctx, "cluster_axis"),
+                     rewriter.getUI32IntegerAttr(allGatherOp.getClusterAxis()));
+  attrs.emplace_back(StringAttr::get(ctx, "has_bias"),
+                     rewriter.getBoolAttr(hasBias));
+  attrs.emplace_back(StringAttr::get(ctx, "has_addcmul"),
+                     rewriter.getBoolAttr(hasAddcmul));
+  if (hasAddcmul) {
+    attrs.emplace_back(StringAttr::get(ctx, "scalar"),
+                       rewriter.getF32FloatAttr(kAddcmulScalar));
+  }
+  return attrs;
 }
 
 } // namespace
@@ -123,6 +271,8 @@ func::FuncOp buildDecompositionFunc(OpBuilder &builder, Location loc,
 // where `+ bias` applies only to the linear variant (matmul has no bias).
 // If a `residual + gate * proj` epilogue follows, defer to
 // AllGatherMatmulAddcmulFusing so the whole thing folds at once.
+// `transpose_b` is materialized as a permute of the weight to `[K, N]`;
+// `transpose_a` is rejected because the kernel gathers A's last dim.
 template <typename MatmulLikeOp>
 mlir::LogicalResult AllGatherMatmulFusing<MatmulLikeOp>::matchAndRewrite(
     MatmulLikeOp matmulOp, mlir::PatternRewriter &rewriter) const {
@@ -142,7 +292,7 @@ mlir::LogicalResult AllGatherMatmulFusing<MatmulLikeOp>::matchAndRewrite(
     return mlir::failure();
   }
 
-  if (matmulOp.getTransposeA() || matmulOp.getTransposeB()) {
+  if (matmulOp.getTransposeA()) {
     return mlir::failure();
   }
 
@@ -156,43 +306,42 @@ mlir::LogicalResult AllGatherMatmulFusing<MatmulLikeOp>::matchAndRewrite(
     bias = matmulOp.getBias();
   }
 
+  bool transposeB = matmulOp.getTransposeB();
+  Value weight = matmulOp.getB();
+  if (transposeB) {
+    auto weightType = mlir::cast<RankedTensorType>(weight.getType());
+    if (weightType.getRank() < 2) {
+      return mlir::failure();
+    }
+    rewriter.setInsertionPoint(matmulOp);
+    weight = createTransposePermute(rewriter, matmulOp.getLoc(), weight);
+  }
+
   auto projType = mlir::cast<RankedTensorType>(matmulOp.getResult().getType());
 
   // Captures feed the composite/decomposition in order: input, weight, [bias].
-  SmallVector<Value> captures{allGatherOp.getInput(), matmulOp.getB()};
+  SmallVector<Value> captures{allGatherOp.getInput(), weight};
   if (bias) {
     captures.push_back(bias);
   }
-  SmallVector<Operation *> ops{allGatherOp, matmulOp};
 
   Operation *anchor = matmulOp.getOperation();
   ModuleOp moduleOp = anchor->getParentOfType<ModuleOp>();
   OpBuilder moduleBuilder(moduleOp.getContext());
   moduleBuilder.setInsertionPointToEnd(moduleOp.getBody());
   func::FuncOp decompFunc = buildDecompositionFunc(
-      moduleBuilder, matmulOp.getLoc(), captures, ops, projType);
+      moduleBuilder, matmulOp.getLoc(), captures, allGatherOp, anchor,
+      /*clearProjTranspose=*/transposeB, /*hasAddcmul=*/false, projType);
   moduleBuilder.insert(decompFunc);
-
-  // Collective parameters and operand-presence flags travel on the composite so
-  // TTNNResolveComposites can rebuild the typed op without re-inspecting the
-  // IR.
-  mlir::MLIRContext *ctx = rewriter.getContext();
-  SmallVector<NamedAttribute> attrs;
-  attrs.emplace_back(
-      StringAttr::get(ctx, "all_gather_dim"),
-      rewriter.getSI32IntegerAttr(allGatherOp.getAllGatherDim()));
-  attrs.emplace_back(StringAttr::get(ctx, "cluster_axis"),
-                     rewriter.getUI32IntegerAttr(allGatherOp.getClusterAxis()));
-  attrs.emplace_back(StringAttr::get(ctx, "has_bias"),
-                     rewriter.getBoolAttr(bias != nullptr));
-  attrs.emplace_back(StringAttr::get(ctx, "has_addcmul"),
-                     rewriter.getBoolAttr(false));
 
   rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
       anchor, TypeRange{projType}, captures,
       rewriter.getStringAttr(kCompositeName),
-      FlatSymbolRefAttr::get(ctx, decompFunc.getName()),
-      DictionaryAttr::get(ctx, attrs));
+      FlatSymbolRefAttr::get(rewriter.getContext(), decompFunc.getName()),
+      DictionaryAttr::get(rewriter.getContext(),
+                           buildCompositeAttrs(rewriter, allGatherOp,
+                                               bias != nullptr,
+                                               /*hasAddcmul=*/false)));
   return mlir::success();
 }
 
@@ -210,9 +359,9 @@ mlir::LogicalResult AllGatherMatmulAddcmulFusing<MatmulLikeOp>::matchAndRewrite(
   //   where proj = matmul(all_gather(input), weight) + bias
   //   (`+ bias` applies only to the linear variant; matmul has no bias)
   //
-  // walking backwards from the anchor `add`:  add -> multiply -> matmul ->
-  // all_gather. Both the add and the multiply are commutative, so we try each
-  // operand order.
+  // walking backwards from the anchor `add`:  add -> multiply ->
+  // [leading-unit reshape] -> matmul -> all_gather. Both the add and the
+  // multiply are commutative, so we try each operand order.
   //
   // This maps to tt-metal's `addcmul` epilogue, whose fixed formula is
   //
@@ -237,11 +386,16 @@ mlir::LogicalResult AllGatherMatmulAddcmulFusing<MatmulLikeOp>::matchAndRewrite(
     return mlir::failure();
   }
 
-  // multiply: one operand is the projection, the other is the gate.
-  MatmulLikeOp projOp = gateMulOp.getLhs().getDefiningOp<MatmulLikeOp>();
+  // multiply: one operand is the (possibly reshaped) projection, the other
+  // is the gate.
+  auto matchProj = [](Value v) -> MatmulLikeOp {
+    Value skipped = skipLeadingUnitReshape(v);
+    return skipped.getDefiningOp<MatmulLikeOp>();
+  };
+  MatmulLikeOp projOp = matchProj(gateMulOp.getLhs());
   mlir::Value gate = gateMulOp.getRhs();
   if (!projOp) {
-    projOp = gateMulOp.getRhs().getDefiningOp<MatmulLikeOp>();
+    projOp = matchProj(gateMulOp.getRhs());
     gate = gateMulOp.getLhs();
   }
   if (!projOp || !projOp.getResult().hasOneUse()) {
@@ -266,7 +420,7 @@ mlir::LogicalResult AllGatherMatmulAddcmulFusing<MatmulLikeOp>::matchAndRewrite(
     return mlir::failure();
   }
 
-  if (projOp.getTransposeA() || projOp.getTransposeB()) {
+  if (projOp.getTransposeA()) {
     return mlir::failure();
   }
 
@@ -275,49 +429,62 @@ mlir::LogicalResult AllGatherMatmulAddcmulFusing<MatmulLikeOp>::matchAndRewrite(
     bias = projOp.getBias();
   }
 
-  auto resultType = mlir::cast<RankedTensorType>(addOp.getResult().getType());
+  bool transposeB = projOp.getTransposeB();
+  rewriter.setInsertionPoint(addOp);
+  Value weight = projOp.getB();
+  if (transposeB) {
+    auto weightType = mlir::cast<RankedTensorType>(weight.getType());
+    if (weightType.getRank() < 2) {
+      return mlir::failure();
+    }
+    weight = createTransposePermute(rewriter, addOp.getLoc(), weight);
+  }
+
+  auto projType = mlir::cast<RankedTensorType>(projOp.getResult().getType());
+  Value squeezedResidual = squeezeLeadingUnitToRank(
+      rewriter, addOp.getLoc(), residual, projType.getRank());
+  Value squeezedGate =
+      squeezeLeadingUnitToRank(rewriter, addOp.getLoc(), gate, projType.getRank());
+  if (!squeezedResidual || !squeezedGate) {
+    return mlir::failure();
+  }
+  if (!isRowBroadcast(squeezedGate)) {
+    return mlir::failure();
+  }
 
   // Captures feed the composite/decomposition in order:
   //   input, weight, [bias], residual, gate.
-  SmallVector<Value> captures{allGatherOp.getInput(), projOp.getB()};
+  SmallVector<Value> captures{allGatherOp.getInput(), weight};
   if (bias) {
     captures.push_back(bias);
   }
-  captures.push_back(residual);
-  captures.push_back(gate);
-  SmallVector<Operation *> ops{allGatherOp, projOp, gateMulOp, addOp};
+  captures.push_back(squeezedResidual);
+  captures.push_back(squeezedGate);
 
   ModuleOp moduleOp = addOp->getParentOfType<ModuleOp>();
   OpBuilder moduleBuilder(moduleOp.getContext());
   moduleBuilder.setInsertionPointToEnd(moduleOp.getBody());
   func::FuncOp decompFunc = buildDecompositionFunc(
-      moduleBuilder, addOp.getLoc(), captures, ops, resultType);
+      moduleBuilder, addOp.getLoc(), captures, allGatherOp,
+      projOp.getOperation(), /*clearProjTranspose=*/transposeB,
+      /*hasAddcmul=*/true, projType);
   moduleBuilder.insert(decompFunc);
 
-  // Collective parameters and operand-presence flags travel on the composite so
-  // TTNNResolveComposites can rebuild the typed op without re-inspecting the
-  // IR.
-  mlir::MLIRContext *ctx = rewriter.getContext();
-  SmallVector<NamedAttribute> attrs;
-  attrs.emplace_back(
-      StringAttr::get(ctx, "all_gather_dim"),
-      rewriter.getSI32IntegerAttr(allGatherOp.getAllGatherDim()));
-  attrs.emplace_back(StringAttr::get(ctx, "cluster_axis"),
-                     rewriter.getUI32IntegerAttr(allGatherOp.getClusterAxis()));
-  attrs.emplace_back(StringAttr::get(ctx, "has_bias"),
-                     rewriter.getBoolAttr(bias != nullptr));
-  attrs.emplace_back(StringAttr::get(ctx, "has_addcmul"),
-                     rewriter.getBoolAttr(true));
-  // out = residual + kAddcmulScalar * proj * gate  (scalar == 1.0; see
-  // kAddcmulScalar for why).
-  attrs.emplace_back(StringAttr::get(ctx, "scalar"),
-                     rewriter.getF32FloatAttr(kAddcmulScalar));
-
-  rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
-      addOp, TypeRange{resultType}, captures,
+  auto compositeOp = rewriter.create<ttcore::CompositeOp>(
+      addOp.getLoc(), TypeRange{projType}, captures,
       rewriter.getStringAttr(kCompositeName),
-      FlatSymbolRefAttr::get(ctx, decompFunc.getName()),
-      DictionaryAttr::get(ctx, attrs));
+      FlatSymbolRefAttr::get(rewriter.getContext(), decompFunc.getName()),
+      DictionaryAttr::get(rewriter.getContext(),
+                           buildCompositeAttrs(rewriter, allGatherOp,
+                                                bias != nullptr,
+                                                /*hasAddcmul=*/true)));
+
+  // The fused kernel writes the 2D projection layout. If the original add
+  // was 3D (`[1, M, N]`), restore that for downstream users.
+  auto addType = mlir::cast<RankedTensorType>(addOp.getResult().getType());
+  Value result = reshapeToType(rewriter, addOp.getLoc(),
+                                 compositeOp.getResult(0), addType);
+  rewriter.replaceOp(addOp, result);
   return mlir::success();
 }
 

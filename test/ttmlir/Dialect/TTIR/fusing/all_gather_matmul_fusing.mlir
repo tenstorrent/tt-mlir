@@ -40,16 +40,28 @@ func.func @all_gather_linear(%x: tensor<32x128xbf16>, %w: tensor<512x64xbf16>, %
   return %1 : tensor<32x64xbf16>
 }
 
-// transpose_b set -> not fused (fused op does not model transpose).
-// CHECK-LABEL: func.func @no_fuse_transpose
-// CHECK: "ttir.all_gather"
-// CHECK: "ttir.matmul"
-// CHECK-NOT: ttcore.composite
-func.func @no_fuse_transpose(%x: tensor<32x128xbf16>, %w: tensor<64x512xbf16>)
+// transpose_b is folded by permuting W [N, K] -> [K, N] then fusing.
+// CHECK-LABEL: func.func @fuse_transpose_b
+// CHECK: "ttir.permute"
+// CHECK: "ttcore.composite"
+// CHECK-SAME: composite_name = "all_gather_minimal_matmul_async"
+func.func @fuse_transpose_b(%x: tensor<32x128xbf16>, %w: tensor<64x512xbf16>)
     -> tensor<32x64xbf16> {
   %0 = "ttir.all_gather"(%x) <{all_gather_dim = 1 : si32, cluster_axis = 1 : ui32}> : (tensor<32x128xbf16>) -> tensor<32x512xbf16>
   %1 = "ttir.matmul"(%0, %w) <{transpose_a = false, transpose_b = true}> : (tensor<32x512xbf16>, tensor<64x512xbf16>) -> tensor<32x64xbf16>
   return %1 : tensor<32x64xbf16>
+}
+
+// transpose_a is still not fused (the kernel gathers A's last dim).
+// CHECK-LABEL: func.func @no_fuse_transpose_a
+// CHECK: "ttir.all_gather"
+// CHECK: "ttir.matmul"
+// CHECK-NOT: ttcore.composite
+func.func @no_fuse_transpose_a(%x: tensor<32x128xbf16>, %w: tensor<32x64xbf16>)
+    -> tensor<512x64xbf16> {
+  %0 = "ttir.all_gather"(%x) <{all_gather_dim = 1 : si32, cluster_axis = 1 : ui32}> : (tensor<32x128xbf16>) -> tensor<32x512xbf16>
+  %1 = "ttir.matmul"(%0, %w) <{transpose_a = true, transpose_b = false}> : (tensor<32x512xbf16>, tensor<32x64xbf16>) -> tensor<512x64xbf16>
+  return %1 : tensor<512x64xbf16>
 }
 
 // all_gather result has a second use -> not fused (would duplicate the gather).
@@ -96,6 +108,27 @@ func.func @all_gather_linear_addcmul(%x: tensor<32x128xbf16>, %w: tensor<512x64x
   %2 = "ttir.multiply"(%gate, %1) : (tensor<1x64xbf16>, tensor<32x64xbf16>) -> tensor<32x64xbf16>
   %3 = "ttir.add"(%2, %res) : (tensor<32x64xbf16>, tensor<32x64xbf16>) -> tensor<32x64xbf16>
   return %3 : tensor<32x64xbf16>
+}
+
+// DiT gated residual: linear -> reshape [M, N] -> [1, M, N] -> mul(gate) -> add.
+// Must fuse with has_addcmul, not stop at a plain AGMM. Composite is 2D; a
+// reshape restores [1, M, N] for the original add's users.
+// CHECK-LABEL: func.func @all_gather_linear_addcmul_reshape
+// CHECK: "ttir.permute"
+// CHECK: "ttcore.composite"
+// CHECK-SAME: has_addcmul = true
+// CHECK-SAME: has_bias = true
+// CHECK-SAME: composite_name = "all_gather_minimal_matmul_async"
+// CHECK: "ttir.reshape"
+func.func @all_gather_linear_addcmul_reshape(%x: tensor<32x128xbf16>, %w: tensor<64x512xbf16>, %bias: tensor<1x64xbf16>,
+                                             %gate: tensor<1x1x64xbf16>, %res: tensor<1x32x64xbf16>)
+    -> tensor<1x32x64xbf16> {
+  %0 = "ttir.all_gather"(%x) <{all_gather_dim = 1 : si32, cluster_axis = 1 : ui32}> : (tensor<32x128xbf16>) -> tensor<32x512xbf16>
+  %1 = "ttir.linear"(%0, %w, %bias) <{transpose_a = false, transpose_b = true}> : (tensor<32x512xbf16>, tensor<64x512xbf16>, tensor<1x64xbf16>) -> tensor<32x64xbf16>
+  %2 = "ttir.reshape"(%1) {shape = [1 : i32, 32 : i32, 64 : i32]} : (tensor<32x64xbf16>) -> tensor<1x32x64xbf16>
+  %3 = "ttir.multiply"(%2, %gate) : (tensor<1x32x64xbf16>, tensor<1x1x64xbf16>) -> tensor<1x32x64xbf16>
+  %4 = "ttir.add"(%res, %3) : (tensor<1x32x64xbf16>, tensor<1x32x64xbf16>) -> tensor<1x32x64xbf16>
+  return %4 : tensor<1x32x64xbf16>
 }
 
 // A full `[M, N]` gate must NOT fuse: the fused addcmul epilogue applies the

@@ -253,7 +253,8 @@ static void registerBuiltinComposites() {
             /*num_workers_per_link=*/1u, /*num_buffers_per_channel=*/1u,
             /*chunks=*/1,
             /*dim=*/dim);
-      }};
+      },
+      /*promotionGuard=*/nullptr};
 }
 
 // Inline the decomposition function body at the composite ops location,
