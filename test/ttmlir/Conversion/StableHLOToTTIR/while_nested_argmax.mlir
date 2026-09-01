@@ -1,9 +1,6 @@
-// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
-//
-// SPDX-License-Identifier: Apache-2.0
-
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --convert-stablehlo-to-ttir %s | FileCheck %s
+// RUN: ttmlir-opt --convert-stablehlo-to-ttir %s -o %t.mlir
+// RUN: FileCheck %s --input-file=%t.mlir
 
 // An argmax nested inside a while loop, reading its -inf/0 init values from
 // constants defined outside the loop (the shape LU pivoting lowers to).
