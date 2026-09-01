@@ -3814,6 +3814,34 @@ mlir::OpFoldResult mlir::tt::ttir::SliceStaticOp::fold(FoldAdaptor adaptor) {
   return success();
 }
 
+namespace {
+// Rewrite a rank-changing, size-1-dim-only shape change into the equivalent
+// `ttir.reshape`. TTNN dialect doesn't have `squeeze`/`unsqueeze` op, so we
+// canonicalize both ops to `ttir.reshape`.
+template <typename OpTy>
+::llvm::LogicalResult normalizeToReshape(OpTy op,
+                                         ::mlir::PatternRewriter &rewriter) {
+  static_assert(std::is_same_v<OpTy, ::mlir::tt::ttir::SqueezeOp> ||
+                    std::is_same_v<OpTy, ::mlir::tt::ttir::UnsqueezeOp>,
+                "normalizeToReshape expects a squeeze or unsqueeze op");
+
+  ::mlir::RankedTensorType resultType = op.getType();
+
+  ::llvm::SmallVector<int32_t> shape(resultType.getShape());
+  rewriter.replaceOpWithNewOp<::mlir::tt::ttir::ReshapeOp>(
+      op, resultType, op.getInput(), rewriter.getI32ArrayAttr(shape));
+  return ::mlir::success();
+}
+} // namespace
+
+::llvm::LogicalResult
+mlir::tt::ttir::SqueezeOp::canonicalize(mlir::tt::ttir::SqueezeOp op,
+                                        ::mlir::PatternRewriter &rewriter) {
+  // Rewrite `ttir.squeeze` as `ttir.reshape`.
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+  return normalizeToReshape(op, rewriter);
+}
+
 //===----------------------------------------------------------------------===//
 // TransposeOp
 //===----------------------------------------------------------------------===//
@@ -4150,6 +4178,15 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
   }
 
   return success();
+}
+
+// UnsqueezeOp canonicalization method
+::llvm::LogicalResult
+mlir::tt::ttir::UnsqueezeOp::canonicalize(mlir::tt::ttir::UnsqueezeOp op,
+                                          ::mlir::PatternRewriter &rewriter) {
+  // Rewrite `ttir.unsqueeze` as `ttir.reshape`.
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+  return normalizeToReshape(op, rewriter);
 }
 
 //===----------------------------------------------------------------------===//
