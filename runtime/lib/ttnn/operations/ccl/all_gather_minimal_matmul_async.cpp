@@ -12,6 +12,34 @@
 #include "ttnn/operations/experimental/ccl/all_gather_minimal_matmul_async/all_gather_minimal_matmul_async.hpp"
 #include "ttnn/operations/experimental/minimal_matmul/device/minimal_matmul_device_operation_types.hpp"
 
+#include <algorithm>
+
+namespace {
+// tt-metal Wan `ColParallelLinear` (TP>1) sets these; the AGMM API defaults
+// (`num_links=1`, `num_buffers_per_channel=1`) do not. Pick the Wan values
+// when the compiler left the knobs unset / at the dialect default of 1.
+//
+// `preferredLinks` is BH Galaxy ring = 2, WH 4x8 = 4. Workers must satisfy
+// metal's exact split: ceil(in0Axis / workers) == numLinks. Mux cores are
+// `num_links * 2` and must fit on `in0Axis`. Drop links until both hold.
+void selectWanLinkConfig(uint32_t in0Axis, bool isBlackhole,
+                         uint32_t &numLinks, uint32_t &numWorkersPerLink) {
+  uint32_t preferredLinks = isBlackhole ? 2u : 4u;
+  uint32_t maxLinks = std::max(1u, in0Axis / 2);
+  numLinks = std::min(preferredLinks, maxLinks);
+  while (numLinks > 1) {
+    numWorkersPerLink = in0Axis / numLinks;
+    if (numWorkersPerLink > 0 &&
+        (in0Axis + numWorkersPerLink - 1) / numWorkersPerLink == numLinks) {
+      return;
+    }
+    --numLinks;
+  }
+  numLinks = 1;
+  numWorkersPerLink = in0Axis;
+}
+} // namespace
+
 namespace tt::runtime::ttnn::operations::ccl {
 void run(const ::tt::target::ttnn::AllGatherMinimalMatmulAsyncOp *op,
          ProgramContext &context) {
@@ -102,19 +130,19 @@ void run(const ::tt::target::ttnn::AllGatherMinimalMatmulAsyncOp *op,
   // (2) The all-gather sends data along one axis of the grid (grid.x when
   //     force_transpose is set, otherwise grid.y). tt-metal splits that axis
   //     into num_links groups of num_workers_per_link cores each, and the split
-  //     must come out exact. num_links only affects bandwidth, and the compiler
-  //     doesn't set it, so we default to a single link that covers the whole
-  //     axis (always a valid split). If the compiler ever sets num_links, use
-  //     it as-is.
+  //     must come out exact. If the compiler set num_links, honor it; otherwise
+  //     match Wan (BH: 2 links, WH: 4) rather than a single link over the
+  //     whole axis.
   uint32_t in0Axis = op->force_transpose() ? gridX : gridY;
+  const bool isBlackhole =
+      context.getMeshDevice().arch() == ::tt::ARCH::BLACKHOLE;
   uint32_t numLinks;
   uint32_t numWorkersPerLink;
   if (op->num_links()) {
     numLinks = op->num_links().value();
     numWorkersPerLink = op->num_workers_per_link();
   } else {
-    numWorkersPerLink = in0Axis;
-    numLinks = 1;
+    selectWanLinkConfig(in0Axis, isBlackhole, numLinks, numWorkersPerLink);
   }
   // Every link uses 2 mux cores (one per direction). tt-metal checks these fit
   // on the grid and otherwise fails with a hard-to-read error. We add a simpler
@@ -153,6 +181,12 @@ void run(const ::tt::target::ttnn::AllGatherMinimalMatmulAsyncOp *op,
   matmulConfig.compute_with_storage_grid_size =
       ::tt::tt_metal::CoreCoord{gridX, gridY};
 
+  // Dialect default is 1 (metal API default). Wan uses 24 on BH / 48 on WH.
+  uint32_t numBuffersPerChannel = op->num_buffers_per_channel();
+  if (numBuffersPerChannel <= 1) {
+    numBuffersPerChannel = isBlackhole ? 24u : 48u;
+  }
+
   // `fused_activation`, `compute_kernel_config`, the persistent buffers and the
   // FSDP path are not modeled by the compiler yet; pass their tt-metal
   // defaults.
@@ -163,7 +197,7 @@ void run(const ::tt::target::ttnn::AllGatherMinimalMatmulAsyncOp *op,
       /*compute_kernel_config=*/std::nullopt,
       /*persistent_output_buffer=*/std::nullopt, numLinks, clusterAxis,
       barrierSemaphore, op->force_transpose(), numWorkersPerLink,
-      op->num_buffers_per_channel(), op->chunks(), op->dim());
+      numBuffersPerChannel, op->chunks(), op->dim());
 
   const auto *outputRefs = op->outputs();
   LOG_ASSERT(outputs.size() == outputRefs->size(),

@@ -246,9 +246,9 @@ static void registerBuiltinComposites() {
             /*dtype=*/ttcore::DataTypeAttr(),
             // force_transpose is set to true to match tt-metal's default. This
             // keeps transpose always on, which reduces NOC congestion.
-            // num_workers_per_link is ignored by the runtime while num_links is
-            // null, so its value here does not matter; it is set only because
-            // the builder requires it.
+            // num_links left null so the runtime can pick Wan's BH/WH split
+            // (2 or 4 links). num_buffers_per_channel=1 is the dialect
+            // default; the runtime replaces it with 24 (BH) / 48 (WH).
             /*force_transpose=*/true,
             /*num_workers_per_link=*/1u, /*num_buffers_per_channel=*/1u,
             /*chunks=*/1,
