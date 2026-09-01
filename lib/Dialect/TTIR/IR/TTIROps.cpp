@@ -3818,20 +3818,18 @@ namespace {
 // Rewrite a rank-changing, size-1-dim-only shape change into the equivalent
 // `ttir.reshape`. TTNN dialect doesn't have `squeeze`/`unsqueeze` op, so we
 // canonicalize both ops to `ttir.reshape`.
-::llvm::LogicalResult normalizeToReshape(::mlir::Operation *op,
-                                         ::mlir::Value input,
+template <typename OpTy>
+::llvm::LogicalResult normalizeToReshape(OpTy op,
                                          ::mlir::PatternRewriter &rewriter) {
-  assert(
-      (::mlir::isa<::mlir::tt::ttir::SqueezeOp, ::mlir::tt::ttir::UnsqueezeOp>(
-          op)) &&
-      "normalizeToReshape expects a squeeze or unsqueeze op");
+  static_assert(std::is_same_v<OpTy, ::mlir::tt::ttir::SqueezeOp> ||
+                    std::is_same_v<OpTy, ::mlir::tt::ttir::UnsqueezeOp>,
+                "normalizeToReshape expects a squeeze or unsqueeze op");
 
-  auto resultType =
-      ::mlir::cast<::mlir::RankedTensorType>(op->getResult(0).getType());
+  ::mlir::RankedTensorType resultType = op.getType();
 
   ::llvm::SmallVector<int32_t> shape(resultType.getShape());
   rewriter.replaceOpWithNewOp<::mlir::tt::ttir::ReshapeOp>(
-      op, resultType, input, rewriter.getI32ArrayAttr(shape));
+      op, resultType, op.getInput(), rewriter.getI32ArrayAttr(shape));
   return ::mlir::success();
 }
 } // namespace
@@ -3840,7 +3838,7 @@ namespace {
 mlir::tt::ttir::SqueezeOp::canonicalize(mlir::tt::ttir::SqueezeOp op,
                                         ::mlir::PatternRewriter &rewriter) {
   // Rewrite `ttir.squeeze` as `ttir.reshape`.
-  return normalizeToReshape(op, op.getInput(), rewriter);
+  return normalizeToReshape(op, rewriter);
 }
 
 //===----------------------------------------------------------------------===//
@@ -4186,7 +4184,7 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
 mlir::tt::ttir::UnsqueezeOp::canonicalize(mlir::tt::ttir::UnsqueezeOp op,
                                           ::mlir::PatternRewriter &rewriter) {
   // Rewrite `ttir.unsqueeze` as `ttir.reshape`.
-  return normalizeToReshape(op, op.getInput(), rewriter);
+  return normalizeToReshape(op, rewriter);
 }
 
 //===----------------------------------------------------------------------===//
