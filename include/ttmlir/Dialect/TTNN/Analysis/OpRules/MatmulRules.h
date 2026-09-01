@@ -72,7 +72,7 @@ private:
 
   /// Set program/compute config and split fused activation for a DS matmul.
   /// Takes a generic Operation* because the DS path covers both ttnn.matmul and
-  /// bias-free ttnn.linear (see getDSOperands).
+  /// bias-free ttnn.linear (see getMatmulOperands).
   void applyDRAMShardedTransformation(Operation *op,
                                       const MatmulAttrs &matmulAttrs) const;
 };
