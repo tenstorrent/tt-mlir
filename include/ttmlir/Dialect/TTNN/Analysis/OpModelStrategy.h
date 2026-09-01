@@ -79,7 +79,7 @@ struct LayoutScore {
   bool isDRAMShardedCandidate = false;
 
   /// Set when isDRAMShardedCandidate and in0 is already the canonical
-  /// 1×kNumStorageCores L1 width-sharded layout (no in0 reshard needed).
+  /// 1×kNumIn0Cores L1 width-sharded layout (no in0 reshard needed).
   /// Tiebreaker within DS candidates.
   bool hasCanonicalDSIn0 = false;
 

@@ -1602,8 +1602,11 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
   // type, memory layout, grid and element type. Each of those setters
   // early-returns when the value is unchanged, and only a *null* core range set
   // gets filled by buildWithCanonicalCorePlacement, so a producer that already
-  // matches the target's buffer type, memory layout and grid keeps its own
-  // placement rather than taking the target's.
+  // matches the target's buffer type, memory layout and grid would keep its own
+  // placement. That is latent rather than observed: every sharded layout in the
+  // IR is canonically placed, so a matching grid implies a matching placement
+  // in practice. What the direct path removes is the dependence on that, and on
+  // the derived shard width continuing to equal what the candidates state.
   //
   // This also subsumes the page-layout (element type) override that path
   // needed: reshardLayout carries its own element type, so a tile -> row-major
