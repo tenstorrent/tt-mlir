@@ -2971,6 +2971,38 @@ def TTNN_DitRMSNormUnaryFusedOp : TTNN_Op<"dit_rms_norm_unary_fused",
     let hasVerifier = 1;
 }
 
+def TTNN_CrossEntropyForwardOp : TTNN_Op<"cross_entropy_fw"> {
+    let summary = "Cross entropy loss forward pass (ttml).";
+    let description = [{
+      Per-row cross entropy loss against integer class indices, backed by the
+      ttml metal op `ttml::metal::cross_entropy_fw`. Computes
+
+        loss = -input[target] + max(input) + log(sum(exp(input - max(input))))
+
+      one value per row, with no reduction across rows.
+
+      `input` holds the logits as `(N, 1, H, W)` and must be bf16: the kernel
+      hardcodes its circular buffers to `Float16_b`. `target` holds the class
+      indices as `(N, H)` and reaches the kernel as row-major uint32.
+
+      The result is shaped `(N, 1, H, 1)`.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$target);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createCrossEntropyForwardOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
     [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface, TTNN_DistributedOpInterface, OpModelExempt]> {
     let summary = "Distributed RMS normalization with all-gather op.";

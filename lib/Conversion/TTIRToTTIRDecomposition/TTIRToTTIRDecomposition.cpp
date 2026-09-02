@@ -14,19 +14,20 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Location.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/Location.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/SmallVectorExtras.h"
+
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
 #include <numeric>
 
 using namespace mlir;
@@ -1031,6 +1032,16 @@ mlir::Value reshapeToRank4IfNeeded(ConversionPatternRewriter &rewriter,
                       collapseShapeToRank4(valueType.getShape()));
 }
 
+mlir::Value reshapeIfNeeded(ConversionPatternRewriter &rewriter, Location loc,
+                            mlir::Value value,
+                            llvm::ArrayRef<int64_t> targetShape) {
+  auto valueType = mlir::cast<RankedTensorType>(value.getType());
+  if (valueType.getShape() == targetShape) {
+    return value;
+  }
+  return reshapeValue(rewriter, loc, value, targetShape);
+}
+
 static FlatSymbolRefAttr
 createRank4DecompositionWrapper(ttcore::CompositeOp op, TypeRange inputTypes4D,
                                 TypeRange resultTypes4D,
@@ -1334,6 +1345,70 @@ public:
                        cast<RankedTensorType>(originalType).getShape()));
     }
     rewriter.replaceOp(op, restored);
+    return success();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// CrossEntropyForward decomposition pattern
+//===----------------------------------------------------------------------===//
+
+// ttml::metal::cross_entropy_fw only accepts a 4D (N, 1, H, W) input paired
+// with a 2D (N, H) target, so collapse the leading dimensions into N and
+// reshape the result back. The channel dimension must be 1 because the reader
+// walks N*C*Ht rows and reads one target page per row.
+namespace {
+struct CrossEntropyForwardPattern
+    : public OpConversionPattern<ttir::CrossEntropyForwardOp> {
+public:
+  using OpConversionPattern<ttir::CrossEntropyForwardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CrossEntropyForwardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType inputType = op.getInput().getType();
+    RankedTensorType targetType = op.getTarget().getType();
+    RankedTensorType resultType = op.getResult().getType();
+
+    llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+    assert(inputShape.size() >= 2 && "input tensor must have rank >= 2");
+    int64_t height = inputShape[inputShape.size() - 2];
+    int64_t width = inputShape.back();
+    int64_t batch = std::accumulate(inputShape.begin(), inputShape.end() - 2,
+                                    1ll, std::multiplies<int64_t>());
+
+    llvm::SmallVector<int64_t, 4> inputShape4D = {batch, 1, height, width};
+    llvm::SmallVector<int64_t, 2> targetShape2D = {batch, height};
+    llvm::SmallVector<int64_t, 4> resultShape4D = {batch, 1, height, 1};
+
+    if (inputShape == llvm::ArrayRef<int64_t>(inputShape4D) &&
+        targetType.getShape() == llvm::ArrayRef<int64_t>(targetShape2D) &&
+        resultType.getShape() == llvm::ArrayRef<int64_t>(resultShape4D)) {
+      return rewriter.notifyMatchFailure(op, "already (N, 1, H, W) / (N, H)");
+    }
+
+    Location loc = op.getLoc();
+    mlir::Value inputReshaped =
+        reshapeIfNeeded(rewriter, loc, adaptor.getInput(), inputShape4D);
+    mlir::Value targetReshaped =
+        reshapeIfNeeded(rewriter, loc, adaptor.getTarget(), targetShape2D);
+
+    auto resultType4D = RankedTensorType::get(
+        resultShape4D, resultType.getElementType(), resultType.getEncoding());
+
+    if (resultType.getShape() ==
+        llvm::ArrayRef<int64_t>({batch, 1, height, 1})) {
+      rewriter.replaceOpWithNewOp<ttir::CrossEntropyForwardOp>(
+          op, resultType4D, inputReshaped, targetReshaped);
+      return success();
+    }
+
+    auto normalizedOp = rewriter.create<ttir::CrossEntropyForwardOp>(
+        op.getLoc(), resultType4D, inputReshaped, targetReshaped);
+
+    rewriter.replaceOp(op, reshapeValue(rewriter, loc, normalizedOp.getResult(),
+                                        resultType.getShape()));
     return success();
   }
 };
@@ -2373,6 +2448,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<SDPAForwardPattern>(typeConverter, ctx);
   patterns.add<SDPABackwardPattern>(typeConverter, ctx);
   patterns.add<LayerNormForwardPattern>(typeConverter, ctx);
+  patterns.add<CrossEntropyForwardPattern>(typeConverter, ctx);
   patterns.add<QuantizeOpPattern>(typeConverter, ctx);
   patterns.add<DequantizeOpPattern>(typeConverter, ctx);
   patterns.add<RequantizeOpPattern>(typeConverter, ctx);

@@ -138,6 +138,15 @@ struct TTIRToTTIRDecompositionPass
           return operandsRank4 && resultsRank4;
         });
 
+    // ttml::metal::cross_entropy_fw only accepts a 4D (N, 1, H, W) input with a
+    // 2D (N, H) target.
+    target.addDynamicallyLegalOp<ttir::CrossEntropyForwardOp>(
+        [&](ttir::CrossEntropyForwardOp op) {
+          RankedTensorType inputType = op.getInput().getType();
+          return inputType.getRank() == 4 && inputType.getDimSize(1) == 1 &&
+                 op.getTarget().getType().getRank() == 2;
+        });
+
     target.addDynamicallyLegalOp<ttir::ProdOp>([&](ttir::ProdOp op) {
       auto dimArg = op.getDimArg();
       if (!dimArg) {

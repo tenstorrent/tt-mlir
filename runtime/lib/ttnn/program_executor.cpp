@@ -127,6 +127,7 @@
 #include "operations/transformer/scaled_dot_product_attention_decode.h"
 #include "operations/transformer/split_query_key_value_and_split_heads.h"
 #include "operations/ttml/adamw.h"
+#include "operations/ttml/cross_entropy_fw.h"
 #include "operations/ttml/layernorm_fw.h"
 #include "operations/ttml/sdpa_bw.h"
 #include "operations/ttml/sdpa_fw.h"
@@ -657,6 +658,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
     return operations::ttml::run(op->type_as_LayerNormForwardOp(),
+                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {
+    return operations::ttml::run(op->type_as_CrossEntropyForwardOp(),
                                  getContext());
   }
   case ::tt::target::ttnn::OpType::DumpTensorOp: {
