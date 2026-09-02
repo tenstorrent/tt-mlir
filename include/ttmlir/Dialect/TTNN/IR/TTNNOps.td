@@ -3147,7 +3147,9 @@ def TTNN_DistributedLayerNormOp : TTNN_Op<"distributed_layer_norm",
         - input: Input tensor, width-sharded across mesh devices along the
             normalized (last) dimension.
         - weight: Optional gamma (scale) tensor applied after normalization.
+            AdaLN scale lands here after TTIR affine fusion.
         - bias: Optional beta (shift) tensor applied after normalization.
+            AdaLN shift lands here. The gated residual is not this operand.
         - residual: Optional residual tensor to add to input before
             normalization. norm_input = input + residual.
 

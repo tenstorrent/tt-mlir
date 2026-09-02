@@ -2508,8 +2508,13 @@ def TTIR_DistributedLayerNormOp : TTIR_NamedOp<"distributed_layer_norm", [AttrSi
 
     Inputs:
     - `input` (Tensor): The input tensor to be normalized.
-    - `weight` (Optional Tensor): The scale parameter (gamma).
-    - `bias` (Optional Tensor): The shift parameter (beta).
+    - `weight` (Optional Tensor): The scale parameter (gamma). AdaLN
+        `*(1+scale)` is folded here as the per-channel weight; it is not a
+        second affine after the op.
+    - `bias` (Optional Tensor): The shift parameter (beta). AdaLN `+shift`
+        is folded here. Do not put the gated residual
+        (`x + gate * attn`) on this operand — that is a full-activation
+        addend (gap 1 addcmul).
     - `residual` (Optional Tensor): Residual tensor for fused add before
         normalization.
 

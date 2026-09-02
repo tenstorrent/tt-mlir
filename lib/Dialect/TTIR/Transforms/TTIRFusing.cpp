@@ -3389,6 +3389,8 @@ static OpTy findSingleUseOpThroughTypecasts(mlir::Value value) {
 // own weight and bias operands:
 //
 //    layer_norm(x) * w + b  ->  layer_norm(x, weight = w, bias = b)
+//    distributed_layer_norm(x) * w + b
+//        ->  distributed_layer_norm(x, weight = w, bias = b)
 //
 // Exact by the definition of the op, which already computes
 //
@@ -3403,16 +3405,108 @@ static OpTy findSingleUseOpThroughTypecasts(mlir::Value value) {
 // stays where it is, but runs on a per-channel tensor instead of on the
 // activation.
 //
+// Graph A / metal STATE B (Galaxy Wan) uses distributed_layer_norm on the
+// D/tp shard; local layer_norm is the STATE A form. Cross-attn norm2 already
+// carries γ/β, so this rewrite refuses an already-affine norm. The gated
+// residual (`x + gate * attn`) is a full-activation addend and is not AdaLN;
+// stripToPerChannelAffineParam rejects it.
+//
 // Typecasts between the norm and the affine are traversed, covering frontends
 // that run the norm in fp32 and the modulation in a narrower type. The affine
-// is then evaluated in the norm's element type
+// is then evaluated in the norm's element type.
+template <typename NormOp>
+static mlir::LogicalResult
+fuseTrailingAffineIntoNorm(AddOp addOp, MultiplyOp mul, mlir::Value weightRaw,
+                            mlir::Value biasRaw,
+                            mlir::PatternRewriter &rewriter) {
+  NormOp normOp = findSingleUseOpThroughTypecasts<NormOp>(mul.getLhs());
+  if (!normOp) {
+    normOp = findSingleUseOpThroughTypecasts<NormOp>(mul.getRhs());
+    weightRaw = mul.getLhs();
+  }
+  if (!normOp) {
+    return mlir::failure();
+  }
+
+  // Only an unaffine norm can absorb the affine. Composing an existing
+  // weight/bias with a new one is a different (and lossier) rewrite.
+  if (normOp.getWeight() || normOp.getBias()) {
+    return mlir::failure();
+  }
+
+  auto normType = mlir::cast<mlir::RankedTensorType>(normOp.getType());
+  llvm::SmallVector<int64_t, 1> normalizedShape;
+  if constexpr (std::is_same_v<NormOp, LayerNormOp>) {
+    llvm::ArrayRef<int64_t> attrShape = normOp.getNormalizedShape();
+    if (attrShape.size() != 1) {
+      return mlir::failure();
+    }
+    normalizedShape.assign(attrShape.begin(), attrShape.end());
+  } else {
+    static_assert(std::is_same_v<NormOp, DistributedLayerNormOp>,
+                  "AdaLN affine fusion is only defined for layer_norm and "
+                  "distributed_layer_norm");
+    if (normType.getRank() == 0) {
+      return mlir::failure();
+    }
+    normalizedShape.assign(1, normType.getShape().back());
+  }
+
+  auto isFloatTensor = [](mlir::Value value) {
+    return mlir::isa<mlir::FloatType>(
+        mlir::cast<mlir::RankedTensorType>(value.getType()).getElementType());
+  };
+  if (!mlir::isa<mlir::FloatType>(normType.getElementType()) ||
+      !isFloatTensor(weightRaw) || !isFloatTensor(biasRaw)) {
+    return mlir::failure();
+  }
+
+  std::optional<mlir::Value> weight =
+      stripToPerChannelAffineParam(weightRaw, normalizedShape.back());
+  std::optional<mlir::Value> bias =
+      stripToPerChannelAffineParam(biasRaw, normalizedShape.back());
+  if (!weight || !bias) {
+    return mlir::failure();
+  }
+
+  mlir::Location loc = addOp.getLoc();
+  rewriter.setInsertionPoint(addOp);
+
+  mlir::Type elementType = normType.getElementType();
+  mlir::Value fusedWeight = prepareNormAffineParam(
+      rewriter, loc, *weight, normalizedShape, elementType);
+  mlir::Value fusedBias = prepareNormAffineParam(
+      rewriter, loc, *bias, normalizedShape, elementType);
+
+  mlir::Value fusedNorm;
+  if constexpr (std::is_same_v<NormOp, LayerNormOp>) {
+    fusedNorm = rewriter.create<LayerNormOp>(
+                    loc, normType, normOp.getInput(), fusedWeight, fusedBias,
+                    normOp.getNormalizedShapeAttr(), normOp.getEpsilonAttr())
+                     .getResult();
+  } else {
+    fusedNorm =
+        rewriter
+            .create<DistributedLayerNormOp>(
+                loc, normType, normOp.getInput(), fusedWeight, fusedBias,
+                normOp.getResidual(), normOp.getClusterAxisAttr(),
+                normOp.getEpsilonAttr())
+            .getResult();
+  }
+
+  mlir::Value result = utils::reshapeAndCastToType(
+      rewriter, loc, fusedNorm,
+      mlir::cast<mlir::RankedTensorType>(addOp.getType()));
+  rewriter.replaceOp(addOp, result);
+  return mlir::success();
+}
+
 class LayerNormAffineFusionPattern : public mlir::OpRewritePattern<AddOp> {
   using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
 
 public:
   mlir::LogicalResult
   matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
-    // One addend is the scaled norm, the other is the bias.
     MultiplyOp mul =
         findSingleUseOpThroughTypecasts<MultiplyOp>(addOp.getLhs());
     mlir::Value biasRaw = addOp.getRhs();
@@ -3424,74 +3518,13 @@ public:
       return mlir::failure();
     }
 
-    // One multiply operand is the norm, the other is the weight.
-    LayerNormOp normOp =
-        findSingleUseOpThroughTypecasts<LayerNormOp>(mul.getLhs());
-    mlir::Value weightRaw = mul.getRhs();
-    if (!normOp) {
-      normOp = findSingleUseOpThroughTypecasts<LayerNormOp>(mul.getRhs());
-      weightRaw = mul.getLhs();
+    mlir::Value weightFromLhs = mul.getRhs();
+    if (succeeded(fuseTrailingAffineIntoNorm<LayerNormOp>(
+            addOp, mul, weightFromLhs, biasRaw, rewriter))) {
+      return mlir::success();
     }
-    if (!normOp) {
-      return mlir::failure();
-    }
-
-    // Only an unaffine norm can absorb the affine. Composing an existing
-    // weight/bias with a new one is a different (and lossier) rewrite.
-    if (normOp.getWeight() || normOp.getBias()) {
-      return mlir::failure();
-    }
-
-    // TTNN normalizes over the trailing dimension only.
-    llvm::ArrayRef<int64_t> normalizedShape = normOp.getNormalizedShape();
-    if (normalizedShape.size() != 1) {
-      return mlir::failure();
-    }
-
-    // Mismatched operands get cast to the norm's element type. Restrict that to
-    // floats so integer or boolean operands cannot be pulled into a float
-    // computation.
-    auto normType = mlir::cast<mlir::RankedTensorType>(normOp.getType());
-    auto isFloatTensor = [](mlir::Value value) {
-      return mlir::isa<mlir::FloatType>(
-          mlir::cast<mlir::RankedTensorType>(value.getType()).getElementType());
-    };
-    if (!mlir::isa<mlir::FloatType>(normType.getElementType()) ||
-        !isFloatTensor(weightRaw) || !isFloatTensor(biasRaw)) {
-      return mlir::failure();
-    }
-
-    // Validate both operands before creating any IR, so a bail-out cannot
-    // leave a dead reshape behind.
-    std::optional<mlir::Value> weight =
-        stripToPerChannelAffineParam(weightRaw, normalizedShape.back());
-    std::optional<mlir::Value> bias =
-        stripToPerChannelAffineParam(biasRaw, normalizedShape.back());
-    if (!weight || !bias) {
-      return mlir::failure();
-    }
-
-    mlir::Location loc = addOp.getLoc();
-    rewriter.setInsertionPoint(addOp);
-
-    // Bound to locals so the two parameters are always emitted in this order;
-    // argument evaluation order inside the create<> call is unspecified.
-    mlir::Type elementType = normType.getElementType();
-    mlir::Value fusedWeight = prepareNormAffineParam(
-        rewriter, loc, *weight, normalizedShape, elementType);
-    mlir::Value fusedBias = prepareNormAffineParam(
-        rewriter, loc, *bias, normalizedShape, elementType);
-
-    auto fusedNorm = rewriter.create<LayerNormOp>(
-        loc, normType, normOp.getInput(), fusedWeight, fusedBias,
-        normOp.getNormalizedShapeAttr(), normOp.getEpsilonAttr());
-
-    // The original chain may have reshaped or cast on the way to the add.
-    mlir::Value result = utils::reshapeAndCastToType(
-        rewriter, loc, fusedNorm,
-        mlir::cast<mlir::RankedTensorType>(addOp.getType()));
-    rewriter.replaceOp(addOp, result);
-    return mlir::success();
+    return fuseTrailingAffineIntoNorm<DistributedLayerNormOp>(
+        addOp, mul, weightFromLhs, biasRaw, rewriter);
   }
 };
 
