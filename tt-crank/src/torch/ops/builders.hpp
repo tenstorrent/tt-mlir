@@ -86,6 +86,8 @@ using ::tt::kurbla::build_gelu;
 using ::tt::kurbla::build_gt;
 using ::tt::kurbla::build_index_copy;
 using ::tt::kurbla::build_isneginf;
+using ::tt::kurbla::build_layer_norm;
+using ::tt::kurbla::build_layer_norm_with_stats;
 using ::tt::kurbla::build_le;
 using ::tt::kurbla::build_linear;
 using ::tt::kurbla::build_linear_backward;

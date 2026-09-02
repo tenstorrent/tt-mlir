@@ -291,6 +291,22 @@ public:
         assert_builder();
         return tk::build_silu(*mb_, input);
     }
+    mlir::Value layer_norm(mlir::Value input, std::optional<mlir::Value> weight_opt,
+                           std::optional<mlir::Value> bias_opt, std::vector<int64_t> normalized_shape, float eps) {
+        assert_builder();
+        return tk::build_layer_norm(*mb_, input, weight_opt.value_or(mlir::Value{}), bias_opt.value_or(mlir::Value{}),
+                                    normalized_shape, eps);
+    }
+    // aten::native_layer_norm's (out, mean, rstd). Stats are fp32: aot's meta keeps
+    // them there for reduced-precision inputs and the backward graph expects it.
+    std::tuple<mlir::Value, mlir::Value, mlir::Value>
+    layer_norm_with_stats(mlir::Value input, std::optional<mlir::Value> weight_opt, std::optional<mlir::Value> bias_opt,
+                          std::vector<int64_t> normalized_shape, float eps) {
+        assert_builder();
+        return tk::build_layer_norm_with_stats(*mb_, input, weight_opt.value_or(mlir::Value{}),
+                                               bias_opt.value_or(mlir::Value{}), normalized_shape, eps,
+                                               /*stats_in_f32=*/true);
+    }
     mlir::Value sigmoid(mlir::Value input) {
         assert_builder();
         return tk::build_sigmoid(*mb_, input);
@@ -798,6 +814,10 @@ NB_MODULE(_native, m) {
         .def("reciprocal", &PyModuleBuilder::reciprocal, "input"_a)
         .def("cumsum", &PyModuleBuilder::cumsum, "input"_a, "dim"_a)
         .def("silu", &PyModuleBuilder::silu, "input"_a)
+        .def("layer_norm", &PyModuleBuilder::layer_norm, "input"_a, "weight"_a, "bias"_a, "normalized_shape"_a,
+             "epsilon"_a)
+        .def("layer_norm_with_stats", &PyModuleBuilder::layer_norm_with_stats, "input"_a, "weight"_a, "bias"_a,
+             "normalized_shape"_a, "epsilon"_a)
         .def("sigmoid", &PyModuleBuilder::sigmoid, "input"_a)
         .def("floor_divide", &PyModuleBuilder::floor_divide, "lhs"_a, "rhs"_a)
         .def("bitwise_and", &PyModuleBuilder::bitwise_and, "lhs"_a, "rhs"_a)
