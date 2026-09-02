@@ -27,6 +27,7 @@
 #layout_8192x16384_tile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<256x512x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #layout_4d_1x1x8192x8192_tile = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 8192 + d1 * 8192 + d2, d3), <1x1>, memref<256x256x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #layout_4d_8192x8192x1x1_tile = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 8192 + d1 + d2, d3), <1x1>, memref<2097152x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#layout_3d_1x8192x8192_tile = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 8192 + d1, d2), <1x1>, memref<256x256x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 
 module {
   // sliceReshape
@@ -163,5 +164,50 @@ module {
     %0 = "ttnn.reshape"(%arg0) <{shape = [8192 : i32, 8192 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile>) -> tensor<8192x8192x1x1xf32, #layout_4d_8192x8192x1x1_tile>
     %1 = "ttnn.permute"(%0) <{permutation = array<i64: 2, 3, 0, 1>}> : (tensor<8192x8192x1x1xf32, #layout_4d_8192x8192x1x1_tile>) -> tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile>
     return %1 : tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile>
+  }
+
+  // permute feeding two reshapes row-major adjust:
+  // The pixel shuffle lowering gives the permute two reshape users that differ
+  // only by a leading unit dim. Both are rewritten alongside the permute, so
+  // the permute consumes the row-major input rather than %arg0 directly.
+  // CHECK-LABEL: func.func @permute_multi_reshape_row_major_adjusting
+  // CHECK: %[[RM_IN:.*]] = "ttnn.to_tensor_spec"(%arg0)
+  // CHECK: %[[PERM:.*]] = "ttnn.permute"(%[[RM_IN]])
+  // CHECK-SAME: permutation = array<i64: 1, 0>
+  // CHECK-SAME: -> tensor<67108864x1xf32
+  // CHECK-DAG: "ttnn.reshape"(%[[PERM]]) <{shape = [8192 : i32, 8192 : i32]}>
+  // CHECK-DAG: "ttnn.reshape"(%[[PERM]]) <{shape = [1 : i32, 8192 : i32, 8192 : i32]}>
+  // CHECK: "ttnn.to_tensor_spec"
+  func.func @permute_multi_reshape_row_major_adjusting(%arg0: tensor<1x67108864xf32, #layout_1x67M_tile>) -> (tensor<8192x8192xf32, #layout_8192x8192_tile>, tensor<1x8192x8192xf32, #layout_3d_1x8192x8192_tile>) {
+    %0 = "ttnn.permute"(%arg0) <{permutation = array<i64: 1, 0>}> : (tensor<1x67108864xf32, #layout_1x67M_tile>) -> tensor<67108864x1xf32, #layout_67Mx1_tile>
+    %1 = "ttnn.reshape"(%0) <{shape = [8192 : i32, 8192 : i32]}> : (tensor<67108864x1xf32, #layout_67Mx1_tile>) -> tensor<8192x8192xf32, #layout_8192x8192_tile>
+    %2 = "ttnn.reshape"(%0) <{shape = [1 : i32, 8192 : i32, 8192 : i32]}> : (tensor<67108864x1xf32, #layout_67Mx1_tile>) -> tensor<1x8192x8192xf32, #layout_3d_1x8192x8192_tile>
+    return %1, %2 : tensor<8192x8192xf32, #layout_8192x8192_tile>, tensor<1x8192x8192xf32, #layout_3d_1x8192x8192_tile>
+  }
+
+  // A multi-use permute is only rewritten when every user is a plain reshape.
+  // Here the permute result is also returned directly, so the pattern declines
+  // and the permute still consumes %arg0 with no layout ops inserted.
+  // CHECK-LABEL: func.func @permute_multi_use_non_reshape_declines
+  // CHECK: "ttnn.permute"(%arg0)
+  // CHECK-NOT: "ttnn.to_tensor_spec"
+  func.func @permute_multi_use_non_reshape_declines(%arg0: tensor<1x67108864xf32, #layout_1x67M_tile>) -> (tensor<8192x8192xf32, #layout_8192x8192_tile>, tensor<67108864x1xf32, #layout_67Mx1_tile>) {
+    %0 = "ttnn.permute"(%arg0) <{permutation = array<i64: 1, 0>}> : (tensor<1x67108864xf32, #layout_1x67M_tile>) -> tensor<67108864x1xf32, #layout_67Mx1_tile>
+    %1 = "ttnn.reshape"(%0) <{shape = [8192 : i32, 8192 : i32]}> : (tensor<67108864x1xf32, #layout_67Mx1_tile>) -> tensor<8192x8192xf32, #layout_8192x8192_tile>
+    return %1, %0 : tensor<8192x8192xf32, #layout_8192x8192_tile>, tensor<67108864x1xf32, #layout_67Mx1_tile>
+  }
+
+  // An interposed repeat is handled only on the single-use path (see
+  // @permute_repeat_reshape_row_major_adjusting); alongside a second user it
+  // would have to be cloned per user, so the pattern declines instead.
+  // CHECK-LABEL: func.func @permute_multi_use_repeat_declines
+  // CHECK: "ttnn.permute"(%arg0)
+  // CHECK-NOT: "ttnn.to_tensor_spec"
+  func.func @permute_multi_use_repeat_declines(%arg0: tensor<1x67108864xf32, #layout_1x67M_tile>) -> (tensor<8192x8192xf32, #layout_8192x8192_tile>, tensor<8192x16384xf32, #layout_8192x16384_tile>) {
+    %0 = "ttnn.permute"(%arg0) <{permutation = array<i64: 1, 0>}> : (tensor<1x67108864xf32, #layout_1x67M_tile>) -> tensor<67108864x1xf32, #layout_67Mx1_tile>
+    %1 = "ttnn.reshape"(%0) <{shape = [8192 : i32, 8192 : i32]}> : (tensor<67108864x1xf32, #layout_67Mx1_tile>) -> tensor<8192x8192xf32, #layout_8192x8192_tile>
+    %2 = "ttnn.repeat"(%0) <{repeat_dims = #ttnn.shape<1x2>}> : (tensor<67108864x1xf32, #layout_67Mx1_tile>) -> tensor<67108864x2xf32, #layout_67Mx2_tile>
+    %3 = "ttnn.reshape"(%2) <{shape = [8192 : i32, 16384 : i32]}> : (tensor<67108864x2xf32, #layout_67Mx2_tile>) -> tensor<8192x16384xf32, #layout_8192x16384_tile>
+    return %1, %3 : tensor<8192x8192xf32, #layout_8192x8192_tile>, tensor<8192x16384xf32, #layout_8192x16384_tile>
   }
 }
