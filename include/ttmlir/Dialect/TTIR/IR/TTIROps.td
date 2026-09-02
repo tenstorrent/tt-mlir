@@ -2503,8 +2503,9 @@ def TTIR_DistributedLayerNormOp : TTIR_NamedOp<"distributed_layer_norm", [AttrSi
     This is a multi-device operation that requires the tensor to be sharded
     across a device mesh along the normalized (last) dimension.
 
-    Decomposes in the TTNN dialect into:
-      layer_norm_pre_all_gather → all_gather → layer_norm_post_all_gather.
+    Lowers in the TTNN dialect to
+    `ttnn.experimental.dit_fused_distributed_layernorm` when eligible, or to
+    layer_norm_pre_all_gather → all_gather → layer_norm_post_all_gather.
 
     Inputs:
     - `input` (Tensor): The input tensor to be normalized.

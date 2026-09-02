@@ -67,6 +67,21 @@ table LayerNormShardedMultiCoreProgramConfig {
   inplace: bool;
 }
 
+table DistributedLayerNormOp {
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  cluster_axis: uint32;
+  epsilon: float;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  num_links: uint32 = null;
+  topology: tt.target.Topology = null;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+  out: tt.target.ttnn.TensorRef;
+  stats: tt.target.ttnn.TensorRef;
+  semaphore: tt.target.ttnn.GlobalSemaphoreRef;
+}
+
 table DistributedRMSNormOp {
   input: tt.target.ttnn.TensorRef;
   weight: tt.target.ttnn.TensorRef;

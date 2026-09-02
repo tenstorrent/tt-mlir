@@ -65,6 +65,7 @@ union OpType {
   CrossEntropyForwardOp,
   DeallocateOp,
   DistributeTensorOp,
+  DistributedLayerNormOp,
   DistributedRMSNormOp,
   DitRMSNormUnaryFusedOp,
   DropoutOp,

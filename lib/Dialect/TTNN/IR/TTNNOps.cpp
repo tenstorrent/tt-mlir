@@ -31,7 +31,9 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/TypeSwitch.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <numeric>
 #include <optional>
 
@@ -4417,27 +4419,271 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
   }
 
   int64_t inputLastDim = inputType.getShape().back();
+  int64_t seqLen = inputType.getRank() >= 2
+                       ? inputType.getShape()[inputType.getRank() - 2]
+                       : 1;
 
-  // Verify weight tensor is 1D with size matching input's last dimension.
+  auto checkAffineParam = [&](mlir::Value value,
+                              StringRef name) -> LogicalResult {
+    RankedTensorType type = mlir::cast<RankedTensorType>(value.getType());
+    ArrayRef<int64_t> shape = type.getShape();
+    if (shape.empty() || shape.back() != inputLastDim) {
+      return emitOpError()
+             << name << " last dimension must match input last dimension ("
+             << inputLastDim << ")";
+    }
+    if (type.getRank() == 1) {
+      return success();
+    }
+    if (type.getRank() == 2) {
+      int64_t n = shape[0];
+      if (n != 1 && n != seqLen) {
+        return emitOpError()
+               << name << " second-to-last dimension must be 1 or the input "
+               << "sequence length (" << seqLen << ")";
+      }
+      return success();
+    }
+    return emitOpError() << name << " must be 1D [H] or 2D [1/N, H]";
+  };
+
   if (getWeight()) {
-    RankedTensorType weightType = getWeight().getType();
-    if (weightType.getRank() != 1 || weightType.getShape()[0] != inputLastDim) {
-      return emitOpError("weight tensor must be 1D with size matching the last "
-                         "dimension of input");
+    if (failed(checkAffineParam(getWeight(), "weight"))) {
+      return failure();
     }
   }
-
-  // Verify bias tensor is 1D with size matching input's last dimension.
   if (getBias()) {
-    RankedTensorType biasType = getBias().getType();
-    if (biasType.getRank() != 1 || biasType.getShape()[0] != inputLastDim) {
-      return emitOpError("bias tensor must be 1D with size matching the last "
-                         "dimension of input");
+    if (failed(checkAffineParam(getBias(), "bias"))) {
+      return failure();
     }
   }
 
   return success();
 }
+
+bool mlir::tt::ttnn::DistributedLayerNormOp::hasUnboundBuffers() {
+  return !getStats();
+}
+
+namespace {
+// Keep these in lockstep with tt-metal
+// dit_fused_distributed_rmsnorm_program_factory.cpp (`derive_worker_cap`,
+// `pick_num_workers_tp_gt_1`, `compute_sizing`, `make_stats_tensor_spec`).
+// Metal's fused kernel TT_FATALs unless the prelude EmptyOp matches that
+// geometry exactly.
+
+// Metal FabricEriscDatamoverBuilder::default_packet_payload_size_bytes:
+// 4 * Bfp8_b tile = 4352. get_tt_fabric_max_payload_size_bytes() returns
+// this unless FabricRouterConfig overrides it.
+constexpr int64_t kDefaultFabricMaxPayloadBytes = 4352;
+constexpr uint32_t kMuxRowsThreshold = 4;
+constexpr uint32_t kLnStatsPerToken = 2;
+constexpr uint32_t kFp32StickWidthBytes = 128;
+
+uint32_t ditFusedDeriveWorkerCap(int64_t gridX, int64_t gridY,
+                                 uint32_t numLinks, bool isBlackhole,
+                                 uint32_t stickBytes, uint32_t ringSize,
+                                 uint32_t numTileRows) {
+  const uint32_t maxCores =
+      static_cast<uint32_t>(std::max<int64_t>(1, gridX * gridY));
+  const uint32_t numForwarders = std::max<uint32_t>(1u, numLinks);
+  const uint32_t budget =
+      maxCores > numForwarders ? maxCores - numForwarders : 1u;
+  const uint32_t wholeRows = (gridX > 0)
+                                 ? (budget / static_cast<uint32_t>(gridX)) *
+                                       static_cast<uint32_t>(gridX)
+                                 : 0u;
+  uint32_t cap = wholeRows > 0u ? wholeRows : budget;
+
+  const char *workerCapEnv = std::getenv("WAN_RMSNORM_WORKER_CAP");
+  if (workerCapEnv != nullptr) {
+    const int forced = std::atoi(workerCapEnv);
+    if (forced > 0) {
+      cap = static_cast<uint32_t>(forced);
+    }
+  }
+
+  const uint32_t sticksPerPacket = std::max<uint32_t>(
+      1u, static_cast<uint32_t>(kDefaultFabricMaxPayloadBytes) / stickBytes);
+  cap = std::min(cap, sticksPerPacket * numForwarders);
+
+  if (isBlackhole && workerCapEnv == nullptr) {
+    constexpr uint32_t kBhContentionKnee = 48u;
+    constexpr uint32_t kBhRoundBoundCap = 64u;
+    constexpr uint32_t kBhRing4RowThreshold = 448u;
+    const uint32_t bhKnee =
+        (ringSize <= 4u && numTileRows <= kBhRing4RowThreshold)
+            ? kBhRoundBoundCap
+            : kBhContentionKnee;
+    cap = std::min(cap, bhKnee);
+  }
+  return cap;
+}
+
+uint32_t ditFusedPickNumWorkersTpGt1(uint32_t numTileRows, uint32_t cap) {
+  if (numTileRows < kMuxRowsThreshold) {
+    return 1u;
+  }
+  return std::min(numTileRows, cap);
+}
+} // namespace
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+void mlir::tt::ttnn::DistributedLayerNormOp::allocateBuffers(
+    ::mlir::RewriterBase &rewriter) {
+  if (!hasUnboundBuffers()) {
+    return;
+  }
+
+  // Metal stats scratch: ROW_MAJOR fp32 DRAM interleaved
+  // [1, 1, total_pages, TILE_HEIGHT * window_size].
+  RankedTensorType inputType =
+      mlir::cast<RankedTensorType>(getInput().getType());
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  if (inputShape.size() < 2 || inputShape.back() <= 0) {
+    return;
+  }
+
+  // Metal: W = padded[-1], folded_H = physical_volume / W.
+  SmallVector<int64_t> paddedShape = utils::getTilePaddedShape(inputShape);
+  int64_t paddedW = paddedShape.back();
+  int64_t foldedH = 1;
+  for (int64_t dim : ArrayRef<int64_t>(paddedShape).drop_back()) {
+    foldedH *= dim;
+  }
+  if (paddedW <= 0 || foldedH <= 0) {
+    return;
+  }
+  uint32_t numTileRows =
+      static_cast<uint32_t>(foldedH / static_cast<int64_t>(TILE_HEIGHT));
+  if (numTileRows == 0) {
+    return;
+  }
+
+  uint32_t clusterAxis = getClusterAxis();
+  int64_t ringSize = 0;
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(*this);
+  ArrayRef<int64_t> meshShape = deviceAttr.getMeshShape();
+  // Metal: ring_size = cluster_axis==0 ? mesh_view.num_rows() : num_cols().
+  // DeviceAttr meshShape is [rows, cols, ...], matching that view.
+  if (meshShape.size() >= 2) {
+    ringSize = meshShape[clusterAxis];
+  } else {
+    auto getDeviceOp = mlir::dyn_cast_if_present<ttnn::GetDeviceOp>(
+        getDevice().getDefiningOp());
+    if (!getDeviceOp || !getDeviceOp.getMeshShapeAttr()) {
+      return;
+    }
+    ttnn::MeshShapeAttr meshShapeAttr = getDeviceOp.getMeshShapeAttr();
+    ringSize = (clusterAxis == 0) ? meshShapeAttr.getY() : meshShapeAttr.getX();
+  }
+  if (ringSize <= 1) {
+    return;
+  }
+
+  uint32_t numLinks = 1;
+  if (auto numLinksAttr = getNumLinksAttr()) {
+    numLinks = static_cast<uint32_t>(numLinksAttr.getUInt());
+  }
+
+  ttcore::ChipDescAttr chipDesc =
+      ttcore::getCurrentScopeSystemDesc(*this).getChipDescs()[0];
+  ArrayRef<int64_t> physicalGrid = chipDesc.getGrid();
+  // ChipDesc grid is [y, x]; metal compute_with_storage_grid_size is {x, y}.
+  int64_t gridY = physicalGrid.size() > 0 ? physicalGrid[0] : 1;
+  int64_t gridX = physicalGrid.size() > 1 ? physicalGrid[1] : 1;
+  ArrayRef<int64_t> workerGrid = deviceAttr.getWorkerGrid().getShape();
+  if (workerGrid.size() >= 2) {
+    gridY = workerGrid[0];
+    gridX = workerGrid[1];
+  }
+  const bool isBlackhole =
+      chipDesc.getArch().getValue() == ttcore::Arch::Blackhole;
+
+  constexpr uint32_t stickBytes = kLnStatsPerToken * kFp32StickWidthBytes;
+  const uint32_t numWorkers = ditFusedPickNumWorkersTpGt1(
+      numTileRows,
+      ditFusedDeriveWorkerCap(gridX, gridY, numLinks, isBlackhole, stickBytes,
+                              static_cast<uint32_t>(ringSize), numTileRows));
+  const uint32_t numForwarders = std::min(numLinks, numWorkers);
+  const uint32_t maxRounds = (numTileRows + numWorkers - 1) / numWorkers;
+  const int64_t totalPages =
+      static_cast<int64_t>(ringSize) * numForwarders * maxRounds;
+
+  const uint32_t sticksPerPacket = std::max<uint32_t>(
+      1u, static_cast<uint32_t>(kDefaultFabricMaxPayloadBytes) / stickBytes);
+  const int64_t windowSize =
+      static_cast<int64_t>(sticksPerPacket) * kLnStatsPerToken;
+  SmallVector<int64_t> statsShape = {1, 1, totalPages,
+                                     TILE_HEIGHT * windowSize};
+
+  MLIRContext *ctx = rewriter.getContext();
+  Type statsElementType = Float32Type::get(ctx);
+  TTNNLayoutAttr statsLayout =
+      TTNNLayoutAttr::Builder(ctx, statsShape, statsElementType)
+          .setBufferType(BufferType::DRAM)
+          .setMemoryLayout(TensorMemoryLayout::Interleaved)
+          .setLayout(Layout::RowMajor)
+          .build();
+  RankedTensorType statsResultType =
+      RankedTensorType::get(statsShape, statsElementType, statsLayout);
+  auto statsShapeAttr = ShapeAttr::get(ctx, statsShape);
+
+  auto device = utils::getOrInsertDevice(rewriter, *this);
+  ttnn::EmptyOp statsEmptyOp;
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(device);
+    statsEmptyOp = rewriter.create<ttnn::EmptyOp>(getLoc(), statsResultType,
+                                                  device, statsShapeAttr);
+  }
+  rewriter.modifyOpInPlace(
+      *this, [&]() { getStatsMutable().assign(statsEmptyOp.getResult()); });
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+bool mlir::tt::ttnn::DistributedLayerNormOp::hasUnboundSemaphores() {
+  return !getSemaphore();
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+void mlir::tt::ttnn::DistributedLayerNormOp::allocateSemaphores(
+    ::mlir::RewriterBase &rewriter) {
+  if (!hasUnboundSemaphores()) {
+    return;
+  }
+
+  // Fused DiT LN is DRAM interleaved; there is no input shard spec. Match the
+  // previous runtime path: a semaphore over the full compute grid, init 0.
+  // The kernel resets the semaphore on-device, so no reset op is inserted.
+  auto physicalGrid =
+      ttcore::getCurrentScopeSystemDesc(*this).getChipDescs()[0].getGrid();
+  uint32_t endY = physicalGrid.size() > 0 && physicalGrid[0] > 0
+                      ? static_cast<uint32_t>(physicalGrid[0] - 1)
+                      : 0;
+  uint32_t endX = physicalGrid.size() > 1 && physicalGrid[1] > 0
+                      ? static_cast<uint32_t>(physicalGrid[1] - 1)
+                      : 0;
+
+  MLIRContext *ctx = rewriter.getContext();
+  auto workerRange = CoreRangeAttr::get(ctx, CoreCoordAttr::get(ctx, 0, 0),
+                                        CoreCoordAttr::get(ctx, endX, endY));
+  auto workerCrs = CoreRangeSetAttr::get(ctx, {workerRange});
+
+  auto device = utils::getOrInsertDevice(rewriter, *this);
+  ttnn::CreateGlobalSemaphoreOp semaphoreOp;
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(device);
+    semaphoreOp = rewriter.create<ttnn::CreateGlobalSemaphoreOp>(
+        getLoc(), GlobalSemaphoreType::get(ctx), device.getResult(),
+        /*initial_value=*/rewriter.getUI32IntegerAttr(0), workerCrs);
+  }
+
+  rewriter.modifyOpInPlace(
+      *this, [&]() { getSemaphoreMutable().assign(semaphoreOp.getResult()); });
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
 //===----------------------------------------------------------------------===//
 // LayerNormOp

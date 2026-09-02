@@ -3133,42 +3133,66 @@ def TTNN_RMSNormPreAllGatherOp :  TTNN_Op<"rms_norm_pre_all_gather",
 }
 
 def TTNN_DistributedLayerNormOp : TTNN_Op<"distributed_layer_norm",
-    [AttrSizedOperandSegments, OpModelExempt]> {
+    [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface, TTNN_DistributedOpInterface, OpModelExempt]> {
     let summary = "Distributed layer normalization with all-gather op.";
     let description = [{
-      Intermediate TTNN op for distributed layer normalization across mesh devices.
+      Distributed layer normalization across mesh devices. Each device computes
+      local Welford statistics, all-gathers them along cluster_axis, and
+      normalizes its local shard: (x - mean) / sqrt(var + epsilon) * weight + bias.
 
-      Always decomposes into:
-        layer_norm_pre_all_gather + all_gather + layer_norm_post_all_gather.
+      Two lowerings:
+        - DiT fused kernel (`ttnn.experimental.dit_fused_distributed_layernorm`)
+          when the op is eligible (bf16, no residual, weight and bias present,
+          last dim tile-aligned). Rank-3 `[1,N,H]` is reshaped to `[1,1,N,H]`.
+        - Otherwise the pre/all_gather/post sandwich. Residual, unaffine, and
+          odd shapes stay on that path.
 
-      Does not reach serialization — no flatbuffer/runtime/EmitC needed.
+      AdaLN scale/shift land on weight/bias after TTIR affine fusion. The gated
+      residual is not this op.
 
       Inputs:
-        - input: Input tensor, width-sharded across mesh devices along the
-            normalized (last) dimension.
-        - weight: Optional gamma (scale) tensor applied after normalization.
-            AdaLN scale lands here after TTIR affine fusion.
-        - bias: Optional beta (shift) tensor applied after normalization.
-            AdaLN shift lands here. The gated residual is not this operand.
-        - residual: Optional residual tensor to add to input before
-            normalization. norm_input = input + residual.
+        - input: Activation, sharded on the normalized (last) dimension.
+        - weight: Optional gamma. 1D `[H]` or TILE `[1,H]` / `[N,H]`.
+        - bias: Optional beta. Same shape rules as weight. Required together
+            with weight for the fused kernel.
+        - residual: Optional pre-norm add. Not on the fused kernel; presence
+            forces the sandwich.
+        - stats: Persistent DRAM scratch for the fused-kernel stats all-gather.
+            Unbound at conversion; `TTNNAllocateDistributedOpBuffers` binds a
+            prelude `ttnn.empty`. Absent on the sandwich path.
+        - semaphore: Global semaphore for the fused-kernel fabric path.
+            Unbound at conversion; `TTNNAllocateDistributedOpSemaphores`
+            binds a prelude `ttnn.create_global_semaphore`.
 
       Attributes:
-        - cluster_axis: Mesh dimension (0 or 1) along which to all-gather
-            the partial statistics across devices.
-        - epsilon: Small constant added to the denominator for numerical
-            stability. Defaults to 1e-05.
+        - cluster_axis: Mesh dimension for the statistics all-gather.
+        - epsilon: Numerical stability constant. Defaults to 1e-05.
+        - num_links: Optional fabric links for the fused kernel.
+        - topology: CCL topology for the fused kernel (defaults to Ring).
+        - compute_config: Optional device compute kernel configuration.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          Optional<AnyRankedTensor>:$weight,
                          Optional<AnyRankedTensor>:$bias,
                          Optional<AnyRankedTensor>:$residual,
+                         Optional<AnyRankedTensor>:$stats,
+                         Optional<TTNN_GlobalSemaphore>:$semaphore,
                          TTNN_Device:$device,
                          UI32Attr:$cluster_axis,
-                         DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
+                         DefaultValuedAttr<F32Attr, "1e-05">:$epsilon,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      bool hasUnboundBuffers();
+      void allocateBuffers(::mlir::RewriterBase &rewriter);
+      bool hasUnboundSemaphores();
+      void allocateSemaphores(::mlir::RewriterBase &rewriter);
+    }];
 
     let hasVerifier = 1;
 }

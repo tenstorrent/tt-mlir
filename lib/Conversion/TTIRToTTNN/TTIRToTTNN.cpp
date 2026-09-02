@@ -1319,8 +1319,11 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::DistributedLayerNormOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
-        adaptor.getResidual(), device,
-        static_cast<uint32_t>(adaptor.getClusterAxis()), adaptor.getEpsilon());
+        adaptor.getResidual(),
+        /*stats=*/nullptr, /*semaphore=*/nullptr, device,
+        static_cast<uint32_t>(adaptor.getClusterAxis()), adaptor.getEpsilon(),
+        /*num_links=*/nullptr, /*topology=*/nullptr,
+        /*compute_config=*/nullptr);
     return success();
   }
 };

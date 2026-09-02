@@ -1848,6 +1848,53 @@ createOp(FlatbufferObjectCache &cache, DitRMSNormUnaryFusedOp op) {
       computeConfig.value_or(0), output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::DistributedLayerNormOp>
+createOp(FlatbufferObjectCache &cache, DistributedLayerNormOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> weight = 0;
+  if (op.getWeight()) {
+    weight = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getWeight()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias = 0;
+  if (op.getBias()) {
+    bias = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBias()));
+  }
+
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
+  auto numLinks = toFlatbuffer(cache, op.getNumLinks());
+  auto topology = toFlatbuffer(cache, op.getTopology());
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> stats = 0;
+  if (op.getStats()) {
+    stats = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getStats()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef> semaphore = 0;
+  if (op.getSemaphore()) {
+    semaphore =
+        cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(op.getSemaphore());
+  }
+
+  return ::tt::target::ttnn::CreateDistributedLayerNormOp(
+      *cache.fbb, input, weight, bias, op.getClusterAxis(),
+      op.getEpsilon().convertToFloat(), memoryConfig, numLinks, topology,
+      computeConfig.value_or(0), output, stats, semaphore);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::DistributedRMSNormOp>
 createOp(FlatbufferObjectCache &cache, DistributedRMSNormOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -5164,6 +5211,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto ditRMSNormUnaryFusedOp = dyn_cast<DitRMSNormUnaryFusedOp>(op);
       ditRMSNormUnaryFusedOp) {
     return createOperation(cache, createOp(cache, ditRMSNormUnaryFusedOp),
+                           debugString, locInfo);
+  }
+  if (auto distributedLayerNormOp = dyn_cast<DistributedLayerNormOp>(op);
+      distributedLayerNormOp) {
+    return createOperation(cache, createOp(cache, distributedLayerNormOp),
                            debugString, locInfo);
   }
   if (auto distributedRMSNormOp = dyn_cast<DistributedRMSNormOp>(op);

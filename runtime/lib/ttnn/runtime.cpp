@@ -1381,6 +1381,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_RMSNormPreAllGatherOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::DistributedLayerNormOp: {
+    tensorRefs = {opContext.type_as_DistributedLayerNormOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
     tensorRefs = {opContext.type_as_DistributedRMSNormOp()->out()};
     break;
@@ -2060,6 +2064,16 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     if (opContext.type_as_RMSNormPreAllGatherOp()->residual()) {
       tensorRefs.push_back(
           opContext.type_as_RMSNormPreAllGatherOp()->residual());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DistributedLayerNormOp: {
+    tensorRefs = {opContext.type_as_DistributedLayerNormOp()->input()};
+    if (opContext.type_as_DistributedLayerNormOp()->weight()) {
+      tensorRefs.push_back(opContext.type_as_DistributedLayerNormOp()->weight());
+    }
+    if (opContext.type_as_DistributedLayerNormOp()->bias()) {
+      tensorRefs.push_back(opContext.type_as_DistributedLayerNormOp()->bias());
     }
     break;
   }
