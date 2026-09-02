@@ -43,6 +43,11 @@ def check_sharded_output(mlir_file: str, op_name: str):
 )
 @pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 2])
 @pytest.mark.parametrize("epsilon", [1.0e-5])
+@pytest.mark.xfail(
+    strict=True,
+    reason="RMSNorm falls back to an unsharded output layout since the "
+    "c18bff73f84d..0af4133eb16c tt-metal uplift, tracked in #9272",
+)
 def test_rmsnorm_sharding(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
