@@ -172,6 +172,14 @@ public:
         return tk::build_bn_inference(*mb_, operand, scale, offset, mean, variance, eps);
     }
 
+    mlir::Value conv1d(mlir::Value input, mlir::Value weight, std::optional<mlir::Value> bias_opt,
+                       std::vector<std::int64_t> stride, std::vector<std::int64_t> padding,
+                       std::vector<std::int64_t> dilation, int64_t groups) {
+        assert_builder();
+        return tk::build_conv1d(*mb_, input, weight, bias_opt.value_or(mlir::Value{}), stride, padding, dilation,
+                                groups);
+    }
+
     mlir::Value conv2d(mlir::Value input, mlir::Value weight, std::optional<mlir::Value> bias_opt,
                        std::vector<std::int64_t> stride, std::vector<std::int64_t> padding,
                        std::vector<std::int64_t> dilation, int64_t groups) {
@@ -790,6 +798,8 @@ NB_MODULE(_native, m) {
              "reduction"_a)
         .def("batch_norm_inference", &PyModuleBuilder::batch_norm_inference, "operand"_a, "scale"_a, "offset"_a,
              "mean"_a, "variance"_a, "eps"_a)
+        .def("conv1d", &PyModuleBuilder::conv1d, "input"_a, "weight"_a, "bias"_a, "stride"_a, "padding"_a, "dilation"_a,
+             "groups"_a)
         .def("conv2d", &PyModuleBuilder::conv2d, "input"_a, "weight"_a, "bias"_a, "stride"_a, "padding"_a, "dilation"_a,
              "groups"_a)
         .def("max_pool2d", &PyModuleBuilder::max_pool2d, "input"_a, "kernel_size"_a, "stride"_a, "padding"_a,

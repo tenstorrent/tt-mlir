@@ -118,6 +118,37 @@ def test_threshold_backward(threshold: float) -> None:
 
 
 @pytest.mark.parametrize(
+    "n,c_in,length,c_out,ksize,stride,padding,dilation,groups,bias",
+    [
+        (1, 32, 32, 64, 3, 1, 1, 1, 1, False),
+        (1, 32, 32, 64, 3, 2, 1, 1, 1, False),
+        (1, 32, 32, 64, 1, 1, 0, 1, 1, True),
+        (1, 32, 32, 64, 3, 1, 1, 1, 4, False),
+        (1, 32, 32, 64, 3, 1, 2, 2, 1, False),
+        (1, 32, 64, 64, 5, 2, 2, 1, 1, False),
+        (1, 32, 32, 64, 3, 1, 2, 2, 4, True),
+        (2, 32, 32, 64, 3, 1, 1, 1, 1, True),
+    ],
+    ids=[
+        "k3_s1_pad1_nobias",
+        "k3_s2_pad1_nobias",
+        "k1_bias",
+        "grouped",
+        "dilation2",
+        "k5_s2_len64",
+        "grouped_dilation_bias",
+        "batch2_bias",
+    ],
+)
+def test_conv1d(n: int, c_in: int, length: int, c_out: int, ksize: int, stride: int,
+                padding: int, dilation: int, groups: int, bias: bool) -> None:
+    x = torch.randn((n, c_in, length), dtype=torch.bfloat16)
+    conv = torch.nn.Conv1d(in_channels=c_in, out_channels=c_out, kernel_size=ksize, stride=stride, padding=padding,
+                           dilation=dilation, groups=groups, bias=bias).to(torch.bfloat16)
+    assert_close_cpu_vs_tt(conv, x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize(
     "n,c_in,h,w,c_out,ksize,stride,padding,dilation,groups,bias",
     [
         (1, 32, 32, 32, 64, 3, 1, 1, 1, 1, False),
