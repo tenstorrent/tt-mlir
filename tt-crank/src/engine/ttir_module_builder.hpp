@@ -280,6 +280,16 @@ TT_KURBLA_API mlir::Value build_max_pool2d(ModuleBuilder &mb, mlir::Value input,
                                            llvm::ArrayRef<int64_t> stride, llvm::ArrayRef<int64_t> padding,
                                            llvm::ArrayRef<int64_t> dilation, bool ceil_mode);
 
+// Emit TTIR for a 1D convolution (non-transposed). Input/output are NCW and
+// weight is OIK, matching ATen. `bias` may be null; when present it must be 1D
+// (C_out,). `stride`, `padding`, and `dilation` carry a single value.
+//
+// `ttir.conv1d` has no channel-last decomposition pattern, so the NCW→NLC→NCW
+// permutes are emitted here and the op is created in its native NLC form.
+TT_KURBLA_API mlir::Value build_conv1d(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias,
+                                       llvm::ArrayRef<int64_t> stride, llvm::ArrayRef<int64_t> padding,
+                                       llvm::ArrayRef<int64_t> dilation, int64_t groups);
+
 // Emit TTIR for a 2D convolution (non-transposed). Input and output use NCHW
 // layout (batch_dim=0, channel_dim=1, height_dim=2, width_dim=3). Weight is
 // in OIHW layout matching PyTorch's ATen convention. `bias` may be null (no

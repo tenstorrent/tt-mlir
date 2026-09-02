@@ -363,6 +363,35 @@ def test_compile_mnist(batch: int, feat: int, hidden: int, classes: int) -> None
 
 
 @pytest.mark.parametrize(
+    "n,c_in,length,c_out,ksize,stride,padding,dilation,groups,bias",
+    [
+        (1, 32, 32, 64, 3, 1, 1, 1, 1, False),
+        (1, 32, 32, 64, 3, 2, 1, 1, 1, False),
+        (1, 32, 32, 64, 1, 1, 0, 1, 1, True),
+        (1, 32, 32, 64, 3, 1, 1, 1, 4, False),
+        (1, 32, 32, 32, 3, 1, 1, 1, 32, False),
+        (1, 32, 32, 64, 3, 1, 2, 2, 1, False),
+        (1, 32, 64, 64, 5, 2, 2, 1, 1, False),
+        (1, 32, 32, 64, 3, 1, 2, 2, 4, True),
+        (2, 32, 32, 64, 3, 1, 1, 1, 1, True),
+    ],
+    ids=[
+        "k3_s1_pad1_nobias", "k3_s2_pad1_nobias", "k1_bias",
+        "grouped", "depthwise", "dilation2", "k5_s2_len64",
+        "grouped_dilation_bias", "batch2_bias",
+    ],
+)
+def test_compile_conv1d(n: int, c_in: int, length: int, c_out: int, ksize: int, stride: int,
+                        padding: int, dilation: int, groups: int, bias: bool) -> None:
+    """aten::convolution with a rank-3 input in a compiled graph — exercises the
+    conv1d rank dispatch and build_conv1d's own NCW→NLC→NCW permutes."""
+    model = nn.Conv1d(c_in, c_out, ksize, stride=stride, padding=padding,
+                      dilation=dilation, groups=groups, bias=bias).to(torch.bfloat16)
+    x = torch.randn((n, c_in, length), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(model, x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize(
     "n,c_in,h,w,c_out,ksize,stride,padding,dilation,groups,bias",
     [
         (1, 32, 32, 32, 64, 3, 1, 1, 1, 1, False),

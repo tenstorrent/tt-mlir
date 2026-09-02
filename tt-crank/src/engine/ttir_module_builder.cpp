@@ -1378,6 +1378,44 @@ build_matmul_backward(ModuleBuilder &mb, mlir::Value grad, mlir::Value self, mli
     return {grad_self, grad_other};
 }
 
+mlir::Value build_conv1d(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias,
+                         llvm::ArrayRef<int64_t> stride, llvm::ArrayRef<int64_t> padding,
+                         llvm::ArrayRef<int64_t> dilation, int64_t groups) {
+    auto ncw_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto shape = ncw_type.getShape();                                              // NCW: [N, C_in, L_in]
+    auto wshape = mlir::cast<mlir::RankedTensorType>(weight.getType()).getShape(); // OIK: [C_out, C_in/groups, K]
+    auto elem_type = ncw_type.getElementType();
+
+    // NCW[N,C,L] → NLC[N,L,C]
+    auto nlc_input = build_permute(mb, input, {0, 2, 1});
+
+    // NOLINTBEGIN
+    int64_t kW = wshape[2];
+    int64_t pW = padding[0], dW = dilation[0], sW = stride[0];
+    int64_t L_out = (shape[2] + 2 * pW - dW * (kW - 1) - 1) / sW + 1;
+    // NOLINTEND
+
+    // The verifier wants a rank-3 bias with the channel at channel_dim=2.
+    mlir::Value bias_3d;
+    if (bias) {
+        bias_3d = build_reshape(mb, bias, {1, 1, wshape[0]});
+    }
+
+    auto stride_attr = mb.attrs().getDenseI32ArrayAttr({as<int32_t>(sW)});
+    auto padding_attr = mb.attrs().getDenseI32ArrayAttr({as<int32_t>(pW), as<int32_t>(pW)});
+    auto dilation_attr = mb.attrs().getDenseI32ArrayAttr({as<int32_t>(dW)});
+
+    auto nlc_out_type = mlir::RankedTensorType::get({shape[0], L_out, wshape[0]}, elem_type);
+    auto nlc_result = mb.create<mlir::tt::ttir::Conv1dOp>(nlc_out_type, nlc_input, weight, bias_3d, stride_attr,
+                                                          padding_attr, dilation_attr, as<uint32_t>(groups),
+                                                          /*batch_dim=*/uint64_t{0}, /*length_dim=*/uint64_t{1},
+                                                          /*channel_dim=*/uint64_t{2})
+                          .getResult();
+
+    // NLC[N,L_out,C_out] → NCW[N,C_out,L_out]
+    return build_permute(mb, nlc_result, {0, 2, 1});
+}
+
 mlir::Value build_conv2d(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias,
                          llvm::ArrayRef<int64_t> stride, llvm::ArrayRef<int64_t> padding,
                          llvm::ArrayRef<int64_t> dilation, int64_t groups) {

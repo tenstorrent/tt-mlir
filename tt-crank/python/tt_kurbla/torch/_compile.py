@@ -221,6 +221,11 @@ def _(mb, input):
 def _(mb, input, weight, bias, stride, padding, dilation, transposed, output_padding, groups):
     if transposed:
         raise NotImplementedError("tt-kurbla compile: transposed convolution not supported")
+    rank = len(input.shape)
+    if rank == 3:
+        return mb.conv1d(input, weight, bias, list(stride), list(padding), list(dilation), int(groups))
+    if rank != 4:
+        raise NotImplementedError(f"tt-kurbla compile: convolution supports rank 3 or 4 inputs, got rank {rank}")
     return mb.conv2d(input, weight, bias, list(stride), list(padding), list(dilation), int(groups))
 
 

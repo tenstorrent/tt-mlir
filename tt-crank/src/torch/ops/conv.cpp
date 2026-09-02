@@ -24,6 +24,20 @@ namespace tt::kurbla::torch_backend {
 
 namespace {
 
+mlir::Value build_conv_by_rank(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias,
+                               at::IntArrayRef stride, at::IntArrayRef padding, at::IntArrayRef dilation,
+                               int64_t groups) {
+    auto rank = mlir::cast<mlir::RankedTensorType>(input.getType()).getRank();
+    if (rank == 3) {
+        return build_conv1d(mb, input, weight, bias, stride, padding, dilation, groups);
+    }
+    TORCH_CHECK(rank == 4,
+                "tt-kurbla aten::convolution: only 3D (conv1d) and 4D (conv2d) inputs are supported, got "
+                "rank ",
+                rank);
+    return build_conv2d(mb, input, weight, bias, stride, padding, dilation, groups);
+}
+
 at::Tensor tt_convolution(const at::Tensor &input_in, const at::Tensor &weight_in,
                           const std::optional<at::Tensor> &bias_in, at::IntArrayRef stride, at::IntArrayRef padding,
                           at::IntArrayRef dilation, bool transposed, at::IntArrayRef /*output_padding*/,
@@ -35,7 +49,7 @@ at::Tensor tt_convolution(const at::Tensor &input_in, const at::Tensor &weight_i
         const auto [input, weight, bias] = align_on_tt(input_in, weight_in, *bias_in);
         auto mb = ModuleBuilder::init({spec_for(input), spec_for(weight), spec_for(bias)});
         auto [promoted, inp_v, w_v, b_v] = promote_inputs(mb, input, weight, bias);
-        auto result = build_conv2d(mb, inp_v, w_v, b_v, stride, padding, dilation, groups);
+        auto result = build_conv_by_rank(mb, inp_v, w_v, b_v, stride, padding, dilation, groups);
         auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result.getType()).getShape();
         std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
         auto module_op = std::move(mb).finalize({result});
@@ -46,7 +60,7 @@ at::Tensor tt_convolution(const at::Tensor &input_in, const at::Tensor &weight_i
     const auto [input, weight] = align_on_tt(input_in, weight_in);
     auto mb = ModuleBuilder::init({spec_for(input), spec_for(weight)});
     auto [promoted, inp_v, w_v] = promote_inputs(mb, input, weight);
-    auto result = build_conv2d(mb, inp_v, w_v, mlir::Value{}, stride, padding, dilation, groups);
+    auto result = build_conv_by_rank(mb, inp_v, w_v, mlir::Value{}, stride, padding, dilation, groups);
     auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result.getType()).getShape();
     std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
     auto module_op = std::move(mb).finalize({result});
