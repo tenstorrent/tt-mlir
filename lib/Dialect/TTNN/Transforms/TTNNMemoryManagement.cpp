@@ -796,7 +796,20 @@ public:
       return failure();
     }
 
-    SmallVector<Value> newOperands;
+    // Validate every operand and compute its target shape before creating any
+    // IR. The greedy rewrite driver does not roll back ops created by a
+    // pattern that subsequently returns failure, so bailing out after a
+    // rewriter.create() leaks dead ops. Those get erased as trivially dead and
+    // then recreated identically on the next sweep, which registers as
+    // activity without net change and stops the driver ever converging.
+    struct OperandPlan {
+      Value input;
+      SmallVector<int64_t> targetShape;
+      bool needsReshape;
+    };
+    SmallVector<OperandPlan> plans;
+    plans.reserve(eltwiseOp->getNumOperands());
+
     for (uint32_t i = 0; i < eltwiseOp->getNumOperands(); ++i) {
       Value operand = eltwiseOp->getOperand(i);
       auto operandType = dyn_cast<RankedTensorType>(operand.getType());
@@ -851,19 +864,32 @@ public:
       // Check if a reshape is actually needed.
       if (reshapeInputType.getShape() ==
           llvm::ArrayRef<int64_t>(operandTargetShape)) {
-        newOperands.push_back(reshapeInput);
+        plans.push_back({reshapeInput, std::move(operandTargetShape),
+                         /*needsReshape=*/false});
         continue;
       }
       if (ttmlir::utils::volume(reshapeInputType.getShape()) !=
           ttmlir::utils::volume(llvm::ArrayRef(operandTargetShape))) {
         return failure();
       }
-      SmallVector<int32_t> targetShape32(operandTargetShape.begin(),
-                                         operandTargetShape.end());
+      plans.push_back({reshapeInput, std::move(operandTargetShape),
+                       /*needsReshape=*/true});
+    }
+
+    // Every operand is known good, so it is now safe to mutate the IR.
+    SmallVector<Value> newOperands;
+    newOperands.reserve(plans.size());
+    for (OperandPlan &plan : plans) {
+      if (!plan.needsReshape) {
+        newOperands.push_back(plan.input);
+        continue;
+      }
+      SmallVector<int32_t> targetShape32(plan.targetShape.begin(),
+                                         plan.targetShape.end());
       auto newOperandType = utils::RankedTensorTypeFactory::create(
-          reshapeInputType, operandTargetShape);
+          cast<RankedTensorType>(plan.input.getType()), plan.targetShape);
       auto newReshape = rewriter.create<ttnn::ReshapeOp>(
-          op.getLoc(), newOperandType, reshapeInput,
+          op.getLoc(), newOperandType, plan.input,
           rewriter.getI32ArrayAttr(targetShape32));
       newOperands.push_back(newReshape.getResult());
     }
@@ -888,21 +914,45 @@ public:
 
   LogicalResult matchAndRewrite(ttnn::PermuteOp op,
                                 PatternRewriter &rewriter) const override {
-    if (!op->hasOneUse()) {
+    if (op->use_empty()) {
       return failure();
     }
 
-    Operation *user = *op->user_begin();
-    ttnn::RepeatOp repeatUser = mlir::dyn_cast<ttnn::RepeatOp>(user);
-    ttnn::ReshapeOp reshapeUser = mlir::dyn_cast<ttnn::ReshapeOp>(user);
-    if (!reshapeUser) {
-      if (!repeatUser || !repeatUser->hasOneUse()) {
+    // Collect the reshape users. A permute can feed more than one reshape --
+    // the pixel shuffle lowering produces two that differ only by a leading
+    // unit dim -- and moving the permute to row major is just as valid there,
+    // so long as every user is a reshape that can be rewritten alongside it.
+    SmallVector<ttnn::ReshapeOp> reshapeUsers;
+    ttnn::RepeatOp repeatUser;
+    if (op->hasOneUse()) {
+      Operation *user = *op->user_begin();
+      if (auto reshape = mlir::dyn_cast<ttnn::ReshapeOp>(user)) {
+        reshapeUsers.push_back(reshape);
+      } else if (auto repeat = mlir::dyn_cast<ttnn::RepeatOp>(user)) {
+        if (!repeat->hasOneUse()) {
+          return failure();
+        }
+        auto reshape = mlir::dyn_cast<ttnn::ReshapeOp>(*repeat->user_begin());
+        if (!reshape) {
+          return failure();
+        }
+        repeatUser = repeat;
+        reshapeUsers.push_back(reshape);
+      } else {
         return failure();
       }
-      reshapeUser = mlir::dyn_cast<ttnn::ReshapeOp>(*repeatUser->user_begin());
-    }
-    if (!reshapeUser) {
-      return failure();
+    } else {
+      // With several users an interposed repeat would have to be cloned per
+      // user, which is not worth the complexity, so require plain reshapes.
+      for (Operation *user : op->getUsers()) {
+        auto reshape = mlir::dyn_cast<ttnn::ReshapeOp>(user);
+        if (!reshape) {
+          return failure();
+        }
+        if (!llvm::is_contained(reshapeUsers, reshape)) {
+          reshapeUsers.push_back(reshape);
+        }
+      }
     }
 
     auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
@@ -966,21 +1016,20 @@ public:
           repeatResultType.cloneWithEncoding(rowMajorRepeatLayout);
     }
 
-    auto reshapeResultType =
-        mlir::cast<RankedTensorType>(reshapeUser.getResult().getType());
-    auto reshapeResultLayout =
-        mlir::dyn_cast<ttnn::TTNNLayoutAttr>(reshapeResultType.getEncoding());
-    if (!reshapeResultLayout || !reshapeResultLayout.isTiled()) {
-      return failure();
+    // Validate every reshape user before touching the IR: the greedy driver
+    // does not roll back ops created by a pattern that subsequently fails.
+    SmallVector<ttnn::TTNNLayoutAttr> reshapeResultLayouts;
+    reshapeResultLayouts.reserve(reshapeUsers.size());
+    for (ttnn::ReshapeOp reshapeUser : reshapeUsers) {
+      auto reshapeResultType =
+          mlir::cast<RankedTensorType>(reshapeUser.getResult().getType());
+      auto reshapeResultLayout =
+          mlir::dyn_cast<ttnn::TTNNLayoutAttr>(reshapeResultType.getEncoding());
+      if (!reshapeResultLayout || !reshapeResultLayout.isTiled()) {
+        return failure();
+      }
+      reshapeResultLayouts.push_back(reshapeResultLayout);
     }
-
-    auto rowMajorReshapeLayout =
-        TTNNLayoutAttr::Builder(reshapeResultLayout,
-                                reshapeResultType.getShape())
-            .setLayout(ttnn::Layout::RowMajor)
-            .build();
-    RankedTensorType rowMajorReshapeResultType =
-        reshapeResultType.cloneWithEncoding(rowMajorReshapeLayout);
 
     Value permuteInput = op.getInput();
     if (!permuteInput.getDefiningOp<ttnn::ToLayoutOp>()) {
@@ -1010,19 +1059,34 @@ public:
       reshapeInput = newRepeatOp.getResult();
     }
 
-    auto newReshapeOp = rewriter.create<ttnn::ReshapeOp>(
-        reshapeUser.getLoc(), rowMajorReshapeResultType, reshapeInput,
-        reshapeUser.getShapeAttr());
+    for (auto [reshapeUser, reshapeResultLayout] :
+         llvm::zip_equal(reshapeUsers, reshapeResultLayouts)) {
+      auto reshapeResultType =
+          mlir::cast<RankedTensorType>(reshapeUser.getResult().getType());
+      auto rowMajorReshapeLayout =
+          TTNNLayoutAttr::Builder(reshapeResultLayout,
+                                  reshapeResultType.getShape())
+              .setLayout(ttnn::Layout::RowMajor)
+              .build();
+      RankedTensorType rowMajorReshapeResultType =
+          reshapeResultType.cloneWithEncoding(rowMajorReshapeLayout);
 
-    auto restoredLayout = utils::createToTensorSpecOp(
-        reshapeUser,
-        mlir::cast<mlir::TypedValue<RankedTensorType>>(
-            newReshapeOp.getResult()),
-        rewriter, reshapeResultLayout.getLayout(),
-        reshapeResultLayout.getBufferType(), reshapeResultLayout.getMemLayout(),
-        reshapeResultLayout.getDataType(), "_restore_layout");
+      auto newReshapeOp = rewriter.create<ttnn::ReshapeOp>(
+          reshapeUser.getLoc(), rowMajorReshapeResultType, reshapeInput,
+          reshapeUser.getShapeAttr());
 
-    rewriter.replaceOp(reshapeUser, restoredLayout.getResult());
+      auto restoredLayout = utils::createToTensorSpecOp(
+          reshapeUser,
+          mlir::cast<mlir::TypedValue<RankedTensorType>>(
+              newReshapeOp.getResult()),
+          rewriter, reshapeResultLayout.getLayout(),
+          reshapeResultLayout.getBufferType(),
+          reshapeResultLayout.getMemLayout(), reshapeResultLayout.getDataType(),
+          "_restore_layout");
+
+      rewriter.replaceOp(reshapeUser, restoredLayout.getResult());
+    }
+
     if (repeatUser) {
       rewriter.eraseOp(repeatUser);
     }
@@ -1151,16 +1215,29 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     if (aggressiveMemorySaving) {
-      patterns.add<PropagateSliceThroughEltwise<ttnn::AddOp>,
-                   PropagateSliceThroughEltwise<ttnn::MultiplyOp>,
-                   PropagateSliceThroughEltwise<ttnn::SubtractOp>,
-                   PropagateSliceThroughEltwise<ttnn::DivideOp>,
-                   ReshapeElementwiseAdjusting<ttnn::AddOp>,
-                   ReshapeElementwiseAdjusting<ttnn::MultiplyOp>,
-                   ReshapeElementwiseAdjusting<ttnn::SubtractOp>,
-                   ReshapeElementwiseAdjusting<ttnn::DivideOp>,
-                   PermuteRowMajorAdjusting, ReshapeRowMajorAdjusting>(
-          &getContext());
+      // aggressivePatternMask selects which aggressive pattern kinds are
+      // enabled, so a non-converging graph can be bisected down to a single
+      // pattern kind without a rebuild. All kinds are enabled by default.
+      if (aggressivePatternMask & 0x1) {
+        patterns.add<PropagateSliceThroughEltwise<ttnn::AddOp>,
+                     PropagateSliceThroughEltwise<ttnn::MultiplyOp>,
+                     PropagateSliceThroughEltwise<ttnn::SubtractOp>,
+                     PropagateSliceThroughEltwise<ttnn::DivideOp>>(
+            &getContext());
+      }
+      if (aggressivePatternMask & 0x2) {
+        patterns.add<ReshapeElementwiseAdjusting<ttnn::AddOp>,
+                     ReshapeElementwiseAdjusting<ttnn::MultiplyOp>,
+                     ReshapeElementwiseAdjusting<ttnn::SubtractOp>,
+                     ReshapeElementwiseAdjusting<ttnn::DivideOp>>(
+            &getContext());
+      }
+      if (aggressivePatternMask & 0x4) {
+        patterns.add<PermuteRowMajorAdjusting>(&getContext());
+      }
+      if (aggressivePatternMask & 0x8) {
+        patterns.add<ReshapeRowMajorAdjusting>(&getContext());
+      }
     }
     patterns.add<PropagateSliceThroughPermute, PropagateSliceThroughReshape,
                  HoistCommonReshapeAboveSlices, PropagateSliceThroughRepeat,
@@ -1168,9 +1245,21 @@ public:
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
+    // The slice propagation patterns move a slice above a single producer at a
+    // time. Under top-down traversal the relocated slice sits behind the
+    // traversal point, so it is only reconsidered on the next sweep. Graphs
+    // with long producer chains therefore need considerably more sweeps than
+    // the greedy driver's default of 10 to reach a fixpoint.
+    config.setMaxIterations(maxIterations);
 
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns),
                                      config))) {
+      emitError(getOperation()->getLoc())
+          << "ttnn-memory-management: pattern application did not converge "
+             "within "
+          << maxIterations.getValue()
+          << " iterations; raise the pass' max-iterations option if the graph "
+             "is still making progress";
       signalPassFailure();
       return;
     }

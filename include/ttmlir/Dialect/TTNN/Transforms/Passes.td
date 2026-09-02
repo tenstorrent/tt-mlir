@@ -854,6 +854,19 @@ def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
            "aggressive-memory-saving",
            "bool", /*default=*/"true",
            "Opt-out: disable aggressive memory saving patterns to reduce DRAM usage.">,
+    Option<"maxIterations",
+           "max-iterations",
+           "int64_t", /*default=*/"10",
+           "Maximum greedy rewrite iterations, exposed so non-convergence can "
+           "be characterised without a rebuild.">,
+    Option<"aggressivePatternMask",
+           "aggressive-pattern-mask",
+           "int64_t", /*default=*/"15",
+           "Bitmask selecting which aggressive memory saving pattern kinds are "
+           "enabled: 0x1 PropagateSliceThroughEltwise, 0x2 "
+           "ReshapeElementwiseAdjusting, 0x4 PermuteRowMajorAdjusting, 0x8 "
+           "ReshapeRowMajorAdjusting. Diagnostic aid for bisecting a "
+           "non-converging graph down to a single pattern kind.">,
   ];
 }
 
