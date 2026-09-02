@@ -10,8 +10,8 @@
 namespace mlir::tt::ttnn {
 
 /// TTML cross-entropy forward requires a tiled, interleaved logits tensor and a
-/// row-major, interleaved target tensor. Its output layout is derived from the
-/// logits input, so only the null output hint is meaningful.
+/// row-major, interleaved target tensor, both in DRAM. Its output layout is
+/// derived from the logits input, so only the null output hint is meaningful.
 struct CrossEntropyForwardRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
