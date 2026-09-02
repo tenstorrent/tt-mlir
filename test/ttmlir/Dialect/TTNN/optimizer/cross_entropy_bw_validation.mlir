@@ -26,8 +26,9 @@ module {
     // CHECK-SAME: scaler = 3.125000e-02 : f32
     // CHECK-SAME: -> tensor<4x1x32x64xbf16, #[[INPUT_LAYOUT]]>
     // CHECK: return %[[RESULT]]
-    %result = "ttir.cross_entropy_bw"(%input, %target, %grad) <{
-        scaler = 3.125e-02 : f32}>
+    %result = "ttcore.composite"(%input, %target, %grad) <{
+      composite_name = "cross_entropy_bw", decomposition = @decomp_bf16,
+      composite_attributes = {scaler = 3.125e-02 : f32}}>
         : (tensor<4x1x32x64xbf16>, tensor<4x32xui32>,
            tensor<1x1x1x1xbf16>) -> tensor<4x1x32x64xbf16>
     return %result : tensor<4x1x32x64xbf16>
@@ -56,8 +57,9 @@ module {
     // CHECK: %[[RESULT_F32:[0-9a-z_]+]] = "ttnn.typecast"(%[[RESULT_BF16]])
     // CHECK-SAME: -> tensor<4x1x32x64xf32
     // CHECK: return %[[RESULT_F32]]
-    %result = "ttir.cross_entropy_bw"(%input, %target, %grad) <{
-        scaler = 3.125e-02 : f32}>
+    %result = "ttcore.composite"(%input, %target, %grad) <{
+      composite_name = "cross_entropy_bw", decomposition = @decomp_f32,
+      composite_attributes = {scaler = 3.125e-02 : f32}}>
         : (tensor<4x1x32x64xf32>, tensor<4x32xi32>,
            tensor<1x1x1x1xf32>) -> tensor<4x1x32x64xf32>
     return %result : tensor<4x1x32x64xf32>
@@ -86,10 +88,21 @@ module {
     %sum = "ttir.add"(%lhs, %rhs)
         : (tensor<4x1x32x64xbf16>, tensor<4x1x32x64xbf16>)
           -> tensor<4x1x32x64xbf16>
-    %result = "ttir.cross_entropy_bw"(%sum, %target, %grad) <{
-        scaler = 3.125e-02 : f32}>
+    %result = "ttcore.composite"(%sum, %target, %grad) <{
+      composite_name = "cross_entropy_bw", decomposition = @decomp_bf16,
+      composite_attributes = {scaler = 3.125e-02 : f32}}>
         : (tensor<4x1x32x64xbf16>, tensor<4x32xui32>,
            tensor<1x1x1x1xbf16>) -> tensor<4x1x32x64xbf16>
     return %result : tensor<4x1x32x64xbf16>
+  }
+  func.func private @decomp_bf16(
+      %input: tensor<4x1x32x64xbf16>, %target: tensor<4x32xui32>,
+      %grad: tensor<1x1x1x1xbf16>) -> tensor<4x1x32x64xbf16> {
+    return %input : tensor<4x1x32x64xbf16>
+  }
+  func.func private @decomp_f32(
+      %input: tensor<4x1x32x64xf32>, %target: tensor<4x32xi32>,
+      %grad: tensor<1x1x1x1xf32>) -> tensor<4x1x32x64xf32> {
+    return %input : tensor<4x1x32x64xf32>
   }
 }

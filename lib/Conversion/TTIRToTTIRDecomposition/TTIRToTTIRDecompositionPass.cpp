@@ -10,6 +10,7 @@
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinDialect.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
@@ -120,41 +121,51 @@ struct TTIRToTTIRDecompositionPass
       return op.getParam().getType().getRank() == 4;
     });
 
-    // The ttml::metal SDPA and layernorm_fw ops only accept rank-4 tensors.
-    // Other composites are unaffected by this decomposition.
+    // Decompose SDPA, layer norm, and cross-entropy composites when their
+    // tensor ranks or shapes are unsupported by ttml::metal.
     target.addDynamicallyLegalOp<ttcore::CompositeOp>(
         [&](ttcore::CompositeOp op) {
-          StringRef compositeName = op.getCompositeName();
-          if (compositeName != "sdpa_fw" && compositeName != "sdpa_bw" &&
-              compositeName != "layernorm_fw") {
-            return true;
+          if (op.getCompositeName() == "sdpa_fw" ||
+              op.getCompositeName() == "sdpa_bw" ||
+              op.getCompositeName() == "layernorm_fw") {
+            bool operandsRank4 = llvm::all_of(op.getInputs(), [&](Value input) {
+              return cast<RankedTensorType>(input.getType()).getRank() == 4;
+            });
+            bool resultsRank4 =
+                llvm::all_of(op.getResultTypes(), [&](Type type) {
+                  return cast<RankedTensorType>(type).getRank() == 4;
+                });
+            return operandsRank4 && resultsRank4;
           }
-          bool operandsRank4 = llvm::all_of(op.getInputs(), [&](Value input) {
-            return cast<RankedTensorType>(input.getType()).getRank() == 4;
-          });
-          bool resultsRank4 = llvm::all_of(op.getResultTypes(), [&](Type type) {
-            return cast<RankedTensorType>(type).getRank() == 4;
-          });
-          return operandsRank4 && resultsRank4;
-        });
-
-    // ttml::metal::cross_entropy_fw only accepts a 4D (N, 1, H, W) input with a
-    // 2D (N, H) target.
-    target.addDynamicallyLegalOp<ttir::CrossEntropyForwardOp>(
-        [&](ttir::CrossEntropyForwardOp op) {
-          RankedTensorType inputType = op.getInput().getType();
-          return inputType.getRank() == 4 && inputType.getDimSize(1) == 1 &&
-                 op.getTarget().getType().getRank() == 2;
-        });
-
-    // ttml::metal::cross_entropy_bw has the same shape requirements, plus a 4D
-    // grad.
-    target.addDynamicallyLegalOp<ttir::CrossEntropyBackwardOp>(
-        [&](ttir::CrossEntropyBackwardOp op) {
-          RankedTensorType inputType = op.getInput().getType();
-          return inputType.getRank() == 4 && inputType.getDimSize(1) == 1 &&
-                 op.getTarget().getType().getRank() == 2 &&
-                 op.getGrad().getType().getRank() == 4;
+          if (op.getCompositeName() == "cross_entropy_fw") {
+            if (op.getInputs().size() != 2 || op.getResults().size() != 1) {
+              // Skip if number of inputs/outputs is not right.
+              return true;
+            }
+            auto inputType =
+                cast<RankedTensorType>(op.getInputs()[0].getType());
+            auto targetType =
+                cast<RankedTensorType>(op.getInputs()[1].getType());
+            auto resultType = cast<RankedTensorType>(op->getResultTypes()[0]);
+            return inputType.getRank() == 4 && inputType.getDimSize(1) == 1 &&
+                   targetType.getRank() == 2 && resultType.getRank() == 4;
+          }
+          if (op.getCompositeName() == "cross_entropy_bw") {
+            if (op.getInputs().size() != 3 || op.getResults().size() != 1) {
+              // Skip if number of inputs/outputs is not right.
+              return true;
+            }
+            auto inputType =
+                cast<RankedTensorType>(op.getInputs()[0].getType());
+            auto targetType =
+                cast<RankedTensorType>(op.getInputs()[1].getType());
+            auto gradType = cast<RankedTensorType>(op.getInputs()[2].getType());
+            auto resultType = cast<RankedTensorType>(op->getResultTypes()[0]);
+            return inputType.getRank() == 4 && inputType.getDimSize(1) == 1 &&
+                   targetType.getRank() == 2 && gradType.getRank() == 4 &&
+                   resultType.getRank() == 4;
+          }
+          return true;
         });
 
     target.addDynamicallyLegalOp<ttir::ProdOp>([&](ttir::ProdOp op) {

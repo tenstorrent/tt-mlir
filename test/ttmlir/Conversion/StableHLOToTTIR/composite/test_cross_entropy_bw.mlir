@@ -5,8 +5,10 @@
 module {
   func.func @cross_entropy_bw(%input: tensor<4x1x32x64xbf16>, %target: tensor<4x32xui32>, %grad: tensor<1x1x1x1xbf16>)
       -> tensor<4x1x32x64xbf16> {
-    // CHECK: "ttir.cross_entropy_bw"
-    // CHECK-SAME: scaler = 3.125000e-02 : f32
+    // CHECK: "ttcore.composite"
+    // CHECK-SAME: composite_attributes = {scaler = 3.125000e-02 : f32}
+    // CHECK-SAME: composite_name = "cross_entropy_bw"
+    // CHECK-SAME: decomposition = @tenstorrent.cross_entropy_bw.impl
     // CHECK-SAME: (tensor<4x1x32x64xbf16>, tensor<4x32xui32>, tensor<1x1x1x1xbf16>) -> tensor<4x1x32x64xbf16>
     // CHECK-NOT: stablehlo.composite
     %0 = stablehlo.composite "tenstorrent.cross_entropy_bw" %input, %target, %grad {
