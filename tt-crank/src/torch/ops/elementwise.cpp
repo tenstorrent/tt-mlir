@@ -120,6 +120,45 @@ at::Tensor tt_batch_norm_inference(const at::Tensor &input_in, const std::option
     return wrap_tt_tensor(std::move(outputs[0]), input.sizes(), promoted);
 }
 
+std::tuple<at::Tensor, at::Tensor, at::Tensor>
+tt_native_layer_norm(const at::Tensor &input, at::IntArrayRef normalized_shape,
+                     const std::optional<at::Tensor> &weight_in, const std::optional<at::Tensor> &bias_in, double eps) {
+    TORCH_CHECK(is_tt(input), "tt-kurbla aten::native_layer_norm: tensor must be on tt backend");
+
+    std::vector<int64_t> stat_shape(input.sizes().begin(), input.sizes().end());
+    stat_shape.back() = 1;
+
+    const bool has_weight = weight_in.has_value();
+    const bool has_bias = bias_in.has_value();
+
+    std::vector<TensorTypeSpec> specs{spec_for(input)};
+    std::vector<at::Tensor> runtime_args{input};
+    if (has_weight) {
+        specs.push_back(spec_for(*weight_in));
+        runtime_args.push_back(*weight_in);
+    }
+    if (has_bias) {
+        specs.push_back(spec_for(*bias_in));
+        runtime_args.push_back(*bias_in);
+    }
+
+    auto mb = ModuleBuilder::init(specs);
+    auto args = mb.args();
+    auto in = args[0];
+    size_t next = 1;
+    auto weight_v = has_weight ? args[next++] : mlir::Value{};
+    auto bias_v = has_bias ? args[next++] : mlir::Value{};
+
+    auto [out_v, mean_v, rstd_v] =
+        build_layer_norm_with_stats(mb, in, weight_v, bias_v, normalized_shape, as<float>(eps), /*stats_in_f32=*/false);
+
+    auto module_op = std::move(mb).finalize({out_v, mean_v, rstd_v});
+    auto outputs = compile_and_run(std::move(module_op), runtime_args);
+    return {wrap_tt_tensor(std::move(outputs[0]), input.sizes(), input.scalar_type()),
+            wrap_tt_tensor(std::move(outputs[1]), stat_shape, input.scalar_type()),
+            wrap_tt_tensor(std::move(outputs[2]), stat_shape, input.scalar_type())};
+}
+
 at::Tensor tt_mean(const at::Tensor &self, at::OptionalIntArrayRef dim, bool keepdim,
                    std::optional<at::ScalarType> /*dtype*/) {
     TORCH_CHECK(is_tt(self), "tt-kurbla aten::mean.dim: tensor must be on tt backend");
@@ -1045,6 +1084,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("rsqrt", TORCH_FN(tt_rsqrt));
     m.impl("mean.dim", TORCH_FN(tt_mean));
     m.impl("batch_norm", TORCH_FN(tt_batch_norm_inference));
+    m.impl("native_layer_norm", TORCH_FN(tt_native_layer_norm));
     m.impl("max_pool2d_with_indices", TORCH_FN(tt_max_pool2d_with_indices));
     m.impl("unsqueeze", TORCH_FN(tt_unsqueeze));
     m.impl("squeeze.dim", TORCH_FN(tt_squeeze_dim));

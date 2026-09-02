@@ -173,6 +173,26 @@ def test_batch_norm_inference(n: int, c: int, h: int, w: int) -> None:
     assert_close_cpu_vs_tt(model, x, atol=0.05, rtol=0.05)
 
 
+@pytest.mark.parametrize("affine", [True, False])
+def test_layer_norm_inference(affine: bool) -> None:
+    model = torch.nn.LayerNorm(64, elementwise_affine=affine).eval().to(torch.bfloat16)
+    model.requires_grad_(False)
+    x = torch.randn((2, 32, 64), dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(model, x, atol=0.05, rtol=0.05)
+
+
+def test_native_layer_norm_stats_eager() -> None:
+    # mean/rstd are what native_layer_norm_backward consumes, so shapes and values
+    # must match aten. Eager only: the compile path returns fp32 stats by contract,
+    # so a raw dtype comparison against aten would (correctly) disagree.
+    def stats(x):
+        _, mean, rstd = torch.ops.aten.native_layer_norm(x, (64,), None, None, 1e-5)
+        return torch.cat([mean, rstd], dim=-1)
+
+    x = torch.randn((2, 32, 64), dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(stats, x, atol=0.05, rtol=0.05)
+
+
 @pytest.mark.parametrize("shape", [(64, 128), (32, 64, 32)])
 def test_where(shape: tuple[int, ...]) -> None:
     condition = torch.randn(shape, dtype=torch.bfloat16) > 0

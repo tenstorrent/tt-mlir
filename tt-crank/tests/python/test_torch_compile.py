@@ -422,6 +422,39 @@ def test_compile_batch_norm() -> None:
     _assert_compile_matches_eager(model, x, atol=0.05, rtol=0.05)
 
 
+@pytest.mark.parametrize("affine", [True, False])
+def test_compile_layer_norm_inference(affine: bool) -> None:
+    model = nn.LayerNorm(64, elementwise_affine=affine).eval().to(torch.bfloat16)
+    model.requires_grad_(False)
+    x = torch.randn((2, 32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(model, x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("affine", [True, False])
+def test_compile_layer_norm_backward(affine: bool) -> None:
+    """ The training path: a grad-live graph consumes layer_norm's mean/rstd, so this
+    is the test that forces them to be real values in the dtype aot's meta expects."""
+    def loss_and_grad(x, weight):
+        model = torch.nn.LayerNorm(64, elementwise_affine=False)
+        out = model(x)
+        if affine:
+            out = out * weight
+        return out.float().sum()
+
+    x = torch.randn((2, 32, 64), dtype=torch.bfloat16, requires_grad=True)
+    weight = torch.randn((64,), dtype=torch.bfloat16, requires_grad=True)
+
+    ref = loss_and_grad(x, weight)
+    ref.backward()
+    ref_grad = x.grad.clone()
+
+    x_tt = x.detach().to("tt").requires_grad_(True)
+    w_tt = weight.detach().to("tt").requires_grad_(True)
+    torch.compile(loss_and_grad, backend="tt")(x_tt, w_tt).backward()
+    assert x_tt.grad is not None, "no gradient flowed back through the compiled layer_norm"
+    torch.testing.assert_close(x_tt.grad.cpu(), ref_grad, atol=0.05, rtol=0.05)
+
+
 def test_compile_add_dtype_promotion() -> None:
     """bf16 + f32 must promote to f32 - same `at::promote_types` semantics
     the eager kernel applies. Validates that the compile path's MLIR-level

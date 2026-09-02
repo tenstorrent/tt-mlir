@@ -246,6 +246,14 @@ def _(mb, input, weight, bias, running_mean, running_var, momentum, eps):
     return (result, None, None)
 
 
+@_lowering(_aten.native_layer_norm.default)
+def _(mb, input, normalized_shape, weight, bias, eps):
+    # ttir.layer_norm returns only the normalized tensor; native_layer_norm's
+    # contract is (out, mean, rstd), so layer_norm_with_stats recomputes them.
+    # bf16/fp16 stats come back in f32, matching torch._refs._normalize.
+    return mb.layer_norm_with_stats(input, weight, bias, list(normalized_shape), float(eps))
+
+
 @_lowering(_aten.cos.default)
 def _(mb, x):
     return mb.cos(x)

@@ -218,6 +218,23 @@ TT_KURBLA_API mlir::Value build_mse_loss_backward(ModuleBuilder &mb, mlir::Value
 TT_KURBLA_API mlir::Value build_bn_inference(ModuleBuilder &mb, mlir::Value operand, mlir::Value scale,
                                              mlir::Value offset, mlir::Value mean, mlir::Value variance, float eps);
 
+// Emit TTIR for layer normalization over the trailing `normalized_shape` dims.
+// `weight`/`bias` are optional operands — pass a null mlir::Value to omit
+// either; when present they must share the input's element type. `eps` is
+// embedded as an FP32 attribute.
+TT_KURBLA_API mlir::Value build_layer_norm(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias,
+                                           llvm::ArrayRef<std::int64_t> normalized_shape, float eps);
+
+// Emit TTIR for layer normalization over the trailing `normalized_shape` dims,
+// plus the `(mean, rstd)` statistics aten::native_layer_norm returns:
+// ttir.layer_norm yields only the normalized tensor, so they are recomputed
+// over the last dim with keepdim. `stats_in_f32` computes and returns them in
+// fp32 - what aot's meta promises for reduced-precision inputs; otherwise they
+// stay in the input dtype, matching aten's eager contract.
+TT_KURBLA_API std::tuple<mlir::Value, mlir::Value, mlir::Value>
+build_layer_norm_with_stats(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias,
+                            llvm::ArrayRef<std::int64_t> normalized_shape, float eps, bool stats_in_f32);
+
 // Emit a `ttir.constant` of `value` with `element_type` and shape `[1]` —
 // broadcasts against any tensor in downstream elementwise ops.
 TT_KURBLA_API mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double value);

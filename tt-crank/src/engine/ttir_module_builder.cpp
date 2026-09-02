@@ -465,6 +465,38 @@ mlir::Value build_bn_inference(ModuleBuilder &mb, mlir::Value operand, mlir::Val
         .getResult();
 }
 
+mlir::Value build_layer_norm(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias,
+                             llvm::ArrayRef<std::int64_t> normalized_shape, float eps) {
+    auto input_elem = mlir::cast<mlir::RankedTensorType>(input.getType()).getElementType();
+    TT_FATAL((!weight || mlir::cast<mlir::RankedTensorType>(weight.getType()).getElementType() == input_elem) &&
+                 (!bias || mlir::cast<mlir::RankedTensorType>(bias.getType()).getElementType() == input_elem),
+             "tt-kurbla build_layer_norm: all inputs must share element type — callers must promote first");
+
+    auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto shape_attr = mb.attrs().getDenseI64ArrayAttr(normalized_shape);
+    llvm::APFloat eps_ap(as<double>(eps));
+    bool loses_info = false;
+    eps_ap.convert(llvm::APFloat::IEEEsingle(), llvm::APFloat::rmNearestTiesToEven, &loses_info);
+    return mb.create<mlir::tt::ttir::LayerNormOp>(result_type, input, weight, bias, shape_attr, eps_ap).getResult();
+}
+
+std::tuple<mlir::Value, mlir::Value, mlir::Value>
+build_layer_norm_with_stats(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias,
+                            llvm::ArrayRef<std::int64_t> normalized_shape, float eps, bool stats_in_f32) {
+    auto out = build_layer_norm(mb, input, weight, bias, normalized_shape, eps);
+
+    auto stats_input = stats_in_f32 ? mb.insert_typecast(input, mb.attrs().getF32Type()) : input;
+    auto rank = mlir::cast<mlir::RankedTensorType>(input.getType()).getRank();
+    const llvm::SmallVector<std::int64_t> dims{rank - 1};
+
+    auto mean = build_mean(mb, stats_input, dims, /*keepdim=*/true);
+    auto centered = build_sub(mb, stats_input, mean);
+    auto variance = build_mean(mb, build_mul(mb, centered, centered), dims, /*keepdim=*/true);
+    auto var_elem = mlir::cast<mlir::RankedTensorType>(variance.getType()).getElementType();
+    auto rstd = build_rsqrt(mb, build_add(mb, variance, build_scalar(mb, var_elem, as<double>(eps))));
+    return {out, mean, rstd};
+}
+
 mlir::Value build_add(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs, double alpha) {
     auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
     auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
