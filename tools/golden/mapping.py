@@ -6677,6 +6677,28 @@ def stablehlo_composite_golden(
             dropout_probability=dropout_probability,
         )
 
+    if composite_name == "tenstorrent.cross_entropy_fw":
+        result_type = RankedTensorType(list(decomposition_fn.type.results)[0])
+        return cross_entropy_fw_golden(
+            *operand_tensors,
+            output_type_mlir=result_type.element_type,
+        )
+
+    if composite_name == "tenstorrent.cross_entropy_bw":
+        attrs = composite_attributes or {}
+        try:
+            scaler_attr = attrs["scaler"]
+        except KeyError as e:
+            raise ValueError(
+                "tenstorrent.cross_entropy_bw requires a `scaler` attribute."
+            ) from e
+        result_type = RankedTensorType(list(decomposition_fn.type.results)[0])
+        return cross_entropy_bw_golden(
+            *operand_tensors,
+            scaler=scaler_attr,
+            output_type_mlir=result_type.element_type,
+        )
+
     if len(decomposition_fn.body.blocks) != 1:
         raise NotImplementedError(
             "stablehlo_composite_golden: multi-block decompositions are not supported."
@@ -9298,8 +9320,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
     ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
     ttir.AdamWOp: adamw_golden,
-    ttir.CrossEntropyForwardOp: cross_entropy_fw_golden,
-    ttir.CrossEntropyBackwardOp: cross_entropy_bw_golden,
     ttir.LayerNormOp: ttir_layer_norm_golden,
     ttir.SplitQueryKeyValueAndSplitHeadsOp: ttir_split_query_key_value_and_split_heads_golden,
     ttir.GroupNormOp: ttir_group_norm_golden,

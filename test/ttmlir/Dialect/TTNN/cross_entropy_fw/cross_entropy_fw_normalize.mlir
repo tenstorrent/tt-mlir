@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --split-input-file --ttir-to-ttnn-runtime-pipeline -o %t %s
+// RUN: ttmlir-opt --split-input-file --ttir-to-ttnn-runtime-pipeline="composite-resolution=force-promote" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 module {
@@ -22,8 +22,15 @@ module {
     // CHECK: "ttnn.cross_entropy_fw"(%[[INPUT]], %[[TARGET]])
     // CHECK-SAME: (tensor<4x1x32x64xbf16, #[[INPUT_TILED]]>, tensor<4x32xui32, #[[TARGET_RM]]>)
     // CHECK-SAME: -> tensor<4x1x32x1xbf16
-    %0 = "ttir.cross_entropy_fw"(%input, %target)
+    %0 = "ttcore.composite"(%input, %target) <{
+      composite_name = "cross_entropy_fw", decomposition = @decomposition}>
         : (tensor<4x1x32x64xf32>, tensor<4x32xui32>) -> tensor<4x1x32x1xf32>
+    return %0 : tensor<4x1x32x1xf32>
+  }
+  func.func private @decomposition(
+      %input: tensor<4x1x32x64xf32>,
+      %target: tensor<4x32xui32>) -> tensor<4x1x32x1xf32> {
+    %0 = "ttir.zeros"() <{shape = array<i32: 4, 1, 32, 1>}> : () -> tensor<4x1x32x1xf32>
     return %0 : tensor<4x1x32x1xf32>
   }
 }
@@ -41,8 +48,15 @@ module {
     // CHECK: "ttnn.cross_entropy_fw"
     // CHECK-SAME: -> tensor<1x1x32x1xbf16
     // CHECK: "ttnn.reshape"({{.*}}) <{shape = [32 : i32, 1 : i32]}>
-    %0 = "ttir.cross_entropy_fw"(%input, %target)
+    %0 = "ttcore.composite"(%input, %target) <{
+      composite_name = "cross_entropy_fw", decomposition = @decomposition}>
         : (tensor<32x64xbf16>, tensor<32xui32>) -> tensor<32x1xbf16>
+    return %0 : tensor<32x1xbf16>
+  }
+  func.func private @decomposition(
+      %input: tensor<32x64xbf16>,
+      %target: tensor<32xui32>) -> tensor<32x1xbf16> {
+    %0 = "ttir.zeros"() <{shape = array<i32: 32, 1>}> : () -> tensor<32x1xbf16>
     return %0 : tensor<32x1xbf16>
   }
 }

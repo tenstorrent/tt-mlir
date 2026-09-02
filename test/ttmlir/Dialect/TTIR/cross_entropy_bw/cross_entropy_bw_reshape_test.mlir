@@ -10,9 +10,10 @@ module {
       -> tensor<32x64xbf16> {
     // CHECK-DAG: "ttir.reshape"(%arg0) <{shape = [1 : i32, 1 : i32, 32 : i32, 64 : i32]}>
     // CHECK-DAG: "ttir.reshape"(%arg1) <{shape = [1 : i32, 32 : i32]}>
-    // CHECK: "ttir.cross_entropy_bw"
+    // CHECK: "ttcore.composite"
+    // CHECK-SAME: composite_name = "cross_entropy_bw"
     // CHECK-SAME: -> tensor<1x1x32x64xbf16>
-    %0 = "ttir.cross_entropy_bw"(%input, %target, %grad) <{scaler = 3.125e-02 : f32}>
+    %0 = "ttcore.composite"(%input, %target, %grad) <{composite_name = "cross_entropy_bw", decomposition = @decomp_rank2, composite_attributes = {scaler = 3.125e-02 : f32}}>
         : (tensor<32x64xbf16>, tensor<32xui32>, tensor<1x1x1x1xbf16>) -> tensor<32x64xbf16>
     // CHECK: "ttir.reshape"({{.*}}) <{shape = [32 : i32, 64 : i32]}>
     return %0 : tensor<32x64xbf16>
@@ -23,9 +24,10 @@ module {
   func.func @cross_entropy_bw_rank5(%input: tensor<2x3x4x32x64xbf16>, %target: tensor<24x32xui32>, %grad: tensor<1x1x1x1xbf16>)
       -> tensor<2x3x4x32x64xbf16> {
     // CHECK-DAG: "ttir.reshape"(%arg0) <{shape = [24 : i32, 1 : i32, 32 : i32, 64 : i32]}>
-    // CHECK: "ttir.cross_entropy_bw"
+    // CHECK: "ttcore.composite"
+    // CHECK-SAME: composite_name = "cross_entropy_bw"
     // CHECK-SAME: -> tensor<24x1x32x64xbf16>
-    %0 = "ttir.cross_entropy_bw"(%input, %target, %grad) <{scaler = 3.125e-02 : f32}>
+    %0 = "ttcore.composite"(%input, %target, %grad) <{composite_name = "cross_entropy_bw", decomposition = @decomp_rank5, composite_attributes = {scaler = 3.125e-02 : f32}}>
         : (tensor<2x3x4x32x64xbf16>, tensor<24x32xui32>, tensor<1x1x1x1xbf16>) -> tensor<2x3x4x32x64xbf16>
     // CHECK: "ttir.reshape"({{.*}}) <{shape = [2 : i32, 3 : i32, 4 : i32, 32 : i32, 64 : i32]}>
     return %0 : tensor<2x3x4x32x64xbf16>
@@ -37,9 +39,10 @@ module {
   func.func @cross_entropy_bw_channels(%input: tensor<2x3x32x64xbf16>, %target: tensor<6x32xui32>, %grad: tensor<1x1x1x1xbf16>)
       -> tensor<2x3x32x64xbf16> {
     // CHECK-DAG: "ttir.reshape"(%arg0) <{shape = [6 : i32, 1 : i32, 32 : i32, 64 : i32]}>
-    // CHECK: "ttir.cross_entropy_bw"
+    // CHECK: "ttcore.composite"
+    // CHECK-SAME: composite_name = "cross_entropy_bw"
     // CHECK-SAME: -> tensor<6x1x32x64xbf16>
-    %0 = "ttir.cross_entropy_bw"(%input, %target, %grad) <{scaler = 3.125e-02 : f32}>
+    %0 = "ttcore.composite"(%input, %target, %grad) <{composite_name = "cross_entropy_bw", decomposition = @decomp_channels, composite_attributes = {scaler = 3.125e-02 : f32}}>
         : (tensor<2x3x32x64xbf16>, tensor<6x32xui32>, tensor<1x1x1x1xbf16>) -> tensor<2x3x32x64xbf16>
     return %0 : tensor<2x3x32x64xbf16>
   }
@@ -49,8 +52,9 @@ module {
   func.func @cross_entropy_bw_grad_rank1(%input: tensor<4x1x32x64xbf16>, %target: tensor<4x32xui32>, %grad: tensor<1xbf16>)
       -> tensor<4x1x32x64xbf16> {
     // CHECK: "ttir.reshape"(%arg2) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
-    // CHECK: "ttir.cross_entropy_bw"
-    %0 = "ttir.cross_entropy_bw"(%input, %target, %grad) <{scaler = 3.125e-02 : f32}>
+    // CHECK: "ttcore.composite"
+    // CHECK-SAME: composite_name = "cross_entropy_bw"
+    %0 = "ttcore.composite"(%input, %target, %grad) <{composite_name = "cross_entropy_bw", decomposition = @decomp_grad_rank1, composite_attributes = {scaler = 3.125e-02 : f32}}>
         : (tensor<4x1x32x64xbf16>, tensor<4x32xui32>, tensor<1xbf16>) -> tensor<4x1x32x64xbf16>
     return %0 : tensor<4x1x32x64xbf16>
   }
@@ -60,9 +64,25 @@ module {
   func.func @cross_entropy_bw_canonical(%input: tensor<4x1x32x64xbf16>, %target: tensor<4x32xui32>, %grad: tensor<1x1x1x1xbf16>)
       -> tensor<4x1x32x64xbf16> {
     // CHECK-NOT: "ttir.reshape"
-    // CHECK: "ttir.cross_entropy_bw"
-    %0 = "ttir.cross_entropy_bw"(%input, %target, %grad) <{scaler = 3.125e-02 : f32}>
+    // CHECK: "ttcore.composite"
+    // CHECK-SAME: composite_name = "cross_entropy_bw"
+    %0 = "ttcore.composite"(%input, %target, %grad) <{composite_name = "cross_entropy_bw", decomposition = @decomp_canonical, composite_attributes = {scaler = 3.125e-02 : f32}}>
         : (tensor<4x1x32x64xbf16>, tensor<4x32xui32>, tensor<1x1x1x1xbf16>) -> tensor<4x1x32x64xbf16>
     return %0 : tensor<4x1x32x64xbf16>
   }
+  func.func private @decomp_rank2(
+      tensor<32x64xbf16>, tensor<32xui32>, tensor<1x1x1x1xbf16>)
+      -> tensor<32x64xbf16>
+  func.func private @decomp_rank5(
+      tensor<2x3x4x32x64xbf16>, tensor<24x32xui32>,
+      tensor<1x1x1x1xbf16>) -> tensor<2x3x4x32x64xbf16>
+  func.func private @decomp_channels(
+      tensor<2x3x32x64xbf16>, tensor<6x32xui32>, tensor<1x1x1x1xbf16>)
+      -> tensor<2x3x32x64xbf16>
+  func.func private @decomp_grad_rank1(
+      tensor<4x1x32x64xbf16>, tensor<4x32xui32>, tensor<1xbf16>)
+      -> tensor<4x1x32x64xbf16>
+  func.func private @decomp_canonical(
+      tensor<4x1x32x64xbf16>, tensor<4x32xui32>,
+      tensor<1x1x1x1xbf16>) -> tensor<4x1x32x64xbf16>
 }

@@ -2416,62 +2416,6 @@ def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
   let hasVerifier = 1;
 }
 
-def TTIR_CrossEntropyForwardOp : TTIR_NamedOp<"cross_entropy_fw"> {
-  let summary = "Cross entropy loss, forward pass";
-  let description = [{
-    Per-row cross entropy loss against integer class indices.
-
-    The reduction over rows is not part of this op: the result holds one loss
-    value per row, so a mean or sum reduction is a separate op.
-
-    Inputs:
-    - `input` (Tensor): logits, shaped `(N, 1, H, W)` where `W` is the number of
-      classes.
-    - `target` (Tensor): ground-truth class indices, shaped `(N, H)`. Each value
-      selects a class along `input`'s last dimension.
-
-    Outputs: the per-row loss, shaped `(N, 1, H, 1)`.
-  }];
-
-  let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$target);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let hasVerifier = 1;
-}
-
-def TTIR_CrossEntropyBackwardOp : TTIR_NamedOp<"cross_entropy_bw"> {
-  let summary = "Cross entropy loss, backward pass";
-  let description = [{
-    Gradient of the cross entropy loss with respect to the logits:
-
-      d_input = (softmax(input) - one_hot(target)) * scaler * grad
-
-    Inputs:
-    - `input` (Tensor): logits, shaped `(N, 1, H, W)` where `W` is the number of
-      classes.
-    - `target` (Tensor): ground-truth class indices, shaped `(N, H)`. Each value
-      selects a class along `input`'s last dimension.
-    - `grad` (Tensor): incoming gradient, shaped `(1, 1, 1, 1)`.
-
-    Attributes:
-    - `scaler`: factor applied to the gradient, typically `1 / (N * H)` for a
-      mean-reduced loss.
-
-    Outputs: the gradient w.r.t. `input`, shaped like `input`.
-  }];
-
-  let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$target,
-                       AnyRankedTensor:$grad,
-                       F32Attr:$scaler);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let hasVerifier = 1;
-}
-
 def TTIR_DistributedRMSNormOp : TTIR_NamedOp<"distributed_rms_norm", [AttrSizedOperandSegments]> {
   let summary = "Distributed RMS normalization with all-gather operation";
   let description = [{
