@@ -12,6 +12,8 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/STLExtras.h"
+
 namespace mlir::tt::ttnn::decomposition {
 namespace {
 
@@ -57,9 +59,105 @@ bool isBF16ElementType(RankedTensorType type) {
   return mlir::isa<BFloat16Type>(getScalarElementType(type));
 }
 
+bool isF32ElementType(RankedTensorType type) {
+  return mlir::isa<Float32Type>(getScalarElementType(type));
+}
+
 bool isFusedKernelElementType(RankedTensorType type) {
   Type elem = getScalarElementType(type);
   return mlir::isa<BFloat16Type>(elem) || mlir::isa<Float32Type>(elem);
+}
+
+bool isF32ToBf16Typecast(Operation *op) {
+  auto typecast = mlir::dyn_cast_if_present<ttnn::TypecastOp>(op);
+  if (!typecast) {
+    return false;
+  }
+  return isF32ElementType(
+             mlir::cast<RankedTensorType>(typecast.getInput().getType())) &&
+         isBF16ElementType(
+             mlir::cast<RankedTensorType>(typecast.getResult().getType()));
+}
+
+// Walk XLA's bf16→f32 upcast (and f32 reshapes) on the activation only so
+// the fused kernel can consume the bf16 producer. Do not walk bf16
+// reshapes: those are the ones this pattern inserts and peeking them
+// rewrites forever. Never call this on weight/bias.
+mlir::Value skipXlaFp32UpcastOnActivation(mlir::Value value) {
+  RankedTensorType originType = mlir::cast<RankedTensorType>(value.getType());
+  if (!isF32ElementType(originType)) {
+    return value;
+  }
+  mlir::Value cur = value;
+  while (Operation *def = cur.getDefiningOp()) {
+    if (auto typecast = mlir::dyn_cast<ttnn::TypecastOp>(def)) {
+      auto inType =
+          mlir::cast<RankedTensorType>(typecast.getInput().getType());
+      auto outType =
+          mlir::cast<RankedTensorType>(typecast.getResult().getType());
+      if (isBF16ElementType(inType) && isF32ElementType(outType)) {
+        cur = typecast.getInput();
+        continue;
+      }
+      break;
+    }
+    if (auto reshape = mlir::dyn_cast<ttnn::ReshapeOp>(def)) {
+      auto inType =
+          mlir::cast<RankedTensorType>(reshape.getInput().getType());
+      auto outType =
+          mlir::cast<RankedTensorType>(reshape.getResult().getType());
+      if (isF32ElementType(inType) && isF32ElementType(outType)) {
+        cur = reshape.getInput();
+        continue;
+      }
+      break;
+    }
+    break;
+  }
+  if (!isBF16ElementType(mlir::cast<RankedTensorType>(cur.getType()))) {
+    return value;
+  }
+  return cur;
+}
+
+// If every user of `op` is a bf16 downcast (optionally after a reshape),
+// rewire those users to `resultBf16` so the f32 restore cast can be
+// omitted. Leaves any remaining f32 users in place.
+void rewireBf16DowncastUsers(PatternRewriter &rewriter, Operation *op,
+                              mlir::Value resultBf16) {
+  ArrayRef<int64_t> bf16Shape =
+      mlir::cast<RankedTensorType>(resultBf16.getType()).getShape();
+  SmallVector<Operation *> users(op->getUsers());
+  for (Operation *user : users) {
+    if (isF32ToBf16Typecast(user)) {
+      ArrayRef<int64_t> userShape =
+          mlir::cast<RankedTensorType>(user->getResult(0).getType())
+              .getShape();
+      if (userShape != bf16Shape) {
+        continue;
+      }
+      rewriter.replaceAllOpUsesWith(user, resultBf16);
+      rewriter.eraseOp(user);
+      continue;
+    }
+    auto reshape = mlir::dyn_cast<ttnn::ReshapeOp>(user);
+    if (!reshape || reshape->use_empty()) {
+      continue;
+    }
+    SmallVector<Operation *> reshapeUsers(reshape->getUsers());
+    if (reshapeUsers.empty() ||
+        !llvm::all_of(reshapeUsers, isF32ToBf16Typecast)) {
+      continue;
+    }
+    mlir::Value reshapedBf16 =
+        reshapeTo(rewriter, reshape.getLoc(), resultBf16,
+                  mlir::cast<RankedTensorType>(reshape.getType()).getShape());
+    for (Operation *reshapeUser : reshapeUsers) {
+      rewriter.replaceAllOpUsesWith(reshapeUser, reshapedBf16);
+      rewriter.eraseOp(reshapeUser);
+    }
+    rewriter.eraseOp(reshape);
+  }
 }
 
 bool affineParamIsFusedForm(mlir::Value value, int64_t hidden) {
@@ -75,9 +173,10 @@ bool affineParamIsFusedForm(mlir::Value value, int64_t hidden) {
 // DiT fused LN: no residual, weight and bias present, last dim tile-aligned.
 // Element type is bf16 or f32 (XLA LayerNorm upcasts to f32). Rank 3
 // `[1,N,H]` (Wan AdaLN) or rank 4 `[1,B,N,H]`. Rank-4 with 1D affine params
-// stays on the sandwich so existing goldens/lit keep pre/post. f32 is
-// typecast to TILE bf16 around the fused op. After the rank-3 rewrite, an
-// already-canonical bf16 rank-4 op is left intact (`return failure()`).
+// stays on the sandwich so existing goldens/lit keep pre/post. Isolated
+// f32 is typecast to TILE bf16 around the fused op. After the rank-3
+// rewrite, an already-canonical bf16 rank-4 op is left intact
+// (`return failure()`).
 bool isEligibleForDitFusedKernel(ttnn::DistributedLayerNormOp op) {
   if (op.getResidual() || !op.getWeight() || !op.getBias()) {
     return false;
@@ -132,9 +231,13 @@ LogicalResult rewriteToDitFusedForm(ttnn::DistributedLayerNormOp op,
     fusedInputShape = {1, 1, inputShape[1], inputShape[2]};
   }
 
-  mlir::Value fusedInput = op.getInput();
-  bool changed = false;
-  if (inputShape != ArrayRef<int64_t>(fusedInputShape)) {
+  // Peek activation only. Weights stay on the op's operands so sandwich
+  // LNs cannot inherit 2D AdaLN γ/β.
+  mlir::Value fusedInput = skipXlaFp32UpcastOnActivation(op.getInput());
+  bool changed = fusedInput != op.getInput();
+  RankedTensorType fusedInputType =
+      mlir::cast<RankedTensorType>(fusedInput.getType());
+  if (fusedInputType.getShape() != ArrayRef<int64_t>(fusedInputShape)) {
     fusedInput = reshapeTo(rewriter, loc, fusedInput, fusedInputShape);
     changed = true;
   }
@@ -151,15 +254,22 @@ LogicalResult rewriteToDitFusedForm(ttnn::DistributedLayerNormOp op,
     changed = true;
   }
 
-  // Metal dit_fused_distributed_layernorm is TILE bf16. XLA LayerNorm
-  // upcasts to f32; insert casts around the fused op and restore the
-  // original element type on the result.
-  bool needsBf16Cast = !isBF16ElementType(inputType);
-  if (needsBf16Cast) {
+  // Metal dit_fused_distributed_layernorm is TILE bf16. Isolated f32 (no
+  // bf16 producer) still typecasts around the kernel.
+  if (!isBF16ElementType(
+          mlir::cast<RankedTensorType>(fusedInput.getType()))) {
     fusedInput =
         typecastTo(rewriter, loc, fusedInput, ttcore::DataType::BFloat16);
+    changed = true;
+  }
+  if (!isBF16ElementType(
+          mlir::cast<RankedTensorType>(fusedWeight.getType()))) {
     fusedWeight =
         typecastTo(rewriter, loc, fusedWeight, ttcore::DataType::BFloat16);
+    changed = true;
+  }
+  if (!isBF16ElementType(
+          mlir::cast<RankedTensorType>(fusedBias.getType()))) {
     fusedBias =
         typecastTo(rewriter, loc, fusedBias, ttcore::DataType::BFloat16);
     changed = true;
@@ -169,27 +279,31 @@ LogicalResult rewriteToDitFusedForm(ttnn::DistributedLayerNormOp op,
     return failure();
   }
 
-  RankedTensorType fusedResultType =
-      utils::RankedTensorTypeFactory::create(resultType, fusedInputShape);
-  if (needsBf16Cast) {
-    fusedResultType = utils::RankedTensorTypeFactory::create(
-        fusedResultType, ttcore::DataType::BFloat16);
-  }
+  RankedTensorType fusedResultType = utils::RankedTensorTypeFactory::create(
+      utils::RankedTensorTypeFactory::create(resultType, fusedInputShape),
+      ttcore::DataType::BFloat16);
   auto fusedOp = createDistributedLayerNorm(
       rewriter, loc, fusedResultType, fusedInput, fusedWeight, fusedBias,
       /*residual=*/mlir::Value{}, op.getDevice(), op);
 
-  mlir::Value result = fusedOp.getResult();
-  if (needsBf16Cast) {
-    RankedTensorType origElemFusedType =
-        utils::RankedTensorTypeFactory::create(resultType, fusedInputShape);
-    result = rewriter.create<ttnn::TypecastOp>(loc, origElemFusedType, result)
-                 .getResult();
-  }
+  mlir::Value resultBf16 = fusedOp.getResult();
   if (resultType.getShape() != ArrayRef<int64_t>(fusedInputShape)) {
-    result = reshapeTo(rewriter, loc, result, resultType.getShape());
+    resultBf16 = reshapeTo(rewriter, loc, resultBf16, resultType.getShape());
   }
-  rewriter.replaceOp(op, result);
+
+  if (isBF16ElementType(resultType)) {
+    rewriter.replaceOp(op, resultBf16);
+    return success();
+  }
+
+  rewireBf16DowncastUsers(rewriter, op, resultBf16);
+  if (op->use_empty()) {
+    rewriter.eraseOp(op);
+    return success();
+  }
+  mlir::Value restored =
+      typecastTo(rewriter, loc, resultBf16, ttcore::DataType::Float32);
+  rewriter.replaceOp(op, restored);
   return success();
 }
 

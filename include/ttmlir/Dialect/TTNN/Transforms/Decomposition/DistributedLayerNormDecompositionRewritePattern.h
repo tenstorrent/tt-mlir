@@ -16,9 +16,13 @@ namespace mlir::tt::ttnn::decomposition {
 //   1. DiT fused kernel form: skip the sandwich when the op is eligible
 //      (bf16 or f32, weight+bias, no residual, tile-aligned last dim).
 //      Rank-3 `[1,N,H]` is reshaped to `[1,1,N,H]` and 1D affine params
-//      to `[1,H]`. f32 is typecast to TILE bf16 around the fused op.
-//      Returning failure on an already-canonical eligible bf16 op
-//      leaves it for serialization.
+//      to `[1,H]`. Isolated f32 is typecast to TILE bf16 around the fused
+//      op. If the activation is already `typecast(bf16→f32)` (XLA
+//      native_layer_norm), the fused kernel consumes the bf16 producer
+//      instead of inserting a matching inbound cast. Weights/bias are
+//      never peeked. If every user of an f32 result is a bf16 downcast,
+//      the restore cast is omitted. Returning failure on an already-
+//      canonical eligible bf16 op leaves it for serialization.
 //   2. Sandwich: layer_norm_pre_all_gather + all_gather +
 //      layer_norm_post_all_gather. Residual, unaffine, and ineligible shapes
 //      take this path. Rank < 4 is first reshaped to 1x1xHxW.

@@ -11,6 +11,7 @@
 // XLA LayerNorm upcasts to f32; fused kernel still requires TILE bf16.
 #ttnn_layout_rank3_f32 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 64 + d1, d2), <1x1>, memref<2x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #ttnn_layout_weight_f32 = #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout_weight_2d_f32 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 
 // Test: Basic decomposition (no weight, bias, or residual).
 // Verifies that the three dedicated TTNN ops are emitted and the intermediate
@@ -142,11 +143,62 @@ module @test_distributed_layer_norm_decomposition attributes {} {
     // CHECK-SAME: -> tensor<1x1x64x128xbf16
     // CHECK: "ttnn.distributed_layer_norm"
     // CHECK-SAME: tensor<1x1x64x128xbf16
-    // CHECK: "ttnn.typecast"
-    // CHECK-SAME: -> tensor<1x1x64x128xf32
     // CHECK: "ttnn.reshape"({{.*}}) <{shape = [1 : i32, 64 : i32, 128 : i32]}>
+    // CHECK: "ttnn.typecast"
+    // CHECK-SAME: -> tensor<1x64x128xf32
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
     %1 = "ttnn.distributed_layer_norm"(%arg0, %arg1, %arg2, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 1>}> : (tensor<1x64x128xf32, #ttnn_layout_rank3_f32>, tensor<128xf32, #ttnn_layout_weight_f32>, tensor<128xf32, #ttnn_layout_weight_f32>, !ttnn.device) -> tensor<1x64x128xf32, #ttnn_layout_rank3_f32>
     return %1 : tensor<1x64x128xf32, #ttnn_layout_rank3_f32>
+  }
+
+  func.func public @test_reshape_rank3_f32_2d_weight_and_bias(
+      %arg0: tensor<1x64x128xf32, #ttnn_layout_rank3_f32>,
+      %arg1: tensor<1x128xf32, #ttnn_layout_weight_2d_f32>,
+      %arg2: tensor<1x128xf32, #ttnn_layout_weight_2d_f32>) -> tensor<1x64x128xf32, #ttnn_layout_rank3_f32> {
+    // CHECK-LABEL: func.func public @test_reshape_rank3_f32_2d_weight_and_bias
+    // AdaLN-fused 2D γ/β stay on distributed_layer_norm (not sandwich).
+    // CHECK-NOT: "ttnn.layer_norm_pre_all_gather"
+    // CHECK-NOT: "ttnn.layer_norm_post_all_gather"
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 1 : i32, 64 : i32, 128 : i32]
+    // CHECK: "ttnn.typecast"
+    // CHECK-SAME: -> tensor<1x1x64x128xbf16
+    // CHECK: "ttnn.typecast"
+    // CHECK-SAME: -> tensor<1x128xbf16
+    // CHECK: "ttnn.typecast"
+    // CHECK-SAME: -> tensor<1x128xbf16
+    // CHECK: "ttnn.distributed_layer_norm"
+    // CHECK-SAME: tensor<1x1x64x128xbf16
+    // CHECK: "ttnn.reshape"({{.*}}) <{shape = [1 : i32, 64 : i32, 128 : i32]}>
+    // CHECK: "ttnn.typecast"
+    // CHECK-SAME: -> tensor<1x64x128xf32
+    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
+    %1 = "ttnn.distributed_layer_norm"(%arg0, %arg1, %arg2, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 1>}> : (tensor<1x64x128xf32, #ttnn_layout_rank3_f32>, tensor<1x128xf32, #ttnn_layout_weight_2d_f32>, tensor<1x128xf32, #ttnn_layout_weight_2d_f32>, !ttnn.device) -> tensor<1x64x128xf32, #ttnn_layout_rank3_f32>
+    return %1 : tensor<1x64x128xf32, #ttnn_layout_rank3_f32>
+  }
+
+  func.func public @test_skip_xla_fp32_upcast_activation(
+      %arg0: tensor<1x64x128xbf16, #ttnn_layout_rank3>,
+      %arg1: tensor<1x128xf32, #ttnn_layout_weight_2d_f32>,
+      %arg2: tensor<1x128xf32, #ttnn_layout_weight_2d_f32>) -> tensor<1x64x128xbf16, #ttnn_layout_rank3> {
+    // CHECK-LABEL: func.func public @test_skip_xla_fp32_upcast_activation
+    // XLA upcast on the activation is peeked; 2D γ/β stay on the fused op
+    // (not sandwich). No inbound 4D activation typecast and no f32 restore.
+    // CHECK-NOT: "ttnn.layer_norm_pre_all_gather"
+    // CHECK-NOT: "ttnn.layer_norm_post_all_gather"
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 1 : i32, 64 : i32, 128 : i32]
+    // CHECK-SAME: -> tensor<1x1x64x128xbf16
+    // CHECK-NOT: "ttnn.typecast"({{.*}}){{.*}}-> tensor<1x1x64x128xbf16
+    // CHECK: "ttnn.distributed_layer_norm"
+    // CHECK-SAME: tensor<1x1x64x128xbf16
+    // CHECK-NOT: -> tensor<1x1x64x128xf32
+    // CHECK: "ttnn.reshape"({{.*}}) <{shape = [1 : i32, 64 : i32, 128 : i32]}>
+    // CHECK-SAME: -> tensor<1x64x128xbf16
+    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
+    %1 = "ttnn.typecast"(%arg0) : (tensor<1x64x128xbf16, #ttnn_layout_rank3>) -> tensor<1x64x128xf32, #ttnn_layout_rank3_f32>
+    %2 = "ttnn.distributed_layer_norm"(%1, %arg1, %arg2, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 1>}> : (tensor<1x64x128xf32, #ttnn_layout_rank3_f32>, tensor<1x128xf32, #ttnn_layout_weight_2d_f32>, tensor<1x128xf32, #ttnn_layout_weight_2d_f32>, !ttnn.device) -> tensor<1x64x128xf32, #ttnn_layout_rank3_f32>
+    %3 = "ttnn.typecast"(%2) : (tensor<1x64x128xf32, #ttnn_layout_rank3_f32>) -> tensor<1x64x128xbf16, #ttnn_layout_rank3>
+    return %3 : tensor<1x64x128xbf16, #ttnn_layout_rank3>
   }
 }
