@@ -27,4 +27,18 @@ module {
             }> : (tensor<1x8x28x28x32xbf16>, tensor<32x32x3x3x3xbf16>) -> tensor<1x6x26x26x32xbf16>
     return %0 : tensor<1x6x26x26x32xbf16>
   }
+
+  func.func @conv3d_dilation(%arg0: tensor<1x9x9x9x32xbf16>, %arg1: tensor<32x32x3x3x3xbf16>) -> tensor<1x5x5x5x32xbf16> {
+    // CHECK: "ttnn.conv3d"
+    // CHECK-SAME: dilation = array<i32: 2, 2, 2>
+    %0 = "ttir.conv3d"(%arg0, %arg1)
+            <{
+              stride = array<i32: 1, 1, 1>,
+              padding = array<i32: 0, 0, 0>,
+              dilation = array<i32: 2, 2, 2>,
+              padding_mode = "zeros",
+              groups = 1: i32
+            }> : (tensor<1x9x9x9x32xbf16>, tensor<32x32x3x3x3xbf16>) -> tensor<1x5x5x5x32xbf16>
+    return %0 : tensor<1x5x5x5x32xbf16>
+  }
 }

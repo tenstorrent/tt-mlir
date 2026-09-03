@@ -15182,6 +15182,7 @@ class TTIRBuilder(Builder):
         stride: Union[int, List[int]],
         padding: Union[int, List[int]],
         groups: int,
+        dilation: Union[int, List[int]] = 1,
         padding_mode: str = "zeros",
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
@@ -15221,6 +15222,8 @@ class TTIRBuilder(Builder):
             Stride for depth, height, and width dimensions
         padding : *Union[int, List[int]]*
             Padding for depth, height, and width dimensions (symmetric)
+        dilation : *Union[int, List[int]]*, optional
+            Dilation for depth, height, and width dimensions (default: 1)
         groups : int
             Number of blocked connections from input to output channels
         padding_mode : str, optional
@@ -15252,6 +15255,9 @@ class TTIRBuilder(Builder):
             if isinstance(padding, int)
             else DenseI32ArrayAttr.get(padding)
         )
+        dilation_attr = DenseI32ArrayAttr.get(
+            [dilation, dilation, dilation] if isinstance(dilation, int) else dilation
+        )
 
         groups_attr = IntegerAttr.get(IntegerType.get_signless(32), groups)
         padding_mode_attr = StringAttr.get(padding_mode)
@@ -15277,6 +15283,7 @@ class TTIRBuilder(Builder):
             bias0,
             stride_attr,
             padding_attr,
+            dilation_attr,
             groups_attr,
             batch_dim_attr,
             depth_dim_attr,
@@ -15300,6 +15307,7 @@ class TTIRBuilder(Builder):
             padding_attr,
             groups_attr,
             bias=bias,
+            dilation=dilation_attr,
             padding_mode=padding_mode_attr,
             loc=loc,
         )
@@ -15328,6 +15336,7 @@ class TTIRBuilder(Builder):
 
         stride_attr = old_op.stride
         padding_attr = old_op.padding
+        dilation_attr = old_op.dilation
         groups_attr = old_op.groups
 
         new_op = ttir_op(
@@ -15338,6 +15347,7 @@ class TTIRBuilder(Builder):
             padding_attr,
             groups_attr,
             bias=bias,
+            dilation=dilation_attr,
             batch_dim=old_op.batch_dim,
             depth_dim=old_op.depth_dim,
             height_dim=old_op.height_dim,
@@ -15358,6 +15368,7 @@ class TTIRBuilder(Builder):
             input_bias,
             stride_attr,
             padding_attr,
+            dilation_attr,
             groups_attr,
             old_op.batch_dim,
             old_op.depth_dim,
@@ -15403,6 +15414,7 @@ class TTIRBuilder(Builder):
 
                     stride_attr = old_op.stride
                     padding_attr = old_op.padding
+                    dilation_attr = old_op.dilation
                     groups_attr = old_op.groups
 
                     new_op = ttir_op(
@@ -15413,6 +15425,7 @@ class TTIRBuilder(Builder):
                         padding_attr,
                         groups_attr,
                         bias=bias,
+                        dilation=dilation_attr,
                         batch_dim=old_op.batch_dim,
                         depth_dim=old_op.depth_dim,
                         height_dim=old_op.height_dim,

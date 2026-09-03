@@ -190,6 +190,7 @@ struct Conv3dParams {
   Spatial3DParam kernelSize;
   Spatial3DParam stride;
   Spatial3DParam padding;
+  Spatial3DParam dilation;
   int64_t groups;
   llvm::StringRef padding_mode;
 };

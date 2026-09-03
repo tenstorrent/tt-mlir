@@ -1065,6 +1065,8 @@ createOp(FlatbufferObjectCache &cache, Conv3dOp op) {
       toFlatbuffer(cache, op.getStride());
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
       toFlatbuffer(cache, op.getPadding());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
+      toFlatbuffer(cache, op.getDilation());
 
   auto paddingMode = cache.fbb->CreateString(op.getPaddingMode().str());
 
@@ -1091,7 +1093,7 @@ createOp(FlatbufferObjectCache &cache, Conv3dOp op) {
       op.getOutChannels(), op.getBatchSize(), op.getInputDepth(),
       op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
       paddingMode, op.getGroups(), outputDtype, conv3dConfig.value_or(0),
-      computeConfig.value_or(0), memoryConfig);
+      computeConfig.value_or(0), memoryConfig, dilation);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MeshPartitionOp>

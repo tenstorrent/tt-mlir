@@ -3258,6 +3258,7 @@ class OpModelConv3dParam
                      llvm::SmallVector<int32_t>, // kernel_size
                      llvm::SmallVector<int32_t>, // stride
                      llvm::SmallVector<int32_t>, // padding
+                     llvm::SmallVector<int32_t>, // dilation
                      uint32_t,                   // groups
                      llvm::StringRef,            // padding_mode
                      detail::ExpectedResult>> {};
@@ -3279,9 +3280,10 @@ TEST_P(OpModelConv3dParam, Conv3d) {
   const auto kernel_size = std::get<9>(params);
   const auto stride = std::get<10>(params);
   const auto padding = std::get<11>(params);
-  const auto groups = std::get<12>(params);
-  const auto padding_mode = std::get<13>(params);
-  const auto expectedLegal = std::get<14>(params).expectedLegal;
+  const auto dilation = std::get<12>(params);
+  const auto groups = std::get<13>(params);
+  const auto padding_mode = std::get<14>(params);
+  const auto expectedLegal = std::get<15>(params).expectedLegal;
 
   // Conv3d requires BF16 data type and specific layouts
   const TTNNLayoutAttr inputLayout = CreateRowMajorLayout(
@@ -3304,7 +3306,7 @@ TEST_P(OpModelConv3dParam, Conv3d) {
   auto constraintsExp = OpModel<Conv3dOp>::getOpConstraints(
       inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
       std::nullopt, in_channels, out_channels, batch_size, input_depth,
-      input_height, input_width, kernel_size, stride, padding, groups,
+      input_height, input_width, kernel_size, stride, padding, dilation, groups,
       padding_mode, std::nullopt, std::nullopt, deviceConfig, outputLayout);
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
@@ -3330,7 +3332,7 @@ TEST_P(OpModelConv3dParam, Conv3d) {
   auto runtimeExp = OpModel<Conv3dOp>::getOpRuntime(
       inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
       std::nullopt, in_channels, out_channels, batch_size, input_depth,
-      input_height, input_width, kernel_size, stride, padding, groups,
+      input_height, input_width, kernel_size, stride, padding, dilation, groups,
       padding_mode, std::nullopt, std::nullopt, deviceConfig, outputLayout);
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
@@ -3343,26 +3345,44 @@ TEST_P(OpModelConv3dParam, Conv3d) {
 
 INSTANTIATE_TEST_SUITE_P(
     Conv3dTests, OpModelConv3dParam,
-    ::testing::Values(std::make_tuple(
-        // tt-metal Conv3d expects input in [N, D, H, W, C] format (channels
-        // LAST)
-        detail::TestTensor{{1, 5, 10, 10, 32}, // [N, D, H, W, C]
-                           TensorMemoryLayout::Interleaved,
-                           BufferType::DRAM},
-        // Weight must be 2D: [kD*kH*kW*C_in, C_out] where C_in is input
-        // channels patch_size = 3*3*3*32 = 864, out_channels = 64 (multiple of
-        // 32)
-        detail::TestTensor{
-            {864, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
-        // Output dims: D_out=(5-3)/1+1=3, H_out=(10-3)/1+1=8,
-        // W_out=(10-3)/1+1=8
-        detail::TestTensor{{1, 3, 8, 8, 64}, // [N, D_out, H_out, W_out, C_out]
-                           TensorMemoryLayout::Interleaved,
-                           BufferType::DRAM},
-        32, 64, 1, 5, 10, 10, llvm::SmallVector<int32_t>{3, 3, 3},
-        llvm::SmallVector<int32_t>{1, 1, 1},
-        llvm::SmallVector<int32_t>{0, 0, 0}, 1, "zeros",
-        detail::ExpectedResult{true})));
+    ::testing::Values(
+        std::make_tuple(
+            // tt-metal Conv3d expects input in [N, D, H, W, C] format (channels
+            // LAST)
+            detail::TestTensor{{1, 5, 10, 10, 32}, // [N, D, H, W, C]
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::DRAM},
+            // Weight must be 2D: [kD*kH*kW*C_in, C_out] where C_in is input
+            // channels patch_size = 3*3*3*32 = 864, out_channels = 64 (multiple
+            // of 32)
+            detail::TestTensor{
+                {864, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+            // Output dims: D_out=(5-3)/1+1=3, H_out=(10-3)/1+1=8,
+            // W_out=(10-3)/1+1=8
+            detail::TestTensor{
+                {1, 3, 8, 8, 64}, // [N, D_out, H_out, W_out, C_out]
+                TensorMemoryLayout::Interleaved,
+                BufferType::DRAM},
+            32, 64, 1, 5, 10, 10, llvm::SmallVector<int32_t>{3, 3, 3},
+            llvm::SmallVector<int32_t>{1, 1, 1},
+            llvm::SmallVector<int32_t>{0, 0, 0},
+            llvm::SmallVector<int32_t>{1, 1, 1}, 1, "zeros",
+            detail::ExpectedResult{true}),
+        std::make_tuple(
+            detail::TestTensor{{1, 5, 10, 10, 32},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::DRAM},
+            detail::TestTensor{
+                {864, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+            // Effective kernel size is 5 in each dimension for dilation 2.
+            detail::TestTensor{{1, 1, 6, 6, 64},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::DRAM},
+            32, 64, 1, 5, 10, 10, llvm::SmallVector<int32_t>{3, 3, 3},
+            llvm::SmallVector<int32_t>{1, 1, 1},
+            llvm::SmallVector<int32_t>{0, 0, 0},
+            llvm::SmallVector<int32_t>{2, 2, 2}, 1, "zeros",
+            detail::ExpectedResult{true})));
 
 template <typename OpTy>
 class OpModelPool2DParam

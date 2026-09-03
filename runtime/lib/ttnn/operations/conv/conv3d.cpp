@@ -28,11 +28,14 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
              "Kernel size expected to have 3 elements");
   LOG_ASSERT(op->stride()->size() == 3, "Stride expected to have 3 elements");
   LOG_ASSERT(op->padding()->size() == 3, "Padding expected to have 3 elements");
+  LOG_ASSERT(op->dilation()->size() == 3,
+             "Dilation expected to have 3 elements");
 
-  std::array<uint32_t, 3> kernelSize, stride, padding;
+  std::array<uint32_t, 3> kernelSize, stride, padding, dilation;
   std::copy_n(op->kernel_size()->begin(), 3, kernelSize.begin());
   std::copy_n(op->stride()->begin(), 3, stride.begin());
   std::copy_n(op->padding()->begin(), 3, padding.begin());
+  std::copy_n(op->dilation()->begin(), 3, dilation.begin());
 
   ::ttnn::DataType outputDtype = ::ttnn::DataType::BFLOAT16;
   if (op->output_dtype()) {
@@ -94,9 +97,9 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
 
   ::ttnn::Tensor out = ::ttnn::experimental::conv3d(
       input, weight, &targetDevice, bias, conv3dConfig, outputDtype,
-      op->out_channels(), kernelSize, stride, padding,
-      std::array<uint32_t, 3>{1, 1, 1}, op->padding_mode()->str(), op->groups(),
-      outputMemoryConfig, deviceComputeConfig);
+      op->out_channels(), kernelSize, stride, padding, dilation,
+      op->padding_mode()->str(), op->groups(), outputMemoryConfig,
+      deviceComputeConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

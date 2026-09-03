@@ -2358,17 +2358,6 @@ public:
           op, "Conv3d does not support batch_group_count > 1 yet");
     }
 
-    // Check that dilation is 1 for all dimensions since Conv3d doesn't support
-    // dilation yet
-    auto rhsDilation =
-        getI64ArrayOrDefault(adaptor.getRhsDilationAttr(), NUM_SPATIAL_DIMS, 1);
-    for (int64_t dilation : rhsDilation) {
-      if (dilation != 1) {
-        return rewriter.notifyMatchFailure(
-            op, "Conv3d does not support dilation != 1");
-      }
-    }
-
     // Padding must be symmetric for all dimensions since Conv3d only
     // supports symmetric padding
     auto padding =
@@ -2401,6 +2390,8 @@ private:
 
     auto windowStrides = getI64ArrayOrDefault(adaptor.getWindowStridesAttr(),
                                               NUM_SPATIAL_DIMS, 1);
+    auto rhsDilation =
+        getI64ArrayOrDefault(adaptor.getRhsDilationAttr(), NUM_SPATIAL_DIMS, 1);
     auto padding =
         getPaddingOrDefault(adaptor.getPaddingAttr(), NUM_SPATIAL_DIMS);
 
@@ -2408,6 +2399,11 @@ private:
         static_cast<int32_t>(windowStrides[SPATIAL_DIM_DEPTH]),
         static_cast<int32_t>(windowStrides[SPATIAL_DIM_HEIGHT]),
         static_cast<int32_t>(windowStrides[SPATIAL_DIM_WIDTH]),
+    });
+    auto dilationAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(rhsDilation[SPATIAL_DIM_DEPTH]),
+        static_cast<int32_t>(rhsDilation[SPATIAL_DIM_HEIGHT]),
+        static_cast<int32_t>(rhsDilation[SPATIAL_DIM_WIDTH]),
     });
 
     // Padding is a list of 2-tuples, the order of the 2-tuples is in
@@ -2450,7 +2446,7 @@ private:
 
     mlir::Value newConv = rewriter.create<ttir::Conv3dOp>(
         op.getLoc(), outputType, Value(input), Value(permutedWeight), Value(),
-        strideAttr, paddingAttr, groupsAttr,
+        strideAttr, paddingAttr, dilationAttr, groupsAttr,
         rewriter.getI64IntegerAttr(batchDim),
         rewriter.getI64IntegerAttr(depthDim),
         rewriter.getI64IntegerAttr(heightDim),

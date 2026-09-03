@@ -319,6 +319,16 @@ getAndVerifyConv3dParams(mlir::tt::ttnn::Conv3dOp *op) {
                                    formatAttr(padding));
   }
 
+  llvm::ArrayRef<int32_t> dilation = op->getDilation();
+  if (dilation.size() != 3) {
+    return llvm::createStringError("dilation must have 3 values, got: " +
+                                   std::to_string(dilation.size()));
+  }
+  if (!llvm::all_of(dilation, [](int32_t v) { return v >= 1; })) {
+    return llvm::createStringError("dilation values must be >= 1, got: " +
+                                   formatAttr(dilation));
+  }
+
   llvm::StringRef paddingMode = op->getPaddingMode();
   if (paddingMode != "zeros" && paddingMode != "replicate") {
     return llvm::createStringError(
@@ -331,8 +341,12 @@ getAndVerifyConv3dParams(mlir::tt::ttnn::Conv3dOp *op) {
                                    std::to_string(op->getGroups()));
   }
 
-  return Conv3dParams{Spatial3DParam(kernelSize), Spatial3DParam(stride),
-                      Spatial3DParam(padding), op->getGroups(), paddingMode};
+  return Conv3dParams{Spatial3DParam(kernelSize),
+                      Spatial3DParam(stride),
+                      Spatial3DParam(padding),
+                      Spatial3DParam(dilation),
+                      op->getGroups(),
+                      paddingMode};
 }
 
 ::mlir::LogicalResult
@@ -406,20 +420,27 @@ verifyConv3dInputDims(mlir::tt::ttnn::Conv3dOp *op,
     const WeightTensorDims3d &weightDims, const OutputTensorDims3d &outputDims,
     const Conv3dParams &params) {
 
-  int32_t calculatedDOut = (inputDims.inputDepth + 2 * params.padding.depth -
-                            params.kernelSize.depth) /
-                               params.stride.depth +
-                           1;
+  int64_t effectiveKernelDepth =
+      params.dilation.depth * (params.kernelSize.depth - 1) + 1;
+  int64_t effectiveKernelHeight =
+      params.dilation.vertical * (params.kernelSize.vertical - 1) + 1;
+  int64_t effectiveKernelWidth =
+      params.dilation.horizontal * (params.kernelSize.horizontal - 1) + 1;
+
+  int32_t calculatedDOut =
+      (inputDims.inputDepth + 2 * params.padding.depth - effectiveKernelDepth) /
+          params.stride.depth +
+      1;
 
   int32_t calculatedHOut =
       (inputDims.inputHeight + 2 * params.padding.vertical -
-       params.kernelSize.vertical) /
+       effectiveKernelHeight) /
           params.stride.vertical +
       1;
 
   int32_t calculatedWOut =
       (inputDims.inputWidth + 2 * params.padding.horizontal -
-       params.kernelSize.horizontal) /
+       effectiveKernelWidth) /
           params.stride.horizontal +
       1;
 

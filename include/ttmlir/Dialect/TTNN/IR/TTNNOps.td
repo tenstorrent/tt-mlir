@@ -2419,14 +2419,15 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_ComputeKernelConfigOpInterface]> {
       - `stride` (array<3xi32>): [sD, sH, sW] where sD is stride for depth, sH for height and sW is stride for width.
       - `padding` (array<3xi32>): [pD, pH, pW] where pD is padding for depth, pH is padding for height and pW is padding for width.
         Padding is symmetric (same on both sides of each dimension).
+      - `dilation` (array<3xi32>): [dD, dH, dW] where dD is dilation for depth, dH is dilation for height and dW is dilation for width.
       - `padding_mode` (StrAttr): "zeros" or "replicate" - padding fill strategy.
       - `groups` (i32): Number of blocked connections from input channels to output channels. Input and output channels must both be divisible by groups.
 
       Outputs:
       - `result` (AnyRankedTensor): returned in the following format (N, D_out, H_out, W_out, O) where:
-        - `D_out = (D_in + 2*pD - K_D) / sD + 1`
-        - `H_out = (H_in + 2*pH - K_H) / sH + 1`
-        - `W_out = (W_in + 2*pW - K_W) / sW + 1`
+        - `D_out = (D_in + 2*pD - dD*(K_D-1) - 1) / sD + 1`
+        - `H_out = (H_in + 2*pH - dH*(K_H-1) - 1) / sH + 1`
+        - `W_out = (W_in + 2*pW - dW*(K_W-1) - 1) / sW + 1`
 
       Example:
         %input = ttir.empty() : () -> tensor<1x28x28x28x32xbf16>
@@ -2444,6 +2445,7 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_ComputeKernelConfigOpInterface]> {
             kernel_size = array<i32: 3, 3, 3>,
             stride = array<i32: 1, 1, 1>,
             padding = array<i32: 0, 0, 0>,
+            dilation = array<i32: 1, 1, 1>,
             padding_mode = "zeros",
             groups = 1: i32
           }> : (tensor<1x28x28x28x32xbf16>, tensor<864x64xbf16>, tensor<1x64xbf16>, !ttnn.device) -> tensor<1x26x26x26x64xbf16>
@@ -2462,6 +2464,7 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_ComputeKernelConfigOpInterface]> {
                          DenseI32ArrayAttr:$kernel_size,
                          DenseI32ArrayAttr:$stride,
                          DenseI32ArrayAttr:$padding,
+                         DefaultValuedAttr<DenseI32ArrayAttr, "{1, 1, 1}">:$dilation,
                          DefaultValuedAttr<StrAttr, "\"zeros\"">:$padding_mode,
                          I32Attr:$groups,
                          OptionalAttr<TTNN_Conv3dConfigAttr>:$conv3d_config,

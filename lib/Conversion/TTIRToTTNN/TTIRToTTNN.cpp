@@ -2152,6 +2152,12 @@ public:
       return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
 
+    auto dilationAttr = attrToTripleI32ArrayAttr(adaptor.getDilationAttr(),
+                                                 rewriter, "dilation");
+    if (auto error = dilationAttr.takeError()) {
+      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
+    }
+
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
     if (adaptor.getGroups() != 1) {
@@ -2236,7 +2242,8 @@ public:
         op.getLoc(), outputType, input, adaptor.getWeight(), reshapedBias,
         device, inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
-        *paddingAttr, paddingModeAttr, groupsAttr, defaultConv3dConfig,
+        *paddingAttr, *dilationAttr, paddingModeAttr, groupsAttr,
+        defaultConv3dConfig,
         /*compute_config=*/nullptr);
 
     rewriter.replaceOp(op, convOp.getResult());
