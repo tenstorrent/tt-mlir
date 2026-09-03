@@ -73,12 +73,29 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
         utils::createDeviceComputeKernelConfig(op->compute_config());
   }
 
-  ::ttnn::Tensor output = ::ttnn::matmul(
-      lhs, rhs, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
-      outputDataType, matmulProgramConfig,
-      /*activation=*/activation, /*compute_kernel_config=*/computeConfig,
-      /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
-      /* optional_output_tensor=*/std::nullopt);
+  // ONNX Gemm lowers to MatmulOp, not LinearOp, so this path needs the same
+  // treatment as linear() below -- dispatching only linear left plain matmul
+  // falling through to ttnn::prim::matmul and the mainline kernel fatal.
+  // As with linear, Quasar's program-config types are its own and not
+  // convertible, so refuse rather than silently dropping one.
+  ::ttnn::Tensor output;
+  if (utils::isQuasar()) {
+    LOG_ASSERT(!matmulProgramConfig.has_value(),
+               "Quasar matmul: a mainline matmul program config cannot be "
+               "translated to the Quasar program-config types. Add a "
+               "translation before emitting one for Quasar.");
+    output = ::ttnn::operations::experimental::quasar::matmul::matmul(
+        lhs, rhs, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
+        outputDataType, /*program_config=*/std::nullopt,
+        /*activation=*/activation, /*compute_kernel_config=*/computeConfig);
+  } else {
+    output = ::ttnn::matmul(
+        lhs, rhs, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
+        outputDataType, matmulProgramConfig,
+        /*activation=*/activation, /*compute_kernel_config=*/computeConfig,
+        /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
+        /*optional_output_tensor=*/std::nullopt);
+  }
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }

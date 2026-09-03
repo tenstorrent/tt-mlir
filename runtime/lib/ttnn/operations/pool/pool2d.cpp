@@ -19,6 +19,21 @@
 
 namespace tt::runtime::ttnn::operations::pool {
 
+namespace {
+// TTIRToTTNN hardcodes config_tensors_in_dram=true for every pooling op
+// (Pooling2dOpConversionPattern, TTIRToTTNN.cpp:2568/2576/2592) to avoid L1_SMALL
+// pressure on Wormhole. On Quasar that routes into the DRAM-config halo path,
+// whose gather kernel does not compile: halo_gather.cpp reads a per-core runtime
+// arg into a constexpr. Quasar has 4 MB of L1 per core rather than Wormhole's
+// 1.5 MB, so the reason for the override does not apply -- keep the config
+// tensors in L1 and stay on the path that works.
+template <typename OpT>
+bool configTensorsInDram(const OpT *op) {
+  return utils::isQuasar() ? false : op->config_tensors_in_dram();
+}
+} // namespace
+
+
 void runAvgPool2dOp(
     const ::tt::target::ttnn::Pool2dOp *op, ProgramTensorPool &tensorPool,
     const std::function<::ttnn::Tensor(
@@ -76,7 +91,7 @@ void runAvgPool2dOp(
              /*deallocate_input=*/false,
              /*reallocate_halo_output=*/op->reallocate_halo_output(),
              ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR,
-             /*config_tensor_in_dram=*/op->config_tensors_in_dram());
+             /*config_tensor_in_dram=*/configTensorsInDram(op));
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -134,7 +149,7 @@ void runMaxPool2dOp(
              /*reallocate_halo_output=*/op->reallocate_halo_output(),
              /*return_indices=*/false, ::ttnn::DataType::BFLOAT16,
              ::ttnn::Layout::ROW_MAJOR,
-             /*config_tensor_in_dram=*/op->config_tensors_in_dram());
+             /*config_tensor_in_dram=*/configTensorsInDram(op));
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), results[0]);
 }
@@ -218,7 +233,7 @@ void run(const ::tt::target::ttnn::MaxPool2dWithIndicesOp *op,
       /*reallocate_halo_output=*/op->reallocate_halo_output(),
       /*return_indices=*/true, ::ttnn::DataType::BFLOAT16,
       ::ttnn::Layout::ROW_MAJOR,
-      /*config_tensor_in_dram=*/op->config_tensors_in_dram());
+      /*config_tensor_in_dram=*/configTensorsInDram(op));
   };
   std::vector<::ttnn::Tensor> outputs =
       utils::isQuasar()
