@@ -230,29 +230,35 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
 //
 // The internal primitive requires tiled BF16 DRAM `input` and row-major UINT32
 // DRAM `target`. `grad` and the result belong to the trailing `ttnn::multiply`
-// and are not restricted to DRAM.
+// and are not restricted to DRAM. `grad` only has to be tiled. The result is
+// also BF16.
 TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
     createCrossEntropyBackwardOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds inputTiledBf16DRAMWorkaround;
+  inputTiledBf16DRAMWorkaround.tensorLayoutWorkaround = Layout::Tile;
+  inputTiledBf16DRAMWorkaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
+  inputTiledBf16DRAMWorkaround.tensorBufferTypeWorkaround = BufferType::DRAM;
+
   TTNNOperandWorkarounds targetRowMajorUInt32Workaround;
   targetRowMajorUInt32Workaround.tensorLayoutWorkaround = Layout::RowMajor;
   targetRowMajorUInt32Workaround.tensorDataTypeWorkaround =
       ttcore::DataType::UInt32;
   targetRowMajorUInt32Workaround.tensorBufferTypeWorkaround = BufferType::DRAM;
 
-  TTNNOperandWorkarounds tiledBf16Workaround;
-  tiledBf16Workaround.tensorLayoutWorkaround = Layout::Tile;
-  tiledBf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  TTNNOperandWorkarounds gradTiledWorkaround;
+  gradTiledWorkaround.tensorLayoutWorkaround = Layout::Tile;
 
-  TTNNOperandWorkarounds tiledBf16DRAMWorkaround;
-  tiledBf16DRAMWorkaround.tensorLayoutWorkaround = Layout::Tile;
-  tiledBf16DRAMWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
-  tiledBf16DRAMWorkaround.tensorBufferTypeWorkaround = BufferType::DRAM;
+  TTNNOperandWorkarounds resultTiledBf16Workaround;
+  resultTiledBf16Workaround.tensorLayoutWorkaround = Layout::Tile;
+  resultTiledBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
-      .addInputOperandWorkaround(tiledBf16DRAMWorkaround)
+      .addInputOperandWorkaround(inputTiledBf16DRAMWorkaround)
       .addInputOperandWorkaround(targetRowMajorUInt32Workaround)
-      .addInputOperandWorkaround(tiledBf16Workaround)
-      .addOutputOperandWorkaround(tiledBf16Workaround);
+      .addInputOperandWorkaround(gradTiledWorkaround)
+      .addOutputOperandWorkaround(resultTiledBf16Workaround);
 }
 
 // Factory method to create a set of workarounds for UpsampleOp. The UpsampleOp
