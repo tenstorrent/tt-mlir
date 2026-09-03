@@ -99,6 +99,7 @@
 #include <limits>
 #include <optional>
 #include <tuple>
+#include <type_traits>
 #include <vector>
 
 template <typename... T>
@@ -231,10 +232,25 @@ void constEvalFuncWrapperZeroArg(
   }
 }
 
+template <typename T>
+constexpr ::ttnn::DataType scalarDataTypeFor() {
+  static_assert(std::is_same_v<T, uint32_t> || std::is_same_v<T, float>,
+                "getScalarFromTensor supports uint32_t and float only");
+  if constexpr (std::is_same_v<T, uint32_t>) {
+    return ::ttnn::DataType::UINT32;
+  } else {
+    return ::ttnn::DataType::FLOAT32;
+  }
+}
+
 template <typename T = uint32_t>
 T getScalarFromTensor(const ttnn::Tensor &tensor) {
   assert(tensor.logical_volume() == 1 && "expected scalar tensor");
-  return ::ttnn::from_device(tensor).to_vector<T>().front();
+  assert(tensor.dtype() == scalarDataTypeFor<T>() &&
+         "scalar tensor dtype does not match requested type");
+  const std::vector<T> values = ::ttnn::from_device(tensor).to_vector<T>();
+  assert(values.size() == 1 && "expected exactly one element");
+  return values[0];
 }
 
 ::ttnn::Tensor loadTensor(const std::string &filePath, ttnn::Layout layout,

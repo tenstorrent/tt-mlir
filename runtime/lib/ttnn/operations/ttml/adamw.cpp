@@ -14,11 +14,20 @@ namespace tt::runtime::ttnn::operations::ttml {
 static float readScalar(ProgramContext &context,
                         const ::tt::target::ttnn::TensorRef *ref) {
   return context.getHostScalar(ref->global_id(), [&]() {
-    return ::ttnn::distributed::get_device_tensors(
-               context.getTensorPool().getTTNNTensorAndValidate(ref))
-        .front()
-        .to_vector<float>()
-        .front();
+    const ::ttnn::Tensor &tensor =
+        context.getTensorPool().getTTNNTensorAndValidate(ref);
+    LOG_ASSERT(tensor.logical_volume() == 1,
+               "AdamW scalar operand must have exactly one element, got ",
+               tensor.logical_volume());
+    LOG_ASSERT(tensor.dtype() == ::ttnn::DataType::FLOAT32,
+               "AdamW scalar operand must be float32");
+    const std::vector<::ttnn::Tensor> shards =
+        ::ttnn::distributed::get_device_tensors(tensor);
+    LOG_ASSERT(!shards.empty(), "AdamW scalar operand has no device shards");
+    const std::vector<float> values = shards.front().to_vector<float>();
+    LOG_ASSERT(values.size() == 1,
+               "AdamW scalar readback returned ", values.size(), " elements");
+    return values.front();
   });
 }
 
