@@ -9,11 +9,17 @@
 
 namespace tt::runtime::ttnn::operations::ttml {
 
-static float readScalar(const ::ttnn::Tensor &tensor) {
-  return ::ttnn::distributed::get_device_tensors(tensor)
-      .front()
-      .to_vector<float>()
-      .front();
+// Device -> host readback of a single-element tensor. Cached per program run
+// in ProgramContext so N AdamW ops sharing one lr tensor cost one sync.
+static float readScalar(ProgramContext &context,
+                        const ::tt::target::ttnn::TensorRef *ref) {
+  return context.getHostScalar(ref->global_id(), [&]() {
+    return ::ttnn::distributed::get_device_tensors(
+               context.getTensorPool().getTTNNTensorAndValidate(ref))
+        .front()
+        .to_vector<float>()
+        .front();
+  });
 }
 
 void run(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context) {
@@ -38,13 +44,11 @@ void run(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context) {
                                 : ::ttml::metal::StochasticRounding::Disabled;
 
   // param, exp_avg, exp_avg_sq (and max_exp_avg_sq) are all updated in place.
-  ::ttml::metal::adamw(
-      param, grad, expAvg, expAvgSq, maxExpAvgSq,
-      readScalar(tensorPool.getTTNNTensorAndValidate(op->lr())), op->beta1(),
-      op->beta2(),
-      readScalar(tensorPool.getTTNNTensorAndValidate(op->beta1_pow())),
-      readScalar(tensorPool.getTTNNTensorAndValidate(op->beta2_pow())),
-      op->epsilon(), op->weight_decay(), stochasticRounding);
+  ::ttml::metal::adamw(param, grad, expAvg, expAvgSq, maxExpAvgSq,
+                       readScalar(context, op->lr()), op->beta1(), op->beta2(),
+                       readScalar(context, op->beta1_pow()),
+                       readScalar(context, op->beta2_pow()), op->epsilon(),
+                       op->weight_decay(), stochasticRounding);
 }
 
 } // namespace tt::runtime::ttnn::operations::ttml
