@@ -1901,12 +1901,23 @@ createOp(FlatbufferObjectCache &cache, DitFusedDistributedRmsnormOp op) {
 
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
   auto topology = toFlatbuffer(cache, op.getTopology());
-  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
+
+  // memory_config and dtype are optional here and are left unset by composite
+  // resolution. Their toFlatbuffer overloads dereference the attribute without
+  // a null check, so they must only be called when the attribute is present.
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (op.getMemoryConfigAttr()) {
+    memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
+  }
+
   std::optional<
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
       computeConfig = toFlatbuffer(cache, op.getComputeConfig());
 
-  auto dtype = toFlatbuffer(cache, op.getDtypeAttr());
+  ::flatbuffers::Optional<::tt::target::DataType> dtype;
+  if (op.getDtypeAttr()) {
+    dtype = toFlatbuffer(cache, op.getDtypeAttr());
+  }
 
   ::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef> semaphore = 0;
   if (op.getSemaphore()) {
