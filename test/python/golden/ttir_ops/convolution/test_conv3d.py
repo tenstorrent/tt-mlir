@@ -129,6 +129,36 @@ def clear_program_cache_after_test(device):
             [2, 2, 2],
             1,
         ),
+        # Grouped convolution, tile-aligned C_in
+        (
+            (1, 8, 28, 28, 32),
+            (32, 16, 3, 3, 3),
+            None,
+            [1, 1, 1],
+            [0, 0, 0],
+            1,
+            2,
+        ),
+        # Grouped convolution with bias, C_in not tile-aligned
+        (
+            (1, 8, 28, 28, 12),
+            (24, 6, 3, 3, 3),
+            (1, 1, 1, 1, 24),
+            [1, 1, 1],
+            [0, 0, 0],
+            1,
+            2,
+        ),
+        # Depthwise convolution (groups == C_in)
+        (
+            (1, 8, 16, 16, 32),
+            (32, 1, 3, 3, 3),
+            None,
+            [1, 1, 1],
+            [1, 1, 1],
+            1,
+            32,
+        ),
     ],
     ids=[
         "basic_3x3x3_no_bias",
@@ -140,6 +170,9 @@ def clear_program_cache_after_test(device):
         "pointwise_1x1x1",
         "temporal_downsampling_192ch_s211",
         "dilation2_3x3x3",
+        "grouped_g2_3x3x3",
+        "grouped_g2_with_bias_unaligned_cin",
+        "depthwise_g32_3x3x3",
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
