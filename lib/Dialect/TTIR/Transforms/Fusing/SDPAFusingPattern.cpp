@@ -220,6 +220,30 @@ GqaExpansion detectGqaExpansion(Value v) {
   return {repeatOp.getInput(), cast, repeatOp.getRepeats()};
 }
 
+// The type K/V carry once the expansion is fused into the op: the native
+// tensor's shape with the element type the expansion's surrounding cast
+// produced (if any).
+RankedTensorType fusedKvType(GqaExpansion g) {
+  auto nativeType = mlir::cast<RankedTensorType>(g.native.getType());
+  if (!g.cast) {
+    return nativeType;
+  }
+  return RankedTensorType::get(
+      nativeType.getShape(),
+      mlir::cast<RankedTensorType>(g.cast.getType()).getElementType(),
+      nativeType.getEncoding());
+}
+
+// Re-apply the element-type cast (if any) that sat outside the fused GQA
+// expansion onto the smaller native tensor, so K/V keep the element type they
+// had post-expansion.
+Value reapplyGqaCast(PatternRewriter &rewriter, GqaExpansion g) {
+  if (!g.cast) {
+    return g.native;
+  }
+  return rewriter.create<TypecastOp>(g.cast.getLoc(), fusedKvType(g), g.native);
+}
+
 // True if the slice keeps [0 : lastDim-1] of the last dim and is otherwise a
 // full, unit-step slice — i.e. it drops exactly the last column. Used to peel
 // the attention-sink softmax-padding slice.
@@ -560,32 +584,6 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
     c.scale = qPreScale.value_or(1.0f) * kPreScale.value_or(1.0f);
   }
 
-  // GQA: models expand K/V from Hkv to Hq heads with a head-dim
-  // repeat_interleave before the score matmul. SDPA handles Hkv < Hq natively,
-  // so peel a matching expansion from both K and V (only when both match, to
-  // keep their head counts equal) and feed the un-expanded tensors. Any
-  // element-type cast that sat outside the expansion is re-applied on the
-  // smaller native tensor so K/V keep the element type they had post-expansion.
-  GqaExpansion kGqa = detectGqaExpansion(c.key);
-  GqaExpansion vGqa = detectGqaExpansion(c.value);
-  if (kGqa.repeats.has_value() && vGqa.repeats.has_value() &&
-      *kGqa.repeats == *vGqa.repeats) {
-    auto reapplyCast = [&](GqaExpansion g) -> Value {
-      if (!g.cast) {
-        return g.native;
-      }
-      auto nativeType = mlir::cast<RankedTensorType>(g.native.getType());
-      auto castElemType =
-          mlir::cast<RankedTensorType>(g.cast.getType()).getElementType();
-      auto nativeCastType = RankedTensorType::get(
-          nativeType.getShape(), castElemType, nativeType.getEncoding());
-      return rewriter.create<TypecastOp>(g.cast.getLoc(), nativeCastType,
-                                         g.native);
-    };
-    c.key = reapplyCast(kGqa);
-    c.value = reapplyCast(vGqa);
-  }
-
   // Shape validation (strict 4D, no unsqueezing).
   if (!validateShapes(c.query, c.key, c.value)) {
     return failure();
@@ -666,6 +664,34 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
   }
 
   rewriter.replaceOp(c.attentionMatmul, result);
+  return success();
+}
+
+mlir::LogicalResult SDPAHeadExpansionFusingPattern::matchAndRewrite(
+    ScaledDotProductAttentionOp op, mlir::PatternRewriter &rewriter) const {
+  // Both K and V must carry the same head-expansion. SDPA is GQA-native, so
+  // feeding it the un-expanded Hkv-head tensors is equivalent; a mismatch is
+  // not a GQA expansion and is left alone.
+  GqaExpansion kGqa = detectGqaExpansion(op.getKey());
+  GqaExpansion vGqa = detectGqaExpansion(op.getValue());
+  if (!kGqa.repeats.has_value() || !vGqa.repeats.has_value() ||
+      *kGqa.repeats != *vGqa.repeats) {
+    return failure();
+  }
+
+  // The op requires K and V to have the same type.
+  if (fusedKvType(kGqa) != fusedKvType(vGqa)) {
+    return failure();
+  }
+
+  Value fusedKey = reapplyGqaCast(rewriter, kGqa);
+  Value fusedValue = reapplyGqaCast(rewriter, vGqa);
+
+  // Update the K/V operands with the newly fused values.
+  rewriter.modifyOpInPlace(op, [&] {
+    op.getKeyMutable().assign(fusedKey);
+    op.getValueMutable().assign(fusedValue);
+  });
   return success();
 }
 
