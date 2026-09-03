@@ -10,6 +10,7 @@
 #include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/eltwise/unary/common/unary_op_types.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
+#include "ttnn/operations/experimental/quasar/binary/binary.hpp"
 
 namespace tt::runtime::ttnn::operations::eltwise::unary {
 
@@ -176,7 +177,46 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Relu: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::relu);
+    // Quasar has no unary op family at all under experimental/quasar/ -- only
+    // binary and binary_ng -- so there is nothing to dispatch relu to. Express
+    // it as a binary instead: max(x, 0) is exactly relu, and the Quasar binary
+    // front-end has a tensor-scalar maximum. This is the only op in the
+    // ResNet-50 graph that needs rewriting rather than redirecting (16 sites).
+    //
+    // Worth knowing if this regresses: QUASAR_PARITY_GAPS.md lists maximum as
+    // LLK-capable but not covered by an op test on the no-broadcast path, so it
+    // is plausible-but-unproven territory. The fallback is
+    // add(x, 0, lhs_activations={relu}) -- tensor-scalar add and lhs activation
+    // fusion are both inside the validated slice. The hand-written Quasar
+    // ResNet-50 avoids the question entirely by folding relu into the preceding
+    // add/conv as an activation, which is also the better answer for
+    // performance and belongs in the compiler's fusing pass.
+    if (utils::isQuasar()) {
+      runEltwiseUnaryOp(
+          op, tensorPool,
+          [](const ::ttnn::Tensor &in,
+             const std::optional<::ttnn::MemoryConfig> &memoryConfig,
+             const std::optional<::ttnn::Tensor> &optionalOutputTensor,
+             const std::optional<::ttnn::CoreRangeSet> &) {
+            // max(x, 0) would be the obvious spelling, but Quasar's
+            // tensor-scalar maximum is implemented on the unary clamp path and
+            // so delegates to mainline ttnn::prim::unary -- measured, and
+            // exactly what QUASAR_PARITY_GAPS.md priority (3) asks Metal to
+            // reroute onto invoke_binary_ng. Use add(x, 0) with relu fused as an
+            // LHS activation instead: relu(x) + 0 == relu(x), tensor-scalar add
+            // and LHS activation fusion are both inside the validated slice,
+            // and adding 0.0f is exact in bf16.
+            const std::array<::ttnn::operations::unary::EltwiseUnaryWithParam, 1>
+                reluActivation{::ttnn::operations::unary::EltwiseUnaryWithParam(
+                    ::ttnn::operations::unary::UnaryOpType::RELU)};
+            return ::ttnn::operations::experimental::quasar::binary::add(
+                in, 0.0f, /*dtype=*/std::nullopt, memoryConfig,
+                optionalOutputTensor, /*post_activations=*/{},
+                /*lhs_activations=*/reluActivation);
+          });
+    } else {
+      runEltwiseUnaryOp(op, tensorPool, ::ttnn::relu);
+    }
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Relu6: {
