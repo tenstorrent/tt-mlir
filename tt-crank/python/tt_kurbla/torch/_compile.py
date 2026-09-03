@@ -1266,6 +1266,19 @@ def _fill_scalar_decomp(self, value):
     return self.new_full(self.shape, value, dtype=self.dtype)
 
 
+def _new_empty_strided_decomp(self, size, stride, dtype=None, layout=None, device=None, pin_memory=None):
+    contiguous, acc = [], 1
+    for dim in reversed(size):
+        contiguous.insert(0, acc)
+        acc *= dim
+    if any(s != c for d, s, c in zip(size, stride, contiguous) if d > 1):
+        raise NotImplementedError(
+            f"tt-kurbla compile: new_empty_strided with non-contiguous strides {list(stride)} "
+            f"for size {list(size)} (contiguous would be {contiguous})"
+        )
+    return self.new_zeros(size, dtype=dtype if dtype is not None else self.dtype)
+
+
 # A few scatter decomps we rely on aren't in the core set; pull them in explicitly.
 _EXTRA_DECOMP_OPS = [
     torch.ops.aten.slice_scatter,
@@ -1279,6 +1292,7 @@ def _build_decomposition_table():
     table.update({
         torch.ops.aten.empty_like.default: _empty_like_decomp,
         torch.ops.aten.fill.Scalar: _fill_scalar_decomp,
+        torch.ops.aten.new_empty_strided.default: _new_empty_strided_decomp,
     })
     # Never decompose an op tt lowers directly — keep it as a leaf for its kernel.
     return {op: fn for op, fn in table.items() if op not in _LOWERINGS}

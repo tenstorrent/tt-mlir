@@ -11,6 +11,7 @@ import pytest
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch._dynamo.exc import BackendCompilerFailed
 
 from tt_kurbla.torch.testing import DeviceType, ExecutionMode, assert_close_cpu_vs_tt
 from tt_kurbla.torch._compile import _compile_options, CompileOption, BfpDtype, MathFidelity
@@ -1403,6 +1404,40 @@ def test_compile_like_creation(factory: str) -> None:
 
     x = torch.randn((32, 64), dtype=torch.bfloat16)
     _assert_compile_matches_eager(_LikeCreate(factory), x)
+
+
+@pytest.mark.parametrize(
+    "size,stride",
+    [
+        ((32, 64), (64, 1)),
+        ((1, 32, 64), (2048, 64, 1)),
+        ((1, 32, 64), (7, 64, 1)),
+    ],
+)
+def test_compile_new_empty_strided(size: tuple[int, ...], stride: tuple[int, ...]) -> None:
+    """new_empty_strided decomposes to a dense new_zeros, the backend describes
+    tensors by shape and dtype alone, so only a contiguous request is
+    representable."""
+    class _Alloc(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            out = x.new_empty_strided(size, stride)
+            return out.fill_(0.0) + x.reshape(size)
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Alloc(), x)
+
+
+def test_compile_new_empty_strided_non_contiguous() -> None:
+    """A transposed layout carries information a dense buffer can't express, so
+    the decomp raises instead of silently returning a contiguous tensor."""
+    class _Alloc(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x.new_empty_strided((32, 64), (1, 32)).fill_(0.0)
+
+    compiled = torch.compile(_Alloc().to("tt"), backend="tt")
+    x = torch.randn((32, 64), dtype=torch.bfloat16).to("tt")
+    with pytest.raises(BackendCompilerFailed, match="non-contiguous strides"):
+        compiled(x)
 
 
 @pytest.mark.parametrize(
