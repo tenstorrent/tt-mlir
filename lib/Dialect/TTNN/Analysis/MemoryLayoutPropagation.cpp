@@ -1592,25 +1592,12 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
     }
   }
 
-  // Use reshardLayout directly instead of rebuilding it from the producer's
-  // layout via Builder. reshardLayout is already a complete layout for this
-  // tensor -- it is the layout the rule book asked for and the op model
-  // validated against -- so reconstructing it from a different seed can only
-  // diverge from it.
-  //
-  // The Builder path seeded from the producer and copied over only the buffer
-  // type, memory layout, grid and element type. Each of those setters
-  // early-returns when the value is unchanged, and only a *null* core range set
-  // gets filled by buildWithCanonicalCorePlacement, so a producer that already
-  // matches the target's buffer type, memory layout and grid would keep its own
-  // placement. That is latent rather than observed: every sharded layout in the
-  // IR is canonically placed, so a matching grid implies a matching placement
-  // in practice. What the direct path removes is the dependence on that, and on
-  // the derived shard width continuing to equal what the candidates state.
-  //
-  // This also subsumes the page-layout (element type) override that path
-  // needed: reshardLayout carries its own element type, so a tile -> row-major
-  // sibling reshard materializes without reconstructing it.
+  // Use reshardLayout directly rather than rebuilding it from the producer's
+  // layout. It is already a complete layout for this tensor -- the one the rule
+  // book asked for and the op model validated against -- so reconstructing it
+  // from another seed can only diverge from it. It also carries its own element
+  // type, so a tile -> row-major sibling reshard materializes without a
+  // separate page-layout override.
   RankedTensorType newTensorType =
       utils::RankedTensorTypeFactory::create(producerTensorType, reshardLayout);
 
