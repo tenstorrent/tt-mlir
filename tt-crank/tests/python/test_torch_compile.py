@@ -424,6 +424,26 @@ def test_compile_conv2d(n: int, c_in: int, h: int, w: int, c_out: int, ksize: in
     _assert_compile_matches_eager(model, x, atol=0.05, rtol=0.05)
 
 
+# TODO(bmijanovicTT)
+# groups: https://github.com/tenstorrent/tt-mlir/pull/9279
+# dilation: https://github.com/tenstorrent/tt-mlir/issues/9280
+@pytest.mark.parametrize(
+    "n,c_in,d,h,w,c_out,ksize,stride,padding,bias",
+    [
+        (1, 32, 8, 16, 16, 64, 3, 1, 1, False),
+        (1, 32, 8, 16, 16, 64, 3, 2, 1, False),
+        (1, 32, 8, 16, 16, 64, 1, 1, 0, True),
+        (2, 32, 4, 16, 16, 32, 3, 1, 1, True),
+    ],
+    ids=["k3_s1_pad1_nobias", "k3_s2_pad1_nobias", "k1_bias", "batch2_bias"],
+)
+def test_compile_conv3d(n: int, c_in: int, d: int, h: int, w: int, c_out: int, ksize: int,
+                        stride: int, padding: int, bias: bool) -> None:
+    model = nn.Conv3d(c_in, c_out, ksize, stride=stride, padding=padding, bias=bias).to(torch.bfloat16)
+    x = torch.randn((n, c_in, d, h, w), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(model, x, atol=0.05, rtol=0.05)
+
+
 @pytest.mark.parametrize(
     "n,c,h,w,k,stride,padding",
     [

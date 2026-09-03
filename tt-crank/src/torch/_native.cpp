@@ -188,6 +188,14 @@ public:
                                 groups);
     }
 
+    mlir::Value conv3d(mlir::Value input, mlir::Value weight, std::optional<mlir::Value> bias_opt,
+                       std::vector<std::int64_t> stride, std::vector<std::int64_t> padding,
+                       std::vector<std::int64_t> dilation, int64_t groups) {
+        assert_builder();
+        return tk::build_conv3d(*mb_, input, weight, bias_opt.value_or(mlir::Value{}), stride, padding, dilation,
+                                groups);
+    }
+
     mlir::Value max_pool2d(mlir::Value input, std::vector<std::int64_t> kernel_size, std::vector<std::int64_t> stride,
                            std::vector<std::int64_t> padding, std::vector<std::int64_t> dilation, bool ceil_mode) {
         assert_builder();
@@ -809,6 +817,8 @@ NB_MODULE(_native, m) {
         .def("conv1d", &PyModuleBuilder::conv1d, "input"_a, "weight"_a, "bias"_a, "stride"_a, "padding"_a, "dilation"_a,
              "groups"_a)
         .def("conv2d", &PyModuleBuilder::conv2d, "input"_a, "weight"_a, "bias"_a, "stride"_a, "padding"_a, "dilation"_a,
+             "groups"_a)
+        .def("conv3d", &PyModuleBuilder::conv3d, "input"_a, "weight"_a, "bias"_a, "stride"_a, "padding"_a, "dilation"_a,
              "groups"_a)
         .def("max_pool2d", &PyModuleBuilder::max_pool2d, "input"_a, "kernel_size"_a, "stride"_a, "padding"_a,
              "dilation"_a, "ceil_mode"_a = false)

@@ -1518,4 +1518,43 @@ mlir::Value build_conv2d(ModuleBuilder &mb, mlir::Value input, mlir::Value weigh
         .getResult();
 }
 
+mlir::Value build_conv3d(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias,
+                         llvm::ArrayRef<int64_t> stride, llvm::ArrayRef<int64_t> padding,
+                         llvm::ArrayRef<int64_t> dilation, int64_t groups) {
+    auto ncdhw_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto shape = ncdhw_type.getShape();                                            // NCDHW: [N, C_in, D, H, W]
+    auto wshape = mlir::cast<mlir::RankedTensorType>(weight.getType()).getShape(); // OIDHW: [C_out, C_in, kD, kH, kW]
+    auto elem_type = ncdhw_type.getElementType();
+
+    // NCDHW[N,C,D,H,W] → NDHWC[N,D,H,W,C]
+    auto ndhwc_input = build_permute(mb, input, {0, 2, 3, 4, 1});
+
+    // NOLINTBEGIN
+    int64_t kD = wshape[2], kH = wshape[3], kW = wshape[4];
+    int64_t pD = padding[0], pH = padding[1], pW = padding[2];
+    int64_t sD = stride[0], sH = stride[1], sW = stride[2];
+    int64_t D_out = (shape[2] + 2 * pD - kD) / sD + 1;
+    int64_t H_out = (shape[3] + 2 * pH - kH) / sH + 1;
+    int64_t W_out = (shape[4] + 2 * pW - kW) / sW + 1;
+    // NOLINTEND
+
+    // The verifier wants a rank-5 bias with the channel at channel_dim=4.
+    mlir::Value bias_5d;
+    if (bias) {
+        bias_5d = build_reshape(mb, bias, {1, 1, 1, 1, wshape[0]});
+    }
+
+    auto stride_attr = mb.attrs().getDenseI32ArrayAttr({as<int32_t>(sD), as<int32_t>(sH), as<int32_t>(sW)});
+    auto padding_attr = mb.attrs().getDenseI32ArrayAttr({as<int32_t>(pD), as<int32_t>(pH), as<int32_t>(pW)});
+
+    auto ndhwc_out_type = mlir::RankedTensorType::get({shape[0], D_out, H_out, W_out, wshape[0]}, elem_type);
+    auto ndhwc_result =
+        mb.create<mlir::tt::ttir::Conv3dOp>(ndhwc_out_type, ndhwc_input, weight, bias_5d, stride_attr, padding_attr,
+                                            as<uint32_t>(groups), mb.attrs().getStringAttr("zeros"))
+            .getResult();
+
+    // NDHWC[N,D_out,H_out,W_out,C_out] → NCDHW[N,C_out,D_out,H_out,W_out]
+    return build_permute(mb, ndhwc_result, {0, 4, 1, 2, 3});
+}
+
 } // namespace tt::kurbla

@@ -217,16 +217,17 @@ def _(mb, input):
 def _(mb, input):
     return mb.relu(input)
 
+
 @_lowering(_aten.convolution.default)
 def _(mb, input, weight, bias, stride, padding, dilation, transposed, output_padding, groups):
     if transposed:
         raise NotImplementedError("tt-kurbla compile: transposed convolution not supported")
+    # NCW / NCHW / NCDHW select conv1d / conv2d / conv3d respectively.
+    builders = {3: mb.conv1d, 4: mb.conv2d, 5: mb.conv3d}
     rank = len(input.shape)
-    if rank == 3:
-        return mb.conv1d(input, weight, bias, list(stride), list(padding), list(dilation), int(groups))
-    if rank != 4:
-        raise NotImplementedError(f"tt-kurbla compile: convolution supports rank 3 or 4 inputs, got rank {rank}")
-    return mb.conv2d(input, weight, bias, list(stride), list(padding), list(dilation), int(groups))
+    if rank not in builders:
+        raise NotImplementedError(f"tt-kurbla compile: convolution supports rank 3, 4, or 5 inputs, got rank {rank}")
+    return builders[rank](input, weight, bias, list(stride), list(padding), list(dilation), int(groups))
 
 
 @_lowering(_aten.max_pool2d_with_indices.default)
