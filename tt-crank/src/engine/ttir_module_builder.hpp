@@ -420,6 +420,24 @@ TT_KURBLA_API mlir::Value build_linear(ModuleBuilder &mb, mlir::Value input, mli
 // intentional.
 TT_KURBLA_API mlir::Value build_embedding(ModuleBuilder &mb, mlir::Value indices, mlir::Value weight);
 
+// Emit TTIR for the embedding weight gradient (aten::embedding_dense_backward):
+// row `i` of the [num_weights, embedding_dim] result is the sum of the rows of
+// `in_gradient` whose `indices` entry is `i`. As with build_embedding, do NOT
+// promote inputs — `indices` must stay integer-typed. A non-negative
+// `padding_idx` names a row aten holds out of training, and is zeroed here; -1
+// means there is no such row.
+//
+// aten's `scale_grad_by_freq` is not carried here: scaling rows by index
+// frequency needs a histogram over the indices, which has no TTNN kernel, so
+// both entry points (the aten kernel and the compile lowering) reject it
+// before building IR.
+//
+// Index values are trusted to be in [0, num_weights): they are runtime tensor
+// data, so nothing here can check them. Where CPU aten raises IndexError, an
+// out-of-range index is silently dropped and its gradient never lands.
+TT_KURBLA_API mlir::Value build_embedding_backward(ModuleBuilder &mb, mlir::Value indices, mlir::Value in_gradient,
+                                                   int64_t num_weights, int64_t padding_idx);
+
 // Emit TTIR for torch.gather along `dim` (ttir.gather): `index` has the same rank
 // as `input`; the result takes `index`'s shape and `input`'s element type.
 TT_KURBLA_API mlir::Value build_gather(ModuleBuilder &mb, mlir::Value input, mlir::Value index, int64_t dim);

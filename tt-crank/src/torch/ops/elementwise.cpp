@@ -1070,6 +1070,44 @@ at::Tensor &tt_any_dims_out(const at::Tensor &self, at::OptionalIntArrayRef dim,
     return tt_any_reduce_out(self, dims, keepdim, out);
 }
 
+at::Tensor tt_embedding(const at::Tensor &weight_in, const at::Tensor &indices_in, int64_t /*padding_idx*/,
+                        bool /*scale_grad_by_freq*/, bool /*sparse*/) {
+    TORCH_CHECK(is_tt(weight_in) || is_tt(indices_in),
+                "tt-kurbla aten::embedding: at least one of weight/indices must be on tt backend");
+    auto device = is_tt(weight_in) ? weight_in.device() : indices_in.device();
+    const auto weight = to_tt(weight_in, device);
+    const auto indices = to_tt(indices_in, device);
+    // ModuleBuilder sees (weight, indices); TTIR EmbeddingOp expects (indices, weight).
+    auto mb = ModuleBuilder::init({spec_for(weight), spec_for(indices)});
+    auto result = build_embedding(mb, /*indices=*/mb.args()[1], /*weight=*/mb.args()[0]);
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {weight, indices});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, weight.scalar_type());
+}
+
+at::Tensor tt_embedding_dense_backward(const at::Tensor &grad_output_in, const at::Tensor &indices_in,
+                                       int64_t num_weights, int64_t padding_idx, bool scale_grad_by_freq) {
+    TORCH_CHECK(is_tt(grad_output_in) || is_tt(indices_in),
+                "tt-kurbla aten::embedding_dense_backward: at least one of grad_output/indices must be on tt backend");
+    // Scaling each row by its index's frequency needs a histogram over the
+    // indices, which has no TTNN kernel. nn.Embedding defaults it off.
+    TORCH_CHECK_NOT_IMPLEMENTED(!scale_grad_by_freq,
+                                "tt-kurbla aten::embedding_dense_backward: scale_grad_by_freq=True is not implemented");
+    auto device = is_tt(grad_output_in) ? grad_output_in.device() : indices_in.device();
+    const auto grad_output = to_tt(grad_output_in, device);
+    const auto indices = to_tt(indices_in, device);
+    auto mb = ModuleBuilder::init({spec_for(grad_output), spec_for(indices)});
+    auto result =
+        build_embedding_backward(mb, /*indices=*/mb.args()[1], /*in_gradient=*/mb.args()[0], num_weights, padding_idx);
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {grad_output, indices});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, grad_output.scalar_type());
+}
+
 } // namespace
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
@@ -1141,6 +1179,8 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("bitwise_and.Tensor_out", TORCH_FN(tt_bitwise_and_tensor_out));
     m.impl("bitwise_or.Tensor_out", TORCH_FN(tt_bitwise_or_tensor_out));
     m.impl("bitwise_not.out", TORCH_FN(tt_bitwise_not_out));
+    m.impl("embedding", TORCH_FN(tt_embedding));
+    m.impl("embedding_dense_backward", TORCH_FN(tt_embedding_dense_backward));
 }
 
 } // namespace tt::kurbla::torch_backend

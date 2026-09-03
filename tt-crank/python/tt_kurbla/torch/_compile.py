@@ -553,6 +553,16 @@ def _(mb, weight, indices, padding_idx=-1, scale_grad_by_freq=False, sparse=Fals
     return mb.embedding(weight, indices)
 
 
+@_lowering(_aten.embedding_dense_backward.default)
+@_skip_prepare(_aten.embedding_dense_backward.default)
+def _(mb, grad_output, indices, num_weights, padding_idx, scale_grad_by_freq=False):
+    if scale_grad_by_freq:
+        raise NotImplementedError(
+            "tt-kurbla compile: embedding_dense_backward with scale_grad_by_freq=True is not lowered"
+        )
+    return mb.embedding_backward(grad_output, indices, int(num_weights), int(padding_idx))
+
+
 @_lowering(_aten.le.Scalar)
 @_skip_prepare(_aten.le.Scalar)
 def _(mb, x, scalar):

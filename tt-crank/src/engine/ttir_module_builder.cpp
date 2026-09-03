@@ -903,6 +903,66 @@ mlir::Value build_embedding(ModuleBuilder &mb, mlir::Value indices, mlir::Value 
     return mb.create<mlir::tt::ttir::EmbeddingOp>(result_type, indices, weight).getResult();
 }
 
+mlir::Value build_embedding_backward(ModuleBuilder &mb, mlir::Value indices, mlir::Value in_gradient,
+                                     int64_t num_weights, int64_t padding_idx) {
+    auto grad_type = mlir::cast<mlir::RankedTensorType>(in_gradient.getType());
+    auto indices_type = mlir::cast<mlir::RankedTensorType>(indices.getType());
+
+    TT_FATAL(indices_type.getRank() == 1 || indices_type.getRank() == 2,
+             "build_embedding_backward: indices must be 1D or 2D ([batch, seq]), got rank {}", indices_type.getRank());
+    TT_FATAL(mlir::isa<mlir::IntegerType>(indices_type.getElementType()),
+             "build_embedding_backward: indices must be integer-typed — callers must not promote them");
+    TT_FATAL(grad_type.getRank() == indices_type.getRank() + 1,
+             "build_embedding_backward: gradient rank must be one more than the indices rank, got {} and {}",
+             grad_type.getRank(), indices_type.getRank());
+    auto grad_shape = grad_type.getShape();
+    auto indices_shape = indices_type.getShape();
+    for (std::size_t dim = 0; dim < indices_shape.size(); ++dim) {
+        TT_FATAL(grad_shape[dim] == indices_shape[dim],
+                 "build_embedding_backward: gradient dim {} is {}, expected {} to match the indices", dim,
+                 grad_shape[dim], indices_shape[dim]);
+    }
+    TT_FATAL(num_weights > 0, "build_embedding_backward: num_weights must be positive, got {}", num_weights);
+    // padding_idx == -1 means no padding row.
+    TT_FATAL(padding_idx >= -1 && padding_idx < num_weights,
+             "build_embedding_backward: padding_idx {} is out of range for {} rows", padding_idx, num_weights);
+    auto element_type = grad_type.getElementType();
+    int64_t embedding_dim = grad_shape.back();
+
+    // ttnn.embedding_bw leaves rows unwritten when the row count is not a whole number of
+    // tiles, so a vocabulary like 100 comes back with rows 96-99 holding old buffer contents
+    // (https://github.com/tenstorrent/tt-mlir/issues/9220). Scatter into a table rounded up to
+    // a tile and slice the extra rows back off: every index is < num_weights, so the rows the
+    // slice drops only ever hold zeros.
+    // TODO: drop the round-up and the slice once tt-mlir#9220 is fixed — for a GPT-2-sized
+    // table they are a whole-table copy on every backward step.
+    constexpr int64_t tile_height = 32;
+    int64_t padded_weights = (num_weights + tile_height - 1) / tile_height * tile_height;
+    llvm::SmallVector<int64_t, 2> table_shape{padded_weights, embedding_dim};
+
+    // The op reads the weight's shape for the row count, never its data, and aten hands us
+    // `num_weights` instead of the table. Zeros of the right shape satisfy the operand.
+    auto weight = build_zeros(mb, table_shape, element_type);
+    auto result_type = mlir::RankedTensorType::get(table_shape, element_type);
+
+    // aten holds the padding row out of the update. Zero the gradient of the padded tokens so
+    // they contribute nothing, leaving that row at zero. The [batch, seq, 1] mask broadcasts
+    // across the embedding dimension, so the pass is over the gradient, not the whole table.
+    mlir::Value gradient = in_gradient;
+    if (padding_idx >= 0) {
+        auto padding_token = build_scalar(mb, indices_type.getElementType(), as<double>(padding_idx));
+        auto keep = build_unsqueeze(mb, build_ne(mb, indices, padding_token), -1);
+        auto zero = build_scalar(mb, element_type, 0.0);
+        gradient = build_where(mb, keep, in_gradient, zero);
+    }
+    mlir::Value result =
+        mb.create<mlir::tt::ttir::EmbeddingBackwardOp>(result_type, indices, weight, gradient).getResult();
+    if (padded_weights != num_weights) {
+        result = build_slice(mb, result, {0, 0}, {num_weights, embedding_dim}, {1, 1});
+    }
+    return result;
+}
+
 mlir::Value build_gather(ModuleBuilder &mb, mlir::Value input, mlir::Value index, int64_t dim) {
     // torch.gather semantics (ttir.gather): `index` has the same rank as
     // `input`; the result has `index`'s shape and `input`'s element type.
