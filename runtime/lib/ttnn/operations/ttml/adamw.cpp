@@ -25,8 +25,8 @@ static float readScalar(ProgramContext &context,
         ::ttnn::distributed::get_device_tensors(tensor);
     LOG_ASSERT(!shards.empty(), "AdamW scalar operand has no device shards");
     const std::vector<float> values = shards.front().to_vector<float>();
-    LOG_ASSERT(values.size() == 1,
-               "AdamW scalar readback returned ", values.size(), " elements");
+    LOG_ASSERT(values.size() == 1, "AdamW scalar readback returned ",
+               values.size(), " elements");
     return values.front();
   });
 }
