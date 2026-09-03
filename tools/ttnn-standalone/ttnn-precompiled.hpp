@@ -231,15 +231,10 @@ void constEvalFuncWrapperZeroArg(
   }
 }
 
-uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
+template <typename T = uint32_t>
+T getScalarFromTensor(const ttnn::Tensor &tensor) {
   assert(tensor.logical_volume() == 1 && "expected scalar tensor");
-  assert(tensor.dtype() == ttnn::DataType::UINT32 && "expected uint32 tensor");
-
-  const ::ttnn::Tensor tensorOnHost = ::ttnn::from_device(tensor);
-  const ::tt::tt_metal::HostBuffer buffer =
-      ::tt::tt_metal::host_buffer::get_host_buffer(tensorOnHost);
-  const auto &buf = buffer.view_as<uint32_t>();
-  return *buf.begin();
+  return ::ttnn::from_device(tensor).to_vector<T>().front();
 }
 
 ::ttnn::Tensor loadTensor(const std::string &filePath, ttnn::Layout layout,

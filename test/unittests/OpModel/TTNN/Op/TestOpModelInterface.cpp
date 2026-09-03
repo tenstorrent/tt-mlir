@@ -6257,19 +6257,27 @@ TEST_F(OpModelBase, AdamWOpInterface) {
   auto grad = createEmptyTensor(shape, builder.getBF16Type(), bf16Layout);
   auto expAvg = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
   auto expAvgSq = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
+  llvm::SmallVector<int64_t> scalarShape = {1};
+  auto scalarLayout = CreateTiledLayout(
+      scalarShape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  auto lr = createEmptyTensor(scalarShape, builder.getF32Type(), scalarLayout);
+  auto beta1Pow =
+      createEmptyTensor(scalarShape, builder.getF32Type(), scalarLayout);
+  auto beta2Pow =
+      createEmptyTensor(scalarShape, builder.getF32Type(), scalarLayout);
 
   auto adamW = builder.create<AdamWOp>(
-      builder.getUnknownLoc(), param, grad, expAvg, expAvgSq,
-      /*lr=*/llvm::APFloat(1e-3f), /*beta1=*/llvm::APFloat(0.9f),
-      /*beta2=*/llvm::APFloat(0.999f), /*beta1_pow=*/llvm::APFloat(0.9f),
-      /*beta2_pow=*/llvm::APFloat(0.999f), /*epsilon=*/llvm::APFloat(1e-8f),
-      /*weight_decay=*/llvm::APFloat(0.01f));
+      builder.getUnknownLoc(), param, grad, expAvg, expAvgSq, lr, beta1Pow,
+      beta2Pow, /*beta1=*/llvm::APFloat(0.9f), /*beta2=*/llvm::APFloat(0.999f),
+      /*epsilon=*/llvm::APFloat(1e-8f), /*weight_decay=*/llvm::APFloat(0.01f));
 
   auto backend = dyn_cast<OpModel>(adamW.getOperation());
   ASSERT_TRUE(backend);
 
   auto inputLayouts = getInputLayouts(adamW.getOperation());
-  ASSERT_EQ(inputLayouts.size(), 4u);
+  ASSERT_EQ(inputLayouts.size(), 7u);
 
   // OpConfig() carries a null output layout, which is what the optimizer passes
   // for an op with no results.
@@ -6297,7 +6305,7 @@ TEST_F(OpModelBase, AdamWOpInterface) {
 }
 
 // Same op with the optional max_exp_avg_sq operand present, which is what
-// enables AMSGrad in ttml. Exercises the 5-input path through the interface.
+// enables AMSGrad in ttml. Exercises the 8-input path through the interface.
 TEST_F(OpModelBase, AdamWOpInterfaceAmsgrad) {
   llvm::SmallVector<int64_t> shape = {1, 1, 128, 128};
 
@@ -6313,14 +6321,22 @@ TEST_F(OpModelBase, AdamWOpInterfaceAmsgrad) {
   auto expAvg = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
   auto expAvgSq = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
   auto maxExpAvgSq = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
+  llvm::SmallVector<int64_t> scalarShape = {1};
+  auto scalarLayout = CreateTiledLayout(
+      scalarShape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  auto lr = createEmptyTensor(scalarShape, builder.getF32Type(), scalarLayout);
+  auto beta1Pow =
+      createEmptyTensor(scalarShape, builder.getF32Type(), scalarLayout);
+  auto beta2Pow =
+      createEmptyTensor(scalarShape, builder.getF32Type(), scalarLayout);
 
   auto adamW = builder.create<AdamWOp>(
-      builder.getUnknownLoc(), param, grad, expAvg, expAvgSq, maxExpAvgSq,
-      /*lr=*/builder.getF32FloatAttr(1e-3f),
+      builder.getUnknownLoc(), param, grad, expAvg, expAvgSq, lr, beta1Pow,
+      beta2Pow, maxExpAvgSq,
       /*beta1=*/builder.getF32FloatAttr(0.9f),
       /*beta2=*/builder.getF32FloatAttr(0.999f),
-      /*beta1_pow=*/builder.getF32FloatAttr(0.9f),
-      /*beta2_pow=*/builder.getF32FloatAttr(0.999f),
       /*epsilon=*/builder.getF32FloatAttr(1e-8f),
       /*weight_decay=*/builder.getF32FloatAttr(0.01f),
       /*stochastic_rounding=*/builder.getBoolAttr(false));
@@ -6329,7 +6345,7 @@ TEST_F(OpModelBase, AdamWOpInterfaceAmsgrad) {
   ASSERT_TRUE(backend);
 
   auto inputLayouts = getInputLayouts(adamW.getOperation());
-  ASSERT_EQ(inputLayouts.size(), 5u);
+  ASSERT_EQ(inputLayouts.size(), 8u);
 
   auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
   if (constraintsExp) {

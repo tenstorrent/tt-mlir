@@ -7308,6 +7308,14 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
   if (getMaxExpAvgSq() && !sameShape(getMaxExpAvgSq().getType())) {
     return emitOpError("max_exp_avg_sq must have the same shape as param");
   }
+  for (auto [name, v] :
+       {std::pair{"lr", getLr()}, std::pair{"beta1_pow", getBeta1Pow()},
+        std::pair{"beta2_pow", getBeta2Pow()}}) {
+    RankedTensorType t = v.getType();
+    if (t.getNumElements() != 1 || !t.getElementType().isF32()) {
+      return emitOpError() << name << " must be a single-element f32 tensor";
+    }
+  }
 
   // Each result stands for the updated value of the operand it is paired with,
   // and TTIRToTTNN forwards it to that operand, so the types must match.

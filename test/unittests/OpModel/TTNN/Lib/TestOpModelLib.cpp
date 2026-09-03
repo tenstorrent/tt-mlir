@@ -5893,7 +5893,6 @@ TEST_F(OpModelTest, PagedFillCacheOp) {
 
 class OpModelAdamWTest : public OpModelTest {
 protected:
-  static constexpr float kLr = 1e-3f;
   static constexpr float kBeta1 = 0.9f;
   static constexpr float kBeta2 = 0.999f;
   static constexpr float kEpsilon = 1e-8f;
@@ -5911,9 +5910,8 @@ protected:
     }
     return OpModel<AdamWOp>::getOpConstraints(
         shape, paramLayout, shape, gradLayout, shape, momentLayout, shape,
-        momentLayout, maxExpAvgSqShape, maxExpAvgSqLayout, llvm::APFloat(kLr),
-        llvm::APFloat(kBeta1), llvm::APFloat(kBeta2), llvm::APFloat(kBeta1),
-        llvm::APFloat(kBeta2), llvm::APFloat(kEpsilon),
+        momentLayout, maxExpAvgSqShape, maxExpAvgSqLayout,
+        llvm::APFloat(kBeta1), llvm::APFloat(kBeta2), llvm::APFloat(kEpsilon),
         llvm::APFloat(kWeightDecay), stochasticRounding,
         /*outputLayout=*/paramLayout);
   }
@@ -5960,7 +5958,6 @@ TEST_F(OpModelAdamWTest, AdamWOpFloat32) {
   auto runtimeExp = OpModel<AdamWOp>::getOpRuntime(
       shape, f32Layout, shape, bf16Layout, shape, f32Layout, shape, f32Layout,
       /*maxExpAvgSqShape=*/std::nullopt, /*maxExpAvgSqLayout=*/std::nullopt,
-      llvm::APFloat(kLr), llvm::APFloat(kBeta1), llvm::APFloat(kBeta2),
       llvm::APFloat(kBeta1), llvm::APFloat(kBeta2), llvm::APFloat(kEpsilon),
       llvm::APFloat(kWeightDecay), /*stochasticRounding=*/false, f32Layout);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));

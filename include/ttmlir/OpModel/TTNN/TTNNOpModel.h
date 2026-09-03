@@ -2354,9 +2354,8 @@ struct OpModel<AdamWOp> {
       llvm::ArrayRef<int64_t> expAvgShape, TTNNLayoutAttr expAvgLayout,
       llvm::ArrayRef<int64_t> expAvgSqShape, TTNNLayoutAttr expAvgSqLayout,
       std::optional<llvm::ArrayRef<int64_t>> maxExpAvgSqShape,
-      std::optional<TTNNLayoutAttr> maxExpAvgSqLayout, llvm::APFloat lr,
-      llvm::APFloat beta1, llvm::APFloat beta2, llvm::APFloat beta1Pow,
-      llvm::APFloat beta2Pow, llvm::APFloat epsilon, llvm::APFloat weightDecay,
+      std::optional<TTNNLayoutAttr> maxExpAvgSqLayout, llvm::APFloat beta1,
+      llvm::APFloat beta2, llvm::APFloat epsilon, llvm::APFloat weightDecay,
       bool stochasticRounding, TTNNLayoutAttr outputLayout,
       const MockAllocatorState *initialState = nullptr);
 
@@ -2366,9 +2365,8 @@ struct OpModel<AdamWOp> {
       llvm::ArrayRef<int64_t> expAvgShape, TTNNLayoutAttr expAvgLayout,
       llvm::ArrayRef<int64_t> expAvgSqShape, TTNNLayoutAttr expAvgSqLayout,
       std::optional<llvm::ArrayRef<int64_t>> maxExpAvgSqShape,
-      std::optional<TTNNLayoutAttr> maxExpAvgSqLayout, llvm::APFloat lr,
-      llvm::APFloat beta1, llvm::APFloat beta2, llvm::APFloat beta1Pow,
-      llvm::APFloat beta2Pow, llvm::APFloat epsilon, llvm::APFloat weightDecay,
+      std::optional<TTNNLayoutAttr> maxExpAvgSqLayout, llvm::APFloat beta1,
+      llvm::APFloat beta2, llvm::APFloat epsilon, llvm::APFloat weightDecay,
       bool stochasticRounding, TTNNLayoutAttr outputLayout);
 };
 

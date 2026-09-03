@@ -1157,12 +1157,12 @@ def adamw_golden(
     grad: GoldenMapTensor,
     exp_avg: GoldenMapTensor,
     exp_avg_sq: GoldenMapTensor,
+    lr: GoldenMapTensor,
+    beta1_pow: GoldenMapTensor,
+    beta2_pow: GoldenMapTensor,
     max_exp_avg_sq: Optional[GoldenMapTensor] = None,
-    lr=1e-3,
     beta1=0.9,
     beta2=0.999,
-    beta1_pow=0.9,
-    beta2_pow=0.999,
     epsilon=1e-8,
     weight_decay=0.0,
     stochastic_rounding=False,
@@ -1178,11 +1178,10 @@ def adamw_golden(
     Uses torch.* ops only (GoldenMapTensor does not support python operators).
     Returns the updated parameter and moments, one per op result.
     """
-    lr = unpack_mlir_attr(lr)
+    scalar = lambda t: float(t.shard_at(0).flatten()[0].item())
+    lr, beta1_pow, beta2_pow = scalar(lr), scalar(beta1_pow), scalar(beta2_pow)
     beta1 = unpack_mlir_attr(beta1)
     beta2 = unpack_mlir_attr(beta2)
-    beta1_pow = unpack_mlir_attr(beta1_pow)
-    beta2_pow = unpack_mlir_attr(beta2_pow)
     epsilon = unpack_mlir_attr(epsilon)
     weight_decay = unpack_mlir_attr(weight_decay)
 

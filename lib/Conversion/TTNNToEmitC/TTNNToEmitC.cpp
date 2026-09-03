@@ -3576,20 +3576,30 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AdamWOp> emitter(
         srcOp, adaptor, rewriter);
 
-    // Arg order matches ttml::metal::adamw(param, grad, exp_avg, exp_avg_sq,
-    // max_exp_avg_sq, lr, beta1, beta2, beta1_pow, beta2_pow, epsilon,
-    // weight_decay, stochastic_rounding).
+    auto scalar = [&](mlir::Value v, uint32_t index) {
+      return emitter.emit(
+          rewriter
+              .create<emitc::CallOpaqueOp>(
+                  srcOp.getLoc(), rewriter.getF32Type(),
+                  ttnn_to_emitc::kGetScalarFromTensorFunctionName,
+                  /*args=*/nullptr,
+                  rewriter.getArrayAttr({TypeAttr::get(rewriter.getF32Type())}),
+                  v)
+              .getResult(0),
+          index);
+    };
+    uint32_t hasMax = adaptor.getMaxExpAvgSq() ? 1 : 0;
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getParam()),
         emitter.emit(srcOp.getGrad()),
         emitter.emit(srcOp.getExpAvg()),
         emitter.emit(srcOp.getExpAvgSq()),
-        emitter.emit(srcOp.getMaxExpAvgSq()),
-        emitter.emit(srcOp.getLr()),
+        emitter.emit(adaptor.getMaxExpAvgSq(), 4),
+        scalar(adaptor.getLr(), 4 + hasMax),
         emitter.emit(srcOp.getBeta1()),
         emitter.emit(srcOp.getBeta2()),
-        emitter.emit(srcOp.getBeta1Pow()),
-        emitter.emit(srcOp.getBeta2Pow()),
+        scalar(adaptor.getBeta1Pow(), 5 + hasMax),
+        scalar(adaptor.getBeta2Pow(), 6 + hasMax),
         emitter.emit(srcOp.getEpsilon()),
         emitter.emit(srcOp.getWeightDecay()),
         rewriter.getAttr<emitc::OpaqueAttr>(

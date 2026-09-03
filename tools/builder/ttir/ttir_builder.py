@@ -7591,12 +7591,12 @@ class TTIRBuilder(Builder):
         grad: Operand,
         exp_avg: Operand,
         exp_avg_sq: Operand,
+        lr: Operand,
+        beta1_pow: Operand,
+        beta2_pow: Operand,
         max_exp_avg_sq: Optional[Operand] = None,
-        lr: float = 1e-3,
         beta1: float = 0.9,
         beta2: float = 0.999,
-        beta1_pow: float = 0.9,
-        beta2_pow: float = 0.999,
         epsilon: float = 1e-8,
         weight_decay: float = 0.0,
         stochastic_rounding: bool = False,
@@ -7605,11 +7605,8 @@ class TTIRBuilder(Builder):
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.adamw)
-        lr_attr = FloatAttr.get_f32(lr)
         beta1_attr = FloatAttr.get_f32(beta1)
         beta2_attr = FloatAttr.get_f32(beta2)
-        beta1_pow_attr = FloatAttr.get_f32(beta1_pow)
-        beta2_pow_attr = FloatAttr.get_f32(beta2_pow)
         epsilon_attr = FloatAttr.get_f32(epsilon)
         weight_decay_attr = FloatAttr.get_f32(weight_decay)
 
@@ -7634,12 +7631,12 @@ class TTIRBuilder(Builder):
             grad0,
             exp_avg0,
             exp_avg_sq0,
+            self._get_golden_tensor(lr),
+            self._get_golden_tensor(beta1_pow),
+            self._get_golden_tensor(beta2_pow),
             max_exp_avg_sq0,
-            lr_attr,
             beta1_attr,
             beta2_attr,
-            beta1_pow_attr,
-            beta2_pow_attr,
             epsilon_attr,
             weight_decay_attr,
             stochastic_rounding,
@@ -7669,11 +7666,11 @@ class TTIRBuilder(Builder):
             grad,
             exp_avg,
             exp_avg_sq,
-            lr_attr,
+            lr,
+            beta1_pow,
+            beta2_pow,
             beta1_attr,
             beta2_attr,
-            beta1_pow_attr,
-            beta2_pow_attr,
             epsilon_attr,
             weight_decay_attr,
             max_exp_avg_sq=max_exp_avg_sq,
@@ -8077,7 +8074,11 @@ class TTIRBuilder(Builder):
         running_mean0 = self._get_golden_tensor(running_mean)
         running_variance0 = self._get_golden_tensor(running_variance)
         op_golden_function = get_golden_function(ttir_op)
-        (golden_output, golden_batch_mean, golden_batch_variance,) = op_golden_function(
+        (
+            golden_output,
+            golden_batch_mean,
+            golden_batch_variance,
+        ) = op_golden_function(
             input0,
             scale0,
             offset0,
@@ -17049,7 +17050,11 @@ class TTIRBuilder(Builder):
         in2 = self._get_golden_tensor(expert_scores)
         in3 = self._get_golden_tensor(expert_mapping)
         op_golden_function = get_golden_function(ttir_op)
-        (golden_dispatched, golden_indices, golden_scores,) = op_golden_function(
+        (
+            golden_dispatched,
+            golden_indices,
+            golden_scores,
+        ) = op_golden_function(
             in0,
             in1,
             in2,
@@ -17125,7 +17130,11 @@ class TTIRBuilder(Builder):
         input2 = self._get_golden_tensor(expert_scores)
         input3 = self._get_golden_tensor(expert_mapping)
         op_golden_function = get_golden_function(ttir_op)
-        (golden_dispatched, golden_indices, golden_scores,) = op_golden_function(
+        (
+            golden_dispatched,
+            golden_indices,
+            golden_scores,
+        ) = op_golden_function(
             input0,
             input1,
             input2,

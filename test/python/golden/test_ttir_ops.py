@@ -177,31 +177,45 @@ def test_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
 def test_adamw(shape: Shape, target: str, request, device):
     def module(builder: TTIRBuilder):
         @builder.func(
-            [shape, shape, shape, shape],
-            [torch.float32, torch.bfloat16, torch.float32, torch.float32],
+            [shape, shape, shape, shape, (1,), (1,), (1,)],
+            [torch.float32, torch.bfloat16, torch.float32, torch.float32]
+            + [torch.float32] * 3,
         )
         def adamw(
             param: Operand,
             grad: Operand,
             exp_avg: Operand,
             exp_avg_sq: Operand,
+            lr: Operand,
+            beta1_pow: Operand,
+            beta2_pow: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            exp_avg_sq_t = builder._get_golden_tensor(exp_avg_sq).apply_shardwise(
-                lambda s: s.abs()
+            fill = lambda op, v: builder._get_golden_tensor(op).apply_shardwise(
+                lambda s: torch.full_like(s, v)
             )
-            builder.set_goldens_from_builder_tensor({exp_avg_sq: exp_avg_sq_t}, {})
+            builder.set_goldens_from_builder_tensor(
+                {
+                    exp_avg_sq: builder._get_golden_tensor(exp_avg_sq).apply_shardwise(
+                        lambda s: s.abs()
+                    ),
+                    lr: fill(lr, 1e-3),
+                    beta1_pow: fill(beta1_pow, 0.9),
+                    beta2_pow: fill(beta2_pow, 0.999),
+                },
+                {},
+            )
             return builder.adamw(
                 param,
                 grad,
                 exp_avg,
                 exp_avg_sq,
-                lr=1e-3,
+                lr,
+                beta1_pow,
+                beta2_pow,
                 beta1=0.9,
                 beta2=0.999,
-                beta1_pow=0.9,
-                beta2_pow=0.999,
                 epsilon=1e-8,
                 weight_decay=1e-2,
             )
@@ -219,28 +233,44 @@ def test_adamw(shape: Shape, target: str, request, device):
 def test_adamw_fused_forward(shape: Shape, target: str, request, device):
     def module(builder: TTIRBuilder):
         @builder.func(
-            [shape, shape, shape, shape],
-            [torch.float32, torch.bfloat16, torch.float32, torch.float32],
+            [shape, shape, shape, shape, (1,), (1,), (1,)],
+            [torch.float32, torch.bfloat16, torch.float32, torch.float32]
+            + [torch.float32] * 3,
         )
         def adamw_fused_forward(
             param: Operand,
             grad: Operand,
             exp_avg: Operand,
             exp_avg_sq: Operand,
+            lr: Operand,
+            beta1_pow: Operand,
+            beta2_pow: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            exp_avg_sq_t = builder._get_golden_tensor(exp_avg_sq).apply_shardwise(
-                lambda s: s.abs()
+            fill = lambda op, v: builder._get_golden_tensor(op).apply_shardwise(
+                lambda s: torch.full_like(s, v)
             )
-            builder.set_goldens_from_builder_tensor({exp_avg_sq: exp_avg_sq_t}, {})
+            builder.set_goldens_from_builder_tensor(
+                {
+                    exp_avg_sq: builder._get_golden_tensor(exp_avg_sq).apply_shardwise(
+                        lambda s: s.abs()
+                    ),
+                    lr: fill(lr, 1.0),
+                    beta1_pow: fill(beta1_pow, 0.9),
+                    beta2_pow: fill(beta2_pow, 0.999),
+                },
+                {},
+            )
             act = builder.abs(param)
             param_out, _, _ = builder.adamw(
                 param,
                 grad,
                 exp_avg,
                 exp_avg_sq,
-                lr=1.0,
+                lr,
+                beta1_pow,
+                beta2_pow,
                 weight_decay=1e-2,
             )
             return builder.add(param_out, act)

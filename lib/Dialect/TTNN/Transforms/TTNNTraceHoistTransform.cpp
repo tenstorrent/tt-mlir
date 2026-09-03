@@ -61,6 +61,7 @@ private:
     shouldHoist &= !::mlir::isa<mlir::tt::ttcore::LoadCachedOp>(op);
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::CaptureOrExecuteTraceOp>(op);
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::GetDeviceOp>(op);
+    shouldHoist &= !::mlir::isa<mlir::tt::ttnn::AdamWOp>(op);
     shouldHoist &=
         !(op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>());
     return shouldHoist;

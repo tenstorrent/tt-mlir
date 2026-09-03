@@ -1993,7 +1993,10 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_AdamWOp()->param(),
                   opContext.type_as_AdamWOp()->grad(),
                   opContext.type_as_AdamWOp()->exp_avg(),
-                  opContext.type_as_AdamWOp()->exp_avg_sq()};
+                  opContext.type_as_AdamWOp()->exp_avg_sq(),
+                  opContext.type_as_AdamWOp()->lr(),
+                  opContext.type_as_AdamWOp()->beta1_pow(),
+                  opContext.type_as_AdamWOp()->beta2_pow()};
     if (opContext.type_as_AdamWOp()->max_exp_avg_sq()) {
       tensorRefs.push_back(opContext.type_as_AdamWOp()->max_exp_avg_sq());
     }

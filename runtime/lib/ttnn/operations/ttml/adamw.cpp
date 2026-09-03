@@ -5,8 +5,16 @@
 #include "operations/ttml/adamw.h"
 #include "metal/common/const_utils.hpp"     // ttml::metal::StochasticRounding
 #include "metal/optimizers/adamw/adamw.hpp" // ttml::metal::adamw
+#include "ttnn/distributed/api.hpp"
 
 namespace tt::runtime::ttnn::operations::ttml {
+
+static float readScalar(const ::ttnn::Tensor &tensor) {
+  return ::ttnn::distributed::get_device_tensors(tensor)
+      .front()
+      .to_vector<float>()
+      .front();
+}
 
 void run(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -30,10 +38,13 @@ void run(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context) {
                                 : ::ttml::metal::StochasticRounding::Disabled;
 
   // param, exp_avg, exp_avg_sq (and max_exp_avg_sq) are all updated in place.
-  ::ttml::metal::adamw(param, grad, expAvg, expAvgSq, maxExpAvgSq, op->lr(),
-                       op->beta1(), op->beta2(), op->beta1_pow(),
-                       op->beta2_pow(), op->epsilon(), op->weight_decay(),
-                       stochasticRounding);
+  ::ttml::metal::adamw(
+      param, grad, expAvg, expAvgSq, maxExpAvgSq,
+      readScalar(tensorPool.getTTNNTensorAndValidate(op->lr())), op->beta1(),
+      op->beta2(),
+      readScalar(tensorPool.getTTNNTensorAndValidate(op->beta1_pow())),
+      readScalar(tensorPool.getTTNNTensorAndValidate(op->beta2_pow())),
+      op->epsilon(), op->weight_decay(), stochasticRounding);
 }
 
 } // namespace tt::runtime::ttnn::operations::ttml
