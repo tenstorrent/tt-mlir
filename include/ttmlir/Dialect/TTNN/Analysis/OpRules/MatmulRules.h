@@ -39,7 +39,7 @@ struct MatmulRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 
   /// Apply MatmulProgramConfig + fused activation dedup.
-  /// For DS candidates: set program/compute config and split fused activation.
+  /// For DS candidates: set program/compute config only.
   void applyOpSpecificAttrs(Operation *op,
                             const BeamCandidate &candidate) const override;
 
@@ -69,12 +69,6 @@ private:
   /// Build the DS output hint (L1 width-sharded 1×kNumIn0Cores + DS program
   /// config). Returns nullopt if not eligible or params don't fit L1.
   std::optional<OpConfig> buildDRAMShardingHint(Operation *op) const;
-
-  /// Set program/compute config and split fused activation for a DS matmul.
-  /// Takes a generic Operation* because the DS path covers both ttnn.matmul and
-  /// bias-free ttnn.linear (see getMatmulOperands).
-  void applyDRAMShardedTransformation(Operation *op,
-                                      const MatmulAttrs &matmulAttrs) const;
 };
 
 } // namespace mlir::tt::ttnn
