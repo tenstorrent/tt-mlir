@@ -109,7 +109,8 @@ public:
   MatmulOp buildMatmul(llvm::ArrayRef<int64_t> actShape,
                        llvm::ArrayRef<int64_t> weightShape,
                        llvm::ArrayRef<int64_t> outShape,
-                       ttcore::DataType weightDt) {
+                       ttcore::DataType weightDt,
+                       mlir::StringAttr activation = mlir::StringAttr()) {
     auto actType = tensorOf(actShape, ttcore::DataType::BFloat16);
     auto weightType = tensorOf(weightShape, weightDt);
     auto outType = tensorOf(outShape, ttcore::DataType::BFloat16);
@@ -118,7 +119,7 @@ public:
         builder.getUnknownLoc(), outType, block->getArgument(0),
         block->getArgument(1), /*transpose_a=*/false, /*transpose_b=*/false,
         /*matmul_program_config=*/mlir::Attribute(),
-        /*activation=*/mlir::StringAttr());
+        /*activation=*/activation);
     builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
                                          op.getResult());
     return op;
@@ -127,7 +128,8 @@ public:
   LinearOp buildLinear(llvm::ArrayRef<int64_t> actShape,
                        llvm::ArrayRef<int64_t> weightShape,
                        llvm::ArrayRef<int64_t> outShape,
-                       ttcore::DataType weightDt, bool withBias) {
+                       ttcore::DataType weightDt, bool withBias,
+                       mlir::StringAttr activation = mlir::StringAttr()) {
     auto actType = tensorOf(actShape, ttcore::DataType::BFloat16);
     auto weightType = tensorOf(weightShape, weightDt);
     auto outType = tensorOf(outShape, ttcore::DataType::BFloat16);
@@ -145,7 +147,7 @@ public:
     auto op = builder.create<LinearOp>(
         builder.getUnknownLoc(), outType, block->getArgument(0),
         block->getArgument(1), bias, /*transpose_a=*/false,
-        /*transpose_b=*/false, /*activation=*/mlir::StringAttr());
+        /*transpose_b=*/false, /*activation=*/activation);
     builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
                                          op.getResult());
     return op;
@@ -280,6 +282,30 @@ TEST_F(DRAMShardedEligibilityTest, DisableOptionSuppressesDS) {
 
   module->getOperation()->setAttr(utils::g_DisableDRAMShardedMatmulAttrName,
                                   builder.getBoolAttr(true));
+  EXPECT_FALSE(isDSEligible(op, {32, 4096}));
+}
+
+// A matmul that still carries a fused activation must be declined. TTNNFusing
+// normally places the unary on a consuming binary op's operand, so an
+// activation that reaches the optimizer had no such consumer. Taking DS anyway
+// would be inconsistent rather than merely slow: the op model validates a DS
+// config without the activation, while the runtime forwards it to
+// ::ttnn::matmul, since a DS program config's fused_activation is always null.
+TEST_F(DRAMShardedEligibilityTest, FusedActivationOnMatmulDeclined) {
+  auto op =
+      buildMatmul({32, 4096}, {4096, 4096}, {32, 4096},
+                  ttcore::DataType::BFP_BFloat8, builder.getStringAttr("silu"));
+  EXPECT_FALSE(isDSEligible(op, {32, 4096}));
+}
+
+// Same for a bias-free ttnn.linear, which the DS path also covers. This is the
+// case lit cannot reach -- a bias-free ttir.linear canonicalizes to ttir.matmul
+// -- and it is the one where the op model has no DS guard on the activation at
+// all, so the decline is what keeps validation and execution in agreement.
+TEST_F(DRAMShardedEligibilityTest, FusedActivationOnLinearDeclined) {
+  auto op = buildLinear({32, 4096}, {4096, 4096}, {32, 4096},
+                        ttcore::DataType::BFP_BFloat8, /*withBias=*/false,
+                        builder.getStringAttr("silu"));
   EXPECT_FALSE(isDSEligible(op, {32, 4096}));
 }
 

@@ -295,13 +295,29 @@ static std::optional<DSPlan> buildDSPlan(Operation *op) {
   // Respect the disable-dram-sharded-matmul pipeline option (set as a module
   // attribute by DevicePassesWrapper). This is the choke point for the whole DS
   // path: the output hint and the input reshard candidates both need a plan,
-  // and the transformation and hint-validation paths only ever see a program
-  // config one of those produced. Declining here therefore costs nothing
-  // downstream.
+  // and the apply and hint-validation paths only ever see a program config one
+  // of those produced. Declining here therefore costs nothing downstream.
   if (ttnn::utils::isDRAMShardedMatmulDisabled(op)) {
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "DS declined ({0}): disabled by disable-dram-sharded-matmul",
                  opName);
+    return std::nullopt;
+  }
+
+  // Decline a matmul that still carries a fused activation. A DS program
+  // config's fused_activation is always null, so the op model validates the
+  // config without the activation while the runtime forwards it to
+  // ::ttnn::matmul -- validating one thing and running another. A 1D/2D mcast
+  // config folds it into its own fused_activation instead.
+  StringAttr fusedActivation =
+      llvm::TypeSwitch<Operation *, StringAttr>(op)
+          .Case<MatmulOp, LinearOp>(
+              [](auto concreteOp) { return concreteOp.getActivationAttr(); })
+          .Default([](Operation *) { return StringAttr(); });
+  if (fusedActivation) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "DS declined ({0}): op carries a fused activation '{1}'",
+                 opName, fusedActivation.getValue());
     return std::nullopt;
   }
 
@@ -380,9 +396,8 @@ static bool hasMatmulProgramConfig(const OpConfig &config) {
 // MatmulRuleBook — private DRAM-sharding helpers
 // ============================================================================
 //
-// buildDRAMShardingHint produces the DS output hint consumed by getOutputHints;
-// applyDRAMShardedTransformation rewrites the op at apply time and is called by
-// applyOpSpecificAttrs. Both are defined ahead of their callers below.
+// buildDRAMShardingHint produces the DS output hint consumed by getOutputHints,
+// and is defined ahead of its caller below.
 
 std::optional<OpConfig>
 MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
@@ -412,117 +427,13 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
           .setGridShape(outputGrid)
           .buildWithCanonicalCorePlacement(deviceAttr);
 
-  // Activation is handled as a separate elementwise op after the DS matmul
-  // (see applyDRAMShardedTransformation). Fusing it into the DS kernel is
-  // significantly slower. The op model is told no activation so it validates
-  // the DS config cleanly; the activation attribute on the op is stripped and
-  // a separate op is inserted at apply time.
+  // No fused activation, and none is possible: buildDSPlan declines a matmul
+  // that carries one, so the op model validates the DS config without it.
   UnaryWithParamAttr fusedAct;
   auto progConfig = buildDRAMShardedProgramConfig(ctx, p, fusedAct);
   auto computeConfig = buildComputeConfig(ctx, p.weightDataType);
 
   return OpConfig(l1OutLayout, MatmulAttrs{progConfig, computeConfig});
-}
-
-void MatmulRuleBook::applyDRAMShardedTransformation(
-    Operation *op, const MatmulAttrs &matmulAttrs) const {
-  auto *ctx = op->getContext();
-  // Input reshards (activation → L1 1×kNumIn0Cores, weight → DRAM 1×numBanks)
-  // handled by pass-2 in applyToIR via reshardLayouts populated from the input
-  // candidates injected by getExtraInputReshardCandidates.
-
-  OpBuilder builder(op);
-
-  // --- 1. Set program config and compute config ---
-  // ttnn.matmul and ttnn.linear both carry matmul_program_config,
-  // compute_config and activation, so the DS rewrite is identical for either
-  // (see getMatmulOperands).
-  auto dsProgConfig =
-      mlir::cast<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
-          matmulAttrs.matmulProgramConfig.value());
-  StringAttr activationAttr =
-      llvm::TypeSwitch<Operation *, StringAttr>(op)
-          .Case<MatmulOp, LinearOp>([&](auto concreteOp) {
-            concreteOp.setMatmulProgramConfigAttr(dsProgConfig);
-            if (matmulAttrs.computeKernelConfig.has_value()) {
-              concreteOp.setComputeConfigAttr(*matmulAttrs.computeKernelConfig);
-            }
-            // Strip the activation here and hand it back; step 2 re-homes it.
-            StringAttr act = concreteOp.getActivationAttr();
-            if (act) {
-              concreteOp.removeActivationAttr();
-            }
-            return act;
-          })
-          .Default([](Operation *) { return StringAttr(); });
-
-  // --- 2. Handle the fused activation ---
-  // Fusing the activation into the DS matmul kernel is significantly slower
-  // (measured: the 12-core DS matmul applies silu much slower than an op on all
-  // 64 cores). So strip it off the matmul and either (a) fold it into a
-  // consuming multiply as its operand-A activation — SwiGLU:
-  // multiply(silu(gate), up) — which runs on the full grid (cheapest), or (b)
-  // fall back to a separate elementwise op.
-  if (activationAttr) {
-    StringRef actStr = activationAttr.getValue();
-    Value matmulResult = op->getResult(0);
-
-    // (a) Try to fold silu into a consuming ttnn.multiply as an operand-A
-    // activation. Only when the matmul result's sole non-dealloc consumer is a
-    // multiply (either operand — multiply is commutative, so we normalize the
-    // silu'd value to operand A). Silu only: it is the activation SwiGLU puts
-    // there, and the one the eltwise activation path is exercised for.
-    MultiplyOp fuseInto = nullptr;
-    if (actStr == "silu") {
-      Operation *soleUser = nullptr;
-      bool multiUse = false;
-      for (Operation *u : matmulResult.getUsers()) {
-        if (isa<DeallocateOp>(u)) {
-          continue;
-        }
-        if (soleUser) {
-          multiUse = true;
-          break;
-        }
-        soleUser = u;
-      }
-      if (!multiUse && soleUser) {
-        fuseInto = dyn_cast<MultiplyOp>(soleUser);
-      }
-    }
-
-    ArrayAttr existingActs =
-        fuseInto ? fuseInto.getInputTensorAActivations() : nullptr;
-    if (fuseInto && (!existingActs || existingActs.empty()) &&
-        (fuseInto.getLhs() == matmulResult ||
-         fuseInto.getRhs() == matmulResult)) {
-      // Normalize the silu'd (matmul) value to operand A, then add the
-      // activation there.
-      Value other = fuseInto.getLhs() == matmulResult ? fuseInto.getRhs()
-                                                      : fuseInto.getLhs();
-      fuseInto.getLhsMutable().assign(matmulResult);
-      fuseInto.getRhsMutable().assign(other);
-      fuseInto.addInputTensorAActivation(UnaryOpType::Silu, /*params=*/{});
-    } else {
-      // (b) Fallback: separate elementwise op running across all cores.
-      StringRef opName;
-      if (actStr == "silu") {
-        opName = "ttnn.silu";
-      } else if (actStr == "relu") {
-        opName = "ttnn.relu";
-      } else if (actStr == "gelu") {
-        opName = "ttnn.gelu";
-      }
-      if (!opName.empty()) {
-        builder.setInsertionPointAfter(op);
-        auto *activationOp = builder.create(
-            op->getLoc(), StringAttr::get(ctx, opName),
-            ValueRange{matmulResult}, TypeRange{matmulResult.getType()});
-        matmulResult.replaceAllUsesExcept(activationOp->getResult(0),
-                                          activationOp);
-      }
-    }
-  }
 }
 
 // ============================================================================
@@ -604,13 +515,26 @@ void MatmulRuleBook::applyOpSpecificAttrs(
 
   auto programConfig = matmulAttrs.matmulProgramConfig.value();
 
-  // DRAM-sharded path: weight reshard, program/compute config, activation
-  // split.
+  // DRAM-sharded path: program/compute config only. The input reshards
+  // (activation → L1 1×kNumIn0Cores, weight → DRAM 1×numBanks) are handled by
+  // pass-2 in applyToIR via reshardLayouts populated from the input candidates
+  // injected by getExtraInputReshardCandidates. A DS candidate is only offered
+  // for a matmul carrying no activation, so there is none to handle here.
   bool isDRAMSharded =
       mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
           programConfig);
   if (isDRAMSharded) {
-    applyDRAMShardedTransformation(op, matmulAttrs);
+    auto setDSConfig = [&](auto concreteOp) {
+      concreteOp.setMatmulProgramConfigAttr(programConfig);
+      if (matmulAttrs.computeKernelConfig.has_value()) {
+        concreteOp.setComputeConfigAttr(*matmulAttrs.computeKernelConfig);
+      }
+    };
+    if (matmulOp) {
+      setDSConfig(matmulOp);
+    } else {
+      setDSConfig(linearOp);
+    }
     return;
   }
 

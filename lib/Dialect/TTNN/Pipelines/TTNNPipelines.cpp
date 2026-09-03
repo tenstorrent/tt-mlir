@@ -255,14 +255,19 @@ void createTTNNFusingPass(OpPassManager &pm,
       uint32_t fallbackAttempts = options.maxFallbackAttempts;
       bool enableEltwiseActivationFusion =
           options.enableEltwiseActivationFusion;
+      // Fusing needs to know whether DRAM sharding is on so it can keep an
+      // activation off a producer matmul. Only the optimizer selects DS
+      // configs, so the non-optimizer path below leaves the pass default alone.
+      bool disableDRAMShardedMatmul = options.disableDRAMShardedMatmul;
       pm.addPass(createDevicePassesWrapper(
-          [fallbackAttempts,
-           enableEltwiseActivationFusion](OpPassManager &innerPm) {
+          [fallbackAttempts, enableEltwiseActivationFusion,
+           disableDRAMShardedMatmul](OpPassManager &innerPm) {
             TTNNFusingOptions fusingOptions;
             fusingOptions.enableOpConstraints = true;
             fusingOptions.maxFallbackAttempts = fallbackAttempts;
             fusingOptions.enableEltwiseActivationFusion =
                 enableEltwiseActivationFusion;
+            fusingOptions.disableDRAMShardedMatmul = disableDRAMShardedMatmul;
             innerPm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
           },
           wrapperOptions));
