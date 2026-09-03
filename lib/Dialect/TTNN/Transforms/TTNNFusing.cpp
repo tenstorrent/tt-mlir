@@ -210,10 +210,15 @@ bool hasInterveningWrite(Value value, Operation *from, Operation *to) {
 
 class TTNNBinaryOpInputsActivation
     : public mlir::OpInterfaceRewritePattern<ElementwiseBinaryActivations> {
-  using TTNNBinaryOpInputsActivation::OpInterfaceRewritePattern<
-      ElementwiseBinaryActivations>::OpInterfaceRewritePattern;
-
 public:
+  // restrictToMatmulProducer keeps the pattern to unaries fed by a matmul or
+  // linear, which is all the DRAM-sharded path needs.
+  // enable-eltwise-activation-fusion asks for the general behaviour instead.
+  TTNNBinaryOpInputsActivation(mlir::MLIRContext *ctx,
+                               bool restrictToMatmulProducer)
+      : mlir::OpInterfaceRewritePattern<ElementwiseBinaryActivations>(ctx),
+        restrictToMatmulProducer(restrictToMatmulProducer) {}
+
   mlir::LogicalResult
   matchAndRewrite(ElementwiseBinaryActivations binaryOpWithActivations,
                   mlir::PatternRewriter &rewriter) const final {
@@ -245,7 +250,15 @@ private:
     }
 
     auto unaryOp = operand.getDefiningOp<ElementwiseUnary>();
-    if (unaryOp && unaryOp.getUnaryOpType() != UnaryOpType::Unknown &&
+    if (!unaryOp) {
+      return {};
+    }
+    if (restrictToMatmulProducer &&
+        !unaryOp.getInput().getDefiningOp<MatmulOp>() &&
+        !unaryOp.getInput().getDefiningOp<LinearOp>()) {
+      return {};
+    }
+    if (unaryOp.getUnaryOpType() != UnaryOpType::Unknown &&
         !hasInterveningWrite(unaryOp.getInput(), unaryOp.getOperation(),
                              binaryOp)) {
       return unaryOp;
@@ -268,6 +281,8 @@ private:
       rewriter.replaceOp(unaryOp, unaryOp.getInput());
     });
   }
+
+  bool restrictToMatmulProducer;
 };
 } // namespace
 
@@ -672,10 +687,18 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     RewritePatternSet firstPatterns(&getContext());
+    // firstPatterns reaches a fixpoint before the matmul and conv activation
+    // patterns below, so registering the input activations here claims the
+    // unary for the consuming binary op and leaves the producer matmul clean.
+    // A DRAM-sharded matmul computes on only as many cores as the part has DRAM
+    // banks, which is why its activation is better off on the binary op.
     if (enableEltwiseActivationFusion) {
-      firstPatterns
-          .add<TTNNBinaryOpInputsActivation, TTNNBinaryOpOutputActivation>(
-              &getContext());
+      firstPatterns.add<TTNNBinaryOpInputsActivation>(
+          &getContext(), /*restrictToMatmulProducer=*/false);
+      firstPatterns.add<TTNNBinaryOpOutputActivation>(&getContext());
+    } else if (!disableDRAMShardedMatmul) {
+      firstPatterns.add<TTNNBinaryOpInputsActivation>(
+          &getContext(), /*restrictToMatmulProducer=*/true);
     }
     // TODO(mvasiljevic): Add HardsigmoidOp once tt-metal issue is resolved
     // https://github.com/tenstorrent/tt-metal/issues/30973
