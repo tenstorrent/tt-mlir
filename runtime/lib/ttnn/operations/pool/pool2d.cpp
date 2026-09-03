@@ -15,6 +15,7 @@
 #include <optional>
 #include <ttnn/operations/functions.hpp>
 #include <ttnn/operations/pool/generic/generic_pools.hpp>
+#include "ttnn/operations/experimental/quasar/pool_generic/generic_pools.hpp"
 
 namespace tt::runtime::ttnn::operations::pool {
 
@@ -142,11 +143,24 @@ void run(const ::tt::target::ttnn::Pool2dOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   case ::tt::target::ttnn::Pool2dOpType::AvgPool2d: {
-    runAvgPool2dOp(op, tensorPool, ::ttnn::avg_pool2d);
+    // Quasar's pools live in ttnn::operations::pool::quasar -- deliberately not
+    // re-exported into ttnn:: to avoid colliding with the mainline names.
+    // Same argument list, so this is a functor substitution.
+    if (utils::isQuasar()) {
+      runAvgPool2dOp(op, tensorPool,
+                     ::ttnn::operations::pool::quasar::avg_pool2d);
+    } else {
+      runAvgPool2dOp(op, tensorPool, ::ttnn::avg_pool2d);
+    }
     break;
   }
   case ::tt::target::ttnn::Pool2dOpType::MaxPool2d: {
-    runMaxPool2dOp(op, tensorPool, ::ttnn::max_pool2d);
+    if (utils::isQuasar()) {
+      runMaxPool2dOp(op, tensorPool,
+                     ::ttnn::operations::pool::quasar::max_pool2d);
+    } else {
+      runMaxPool2dOp(op, tensorPool, ::ttnn::max_pool2d);
+    }
   }
   }
 }
@@ -191,7 +205,12 @@ void run(const ::tt::target::ttnn::MaxPool2dWithIndicesOp *op,
   // Call ttnn::max_pool2d with return_indices = true, returning both output and
   // indices. Use default BFLOAT16 dtype and ROW_MAJOR layout (required for
   // indices).
-  std::vector<::ttnn::Tensor> outputs = ::ttnn::max_pool2d(
+  // Select the entry point rather than duplicating the argument list: the Quasar
+  // pool takes exactly the same parameters (generic_pools.hpp).
+  auto maxPool2d = utils::isQuasar()
+                       ? &::ttnn::operations::pool::quasar::max_pool2d
+                       : &::ttnn::max_pool2d;
+  std::vector<::ttnn::Tensor> outputs = maxPool2d(
       input, op->batch_size(), op->input_height(), op->input_width(),
       op->channels(), kernelSize, stride, padding, dilation, op->ceil_mode(),
       outputMemoryConfig, /*dram_slice_config=*/std::nullopt,
@@ -234,7 +253,10 @@ void run(const ::tt::target::ttnn::GlobalAvgPool2dOp *op,
   ::ttnn::Layout outputLayout =
       ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out());
 
-  ::ttnn::Tensor out = ::ttnn::avg_pool2d(
+  auto avgPool2d = utils::isQuasar()
+                       ? &::ttnn::operations::pool::quasar::avg_pool2d
+                       : &::ttnn::avg_pool2d;
+  ::ttnn::Tensor out = avgPool2d(
       input, batchSize, inputHeight, inputWidth, inputChannels,
       /*kernel_size=*/{inputHeight, inputWidth},
       /*stride=*/{1, 1}, /*padding=*/std::array<uint32_t, 2>{0, 0},

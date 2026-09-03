@@ -8,6 +8,7 @@
 
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "ttnn/operations/experimental/quasar/reduction/generic/generic_reductions.hpp"
 
 namespace tt::runtime::ttnn::operations::reduction {
 void run(const ::tt::target::ttnn::ReductionOp *op, ProgramContext &context) {
@@ -34,26 +35,49 @@ void run(const ::tt::target::ttnn::ReductionOp *op, ProgramContext &context) {
         utils::createDeviceComputeKernelConfig(op->compute_config());
   }
 
+  // The Quasar reductions live under experimental/quasar/reduction/generic. They
+  // have no python binding (sources.cmake calls them internal, used by the
+  // Quasar avg_pool2d) but the C++ entry points are exported, and their leading
+  // arguments match the mainline ones. Their dim argument is a variant rather
+  // than a plain SmallVector, so it is built separately.
+  const bool quasar = utils::isQuasar();
+  std::optional<std::variant<int, int64_t, ::ttsl::SmallVector<int>>> quasarDimArg;
+  if (quasar && dimArg.has_value()) {
+    quasarDimArg = *dimArg;
+  }
+
   ::ttnn::Tensor out;
   switch (op->type()) {
   case ::tt::target::ttnn::ReductionOpType::Sum: {
-    out = ::ttnn::sum(in, dimArg, op->keep_dim(), outputMemoryConfig,
-                      computeConfig);
+    out = quasar ? ::ttnn::operations::experimental::quasar::sum(
+                       in, quasarDimArg, op->keep_dim(), outputMemoryConfig,
+                       computeConfig)
+                 : ::ttnn::sum(in, dimArg, op->keep_dim(), outputMemoryConfig,
+                               computeConfig);
     break;
   }
   case ::tt::target::ttnn::ReductionOpType::Mean: {
-    out = ::ttnn::mean(in, dimArg, op->keep_dim(), outputMemoryConfig,
-                       computeConfig);
+    out = quasar ? ::ttnn::operations::experimental::quasar::mean(
+                       in, quasarDimArg, op->keep_dim(), outputMemoryConfig,
+                       computeConfig)
+                 : ::ttnn::mean(in, dimArg, op->keep_dim(), outputMemoryConfig,
+                                computeConfig);
     break;
   }
   case ::tt::target::ttnn::ReductionOpType::Max: {
-    out = ::ttnn::max(in, dimArg, op->keep_dim(), outputMemoryConfig,
-                      computeConfig);
+    out = quasar ? ::ttnn::operations::experimental::quasar::max(
+                       in, quasarDimArg, op->keep_dim(), outputMemoryConfig,
+                       computeConfig)
+                 : ::ttnn::max(in, dimArg, op->keep_dim(), outputMemoryConfig,
+                               computeConfig);
     break;
   }
   case ::tt::target::ttnn::ReductionOpType::Min: {
-    out = ::ttnn::min(in, dimArg, op->keep_dim(), outputMemoryConfig,
-                      computeConfig);
+    out = quasar ? ::ttnn::operations::experimental::quasar::min(
+                       in, quasarDimArg, op->keep_dim(), outputMemoryConfig,
+                       computeConfig)
+                 : ::ttnn::min(in, dimArg, op->keep_dim(), outputMemoryConfig,
+                               computeConfig);
     break;
   }
   }

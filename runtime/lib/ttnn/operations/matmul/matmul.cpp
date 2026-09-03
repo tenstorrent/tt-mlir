@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <optional>
+#include "ttnn/operations/experimental/quasar/matmul/matmul.hpp"
 
 namespace tt::runtime::ttnn::operations::matmul {
 
@@ -114,7 +115,13 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
     activation = op->activation()->str();
   }
 
-  ::ttnn::Tensor output = ::ttnn::linear(
+  // Quasar's linear takes the same leading arguments; Activation is the same
+  // std::variant<std::string, UnaryWithParam> alias in both headers, so the
+  // std::optional<std::string> converts identically.
+  auto linear = utils::isQuasar()
+                    ? &::ttnn::operations::experimental::quasar::matmul::linear
+                    : &::ttnn::linear;
+  ::ttnn::Tensor output = linear(
       lhs, rhs, bias, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
       outputDataType, programConfig,
       /*activation=*/activation, /*compute_kernel_config=*/computeConfig,
