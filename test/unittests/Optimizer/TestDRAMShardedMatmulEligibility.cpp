@@ -70,6 +70,10 @@ public:
     ttcore::registerDevice(module.get(), arch);
     module->getOperation()->setAttr(utils::g_TensorL1UsageCapAttrName,
                                     builder.getF32FloatAttr(0.95f));
+    // The DS path is off unless asked for, and the pipeline always sets this
+    // attribute explicitly, so opt in here for the eligibility tests below.
+    module->getOperation()->setAttr(utils::g_EnableDRAMShardedMatmulAttrName,
+                                    builder.getBoolAttr(true));
   }
 
   TTNNLayoutAttr dramInterleaved(llvm::ArrayRef<int64_t> shape,
@@ -273,15 +277,18 @@ TEST_F(DRAMShardedEligibilityTest, KTilesNotDivisibleByIn0CoresDeclined) {
   EXPECT_FALSE(isDSEligible(op, {32, 2880}));
 }
 
-// The kill switch short-circuits the single choke point, so nothing downstream
-// can reintroduce DS.
+// The flag short-circuits the single choke point, so nothing downstream can
+// reintroduce DS. Also covers the default: an absent attribute reads as off.
 TEST_F(DRAMShardedEligibilityTest, DisableOptionSuppressesDS) {
   auto op = buildMatmul({32, 4096}, {4096, 4096}, {32, 4096},
                         ttcore::DataType::BFP_BFloat8);
   ASSERT_TRUE(isDSEligible(op, {32, 4096}));
 
-  module->getOperation()->setAttr(utils::g_DisableDRAMShardedMatmulAttrName,
-                                  builder.getBoolAttr(true));
+  module->getOperation()->setAttr(utils::g_EnableDRAMShardedMatmulAttrName,
+                                  builder.getBoolAttr(false));
+  EXPECT_FALSE(isDSEligible(op, {32, 4096}));
+
+  module->getOperation()->removeAttr(utils::g_EnableDRAMShardedMatmulAttrName);
   EXPECT_FALSE(isDSEligible(op, {32, 4096}));
 }
 

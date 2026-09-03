@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttnn-fusing="disable-dram-sharded-matmul=false" -o %t.ds %s
+// RUN: ttmlir-opt --ttnn-fusing="enable-dram-sharded-matmul=true" -o %t.ds %s
 // RUN: FileCheck %s --input-file=%t.ds --check-prefix=DSON
 // RUN: ttmlir-opt --ttnn-fusing="enable-eltwise-activation-fusion=true" -o %t.gen %s
 // RUN: FileCheck %s --input-file=%t.gen --check-prefix=GEN
@@ -15,8 +15,8 @@
 // hand a DS config, so there the pattern is restricted to unaries fed by a
 // matmul or linear.
 //
-// The pass defaults to true: DRAM sharding is chosen by the optimizer, so a bare
-// ttnn-fusing run has no DS matmuls and leaves both halves off.
+// The pass defaults to false, as DRAM sharding is opt-in, so a bare ttnn-fusing
+// run leaves both halves off.
 
 #dram = #ttnn.buffer_type<dram>
 #l = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>

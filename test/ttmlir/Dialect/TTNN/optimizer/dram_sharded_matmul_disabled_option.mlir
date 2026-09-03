@@ -1,8 +1,9 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 disable-dram-sharded-matmul=true" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 enable-dram-sharded-matmul=false" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// The disable-dram-sharded-matmul kill switch suppresses the DS path.
+// enable-dram-sharded-matmul=false suppresses the DS path. The flag is also off
+// by default, so this is what an ordinary opt-2 compile does.
 //
 // This is the same IR as dram_sharded_matmul_eligible_m32.mlir, which does get a
 // DS config, so the only difference is the option. buildDSPlan is the single

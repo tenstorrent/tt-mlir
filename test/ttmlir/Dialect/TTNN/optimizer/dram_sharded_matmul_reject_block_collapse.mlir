@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 mock-system-desc-arch=blackhole" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 mock-system-desc-arch=blackhole enable-dram-sharded-matmul=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // The DS path declines when the CB budget collapses in0_block_w (see
@@ -15,7 +15,7 @@
 // in1 CB fits at in0_block_w = 43, and the collapse never happens -- which is why
 // none of the Wormhole benchmarks regressed.
 //
-// As with the disable-dram-sharded-matmul kill switch, the matmul must still get
+// As when enable-dram-sharded-matmul is off, the matmul must still get
 // *some* program config; declining DS falls back to the 1D/2D mcast configs
 // rather than disabling program-config selection entirely.
 

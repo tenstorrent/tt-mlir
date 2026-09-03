@@ -51,12 +51,12 @@ float getTensorL1UsageCap(Operation *op, float defaultValue) {
   return defaultValue;
 }
 
-bool isDRAMShardedMatmulDisabled(Operation *op) {
+bool isDRAMShardedMatmulEnabled(Operation *op) {
   ModuleOp moduleOp = op->getParentOfType<ModuleOp>();
 
   if (moduleOp) {
     if (auto attr = moduleOp->getAttrOfType<BoolAttr>(
-            g_DisableDRAMShardedMatmulAttrName)) {
+            g_EnableDRAMShardedMatmulAttrName)) {
       return attr.getValue();
     }
   }

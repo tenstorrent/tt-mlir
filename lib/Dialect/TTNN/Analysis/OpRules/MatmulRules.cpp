@@ -292,14 +292,14 @@ struct DSPlan {
 static std::optional<DSPlan> buildDSPlan(Operation *op) {
   [[maybe_unused]] StringRef opName = op->getName().getStringRef();
 
-  // Respect the disable-dram-sharded-matmul pipeline option (set as a module
+  // Respect the enable-dram-sharded-matmul pipeline option (set as a module
   // attribute by DevicePassesWrapper). This is the choke point for the whole DS
   // path: the output hint and the input reshard candidates both need a plan,
   // and the apply and hint-validation paths only ever see a program config one
   // of those produced. Declining here therefore costs nothing downstream.
-  if (ttnn::utils::isDRAMShardedMatmulDisabled(op)) {
+  if (!ttnn::utils::isDRAMShardedMatmulEnabled(op)) {
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "DS declined ({0}): disabled by disable-dram-sharded-matmul",
+                 "DS declined ({0}): enable-dram-sharded-matmul is off",
                  opName);
     return std::nullopt;
   }
