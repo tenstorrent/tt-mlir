@@ -1,9 +1,9 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 disable-dram-sharded-matmul=true" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 enable-dram-sharded-matmul=false" -o %t %s
 // RUN: FileCheck %s --input-file=%t --implicit-check-not='"ttnn.silu"'
 
 // The DS-off half of dram_sharded_matmul_swiglu_fold.mlir, same IR and same
-// pipeline but for the kill switch.
+// pipeline but for the flag.
 //
 // With DRAM sharding off there is no narrow-grid matmul to keep the activation
 // away from, so the silu goes where it did before: onto the matmul, via

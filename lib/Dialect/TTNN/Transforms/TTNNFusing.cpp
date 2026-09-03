@@ -696,7 +696,7 @@ public:
       firstPatterns.add<TTNNBinaryOpInputsActivation>(
           &getContext(), /*restrictToMatmulProducer=*/false);
       firstPatterns.add<TTNNBinaryOpOutputActivation>(&getContext());
-    } else if (!disableDRAMShardedMatmul) {
+    } else if (enableDRAMShardedMatmul) {
       firstPatterns.add<TTNNBinaryOpInputsActivation>(
           &getContext(), /*restrictToMatmulProducer=*/true);
     }

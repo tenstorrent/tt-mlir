@@ -1,7 +1,7 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 enable-dram-sharded-matmul=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t --check-prefix=BFP8
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2" -o %t2 %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-dram-sharded-matmul=true" -o %t2 %s
 // RUN: FileCheck %s --input-file=%t2 --check-prefix=BF16
 
 // The DS path is offered for bfp4/bfp8 weights only. Identical IR, two weight

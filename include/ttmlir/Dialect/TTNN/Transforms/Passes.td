@@ -371,13 +371,12 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
             "enable-eltwise-activation-fusion",
             "bool", /*default=*/"false",
             "Fuse unary activation ops into eltwise binary ops.">,
-    Option<"disableDRAMShardedMatmul",
-            "disable-dram-sharded-matmul",
-            "bool", /*default=*/"true",
-            "The pipeline's disable-dram-sharded-matmul, threaded through so "
-            "fusing can keep an activation off a producer matmul. Defaults to "
-            "true: DRAM sharding is chosen by the optimizer, so a standalone "
-            "ttnn-fusing run has no DRAM-sharded matmuls.">
+    Option<"enableDRAMShardedMatmul",
+            "enable-dram-sharded-matmul",
+            "bool", /*default=*/"false",
+            "The pipeline's enable-dram-sharded-matmul, threaded through so "
+            "fusing can keep an activation off a producer matmul that the "
+            "optimizer may give a DRAM-sharded config.">
   ];
 }
 

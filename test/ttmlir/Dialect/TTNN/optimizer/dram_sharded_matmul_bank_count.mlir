@@ -1,7 +1,7 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 mock-system-desc-arch=wormhole_b0" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 mock-system-desc-arch=wormhole_b0 enable-dram-sharded-matmul=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t --check-prefix=WH12
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 mock-system-desc-arch=blackhole" -o %t2 %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 mock-system-desc-arch=blackhole enable-dram-sharded-matmul=true" -o %t2 %s
 // RUN: FileCheck %s --input-file=%t2 --check-prefix=BH8
 
 // The DS weight layout is width-sharded across exactly the DRAM banks the

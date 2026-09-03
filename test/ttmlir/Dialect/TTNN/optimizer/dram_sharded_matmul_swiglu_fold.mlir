@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 enable-dram-sharded-matmul=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t --implicit-check-not='"ttnn.silu"' --implicit-check-not='activation = "silu"'
 
 // SwiGLU: the silu lands on the consuming multiply's operand rather than in the
@@ -11,7 +11,7 @@
 // before the matmul patterns can have it: TTNNBinaryOpInputsActivation is in
 // firstPatterns, which reaches a fixpoint before the second set holding
 // TTNNMatmulAndLinearWithActivation ever runs. With DRAM sharding on the
-// pipeline enables that pattern, threading disable-dram-sharded-matmul into
+// pipeline enables that pattern, threading enable-dram-sharded-matmul into
 // ttnn-fusing.
 //
 // The IR is the eligible-m32 baseline with a silu between the matmul and the
