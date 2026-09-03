@@ -118,15 +118,30 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
   // Quasar's linear takes the same leading arguments; Activation is the same
   // std::variant<std::string, UnaryWithParam> alias in both headers, so the
   // std::optional<std::string> converts identically.
-  auto linear = utils::isQuasar()
-                    ? &::ttnn::operations::experimental::quasar::matmul::linear
-                    : &::ttnn::linear;
-  ::ttnn::Tensor output = linear(
-      lhs, rhs, bias, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
-      outputDataType, programConfig,
-      /*activation=*/activation, /*compute_kernel_config=*/computeConfig,
-      /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
-      /* optional_output_tensor=*/std::nullopt);
+  // Quasar's matmul declares its OWN program-config types
+  // (experimental::quasar::matmul::MatmulMultiCore*ProgramConfig), so the
+  // mainline variant is not convertible and the two calls cannot share one
+  // lambda. Forge does not currently emit a matmul program config, so passing
+  // none is correct -- but refuse loudly if that ever changes rather than
+  // silently dropping it, which would quietly alter the schedule.
+  ::ttnn::Tensor output;
+  if (utils::isQuasar()) {
+    LOG_ASSERT(!programConfig.has_value(),
+               "Quasar matmul: a mainline matmul program config cannot be "
+               "translated to the Quasar program-config types. Add a "
+               "translation before emitting one for Quasar.");
+    output = ::ttnn::operations::experimental::quasar::matmul::linear(
+        lhs, rhs, bias, op->transpose_a(), op->transpose_b(),
+        outputMemoryConfig, outputDataType, /*program_config=*/std::nullopt,
+        /*activation=*/activation, /*compute_kernel_config=*/computeConfig);
+  } else {
+    output = ::ttnn::linear(
+        lhs, rhs, bias, op->transpose_a(), op->transpose_b(),
+        outputMemoryConfig, outputDataType, programConfig,
+        /*activation=*/activation, /*compute_kernel_config=*/computeConfig,
+        /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
+        /*optional_output_tensor=*/std::nullopt);
+  }
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
