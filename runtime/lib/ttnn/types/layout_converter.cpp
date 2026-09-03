@@ -6,6 +6,8 @@
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "ttnn/operations/experimental/quasar/to_layout/to_layout_op.hpp"
 
 namespace tt::runtime::ttnn {
 
@@ -33,13 +35,25 @@ LayoutConverter::convertTensorLayout(const ::ttnn::Tensor &input,
 }
 
 ::ttnn::Tensor LayoutConverter::toLayoutIfNeeded(const ::ttnn::Tensor &input) {
+  // This is a third to_layout call site, distinct from
+  // operations/layout/to_layout.cpp and the readback path in runtime.cpp: it is
+  // how host inputs get tilized on the way to the device. Mainline to_layout
+  // reaches ttnn::tilize, whose program factory TT_FATALs on Quasar, so a
+  // Quasar run fails here before any op runs -- measured on the fc/linear graph.
+  const bool quasar = ::tt::runtime::ttnn::operations::utils::isQuasar();
   if (shouldTilize) {
-    return ::ttnn::to_layout(input, ::ttnn::Layout::TILE, std::nullopt,
-                             std::nullopt);
+    return quasar ? ::ttnn::operations::experimental::quasar::to_layout(
+                        input, ::ttnn::Layout::TILE, std::nullopt, std::nullopt)
+                  : ::ttnn::to_layout(input, ::ttnn::Layout::TILE, std::nullopt,
+                                      std::nullopt);
   }
   if (shouldUntilize) {
-    return ::ttnn::to_layout(input, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-                             std::nullopt);
+    return quasar
+               ? ::ttnn::operations::experimental::quasar::to_layout(
+                     input, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+                     std::nullopt)
+               : ::ttnn::to_layout(input, ::ttnn::Layout::ROW_MAJOR,
+                                   std::nullopt, std::nullopt);
   }
   return input;
 }
