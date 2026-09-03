@@ -3384,7 +3384,7 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
 
 TEST_F(OpModelBase, Conv3dInterface) {
   llvm::SmallVector<int64_t> inputShape = {1, 5, 10, 10, 32}; // [N, D, H, W, C]
-  // Weight must be 2D: [kD*kH*kW*C_in/groups, C_out]
+  // Weight must be 2D: [kD*kH*kW*C_in, C_out]
   // patch_size = 3*3*3*32 = 864, out_channels = 64 (multiple of 32)
   llvm::SmallVector<int64_t> weightShape = {864, 64};
   // Output dims: D_out=(5-3)/1+1=3, H_out=(10-3)/1+1=8, W_out=(10-3)/1+1=8

@@ -10220,17 +10220,15 @@ def chisel_ttnn_conv3d(op, inputs):
     input_width = unpack_mlir_attr(op.attributes["input_width"])
     in_channels = unpack_mlir_attr(op.attributes["in_channels"])
     out_channels = unpack_mlir_attr(op.attributes["out_channels"])
-    groups = unpack_mlir_attr(op.attributes["groups"])
     kernel_size = unpack_mlir_attr(op.attributes["kernel_size"])
     input_ndhwc = inputs["input"].reshape(
         batch_size, input_depth, input_height, input_width, in_channels
     )
-    # TTNN weight is [K_D*K_H*K_W*(C_in/groups), C_out]; reshape to OIDHW for torch conv3d.
+    # TTNN weight is [K_D*K_H*K_W*C_in, C_out]; reshape to OIDHW for torch conv3d.
     kd, kh, kw = kernel_size
-    in_channels_per_group = in_channels // groups
     weight_ncdhw = (
         inputs["weight"]
-        .reshape(kd, kh, kw, in_channels_per_group, out_channels)
+        .reshape(kd, kh, kw, in_channels, out_channels)
         .permute(4, 3, 0, 1, 2)
     )
     result_ndhwc = conv3d_golden(
@@ -10239,7 +10237,7 @@ def chisel_ttnn_conv3d(op, inputs):
         bias=inputs["bias"],
         stride=op.attributes["stride"],
         padding=op.attributes["padding"],
-        groups=op.attributes["groups"],
+        groups=1,
         batch_dim=0,
         depth_dim=1,
         height_dim=2,

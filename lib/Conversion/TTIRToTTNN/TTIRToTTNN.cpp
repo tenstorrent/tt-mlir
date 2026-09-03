@@ -2154,11 +2154,6 @@ public:
 
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
-    if (adaptor.getGroups() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "ttnn.conv3d only supports groups == 1");
-    }
-
     auto paddingModeAttr = adaptor.getPaddingModeAttr();
 
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
