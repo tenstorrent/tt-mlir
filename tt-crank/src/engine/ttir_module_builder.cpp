@@ -283,6 +283,10 @@ mlir::Value build_sum(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::
     return build_reduce<mlir::tt::ttir::SumOp>(mb, input, dims, keepdim);
 }
 
+mlir::Value build_vector_norm(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims, bool keepdim) {
+    return build_sqrt(mb, build_sum(mb, build_mul(mb, input, input), dims, keepdim));
+}
+
 mlir::Value build_threshold_backward(ModuleBuilder &mb, mlir::Value grad_output, mlir::Value self, double threshold) {
     auto self_type = mlir::cast<mlir::RankedTensorType>(self.getType());
     auto grad_type = mlir::cast<mlir::RankedTensorType>(grad_output.getType());

@@ -80,6 +80,15 @@ def test_sum(dim: int | list[int], keepdim: bool) -> None:
     assert_close_cpu_vs_tt(lambda x: torch.sum(x, dim=dim, keepdim=keepdim), a, atol=0.05, rtol=0.05)
 
 
+@pytest.mark.parametrize("keepdim", [True, False])
+@pytest.mark.parametrize("dim", [1, -1, [1, 2], None], ids=["dim1", "dim_neg1", "dim12", "all_dims"])
+def test_linalg_vector_norm(dim: int | list[int] | None, keepdim: bool) -> None:
+    a = torch.randn((32, 64, 32), dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(
+        lambda x: torch.linalg.vector_norm(x, dim=dim, keepdim=keepdim), a, atol=0.05, rtol=0.05
+    )
+
+
 @pytest.mark.parametrize("reduction", _REDUCTIONS)
 def test_mse_loss(reduction: str) -> None:
     a = torch.randn((64, 128), dtype=torch.bfloat16)

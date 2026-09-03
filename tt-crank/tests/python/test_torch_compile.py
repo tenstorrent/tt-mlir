@@ -351,6 +351,41 @@ def test_compile_mean(shape: tuple[int, ...], dim: list[int], keepdim: bool) -> 
 
 
 @pytest.mark.parametrize(
+    "shape,dim,keepdim",
+    [
+        ((64, 128), [1], False),
+        ((64, 128), [1], True),
+        ((32, 64, 32), [1, 2], True),
+        ((32, 64, 32), None, False),
+    ],
+    ids=["2d_dim1", "2d_dim1_keepdim", "3d_dims12_keepdim", "3d_all_dims"],
+)
+def test_compile_linalg_vector_norm(shape: tuple[int, ...], dim: list[int] | None, keepdim: bool) -> None:
+    class _VectorNorm(nn.Module):
+        def __init__(self, d: list[int] | None, k: bool) -> None:
+            super().__init__()
+            self.d = d
+            self.k = k
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.linalg.vector_norm(x, dim=self.d, keepdim=self.k)
+
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_VectorNorm(dim, keepdim), x, atol=0.05, rtol=0.05)
+
+
+def test_compile_normalize() -> None:
+    """F.normalize decomposes to linalg_vector_norm + clamp_min + expand + div -
+    the op mix Wan's VAE RMS norm uses"""
+    class _Normalize(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return F.normalize(x, dim=1)
+
+    x = torch.randn((2, 64, 32, 32), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Normalize(), x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize(
     "batch,feat,hidden,classes",
     [(32, 32 * 32, 128, 32), (32, 28 * 28, 128, 10)],
     ids=["tile_aligned", "real_mnist"],

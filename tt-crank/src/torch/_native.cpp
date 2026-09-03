@@ -138,6 +138,11 @@ public:
         return tk::build_sum(*mb_, input, dims, keepdim);
     }
 
+    mlir::Value vector_norm(mlir::Value input, std::vector<std::int64_t> dims, bool keepdim) {
+        assert_builder();
+        return tk::build_vector_norm(*mb_, input, dims, keepdim);
+    }
+
     // Empty `dims` reduces over every dimension, matching aten::any's dim=None.
     mlir::Value any(mlir::Value input, std::vector<std::int64_t> dims, bool keepdim) {
         assert_builder();
@@ -806,6 +811,7 @@ NB_MODULE(_native, m) {
         .def("reshape", &PyModuleBuilder::reshape, "input"_a, "new_shape"_a)
         .def("mean", &PyModuleBuilder::mean, "input"_a, "dims"_a, "keepdim"_a = false)
         .def("sum", &PyModuleBuilder::sum, "input"_a, "dims"_a, "keepdim"_a = false)
+        .def("vector_norm", &PyModuleBuilder::vector_norm, "input"_a, "dims"_a, "keepdim"_a = false)
         .def("any", &PyModuleBuilder::any, "input"_a, "dims"_a, "keepdim"_a = false)
         .def("pad", &PyModuleBuilder::pad, "input"_a, "low"_a, "high"_a, "value"_a = 0.0)
         .def("threshold_backward", &PyModuleBuilder::threshold_backward, "grad_output"_a, "self"_a, "threshold"_a)
