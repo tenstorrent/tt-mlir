@@ -73,6 +73,7 @@ using ::tt::kurbla::build_cat;
 using ::tt::kurbla::build_clamp;
 using ::tt::kurbla::build_conv1d;
 using ::tt::kurbla::build_conv2d;
+using ::tt::kurbla::build_conv3d;
 using ::tt::kurbla::build_cos;
 using ::tt::kurbla::build_cumsum;
 using ::tt::kurbla::build_div;

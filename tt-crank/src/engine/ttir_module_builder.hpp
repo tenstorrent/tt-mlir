@@ -300,6 +300,14 @@ TT_KURBLA_API mlir::Value build_conv2d(ModuleBuilder &mb, mlir::Value input, mli
                                        llvm::ArrayRef<int64_t> stride, llvm::ArrayRef<int64_t> padding,
                                        llvm::ArrayRef<int64_t> dilation, int64_t groups);
 
+// Emit TTIR for a 3D convolution (non-transposed). Input/output are NCDHW and
+// weight is OIDHW, matching ATen. `bias` may be null; when present it must be
+// 1D (C_out,). `stride`, `padding`, and `dilation` carry [D, H, W] values;
+// `padding` is applied symmetrically.
+TT_KURBLA_API mlir::Value build_conv3d(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias,
+                                       llvm::ArrayRef<int64_t> stride, llvm::ArrayRef<int64_t> padding,
+                                       llvm::ArrayRef<int64_t> dilation, int64_t groups);
+
 // Emit TTIR for element-wise cosine.
 TT_KURBLA_API mlir::Value build_cos(ModuleBuilder &mb, mlir::Value input);
 

@@ -27,15 +27,20 @@ namespace {
 mlir::Value build_conv_by_rank(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias,
                                at::IntArrayRef stride, at::IntArrayRef padding, at::IntArrayRef dilation,
                                int64_t groups) {
+    // NCW / NCHW / NCDHW select conv1d / conv2d / conv3d respectively.
     auto rank = mlir::cast<mlir::RankedTensorType>(input.getType()).getRank();
-    if (rank == 3) {
-        return build_conv1d(mb, input, weight, bias, stride, padding, dilation, groups);
+    switch (rank) {
+        case 3:
+            return build_conv1d(mb, input, weight, bias, stride, padding, dilation, groups);
+        case 4:
+            return build_conv2d(mb, input, weight, bias, stride, padding, dilation, groups);
+        case 5:
+            return build_conv3d(mb, input, weight, bias, stride, padding, dilation, groups);
     }
-    TORCH_CHECK(rank == 4,
-                "tt-kurbla aten::convolution: only 3D (conv1d) and 4D (conv2d) inputs are supported, got "
-                "rank ",
+    TORCH_CHECK(false,
+                "tt-kurbla aten::convolution: only 3D (conv1d), 4D (conv2d), and 5D (conv3d) inputs are "
+                "supported, got rank ",
                 rank);
-    return build_conv2d(mb, input, weight, bias, stride, padding, dilation, groups);
 }
 
 at::Tensor tt_convolution(const at::Tensor &input_in, const at::Tensor &weight_in,
