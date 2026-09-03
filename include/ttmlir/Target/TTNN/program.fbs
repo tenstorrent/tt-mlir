@@ -66,6 +66,7 @@ union OpType {
   DeallocateOp,
   DistributeTensorOp,
   DistributedRMSNormOp,
+  DitFusedDistributedRmsnormOp,
   DitRMSNormUnaryFusedOp,
   DropoutOp,
   EltwiseBinaryCompositeOp,

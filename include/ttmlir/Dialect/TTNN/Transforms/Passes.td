@@ -788,6 +788,8 @@ def TTNNResolveComposites : Pass<"ttnn-resolve-composites", "::mlir::ModuleOp"> 
     erased from the module.
   }];
 
+  let dependentDialects = ["::mlir::tt::ttnn::TTNNDialect"];
+
   let options = [
     Option<"compositeResolution",
             "composite-resolution",

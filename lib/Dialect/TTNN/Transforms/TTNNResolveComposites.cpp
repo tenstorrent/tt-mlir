@@ -5,8 +5,11 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -111,6 +114,88 @@ getIndexerScoreDsaClusterAxis(ttcore::CompositeOp compositeOp) {
     return {};
   }
   return attrs.getAs<mlir::IntegerAttr>("cluster_axis");
+}
+
+
+struct DitFusedDistributedRmsnormCompositeArgs {
+  Value input;
+  Value weight;
+  Value bias;
+  Value transformationMat;
+  Value ropeCos;
+  Value ropeSin;
+  uint32_t clusterAxis = 0;
+  llvm::APFloat epsilon = llvm::APFloat(1.0e-5f);
+  uint32_t numHeadsPerDevice = 1;
+  bool perHeadNorm = false;
+};
+
+static DitFusedDistributedRmsnormCompositeArgs
+extractDitFusedDistributedRmsnormArgs(ttcore::CompositeOp compositeOp) {
+  DictionaryAttr attrs = compositeOp.getCompositeAttributes().value_or(nullptr);
+  TT_assert(attrs);
+
+  auto readBool = [&](StringRef name) -> bool {
+    auto a = attrs.getAs<BoolAttr>(name);
+    return a && a.getValue();
+  };
+  bool hasBias = readBool("has_bias");
+  bool hasRope = readBool("has_rope");
+
+  auto inputs = compositeOp.getInputs();
+  DitFusedDistributedRmsnormCompositeArgs args;
+  args.input = inputs[0];
+  args.weight = inputs[1];
+  unsigned idx = 2;
+  args.bias = hasBias ? inputs[idx++] : Value();
+  if (hasRope) {
+    args.ropeCos = inputs[idx++];
+    args.ropeSin = inputs[idx++];
+    args.transformationMat = inputs[idx++];
+  }
+
+  auto clusterAxisAttr = attrs.getAs<IntegerAttr>("cluster_axis");
+  TT_assert(clusterAxisAttr);
+  args.clusterAxis =
+      static_cast<uint32_t>(clusterAxisAttr.getValue().getZExtValue());
+
+  auto epsilonAttr = attrs.getAs<FloatAttr>("epsilon");
+  TT_assert(epsilonAttr);
+  args.epsilon = epsilonAttr.getValue();
+
+  auto numHeadsAttr = attrs.getAs<IntegerAttr>("num_heads_per_device");
+  TT_assert(numHeadsAttr);
+  args.numHeadsPerDevice =
+      static_cast<uint32_t>(numHeadsAttr.getValue().getZExtValue());
+
+  args.perHeadNorm = readBool("per_head_norm");
+  return args;
+}
+
+static RankedTensorType reshapeTypePreservingLayout(RankedTensorType type,
+                                                    ArrayRef<int64_t> newShape) {
+  if (isa_and_present<TTNNLayoutAttr>(type.getEncoding())) {
+    return utils::RankedTensorTypeFactory::create(type, newShape);
+  }
+  return RankedTensorType::get(newShape, type.getElementType());
+}
+
+static Value unsqueezeRank3ToMetalInput(OpBuilder &builder, Location loc,
+                                        Value input) {
+  auto inputType = cast<RankedTensorType>(input.getType());
+  if (inputType.getRank() != 3) {
+    return input;
+  }
+  ArrayRef<int64_t> shape = inputType.getShape();
+  SmallVector<int64_t, 4> rank4Shape = {1, shape[0], shape[1], shape[2]};
+  SmallVector<int32_t, 4> rank4I32 = {
+      1, static_cast<int32_t>(shape[0]), static_cast<int32_t>(shape[1]),
+      static_cast<int32_t>(shape[2])};
+  return builder
+      .create<ReshapeOp>(loc,
+                         reshapeTypePreservingLayout(inputType, rank4Shape),
+                         input, builder.getI32ArrayAttr(rank4I32))
+      .getResult();
 }
 
 static void registerBuiltinComposites() {
@@ -288,6 +373,34 @@ static void registerBuiltinComposites() {
         ttcore::Arch arch = sysDesc.getChipDesc(0).getArch().getValue();
         return success(arch == ttcore::Arch::Blackhole);
       }};
+
+  registry["dit_fused_distributed_rmsnorm"] = CompositeEntry{
+      [](ttcore::CompositeOp, OpBuilder &) -> OpValidationResult {
+        return OpValidationResult::success();
+      },
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        DitFusedDistributedRmsnormCompositeArgs args =
+            extractDitFusedDistributedRmsnormArgs(compositeOp);
+        auto device = utils::getOrInsertDevice(builder, compositeOp);
+        Location loc = compositeOp.getLoc();
+        Value metalInput = unsqueezeRank3ToMetalInput(builder, loc, args.input);
+        MLIRContext *ctx = builder.getContext();
+        auto computeConfig = DeviceComputeKernelConfigAttr::get(
+            ctx, MathFidelity::HiFi4, BoolAttr::get(ctx, false),
+            BoolAttr::get(ctx, true), BoolAttr::get(ctx, false),
+            /*dstFullSyncEn=*/nullptr);
+        return builder.create<DitFusedDistributedRmsnormOp>(
+            loc, compositeOp.getResultTypes(), metalInput, args.weight,
+            args.bias, args.transformationMat, args.ropeCos,
+            args.ropeSin, /*stats=*/Value(), /*semaphore=*/Value(),
+            device.getResult(), args.clusterAxis, args.epsilon,
+            args.numHeadsPerDevice, args.perHeadNorm,
+            /*sub_device_id=*/nullptr, builder.getUI32IntegerAttr(1),
+            /*topology=*/nullptr, computeConfig,
+            /*memory_config=*/nullptr, /*dtype=*/nullptr);
+      },
+      /*promotionGuard=*/nullptr};
+
 
   registry["sdpa_fw"] = CompositeEntry{
       // Validate

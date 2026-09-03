@@ -1377,6 +1377,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_DitRMSNormUnaryFusedOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::DitFusedDistributedRmsnormOp: {
+    tensorRefs = {opContext.type_as_DitFusedDistributedRmsnormOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::RMSNormPreAllGatherOp: {
     tensorRefs = {opContext.type_as_RMSNormPreAllGatherOp()->out()};
     break;
@@ -2052,6 +2056,30 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     if (opContext.type_as_DitRMSNormUnaryFusedOp()->residual_input()) {
       tensorRefs.push_back(
           opContext.type_as_DitRMSNormUnaryFusedOp()->residual_input());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DitFusedDistributedRmsnormOp: {
+    tensorRefs = {opContext.type_as_DitFusedDistributedRmsnormOp()->input()};
+    if (opContext.type_as_DitFusedDistributedRmsnormOp()->weight()) {
+      tensorRefs.push_back(
+          opContext.type_as_DitFusedDistributedRmsnormOp()->weight());
+    }
+    if (opContext.type_as_DitFusedDistributedRmsnormOp()->bias()) {
+      tensorRefs.push_back(
+          opContext.type_as_DitFusedDistributedRmsnormOp()->bias());
+    }
+    if (opContext.type_as_DitFusedDistributedRmsnormOp()->transformation_mat()) {
+      tensorRefs.push_back(opContext.type_as_DitFusedDistributedRmsnormOp()
+                               ->transformation_mat());
+    }
+    if (opContext.type_as_DitFusedDistributedRmsnormOp()->rope_cos()) {
+      tensorRefs.push_back(
+          opContext.type_as_DitFusedDistributedRmsnormOp()->rope_cos());
+    }
+    if (opContext.type_as_DitFusedDistributedRmsnormOp()->rope_sin()) {
+      tensorRefs.push_back(
+          opContext.type_as_DitFusedDistributedRmsnormOp()->rope_sin());
     }
     break;
   }

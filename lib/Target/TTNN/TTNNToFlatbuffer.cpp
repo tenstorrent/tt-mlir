@@ -1848,6 +1848,80 @@ createOp(FlatbufferObjectCache &cache, DitRMSNormUnaryFusedOp op) {
       computeConfig.value_or(0), output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::DitFusedDistributedRmsnormOp>
+createOp(FlatbufferObjectCache &cache, DitFusedDistributedRmsnormOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> weight = 0;
+  if (op.getWeight()) {
+    weight = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getWeight()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias = 0;
+  if (op.getBias()) {
+    bias = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBias()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> transformationMat = 0;
+  if (op.getTransformationMat()) {
+    transformationMat = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getTransformationMat()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> ropeCos = 0;
+  if (op.getRopeCos()) {
+    ropeCos = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getRopeCos()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> ropeSin = 0;
+  if (op.getRopeSin()) {
+    ropeSin = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getRopeSin()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> stats = 0;
+  if (op.getStats()) {
+    stats = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getStats()));
+  }
+
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  ::flatbuffers::Optional<uint8_t> subDeviceId = std::nullopt;
+  if (op.getSubDeviceId()) {
+    subDeviceId = std::make_optional<uint8_t>(
+        static_cast<uint8_t>(op.getSubDeviceId().value()));
+  }
+
+  auto numLinks = toFlatbuffer(cache, op.getNumLinks());
+  auto topology = toFlatbuffer(cache, op.getTopology());
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  auto dtype = toFlatbuffer(cache, op.getDtypeAttr());
+
+  ::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef> semaphore = 0;
+  if (op.getSemaphore()) {
+    semaphore =
+        cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(op.getSemaphore());
+  }
+
+  return ::tt::target::ttnn::CreateDitFusedDistributedRmsnormOp(
+      *cache.fbb, input, weight, bias, transformationMat, ropeCos, ropeSin,
+      op.getClusterAxis(), op.getEpsilon().convertToFloat(),
+      op.getNumHeadsPerDevice(), op.getPerHeadNorm(), subDeviceId, numLinks,
+      topology, computeConfig.value_or(0), memoryConfig, dtype, stats, output,
+      semaphore);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::DistributedRMSNormOp>
 createOp(FlatbufferObjectCache &cache, DistributedRMSNormOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -5164,6 +5238,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto ditRMSNormUnaryFusedOp = dyn_cast<DitRMSNormUnaryFusedOp>(op);
       ditRMSNormUnaryFusedOp) {
     return createOperation(cache, createOp(cache, ditRMSNormUnaryFusedOp),
+                           debugString, locInfo);
+  }
+  if (auto ditFusedDistributedRmsnormOp =
+          dyn_cast<DitFusedDistributedRmsnormOp>(op);
+      ditFusedDistributedRmsnormOp) {
+    return createOperation(cache, createOp(cache, ditFusedDistributedRmsnormOp),
                            debugString, locInfo);
   }
   if (auto distributedRMSNormOp = dyn_cast<DistributedRMSNormOp>(op);

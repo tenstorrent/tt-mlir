@@ -87,6 +87,7 @@
 #include "operations/mlir_native/func_call.h"
 #include "operations/normalization/batch_norm.h"
 #include "operations/normalization/distributed_rms_norm.h"
+#include "operations/normalization/dit_fused_distributed_rmsnorm.h"
 #include "operations/normalization/dit_rms_norm_unary_fused.h"
 #include "operations/normalization/group_norm.h"
 #include "operations/normalization/layer_norm.h"
@@ -480,6 +481,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::DitRMSNormUnaryFusedOp: {
     return operations::dit_rms_norm_unary_fused::run(
         op->type_as_DitRMSNormUnaryFusedOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::DitFusedDistributedRmsnormOp: {
+    return operations::dit_fused_distributed_rmsnorm::run(
+        op->type_as_DitFusedDistributedRmsnormOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::RMSNormPreAllGatherOp: {
     return operations::rms_norm_pre_all_gather::run(

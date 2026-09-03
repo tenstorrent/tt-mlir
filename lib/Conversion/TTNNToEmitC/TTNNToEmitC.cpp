@@ -4394,6 +4394,70 @@ public:
 };
 } // namespace
 
+// DitFusedDistributedRmsnormOp conversion pattern
+//
+namespace {
+class DitFusedDistributedRmsnormOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::DitFusedDistributedRmsnormOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.dit_fused_distributed_rmsnorm";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "::ttnn::experimental::dit_fused_distributed_rmsnorm";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::DitFusedDistributedRmsnormOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::DitFusedDistributedRmsnormOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<
+        mlir::tt::ttnn::DitFusedDistributedRmsnormOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    auto inputIndexAttr = emitter.emit(srcOp.getInput());
+    auto clusterAxisAttr = emitter.emit(srcOp.getClusterAxis());
+    auto deviceIndexAttr =
+        emitter.emit<::ttnn::distributed::MeshDevice>(srcOp.getDevice());
+    auto semaphoreIndexAttr = emitter.emit(srcOp.getSemaphore());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        inputIndexAttr,
+        clusterAxisAttr,
+        deviceIndexAttr,
+        semaphoreIndexAttr,
+        srcOp.getTopology() ? emitter.emit(srcOp.getTopology())
+                            : rewriter.getAttr<emitc::OpaqueAttr>(
+                                  "::tt::tt_fabric::Topology::Ring"),
+        emitter.emit(srcOp.getEpsilon()),
+        emitter.emit(srcOp.getNumHeadsPerDevice()),
+        emitter.emit(srcOp.getPerHeadNorm()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(srcOp.getTransformationMat()),
+        emitter.emit(srcOp.getRopeCos()),
+        emitter.emit(srcOp.getRopeSin()),
+        emitter.emit(srcOp.getDtypeAttr()),
+        emitter.emit(srcOp.getStats()),
+        emitter.emit(srcOp.getNumLinks()),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
+        emitter.emit(srcOp.getComputeConfig()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // RMSNormPreAllGatherOp conversion pattern
 //
 namespace {
@@ -6332,6 +6396,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            CrossEntropyForwardOpConversionPattern,
            BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
            DitRMSNormUnaryFusedOpConversionPattern,
+           DitFusedDistributedRmsnormOpConversionPattern,
            RMSNormPreAllGatherOpConversionPattern,
            DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,
            LayerNormPreAllGatherOpConversionPattern,

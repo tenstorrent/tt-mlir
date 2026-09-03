@@ -4174,6 +4174,364 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
   return success();
 }
 
+}
+
+//===----------------------------------------------------------------------===//
+// DitFusedDistributedRmsnormOp
+//===----------------------------------------------------------------------===//
+
+namespace {
+// Mirror metal `dit_fused_distributed_rmsnorm` compute_output_specs:
+//   heads==1 -> [1, batch, N, H]
+//   heads>1  -> [1, heads, batch*N, H/heads]
+// Rank-3 `[1, N, H]` is treated as batch=1.
+LogicalResult getDitFusedRmsnormLogicalBNH(RankedTensorType inputType,
+                                           int64_t &batch, int64_t &seq,
+                                           int64_t &hidden) {
+  ArrayRef<int64_t> shape = inputType.getShape();
+  if (inputType.getRank() == 3) {
+    if (shape[0] != 1) {
+      return failure();
+    }
+    batch = 1;
+    seq = shape[1];
+    hidden = shape[2];
+    return success();
+  }
+  if (inputType.getRank() == 4 && shape[0] == 1) {
+    batch = shape[1];
+    seq = shape[2];
+    hidden = shape[3];
+    return success();
+  }
+  return failure();
+}
+
+SmallVector<int64_t> expectedDitFusedRmsnormOutputShape(int64_t batch,
+                                                        int64_t seq,
+                                                        int64_t hidden,
+                                                        uint32_t numHeads) {
+  if (numHeads == 1) {
+    return {1, batch, seq, hidden};
+  }
+  return {1, static_cast<int64_t>(numHeads), batch * seq,
+          hidden / static_cast<int64_t>(numHeads)};
+}
+
+// Match metal `compute_sizing` for the RMS stats DRAM scratch
+// (`stats_per_token = 1`). Fabric payload is the BH/WH max (4352 B).
+constexpr uint32_t kDitFusedRmsnormFabricPayloadBytes = 4352u;
+constexpr uint32_t kDitFusedRmsnormMuxRowsThreshold = 4u;
+constexpr uint32_t kDitFusedRmsnormStickBytes = 128u;
+
+uint32_t ditFusedRmsnormDeriveWorkerCap(uint32_t gridX, uint32_t gridY,
+                                        uint32_t numLinks, bool isBlackhole,
+                                        uint32_t ringSize,
+                                        uint32_t numTileRows) {
+  const uint32_t maxCores = gridX * gridY;
+  const uint32_t numForwarders = std::max<uint32_t>(1u, numLinks);
+  const uint32_t budget = maxCores > numForwarders ? maxCores - numForwarders : 1u;
+  const uint32_t wholeRows = (gridX > 0) ? (budget / gridX) * gridX : 0u;
+  uint32_t cap = wholeRows > 0u ? wholeRows : budget;
+
+  const char *workerCapEnv = std::getenv("WAN_RMSNORM_WORKER_CAP");
+  if (workerCapEnv != nullptr) {
+    const int forced = std::atoi(workerCapEnv);
+    if (forced > 0) {
+      cap = static_cast<uint32_t>(forced);
+    }
+  }
+
+  const uint32_t sticksPerPacket = std::max<uint32_t>(
+      1u, kDitFusedRmsnormFabricPayloadBytes / kDitFusedRmsnormStickBytes);
+  cap = std::min(cap, sticksPerPacket * numForwarders);
+
+  if (isBlackhole && workerCapEnv == nullptr) {
+    constexpr uint32_t kBhContentionKnee = 48u;
+    constexpr uint32_t kBhRoundBoundCap = 64u;
+    constexpr uint32_t kBhRing4RowThreshold = 448u;
+    const uint32_t bhKnee =
+        (ringSize <= 4u && numTileRows <= kBhRing4RowThreshold)
+            ? kBhRoundBoundCap
+            : kBhContentionKnee;
+    cap = std::min(cap, bhKnee);
+  }
+  return cap;
+}
+
+struct DitFusedRmsnormStatsSizing {
+  bool useMux = false;
+  uint32_t totalPages = 0;
+  uint32_t windowSize = 0;
+};
+
+DitFusedRmsnormStatsSizing
+computeDitFusedRmsnormStatsSizing(RankedTensorType inputType, uint32_t ringSize,
+                                  uint32_t numLinks, uint32_t gridX,
+                                  uint32_t gridY, bool isBlackhole,
+                                  bool perHeadNorm) {
+  DitFusedRmsnormStatsSizing sizing;
+  if (ringSize <= 1 || perHeadNorm) {
+    return sizing;
+  }
+
+  ArrayRef<int64_t> shape = inputType.getShape();
+  int64_t foldedH = 1;
+  for (int64_t dim : shape.drop_back()) {
+    foldedH *= dim;
+  }
+  const uint32_t numTileRows =
+      static_cast<uint32_t>(foldedH / mlir::tt::ttnn::TILE_HEIGHT);
+
+  uint32_t cap = ditFusedRmsnormDeriveWorkerCap(
+      gridX, gridY, numLinks, isBlackhole, ringSize, numTileRows);
+  uint32_t numWorkers = numTileRows < kDitFusedRmsnormMuxRowsThreshold
+                            ? 1u
+                            : std::min(numTileRows, cap);
+  numWorkers = std::max(1u, numWorkers);
+
+  const uint32_t numLinksRequested = std::max<uint32_t>(1u, numLinks);
+  const uint32_t numForwarders = std::min(numLinksRequested, numWorkers);
+  const uint32_t maxRounds = (numTileRows + numWorkers - 1u) / numWorkers;
+  const uint32_t sticksPerPacket = std::max<uint32_t>(
+      1u, kDitFusedRmsnormFabricPayloadBytes / kDitFusedRmsnormStickBytes);
+
+  sizing.useMux = true;
+  sizing.windowSize = sticksPerPacket; // stats_per_token == 1
+  sizing.totalPages = ringSize * numForwarders * maxRounds;
+  return sizing;
+}
+
+uint32_t getDitFusedRmsnormRingSize(ttnn::DitFusedDistributedRmsnormOp op) {
+  uint32_t ringSize = 1;
+  if (auto deviceOp = op.getDevice().getDefiningOp<ttnn::GetDeviceOp>()) {
+    if (auto meshShapeAttr = deviceOp.getMeshShapeAttr()) {
+      // MeshShapeAttr stores (y, x); clusterAxis 0 = y-axis, 1 = x-axis.
+      ringSize = op.getClusterAxis() == 0
+                     ? static_cast<uint32_t>(meshShapeAttr.getY())
+                     : static_cast<uint32_t>(meshShapeAttr.getX());
+    }
+  }
+  return std::max<uint32_t>(1u, ringSize);
+}
+} // namespace
+
+::mlir::LogicalResult mlir::tt::ttnn::DitFusedDistributedRmsnormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  uint32_t clusterAxis = getClusterAxis();
+  if (clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  float epsilon = getEpsilon().convertToFloat();
+  if (epsilon <= 0) {
+    return emitOpError("epsilon must be positive");
+  }
+
+  uint32_t numHeads = getNumHeadsPerDevice();
+  if (numHeads < 1) {
+    return emitOpError("num_heads_per_device must be >= 1");
+  }
+
+  int64_t batch = 0;
+  int64_t seq = 0;
+  int64_t hidden = 0;
+  if (failed(getDitFusedRmsnormLogicalBNH(inputType, batch, seq, hidden))) {
+    return emitOpError(
+        "input must be rank 4 [1, batch, N, H] or rank 3 [1, N, H]");
+  }
+
+  if (hidden % static_cast<int64_t>(numHeads) != 0) {
+    return emitOpError(
+        "input last dim must be divisible by num_heads_per_device");
+  }
+
+  if (getPerHeadNorm() && numHeads <= 1) {
+    return emitOpError("per_head_norm requires num_heads_per_device > 1");
+  }
+
+  SmallVector<int64_t> expected = expectedDitFusedRmsnormOutputShape(
+      batch, seq, hidden, numHeads);
+  if (outputType.getShape() != ArrayRef<int64_t>(expected)) {
+    return emitOpError("output shape must be [1, ")
+           << (numHeads == 1 ? batch : static_cast<int64_t>(numHeads)) << ", "
+           << (numHeads == 1 ? seq : batch * seq) << ", "
+           << hidden / static_cast<int64_t>(numHeads)
+           << "] for this input and num_heads_per_device";
+  }
+
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    // Rank-1 `[H]` is still legal IR (unfused callers). The fuser emits
+    // `[1, H]` before tilize so metal can read logical[-2]. Rank >= 2 must
+    // be broadcast `[1, H]` or per-token `[N, H]` (last dim still H).
+    if (weightType.getRank() >= 2 && weightType.getShape().drop_back().back() != 1 &&
+        weightType.getShape().drop_back().back() != seq) {
+      return emitOpError(
+          "weight second-to-last dim must be 1 (broadcast) or N (per-token)");
+    }
+    if (weightType.getShape().back() != hidden) {
+      return emitOpError(
+          "weight last dim must match input's last (hidden) dimension");
+    }
+  }
+
+  if (getBias()) {
+    if (!getWeight()) {
+      return emitOpError("bias requires weight to also be provided");
+    }
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getRank() >= 2 && biasType.getShape().drop_back().back() != 1 &&
+        biasType.getShape().drop_back().back() != seq) {
+      return emitOpError(
+          "bias second-to-last dim must be 1 (broadcast) or N (per-token)");
+    }
+    if (biasType.getShape().back() != hidden) {
+      return emitOpError(
+          "bias last dim must match input's last (hidden) dimension");
+    }
+  }
+
+  const bool ropePresent =
+      static_cast<bool>(getTransformationMat()) ||
+      static_cast<bool>(getRopeCos()) || static_cast<bool>(getRopeSin());
+  const bool ropeComplete =
+      static_cast<bool>(getTransformationMat()) &&
+      static_cast<bool>(getRopeCos()) && static_cast<bool>(getRopeSin());
+  if (ropePresent && !ropeComplete) {
+    return emitOpError("RoPE requires transformation_mat, rope_cos, and "
+                       "rope_sin all to be provided together");
+  }
+
+  return success();
+}
+
+bool mlir::tt::ttnn::DitFusedDistributedRmsnormOp::hasUnboundBuffers() {
+  // Stats scratch geometry is owned by metal
+  // (`dit_fused_distributed_rmsnorm_create_stats_buffer`). An IR EmptyOp is
+  // easy to size wrong vs fabric payload / compute grid, which metal then
+  // TT_FATALs — or worse, if we skip validate, corrupts the gather.
+  return false;
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+void mlir::tt::ttnn::DitFusedDistributedRmsnormOp::allocateBuffers(
+    ::mlir::RewriterBase &rewriter) {
+  if (!hasUnboundBuffers()) {
+    return;
+  }
+
+  uint32_t ringSize = getDitFusedRmsnormRingSize(*this);
+  uint32_t numLinks = getNumLinks() ? *getNumLinks() : 1u;
+
+  uint32_t gridX = 8;
+  uint32_t gridY = 8;
+  bool isBlackhole = false;
+  if (ModuleOp moduleOp = (*this)->getParentOfType<ModuleOp>()) {
+    if (auto sysDesc = moduleOp->getAttrOfType<ttcore::SystemDescAttr>(
+            ttcore::SystemDescAttr::name)) {
+      ttcore::ChipDescAttr chip = sysDesc.getChipDesc(0);
+      ArrayRef<int64_t> grid = chip.getGrid();
+      if (grid.size() == 2) {
+        // ChipDesc grid is (y, x); metal CoreCoord is (x, y).
+        gridY = static_cast<uint32_t>(grid[0]);
+        gridX = static_cast<uint32_t>(grid[1]);
+      }
+      isBlackhole = chip.getArch().getValue() == ttcore::Arch::Blackhole;
+    }
+  }
+
+  DitFusedRmsnormStatsSizing sizing = computeDitFusedRmsnormStatsSizing(
+      getInput().getType(), ringSize, numLinks, gridX, gridY, isBlackhole,
+      getPerHeadNorm());
+  if (!sizing.useMux || sizing.totalPages == 0 || sizing.windowSize == 0) {
+    return;
+  }
+
+  MLIRContext *ctx = rewriter.getContext();
+  SmallVector<int64_t> statsShape = {
+      1, 1, static_cast<int64_t>(sizing.totalPages),
+      static_cast<int64_t>(TILE_HEIGHT * sizing.windowSize)};
+  Type statsElementType = Float32Type::get(ctx);
+  TTNNLayoutAttr statsLayout =
+      TTNNLayoutAttr::Builder(ctx, statsShape, statsElementType)
+          .setLayout(Layout::RowMajor)
+          .setBufferType(BufferType::DRAM)
+          .setMemoryLayout(TensorMemoryLayout::Interleaved)
+          .build();
+
+  RankedTensorType statsResultType =
+      RankedTensorType::get(statsShape, statsElementType, statsLayout);
+  auto statsShapeAttr = ShapeAttr::get(ctx, statsShape);
+
+  auto device = utils::getOrInsertDevice(rewriter, *this);
+
+  ttnn::EmptyOp statsEmptyOp;
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(device);
+    statsEmptyOp = rewriter.create<ttnn::EmptyOp>(getLoc(), statsResultType,
+                                                  device, statsShapeAttr);
+  }
+
+  rewriter.modifyOpInPlace(
+      *this, [&]() { getStatsMutable().assign(statsEmptyOp.getResult()); });
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+bool mlir::tt::ttnn::DitFusedDistributedRmsnormOp::hasUnboundSemaphores() {
+  return !getSemaphore();
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+void mlir::tt::ttnn::DitFusedDistributedRmsnormOp::allocateSemaphores(
+    ::mlir::RewriterBase &rewriter) {
+  if (!hasUnboundSemaphores()) {
+    return;
+  }
+
+  MLIRContext *ctx = rewriter.getContext();
+  int64_t gridX = 8;
+  int64_t gridY = 8;
+  if (ModuleOp moduleOp = (*this)->getParentOfType<ModuleOp>()) {
+    if (auto sysDesc = moduleOp->getAttrOfType<ttcore::SystemDescAttr>(
+            ttcore::SystemDescAttr::name)) {
+      ArrayRef<int64_t> grid = sysDesc.getChipDesc(0).getGrid();
+      if (grid.size() == 2) {
+        gridY = grid[0];
+        gridX = grid[1];
+      }
+    }
+  }
+
+  // ChipDesc grid is metal `compute_with_storage_grid_size` stored (y, x).
+  // CoreCoordAttr is (x, y), so the range is the full compute grid — not the
+  // DRAM row. Do not add 1 to either dim.
+  CoreRangeSetAttr semaphoreCoreRangeSet = CoreRangeSetAttr::get(
+      ctx, CoreRangeAttr::get(ctx, CoreCoordAttr::get(ctx, 0, 0),
+                              CoreCoordAttr::get(ctx, gridX - 1, gridY - 1)));
+
+  auto device = utils::getOrInsertDevice(rewriter, *this);
+
+  ttnn::CreateGlobalSemaphoreOp semaphoreOp;
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(device);
+    semaphoreOp = rewriter.create<ttnn::CreateGlobalSemaphoreOp>(
+        getLoc(), GlobalSemaphoreType::get(ctx), device.getResult(),
+        /*initial_value=*/rewriter.getUI32IntegerAttr(0),
+        semaphoreCoreRangeSet);
+  }
+
+  rewriter.modifyOpInPlace(*this, [&]() {
+    getSemaphoreMutable().assign(semaphoreOp.getResult());
+  });
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+
 //===----------------------------------------------------------------------===//
 // DistributedRMSNormOp
 //===----------------------------------------------------------------------===//

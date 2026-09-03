@@ -3009,6 +3009,63 @@ def TTNN_CrossEntropyForwardOp : TTNN_Op<"cross_entropy_fw"> {
     let hasVerifier = 1;
 }
 
+def TTNN_DitFusedDistributedRmsnormOp : TTNN_Op<"dit_fused_distributed_rmsnorm",
+    [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface, TTNN_DistributedOpInterface, OpModelExempt]> {
+    let summary = "Fused distributed RMSNorm with optional head split and RoPE.";
+    let description = [{
+      DiT attention fused kernel: distributed RMS statistics all-gather along
+      `cluster_axis`, RMSNorm, optional Q/K head split, and optional fused RoPE.
+
+      Maps to `ttnn::experimental::dit_fused_distributed_rmsnorm`. Unlike
+      `distributed_rms_norm` (`fused_rms_minimal`), this kernel requires a
+      rank-4 TILE input `[1, batch, N, H]`. Rank-3 `[1, N, H]` is viewed as
+      `[1, 1, N, H]` before the op. Metal reads `weight.logical_shape()[-2]`,
+      so γ must be rank >= 2 (`[1, H]` broadcast or `[N, H]` per-token). The
+      TTIR fuser rank-ups torch `[H]` to `[1, H]` before tilize; do not TILE
+      reshape rank-1 γ at resolve/runtime. When
+      `num_heads_per_device > 1`, the result is
+      `[1, num_heads, batch*N, head_dim]`.
+
+      RoPE tensors (`transformation_mat`, `rope_cos`, `rope_sin`) must all be
+      present or all absent. The fabric semaphore is bound in the function
+      prelude via `DistributedOpInterface`. Stats DRAM scratch is allocated
+      at runtime by metal `dit_fused_distributed_rmsnorm_create_stats_buffer`
+      so the page geometry cannot drift from the kernel.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         Optional<AnyRankedTensor>:$transformation_mat,
+                         Optional<AnyRankedTensor>:$rope_cos,
+                         Optional<AnyRankedTensor>:$rope_sin,
+                         Optional<AnyRankedTensor>:$stats,
+                         Optional<TTNN_GlobalSemaphore>:$semaphore,
+                         TTNN_Device:$device,
+                         UI32Attr:$cluster_axis,
+                         DefaultValuedAttr<F32Attr, "1e-5">:$epsilon,
+                         DefaultValuedAttr<UI32Attr, "1">:$num_heads_per_device,
+                         DefaultValuedAttr<BoolAttr, "false">:$per_head_norm,
+                         OptionalAttr<UI32Attr>:$sub_device_id,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      bool hasUnboundBuffers();
+      void allocateBuffers(::mlir::RewriterBase &rewriter);
+      bool hasUnboundSemaphores();
+      void allocateSemaphores(::mlir::RewriterBase &rewriter);
+    }];
+
+    let hasVerifier = 1;
+}
+
+
 def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
     [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface, TTNN_DistributedOpInterface, OpModelExempt]> {
     let summary = "Distributed RMS normalization with all-gather op.";

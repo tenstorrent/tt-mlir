@@ -4179,6 +4179,62 @@ public:
 };
 } // namespace
 
+// DitFusedDistributedRmsnormOp conversion pattern
+//
+namespace {
+class DitFusedDistributedRmsnormOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::DitFusedDistributedRmsnormOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.dit_fused_distributed_rmsnorm";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.dit_fused_distributed_rmsnorm";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::DitFusedDistributedRmsnormOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::DitFusedDistributedRmsnormOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<
+        mlir::tt::ttnn::DitFusedDistributedRmsnormOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getClusterAxis()),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getSemaphore()),
+        emitter.emit(srcOp.getTopology(), "topology"),
+        emitter.emit(srcOp.getEpsilon(), "epsilon"),
+        emitter.emit(srcOp.getNumHeadsPerDevice(), "num_heads_per_device"),
+        emitter.emit(srcOp.getPerHeadNorm(), "per_head_norm"),
+        emitter.emit(srcOp.getWeight(), "weight"),
+        emitter.emit(srcOp.getBias(), "bias"),
+        emitter.emit(srcOp.getTransformationMat(), "transformation_mat"),
+        emitter.emit(srcOp.getRopeCos(), "rope_cos"),
+        emitter.emit(srcOp.getRopeSin(), "rope_sin"),
+        emitter.emit(srcOp.getDtypeAttr(), "dtype"),
+        emitter.emit(srcOp.getStats(), "persistent_output_buffer"),
+        emitter.emit(srcOp.getNumLinks(), "num_preferred_links"),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // DistributedRMSNormOp conversion pattern
 //
 namespace {
@@ -5808,6 +5864,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       .add<BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
            DitRMSNormUnaryFusedOpConversionPattern,
+           DitFusedDistributedRmsnormOpConversionPattern,
            DistributedRMSNormOpConversionPattern,
            RMSNormPreAllGatherOpConversionPattern, LayerNormOpConversionPattern,
            LayerNormPreAllGatherOpConversionPattern,

@@ -10,12 +10,13 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/IR/Builders.h"
 #include "llvm/ADT/ArrayRef.h"
 
 #include <cstdint>
 
 namespace mlir::tt::ttnn::utils {
-static GetDeviceOp insertGetDeviceOp(RewriterBase &rewriter,
+static GetDeviceOp insertGetDeviceOp(OpBuilder &rewriter,
                                      ttcore::DeviceAttr deviceAttr,
                                      Location loc) {
   llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
@@ -35,7 +36,7 @@ static GetDeviceOp insertGetDeviceOp(RewriterBase &rewriter,
 
 // Gets or inserts a GetDeviceOp at the top of the current block of the given
 // operation.
-GetDeviceOp getOrInsertDevice(RewriterBase &rewriter, Operation *op) {
+GetDeviceOp getOrInsertDevice(OpBuilder &rewriter, Operation *op) {
   Block *block = op->getBlock();
   for (auto &op : block->getOperations()) {
     if (auto deviceOp = dyn_cast<ttnn::GetDeviceOp>(op)) {
@@ -50,7 +51,7 @@ GetDeviceOp getOrInsertDevice(RewriterBase &rewriter, Operation *op) {
   return deviceOp;
 }
 
-GetDeviceOp getOrInsertDevice(RewriterBase &rewriter, Block *block) {
+GetDeviceOp getOrInsertDevice(OpBuilder &rewriter, Block *block) {
   mlir::Operation *parentOp = block->getParentOp();
   for (auto &op : block->getOperations()) {
     if (auto deviceOp = dyn_cast<ttnn::GetDeviceOp>(op)) {

@@ -59,6 +59,28 @@ table DitRMSNormUnaryFusedOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+table DitFusedDistributedRmsnormOp {
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  transformation_mat: tt.target.ttnn.TensorRef;
+  rope_cos: tt.target.ttnn.TensorRef;
+  rope_sin: tt.target.ttnn.TensorRef;
+  cluster_axis: uint32;
+  epsilon: float;
+  num_heads_per_device: uint32;
+  per_head_norm: bool;
+  sub_device_id: uint8 = null;
+  num_links: uint32 = null;
+  topology: tt.target.Topology = null;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  dtype: tt.target.DataType = null;
+  stats: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  semaphore: tt.target.ttnn.GlobalSemaphoreRef;
+}
+
 table LayerNormShardedMultiCoreProgramConfig {
   compute_with_storage_grid_size: tt.target.ttnn.CoreCoord;
   subblock_w: uint64;
