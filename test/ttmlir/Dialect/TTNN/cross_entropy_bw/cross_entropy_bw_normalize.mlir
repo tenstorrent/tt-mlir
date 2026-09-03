@@ -2,8 +2,9 @@
 // RUN: FileCheck %s --input-file=%t
 
 module {
-  // The logits and grad stay tiled bf16, but ttml::metal::cross_entropy_bw reads
-  // the class indices as row-major uint32, so the operand workarounds must insert
+  // The logits are typecast to bf16 and stay tiled. grad only has to be tiled,
+  // so it reaches the op unchanged. ttml::metal::cross_entropy_bw reads the
+  // class indices as row-major uint32, so the operand workarounds must insert
   // a to_layout that untilizes target.
 
   // CHECK-DAG: #[[INPUT_TILED:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}memref<4x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
@@ -19,11 +20,7 @@ module {
     // CHECK: %[[TARGET:[0-9]+]] = "ttnn.to_layout"(%arg1)
     // CHECK-SAME: -> tensor<4x32xui32, #[[TARGET_RM]]>
 
-    // grad is typecast to bf16 as well.
-    // CHECK: %[[GRAD:[0-9]+]] = "ttnn.typecast"(%arg2)
-    // CHECK-SAME: -> tensor<1x1x1x1xbf16
-
-    // CHECK: "ttnn.cross_entropy_bw"(%[[INPUT]], %[[TARGET]], %[[GRAD]])
+    // CHECK: "ttnn.cross_entropy_bw"(%[[INPUT]], %[[TARGET]], %arg2)
     // CHECK-SAME: scaler = 3.125000e-02 : f32
     // CHECK-SAME: -> tensor<4x1x32x64xbf16
     %0 = "ttcore.composite"(%input, %target, %grad) <{

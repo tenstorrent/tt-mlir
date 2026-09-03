@@ -21,6 +21,13 @@ CrossEntropyRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
              layout_filter_utils::requireDRAMInterleaved(layout);
     };
   }
+  if (operandIdx == 2) {
+    // Backward `grad`, consumed by the trailing ttnn::multiply, which needs a
+    // tiled operand but no particular data type or buffer type.
+    return [](TTNNLayoutAttr layout) {
+      return layout_filter_utils::requireTiled(layout);
+    };
+  }
   return nullptr;
 }
 

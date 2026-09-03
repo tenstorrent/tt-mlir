@@ -10,9 +10,9 @@
 namespace mlir::tt::ttnn {
 
 /// TTML cross-entropy requires a tiled, DRAM-interleaved logits tensor and a
-/// row-major, DRAM-interleaved target tensor. The output layout is selected by
-/// the backend, so only the null output hint is meaningful. The backward
-/// operation's grad operand is unrestricted.
+/// row-major, DRAM-interleaved target tensor. The backward operation's grad
+/// operand only has to be tiled. The output layout is selected by the backend
+/// so only the null output hint is meaningful.
 struct CrossEntropyRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
