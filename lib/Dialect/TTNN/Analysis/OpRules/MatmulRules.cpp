@@ -467,9 +467,8 @@ OutputHints MatmulRuleBook::getOutputHints(
     filtered.push_back(cfg);
   }
 
-  // Prepend the DS hint when eligible. adjustScore gives it priority over the
-  // normal hints via isDRAMShardedCandidate; normal hints remain as fallback
-  // in case DS validation fails for a given input combination.
+  // Prepend the DS hint when eligible. The normal hints stay behind it as a
+  // fallback, in case DS validation fails for a given input combination.
   if (auto dramHint = buildDRAMShardingHint(op)) {
     filtered.insert(filtered.begin(), *dramHint);
   }
@@ -482,9 +481,6 @@ OutputHints MatmulRuleBook::getOutputHints(
 // ============================================================================
 
 LayoutFilterFn MatmulRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
-  // Weight (operand 1): reject L1.
-  // DRAM WIDTH_SHARDED is allowed for the DRAM-sharded matmul path.
-  // DRAM interleaved is always allowed.
   if (operandIdx == 1) {
     return layout_filter_utils::rejectAllL1;
   }
@@ -569,12 +565,8 @@ void MatmulRuleBook::applyOpSpecificAttrs(
 // ============================================================================
 
 // Reject in0 whose shard width is incompatible with the config's in0_block_w.
-// tt-metal needs (tiles): K % per_core_K == 0 and per_core_K % in0_block_w ==
-// 0. Guards all in0 candidates the cross-product pairs with the DS hint; though
-// our injected in0 is valid by construction. tt-metal should be patched to
-// reject a bad combo catchably — until then it TT_FATALs (uncatchable abort),
-// so we must gate here. per_core_K = in0 shard width (tiles); K (tiles) = in1
-// shard height.
+// tt-metal needs, in tiles, K % per_core_K == 0 and per_core_K % in0_block_w ==
+// 0, where per_core_K is the in0 shard width and K the in1 shard height.
 static bool dsIn0CompatibleWithConfig(
     TTNNLayoutAttr in0, TTNNLayoutAttr in1,
     MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr dsCfg) {
@@ -601,12 +593,9 @@ bool MatmulRuleBook::isValidOutputHintForInputs(
           attrs->matmulProgramConfig.value())) {
     return true;
   }
-  // DS hint: only the canonical DS input combination is valid — L1
-  // width-sharded in0, DRAM width-sharded in1, with an in0 shard width
-  // compatible with the config's in0_block_w (see dsIn0CompatibleWithConfig).
-  // This runs for every in0 the cross-product pairs with the DS hint, not just
-  // the one we inject in getExtraInputReshardCandidates (that one is valid by
-  // construction).
+  // Runs for every in0 the cross-product pairs with the DS hint, not just the
+  // one getExtraInputReshardCandidates injects — that one is valid by
+  // construction.
   if (inputLayouts.size() < 2) {
     return false;
   }
