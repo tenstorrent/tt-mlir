@@ -8074,11 +8074,7 @@ class TTIRBuilder(Builder):
         running_mean0 = self._get_golden_tensor(running_mean)
         running_variance0 = self._get_golden_tensor(running_variance)
         op_golden_function = get_golden_function(ttir_op)
-        (
-            golden_output,
-            golden_batch_mean,
-            golden_batch_variance,
-        ) = op_golden_function(
+        (golden_output, golden_batch_mean, golden_batch_variance,) = op_golden_function(
             input0,
             scale0,
             offset0,
@@ -17050,11 +17046,7 @@ class TTIRBuilder(Builder):
         in2 = self._get_golden_tensor(expert_scores)
         in3 = self._get_golden_tensor(expert_mapping)
         op_golden_function = get_golden_function(ttir_op)
-        (
-            golden_dispatched,
-            golden_indices,
-            golden_scores,
-        ) = op_golden_function(
+        (golden_dispatched, golden_indices, golden_scores,) = op_golden_function(
             in0,
             in1,
             in2,
@@ -17130,11 +17122,7 @@ class TTIRBuilder(Builder):
         input2 = self._get_golden_tensor(expert_scores)
         input3 = self._get_golden_tensor(expert_mapping)
         op_golden_function = get_golden_function(ttir_op)
-        (
-            golden_dispatched,
-            golden_indices,
-            golden_scores,
-        ) = op_golden_function(
+        (golden_dispatched, golden_indices, golden_scores,) = op_golden_function(
             input0,
             input1,
             input2,
