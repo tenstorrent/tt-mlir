@@ -409,6 +409,142 @@ func::FuncOp buildHeadsDecompFunc(OpBuilder &builder, Location loc,
   return funcOp;
 }
 
+// The narrow cache feeding the composite must be expressible as
+// [1, seq, mid, head_dim/2] with `mid` broadcastable against the heads dim,
+// otherwise the decomposition cannot rebuild the widened cache. Returns `mid`.
+std::optional<int64_t> getCacheHeadsDim(Value cache, int64_t seq,
+                                        int64_t headDim, int64_t numHeads) {
+  auto type = mlir::dyn_cast<RankedTensorType>(cache.getType());
+  if (!type || type.getRank() < 1 || type.getShape().back() != headDim / 2) {
+    return std::nullopt;
+  }
+  int64_t numElements = type.getNumElements();
+  int64_t plane = seq * (headDim / 2);
+  if (plane == 0 || numElements % plane != 0) {
+    return std::nullopt;
+  }
+  int64_t mid = numElements / plane;
+  if (mid != 1 && mid != numHeads) {
+    return std::nullopt;
+  }
+  return mid;
+}
+
+ArrayAttr makeSliceOnLastDim(OpBuilder &builder, ArrayRef<int64_t> shape,
+                             int64_t begin, int64_t end, bool isEnds) {
+  SmallVector<int32_t> values;
+  for (int64_t i = 0, e = shape.size(); i < e; ++i) {
+    if (i + 1 == e) {
+      values.push_back(static_cast<int32_t>(isEnds ? end : begin));
+      continue;
+    }
+    values.push_back(isEnds ? static_cast<int32_t>(shape[i]) : 0);
+  }
+  return builder.getI32ArrayAttr(values);
+}
+
+// Rebuilds the fused op op-by-op: distributed RMS, the pair deinterleave, the
+// half rotation against the widened caches, and the head-major permute. The
+// composite is only correct to inline if this stays faithful to the subgraph
+// the pattern consumed.
+func::FuncOp buildRopeDecompFunc(OpBuilder &builder, Location loc,
+                                 DistributedRMSNormOp rmsOp, Value weight,
+                                 ArrayRef<Type> inputTypes,
+                                 RankedTensorType resultType,
+                                 const HalfRotationRoPE &rope, int64_t cosMid,
+                                 int64_t sinMid) {
+  auto funcType = builder.getFunctionType(inputTypes, {resultType});
+  auto funcOp = func::FuncOp::create(loc, getUniqueDecompName(), funcType);
+  funcOp.setVisibility(SymbolTable::Visibility::Private);
+  funcOp->setAttr(utils::kCompositeDecompositionAttr,
+                  UnitAttr::get(builder.getContext()));
+
+  Block *block = funcOp.addEntryBlock();
+  OpBuilder fb(builder.getContext());
+  fb.setInsertionPointToStart(block);
+
+  Value w = squeezeBroadcastWeightTo1D(fb, loc, block->getArgument(1));
+  auto rms = fb.create<DistributedRMSNormOp>(
+      loc, rmsOp.getType(), block->getArgument(0), w, /*residual=*/Value(),
+      rmsOp.getClusterAxisAttr(), rmsOp.getEpsilonAttr());
+
+  Type elemType =
+      mlir::cast<RankedTensorType>(rms.getType()).getElementType();
+  const int64_t seq = rope.seq;
+  const int64_t heads = rope.numHeads;
+  const int64_t headDim = rope.headDim;
+  const int64_t halfDim = headDim / 2;
+
+  auto reshapeTo = [&](Value v, ArrayRef<int64_t> shape, Type elem) {
+    SmallVector<int32_t> shapeI32(llvm::map_range(
+        shape, [](int64_t d) { return static_cast<int32_t>(d); }));
+    return fb.create<ReshapeOp>(loc, RankedTensorType::get(shape, elem), v,
+                                fb.getI32ArrayAttr(shapeI32))
+        .getResult();
+  };
+
+  // Deinterleave the [even, odd] pairs into [first half, second half].
+  Value paired = reshapeTo(rms.getResult(), {1, seq, heads, halfDim, 2},
+                           elemType);
+  Value swapped =
+      fb.create<PermuteOp>(
+            loc,
+            RankedTensorType::get({1, seq, heads, 2, halfDim}, elemType),
+            paired, ArrayRef<int64_t>({0, 1, 2, 4, 3}))
+          .getResult();
+  auto headsType =
+      RankedTensorType::get({1, seq, heads, headDim}, elemType);
+  Value x = reshapeTo(swapped, headsType.getShape(), elemType);
+
+  // The half-rotation form consumes cat(c, c) over the last dim.
+  auto widenCache = [&](Value cache, int64_t mid) {
+    Type cacheElem =
+        mlir::cast<RankedTensorType>(cache.getType()).getElementType();
+    Value narrow = reshapeTo(cache, {1, seq, mid, halfDim}, cacheElem);
+    auto wideType =
+        RankedTensorType::get({1, seq, mid, headDim}, cacheElem);
+    return fb.create<ConcatOp>(loc, wideType, ValueRange{narrow, narrow},
+                               fb.getSI32IntegerAttr(3))
+        .getResult();
+  };
+  Value cos = widenCache(block->getArgument(2), cosMid);
+  Value sin = widenCache(block->getArgument(3), sinMid);
+
+  // rotate_half(x) = concat(-x[..., d/2:], x[..., :d/2])
+  auto halfType =
+      RankedTensorType::get({1, seq, heads, halfDim}, elemType);
+  ArrayAttr steps = fb.getI32ArrayAttr({1, 1, 1, 1});
+  auto first = fb.create<SliceStaticOp>(
+      loc, halfType, x,
+      makeSliceOnLastDim(fb, headsType.getShape(), 0, halfDim, false),
+      makeSliceOnLastDim(fb, headsType.getShape(), 0, halfDim, true), steps);
+  auto second = fb.create<SliceStaticOp>(
+      loc, halfType, x,
+      makeSliceOnLastDim(fb, headsType.getShape(), halfDim, headDim, false),
+      makeSliceOnLastDim(fb, headsType.getShape(), halfDim, headDim, true),
+      steps);
+  auto negSecond = fb.create<NegOp>(loc, halfType, second.getResult());
+  auto rotated = fb.create<ConcatOp>(
+      loc, headsType, ValueRange{negSecond.getResult(), first.getResult()},
+      fb.getSI32IntegerAttr(3));
+
+  // MultiplyOp broadcasts the caches over the heads dim implicitly.
+  auto xCos = fb.create<MultiplyOp>(loc, headsType, x, cos);
+  auto rotSin =
+      fb.create<MultiplyOp>(loc, headsType, rotated.getResult(), sin);
+  Value result =
+      fb.create<AddOp>(loc, headsType, xCos.getResult(), rotSin.getResult())
+          .getResult();
+
+  if (resultType.getShape() != headsType.getShape()) {
+    result = fb.create<PermuteOp>(loc, resultType, result,
+                                  ArrayRef<int64_t>({0, 2, 1, 3}))
+                 .getResult();
+  }
+  fb.create<func::ReturnOp>(loc, ValueRange{result});
+  return funcOp;
+}
+
 ttcore::CompositeOp
 emitComposite(PatternRewriter &rewriter, Location loc,
               DistributedRMSNormOp rmsOp, Value weight,
@@ -472,6 +608,15 @@ mlir::LogicalResult DitFusedDistributedRmsnormFusingPattern::matchAndRewrite(
   int64_t hidden = inputType.getShape().back();
   if (auto rope = matchDeinterleave(srcOp, hidden);
       rope && matchRotateHalf(*rope)) {
+    std::optional<int64_t> cosMid = getCacheHeadsDim(
+        rope->cosCache, rope->seq, rope->headDim, rope->numHeads);
+    std::optional<int64_t> sinMid = getCacheHeadsDim(
+        rope->sinCache, rope->seq, rope->headDim, rope->numHeads);
+    if (!cosMid || !sinMid) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "RoPE cache shape cannot be expressed in the decomposition");
+    }
+
     RankedTensorType metalOutType = RankedTensorType::get(
         {1, rope->numHeads, rope->seq, rope->headDim},
         inputType.getElementType());
@@ -483,9 +628,9 @@ mlir::LogicalResult DitFusedDistributedRmsnormFusingPattern::matchAndRewrite(
         mlir::cast<RankedTensorType>(rope->cosCache.getType()),
         mlir::cast<RankedTensorType>(rope->sinCache.getType()),
         mlir::cast<RankedTensorType>(transMat.getType())};
-    auto decompFunc =
-        buildHeadsDecompFunc(moduleBuilder, srcOp.getLoc(), srcOp, metalWeight,
-                             decompInputs, metalOutType, rope->numHeads);
+    auto decompFunc = buildRopeDecompFunc(
+        moduleBuilder, srcOp.getLoc(), srcOp, metalWeight, decompInputs,
+        metalOutType, *rope, *cosMid, *sinMid);
     moduleBuilder.insert(decompFunc);
 
     // The rewriter is positioned at the anchor (the RMS norm), but the cos/sin
