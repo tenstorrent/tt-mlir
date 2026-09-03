@@ -180,6 +180,52 @@ static RankedTensorType reshapeTypePreservingLayout(RankedTensorType type,
   return RankedTensorType::get(newShape, type.getElementType());
 }
 
+// Metal `dit_fused_distributed_rmsnorm` requires rank 4 `[1, batch, N, H]`.
+// Rank-3 `[1, N, H]` is batch=1; insert a reshape so the typed op never sees
+// rank 3 (a TILE reshape at runtime is a host crash path).
+// Metal fused RoPE wants rank-4 `[1, 1|heads, N, head_dim]`. Wan caches are
+// `[1, N, 1|heads, D]` (and D may be head_dim/2). Permute/reshape here, like
+// the rank-3 input view, so TTNNLayout has already run on the graph tensors.
+static Value toMetalRopeCache(OpBuilder &builder, Location loc, Value cache,
+                              Value metalInput, uint32_t numHeads) {
+  if (!cache) {
+    return cache;
+  }
+  auto cacheType = cast<RankedTensorType>(cache.getType());
+  auto inputType = cast<RankedTensorType>(metalInput.getType());
+  ArrayRef<int64_t> in = inputType.getShape();
+  int64_t seq = in[2];
+  int64_t hidden = in[3];
+  int64_t headDim = hidden / static_cast<int64_t>(numHeads);
+  ArrayRef<int64_t> sh = cacheType.getShape();
+  Value v = cache;
+  // The frontend keeps cos/sin as the `head_dim/2` table. Metal's llama-style
+  // kernel pairs each entry with the 32x32 rotation tile, so it wants
+  // `[c0, c0, c1, c1, ...]`.
+  if (sh.size() == 4 && sh[3] == headDim / 2) {
+    SmallVector<int64_t, 4> fullShape = {sh[0], sh[1], sh[2], headDim};
+    v = builder
+            .create<RepeatInterleaveOp>(
+                loc, reshapeTypePreservingLayout(cacheType, fullShape), v,
+                /*repeats=*/2, /*dim=*/3)
+            .getResult();
+    cacheType = cast<RankedTensorType>(v.getType());
+    sh = cacheType.getShape();
+  }
+  if (sh.size() == 4 && sh[0] == 1 && sh[1] == seq &&
+      (sh[2] == 1 || sh[2] == static_cast<int64_t>(numHeads)) &&
+      sh[3] == headDim) {
+    SmallVector<int64_t, 4> metalShape = {1, sh[2], seq, headDim};
+    auto metalType = reshapeTypePreservingLayout(cacheType, metalShape);
+    return builder
+        .create<PermuteOp>(loc, metalType, v,
+                           builder.getDenseI64ArrayAttr({0, 2, 1, 3}),
+                           /*pad_value=*/mlir::FloatAttr())
+        .getResult();
+  }
+  return v;
+}
+
 static Value unsqueezeRank3ToMetalInput(OpBuilder &builder, Location loc,
                                         Value input) {
   auto inputType = cast<RankedTensorType>(input.getType());
@@ -384,6 +430,13 @@ static void registerBuiltinComposites() {
         auto device = utils::getOrInsertDevice(builder, compositeOp);
         Location loc = compositeOp.getLoc();
         Value metalInput = unsqueezeRank3ToMetalInput(builder, loc, args.input);
+        Value metalCos = toMetalRopeCache(builder, loc, args.ropeCos, metalInput,
+                                          args.numHeadsPerDevice);
+        Value metalSin = toMetalRopeCache(builder, loc, args.ropeSin, metalInput,
+                                          args.numHeadsPerDevice);
+        // Weight is `[1, H]` from the TTIR fuser (reshaped before tilize).
+        // Do not TILE-reshape rank-1 γ here — that hoists into const-eval
+        // and host-crashes.
         MLIRContext *ctx = builder.getContext();
         auto computeConfig = DeviceComputeKernelConfigAttr::get(
             ctx, MathFidelity::HiFi4, BoolAttr::get(ctx, false),
@@ -391,8 +444,8 @@ static void registerBuiltinComposites() {
             /*dstFullSyncEn=*/nullptr);
         return builder.create<DitFusedDistributedRmsnormOp>(
             loc, compositeOp.getResultTypes(), metalInput, args.weight,
-            args.bias, args.transformationMat, args.ropeCos,
-            args.ropeSin, /*stats=*/Value(), /*semaphore=*/Value(),
+            args.bias, args.transformationMat, metalCos, metalSin,
+            /*stats=*/Value(), /*semaphore=*/Value(),
             device.getResult(), args.clusterAxis, args.epsilon,
             args.numHeadsPerDevice, args.perHeadNorm,
             /*sub_device_id=*/nullptr, builder.getUI32IntegerAttr(1),

@@ -14,11 +14,15 @@
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 
+#include "llvm/ADT/SmallVector.h"
+
 #include <atomic>
 
 namespace mlir::tt::ttir::fusing {
 
 namespace {
+
+constexpr int64_t kLlamaTransMatTile = 32;
 
 std::string getUniqueDecompName() {
   static std::atomic<uint64_t> counter{0};
@@ -75,10 +79,6 @@ bool matchMetalHeadsLayout(RankedTensorType inputType,
   return out[2] == batch * seq && out[3] == headDim;
 }
 
-// Metal `dit_fused_distributed_rmsnorm` reads `weight.logical_shape()[-2]`,
-// so γ must be rank >= 2 (`[1, H]` broadcast). Torch RMSNorm is `[H]`.
-// Rank-up here, before TTNNLayout, so tilize sees `[1, H]` (BatchNorm /
-// AdamW style). A TILE reshape of `[H]` at resolve/runtime is a host crash.
 Value unsqueezeRank1WeightToBroadcast(OpBuilder &builder, Location loc,
                                       Value weight) {
   auto type = mlir::cast<RankedTensorType>(weight.getType());
@@ -96,7 +96,6 @@ Value unsqueezeRank1WeightToBroadcast(OpBuilder &builder, Location loc,
       .getResult();
 }
 
-// Fallback decomp still uses `distributed_rms_norm`, which requires 1D γ.
 Value squeezeBroadcastWeightTo1D(OpBuilder &builder, Location loc,
                                  Value weight) {
   auto type = mlir::cast<RankedTensorType>(weight.getType());
@@ -114,14 +113,258 @@ Value squeezeBroadcastWeightTo1D(OpBuilder &builder, Location loc,
       .getResult();
 }
 
-func::FuncOp buildDecompFunc(OpBuilder &builder, Location loc,
-                             DistributedRMSNormOp rmsOp, Value compositeWeight,
-                             ArrayRef<Operation *> chain,
-                             RankedTensorType resultType) {
-  auto inputType = mlir::cast<RankedTensorType>(rmsOp.getInput().getType());
-  auto weightType = mlir::cast<RankedTensorType>(compositeWeight.getType());
+Value skipReshapeBroadcast(Value v) {
+  while (Operation *defOp = v.getDefiningOp()) {
+    if (isa<ReshapeOp, BroadcastOp>(defOp)) {
+      v = defOp->getOperand(0);
+      continue;
+    }
+    break;
+  }
+  return v;
+}
 
-  auto funcType = builder.getFunctionType({inputType, weightType}, {resultType});
+// The half-rotation form widens a `head_dim/2` cache to `head_dim` as
+// `cat(c, c)`. Metal wants the pair-interleaved `[c0, c0, c1, c1, ...]`
+// instead, which resolve builds from the narrow cache. Hand the narrow one
+// to the composite so that conversion has something to work with.
+Value unwrapDuplicatedHalfCache(Value v) {
+  v = skipReshapeBroadcast(v);
+  auto concat = dyn_cast_or_null<ConcatOp>(v.getDefiningOp());
+  if (!concat || concat.getInputs().size() != 2 ||
+      concat.getInputs()[0] != concat.getInputs()[1]) {
+    return v;
+  }
+  auto type = mlir::cast<RankedTensorType>(concat.getType());
+  if (concat.getDim() != type.getRank() - 1) {
+    return v;
+  }
+  return skipReshapeBroadcast(concat.getInputs()[0]);
+}
+
+std::optional<std::pair<int64_t, int64_t>>
+getSliceOnDim(SliceStaticOp sliceOp, int64_t targetDim) {
+  auto inputType = mlir::cast<RankedTensorType>(sliceOp.getInput().getType());
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  int64_t rank = inputType.getRank();
+  ArrayAttr begins = sliceOp.getBegins();
+  ArrayAttr ends = sliceOp.getEnds();
+  ArrayAttr steps = sliceOp.getStep();
+  if (static_cast<int64_t>(begins.size()) != rank) {
+    return std::nullopt;
+  }
+  for (int64_t i = 0; i < rank; ++i) {
+    int64_t begin = mlir::cast<IntegerAttr>(begins[i]).getInt();
+    int64_t end = mlir::cast<IntegerAttr>(ends[i]).getInt();
+    int64_t step = mlir::cast<IntegerAttr>(steps[i]).getInt();
+    if (step != 1) {
+      return std::nullopt;
+    }
+    if (i == targetDim) {
+      continue;
+    }
+    if (begin != 0 || end != inputShape[i]) {
+      return std::nullopt;
+    }
+  }
+  int64_t begin = mlir::cast<IntegerAttr>(begins[targetDim]).getInt();
+  int64_t end = mlir::cast<IntegerAttr>(ends[targetDim]).getInt();
+  return std::make_pair(begin, end);
+}
+
+// Llama 32x32 pair-rotation TILE used by metal fused RMS RoPE.
+Value createLlamaTransformationMat(OpBuilder &builder, Location loc,
+                                   Type elemType) {
+  auto matType = RankedTensorType::get(
+      {1, 1, kLlamaTransMatTile, kLlamaTransMatTile}, elemType);
+  SmallVector<APFloat> values(
+      kLlamaTransMatTile * kLlamaTransMatTile,
+      APFloat::getZero(APFloat::BFloat()));
+  APFloat one(APFloat::BFloat(), "1");
+  APFloat negOne(APFloat::BFloat(), "-1");
+  for (int64_t i = 0; i < kLlamaTransMatTile; i += 2) {
+    values[i * kLlamaTransMatTile + (i + 1)] = one;
+    values[(i + 1) * kLlamaTransMatTile + i] = negOne;
+  }
+  auto dense = DenseElementsAttr::get(matType, values);
+  return builder.create<ConstantOp>(loc, matType, dense).getResult();
+}
+
+struct HalfRotationRoPE {
+  SmallVector<Operation *> deinterleaveOps;
+  SmallVector<Operation *> ropeOps;
+  PermuteOp headsPermute;
+  Value deinterleaved;
+  Value cosCache;
+  Value sinCache;
+  AddOp addOp;
+  int64_t numHeads = 0;
+  int64_t seq = 0;
+  int64_t headDim = 0;
+};
+
+// RMS → reshape [1,S,H,D/2,2] → permute {0,1,2,4,3} → reshape [1,S,H,D].
+std::optional<HalfRotationRoPE>
+matchDeinterleave(DistributedRMSNormOp rmsOp, int64_t hidden) {
+  if (!rmsOp.getResult().hasOneUse()) {
+    return std::nullopt;
+  }
+  auto reshape5 = dyn_cast<ReshapeOp>(*rmsOp.getResult().getUsers().begin());
+  if (!reshape5) {
+    return std::nullopt;
+  }
+  auto s5 = mlir::cast<RankedTensorType>(reshape5.getType()).getShape();
+  if (s5.size() != 5 || s5[0] != 1 || s5[4] != 2) {
+    return std::nullopt;
+  }
+  int64_t seq = s5[1];
+  int64_t numHeads = s5[2];
+  int64_t halfDim = s5[3];
+  if (numHeads <= 1 || halfDim * 2 * numHeads != hidden) {
+    return std::nullopt;
+  }
+  if (!reshape5.getResult().hasOneUse()) {
+    return std::nullopt;
+  }
+  auto perm = dyn_cast<PermuteOp>(*reshape5.getResult().getUsers().begin());
+  if (!perm || perm.getPermutation() != ArrayRef<int64_t>({0, 1, 2, 4, 3})) {
+    return std::nullopt;
+  }
+  if (!perm.getResult().hasOneUse()) {
+    return std::nullopt;
+  }
+  auto reshape4 = dyn_cast<ReshapeOp>(*perm.getResult().getUsers().begin());
+  if (!reshape4) {
+    return std::nullopt;
+  }
+  auto s4 = mlir::cast<RankedTensorType>(reshape4.getType()).getShape();
+  if (s4.size() != 4 || s4[0] != 1 || s4[1] != seq || s4[2] != numHeads ||
+      s4[3] != halfDim * 2) {
+    return std::nullopt;
+  }
+  HalfRotationRoPE m;
+  m.deinterleaveOps = {reshape5, perm, reshape4};
+  m.deinterleaved = reshape4.getResult();
+  m.numHeads = numHeads;
+  m.seq = seq;
+  m.headDim = halfDim * 2;
+  return m;
+}
+
+// deinterleaved * cos + concat(-second, first) * sin
+bool matchRotateHalf(HalfRotationRoPE &m) {
+  MultiplyOp mulCos;
+  SliceStaticOp sliceFirst;
+  SliceStaticOp sliceSecond;
+  for (Operation *user : m.deinterleaved.getUsers()) {
+    if (auto mul = dyn_cast<MultiplyOp>(user)) {
+      if (!mulCos) {
+        mulCos = mul;
+      }
+      continue;
+    }
+    if (auto slice = dyn_cast<SliceStaticOp>(user)) {
+      auto range = getSliceOnDim(slice, /*targetDim=*/3);
+      if (!range) {
+        return false;
+      }
+      if (range->first == 0 && range->second == m.headDim / 2) {
+        sliceFirst = slice;
+      } else if (range->first == m.headDim / 2 && range->second == m.headDim) {
+        sliceSecond = slice;
+      }
+      continue;
+    }
+    return false;
+  }
+  if (!mulCos || !sliceFirst || !sliceSecond) {
+    return false;
+  }
+
+  Value cosOperand = mulCos.getLhs() == m.deinterleaved ? mulCos.getRhs()
+                                                        : mulCos.getLhs();
+  if (skipReshapeBroadcast(cosOperand) == skipReshapeBroadcast(m.deinterleaved)) {
+    return false;
+  }
+
+  if (!sliceSecond.getResult().hasOneUse()) {
+    return false;
+  }
+  auto neg = dyn_cast<NegOp>(*sliceSecond.getResult().getUsers().begin());
+  if (!neg || !neg.getResult().hasOneUse()) {
+    return false;
+  }
+  auto concat = dyn_cast<ConcatOp>(*neg.getResult().getUsers().begin());
+  if (!concat || concat.getDim() != 3 || concat.getInputs().size() != 2) {
+    return false;
+  }
+  if (concat.getInputs()[0] != neg.getResult() ||
+      concat.getInputs()[1] != sliceFirst.getResult()) {
+    return false;
+  }
+  if (!concat.getResult().hasOneUse()) {
+    return false;
+  }
+  auto mulSin = dyn_cast<MultiplyOp>(*concat.getResult().getUsers().begin());
+  if (!mulSin) {
+    return false;
+  }
+  Value sinOperand = mulSin.getLhs() == concat.getResult() ? mulSin.getRhs()
+                                                           : mulSin.getLhs();
+
+  AddOp addOp;
+  for (Operation *user : mulCos.getResult().getUsers()) {
+    if (auto add = dyn_cast<AddOp>(user)) {
+      if (add.getLhs() == mulSin.getResult() ||
+          add.getRhs() == mulSin.getResult()) {
+        addOp = add;
+        break;
+      }
+    }
+  }
+  if (!addOp) {
+    for (Operation *user : mulSin.getResult().getUsers()) {
+      if (auto add = dyn_cast<AddOp>(user)) {
+        if (add.getLhs() == mulCos.getResult() ||
+            add.getRhs() == mulCos.getResult()) {
+          addOp = add;
+          break;
+        }
+      }
+    }
+  }
+  if (!addOp) {
+    return false;
+  }
+
+  m.cosCache = unwrapDuplicatedHalfCache(cosOperand);
+  m.sinCache = unwrapDuplicatedHalfCache(sinOperand);
+  m.addOp = addOp;
+  // `addOp` is deliberately absent: it is the tail of the subgraph, so one of
+  // the two rewrite branches always hands it to `replaceOp`, which frees it.
+  // Keeping it here would leave a dangling pointer for `eraseOpsIfDead`.
+  m.ropeOps = {mulCos, sliceFirst, sliceSecond, neg, concat, mulSin};
+
+  if (addOp.getResult().hasOneUse()) {
+    if (auto perm = dyn_cast<PermuteOp>(*addOp.getResult().getUsers().begin())) {
+      if (perm.getPermutation() == ArrayRef<int64_t>({0, 2, 1, 3})) {
+        auto outTy = mlir::cast<RankedTensorType>(perm.getType());
+        if (outTy.getShape() ==
+            ArrayRef<int64_t>({1, m.numHeads, m.seq, m.headDim})) {
+          m.headsPermute = perm;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+func::FuncOp buildHeadsDecompFunc(OpBuilder &builder, Location loc,
+                                  DistributedRMSNormOp rmsOp, Value weight,
+                                  ArrayRef<Type> inputTypes,
+                                  RankedTensorType resultType,
+                                  int64_t numHeads) {
+  auto funcType = builder.getFunctionType(inputTypes, {resultType});
   auto funcOp = func::FuncOp::create(loc, getUniqueDecompName(), funcType);
   funcOp.setVisibility(SymbolTable::Visibility::Private);
   funcOp->setAttr(utils::kCompositeDecompositionAttr,
@@ -132,22 +375,72 @@ func::FuncOp buildDecompFunc(OpBuilder &builder, Location loc,
   fb.setInsertionPointToStart(block);
 
   Value input = block->getArgument(0);
-  Value weight =
-      squeezeBroadcastWeightTo1D(fb, loc, block->getArgument(1));
-
+  Value w = squeezeBroadcastWeightTo1D(fb, loc, block->getArgument(1));
   auto rms = fb.create<DistributedRMSNormOp>(
-      loc, rmsOp.getType(), input, weight, /*residual=*/Value(),
+      loc, rmsOp.getType(), input, w, /*residual=*/Value(),
       rmsOp.getClusterAxisAttr(), rmsOp.getEpsilonAttr());
 
-  IRMapping mapping;
-  mapping.map(rmsOp.getResult(), rms.getResult());
-  Value last = rms.getResult();
-  for (Operation *op : chain) {
-    Operation *cloned = fb.clone(*op, mapping);
-    last = cloned->getResult(0);
+  auto rmsType = mlir::cast<RankedTensorType>(rms.getType());
+  ArrayRef<int64_t> in = rmsType.getShape();
+  int64_t seq = in.size() == 3 ? in[1] : in[2];
+  int64_t hidden = in.back();
+  int64_t headDim = hidden / numHeads;
+  SmallVector<int64_t, 4> seqMajor = {1, seq, numHeads, headDim};
+  SmallVector<int32_t, 4> seqMajorI32 = {
+      1, static_cast<int32_t>(seq), static_cast<int32_t>(numHeads),
+      static_cast<int32_t>(headDim)};
+  auto seqMajorType =
+      RankedTensorType::get(seqMajor, rmsType.getElementType());
+  Value reshaped =
+      fb.create<ReshapeOp>(loc, seqMajorType, rms.getResult(),
+                           fb.getI32ArrayAttr(seqMajorI32))
+          .getResult();
+
+  auto resultShape = resultType.getShape();
+  if (resultShape == ArrayRef<int64_t>(seqMajor)) {
+    fb.create<func::ReturnOp>(loc, ValueRange{reshaped});
+    return funcOp;
   }
+  Value last =
+      fb.create<PermuteOp>(loc, resultType, reshaped,
+                           ArrayRef<int64_t>({0, 2, 1, 3}))
+          .getResult();
   fb.create<func::ReturnOp>(loc, ValueRange{last});
   return funcOp;
+}
+
+ttcore::CompositeOp
+emitComposite(PatternRewriter &rewriter, Location loc,
+              DistributedRMSNormOp rmsOp, Value weight,
+              ArrayRef<Value> extraInputs, RankedTensorType resultType,
+              int64_t numHeads, bool hasRope, func::FuncOp decompFunc) {
+  SmallVector<NamedAttribute> attrs = {
+      rewriter.getNamedAttr("cluster_axis",
+                            rewriter.getI32IntegerAttr(static_cast<int32_t>(
+                                rmsOp.getClusterAxis()))),
+      rewriter.getNamedAttr("epsilon", rmsOp.getEpsilonAttr()),
+      rewriter.getNamedAttr("num_heads_per_device",
+                            rewriter.getI32IntegerAttr(
+                                static_cast<int32_t>(numHeads))),
+      rewriter.getNamedAttr("per_head_norm", rewriter.getBoolAttr(false)),
+      rewriter.getNamedAttr("has_bias", rewriter.getBoolAttr(false)),
+      rewriter.getNamedAttr("has_rope", rewriter.getBoolAttr(hasRope)),
+  };
+  SmallVector<Value> inputs = {rmsOp.getInput(), weight};
+  inputs.append(extraInputs.begin(), extraInputs.end());
+  return rewriter.create<ttcore::CompositeOp>(
+      loc, TypeRange{resultType}, inputs,
+      rewriter.getStringAttr("dit_fused_distributed_rmsnorm"),
+      FlatSymbolRefAttr::get(rewriter.getContext(), decompFunc.getName()),
+      DictionaryAttr::get(rewriter.getContext(), attrs));
+}
+
+void eraseOpsIfDead(PatternRewriter &rewriter, ArrayRef<Operation *> ops) {
+  for (Operation *op : llvm::reverse(ops)) {
+    if (op && op->use_empty()) {
+      rewriter.eraseOp(op);
+    }
+  }
 }
 
 } // namespace
@@ -170,6 +463,73 @@ mlir::LogicalResult DitFusedDistributedRmsnormFusingPattern::matchAndRewrite(
         srcOp, "hidden dim must be a multiple of tile height");
   }
 
+  Value metalWeight = unsqueezeRank1WeightToBroadcast(
+      rewriter, srcOp.getLoc(), srcOp.getWeight());
+  auto moduleOp = srcOp->getParentOfType<ModuleOp>();
+  OpBuilder moduleBuilder(moduleOp.getContext());
+  moduleBuilder.setInsertionPointToEnd(moduleOp.getBody());
+
+  int64_t hidden = inputType.getShape().back();
+  if (auto rope = matchDeinterleave(srcOp, hidden);
+      rope && matchRotateHalf(*rope)) {
+    RankedTensorType metalOutType = RankedTensorType::get(
+        {1, rope->numHeads, rope->seq, rope->headDim},
+        inputType.getElementType());
+    Value transMat = createLlamaTransformationMat(
+        rewriter, srcOp.getLoc(), inputType.getElementType());
+    SmallVector<Value> extra = {rope->cosCache, rope->sinCache, transMat};
+    SmallVector<Type> decompInputs = {
+        inputType, mlir::cast<RankedTensorType>(metalWeight.getType()),
+        mlir::cast<RankedTensorType>(rope->cosCache.getType()),
+        mlir::cast<RankedTensorType>(rope->sinCache.getType()),
+        mlir::cast<RankedTensorType>(transMat.getType())};
+    auto decompFunc =
+        buildHeadsDecompFunc(moduleBuilder, srcOp.getLoc(), srcOp, metalWeight,
+                             decompInputs, metalOutType, rope->numHeads);
+    moduleBuilder.insert(decompFunc);
+
+    // The rewriter is positioned at the anchor (the RMS norm), but the cos/sin
+    // caches are materialized further down the block. Emit the composite where
+    // the subgraph ends so its operands dominate it.
+    rewriter.setInsertionPoint(rope->headsPermute
+                                   ? rope->headsPermute.getOperation()
+                                   : rope->addOp.getOperation());
+
+    if (rope->headsPermute) {
+      auto composite =
+          emitComposite(rewriter, rope->headsPermute.getLoc(), srcOp,
+                        metalWeight, extra, metalOutType, rope->numHeads,
+                        /*hasRope=*/true, decompFunc);
+      rewriter.replaceOp(rope->headsPermute, composite.getResults());
+      // The permute was the only user of the add. Erase it ahead of `ropeOps`
+      // so its operands are already unused when they are visited.
+      if (rope->addOp->use_empty()) {
+        rewriter.eraseOp(rope->addOp);
+      }
+    } else {
+      auto composite = emitComposite(
+          rewriter, rope->addOp.getLoc(), srcOp, metalWeight, extra,
+          metalOutType, rope->numHeads, /*hasRope=*/true, decompFunc);
+      SmallVector<int64_t, 4> seqMajor = {1, rope->seq, rope->numHeads,
+                                          rope->headDim};
+      auto seqMajorType = RankedTensorType::get(seqMajor,
+                                                inputType.getElementType());
+      Value seqMajorVal =
+          rewriter
+              .create<PermuteOp>(rope->addOp.getLoc(), seqMajorType,
+                                 composite.getResult(0),
+                                 ArrayRef<int64_t>({0, 2, 1, 3}))
+              .getResult();
+      rewriter.replaceOp(rope->addOp, seqMajorVal);
+    }
+    eraseOpsIfDead(rewriter, rope->ropeOps);
+    eraseOpsIfDead(rewriter, rope->deinterleaveOps);
+    if (srcOp->use_empty()) {
+      rewriter.eraseOp(srcOp);
+    }
+    return success();
+  }
+
   SmallVector<Operation *> chain =
       collectReshapePermuteChain(srcOp.getResult());
   if (chain.empty()) {
@@ -185,42 +545,18 @@ mlir::LogicalResult DitFusedDistributedRmsnormFusingPattern::matchAndRewrite(
         srcOp, "reshape/permute chain must produce [1, heads, seq, head_dim]");
   }
 
-  Value metalWeight = unsqueezeRank1WeightToBroadcast(
-      rewriter, srcOp.getLoc(), srcOp.getWeight());
-
-  auto moduleOp = srcOp->getParentOfType<ModuleOp>();
-  OpBuilder moduleBuilder(moduleOp.getContext());
-  moduleBuilder.setInsertionPointToEnd(moduleOp.getBody());
-  auto decompFunc = buildDecompFunc(moduleBuilder, srcOp.getLoc(), srcOp,
-                                    metalWeight, chain, resultType);
+  SmallVector<Type> decompInputs = {
+      inputType, mlir::cast<RankedTensorType>(metalWeight.getType())};
+  auto decompFunc =
+      buildHeadsDecompFunc(moduleBuilder, srcOp.getLoc(), srcOp, metalWeight,
+                           decompInputs, resultType, numHeads);
   moduleBuilder.insert(decompFunc);
 
-  SmallVector<NamedAttribute> attrs = {
-      rewriter.getNamedAttr("cluster_axis",
-                            rewriter.getI32IntegerAttr(static_cast<int32_t>(
-                                srcOp.getClusterAxis()))),
-      rewriter.getNamedAttr("epsilon", srcOp.getEpsilonAttr()),
-      rewriter.getNamedAttr("num_heads_per_device",
-                            rewriter.getI32IntegerAttr(
-                                static_cast<int32_t>(numHeads))),
-      rewriter.getNamedAttr("per_head_norm", rewriter.getBoolAttr(false)),
-      rewriter.getNamedAttr("has_bias", rewriter.getBoolAttr(false)),
-      rewriter.getNamedAttr("has_rope", rewriter.getBoolAttr(false)),
-  };
-
-  SmallVector<Value> inputs = {srcOp.getInput(), metalWeight};
-  auto composite = rewriter.create<ttcore::CompositeOp>(
-      lastOp->getLoc(), TypeRange{resultType}, inputs,
-      rewriter.getStringAttr("dit_fused_distributed_rmsnorm"),
-      FlatSymbolRefAttr::get(rewriter.getContext(), decompFunc.getName()),
-      DictionaryAttr::get(rewriter.getContext(), attrs));
-
+  auto composite =
+      emitComposite(rewriter, lastOp->getLoc(), srcOp, metalWeight, {},
+                    resultType, numHeads, /*hasRope=*/false, decompFunc);
   rewriter.replaceOp(lastOp, composite.getResults());
-  for (Operation *op : llvm::reverse(chain)) {
-    if (op != lastOp && op->use_empty()) {
-      rewriter.eraseOp(op);
-    }
-  }
+  eraseOpsIfDead(rewriter, chain);
   if (srcOp->use_empty()) {
     rewriter.eraseOp(srcOp);
   }

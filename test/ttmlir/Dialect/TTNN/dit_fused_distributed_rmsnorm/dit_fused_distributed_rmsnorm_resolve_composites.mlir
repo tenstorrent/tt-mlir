@@ -26,6 +26,51 @@ module {
     return %0 : tensor<1x10x4096x128xbf16>
   }
 
+  // RoPE form: cos/sin arrive as the narrow `[1, N, 1, head_dim/2]` table in
+  // seq-major order. They must be pair-interleaved to `head_dim` and permuted
+  // to metal's `[1, 1, N, head_dim]` before the typed op.
+  // CHECK-LABEL: func.func @wan_qk_rms_rope_heads
+  func.func @wan_qk_rms_rope_heads(
+      %arg0: tensor<1x4096x1280xbf16>, %arg1: tensor<1x1280xbf16>,
+      %cos: tensor<1x4096x1x64xbf16>, %sin: tensor<1x4096x1x64xbf16>,
+      %tm: tensor<1x1x32x32xbf16>) -> tensor<1x10x4096x128xbf16> {
+    // CHECK: "ttnn.repeat_interleave"
+    // CHECK-SAME: dim = 3 : si32, repeats = 2 : ui32
+    // CHECK-SAME: -> tensor<1x4096x1x128
+    // CHECK: "ttnn.permute"
+    // CHECK-SAME: permutation = array<i64: 0, 2, 1, 3>
+    // CHECK-SAME: -> tensor<1x1x4096x128
+    // CHECK: "ttnn.repeat_interleave"
+    // CHECK-SAME: dim = 3 : si32, repeats = 2 : ui32
+    // CHECK-SAME: -> tensor<1x4096x1x128
+    // CHECK: "ttnn.permute"
+    // CHECK-SAME: permutation = array<i64: 0, 2, 1, 3>
+    // CHECK-SAME: -> tensor<1x1x4096x128
+    // CHECK: "ttnn.dit_fused_distributed_rmsnorm"
+    // CHECK-SAME: num_heads_per_device = 10
+    // CHECK-NOT: "ttcore.composite"
+    %0 = "ttcore.composite"(%arg0, %arg1, %cos, %sin, %tm)
+        <{composite_name = "dit_fused_distributed_rmsnorm",
+          decomposition = @dit_fused_distributed_rmsnorm_rope_decomp,
+          composite_attributes = {cluster_axis = 1 : i32, epsilon = 1.000000e-05 : f32, num_heads_per_device = 10 : i32, per_head_norm = false, has_bias = false, has_rope = true}}>
+        : (tensor<1x4096x1280xbf16>, tensor<1x1280xbf16>, tensor<1x4096x1x64xbf16>, tensor<1x4096x1x64xbf16>, tensor<1x1x32x32xbf16>) -> tensor<1x10x4096x128xbf16>
+    return %0 : tensor<1x10x4096x128xbf16>
+  }
+
+  func.func private @dit_fused_distributed_rmsnorm_rope_decomp(
+      %arg0: tensor<1x4096x1280xbf16>,
+      %arg1: tensor<1x1280xbf16>,
+      %arg2: tensor<1x4096x1x64xbf16>,
+      %arg3: tensor<1x4096x1x64xbf16>,
+      %arg4: tensor<1x1x32x32xbf16>
+  ) -> tensor<1x10x4096x128xbf16> {
+    %w = "ttir.reshape"(%arg1) <{shape = [1280 : i32]}> : (tensor<1x1280xbf16>) -> tensor<1280xbf16>
+    %0 = "ttir.distributed_rms_norm"(%arg0, %w) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<1x4096x1280xbf16>, tensor<1280xbf16>) -> tensor<1x4096x1280xbf16>
+    %1 = "ttir.reshape"(%0) <{shape = [1 : i32, 4096 : i32, 10 : i32, 128 : i32]}> : (tensor<1x4096x1280xbf16>) -> tensor<1x4096x10x128xbf16>
+    %2 = "ttir.permute"(%1) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x4096x10x128xbf16>) -> tensor<1x10x4096x128xbf16>
+    return %2 : tensor<1x10x4096x128xbf16>
+  }
+
   func.func private @dit_fused_distributed_rmsnorm_decomp(
       %arg0: tensor<1x4096x1280xbf16>,
       %arg1: tensor<1x1280xbf16>
