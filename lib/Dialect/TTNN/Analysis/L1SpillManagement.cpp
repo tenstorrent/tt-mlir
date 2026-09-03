@@ -977,9 +977,8 @@ bool L1SpillManagementBase<MemoryTracker>::evictValue(
       // positionMap, which can rehash and invalidate posIt.
       int64_t consumerPos = posIt->second;
       bool isPastConsumer = consumerPos < pos;
-      // A DRAM-sharded matmul requires L1 width-sharded in0; probing it after a
-      // spill would abort uncatchably, so force the reshard instead of
-      // validating.
+      // Force the reshard for a DS matmul rather than validating it (see
+      // isDRAMShardedMatmul).
       bool needsReshard = isPastConsumer || isDRAMShardedMatmul(consumer);
       if (!needsReshard) {
         auto consumerInputs = utils::extractInputLayouts(consumer);
@@ -1276,9 +1275,8 @@ uint64_t AddressSimSpillManagement<MemoryTracker>::handleFragmentation(
   // Eviction was exhausted (op's own output won't fit / CB still overlaps).
   // Demote this op's output to DRAM rather than ship a clashing layout.
   if (!fitsAfterEviction) {
-    // Never demote a DRAM-sharded matmul's output: tt-metal requires a sharded
-    // output config. evictUntil folds two distinct failure modes into this one
-    // flag, and for a DS matmul they need opposite handling.
+    // evictUntil folds two distinct failure modes into this one flag, and for a
+    // DS matmul they need opposite handling (see isDRAMShardedMatmul).
     if (isDRAMShardedMatmul(op)) {
       auto freshOutputAddr = memoryTracker.wouldAllocateAt(outputL1Size);
       if (!freshOutputAddr) {
@@ -1337,11 +1335,10 @@ uint64_t AddressSimSpillManagement<MemoryTracker>::handleFragmentation(
     return freshL1;
   }
 
-  // A DRAM-sharded matmul must never be pushed all-DRAM: it requires L1
-  // width-sharded in0 and a sharded output. The homogeneous-spill + demote
-  // fallback below is for concat-like ops; applying it here would invalidate
-  // the DS config. Its in0 is restored to L1 by the eviction reshard path, and
-  // its raw CB fits, so keep it L1-sharded.
+  // The homogeneous-spill + demote fallback below is for concat-like ops and
+  // would invalidate a DS config (see isDRAMShardedMatmul). A DS matmul's in0
+  // is restored to L1 by the eviction reshard path and its raw CB fits, so keep
+  // it L1-sharded.
   if (isDRAMShardedMatmul(op)) {
     TTMLIR_DEBUG(
         ttmlir::LogComponent::GreedyOptimizer,
