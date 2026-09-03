@@ -285,6 +285,34 @@ at::Tensor &tt_sum_out(const at::Tensor &self, at::OptionalIntArrayRef dim, bool
     return write_result_into(out, result);
 }
 
+at::Tensor &tt_linalg_vector_norm_out(const at::Tensor &self, const at::Scalar &ord, at::OptionalIntArrayRef dim,
+                                      bool keepdim, std::optional<at::ScalarType> dtype, at::Tensor &out) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::linalg_vector_norm.out: tensor must be on tt backend");
+    TORCH_CHECK(ord.toDouble() == 2.0, "tt-kurbla aten::linalg_vector_norm.out: only ord=2 is supported, got ",
+                ord.toDouble());
+
+    llvm::SmallVector<int64_t> reduce_dims;
+    if (dim.has_value()) {
+        reduce_dims.assign(dim.value().begin(), dim.value().end());
+    }
+
+    // `dtype` asks for the norm to be accumulated in another type.
+    const auto target_dtype = dtype.value_or(out.scalar_type());
+
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    mlir::Value in = mb.args()[0];
+    if (self.scalar_type() != target_dtype) {
+        in = mb.insert_typecast(in, mlir_element_type_for(target_dtype));
+    }
+    auto result_v = build_vector_norm(mb, in, reduce_dims, keepdim);
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result_v.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result_v});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    auto result = wrap_tt_tensor(std::move(outputs[0]), out_shape, target_dtype);
+    return write_result_into(out, result);
+}
+
 // mse_loss_backward: `grad_output * 2 * (self - target) / N`. Functional (no
 // out=), so it returns a fresh tensor. `grad_output` is the rank-0 loss grad.
 at::Tensor tt_mse_loss_backward(const at::Tensor &grad_output_in, const at::Tensor &self_in,
@@ -1161,6 +1189,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("gelu", TORCH_FN(tt_gelu));
     m.impl("_softmax", TORCH_FN(tt_softmax));
     m.impl("sum.IntList_out", TORCH_FN(tt_sum_out));
+    m.impl("linalg_vector_norm.out", TORCH_FN(tt_linalg_vector_norm_out));
     m.impl("threshold_backward.grad_input", TORCH_FN(tt_threshold_backward_out));
     m.impl("mse_loss.out", TORCH_FN(tt_mse_loss_out));
     m.impl("mse_loss_backward", TORCH_FN(tt_mse_loss_backward));

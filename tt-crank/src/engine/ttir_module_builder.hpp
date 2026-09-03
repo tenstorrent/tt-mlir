@@ -188,6 +188,11 @@ TT_KURBLA_API mlir::Value build_cumsum(ModuleBuilder &mb, mlir::Value input, int
 // the shapes already agree.
 TT_KURBLA_API mlir::Value build_sum_to(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> target);
 
+// Emit TTIR for the Euclidean (ord=2) vector norm `sqrt(sum(input * input))`
+// over `dims`
+TT_KURBLA_API mlir::Value build_vector_norm(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims,
+                                            bool keepdim);
+
 // Emit TTIR for `grad_output * (self > threshold)`. `grad_output` and `self`
 // must share shape and element type. The `self > threshold` mask is computed
 // at `self`'s element type, then cast to the gradient's element type so the

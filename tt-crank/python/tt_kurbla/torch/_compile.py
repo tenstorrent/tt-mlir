@@ -147,6 +147,13 @@ def _(mb, x, dim, keepdim=False, *, dtype=None):
     return mb.sum(x, list(dim), keepdim)
 
 
+@_lowering(_aten.linalg_vector_norm.default)
+def _(mb, x, ord=2, dim=None, keepdim=False, *, dtype=None):
+    if ord != 2:
+        raise NotImplementedError(f"tt-kurbla compile: linalg_vector_norm only supports ord=2, got {ord}")
+    return mb.vector_norm(x, [] if dim is None else [int(d) for d in dim], keepdim)
+
+
 # any's three overloads differ only in how the reduced dims are spelled: none at
 # all (reduce everything), one int, or an optional list where None again means
 # everything. mb.any takes the normalized list, with [] for the full reduction.

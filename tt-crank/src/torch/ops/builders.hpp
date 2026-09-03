@@ -138,6 +138,7 @@ using ::tt::kurbla::build_threshold_backward;
 using ::tt::kurbla::build_transpose;
 using ::tt::kurbla::build_tril;
 using ::tt::kurbla::build_unsqueeze;
+using ::tt::kurbla::build_vector_norm;
 using ::tt::kurbla::build_where;
 using ::tt::kurbla::build_zeros;
 using ::tt::kurbla::scale_tensor;
