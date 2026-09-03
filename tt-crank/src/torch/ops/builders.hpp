@@ -77,6 +77,7 @@ using ::tt::kurbla::build_cos;
 using ::tt::kurbla::build_cumsum;
 using ::tt::kurbla::build_div;
 using ::tt::kurbla::build_embedding;
+using ::tt::kurbla::build_embedding_backward;
 using ::tt::kurbla::build_eq;
 using ::tt::kurbla::build_exp;
 using ::tt::kurbla::build_floor_divide;

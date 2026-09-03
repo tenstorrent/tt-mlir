@@ -508,6 +508,14 @@ public:
         return tk::build_embedding(*mb_, indices, weight);
     }
 
+    // Embedding weight gradient — same intentional dtype mismatch as `embedding`.
+    // `num_weights` sizes the result: aten passes the row count, not the table.
+    mlir::Value embedding_backward(mlir::Value grad_output, mlir::Value indices, int64_t num_weights,
+                                   int64_t padding_idx) {
+        assert_builder();
+        return tk::build_embedding_backward(*mb_, indices, grad_output, num_weights, padding_idx);
+    }
+
     // Comparison
     mlir::Value le(mlir::Value lhs, mlir::Value rhs) {
         assert_builder();
@@ -858,6 +866,8 @@ NB_MODULE(_native, m) {
         .def("linear_backward", &PyModuleBuilder::linear_backward, "self"_a, "grad"_a, "weight"_a, "need_self"_a,
              "need_weight"_a, "need_bias"_a)
         .def("embedding", &PyModuleBuilder::embedding, "weight"_a, "indices"_a)
+        .def("embedding_backward", &PyModuleBuilder::embedding_backward, "grad_output"_a, "indices"_a, "num_weights"_a,
+             "padding_idx"_a)
         .def("le", &PyModuleBuilder::le, "lhs"_a, "rhs"_a)
         .def("lt", &PyModuleBuilder::lt, "lhs"_a, "rhs"_a)
         .def("gt", &PyModuleBuilder::gt, "lhs"_a, "rhs"_a)
