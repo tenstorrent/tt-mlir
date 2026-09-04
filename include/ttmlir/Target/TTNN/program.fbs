@@ -153,7 +153,6 @@ union OpType {
   ToMemoryConfigOp,
   TransposeOp,
   TypecastOp,
-  UpdateCacheOp,
   UpsampleOp,
   WriteTensorOp,
   DumpTensorOp,

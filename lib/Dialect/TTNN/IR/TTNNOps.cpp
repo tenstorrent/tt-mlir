@@ -4937,59 +4937,6 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
-// UpdateCacheOp
-//===----------------------------------------------------------------------===//
-
-::mlir::LogicalResult UpdateCacheOp::verify() {
-  const ::mlir::RankedTensorType cacheType = getCache().getType();
-  const ::mlir::RankedTensorType inputType = getInput().getType();
-
-  const ::mlir::tt::ttcore::DataType cacheDataType =
-      ::mlir::tt::ttcore::elementTypeToDataType(cacheType.getElementType());
-  const ::mlir::tt::ttcore::DataType inputDataType =
-      ::mlir::tt::ttcore::elementTypeToDataType(inputType.getElementType());
-
-  if (cacheDataType != inputDataType) {
-    return emitOpError(
-        "Cache and input tensors must have the same dtype. "
-        "Got cache dtype = " +
-        DataTypeEnumToString(cacheDataType) +
-        ", input dtype = " + DataTypeEnumToString(inputDataType));
-  }
-
-  if (cacheType.getRank() != 4) {
-    return emitOpError("Cache tensor must be a 4D tensor");
-  }
-
-  if (inputType.getRank() != 4) {
-    return emitOpError("Input tensor must be a 4D tensor");
-  }
-
-  if (inputType.getShape()[0] != 1) {
-    return emitOpError("Input tensor requires that dim 0 have size 1, got "
-                       "input dim 0 size = " +
-                       std::to_string(inputType.getShape()[0]));
-  }
-
-  if (cacheType.getShape()[1] != inputType.getShape()[1] ||
-      cacheType.getShape()[3] != inputType.getShape()[3]) {
-    return emitOpError("Cache tensor shape must match input tensor shape on "
-                       "dims 1 and 3. Got cache shape (" +
-                       std::to_string(cacheType.getShape()[0]) + ", " +
-                       std::to_string(cacheType.getShape()[1]) + ", " +
-                       std::to_string(cacheType.getShape()[2]) + ", " +
-                       std::to_string(cacheType.getShape()[3]) +
-                       "), input shape ()" +
-                       std::to_string(inputType.getShape()[0]) + "x" +
-                       std::to_string(inputType.getShape()[1]) + "x" +
-                       std::to_string(inputType.getShape()[2]) + "x" +
-                       std::to_string(inputType.getShape()[3]) + ")");
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // PagedUpdateCacheOp
 //===----------------------------------------------------------------------===//
 

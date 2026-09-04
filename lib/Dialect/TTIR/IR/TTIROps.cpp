@@ -13,7 +13,6 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTIR/Utils/VerificationUtils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/CommonFolders.h"
@@ -5890,51 +5889,6 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   return success();
 }
 
-void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  patterns.add(
-      +[](mlir::tt::ttir::UpdateCacheOp op, mlir::PatternRewriter &rewriter) {
-        auto cacheShape = op.getCache().getType().getShape();
-        auto inputShape = op.getInput().getType().getShape();
-        auto updateIndexShape = op.getUpdateIndex().getType().getShape();
-
-        auto numUsers = cacheShape[0];
-        auto numHeads = cacheShape[1];
-        auto headDim = cacheShape[3];
-
-        TypedValue<RankedTensorType> newInput = op.getInput();
-
-        // Permute input if in the format [1, num_heads, num_users, head_dim]
-        if (inputShape[2] == numUsers && inputShape[1] == numHeads) {
-          llvm::SmallVector<int64_t> newInputShape = {1, numUsers, numHeads,
-                                                      headDim};
-          auto newInputType = RankedTensorType::get(
-              newInputShape, newInput.getType().getElementType(),
-              newInput.getType().getEncoding());
-          newInput = rewriter.create<PermuteOp>(
-              op.getLoc(), newInputType, newInput,
-              rewriter.getDenseI64ArrayAttr({0, 2, 1, 3}));
-        }
-
-        // If the update index shape is [1] then repeat to num users
-        TypedValue<RankedTensorType> newUpdateIndex = op.getUpdateIndex();
-        if (updateIndexShape[0] == 1) {
-          auto newUpdateIndexShape = {numUsers};
-          auto newUpdateIndexType = RankedTensorType::get(
-              newUpdateIndexShape, newUpdateIndex.getType().getElementType(),
-              newUpdateIndex.getType().getEncoding());
-          auto repeatDims = rewriter.getDenseI64ArrayAttr({numUsers});
-          newUpdateIndex = rewriter.create<RepeatOp>(
-              op.getLoc(), newUpdateIndexType, newUpdateIndex, repeatDims);
-        }
-
-        rewriter.replaceOpWithNewOp<ttir::PagedUpdateCacheOp>(
-            op, op.getCache(), newInput, newUpdateIndex, false, nullptr);
-
-        return mlir::success();
-      });
-}
-
 //===----------------------------------------------------------------------===//
 // PagedUpdateCacheOp
 //===----------------------------------------------------------------------===//
@@ -5962,14 +5916,8 @@ void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
     return emitOpError("Update index tensor must be a 1D tensor");
   }
 
-  int64_t blockSize = cacheShape[2];
   int64_t headDim = cacheShape[3];
   int64_t numUsers = updateIndexShape[0];
-
-  if (!usingStaticCache && blockSize % ttnn::TILE_HEIGHT != 0) {
-    return emitOpError("Block size must be divisible by 32, got " +
-                       std::to_string(blockSize));
-  }
 
   if (inputShape[0] != 1) {
     return emitOpError("Input tensor must have dim 0 be equal to 1, got " +
@@ -6189,13 +6137,7 @@ void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
 
   int64_t numCacheHeads = cacheShape[1];
   int64_t numInputHeads = inputShape[1];
-  int64_t blockSize = cacheShape[2];
   int64_t headDim = cacheShape[3];
-
-  if (blockSize % 32 != 0) {
-    return emitOpError("Block size must be divisible by 32, got " +
-                       std::to_string(blockSize));
-  }
 
   if (numInputHeads != numCacheHeads) {
     return emitOpError(
