@@ -3348,16 +3348,20 @@ public:
   }
 };
 
-// Strips the reshape/broadcast chain off an affine parameter and returns the
-// source value when it is per-channel over a trailing dimension of size
-// `channelSize`, i.e. size-1 on every dimension but the last. Creates no IR, so
-// a caller can validate every operand before committing to the rewrite.
+// Strips layout ops off an affine parameter and returns the source when it is
+// per-channel over a trailing dimension of size `channelSize` (size-1 on every
+// dimension but the last). Creates no IR, so a caller can validate every
+// operand before committing to the rewrite.
+//
+// Graph A AdaLN broadcasts `(1+scale)` / `shift` to the activation, often
+// through reshape, repeat (from ReshapeBroadcastReshapeToRepeat), and a
+// typecast after the broadcast. Precision is restored later by
+// `prepareNormAffineParam` to the norm's element type.
 static std::optional<mlir::Value>
 stripToPerChannelAffineParam(mlir::Value value, int64_t channelSize) {
-  // Typecasts are deliberately not traversed: folding across one would
-  // silently change the precision the affine is evaluated in.
   value = utils::lookThroughLayoutOpsIf(value, [](mlir::Operation *op) {
-    return mlir::isa<ReshapeOp, BroadcastOp>(op);
+    return mlir::isa<ReshapeOp, BroadcastOp, RepeatOp, RepeatInterleaveOp,
+                     TypecastOp>(op);
   });
 
   llvm::ArrayRef<int64_t> shape =
@@ -3372,15 +3376,16 @@ stripToPerChannelAffineParam(mlir::Value value, int64_t channelSize) {
   return value;
 }
 
-// Walks backward from `value` through typecasts to the defining op of type
-// OpTy. Every op traversed, and the result itself, must have exactly one use:
-// fusing a chain with an outside consumer would leave the original ops live and
-// recompute the producer.
+// Walks backward from `value` through single-use typecasts/reshapes to the
+// defining op of type OpTy. Every op traversed, and the result itself, must
+// have exactly one use: fusing a chain with an outside consumer would leave
+// the original ops live and recompute the producer.
 template <typename OpTy>
 static OpTy findSingleUseOpThroughTypecasts(mlir::Value value) {
   OpTy op = utils::findOpThroughLayoutOpsIf<OpTy>(
       value, [](mlir::Operation *layoutOp) {
-        return mlir::isa<TypecastOp>(layoutOp) && layoutOp->hasOneUse();
+        return mlir::isa<TypecastOp, ReshapeOp>(layoutOp) &&
+               layoutOp->hasOneUse();
       });
   return op && op->hasOneUse() ? op : nullptr;
 }
@@ -3502,9 +3507,10 @@ fuseTrailingAffineIntoNorm(AddOp addOp, MultiplyOp mul, mlir::Value weightRaw,
 }
 
 class LayerNormAffineFusionPattern : public mlir::OpRewritePattern<AddOp> {
-  using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
-
 public:
+  LayerNormAffineFusionPattern(MLIRContext *context)
+      : OpRewritePattern<AddOp>(context, /*benefit=*/3) {}
+
   mlir::LogicalResult
   matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
     MultiplyOp mul =

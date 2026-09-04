@@ -348,10 +348,10 @@ inline Value flattenTensor(PatternRewriter &rewriter, Location loc,
 }
 
 // Traces backward through all layout ops (typecast, reshape, broadcast,
-// repeat_interleave) to find the source value.
+// repeat, repeat_interleave) to find the source value.
 inline mlir::Value lookThroughLayoutOps(mlir::Value value) {
   return ttmlir::utils::lookThrough<TypecastOp, ReshapeOp, BroadcastOp,
-                                    RepeatInterleaveOp>(value);
+                                    RepeatOp, RepeatInterleaveOp>(value);
 }
 
 // Traces backward through all layout ops, but only looks through ops that
@@ -360,7 +360,8 @@ inline mlir::Value lookThroughLayoutOps(mlir::Value value) {
 template <typename PredicateFn>
 mlir::Value lookThroughLayoutOpsIf(mlir::Value value, PredicateFn &&predicate) {
   while (auto *op = value.getDefiningOp()) {
-    if (llvm::isa<TypecastOp, ReshapeOp, BroadcastOp, RepeatInterleaveOp>(op)) {
+    if (llvm::isa<TypecastOp, ReshapeOp, BroadcastOp, RepeatOp,
+                  RepeatInterleaveOp>(op)) {
       if (!predicate(op)) {
         break;
       }

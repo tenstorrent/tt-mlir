@@ -70,4 +70,63 @@ module {
         %4 = "ttir.add"(%2, %3) : (tensor<1x4096x1280xf32>, tensor<1x4096x1280xf32>) -> tensor<1x4096x1280xf32>
         return %4 : tensor<1x4096x1280xf32>
     }
+
+    // Wan Graph A dump: scalar 1.0, extra 1-D round-trip reshapes, fp32 LN
+    // then bf16 *(1+scale)+shift.
+    // CHECK-LABEL: func.func @distributed_layer_norm_affine_wan_dump
+    func.func @distributed_layer_norm_affine_wan_dump(%arg0: tensor<1x4096x1280xbf16>, %scale: tensor<1x1x1280xf32>, %shift: tensor<1x1x1280xf32>) -> tensor<1x4096x1280xbf16> {
+        // CHECK: "ttir.distributed_layer_norm"
+        // CHECK-SAME: (tensor<1x4096x1280xf32>, tensor<1280xf32>, tensor<1280xf32>) -> tensor<1x4096x1280xf32>
+        // CHECK-NOT: "ttir.multiply"
+        %one = "ttir.constant"() <{value = dense<1.000000e+00> : tensor<bf16>}> : () -> tensor<bf16>
+        %one3 = "ttir.reshape"(%one) <{shape = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<bf16>) -> tensor<1x1x1xbf16>
+        %ones = "ttir.broadcast"(%one3) <{broadcast_dimensions = array<i64: 1, 1, 1280>}> : (tensor<1x1x1xbf16>) -> tensor<1x1x1280xbf16>
+        %x_f32 = "ttir.typecast"(%arg0) : (tensor<1x4096x1280xbf16>) -> tensor<1x4096x1280xf32>
+        %norm = "ttir.distributed_layer_norm"(%x_f32) <{cluster_axis = 1 : ui32, epsilon = 9.99999997E-7 : f32, operandSegmentSizes = array<i32: 1, 0, 0, 0>}> : (tensor<1x4096x1280xf32>) -> tensor<1x4096x1280xf32>
+        %norm_bf16 = "ttir.typecast"(%norm) : (tensor<1x4096x1280xf32>) -> tensor<1x4096x1280xbf16>
+        %scale_bf16 = "ttir.typecast"(%scale) : (tensor<1x1x1280xf32>) -> tensor<1x1x1280xbf16>
+        %one_plus = "ttir.add"(%scale_bf16, %ones) : (tensor<1x1x1280xbf16>, tensor<1x1x1280xbf16>) -> tensor<1x1x1280xbf16>
+        %w1d = "ttir.reshape"(%one_plus) <{shape = [1 : i32, 1280 : i32]}> : (tensor<1x1x1280xbf16>) -> tensor<1x1280xbf16>
+        %w3d = "ttir.reshape"(%w1d) <{shape = [1 : i32, 1 : i32, 1280 : i32]}> : (tensor<1x1280xbf16>) -> tensor<1x1x1280xbf16>
+        %wact = "ttir.broadcast"(%w3d) <{broadcast_dimensions = array<i64: 1, 4096, 1>}> : (tensor<1x1x1280xbf16>) -> tensor<1x4096x1280xbf16>
+        %scaled = "ttir.multiply"(%norm_bf16, %wact) : (tensor<1x4096x1280xbf16>, tensor<1x4096x1280xbf16>) -> tensor<1x4096x1280xbf16>
+        %shift_bf16 = "ttir.typecast"(%shift) : (tensor<1x1x1280xf32>) -> tensor<1x1x1280xbf16>
+        %s1d = "ttir.reshape"(%shift_bf16) <{shape = [1 : i32, 1280 : i32]}> : (tensor<1x1x1280xbf16>) -> tensor<1x1280xbf16>
+        %s3d = "ttir.reshape"(%s1d) <{shape = [1 : i32, 1 : i32, 1280 : i32]}> : (tensor<1x1280xbf16>) -> tensor<1x1x1280xbf16>
+        %sact = "ttir.broadcast"(%s3d) <{broadcast_dimensions = array<i64: 1, 4096, 1>}> : (tensor<1x1x1280xbf16>) -> tensor<1x4096x1280xbf16>
+        %out = "ttir.add"(%scaled, %sact) : (tensor<1x4096x1280xbf16>, tensor<1x4096x1280xbf16>) -> tensor<1x4096x1280xbf16>
+        return %out : tensor<1x4096x1280xbf16>
+    }
+
+    // Typecast after the activation-sized broadcast — XLA sometimes downcasts
+    // the expanded scale rather than the 1x1xH chunk.
+    // CHECK-LABEL: func.func @distributed_layer_norm_affine_cast_after_broadcast
+    func.func @distributed_layer_norm_affine_cast_after_broadcast(%arg0: tensor<1x4096x1280xf32>, %w: tensor<1x1x1280xf32>, %b: tensor<1x1x1280xf32>) -> tensor<1x4096x1280xbf16> {
+        // CHECK: "ttir.distributed_layer_norm"
+        // CHECK-SAME: (tensor<1x4096x1280xf32>, tensor<1280xf32>, tensor<1280xf32>) -> tensor<1x4096x1280xf32>
+        // CHECK-NOT: "ttir.multiply"
+        %0 = "ttir.distributed_layer_norm"(%arg0) <{cluster_axis = 1 : ui32, epsilon = 9.99999974E-6 : f32, operandSegmentSizes = array<i32: 1, 0, 0, 0>}> : (tensor<1x4096x1280xf32>) -> tensor<1x4096x1280xf32>
+        %1 = "ttir.typecast"(%0) : (tensor<1x4096x1280xf32>) -> tensor<1x4096x1280xbf16>
+        %2 = "ttir.broadcast"(%w) <{broadcast_dimensions = array<i64: 1, 4096, 1>}> : (tensor<1x1x1280xf32>) -> tensor<1x4096x1280xf32>
+        %3 = "ttir.typecast"(%2) : (tensor<1x4096x1280xf32>) -> tensor<1x4096x1280xbf16>
+        %4 = "ttir.multiply"(%1, %3) : (tensor<1x4096x1280xbf16>, tensor<1x4096x1280xbf16>) -> tensor<1x4096x1280xbf16>
+        %5 = "ttir.broadcast"(%b) <{broadcast_dimensions = array<i64: 1, 4096, 1>}> : (tensor<1x1x1280xf32>) -> tensor<1x4096x1280xf32>
+        %6 = "ttir.typecast"(%5) : (tensor<1x4096x1280xf32>) -> tensor<1x4096x1280xbf16>
+        %7 = "ttir.add"(%4, %6) : (tensor<1x4096x1280xbf16>, tensor<1x4096x1280xbf16>) -> tensor<1x4096x1280xbf16>
+        return %7 : tensor<1x4096x1280xbf16>
+    }
+
+    // Same AdaLN after reshape-broadcast-reshape has been rewritten to repeat.
+    // CHECK-LABEL: func.func @distributed_layer_norm_affine_repeat
+    func.func @distributed_layer_norm_affine_repeat(%arg0: tensor<1x4096x1280xf32>, %w: tensor<1x1x1280xf32>, %b: tensor<1x1x1280xf32>) -> tensor<1x4096x1280xf32> {
+        // CHECK: "ttir.distributed_layer_norm"
+        // CHECK-SAME: (tensor<1x4096x1280xf32>, tensor<1280xf32>, tensor<1280xf32>) -> tensor<1x4096x1280xf32>
+        // CHECK-NOT: "ttir.multiply"
+        %0 = "ttir.distributed_layer_norm"(%arg0) <{cluster_axis = 1 : ui32, epsilon = 9.99999974E-6 : f32, operandSegmentSizes = array<i32: 1, 0, 0, 0>}> : (tensor<1x4096x1280xf32>) -> tensor<1x4096x1280xf32>
+        %1 = "ttir.repeat"(%w) <{repeat_dimensions = array<i64: 1, 4096, 1>}> : (tensor<1x1x1280xf32>) -> tensor<1x4096x1280xf32>
+        %2 = "ttir.multiply"(%0, %1) : (tensor<1x4096x1280xf32>, tensor<1x4096x1280xf32>) -> tensor<1x4096x1280xf32>
+        %3 = "ttir.repeat"(%b) <{repeat_dimensions = array<i64: 1, 4096, 1>}> : (tensor<1x1x1280xf32>) -> tensor<1x4096x1280xf32>
+        %4 = "ttir.add"(%2, %3) : (tensor<1x4096x1280xf32>, tensor<1x4096x1280xf32>) -> tensor<1x4096x1280xf32>
+        return %4 : tensor<1x4096x1280xf32>
+    }
 }
