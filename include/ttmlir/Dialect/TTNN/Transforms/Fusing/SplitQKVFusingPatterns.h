@@ -74,6 +74,29 @@ private:
   OpValidationConfig validationConfig;
 };
 
+// Fuses a V-only (or other unfused) reshape+permute heads chain that feeds
+// scaled_dot_product_attention's value operand into nlp_create_qkv_heads
+// with num_kv_heads = 0. Does not match Q/K (those are SDPA query/key).
+// Prefill only: sequence length must be greater than 1.
+//
+// Matches both the local (SP=1) form:
+//   reshape [B,S,H,D] -> permute [0,2,1,3] -> SDPA value
+// and Graph A self-attn V (SP>1):
+//   reshape [B,S_local,H,D] -> all_gather dim 1 -> slice_static seq
+//     -> permute [0,2,1,3] -> SDPA value
+// rewritten to nlp_create on the local unheaded tensor, then all_gather /
+// slice on BHSD seq (dim 2). Dummy K/V ([B,0,S,D]) are DRAM-interleaved.
+class NLPCreateQKVHeadsPrefillFusing
+    : public mlir::OpRewritePattern<PermuteOp> {
+public:
+  NLPCreateQKVHeadsPrefillFusing(mlir::MLIRContext *context)
+      : OpRewritePattern<PermuteOp>(context) {}
+
+  mlir::LogicalResult
+  matchAndRewrite(PermuteOp permuteOp,
+                  mlir::PatternRewriter &rewriter) const override;
+};
+
 } // namespace mlir::tt::ttnn::fusing
 
 #endif // TTMLIR_DIALECT_TTNN_TRANSFORMS_FUSING_SPLITQKVFUSINGPATTERNS_H

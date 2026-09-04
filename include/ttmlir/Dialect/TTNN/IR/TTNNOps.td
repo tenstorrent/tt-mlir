@@ -4232,6 +4232,36 @@ def TTNN_DumpTensorOp : TTNN_InplaceOp<"dump_tensor", [OpModelExempt]> {
   let hasVerifier = 1;
 }
 
+def NLPCreateQKVHeadsOp : TTNN_Op<"nlp_create_qkv_heads", [OpModelExempt]> {
+  let summary = "Prefill nlp_create_qkv_heads op in TTNN dialect.";
+  let description = [{
+    Shuffles a rank-4 TILE tensor `[B, 1, S, hidden]` into Q, K, and V heads
+    with shape `[B, num_q_heads, S, head_dim]` / `[B, num_kv_heads, S, head_dim]`.
+
+    Matches `ttnn.experimental.nlp_create_qkv_heads` (not the decode kernel).
+
+    - No KV input: `hidden` must be divisible by
+      `(num_q_heads + 2 * num_kv_heads) * head_dim` (fused QKV). Pass
+      `num_kv_heads = 0` to reshape a single unfused tensor (Wan V) into
+      heads via the Q result only.
+    - With KV input: Q last dim is `num_q_heads * head_dim` and KV last dim
+      is `2 * num_kv_heads * head_dim`.
+    - Input dim 1 must be 1. Sequence length is dim 2 and must be tile-aligned.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$input_kv,
+                       UI32Attr:$num_q_heads,
+                       OptionalAttr<UI32Attr>:$num_kv_heads,
+                       DefaultValuedAttr<BoolAttr, "false">:$transpose_k_heads);
+
+  let results = (outs AnyRankedTensor:$query,
+                      AnyRankedTensor:$key,
+                      AnyRankedTensor:$value);
+
+  let hasVerifier = 1;
+}
+
 def NLPCreateQKVHeadsDecodeOp : TTNN_Op<"nlp_create_qkv_heads_decode"> {
   let summary = "nlp_create_qkv_heads_decode op in TTNN dialect.";
   let description = [{

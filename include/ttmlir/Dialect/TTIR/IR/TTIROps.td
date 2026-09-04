@@ -6466,6 +6466,38 @@ def TTIR_GlobalAvgPool2dOp: TTIR_NamedOp<"global_avg_pool2d">{
   let hasVerifier = 1;
 }
 
+def TTIR_NLPCreateQKVHeadsOp: TTIR_NamedOp<"nlp_create_qkv_heads"> {
+    let summary = "Prefill nlp_create_qkv_heads used to reshape fused or unfused Q/K/V into attention heads.";
+    let description = [{
+      Device-agnostic form of `ttnn.experimental.nlp_create_qkv_heads`.
+
+      Input is rank-4 `[B, 1, S, hidden]`. Outputs are `[B, num_q_heads, S, head_dim]`
+      for Q and `[B, num_kv_heads, S, head_dim]` for K/V (K may be transposed).
+
+      Pass `num_kv_heads = 0` with no KV input to create heads from a single
+      unfused tensor (Wan V); only the query result is meaningful.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$input_kv,
+                         UI32Attr:$num_q_heads,
+                         OptionalAttr<UI32Attr>:$num_kv_heads,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_k_heads);
+
+    let results = (outs AnyRankedTensor:$query,
+                        AnyRankedTensor:$key,
+                        AnyRankedTensor:$value);
+
+    let extraClassDeclaration = [{
+        MutableOperandRange getDpsInitsMutable() {
+            unsigned startIdx = getInputKv() ? 2 : 1;
+            return MutableOperandRange(*this, startIdx, 3);
+        }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTIR_SplitQueryKeyValueAndSplitHeadsOp: TTIR_NamedOp<"split_query_key_value_and_split_heads"> {
     let summary = "Split query, key, values and split heads op used in attention layer.";
     let description = [{

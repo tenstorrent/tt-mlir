@@ -55,6 +55,7 @@ union OpType {
   RotaryEmbeddingLlamaOp,
   RotaryEmbeddingOp,
   NLPCreateQKVHeadsDecodeOp,
+  NLPCreateQKVHeadsOp,
   NLPConcatHeadsOp,
   ConstantOp,
   Conv1dOp,

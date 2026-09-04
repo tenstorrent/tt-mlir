@@ -1528,6 +1528,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {op->q_out(), op->k_out(), op->v_out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsOp: {
+    auto *op = opContext.type_as_NLPCreateQKVHeadsOp();
+    tensorRefs = {op->q_out(), op->k_out(), op->v_out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp: {
     auto *op = opContext.type_as_SplitQueryKeyValueAndSplitHeadsOp();
     tensorRefs = {op->q_out(), op->k_out(), op->v_out()};
@@ -2435,6 +2440,14 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     tensorRefs = {op->input()};
     if (op->batch_offset()) {
       tensorRefs.push_back(op->batch_offset());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsOp: {
+    auto *op = opContext.type_as_NLPCreateQKVHeadsOp();
+    tensorRefs = {op->input()};
+    if (op->kv_input()) {
+      tensorRefs.push_back(op->kv_input());
     }
     break;
   }

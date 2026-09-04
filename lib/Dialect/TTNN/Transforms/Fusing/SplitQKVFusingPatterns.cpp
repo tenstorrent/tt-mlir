@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -1008,6 +1009,296 @@ mlir::LogicalResult NLPCreateQKVHeadsDecodeFusing::matchAndRewrite(
   rewriter.replaceOp(kPermuteOp, decodeOp.getKey());
   rewriter.replaceOp(vPermuteOp, decodeOp.getValue());
 
+  return mlir::success();
+}
+
+// ============================================================================
+// NLPCreateQKVHeadsPrefillFusing
+// ============================================================================
+
+static bool isBHSDPermute(PermuteOp permuteOp) {
+  auto perm = permuteOp.getPermutation();
+  return perm.size() == 4 && perm[0] == 0 && perm[1] == 2 && perm[2] == 1 &&
+         perm[3] == 3;
+}
+
+static bool isUsedAsSDPAValue(Value v) {
+  Value cur = v;
+  for (unsigned depth = 0; depth < 8; ++depth) {
+    Operation *user = getSingleNonDeallocUser(cur);
+    if (!user) {
+      return false;
+    }
+    if (auto sdpa = dyn_cast<ScaledDotProductAttentionOp>(user)) {
+      return sdpa.getValue() == cur;
+    }
+    if (isa<ToLayoutOp, TypecastOp, ToMemoryConfigOp>(user) &&
+        user->getNumResults() == 1) {
+      cur = user->getResult(0);
+      continue;
+    }
+    return false;
+  }
+  return false;
+}
+
+// Metal nlp_create_qkv_heads input is rank-4 [B,1,S,hidden].
+static FailureOr<RankedTensorType>
+getMetalPrefillInputType(RankedTensorType preType, int64_t batch,
+                         int64_t seqLen, int64_t hidden) {
+  ArrayRef<int64_t> preShape = preType.getShape();
+  if (preShape.size() == 3 && preShape[0] == batch && preShape[1] == seqLen &&
+      preShape[2] == hidden) {
+    return utils::RankedTensorTypeFactory::create(
+        preType, SmallVector<int64_t>{batch, 1, seqLen, hidden});
+  }
+  if (preShape.size() == 4 && preShape[0] == batch && preShape[1] == 1 &&
+      preShape[2] == seqLen && preShape[3] == hidden) {
+    return preType;
+  }
+  if (preShape.size() == 2 && batch == 1 && preShape[0] == seqLen &&
+      preShape[1] == hidden) {
+    return utils::RankedTensorTypeFactory::create(
+        preType, SmallVector<int64_t>{1, 1, seqLen, hidden});
+  }
+  return failure();
+}
+
+// num_kv_heads=0 yields [B,0,S,D] dummy K/V. Inherit a sharded query layout
+// and the optimizer will try to width-shard a zero-height tensor.
+static RankedTensorType makeZeroHeadKVType(RankedTensorType queryType) {
+  RankedTensorType dramType = queryType;
+  if (utils::getLayoutAttrFromTensor(queryType)) {
+    dramType = utils::RankedTensorTypeFactory::create(
+        queryType, TensorMemoryLayout::Interleaved);
+    dramType =
+        utils::RankedTensorTypeFactory::create(dramType, BufferType::DRAM);
+  }
+  ArrayRef<int64_t> shape = queryType.getShape();
+  SmallVector<int64_t> kvShape = {shape[0], 0, shape[2], shape[3]};
+  return utils::RankedTensorTypeFactory::create(dramType, kvShape);
+}
+
+static NLPCreateQKVHeadsOp
+createVOnlyNLPCreateQKVHeads(PatternRewriter &rewriter, Location loc,
+                             RankedTensorType queryType, Value metalInput,
+                             int64_t numHeads) {
+  RankedTensorType kvType = makeZeroHeadKVType(queryType);
+  auto fused = rewriter.create<NLPCreateQKVHeadsOp>(
+      loc, TypeRange{queryType, kvType, kvType}, metalInput,
+      /*input_kv=*/Value(), rewriter.getUI32IntegerAttr(numHeads),
+      rewriter.getUI32IntegerAttr(0), rewriter.getBoolAttr(false));
+  return fused;
+}
+
+static Value reshapeToMetalInput(PatternRewriter &rewriter, Location loc,
+                                 Value prefillInput, RankedTensorType preType,
+                                 RankedTensorType metalInputType) {
+  if (preType.getShape() == metalInputType.getShape()) {
+    return prefillInput;
+  }
+  SmallVector<int32_t> metalShapeI32(metalInputType.getShape().begin(),
+                                     metalInputType.getShape().end());
+  auto toMetal =
+      rewriter.create<ReshapeOp>(loc, metalInputType, prefillInput,
+                                 rewriter.getI32ArrayAttr(metalShapeI32));
+  return toMetal.getResult();
+}
+
+static void eraseDeadOpAndDeallocs(PatternRewriter &rewriter, Operation *op) {
+  if (!op) {
+    return;
+  }
+  SmallVector<Operation *> deallocs;
+  for (Value result : op->getResults()) {
+    for (Operation *user : result.getUsers()) {
+      if (isa<DeallocateOp>(user)) {
+        deallocs.push_back(user);
+      }
+    }
+  }
+  for (Operation *dealloc : deallocs) {
+    rewriter.eraseOp(dealloc);
+  }
+  if (op->use_empty()) {
+    rewriter.eraseOp(op);
+  }
+}
+
+// Graph A self-attn V: reshape BSHD -> SP all_gather dim 1 -> optional pad
+// slice -> permute BHSD. Rewrite to nlp_create on local S, then AG/slice on
+// BHSD seq (dim 2).
+static LogicalResult fuseSPPrefillVHeads(PermuteOp permuteOp,
+                                         PatternRewriter &rewriter,
+                                         int64_t batch, int64_t numHeads,
+                                         int64_t seqFull, int64_t headDim) {
+  SliceStaticOp sliceOp = permuteOp.getInput().getDefiningOp<SliceStaticOp>();
+  Value gatherIn = permuteOp.getInput();
+  if (sliceOp) {
+    if (getSingleNonDeallocUser(sliceOp.getResult()) !=
+        permuteOp.getOperation()) {
+      return failure();
+    }
+    gatherIn = sliceOp.getInput();
+  }
+
+  auto agOp = gatherIn.getDefiningOp<AllGatherOp>();
+  if (!agOp || agOp.getAllGatherDim() != 1) {
+    return failure();
+  }
+  if (getSingleNonDeallocUser(agOp.getResult()) !=
+      (sliceOp ? sliceOp.getOperation() : permuteOp.getOperation())) {
+    return failure();
+  }
+
+  auto reshapeOp = agOp.getInput().getDefiningOp<ReshapeOp>();
+  if (!reshapeOp ||
+      getSingleNonDeallocUser(reshapeOp.getResult()) != agOp.getOperation()) {
+    return failure();
+  }
+
+  auto midType = mlir::cast<RankedTensorType>(reshapeOp.getType());
+  ArrayRef<int64_t> midShape = midType.getShape();
+  if (midShape.size() != 4 || midShape[0] != batch || midShape[2] != numHeads ||
+      midShape[3] != headDim) {
+    return failure();
+  }
+  int64_t seqLocal = midShape[1];
+  if (seqLocal <= 1 || seqLocal >= seqFull) {
+    return failure();
+  }
+
+  auto agType = mlir::cast<RankedTensorType>(agOp.getType());
+  ArrayRef<int64_t> agShape = agType.getShape();
+  if (agShape.size() != 4 || agShape[0] != batch || agShape[1] <= seqLocal ||
+      agShape[2] != numHeads || agShape[3] != headDim) {
+    return failure();
+  }
+  int64_t seqPadded = agShape[1];
+
+  if (sliceOp) {
+    auto sliced = findSlicedDimensionWithBounds(sliceOp, agShape);
+    if (!sliced) {
+      return failure();
+    }
+    auto [dim, start, end] = *sliced;
+    if (dim != 1 || start != 0 || end != seqFull) {
+      return failure();
+    }
+  } else if (seqPadded != seqFull) {
+    return failure();
+  }
+
+  int64_t hidden = numHeads * headDim;
+  auto preType = mlir::cast<RankedTensorType>(reshapeOp.getInput().getType());
+  FailureOr<RankedTensorType> metalInputType =
+      getMetalPrefillInputType(preType, batch, seqLocal, hidden);
+  if (failed(metalInputType)) {
+    return failure();
+  }
+
+  auto headedType = mlir::cast<RankedTensorType>(permuteOp.getType());
+  SmallVector<int64_t> localQueryShape = {batch, numHeads, seqLocal, headDim};
+  RankedTensorType localQueryType =
+      utils::RankedTensorTypeFactory::create(headedType, localQueryShape);
+  SmallVector<int64_t> gatheredQueryShape = {batch, numHeads, seqPadded,
+                                             headDim};
+  RankedTensorType gatheredQueryType =
+      utils::RankedTensorTypeFactory::create(headedType, gatheredQueryShape);
+
+  rewriter.setInsertionPoint(permuteOp);
+  Value metalInput =
+      reshapeToMetalInput(rewriter, permuteOp.getLoc(), reshapeOp.getInput(),
+                          preType, *metalInputType);
+  NLPCreateQKVHeadsOp fused = createVOnlyNLPCreateQKVHeads(
+      rewriter, permuteOp.getLoc(), localQueryType, metalInput, numHeads);
+
+  auto newAG = rewriter.create<AllGatherOp>(
+      agOp.getLoc(), gatheredQueryType, fused.getQuery(),
+      /*all_gather_dim=*/static_cast<int32_t>(2), agOp.getClusterAxis(),
+      agOp.getSubDeviceIdAttr(), agOp.getNumLinksAttr(),
+      agOp.getTopologyAttr());
+
+  Value replacement = newAG.getResult();
+  if (sliceOp) {
+    SmallVector<int32_t> begins(4, 0);
+    SmallVector<int32_t> ends = {
+        static_cast<int32_t>(batch), static_cast<int32_t>(numHeads),
+        static_cast<int32_t>(seqFull), static_cast<int32_t>(headDim)};
+    SmallVector<int32_t> step(4, 1);
+    auto newSlice = rewriter.create<SliceStaticOp>(
+        sliceOp.getLoc(), headedType, newAG.getResult(),
+        rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+        rewriter.getI32ArrayAttr(step));
+    replacement = newSlice.getResult();
+  }
+
+  rewriter.replaceOp(permuteOp, replacement);
+  eraseDeadOpAndDeallocs(rewriter, sliceOp);
+  eraseDeadOpAndDeallocs(rewriter, agOp);
+  eraseDeadOpAndDeallocs(rewriter, reshapeOp);
+  return success();
+}
+
+mlir::LogicalResult NLPCreateQKVHeadsPrefillFusing::matchAndRewrite(
+    PermuteOp permuteOp, mlir::PatternRewriter &rewriter) const {
+  if (!isBHSDPermute(permuteOp)) {
+    return mlir::failure();
+  }
+
+  auto headedType = mlir::cast<RankedTensorType>(permuteOp.getType());
+  ArrayRef<int64_t> headedShape = headedType.getShape();
+  if (headedShape.size() != 4) {
+    return mlir::failure();
+  }
+
+  int64_t batch = headedShape[0];
+  int64_t numHeads = headedShape[1];
+  int64_t seqLen = headedShape[2];
+  int64_t headDim = headedShape[3];
+  if (numHeads <= 0 || headDim <= 0 || seqLen <= 1) {
+    return mlir::failure();
+  }
+
+  if (!isUsedAsSDPAValue(permuteOp.getResult())) {
+    return mlir::failure();
+  }
+
+  if (succeeded(fuseSPPrefillVHeads(permuteOp, rewriter, batch, numHeads,
+                                    seqLen, headDim))) {
+    return success();
+  }
+
+  auto reshapeOp = permuteOp.getInput().getDefiningOp<ReshapeOp>();
+  if (!reshapeOp || getSingleNonDeallocUser(reshapeOp.getResult()) !=
+                        permuteOp.getOperation()) {
+    return mlir::failure();
+  }
+
+  auto preType = mlir::cast<RankedTensorType>(reshapeOp.getInput().getType());
+  auto midType = mlir::cast<RankedTensorType>(reshapeOp.getType());
+  ArrayRef<int64_t> midShape = midType.getShape();
+  if (midShape.size() != 4 || midShape[0] != batch || midShape[1] != seqLen ||
+      midShape[2] != numHeads || midShape[3] != headDim) {
+    return mlir::failure();
+  }
+
+  int64_t hidden = numHeads * headDim;
+  FailureOr<RankedTensorType> metalInputType =
+      getMetalPrefillInputType(preType, batch, seqLen, hidden);
+  if (failed(metalInputType)) {
+    return mlir::failure();
+  }
+
+  rewriter.setInsertionPoint(permuteOp);
+  Value metalInput =
+      reshapeToMetalInput(rewriter, permuteOp.getLoc(), reshapeOp.getInput(),
+                          preType, *metalInputType);
+  NLPCreateQKVHeadsOp fused = createVOnlyNLPCreateQKVHeads(
+      rewriter, permuteOp.getLoc(), headedType, metalInput, numHeads);
+
+  rewriter.replaceOp(permuteOp, fused.getQuery());
+  eraseDeadOpAndDeallocs(rewriter, reshapeOp);
   return mlir::success();
 }
 

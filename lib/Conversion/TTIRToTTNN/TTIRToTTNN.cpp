@@ -3315,6 +3315,30 @@ public:
     return success();
   }
 };
+
+class NLPCreateQKVHeadsOpConversionPattern
+    : public OpConversionPattern<ttir::NLPCreateQKVHeadsOp> {
+public:
+  using OpConversionPattern<ttir::NLPCreateQKVHeadsOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::NLPCreateQKVHeadsOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto queryType =
+        this->getTypeConverter()->convertType(op.getQuery().getType());
+    auto keyType = this->getTypeConverter()->convertType(op.getKey().getType());
+    auto valueType =
+        this->getTypeConverter()->convertType(op.getValue().getType());
+
+    auto ttnnOp = rewriter.create<ttnn::NLPCreateQKVHeadsOp>(
+        op.getLoc(), TypeRange{queryType, keyType, valueType},
+        adaptor.getInput(), adaptor.getInputKv(), adaptor.getNumQHeadsAttr(),
+        adaptor.getNumKvHeadsAttr(), adaptor.getTransposeKHeadsAttr());
+
+    rewriter.replaceOp(op, ttnnOp.getResults());
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -3902,6 +3926,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ChunkedScaledDotProductAttentionOpConversionPattern,
            PagedFlashMultiLatentAttentionDecodeOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern,
+           NLPCreateQKVHeadsOpConversionPattern,
            GeluBackwardOpConversionPattern,
            DropoutOpConversionPattern,
            DebugOpConversionPattern<debug::DumpOp, ttnn::DumpTensorOp>,

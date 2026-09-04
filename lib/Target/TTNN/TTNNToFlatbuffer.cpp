@@ -4195,6 +4195,39 @@ createOp(FlatbufferObjectCache &cache, RotaryEmbeddingOp op) {
       computeConfig.value_or(0));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::NLPCreateQKVHeadsOp>
+createOp(FlatbufferObjectCache &cache, NLPCreateQKVHeadsOp op) {
+  auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto inputKVTensor = op.getInputKv()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getInputKv()))
+                           : 0;
+
+  auto outQuery =
+      cache.getOrCreateNoSharding(op.getQuery(), tensorValueToFlatbuffer,
+
+                                  /*local_shape*/ std::nullopt);
+  auto outKey =
+      cache.getOrCreateNoSharding(op.getKey(), tensorValueToFlatbuffer,
+
+                                  /*local_shape*/ std::nullopt);
+  auto outValue =
+      cache.getOrCreateNoSharding(op.getValue(), tensorValueToFlatbuffer,
+
+                                  /*local_shape*/ std::nullopt);
+
+  uint32_t numQHeads = op.getNumQHeads();
+  ::flatbuffers::Optional<uint32_t> numKVHeads =
+      toFlatbuffer(cache, op.getNumKvHeads());
+  bool transposeKHeads = op.getTransposeKHeads();
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
+
+  return ::tt::target::ttnn::CreateNLPCreateQKVHeadsOp(
+      *cache.fbb, inputTensor, inputKVTensor, outQuery, outKey, outValue,
+      numQHeads, numKVHeads, transposeKHeads, memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::NLPCreateQKVHeadsDecodeOp>
 createOp(FlatbufferObjectCache &cache, NLPCreateQKVHeadsDecodeOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
@@ -5282,6 +5315,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto rotaryEmbeddingOp = dyn_cast<RotaryEmbeddingOp>(op);
       rotaryEmbeddingOp) {
     return createOperation(cache, createOp(cache, rotaryEmbeddingOp),
+                           debugString, locInfo);
+  }
+  if (auto nlpCreateQKVHeadsOp = dyn_cast<NLPCreateQKVHeadsOp>(op);
+      nlpCreateQKVHeadsOp) {
+    return createOperation(cache, createOp(cache, nlpCreateQKVHeadsOp),
                            debugString, locInfo);
   }
   if (auto nlpCreateQKVHeadsDecodeOp = dyn_cast<NLPCreateQKVHeadsDecodeOp>(op);

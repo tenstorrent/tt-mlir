@@ -1,0 +1,18 @@
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttcore-mark-functions-as-forward --ttcore-wrap-device-module -o %t.mlir %s
+//
+// RUN: ttmlir-opt --ttnn-common-to-runtime-pipeline -o %t_rt.mlir %t.mlir
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %basename_t.ttnn %t_rt.mlir
+//
+// RUN: ttmlir-opt --ttnn-common-to-emitc-pipeline="tuplify-input-if-empty=true" -o %t2.mlir %t.mlir
+// RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
+
+#dram = #ttnn.buffer_type<dram>
+#dram_interleaved = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x120x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#dram_interleaved_out = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 320 + d1 * 32 + d2, d3), <1x1>, memref<10x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+
+module {
+  func.func @forward(%input: tensor<1x1x32x3840xbf16, #dram_interleaved>) -> (tensor<1x10x32x128xbf16, #dram_interleaved_out>, tensor<1x10x32x128xbf16, #dram_interleaved_out>, tensor<1x10x32x128xbf16, #dram_interleaved_out>) {
+    %0, %1, %2 = "ttnn.nlp_create_qkv_heads"(%input) <{num_q_heads = 10 : ui32, num_kv_heads = 10 : ui32}> : (tensor<1x1x32x3840xbf16, #dram_interleaved>) -> (tensor<1x10x32x128xbf16, #dram_interleaved_out>, tensor<1x10x32x128xbf16, #dram_interleaved_out>, tensor<1x10x32x128xbf16, #dram_interleaved_out>)
+    return %0, %1, %2 : tensor<1x10x32x128xbf16, #dram_interleaved_out>, tensor<1x10x32x128xbf16, #dram_interleaved_out>, tensor<1x10x32x128xbf16, #dram_interleaved_out>
+  }
+}

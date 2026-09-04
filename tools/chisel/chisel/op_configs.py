@@ -71,6 +71,7 @@ def default_configs() -> Dict[Type[OpView], ChiselOpConfig]:
         ttnn.RequantizeOp: ChiselOpConfig(no_golden=True),
         # No golden registered yet.
         ttnn.NLPCreateQKVHeadsDecodeOp: ChiselOpConfig(no_golden=True),
+        ttnn.NLPCreateQKVHeadsOp: ChiselOpConfig(no_golden=True),
         ttnn.RotaryEmbeddingLlamaOp: ChiselOpConfig(no_golden=True),
         ttnn.RotaryEmbeddingOp: ChiselOpConfig(no_golden=True),
         ttnn.ConstantOp: ChiselOpConfig(no_golden=True),

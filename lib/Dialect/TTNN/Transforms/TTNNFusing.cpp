@@ -722,6 +722,7 @@ public:
           &getContext(), validationConfig);
       patterns.add<fusing::NLPCreateQKVHeadsDecodeFusing>(&getContext(),
                                                           validationConfig);
+      patterns.add<fusing::NLPCreateQKVHeadsPrefillFusing>(&getContext());
       patterns.add<TTNNRMSNormWithActivation<SiluOp>,
                    TTNNRMSNormWithActivation<GeluOp>,
                    TTNNRMSNormWithActivation<ReluOp>>(&getContext(),

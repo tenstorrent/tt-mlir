@@ -119,6 +119,18 @@ table NLPCreateQKVHeadsDecodeOp {
   memcfg: tt.target.ttnn.MemoryConfig;
 }
 
+table NLPCreateQKVHeadsOp {
+  input: tt.target.ttnn.TensorRef;
+  kv_input: tt.target.ttnn.TensorRef;
+  q_out: tt.target.ttnn.TensorRef;
+  k_out: tt.target.ttnn.TensorRef;
+  v_out: tt.target.ttnn.TensorRef;
+  num_q_heads: uint32;
+  num_kv_heads: uint32 = null;
+  transpose_k_heads: bool;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}
+
 table SplitQueryKeyValueAndSplitHeadsOp {
   in: tt.target.ttnn.TensorRef;
   kv_input: tt.target.ttnn.TensorRef;

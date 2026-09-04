@@ -6684,6 +6684,115 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// NLPCreateQKVHeadsOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult NLPCreateQKVHeadsOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  if (inputType.getRank() != 4) {
+    return emitOpError() << "input tensor must be a 4D tensor, got rank "
+                         << inputType.getRank();
+  }
+
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  if (inputShape[1] != 1) {
+    return emitOpError() << "input tensor dimension 1 must be 1, got "
+                         << inputShape[1];
+  }
+
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType valueType = getValue().getType();
+  if (queryType.getRank() != 4 || keyType.getRank() != 4 ||
+      valueType.getRank() != 4) {
+    return emitOpError() << "query/key/value outputs must be 4D tensors";
+  }
+
+  int64_t numQHeads = getNumQHeads();
+  if (numQHeads <= 0) {
+    return emitOpError() << "num_q_heads must be positive, got " << numQHeads;
+  }
+
+  int64_t numKVHeads = getNumKvHeads() ? *getNumKvHeads() : numQHeads;
+  if (numKVHeads < 0) {
+    return emitOpError() << "num_kv_heads must be non-negative, got "
+                         << numKVHeads;
+  }
+
+  int64_t batch = inputShape[0];
+  int64_t seqLen = inputShape[2];
+  int64_t hidden = inputShape[3];
+  int64_t headDim = 0;
+
+  if (getInputKv()) {
+    RankedTensorType kvType = getInputKv().getType();
+    if (kvType.getRank() != 4) {
+      return emitOpError() << "kv input tensor must be a 4D tensor, got rank "
+                           << kvType.getRank();
+    }
+    ArrayRef<int64_t> kvShape = kvType.getShape();
+    if (kvShape[0] != batch || kvShape[1] != 1 || kvShape[2] != seqLen) {
+      return emitOpError()
+             << "kv input batch/seq dims must match Q input, got kv shape ("
+             << ttmlir::utils::join(kvShape, ", ") << ")";
+    }
+    if (numQHeads == 0 || hidden % numQHeads != 0) {
+      return emitOpError() << "Q hidden dim " << hidden
+                           << " must be divisible by num_q_heads " << numQHeads;
+    }
+    headDim = hidden / numQHeads;
+    if (numKVHeads == 0 || kvShape[3] % (2 * numKVHeads) != 0) {
+      return emitOpError() << "KV hidden dim " << kvShape[3]
+                           << " must be divisible by 2 * num_kv_heads ("
+                           << (2 * numKVHeads) << ")";
+    }
+    if (kvShape[3] / (2 * numKVHeads) != headDim) {
+      return emitOpError() << "Q and KV head dims must match";
+    }
+  } else {
+    int64_t fusedHeads = numQHeads + 2 * numKVHeads;
+    if (fusedHeads == 0 || hidden % fusedHeads != 0) {
+      return emitOpError() << "hidden dim " << hidden
+                           << " must be divisible by (num_q_heads + 2 * "
+                              "num_kv_heads) = "
+                           << fusedHeads;
+    }
+    headDim = hidden / fusedHeads;
+  }
+
+  llvm::SmallVector<int64_t, 4> expectedQuery = {batch, numQHeads, seqLen,
+                                                 headDim};
+  if (!llvm::equal(queryType.getShape(), expectedQuery)) {
+    return emitOpError() << "expected query shape ("
+                         << ttmlir::utils::join(expectedQuery, ", ")
+                         << "), got ("
+                         << ttmlir::utils::join(queryType.getShape(), ", ")
+                         << ")";
+  }
+
+  llvm::SmallVector<int64_t, 4> expectedKV = {batch, numKVHeads, seqLen,
+                                              headDim};
+  llvm::SmallVector<int64_t, 4> expectedKey = expectedKV;
+  if (getTransposeKHeads()) {
+    std::swap(expectedKey[2], expectedKey[3]);
+  }
+  if (!llvm::equal(keyType.getShape(), expectedKey)) {
+    return emitOpError() << "expected key shape ("
+                         << ttmlir::utils::join(expectedKey, ", ") << "), got ("
+                         << ttmlir::utils::join(keyType.getShape(), ", ")
+                         << ")";
+  }
+  if (!llvm::equal(valueType.getShape(), expectedKV)) {
+    return emitOpError() << "expected value shape ("
+                         << ttmlir::utils::join(expectedKV, ", ") << "), got ("
+                         << ttmlir::utils::join(valueType.getShape(), ", ")
+                         << ")";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // NLPCreateQKVHeadsDecodeOp
 //===----------------------------------------------------------------------===//
 
