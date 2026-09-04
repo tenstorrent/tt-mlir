@@ -3,12 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+from datetime import datetime
 from typing import List, Optional
 
 from tqdm import tqdm
 from ttmlir.ir import Module
 
-from .execution_result import convert_to_pydantic_model
+from .execution_result import _truncate_error_message, convert_to_pydantic_model
 from .mlir_module_executor import ExecutionResult, MLIRModuleExecutor
 from .mlir_module_splitter import MLIRModuleSplitter
 from .pydantic_models import OpTest
@@ -44,6 +45,38 @@ def progress_msg(*args, **kwargs) -> None:
     """
     if show_workflow_progress():
         tqdm.write(*args, **kwargs)
+
+
+def build_unbuildable_op_model(op, error: Exception) -> OpTest:
+    """
+    Builds an `OpTest` for an op that could not be wrapped in a module.
+
+    These ops never reach the executor, so there is no `ExecutionResult` and no
+    compiled module to read tensor descriptions from -- `inputs` and `outputs` are
+    therefore empty. Reporting the op with what is known still matters: it keeps
+    the op in the totals and names it in the data, instead of the op vanishing and
+    the failure existing only as a line in a job log.
+
+    `model_name` is joined with ", " to match what `ModuleWrapper` produces for
+    executed ops (utils.py), so both paths write the same shape of value.
+    """
+    now = datetime.now()
+    origin_model = op.origin_model
+    if isinstance(origin_model, (list, tuple)):
+        origin_model = ", ".join(m for m in origin_model if m)
+
+    return OpTest(
+        test_start_ts=now,
+        test_end_ts=now,
+        success=False,
+        error_message=_truncate_error_message(
+            f"Failed to create module from op: {error}"
+        ),
+        op_name=str(op.op_name),
+        model_name=origin_model or None,
+        inputs=[],
+        outputs=[],
+    )
 
 
 def convert_results_to_pydantic_models(

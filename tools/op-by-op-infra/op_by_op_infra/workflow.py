@@ -233,15 +233,22 @@ def execute_extracted_ops(
         compile_only, debug_print=debug_print
     )
     execution_results = []
+    # Ops that never reached the executor because a module could not be built for
+    # them. They still have to be reported: silently dropping them removes them
+    # from the totals entirely, so an op that cannot even be wrapped in a module
+    # looks identical to an op that was never seen.
+    unbuildable_op_models = []
 
     for op in workflow_internal.progress_bar(ops, desc="Executing submodules..."):
         try:
             sub_module = op.as_module()
         except Exception as e:
-            print(f"ERROR: Failed to create module from op")
+            print(f"ERROR: Failed to create module from op '{op.op_name}'")
             print(f"Origin model: {op.origin_model}")
-            print(f"Module string:\n{op.as_module_str()}")
             print(f"Exception: {e}")
+            unbuildable_op_models.append(
+                workflow_internal.build_unbuildable_op_model(op, e)
+            )
             continue
 
         execution_result = executor.execute(sub_module)
@@ -250,6 +257,18 @@ def execute_extracted_ops(
     if failed_ops_folder is not None:
         _save_failed_ops(execution_results, failed_ops_folder)
 
-    return workflow_internal.convert_results_to_pydantic_models(
+    models = workflow_internal.convert_results_to_pydantic_models(
         execution_results, frontend=frontend
     )
+
+    if unbuildable_op_models:
+        print(
+            f"WARNING: {len(unbuildable_op_models)} op(s) could not be wrapped in a "
+            f"module and are reported as failures."
+        )
+        if frontend is not None:
+            for model in unbuildable_op_models:
+                workflow_internal.add_missing_attributes(model, frontend=frontend)
+        models.extend(unbuildable_op_models)
+
+    return models
