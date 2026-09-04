@@ -1270,6 +1270,29 @@ TTNNOperandsWorkaroundsFactory::createLayerNormForwardOpOperandsWorkarounds(
   return operandsWorkaround;
 }
 
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createLayerNormBackwardOpOperandsWorkarounds(
+    Operation *op) {
+  TTNNOperandWorkarounds tileDramBf16;
+  tileDramBf16.tensorLayoutWorkaround = Layout::Tile;
+  tileDramBf16.tensorBufferTypeWorkaround = BufferType::DRAM;
+  tileDramBf16.tensorMemoryLayoutWorkaround = TensorMemoryLayoutAttr::get(
+      op->getContext(), TensorMemoryLayout::Interleaved);
+  tileDramBf16.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+  for (unsigned i = 0; i < 5; ++i) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(tileDramBf16);
+  }
+  for (unsigned i = 0; i < 3; ++i) {
+    operandsWorkaround =
+        operandsWorkaround.addOutputOperandWorkaround(tileDramBf16);
+  }
+  return operandsWorkaround;
+}
+
 // Create workarounds for SDPA decode op: cast f32 inputs to bf16.
 // tt-metal SDPA only supports bf16/bfp8_b/bfp4_b.
 // Issue page: https://github.com/tenstorrent/tt-metal/issues/36717

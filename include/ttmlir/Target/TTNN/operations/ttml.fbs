@@ -42,6 +42,17 @@ table LayerNormForwardOp {
   rstd: tt.target.ttnn.TensorRef;
 }
 
+table LayerNormBackwardOp {
+  input: tt.target.ttnn.TensorRef;
+  gamma: tt.target.ttnn.TensorRef;
+  mean: tt.target.ttnn.TensorRef;
+  rstd: tt.target.ttnn.TensorRef;
+  dl_dout: tt.target.ttnn.TensorRef;
+  dx: tt.target.ttnn.TensorRef;
+  dgamma: tt.target.ttnn.TensorRef;
+  dbeta: tt.target.ttnn.TensorRef;
+}
+
 table SDPABackwardOp {
   grad_output: tt.target.ttnn.TensorRef;
   attn_output: tt.target.ttnn.TensorRef;

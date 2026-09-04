@@ -1625,6 +1625,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_CrossEntropyForwardOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::LayerNormBackwardOp: {
+    auto *op = opContext.type_as_LayerNormBackwardOp();
+    tensorRefs = {op->dx(), op->dgamma(), op->dbeta()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::AdamWOp:
   case ::tt::target::ttnn::OpType::FillCacheOp:
   case ::tt::target::ttnn::OpType::PagedFillCacheOp:
@@ -2028,6 +2033,12 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {
     tensorRefs = {opContext.type_as_CrossEntropyForwardOp()->input(),
                   opContext.type_as_CrossEntropyForwardOp()->target()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LayerNormBackwardOp: {
+    auto *op = opContext.type_as_LayerNormBackwardOp();
+    tensorRefs = {op->input(), op->gamma(), op->mean(), op->rstd(),
+                  op->dl_dout()};
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {

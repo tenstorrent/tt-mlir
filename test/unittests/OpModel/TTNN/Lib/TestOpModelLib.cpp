@@ -6095,6 +6095,33 @@ TEST_F(OpModelTest, LayerNormForwardOp) {
   EXPECT_EQ(outputOnlyConstraintsExp.get().outputLayouts.size(), 1u);
 }
 
+TEST_F(OpModelTest, LayerNormBackwardOp) {
+  const llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 256};
+  const llvm::SmallVector<int64_t> parameterShape = {1, 1, 1, 256};
+  const llvm::SmallVector<int64_t> statisticsShape = {1, 1, 128, 1};
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr parameterLayout = CreateTiledLayout(
+      parameterShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr statisticsLayout = CreateTiledLayout(
+      statisticsShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<LayerNormBackwardOp>::getOpConstraints(
+      inputShape, inputLayout, parameterShape, parameterLayout, statisticsShape,
+      statisticsLayout, statisticsShape, statisticsLayout, inputShape,
+      inputLayout, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputLayouts.size(), 3u);
+
+  auto runtimeExp = OpModel<LayerNormBackwardOp>::getOpRuntime(
+      inputShape, inputLayout, parameterShape, parameterLayout, statisticsShape,
+      statisticsLayout, statisticsShape, statisticsLayout, inputShape,
+      inputLayout, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
 //===----------------------------------------------------------------------===//
 // QuantizeOp Tests
 //===----------------------------------------------------------------------===//

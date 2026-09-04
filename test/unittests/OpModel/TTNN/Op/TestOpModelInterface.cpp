@@ -6494,6 +6494,50 @@ TEST_F(OpModelBase, LayerNormForwardOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, LayerNormBackwardOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 256};
+  llvm::SmallVector<int64_t> parameterShape = {1, 1, 1, 256};
+  llvm::SmallVector<int64_t> statisticsShape = {1, 1, 128, 1};
+  auto inputLayout = CreateTiledLayout(inputShape, BufferType::DRAM,
+                                       TensorMemoryLayout::Interleaved);
+  auto parameterLayout = CreateTiledLayout(parameterShape, BufferType::DRAM,
+                                           TensorMemoryLayout::Interleaved);
+  auto statisticsLayout = CreateTiledLayout(statisticsShape, BufferType::DRAM,
+                                            TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
+  auto gamma =
+      createEmptyTensor(parameterShape, builder.getBF16Type(), parameterLayout);
+  auto mean = createEmptyTensor(statisticsShape, builder.getBF16Type(),
+                                statisticsLayout);
+  auto rstd = createEmptyTensor(statisticsShape, builder.getBF16Type(),
+                                statisticsLayout);
+  auto grad = createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
+  auto outputType =
+      createRankedTensorType(inputShape, builder.getBF16Type(), inputLayout);
+  auto parameterOutputType = createRankedTensorType(
+      parameterShape, builder.getBF16Type(), parameterLayout);
+
+  auto op = builder.create<LayerNormBackwardOp>(
+      builder.getUnknownLoc(),
+      TypeRange{outputType, parameterOutputType, parameterOutputType}, input,
+      gamma, mean, rstd, grad);
+  auto backend = dyn_cast<OpModel>(op.getOperation());
+  ASSERT_TRUE(backend);
+  auto inputLayouts = getInputLayouts(op.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 5u);
+
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputLayouts.size(), 3u);
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, OpConfig());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
 TEST_F(OpModelBase, QuantizeOpInterface) {
   llvm::SmallVector<int64_t> inputShape = {32, 64};
   llvm::SmallVector<int64_t> scaleShape = {64};
