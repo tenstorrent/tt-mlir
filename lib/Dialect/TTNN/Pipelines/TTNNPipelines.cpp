@@ -112,6 +112,7 @@ void createTTNNPipelineAnalysisPasses(
     DevicePassesWrapperOptions wrapperOptions;
     wrapperOptions.devicePtr = options.devicePtr;
     wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
+    wrapperOptions.enableDRAMShardedMatmul = options.enableDRAMShardedMatmul;
 
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
@@ -213,6 +214,7 @@ void createTTNNResolveCompositesPass(
     DevicePassesWrapperOptions wrapperOptions;
     wrapperOptions.devicePtr = options.devicePtr;
     wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
+    wrapperOptions.enableDRAMShardedMatmul = options.enableDRAMShardedMatmul;
     pm.addPass(createDevicePassesWrapper(
         [](OpPassManager &innerPm) {
           TTNNResolveCompositesOptions resolveOptions;
@@ -247,18 +249,24 @@ void createTTNNFusingPass(OpPassManager &pm,
       DevicePassesWrapperOptions wrapperOptions;
       wrapperOptions.devicePtr = options.devicePtr;
       wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
+      wrapperOptions.enableDRAMShardedMatmul = options.enableDRAMShardedMatmul;
 
       uint32_t fallbackAttempts = options.maxFallbackAttempts;
       bool enableEltwiseActivationFusion =
           options.enableEltwiseActivationFusion;
+      // Fusing needs to know whether DRAM sharding is on so it can keep an
+      // activation off a producer matmul. Only the optimizer selects DS
+      // configs, so the non-optimizer path below leaves the pass default alone.
+      bool enableDRAMShardedMatmul = options.enableDRAMShardedMatmul;
       pm.addPass(createDevicePassesWrapper(
-          [fallbackAttempts,
-           enableEltwiseActivationFusion](OpPassManager &innerPm) {
+          [fallbackAttempts, enableEltwiseActivationFusion,
+           enableDRAMShardedMatmul](OpPassManager &innerPm) {
             TTNNFusingOptions fusingOptions;
             fusingOptions.enableOpConstraints = true;
             fusingOptions.maxFallbackAttempts = fallbackAttempts;
             fusingOptions.enableEltwiseActivationFusion =
                 enableEltwiseActivationFusion;
+            fusingOptions.enableDRAMShardedMatmul = enableDRAMShardedMatmul;
             innerPm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
           },
           wrapperOptions));
@@ -390,6 +398,8 @@ void createTTIRToTTNNCommonPipeline(
         DevicePassesWrapperOptions decompWrapperOptions;
         decompWrapperOptions.devicePtr = options.devicePtr;
         decompWrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
+        decompWrapperOptions.enableDRAMShardedMatmul =
+            options.enableDRAMShardedMatmul;
 
         uint32_t decompFallbackAttempts = options.maxFallbackAttempts;
         devicePm.addPass(createDevicePassesWrapper(

@@ -250,6 +250,17 @@ struct TTIRToTTNNCommonPipelineOptions
                      "Analysis and Memory Layout Analysis. [0.0-1.0]"),
       llvm::cl::init(0.95f)};
 
+  // Option to enable generation of DRAM-sharded matmuls in the optimizer. Off
+  // by default: DS trades compute width for per-bank read efficiency, and
+  // whether that pays depends on the part's bank-to-worker ratio. Unset, the
+  // matmul DRAM-shard rule book is suppressed and matmuls take the other
+  // (1D/2D mcast) program configs.
+  Option<bool> enableDRAMShardedMatmul{
+      *this, OptionNames::enableDramShardedMatmul,
+      llvm::cl::desc(
+          "Enable generation of DRAM-sharded matmuls in the optimizer."),
+      llvm::cl::init(false)};
+
   // Option to enable/disable the workaround pass.
   //
   Option<bool> disableWorkarounds{
