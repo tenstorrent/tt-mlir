@@ -9,8 +9,8 @@
 // CHECK: #include "api/dataflow/noc.h"
 // CHECK: void kernel_main
 func.func @ttkernel_noc_cb() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
-    // CHECK: UnicastEndpoint [[EP:unicast_ep]]
-    // CHECK: Noc [[NOC:noc0]]
+    // CHECK-DAG: UnicastEndpoint [[EP:unicast_ep]]
+    // CHECK-DAG: Noc [[NOC:noc0]]
     // CHECK: int32_t [[C0:.*]] = 32
     %c32_i32 = arith.constant 32 : i32
     // CHECK: size_t [[A0:.*]] = 0
@@ -36,8 +36,8 @@ func.func @ttkernel_noc_cb() -> () attributes {ttkernel.arg_spec = #ttkernel.arg
 
 // CHECK: void kernel_main
 func.func @ttkernel_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-    // CHECK: UnicastEndpoint [[EP1:unicast_ep]]
-    // CHECK: Noc [[NOC1:noc0]]
+    // CHECK-DAG: UnicastEndpoint [[EP1:unicast_ep]]
+    // CHECK-DAG: Noc [[NOC1:noc0]]
     // CHECK: int32_t [[B0:.*]] = 262432
     %c262432_i32 = arith.constant 262432 : i32
     // CHECK: int32_t [[B1:.*]] = 262208
@@ -101,6 +101,69 @@ func.func @ttkernel_noc_with_noc_id() -> () attributes {ttkernel.thread = #ttker
     func.return
 }
 
+// Cover the common Noc::async_{read,write} signature across both remote
+// endpoint kinds. Distinct values make source/destination ordering visible.
+// CHECK: void kernel_main
+func.func @ttkernel_noc_transfer_matrix() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    // CHECK-DAG: UnicastEndpoint [[UEP:unicast_ep]];
+    // CHECK-DAG: AllocatorBank<AllocatorBankType::DRAM> [[DEP:dram_ep]];
+    // CHECK-DAG: Noc [[NOC:noc0]](0);
+    // CHECK-DAG: size_t [[X:.*]] = 1
+    %x = arith.constant 1 : index
+    // CHECK-DAG: size_t [[Y:.*]] = 2
+    %y = arith.constant 2 : index
+    // CHECK-DAG: int32_t [[REMOTE:.*]] = 4096
+    %remote = arith.constant 4096 : i32
+    // CHECK-DAG: int32_t [[LOCAL:.*]] = 8192
+    %local = arith.constant 8192 : i32
+    // CHECK-DAG: int32_t [[SIZE:.*]] = 64
+    %size = arith.constant 64 : i32
+    // CHECK-DAG: int32_t [[BANK:.*]] = 3
+    %bank = arith.constant 3 : i32
+    %noc0 = arith.constant 0 : i8
+
+    // CHECK: [[NOC]].async_read([[UEP]], CoreLocalMem<uint32_t>([[LOCAL]]), [[SIZE]], {.noc_x = [[X]], .noc_y = [[Y]], .addr = static_cast<uint32_t>([[REMOTE]])}, {});
+    ttkernel.noc_async_read core[%x, %y], %remote, %local, %size, noc %noc0 : (index, index, i32, i32, i32, i8) -> ()
+    // CHECK: [[NOC]].async_read([[DEP]], CoreLocalMem<uint32_t>([[LOCAL]]), [[SIZE]], {.bank_id = static_cast<uint32_t>([[BANK]]), .addr = static_cast<uint32_t>([[REMOTE]])}, {});
+    ttkernel.noc_async_read bank[%bank], %remote, %local, %size, noc %noc0 : (i32, i32, i32, i32, i8) -> ()
+    // CHECK: [[NOC]].async_write(CoreLocalMem<uint32_t>([[LOCAL]]), [[UEP]], [[SIZE]], {}, {.noc_x = [[X]], .noc_y = [[Y]], .addr = static_cast<uint32_t>([[REMOTE]])});
+    ttkernel.noc_async_write %local, core[%x, %y], %remote, %size, noc %noc0 : (i32, index, index, i32, i32, i8) -> ()
+    // CHECK: [[NOC]].async_write(CoreLocalMem<uint32_t>([[LOCAL]]), [[DEP]], [[SIZE]], {}, {.bank_id = static_cast<uint32_t>([[BANK]]), .addr = static_cast<uint32_t>([[REMOTE]])});
+    ttkernel.noc_async_write %local, bank[%bank], %remote, %size, noc %noc0 : (i32, i32, i32, i32, i8) -> ()
+    // CHECK: return
+    func.return
+}
+
+// Dynamic NoC IDs use an inline Noc object. Exercise both a default transfer
+// and a call with a trailing NocOptVals argument in final C++.
+// CHECK: void kernel_main
+func.func @ttkernel_noc_dynamic_transfers() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    // CHECK-DAG: UnicastEndpoint [[EP:unicast_ep]];
+    // CHECK-DAG: int32_t [[TRID:.*]] = 3
+    %trid = arith.constant 3 : i32
+    // CHECK-DAG: size_t [[X:.*]] = 1
+    %x = arith.constant 1 : index
+    // CHECK-DAG: size_t [[Y:.*]] = 2
+    %y = arith.constant 2 : index
+    // CHECK-DAG: int32_t [[REMOTE:.*]] = 4096
+    %remote = arith.constant 4096 : i32
+    // CHECK-DAG: int32_t [[LOCAL:.*]] = 8192
+    %local = arith.constant 8192 : i32
+    // CHECK-DAG: int32_t [[SIZE:.*]] = 64
+    %size = arith.constant 64 : i32
+    %noc_arg = arith.constant 262400 : i32
+    %noc_ptr = ttkernel.reinterpret_cast(%noc_arg) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
+    %noc_offset = arith.constant 0 : i32
+    %noc = ttkernel.load_from_l1(%noc_ptr, %noc_offset) : (!ttkernel.l1_addr_ptr<8>, i32) -> i8
+
+    // CHECK: Noc({{.*}}).async_read([[EP]], CoreLocalMem<uint32_t>([[LOCAL]]), [[SIZE]], {.noc_x = [[X]], .noc_y = [[Y]], .addr = static_cast<uint32_t>([[REMOTE]])}, {});
+    ttkernel.noc_async_read core[%x, %y], %remote, %local, %size, noc %noc : (index, index, i32, i32, i32, i8) -> ()
+    // CHECK: Noc({{.*}}).async_write<NocOptions::TXN_ID, NOC_MAX_BURST_SIZE>(CoreLocalMem<uint32_t>([[LOCAL]]), [[EP]], [[SIZE]], {}, {.noc_x = [[X]], .noc_y = [[Y]], .addr = static_cast<uint32_t>([[REMOTE]])}, NocOptVals{.trid = [[TRID]]});
+    ttkernel.noc_async_write_one_packet_with_trid(%local, core[%x, %y], %remote, %size, %trid, noc %noc) : (i32, index, index, i32, i32, i32, i8) -> ()
+    // CHECK: return
+    func.return
+}
+
 // Render the non-D2M NoC emissions (stateful one-packet, TRID write/barrier,
 // multicast one-packet, tile read/write) all the way to C++ so that brace
 // balance in the emitted OO calls is actually checked. Checking the verbatim
@@ -129,10 +192,10 @@ func.func @ttkernel_noc_oo_render() -> () attributes {ttkernel.thread = #ttkerne
     ttkernel.noc_async_read_one_packet_with_state(core[%x, %y], %addr, %dstl1, %size, noc %noc0) : (index, index, i32, i32, i32, i8) -> ()
 
     // The TRID write must close with a single balanced `NocOptVals{...}`.
-    // CHECK: [[NOC]].async_write<NocOptions::TXN_ID, NOC_MAX_BURST_SIZE>(CoreLocalMem<uint32_t>({{.*}}), [[EP]], {{.*}}, {} , {.noc_x = {{.*}}, .noc_y = {{.*}}, .addr = static_cast<uint32_t>({{.*}})}, NocOptVals{.trid = {{[^}]*}}});
+    // CHECK: [[NOC]].async_write<NocOptions::TXN_ID, NOC_MAX_BURST_SIZE>(CoreLocalMem<uint32_t>({{.*}}), [[EP]], {{.*}}, {}, {.noc_x = {{.*}}, .noc_y = {{.*}}, .addr = static_cast<uint32_t>({{.*}})}, NocOptVals{.trid = {{[^}]*}}});
     ttkernel.noc_async_write_one_packet_with_trid(%dstl1, core[%x, %y], %addr, %size, %trid, noc %noc0) : (i32, index, index, i32, i32, i32, i8) -> ()
 
-    // CHECK: [[NOC]].async_write_multicast<NocOptions::DEFAULT, NOC_MAX_BURST_SIZE>(CoreLocalMem<uint32_t>({{.*}}), [[MEP]], {{.*}}, {{.*}}, {} , noc_traits_t<MulticastEndpoint>::dst_args_mcast_type{.noc_x_start = {{.*}}, .noc_y_start = {{.*}}, .noc_x_end = {{.*}}, .noc_y_end = {{.*}}, .addr = static_cast<uint32_t>({{.*}})}, false);
+    // CHECK: [[NOC]].async_write_multicast<NocOptions::DEFAULT, NOC_MAX_BURST_SIZE>(CoreLocalMem<uint32_t>({{.*}}), [[MEP]], {{.*}}, {{.*}}, {}, noc_traits_t<MulticastEndpoint>::dst_args_mcast_type{.noc_x_start = {{.*}}, .noc_y_start = {{.*}}, .noc_x_end = {{.*}}, .noc_y_end = {{.*}}, .addr = static_cast<uint32_t>({{.*}})}, false);
     ttkernel.noc_async_write_multicast_one_packet(%dstl1, %size, %num, start_xy[%x, %y], end_xy[%xe, %ye], %addr, noc %noc0) : (i32, i32, i32, index, index, index, index, i32, i8) -> ()
 
     // The TRID barrier must close with a single balanced `NocOptVals{...}`.
@@ -158,7 +221,7 @@ func.func @ttkernel_noc_oo_tile_render() -> () attributes {ttkernel.thread = #tt
     // CHECK: [[NOC]].async_read([[ACC]], CoreLocalMem<uint32_t>({{.*}}), [[ACC]].get_aligned_page_size(), {.page_id = [[READ_PAGE_ID]]}, {});
     "ttkernel.noc_async_read_tile"(%tile, %s, %addr, %noc0) : (i32, !ttkernel.TensorAccessor, i32, i8) -> ()
     // CHECK: const uint32_t [[WRITE_PAGE_ID:page_id_[0-9]+]] = static_cast<uint32_t>({{.+}});
-    // CHECK: [[NOC]].async_write(CoreLocalMem<uint32_t>({{.*}}), [[ACC]], [[ACC]].get_aligned_page_size(), {} , {.page_id = [[WRITE_PAGE_ID]]});
+    // CHECK: [[NOC]].async_write(CoreLocalMem<uint32_t>({{.*}}), [[ACC]], [[ACC]].get_aligned_page_size(), {}, {.page_id = [[WRITE_PAGE_ID]]});
     "ttkernel.noc_async_write_tile"(%tile, %s, %addr, %noc0) : (i32, !ttkernel.TensorAccessor, i32, i8) -> ()
     // CHECK: return
     func.return
