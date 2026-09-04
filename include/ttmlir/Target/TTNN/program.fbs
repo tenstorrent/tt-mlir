@@ -135,6 +135,7 @@ union OpType {
   RepeatOp,
   RMSNormPreAllGatherOp,
   RMSNormOp,
+  RMSNormPostAllGatherOp,
   ReshapeOp,
   SamplingOp,
   ScaledDotProductAttentionOp,
