@@ -4066,9 +4066,9 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
       Inputs:
       - `input` (AnyRankedTensor): expected in the following format (N, D, H, W, C) where:
         - N is the batch size
-        - D is the depth of the input volume
-        - H is the height of the input planes
-        - W is the width of the input planes
+        - D_in is the depth of the input volume
+        - H_in is the height of the input planes
+        - W_in is the width of the input planes
         - C is the number of input channels
       - `weight` (AnyRankedTensor): expected in the following format (C_out, C_in, K_D, K_H, K_W) where:
         - C_out is the number of output channels

@@ -2393,9 +2393,9 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_ComputeKernelConfigOpInterface]> {
       Inputs:
       - `input` (AnyRankedTensor): expected in the following format (N, D, H, W, C) where:
         - N is the batch size
-        - D is the depth of the input volume
-        - H is the height of the input planes
-        - W is the width of the input planes
+        - D_in is the depth of the input volume
+        - H_in is the height of the input planes
+        - W_in is the width of the input planes
         - C is the number of input channels
       - `weight` (AnyRankedTensor): expected in the following format (K_D * K_H * K_W * C / G, O) where:
         - K_D is the depth of the kernel
