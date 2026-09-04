@@ -1817,8 +1817,8 @@ public:
         emitter.emit<std::array<uint32_t, 3>>(srcOp.getStrideAttr(), "stride"),
         emitter.emit<std::array<uint32_t, 3>>(srcOp.getPaddingAttr(),
                                               "padding"),
-        emitter.emit<std::array<uint32_t, 3>>(
-            rewriter.getDenseI32ArrayAttr({1, 1, 1}), "dilation"),
+        emitter.emit<std::array<uint32_t, 3>>(srcOp.getDilationAttr(),
+                                              "dilation"),
         emitter.emit(srcOp.getPaddingMode(), "padding_mode"),
         emitter.emit(srcOp.getGroups(), "groups"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),

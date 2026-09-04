@@ -37,10 +37,18 @@ def clear_program_cache_after_test(device):
 
 
 @pytest.mark.parametrize(
-    "input_shape, weight_shape, bias_shape, stride, padding, groups",
+    "input_shape, weight_shape, bias_shape, stride, padding, dilation, groups",
     [
         # Basic 3x3x3 kernel, no padding, no bias
-        ((1, 8, 28, 28, 4), (16, 4, 3, 3, 3), None, [1, 1, 1], [0, 0, 0], 1),
+        (
+            (1, 8, 28, 28, 4),
+            (16, 4, 3, 3, 3),
+            None,
+            [1, 1, 1],
+            [0, 0, 0],
+            [1, 1, 1],
+            1,
+        ),
         # 3x3x3 kernel with bias
         (
             (1, 8, 28, 28, 4),
@@ -48,6 +56,7 @@ def clear_program_cache_after_test(device):
             (1, 1, 1, 1, 16),
             [1, 1, 1],
             [0, 0, 0],
+            [1, 1, 1],
             1,
         ),
         # Stride=2 with padding
@@ -56,6 +65,7 @@ def clear_program_cache_after_test(device):
             (32, 16, 3, 3, 3),
             (1, 1, 1, 1, 32),
             [2, 2, 2],
+            [1, 1, 1],
             [1, 1, 1],
             1,
         ),
@@ -66,12 +76,29 @@ def clear_program_cache_after_test(device):
             (1, 1, 1, 1, 32),
             [1, 1, 1],
             [1, 1, 1],
+            [1, 1, 1],
             1,
         ),
         # Larger 5x5x5 kernel
-        ((1, 16, 32, 32, 8), (32, 8, 5, 5, 5), None, [1, 1, 1], [0, 0, 0], 1),
+        (
+            (1, 16, 32, 32, 8),
+            (32, 8, 5, 5, 5),
+            None,
+            [1, 1, 1],
+            [0, 0, 0],
+            [1, 1, 1],
+            1,
+        ),
         # Stride=2, no padding, no bias (downsampling)
-        ((1, 8, 28, 28, 32), (64, 32, 3, 3, 3), None, [2, 2, 2], [0, 0, 0], 1),
+        (
+            (1, 8, 28, 28, 32),
+            (64, 32, 3, 3, 3),
+            None,
+            [2, 2, 2],
+            [0, 0, 0],
+            [1, 1, 1],
+            1,
+        ),
         # 1x1x1 kernel (pointwise 3D convolution)
         (
             (1, 8, 16, 16, 64),
@@ -79,10 +106,29 @@ def clear_program_cache_after_test(device):
             (1, 1, 1, 1, 128),
             [1, 1, 1],
             [0, 0, 0],
+            [1, 1, 1],
             1,
         ),
         # 3x1x1 kernel, stride=[2,1,1] (temporal downsampling)
-        ((1, 5, 64, 64, 192), (192, 192, 3, 1, 1), None, [2, 1, 1], [0, 0, 0], 1),
+        (
+            (1, 5, 64, 64, 192),
+            (192, 192, 3, 1, 1),
+            None,
+            [2, 1, 1],
+            [0, 0, 0],
+            [1, 1, 1],
+            1,
+        ),
+        # 3x3x3 kernel with dilation=2
+        (
+            (1, 8, 28, 28, 16),
+            (32, 16, 3, 3, 3),
+            None,
+            [1, 1, 1],
+            [2, 2, 2],
+            [2, 2, 2],
+            1,
+        ),
     ],
     ids=[
         "basic_3x3x3_no_bias",
@@ -93,6 +139,7 @@ def clear_program_cache_after_test(device):
         "stride2_downsample_no_bias",
         "pointwise_1x1x1",
         "temporal_downsampling_192ch_s211",
+        "dilation2_3x3x3",
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
@@ -103,6 +150,7 @@ def test_conv3d(
     bias_shape: Optional[Shape],
     stride: List[int],
     padding: List[int],
+    dilation: List[int],
     groups: int,
     dtype: torch.dtype,
     target: str,
@@ -128,6 +176,7 @@ def test_conv3d(
                     bias,
                     stride=stride,
                     padding=padding,
+                    dilation=dilation,
                     groups=groups,
                     unit_attrs=unit_attrs,
                 )
@@ -150,6 +199,7 @@ def test_conv3d(
                     None,
                     stride=stride,
                     padding=padding,
+                    dilation=dilation,
                     groups=groups,
                     unit_attrs=unit_attrs,
                 )

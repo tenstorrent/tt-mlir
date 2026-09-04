@@ -3874,8 +3874,9 @@ llvm::Expected<op_model::OpConstraints> Conv3dOp::getOpConstraints(
       *this, liveRecords, inputShape, inputs[0], weightShape, weightLayout,
       biasShape, biasLayout, getInChannels(), getOutChannels(), getBatchSize(),
       getInputDepth(), getInputHeight(), getInputWidth(), getKernelSize(),
-      getStride(), getPadding(), getGroups(), getPaddingMode(), getDtypeAttr(),
-      attr.conv3dConfig, attr.deviceComputeKernelConfig, opConfig.outputLayout);
+      getStride(), getPadding(), getDilation(), getGroups(), getPaddingMode(),
+      getDtypeAttr(), attr.conv3dConfig, attr.deviceComputeKernelConfig,
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3901,9 +3902,9 @@ Conv3dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<Conv3dOp>::getOpRuntime, *this, inputShape, inputs[0],
       weightShape, weightLayout, biasShape, biasLayout, getInChannels(),
       getOutChannels(), getBatchSize(), getInputDepth(), getInputHeight(),
-      getInputWidth(), getKernelSize(), getStride(), getPadding(), getGroups(),
-      getPaddingMode(), getDtypeAttr(), attr.conv3dConfig,
-      attr.deviceComputeKernelConfig, opConfig.outputLayout);
+      getInputWidth(), getKernelSize(), getStride(), getPadding(),
+      getDilation(), getGroups(), getPaddingMode(), getDtypeAttr(),
+      attr.conv3dConfig, attr.deviceComputeKernelConfig, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

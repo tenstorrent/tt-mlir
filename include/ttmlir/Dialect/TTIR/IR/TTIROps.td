@@ -4034,7 +4034,7 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
       Applies a 3D convolution over an input volume composed of several input planes.
 
       This operation performs a 3D convolution on the input tensor using the provided weight tensor
-      and optional bias. It supports configurable stride, padding, padding_mode and grouping parameters
+      and optional bias. It supports configurable stride, padding, dilation, padding_mode and grouping parameters
       to control the convolution behavior. This is commonly used for video or volumetric data processing.
 
       Example:
@@ -4046,6 +4046,7 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
       %result = ttir.conv3d(%input, %weight, %bias) {
           stride = [1, 1, 1],
           padding = [0, 0, 0],
+          dilation = [1, 1, 1],
           groups = 1,
           padding_mode = "zeros"
       } : (tensor<1x8x28x28x4xf32>, tensor<16x4x3x3x3xf32>, tensor<1x1x1x1x16xf32>) -> tensor<1x6x26x26x16xf32>
@@ -4057,6 +4058,7 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
       %result = ttir.conv3d(%input, %weight, %bias) {
           stride = [2, 2, 2],
           padding = [1, 1, 1],
+          dilation = [1, 1, 1],
           groups = 1,
           padding_mode = "zeros"
       } : (tensor<1x8x28x28x4xf32>, tensor<16x4x3x3x3xf32>, tensor<1x1x1x1x16xf32>) -> tensor<1x4x14x14x16xf32>
@@ -4065,9 +4067,9 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
       Inputs:
       - `input` (AnyRankedTensor): expected in the following format (N, D, H, W, C) where:
         - N is the batch size
-        - D is the depth of the input volume
-        - H is the height of the input planes
-        - W is the width of the input planes
+        - D_in is the depth of the input volume
+        - H_in is the height of the input planes
+        - W_in is the width of the input planes
         - C is the number of input channels
       - `weight` (AnyRankedTensor): expected in the following format (C_out, C_in, K_D, K_H, K_W) where:
         - C_out is the number of output channels
@@ -4081,14 +4083,15 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
       - `stride` (i32 | array<3xi32>): [sD, sH, sW] where sD is stride for depth, sH for height, sW for width.
       - `padding` (i32 |array<3xi32>): [pD, pH, pW] where pD is padding for depth, pH for height, pW for width.
         Padding is symmetric (same on both sides of each dimension).
+      - `dilation` (array<3xi32>): [dD, dH, dW] where dD is dilation for depth, dH for height, dW for width.
       - `padding_mode` (StrAttr): "zeros" or "replicate" - padding fill strategy.
       - `groups` (i32): Number of blocked connections from input channels to output channels.
 
       Output:
       - `result` AnyRankedTensor: 5D tensor in format (N, D_out, H_out, W_out, C_out) where:
-        - `D_out = (D_in + 2*pD - K_D) / sD + 1`
-        - `H_out = (H_in + 2*pH - K_H) / sH + 1`
-        - `W_out = (W_in + 2*pW - K_W) / sW + 1`
+        - `D_out = (D_in + 2*pD - dD*(K_D-1) - 1) / sD + 1`
+        - `H_out = (H_in + 2*pH - dH*(K_H-1) - 1) / sH + 1`
+        - `W_out = (W_in + 2*pW - dW*(K_W-1) - 1) / sW + 1`
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
@@ -4096,6 +4099,7 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
                          Optional<AnyRankedTensor>:$bias,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
+                         DefaultValuedAttr<DenseI32ArrayAttr, "{1, 1, 1}">:$dilation,
                          I32Attr:$groups,
                          DefaultValuedAttr<I64Attr, "0">:$batch_dim,
                          DefaultValuedAttr<I64Attr, "1">:$depth_dim,
@@ -4107,10 +4111,11 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
     let builders = [
       OpBuilder<(ins "Type":$result, "Value":$input, "Value":$weight,
                      "Value":$bias, "::mlir::Attribute":$stride,
-                     "::mlir::Attribute":$padding, "uint32_t":$groups,
+                     "::mlir::Attribute":$padding,
+                     "::mlir::DenseI32ArrayAttr":$dilation, "uint32_t":$groups,
                      "::mlir::StringAttr":$padding_mode), [{
         build($_builder, $_state, result, input, weight, bias, stride, padding,
-              $_builder.getI32IntegerAttr(groups),
+              dilation, $_builder.getI32IntegerAttr(groups),
               $_builder.getI64IntegerAttr(0), $_builder.getI64IntegerAttr(1),
               $_builder.getI64IntegerAttr(2), $_builder.getI64IntegerAttr(3),
               $_builder.getI64IntegerAttr(4), padding_mode);

@@ -717,6 +717,7 @@ def conv3d_golden(
     bias: Optional[GoldenMapTensor],
     stride: Union[IntegerAttr, DenseI32ArrayAttr],
     padding: Union[IntegerAttr, DenseI32ArrayAttr],
+    dilation: Union[IntegerAttr, DenseI32ArrayAttr],
     groups: IntegerAttr,
     batch_dim: IntegerAttr,
     depth_dim: IntegerAttr,
@@ -740,6 +741,8 @@ def conv3d_golden(
         Stride for depth, height, width
     padding : Union[IntegerAttr, DenseI32ArrayAttr]
         Padding for depth, height, width (symmetric)
+    dilation : Union[IntegerAttr, DenseI32ArrayAttr]
+        Dilation for depth, height, width
     groups : IntegerAttr
         Number of groups for grouped convolution
     batch_dim : IntegerAttr
@@ -765,6 +768,7 @@ def conv3d_golden(
 
     stride = unpack_mlir_attr(stride)
     padding = unpack_mlir_attr(padding)
+    dilation = unpack_mlir_attr(dilation)
     groups = unpack_mlir_attr(groups)
     padding_mode_str = unpack_mlir_attr(padding_mode)
 
@@ -789,7 +793,7 @@ def conv3d_golden(
         bias=bias,
         stride=stride,
         padding=padding,
-        dilation=1,
+        dilation=dilation,
         groups=groups,
     )
 
@@ -10238,6 +10242,7 @@ def chisel_ttnn_conv3d(op, inputs):
         bias=inputs["bias"],
         stride=op.attributes["stride"],
         padding=op.attributes["padding"],
+        dilation=op.attributes["dilation"],
         groups=op.attributes["groups"],
         batch_dim=0,
         depth_dim=1,

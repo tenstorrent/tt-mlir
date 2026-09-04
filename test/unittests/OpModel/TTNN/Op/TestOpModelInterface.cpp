@@ -3387,9 +3387,9 @@ TEST_F(OpModelBase, Conv3dInterface) {
   // Weight must be 2D: [kD*kH*kW*C_in/groups, C_out]
   // patch_size = 3*3*3*32 = 864, out_channels = 64 (multiple of 32)
   llvm::SmallVector<int64_t> weightShape = {864, 64};
-  // Output dims: D_out=(5-3)/1+1=3, H_out=(10-3)/1+1=8, W_out=(10-3)/1+1=8
+  // Dilation 2 gives an effective kernel size of 5 in each dimension.
   llvm::SmallVector<int64_t> outputShape = {
-      1, 3, 8, 8, 64}; // [N, D_out, H_out, W_out, C_out]
+      1, 1, 6, 6, 64}; // [N, D_out, H_out, W_out, C_out]
 
   // Conv3d requires ROW_MAJOR layout for input and TILE layout for weight
   auto inputLayout = CreateRowMajorLayout(inputShape, BufferType::DRAM,
@@ -3424,6 +3424,7 @@ TEST_F(OpModelBase, Conv3dInterface) {
       llvm::ArrayRef<int32_t>({3, 3, 3}), // Kernel size [D, H, W]
       llvm::ArrayRef<int32_t>({1, 1, 1}), // Stride [D, H, W]
       llvm::ArrayRef<int32_t>({0, 0, 0}), // Padding [D, H, W] (must be zero)
+      llvm::ArrayRef<int32_t>({2, 2, 2}), // Dilation [D, H, W]
       "zeros",                            // Padding mode
       1,                                  // Groups
       nullptr,                            // Conv3dConfig (optional)
@@ -3489,7 +3490,8 @@ TEST_F(OpModelBase, Conv3dInterfaceConfigs) {
       deviceOp, /*in_channels=*/32, /*out_channels=*/64, /*batch_size=*/1,
       /*input_depth=*/5, /*input_height=*/10, /*input_width=*/10,
       llvm::ArrayRef<int32_t>({3, 3, 3}), llvm::ArrayRef<int32_t>({1, 1, 1}),
-      llvm::ArrayRef<int32_t>({0, 0, 0}), "zeros", /*groups=*/1,
+      llvm::ArrayRef<int32_t>({0, 0, 0}), llvm::ArrayRef<int32_t>({1, 1, 1}),
+      "zeros", /*groups=*/1,
       /*conv3d_config=*/nullptr,
       /*compute_kernel_config=*/nullptr);
 

@@ -2004,8 +2004,8 @@ struct Conv3dChannelLastDecompositionPattern
 
     auto newConv = rewriter.create<ttir::Conv3dOp>(
         op.getLoc(), permutedOutputType, permutedInput, adaptor.getWeight(),
-        permutedBias, adaptor.getStride(), adaptor.getPadding(), op.getGroups(),
-        op.getPaddingModeAttr());
+        permutedBias, adaptor.getStride(), adaptor.getPadding(),
+        adaptor.getDilationAttr(), op.getGroups(), op.getPaddingModeAttr());
 
     // Permute output from NDHWC back to original layout.
     auto outputPermute = rewriter.create<ttir::PermuteOp>(

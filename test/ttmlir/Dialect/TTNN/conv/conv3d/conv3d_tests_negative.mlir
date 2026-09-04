@@ -363,3 +363,28 @@ module {
     return %1 : tensor<1x6x26x26x16xbf16>
   }
 }
+
+// -----
+module {
+  func.func @conv3d_invalid_dilation(%arg0: tensor<1x8x28x28x4xbf16>, %arg1: tensor<108x16xbf16>) -> tensor<1x6x26x26x16xbf16> {
+    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+    // CHECK: error: 'ttnn.conv3d' op dilation values must be >= 1, got: (1, 0, 1)
+    %1 = "ttnn.conv3d"(%arg0, %arg1, %0)
+            <{
+              in_channels = 4: i32,
+              out_channels = 16: i32,
+              batch_size = 1: i32,
+              input_depth = 8: i32,
+              input_height = 28: i32,
+              input_width = 28: i32,
+              kernel_size = array<i32: 3, 3, 3>,
+              stride = array<i32: 1, 1, 1>,
+              padding = array<i32: 0, 0, 0>,
+              dilation = array<i32: 1, 0, 1>,
+              padding_mode = "zeros",
+              groups = 1: i32,
+              dtype = #ttcore.supportedDataTypes<bf16>
+            }> : (tensor<1x8x28x28x4xbf16>, tensor<108x16xbf16>, !ttnn.device) -> tensor<1x6x26x26x16xbf16>
+    return %1 : tensor<1x6x26x26x16xbf16>
+  }
+}

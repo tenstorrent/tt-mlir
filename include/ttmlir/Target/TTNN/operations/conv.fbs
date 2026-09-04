@@ -240,4 +240,5 @@ table Conv3dOp {
   conv3d_config: tt.target.ttnn.Conv3dConfig;
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
   memory_config: tt.target.ttnn.MemoryConfig;
+  dilation: [int32];
 }
