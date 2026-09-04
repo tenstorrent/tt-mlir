@@ -245,13 +245,13 @@ mlir::RankedTensorType getPreparedConv3dWeightsOutputTensor(Conv3dOp *op) {
 
   constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
   constexpr int64_t ALIGNMENT = TILE_WIDTH;
-  int64_t inChannelsPerGroup = op->getInChannels() / op->getGroups();
   llvm::ArrayRef<int32_t> kernelSize = op->getKernelSize();
   int64_t kernelDepth = kernelSize[0];
   int64_t kernelHeight = kernelSize[1];
   int64_t kernelWidth = kernelSize[2];
   int64_t cInAligned =
-      llvm::divideCeil(inChannelsPerGroup, ALIGNMENT) * ALIGNMENT;
+      llvm::divideCeil(static_cast<int64_t>(op->getInChannels()), ALIGNMENT) *
+      ALIGNMENT;
   int64_t numCInBlocks = cInAligned / TILE_WIDTH;
   llvm::SmallVector<int64_t> preparedShape = {
       numCInBlocks * kernelDepth * kernelHeight * kernelWidth * TILE_WIDTH,

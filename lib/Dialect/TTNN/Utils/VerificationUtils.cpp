@@ -4,6 +4,9 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/VerificationUtils.h"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Utils.h"
+
 namespace mlir::tt::ttnn::utils::verification_utils::conv2d {
 
 mlir::LogicalResult verifyTensorRanks(mlir::tt::ttnn::Conv2dOp *op) {
@@ -218,12 +221,12 @@ mlir::LogicalResult verifyTensorRanks(mlir::tt::ttnn::Conv3dOp *op) {
   // Conv3dOp accepts weight in two shapes:
   //   - Raw 5D [O, C/G, kD, kH, kW]: present from TTIRToTTNN lowering until
   //     TTNNPrepareConv3dWeights runs.
-  //   - Prepared 2D [kD*kH*kW*C/G_aligned, O]: emitted by
+  //   - Prepared 2D [kD*kH*kW*C_in_aligned, O]: emitted by
   //     PrepareConv3dWeightsOp and consumed by the tt-metal runtime kernel.
   if (weightRank != 5 && weightRank != 2) {
     return op->emitOpError(
         "weight must be either a 5D tensor [O, C/G, kD, kH, kW] (raw) or a "
-        "2D tensor [kD*kH*kW*C/G, O] (prepared)");
+        "2D tensor [kD*kH*kW*C_in, O] (prepared)");
   }
   if (op->getBias() && op->getBias().getType().getRank() != 2) {
     return op->emitOpError("bias must be a 2D tensor [1, O]");
@@ -255,7 +258,7 @@ getConv3dInputDims(mlir::tt::ttnn::Conv3dOp *op) {
                   weightType.getDimSize(2), weightType.getDimSize(3),
                   weightType.getDimSize(4)};
   } else {
-    // Prepared 2D weight: (kD*kH*kW*C/G_aligned, O). Kernel dims come from
+    // Prepared 2D weight: (kD*kH*kW*C_in_aligned, O). Kernel dims come from
     // op attributes since the weight has been flattened.
     weightDims = {op->getOutChannels(), weightType.getDimSize(WEIGHT_FLATTENED),
                   kernelSize[0], kernelSize[1], kernelSize[2]};
@@ -342,32 +345,26 @@ verifyConv3dInputDims(mlir::tt::ttnn::Conv3dOp *op,
                       const std::optional<BiasTensorDims3d> &biasDims,
                       const Conv3dParams &params) {
 
-  if (inputDims.inputChannels % params.groups != 0) {
-    return op->emitOpError()
-           << "in_channels (" << inputDims.inputChannels
-           << ") must be divisible by groups (" << params.groups << ")";
-  }
-
   if (weightDims.outputChannels % params.groups != 0) {
     return op->emitOpError()
            << "out_channels (" << weightDims.outputChannels
            << ") must be divisible by groups (" << params.groups << ")";
   }
 
+  int64_t kernelVolume = params.kernelSize.depth * params.kernelSize.vertical *
+                         params.kernelSize.horizontal;
+
   // The flattened-dim consistency check applies only to the prepared 2D
-  // weight, where the flattened dim is kD*kH*kW*C/G_aligned. For raw 5D
-  // weight, dim 1 is the unaligned C/G — it doesn't match in_channels
-  // (which is already aligned to TILE_WIDTH by TTIRToTTNN).
+  // weight. For raw 5D weight, dim 1 is the unaligned C/G — it doesn't match
+  // in_channels (which is already aligned to TILE_WIDTH by TTIRToTTNN).
   if (op->getWeight().getType().getRank() == 2) {
-    int64_t expectedFlattenedDim =
-        (inputDims.inputChannels / params.groups) * params.kernelSize.depth *
-        params.kernelSize.vertical * params.kernelSize.horizontal;
+    int64_t expectedFlattenedDim = inputDims.inputChannels * kernelVolume;
 
     if (expectedFlattenedDim != weightDims.flattenedKernelChannels) {
-      return op->emitOpError() << "weight flattened dimension ("
-                               << weightDims.flattenedKernelChannels
-                               << ") must equal kD*kH*kW*C_in/groups ("
-                               << expectedFlattenedDim << ")";
+      return op->emitOpError()
+             << "weight flattened dimension ("
+             << weightDims.flattenedKernelChannels
+             << ") must equal kD*kH*kW*C_in (" << expectedFlattenedDim << ")";
     }
   } else {
     // Raw 5D weight: (O, C/G, kD, kH, kW). The flattened-dim check above can't
@@ -382,6 +379,20 @@ verifyConv3dInputDims(mlir::tt::ttnn::Conv3dOp *op,
              << ") must match kernel_size (" << params.kernelSize.depth << ", "
              << params.kernelSize.vertical << ", "
              << params.kernelSize.horizontal << ")";
+    }
+
+    constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
+    int64_t inChannelsPerGroup =
+        weightDims.flattenedKernelChannels / kernelVolume;
+    int64_t expectedInChannels =
+        ttmlir::utils::alignUp(inChannelsPerGroup * params.groups, TILE_WIDTH);
+    if (expectedInChannels != inputDims.inputChannels) {
+      return op->emitOpError()
+             << "in_channels (" << inputDims.inputChannels
+             << ") must equal the weight's input channels per group ("
+             << inChannelsPerGroup << ") * groups (" << params.groups
+             << ") aligned to " << TILE_WIDTH << " (" << expectedInChannels
+             << ")";
     }
   }
 
