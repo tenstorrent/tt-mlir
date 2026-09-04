@@ -3,22 +3,19 @@
 // RUN: FileCheck %s --input-file=%t
 
 module {
-  // AdamW without AMSGrad (4 operands).
+  // AdamW without AMSGrad (7 operands).
   func.func @adamw_optimizer(%param: tensor<1x1x64x64xbf16>, %grad: tensor<1x1x64x64xbf16>,
-                             %exp_avg: tensor<1x1x64x64xbf16>, %exp_avg_sq: tensor<1x1x64x64xbf16>)
+                             %exp_avg: tensor<1x1x64x64xbf16>, %exp_avg_sq: tensor<1x1x64x64xbf16>, %lr: tensor<1xf32>, %beta1_pow: tensor<1xf32>, %beta2_pow: tensor<1xf32>)
       -> tensor<1x1x64x64xbf16> {
     // CHECK-LABEL: func.func @adamw_optimizer
     // CHECK: "ttnn.adamw"
     // CHECK-SAME: -> ()
-    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq) <{
-        lr = 1.000000e-03 : f32,
+    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow) <{
         beta1 = 0.899999976 : f32,
         beta2 = 0.999000012 : f32,
-        beta1_pow = 0.899999976 : f32,
-        beta2_pow = 0.999000012 : f32,
         epsilon = 1.000000e-08 : f32,
         weight_decay = 1.000000e-02 : f32}>
-        : (tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>)
+        : (tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32>)
           -> (tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>)
     return %0#0 : tensor<1x1x64x64xbf16>
   }
@@ -27,45 +24,39 @@ module {
   // the input workaround. The optimizer must also select the tiled,
   // DRAM-interleaved layouts required by the backing kernel.
   func.func @adamw_optimizer_f32(%param: tensor<1x1x64x64xf32>, %grad: tensor<1x1x64x64xf32>,
-                                 %exp_avg: tensor<1x1x64x64xf32>, %exp_avg_sq: tensor<1x1x64x64xf32>)
+                                 %exp_avg: tensor<1x1x64x64xf32>, %exp_avg_sq: tensor<1x1x64x64xf32>, %lr: tensor<1xf32>, %beta1_pow: tensor<1xf32>, %beta2_pow: tensor<1xf32>)
       -> tensor<1x1x64x64xf32> {
     // CHECK-LABEL: func.func @adamw_optimizer_f32
     // CHECK: %[[GRAD_BF16:.*]] = "ttnn.typecast"(%{{.*}}) : {{.*}} -> tensor<1x1x64x64xbf16
-    // CHECK: "ttnn.adamw"(%{{[^,]+}}, %[[GRAD_BF16]], %{{[^,]+}}, %{{[^)]+}})
-    // CHECK-SAME: : (tensor<1x1x64x64xf32, #ttnn_layout{{[^>]*}}>, tensor<1x1x64x64xbf16, #ttnn_layout{{[^>]*}}>, tensor<1x1x64x64xf32, #ttnn_layout{{[^>]*}}>, tensor<1x1x64x64xf32, #ttnn_layout{{[^>]*}}>)
+    // CHECK: "ttnn.adamw"(%{{[^,]+}}, %[[GRAD_BF16]], %{{[^,]+}}, %{{[^,]+}}, %{{[^,]+}}, %{{[^,]+}}, %{{[^)]+}})
+    // CHECK-SAME: : (tensor<1x1x64x64xf32, #ttnn_layout{{[^>]*}}>, tensor<1x1x64x64xbf16, #ttnn_layout{{[^>]*}}>, tensor<1x1x64x64xf32, #ttnn_layout{{[^>]*}}>, tensor<1x1x64x64xf32, #ttnn_layout{{[^>]*}}>, tensor<1xf32, #ttnn_layout{{[^>]*}}>, tensor<1xf32, #ttnn_layout{{[^>]*}}>, tensor<1xf32, #ttnn_layout{{[^>]*}}>)
     // CHECK-SAME: -> ()
-    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq) <{
-        lr = 1.000000e-03 : f32,
+    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow) <{
         beta1 = 0.899999976 : f32,
         beta2 = 0.999000012 : f32,
-        beta1_pow = 0.899999976 : f32,
-        beta2_pow = 0.999000012 : f32,
         epsilon = 1.000000e-08 : f32,
         weight_decay = 1.000000e-02 : f32}>
-        : (tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>)
+        : (tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32>)
           -> (tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>)
     return %0#0 : tensor<1x1x64x64xf32>
   }
 
-  // AdamW with AMSGrad (5 operands). The presence of max_exp_avg_sq is what
-  // enables amsgrad in ttml, and it exercises the 5-input path through the
+  // AdamW with AMSGrad (8 operands). The presence of max_exp_avg_sq is what
+  // enables amsgrad in ttml, and it exercises the 8-input path through the
   // op model interface.
   func.func @adamw_amsgrad_optimizer(%param: tensor<1x1x64x64xbf16>, %grad: tensor<1x1x64x64xbf16>,
-                                     %exp_avg: tensor<1x1x64x64xbf16>, %exp_avg_sq: tensor<1x1x64x64xbf16>,
+                                     %exp_avg: tensor<1x1x64x64xbf16>, %exp_avg_sq: tensor<1x1x64x64xbf16>, %lr: tensor<1xf32>, %beta1_pow: tensor<1xf32>, %beta2_pow: tensor<1xf32>,
                                      %max_exp_avg_sq: tensor<1x1x64x64xbf16>)
       -> tensor<1x1x64x64xbf16> {
     // CHECK-LABEL: func.func @adamw_amsgrad_optimizer
     // CHECK: "ttnn.adamw"
     // CHECK-SAME: -> ()
-    %0:4 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %max_exp_avg_sq) <{
-        lr = 1.000000e-03 : f32,
+    %0:4 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow, %max_exp_avg_sq) <{
         beta1 = 0.899999976 : f32,
         beta2 = 0.999000012 : f32,
-        beta1_pow = 0.899999976 : f32,
-        beta2_pow = 0.999000012 : f32,
         epsilon = 1.000000e-08 : f32,
         weight_decay = 1.000000e-02 : f32}>
-        : (tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>)
+        : (tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1x1x64x64xbf16>)
           -> (tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>, tensor<1x1x64x64xbf16>)
     return %0#0 : tensor<1x1x64x64xbf16>
   }
@@ -81,7 +72,7 @@ module {
                                          %g0: tensor<1x1x256x256xbf16>,
                                          %g1: tensor<1x1x256x256xbf16>,
                                          %exp_avg: tensor<1x1x256x256xbf16>,
-                                         %exp_avg_sq: tensor<1x1x256x256xbf16>)
+                                         %exp_avg_sq: tensor<1x1x256x256xbf16>, %lr: tensor<1xf32>, %beta1_pow: tensor<1xf32>, %beta2_pow: tensor<1xf32>)
       -> tensor<1x1x256x256xbf16> {
     // CHECK-LABEL: func.func @adamw_grad_from_l1_producer
     // CHECK: %[[MUL:[0-9a-z_]+]] = "ttnn.multiply"
@@ -89,15 +80,12 @@ module {
     // CHECK: "ttnn.adamw"(%{{[0-9a-z_]+}}, %[[RESHARD]],
     // CHECK-SAME: -> ()
     %grad = "ttir.multiply"(%g0, %g1) : (tensor<1x1x256x256xbf16>, tensor<1x1x256x256xbf16>) -> tensor<1x1x256x256xbf16>
-    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq) <{
-        lr = 1.000000e-03 : f32,
+    %0:3 = "ttir.adamw"(%param, %grad, %exp_avg, %exp_avg_sq, %lr, %beta1_pow, %beta2_pow) <{
         beta1 = 0.899999976 : f32,
         beta2 = 0.999000012 : f32,
-        beta1_pow = 0.899999976 : f32,
-        beta2_pow = 0.999000012 : f32,
         epsilon = 1.000000e-08 : f32,
         weight_decay = 1.000000e-02 : f32}>
-        : (tensor<1x1x256x256xbf16>, tensor<1x1x256x256xbf16>, tensor<1x1x256x256xbf16>, tensor<1x1x256x256xbf16>)
+        : (tensor<1x1x256x256xbf16>, tensor<1x1x256x256xbf16>, tensor<1x1x256x256xbf16>, tensor<1x1x256x256xbf16>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32>)
           -> (tensor<1x1x256x256xbf16>, tensor<1x1x256x256xbf16>, tensor<1x1x256x256xbf16>)
     return %0#0 : tensor<1x1x256x256xbf16>
   }

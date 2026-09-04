@@ -61,6 +61,7 @@ private:
     shouldHoist &= !::mlir::isa<mlir::tt::ttcore::LoadCachedOp>(op);
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::CaptureOrExecuteTraceOp>(op);
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::GetDeviceOp>(op);
+    shouldHoist &= !::mlir::isa<mlir::tt::ttnn::AdamWOp>(op);
     shouldHoist &=
         !(op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>());
     return shouldHoist;
@@ -965,6 +966,48 @@ private:
     return mlir::success();
   }
 
+  // ttnn.adamw is not hoistable (host readback of lr / beta*_pow), so an
+  // adamw followed by hoistable compute would split the trace region and fail
+  // below. adamw has no results and mutates its param / moment operands in
+  // place, so it can be moved to the end of the block as long as no later
+  // non-adamw op touches any of its operands. Relative order of adamw ops is
+  // preserved. Anything that cannot be moved is left in place and reported by
+  // the "non-hoistable op in the middle" check.
+  void sinkAdamWOpsToEnd(mlir::Block &block) {
+    llvm::SmallVector<Operation *> adamWOps;
+    for (mlir::Operation &op : block.getOperations()) {
+      if (::mlir::isa<mlir::tt::ttnn::AdamWOp>(op)) {
+        adamWOps.push_back(&op);
+      }
+    }
+    if (adamWOps.empty()) {
+      return;
+    }
+
+    Operation *terminator = block.getTerminator();
+    for (Operation *adamW : adamWOps) {
+      llvm::SmallPtrSet<mlir::Value, 8> operands(adamW->operand_begin(),
+                                                 adamW->operand_end());
+      bool canSink = true;
+      for (Operation *later = adamW->getNextNode();
+           later && later != terminator && canSink;
+           later = later->getNextNode()) {
+        if (::mlir::isa<mlir::tt::ttnn::AdamWOp>(later)) {
+          continue;
+        }
+        for (mlir::Value v : later->getOperands()) {
+          if (operands.contains(v)) {
+            canSink = false;
+            break;
+          }
+        }
+      }
+      if (canSink) {
+        adamW->moveBefore(terminator);
+      }
+    }
+  }
+
   mlir::LogicalResult processFuncOp(func::FuncOp funcOp) {
     // Skip non-forward functions.
     if (!ttmlir::utils::isForwardDeviceFunc(funcOp)) {
@@ -978,6 +1021,8 @@ private:
     llvm::SmallVector<Operation *> opsToHoist;
 
     mlir::Block &block = funcOp.getBlocks().front();
+
+    sinkAdamWOpsToEnd(block);
 
     // Collect all hoistable ops, but skip the first non-hoistable ops and the
     // last non-hoistable ops. Non-hoistable ops at the boundaries should remain

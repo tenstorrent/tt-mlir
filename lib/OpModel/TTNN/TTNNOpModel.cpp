@@ -9394,9 +9394,8 @@ llvm::Expected<OpConstraints> OpModel<AdamWOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> expAvgShape, TTNNLayoutAttr expAvgLayout,
     llvm::ArrayRef<int64_t> expAvgSqShape, TTNNLayoutAttr expAvgSqLayout,
     std::optional<llvm::ArrayRef<int64_t>> maxExpAvgSqShape,
-    std::optional<TTNNLayoutAttr> maxExpAvgSqLayout, llvm::APFloat lr,
-    llvm::APFloat beta1, llvm::APFloat beta2, llvm::APFloat beta1Pow,
-    llvm::APFloat beta2Pow, llvm::APFloat epsilon, llvm::APFloat weightDecay,
+    std::optional<TTNNLayoutAttr> maxExpAvgSqLayout, llvm::APFloat beta1,
+    llvm::APFloat beta2, llvm::APFloat epsilon, llvm::APFloat weightDecay,
     bool stochasticRounding, TTNNLayoutAttr outputLayout,
     const MockAllocatorState *initialState) {
 
@@ -9430,11 +9429,10 @@ llvm::Expected<OpConstraints> OpModel<AdamWOp>::getOpConstraints(
   auto adamWOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS_WITH_STATE(
         ::ttml::metal::adamw, device, initialStateOpt, paramSpec, gradSpec,
-        expAvgSpec, expAvgSqSpec, maxExpAvgSqSpec, lr.convertToFloat(),
-        beta1.convertToFloat(), beta2.convertToFloat(),
-        beta1Pow.convertToFloat(), beta2Pow.convertToFloat(),
-        epsilon.convertToFloat(), weightDecay.convertToFloat(),
-        stochasticRoundingValue);
+        expAvgSpec, expAvgSqSpec, maxExpAvgSqSpec, /*lr=*/0.0F,
+        beta1.convertToFloat(), beta2.convertToFloat(), /*beta1_pow=*/0.0F,
+        /*beta2_pow=*/0.0F, epsilon.convertToFloat(),
+        weightDecay.convertToFloat(), stochasticRoundingValue);
   };
 
   return operation::getOpConstraintsWithState(paramLayout.getContext(),
@@ -9450,9 +9448,8 @@ llvm::Expected<size_t> OpModel<AdamWOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> expAvgShape, TTNNLayoutAttr expAvgLayout,
     llvm::ArrayRef<int64_t> expAvgSqShape, TTNNLayoutAttr expAvgSqLayout,
     std::optional<llvm::ArrayRef<int64_t>> maxExpAvgSqShape,
-    std::optional<TTNNLayoutAttr> maxExpAvgSqLayout, llvm::APFloat lr,
-    llvm::APFloat beta1, llvm::APFloat beta2, llvm::APFloat beta1Pow,
-    llvm::APFloat beta2Pow, llvm::APFloat epsilon, llvm::APFloat weightDecay,
+    std::optional<TTNNLayoutAttr> maxExpAvgSqLayout, llvm::APFloat beta1,
+    llvm::APFloat beta2, llvm::APFloat epsilon, llvm::APFloat weightDecay,
     bool stochasticRounding, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -9481,9 +9478,9 @@ llvm::Expected<size_t> OpModel<AdamWOp>::getOpRuntime(
   auto adamWOpQuery = [=]() {
     return QUERY_OP_RUNTIME(::ttml::metal::adamw, device, paramSpec, gradSpec,
                             expAvgSpec, expAvgSqSpec, maxExpAvgSqSpec,
-                            lr.convertToFloat(), beta1.convertToFloat(),
-                            beta2.convertToFloat(), beta1Pow.convertToFloat(),
-                            beta2Pow.convertToFloat(), epsilon.convertToFloat(),
+                            /*lr=*/0.0F, beta1.convertToFloat(),
+                            beta2.convertToFloat(), /*beta1_pow=*/0.0F,
+                            /*beta2_pow=*/0.0F, epsilon.convertToFloat(),
                             weightDecay.convertToFloat(),
                             stochasticRoundingValue);
   };

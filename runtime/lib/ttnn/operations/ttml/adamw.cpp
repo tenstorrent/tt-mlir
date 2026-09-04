@@ -5,8 +5,31 @@
 #include "operations/ttml/adamw.h"
 #include "metal/common/const_utils.hpp"     // ttml::metal::StochasticRounding
 #include "metal/optimizers/adamw/adamw.hpp" // ttml::metal::adamw
+#include "ttnn/distributed/api.hpp"
 
 namespace tt::runtime::ttnn::operations::ttml {
+
+// Device -> host readback of a single-element tensor. Cached per program run
+// in ProgramContext so N AdamW ops sharing one lr tensor cost one sync.
+static float readScalar(ProgramContext &context,
+                        const ::tt::target::ttnn::TensorRef *ref) {
+  return context.getHostScalar(ref->global_id(), [&]() {
+    const ::ttnn::Tensor &tensor =
+        context.getTensorPool().getTTNNTensorAndValidate(ref);
+    LOG_ASSERT(tensor.logical_volume() == 1,
+               "AdamW scalar operand must have exactly one element, got ",
+               tensor.logical_volume());
+    LOG_ASSERT(tensor.dtype() == ::ttnn::DataType::FLOAT32,
+               "AdamW scalar operand must be float32");
+    const std::vector<::ttnn::Tensor> shards =
+        ::ttnn::distributed::get_device_tensors(tensor);
+    LOG_ASSERT(!shards.empty(), "AdamW scalar operand has no device shards");
+    const std::vector<float> values = shards.front().to_vector<float>();
+    LOG_ASSERT(values.size() == 1, "AdamW scalar readback returned ",
+               values.size(), " elements");
+    return values.front();
+  });
+}
 
 void run(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -30,10 +53,11 @@ void run(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context) {
                                 : ::ttml::metal::StochasticRounding::Disabled;
 
   // param, exp_avg, exp_avg_sq (and max_exp_avg_sq) are all updated in place.
-  ::ttml::metal::adamw(param, grad, expAvg, expAvgSq, maxExpAvgSq, op->lr(),
-                       op->beta1(), op->beta2(), op->beta1_pow(),
-                       op->beta2_pow(), op->epsilon(), op->weight_decay(),
-                       stochasticRounding);
+  ::ttml::metal::adamw(param, grad, expAvg, expAvgSq, maxExpAvgSq,
+                       readScalar(context, op->lr()), op->beta1(), op->beta2(),
+                       readScalar(context, op->beta1_pow()),
+                       readScalar(context, op->beta2_pow()), op->epsilon(),
+                       op->weight_decay(), stochasticRounding);
 }
 
 } // namespace tt::runtime::ttnn::operations::ttml
