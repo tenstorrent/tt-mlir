@@ -372,7 +372,7 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   // #9264. Once that pass can demote a DS matmul to a multicast config, this
   // becomes p.perCoreM * p.perCoreN * kBf16Tile.
   int64_t outTensorBufPerCore =
-      p.perCoreM * ((N / kTileSize) / numIn0Cores) * kBf16Tile;
+      p.perCoreM * llvm::divideCeil(N / kTileSize, numIn0Cores) * kBf16Tile;
   int64_t in0TensorBuf = p.perCoreM * kPerCore * kBf16Tile;
   int64_t cbBudget = l1Available - in0TensorBuf - outTensorBufPerCore;
 
