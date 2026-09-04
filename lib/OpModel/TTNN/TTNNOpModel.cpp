@@ -9824,4 +9824,73 @@ llvm::Expected<size_t> OpModel<CrossEntropyForwardOp>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// CrossEntropyBackwardOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<CrossEntropyBackwardOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> targetShape, TTNNLayoutAttr targetLayout,
+    llvm::ArrayRef<int64_t> gradShape, TTNNLayoutAttr gradLayout,
+    llvm::APFloat scaler, TTNNLayoutAttr outputLayout,
+    const MockAllocatorState *initialState) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec targetSpec,
+      detail::convertToTensorSpec(device, targetShape, targetLayout));
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec gradSpec,
+                   detail::convertToTensorSpec(device, gradShape, gradLayout));
+
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
+  auto crossEntropyBackwardOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        ::ttml::metal::cross_entropy_bw, device, initialStateOpt, inputSpec,
+        targetSpec, gradSpec, scaler.convertToFloat());
+  };
+
+  return operation::getOpConstraintsWithState(inputLayout.getContext(),
+                                              crossEntropyBackwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<CrossEntropyBackwardOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> targetShape, TTNNLayoutAttr targetLayout,
+    llvm::ArrayRef<int64_t> gradShape, TTNNLayoutAttr gradLayout,
+    llvm::APFloat scaler, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec targetSpec,
+      detail::convertToTensorSpec(device, targetShape, targetLayout));
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec gradSpec,
+                   detail::convertToTensorSpec(device, gradShape, gradLayout));
+
+  auto crossEntropyBackwardOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttml::metal::cross_entropy_bw, device, inputSpec,
+                            targetSpec, gradSpec, scaler.convertToFloat());
+  };
+
+  return operation::getOpRuntime(crossEntropyBackwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 } // namespace mlir::tt::ttnn::op_model

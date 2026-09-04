@@ -7861,4 +7861,50 @@ TEST_F(OpModelTest, CrossEntropyForwardOp) {
   EXPECT_GT(*runtimeExp, 0);
 }
 
+//===----------------------------------------------------------------------===//
+// CrossEntropyBackwardOp
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelTest, CrossEntropyBackwardOp) {
+  const llvm::SmallVector<int64_t> inputShape = {4, 1, 32, 64};
+  const llvm::SmallVector<int64_t> targetShape = {4, 32};
+  const llvm::SmallVector<int64_t> gradShape = {1, 1, 1, 1};
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr targetLayout =
+      TTNNLayoutAttr::Builder(
+          &context, targetShape,
+          builder.getIntegerType(/*width=*/32, /*isSigned=*/false))
+          .setBufferType(BufferType::DRAM)
+          .setMemoryLayout(TensorMemoryLayout::Interleaved)
+          .setGridShape(GetVirtualGridShape(
+              targetShape, TensorMemoryLayout::Interleaved, BufferType::DRAM))
+          .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  const TTNNLayoutAttr gradLayout = CreateTiledLayout(
+      gradShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const llvm::APFloat scaler(0.03125F);
+
+  auto constraintsExp = OpModel<CrossEntropyBackwardOp>::getOpConstraints(
+      inputShape, inputLayout, targetShape, targetLayout, gradShape, gradLayout,
+      scaler, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp->cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp->tensorL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp->outputL1BufferSize, 0);
+  ASSERT_EQ(constraintsExp->outputLayouts.size(), 1u);
+
+  const TTNNLayoutAttr outputLayout = constraintsExp->outputLayouts.front();
+  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+  EXPECT_EQ(outputLayout.getDataType(), ttcore::DataType::BFloat16);
+  EXPECT_EQ(outputLayout.getBufferType(), BufferType::DRAM);
+  EXPECT_EQ(outputLayout.getMemLayout().getValue(),
+            TensorMemoryLayout::Interleaved);
+
+  auto runtimeExp = OpModel<CrossEntropyBackwardOp>::getOpRuntime(
+      inputShape, inputLayout, targetShape, targetLayout, gradShape, gradLayout,
+      scaler, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(*runtimeExp, 0);
+}
+
 } // namespace mlir::tt::ttnn::op_model

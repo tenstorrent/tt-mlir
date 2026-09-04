@@ -1246,6 +1246,44 @@ def cross_entropy_fw_golden(
     return result
 
 
+def cross_entropy_bw_golden(
+    input: GoldenMapTensor,
+    target: GoldenMapTensor,
+    grad: GoldenMapTensor,
+    scaler,
+    output_type_mlir: Type = None,
+    **kwargs,
+) -> GoldenMapTensor:
+    """Reference for the fused ttml cross entropy backward step:
+
+      d_input = (softmax(input) - one_hot(target)) * scaler * grad
+
+    Input is (N, 1, H, W) logits, target is (N, H) class indices and grad is a
+    (1, 1, 1, 1) scalar. The result has input's shape.
+    """
+    scaler = unpack_mlir_attr(scaler)
+
+    logits = input.to(torch.float32)
+    num_classes = logits.shape[-1]
+
+    probs = torch.softmax(logits, dim=-1)
+
+    # (N, H) -> (N, 1, H, W)
+    one_hot = torch.unsqueeze(
+        torch.nn.functional.one_hot(target.to(torch.int64), num_classes).to(
+            torch.float32
+        ),
+        1,
+    )
+
+    result = torch.mul(torch.sub(probs, one_hot), scaler)
+    result = torch.mul(result, grad.to(torch.float32))
+
+    if output_type_mlir is not None:
+        result = result.to(mlir_type_to_torch_dtype(output_type_mlir))
+    return result
+
+
 def rms_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor] = None,
@@ -6638,6 +6676,28 @@ def stablehlo_composite_golden(
             dropout_probability=dropout_probability,
         )
 
+    if composite_name == "tenstorrent.cross_entropy_fw":
+        result_type = RankedTensorType(list(decomposition_fn.type.results)[0])
+        return cross_entropy_fw_golden(
+            *operand_tensors,
+            output_type_mlir=result_type.element_type,
+        )
+
+    if composite_name == "tenstorrent.cross_entropy_bw":
+        attrs = composite_attributes or {}
+        try:
+            scaler_attr = attrs["scaler"]
+        except KeyError as e:
+            raise ValueError(
+                "tenstorrent.cross_entropy_bw requires a `scaler` attribute."
+            ) from e
+        result_type = RankedTensorType(list(decomposition_fn.type.results)[0])
+        return cross_entropy_bw_golden(
+            *operand_tensors,
+            scaler=scaler_attr,
+            output_type_mlir=result_type.element_type,
+        )
+
     if len(decomposition_fn.body.blocks) != 1:
         raise NotImplementedError(
             "stablehlo_composite_golden: multi-block decompositions are not supported."
@@ -9259,7 +9319,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
     ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
     ttir.AdamWOp: adamw_golden,
-    ttir.CrossEntropyForwardOp: cross_entropy_fw_golden,
     ttir.LayerNormOp: ttir_layer_norm_golden,
     ttir.SplitQueryKeyValueAndSplitHeadsOp: ttir_split_query_key_value_and_split_heads_golden,
     ttir.GroupNormOp: ttir_group_norm_golden,

@@ -2471,5 +2471,25 @@ struct OpModel<CrossEntropyForwardOp> {
                TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// CrossEntropyBackwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<CrossEntropyBackwardOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      llvm::ArrayRef<int64_t> targetShape, TTNNLayoutAttr targetLayout,
+      llvm::ArrayRef<int64_t> gradShape, TTNNLayoutAttr gradLayout,
+      llvm::APFloat scaler, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> targetShape, TTNNLayoutAttr targetLayout,
+               llvm::ArrayRef<int64_t> gradShape, TTNNLayoutAttr gradLayout,
+               llvm::APFloat scaler, TTNNLayoutAttr outputLayout);
+};
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
