@@ -5479,6 +5479,185 @@ static llvm::StringRef getTraceSuffix(llvm::StringRef captureCallee) {
 }
 
 namespace {
+// Lowers `ttnn.while` to an `emitc.for` loop over mutable local variables.
+//
+// EmitC has no `while` op and no `break` op, so both loop forms are expressed
+// with `emitc.for`:
+//
+//   ::ttnn::Tensor v0 = init0, ...;
+//   for (size_t i = 0; i < <trip_count | SIZE_MAX>; i++) {
+//     <cond ops>                       // data-dependent loops only
+//     if (<cond>.to_vector<uint32_t>()[0] == 0) break;
+//     <body ops>
+//     v0 = <yield 0>; ...
+//   }
+//   // results are v0, ...
+//
+// Loop-carried values cannot be SSA results here because `emitc.for` has no
+// results, so they live in `emitc.variable` lvalues that the body reassigns.
+//
+// The yields are lowered by their own pattern, which runs later - only by then
+// have the values they yield been converted to EmitC types - so they need a way
+// back to the variables they must assign: this maps each generated emitc.for to
+// the lvalues holding that loop's carried values.
+using WhileLoopVariableMap =
+    llvm::DenseMap<Operation *, llvm::SmallVector<Value>>;
+
+// Distinguishes the two yields once they live in the same emitc.for body.
+constexpr llvm::StringLiteral kWhileYieldRoleAttr = "ttnn.while_yield_role";
+constexpr llvm::StringLiteral kWhileYieldCond = "cond";
+constexpr llvm::StringLiteral kWhileYieldBody = "body";
+
+class WhileOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::WhileOp> {
+public:
+  WhileOpConversionPattern(const TypeConverter &typeConverter,
+                           MLIRContext *context,
+                           std::shared_ptr<WhileLoopVariableMap> loopVariables)
+      : TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::WhileOp>(
+            typeConverter, context),
+        loopVariables(std::move(loopVariables)) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::WhileOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    MLIRContext *ctx = rewriter.getContext();
+    mlir::Location loc = srcOp.getLoc();
+
+    auto ttnnTensorType =
+        emitc::OpaqueType::get(ctx, ttnn_to_emitc::TypeNameV<::ttnn::Tensor>);
+    auto lvalueType = emitc::LValueType::get(ttnnTensorType);
+    auto indexType = emitc::OpaqueType::get(ctx, "size_t");
+
+    // One mutable variable per loop-carried value, seeded with the init.
+    llvm::SmallVector<Value> carried;
+    for (Value init : adaptor.getInits()) {
+      auto variable = rewriter.create<emitc::VariableOp>(
+          loc, lvalueType,
+          emitc::OpaqueAttr::get(
+              ctx,
+              std::string(ttnn_to_emitc::TypeNameV<::ttnn::Tensor>) + "()"));
+      rewriter.create<emitc::AssignOp>(loc, variable, init);
+      carried.push_back(variable.getResult());
+    }
+
+    const bool counted = srcOp.getTripCount().has_value();
+    auto makeIndexConstant = [&](const std::string &literal) -> Value {
+      return rewriter
+          .create<emitc::ConstantOp>(loc, indexType,
+                                     emitc::OpaqueAttr::get(ctx, literal))
+          .getResult();
+    };
+
+    // A data-dependent loop is bounded by a sentinel and breaks out of its
+    // body.
+    std::string upperBound = counted ? std::to_string(*srcOp.getTripCount())
+                                     : std::string("SIZE_MAX");
+    auto forOp = rewriter.create<emitc::ForOp>(loc, makeIndexConstant("0"),
+                                               makeIndexConstant(upperBound),
+                                               makeIndexConstant("1"));
+    (*loopVariables)[forOp.getOperation()] = carried;
+
+    Block &loopBody = forOp.getRegion().front();
+    Operation *loopTerminator = loopBody.getTerminator();
+
+    // Region block arguments are `inits ++ captures`: the carried values are
+    // read out of the mutable variables, the captures come straight from the
+    // op's operands.
+    auto regionArgValues = [&]() {
+      rewriter.setInsertionPoint(loopTerminator);
+      llvm::SmallVector<Value> values;
+      for (Value variable : carried) {
+        values.push_back(
+            rewriter.create<emitc::LoadOp>(loc, ttnnTensorType, variable)
+                .getResult());
+      }
+      llvm::append_range(values, adaptor.getCaptures());
+      return values;
+    };
+
+    // A counted loop never evaluates the condition, so its region is simply
+    // dropped along with the op.
+    if (!counted) {
+      llvm::SmallVector<Value> condArgs = regionArgValues();
+      rewriter.modifyOpInPlace(srcOp.getCondYield(), [&]() {
+        srcOp.getCondYield()->setAttr(kWhileYieldRoleAttr,
+                                      rewriter.getStringAttr(kWhileYieldCond));
+      });
+      rewriter.inlineBlockBefore(&srcOp.getCondBlock(), loopTerminator,
+                                 condArgs);
+    }
+
+    llvm::SmallVector<Value> bodyArgs = regionArgValues();
+    rewriter.modifyOpInPlace(srcOp.getBodyYield(), [&]() {
+      srcOp.getBodyYield()->setAttr(kWhileYieldRoleAttr,
+                                    rewriter.getStringAttr(kWhileYieldBody));
+    });
+    rewriter.inlineBlockBefore(&srcOp.getBodyBlock(), loopTerminator, bodyArgs);
+
+    rewriter.setInsertionPointAfter(forOp);
+    llvm::SmallVector<Value> results;
+    for (Value variable : carried) {
+      results.push_back(
+          rewriter.create<emitc::LoadOp>(loc, ttnnTensorType, variable)
+              .getResult());
+    }
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+
+private:
+  std::shared_ptr<WhileLoopVariableMap> loopVariables;
+};
+
+// Lowers the `ttnn.yield`s that WhileOpConversionPattern moved into an
+// emitc.for body.
+class WhileYieldOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::YieldOp> {
+public:
+  WhileYieldOpConversionPattern(
+      const TypeConverter &typeConverter, MLIRContext *context,
+      std::shared_ptr<WhileLoopVariableMap> loopVariables)
+      : TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::YieldOp>(
+            typeConverter, context),
+        loopVariables(std::move(loopVariables)) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::YieldOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto role = srcOp->getAttrOfType<StringAttr>(kWhileYieldRoleAttr);
+    if (!role) {
+      return rewriter.notifyMatchFailure(srcOp, "yield is not part of a loop");
+    }
+
+    if (role.getValue() == kWhileYieldCond) {
+      rewriter.replaceOpWithNewOp<emitc::VerbatimOp>(
+          srcOp, "if ({}.to_vector<uint32_t>()[0] == 0) break;",
+          adaptor.getOperands());
+      return success();
+    }
+
+    auto forOp = srcOp->getParentOfType<emitc::ForOp>();
+    auto it = forOp ? loopVariables->find(forOp.getOperation())
+                    : loopVariables->end();
+    if (it == loopVariables->end()) {
+      return rewriter.notifyMatchFailure(srcOp, "no loop variables recorded");
+    }
+
+    for (auto [variable, value] :
+         llvm::zip_equal(it->second, adaptor.getOperands())) {
+      rewriter.create<emitc::AssignOp>(srcOp.getLoc(), variable, value);
+    }
+    rewriter.eraseOp(srcOp);
+    return success();
+  }
+
+private:
+  std::shared_ptr<WhileLoopVariableMap> loopVariables;
+};
+} // namespace
+
+namespace {
 class CaptureOrExecuteTraceOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
           mlir::tt::ttnn::CaptureOrExecuteTraceOp> {
@@ -6376,6 +6555,16 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<EndTraceCaptureOpConversionPattern>(typeConverter, ctx);
   patterns.add<CaptureOrExecuteTraceOpConversionPattern>(typeConverter, ctx);
   patterns.add<ExecuteTraceOpConversionPattern>(typeConverter, ctx);
+
+  // Control flow ops
+  //
+  // The while op and its yields share the loop-variable map.
+  {
+    auto loopVariables = std::make_shared<WhileLoopVariableMap>();
+    patterns.add<WhileOpConversionPattern>(typeConverter, ctx, loopVariables);
+    patterns.add<WhileYieldOpConversionPattern>(typeConverter, ctx,
+                                                loopVariables);
+  }
 
   // Arith ops
   //

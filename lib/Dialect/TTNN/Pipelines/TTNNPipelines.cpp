@@ -92,6 +92,7 @@ void createTTNNPipelineTTIRPasses(
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
+  pm.addPass(mlir::tt::ttir::createTTIRWhileTripCount());
   pm.addPass(mlir::tt::ttir::createTTIRFoldFullToScalar());
   pm.addPass(mlir::tt::ttir::createTTIRConsolidateStaticCacheUpdates());
   pm.addPass(mlir::createCSEPass());
