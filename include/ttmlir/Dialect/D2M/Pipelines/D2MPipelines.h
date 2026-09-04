@@ -71,6 +71,12 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
           "reduction d2m.generic consumer (single reduction dim)."),
       llvm::cl::init(false)};
 
+  Option<bool> enableDataflowPlanning{
+      *this, "enable-dataflow-planning",
+      llvm::cl::desc(
+          "Enable TTMetal D2M dataflow planning before grid selection."),
+      llvm::cl::init(false)};
+
   ListOption<int64_t> matmulInterchange{
       *this, "matmul-interchange",
       llvm::cl::desc(
