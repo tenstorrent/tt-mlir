@@ -1,6 +1,7 @@
 add_mlir_dialect_library(MLIRD2MTransforms
         Allocate.cpp
         BuildTopkChain.cpp
+        DataflowPlanning.cpp
         DMAOptimizations.cpp
         DecomposeArange.cpp
         DecomposeMasking.cpp

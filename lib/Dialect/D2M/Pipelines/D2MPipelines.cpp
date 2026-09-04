@@ -22,6 +22,7 @@
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
+#include "llvm/Support/ErrorHandling.h"
 
 namespace mlir::tt::ttmetal {
 //===----------------------------------------------------------------------===//
@@ -111,6 +112,13 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   }
   pm.addPass(tt::createTTIRToD2MPass(toD2MOptions));
   pm.addPass(d2m::createD2MScalarizeConstTensors());
+  if (options.enableDataflowPlanning) {
+    if (options.ttnnMode) {
+      llvm::report_fatal_error(
+          "D2M dataflow planning currently supports only the TTMetal path");
+    }
+    pm.addPass(d2m::createD2MDataflowPlanning());
+  }
   d2m::D2MGridSelectionOptions gridOptOptions;
   {
     gridOptOptions.overrideDeviceShape =

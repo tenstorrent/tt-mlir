@@ -1053,6 +1053,27 @@ def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::Modu
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::arith::ArithDialect"];
 }
 
+def D2MDataflowPlanning : Pass<"d2m-dataflow-planning", "::mlir::ModuleOp"> {
+  let summary = "Plan TTMetal dataflow mappings before D2M grid selection";
+  let description = [{
+    Establishes the analysis and materialization boundary for graph-level D2M
+    dataflow planning. The pass runs after TTIRToD2M and
+    D2MScalarizeConstTensors, while d2m.generic operations still use tensor
+    semantics, and before D2MGridSelection fixes grid and layout decisions.
+
+    The initial implementation builds an immutable temporal fallback plan and
+    deliberately leaves the IR unchanged. Future planning policies can add wrap
+    partitioning, internal variants, spatial placement, and explicit
+    communication without changing the pipeline boundary. This initial pass is
+    enabled only for the TTMetal path.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+  let options = [
+    Option<"dumpPlan", "dump-plan", "bool", /*default=*/"false",
+        "Print the selected mapping plan in a deterministic text form.">,
+  ];
+}
+
 def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp"> {
   let summary = "Generate outer loops.";
   let description = [{
