@@ -128,10 +128,10 @@ public:
 
       func->walk([&](Operation *op) {
         if (!optimizer_utils::opHasTensorResult(op)) {
-          // Constraint sinks (FillCacheOp, PagedUpdateCacheOp,
-          // PagedFillCacheOp) have no tensor result but still need input layout
-          // validation. Register a null-output OpConfig so processOp can
-          // validate their input combinations and drive upstream reshards.
+          // Constraint sinks (see optimizer_utils::isSinkOp) have no tensor
+          // result but still need input layout validation. Register a
+          // null-output OpConfig so processOp can validate their input
+          // combinations and drive upstream reshards.
           if (mlir::dyn_cast<OpModel>(op) && optimizer_utils::isSinkOp(op)) {
             legalConfigs[op] = {OpConfig{TTNNLayoutAttr()}};
           }

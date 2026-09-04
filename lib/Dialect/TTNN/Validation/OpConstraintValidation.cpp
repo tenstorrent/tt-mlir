@@ -153,8 +153,25 @@ checkConstraintsResult(Operation *contextOp,
           // (https://github.com/tenstorrent/tt-mlir/issues/9045). A genuine
           // backend constraint (unsupported config, etc.) carries neither
           // marker and still routes to metalBackendError.
-          if (errorMsg.find("Out of Memory") != std::string::npos ||
-              errorMsg.find("clash with L1 buffers") != std::string::npos) {
+          // Metal 2.0 program validation currently looks up a WORKER dispatch
+          // grid for mock devices even when placement used the mock device's
+          // ETH dispatch grid. Treat only that precise mock-only validation
+          // failure as unsupported until the grids use the same dispatch
+          // configuration. See
+          // https://github.com/tenstorrent/tt-mlir/issues/9235.
+          const bool mockProgramSpecGridMismatch =
+              op_model::isMockDevice() &&
+              errorMsg.find("WorkUnitSpec '") != std::string::npos &&
+              errorMsg.find("targets node (") != std::string::npos &&
+              errorMsg.find("which is out of bounds") != std::string::npos &&
+              errorMsg.find("The compute worker grid on this device is ") !=
+                  std::string::npos;
+          if (mockProgramSpecGridMismatch) {
+            result = ValidationResult::notImplemented(
+                ttmlir::utils::firstNLines(errorMsg, 8));
+          } else if (errorMsg.find("Out of Memory") != std::string::npos ||
+                     errorMsg.find("clash with L1 buffers") !=
+                         std::string::npos) {
             result = ValidationResult::outOfMemoryError(
                 ttmlir::utils::firstNLines(errorMsg, 8));
           } else {

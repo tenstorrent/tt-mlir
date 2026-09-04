@@ -591,5 +591,7 @@ const std::set<mlir::StringRef>
         // ROW_MAJOR input (tt-metal #46340), not this output cast; without it the
         // argmax result stays UInt32 and mismatches an si32 graph output.
         ttnn::ArgMaxOp::getOperationName(),
-};
+        // SDPABackwardOp is temporarily enabled to restrict the dtype to bf16:
+        // https://github.com/tenstorrent/tt-mlir/issues/9233
+        ttnn::SDPABackwardOp::getOperationName()};
 } // namespace mlir::tt::ttnn

@@ -1157,12 +1157,12 @@ def adamw_golden(
     grad: GoldenMapTensor,
     exp_avg: GoldenMapTensor,
     exp_avg_sq: GoldenMapTensor,
+    lr: GoldenMapTensor,
+    beta1_pow: GoldenMapTensor,
+    beta2_pow: GoldenMapTensor,
     max_exp_avg_sq: Optional[GoldenMapTensor] = None,
-    lr=1e-3,
     beta1=0.9,
     beta2=0.999,
-    beta1_pow=0.9,
-    beta2_pow=0.999,
     epsilon=1e-8,
     weight_decay=0.0,
     stochastic_rounding=False,
@@ -1178,11 +1178,10 @@ def adamw_golden(
     Uses torch.* ops only (GoldenMapTensor does not support python operators).
     Returns the updated parameter and moments, one per op result.
     """
-    lr = unpack_mlir_attr(lr)
+    scalar = lambda t: float(t.shard_at(0).flatten()[0].item())
+    lr, beta1_pow, beta2_pow = scalar(lr), scalar(beta1_pow), scalar(beta2_pow)
     beta1 = unpack_mlir_attr(beta1)
     beta2 = unpack_mlir_attr(beta2)
-    beta1_pow = unpack_mlir_attr(beta1_pow)
-    beta2_pow = unpack_mlir_attr(beta2_pow)
     epsilon = unpack_mlir_attr(epsilon)
     weight_decay = unpack_mlir_attr(weight_decay)
 
@@ -1216,6 +1215,35 @@ def adamw_golden(
     if max_exp_avg_sq is not None:
         return result, new_exp_avg, new_exp_avg_sq, new_max
     return result, new_exp_avg, new_exp_avg_sq
+
+
+def cross_entropy_fw_golden(
+    input: GoldenMapTensor,
+    target: GoldenMapTensor,
+    output_type_mlir: Type = None,
+    **kwargs,
+) -> GoldenMapTensor:
+    """Reference for the fused ttml cross entropy forward step.
+
+    Input is (N, 1, H, W) logits and target is (N, H) class indices; the result
+    is the per-row loss (N, 1, H, 1). The ttml op applies no reduction across
+    rows, hence reduction="none".
+
+    Defers to torch.nn.functional.cross_entropy.
+    """
+    # cross_entropy wants the class dimension at 1, as (N, C, d1) against a
+    # target of (N, d1). Ours has classes last.
+    logits = input.to(torch.float32).squeeze(1).transpose(1, 2)  # (N, W, H)
+    index = target.to(torch.int64)  # (N, H)
+
+    loss = torch.nn.functional.cross_entropy(logits, index, reduction="none")
+
+    # (N, H) -> (N, 1, H, 1)
+    result = torch.unsqueeze(torch.unsqueeze(loss, 1), -1)
+
+    if output_type_mlir is not None:
+        result = result.to(mlir_type_to_torch_dtype(output_type_mlir))
+    return result
 
 
 def rms_norm_golden(
@@ -5614,6 +5642,13 @@ def ttir_floor_golden(
     return torch.floor(input_tensor).to(output_dtype)
 
 
+def ttir_round_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.round(input_tensor).to(output_dtype)
+
+
 def ttir_exp_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -6534,6 +6569,8 @@ def stablehlo_convert_golden(
 def stablehlo_composite_golden(
     *operand_tensors: GoldenMapTensor,
     decomposition_fn=None,
+    composite_name=None,
+    composite_attributes=None,
     **_kwargs,
 ) -> GoldenMapTensor:
     """
@@ -6552,6 +6589,53 @@ def stablehlo_composite_golden(
             "stablehlo_composite_golden requires `decomposition_fn` keyword "
             "(the func.FuncOp referenced by the composite's `decomposition` "
             "symbol attribute)."
+        )
+
+    if composite_name == "tenstorrent.layernorm_fw":
+        attrs = composite_attributes or {}
+        try:
+            epsilon_attr = attrs["epsilon"]
+        except KeyError:
+            epsilon_attr = None
+        result_types = list(decomposition_fn.type.results)
+        return layernorm_fw_golden(
+            *operand_tensors,
+            epsilon=epsilon_attr,
+            return_mean_rstd=len(result_types) == 3,
+            output_type_mlir=RankedTensorType(result_types[0]).element_type,
+        )
+
+    if composite_name in ("tenstorrent.sdpa_fw", "tenstorrent.sdpa_bw"):
+        attrs = composite_attributes or {}
+        try:
+            mask_type_attr = attrs["mask_type"]
+        except KeyError:
+            mask_type_attr = None
+        try:
+            dropout_attr = attrs["dropout_probability"]
+        except KeyError:
+            dropout_attr = None
+        mask_type = (
+            int(unpack_mlir_attr(mask_type_attr))
+            if mask_type_attr is not None
+            else (1 if composite_name == "tenstorrent.sdpa_fw" else 2)
+        )
+        dropout_probability = (
+            float(unpack_mlir_attr(dropout_attr)) if dropout_attr is not None else 0.0
+        )
+        if composite_name == "tenstorrent.sdpa_fw":
+            result_types = list(decomposition_fn.type.results)
+            return sdpa_fw_golden(
+                *operand_tensors,
+                mask_type=mask_type,
+                dropout_probability=dropout_probability,
+                return_intermediates=len(result_types) == 2,
+                output_type_mlir=RankedTensorType(result_types[0]).element_type,
+            )
+        return sdpa_bw_golden(
+            *operand_tensors,
+            mask_type=mask_type,
+            dropout_probability=dropout_probability,
         )
 
     if len(decomposition_fn.body.blocks) != 1:
@@ -8659,6 +8743,37 @@ def sdpa_bw_golden(
     return dq.to(query.dtype), dk.to(key.dtype), dv.to(value.dtype)
 
 
+def layernorm_fw_golden(
+    input: GoldenMapTensor,
+    weight: GoldenMapTensor,
+    bias: GoldenMapTensor,
+    epsilon: FloatAttr = None,
+    return_mean_rstd: bool = False,
+    output_type_mlir: Type = None,
+    **kwargs,
+) -> Tuple[GoldenMapTensor, ...]:
+    epsilon = unpack_mlir_attr(epsilon) if epsilon is not None else 1e-05
+
+    x = input.float()
+    mean = torch.mean(x, dim=-1, keepdim=True)
+    centered = torch.sub(x, mean)
+    variance = torch.mean(torch.mul(centered, centered), dim=-1, keepdim=True)
+    rstd = torch.rsqrt(torch.add(variance, epsilon))
+    output = torch.add(
+        torch.mul(torch.mul(centered, rstd), weight.float()), bias.float()
+    )
+
+    output_dtype = (
+        mlir_type_to_torch_dtype(output_type_mlir)
+        if output_type_mlir is not None
+        else input.dtype
+    )
+    output = output.to(output_dtype)
+    if return_mean_rstd:
+        return output, mean.to(output_dtype), rstd.to(output_dtype)
+    return (output,)
+
+
 def flash_mla_prefill_golden(
     query: GoldenMapTensor,
     key: GoldenMapTensor,
@@ -9040,6 +9155,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ErfOp: ttir_erf_golden,
     ttir.ErfcOp: torch.erfc,
     ttir.FloorOp: ttir_floor_golden,
+    ttir.RoundOp: ttir_round_golden,
     ttir.GeluOp: ttir_gelu_golden,
     ttir.GeluBackwardOp: ttir_gelu_backward_golden,
     ttir.IsFiniteOp: ttir_isfinite_golden,
@@ -9143,8 +9259,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
     ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
     ttir.AdamWOp: adamw_golden,
-    ttir.SDPAForwardOp: sdpa_fw_golden,
-    ttir.SDPABackwardOp: sdpa_bw_golden,
+    ttir.CrossEntropyForwardOp: cross_entropy_fw_golden,
     ttir.LayerNormOp: ttir_layer_norm_golden,
     ttir.SplitQueryKeyValueAndSplitHeadsOp: ttir_split_query_key_value_and_split_heads_golden,
     ttir.GroupNormOp: ttir_group_norm_golden,

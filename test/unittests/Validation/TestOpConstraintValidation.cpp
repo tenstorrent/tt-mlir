@@ -506,6 +506,34 @@ TEST_F(OpConstraintValidationTest, GenericBackendErrorStaysBackendError) {
   EXPECT_TRUE(result.isError());
 }
 
+// Regression test for https://github.com/tenstorrent/tt-mlir/issues/9235:
+// Metal 2.0 validates mock ProgramSpec nodes against a WORKER dispatch grid
+// even when the program factory placed them using the mock device's ETH grid.
+// Until tt-metal uses a consistent grid, this mock-only infrastructure failure
+// must not reject otherwise valid operation configurations.
+TEST_F(OpConstraintValidationTest,
+       MockProgramSpecGridMismatchClassifiedAsNotImplemented) {
+  auto addOp = createMockAddOp();
+
+  llvm::Expected<op_model::OpConstraints> gridMismatchError =
+      llvm::make_error<llvm::StringError>(
+          "Op constraint query failed with error: TT_FATAL @ "
+          "program_spec.cpp:665: node.x < compute_grid.x && "
+          "node.y < compute_grid.y\n"
+          "info:\n"
+          "WorkUnitSpec 'typecast_group_1' targets node (0,7), which is out "
+          "of bounds. The compute worker grid on this device is 8x7.",
+          llvm::inconvertibleErrorCode());
+
+  auto result = op_constraint_validation::checkConstraintsResult(
+      addOp.getOperation(), std::move(gridMismatchError));
+
+  EXPECT_EQ(result.status,
+            op_constraint_validation::ValidationStatus::NotImplemented);
+  EXPECT_TRUE(result.isNotImplemented());
+  EXPECT_TRUE(result.isError());
+}
+
 // Test ValidationStatus::UnmatchedReferenceConfig
 // Use validateWithMultipleAttributes with non-matching reference configs
 TEST_F(OpConstraintValidationTest, ValidationStatusUnmatchedReferenceConfig) {

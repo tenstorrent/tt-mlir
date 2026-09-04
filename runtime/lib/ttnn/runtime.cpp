@@ -1305,6 +1305,13 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_EltwiseBinaryCompositeOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::
+      EltwiseBinaryCompositeWithoutFusedActivationOp: {
+    tensorRefs = {
+        opContext.type_as_EltwiseBinaryCompositeWithoutFusedActivationOp()
+            ->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
     tensorRefs = {opContext.type_as_EltwiseBinaryCompositeScalarOp()->out()};
     break;
@@ -1715,6 +1722,21 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {op->grad_query(), op->grad_key(), op->grad_value()};
     break;
   }
+  case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
+    auto *op = opContext.type_as_LayerNormForwardOp();
+    tensorRefs = {op->out()};
+    if (op->mean()) {
+      tensorRefs.push_back(op->mean());
+    }
+    if (op->rstd()) {
+      tensorRefs.push_back(op->rstd());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {
+    tensorRefs = {opContext.type_as_CrossEntropyForwardOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::AdamWOp:
   case ::tt::target::ttnn::OpType::FillCacheOp:
   case ::tt::target::ttnn::OpType::PagedFillCacheOp:
@@ -1841,6 +1863,15 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeOp: {
     tensorRefs = {opContext.type_as_EltwiseBinaryCompositeOp()->lhs(),
                   opContext.type_as_EltwiseBinaryCompositeOp()->rhs()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::
+      EltwiseBinaryCompositeWithoutFusedActivationOp: {
+    tensorRefs = {
+        opContext.type_as_EltwiseBinaryCompositeWithoutFusedActivationOp()
+            ->lhs(),
+        opContext.type_as_EltwiseBinaryCompositeWithoutFusedActivationOp()
+            ->rhs()};
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
@@ -2074,7 +2105,10 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_AdamWOp()->param(),
                   opContext.type_as_AdamWOp()->grad(),
                   opContext.type_as_AdamWOp()->exp_avg(),
-                  opContext.type_as_AdamWOp()->exp_avg_sq()};
+                  opContext.type_as_AdamWOp()->exp_avg_sq(),
+                  opContext.type_as_AdamWOp()->lr(),
+                  opContext.type_as_AdamWOp()->beta1_pow(),
+                  opContext.type_as_AdamWOp()->beta2_pow()};
     if (opContext.type_as_AdamWOp()->max_exp_avg_sq()) {
       tensorRefs.push_back(opContext.type_as_AdamWOp()->max_exp_avg_sq());
     }
@@ -2096,6 +2130,16 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     if (op->attention_mask()) {
       tensorRefs.push_back(op->attention_mask());
     }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
+    auto *op = opContext.type_as_LayerNormForwardOp();
+    tensorRefs = {op->input(), op->weight(), op->bias()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {
+    tensorRefs = {opContext.type_as_CrossEntropyForwardOp()->input(),
+                  opContext.type_as_CrossEntropyForwardOp()->target()};
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {

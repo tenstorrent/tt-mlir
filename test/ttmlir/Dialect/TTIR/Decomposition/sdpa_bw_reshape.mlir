@@ -11,12 +11,16 @@ module {
       -> (tensor<8x64x64xbf16>, tensor<8x64x64xbf16>, tensor<8x64x64xbf16>) {
     // CHECK-DAG: "ttir.reshape"(%arg0) <{shape = [1 : i32, 8 : i32, 64 : i32, 64 : i32]}>
     // CHECK-DAG: "ttir.reshape"(%arg5) <{shape = [1 : i32, 8 : i32, 64 : i32, 32 : i32]}>
-    // CHECK: "ttir.sdpa_bw"
+    // CHECK: "ttcore.composite"
+    // CHECK-SAME: composite_name = "sdpa_bw"
     // CHECK-SAME: -> (tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>)
     // CHECK-DAG: "ttir.reshape"({{.*}}) <{shape = [8 : i32, 64 : i32, 64 : i32]}>
-    %0, %1, %2 = "ttir.sdpa_bw"(%grad_output, %attn_output, %query, %key, %value, %intermediates) <{
-        mask_type = #ttcore.attention_mask_type<causal>,
-        dropout_probability = 0.000000e+00 : f32}>
+    %0, %1, %2 = "ttcore.composite"(%grad_output, %attn_output, %query, %key, %value, %intermediates) <{
+        composite_name = "sdpa_bw",
+        decomposition = @sdpa_bw_rank3_causal_decomposition,
+        composite_attributes = {
+          mask_type = #ttcore.attention_mask_type<causal>,
+          dropout_probability = 0.000000e+00 : f32}}>
         : (tensor<8x64x64xbf16>, tensor<8x64x64xbf16>, tensor<8x64x64xbf16>,
            tensor<8x64x64xbf16>, tensor<8x64x64xbf16>, tensor<8x64x32xf32>)
           -> (tensor<8x64x64xbf16>, tensor<8x64x64xbf16>, tensor<8x64x64xbf16>)
@@ -31,13 +35,40 @@ module {
       %value: tensor<1x8x64x64xbf16>, %intermediates: tensor<1x8x64x32xf32>)
       -> (tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>) {
     // CHECK-NOT: "ttir.reshape"
-    // CHECK: "ttir.sdpa_bw"
-    %0, %1, %2 = "ttir.sdpa_bw"(%grad_output, %attn_output, %query, %key, %value, %intermediates) <{
-        mask_type = #ttcore.attention_mask_type<causal>,
-        dropout_probability = 0.000000e+00 : f32}>
+    // CHECK: "ttcore.composite"
+    // CHECK-SAME: composite_name = "sdpa_bw"
+    %0, %1, %2 = "ttcore.composite"(%grad_output, %attn_output, %query, %key, %value, %intermediates) <{
+        composite_name = "sdpa_bw",
+        decomposition = @sdpa_bw_rank4_decomposition,
+        composite_attributes = {
+          mask_type = #ttcore.attention_mask_type<causal>,
+          dropout_probability = 0.000000e+00 : f32}}>
         : (tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>,
            tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>, tensor<1x8x64x32xf32>)
           -> (tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>)
     return %0, %1, %2 : tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>
+  }
+
+  func.func private @sdpa_bw_rank3_causal_decomposition(
+      %grad_output: tensor<8x64x64xbf16>,
+      %attn_output: tensor<8x64x64xbf16>, %query: tensor<8x64x64xbf16>,
+      %key: tensor<8x64x64xbf16>, %value: tensor<8x64x64xbf16>,
+      %intermediates: tensor<8x64x32xf32>)
+      -> (tensor<8x64x64xbf16>, tensor<8x64x64xbf16>,
+          tensor<8x64x64xbf16>) {
+    return %query, %key, %value : tensor<8x64x64xbf16>,
+        tensor<8x64x64xbf16>, tensor<8x64x64xbf16>
+  }
+
+  func.func private @sdpa_bw_rank4_decomposition(
+      %grad_output: tensor<1x8x64x64xbf16>,
+      %attn_output: tensor<1x8x64x64xbf16>,
+      %query: tensor<1x8x64x64xbf16>, %key: tensor<1x8x64x64xbf16>,
+      %value: tensor<1x8x64x64xbf16>,
+      %intermediates: tensor<1x8x64x32xf32>)
+      -> (tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>,
+          tensor<1x8x64x64xbf16>) {
+    return %query, %key, %value : tensor<1x8x64x64xbf16>,
+        tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>
   }
 }

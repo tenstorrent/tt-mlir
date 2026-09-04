@@ -1309,6 +1309,27 @@ def TTIR_ErfcOp: TTIR_ElementwiseUnaryOp<"erfc"> {
   }];
 }
 
+def TTIR_RoundOp: TTIR_ElementwiseUnaryOp<"round"> {
+  let summary = "Element-wise round operation.";
+  let description = [{
+    Element-wise round operation. Rounds each element of the input tensor to the nearest integer,
+    breaking ties towards the even integer, on the operand tensor and produces a result tensor.
+
+    Example:
+    ```mlir
+    // Compute round for all elements in %input
+    %result = "ttir.round"(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
+    // Input tensor with values [-2.5, 0.4, 0.5, 0.6, 2.5]
+    // Output tensor with values [-2.0, 0.0, 0.0, 1.0, 2.0]
+    ```
+
+    Mathematical definition: round(x) = {
+      floor(x + 0.5) if floor(x) is even
+      ceil(x - 0.5) if floor(x) is odd
+    }
+  }];
+}
+
 class TTIR_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseUnaryOp<mnemonic, traits> {
     let summary = "Base class for elementwise operations with one input tensor and a floating-point parameter.";
@@ -2358,13 +2379,14 @@ def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
     - `grad` (Tensor): gradient of the parameter.
     - `exp_avg` (Tensor): first moment estimate.
     - `exp_avg_sq` (Tensor): second moment estimate.
+    - `lr`, `beta1_pow`, `beta2_pow` (single-element f32 Tensors): learning rate
+      and the beta1^t / beta2^t bias-correction terms. They change every step,
+      so they are tensors rather than attributes to keep the compiled graph stable.
     - `max_exp_avg_sq` (Optional Tensor): max second moment for AMSGrad. Its
       presence implies amsgrad, and requires the matching result.
 
     Attributes:
-    - `lr`: learning rate.
     - `beta1`, `beta2`: exponential decay rates for the moment estimates.
-    - `beta1_pow`, `beta2_pow`: beta1^t and beta2^t bias-correction terms.
     - `epsilon`: numerical-stability constant.
     - `weight_decay`: decoupled weight-decay coefficient.
     - `stochastic_rounding`: enable stochastic rounding (default false).
@@ -2377,12 +2399,12 @@ def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
                        AnyRankedTensor:$grad,
                        AnyRankedTensor:$exp_avg,
                        AnyRankedTensor:$exp_avg_sq,
+                       AnyRankedTensor:$lr,
+                       AnyRankedTensor:$beta1_pow,
+                       AnyRankedTensor:$beta2_pow,
                        Optional<AnyRankedTensor>:$max_exp_avg_sq,
-                       F32Attr:$lr,
                        F32Attr:$beta1,
                        F32Attr:$beta2,
-                       F32Attr:$beta1_pow,
-                       F32Attr:$beta2_pow,
                        F32Attr:$epsilon,
                        F32Attr:$weight_decay,
                        DefaultValuedAttr<BoolAttr, "false">:$stochastic_rounding);
@@ -2395,93 +2417,27 @@ def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
   let hasVerifier = 1;
 }
 
-def TTIR_SDPAForwardOp : TTIR_NamedOp<"sdpa_fw"> {
-  let summary = "Scaled dot-product attention forward (ttml).";
+def TTIR_CrossEntropyForwardOp : TTIR_NamedOp<"cross_entropy_fw"> {
+  let summary = "Cross entropy loss, forward pass";
   let description = [{
-    Training-oriented fused scaled dot-product attention forward pass, backed by
-    the ttml metal op `ttml::metal::sdpa_fw`. Computes
-    `softmax(Q @ K^T / sqrt(D) + mask) @ V` and, optionally, the per-row
-    log-sum-exp intermediates needed by the backward pass.
+    Per-row cross entropy loss against integer class indices.
 
+    The reduction over rows is not part of this op: the result holds one loss
+    value per row, so a mean or sum reduction is a separate op.
 
     Inputs:
-    - `query` (Tensor): `[B x Hq x S x D]`.
-    - `key` (Tensor): `[B x Hkv x S x D]`.
-    - `value` (Tensor): `[B x Hkv x S x Dv]`.
-    - `attention_mask` (Optional Tensor): `[1 x 1 x S x S]`, only valid when
-      `mask_type` is `arbitrary`.
+    - `input` (Tensor): logits, shaped `(N, 1, H, W)` where `W` is the number of
+      classes.
+    - `target` (Tensor): ground-truth class indices, shaped `(N, H)`. Each value
+      selects a class along `input`'s last dimension.
 
-    Attributes:
-    - `mask_type`: `none`, `causal` (default) or `arbitrary`. `arbitrary`
-      requires `attention_mask`; `none`/`causal` forbid it.
-    - `dropout_probability`: dropout probability (currently must be 0.0).
-    - `return_intermediates`: when true, also returns the log-sum-exp
-      intermediates.
-
-    Outputs:
-    - `output` (Tensor): `[B x Hq x S x Dv]`.
-    - `intermediates` (Optional Tensor): `[B x Hq x S x 32]` log-sum-exp, present
-      iff `return_intermediates` is true.
+    Outputs: the per-row loss, shaped `(N, 1, H, 1)`.
   }];
 
-  let arguments = (ins AnyRankedTensor:$query,
-                       AnyRankedTensor:$key,
-                       AnyRankedTensor:$value,
-                       Optional<AnyRankedTensor>:$attention_mask,
-                       DefaultValuedAttr<TTCore_AttentionMaskTypeAttr, "::mlir::tt::ttcore::AttentionMaskType::Causal">:$mask_type,
-                       DefaultValuedAttr<F32Attr, "0.0">:$dropout_probability,
-                       DefaultValuedAttr<BoolAttr, "false">:$return_intermediates);
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$target);
 
-  let results = (outs AnyRankedTensor:$output,
-                      Optional<AnyRankedTensor>:$intermediates);
-
-  let hasVerifier = 1;
-}
-
-def TTIR_SDPABackwardOp : TTIR_NamedOp<"sdpa_bw"> {
-  let summary = "Scaled dot-product attention backward (ttml).";
-  let description = [{
-    Training-oriented fused scaled dot-product attention backward pass, backed by
-    the ttml metal op `ttml::metal::sdpa_bw`. Given the upstream gradient and the
-    forward pass tensors (output, Q, K, V and log-sum-exp intermediates), it
-    computes the gradients w.r.t. query, key and value.
-
-    Inputs:
-    - `grad_output` (Tensor): `[B x Hq x S x Dv]`, gradient w.r.t. the forward
-      output.
-    - `attn_output` (Tensor): `[B x Hq x S x Dv]`, the forward output.
-    - `query` (Tensor): `[B x Hq x S x D]`.
-    - `key` (Tensor): `[B x Hkv x S x D]`.
-    - `value` (Tensor): `[B x Hkv x S x Dv]`.
-    - `intermediates` (Tensor): `[B x Hq x S x 32]` log-sum-exp from the forward
-      pass.
-    - `attention_mask` (Optional Tensor): `[1 x 1 x S x S]`, only valid when
-      `mask_type` is `arbitrary`.
-
-    Attributes:
-    - `mask_type`: `none`, `causal` or `arbitrary` (default). `arbitrary`
-      requires `attention_mask`; `none`/`causal` forbid it.
-    - `dropout_probability`: dropout probability (currently must be 0.0).
-
-    Outputs:
-    - `grad_query` (Tensor): `[B x Hq x S x D]`.
-    - `grad_key` (Tensor): `[B x Hkv x S x D]`.
-    - `grad_value` (Tensor): `[B x Hkv x S x Dv]`.
-  }];
-
-  let arguments = (ins AnyRankedTensor:$grad_output,
-                       AnyRankedTensor:$attn_output,
-                       AnyRankedTensor:$query,
-                       AnyRankedTensor:$key,
-                       AnyRankedTensor:$value,
-                       AnyRankedTensor:$intermediates,
-                       Optional<AnyRankedTensor>:$attention_mask,
-                       DefaultValuedAttr<TTCore_AttentionMaskTypeAttr, "::mlir::tt::ttcore::AttentionMaskType::Arbitrary">:$mask_type,
-                       DefaultValuedAttr<F32Attr, "0.0">:$dropout_probability);
-
-  let results = (outs AnyRankedTensor:$grad_query,
-                      AnyRankedTensor:$grad_key,
-                      AnyRankedTensor:$grad_value);
+  let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
 }
@@ -4968,6 +4924,7 @@ def TTIR_SqueezeOp : TTIR_NamedOp<"squeeze"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+    let hasCanonicalizeMethod = 1;
 }
 
 def TTIR_UnsqueezeOp : TTIR_NamedOp<"unsqueeze"> {
@@ -5015,6 +4972,7 @@ def TTIR_UnsqueezeOp : TTIR_NamedOp<"unsqueeze"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+    let hasCanonicalizeMethod = 1;
 }
 
 def TTIR_ClampScalarOp : TTIR_NamedOp<"clamp_scalar", [TTIR_ElementwiseUnary]> {

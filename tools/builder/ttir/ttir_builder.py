@@ -7591,12 +7591,12 @@ class TTIRBuilder(Builder):
         grad: Operand,
         exp_avg: Operand,
         exp_avg_sq: Operand,
+        lr: Operand,
+        beta1_pow: Operand,
+        beta2_pow: Operand,
         max_exp_avg_sq: Optional[Operand] = None,
-        lr: float = 1e-3,
         beta1: float = 0.9,
         beta2: float = 0.999,
-        beta1_pow: float = 0.9,
-        beta2_pow: float = 0.999,
         epsilon: float = 1e-8,
         weight_decay: float = 0.0,
         stochastic_rounding: bool = False,
@@ -7605,11 +7605,8 @@ class TTIRBuilder(Builder):
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.adamw)
-        lr_attr = FloatAttr.get_f32(lr)
         beta1_attr = FloatAttr.get_f32(beta1)
         beta2_attr = FloatAttr.get_f32(beta2)
-        beta1_pow_attr = FloatAttr.get_f32(beta1_pow)
-        beta2_pow_attr = FloatAttr.get_f32(beta2_pow)
         epsilon_attr = FloatAttr.get_f32(epsilon)
         weight_decay_attr = FloatAttr.get_f32(weight_decay)
 
@@ -7634,12 +7631,12 @@ class TTIRBuilder(Builder):
             grad0,
             exp_avg0,
             exp_avg_sq0,
+            self._get_golden_tensor(lr),
+            self._get_golden_tensor(beta1_pow),
+            self._get_golden_tensor(beta2_pow),
             max_exp_avg_sq0,
-            lr_attr,
             beta1_attr,
             beta2_attr,
-            beta1_pow_attr,
-            beta2_pow_attr,
             epsilon_attr,
             weight_decay_attr,
             stochastic_rounding,
@@ -7669,11 +7666,11 @@ class TTIRBuilder(Builder):
             grad,
             exp_avg,
             exp_avg_sq,
-            lr_attr,
+            lr,
+            beta1_pow,
+            beta2_pow,
             beta1_attr,
             beta2_attr,
-            beta1_pow_attr,
-            beta2_pow_attr,
             epsilon_attr,
             weight_decay_attr,
             max_exp_avg_sq=max_exp_avg_sq,
@@ -7691,178 +7688,47 @@ class TTIRBuilder(Builder):
 
         return tuple(op_results)
 
-    ############### ttir.SDPAForwardOp ###############
+    ############### ttir.CrossEntropyForwardOp ###############
 
-    @tag(ttir.SDPAForwardOp)
-    def sdpa_fw(
+    @tag(ttir.CrossEntropyForwardOp)
+    def cross_entropy_fw(
         self,
-        query: Operand,
-        key: Operand,
-        value: Operand,
-        attention_mask: Optional[Operand] = None,
-        mask_type: AttentionMaskType = AttentionMaskType.Causal,
-        dropout_probability: float = 0.0,
-        return_intermediates: bool = False,
+        input: Operand,
+        target: Operand,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
-        ttir_op = self.get_opview_from_method(TTIRBuilder.sdpa_fw)
-        mask_type_attr = ttcore.ir.AttentionMaskTypeAttr.get(self._ctx, mask_type.value)
-        dropout_attr = FloatAttr.get_f32(dropout_probability)
+        ttir_op = self.get_opview_from_method(TTIRBuilder.cross_entropy_fw)
 
         if output_type is None:
-            mlir_output_type = self.get_type(query)
+            mlir_output_type = self.get_type(input)
         else:
             mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        query0 = self._get_golden_tensor(query)
-        key0 = self._get_golden_tensor(key)
-        value0 = self._get_golden_tensor(value)
-        attention_mask0 = (
-            self._get_golden_tensor(attention_mask)
-            if attention_mask is not None
-            else None
-        )
+        input0 = self._get_golden_tensor(input)
+        target0 = self._get_golden_tensor(target)
 
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(
-            query0,
-            key0,
-            value0,
-            attention_mask0,
-            int(mask_type.value.value),
-            dropout_probability,
-            return_intermediates,
-            mlir_output_type,
-        )
+        golden_output = op_golden_function(input0, target0, mlir_output_type)
 
-        output_type_ranked = self._create_ranked_tensor_type(
-            golden_output[0].shape, mlir_output_type
-        )
-        intermediates_type = None
-        if return_intermediates:
-            intermediates_type = self._create_ranked_tensor_type(
-                golden_output[1].shape,
-                self._get_type_from_torch_dtype(torch.float32),
-            )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
         else:
             loc = Location.name(loc)
 
-        op = ttir_op(
-            output_type_ranked,
-            intermediates_type,
-            query,
-            key,
-            value,
-            attention_mask=attention_mask,
-            mask_type=mask_type_attr,
-            dropout_probability=dropout_attr,
-            return_intermediates=return_intermediates,
-            loc=loc,
-        )
+        op = ttir_op(result, input, target, loc=loc)
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        op_results = list(op.operation.results)
-        for op_result, golden in zip(op_results, golden_output):
-            self._set_golden_tensor(op_result, golden)
+        op_result = op.result
+        self._set_golden_tensor(op_result, golden_output)
 
-        if len(op_results) == 1:
-            return op_results[0]
-        return tuple(op_results)
-
-    ############### ttir.SDPABackwardOp ###############
-
-    @tag(ttir.SDPABackwardOp)
-    def sdpa_bw(
-        self,
-        grad_output: Operand,
-        attn_output: Operand,
-        query: Operand,
-        key: Operand,
-        value: Operand,
-        intermediates: Operand,
-        attention_mask: Optional[Operand] = None,
-        mask_type: AttentionMaskType = AttentionMaskType.Arbitrary,
-        dropout_probability: float = 0.0,
-        loc: Optional[str] = None,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpResult:
-        ttir_op = self.get_opview_from_method(TTIRBuilder.sdpa_bw)
-        mask_type_attr = ttcore.ir.AttentionMaskTypeAttr.get(self._ctx, mask_type.value)
-        dropout_attr = FloatAttr.get_f32(dropout_probability)
-
-        grad_output0 = self._get_golden_tensor(grad_output)
-        attn_output0 = self._get_golden_tensor(attn_output)
-        query0 = self._get_golden_tensor(query)
-        key0 = self._get_golden_tensor(key)
-        value0 = self._get_golden_tensor(value)
-        intermediates0 = self._get_golden_tensor(intermediates)
-        attention_mask0 = (
-            self._get_golden_tensor(attention_mask)
-            if attention_mask is not None
-            else None
-        )
-
-        op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(
-            grad_output0,
-            attn_output0,
-            query0,
-            key0,
-            value0,
-            intermediates0,
-            attention_mask0,
-            int(mask_type.value.value),
-            dropout_probability,
-        )
-
-        grad_query_type = self._create_ranked_tensor_type(
-            golden_output[0].shape, self.get_type(query)
-        )
-        grad_key_type = self._create_ranked_tensor_type(
-            golden_output[1].shape, self.get_type(key)
-        )
-        grad_value_type = self._create_ranked_tensor_type(
-            golden_output[2].shape, self.get_type(value)
-        )
-
-        if loc is None:
-            loc = self._get_location()
-        else:
-            loc = Location.name(loc)
-
-        op = ttir_op(
-            grad_query_type,
-            grad_key_type,
-            grad_value_type,
-            grad_output,
-            attn_output,
-            query,
-            key,
-            value,
-            intermediates,
-            attention_mask=attention_mask,
-            mask_type=mask_type_attr,
-            dropout_probability=dropout_attr,
-            loc=loc,
-        )
-
-        if unit_attrs is not None:
-            for attr_name in unit_attrs:
-                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-
-        op_results = list(op.operation.results)
-        for op_result, golden in zip(op_results, golden_output):
-            self._set_golden_tensor(op_result, golden)
-
-        return tuple(op_results)
+        return op_result
 
     ############### ttir.BatchNormInferenceOp ###############
 
@@ -11243,6 +11109,120 @@ class TTIRBuilder(Builder):
                 ]
 
         return floor_module, floor_builder
+
+    ############### ttir.RoundOp ###############
+
+    @tag(ttir.RoundOp)
+    def round(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.round)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.RoundOp)
+    def round_parser(
+        self,
+        old_op: ttir.RoundOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.round_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.RoundOp)
+    def round_split(
+        self,
+        old_op: ttir.RoundOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.round_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            round_module = Module.create()
+            round_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(round_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="round_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    round_builder._set_golden_tensor(new_op_result, old_op_result)
+                    round_builder._set_golden_tensor(in0, input0)
+                    round_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                round_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return round_module, round_builder
 
     ############### ttir.TypecastOp ###############
 

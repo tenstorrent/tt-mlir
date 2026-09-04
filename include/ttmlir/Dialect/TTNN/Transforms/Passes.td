@@ -366,7 +366,11 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
             "enable-sdpa-fusion",
             "bool", /*default=*/"false",
             "Enable SDPA fusion patterns at the TTNN level. Disabled by "
-            "default since SDPA fusion is handled at the TTIR level.">
+            "default since SDPA fusion is handled at the TTIR level.">,
+    Option<"enableEltwiseActivationFusion",
+            "enable-eltwise-activation-fusion",
+            "bool", /*default=*/"false",
+            "Fuse unary activation ops into eltwise binary ops.">
   ];
 }
 

@@ -24,7 +24,7 @@ from lit.llvm.subst import FindTool
 # name: The name of this test suite.
 config.name = "TTMLIR"
 
-config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
+config.test_format = lit.formats.ShTest()
 
 # Stablehlo tests can be optionally enabled.
 if config.enable_stablehlo:

@@ -3814,6 +3814,34 @@ mlir::OpFoldResult mlir::tt::ttir::SliceStaticOp::fold(FoldAdaptor adaptor) {
   return success();
 }
 
+namespace {
+// Rewrite a rank-changing, size-1-dim-only shape change into the equivalent
+// `ttir.reshape`. TTNN dialect doesn't have `squeeze`/`unsqueeze` op, so we
+// canonicalize both ops to `ttir.reshape`.
+template <typename OpTy>
+::llvm::LogicalResult normalizeToReshape(OpTy op,
+                                         ::mlir::PatternRewriter &rewriter) {
+  static_assert(std::is_same_v<OpTy, ::mlir::tt::ttir::SqueezeOp> ||
+                    std::is_same_v<OpTy, ::mlir::tt::ttir::UnsqueezeOp>,
+                "normalizeToReshape expects a squeeze or unsqueeze op");
+
+  ::mlir::RankedTensorType resultType = op.getType();
+
+  ::llvm::SmallVector<int32_t> shape(resultType.getShape());
+  rewriter.replaceOpWithNewOp<::mlir::tt::ttir::ReshapeOp>(
+      op, resultType, op.getInput(), rewriter.getI32ArrayAttr(shape));
+  return ::mlir::success();
+}
+} // namespace
+
+::llvm::LogicalResult
+mlir::tt::ttir::SqueezeOp::canonicalize(mlir::tt::ttir::SqueezeOp op,
+                                        ::mlir::PatternRewriter &rewriter) {
+  // Rewrite `ttir.squeeze` as `ttir.reshape`.
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+  return normalizeToReshape(op, rewriter);
+}
+
 //===----------------------------------------------------------------------===//
 // TransposeOp
 //===----------------------------------------------------------------------===//
@@ -4150,6 +4178,15 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
   }
 
   return success();
+}
+
+// UnsqueezeOp canonicalization method
+::llvm::LogicalResult
+mlir::tt::ttir::UnsqueezeOp::canonicalize(mlir::tt::ttir::UnsqueezeOp op,
+                                          ::mlir::PatternRewriter &rewriter) {
+  // Rewrite `ttir.unsqueeze` as `ttir.reshape`.
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+  return normalizeToReshape(op, rewriter);
 }
 
 //===----------------------------------------------------------------------===//
@@ -7271,6 +7308,14 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
   if (getMaxExpAvgSq() && !sameShape(getMaxExpAvgSq().getType())) {
     return emitOpError("max_exp_avg_sq must have the same shape as param");
   }
+  for (auto [name, v] :
+       {std::pair{"lr", getLr()}, std::pair{"beta1_pow", getBeta1Pow()},
+        std::pair{"beta2_pow", getBeta2Pow()}}) {
+    RankedTensorType t = v.getType();
+    if (t.getNumElements() != 1 || !t.getElementType().isF32()) {
+      return emitOpError() << name << " must be a single-element f32 tensor";
+    }
+  }
 
   // Each result stands for the updated value of the operand it is paired with,
   // and TTIRToTTNN forwards it to that operand, so the types must match.
@@ -7296,193 +7341,59 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// SDPAForwardOp
+// CrossEntropyForwardOp
 //===----------------------------------------------------------------------===//
-::mlir::LogicalResult mlir::tt::ttir::SDPAForwardOp::verify() {
-  RankedTensorType queryType = getQuery().getType();
-  RankedTensorType keyType = getKey().getType();
-  RankedTensorType valueType = getValue().getType();
 
-  auto normalizeTo4D =
-      [](llvm::ArrayRef<int64_t> shape) -> llvm::SmallVector<int64_t, 4> {
-    if (shape.size() == 4) {
-      return {shape[0], shape[1], shape[2], shape[3]};
-    }
-    int64_t height = shape.size() >= 2 ? shape[shape.size() - 2] : 1;
-    int64_t width = shape.empty() ? 1 : shape.back();
-    int64_t leading = 1;
-    for (size_t i = 0; i + 2 < shape.size(); ++i) {
-      leading *= shape[i];
-    }
-    return {1, leading, height, width};
-  };
+::mlir::LogicalResult mlir::tt::ttir::CrossEntropyForwardOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType targetType = getTarget().getType();
 
-  if (queryType.getRank() < 2 || keyType.getRank() < 2 ||
-      valueType.getRank() < 2) {
-    return emitOpError("query, key and value must have rank >= 2 (..., S, D)");
+  if (inputType.getRank() < 2) {
+    return emitOpError("input must have rank at least 2 (..., H, W), got rank ")
+           << inputType.getRank();
+  }
+  if (targetType.getRank() < 1) {
+    return emitOpError("target must have rank at least 1 (..., H), got rank ")
+           << targetType.getRank();
   }
 
-  llvm::SmallVector<int64_t, 4> q = normalizeTo4D(queryType.getShape());
-  llvm::SmallVector<int64_t, 4> k = normalizeTo4D(keyType.getShape());
-  llvm::SmallVector<int64_t, 4> v = normalizeTo4D(valueType.getShape());
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> targetShape = targetType.getShape();
 
-  if (q[0] != k[0] || q[0] != v[0]) {
-    return emitOpError("query, key and value must share the same batch size");
-  }
-  if (q[2] != k[2] || q[2] != v[2]) {
-    return emitOpError(
-        "query, key and value must share the same sequence length");
-  }
-  if (q[3] != k[3]) {
-    return emitOpError("query and key must have the same head dimension");
-  }
-  if (k[1] != v[1]) {
-    return emitOpError("key and value must have the same number of heads");
-  }
-  if (k[1] == 0 || q[1] % k[1] != 0) {
-    return emitOpError("number of query heads must be a positive multiple of "
-                       "the number of key/value heads");
+  // Compare collapsed batch extents rather than dimension by dimension, so that
+  // any rank pairing the decomposition can normalize is accepted.
+  int64_t inputN = std::accumulate(inputShape.begin(), inputShape.end() - 2,
+                                   1ll, std::multiplies<int64_t>());
+  int64_t targetN = std::accumulate(targetShape.begin(), targetShape.end() - 1,
+                                    1ll, std::multiplies<int64_t>());
+
+  if (inputN != targetN) {
+    return emitOpError("target batch extent (")
+           << targetN << ") must match input batch extent (" << inputN << ")";
   }
 
-  ttcore::AttentionMaskType maskType = getMaskType();
-  if (maskType == ttcore::AttentionMaskType::Arbitrary) {
-    if (!getAttentionMask()) {
-      return emitOpError(
-          "attention_mask is required when mask_type is 'arbitrary'");
-    }
-  } else if (getAttentionMask()) {
-    return emitOpError(
-        "attention_mask is only allowed when mask_type is 'arbitrary'");
+  int64_t inputH = inputShape[inputShape.size() - 2];
+  int64_t targetH = targetShape.back();
+  if (targetH != inputH) {
+    return emitOpError("target last dimension (")
+           << targetH << ") must match input dimension -2 (" << inputH << ")";
   }
 
-  if (getAttentionMask()) {
-    llvm::SmallVector<int64_t, 4> m =
-        normalizeTo4D(getAttentionMask().getType().getShape());
-    if (m[0] != 1 || m[1] != 1 || m[2] != q[2] || m[3] != q[2]) {
-      return emitOpError("attention_mask must have shape (1, 1, S, S)");
-    }
+  // The result is input with the class dimension reduced away.
+  llvm::SmallVector<int64_t, 4> expectedShape(inputShape);
+  expectedShape.back() = 1;
+  llvm::ArrayRef<int64_t> resultShape = getResult().getType().getShape();
+  if (resultShape != llvm::ArrayRef<int64_t>(expectedShape)) {
+    return emitOpError("result shape must be input shape with the last "
+                       "dimension set to 1, expected ")
+           << llvm::ArrayRef<int64_t>(expectedShape) << ", got " << resultShape;
   }
 
-  // Output is (B, Hq, S, Dv): batch/heads/seq from query, inner dim from value.
-  llvm::SmallVector<int64_t, 4> out =
-      normalizeTo4D(getOutput().getType().getShape());
-  if (out[0] != q[0] || out[1] != q[1] || out[2] != q[2] || out[3] != v[3]) {
-    return emitOpError("output must have shape (B, Hq, S, Dv)");
-  }
-
-  if (getReturnIntermediates() != static_cast<bool>(getIntermediates())) {
-    return emitOpError("intermediates result must be present iff "
-                       "return_intermediates is true");
-  }
-  if (getIntermediates()) {
-    llvm::SmallVector<int64_t, 4> inter =
-        normalizeTo4D(getIntermediates().getType().getShape());
-    // Intermediate log-sum-exp is stored as a single fp32 tile per row.
-    constexpr int64_t kIntermediateWidth = 32;
-    if (inter[0] != q[0] || inter[1] != q[1] || inter[2] != q[2] ||
-        inter[3] != kIntermediateWidth) {
-      return emitOpError("intermediates must have shape (B, Hq, S, 32)");
-    }
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// SDPABackwardOp
-//===----------------------------------------------------------------------===//
-::mlir::LogicalResult mlir::tt::ttir::SDPABackwardOp::verify() {
-  RankedTensorType queryType = getQuery().getType();
-  RankedTensorType keyType = getKey().getType();
-  RankedTensorType valueType = getValue().getType();
-
-  auto normalizeTo4D =
-      [](llvm::ArrayRef<int64_t> shape) -> llvm::SmallVector<int64_t, 4> {
-    if (shape.size() == 4) {
-      return {shape[0], shape[1], shape[2], shape[3]};
-    }
-    int64_t height = shape.size() >= 2 ? shape[shape.size() - 2] : 1;
-    int64_t width = shape.empty() ? 1 : shape.back();
-    int64_t leading = 1;
-    for (size_t i = 0; i + 2 < shape.size(); ++i) {
-      leading *= shape[i];
-    }
-    return {1, leading, height, width};
-  };
-
-  if (queryType.getRank() < 2 || keyType.getRank() < 2 ||
-      valueType.getRank() < 2) {
-    return emitOpError("query, key and value must have rank >= 2 (..., S, D)");
-  }
-
-  llvm::SmallVector<int64_t, 4> q = normalizeTo4D(queryType.getShape());
-  llvm::SmallVector<int64_t, 4> k = normalizeTo4D(keyType.getShape());
-  llvm::SmallVector<int64_t, 4> v = normalizeTo4D(valueType.getShape());
-
-  if (q[0] != k[0] || q[0] != v[0]) {
-    return emitOpError("query, key and value must share the same batch size");
-  }
-  if (q[2] != k[2] || q[2] != v[2]) {
-    return emitOpError(
-        "query, key and value must share the same sequence length");
-  }
-  if (q[3] != k[3]) {
-    return emitOpError("query and key must have the same head dimension");
-  }
-  if (k[1] != v[1]) {
-    return emitOpError("key and value must have the same number of heads");
-  }
-  if (k[1] == 0 || q[1] % k[1] != 0) {
-    return emitOpError("number of query heads must be a positive multiple of "
-                       "the number of key/value heads");
-  }
-
-  llvm::SmallVector<int64_t, 4> gradOut =
-      normalizeTo4D(getGradOutput().getType().getShape());
-  llvm::SmallVector<int64_t, 4> attnOut =
-      normalizeTo4D(getAttnOutput().getType().getShape());
-  if (gradOut[0] != q[0] || gradOut[1] != q[1] || gradOut[2] != q[2] ||
-      gradOut[3] != v[3]) {
-    return emitOpError("grad_output must have shape (B, Hq, S, Dv)");
-  }
-  if (attnOut[0] != q[0] || attnOut[1] != q[1] || attnOut[2] != q[2] ||
-      attnOut[3] != v[3]) {
-    return emitOpError("attn_output must have shape (B, Hq, S, Dv)");
-  }
-
-  ttcore::AttentionMaskType maskType = getMaskType();
-  if (maskType == ttcore::AttentionMaskType::Arbitrary) {
-    if (!getAttentionMask()) {
-      return emitOpError(
-          "attention_mask is required when mask_type is 'arbitrary'");
-    }
-  } else if (getAttentionMask()) {
-    return emitOpError(
-        "attention_mask is only allowed when mask_type is 'arbitrary'");
-  }
-
-  if (getAttentionMask()) {
-    llvm::SmallVector<int64_t, 4> m =
-        normalizeTo4D(getAttentionMask().getType().getShape());
-    if (m[0] != 1 || m[1] != 1 || m[2] != q[2] || m[3] != q[2]) {
-      return emitOpError("attention_mask must have shape (1, 1, S, S)");
-    }
-  }
-
-  llvm::SmallVector<int64_t, 4> gradQ =
-      normalizeTo4D(getGradQuery().getType().getShape());
-  llvm::SmallVector<int64_t, 4> gradK =
-      normalizeTo4D(getGradKey().getType().getShape());
-  llvm::SmallVector<int64_t, 4> gradV =
-      normalizeTo4D(getGradValue().getType().getShape());
-  if (gradQ != q) {
-    return emitOpError("grad_query must have the same shape as query");
-  }
-  if (gradK != k) {
-    return emitOpError("grad_key must have the same shape as key");
-  }
-  if (gradV != v) {
-    return emitOpError("grad_value must have the same shape as value");
+  // Target holds class indices selecting along input's last dimension, so it
+  // must be an integer type.
+  if (!getTarget().getType().getElementType().isIntOrIndex()) {
+    return emitOpError("target must have an integer element type, got ")
+           << getTarget().getType().getElementType();
   }
 
   return success();

@@ -1272,8 +1272,21 @@ def compile_ttir_module_to_flatbuffer(
         If an unsupported target is specified
     """
 
-    if pipeline_options is None:
-        pipeline_options = []
+    pipeline_options = list(pipeline_options or [])
+    if (
+        target == "ttmetal"
+        and os.environ.get("TT_METAL_SIMULATOR")
+        and os.environ.get("ARCH_NAME") == "wormhole_b0"
+        and custom_pipeline is None
+        and not any(
+            option.startswith("override-device-shape=") for option in pipeline_options
+        )
+    ):
+        # Wormhole TTSim currently reports a 10x8 grid. Keep D2M compilation on
+        # the usable 9x8 grid until the simulator system descriptor reports it
+        # correctly.
+        # tracking issue: https://github.com/tenstorrent/tt-mlir/issues/9241
+        pipeline_options.append("override-device-shape=9,8")
 
     if type(custom_pipeline) is str:
         custom_pipeline = create_custom_ttir_pipeline_fn(

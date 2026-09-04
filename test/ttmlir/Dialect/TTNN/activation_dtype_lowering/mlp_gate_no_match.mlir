@@ -53,7 +53,7 @@ module attributes {} {
         all_gather_dim = 1 : si32, cluster_axis = 0 : ui32}>
         : (tensor<32x64xbf16, #bf16_scat>) -> tensor<32x256xbf16, #bf16_act>
 
-    %gate = "ttnn.multiply"(%silu, %ag3)
+    %gate = "ttnn.multiply"(%silu, %ag3) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}>
         : (tensor<32x256xbf16, #bf16_act>, tensor<32x256xbf16, #bf16_act>)
        -> tensor<32x256xbf16, #bf16_act>
 
@@ -62,7 +62,7 @@ module attributes {} {
         : (tensor<32x256xbf16, #bf16_act>, tensor<256x128xbf16, #bf16_b2>)
        -> tensor<32x128xbf16, #bf16_out>
     // Second consumer: extra use of the gate -> multiply is not single-use.
-    %extra = "ttnn.add"(%gate, %gate)
+    %extra = "ttnn.add"(%gate, %gate) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}>
         : (tensor<32x256xbf16, #bf16_act>, tensor<32x256xbf16, #bf16_act>)
        -> tensor<32x256xbf16, #bf16_act>
 
@@ -106,7 +106,7 @@ module attributes {} {
         all_gather_dim = 1 : si32, cluster_axis = 0 : ui32}>
         : (tensor<32x64xbf16, #bf16_scat>) -> tensor<32x256xbf16, #bf16_act>
 
-    %gate = "ttnn.multiply"(%silu, %ag3)
+    %gate = "ttnn.multiply"(%silu, %ag3) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}>
         : (tensor<32x256xbf16, #bf16_act>, tensor<32x256xbf16, #bf16_act>)
        -> tensor<32x256xbf16, #bf16_act>
 

@@ -89,7 +89,7 @@ SystemDescAttr createDefaultBlackholeSystemDesc(
                       std::multiplies<int64_t>());
 
   // Populate dummy values for single chip or multi chip config.
-  llvm::SmallVector<std::int64_t> gridShape = {10, 13};
+  llvm::SmallVector<std::int64_t> gridShape = {10, 11};
   llvm::SmallVector<std::int64_t> dramGridShape = {1, 8};
 
   // Captured from a p150 device. Blackhole's optimal mapping is identical

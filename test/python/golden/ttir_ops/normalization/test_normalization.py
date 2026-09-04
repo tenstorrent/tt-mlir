@@ -719,3 +719,49 @@ def test_group_norm(
         if shape != (8, 32, 32, 128)
         else None,
     )
+
+
+# Non-tile-aligned per-sample H*W; the shapes above are all aligned. opt 2 keeps
+# the fused kernel, which tt-metal#51159 / #52924 fixed for these shapes.
+@pytest.mark.parametrize("num_groups", [32])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 1, 259, 1024),  # XTTS-v2 conditioning encoder
+        (1, 5, 10, 256),  # H*W = 50
+        (2, 1, 16, 256),  # N*H*W = 32 is aligned, per-sample H*W = 16 is not
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_group_norm_non_tile_aligned(
+    shape: Shape,
+    num_groups: int,
+    target: str,
+    request,
+    device,
+):
+    n, h, w, c = shape
+    assert (h * w) % 32 != 0, "per-sample H*W must be non-tile-aligned"
+    group_norm_shape = (n, 1, h * w, c)
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def group_norm_non_tile_aligned(
+            *inputs, unit_attrs: Optional[List[str]] = None
+        ):
+            # fn(*inputs, self): the builder arrives last.
+            builder = inputs[-1]
+            in0 = inputs[0]
+            reshaped = builder.reshape(in0, group_norm_shape)
+            normalized = builder.group_norm(
+                reshaped, num_groups=num_groups, unit_attrs=unit_attrs
+            )
+            return builder.reshape(normalized, shape)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        target=target,
+        pipeline_options=["optimization-level=2"],
+    )

@@ -175,7 +175,8 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device", [OpModelExempt]> {
 }
 
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_ElementwiseUnary] # traits> {
+    TTNN_Op<mnemonic, [
+                       DeclareOpInterfaceMethods<TTNN_ElementwiseUnary>] # traits> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -195,14 +196,17 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_ElementwiseBinary] # traits> {
+    TTNN_Op<mnemonic, [TTNN_ElementwiseBinary, TTNN_ElementwiseBinaryActivations] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
     }];
 
     let arguments = (ins AnyRankedTensor:$lhs,
-                         AnyRankedTensor:$rhs);
+                         AnyRankedTensor:$rhs,
+                         TTNN_UnaryWithParamArrayAttr:$activations,
+                         TTNN_UnaryWithParamArrayAttr:$input_tensor_a_activations,
+                         TTNN_UnaryWithParamArrayAttr:$input_tensor_b_activations);
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
@@ -211,10 +215,55 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
           wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
       }
     }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Type": $resultType,
+               "Value": $lhs,
+               "Value": $rhs),
+      [{
+        auto *ctx = resultType.getContext();
+        build($_builder, $_state, resultType, lhs, rhs,
+          /*activations=*/mlir::ArrayAttr::get(ctx, {}),
+          /*input_tensor_a_activations=*/mlir::ArrayAttr::get(ctx, {}),
+          /*input_tensor_b_activations=*/mlir::ArrayAttr::get(ctx, {}));
+      }]>
+    ];
 }
 
 class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, traits> {
+    TTNN_Op<mnemonic, [TTNN_ElementwiseBinary, TTNN_ElementwiseBinaryActivations] # traits> {
+    let summary = "Eltwise binary composite op.";
+    let description = [{
+      Eltwise binary composite op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs,
+                         TTNN_UnaryWithParamArrayAttr:$activations,
+                         TTNN_UnaryWithParamArrayAttr:$input_tensor_a_activations,
+                         TTNN_UnaryWithParamArrayAttr:$input_tensor_b_activations);
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+      }
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Type": $resultType, "Value": $lhs, "Value": $rhs),
+      [{
+        auto *ctx = resultType.getContext();
+        build($_builder, $_state, resultType, lhs, rhs, /*activations=*/mlir::ArrayAttr::get(ctx, {}), /*input_tensor_a_activations=*/mlir::ArrayAttr::get(ctx, {}), /*input_tensor_b_activations=*/mlir::ArrayAttr::get(ctx, {}));
+      }]>
+    ];
+}
+
+class TTNN_ElementwiseBinaryCompositeWithoutFusedActivationOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_Op<mnemonic,  [TTNN_ElementwiseBinary] # traits> {
     let summary = "Eltwise binary composite op.";
     let description = [{
       Eltwise binary composite op.
@@ -229,9 +278,19 @@ class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []
         return
           wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
       }
-    }];
 
-    // Use the default generated builder for the typed form.
+      ::mlir::ArrayAttr getActivations() {
+        return ::mlir::ArrayAttr::get(getContext(), {});
+      }
+
+      ::mlir::ArrayAttr getInputTensorAActivations() {
+        return ::mlir::ArrayAttr::get(getContext(), {});
+      }
+
+      ::mlir::ArrayAttr getInputTensorBActivations() {
+        return ::mlir::ArrayAttr::get(getContext(), {});
+      }
+    }];
 }
 
 class TTNN_ElementwiseBinaryCompositeScalarOp<string mnemonic, list<Trait> traits = []> :
@@ -567,6 +626,26 @@ def TTNN_Expm1Op: TTNN_ElementwiseUnaryOp<"expm1"> {
   }];
 }
 
+def TTNN_RoundOp: TTNN_ElementwiseUnaryOp<"round"> {
+  let description = [{
+    Element-wise round operation. Rounds each element of the input tensor to the nearest integer,
+    breaking ties towards the even integer, on the operand tensor and produces a result tensor.
+
+    Example:
+    ```mlir
+    // Compute round for all elements in %input
+    %result = "ttnn.round"(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
+    // Input tensor with values [-2.5, 0.4, 0.5, 0.6, 2.5]
+    // Output tensor with values [-2.0, 0.0, 0.0, 1.0, 2.0]
+    ```
+
+    Mathematical definition: round(x) = {
+      floor(x + 0.5) if floor(x) is even
+      ceil(x - 0.5) if floor(x) is odd
+    }
+  }];
+}
+
 class TTNN_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> traits = []> :
     TTNN_ElementwiseUnaryOp<mnemonic, traits> {
     let summary = "Eltwise unary op with the float parameter.";
@@ -853,7 +932,7 @@ def TTNN_PowScalarOp : TTNN_ElementwiseBinaryCompositeScalarOp<"pow_scalar"> {
   let hasVerifier = 1;
 }
 
-def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
+def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeWithoutFusedActivationOp<"atan2"> {
     let summary = "Eltwise atan2 OP.";
     let description = [{
       Performs element-wise atan2 operation on lhs and rhs tensor and produces a result
@@ -869,7 +948,10 @@ def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
     }];
 }
 
-def TTNN_GeluBackwardOp : TTNN_ElementwiseBinaryOp<"gelu_bw"> {
+def TTNN_GeluBackwardOp
+    : TTNN_Op<"gelu_bw", [TTNN_MemoryConfigOpInterface,
+                         TTNN_DtypeOpInterface,
+                         TTNN_ElementwiseBinary]> {
   let summary = "Backward pass operation for the GELU activation function.";
   let description = [{
     Computes the gradient of the GELU (Gaussian Error Linear Unit) activation
@@ -883,6 +965,13 @@ def TTNN_GeluBackwardOp : TTNN_ElementwiseBinaryOp<"gelu_bw"> {
                        DefaultValuedAttr<StrAttr, "\"none\"">:$approximate);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return
+        wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+    }
+  }];
 
   let hasVerifier = 1;
 }
@@ -2683,7 +2772,7 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_Compute
     let hasVerifier = 1;
 }
 
-def TTNN_AdamWOp : TTNN_InplaceOp<"adamw", [OpModelExempt]> {
+def TTNN_AdamWOp : TTNN_InplaceOp<"adamw"> {
     let summary = "AdamW optimizer step (ttml).";
     let description = [{
       Fused AdamW optimizer step, backed by the ttml metal op
@@ -2693,18 +2782,22 @@ def TTNN_AdamWOp : TTNN_InplaceOp<"adamw", [OpModelExempt]> {
       `param`, `exp_avg`, `exp_avg_sq` and the optional `max_exp_avg_sq` (used for
       AMSGrad) are all mutated in place, so the op has no results. `amsgrad` is
       implied by the presence of `max_exp_avg_sq`.
+
+      `lr`, `beta1_pow` and `beta2_pow` are single-element f32 tensors. The
+      backing kernel takes them as host floats, so they are read back from the
+      device at execution time; the op is therefore excluded from trace capture.
     }];
 
     let arguments = (ins Arg<AnyRankedTensor, "parameter tensor (updated in place)", [MemWrite]>:$param,
                          AnyRankedTensor:$grad,
                          Arg<AnyRankedTensor, "first moment estimate", [MemWrite]>:$exp_avg,
                          Arg<AnyRankedTensor, "second moment estimate", [MemWrite]>:$exp_avg_sq,
+                         AnyRankedTensor:$lr,
+                         AnyRankedTensor:$beta1_pow,
+                         AnyRankedTensor:$beta2_pow,
                          Arg<Optional<AnyRankedTensor>, "max second moment estimate (amsgrad)", [MemWrite]>:$max_exp_avg_sq,
-                         F32Attr:$lr,
                          F32Attr:$beta1,
                          F32Attr:$beta2,
-                         F32Attr:$beta1_pow,
-                         F32Attr:$beta2_pow,
                          F32Attr:$epsilon,
                          F32Attr:$weight_decay,
                          DefaultValuedAttr<BoolAttr, "false">:$stochastic_rounding);
@@ -2712,21 +2805,20 @@ def TTNN_AdamWOp : TTNN_InplaceOp<"adamw", [OpModelExempt]> {
     let builders = [
       OpBuilder<(ins "Value":$param, "Value":$grad,
                      "Value":$exp_avg, "Value":$exp_avg_sq,
-                     "llvm::APFloat":$lr, "llvm::APFloat":$beta1,
-                     "llvm::APFloat":$beta2, "llvm::APFloat":$beta1_pow,
-                     "llvm::APFloat":$beta2_pow, "llvm::APFloat":$epsilon,
-                     "llvm::APFloat":$weight_decay),
+                     "Value":$lr, "Value":$beta1_pow, "Value":$beta2_pow,
+                     "llvm::APFloat":$beta1, "llvm::APFloat":$beta2,
+                     "llvm::APFloat":$epsilon, "llvm::APFloat":$weight_decay),
       [{
-        build($_builder, $_state, param, grad, exp_avg, exp_avg_sq,
-              /*max_exp_avg_sq=*/nullptr, lr, beta1, beta2, beta1_pow, beta2_pow,
-              epsilon, weight_decay, /*stochastic_rounding=*/false);
+        build($_builder, $_state, param, grad, exp_avg, exp_avg_sq, lr, beta1_pow,
+              beta2_pow, /*max_exp_avg_sq=*/nullptr, beta1, beta2, epsilon,
+              weight_decay, /*stochastic_rounding=*/false);
       }]>
     ];
 
     let hasVerifier = 1;
 }
 
-def TTNN_SDPAForwardOp : TTNN_Op<"sdpa_fw", [OpModelExempt]> {
+def TTNN_SDPAForwardOp : TTNN_Op<"sdpa_fw"> {
     let summary = "Scaled dot-product attention forward (ttml).";
     let description = [{
       Training-oriented fused scaled dot-product attention forward pass, backed
@@ -2760,7 +2852,7 @@ def TTNN_SDPAForwardOp : TTNN_Op<"sdpa_fw", [OpModelExempt]> {
     let hasVerifier = 1;
 }
 
-def TTNN_SDPABackwardOp : TTNN_Op<"sdpa_bw", [OpModelExempt]> {
+def TTNN_SDPABackwardOp : TTNN_Op<"sdpa_bw"> {
     let summary = "Scaled dot-product attention backward (ttml).";
     let description = [{
       Training-oriented fused scaled dot-product attention backward pass, backed
@@ -2790,6 +2882,49 @@ def TTNN_SDPABackwardOp : TTNN_Op<"sdpa_bw", [OpModelExempt]> {
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::
             createSDPABackwardOpOperandsWorkarounds(this->getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_LayerNormForwardOp : TTNN_Op<"layernorm_fw",
+    [SameVariadicResultSize]> {
+    let summary = "Layer normalization forward (ttml).";
+    let description = [{
+      Training-oriented fused layer normalization forward pass, backed by the
+      ttml metal op `ttml::metal::layernorm_fw`. Normalizes `input` over its last
+      dimension and applies the affine transform
+      `output = (input - mean) * rstd * weight + bias`, where
+      `rstd = 1 / sqrt(var + epsilon)` and `mean`/`var` are the biased statistics
+      of the last dimension.
+
+      When `return_mean_rstd` is set the per-row `mean` and `rstd` are also
+      returned so the backward pass can reuse them. Both are produced together,
+      so they are either both present or both absent.
+
+      The backing kernel only accepts rank-4 tensors: `input` is `(B, N, S, C)`,
+      `weight` and `bias` are `(1, 1, 1, C)`, and `mean`/`rstd` are
+      `(B, N, S, 1)`. It also requires every tensor to be bfloat16, tiled and
+      interleaved in DRAM; those are satisfied by the workarounds pass rather
+      than the verifier, since the layout is not yet final when the op is
+      created.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         AnyRankedTensor:$bias,
+                         DefaultValuedAttr<F32Attr, "1e-05">:$epsilon,
+                         DefaultValuedAttr<BoolAttr, "false">:$return_mean_rstd);
+
+    let results = (outs AnyRankedTensor:$output,
+                        Optional<AnyRankedTensor>:$mean,
+                        Optional<AnyRankedTensor>:$rstd);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createLayerNormForwardOpOperandsWorkarounds(this->getOperation());
       }
     }];
 
@@ -2835,6 +2970,38 @@ def TTNN_DitRMSNormUnaryFusedOp : TTNN_Op<"dit_rms_norm_unary_fused",
               /*compute_config=*/nullptr);
       }]>
     ];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_CrossEntropyForwardOp : TTNN_Op<"cross_entropy_fw"> {
+    let summary = "Cross entropy loss forward pass (ttml).";
+    let description = [{
+      Per-row cross entropy loss against integer class indices, backed by the
+      ttml metal op `ttml::metal::cross_entropy_fw`. Computes
+
+        loss = -input[target] + max(input) + log(sum(exp(input - max(input))))
+
+      one value per row, with no reduction across rows.
+
+      `input` holds the logits as `(N, 1, H, W)` and must be bf16: the kernel
+      hardcodes its circular buffers to `Float16_b`. `target` holds the class
+      indices as `(N, H)` and reaches the kernel as row-major uint32.
+
+      The result is shaped `(N, 1, H, 1)`.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$target);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createCrossEntropyForwardOpOperandsWorkarounds();
+      }
+    }];
 
     let hasVerifier = 1;
 }

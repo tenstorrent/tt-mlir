@@ -24,7 +24,7 @@
 // RUN: cat %t.dir/trace.json | FileCheck %s
 
 // Llama 3.1 8B single decoder layer on Blackhole. Different hardware
-// constants than n150 (512 GB/s DRAM, 1.35 GHz, 130 Tensix cores) so the
+// constants than n150 (512 GB/s DRAM, 1.35 GHz, 110 Tensix cores) so the
 // roofline shrinks vs the Wormhole companion test even though the model
 // is the same. At default opt level SDPA is not fused, so 6 dram-bound
 // weight matmuls + 2 skipped activation@activation matmuls. (The third,
@@ -38,7 +38,7 @@
 // CHECK: "dram_bandwidth_bytes_per_sec": 512000000000
 // CHECK: "dram_bound_ops": 6
 // CHECK: "num_chips": 1
-// CHECK: "num_tensix_cores": 130
+// CHECK: "num_tensix_cores": 110
 // CHECK: "params_count": 743440384
 // CHECK: "params_memory_bytes": 789905408
 // CHECK: "roofline_ms": 1.542784

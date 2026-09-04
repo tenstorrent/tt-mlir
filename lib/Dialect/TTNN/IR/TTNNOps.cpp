@@ -76,6 +76,154 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
+// TTNN_ElementwiseUnary Interface Implementations
+//===----------------------------------------------------------------------===//
+
+UnaryOpType AbsOp::getUnaryOpType() { return UnaryOpType::Abs; }
+
+llvm::SmallVector<mlir::FloatAttr> AbsOp::getParams() { return {}; }
+
+UnaryOpType CbrtOp::getUnaryOpType() { return UnaryOpType::Unknown; }
+
+llvm::SmallVector<mlir::FloatAttr> CbrtOp::getParams() { return {}; }
+
+UnaryOpType CeilOp::getUnaryOpType() { return UnaryOpType::Ceil; }
+
+llvm::SmallVector<mlir::FloatAttr> CeilOp::getParams() { return {}; }
+
+UnaryOpType SignOp::getUnaryOpType() { return UnaryOpType::Sign; }
+
+llvm::SmallVector<mlir::FloatAttr> SignOp::getParams() { return {}; }
+
+UnaryOpType CosOp::getUnaryOpType() { return UnaryOpType::Cos; }
+
+llvm::SmallVector<mlir::FloatAttr> CosOp::getParams() { return {}; }
+
+UnaryOpType AcosOp::getUnaryOpType() { return UnaryOpType::Acos; }
+
+llvm::SmallVector<mlir::FloatAttr> AcosOp::getParams() { return {}; }
+
+UnaryOpType ExpOp::getUnaryOpType() { return UnaryOpType::Exp; }
+
+llvm::SmallVector<mlir::FloatAttr> ExpOp::getParams() { return {}; }
+
+UnaryOpType ErfOp::getUnaryOpType() { return UnaryOpType::Erf; }
+
+llvm::SmallVector<mlir::FloatAttr> ErfOp::getParams() { return {}; }
+
+UnaryOpType ErfcOp::getUnaryOpType() { return UnaryOpType::Erfc; }
+
+llvm::SmallVector<mlir::FloatAttr> ErfcOp::getParams() { return {}; }
+
+UnaryOpType FloorOp::getUnaryOpType() { return UnaryOpType::Floor; }
+
+llvm::SmallVector<mlir::FloatAttr> FloorOp::getParams() { return {}; }
+
+UnaryOpType RoundOp::getUnaryOpType() { return UnaryOpType::Round; }
+
+llvm::SmallVector<mlir::FloatAttr> RoundOp::getParams() { return {}; }
+
+UnaryOpType GeluOp::getUnaryOpType() { return UnaryOpType::Gelu; }
+
+llvm::SmallVector<mlir::FloatAttr> GeluOp::getParams() { return {}; }
+
+UnaryOpType IsFiniteOp::getUnaryOpType() { return UnaryOpType::IsFinite; }
+
+llvm::SmallVector<mlir::FloatAttr> IsFiniteOp::getParams() { return {}; }
+
+UnaryOpType LogicalNotOp::getUnaryOpType() {
+  return UnaryOpType::LogicalNotUnary;
+}
+
+llvm::SmallVector<mlir::FloatAttr> LogicalNotOp::getParams() { return {}; }
+
+UnaryOpType BitwiseNotOp::getUnaryOpType() { return UnaryOpType::BitwiseNot; }
+
+llvm::SmallVector<mlir::FloatAttr> BitwiseNotOp::getParams() { return {}; }
+
+UnaryOpType NegOp::getUnaryOpType() { return UnaryOpType::Neg; }
+
+llvm::SmallVector<mlir::FloatAttr> NegOp::getParams() { return {}; }
+
+UnaryOpType TanOp::getUnaryOpType() { return UnaryOpType::Tan; }
+
+llvm::SmallVector<mlir::FloatAttr> TanOp::getParams() { return {}; }
+
+UnaryOpType AtanOp::getUnaryOpType() { return UnaryOpType::Atan; }
+
+llvm::SmallVector<mlir::FloatAttr> AtanOp::getParams() { return {}; }
+
+UnaryOpType TanhOp::getUnaryOpType() { return UnaryOpType::Tanh; }
+
+llvm::SmallVector<mlir::FloatAttr> TanhOp::getParams() { return {}; }
+
+UnaryOpType ReciprocalOp::getUnaryOpType() { return UnaryOpType::Recip; }
+
+llvm::SmallVector<mlir::FloatAttr> ReciprocalOp::getParams() { return {}; }
+
+UnaryOpType ReluOp::getUnaryOpType() { return UnaryOpType::Relu; }
+
+llvm::SmallVector<mlir::FloatAttr> ReluOp::getParams() { return {}; }
+
+UnaryOpType Relu6Op::getUnaryOpType() { return UnaryOpType::Relu6; }
+
+llvm::SmallVector<mlir::FloatAttr> Relu6Op::getParams() { return {}; }
+
+UnaryOpType SinOp::getUnaryOpType() { return UnaryOpType::Sin; }
+
+llvm::SmallVector<mlir::FloatAttr> SinOp::getParams() { return {}; }
+
+UnaryOpType AsinOp::getUnaryOpType() { return UnaryOpType::Asin; }
+
+llvm::SmallVector<mlir::FloatAttr> AsinOp::getParams() { return {}; }
+
+UnaryOpType SqrtOp::getUnaryOpType() { return UnaryOpType::Sqrt; }
+
+llvm::SmallVector<mlir::FloatAttr> SqrtOp::getParams() { return {}; }
+
+UnaryOpType RsqrtOp::getUnaryOpType() { return UnaryOpType::Rsqrt; }
+
+llvm::SmallVector<mlir::FloatAttr> RsqrtOp::getParams() { return {}; }
+
+UnaryOpType SigmoidOp::getUnaryOpType() { return UnaryOpType::Sigmoid; }
+
+llvm::SmallVector<mlir::FloatAttr> SigmoidOp::getParams() { return {}; }
+
+UnaryOpType HardsigmoidOp::getUnaryOpType() { return UnaryOpType::Hardsigmoid; }
+
+llvm::SmallVector<mlir::FloatAttr> HardsigmoidOp::getParams() { return {}; }
+
+UnaryOpType SiluOp::getUnaryOpType() { return UnaryOpType::Silu; }
+
+llvm::SmallVector<mlir::FloatAttr> SiluOp::getParams() { return {}; }
+
+UnaryOpType MishOp::getUnaryOpType() { return UnaryOpType::Unknown; }
+
+llvm::SmallVector<mlir::FloatAttr> MishOp::getParams() { return {}; }
+
+UnaryOpType LogOp::getUnaryOpType() { return UnaryOpType::Log; }
+
+llvm::SmallVector<mlir::FloatAttr> LogOp::getParams() { return {}; }
+
+UnaryOpType Log1pOp::getUnaryOpType() { return UnaryOpType::Log1p; }
+
+llvm::SmallVector<mlir::FloatAttr> Log1pOp::getParams() { return {}; }
+
+UnaryOpType Expm1Op::getUnaryOpType() { return UnaryOpType::Expm1; }
+
+llvm::SmallVector<mlir::FloatAttr> Expm1Op::getParams() { return {}; }
+
+UnaryOpType LeakyReluOp::getUnaryOpType() { return UnaryOpType::LeakyRelu; }
+
+llvm::SmallVector<mlir::FloatAttr> LeakyReluOp::getParams() {
+  return {getParameterAttr()};
+}
+
+UnaryOpType AsinhOp::getUnaryOpType() { return UnaryOpType::Asinh; }
+
+llvm::SmallVector<mlir::FloatAttr> AsinhOp::getParams() { return {}; }
+
+//===----------------------------------------------------------------------===//
 // RandOp
 //===----------------------------------------------------------------------===//
 
@@ -3783,6 +3931,14 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
   if (getMaxExpAvgSq() && !sameShape(getMaxExpAvgSq().getType())) {
     return emitOpError("max_exp_avg_sq must have the same shape as param");
   }
+  for (auto [name, v] :
+       {std::pair{"lr", getLr()}, std::pair{"beta1_pow", getBeta1Pow()},
+        std::pair{"beta2_pow", getBeta2Pow()}}) {
+    RankedTensorType t = v.getType();
+    if (t.getNumElements() != 1 || !t.getElementType().isF32()) {
+      return emitOpError() << name << " must be a single-element f32 tensor";
+    }
+  }
   return success();
 }
 
@@ -3844,6 +4000,74 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// LayerNormForwardOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::LayerNormForwardOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType weightType = getWeight().getType();
+  RankedTensorType biasType = getBias().getType();
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("input must be rank 4 (B, N, S, C)");
+  }
+  if (weightType.getRank() != 4 || biasType.getRank() != 4) {
+    return emitOpError("weight and bias must be rank 4 (1, 1, 1, C)");
+  }
+
+  int64_t normalizedSize = inputType.getDimSize(3);
+  llvm::SmallVector<int64_t, 4> expectedParamShape{1, 1, 1, normalizedSize};
+  if (weightType.getShape() != llvm::ArrayRef<int64_t>(expectedParamShape)) {
+    return emitOpError("weight must have shape (1, 1, 1, ")
+           << normalizedSize << ")";
+  }
+  if (biasType.getShape() != llvm::ArrayRef<int64_t>(expectedParamShape)) {
+    return emitOpError("bias must have shape (1, 1, 1, ")
+           << normalizedSize << ")";
+  }
+
+  RankedTensorType outputType = getOutput().getType();
+  if (outputType.getShape() != inputType.getShape()) {
+    return emitOpError("output must have the same shape as input");
+  }
+
+  // The kernel reads and writes every tensor at the same data format, so a
+  // mismatch here cannot be fixed up by the workarounds pass.
+  mlir::Type elementType = inputType.getElementType();
+  if (weightType.getElementType() != elementType ||
+      biasType.getElementType() != elementType ||
+      outputType.getElementType() != elementType) {
+    return emitOpError(
+        "input, weight, bias and output must have the same element type");
+  }
+
+  // mean and rstd are computed by the same kernel pass, so they come as a pair.
+  if (getReturnMeanRstd() != static_cast<bool>(getMean()) ||
+      getReturnMeanRstd() != static_cast<bool>(getRstd())) {
+    return emitOpError("mean and rstd results must be present iff "
+                       "return_mean_rstd is true");
+  }
+
+  if (getMean()) {
+    llvm::SmallVector<int64_t, 4> expectedStatsShape(inputType.getShape());
+    expectedStatsShape.back() = 1;
+    llvm::ArrayRef<int64_t> expectedStats(expectedStatsShape);
+    if (getMean().getType().getShape() != expectedStats) {
+      return emitOpError("mean must have shape (B, N, S, 1)");
+    }
+    if (getRstd().getType().getShape() != expectedStats) {
+      return emitOpError("rstd must have shape (B, N, S, 1)");
+    }
+    if (getMean().getType().getElementType() != elementType ||
+        getRstd().getType().getElementType() != elementType) {
+      return emitOpError("mean and rstd must have the same element type as "
+                         "input");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // DitRMSNormUnaryFusedOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::DitRMSNormUnaryFusedOp::verify() {
@@ -3892,6 +4116,59 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
       return emitOpError("bias tensor must be 1D with size matching the last "
                          "dimension of input");
     }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// CrossEntropyForwardOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::CrossEntropyForwardOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType targetType = getTarget().getType();
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("input must be a 4D tensor (N, 1, H, W), got rank ")
+           << inputType.getRank();
+  }
+  if (targetType.getRank() != 2) {
+    return emitOpError("target must be a 2D tensor (N, H), got rank ")
+           << targetType.getRank();
+  }
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> targetShape = targetType.getShape();
+
+  if (inputShape[1] != 1) {
+    return emitOpError("input dim 1 must be 1, got ") << inputShape[1];
+  }
+  if (targetShape[0] != inputShape[0]) {
+    return emitOpError("target dim 0 (")
+           << targetShape[0] << ") must match input dim 0 (" << inputShape[0]
+           << ")";
+  }
+  if (targetShape[1] != inputShape[2]) {
+    return emitOpError("target dim 1 (")
+           << targetShape[1] << ") must match input dim 2 (" << inputShape[2]
+           << ")";
+  }
+
+  llvm::SmallVector<int64_t, 4> expectedShape(inputShape);
+  expectedShape.back() = 1;
+  llvm::ArrayRef<int64_t> resultShape = getResult().getType().getShape();
+  if (resultShape != llvm::ArrayRef<int64_t>(expectedShape)) {
+    return emitOpError("result shape must be input shape with the last "
+                       "dimension set to 1, expected ")
+           << llvm::ArrayRef<int64_t>(expectedShape) << ", got " << resultShape;
+  }
+
+  // Target holds class indices selecting along input's last dimension, so it
+  // must be an integer type.
+  if (!getTarget().getType().getElementType().isIntOrIndex()) {
+    return emitOpError("target must have an integer element type, got ")
+           << getTarget().getType().getElementType();
   }
 
   return success();

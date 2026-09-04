@@ -177,6 +177,7 @@ using OpModelSignParam = OpModelUnaryEltwiseParam<SignOp>;
 using OpModelErfParam = OpModelUnaryEltwiseParam<ErfOp>;
 using OpModelErfcParam = OpModelUnaryEltwiseParam<ErfcOp>;
 using OpModelFloorParam = OpModelUnaryEltwiseParam<FloorOp>;
+using OpModelRoundParam = OpModelUnaryEltwiseParam<RoundOp>;
 using OpModelGeluParam = OpModelUnaryEltwiseParam<GeluOp>;
 using OpModelIsFiniteParam = OpModelUnaryEltwiseParam<IsFiniteOp>;
 using OpModelLogicalNotParam = OpModelUnaryEltwiseParam<LogicalNotOp>;
@@ -210,6 +211,7 @@ TEST_P(OpModelSignParam, SignOp) { RunTest(); }
 TEST_P(OpModelErfParam, ErfOp) { RunTest(); }
 TEST_P(OpModelErfcParam, ErfcOp) { RunTest(); }
 TEST_P(OpModelFloorParam, FloorOp) { RunTest(); }
+TEST_P(OpModelRoundParam, RoundOp) { RunTest(); }
 TEST_P(OpModelReciprocalParam, ReciprocalOp) { RunTest(); }
 TEST_P(OpModelGeluParam, GeluOp) { RunTest(); }
 TEST_P(OpModelIsFiniteParam, IsFiniteOp) { RunTest(); }
@@ -319,6 +321,9 @@ INSTANTIATE_TEST_SUITE_P(ErfcTests, OpModelErfcParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(FloorTests, OpModelFloorParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(RoundTests, OpModelRoundParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(GeluTests, OpModelGeluParam,
@@ -1750,6 +1755,9 @@ struct BinaryEltwiseParam {
   detail::TestTensor inputA;
   detail::TestTensor inputB;
   detail::TestTensor output;
+  llvm::SmallVector<ttnn::UnaryOpType> postActivations;
+  llvm::SmallVector<ttnn::UnaryOpType> lhsActivations;
+  llvm::SmallVector<ttnn::UnaryOpType> rhsActivations;
   detail::ExpectedResult expectedResult;
 };
 
@@ -1775,8 +1783,29 @@ protected:
     const TTNNLayoutAttr outputLayout = CreateTiledLayout(
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
+    // Convert UnaryOpType vectors to UnaryWithParamAttr vectors
+    llvm::SmallVector<ttnn::UnaryWithParamAttr> postActivationsAttrs;
+    for (auto opType : GetParam().postActivations) {
+      postActivationsAttrs.push_back(
+          ttnn::UnaryWithParamAttr::get(&context, opType, {}));
+    }
+
+    llvm::SmallVector<ttnn::UnaryWithParamAttr> lhsActivationsAttrs;
+    for (auto opType : GetParam().lhsActivations) {
+      lhsActivationsAttrs.push_back(
+          ttnn::UnaryWithParamAttr::get(&context, opType, {}));
+    }
+
+    llvm::SmallVector<ttnn::UnaryWithParamAttr> rhsActivationsAttrs;
+    for (auto opType : GetParam().rhsActivations) {
+      rhsActivationsAttrs.push_back(
+          ttnn::UnaryWithParamAttr::get(&context, opType, {}));
+    }
+
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
-        inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, outputLayout);
+        inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
+        postActivationsAttrs, lhsActivationsAttrs, rhsActivationsAttrs,
+        outputLayout);
     // Manually cast to bool because EXPECT_TRUE requires a const bool operator
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -1796,7 +1825,10 @@ protected:
     }
 
     llvm::Expected<size_t> runtimeExp = OpModel<OpTy>::getOpRuntime(
-        inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, outputLayout);
+        inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
+        postActivationsAttrs, lhsActivationsAttrs, rhsActivationsAttrs,
+        outputLayout);
+
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
     if (expectedLegal) {
       EXPECT_TRUE(runtimeExp.get() > 0);
@@ -1821,8 +1853,29 @@ protected:
     const TTNNLayoutAttr outputLayout = CreateTiledLayoutInt32(
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
+    // Convert UnaryOpType vectors to UnaryWithParamAttr vectors
+    llvm::SmallVector<ttnn::UnaryWithParamAttr> postActivationsAttrs;
+    for (auto opType : GetParam().postActivations) {
+      postActivationsAttrs.push_back(
+          ttnn::UnaryWithParamAttr::get(&context, opType, {}));
+    }
+
+    llvm::SmallVector<ttnn::UnaryWithParamAttr> lhsActivationsAttrs;
+    for (auto opType : GetParam().lhsActivations) {
+      lhsActivationsAttrs.push_back(
+          ttnn::UnaryWithParamAttr::get(&context, opType, {}));
+    }
+
+    llvm::SmallVector<ttnn::UnaryWithParamAttr> rhsActivationsAttrs;
+    for (auto opType : GetParam().rhsActivations) {
+      rhsActivationsAttrs.push_back(
+          ttnn::UnaryWithParamAttr::get(&context, opType, {}));
+    }
+
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
-        inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, outputLayout);
+        inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
+        postActivationsAttrs, lhsActivationsAttrs, rhsActivationsAttrs,
+        outputLayout);
     // Manually cast to bool because EXPECT_TRUE requires a const bool operator
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -1842,7 +1895,9 @@ protected:
     }
 
     llvm::Expected<size_t> runtimeExp = OpModel<OpTy>::getOpRuntime(
-        inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, outputLayout);
+        inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
+        postActivationsAttrs, lhsActivationsAttrs, rhsActivationsAttrs,
+        outputLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
     if (expectedLegal) {
       EXPECT_TRUE(runtimeExp.get() > 0);
@@ -2011,59 +2066,160 @@ TEST_P(OpModelRemainderParam, RemainderOp) { RunTest(); }
 TEST_P(OpModelAtan2Param, Atan2Op) { RunTest(); }
 
 const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
-    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
-     detail::interleavedN300X1024Dram, detail::ExpectedResult{true}},
-    {detail::interleavedN300X1024Dram, detail::interleaved2048X2048Dram,
+    {detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     {},
+     {},
+     {},
+     detail::ExpectedResult{true}},
+    {detail::interleavedN300X1024Dram,
      detail::interleaved2048X2048Dram,
-     detail::ExpectedResult{false}}, // incompatible dimensions at the input
-    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
-     detail::interleavedN300X1024Dram, detail::ExpectedResult{true}},
-    {detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
-     detail::interleavedN300X1024Dram, detail::ExpectedResult{true}},
-    {detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
-     detail::interleavedN300X1024Dram, detail::ExpectedResult{true}},
-    {detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
-     detail::interleavedN300X1024L1, detail::ExpectedResult{true}},
-    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
-     detail::interleavedN300X1024L1, detail::ExpectedResult{true}},
-    {detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
-     detail::interleavedN300X1024L1, detail::ExpectedResult{true}},
+     detail::interleaved2048X2048Dram,
+     {},
+     {},
+     {},
+     detail::ExpectedResult{false}}, // incompatible dimensions at
+                                     // the input
+    {detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024Dram,
+     {},
+     {},
+     {},
+     detail::ExpectedResult{true}},
+    {detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     {},
+     {},
+     {},
+     detail::ExpectedResult{true}},
+    {detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024Dram,
+     {},
+     {},
+     {},
+     detail::ExpectedResult{true}},
+    {detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024L1,
+     {},
+     {},
+     {},
+     detail::ExpectedResult{true}},
+    {detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024L1,
+     {},
+     {},
+     {},
+     detail::ExpectedResult{true}},
+    {detail::interleavedN300X1024L1,
+     detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024L1,
+     {},
+     {},
+     {},
+     detail::ExpectedResult{true}},
+    {detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024L1,
+     {},
+     {},
+     {},
+     detail::ExpectedResult{true}},
+    {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        TensorMemoryLayout::HeightSharded,
+                        BufferType::L1,
+                        llvm::SmallVector<int64_t>{8, 1}},
+     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        TensorMemoryLayout::Interleaved,
+                        BufferType::DRAM},
+     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        TensorMemoryLayout::HeightSharded,
+                        BufferType::L1,
+                        llvm::SmallVector<int64_t>{8, 1}},
+     {},
+     {},
+     {},
+     detail::ExpectedResult{true}},
+    {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        TensorMemoryLayout::HeightSharded,
+                        BufferType::L1,
+                        llvm::SmallVector<int64_t>{8, 1}},
+     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        TensorMemoryLayout::Interleaved,
+                        BufferType::DRAM},
+     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        TensorMemoryLayout::Interleaved,
+                        BufferType::DRAM},
+     {},
+     {},
+     {},
+     detail::ExpectedResult{true}},
+    {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        TensorMemoryLayout::Interleaved,
+                        BufferType::DRAM},
+     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        TensorMemoryLayout::Interleaved,
+                        BufferType::DRAM},
+     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
+                        TensorMemoryLayout::HeightSharded,
+                        BufferType::L1,
+                        llvm::SmallVector<int64_t>{8, 1}},
+     {},
+     {},
+     {},
+     detail::ExpectedResult{true}},
+    // Test cases with activations using UnaryOpType
     {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
-     detail::interleavedN300X1024L1, detail::ExpectedResult{true}},
-    {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
-                        TensorMemoryLayout::HeightSharded,
-                        BufferType::L1,
-                        llvm::SmallVector<int64_t>{8, 1}},
-     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
-                        TensorMemoryLayout::Interleaved,
-                        BufferType::DRAM},
-     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
-                        TensorMemoryLayout::HeightSharded,
-                        BufferType::L1,
-                        llvm::SmallVector<int64_t>{8, 1}},
+     detail::interleavedN300X1024Dram,
+     /*postActivations=*/{ttnn::UnaryOpType::Relu},
+     /*lhsActivations=*/{},
+     /*rhsActivations=*/{}, detail::ExpectedResult{true}},
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     /*postActivations=*/{},
+     /*lhsActivations=*/{ttnn::UnaryOpType::Sigmoid},
+     /*rhsActivations=*/{}, detail::ExpectedResult{true}},
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     /*postActivations=*/{},
+     /*lhsActivations=*/{},
+     /*rhsActivations=*/{ttnn::UnaryOpType::Tanh},
      detail::ExpectedResult{true}},
-    {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
-                        TensorMemoryLayout::HeightSharded,
-                        BufferType::L1,
-                        llvm::SmallVector<int64_t>{8, 1}},
-     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
-                        TensorMemoryLayout::Interleaved,
-                        BufferType::DRAM},
-     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
-                        TensorMemoryLayout::Interleaved,
-                        BufferType::DRAM},
+    // Combinations of pre and post activations
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     /*postActivations=*/{ttnn::UnaryOpType::Relu},
+     /*lhsActivations=*/{ttnn::UnaryOpType::Sigmoid},
+     /*rhsActivations=*/{}, detail::ExpectedResult{true}},
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     /*postActivations=*/{ttnn::UnaryOpType::Gelu},
+     /*lhsActivations=*/{},
+     /*rhsActivations=*/{ttnn::UnaryOpType::Tanh},
      detail::ExpectedResult{true}},
-    {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
-                        TensorMemoryLayout::Interleaved,
-                        BufferType::DRAM},
-     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
-                        TensorMemoryLayout::Interleaved,
-                        BufferType::DRAM},
-     detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
-                        TensorMemoryLayout::HeightSharded,
-                        BufferType::L1,
-                        llvm::SmallVector<int64_t>{8, 1}},
-     detail::ExpectedResult{true}}};
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     /*postActivations=*/{ttnn::UnaryOpType::Relu},
+     /*lhsActivations=*/{ttnn::UnaryOpType::Sigmoid},
+     /*rhsActivations=*/{ttnn::UnaryOpType::Tanh},
+     detail::ExpectedResult{true}},
+    // Multiple activations in chains
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     /*postActivations=*/{ttnn::UnaryOpType::Gelu, ttnn::UnaryOpType::Relu},
+     /*lhsActivations=*/{},
+     /*rhsActivations=*/{}, detail::ExpectedResult{true}},
+    {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+     detail::interleavedN300X1024Dram,
+     /*postActivations=*/{},
+     /*lhsActivations=*/{ttnn::UnaryOpType::Sqrt, ttnn::UnaryOpType::Sigmoid},
+     /*rhsActivations=*/{ttnn::UnaryOpType::Abs}, detail::ExpectedResult{true}},
+};
 
 // Power, Remainder, Atan2 tests are mostly similar to other binary ops, but
 // they have subtle differences in terms of their memory footprint after metal
@@ -2073,25 +2229,69 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
 // https://github.com/tenstorrent/tt-mlir/issues/4288).
 const std::initializer_list<BinaryEltwiseParam>
     binaryEltwiseParamsForRemainderAndPowAndAtan2 = {
-        {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
-         detail::interleavedN300X1024Dram, detail::ExpectedResult{true}},
-        {detail::interleavedN300X1024Dram, detail::interleaved2048X2048Dram,
+        {detail::interleavedN300X1024Dram,
+         detail::interleavedN300X1024Dram,
+         detail::interleavedN300X1024Dram,
+         {},
+         {},
+         {},
+         detail::ExpectedResult{true}},
+        {detail::interleavedN300X1024Dram,
          detail::interleaved2048X2048Dram,
+         detail::interleaved2048X2048Dram,
+         {},
+         {},
+         {},
          detail::ExpectedResult{false}}, // incompatible dimensions at the input
-        {detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
-         detail::interleavedN300X1024Dram, detail::ExpectedResult{true}},
-        {detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
-         detail::interleavedN300X1024Dram, detail::ExpectedResult{true}},
-        {detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
-         detail::interleavedN300X1024Dram, detail::ExpectedResult{true}},
-        {detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
-         detail::interleavedN300X1024L1, detail::ExpectedResult{true}},
-        {detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
-         detail::interleavedN300X1024L1, detail::ExpectedResult{true}},
-        {detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
-         detail::interleavedN300X1024L1, detail::ExpectedResult{true}},
-        {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
-         detail::interleavedN300X1024L1, detail::ExpectedResult{true}}};
+        {detail::interleavedN300X1024Dram,
+         detail::interleavedN300X1024L1,
+         detail::interleavedN300X1024Dram,
+         {},
+         {},
+         {},
+         detail::ExpectedResult{true}},
+        {detail::interleavedN300X1024L1,
+         detail::interleavedN300X1024Dram,
+         detail::interleavedN300X1024Dram,
+         {},
+         {},
+         {},
+         detail::ExpectedResult{true}},
+        {detail::interleavedN300X1024L1,
+         detail::interleavedN300X1024L1,
+         detail::interleavedN300X1024Dram,
+         {},
+         {},
+         {},
+         detail::ExpectedResult{true}},
+        {detail::interleavedN300X1024L1,
+         detail::interleavedN300X1024L1,
+         detail::interleavedN300X1024L1,
+         {},
+         {},
+         {},
+         detail::ExpectedResult{true}},
+        {detail::interleavedN300X1024Dram,
+         detail::interleavedN300X1024L1,
+         detail::interleavedN300X1024L1,
+         {},
+         {},
+         {},
+         detail::ExpectedResult{true}},
+        {detail::interleavedN300X1024L1,
+         detail::interleavedN300X1024Dram,
+         detail::interleavedN300X1024L1,
+         {},
+         {},
+         {},
+         detail::ExpectedResult{true}},
+        {detail::interleavedN300X1024Dram,
+         detail::interleavedN300X1024Dram,
+         detail::interleavedN300X1024L1,
+         {},
+         {},
+         {},
+         detail::ExpectedResult{true}}};
 
 ::testing::internal::ParamGenerator<BinaryEltwiseParam>
 generateBinaryEltwiseParams(std::initializer_list<BinaryEltwiseParam> values) {
@@ -5688,6 +5888,214 @@ TEST_F(OpModelTest, PagedFillCacheOp) {
 }
 
 //===----------------------------------------------------------------------===//
+// AdamWOp Tests
+//===----------------------------------------------------------------------===//
+
+class OpModelAdamWTest : public OpModelTest {
+protected:
+  static constexpr float kBeta1 = 0.9f;
+  static constexpr float kBeta2 = 0.999f;
+  static constexpr float kEpsilon = 1e-8f;
+  static constexpr float kWeightDecay = 0.01f;
+
+  llvm::Expected<OpConstraints>
+  queryConstraints(llvm::ArrayRef<int64_t> shape, TTNNLayoutAttr paramLayout,
+                   TTNNLayoutAttr gradLayout, TTNNLayoutAttr momentLayout,
+                   bool amsgrad, bool stochasticRounding = false) {
+    std::optional<llvm::ArrayRef<int64_t>> maxExpAvgSqShape;
+    std::optional<TTNNLayoutAttr> maxExpAvgSqLayout;
+    if (amsgrad) {
+      maxExpAvgSqShape = shape;
+      maxExpAvgSqLayout = momentLayout;
+    }
+    return OpModel<AdamWOp>::getOpConstraints(
+        shape, paramLayout, shape, gradLayout, shape, momentLayout, shape,
+        momentLayout, maxExpAvgSqShape, maxExpAvgSqLayout,
+        llvm::APFloat(kBeta1), llvm::APFloat(kBeta2), llvm::APFloat(kEpsilon),
+        llvm::APFloat(kWeightDecay), stochasticRounding,
+        /*outputLayout=*/paramLayout);
+  }
+};
+
+TEST_F(OpModelAdamWTest, AdamWOpFloat32) {
+  const llvm::SmallVector<int64_t> shape = {1, 1, 128, 128};
+
+  const TTNNLayoutAttr f32Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  const TTNNLayoutAttr bf16Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = queryConstraints(shape, f32Layout, bf16Layout,
+                                         f32Layout, /*amsgrad=*/false);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  size_t cbSizeWithoutAmsgrad = 0;
+  if (constraintsExp) {
+    OpConstraints &opCstr = constraintsExp.get();
+    EXPECT_GT(opCstr.cbL1PeakSize, 0);
+    // Every operand is required to be in DRAM, so nothing lands in L1.
+    EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+    // Captures the updated parameter, even though it is an in-place update.
+    EXPECT_EQ(opCstr.outputLayouts.size(), 1);
+    cbSizeWithoutAmsgrad = opCstr.cbL1PeakSize;
+  }
+
+  // AMSGrad is implied by the presence of max_exp_avg_sq (ttml forwards
+  // `max_exp_avg_sq.has_value()` as the amsgrad flag), and it allocates an
+  // extra set of circular buffers. This is what proves the optional operand is
+  // actually threaded through to the kernel rather than dropped.
+  auto amsgradConstraintsExp =
+      queryConstraints(shape, f32Layout, bf16Layout, f32Layout,
+                       /*amsgrad=*/true);
+  EXPECT_TRUE(static_cast<bool>(amsgradConstraintsExp));
+  if (amsgradConstraintsExp && cbSizeWithoutAmsgrad > 0) {
+    EXPECT_GT(amsgradConstraintsExp.get().cbL1PeakSize, cbSizeWithoutAmsgrad);
+  }
+
+  auto runtimeExp = OpModel<AdamWOp>::getOpRuntime(
+      shape, f32Layout, shape, bf16Layout, shape, f32Layout, shape, f32Layout,
+      /*maxExpAvgSqShape=*/std::nullopt, /*maxExpAvgSqLayout=*/std::nullopt,
+      llvm::APFloat(kBeta1), llvm::APFloat(kBeta2), llvm::APFloat(kEpsilon),
+      llvm::APFloat(kWeightDecay), /*stochasticRounding=*/false, f32Layout);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  }
+}
+
+TEST_F(OpModelAdamWTest, AdamWOpRejectsL1Param) {
+  // The ttml device operation TT_FATALs unless every operand is in DRAM. The
+  // query must surface that as an error rather than a bogus cost, otherwise the
+  // optimizer could pick an L1 layout that fails at runtime.
+  const llvm::SmallVector<int64_t> shape = {1, 1, 128, 128};
+
+  const TTNNLayoutAttr f32LayoutL1 =
+      CreateTiledLayout(shape, BufferType::L1, TensorMemoryLayout::Interleaved,
+                        /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+                        builder.getF32Type());
+  const TTNNLayoutAttr f32Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  const TTNNLayoutAttr bf16Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = queryConstraints(shape, f32LayoutL1, bf16Layout,
+                                         f32Layout, /*amsgrad=*/false);
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  if (!constraintsExp) {
+    llvm::consumeError(constraintsExp.takeError());
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// SDPAForwardOp Tests
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelTest, SDPAForwardOp) {
+  const llvm::SmallVector<int64_t> shape = {1, 2, 64, 64};
+  const llvm::SmallVector<int64_t> maskShape = {1, 1, 64, 64};
+  const TTNNLayoutAttr layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr maskLayout = CreateTiledLayout(
+      maskShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<SDPAForwardOp>::getOpConstraints(
+      shape, layout, shape, layout, shape, layout, maskShape, maskLayout,
+      ttcore::AttentionMaskType::Arbitrary, llvm::APFloat(0.0f),
+      /*returnIntermediates=*/true, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().tensorL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputL1BufferSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputLayouts.size(), 2u);
+
+  auto runtimeExp = OpModel<SDPAForwardOp>::getOpRuntime(
+      shape, layout, shape, layout, shape, layout, maskShape, maskLayout,
+      ttcore::AttentionMaskType::Arbitrary, llvm::APFloat(0.0f),
+      /*returnIntermediates=*/true, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
+//===----------------------------------------------------------------------===//
+// SDPABackwardOp Tests
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelTest, SDPABackwardOp) {
+  const llvm::SmallVector<int64_t> shape = {1, 2, 64, 64};
+  const llvm::SmallVector<int64_t> intermediatesShape = {1, 2, 64, 32};
+  const llvm::SmallVector<int64_t> maskShape = {1, 1, 64, 64};
+  const TTNNLayoutAttr layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr intermediatesLayout = CreateTiledLayout(
+      intermediatesShape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  const TTNNLayoutAttr maskLayout = CreateTiledLayout(
+      maskShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<SDPABackwardOp>::getOpConstraints(
+      shape, layout, shape, layout, shape, layout, shape, layout, shape, layout,
+      intermediatesShape, intermediatesLayout, maskShape, maskLayout,
+      ttcore::AttentionMaskType::Arbitrary, llvm::APFloat(0.0f),
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().tensorL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputL1BufferSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputLayouts.size(), 3u);
+
+  auto runtimeExp = OpModel<SDPABackwardOp>::getOpRuntime(
+      shape, layout, shape, layout, shape, layout, shape, layout, shape, layout,
+      intermediatesShape, intermediatesLayout, maskShape, maskLayout,
+      ttcore::AttentionMaskType::Arbitrary, llvm::APFloat(0.0f),
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
+//===----------------------------------------------------------------------===//
+// LayerNormForwardOp Tests
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelTest, LayerNormForwardOp) {
+  const llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 256};
+  const llvm::SmallVector<int64_t> parameterShape = {1, 1, 1, 256};
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr parameterLayout = CreateTiledLayout(
+      parameterShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<LayerNormForwardOp>::getOpConstraints(
+      inputShape, inputLayout, parameterShape, parameterLayout, parameterShape,
+      parameterLayout, llvm::APFloat(1e-5f),
+      /*returnMeanRstd=*/true, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().tensorL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputL1BufferSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputLayouts.size(), 3u);
+
+  auto runtimeExp = OpModel<LayerNormForwardOp>::getOpRuntime(
+      inputShape, inputLayout, parameterShape, parameterLayout, parameterShape,
+      parameterLayout, llvm::APFloat(1e-5f),
+      /*returnMeanRstd=*/true, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+
+  auto outputOnlyConstraintsExp = OpModel<LayerNormForwardOp>::getOpConstraints(
+      inputShape, inputLayout, parameterShape, parameterLayout, parameterShape,
+      parameterLayout, llvm::APFloat(1e-5f),
+      /*returnMeanRstd=*/false, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(outputOnlyConstraintsExp));
+  EXPECT_EQ(outputOnlyConstraintsExp.get().outputLayouts.size(), 1u);
+}
+
+//===----------------------------------------------------------------------===//
 // QuantizeOp Tests
 //===----------------------------------------------------------------------===//
 
@@ -7410,5 +7818,47 @@ const auto flashMlaPrefillOpTestValues = testing::Values(
 
 INSTANTIATE_TEST_SUITE_P(FlashMlaPrefillTests, OpModelFlashMlaPrefillParam,
                          flashMlaPrefillOpTestValues);
+
+//===----------------------------------------------------------------------===//
+// CrossEntropyForwardOp
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelTest, CrossEntropyForwardOp) {
+  const llvm::SmallVector<int64_t> inputShape = {4, 1, 32, 64};
+  const llvm::SmallVector<int64_t> targetShape = {4, 32};
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr targetLayout =
+      TTNNLayoutAttr::Builder(
+          &context, targetShape,
+          builder.getIntegerType(/*width=*/32, /*isSigned=*/false))
+          .setBufferType(BufferType::DRAM)
+          .setMemoryLayout(TensorMemoryLayout::Interleaved)
+          .setGridShape(GetVirtualGridShape(
+              targetShape, TensorMemoryLayout::Interleaved, BufferType::DRAM))
+          .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+
+  auto constraintsExp = OpModel<CrossEntropyForwardOp>::getOpConstraints(
+      inputShape, inputLayout, targetShape, targetLayout,
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp->cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp->tensorL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp->outputL1BufferSize, 0);
+  ASSERT_EQ(constraintsExp->outputLayouts.size(), 1u);
+
+  const TTNNLayoutAttr outputLayout = constraintsExp->outputLayouts.front();
+  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+  EXPECT_EQ(outputLayout.getDataType(), ttcore::DataType::BFloat16);
+  EXPECT_EQ(outputLayout.getBufferType(), BufferType::DRAM);
+  EXPECT_EQ(outputLayout.getMemLayout().getValue(),
+            TensorMemoryLayout::Interleaved);
+
+  auto runtimeExp = OpModel<CrossEntropyForwardOp>::getOpRuntime(
+      inputShape, inputLayout, targetShape, targetLayout,
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(*runtimeExp, 0);
+}
 
 } // namespace mlir::tt::ttnn::op_model

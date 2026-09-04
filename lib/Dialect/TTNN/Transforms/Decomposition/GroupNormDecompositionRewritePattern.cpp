@@ -42,15 +42,7 @@ LogicalResult GroupNormDecompositionRewritePattern::matchAndRewrite(
   }
   const int64_t Cpg = C / G;
 
-  // The fused ttnn.group_norm kernel reduces over the tile-padded height, so it
-  // is correct only when the per-sample H*W is tile-aligned; otherwise it is
-  // silently wrong and the op model does not flag it. Consult the op model to
-  // keep the fused kernel only for tile-aligned H*W; everything else
-  // decomposes. This is per-sample H*W (inputShape[2]), not N*H*W.
-  constexpr int64_t kTileHeight = 32;
-  const bool flattenedHeightTileAligned = S % kTileHeight == 0;
-
-  if (flattenedHeightTileAligned && validationConfig.has_value()) {
+  if (validationConfig.has_value()) {
     IsolatedIRValidationWrapper validator(rewriter.getContext(),
                                           *validationConfig);
 

@@ -52,9 +52,6 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         pytest.param(
             (32, 128 * 500),
             [1, 0],
-            marks=pytest.mark.xfail_config(
-                ["n150", "sim"], reason="ttsim WH grid is 9×8", strict=True
-            ),
         ),
         pytest.param(
             (32, 128 * 501),

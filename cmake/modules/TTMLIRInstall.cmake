@@ -87,6 +87,16 @@ set(ttmlir_export_targets
   MLIRScheduler
 )
 
+# TTNNOpModelLib links ttml_metal_ops when OpModel is enabled: a few TTNN ops
+# are backed by tt-train's metal ops rather than a ttnn:: symbol (e.g.
+# ttnn.adamw -> ttml::metal::adamw). CMake requires a dependency of an exported
+# target to live in an export set too, and a consumer linking the installed
+# TTNNOpModelLib really does need libttml_metal_ops.a, so append it in the
+# configuration that links it.
+if(TTMLIR_ENABLE_OPMODEL)
+  list(APPEND ttmlir_export_targets ttml_metal_ops)
+endif()
+
 # When TTMLIR_ENABLE_STABLEHLO=ON, certain targets link against third-party
 # StableHLO/Shardy libraries that we don't want to export as part of TTMLIR.
 # Therefore, we only export these targets when StableHLO is disabled (they

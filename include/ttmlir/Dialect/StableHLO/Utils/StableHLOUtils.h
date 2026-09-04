@@ -24,6 +24,13 @@ inline constexpr llvm::StringLiteral
 inline constexpr llvm::StringLiteral
     kReoutlineResultPosAttr("reoutline.result_pos");
 
+// Global (pre-sharding) channel dim size of a flattened tenstorrent.group_norm,
+// stashed on the seed op alongside kReoutlineCompAttrsAttr. Needed to rescale
+// the stashed (global) `num_groups` when the composite is rebuilt, since by
+// then the shapes have been localized and the global channel count is gone.
+inline constexpr llvm::StringLiteral
+    kReoutlineGroupNormChannelsAttr("reoutline.group_norm_global_channels");
+
 // Composite op related string definitions.
 inline constexpr llvm::StringLiteral kCompDecompositionKey("decomposition");
 inline constexpr llvm::StringLiteral kCompAttrsKey("composite_attributes");
@@ -66,6 +73,11 @@ inline constexpr llvm::StringLiteral
 // Composite name emitted by the frontend for scaled_dot_product_attention.
 inline constexpr llvm::StringLiteral
     kTTSDPACompositeName("tenstorrent.scaled_dot_product_attention");
+
+// Composite name emitted by the frontend for group_norm. Its `num_groups` is a
+// static attribute, so any pass that localizes the channel dim must rescale it.
+inline constexpr llvm::StringLiteral
+    kTTGroupNormCompositeName("tenstorrent.group_norm");
 
 // Composite names that have custom sharding rules. These composites are
 // converted to stablehlo.custom_call ops so that Shardy can propagate shardings

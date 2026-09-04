@@ -511,8 +511,8 @@ typename L1SpillManagementBase<MemoryTracker>::ScheduleData
 L1SpillManagementBase<MemoryTracker>::buildScheduleData() {
   ScheduleData data;
 
-  // Build schedule (ops in IR order = topological order). Include sink ops
-  // (paged_fill_cache / paged_update_cache / fill_cache) even though they
+  // Build schedule (ops in IR order = topological order). Include sink ops (see
+  // optimizer_utils::isSinkOp: the KV-cache writes plus adamw) even though they
   // have no tensor result — their operand uses must be visible to
   // computeLastUsePositions so that values consumed only by a cache write
   // (e.g. per-layer KV typecasts) are kept alive in L1 until the cache
@@ -1460,11 +1460,11 @@ void L1SpillManagementBase<MemoryTracker>::run() {
 
     processDeadTensors(pos, data);
 
-    // Sink ops (paged_fill_cache / paged_update_cache / fill_cache) are in
-    // the schedule only so computeLastUsePositions sees their operand uses
-    // (which keeps their L1-resident input tensors alive in the tracker
-    // until the cache write actually executes). They have no tensor result,
-    // so addResultsToLiveSet / extractOpConfigFromIR / validate do not apply.
+    // Sink ops (see optimizer_utils::isSinkOp) are in the schedule only so
+    // computeLastUsePositions sees their operand uses (which keeps their
+    // L1-resident input tensors alive in the tracker until the cache write
+    // actually executes). They have no tensor result, so addResultsToLiveSet /
+    // extractOpConfigFromIR / validate do not apply.
     if (optimizer_utils::isSinkOp(op)) {
       continue;
     }

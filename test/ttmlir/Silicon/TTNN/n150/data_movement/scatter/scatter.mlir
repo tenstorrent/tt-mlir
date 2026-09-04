@@ -41,7 +41,7 @@ func.func @scatter_simple_3(%arg0: tensor<71x32xbf16>, %arg1: tensor<71x4x2xi64>
   // CHECK: "ttnn.slice_static"({{.*}}) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [71 : i32, 4 : i32, 1 : i32], step = [1 : i32, 1 : i32, 1 : i32]}>
   // CHECK: "ttnn.multiply"({{.*}})
   // CHECK: "ttnn.slice_static"({{.*}}) <{begins = [0 : i32, 0 : i32, 1 : i32], ends = [71 : i32, 4 : i32, 2 : i32], step = [1 : i32, 1 : i32, 1 : i32]}>
-  // CHECK: "ttnn.add"({{.*}})
+  // CHECK: "ttnn.add"({{.*}}) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}>
   // flatten indices:
   // CHECK: "ttnn.reshape"({{.*}}) <{shape = [284 : i32]}>
   // flatten input:

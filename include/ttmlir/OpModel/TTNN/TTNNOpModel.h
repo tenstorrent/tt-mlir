@@ -12,6 +12,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Error.h"
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 
@@ -54,6 +55,10 @@ class MockAllocatorState;
 namespace mlir::tt::ttnn::op_model {
 
 using MockAllocatorState = ::tt::tt_metal::experimental::MockAllocatorState;
+
+// Returns true when op-model queries are using the internally managed mock
+// device. Returns false when op-model support is disabled.
+bool isMockDevice();
 
 // Build a MockAllocatorState representing the given live allocations, for the
 // stateful (build-from-records) constraint query. Confines all tt-metalium
@@ -233,6 +238,22 @@ template <>
 struct OpModel<ErfcOp> : UnaryEltwiseOpModel<ErfcOp> {};
 
 //===----------------------------------------------------------------------===//
+// RoundOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<RoundOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // SigmoidOp
 //===----------------------------------------------------------------------===//
 
@@ -275,12 +296,18 @@ struct BinaryEltwiseOpModel {
   static llvm::Expected<OpConstraints> getOpConstraints(
       llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
       llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+      llvm::ArrayRef<UnaryWithParamAttr> postActivations,
+      llvm::ArrayRef<UnaryWithParamAttr> lhsActivations,
+      llvm::ArrayRef<UnaryWithParamAttr> rhsActivations,
       TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr = nullptr,
       const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
                llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+               llvm::ArrayRef<UnaryWithParamAttr> postActivations,
+               llvm::ArrayRef<UnaryWithParamAttr> lhsActivations,
+               llvm::ArrayRef<UnaryWithParamAttr> rhsActivations,
                TTNNLayoutAttr outputLayout);
 };
 
@@ -289,12 +316,18 @@ struct BinaryCompositeOpModel {
   static llvm::Expected<OpConstraints> getOpConstraints(
       llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
       llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+      llvm::ArrayRef<UnaryWithParamAttr> postActivations,
+      llvm::ArrayRef<UnaryWithParamAttr> lhsActivations,
+      llvm::ArrayRef<UnaryWithParamAttr> rhsActivations,
       TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr = nullptr,
       const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
                llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+               llvm::ArrayRef<UnaryWithParamAttr> postActivations,
+               llvm::ArrayRef<UnaryWithParamAttr> lhsActivations,
+               llvm::ArrayRef<UnaryWithParamAttr> rhsActivations,
                TTNNLayoutAttr outputLayout);
 };
 
@@ -2306,6 +2339,135 @@ struct OpModel<MeshPartitionOp> {
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
                int32_t dim, std::optional<uint32_t> clusterAxis,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// AdamWOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<AdamWOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> paramShape, TTNNLayoutAttr paramLayout,
+      llvm::ArrayRef<int64_t> gradShape, TTNNLayoutAttr gradLayout,
+      llvm::ArrayRef<int64_t> expAvgShape, TTNNLayoutAttr expAvgLayout,
+      llvm::ArrayRef<int64_t> expAvgSqShape, TTNNLayoutAttr expAvgSqLayout,
+      std::optional<llvm::ArrayRef<int64_t>> maxExpAvgSqShape,
+      std::optional<TTNNLayoutAttr> maxExpAvgSqLayout, llvm::APFloat beta1,
+      llvm::APFloat beta2, llvm::APFloat epsilon, llvm::APFloat weightDecay,
+      bool stochasticRounding, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> paramShape, TTNNLayoutAttr paramLayout,
+      llvm::ArrayRef<int64_t> gradShape, TTNNLayoutAttr gradLayout,
+      llvm::ArrayRef<int64_t> expAvgShape, TTNNLayoutAttr expAvgLayout,
+      llvm::ArrayRef<int64_t> expAvgSqShape, TTNNLayoutAttr expAvgSqLayout,
+      std::optional<llvm::ArrayRef<int64_t>> maxExpAvgSqShape,
+      std::optional<TTNNLayoutAttr> maxExpAvgSqLayout, llvm::APFloat beta1,
+      llvm::APFloat beta2, llvm::APFloat epsilon, llvm::APFloat weightDecay,
+      bool stochasticRounding, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// SDPAForwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<SDPAForwardOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+      llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+      std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+      std::optional<TTNNLayoutAttr> attentionMaskLayout,
+      ttcore::AttentionMaskType maskType, llvm::APFloat dropoutProbability,
+      bool returnIntermediates, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+               llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+               llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+               std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+               std::optional<TTNNLayoutAttr> attentionMaskLayout,
+               ttcore::AttentionMaskType maskType,
+               llvm::APFloat dropoutProbability, bool returnIntermediates,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// SDPABackwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<SDPABackwardOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> gradOutputShape, TTNNLayoutAttr gradOutputLayout,
+      llvm::ArrayRef<int64_t> attnOutputShape, TTNNLayoutAttr attnOutputLayout,
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+      llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+      llvm::ArrayRef<int64_t> intermediatesShape,
+      TTNNLayoutAttr intermediatesLayout,
+      std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+      std::optional<TTNNLayoutAttr> attentionMaskLayout,
+      ttcore::AttentionMaskType maskType, llvm::APFloat dropoutProbability,
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> gradOutputShape, TTNNLayoutAttr gradOutputLayout,
+      llvm::ArrayRef<int64_t> attnOutputShape, TTNNLayoutAttr attnOutputLayout,
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+      llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+      llvm::ArrayRef<int64_t> intermediatesShape,
+      TTNNLayoutAttr intermediatesLayout,
+      std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+      std::optional<TTNNLayoutAttr> attentionMaskLayout,
+      ttcore::AttentionMaskType maskType, llvm::APFloat dropoutProbability,
+      TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// LayerNormForwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<LayerNormForwardOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+      llvm::ArrayRef<int64_t> biasShape, TTNNLayoutAttr biasLayout,
+      llvm::APFloat epsilon, bool returnMeanRstd, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+               llvm::ArrayRef<int64_t> biasShape, TTNNLayoutAttr biasLayout,
+               llvm::APFloat epsilon, bool returnMeanRstd,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// CrossEntropyForwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<CrossEntropyForwardOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout,
+                   llvm::ArrayRef<int64_t> targetShape,
+                   TTNNLayoutAttr targetLayout, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> targetShape, TTNNLayoutAttr targetLayout,
                TTNNLayoutAttr outputLayout);
 };
 

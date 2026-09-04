@@ -99,6 +99,7 @@
 #include <limits>
 #include <optional>
 #include <tuple>
+#include <type_traits>
 #include <vector>
 
 template <typename... T>
@@ -231,15 +232,25 @@ void constEvalFuncWrapperZeroArg(
   }
 }
 
-uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
-  assert(tensor.logical_volume() == 1 && "expected scalar tensor");
-  assert(tensor.dtype() == ttnn::DataType::UINT32 && "expected uint32 tensor");
+template <typename T>
+constexpr ::ttnn::DataType scalarDataTypeFor() {
+  static_assert(std::is_same_v<T, uint32_t> || std::is_same_v<T, float>,
+                "getScalarFromTensor supports uint32_t and float only");
+  if constexpr (std::is_same_v<T, uint32_t>) {
+    return ::ttnn::DataType::UINT32;
+  } else {
+    return ::ttnn::DataType::FLOAT32;
+  }
+}
 
-  const ::ttnn::Tensor tensorOnHost = ::ttnn::from_device(tensor);
-  const ::tt::tt_metal::HostBuffer buffer =
-      ::tt::tt_metal::host_buffer::get_host_buffer(tensorOnHost);
-  const auto &buf = buffer.view_as<uint32_t>();
-  return *buf.begin();
+template <typename T = uint32_t>
+T getScalarFromTensor(const ttnn::Tensor &tensor) {
+  assert(tensor.logical_volume() == 1 && "expected scalar tensor");
+  assert(tensor.dtype() == scalarDataTypeFor<T>() &&
+         "scalar tensor dtype does not match requested type");
+  const std::vector<T> values = ::ttnn::from_device(tensor).to_vector<T>();
+  assert(values.size() == 1 && "expected exactly one element");
+  return values[0];
 }
 
 ::ttnn::Tensor loadTensor(const std::string &filePath, ttnn::Layout layout,

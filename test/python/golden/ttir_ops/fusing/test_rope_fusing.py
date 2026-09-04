@@ -615,3 +615,156 @@ def test_rope_interleaved_pair(
     )
 
     assert check_op(output, "rotary_embedding")
+
+
+def build_rope_interleaved_pair_gathered_column(
+    input: Operand,
+    freqs_input: Operand,
+    builder: TTIRBuilder,
+):
+    """Pattern 3 with the freqs column 1 read as a flat gather.
+
+    Frontends that lower `freqs[..., 1]` as advanced indexing emit a gather over
+    a linearised freqs_cis rather than a slice. Column 0 stays a slice, so the
+    two branches reach the multiplies in different forms.
+    """
+    input_shape = list(input.type.shape)
+    freqs_shape = list(freqs_input.type.shape)
+    B, H, S, D = input_shape
+    half_dim = D // 2
+
+    x_6d = builder.reshape(input, shape=[B, H, S, half_dim, 1, 2])
+    x_p0 = builder.slice(
+        x_6d,
+        begins=[0, 0, 0, 0, 0, 0],
+        ends=[B, H, S, half_dim, 1, 1],
+        step=[1, 1, 1, 1, 1, 1],
+    )
+    x_p1 = builder.slice(
+        x_6d,
+        begins=[0, 0, 0, 0, 0, 1],
+        ends=[B, H, S, half_dim, 1, 2],
+        step=[1, 1, 1, 1, 1, 1],
+    )
+    x_real_bc = builder.broadcast(
+        builder.reshape(
+            builder.reshape(x_p0, shape=[B, H, S, half_dim]),
+            shape=[B, H, S, half_dim, 1],
+        ),
+        broadcast_dimensions=[1, 1, 1, 1, 2],
+    )
+    x_imag_bc = builder.broadcast(
+        builder.reshape(
+            builder.reshape(x_p1, shape=[B, H, S, half_dim]),
+            shape=[B, H, S, half_dim, 1],
+        ),
+        broadcast_dimensions=[1, 1, 1, 1, 2],
+    )
+
+    # Column 0: sliced.
+    freqs_c0 = builder.slice(
+        freqs_input,
+        begins=[0, 0, 0, 0, 0, 0],
+        ends=[freqs_shape[0], freqs_shape[1], freqs_shape[2], half_dim, 2, 1],
+        step=[1, 1, 1, 1, 1, 1],
+    )
+    cos_bc = builder.broadcast(
+        builder.reshape(
+            builder.reshape(
+                freqs_c0, shape=[freqs_shape[0], freqs_shape[2], half_dim, 2]
+            ),
+            shape=[freqs_shape[0], 1, freqs_shape[2], half_dim, 2],
+        ),
+        broadcast_dimensions=[1, H, 1, 1, 1],
+    )
+
+    # Column 1: gathered. Its elements sit at the odd linear offsets of the
+    # flattened cache, the trailing dim being the 2-wide column axis.
+    numel = 1
+    for d in freqs_shape:
+        numel *= d
+    col_numel = numel // 2
+
+    table = builder.reshape(
+        builder.reshape(freqs_input, shape=[numel]), shape=[numel, 1]
+    )
+    idx = builder.constant(torch.arange(col_numel, dtype=torch.int64) * 2 + 1)
+    zeros = builder.constant(torch.zeros(col_numel, dtype=torch.int64))
+    size = builder.constant(torch.full((col_numel,), numel, dtype=torch.int64))
+    normalized = builder.where(builder.ge(idx, zeros), idx, builder.add(idx, size))
+
+    gathered = builder.embedding(
+        builder.reshape(normalized, shape=[1, col_numel]), table
+    )
+    sin_bc = builder.broadcast(
+        builder.reshape(
+            builder.reshape(
+                builder.reshape(gathered, shape=[col_numel]),
+                shape=[freqs_shape[0], freqs_shape[2], half_dim, 2],
+            ),
+            shape=[freqs_shape[0], 1, freqs_shape[2], half_dim, 2],
+        ),
+        broadcast_dimensions=[1, H, 1, 1, 1],
+    )
+
+    sum_5d = builder.add(
+        builder.multiply(cos_bc, x_real_bc),
+        builder.multiply(sin_bc, x_imag_bc),
+    )
+    return builder.reshape(sum_5d, shape=input_shape)
+
+
+@pytest.mark.parametrize("input_shape, freqs_shape", INTERLEAVED_PAIR_SHAPES)
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_rope_interleaved_pair_gathered_column(
+    input_shape, freqs_shape, dtype, target, request, device
+):
+    """
+    Pattern 3 where freqs column 1 arrives as a flat gather instead of a slice,
+    as HiDream-I1 does through tt-xla. The gathered column is inferred as the
+    complement of the sliced one, so the chain still fuses.
+    """
+    shapes = [input_shape, freqs_shape]
+    dtypes = [dtype] * 2
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def rotary_embedding(
+            input: Operand,
+            freqs_input: Operand,
+            builder: TTIRBuilder,
+        ):
+            input_data = torch.randn(input_shape, dtype=dtype)
+
+            angles = torch.randn(freqs_shape[:-2], dtype=torch.float32)
+            c, s = torch.cos(angles), torch.sin(angles)
+            freqs_data = (
+                torch.stack([c, -s, s, c], dim=-1).reshape(freqs_shape).to(dtype)
+            )
+
+            golden = torch_rope_interleaved_pair(input_data, freqs_data)
+
+            result = build_rope_interleaved_pair_gathered_column(
+                input, freqs_input, builder
+            )
+
+            builder.set_goldens(
+                {input: input_data, freqs_input: freqs_data},
+                {result: golden},
+            )
+            return result
+
+    output = compile_and_execute_ttir(
+        module,
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        pipeline_options=[
+            "enable-ttnn-decomposition-pass=false",
+            "composite-resolution=force-promote",
+        ],
+        save_artifacts=True,
+    )
+
+    assert check_op(output, "rotary_embedding")

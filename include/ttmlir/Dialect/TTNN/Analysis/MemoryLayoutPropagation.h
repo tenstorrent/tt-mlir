@@ -85,6 +85,21 @@ private:
   /// Maps op -> index into beamState[op]. For K=1, always 0.
   llvm::DenseMap<Operation *, size_t> finalChoice;
 
+  /// Reshard dedup cache for the reshard pass in applyToIR: (producer value,
+  /// target layout) -> the shared ToMemoryConfigOp result. Lets consumers
+  /// requesting the same reshard (e.g. q/k/v slices off a fused-QKV matmul)
+  /// reuse one op.
+  ///
+  /// ToMemoryConfigOp only. A page-layout change emits a ToTensorSpecOp, which
+  /// L1SpillManagement keeps out of liveValues when its result is in L1 -- see
+  /// insertReshardOp for why sharing one would leave that L1 uncounted. Keying
+  /// on the target layout is what makes the exclusion decidable per entry:
+  /// whether a retile is needed is a pure function of the producer layout and
+  /// the target layout, so an entry is never half one op kind and half the
+  /// other. Empty by construction: run() executes once per instance.
+  llvm::DenseMap<std::pair<mlir::Value, mlir::Attribute>, mlir::Value>
+      reshardCache;
+
   /// Observer (NullObject pattern: always non-null, no-op when tracing
   /// disabled).
   std::unique_ptr<LayoutPropagationObserver> observer;

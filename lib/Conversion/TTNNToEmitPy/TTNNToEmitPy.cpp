@@ -311,6 +311,17 @@ public:
         emitter.emit(eltwiseBinaryOp.getRhs()),
         emitter.emit(eltwiseBinaryOp.getDtypeAttr(), "dtype"),
         emitter.emit(eltwiseBinaryOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            eltwiseBinaryOp.getActivations(), "activations"),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            eltwiseBinaryOp.getInputTensorAActivations(),
+            "input_tensor_a_activations"),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            eltwiseBinaryOp.getInputTensorBActivations(),
+            "input_tensor_b_activations"),
     };
 
     emitter.replaceOp(*this, args);
@@ -342,6 +353,20 @@ public:
         emitter.emit(eltwiseBinaryOp.getRhs()),
         emitter.emit(eltwiseBinaryOp.getMemoryConfigAttr(), "memory_config"),
     };
+
+    if constexpr (!std::is_same_v<TTNNOpTy, ::mlir::tt::ttnn::Atan2Op>) {
+      args.push_back(emitter.template emit<
+                     std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+          eltwiseBinaryOp.getActivations(), "activations"));
+      args.push_back(emitter.template emit<
+                     std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+          eltwiseBinaryOp.getInputTensorAActivations(),
+          "input_tensor_a_activations"));
+      args.push_back(emitter.template emit<
+                     std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+          eltwiseBinaryOp.getInputTensorBActivations(),
+          "input_tensor_b_activations"));
+    }
 
     emitter.replaceOp(*this, args);
 
@@ -389,6 +414,17 @@ public:
         emitter.emit(eltwiseBinaryOp.getRhs()),
         emitter.emit(std::nullopt, "dtype"),
         emitter.emit(eltwiseBinaryOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            eltwiseBinaryOp.getActivations(), "activations"),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            eltwiseBinaryOp.getInputTensorAActivations(),
+            "input_tensor_a_activations"),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            eltwiseBinaryOp.getInputTensorBActivations(),
+            "input_tensor_b_activations"),
     };
 
     emitter.replaceOp(*this, args);
@@ -5506,6 +5542,31 @@ public:
         "expose the metal::sdpa_fw primitive through its Python bindings.");
   }
 };
+
+// CrossEntropyForward conversion pattern.
+//
+// EmitPy lowering for ttnn.cross_entropy_fw is intentionally unsupported, for
+// the same reason as ttnn.adamw above: the emitted Python would need the
+// low-level ttml::metal::cross_entropy_fw primitive.
+// See https://github.com/tenstorrent/tt-mlir/issues/9118.
+class CrossEntropyForwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::CrossEntropyForwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::CrossEntropyForwardOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::CrossEntropyForwardOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp, "EmitPy lowering for ttnn.cross_entropy_fw is not supported: "
+               "ttml does not expose the metal::cross_entropy_fw primitive "
+               "through its Python bindings.");
+  }
+};
 } // namespace
 
 // SDPABackward conversion pattern.
@@ -5530,6 +5591,31 @@ public:
         srcOp,
         "EmitPy lowering for ttnn.sdpa_bw is not supported: ttml does not "
         "expose the metal::sdpa_bw primitive through its Python bindings.");
+  }
+};
+
+// LayerNormForward conversion pattern.
+//
+// EmitPy lowering for ttnn.layernorm_fw is intentionally unsupported. The
+// emitted Python would need to call the low-level ttml::metal::layernorm_fw
+// primitive, but tt-train's nanobind bindings only expose the high-level
+// LayerNorm module. We need to upstream those Python bindings.
+// See https://github.com/tenstorrent/tt-mlir/issues/9118.
+class LayerNormForwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::LayerNormForwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::LayerNormForwardOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::LayerNormForwardOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        "EmitPy lowering for ttnn.layernorm_fw is not supported: ttml does not "
+        "expose the metal::layernorm_fw primitive through its Python "
+        "bindings.");
   }
 };
 } // namespace
@@ -5618,6 +5704,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::ExpOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::ErfOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ErfcOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::RoundOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::LogOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::Log1pOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::TanhOp>,
@@ -5852,6 +5939,10 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // SDPABackward: deliberately declines conversion (see comment above).
   patterns.add<SDPABackwardOpConversionPattern>(typeConverter, ctx);
+  patterns.add<LayerNormForwardOpConversionPattern>(typeConverter, ctx);
+
+  // CrossEntropyForward: deliberately declines conversion, same reason.
+  patterns.add<CrossEntropyForwardOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

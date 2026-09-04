@@ -343,6 +343,12 @@ struct TTIRToTTNNCommonPipelineOptions
           "Fuse permute ops into matmul/linear transpose attributes."),
       llvm::cl::init(false)};
 
+  // Enable fusing of unary activations into eltwise binary ops.
+  Option<bool> enableEltwiseActivationFusion{
+      *this, "enable-eltwise-activation-fusion",
+      llvm::cl::desc("Fuse unary activation ops into eltwise binary ops."),
+      llvm::cl::init(false)};
+
   // Push a matmul/linear output slice into the operand producing the sliced
   // dim so the op only computes the rows/columns that are used.
   Option<bool> enablePermuteSliceAfterMatmulFusion{
@@ -553,8 +559,7 @@ struct TTIRToTTNNCommonPipelineOptions
                                   "enable-create-d2m-subgraphs to be enabled.");
     }
 
-    if (enableCreateD2MSubgraphs &&
-        enableD2MElementwiseFusion.getNumOccurrences() == 0) {
+    if (enableCreateD2MSubgraphs && !enableD2MElementwiseFusion.hasValue()) {
       enableD2MElementwiseFusion = true;
     }
   }
@@ -568,15 +573,15 @@ struct TTIRToTTNNCommonPipelineOptions
           ". Must be 0, 1, or 2.");
     }
 
-    // Only apply optimization_level if user didn't explicitly set the option.
-    // Use getNumOccurrences() to detect explicit user settings.
-    if (optimizerPassEnabled.getNumOccurrences() == 0) {
+    // Only apply optimization_level to options not explicitly set (via CLI or
+    // direct assignment).
+    if (!optimizerPassEnabled.hasValue()) {
       optimizerPassEnabled = (optimizationLevel >= 1);
     }
-    if (enableFusingConv2dWithMultiplyPattern.getNumOccurrences() == 0) {
+    if (!enableFusingConv2dWithMultiplyPattern.hasValue()) {
       enableFusingConv2dWithMultiplyPattern = (optimizationLevel >= 1);
     }
-    if (memoryLayoutAnalysisEnabled.getNumOccurrences() == 0) {
+    if (!memoryLayoutAnalysisEnabled.hasValue()) {
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
     }
     // Use hasValue() (the MLIR PassOptions "explicitly set" signal, flipped by

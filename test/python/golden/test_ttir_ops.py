@@ -172,106 +172,50 @@ def test_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
     )
 
 
-@pytest.mark.parametrize("shape", [(1, 8, 64, 64)], ids=shape_str)
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
-def test_sdpa_fw(shape: Shape, target: str, request, device):
-    def module(builder: TTIRBuilder):
-        @builder.func(
-            [shape, shape, shape],
-            [torch.bfloat16, torch.bfloat16, torch.bfloat16],
-        )
-        def sdpa_fw(
-            query: Operand,
-            key: Operand,
-            value: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.sdpa_fw(query, key, value)
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-    )
-
-
-@pytest.mark.parametrize("shape", [(1, 8, 64, 64)], ids=shape_str)
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
-def test_sdpa_bw(shape: Shape, target: str, request, device):
-    interm_shape = (shape[0], shape[1], shape[2], 32)
-
-    def module(builder: TTIRBuilder):
-        @builder.func(
-            [shape, shape, shape, shape, shape, interm_shape],
-            [
-                torch.bfloat16,
-                torch.bfloat16,
-                torch.bfloat16,
-                torch.bfloat16,
-                torch.bfloat16,
-                torch.float32,
-            ],
-        )
-        def sdpa_bw(
-            grad_output: Operand,
-            attn_output: Operand,
-            query: Operand,
-            key: Operand,
-            value: Operand,
-            intermediates: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.sdpa_bw(
-                grad_output,
-                attn_output,
-                query,
-                key,
-                value,
-                intermediates,
-                mask_type=AttentionMaskType.Causal,
-            )
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-    )
-
-
 @pytest.mark.parametrize("shape", [(1, 1, 64, 64)], ids=shape_str)
 @pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 def test_adamw(shape: Shape, target: str, request, device):
     def module(builder: TTIRBuilder):
         @builder.func(
-            [shape, shape, shape, shape],
-            [torch.float32, torch.bfloat16, torch.float32, torch.float32],
+            [shape, shape, shape, shape, (1,), (1,), (1,)],
+            [torch.float32, torch.bfloat16, torch.float32, torch.float32]
+            + [torch.float32] * 3,
         )
         def adamw(
             param: Operand,
             grad: Operand,
             exp_avg: Operand,
             exp_avg_sq: Operand,
+            lr: Operand,
+            beta1_pow: Operand,
+            beta2_pow: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            exp_avg_sq_t = builder._get_golden_tensor(exp_avg_sq).apply_shardwise(
-                lambda s: s.abs()
+            fill = lambda op, v: builder._get_golden_tensor(op).apply_shardwise(
+                lambda s: torch.full_like(s, v)
             )
-            builder.set_goldens_from_builder_tensor({exp_avg_sq: exp_avg_sq_t}, {})
+            builder.set_goldens_from_builder_tensor(
+                {
+                    exp_avg_sq: builder._get_golden_tensor(exp_avg_sq).apply_shardwise(
+                        lambda s: s.abs()
+                    ),
+                    lr: fill(lr, 1e-3),
+                    beta1_pow: fill(beta1_pow, 0.9),
+                    beta2_pow: fill(beta2_pow, 0.999),
+                },
+                {},
+            )
             return builder.adamw(
                 param,
                 grad,
                 exp_avg,
                 exp_avg_sq,
-                lr=1e-3,
+                lr,
+                beta1_pow,
+                beta2_pow,
                 beta1=0.9,
                 beta2=0.999,
-                beta1_pow=0.9,
-                beta2_pow=0.999,
                 epsilon=1e-8,
                 weight_decay=1e-2,
             )
@@ -289,31 +233,87 @@ def test_adamw(shape: Shape, target: str, request, device):
 def test_adamw_fused_forward(shape: Shape, target: str, request, device):
     def module(builder: TTIRBuilder):
         @builder.func(
-            [shape, shape, shape, shape],
-            [torch.float32, torch.bfloat16, torch.float32, torch.float32],
+            [shape, shape, shape, shape, (1,), (1,), (1,)],
+            [torch.float32, torch.bfloat16, torch.float32, torch.float32]
+            + [torch.float32] * 3,
         )
         def adamw_fused_forward(
             param: Operand,
             grad: Operand,
             exp_avg: Operand,
             exp_avg_sq: Operand,
+            lr: Operand,
+            beta1_pow: Operand,
+            beta2_pow: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            exp_avg_sq_t = builder._get_golden_tensor(exp_avg_sq).apply_shardwise(
-                lambda s: s.abs()
+            fill = lambda op, v: builder._get_golden_tensor(op).apply_shardwise(
+                lambda s: torch.full_like(s, v)
             )
-            builder.set_goldens_from_builder_tensor({exp_avg_sq: exp_avg_sq_t}, {})
+            builder.set_goldens_from_builder_tensor(
+                {
+                    exp_avg_sq: builder._get_golden_tensor(exp_avg_sq).apply_shardwise(
+                        lambda s: s.abs()
+                    ),
+                    lr: fill(lr, 1.0),
+                    beta1_pow: fill(beta1_pow, 0.9),
+                    beta2_pow: fill(beta2_pow, 0.999),
+                },
+                {},
+            )
             act = builder.abs(param)
             param_out, _, _ = builder.adamw(
                 param,
                 grad,
                 exp_avg,
                 exp_avg_sq,
-                lr=1.0,
+                lr,
+                beta1_pow,
+                beta2_pow,
                 weight_decay=1e-2,
             )
             return builder.add(param_out, act)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+# input is (N, 1, H, W) logits and target is (N, H) class indices; W is the
+# number of classes. Both a tile-aligned and a non-tile-aligned W are covered:
+# a ragged W makes the kernel take its DO_MASK_W path.
+@pytest.mark.parametrize(
+    "input_shape,target_shape",
+    [((4, 1, 32, 64), (4, 32)), ((2, 1, 32, 100), (2, 32))],
+    ids=["4x1x32x64", "2x1x32x100"],
+)
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_cross_entropy_fw(
+    input_shape: Shape, target_shape: Shape, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [input_shape, target_shape],
+            [torch.bfloat16, torch.uint32],
+        )
+        def cross_entropy_fw(
+            input: Operand,
+            target_idx: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # The random target tensor has to hold valid class indices, i.e. be
+            # in [0, W). ttml reads them as UINT32.
+            num_classes = input_shape[-1]
+            valid_target = torch.randint(
+                0, num_classes, target_shape, dtype=torch.int32
+            ).to(torch.uint32)
+            builder.set_goldens({target_idx: valid_target}, {})
+            return builder.cross_entropy_fw(input, target_idx)
 
     compile_and_execute_ttir(
         module,

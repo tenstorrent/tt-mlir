@@ -1249,9 +1249,9 @@ public:
 
     rewriter.create<ttnn::AdamWOp>(
         op.getLoc(), adaptor.getParam(), adaptor.getGrad(), adaptor.getExpAvg(),
-        adaptor.getExpAvgSq(), adaptor.getMaxExpAvgSq(), adaptor.getLr(),
-        adaptor.getBeta1(), adaptor.getBeta2(), adaptor.getBeta1Pow(),
-        adaptor.getBeta2Pow(), adaptor.getEpsilon(), adaptor.getWeightDecay(),
+        adaptor.getExpAvgSq(), adaptor.getLr(), adaptor.getBeta1Pow(),
+        adaptor.getBeta2Pow(), adaptor.getMaxExpAvgSq(), adaptor.getBeta1(),
+        adaptor.getBeta2(), adaptor.getEpsilon(), adaptor.getWeightDecay(),
         adaptor.getStochasticRounding());
 
     SmallVector<Value> replacements{adaptor.getParam(), adaptor.getExpAvg(),
@@ -1264,49 +1264,17 @@ public:
   }
 };
 
-class SDPAForwardOpConversionPattern
-    : public OpConversionPattern<ttir::SDPAForwardOp> {
+class CrossEntropyForwardOpConversionPattern
+    : public OpConversionPattern<ttir::CrossEntropyForwardOp> {
 public:
-  using OpConversionPattern<ttir::SDPAForwardOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::CrossEntropyForwardOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::SDPAForwardOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::CrossEntropyForwardOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    SmallVector<Type> resultTypes;
-    if (failed(getTypeConverter()->convertTypes(op->getResultTypes(),
-                                                resultTypes))) {
-      return failure();
-    }
-
-    rewriter.replaceOpWithNewOp<ttnn::SDPAForwardOp>(
-        op, resultTypes, adaptor.getQuery(), adaptor.getKey(),
-        adaptor.getValue(), adaptor.getAttentionMask(), op.getMaskTypeAttr(),
-        op.getDropoutProbabilityAttr(), op.getReturnIntermediatesAttr());
-    return success();
-  }
-};
-} // namespace
-
-namespace {
-class SDPABackwardOpConversionPattern
-    : public OpConversionPattern<ttir::SDPABackwardOp> {
-public:
-  using OpConversionPattern<ttir::SDPABackwardOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::SDPABackwardOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    SmallVector<Type> resultTypes;
-    if (failed(getTypeConverter()->convertTypes(op->getResultTypes(),
-                                                resultTypes))) {
-      return failure();
-    }
-
-    rewriter.replaceOpWithNewOp<ttnn::SDPABackwardOp>(
-        op, resultTypes, adaptor.getGradOutput(), adaptor.getAttnOutput(),
-        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
-        adaptor.getIntermediates(), adaptor.getAttentionMask(),
-        op.getMaskTypeAttr(), op.getDropoutProbabilityAttr());
+    rewriter.replaceOpWithNewOp<ttnn::CrossEntropyForwardOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getTarget());
     return success();
   }
 };
@@ -3806,14 +3774,14 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseBinaryOpConversionPattern<ttir::LogicalAndOp, ttnn::LogicalAndOp>,
            ElementwiseBinaryOpConversionPattern<ttir::LogicalOrOp, ttnn::LogicalOrOp>,
            ElementwiseBinaryOpConversionPattern<ttir::LogicalXorOp, ttnn::LogicalXorOp>,
-           ElementwiseOpConversionPattern<ttir::BitwiseAndOp, ttnn::BitwiseAndOp>,
-           ElementwiseOpConversionPattern<ttir::LogicalLeftShiftOp, ttnn::LogicalLeftShiftOp>,
-           ElementwiseOpConversionPattern<ttir::BitwiseOrOp, ttnn::BitwiseOrOp>,
-           ElementwiseOpConversionPattern<ttir::BitwiseXorOp, ttnn::BitwiseXorOp>,
-           ElementwiseOpConversionPattern<ttir::MaximumOp, ttnn::MaximumOp>,
-           ElementwiseOpConversionPattern<ttir::MinimumOp, ttnn::MinimumOp>,
-           ElementwiseOpConversionPattern<ttir::RemainderOp, ttnn::RemainderOp>,
-           ElementwiseOpConversionPattern<ttir::Atan2Op, ttnn::Atan2Op>,
+           ElementwiseBinaryOpConversionPattern<ttir::BitwiseAndOp, ttnn::BitwiseAndOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::LogicalLeftShiftOp, ttnn::LogicalLeftShiftOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::BitwiseOrOp, ttnn::BitwiseOrOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::BitwiseXorOp, ttnn::BitwiseXorOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::MaximumOp, ttnn::MaximumOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::MinimumOp, ttnn::MinimumOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::RemainderOp, ttnn::RemainderOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::Atan2Op, ttnn::Atan2Op>,
            ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
            ElementwiseOpConversionPattern<ttir::CbrtOp, ttnn::CbrtOp>,
            ElementwiseOpConversionPattern<ttir::FloorOp, ttnn::FloorOp>,
@@ -3848,6 +3816,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::TanOp, ttnn::TanOp>,
            ElementwiseOpConversionPattern<ttir::TanhOp, ttnn::TanhOp>,
            ElementwiseOpConversionPattern<ttir::AtanOp, ttnn::AtanOp>,
+           ElementwiseOpConversionPattern<ttir::RoundOp, ttnn::RoundOp>,
            Pooling2dOpConversionPattern<ttir::MaxPool2dOp, ttnn::MaxPool2dOp>,
            Pooling2dOpConversionPattern<ttir::MaxPool2dWithIndicesOp, ttnn::MaxPool2dWithIndicesOp>,
            Pooling2dOpConversionPattern<ttir::AvgPool2dOp, ttnn::AvgPool2dOp>,
@@ -3885,8 +3854,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern,
            AdamWOpConversionPattern,
-           SDPAForwardOpConversionPattern,
-           SDPABackwardOpConversionPattern,
+           CrossEntropyForwardOpConversionPattern,
            RMSNormOpConversionPattern,
            DistributedRMSNormOpConversionPattern,
            DistributedLayerNormOpConversionPattern,

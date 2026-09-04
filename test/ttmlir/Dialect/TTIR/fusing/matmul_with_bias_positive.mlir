@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt -ttir-to-ttir-decomposition -ttir-implicit-broadcast-fold -ttir-fusing -o %t %s
+// RUN: ttmlir-opt -ttir-to-ttir-decomposition --canonicalize -ttir-implicit-broadcast-fold -ttir-fusing -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // ===----------------------------------------------------------------------===
@@ -202,5 +202,25 @@ module {
     %0 = "ttir.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<1x1x68x2048xbf16>, tensor<2048x51200xbf16>) -> tensor<1x1x68x51200xbf16>
     %1 = "ttir.add"(%0, %bias) : (tensor<1x1x68x51200xbf16>, tensor<1x68x51200xbf16>) -> tensor<1x1x68x51200xbf16>
     return %1 : tensor<1x1x68x51200xbf16>
+  }
+}
+
+// The unsqueeze version of @dot_general_with_bias_4, with the bias reshape replaced by unsqueezes.
+module {
+  func.func @dot_general_with_unsqueezed_bias(%arg0: tensor<68x1024xf32>, %arg1: tensor<1024x1024xf32>, %bias: tensor<1024xf32>) -> tensor<2x34x1024xf32> {
+    // CHECK-LABEL: func.func @dot_general_with_unsqueezed_bias
+    // CHECK: "ttir.linear"(%arg0, %arg1, %arg2)
+    // CHECK-SAME: (tensor<68x1024xf32>, tensor<1024x1024xf32>, tensor<1024xf32>) -> tensor<68x1024xf32>
+    // CHECK: "ttir.reshape"
+    // CHECK-SAME: (tensor<68x1024xf32>) -> tensor<2x34x1024xf32>
+    // CHECK-NOT: "ttir.dot_general"
+    // CHECK-NOT: "ttir.add"
+    %1 = "ttir.dot_general"(%arg0, %arg1) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<68x1024xf32>, tensor<1024x1024xf32>) -> tensor<68x1024xf32>
+    %3 = "ttir.reshape"(%1) <{shape = [2 : i32, 34 : i32, 1024 : i32]}> : (tensor<68x1024xf32>) -> tensor<2x34x1024xf32>
+    %4 = "ttir.unsqueeze"(%bias) <{dim = 0 : si32}> : (tensor<1024xf32>) -> tensor<1x1024xf32>
+    %5 = "ttir.unsqueeze"(%4) <{dim = 0 : si32}> : (tensor<1x1024xf32>) -> tensor<1x1x1024xf32>
+    %7 = "ttir.broadcast"(%5) <{broadcast_dimensions = array<i64: 2, 34, 1>}> : (tensor<1x1x1024xf32>) -> tensor<2x34x1024xf32>
+    %9 = "ttir.add"(%3, %7) : (tensor<2x34x1024xf32>, tensor<2x34x1024xf32>) -> tensor<2x34x1024xf32>
+    return %9 : tensor<2x34x1024xf32>
   }
 }

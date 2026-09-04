@@ -313,8 +313,27 @@ public:
   //
   size_t getProgramIndex() const { return programIndex; }
 
+  //
+  // Host scalar cache
+  //
+  // Ops that need a device scalar as a host value (e.g. AdamW lr / beta*_pow)
+  // read it back once per program run and reuse it here, keyed by the tensor's
+  // global id. Only valid for tensors that are not mutated within the program.
+  float getHostScalar(std::uint32_t globalId,
+                      const std::function<float()> &read) {
+    auto it = hostScalarCache.find(globalId);
+    if (it != hostScalarCache.end()) {
+      return it->second;
+    }
+    float value = read();
+    hostScalarCache.emplace(globalId, value);
+    return value;
+  }
+
 private:
   ProgramTensorPool tensorPool;
+
+  std::unordered_map<std::uint32_t, float> hostScalarCache;
 
   ProgramGlobalSemaphorePool globalSemaphorePool;
 

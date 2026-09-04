@@ -76,7 +76,7 @@ module attributes {} {
     // CHECK: "ttnn.multiply"
     // CHECK-SAME: bfp_bf8
     // CHECK-NOT: ttnn.typecast
-    %gate = "ttnn.multiply"(%silu, %ag3)
+    %gate = "ttnn.multiply"(%silu, %ag3) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}>
         : (tensor<32x256xbf16, #bf16_act>, tensor<32x256xbf16, #bf16_act>)
        -> tensor<32x256xbf16, #bf16_act>
 
@@ -100,7 +100,7 @@ module attributes {} {
 
     // CHECK: "ttnn.add"
     // CHECK-NOT: ttnn.typecast
-    %out = "ttnn.add"(%residual, %ag2)
+    %out = "ttnn.add"(%residual, %ag2) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}>
         : (tensor<32x128xbf16, #bf16_out>, tensor<32x128xbf16, #bf16_out>)
        -> tensor<32x128xbf16, #bf16_out>
 

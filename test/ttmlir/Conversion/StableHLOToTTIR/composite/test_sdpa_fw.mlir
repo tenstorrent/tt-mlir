@@ -6,9 +6,10 @@
 module {
   func.func @sdpa_fw(%query: tensor<1x8x64x64xbf16>, %key: tensor<1x8x64x64xbf16>,
                      %value: tensor<1x8x64x64xbf16>) -> tensor<1x8x64x64xbf16> {
-    // CHECK: "ttir.sdpa_fw"
+    // CHECK: "ttcore.composite"
     // CHECK-SAME: mask_type = #ttcore.attention_mask_type<causal>
     // CHECK-SAME: return_intermediates = false
+    // CHECK-SAME: composite_name = "sdpa_fw"
     // CHECK-NOT: stablehlo.composite
     %0 = stablehlo.composite "tenstorrent.sdpa_fw" %query, %key, %value {
       composite_attributes = {
@@ -31,9 +32,10 @@ module {
   func.func @sdpa_fw_arbitrary(%query: tensor<1x8x64x64xbf16>, %key: tensor<1x8x64x64xbf16>,
                                %value: tensor<1x8x64x64xbf16>, %mask: tensor<1x1x64x64xbf16>)
       -> (tensor<1x8x64x64xbf16>, tensor<1x8x64x32xf32>) {
-    // CHECK: "ttir.sdpa_fw"
+    // CHECK: "ttcore.composite"
     // CHECK-SAME: mask_type = #ttcore.attention_mask_type<arbitrary>
     // CHECK-SAME: return_intermediates = true
+    // CHECK-SAME: composite_name = "sdpa_fw"
     // CHECK-NOT: stablehlo.composite
     %0:2 = stablehlo.composite "tenstorrent.sdpa_fw" %query, %key, %value, %mask {
       composite_attributes = {

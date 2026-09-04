@@ -1520,9 +1520,7 @@ public:
           auto scalarParam = scalarToI32Bits(rewriter, loc, adaptor.getRhs());
           rewriter.create<ttkernel::DivUnaryTileOp>(loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TilePowOp>) {
-          // For power, convert float value to integer (not bitcast)
-          auto scalarParam = rewriter.create<arith::FPToSIOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
+          auto scalarParam = scalarToI32Bits(rewriter, loc, adaptor.getRhs());
           rewriter.create<ttkernel::PowUnaryTileOp>(loc, dstIdx, scalarParam);
         }
         // Scalar ops operate in-place on DST slot - replace with the same

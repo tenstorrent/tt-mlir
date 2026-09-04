@@ -16,6 +16,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include "mlir/IR/BuiltinTypes.h"
 #include <cstdint>
 #include <numeric>
 
@@ -258,6 +259,10 @@ const auto createFloor = [](OpBuilder &b, Location loc, Type type,
                             ValueRange ops) {
   return b.create<FloorOp>(loc, type, ops).getOperation();
 };
+const auto createRound = [](OpBuilder &b, Location loc, Type type,
+                            ValueRange ops) {
+  return b.create<RoundOp>(loc, type, ops).getOperation();
+};
 const auto createGelu = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
   return b.create<GeluOp>(loc, type, ops).getOperation();
@@ -324,6 +329,7 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Erf", createErf, expected},
     {"Erfc", createErfc, expected},
     {"Floor", createFloor, expected},
+    {"Round", createRound, expected},
     {"Reciprocal", createReciprocal, expected},
     {"Cbrt", createCbrt, expected},
     {"Gelu", createGelu, expected},
@@ -346,7 +352,8 @@ INSTANTIATE_TEST_SUITE_P(
 //===---------------------------------------------------------===
 struct BinaryOpTestParams {
   std::string testName;
-  std::function<Operation *(OpBuilder &, Location, Type, ValueRange)> createOp;
+  std::function<Operation *(OpBuilder &, Location, Type, Value, Value)>
+      createOp;
   ExpectedResult expectedResult;
 };
 
@@ -369,7 +376,7 @@ TEST_P(BinaryOpModelTest, TestOpInterface) {
   auto input2 = createEmptyTensor(tensorShape);
   auto outputType = createRankedTensorType(tensorShape);
   Operation *op = params.createOp(builder, builder.getUnknownLoc(), outputType,
-                                  mlir::ValueRange{input1, input2});
+                                  input1, input2);
   // Test constraints
   auto constraintsExp = getOpConstraints(op);
   if (constraintsExp) {
@@ -402,7 +409,7 @@ TEST_P(BinaryOpModelTest, TestOpInterfaceNullOutput) {
   auto input2 = createEmptyTensor(tensorShape);
   auto outputType = createRankedTensorType(tensorShape);
   Operation *op = params.createOp(builder, builder.getUnknownLoc(), outputType,
-                                  mlir::ValueRange{input1, input2});
+                                  input1, input2);
   // Test constraints with null output
   OpModel backend = dyn_cast<OpModel>(op);
   auto constraintsExp = backend.getOpConstraints(
@@ -454,7 +461,7 @@ TEST_P(BinaryBitwiseOpModelTest, TestOpInterface) {
       createRankedTensorType(tensorShapeA, builder.getI32Type(), outputLayout);
 
   Operation *op = params.createOp(builder, builder.getUnknownLoc(), outputType,
-                                  mlir::ValueRange{input1, input2});
+                                  input1, input2);
 
   // Test constraints using the created layouts
   OpModel backend = dyn_cast<OpModel>(op);
@@ -485,72 +492,89 @@ const ExpectedResult binaryExpected{true};
 
 //===---------------------------------------------------------===
 // Lambda functions for creating binary operations
-const auto createAdd = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<AddOp>(l, t, r).getOperation();
+const auto createAdd = [](OpBuilder &b, Location l, Type t, Value lhs,
+                          Value rhs) {
+  return b.create<AddOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createSubtract = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<SubtractOp>(l, t, r).getOperation();
+const auto createSubtract = [](OpBuilder &b, Location l, Type t, Value lhs,
+                               Value rhs) {
+  return b.create<SubtractOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createMultiply = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<MultiplyOp>(l, t, r).getOperation();
+const auto createMultiply = [](OpBuilder &b, Location l, Type t, Value lhs,
+                               Value rhs) {
+  return b.create<MultiplyOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createDivide = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<DivideOp>(l, t, r).getOperation();
+const auto createDivide = [](OpBuilder &b, Location l, Type t, Value lhs,
+                             Value rhs) {
+  return b.create<DivideOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createEqual = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<EqualOp>(l, t, r).getOperation();
+const auto createEqual = [](OpBuilder &b, Location l, Type t, Value lhs,
+                            Value rhs) {
+  return b.create<EqualOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createNotEqual = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<NotEqualOp>(l, t, r).getOperation();
+const auto createNotEqual = [](OpBuilder &b, Location l, Type t, Value lhs,
+                               Value rhs) {
+  return b.create<NotEqualOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createGE = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<GreaterEqualOp>(l, t, r).getOperation();
+const auto createGE = [](OpBuilder &b, Location l, Type t, Value lhs,
+                         Value rhs) {
+  return b.create<GreaterEqualOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createGT = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<GreaterThanOp>(l, t, r).getOperation();
+const auto createGT = [](OpBuilder &b, Location l, Type t, Value lhs,
+                         Value rhs) {
+  return b.create<GreaterThanOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createLE = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<LessEqualOp>(l, t, r).getOperation();
+const auto createLE = [](OpBuilder &b, Location l, Type t, Value lhs,
+                         Value rhs) {
+  return b.create<LessEqualOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createLT = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<LessThanOp>(l, t, r).getOperation();
+const auto createLT = [](OpBuilder &b, Location l, Type t, Value lhs,
+                         Value rhs) {
+  return b.create<LessThanOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createAnd = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<LogicalAndOp>(l, t, r).getOperation();
+const auto createAnd = [](OpBuilder &b, Location l, Type t, Value lhs,
+                          Value rhs) {
+  return b.create<LogicalAndOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createOr = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<LogicalOrOp>(l, t, r).getOperation();
+const auto createOr = [](OpBuilder &b, Location l, Type t, Value lhs,
+                         Value rhs) {
+  return b.create<LogicalOrOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createXor = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<LogicalXorOp>(l, t, r).getOperation();
+const auto createXor = [](OpBuilder &b, Location l, Type t, Value lhs,
+                          Value rhs) {
+  return b.create<LogicalXorOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createMax = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<MaximumOp>(l, t, r).getOperation();
+const auto createMax = [](OpBuilder &b, Location l, Type t, Value lhs,
+                          Value rhs) {
+  return b.create<MaximumOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createMin = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<MinimumOp>(l, t, r).getOperation();
+const auto createMin = [](OpBuilder &b, Location l, Type t, Value lhs,
+                          Value rhs) {
+  return b.create<MinimumOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createPow = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<PowTensorOp>(l, t, r).getOperation();
+const auto createPow = [](OpBuilder &b, Location l, Type t, Value lhs,
+                          Value rhs) {
+  return b.create<PowTensorOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createBitwiseAnd = [](OpBuilder &b, Location l, Type t,
-                                 ValueRange r) {
-  return b.create<BitwiseAndOp>(l, t, r).getOperation();
+const auto createBitwiseAnd = [](OpBuilder &b, Location l, Type t, Value lhs,
+                                 Value rhs) {
+  return b.create<BitwiseAndOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createBitwiseOr = [](OpBuilder &b, Location l, Type t,
-                                ValueRange r) {
-  return b.create<BitwiseOrOp>(l, t, r).getOperation();
+const auto createBitwiseOr = [](OpBuilder &b, Location l, Type t, Value lhs,
+                                Value rhs) {
+  return b.create<BitwiseOrOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createBitwiseXor = [](OpBuilder &b, Location l, Type t,
-                                 ValueRange r) {
-  return b.create<BitwiseXorOp>(l, t, r).getOperation();
+const auto createBitwiseXor = [](OpBuilder &b, Location l, Type t, Value lhs,
+                                 Value rhs) {
+  return b.create<BitwiseXorOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createRemainder = [](OpBuilder &b, Location l, Type t,
-                                ValueRange r) {
-  return b.create<RemainderOp>(l, t, r).getOperation();
+const auto createRemainder = [](OpBuilder &b, Location l, Type t, Value lhs,
+                                Value rhs) {
+  return b.create<RemainderOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createAtan2 = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<Atan2Op>(l, t, r).getOperation();
+const auto createAtan2 = [](OpBuilder &b, Location l, Type t, Value lhs,
+                            Value rhs) {
+  return b.create<Atan2Op>(l, t, lhs, rhs).getOperation();
 };
 
 //===---------------------------------------------------------===
@@ -724,7 +748,7 @@ TEST_F(OpModelBase, LogicalRightShiftOpInterface) {
                                        ShapeAttr::get(&context, tensorShape));
 
   auto logicalRightShift = builder.create<LogicalRightShiftOp>(
-      builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input1, input2});
+      builder.getUnknownLoc(), outputType, input1, input2);
 
   // Test LogicalRightShift interface
   auto constraintsExp = getOpConstraints(logicalRightShift.getOperation());
@@ -782,7 +806,7 @@ TEST_F(OpModelBase, LogicalLeftShiftOpInterface) {
                                        ShapeAttr::get(&context, tensorShape));
 
   auto logicalLeftShift = builder.create<LogicalLeftShiftOp>(
-      builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input1, input2});
+      builder.getUnknownLoc(), outputType, input1, input2);
 
   // Test LogicalLeftShift interface
   auto constraintsExp = getOpConstraints(logicalLeftShift.getOperation());
@@ -4426,7 +4450,7 @@ TEST_F(OpModelBase, CacheOpConstraintsTest) {
   auto outputType = createRankedTensorType(tensorShape);
 
   auto sub = builder.create<SubtractOp>(builder.getUnknownLoc(), outputType,
-                                        mlir::ValueRange{input1, input2});
+                                        input1, input2);
 
   // test SubtractOp interface
   auto constraintsExp = getOpConstraints(sub.getOperation());
@@ -4485,14 +4509,14 @@ TEST_F(OpModelBase, CacheOpConstraintsMissesTest) {
   auto input2 = createEmptyTensor(tensorShape1);
   auto outputType1 = createRankedTensorType(tensorShape1);
   auto add1 = builder.create<AddOp>(builder.getUnknownLoc(), outputType1,
-                                    mlir::ValueRange{input1, input2});
+                                    input1, input2);
 
   llvm::SmallVector<int64_t> tensorShape2 = {workerCoresN300, 512};
   auto input3 = createEmptyTensor(tensorShape2);
   auto input4 = createEmptyTensor(tensorShape2);
   auto outputType2 = createRankedTensorType(tensorShape2);
   auto add2 = builder.create<AddOp>(builder.getUnknownLoc(), outputType2,
-                                    mlir::ValueRange{input3, input4});
+                                    input3, input4);
 
   // test AddOp interface
   auto constraintsExp1 = getOpConstraints(add1.getOperation());
@@ -6214,6 +6238,262 @@ TEST_F(OpModelBase, PagedFillCacheOpInterface) {
   }
 }
 
+// AdamWOp mutates its operands in place and has no results, so the generic
+// getOpConstraints(Operation*) helper cannot be used (it reads getResult(0)).
+// The ttml kernel also requires every operand in DRAM / INTERLEAVED / TILE with
+// `grad` always BFLOAT16, whereas getInputLayouts() would default unencoded
+// operands to L1 -- hence the explicit layouts on each tensor.
+TEST_F(OpModelBase, AdamWOpInterface) {
+  llvm::SmallVector<int64_t> shape = {1, 1, 128, 128};
+
+  auto f32Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  auto bf16Layout = CreateTiledLayout(shape, BufferType::DRAM,
+                                      TensorMemoryLayout::Interleaved);
+
+  auto param = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
+  auto grad = createEmptyTensor(shape, builder.getBF16Type(), bf16Layout);
+  auto expAvg = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
+  auto expAvgSq = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
+  llvm::SmallVector<int64_t> scalarShape = {1};
+  auto scalarLayout = CreateTiledLayout(
+      scalarShape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  auto lr = createEmptyTensor(scalarShape, builder.getF32Type(), scalarLayout);
+  auto beta1Pow =
+      createEmptyTensor(scalarShape, builder.getF32Type(), scalarLayout);
+  auto beta2Pow =
+      createEmptyTensor(scalarShape, builder.getF32Type(), scalarLayout);
+
+  auto adamW = builder.create<AdamWOp>(
+      builder.getUnknownLoc(), param, grad, expAvg, expAvgSq, lr, beta1Pow,
+      beta2Pow, /*beta1=*/llvm::APFloat(0.9f), /*beta2=*/llvm::APFloat(0.999f),
+      /*epsilon=*/llvm::APFloat(1e-8f), /*weight_decay=*/llvm::APFloat(0.01f));
+
+  auto backend = dyn_cast<OpModel>(adamW.getOperation());
+  ASSERT_TRUE(backend);
+
+  auto inputLayouts = getInputLayouts(adamW.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 7u);
+
+  // OpConfig() carries a null output layout, which is what the optimizer passes
+  // for an op with no results.
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    auto constraints = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
+                outputAllocations] = constraints;
+    EXPECT_GT(cbSize, 0);
+    // All operands are DRAM-resident, so the op holds nothing in L1.
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing constraints for AdamWOp; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for AdamWOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+// Same op with the optional max_exp_avg_sq operand present, which is what
+// enables AMSGrad in ttml. Exercises the 8-input path through the interface.
+TEST_F(OpModelBase, AdamWOpInterfaceAmsgrad) {
+  llvm::SmallVector<int64_t> shape = {1, 1, 128, 128};
+
+  auto f32Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  auto bf16Layout = CreateTiledLayout(shape, BufferType::DRAM,
+                                      TensorMemoryLayout::Interleaved);
+
+  auto param = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
+  auto grad = createEmptyTensor(shape, builder.getBF16Type(), bf16Layout);
+  auto expAvg = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
+  auto expAvgSq = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
+  auto maxExpAvgSq = createEmptyTensor(shape, builder.getF32Type(), f32Layout);
+  llvm::SmallVector<int64_t> scalarShape = {1};
+  auto scalarLayout = CreateTiledLayout(
+      scalarShape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  auto lr = createEmptyTensor(scalarShape, builder.getF32Type(), scalarLayout);
+  auto beta1Pow =
+      createEmptyTensor(scalarShape, builder.getF32Type(), scalarLayout);
+  auto beta2Pow =
+      createEmptyTensor(scalarShape, builder.getF32Type(), scalarLayout);
+
+  auto adamW = builder.create<AdamWOp>(
+      builder.getUnknownLoc(), param, grad, expAvg, expAvgSq, lr, beta1Pow,
+      beta2Pow, maxExpAvgSq,
+      /*beta1=*/builder.getF32FloatAttr(0.9f),
+      /*beta2=*/builder.getF32FloatAttr(0.999f),
+      /*epsilon=*/builder.getF32FloatAttr(1e-8f),
+      /*weight_decay=*/builder.getF32FloatAttr(0.01f),
+      /*stochastic_rounding=*/builder.getBoolAttr(false));
+
+  auto backend = dyn_cast<OpModel>(adamW.getOperation());
+  ASSERT_TRUE(backend);
+
+  auto inputLayouts = getInputLayouts(adamW.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 8u);
+
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  } else {
+    FAIL() << "Missing constraints for AdamWOp with amsgrad; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+}
+
+TEST_F(OpModelBase, SDPAForwardOpInterface) {
+  llvm::SmallVector<int64_t> shape = {1, 2, 64, 64};
+  auto layout = CreateTiledLayout(shape, BufferType::DRAM,
+                                  TensorMemoryLayout::Interleaved);
+  auto tensorType =
+      createRankedTensorType(shape, builder.getBF16Type(), layout);
+  auto query = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto key = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto value = createEmptyTensor(shape, builder.getBF16Type(), layout);
+
+  auto sdpaForward = builder.create<SDPAForwardOp>(
+      builder.getUnknownLoc(), TypeRange{tensorType}, query, key, value,
+      /*attention_mask=*/Value(),
+      ttcore::AttentionMaskTypeAttr::get(&context,
+                                         ttcore::AttentionMaskType::Causal),
+      builder.getF32FloatAttr(0.0f), builder.getBoolAttr(false));
+
+  auto backend = dyn_cast<OpModel>(sdpaForward.getOperation());
+  ASSERT_TRUE(backend);
+  auto inputLayouts = getInputLayouts(sdpaForward.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 3u);
+
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+    ASSERT_EQ(constraintsExp.get().outputLayouts.size(), 1u);
+  } else {
+    FAIL() << "Missing constraints for SDPAForwardOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for SDPAForwardOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, SDPABackwardOpInterface) {
+  llvm::SmallVector<int64_t> shape = {1, 2, 64, 64};
+  llvm::SmallVector<int64_t> intermediatesShape = {1, 2, 64, 32};
+  auto layout = CreateTiledLayout(shape, BufferType::DRAM,
+                                  TensorMemoryLayout::Interleaved);
+  auto intermediatesLayout = CreateTiledLayout(
+      intermediatesShape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, GetPhysicalGridSize(),
+      builder.getF32Type());
+  auto tensorType =
+      createRankedTensorType(shape, builder.getBF16Type(), layout);
+
+  auto gradOutput = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto attnOutput = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto query = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto key = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto value = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto intermediates = createEmptyTensor(
+      intermediatesShape, builder.getF32Type(), intermediatesLayout);
+
+  auto sdpaBackward = builder.create<SDPABackwardOp>(
+      builder.getUnknownLoc(), TypeRange{tensorType, tensorType, tensorType},
+      gradOutput, attnOutput, query, key, value, intermediates,
+      /*attention_mask=*/Value(),
+      ttcore::AttentionMaskTypeAttr::get(&context,
+                                         ttcore::AttentionMaskType::Causal),
+      builder.getF32FloatAttr(0.0f));
+
+  auto backend = dyn_cast<OpModel>(sdpaBackward.getOperation());
+  ASSERT_TRUE(backend);
+  auto inputLayouts = getInputLayouts(sdpaBackward.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 6u);
+
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+    ASSERT_EQ(constraintsExp.get().outputLayouts.size(), 3u);
+  } else {
+    FAIL() << "Missing constraints for SDPABackwardOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for SDPABackwardOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, LayerNormForwardOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 256};
+  llvm::SmallVector<int64_t> parameterShape = {1, 1, 1, 256};
+  llvm::SmallVector<int64_t> statisticsShape = {1, 1, 128, 1};
+  auto inputLayout = CreateTiledLayout(inputShape, BufferType::DRAM,
+                                       TensorMemoryLayout::Interleaved);
+  auto parameterLayout = CreateTiledLayout(parameterShape, BufferType::DRAM,
+                                           TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
+  auto weight =
+      createEmptyTensor(parameterShape, builder.getBF16Type(), parameterLayout);
+  auto bias =
+      createEmptyTensor(parameterShape, builder.getBF16Type(), parameterLayout);
+  auto outputType =
+      createRankedTensorType(inputShape, builder.getBF16Type(), inputLayout);
+  auto statisticsType = createRankedTensorType(statisticsShape);
+
+  auto layerNormForward = builder.create<LayerNormForwardOp>(
+      builder.getUnknownLoc(),
+      TypeRange{outputType, statisticsType, statisticsType}, input, weight,
+      bias, builder.getF32FloatAttr(1e-5f), builder.getBoolAttr(true));
+
+  auto backend = dyn_cast<OpModel>(layerNormForward.getOperation());
+  ASSERT_TRUE(backend);
+  auto inputLayouts = getInputLayouts(layerNormForward.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 3u);
+
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+    ASSERT_EQ(constraintsExp.get().outputLayouts.size(), 3u);
+  } else {
+    FAIL() << "Missing constraints for LayerNormForwardOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for LayerNormForwardOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, QuantizeOpInterface) {
   llvm::SmallVector<int64_t> inputShape = {32, 64};
   llvm::SmallVector<int64_t> scaleShape = {64};
@@ -7414,6 +7694,66 @@ TEST_F(OpModelBase, SamplingOpKernelLimitBatch64) {
     // Swallow the expected error so the test runner doesn't treat it as
     // an unhandled llvm::Error.
     llvm::consumeError(constraintsExp.takeError());
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// CrossEntropyForwardOp
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelBase, CrossEntropyForwardOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {4, 1, 32, 64};
+  llvm::SmallVector<int64_t> targetShape = {4, 32};
+  llvm::SmallVector<int64_t> outputShape = {4, 1, 32, 1};
+  TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  TTNNLayoutAttr targetLayout =
+      TTNNLayoutAttr::Builder(
+          &context, targetShape,
+          builder.getIntegerType(/*width=*/32, /*isSigned=*/false))
+          .setBufferType(BufferType::DRAM)
+          .setMemoryLayout(TensorMemoryLayout::Interleaved)
+          .setGridShape(GetVirtualGridShape(
+              targetShape, TensorMemoryLayout::Interleaved, BufferType::DRAM))
+          .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+
+  TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  auto outputType =
+      createRankedTensorType(outputShape, builder.getBF16Type(), outputLayout);
+  mlir::Value input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
+  mlir::Value target = createEmptyTensor(
+      targetShape, builder.getIntegerType(/*width=*/32, /*isSigned=*/false),
+      targetLayout);
+
+  auto crossEntropyForward = builder.create<CrossEntropyForwardOp>(
+      builder.getUnknownLoc(), outputType, input, target);
+  auto backend = dyn_cast<OpModel>(crossEntropyForward.getOperation());
+  ASSERT_TRUE(backend);
+
+  auto inputLayouts = getInputLayouts(crossEntropyForward.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 2u);
+
+  auto constraintsExp =
+      backend.getOpConstraints(inputLayouts, /*opConfig=*/OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp->cbL1PeakSize, 0);
+    EXPECT_EQ(constraintsExp->tensorL1PeakSize, 0);
+    EXPECT_EQ(constraintsExp->outputL1BufferSize, 0);
+    ASSERT_EQ(constraintsExp->outputLayouts.size(), 1u);
+    ExpectLayoutsEQ(constraintsExp->outputLayouts.front(), outputLayout);
+  } else {
+    FAIL() << "Missing constraints for CrossEntropyForwardOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, /*opConfig=*/OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(*runtimeExp, 0);
+  } else {
+    FAIL() << "Error getting runtime for CrossEntropyForwardOp: "
+           << llvm::toString(runtimeExp.takeError());
   }
 }
 

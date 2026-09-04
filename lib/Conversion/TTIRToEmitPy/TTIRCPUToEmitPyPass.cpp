@@ -1196,7 +1196,8 @@ struct ConvertTTIRCPUToEmitPyPass
         TTIRUnaryToEmitPy<ttir::SigmoidOp>, TTIRUnaryToEmitPy<ttir::SignOp>,
         TTIRUnaryToEmitPy<ttir::SiluOp>, TTIRUnaryToEmitPy<ttir::SinOp>,
         TTIRUnaryToEmitPy<ttir::SqrtOp>, TTIRUnaryToEmitPy<ttir::TanOp>,
-        TTIRUnaryToEmitPy<ttir::TanhOp>>(typeConverter, &getContext());
+        TTIRUnaryToEmitPy<ttir::RoundOp>, TTIRUnaryToEmitPy<ttir::TanhOp>>(
+        typeConverter, &getContext());
 
     // Elementwise unary with parameters.
     patterns.add<TTIRLeakyReluToEmitPy>(typeConverter, &getContext());
