@@ -2865,6 +2865,10 @@ def TTNN_SDPABackwardOp : TTNN_Op<"sdpa_bw"> {
 
       All tensors are rank 4 `(B, H, S, D)`. `attention_mask` is only valid when
       `mask_type` is `arbitrary`.
+
+      `dropout_probability` must be 0.0. Dropout is not implemented in the
+      backward pass, so a nonzero value would silently produce the gradients of
+      the dropout-free forward pass. The verifier rejects it.
     }];
 
     let arguments = (ins AnyRankedTensor:$grad_output,
