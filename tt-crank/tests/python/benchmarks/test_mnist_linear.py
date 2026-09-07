@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """Benchmark: small MNIST linear classifier forward pass."""
 
 import copy
@@ -41,25 +45,40 @@ def test_mnist_linear(
     model, inputs = _build()
 
     # deepcopy because Module.to() is in-place; keep the CPU originals as the reference.
-    device_model = prepare_model(copy.deepcopy(model).to(tt_device), mode, options={
-        CompileOption.OPT_LEVEL: opt_level if opt_level is not None else 0,
-    })
+    device_model = prepare_model(
+        copy.deepcopy(model).to(tt_device),
+        mode,
+        options={
+            CompileOption.OPT_LEVEL: opt_level if opt_level is not None else 0,
+        },
+    )
     device_inputs = tuple(t.to(tt_device) for t in inputs)
 
     record_bench(
         run_benchmark(
-            device_model, device_inputs, warmup=warmup, iters=iters,
-            label="mnist_linear", mode=mode, device="tt",
+            device_model,
+            device_inputs,
+            warmup=warmup,
+            iters=iters,
+            label="mnist_linear",
+            mode=mode,
+            device="tt",
             reference_model=model if accuracy else None,
             reference_inputs=inputs if accuracy else None,
-            profile_enabled=profile_enabled, profile_dir=profile_dir,
+            profile_enabled=profile_enabled,
+            profile_dir=profile_dir,
         )
     )
 
     if cpu_baseline:
         record_bench(
             run_benchmark(
-                model, inputs, warmup=warmup, iters=iters,
-                label="mnist_linear", mode="eager", device="cpu",
+                model,
+                inputs,
+                warmup=warmup,
+                iters=iters,
+                label="mnist_linear",
+                mode="eager",
+                device="cpu",
             )
         )

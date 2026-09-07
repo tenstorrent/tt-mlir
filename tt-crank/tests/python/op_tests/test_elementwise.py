@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 import pytest
 import torch
 import torch.nn.functional as F
@@ -64,28 +68,41 @@ def test_mean_single_dim(keepdim: bool) -> None:
     # Loose tolerance: mean over 128 bf16 elements accumulates O(sqrt(N)) rounding
     # error relative to CPU; near-zero outputs drive up relative error further.
     a = torch.randn((64, 128), dtype=torch.bfloat16)
-    assert_close_cpu_vs_tt(lambda x: torch.mean(x, dim=1, keepdim=keepdim), a, atol=0.05, rtol=0.05)
+    assert_close_cpu_vs_tt(
+        lambda x: torch.mean(x, dim=1, keepdim=keepdim), a, atol=0.05, rtol=0.05
+    )
 
 
 @pytest.mark.parametrize("keepdim", [True, False])
 def test_mean_multi_dim(keepdim: bool) -> None:
     a = torch.randn((32, 64, 32), dtype=torch.bfloat16)
-    assert_close_cpu_vs_tt(lambda x: torch.mean(x, dim=[1, 2], keepdim=keepdim), a, atol=0.05, rtol=0.05)
+    assert_close_cpu_vs_tt(
+        lambda x: torch.mean(x, dim=[1, 2], keepdim=keepdim), a, atol=0.05, rtol=0.05
+    )
 
 
 @pytest.mark.parametrize("keepdim", [True, False])
-@pytest.mark.parametrize("dim", [1, -1, [1, 2], [-1, -2]], ids=["dim1", "dim_neg1", "dim12", "dim_neg12"])
+@pytest.mark.parametrize(
+    "dim", [1, -1, [1, 2], [-1, -2]], ids=["dim1", "dim_neg1", "dim12", "dim_neg12"]
+)
 def test_sum(dim: int | list[int], keepdim: bool) -> None:
     a = torch.randn((32, 64, 32), dtype=torch.bfloat16)
-    assert_close_cpu_vs_tt(lambda x: torch.sum(x, dim=dim, keepdim=keepdim), a, atol=0.05, rtol=0.05)
+    assert_close_cpu_vs_tt(
+        lambda x: torch.sum(x, dim=dim, keepdim=keepdim), a, atol=0.05, rtol=0.05
+    )
 
 
 @pytest.mark.parametrize("keepdim", [True, False])
-@pytest.mark.parametrize("dim", [1, -1, [1, 2], None], ids=["dim1", "dim_neg1", "dim12", "all_dims"])
+@pytest.mark.parametrize(
+    "dim", [1, -1, [1, 2], None], ids=["dim1", "dim_neg1", "dim12", "all_dims"]
+)
 def test_linalg_vector_norm(dim: int | list[int] | None, keepdim: bool) -> None:
     a = torch.randn((32, 64, 32), dtype=torch.bfloat16)
     assert_close_cpu_vs_tt(
-        lambda x: torch.linalg.vector_norm(x, dim=dim, keepdim=keepdim), a, atol=0.05, rtol=0.05
+        lambda x: torch.linalg.vector_norm(x, dim=dim, keepdim=keepdim),
+        a,
+        atol=0.05,
+        rtol=0.05,
     )
 
 
@@ -93,7 +110,9 @@ def test_linalg_vector_norm(dim: int | list[int] | None, keepdim: bool) -> None:
 def test_mse_loss(reduction: str) -> None:
     a = torch.randn((64, 128), dtype=torch.bfloat16)
     b = torch.randn((64, 128), dtype=torch.bfloat16)
-    assert_close_cpu_vs_tt(lambda x, y: F.mse_loss(x, y, reduction=reduction), a, b, atol=0.05, rtol=0.05)
+    assert_close_cpu_vs_tt(
+        lambda x, y: F.mse_loss(x, y, reduction=reduction), a, b, atol=0.05, rtol=0.05
+    )
 
 
 @pytest.mark.parametrize("reduction", _REDUCTIONS)
@@ -103,18 +122,26 @@ def test_mse_loss_backward(reduction: str) -> None:
     target = torch.randn(shape, dtype=torch.bfloat16)
     # grad_output mirrors the loss shape: elementwise for 'none', scalar otherwise.
     grad_output = (
-        torch.randn(shape, dtype=torch.bfloat16) if reduction == "none" else torch.randn((), dtype=torch.bfloat16)
+        torch.randn(shape, dtype=torch.bfloat16)
+        if reduction == "none"
+        else torch.randn((), dtype=torch.bfloat16)
     )
 
-    def mse_loss_grad(s: torch.Tensor, t: torch.Tensor, go: torch.Tensor) -> torch.Tensor:
+    def mse_loss_grad(
+        s: torch.Tensor, t: torch.Tensor, go: torch.Tensor
+    ) -> torch.Tensor:
         s = s.detach().requires_grad_(True)
         F.mse_loss(s, t, reduction=reduction).backward(go)
         return s.grad
 
-    assert_close_cpu_vs_tt(mse_loss_grad, self_t, target, grad_output, atol=0.05, rtol=0.05)
+    assert_close_cpu_vs_tt(
+        mse_loss_grad, self_t, target, grad_output, atol=0.05, rtol=0.05
+    )
 
 
-@pytest.mark.parametrize("threshold", [0.0, 0.5, -0.25], ids=["thr0", "thr0.5", "thr_neg0.25"])
+@pytest.mark.parametrize(
+    "threshold", [0.0, 0.5, -0.25], ids=["thr0", "thr0.5", "thr_neg0.25"]
+)
 def test_threshold_backward(threshold: float) -> None:
     shape = (64, 128)
     grad_output = torch.randn(shape, dtype=torch.bfloat16)
@@ -149,11 +176,29 @@ def test_threshold_backward(threshold: float) -> None:
         "batch2_bias",
     ],
 )
-def test_conv1d(n: int, c_in: int, length: int, c_out: int, ksize: int, stride: int,
-                padding: int, dilation: int, groups: int, bias: bool) -> None:
+def test_conv1d(
+    n: int,
+    c_in: int,
+    length: int,
+    c_out: int,
+    ksize: int,
+    stride: int,
+    padding: int,
+    dilation: int,
+    groups: int,
+    bias: bool,
+) -> None:
     x = torch.randn((n, c_in, length), dtype=torch.bfloat16)
-    conv = torch.nn.Conv1d(in_channels=c_in, out_channels=c_out, kernel_size=ksize, stride=stride, padding=padding,
-                           dilation=dilation, groups=groups, bias=bias).to(torch.bfloat16)
+    conv = torch.nn.Conv1d(
+        in_channels=c_in,
+        out_channels=c_out,
+        kernel_size=ksize,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+        bias=bias,
+    ).to(torch.bfloat16)
     assert_close_cpu_vs_tt(conv, x, atol=0.05, rtol=0.05)
 
 
@@ -174,18 +219,44 @@ def test_conv1d(n: int, c_in: int, length: int, c_out: int, ksize: int, stride: 
         (1, 16, 28, 28, 16, 3, 1, 1, 1, 16, True),
     ],
     ids=[
-        "3x3_s1_nopad_nobias", "3x3_s2_pad1_nobias", "1x1_bias",
-        "grouped", "depthwise", "dilation2", "asymmetric_hw",
-        "rect_kernel_asym_stride", "grouped_dilation_bias", "depthwise_bias",
+        "3x3_s1_nopad_nobias",
+        "3x3_s2_pad1_nobias",
+        "1x1_bias",
+        "grouped",
+        "depthwise",
+        "dilation2",
+        "asymmetric_hw",
+        "rect_kernel_asym_stride",
+        "grouped_dilation_bias",
+        "depthwise_bias",
     ],
 )
-def test_conv2d(n: int, c_in: int, h: int, w: int, c_out: int, ksize: int | tuple[int, int],
-                stride: int | tuple[int, int], padding: int | tuple[int, int], dilation: int,
-                groups: int, bias: bool) -> None:
+def test_conv2d(
+    n: int,
+    c_in: int,
+    h: int,
+    w: int,
+    c_out: int,
+    ksize: int | tuple[int, int],
+    stride: int | tuple[int, int],
+    padding: int | tuple[int, int],
+    dilation: int,
+    groups: int,
+    bias: bool,
+) -> None:
     x = torch.randn((n, c_in, h, w), dtype=torch.bfloat16)
-    conv = torch.nn.Conv2d(c_in, c_out, ksize, stride=stride, padding=padding,
-                           dilation=dilation, groups=groups, bias=bias).to(torch.bfloat16)
+    conv = torch.nn.Conv2d(
+        c_in,
+        c_out,
+        ksize,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+        bias=bias,
+    ).to(torch.bfloat16)
     assert_close_cpu_vs_tt(conv, x, atol=0.05, rtol=0.05)
+
 
 # TODO(bmijanovicTT)
 # groups: https://github.com/tenstorrent/tt-mlir/pull/9279
@@ -200,10 +271,22 @@ def test_conv2d(n: int, c_in: int, h: int, w: int, c_out: int, ksize: int | tupl
     ],
     ids=["k3_s1_pad1_nobias", "k3_s2_pad1_nobias", "k1_bias", "batch2_bias"],
 )
-def test_conv3d(n: int, c_in: int, d: int, h: int, w: int, c_out: int, ksize: int, stride: int,
-                padding: int, bias: bool) -> None:
+def test_conv3d(
+    n: int,
+    c_in: int,
+    d: int,
+    h: int,
+    w: int,
+    c_out: int,
+    ksize: int,
+    stride: int,
+    padding: int,
+    bias: bool,
+) -> None:
     x = torch.randn((n, c_in, d, h, w), dtype=torch.bfloat16)
-    conv = torch.nn.Conv3d(c_in, c_out, ksize, stride=stride, padding=padding, bias=bias).to(torch.bfloat16)
+    conv = torch.nn.Conv3d(
+        c_in, c_out, ksize, stride=stride, padding=padding, bias=bias
+    ).to(torch.bfloat16)
     assert_close_cpu_vs_tt(conv, x, atol=0.05, rtol=0.05)
 
 
@@ -215,10 +298,14 @@ def test_conv3d(n: int, c_in: int, d: int, h: int, w: int, c_out: int, ksize: in
     ],
     ids=["stride2_pad1", "stride2_nopad"],
 )
-def test_max_pool2d(n: int, c: int, h: int, w: int, k: int, stride: int, padding: int) -> None:
+def test_max_pool2d(
+    n: int, c: int, h: int, w: int, k: int, stride: int, padding: int
+) -> None:
     x = torch.randn((n, c, h, w), dtype=torch.bfloat16)
     assert_close_cpu_vs_tt(
-        lambda t: torch.nn.functional.max_pool2d(t, kernel_size=k, stride=stride, padding=padding),
+        lambda t: torch.nn.functional.max_pool2d(
+            t, kernel_size=k, stride=stride, padding=padding
+        ),
         x,
     )
 
@@ -263,8 +350,8 @@ def test_where(shape: tuple[int, ...]) -> None:
 @pytest.mark.parametrize("shape", [(64, 128), (32, 64, 32)])
 def test_isneginf(shape: tuple[int, ...]) -> None:
     x = torch.randn(shape, dtype=torch.bfloat16)
-    x.view(-1)[0] = float('-inf')
-    x.view(-1)[1] = float('inf')
+    x.view(-1)[0] = float("-inf")
+    x.view(-1)[1] = float("inf")
     assert_close_cpu_vs_tt(torch.isneginf, x)
 
 
@@ -303,7 +390,11 @@ def test_any_dims(dim: list[int], keepdim: bool) -> None:
 # outcomes are covered: an all-False input must not come back True.
 @pytest.mark.parametrize("any_true", [True, False], ids=["some_true", "all_false"])
 def test_any_all(any_true: bool) -> None:
-    x = _scattered_bool((64, 128)) if any_true else torch.zeros((64, 128), dtype=torch.bool)
+    x = (
+        _scattered_bool((64, 128))
+        if any_true
+        else torch.zeros((64, 128), dtype=torch.bool)
+    )
     assert_close_cpu_vs_tt(torch.any, x)
 
 
@@ -380,7 +471,9 @@ def test_index_copy(dim: int) -> None:
     src_shape = list(self_t.shape)
     src_shape[dim] = index.numel()
     source = torch.randn(src_shape, dtype=torch.bfloat16)
-    assert_close_cpu_vs_tt(lambda s, i, src: torch.index_copy(s, dim, i, src), self_t, index, source)
+    assert_close_cpu_vs_tt(
+        lambda s, i, src: torch.index_copy(s, dim, i, src), self_t, index, source
+    )
 
 
 def test_index_copy_inplace_kv_cache_like() -> None:

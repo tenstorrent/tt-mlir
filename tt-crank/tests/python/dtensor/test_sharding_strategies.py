@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 import pytest
 import torch
 from torch.distributed.tensor import Replicate, Shard, distribute_tensor
@@ -16,7 +20,9 @@ _NONCONTIGUOUS_XFAIL = pytest.mark.xfail(
     "index",
     [
         pytest.param(torch.tensor([0, 1]), id="contiguous"),
-        pytest.param(torch.tensor([1, 5]), id="noncontiguous", marks=_NONCONTIGUOUS_XFAIL),
+        pytest.param(
+            torch.tensor([1, 5]), id="noncontiguous", marks=_NONCONTIGUOUS_XFAIL
+        ),
     ],
 )
 def test_index_copy_sharded_compile(tt_pg, index: torch.Tensor) -> None:

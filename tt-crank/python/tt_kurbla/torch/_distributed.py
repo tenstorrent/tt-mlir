@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """tt c10d backend — single-process, fake-multi-rank.
 
 Register a "tt" backend with `torch.distributed` so DTensor's collective
@@ -105,7 +109,9 @@ class TTProcessGroup(dist.ProcessGroup):
         at its axis coordinate (every chip on the orthogonal axis takes its own
         shard) and replaces `output_tensors[0]`'s storage.
         """
-        assert len(output_tensors) == 1, "tt.scatter: only single-output scatter supported"
+        assert (
+            len(output_tensors) == 1
+        ), "tt.scatter: only single-output scatter supported"
         chunks = list(input_tensors[0]) if input_tensors else []
         _native.scatter_into(output_tensors[0], chunks, self.cluster_axis)
         return FakeWork()
@@ -193,7 +199,9 @@ def _reduce_scatter_out_shape(shape, group_size: int, scatter_dim: int) -> list[
 # expose our own op instead: TTIR/TTNN reduce_scatter carry an arbitrary
 # scatter_dim, so we pass it straight through.
 @torch.library.custom_op("tt_kurbla::reduce_scatter", mutates_args=())
-def reduce_scatter(input: torch.Tensor, group_name: str, group_size: int, scatter_dim: int) -> torch.Tensor:
+def reduce_scatter(
+    input: torch.Tensor, group_name: str, group_size: int, scatter_dim: int
+) -> torch.Tensor:
     from torch.distributed.distributed_c10d import _resolve_process_group
 
     out_shape = _reduce_scatter_out_shape(input.shape, group_size, scatter_dim)
@@ -206,7 +214,9 @@ def reduce_scatter(input: torch.Tensor, group_name: str, group_size: int, scatte
 # Define the shape of the custom `reduce_scatter` op.
 @reduce_scatter.register_fake
 def _(input, group_name, group_size, scatter_dim):
-    return input.new_empty(_reduce_scatter_out_shape(input.shape, group_size, scatter_dim))
+    return input.new_empty(
+        _reduce_scatter_out_shape(input.shape, group_size, scatter_dim)
+    )
 
 
 def _install_replicate_to_shard_patch() -> None:
@@ -238,7 +248,9 @@ def _install_replicate_to_shard_patch() -> None:
             return _orig(self, local_tensor, mesh, mesh_dim, shard_index)
         num_chunks = mesh.size(mesh_dim)
         group_name = _resolve_group_name((mesh, mesh_dim))
-        scattered = torch.ops.tt_kurbla.reduce_scatter(local_tensor, group_name, num_chunks, self.dim)
+        scattered = torch.ops.tt_kurbla.reduce_scatter(
+            local_tensor, group_name, num_chunks, self.dim
+        )
         return scattered / num_chunks
 
     Shard._replicate_to_shard = _replicate_to_shard

@@ -1,6 +1,16 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 import pytest
 import torch
-from torch.distributed.tensor import DTensor, Partial, Replicate, Shard, distribute_tensor
+from torch.distributed.tensor import (
+    DTensor,
+    Partial,
+    Replicate,
+    Shard,
+    distribute_tensor,
+)
 
 pytestmark = pytest.mark.multichip
 
@@ -47,7 +57,9 @@ def test_shard_both_axes(tt_pg, mesh_2d_shape, shard_dims: tuple[int, int]) -> N
     # Each tensor dim must be evenly divisible by the mesh axis sharding it.
     dim0_axis, dim1_axis = (rows, cols) if shard_dims == (0, 1) else (cols, rows)
     x = torch.randn(32 * dim0_axis, 32 * dim1_axis, dtype=torch.bfloat16)
-    dx = distribute_tensor(x.to("tt"), mesh, [Shard(shard_dims[0]), Shard(shard_dims[1])])
+    dx = distribute_tensor(
+        x.to("tt"), mesh, [Shard(shard_dims[0]), Shard(shard_dims[1])]
+    )
 
     full = dx.full_tensor().cpu()
     torch.testing.assert_close(full, x, atol=0.05, rtol=0.05)
@@ -67,5 +79,9 @@ def test_same_ccl_across_meshes(tt_pg, mesh_2d_shape) -> None:
 
     mesh_2d = torch.tt.init_device_mesh(mesh_2d_shape, mesh_dim_names=("rows", "cols"))
     cols = mesh_2d.shape[1]
-    dx = DTensor.from_local(local.to("tt"), mesh_2d, [Replicate(), Partial()], run_check=False)
-    torch.testing.assert_close(dx.full_tensor().cpu(), local * cols, atol=0.05, rtol=0.05)
+    dx = DTensor.from_local(
+        local.to("tt"), mesh_2d, [Replicate(), Partial()], run_check=False
+    )
+    torch.testing.assert_close(
+        dx.full_tensor().cpu(), local * cols, atol=0.05, rtol=0.05
+    )

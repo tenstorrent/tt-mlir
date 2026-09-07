@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """cluster_axis derivation: each PG infers its runtime mesh axis from its
 own rank composition.
 """

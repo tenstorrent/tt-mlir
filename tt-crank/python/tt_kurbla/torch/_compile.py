@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """`torch.compile()` backend for tt-kurbla.
 
 Registers a dynamo backend under the name `tt` that lowers a post-aot FX
@@ -53,7 +57,9 @@ def _to_runtime_dtype(dtype: torch.dtype) -> "_native.DataType":
     try:
         return _DTYPE_TO_RUNTIME[dtype]
     except KeyError as e:
-        raise NotImplementedError(f"tt-kurbla compile: unsupported torch dtype {dtype}") from e
+        raise NotImplementedError(
+            f"tt-kurbla compile: unsupported torch dtype {dtype}"
+        ) from e
 
 
 def _spec_from_tensor(t: torch.Tensor) -> "_native.TensorTypeSpec":
@@ -62,6 +68,7 @@ def _spec_from_tensor(t: torch.Tensor) -> "_native.TensorTypeSpec":
 
 # Python operator registry: callable -> fn(*args, **kwargs).
 _OPERATORS: dict = {}
+
 
 def _operator(*targets):
     def decorator(fn):
@@ -81,13 +88,18 @@ def _(container, idx):
             # materialise. Reading such a slot is unsupported - raise here rather
             # than letting the None flow on (it would otherwise be silently
             # accepted as a graph output and returned to the caller).
-            raise NotImplementedError(f"tt-kurbla compile: output [{idx}] of a multi-output op is not lowered")
+            raise NotImplementedError(
+                f"tt-kurbla compile: output [{idx}] of a multi-output op is not lowered"
+            )
         return item
-    raise NotImplementedError(f"tt-kurbla compile: getitem on non-tuple {type(container).__name__}")
+    raise NotImplementedError(
+        f"tt-kurbla compile: getitem on non-tuple {type(container).__name__}"
+    )
 
 
 # ATen op lowering registry: OpOverload -> fn(mb, *args, **kwargs).
 _LOWERINGS: dict = {}
+
 
 def _lowering(*targets):
     def decorator(fn):
@@ -105,10 +117,12 @@ _SKIP_PREPARE_OP_ARGS: set = set()
 
 def _skip_prepare(*targets):
     """Mark targets as bypassing _prepare_op_args. Stack with @_lowering."""
+
     def decorator(fn):
         for t in targets:
             _SKIP_PREPARE_OP_ARGS.add(t)
         return fn
+
     return decorator
 
 
@@ -150,7 +164,9 @@ def _(mb, x, dim, keepdim=False, *, dtype=None):
 @_lowering(_aten.linalg_vector_norm.default)
 def _(mb, x, ord=2, dim=None, keepdim=False, *, dtype=None):
     if ord != 2:
-        raise NotImplementedError(f"tt-kurbla compile: linalg_vector_norm only supports ord=2, got {ord}")
+        raise NotImplementedError(
+            f"tt-kurbla compile: linalg_vector_norm only supports ord=2, got {ord}"
+        )
     return mb.vector_norm(x, [] if dim is None else [int(d) for d in dim], keepdim)
 
 
@@ -200,6 +216,7 @@ def _(mb, self, target, reduction=1):
 def _(mb, grad_output, self, target, reduction):
     return mb.mse_loss_backward(grad_output, self, target, int(reduction))
 
+
 @_lowering(_aten.div.Tensor)
 def _(mb, a, b):
     return mb.div(a, b)
@@ -226,15 +243,32 @@ def _(mb, input):
 
 
 @_lowering(_aten.convolution.default)
-def _(mb, input, weight, bias, stride, padding, dilation, transposed, output_padding, groups):
+def _(
+    mb,
+    input,
+    weight,
+    bias,
+    stride,
+    padding,
+    dilation,
+    transposed,
+    output_padding,
+    groups,
+):
     if transposed:
-        raise NotImplementedError("tt-kurbla compile: transposed convolution not supported")
+        raise NotImplementedError(
+            "tt-kurbla compile: transposed convolution not supported"
+        )
     # NCW / NCHW / NCDHW select conv1d / conv2d / conv3d respectively.
     builders = {3: mb.conv1d, 4: mb.conv2d, 5: mb.conv3d}
     rank = len(input.shape)
     if rank not in builders:
-        raise NotImplementedError(f"tt-kurbla compile: convolution supports rank 3, 4, or 5 inputs, got rank {rank}")
-    return builders[rank](input, weight, bias, list(stride), list(padding), list(dilation), int(groups))
+        raise NotImplementedError(
+            f"tt-kurbla compile: convolution supports rank 3, 4, or 5 inputs, got rank {rank}"
+        )
+    return builders[rank](
+        input, weight, bias, list(stride), list(padding), list(dilation), int(groups)
+    )
 
 
 @_lowering(_aten.max_pool2d_with_indices.default)
@@ -245,7 +279,14 @@ def _(mb, x, kernel_size, stride, padding=0, dilation=1, ceil_mode=False):
         dilation = [dilation, dilation]
     if not stride:
         stride = list(kernel_size)
-    result = mb.max_pool2d(x, list(kernel_size), list(stride), list(padding), list(dilation), bool(ceil_mode))
+    result = mb.max_pool2d(
+        x,
+        list(kernel_size),
+        list(stride),
+        list(padding),
+        list(dilation),
+        bool(ceil_mode),
+    )
     return (result, None)
 
 
@@ -255,7 +296,9 @@ def _(mb, input, weight, bias, running_mean, running_var, momentum, eps):
         raise NotImplementedError(
             "tt-kurbla compile: batch_norm without affine parameters (affine=False) not supported"
         )
-    result = mb.batch_norm_inference(input, weight, bias, running_mean, running_var, float(eps))
+    result = mb.batch_norm_inference(
+        input, weight, bias, running_mean, running_var, float(eps)
+    )
     return (result, None, None)
 
 
@@ -264,7 +307,9 @@ def _(mb, input, normalized_shape, weight, bias, eps):
     # ttir.layer_norm returns only the normalized tensor; native_layer_norm's
     # contract is (out, mean, rstd), so layer_norm_with_stats recomputes them.
     # bf16/fp16 stats come back in f32, matching torch._refs._normalize.
-    return mb.layer_norm_with_stats(input, weight, bias, list(normalized_shape), float(eps))
+    return mb.layer_norm_with_stats(
+        input, weight, bias, list(normalized_shape), float(eps)
+    )
 
 
 @_lowering(_aten.cos.default)
@@ -336,7 +381,9 @@ def _(mb, x):
 @_lowering(_aten.clamp.default)
 @_skip_prepare(_aten.clamp.default)
 def _(mb, x, min=None, max=None):
-    return mb.clamp(x, None if min is None else float(min), None if max is None else float(max))
+    return mb.clamp(
+        x, None if min is None else float(min), None if max is None else float(max)
+    )
 
 
 # clamp_min is clamp with no upper bound.
@@ -434,8 +481,14 @@ def _(mb, input, weight, bias=None):
 
 @_lowering(_aten.linear_backward.default)
 def _(mb, self, grad_output, weight, output_mask):
-    return mb.linear_backward(self, grad_output, weight, bool(output_mask[0]), bool(output_mask[1]),
-                              bool(output_mask[2]))
+    return mb.linear_backward(
+        self,
+        grad_output,
+        weight,
+        bool(output_mask[0]),
+        bool(output_mask[1]),
+        bool(output_mask[2]),
+    )
 
 
 @_lowering(_aten.add.Scalar)
@@ -504,8 +557,13 @@ def _(mb, tensors, dim=0):
 
 @_lowering(_aten.slice.Tensor)
 def _(mb, x, dim=0, start=None, end=None, step=1):
-    return mb.slice(x, int(dim), start if start is None else int(start),
-                    end if end is None else int(end), int(step))
+    return mb.slice(
+        x,
+        int(dim),
+        start if start is None else int(start),
+        end if end is None else int(end),
+        int(step),
+    )
 
 
 @_lowering(_aten.split.Tensor, _aten.split_with_sizes.default)
@@ -568,7 +626,9 @@ def _(mb, grad_output, indices, num_weights, padding_idx, scale_grad_by_freq=Fal
         raise NotImplementedError(
             "tt-kurbla compile: embedding_dense_backward with scale_grad_by_freq=True is not lowered"
         )
-    return mb.embedding_backward(grad_output, indices, int(num_weights), int(padding_idx))
+    return mb.embedding_backward(
+        grad_output, indices, int(num_weights), int(padding_idx)
+    )
 
 
 @_lowering(_aten.le.Scalar)
@@ -658,7 +718,9 @@ def _numpy_broadcast_shape(shapes):
         for i, d in enumerate(s):
             if d != 1:
                 if out[i] != 1 and out[i] != d:
-                    raise NotImplementedError(f"tt-kurbla compile: incompatible index broadcast {shapes}")
+                    raise NotImplementedError(
+                        f"tt-kurbla compile: incompatible index broadcast {shapes}"
+                    )
                 out[i] = d
     return out
 
@@ -696,13 +758,17 @@ def _(mb, x, indices):
         dim, idx = non_none[0]
         idx_shape = list(idx.shape)
         if len(idx_shape) != 1:
-            raise NotImplementedError("tt-kurbla compile: single-index aten.index.Tensor requires a 1-D index")
+            raise NotImplementedError(
+                "tt-kurbla compile: single-index aten.index.Tensor requires a 1-D index"
+            )
         k = idx_shape[0]
         out_shape = list(in_shape)
         out_shape[dim] = k
         view_shape = [1] * len(in_shape)
         view_shape[dim] = k
-        idx_i32 = _normalize_neg_index(mb, mb.typecast(idx, _native.DataType.Int32), in_shape[dim])
+        idx_i32 = _normalize_neg_index(
+            mb, mb.typecast(idx, _native.DataType.Int32), in_shape[dim]
+        )
         idx_full = mb.broadcast(mb.reshape(idx_i32, view_shape), out_shape)
         return mb.gather(x, idx_full, dim)
 
@@ -782,19 +848,44 @@ def _(mb, input, diagonal=0):
 
 @_lowering(_aten._scaled_dot_product_fused_attention_overrideable.default)
 @_skip_prepare(_aten._scaled_dot_product_fused_attention_overrideable.default)
-def _(mb, query, key, value, attn_bias=None, dropout_p=0.0, is_causal=False, return_debug_mask=False, scale=None):
+def _(
+    mb,
+    query,
+    key,
+    value,
+    attn_bias=None,
+    dropout_p=0.0,
+    is_causal=False,
+    return_debug_mask=False,
+    scale=None,
+):
     if dropout_p:
-        raise NotImplementedError(f"tt-kurbla sdpa: dropout_p must be 0 (inference only), got {dropout_p}")
+        raise NotImplementedError(
+            f"tt-kurbla sdpa: dropout_p must be 0 (inference only), got {dropout_p}"
+        )
     if return_debug_mask:
-        raise NotImplementedError("tt-kurbla sdpa: return_debug_mask=True is not supported")
-    result = mb.sdpa(query, key, value, is_causal=is_causal, scale=scale, attn_mask=attn_bias)
+        raise NotImplementedError(
+            "tt-kurbla sdpa: return_debug_mask=True is not supported"
+        )
+    result = mb.sdpa(
+        query, key, value, is_causal=is_causal, scale=scale, attn_mask=attn_bias
+    )
     # Returns a 9-tuple; downstream getitem[0] extracts the attention output.
     return (result, None, None, None, None, None, None, None, None)
 
 
 @_lowering(_aten._to_copy.default)
 @_skip_prepare(_aten._to_copy.default)
-def _(mb, x, dtype=None, layout=None, device=None, pin_memory=None, non_blocking=False, memory_format=None):
+def _(
+    mb,
+    x,
+    dtype=None,
+    layout=None,
+    device=None,
+    pin_memory=None,
+    non_blocking=False,
+    memory_format=None,
+):
     if dtype is not None:
         return mb.typecast(x, _to_runtime_dtype(dtype))
     return x
@@ -857,13 +948,24 @@ def _default_rt_dtype(dtype):
 
 @_lowering(_aten.full.default)
 @_skip_prepare(_aten.full.default)
-def _(mb, size, fill_value, dtype=None, layout=None, device=None, pin_memory=None, memory_format=None):
+def _(
+    mb,
+    size,
+    fill_value,
+    dtype=None,
+    layout=None,
+    device=None,
+    pin_memory=None,
+    memory_format=None,
+):
     return mb.full(list(size), float(fill_value), _default_rt_dtype(dtype))
 
 
 @_lowering(_aten.zeros.default)
 @_skip_prepare(_aten.zeros.default)
-def _(mb, size, dtype=None, layout=None, device=None, pin_memory=None, memory_format=None):
+def _(
+    mb, size, dtype=None, layout=None, device=None, pin_memory=None, memory_format=None
+):
     return mb.zeros(list(size), _default_rt_dtype(dtype))
 
 
@@ -875,7 +977,9 @@ def _(mb, input, dim, index, source):
 
 @_lowering(_aten.ones.default)
 @_skip_prepare(_aten.ones.default)
-def _(mb, size, dtype=None, layout=None, device=None, pin_memory=None, memory_format=None):
+def _(
+    mb, size, dtype=None, layout=None, device=None, pin_memory=None, memory_format=None
+):
     return mb.ones(list(size), _default_rt_dtype(dtype))
 
 
@@ -899,7 +1003,9 @@ def _(mb, self, size, dtype=None, layout=None, device=None, pin_memory=None):
 
 @_lowering(_aten.new_full.default)
 @_skip_prepare(_aten.new_full.default)
-def _(mb, self, size, fill_value, dtype=None, layout=None, device=None, pin_memory=None):
+def _(
+    mb, self, size, fill_value, dtype=None, layout=None, device=None, pin_memory=None
+):
     if dtype is None:
         return mb.full_like(self, list(size), float(fill_value))
     return mb.full(list(size), float(fill_value), _to_runtime_dtype(dtype))
@@ -910,7 +1016,16 @@ def _(mb, self, size, fill_value, dtype=None, layout=None, device=None, pin_memo
 # full_like rather than giving them their own op.
 @_lowering(_aten.full_like.default)
 @_skip_prepare(_aten.full_like.default)
-def _(mb, self, fill_value, dtype=None, layout=None, device=None, pin_memory=None, memory_format=None):
+def _(
+    mb,
+    self,
+    fill_value,
+    dtype=None,
+    layout=None,
+    device=None,
+    pin_memory=None,
+    memory_format=None,
+):
     shape = list(self.shape)
     if dtype is None:
         return mb.full_like(self, shape, float(fill_value))
@@ -953,7 +1068,9 @@ def _(mb, input, reduce_op, group_size, group_name):
 def _(mb, input, group_name, group_size, scatter_dim):
     # Our own reduce_scatter carries the real shard dim (used by the
     # Replicate->Shard redistribute patch); scatter it directly.
-    return mb.reduce_scatter(input, group_size, _cluster_axis_for_group(group_name), scatter_dim)
+    return mb.reduce_scatter(
+        input, group_size, _cluster_axis_for_group(group_name), scatter_dim
+    )
 
 
 @_lowering(_funcol.wait_tensor.default)
@@ -997,21 +1114,29 @@ def _prepare_op_args(
 class CompileOption(StrEnum):
     """Compile options in ``torch.compile(model, backend="tt", options={...})``."""
 
-    OPT_LEVEL = "optimization_level" # int
-    EXPERIMENTAL_WEIGHT_DTYPE = "experimental_weight_dtype" # BfpDtype
-    EXPERIMENTAL_KV_CACHE_DTYPE = "experimental_kv_cache_dtype" # BfpDtype
-    MATH_FIDELITY = "math_fidelity" # MathFidelity
-    FP32_DEST_ACC_EN = "fp32_dest_acc_en" # bool
-    EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN = "experimental_enable_fusing_conv2d_with_multiply_pattern" # bool
-    EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION = "experimental_enable_permute_matmul_fusion" # bool
-    ENABLE_TRACE = "enable_trace" # bool
-    ENABLE_CONST_EVAL = "enable_const_eval" # bool
-    ENABLE_CONST_EVAL_ON_CPU = "enable_const_eval_on_cpu" # bool
-    ENABLE_CONST_EVAL_INPUTS_TO_SYSTEM_MEMORY = "enable_const_eval_inputs_to_system_memory" # bool
-    EXPERIMENTAL_ENABLE_DRAM_SPACE_SAVING_OPTIMIZATION = "experimental_enable_dram_space_saving_optimization" # bool
-    ENABLE_CREATE_D2M_SUBGRAPHS = "enable_create_d2m_subgraphs" # bool
-    TTNN_PERF_METRICS_ENABLED = "ttnn_perf_metrics_enabled" # bool
-    TTNN_PERF_METRICS_OUTPUT_FILE = "ttnn_perf_metrics_output_file" # str
+    OPT_LEVEL = "optimization_level"  # int
+    EXPERIMENTAL_WEIGHT_DTYPE = "experimental_weight_dtype"  # BfpDtype
+    EXPERIMENTAL_KV_CACHE_DTYPE = "experimental_kv_cache_dtype"  # BfpDtype
+    MATH_FIDELITY = "math_fidelity"  # MathFidelity
+    FP32_DEST_ACC_EN = "fp32_dest_acc_en"  # bool
+    EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN = (
+        "experimental_enable_fusing_conv2d_with_multiply_pattern"  # bool
+    )
+    EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION = (
+        "experimental_enable_permute_matmul_fusion"  # bool
+    )
+    ENABLE_TRACE = "enable_trace"  # bool
+    ENABLE_CONST_EVAL = "enable_const_eval"  # bool
+    ENABLE_CONST_EVAL_ON_CPU = "enable_const_eval_on_cpu"  # bool
+    ENABLE_CONST_EVAL_INPUTS_TO_SYSTEM_MEMORY = (
+        "enable_const_eval_inputs_to_system_memory"  # bool
+    )
+    EXPERIMENTAL_ENABLE_DRAM_SPACE_SAVING_OPTIMIZATION = (
+        "experimental_enable_dram_space_saving_optimization"  # bool
+    )
+    ENABLE_CREATE_D2M_SUBGRAPHS = "enable_create_d2m_subgraphs"  # bool
+    TTNN_PERF_METRICS_ENABLED = "ttnn_perf_metrics_enabled"  # bool
+    TTNN_PERF_METRICS_OUTPUT_FILE = "ttnn_perf_metrics_output_file"  # str
 
 
 COMPILE_OPTIONS = [opt for opt in CompileOption]
@@ -1021,8 +1146,9 @@ COMPILE_OPTIONS = [opt for opt in CompileOption]
 #   CompileOption.MATH_FIDELITY: MathFidelity.HiFi4,
 #   CompileOptions.EXPERIMENTAL_WEIGHT_DTYPE: BfpDtype.BfpBf4
 # }
-BfpDtype = _native.BfpDtype          # BfpBf8, BfpBf4
+BfpDtype = _native.BfpDtype  # BfpBf8, BfpBf4
 MathFidelity = _native.MathFidelity  # LoFi, HiFi2, HiFi3, HiFi4
+
 
 def _compile_options_dict(options: _native.CompileOptions) -> dict[str, object]:
     """JSON-ready view of the options a graph was compiled with, for a dump's
@@ -1044,64 +1170,85 @@ def _compile_options_dict(options: _native.CompileOptions) -> dict[str, object]:
     return {opt.value: value_of(opt) for opt in COMPILE_OPTIONS}
 
 
-def _compile_options(options: dict [CompileOption, str | int | bool] | None) -> _native.CompileOptions:
+def _compile_options(
+    options: dict[CompileOption, str | int | bool] | None
+) -> _native.CompileOptions:
     """Converts python dict with CompileOption to _native.CompileOptions"""
 
-    opts = _native.CompileOptions() # default options from config.hpp
-    if (options is None):
+    opts = _native.CompileOptions()  # default options from config.hpp
+    if options is None:
         return opts
 
     unknown = options.keys() - COMPILE_OPTIONS
     if unknown:
-        raise ValueError(f"Unknown compile option(s) {sorted(unknown)}; supported: {sorted(COMPILE_OPTIONS)}")
+        raise ValueError(
+            f"Unknown compile option(s) {sorted(unknown)}; supported: {sorted(COMPILE_OPTIONS)}"
+        )
 
-    if (CompileOption.OPT_LEVEL in options):
+    if CompileOption.OPT_LEVEL in options:
         opts.optimization_level = options[CompileOption.OPT_LEVEL]
 
-    if (CompileOption.EXPERIMENTAL_WEIGHT_DTYPE in options):
-        opts.experimental_weight_dtype = options[CompileOption.EXPERIMENTAL_WEIGHT_DTYPE]
+    if CompileOption.EXPERIMENTAL_WEIGHT_DTYPE in options:
+        opts.experimental_weight_dtype = options[
+            CompileOption.EXPERIMENTAL_WEIGHT_DTYPE
+        ]
 
-    if (CompileOption.EXPERIMENTAL_KV_CACHE_DTYPE in options):
-        opts.experimental_kv_cache_dtype = options[CompileOption.EXPERIMENTAL_KV_CACHE_DTYPE]
+    if CompileOption.EXPERIMENTAL_KV_CACHE_DTYPE in options:
+        opts.experimental_kv_cache_dtype = options[
+            CompileOption.EXPERIMENTAL_KV_CACHE_DTYPE
+        ]
 
-    if (CompileOption.MATH_FIDELITY in options):
+    if CompileOption.MATH_FIDELITY in options:
         opts.math_fidelity = options[CompileOption.MATH_FIDELITY]
 
-    if (CompileOption.FP32_DEST_ACC_EN in options):
+    if CompileOption.FP32_DEST_ACC_EN in options:
         opts.fp32_dest_acc_en = options[CompileOption.FP32_DEST_ACC_EN]
 
-    if (CompileOption.EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN in options):
-        opts.experimental_enable_fusing_conv2d_with_multiply_pattern = options[CompileOption.EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN]
+    if CompileOption.EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN in options:
+        opts.experimental_enable_fusing_conv2d_with_multiply_pattern = options[
+            CompileOption.EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN
+        ]
 
-    if (CompileOption.EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION in options):
-        opts.experimental_enable_permute_matmul_fusion = options[CompileOption.EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION]
+    if CompileOption.EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION in options:
+        opts.experimental_enable_permute_matmul_fusion = options[
+            CompileOption.EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION
+        ]
 
-    if (CompileOption.ENABLE_TRACE in options):
+    if CompileOption.ENABLE_TRACE in options:
         opts.enable_trace = options[CompileOption.ENABLE_TRACE]
 
-    if (CompileOption.ENABLE_CONST_EVAL in options):
+    if CompileOption.ENABLE_CONST_EVAL in options:
         opts.enable_const_eval = options[CompileOption.ENABLE_CONST_EVAL]
 
-    if (CompileOption.ENABLE_CONST_EVAL_ON_CPU in options):
+    if CompileOption.ENABLE_CONST_EVAL_ON_CPU in options:
         opts.enable_const_eval_on_cpu = options[CompileOption.ENABLE_CONST_EVAL_ON_CPU]
 
-    if (CompileOption.ENABLE_CONST_EVAL_INPUTS_TO_SYSTEM_MEMORY in options):
-        opts.enable_const_eval_inputs_to_system_memory = options[CompileOption.ENABLE_CONST_EVAL_INPUTS_TO_SYSTEM_MEMORY]
+    if CompileOption.ENABLE_CONST_EVAL_INPUTS_TO_SYSTEM_MEMORY in options:
+        opts.enable_const_eval_inputs_to_system_memory = options[
+            CompileOption.ENABLE_CONST_EVAL_INPUTS_TO_SYSTEM_MEMORY
+        ]
 
-    if (CompileOption.EXPERIMENTAL_ENABLE_DRAM_SPACE_SAVING_OPTIMIZATION in options):
-        opts.experimental_enable_dram_space_saving_optimization = options[CompileOption.EXPERIMENTAL_ENABLE_DRAM_SPACE_SAVING_OPTIMIZATION]
+    if CompileOption.EXPERIMENTAL_ENABLE_DRAM_SPACE_SAVING_OPTIMIZATION in options:
+        opts.experimental_enable_dram_space_saving_optimization = options[
+            CompileOption.EXPERIMENTAL_ENABLE_DRAM_SPACE_SAVING_OPTIMIZATION
+        ]
 
-    if (CompileOption.ENABLE_CREATE_D2M_SUBGRAPHS in options):
-        opts.enable_create_d2m_subgraphs = options[CompileOption.ENABLE_CREATE_D2M_SUBGRAPHS]
+    if CompileOption.ENABLE_CREATE_D2M_SUBGRAPHS in options:
+        opts.enable_create_d2m_subgraphs = options[
+            CompileOption.ENABLE_CREATE_D2M_SUBGRAPHS
+        ]
 
-    if (CompileOption.TTNN_PERF_METRICS_ENABLED in options):
-        opts.ttnn_perf_metrics_enabled = options[CompileOption.TTNN_PERF_METRICS_ENABLED]
+    if CompileOption.TTNN_PERF_METRICS_ENABLED in options:
+        opts.ttnn_perf_metrics_enabled = options[
+            CompileOption.TTNN_PERF_METRICS_ENABLED
+        ]
 
-    if (CompileOption.TTNN_PERF_METRICS_OUTPUT_FILE in options):
-        opts.ttnn_perf_metrics_output_file = options[CompileOption.TTNN_PERF_METRICS_OUTPUT_FILE]
+    if CompileOption.TTNN_PERF_METRICS_OUTPUT_FILE in options:
+        opts.ttnn_perf_metrics_output_file = options[
+            CompileOption.TTNN_PERF_METRICS_OUTPUT_FILE
+        ]
 
     return opts
-
 
 
 def _fw_args_roles(num_inputs: int, fw_meta) -> list["_native.ArgumentType"]:
@@ -1124,6 +1271,7 @@ def _fw_args_roles(num_inputs: int, fw_meta) -> list["_native.ArgumentType"]:
             roles[i] = _native.ArgumentType.Parameter
     return roles
 
+
 def _bw_args_roles(num_inputs: int) -> list["_native.ArgumentType"]:
     """Tags the backward graph's args as ``Input``.
 
@@ -1138,6 +1286,7 @@ def _bw_args_roles(num_inputs: int) -> list["_native.ArgumentType"]:
     one path to a stale-gradient wrong result. So we don't tag it.
     """
     return [_native.ArgumentType.Input] * num_inputs
+
 
 class _TTIRInterpreter(torch.fx.Interpreter):
     """Walks the post-aot FX graph, dispatching each call_function to its
@@ -1169,7 +1318,9 @@ class _TTIRInterpreter(torch.fx.Interpreter):
     def _call_operator(self, target, args, kwargs):
         op = _OPERATORS.get(target)
         if op is None:
-            raise NotImplementedError(f"tt-kurbla compile: operator {target} not implemented")
+            raise NotImplementedError(
+                f"tt-kurbla compile: operator {target} not implemented"
+            )
 
         return op(*args, **kwargs)
 
@@ -1197,7 +1348,7 @@ def _lower_and_compile(
     example_inputs: list[torch.Tensor],
     roles: list["_native.ArgumentType"],
     *,
-    options: _native.CompileOptions
+    options: _native.CompileOptions,
 ) -> Callable:
     """Lower one post-aot FX graph (forward or backward) to a runnable program.
 
@@ -1253,7 +1404,9 @@ def _lower_and_compile(
     program = result.program
 
     if dumping_artifacts:
-        register_artifact(Artifact(_compile_options_dict(options), result, _aot_graph_kind()))
+        register_artifact(
+            Artifact(_compile_options_dict(options), result, _aot_graph_kind())
+        )
 
     def runner(*inputs: torch.Tensor) -> list:
         produced = iter(_native.run_program(program, list(inputs), output_dtypes))
@@ -1262,7 +1415,9 @@ def _lower_and_compile(
     return runner
 
 
-def _empty_like_decomp(self, dtype=None, layout=None, device=None, pin_memory=None, memory_format=None):
+def _empty_like_decomp(
+    self, dtype=None, layout=None, device=None, pin_memory=None, memory_format=None
+):
     # No uninitialized-allocation lowering; materialize as zeros ("empty" content
     # is unspecified anyway, and zeros avoids garbage if the buffer is read).
     return self.new_zeros(self.shape, dtype=dtype if dtype is not None else self.dtype)
@@ -1273,7 +1428,9 @@ def _fill_scalar_decomp(self, value):
     return self.new_full(self.shape, value, dtype=self.dtype)
 
 
-def _new_empty_strided_decomp(self, size, stride, dtype=None, layout=None, device=None, pin_memory=None):
+def _new_empty_strided_decomp(
+    self, size, stride, dtype=None, layout=None, device=None, pin_memory=None
+):
     contiguous, acc = [], 1
     for dim in reversed(size):
         contiguous.insert(0, acc)
@@ -1296,11 +1453,13 @@ def _build_decomposition_table():
     # Use default core decompositions, plus a few extra and some custom ones.
     table = dict(core_aten_decompositions())
     table.update(get_decompositions(_EXTRA_DECOMP_OPS))
-    table.update({
-        torch.ops.aten.empty_like.default: _empty_like_decomp,
-        torch.ops.aten.fill.Scalar: _fill_scalar_decomp,
-        torch.ops.aten.new_empty_strided.default: _new_empty_strided_decomp,
-    })
+    table.update(
+        {
+            torch.ops.aten.empty_like.default: _empty_like_decomp,
+            torch.ops.aten.fill.Scalar: _fill_scalar_decomp,
+            torch.ops.aten.new_empty_strided.default: _new_empty_strided_decomp,
+        }
+    )
     # Never decompose an op tt lowers directly — keep it as a leaf for its kernel.
     return {op: fn for op, fn in table.items() if op not in _LOWERINGS}
 
@@ -1312,22 +1471,31 @@ def tt_backend(
     gm: torch.fx.GraphModule,
     example_inputs: list[torch.Tensor],
     *,
-    options: dict [CompileOption, str | int | bool] | None = None,
+    options: dict[CompileOption, str | int | bool] | None = None,
 ):
     """Top-level dynamo backend. Delegates to aot_module_simplified."""
-    lower_and_compile = functools.partial(_lower_and_compile, options=_compile_options(options))
+    lower_and_compile = functools.partial(
+        _lower_and_compile, options=_compile_options(options)
+    )
 
-    def fw_compiler(fw_gm: torch.fx.GraphModule, fw_inputs: list[torch.Tensor]) -> Callable:
+    def fw_compiler(
+        fw_gm: torch.fx.GraphModule, fw_inputs: list[torch.Tensor]
+    ) -> Callable:
         fw_meta = getattr(torch._guards.TracingContext.try_get(), "fw_metadata", None)
         roles = _fw_args_roles(len(fw_inputs), fw_meta)
         return lower_and_compile(fw_gm, fw_inputs, roles)
 
-    def bw_compiler(bw_gm: torch.fx.GraphModule, bw_inputs: list[torch.Tensor]) -> Callable:
+    def bw_compiler(
+        bw_gm: torch.fx.GraphModule, bw_inputs: list[torch.Tensor]
+    ) -> Callable:
         roles = _bw_args_roles(len(bw_inputs))
         return lower_and_compile(bw_gm, bw_inputs, roles)
 
     return aot_module_simplified(
-        gm, example_inputs, fw_compiler=fw_compiler, bw_compiler=bw_compiler,
+        gm,
+        example_inputs,
+        fw_compiler=fw_compiler,
+        bw_compiler=bw_compiler,
         decompositions=_TT_DECOMPOSITIONS,
     )
 

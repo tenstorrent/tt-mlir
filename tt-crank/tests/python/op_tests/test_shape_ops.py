@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """Tests for shape-manipulation ops: unsqueeze, squeeze, expand, transpose, permute, tril, pad."""
 
 import pytest

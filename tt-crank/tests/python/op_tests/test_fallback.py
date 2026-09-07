@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """Coverage for the global CPU fallback registered in src/torch/ops/fallback.cpp.
 
 The fallback is the catch-all that routes any aten op without a native

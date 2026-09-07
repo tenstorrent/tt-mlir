@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """Smoke tests for the `torch.compile(model, backend="tt")` path.
 
 Phase-0 surface: `aten.add.Tensor` only - but with full semantics
@@ -14,7 +18,12 @@ import torch.nn.functional as F
 from torch._dynamo.exc import BackendCompilerFailed
 
 from tt_kurbla.torch.testing import DeviceType, ExecutionMode, assert_close_cpu_vs_tt
-from tt_kurbla.torch._compile import _compile_options, CompileOption, BfpDtype, MathFidelity
+from tt_kurbla.torch._compile import (
+    _compile_options,
+    CompileOption,
+    BfpDtype,
+    MathFidelity,
+)
 from _models import MNISTLinear
 
 
@@ -30,7 +39,7 @@ def _assert_compile_matches_eager(
     *cpu_inputs: torch.Tensor,
     atol: float | None = None,
     rtol: float | None = None,
-    options: dict [CompileOption, str | int | bool] | None = None,
+    options: dict[CompileOption, str | int | bool] | None = None,
 ) -> None:
     """Compile `model` with the tt dynamo backend and compare its output to
     eager-CPU.
@@ -55,7 +64,9 @@ class _ChainAdd(nn.Module):
     """`((a + b) + c) + a` - exercises operand reuse and a 3-deep add chain
     from a single FX graph."""
 
-    def forward(self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+    ) -> torch.Tensor:
         t = a + b
         t = t + c
         return t + a
@@ -78,6 +89,7 @@ class _AddWithParam(nn.Module):
 def test_compile_single_add(shape: tuple[int, ...]) -> None:
     """The minimal compile graph: one add. Smoke-tests that the FX walker,
     builder, compile, and run plumbing all line up end-to-end."""
+
     class _Add(nn.Module):
         def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             return a + b
@@ -118,6 +130,7 @@ def test_compile_add_alpha(alpha: float) -> None:
     """`torch.add(a, b, alpha=k)` - the alpha scale must travel from the FX
     kwarg through the lowering into the same `scale_tensor` subgraph the
     eager kernel emits. Mirror of the eager `test_add_alpha`."""
+
     class _AddAlpha(nn.Module):
         def __init__(self, k: float) -> None:
             super().__init__()
@@ -143,11 +156,14 @@ def test_compile_add_alpha(alpha: float) -> None:
     ],
     ids=["row_bcast", "col_bcast", "channel_bcast"],
 )
-def test_compile_add_broadcast(lhs_shape: tuple[int, ...], rhs_shape: tuple[int, ...]) -> None:
+def test_compile_add_broadcast(
+    lhs_shape: tuple[int, ...], rhs_shape: tuple[int, ...]
+) -> None:
     """Broadcasting matrices: lhs and rhs have different ranks/shapes, the
     compile lowering must compute the broadcasted result shape via
     `at::infer_size` - same path the eager kernel takes - instead of
     assuming shapes match."""
+
     class _Add(nn.Module):
         def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             return a + b
@@ -160,6 +176,7 @@ def test_compile_add_broadcast(lhs_shape: tuple[int, ...], rhs_shape: tuple[int,
 @pytest.mark.parametrize("shape", _TILE_SHAPES)
 def test_compile_relu(shape: tuple[int, ...]) -> None:
     """Single aten::relu in a compiled graph."""
+
     class _ReLU(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             return torch.relu(x)
@@ -171,6 +188,7 @@ def test_compile_relu(shape: tuple[int, ...]) -> None:
 @pytest.mark.parametrize("m,n", [(32, 64), (64, 32)])
 def test_compile_t(m: int, n: int) -> None:
     """Single aten::t in a compiled graph."""
+
     class _T(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             return torch.t(x)
@@ -187,6 +205,7 @@ def test_compile_t(m: int, n: int) -> None:
 def test_compile_mm(m: int, k: int, n: int) -> None:
     """Single aten::mm in a compiled graph — exercises the FX lowering,
     TTIR MatmulOp emission, and runner round-trip for matrix multiply."""
+
     class _MM(nn.Module):
         def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             return torch.mm(a, b)
@@ -196,28 +215,38 @@ def test_compile_mm(m: int, k: int, n: int) -> None:
     _assert_compile_matches_eager(_MM(), a, b, atol=0.05, rtol=0.05)
 
 
-@pytest.mark.parametrize("beta,alpha", [(1.0, 1.0), (0.5, 2.0), (0.0, 1.0)], ids=["default", "scaled", "no_bias"])
+@pytest.mark.parametrize(
+    "beta,alpha",
+    [(1.0, 1.0), (0.5, 2.0), (0.0, 1.0)],
+    ids=["default", "scaled", "no_bias"],
+)
 def test_compile_addmm(beta: float, alpha: float) -> None:
     """aten::addmm with varying beta/alpha — covers the LinearOp fast path
     (beta==alpha==1), the scaled matmul+add path, and the zero-bias path."""
+
     class _AddMM(nn.Module):
         def __init__(self, b: float, a: float) -> None:
             super().__init__()
             self.b = b
             self.a = a
 
-        def forward(self, bias: torch.Tensor, mat1: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
+        def forward(
+            self, bias: torch.Tensor, mat1: torch.Tensor, mat2: torch.Tensor
+        ) -> torch.Tensor:
             return torch.addmm(bias, mat1, mat2, beta=self.b, alpha=self.a)
 
     bias = torch.randn((32, 32), dtype=torch.bfloat16)
     mat1 = torch.randn((32, 64), dtype=torch.bfloat16)
     mat2 = torch.randn((64, 32), dtype=torch.bfloat16)
-    _assert_compile_matches_eager(_AddMM(beta, alpha), bias, mat1, mat2, atol=0.05, rtol=0.05)
+    _assert_compile_matches_eager(
+        _AddMM(beta, alpha), bias, mat1, mat2, atol=0.05, rtol=0.05
+    )
 
 
 @pytest.mark.parametrize("shape", _TILE_SHAPES)
 def test_compile_sub(shape: tuple[int, ...]) -> None:
     """Single aten::sub in a compiled graph."""
+
     class _Sub(nn.Module):
         def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             return torch.sub(a, b)
@@ -231,6 +260,7 @@ def test_compile_sub(shape: tuple[int, ...]) -> None:
 def test_compile_sub_alpha(alpha: float) -> None:
     """`torch.sub(a, b, alpha=k)` — the alpha scale must pass through the
     FX kwarg into the same scale_tensor subgraph the eager kernel emits."""
+
     class _SubAlpha(nn.Module):
         def __init__(self, k: float) -> None:
             super().__init__()
@@ -247,6 +277,7 @@ def test_compile_sub_alpha(alpha: float) -> None:
 @pytest.mark.parametrize("shape", _TILE_SHAPES)
 def test_compile_mul(shape: tuple[int, ...]) -> None:
     """Single aten::mul in a compiled graph."""
+
     class _Mul(nn.Module):
         def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             return torch.mul(a, b)
@@ -259,6 +290,7 @@ def test_compile_mul(shape: tuple[int, ...]) -> None:
 @pytest.mark.parametrize("shape", _TILE_SHAPES)
 def test_compile_rsqrt(shape: tuple[int, ...]) -> None:
     """Single aten::rsqrt in a compiled graph. Positive inputs only."""
+
     class _Rsqrt(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             return torch.rsqrt(x)
@@ -270,6 +302,7 @@ def test_compile_rsqrt(shape: tuple[int, ...]) -> None:
 @pytest.mark.parametrize("shape", _TILE_SHAPES)
 def test_compile_sqrt(shape: tuple[int, ...]) -> None:
     """Single aten::sqrt in a compiled graph. Positive inputs only."""
+
     class _Sqrt(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             return torch.sqrt(x)
@@ -281,6 +314,7 @@ def test_compile_sqrt(shape: tuple[int, ...]) -> None:
 @pytest.mark.parametrize("shape", _TILE_SHAPES)
 def test_compile_tanh(shape: tuple[int, ...]) -> None:
     """Single aten::tanh in a compiled graph."""
+
     class _Tanh(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             return torch.tanh(x)
@@ -292,6 +326,7 @@ def test_compile_tanh(shape: tuple[int, ...]) -> None:
 @pytest.mark.parametrize("shape", _TILE_SHAPES)
 def test_compile_reciprocal(shape: tuple[int, ...]) -> None:
     """Single aten::reciprocal in a compiled graph. Inputs kept away from zero."""
+
     class _Reciprocal(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             return torch.reciprocal(x)
@@ -312,6 +347,7 @@ def test_compile_reciprocal(shape: tuple[int, ...]) -> None:
 def test_compile_view(src_shape: tuple[int, ...], dst_shape: tuple[int, ...]) -> None:
     """aten::view in a compiled graph — exercises ReshapeOp emission and
     shape-attr construction for the FX lowering."""
+
     class _View(nn.Module):
         def __init__(self, shape: tuple[int, ...]) -> None:
             super().__init__()
@@ -337,6 +373,7 @@ def test_compile_view(src_shape: tuple[int, ...], dst_shape: tuple[int, ...]) ->
 def test_compile_mean(shape: tuple[int, ...], dim: list[int], keepdim: bool) -> None:
     """aten::mean.dim in a compiled graph — exercises MeanOp with dim_arg and
     keep_dim attrs, covering the AdaptiveAvgPool2d decomposition pattern."""
+
     class _Mean(nn.Module):
         def __init__(self, d: list[int], k: bool) -> None:
             super().__init__()
@@ -360,7 +397,9 @@ def test_compile_mean(shape: tuple[int, ...], dim: list[int], keepdim: bool) -> 
     ],
     ids=["2d_dim1", "2d_dim1_keepdim", "3d_dims12_keepdim", "3d_all_dims"],
 )
-def test_compile_linalg_vector_norm(shape: tuple[int, ...], dim: list[int] | None, keepdim: bool) -> None:
+def test_compile_linalg_vector_norm(
+    shape: tuple[int, ...], dim: list[int] | None, keepdim: bool
+) -> None:
     class _VectorNorm(nn.Module):
         def __init__(self, d: list[int] | None, k: bool) -> None:
             super().__init__()
@@ -377,6 +416,7 @@ def test_compile_linalg_vector_norm(shape: tuple[int, ...], dim: list[int] | Non
 def test_compile_normalize() -> None:
     """F.normalize decomposes to linalg_vector_norm + clamp_min + expand + div -
     the op mix Wan's VAE RMS norm uses"""
+
     class _Normalize(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             return F.normalize(x, dim=1)
@@ -412,17 +452,41 @@ def test_compile_mnist(batch: int, feat: int, hidden: int, classes: int) -> None
         (2, 32, 32, 64, 3, 1, 1, 1, 1, True),
     ],
     ids=[
-        "k3_s1_pad1_nobias", "k3_s2_pad1_nobias", "k1_bias",
-        "grouped", "depthwise", "dilation2", "k5_s2_len64",
-        "grouped_dilation_bias", "batch2_bias",
+        "k3_s1_pad1_nobias",
+        "k3_s2_pad1_nobias",
+        "k1_bias",
+        "grouped",
+        "depthwise",
+        "dilation2",
+        "k5_s2_len64",
+        "grouped_dilation_bias",
+        "batch2_bias",
     ],
 )
-def test_compile_conv1d(n: int, c_in: int, length: int, c_out: int, ksize: int, stride: int,
-                        padding: int, dilation: int, groups: int, bias: bool) -> None:
+def test_compile_conv1d(
+    n: int,
+    c_in: int,
+    length: int,
+    c_out: int,
+    ksize: int,
+    stride: int,
+    padding: int,
+    dilation: int,
+    groups: int,
+    bias: bool,
+) -> None:
     """aten::convolution with a rank-3 input in a compiled graph — exercises the
     conv1d rank dispatch and build_conv1d's own NCW→NLC→NCW permutes."""
-    model = nn.Conv1d(c_in, c_out, ksize, stride=stride, padding=padding,
-                      dilation=dilation, groups=groups, bias=bias).to(torch.bfloat16)
+    model = nn.Conv1d(
+        c_in,
+        c_out,
+        ksize,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+        bias=bias,
+    ).to(torch.bfloat16)
     x = torch.randn((n, c_in, length), dtype=torch.bfloat16)
     _assert_compile_matches_eager(model, x, atol=0.05, rtol=0.05)
 
@@ -444,18 +508,43 @@ def test_compile_conv1d(n: int, c_in: int, length: int, c_out: int, ksize: int, 
         (1, 16, 28, 28, 16, 3, 1, 1, 1, 16, True),
     ],
     ids=[
-        "3x3_s1_nobias", "3x3_s2_nobias", "1x1_bias",
-        "grouped", "depthwise", "dilation2", "asymmetric_hw",
-        "rect_kernel_asym_stride", "grouped_dilation_bias", "depthwise_bias",
+        "3x3_s1_nobias",
+        "3x3_s2_nobias",
+        "1x1_bias",
+        "grouped",
+        "depthwise",
+        "dilation2",
+        "asymmetric_hw",
+        "rect_kernel_asym_stride",
+        "grouped_dilation_bias",
+        "depthwise_bias",
     ],
 )
-def test_compile_conv2d(n: int, c_in: int, h: int, w: int, c_out: int, ksize: int | tuple[int, int],
-                        stride: int | tuple[int, int], padding: int | tuple[int, int], dilation: int,
-                        groups: int, bias: bool) -> None:
+def test_compile_conv2d(
+    n: int,
+    c_in: int,
+    h: int,
+    w: int,
+    c_out: int,
+    ksize: int | tuple[int, int],
+    stride: int | tuple[int, int],
+    padding: int | tuple[int, int],
+    dilation: int,
+    groups: int,
+    bias: bool,
+) -> None:
     """aten::convolution in a compiled graph — exercises Conv2dOp with NCHW dim
     attrs and optional bias reshape across grouped/depthwise/dilated/rectangular configs."""
-    model = nn.Conv2d(c_in, c_out, ksize, stride=stride, padding=padding,
-                      dilation=dilation, groups=groups, bias=bias).to(torch.bfloat16)
+    model = nn.Conv2d(
+        c_in,
+        c_out,
+        ksize,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+        bias=bias,
+    ).to(torch.bfloat16)
     x = torch.randn((n, c_in, h, w), dtype=torch.bfloat16)
     _assert_compile_matches_eager(model, x, atol=0.05, rtol=0.05)
 
@@ -473,9 +562,21 @@ def test_compile_conv2d(n: int, c_in: int, h: int, w: int, c_out: int, ksize: in
     ],
     ids=["k3_s1_pad1_nobias", "k3_s2_pad1_nobias", "k1_bias", "batch2_bias"],
 )
-def test_compile_conv3d(n: int, c_in: int, d: int, h: int, w: int, c_out: int, ksize: int,
-                        stride: int, padding: int, bias: bool) -> None:
-    model = nn.Conv3d(c_in, c_out, ksize, stride=stride, padding=padding, bias=bias).to(torch.bfloat16)
+def test_compile_conv3d(
+    n: int,
+    c_in: int,
+    d: int,
+    h: int,
+    w: int,
+    c_out: int,
+    ksize: int,
+    stride: int,
+    padding: int,
+    bias: bool,
+) -> None:
+    model = nn.Conv3d(c_in, c_out, ksize, stride=stride, padding=padding, bias=bias).to(
+        torch.bfloat16
+    )
     x = torch.randn((n, c_in, d, h, w), dtype=torch.bfloat16)
     _assert_compile_matches_eager(model, x, atol=0.05, rtol=0.05)
 
@@ -488,12 +589,17 @@ def test_compile_conv3d(n: int, c_in: int, d: int, h: int, w: int, c_out: int, k
     ],
     ids=["stride2_pad1", "stride2_nopad"],
 )
-def test_compile_max_pool2d(n: int, c: int, h: int, w: int, k: int, stride: int, padding: int) -> None:
+def test_compile_max_pool2d(
+    n: int, c: int, h: int, w: int, k: int, stride: int, padding: int
+) -> None:
     """aten::max_pool2d_with_indices in a compiled graph — exercises the NCHW→NHWC
     permute, MaxPool2dOp, and NHWC→NCHW permute path through the TTIR emitter."""
+
     class _MaxPool(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
-            return torch.nn.functional.max_pool2d(x, kernel_size=k, stride=stride, padding=padding)
+            return torch.nn.functional.max_pool2d(
+                x, kernel_size=k, stride=stride, padding=padding
+            )
 
     x = torch.randn((n, c, h, w), dtype=torch.bfloat16)
     _assert_compile_matches_eager(_MaxPool(), x)
@@ -517,8 +623,9 @@ def test_compile_layer_norm_inference(affine: bool) -> None:
 
 @pytest.mark.parametrize("affine", [True, False])
 def test_compile_layer_norm_backward(affine: bool) -> None:
-    """ The training path: a grad-live graph consumes layer_norm's mean/rstd, so this
+    """The training path: a grad-live graph consumes layer_norm's mean/rstd, so this
     is the test that forces them to be real values in the dtype aot's meta expects."""
+
     def loss_and_grad(x, weight):
         model = torch.nn.LayerNorm(64, elementwise_affine=False)
         out = model(x)
@@ -536,7 +643,9 @@ def test_compile_layer_norm_backward(affine: bool) -> None:
     x_tt = x.detach().to("tt").requires_grad_(True)
     w_tt = weight.detach().to("tt").requires_grad_(True)
     torch.compile(loss_and_grad, backend="tt")(x_tt, w_tt).backward()
-    assert x_tt.grad is not None, "no gradient flowed back through the compiled layer_norm"
+    assert (
+        x_tt.grad is not None
+    ), "no gradient flowed back through the compiled layer_norm"
     torch.testing.assert_close(x_tt.grad.cpu(), ref_grad, atol=0.05, rtol=0.05)
 
 
@@ -544,6 +653,7 @@ def test_compile_add_dtype_promotion() -> None:
     """bf16 + f32 must promote to f32 - same `at::promote_types` semantics
     the eager kernel applies. Validates that the compile path's MLIR-level
     promotion matches the torch-level promotion."""
+
     class _Add(nn.Module):
         def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             return a + b
@@ -597,6 +707,7 @@ def test_compile_log(shape: tuple[int, ...]) -> None:
 @pytest.mark.parametrize("shape", _TILE_SHAPES)
 def test_compile_log_backward(shape: tuple[int, ...]) -> None:
     """log's backward is grad / self, which aot emits as aten.div.Tensor."""
+
     def loss_fn(x: torch.Tensor) -> torch.Tensor:
         return torch.log(x).sum(dim=-1, keepdim=True)
 
@@ -635,6 +746,7 @@ def test_compile_softplus() -> None:
     """softplus has no lowering of its own: aten decomposes it into exp/log1p
     plus a threshold comparison, so this covers both reached through that route
     (the shape of the gate in a linear-attention layer)."""
+
     class _Softplus(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             return nn.functional.softplus(x)
@@ -664,6 +776,7 @@ def test_compile_cumsum_widening_dtype() -> None:
     passes it over because the interpreter promotes the input to the node's output
     dtype first, so f32 accumulation already happens — assert_close checks dtype,
     which is what pins that down."""
+
     class _CumSumF32(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             return torch.cumsum(x, dim=-1, dtype=torch.float32)
@@ -721,6 +834,7 @@ def test_compile_div_scalar(scalar: float) -> None:
 @pytest.mark.parametrize("scalar", [2.0, 0.5])
 def test_compile_div_scalar_via_aten_op(scalar: float) -> None:
     """Mirrors test_compile_add_scalar_via_aten_op for div.Scalar."""
+
     def f(x: torch.Tensor) -> torch.Tensor:
         return torch.ops.aten.div.Scalar(x, scalar)
 
@@ -797,6 +911,7 @@ def test_compile_add_scalar_via_aten_op(scalar: float) -> None:
     lowering — Dynamo emits `add.Tensor` for plain `x + 2.0` and never hits
     this path. fullgraph=True prevents silent CPU fallback so any lowering bug
     surfaces as a real failure."""
+
     def f(x: torch.Tensor) -> torch.Tensor:
         return torch.ops.aten.add.Scalar(x, scalar)
 
@@ -824,6 +939,7 @@ def test_compile_mul_scalar(scalar: float) -> None:
 @pytest.mark.parametrize("scalar", [2.0, -0.5])
 def test_compile_mul_scalar_via_aten_op(scalar: float) -> None:
     """Mirrors test_compile_add_scalar_via_aten_op for mul.Scalar."""
+
     def f(x: torch.Tensor) -> torch.Tensor:
         return torch.ops.aten.mul.Scalar(x, scalar)
 
@@ -905,7 +1021,9 @@ def test_compile_transpose(dim0: int, dim1: int) -> None:
     "src_shape,target_shape",
     [((1, 64), (32, 64)), ((32, 1), (32, 64)), ((1, 1, 64), (32, 32, 64))],
 )
-def test_compile_expand(src_shape: tuple[int, ...], target_shape: tuple[int, ...]) -> None:
+def test_compile_expand(
+    src_shape: tuple[int, ...], target_shape: tuple[int, ...]
+) -> None:
     class _Expand(nn.Module):
         def __init__(self, shape: tuple[int, ...]) -> None:
             super().__init__()
@@ -918,11 +1036,14 @@ def test_compile_expand(src_shape: tuple[int, ...], target_shape: tuple[int, ...
     _assert_compile_matches_eager(_Expand(target_shape), x)
 
 
-@pytest.mark.parametrize("shape,perm", [
-    ((32, 64), (1, 0)),
-    ((32, 64, 32), (2, 0, 1)),
-    ((32, 64, 32), (0, 2, 1)),
-])
+@pytest.mark.parametrize(
+    "shape,perm",
+    [
+        ((32, 64), (1, 0)),
+        ((32, 64, 32), (2, 0, 1)),
+        ((32, 64, 32), (0, 2, 1)),
+    ],
+)
 def test_compile_permute(shape: tuple[int, ...], perm: tuple[int, ...]) -> None:
     class _Permute(nn.Module):
         def __init__(self, p: tuple[int, ...]) -> None:
@@ -1015,6 +1136,7 @@ def test_compile_matmul_3d(b: int, m: int, k: int, n: int) -> None:
 )
 def test_compile_matmul_4d(b: int, h: int, s: int, d: int) -> None:
     """Attention QK^T pattern: [B,H,S,D] @ [B,H,D,S] -> [B,H,S,S]."""
+
     class _Matmul(nn.Module):
         def forward(self, q: torch.Tensor, k: torch.Tensor) -> torch.Tensor:
             return torch.matmul(q, k)
@@ -1051,6 +1173,7 @@ def test_compile_bmm(b: int, m: int, k: int, n: int) -> None:
 def test_compile_sum(shape: tuple[int, ...], dim: list[int], keepdim: bool) -> None:
     """aten::sum.dim_IntList in a compiled graph — exercises SumOp with dim
     and keep_dim attrs. Mirrors test_compile_mean."""
+
     class _Sum(nn.Module):
         def __init__(self, d: list[int], k: bool) -> None:
             super().__init__()
@@ -1082,6 +1205,7 @@ def test_compile_any(dim: int | list[int] | None, keepdim: bool) -> None:
     """aten::any.{default,dim,dims} in a compiled graph. The mask is built inside
     forward so reduce_or consumes a comparison result, and dim=None reduces to a
     rank-0 Bool output."""
+
     class _Any(nn.Module):
         def __init__(self, d: int | list[int] | None, k: bool) -> None:
             super().__init__()
@@ -1101,6 +1225,7 @@ def test_compile_all_via_any() -> None:
     """`torch.all` has no lowering of its own on the compile path: aten decomposes
     it to logical_not/any.dims/logical_not, so this covers any.dims reached through
     that route (the shape of an attention-mask check inside a traced model)."""
+
     class _All(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             return torch.all(x > 0.5)
@@ -1111,6 +1236,7 @@ def test_compile_all_via_any() -> None:
 def test_compile_slice_assign_strided() -> None:
     """A strided slice assignment functionalizes into slice + copy + slice_scatter,
     and slice_scatter decomposes onto arange/remainder/index/where."""
+
     class _Interleave(nn.Module):
         def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
             out = x.clone()
@@ -1125,6 +1251,7 @@ def test_compile_slice_assign_strided() -> None:
 def test_compile_slice_assign_broadcast() -> None:
     """aten::copy.default where src is narrower than the destination slice, so the
     lowering has to broadcast rather than pass the value straight through."""
+
     class _Fill(nn.Module):
         def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
             out = x.clone()
@@ -1141,6 +1268,7 @@ def test_compile_remainder_scalar(divisor: int) -> None:
     """aten::remainder.Scalar on an integer input, both divisor signs. torch's
     remainder is floored (the result follows the divisor's sign), so this would
     fail against a truncating fmod lowering."""
+
     class _Rem(nn.Module):
         def __init__(self, d: int) -> None:
             super().__init__()
@@ -1162,6 +1290,7 @@ def test_compile_pad(pad: tuple[int, ...]) -> None:
     """aten::constant_pad_nd.default. Covers a one-sided grow, a negative amount
     (which crops that edge instead), both signs within one dim, and two dims at
     once."""
+
     class _Pad(nn.Module):
         def __init__(self, p: tuple[int, ...]) -> None:
             super().__init__()
@@ -1170,11 +1299,14 @@ def test_compile_pad(pad: tuple[int, ...]) -> None:
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             return F.pad(x, self.p)
 
-    _assert_compile_matches_eager(_Pad(pad), torch.randn((1, 128, 15), dtype=torch.bfloat16))
+    _assert_compile_matches_eager(
+        _Pad(pad), torch.randn((1, 128, 15), dtype=torch.bfloat16)
+    )
 
 
 def test_compile_le() -> None:
     """aten::le.Tensor in a compiled graph — produces a Bool result tensor."""
+
     class _Le(nn.Module):
         def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             return a <= b
@@ -1188,8 +1320,11 @@ def test_compile_where() -> None:
     """aten::where.self in a compiled graph — Bool mask selects between two
     float tensors. The mask is produced by aten::le so the graph exercises
     both lowerings end-to-end."""
+
     class _Where(nn.Module):
-        def forward(self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+        def forward(
+            self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+        ) -> torch.Tensor:
             return torch.where(a <= b, b, c)
 
     a = torch.randn((32, 64), dtype=torch.bfloat16)
@@ -1198,10 +1333,15 @@ def test_compile_where() -> None:
     _assert_compile_matches_eager(_Where(), a, b, c)
 
 
-@pytest.mark.parametrize("op", [torch.lt, torch.le, torch.gt, torch.ge, torch.eq, torch.ne], ids=lambda o: o.__name__)
+@pytest.mark.parametrize(
+    "op",
+    [torch.lt, torch.le, torch.gt, torch.ge, torch.eq, torch.ne],
+    ids=lambda o: o.__name__,
+)
 def test_compile_comparison_tensor(op) -> None:
     """Element-wise tensor comparisons in a compiled graph — Bool results. Small
     integer-valued inputs so operands have ties (eq/ne aren't all-False/all-True)."""
+
     class _Cmp(nn.Module):
         def __init__(self, op) -> None:
             super().__init__()
@@ -1215,10 +1355,15 @@ def test_compile_comparison_tensor(op) -> None:
     _assert_compile_matches_eager(_Cmp(op), a, b)
 
 
-@pytest.mark.parametrize("op", [torch.lt, torch.le, torch.gt, torch.ge, torch.eq, torch.ne], ids=lambda o: o.__name__)
+@pytest.mark.parametrize(
+    "op",
+    [torch.lt, torch.le, torch.gt, torch.ge, torch.eq, torch.ne],
+    ids=lambda o: o.__name__,
+)
 def test_compile_comparison_scalar(op) -> None:
     """`op(tensor, scalar)` — the .Scalar overloads that lift the scalar to a
     constant of the tensor's dtype."""
+
     class _CmpScalar(nn.Module):
         def __init__(self, op) -> None:
             super().__init__()
@@ -1241,7 +1386,11 @@ def test_compile_sigmoid(shape: tuple[int, ...]) -> None:
     _assert_compile_matches_eager(_Sigmoid(), x, atol=1e-2, rtol=1e-2)
 
 
-@pytest.mark.parametrize("min,max", [(-0.5, 0.5), (0.0, None), (None, 1.0)], ids=["both", "min_only", "max_only"])
+@pytest.mark.parametrize(
+    "min,max",
+    [(-0.5, 0.5), (0.0, None), (None, 1.0)],
+    ids=["both", "min_only", "max_only"],
+)
 def test_compile_clamp(min, max) -> None:
     class _Clamp(nn.Module):
         def __init__(self, min, max) -> None:
@@ -1258,6 +1407,7 @@ def test_compile_clamp(min, max) -> None:
 @pytest.mark.parametrize("min", [-0.5, 0.0, 1.0])
 def test_compile_clamp_min(min: float) -> None:
     """Single aten::clamp_min in a compiled graph — clamp with no upper bound."""
+
     class _ClampMin(nn.Module):
         def __init__(self, min: float) -> None:
             super().__init__()
@@ -1273,6 +1423,7 @@ def test_compile_clamp_min(min: float) -> None:
 @pytest.mark.parametrize("max", [-0.5, 0.0, 1.0])
 def test_compile_clamp_max(max: float) -> None:
     """Single aten::clamp_max in a compiled graph — clamp with no lower bound."""
+
     class _ClampMax(nn.Module):
         def __init__(self, max: float) -> None:
             super().__init__()
@@ -1288,6 +1439,7 @@ def test_compile_clamp_max(max: float) -> None:
 def test_compile_floor_divide() -> None:
     """aten::floor_divide in a compiled graph. Integer-valued operands keep the
     quotient away from integer boundaries so bf16 rounding can't flip the floor."""
+
     class _FloorDiv(nn.Module):
         def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             return torch.floor_divide(a, b)
@@ -1300,6 +1452,7 @@ def test_compile_floor_divide() -> None:
 def test_compile_bitwise_bool() -> None:
     """Bool-mask combinators `& | ~` — masks come from comparisons, so the graph
     exercises the logical_and/or/not lowerings end-to-end."""
+
     class _Mask(nn.Module):
         def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
             mx = x > 0
@@ -1315,6 +1468,7 @@ def test_compile_logical_nonbool() -> None:
     """logical_and/or/not on non-bool (int) operands. torch treats any nonzero
     value as true and returns bool, so these must NOT share the bitwise lowering
     (which does a raw bitwise op on integers, e.g. `1 | 2 == 3`, not `True`)."""
+
     class _Logical(nn.Module):
         def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             return torch.logical_and(torch.logical_or(a, b), torch.logical_not(a))
@@ -1327,6 +1481,7 @@ def test_compile_logical_nonbool() -> None:
 def test_compile_index_single() -> None:
     """Advanced indexing with one index tensor on a single dim (aten.index.Tensor
     → gather). ttir.gather isn't supported under ttsim."""
+
     class _Index(nn.Module):
         def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
             return x[:, idx]
@@ -1340,8 +1495,11 @@ def test_compile_index_leading_dims() -> None:
     """Advanced indexing with index tensors covering all leading dims
     (aten.index.Tensor → flattened linear-index gather). ttir.gather isn't
     supported under ttsim."""
+
     class _IndexND(nn.Module):
-        def forward(self, x: torch.Tensor, r: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+        def forward(
+            self, x: torch.Tensor, r: torch.Tensor, c: torch.Tensor
+        ) -> torch.Tensor:
             return x[r, c]
 
     x = torch.randn((4, 5), dtype=torch.bfloat16)
@@ -1354,6 +1512,7 @@ def test_compile_index_negative() -> None:
     """Negative indices count from the end. ttir.gather reads out of bounds on
     negatives, so the lowering normalizes them (idx + size) first — covers both
     the single-index and the all-leading-dims (linear-index) paths."""
+
     class _Index(nn.Module):
         def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
             return x[:, idx]
@@ -1363,7 +1522,9 @@ def test_compile_index_negative() -> None:
     _assert_compile_matches_eager(_Index(), x, idx)
 
     class _IndexND(nn.Module):
-        def forward(self, x: torch.Tensor, r: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+        def forward(
+            self, x: torch.Tensor, r: torch.Tensor, c: torch.Tensor
+        ) -> torch.Tensor:
             return x[r, c]
 
     x2 = torch.randn((4, 5), dtype=torch.bfloat16)
@@ -1375,6 +1536,7 @@ def test_compile_index_negative() -> None:
 @pytest.mark.parametrize("factory", ["zeros", "ones", "full"])
 def test_compile_creation(factory: str) -> None:
     """torch.zeros/ones/full inside a compiled graph — lower to ttir.full."""
+
     class _Create(nn.Module):
         def __init__(self, factory: str) -> None:
             super().__init__()
@@ -1397,6 +1559,7 @@ def test_compile_creation(factory: str) -> None:
 def test_compile_new_creation(factory: str) -> None:
     """x.new_zeros/new_ones/new_full — dtype defaults to the reference tensor's
     (here bf16), not float32."""
+
     class _NewCreate(nn.Module):
         def __init__(self, factory: str) -> None:
             super().__init__()
@@ -1415,11 +1578,14 @@ def test_compile_new_creation(factory: str) -> None:
     _assert_compile_matches_eager(_NewCreate(factory), x)
 
 
-@pytest.mark.parametrize("factory", ["zeros_like", "ones_like", "full_like", "full_like_dtype"])
+@pytest.mark.parametrize(
+    "factory", ["zeros_like", "ones_like", "full_like", "full_like_dtype"]
+)
 def test_compile_like_creation(factory: str) -> None:
     """full_like takes its shape from the reference tensor rather than an explicit
     size, and zeros_like/ones_like reach the backend as full_like too — core aten
     decomposes them rather than giving them their own op."""
+
     class _LikeCreate(nn.Module):
         def __init__(self, factory: str) -> None:
             super().__init__()
@@ -1449,10 +1615,13 @@ def test_compile_like_creation(factory: str) -> None:
         ((1, 32, 64), (7, 64, 1)),
     ],
 )
-def test_compile_new_empty_strided(size: tuple[int, ...], stride: tuple[int, ...]) -> None:
+def test_compile_new_empty_strided(
+    size: tuple[int, ...], stride: tuple[int, ...]
+) -> None:
     """new_empty_strided decomposes to a dense new_zeros, the backend describes
     tensors by shape and dtype alone, so only a contiguous request is
     representable."""
+
     class _Alloc(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             out = x.new_empty_strided(size, stride)
@@ -1465,6 +1634,7 @@ def test_compile_new_empty_strided(size: tuple[int, ...], stride: tuple[int, ...
 def test_compile_new_empty_strided_non_contiguous() -> None:
     """A transposed layout carries information a dense buffer can't express, so
     the decomp raises instead of silently returning a contiguous tensor."""
+
     class _Alloc(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             return x.new_empty_strided((32, 64), (1, 32)).fill_(0.0)
@@ -1489,6 +1659,7 @@ def test_compile_tril(shape: tuple, diagonal: int) -> None:
     """aten::tril.default in a compiled graph — lower-triangular extraction with
     various shapes and diagonal offsets. Exercises build_tril including the
     arange/reshape/le/where subgraph it decomposes into."""
+
     class _Tril(nn.Module):
         def __init__(self, diagonal: int) -> None:
             super().__init__()
@@ -1505,6 +1676,7 @@ def test_compile_index_copy() -> None:
     """aten::index_copy.default in a compiled graph — copies rows from `src`
     into `dst` at positions given by `index` along dim 0. Used by StaticCache
     to scatter KV-states into pre-allocated buffers."""
+
     class _IndexCopy(nn.Module):
         def forward(
             self, dst: torch.Tensor, index: torch.Tensor, src: torch.Tensor
@@ -1520,6 +1692,7 @@ def test_compile_index_copy() -> None:
 def test_compile_threshold_backward() -> None:
     """aten::threshold_backward in a compiled graph — ReLU backward gate:
     grad_output * (self > threshold). Threshold 0 matches the relu backward."""
+
     class _ThresholdBwd(nn.Module):
         def forward(self, grad: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
             return torch.ops.aten.threshold_backward.default(grad, x, 0.0)
@@ -1533,6 +1706,7 @@ def test_compile_threshold_backward() -> None:
 def test_compile_mse_loss(reduction: int) -> None:
     """aten::mse_loss in a compiled graph. reduction=0 (None) returns the
     elementwise squared error; 1 (Mean) and 2 (Sum) reduce to a scalar."""
+
     class _MSELoss(nn.Module):
         def __init__(self, r: int) -> None:
             super().__init__()
@@ -1543,7 +1717,9 @@ def test_compile_mse_loss(reduction: int) -> None:
 
     pred = torch.randn((32, 32), dtype=torch.bfloat16)
     target = torch.randn((32, 32), dtype=torch.bfloat16)
-    _assert_compile_matches_eager(_MSELoss(reduction), pred, target, atol=0.05, rtol=0.05)
+    _assert_compile_matches_eager(
+        _MSELoss(reduction), pred, target, atol=0.05, rtol=0.05
+    )
 
 
 @pytest.mark.parametrize("reduction", [0, 1, 2], ids=["none", "mean", "sum"])
@@ -1551,6 +1727,7 @@ def test_compile_mse_loss_backward(reduction: int) -> None:
     """aten::mse_loss_backward in a compiled graph. For None reduction grad_output
     is the same shape as the inputs; for Mean/Sum it is a scalar [1] that
     broadcasts over the result."""
+
     class _MSELossBwd(nn.Module):
         def __init__(self, r: int) -> None:
             super().__init__()
@@ -1564,7 +1741,9 @@ def test_compile_mse_loss_backward(reduction: int) -> None:
     pred = torch.randn((32, 32), dtype=torch.bfloat16)
     target = torch.randn((32, 32), dtype=torch.bfloat16)
     grad = torch.randn((32, 32) if reduction == 0 else (1,), dtype=torch.bfloat16)
-    _assert_compile_matches_eager(_MSELossBwd(reduction), grad, pred, target, atol=0.05, rtol=0.05)
+    _assert_compile_matches_eager(
+        _MSELossBwd(reduction), grad, pred, target, atol=0.05, rtol=0.05
+    )
 
 
 def test_compile_options() -> None:
@@ -1573,7 +1752,12 @@ def test_compile_options() -> None:
     Category-A option, plain string keys, unknown-key rejection, and nanobind's
     native type enforcement."""
     # optimization_level parsing; an absent or empty dict defaults to 0.
-    for options, expected in [(None, 0), ({}, 0), ({CompileOption.OPT_LEVEL: 1}, 1), ({CompileOption.OPT_LEVEL: 2}, 2)]:
+    for options, expected in [
+        (None, 0),
+        ({}, 0),
+        ({CompileOption.OPT_LEVEL: 1}, 1),
+        ({CompileOption.OPT_LEVEL: 2}, 2),
+    ]:
         assert _compile_options(options).optimization_level == expected
 
     # Unset options stay None so the compiler keeps its own defaults; only
@@ -1589,23 +1773,25 @@ def test_compile_options() -> None:
     assert defaults.enable_const_eval is None
 
     # Every Category-A option round-trips into the native CompileOptions struct.
-    c = _compile_options({
-        CompileOption.OPT_LEVEL: 2,
-        CompileOption.EXPERIMENTAL_WEIGHT_DTYPE: BfpDtype.BfpBf8,
-        CompileOption.EXPERIMENTAL_KV_CACHE_DTYPE: BfpDtype.BfpBf4,
-        CompileOption.MATH_FIDELITY: MathFidelity.HiFi3,
-        CompileOption.FP32_DEST_ACC_EN: False,
-        CompileOption.EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN: True,
-        CompileOption.EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION: False,
-        CompileOption.ENABLE_TRACE: True,
-        CompileOption.ENABLE_CONST_EVAL: False,
-        CompileOption.ENABLE_CONST_EVAL_ON_CPU: False,
-        CompileOption.ENABLE_CONST_EVAL_INPUTS_TO_SYSTEM_MEMORY: False,
-        CompileOption.EXPERIMENTAL_ENABLE_DRAM_SPACE_SAVING_OPTIMIZATION: True,
-        CompileOption.ENABLE_CREATE_D2M_SUBGRAPHS: True,
-        CompileOption.TTNN_PERF_METRICS_ENABLED: True,
-        CompileOption.TTNN_PERF_METRICS_OUTPUT_FILE: "/tmp/perf.json",
-    })
+    c = _compile_options(
+        {
+            CompileOption.OPT_LEVEL: 2,
+            CompileOption.EXPERIMENTAL_WEIGHT_DTYPE: BfpDtype.BfpBf8,
+            CompileOption.EXPERIMENTAL_KV_CACHE_DTYPE: BfpDtype.BfpBf4,
+            CompileOption.MATH_FIDELITY: MathFidelity.HiFi3,
+            CompileOption.FP32_DEST_ACC_EN: False,
+            CompileOption.EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN: True,
+            CompileOption.EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION: False,
+            CompileOption.ENABLE_TRACE: True,
+            CompileOption.ENABLE_CONST_EVAL: False,
+            CompileOption.ENABLE_CONST_EVAL_ON_CPU: False,
+            CompileOption.ENABLE_CONST_EVAL_INPUTS_TO_SYSTEM_MEMORY: False,
+            CompileOption.EXPERIMENTAL_ENABLE_DRAM_SPACE_SAVING_OPTIMIZATION: True,
+            CompileOption.ENABLE_CREATE_D2M_SUBGRAPHS: True,
+            CompileOption.TTNN_PERF_METRICS_ENABLED: True,
+            CompileOption.TTNN_PERF_METRICS_OUTPUT_FILE: "/tmp/perf.json",
+        }
+    )
     assert c.optimization_level == 2
     assert c.experimental_weight_dtype == BfpDtype.BfpBf8
     assert c.experimental_kv_cache_dtype == BfpDtype.BfpBf4
@@ -1623,7 +1809,9 @@ def test_compile_options() -> None:
     assert c.ttnn_perf_metrics_output_file == "/tmp/perf.json"
 
     # Plain string keys are accepted alongside CompileOption members.
-    string_keyed = _compile_options({"enable_trace": True, "math_fidelity": MathFidelity.LoFi})
+    string_keyed = _compile_options(
+        {"enable_trace": True, "math_fidelity": MathFidelity.LoFi}
+    )
     assert string_keyed.enable_trace is True
     assert string_keyed.math_fidelity == MathFidelity.LoFi
 
@@ -1637,23 +1825,29 @@ def test_compile_options() -> None:
         {CompileOption.ENABLE_TRACE: "yes"},  # bool option, str value
         {CompileOption.FP32_DEST_ACC_EN: "true"},  # optional-bool option, str value
         {CompileOption.MATH_FIDELITY: "hifi4"},  # MathFidelity option, str value
-        {CompileOption.EXPERIMENTAL_WEIGHT_DTYPE: "bfp_bf8"},  # BfpDtype option, str value
+        {
+            CompileOption.EXPERIMENTAL_WEIGHT_DTYPE: "bfp_bf8"
+        },  # BfpDtype option, str value
         {CompileOption.OPT_LEVEL: 1.0},  # int option, float value
     ]:
         with pytest.raises(TypeError):
             _compile_options(bad_options)
 
 
-
 @pytest.mark.parametrize("shape", _TILE_SHAPES)
 def test_compile_with_opt_level_0(shape: tuple[int, ...]) -> None:
     """This is just a sanity compile options API test.
     It tests different functions that we use is tests with compile options."""
+
     class _ReLU(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             return torch.relu(x)
 
     x = torch.randn(shape, dtype=torch.bfloat16)
     _assert_compile_matches_eager(_ReLU(), x, options={CompileOption.OPT_LEVEL: 0})
-    assert_close_cpu_vs_tt(_ReLU(), x, mode=ExecutionMode.EAGER, options={CompileOption.OPT_LEVEL: 0})
-    assert_close_cpu_vs_tt(_ReLU(), x, mode=ExecutionMode.COMPILE, options={CompileOption.OPT_LEVEL: 0})
+    assert_close_cpu_vs_tt(
+        _ReLU(), x, mode=ExecutionMode.EAGER, options={CompileOption.OPT_LEVEL: 0}
+    )
+    assert_close_cpu_vs_tt(
+        _ReLU(), x, mode=ExecutionMode.COMPILE, options={CompileOption.OPT_LEVEL: 0}
+    )

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #include "torch/ops/builders.hpp"
 
 #include "cast.hpp"
@@ -8,21 +12,21 @@
 #include <utility>
 #include <vector>
 
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/Support/LLVM.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/APInt.h"
+#include "llvm/ADT/SmallVector.h"
 #include <ATen/ATen.h>
 #include <ATen/ExpandUtils.h>
 #include <ATen/InferSize.h>
 #include <ATen/core/Reduction.h>
 #include <c10/core/Scalar.h>
 #include <c10/core/StorageImpl.h>
-#include <llvm/ADT/APFloat.h>
-#include <llvm/ADT/APInt.h>
-#include <llvm/ADT/SmallVector.h>
-#include <mlir/IR/BuiltinAttributes.h>
-#include <mlir/IR/BuiltinTypes.h>
-#include <mlir/Support/LLVM.h>
 #include <torch/library.h>
-#include <ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h>
-#include <ttmlir/Dialect/TTIR/IR/TTIROps.h>
 
 #include "cast.hpp"
 #include "torch/backend.hpp"

@@ -1,11 +1,15 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #include "assert.hpp"
 #include "cast.hpp"
 #include "engine/compile.hpp"
 
+#include "mlir/IR/OwningOpRef.h"
+#include "mlir/Parser/Parser.h"
 #include <format>
 #include <limits>
-#include <mlir/IR/OwningOpRef.h>
-#include <mlir/Parser/Parser.h>
 #include <tt-logger/tt-logger.hpp>
 
 #include <tt-logger/tt-logger-initializer.hpp>

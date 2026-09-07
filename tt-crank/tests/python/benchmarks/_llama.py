@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """Shared decoder-LM helpers for the LLM decode benchmark.
 
 Provides the model loader, the on-device sampling wrapper, and the StaticCache
@@ -34,7 +38,9 @@ def load_model(model_id: str, *, num_layers: int | None = None) -> torch.nn.Modu
         pytest.skip(f"could not load config for {model_id!r}: {e}")
     # Multimodal configs nest the decoder count under text_config; plain causal
     # LMs expose it at the root. get_text_config() returns whichever applies.
-    layer_cfg = config.get_text_config() if hasattr(config, "get_text_config") else config
+    layer_cfg = (
+        config.get_text_config() if hasattr(config, "get_text_config") else config
+    )
     if num_layers is not None:
         layer_cfg.num_hidden_layers = num_layers
     # Force every layer to full attention so all models exercise one attention

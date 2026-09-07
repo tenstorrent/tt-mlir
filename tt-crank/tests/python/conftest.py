@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """
 Top-level pytest conftest for tt-kurbla Python tests.
 """
@@ -39,7 +43,9 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
     if torch.tt.num_chips() >= 2:
         return
     skip = pytest.mark.skip(reason="requires >= 2 physical chips")
@@ -57,6 +63,7 @@ def fixed_seed() -> None:
 def tt_device() -> torch.device:
     return torch.device("tt:0")
 
+
 @pytest.fixture(scope="session")
 def device_type() -> DeviceType:
     """``DeviceType.SIM`` when the runtime is routed through ttsim,
@@ -64,7 +71,11 @@ def device_type() -> DeviceType:
     (skip cases that hit ttsim quirks, loosen tolerances, etc.) take this
     fixture and inspect it.
     """
-    return DeviceType.SIM if os.environ.get("TT_KURBLA_USE_SIMULATOR") == "1" else DeviceType.REAL
+    return (
+        DeviceType.SIM
+        if os.environ.get("TT_KURBLA_USE_SIMULATOR") == "1"
+        else DeviceType.REAL
+    )
 
 
 @pytest.fixture(autouse=True)

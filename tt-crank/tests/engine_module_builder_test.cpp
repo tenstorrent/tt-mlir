@@ -1,14 +1,18 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #include "engine/ttir_module_builder.hpp"
 
 #include <gtest/gtest.h>
 
-#include <mlir/IR/BuiltinTypes.h>
+#include "mlir/IR/BuiltinTypes.h"
 #include <stdexcept>
 #include <vector>
 
 #include "engine/compile.hpp"
 
-#include <ttmlir/Dialect/TTIR/IR/TTIROps.h>
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 // Besides covering the builder itself, this test is the RTTI tripwire for the
 // exported class: the test target builds with default RTTI against the

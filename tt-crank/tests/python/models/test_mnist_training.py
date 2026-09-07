@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """End-to-end SGD training of the small MNIST linear classifier on tt.
 
 Eager mode runs under strict_no_fallback: the whole loop must run on device with no CPU fallback.
@@ -11,7 +15,11 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from tt_kurbla.torch.testing import ExecutionMode, get_supported_dtypes, strict_no_fallback
+from tt_kurbla.torch.testing import (
+    ExecutionMode,
+    get_supported_dtypes,
+    strict_no_fallback,
+)
 
 from _models import MNISTLinear
 
@@ -39,8 +47,12 @@ def _train(model: torch.nn.Module, x: torch.Tensor, y: torch.Tensor) -> list[flo
 
 
 @pytest.mark.parametrize("dtype", get_supported_dtypes(), ids=str)
-@pytest.mark.parametrize("mode", [ExecutionMode.EAGER, ExecutionMode.COMPILE], ids=lambda m: m.value)
-def test_mnist_linear_training(mode: ExecutionMode, dtype: torch.dtype, tt_device: torch.device) -> None:
+@pytest.mark.parametrize(
+    "mode", [ExecutionMode.EAGER, ExecutionMode.COMPILE], ids=lambda m: m.value
+)
+def test_mnist_linear_training(
+    mode: ExecutionMode, dtype: torch.dtype, tt_device: torch.device
+) -> None:
     inputs = torch.randn(_BATCH, _FEAT, dtype=dtype)
     targets = torch.randn(_BATCH, _CLASSES, dtype=dtype)
 
@@ -54,18 +66,22 @@ def test_mnist_linear_training(mode: ExecutionMode, dtype: torch.dtype, tt_devic
 
     # Eager must run entirely on device; compile lowers the graph to its own
     # module, so the eager fallback guard doesn't apply there.
-    guard = strict_no_fallback() if mode is ExecutionMode.EAGER else contextlib.nullcontext()
+    guard = (
+        strict_no_fallback()
+        if mode is ExecutionMode.EAGER
+        else contextlib.nullcontext()
+    )
     with guard:
         tt_losses = _train(tt_model, inputs.to(tt_device), targets.to(tt_device))
     cpu_losses = _train(cpu_model, inputs, targets)
 
-    assert tt_losses[-1] < tt_losses[0] * 0.5, (
-        f"on-device training did not reduce loss: {tt_losses[0]:.4f} -> {tt_losses[-1]:.4f}"
-    )
+    assert (
+        tt_losses[-1] < tt_losses[0] * 0.5
+    ), f"on-device training did not reduce loss: {tt_losses[0]:.4f} -> {tt_losses[-1]:.4f}"
     for step_idx, (tt_loss, cpu_loss) in enumerate(zip(tt_losses, cpu_losses)):
-        assert tt_loss == pytest.approx(cpu_loss, abs=0.1), (
-            f"step {step_idx}: tt loss {tt_loss:.4f} diverged from cpu {cpu_loss:.4f}"
-        )
+        assert tt_loss == pytest.approx(
+            cpu_loss, abs=0.1
+        ), f"step {step_idx}: tt loss {tt_loss:.4f} diverged from cpu {cpu_loss:.4f}"
 
 
 def _train_step(step, params, x: torch.Tensor, y: torch.Tensor) -> list[float]:
@@ -81,7 +97,9 @@ def _train_step(step, params, x: torch.Tensor, y: torch.Tensor) -> list[float]:
 
 
 @pytest.mark.parametrize("dtype", get_supported_dtypes(), ids=str)
-def test_mnist_linear_fwd_loss_compiled(dtype: torch.dtype, tt_device: torch.device) -> None:
+def test_mnist_linear_fwd_loss_compiled(
+    dtype: torch.dtype, tt_device: torch.device
+) -> None:
     # Compile model forward + loss as a single function: mse_loss lowers into the
     # compiled forward, mse_loss_backward into the compiled backward. Optimizer
     # stays eager. Checked against the same loop run eagerly on CPU.
@@ -100,13 +118,15 @@ def test_mnist_linear_fwd_loss_compiled(dtype: torch.dtype, tt_device: torch.dev
 
     tt_step = torch.compile(tt_step, backend="tt")
 
-    tt_losses = _train_step(tt_step, tt_model.parameters(), inputs.to(tt_device), targets.to(tt_device))
+    tt_losses = _train_step(
+        tt_step, tt_model.parameters(), inputs.to(tt_device), targets.to(tt_device)
+    )
     cpu_losses = _train_step(cpu_step, cpu_model.parameters(), inputs, targets)
 
-    assert tt_losses[-1] < tt_losses[0] * 0.5, (
-        f"on-device training did not reduce loss: {tt_losses[0]:.4f} -> {tt_losses[-1]:.4f}"
-    )
+    assert (
+        tt_losses[-1] < tt_losses[0] * 0.5
+    ), f"on-device training did not reduce loss: {tt_losses[0]:.4f} -> {tt_losses[-1]:.4f}"
     for step_idx, (tt_loss, cpu_loss) in enumerate(zip(tt_losses, cpu_losses)):
-        assert tt_loss == pytest.approx(cpu_loss, abs=0.1), (
-            f"step {step_idx}: tt loss {tt_loss:.4f} diverged from cpu {cpu_loss:.4f}"
-        )
+        assert tt_loss == pytest.approx(
+            cpu_loss, abs=0.1
+        ), f"step {step_idx}: tt loss {tt_loss:.4f} diverged from cpu {cpu_loss:.4f}"

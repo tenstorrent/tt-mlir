@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 // Aten kernel registrations for tensor-lifecycle ops on the tt backend.
 
 #include <cstddef>

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """
 Benchmarking helpers for the tt-kurbla torch backend.
 
@@ -27,6 +31,7 @@ from tt_kurbla.torch._compile import CompileOption
 
 try:
     import tracy as _tracy
+
     if not hasattr(_tracy, "signpost"):
         raise ImportError
 except ImportError:
@@ -71,7 +76,11 @@ def _resolve_trace_path(
     return os.path.join(profile_dir, f"{safe}_{suffix}.json")
 
 
-def prepare_model(model: nn.Module, mode: str, options: dict [CompileOption, str | int | bool] | None = None) -> nn.Module:
+def prepare_model(
+    model: nn.Module,
+    mode: str,
+    options: dict[CompileOption, str | int | bool] | None = None,
+) -> nn.Module:
     """Return `model` wrapped according to the requested execution mode.
 
     `"eager"` returns the model unchanged. `"compile"` wraps it with
@@ -227,7 +236,9 @@ def _pcc_against_reference(
     """Run `ref_model` once and PCC its primary tensor against `device_out`."""
     with torch.no_grad():
         ref_out = ref_model(*ref_inputs)
-    return compute_pcc(_extract_primary_tensor(device_out), _extract_primary_tensor(ref_out))
+    return compute_pcc(
+        _extract_primary_tensor(device_out), _extract_primary_tensor(ref_out)
+    )
 
 
 _PCC_TARGET = 0.94  # default accuracy gate for the --accuracy reference check
@@ -309,10 +320,16 @@ def run_benchmark(
     if have_ref:
         pcc_before = _pcc_against_reference(cold_out, reference_model, reference_inputs)
         pcc_after = _pcc_against_reference(warm_out, reference_model, reference_inputs)
-        accuracy_measurements.append(Measurement("pcc_before_warmup", pcc_before, "pcc"))
+        accuracy_measurements.append(
+            Measurement("pcc_before_warmup", pcc_before, "pcc")
+        )
         accuracy_measurements.append(Measurement("pcc_after_warmup", pcc_after, "pcc"))
-        assert pcc_before >= pcc_target, f"{label}: pcc_before_warmup {pcc_before:.4f} < {pcc_target}"
-        assert pcc_after >= pcc_target, f"{label}: pcc_after_warmup {pcc_after:.4f} < {pcc_target}"
+        assert (
+            pcc_before >= pcc_target
+        ), f"{label}: pcc_before_warmup {pcc_before:.4f} < {pcc_target}"
+        assert (
+            pcc_after >= pcc_target
+        ), f"{label}: pcc_after_warmup {pcc_after:.4f} < {pcc_target}"
 
     total_ms = total_ns / 1e6
     iter_mean_ms = total_ms / iters if iters > 0 else 0.0
@@ -414,7 +431,9 @@ def run_llm_benchmark(
         measurements=[
             Measurement("warmup_total_ms", warmup_ns / 1e6, "ms"),
             Measurement("ttft_ms", step_ns[0] / 1e6, "ms"),
-            Measurement("itl_mean_ms", statistics.fmean(decode_ms) if decode_ms else 0.0, "ms"),
+            Measurement(
+                "itl_mean_ms", statistics.fmean(decode_ms) if decode_ms else 0.0, "ms"
+            ),
             Measurement("itl_p50_ms", _percentile(decode_ms, 50.0), "ms"),
             Measurement("itl_p95_ms", _percentile(decode_ms, 95.0), "ms"),
             Measurement("tokens_per_sec", tokens_per_sec, "tokens/s"),

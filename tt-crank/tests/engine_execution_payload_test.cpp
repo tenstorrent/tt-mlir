@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 // The inner getNumAvailableDevices() guard skips cleanly on card-less hosts.
 // Running with TT_KURBLA_USE_SIMULATOR=1 (e.g. `ctest --preset sim`) routes the
 // runtime through ttsim via src/engine/sim_env.cpp, so these execute without a

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 #include <cstdint>
@@ -6,7 +10,7 @@
 
 #include <tt/runtime/types.h>
 
-#include <ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h>
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "tt_kurbla_export.hpp"
 

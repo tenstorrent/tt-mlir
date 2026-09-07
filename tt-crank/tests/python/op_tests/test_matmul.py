@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """Tests for aten::matmul (N-D) and aten::bmm."""
 
 import pytest
@@ -47,8 +51,14 @@ def test_bmm(batch: int, m: int, k: int, n: int) -> None:
     assert_close_cpu_vs_tt(torch.bmm, a, b, atol=0.05, rtol=0.05)
 
 
-def _matmul_grads(dev: str, a_cpu: torch.Tensor, b_cpu: torch.Tensor, g_cpu: torch.Tensor,
-                  need_self: bool = True, need_other: bool = True):
+def _matmul_grads(
+    dev: str,
+    a_cpu: torch.Tensor,
+    b_cpu: torch.Tensor,
+    g_cpu: torch.Tensor,
+    need_self: bool = True,
+    need_other: bool = True,
+):
     """Grads of ``a @ b`` w.r.t. the inputs that require grad, evaluated on ``dev``.
 
     ``matmul``'s registered derivative is ``aten::matmul_backward``; on the tt
@@ -69,9 +79,9 @@ def _matmul_grads(dev: str, a_cpu: torch.Tensor, b_cpu: torch.Tensor, g_cpu: tor
 @pytest.mark.parametrize(
     "a_shape,b_shape",
     [
-        ((32, 64), (64, 32)),          # 2D
-        ((2, 32, 64), (2, 64, 32)),    # batched (no broadcast)
-        ((2, 32, 64), (64, 32)),       # batched lhs, 2D rhs -> grad_other sums over batch
+        ((32, 64), (64, 32)),  # 2D
+        ((2, 32, 64), (2, 64, 32)),  # batched (no broadcast)
+        ((2, 32, 64), (64, 32)),  # batched lhs, 2D rhs -> grad_other sums over batch
     ],
     ids=["2d", "batched", "broadcast_rhs"],
 )
@@ -89,7 +99,11 @@ def test_matmul_backward(a_shape, b_shape) -> None:
         torch.testing.assert_close(got, ref, atol=0.2, rtol=0.2)
 
 
-@pytest.mark.parametrize("need_self,need_other", [(True, False), (False, True)], ids=["self_only", "other_only"])
+@pytest.mark.parametrize(
+    "need_self,need_other",
+    [(True, False), (False, True)],
+    ids=["self_only", "other_only"],
+)
 def test_matmul_backward_mask(need_self: bool, need_other: bool) -> None:
     """Only one grad requested: the mask passed to matmul_backward mirrors
     requires_grad, so the masked-off gradient is never built."""

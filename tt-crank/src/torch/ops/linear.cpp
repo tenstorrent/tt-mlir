@@ -1,12 +1,16 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #include <optional>
 #include <utility>
 #include <vector>
 
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include <ATen/ATen.h>
-#include <mlir/IR/BuiltinAttributes.h>
-#include <mlir/IR/BuiltinTypes.h>
 #include <torch/library.h>
-#include <ttmlir/Dialect/TTIR/IR/TTIROps.h>
 
 #include "cast.hpp"
 #include "torch/backend.hpp"

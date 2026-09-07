@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """
 Benchmark-suite-specific fixtures, result recording, and reporting hooks.
 """
@@ -43,10 +47,14 @@ class _TestReport:
 
     def record(self, result: BenchmarkResult) -> None:
         if result.device == "cpu":
-            assert self.cpu_baseline is None, "this test already recorded a cpu baseline"
+            assert (
+                self.cpu_baseline is None
+            ), "this test already recorded a cpu baseline"
             self.cpu_baseline = result
         else:
-            assert self.device_result is None, "this test already recorded a device result"
+            assert (
+                self.device_result is None
+            ), "this test already recorded a device result"
             self.device_result = result
 
     def results(self) -> list[BenchmarkResult]:

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """Tests for const-eval argument tagging in the `torch.compile(backend="tt")` path.
 
 Const-eval relies on tt-mlir's ConstEvalHoist pass + runtime GlobalTensorCache,
@@ -29,6 +33,7 @@ AT = _native.ArgumentType
 
 
 # --- _forward_parameter_roles: placeholder classification (no device) -------
+
 
 class _FakeInputInfo:
     def __init__(self, mutates_data: bool) -> None:
@@ -64,6 +69,7 @@ def test_forward_roles_without_metadata() -> None:
 
 # --- end-to-end forward/backward tagging via aot (no device) ----------------
 
+
 def _capture_roles(model: nn.Module, sample: torch.Tensor, *, backward: bool) -> dict:
     """Compile ``model`` on CPU, stubbing the TTIR lowering to capture the
     ArgumentType roles assigned to each forward/backward graph placeholder.
@@ -90,7 +96,9 @@ def _capture_roles(model: nn.Module, sample: torch.Tensor, *, backward: bool) ->
 def test_forward_tags_weights_as_parameters_and_input_as_input() -> None:
     """The lifted weight + bias are Parameters; the trailing user activation is an
     Input."""
-    roles = _capture_roles(nn.Linear(8, 4), torch.randn(2, 8), backward=False)["forward"]
+    roles = _capture_roles(nn.Linear(8, 4), torch.randn(2, 8), backward=False)[
+        "forward"
+    ]
     assert sum(r == AT.Parameter for r in roles.values()) == 2
     assert sum(r == AT.Input for r in roles.values()) == 1
 
@@ -103,4 +111,6 @@ def test_backward_graph_is_all_input() -> None:
     model = nn.Sequential(nn.Linear(8, 8), nn.ReLU(), nn.Linear(8, 4))
     bw = _capture_roles(model, torch.randn(2, 8), backward=True)["backward"]
     assert bw, "expected a backward graph to be captured"
-    assert all(r == AT.Input for r in bw.values()), f"backward must be all-Input, got {bw}"
+    assert all(
+        r == AT.Input for r in bw.values()
+    ), f"backward must be all-Input, got {bw}"

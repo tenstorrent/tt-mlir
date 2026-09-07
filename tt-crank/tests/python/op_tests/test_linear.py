@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 import pytest
 import torch
 
@@ -60,7 +64,9 @@ def test_linear_backward_lowered_for_compile() -> None:
 def test_linear(in_shape, out_features: int, bias: bool, mode: ExecutionMode) -> None:
     x = torch.randn(in_shape, dtype=torch.bfloat16)
     w = torch.randn((out_features, in_shape[-1]), dtype=torch.bfloat16)
-    args = (x, w, torch.randn((out_features,), dtype=torch.bfloat16)) if bias else (x, w)
+    args = (
+        (x, w, torch.randn((out_features,), dtype=torch.bfloat16)) if bias else (x, w)
+    )
     assert_close_cpu_vs_tt(
         torch.nn.functional.linear, *args, atol=0.2, rtol=0.1, mode=mode
     )
@@ -79,8 +85,13 @@ def _linear_grads(dev: str, x_cpu, w_cpu, b_cpu, g_cpu, need_x, need_w, need_b):
 
 @pytest.mark.parametrize(
     "need_x,need_w,need_b",
-    [(True, True, True), (True, False, False), (False, True, False), (False, False, True),
-     (True, True, False)],
+    [
+        (True, True, True),
+        (True, False, False),
+        (False, True, False),
+        (False, False, True),
+        (True, True, False),
+    ],
     ids=["all", "x", "w", "b", "x_w"],
 )
 @pytest.mark.parametrize("in_shape", [(64, 32), (4, 64, 32)], ids=["2d", "3d"])
