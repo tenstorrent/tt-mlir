@@ -36,17 +36,19 @@ module {
     //
     // The ring op takes the PRE-gather K/V, and the CCL attributes are lifted
     // straight off the matched all-gathers.
-    // CHECK: "ttnn.exp_ring_joint_scaled_dot_product_attention"(%arg0, %arg1, %arg2)
+    // CHECK: "ttnn.ring_joint_scaled_dot_product_attention"(%arg0, %arg1, %arg2)
     // CHECK-SAME: cluster_axis = 1 : ui32
     // CHECK-SAME: dim = 2 : si32
     // CHECK-SAME: joint_strategy = "rear"
     // No padding slice absorbed yet, so logical_n is the whole gathered length.
     // CHECK-SAME: logical_n = 256 : i64
     // CHECK-SAME: num_buffers_per_channel = 32 : ui32
-    // CHECK-SAME: num_links = 1 : ui32
+    // CHECK-SAME: num_links = 2 : ui32
     // CHECK-SAME: num_workers_per_link = 5 : ui32
     // Buffers and semaphores are left unbound for the prelude passes.
     // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 0, 0>
+    // Last compute column is reserved for CCL (Metal Wan non-exp pairing).
+    // CHECK-SAME: compute_with_storage_grid_size = <7, 8>
     // CHECK-SAME: q_chunk_size = 128
     // CHECK-SAME: k_chunk_size = 256
     // CHECK-SAME: topology = #ttcore.topology<ring>

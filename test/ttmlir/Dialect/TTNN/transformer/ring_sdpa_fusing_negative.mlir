@@ -12,7 +12,7 @@
 // Cases the ring rewrite must decline. Each must leave the plain
 // all_gather + scaled_dot_product_attention form untouched.
 
-// OFF-NOT: exp_ring_joint
+// OFF-NOT: ring_joint_scaled_dot_product_attention
 
 #dram = #ttnn.buffer_type<dram>
 #sharded = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 128 + d2, d3), <1x1>, memref<32x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
@@ -30,7 +30,7 @@ module {
   // An explicit attention mask is not supported.
   func.func @no_fire_mask(%q: tensor<1x8x128x64xbf16, #sharded>, %k: tensor<1x8x128x64xbf16, #sharded>, %v: tensor<1x8x128x64xbf16, #sharded>, %m: tensor<1x1x128x256xbf16, #mask>) -> tensor<1x8x128x64xbf16, #sharded> {
     // CHECK-LABEL: @no_fire_mask
-    // CHECK-NOT: exp_ring_joint
+    // CHECK-NOT: ring_joint_scaled_dot_product_attention
     // CHECK: "ttnn.scaled_dot_product_attention"
     %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>
     %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>
@@ -41,7 +41,7 @@ module {
   // The two all-gathers disagree on cluster_axis, so they are not one ring.
   func.func @no_fire_axis_mismatch(%q: tensor<1x8x128x64xbf16, #sharded>, %k: tensor<1x8x128x64xbf16, #sharded>, %v: tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x128x64xbf16, #sharded> {
     // CHECK-LABEL: @no_fire_axis_mismatch
-    // CHECK-NOT: exp_ring_joint
+    // CHECK-NOT: ring_joint_scaled_dot_product_attention
     // CHECK: "ttnn.scaled_dot_product_attention"
     %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>
     %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 2 : si32, cluster_axis = 0 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>
@@ -53,7 +53,7 @@ module {
   // 16 heads so the SDPA itself stays valid.
   func.func @no_fire_wrong_gather_dim(%q: tensor<1x16x128x64xbf16, #heads>, %k: tensor<1x8x128x64xbf16, #sharded>, %v: tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x16x128x64xbf16, #heads> {
     // CHECK-LABEL: @no_fire_wrong_gather_dim
-    // CHECK-NOT: exp_ring_joint
+    // CHECK-NOT: ring_joint_scaled_dot_product_attention
     // CHECK: "ttnn.scaled_dot_product_attention"
     %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 1 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x16x128x64xbf16, #heads>
     %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 1 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x16x128x64xbf16, #heads>
@@ -65,7 +65,7 @@ module {
   // not worth forming.
   func.func @no_fire_single_device_ring(%q: tensor<1x8x128x64xbf16, #sharded>, %k: tensor<1x8x128x64xbf16, #sharded>, %v: tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x128x64xbf16, #sharded> {
     // CHECK-LABEL: @no_fire_single_device_ring
-    // CHECK-NOT: exp_ring_joint
+    // CHECK-NOT: ring_joint_scaled_dot_product_attention
     // CHECK: "ttnn.scaled_dot_product_attention"
     %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 2 : si32, cluster_axis = 0 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>
     %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 2 : si32, cluster_axis = 0 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>
@@ -76,7 +76,7 @@ module {
   // The K all-gather has a second consumer, so absorbing it is not free.
   func.func @no_fire_multi_use_gather(%q: tensor<1x8x128x64xbf16, #sharded>, %k: tensor<1x8x128x64xbf16, #sharded>, %v: tensor<1x8x128x64xbf16, #sharded>) -> (tensor<1x8x128x64xbf16, #sharded>, tensor<1x8x256x64xbf16, #gathered>) {
     // CHECK-LABEL: @no_fire_multi_use_gather
-    // CHECK-NOT: exp_ring_joint
+    // CHECK-NOT: ring_joint_scaled_dot_product_attention
     // CHECK: "ttnn.scaled_dot_product_attention"
     %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>
     %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>
@@ -88,7 +88,7 @@ module {
   // pass option, not by some accidental guard.
   func.func @would_fire_when_enabled(%q: tensor<1x8x128x64xbf16, #sharded>, %k: tensor<1x8x128x64xbf16, #sharded>, %v: tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x128x64xbf16, #sharded> {
     // CHECK-LABEL: @would_fire_when_enabled
-    // CHECK: exp_ring_joint
+    // CHECK: "ttnn.ring_joint_scaled_dot_product_attention"
     // OFF-LABEL: @would_fire_when_enabled
     // OFF: "ttnn.scaled_dot_product_attention"
     %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>

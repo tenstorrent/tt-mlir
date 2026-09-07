@@ -268,11 +268,11 @@ void LegalTensorLayoutAnalysis::processTensorType(RankedTensorType tensorType) {
   //
   // Such types are legitimate. Ops with optional outputs shape the unused ones
   // to zero extent to say "absent" --
-  // exp_ring_joint_scaled_dot_product_attention gives its joint result the query
-  // shape with a zero sequence extent when no joint inputs are present,
-  // mirroring tt-metal's compute_output_specs. Being exempt from op-model
-  // validation does not keep an op's result types out of this analysis, which
-  // walks every tensor type in the module.
+  // ring_joint / exp_ring_joint_scaled_dot_product_attention give the joint
+  // result the query shape with a zero sequence extent when no joint inputs
+  // are present, mirroring tt-metal's compute_output_specs. Being exempt from
+  // op-model validation does not keep an op's result types out of this
+  // analysis, which walks every tensor type in the module.
   if (llvm::is_contained(tensorType.getShape(), 0)) {
     return;
   }

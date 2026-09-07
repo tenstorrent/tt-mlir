@@ -312,6 +312,13 @@ struct TTIRToTTNNCommonPipelineOptions
                             llvm::cl::desc("Enable fusing pass."),
                             llvm::cl::init(true)};
 
+  // Rewrite sequence-parallel all_gather(K/V)+SDPA into ring joint SDPA.
+  // Off by default; Wan DiT enables this from the frontend compiler config.
+  Option<bool> enableRingSDPAFusion{
+      *this, "enable-ring-sdpa",
+      llvm::cl::desc("Rewrite SP K/V all-gather + SDPA into ring joint SDPA."),
+      llvm::cl::init(false)};
+
   // Enable the TTNNCreateD2MSubgraphs pass. This pass finds maximal chains
   // of elementwise TTNN ops, outlines each chain into a private function, and
   // replaces the original ops with a ttnn.d2m_subgraph op. The outlined

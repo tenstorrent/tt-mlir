@@ -242,6 +242,7 @@ void createTTNNResolveCompositesPass(
 void createTTNNFusingPass(OpPassManager &pm,
                           const TTIRToTTNNCommonPipelineOptions &options) {
   if (options.enableFusing) {
+    bool enableRingSDPAFusion = options.enableRingSDPAFusion;
     if (options.optimizerPassEnabled) {
 #ifdef TTMLIR_ENABLE_OPMODEL
       DevicePassesWrapperOptions wrapperOptions;
@@ -252,13 +253,14 @@ void createTTNNFusingPass(OpPassManager &pm,
       bool enableEltwiseActivationFusion =
           options.enableEltwiseActivationFusion;
       pm.addPass(createDevicePassesWrapper(
-          [fallbackAttempts,
-           enableEltwiseActivationFusion](OpPassManager &innerPm) {
+          [fallbackAttempts, enableEltwiseActivationFusion,
+           enableRingSDPAFusion](OpPassManager &innerPm) {
             TTNNFusingOptions fusingOptions;
             fusingOptions.enableOpConstraints = true;
             fusingOptions.maxFallbackAttempts = fallbackAttempts;
             fusingOptions.enableEltwiseActivationFusion =
                 enableEltwiseActivationFusion;
+            fusingOptions.enableRingSDPAFusion = enableRingSDPAFusion;
             innerPm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
           },
           wrapperOptions));
@@ -270,6 +272,7 @@ void createTTNNFusingPass(OpPassManager &pm,
       TTNNFusingOptions fusingOptions;
       fusingOptions.enableEltwiseActivationFusion =
           options.enableEltwiseActivationFusion;
+      fusingOptions.enableRingSDPAFusion = enableRingSDPAFusion;
       pm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
     }
   }

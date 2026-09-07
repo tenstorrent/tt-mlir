@@ -140,6 +140,7 @@ union OpType {
   ScaledDotProductAttentionOp,
   ScaledDotProductAttentionDecodeOp,
   ExpRingJointScaledDotProductAttentionOp,
+  RingJointScaledDotProductAttentionOp,
   FlashMlaPrefillOp,
   ScatterOp,
   SDPAForwardOp,

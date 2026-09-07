@@ -1501,6 +1501,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {op->out(), op->joint_out(), op->stats()};
     break;
   }
+  case ::tt::target::ttnn::OpType::RingJointScaledDotProductAttentionOp: {
+    auto *op = opContext.type_as_RingJointScaledDotProductAttentionOp();
+    tensorRefs = {op->out(), op->joint_out(), op->stats()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::FlashMlaPrefillOp: {
     tensorRefs = {opContext.type_as_FlashMlaPrefillOp()->out()};
     break;
@@ -2374,6 +2379,17 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     // excluded: they are ring scratch materialized by the prelude passes, not
     // data inputs, matching how AllToAllDispatchMetadataOp omits its
     // dispatched/indices/scores buffers here.
+    for (const ::tt::target::ttnn::TensorRef *ref :
+         {op->joint_query(), op->joint_key(), op->joint_value()}) {
+      if (ref) {
+        tensorRefs.push_back(ref);
+      }
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RingJointScaledDotProductAttentionOp: {
+    auto *op = opContext.type_as_RingJointScaledDotProductAttentionOp();
+    tensorRefs = {op->query(), op->key(), op->value()};
     for (const ::tt::target::ttnn::TensorRef *ref :
          {op->joint_query(), op->joint_key(), op->joint_value()}) {
       if (ref) {

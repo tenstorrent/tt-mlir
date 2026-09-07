@@ -32,7 +32,7 @@ module {
     // CHECK-LABEL: @absorbs_padding_slice
     // CHECK-NOT: "ttnn.slice_static"
     // CHECK-NOT: "ttnn.all_gather"
-    // CHECK: "ttnn.exp_ring_joint_scaled_dot_product_attention"(%arg0, %arg1, %arg2)
+    // CHECK: "ttnn.ring_joint_scaled_dot_product_attention"(%arg0, %arg1, %arg2)
     // CHECK-SAME: logical_n = 200 : i64
     %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>
     %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>
@@ -45,7 +45,7 @@ module {
   // No slice at all: logical_n is the whole gathered length.
   func.func @no_slice_means_no_padding(%q: tensor<1x8x128x64xbf16, #sharded>, %k: tensor<1x8x128x64xbf16, #sharded>, %v: tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x128x64xbf16, #sharded> {
     // CHECK-LABEL: @no_slice_means_no_padding
-    // CHECK: "ttnn.exp_ring_joint_scaled_dot_product_attention"
+    // CHECK: "ttnn.ring_joint_scaled_dot_product_attention"
     // CHECK-SAME: logical_n = 256 : i64
     %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>
     %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>
@@ -58,7 +58,7 @@ module {
   // rewrite declines rather than emitting an op that cannot run.
   func.func @trim_below_one_shard(%q: tensor<1x8x128x64xbf16, #sharded>, %k: tensor<1x8x128x64xbf16, #sharded>, %v: tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x128x64xbf16, #sharded> {
     // CHECK-LABEL: @trim_below_one_shard
-    // CHECK-NOT: exp_ring_joint
+    // CHECK-NOT: ring_joint_scaled_dot_product_attention
     // CHECK: "ttnn.scaled_dot_product_attention"
     %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>
     %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>
@@ -72,7 +72,7 @@ module {
   // and the plain form stands.
   func.func @slice_trims_heads(%q: tensor<1x8x128x64xbf16, #sharded>, %k: tensor<1x8x128x64xbf16, #sharded>, %v: tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x128x64xbf16, #sharded> {
     // CHECK-LABEL: @slice_trims_heads
-    // CHECK-NOT: exp_ring_joint
+    // CHECK-NOT: ring_joint_scaled_dot_product_attention
     // CHECK: "ttnn.scaled_dot_product_attention"
     %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>
     %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>

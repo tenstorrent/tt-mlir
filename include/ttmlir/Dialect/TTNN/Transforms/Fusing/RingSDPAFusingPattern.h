@@ -17,11 +17,12 @@ namespace mlir::tt::ttnn::fusing {
 // folds each into the running attention as it arrives.
 //
 // Matches:  scaled_dot_product_attention(q,
-//                                        all_gather(k, dim=D, cluster_axis=A),
-//                                        all_gather(v, dim=D, cluster_axis=A))
-// Produces: exp_ring_joint_scaled_dot_product_attention(q, k, v,
-//                                                       dim=D, cluster_axis=A)
-//           with the persistent buffers and semaphore pool left unbound for
+//                                        permute?(slice?(all_gather(k))),
+//                                        permute?(slice?(all_gather(v))))
+// Produces: ring_joint_scaled_dot_product_attention on typical SP meshes,
+//           or exp_ring_joint_scaled_dot_product_attention when the SP ring
+//           is 32 and TP is 4.
+//           Persistent buffers and the semaphore pool are left unbound for
 //           the prelude passes to fill in.
 //
 // Unlike SDPAFusing, which builds an SDPA out of softmax(QK^T)V primitives and
@@ -38,6 +39,10 @@ public:
                   mlir::PatternRewriter &rewriter) const override;
 
 private:
+  // Shape-preserving layout/typecast wrappers that sit between the gather,
+  // padding slice, head/seq permute, and SDPA after TTIR→TTNN lowering.
+  static Value skipLayoutLike(Value v);
+
   // The all-gather feeding `v`, when it is a single-use all-gather that agrees
   // with `keyGather` on every CCL attribute. Null otherwise.
   static AllGatherOp matchPairedGather(Value v, AllGatherOp keyGather);
@@ -78,10 +83,13 @@ private:
 
   // Builds the program config the ring kernel requires. Unlike plain SDPA,
   // tt-metal takes this by value with no default, so the compiler has to
-  // choose one.
+  // choose one. `reserveCclColumn` shrinks the SDPA compute grid by one
+  // column so the non-exp kernel can place CCL workers at (grid.x, 0).
+  // `spFactor`/`tpFactor` select Metal Wan's empirical (q, k) chunk sizes.
   static SDPAProgramConfigAttr
   buildProgramConfig(ScaledDotProductAttentionOp srcOp, int64_t localSeqLen,
-                     int64_t gatheredSeqLen);
+                     int64_t gatheredSeqLen, int64_t spFactor, int64_t tpFactor,
+                     bool reserveCclColumn);
 };
 
 } // namespace mlir::tt::ttnn::fusing

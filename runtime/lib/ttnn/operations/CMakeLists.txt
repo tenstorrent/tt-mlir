@@ -128,6 +128,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/indexer_score_dsa.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/chunked_scaled_dot_product_attention.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/exp_ring_joint_scaled_dot_product_attention.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/transformer/ring_joint_scaled_dot_product_attention.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
 )
 

@@ -4600,6 +4600,64 @@ def TTNN_ExpRingJointScaledDotProductAttentionOp : TTNN_Op<"exp_ring_joint_scale
     let hasVerifier = 1;
 }
 
+def TTNN_RingJointScaledDotProductAttentionOp : TTNN_Op<"ring_joint_scaled_dot_product_attention",
+    [AttrSizedOperandSegments, OpModelExempt, TTNN_DistributedOpInterface,
+     TTNN_ComputeKernelConfigOpInterface]> {
+    let summary = "Non-experimental ring (sequence-parallel) joint SDPA.";
+    let description = [{
+      Sequence-parallel attention. Mirrors
+      `ttnn::transformer::ring_joint_scaled_dot_product_attention`.
+
+      Same operands, results, and DistributedOpInterface contract as
+      `exp_ring_joint_scaled_dot_product_attention`. Metal selects this kernel
+      for every SP>1 mesh except TP=4 and SP=32, which uses the experimental
+      sibling. The fuser emits this op when `mesh[cluster_axis] != 32` or the
+      remaining mesh product is not 4.
+
+      TODO(#ring-attention): no EmitC / EmitPy emitters yet (same as the exp
+      sibling).
+    }];
+
+    let arguments = (ins AnyRankedTensor:$query,
+                         AnyRankedTensor:$key,
+                         AnyRankedTensor:$value,
+
+                         Optional<AnyRankedTensor>:$joint_query,
+                         Optional<AnyRankedTensor>:$joint_key,
+                         Optional<AnyRankedTensor>:$joint_value,
+
+                         Optional<AnyRankedTensor>:$persistent_output_buffer_k,
+                         Optional<AnyRankedTensor>:$persistent_output_buffer_v,
+
+                         Variadic<TTNN_GlobalSemaphore>:$multi_device_global_semaphore,
+
+                         StrAttr:$joint_strategy,
+                         I64Attr:$logical_n,
+                         SI32Attr:$dim,
+                         UI32Attr:$cluster_axis,
+                         TTNN_SDPAProgramConfigAttr:$program_config,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology,
+                         OptionalAttr<UI32Attr>:$sub_device_id,
+                         OptionalAttr<F32Attr>:$scale,
+                         DefaultValuedAttr<UI32Attr, "1">:$num_workers_per_link,
+                         DefaultValuedAttr<UI32Attr, "8">:$num_buffers_per_channel,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+    let results = (outs AnyRankedTensor:$result,
+                        AnyRankedTensor:$joint_result,
+                        AnyRankedTensor:$stats);
+
+    let extraClassDeclaration = [{
+      bool hasUnboundBuffers();
+      void allocateBuffers(::mlir::RewriterBase &rewriter);
+      bool hasUnboundSemaphores();
+      void allocateSemaphores(::mlir::RewriterBase &rewriter);
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_FlashMlaPrefillOp : TTNN_Op<"flash_mla_prefill", [AttrSizedOperandSegments]> {
     let summary = "Flash Multi-head Latent Attention prefill operation.";
     let description = [{

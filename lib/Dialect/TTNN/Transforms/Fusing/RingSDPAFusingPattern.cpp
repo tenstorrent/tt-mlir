@@ -9,6 +9,9 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include <algorithm>
+#include <utility>
+
 namespace mlir::tt::ttnn::fusing {
 
 // tt-metal's joint layout string. Wan passes "rear" on the self-attention path
@@ -25,6 +28,11 @@ static constexpr uint32_t kNumBuffersPerChannel = 32;
 // rather than a tuning choice.
 static constexpr uint32_t kNumLinks = 2;
 
+// Metal uses exp_ring_joint only when TP=4 and SP=32. Every other SP>1 mesh
+// (including Galaxy 8x4) uses the non-experimental ring_joint kernel.
+static constexpr int64_t kExpRingSP = 32;
+static constexpr int64_t kExpRingTP = 4;
+
 // The head/sequence swap on a rank-4 tensor: [B, S, H, D] <-> [B, H, S, D].
 // Self-inverse, so the same array serves for peeling and for re-applying.
 static constexpr int64_t kHeadSeqSwap[] = {0, 2, 1, 3};
@@ -40,6 +48,33 @@ static Value createHeadSeqTranspose(mlir::PatternRewriter &rewriter,
       loc, outputType, input,
       rewriter.getDenseI64ArrayAttr(llvm::ArrayRef<int64_t>(kHeadSeqSwap)),
       /*pad_value=*/mlir::FloatAttr());
+}
+
+Value RingSDPAFusing::skipLayoutLike(Value v) {
+  while (Operation *op = v.getDefiningOp()) {
+    if (!op->hasOneUse()) {
+      break;
+    }
+    Value input;
+    if (auto toLayout = dyn_cast<ToLayoutOp>(op)) {
+      input = toLayout.getInput();
+    } else if (auto spec = dyn_cast<ToTensorSpecOp>(op)) {
+      input = spec.getInput();
+    } else if (auto memCfg = dyn_cast<ToMemoryConfigOp>(op)) {
+      input = memCfg.getInput();
+    } else if (auto typecast = dyn_cast<TypecastOp>(op)) {
+      input = typecast.getInput();
+    } else {
+      break;
+    }
+    auto inType = dyn_cast<RankedTensorType>(input.getType());
+    auto outType = dyn_cast<RankedTensorType>(v.getType());
+    if (!inType || !outType || inType.getShape() != outType.getShape()) {
+      break;
+    }
+    v = input;
+  }
+  return v;
 }
 
 Value RingSDPAFusing::peelHeadSeqTranspose(Value v, PermuteOp &permute) {
@@ -117,43 +152,75 @@ bool RingSDPAFusing::slicesAgree(SliceStaticOp a, SliceStaticOp b) {
          a.getStep() == b.getStep();
 }
 
-// Largest tile-aligned power of two in [32, 2048] that divides `extent`.
-//
-// The upper bound matters: the kernel also requires the Q chunks of one head to
-// fit across the grid columns (`num_q_chunks <= sdpa_grid_x`, ~8), so a cap that
-// is too low turns a long per-device sequence into too many chunks. At 512 a
-// local sequence of 8192 yields 16 chunks and is rejected; 2048 yields 4.
-static uint64_t chooseChunkSize(int64_t extent) {
-  for (uint64_t chunk = 2048; chunk > 32; chunk /= 2) {
-    if (extent % static_cast<int64_t>(chunk) == 0) {
-      return chunk;
-    }
+// Metal Wan's ring SDPA chunk table
+// (models/tt_dit/models/transformers/wan2_2/attention_wan.py). These are
+// empirical L1-safe sizes, not a derived formula. Unlisted (arch, SP, TP)
+// triples fall back to (256, 256).
+static std::pair<uint64_t, uint64_t> lookupRingChunkSizes(bool isBlackhole,
+                                                          int64_t spFactor,
+                                                          int64_t tpFactor) {
+  if (!isBlackhole && spFactor == 2 && tpFactor == 4) {
+    return {256, 256};
   }
-  return 32;
+  if (!isBlackhole && spFactor == 8 && tpFactor == 4) {
+    return {256, 256};
+  }
+  if (isBlackhole && spFactor == 2 && tpFactor == 2) {
+    return {128, 512};
+  }
+  if (isBlackhole && spFactor == 8 && tpFactor == 4) {
+    return {288, 512};
+  }
+  if (isBlackhole && spFactor == 32 && tpFactor == 4) {
+    return {224, 512};
+  }
+  return {256, 256};
+}
+
+// Shrink `preferred` until it divides `extent` and stays tile-aligned. Lit
+// shapes are often shorter than the table's Wan sequences.
+static uint64_t fitChunkSize(int64_t extent, uint64_t preferred) {
+  uint64_t chunk = std::min(preferred, static_cast<uint64_t>(extent));
+  chunk -= chunk % ttnn::TILE_WIDTH;
+  if (chunk < ttnn::TILE_WIDTH) {
+    return ttnn::TILE_WIDTH;
+  }
+  while (chunk >= ttnn::TILE_WIDTH &&
+         extent % static_cast<int64_t>(chunk) != 0) {
+    chunk -= ttnn::TILE_WIDTH;
+  }
+  return chunk >= ttnn::TILE_WIDTH ? chunk : ttnn::TILE_WIDTH;
 }
 
 SDPAProgramConfigAttr
 RingSDPAFusing::buildProgramConfig(ScaledDotProductAttentionOp srcOp,
-                                   int64_t localSeqLen,
-                                   int64_t gatheredSeqLen) {
+                                   int64_t localSeqLen, int64_t gatheredSeqLen,
+                                   int64_t spFactor, int64_t tpFactor,
+                                   bool reserveCclColumn) {
   MLIRContext *ctx = srcOp.getContext();
 
-  // WorkerGrid shape is [Y, X]; CoreCoord is (x, y). Same derivation as
-  // PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern.
-  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(srcOp.getOperation());
-  llvm::ArrayRef<int64_t> workerGridShape =
-      deviceAttr.getWorkerGrid().getShape();
-  auto grid = CoreCoordAttr::get(ctx, static_cast<uint32_t>(workerGridShape[1]),
-                                 static_cast<uint32_t>(workerGridShape[0]));
+  // ChipDesc.grid is compute_with_storage_grid_size stored as (Y, X).
+  // WorkerGrid can be taller (Galaxy dumps as 9x8) and is the wrong source.
+  ttcore::ChipDescAttr chip = ttcore::getOpChipDescAttr(srcOp.getOperation());
+  llvm::ArrayRef<int64_t> chipGrid = chip.getGrid();
+  uint32_t gridY = static_cast<uint32_t>(chipGrid[0]);
+  uint32_t gridX = static_cast<uint32_t>(chipGrid[1]);
+  // Metal Wan's non-exp ring_joint uses compute grid (full.x - 1, full.y) and
+  // places CCL at (sdpa_grid.x, 0). Exp uses the full grid.
+  if (reserveCclColumn && gridX >= 2) {
+    --gridX;
+  }
+  auto grid = CoreCoordAttr::get(ctx, gridX, gridY);
 
-  // tt-metal's only constraint on these is divisibility by TILE_WIDTH
-  // (validate: TT_FATAL(q_chunk_size % TILE_WIDTH == 0), likewise for k), which
-  // every value chooseChunkSize can return satisfies. So this is valid but
-  // UNTUNED -- a performance question for bring-up, not a correctness one.
+  const bool isBlackhole =
+      chip.getArch().getValue() == ttcore::Arch::Blackhole;
+  auto [qPreferred, kPreferred] =
+      lookupRingChunkSizes(isBlackhole, spFactor, tpFactor);
+
   return SDPAProgramConfigAttr::get(
       ctx, grid, /*sub_core_grids=*/nullptr,
-      /*q_chunk_size=*/chooseChunkSize(localSeqLen),
-      /*k_chunk_size=*/chooseChunkSize(gatheredSeqLen),
+      /*q_chunk_size=*/fitChunkSize(localSeqLen, qPreferred),
+      /*k_chunk_size=*/fitChunkSize(gatheredSeqLen, kPreferred),
       /*exp_approx_mode=*/nullptr,
       /*max_cores_per_head_batch=*/std::nullopt);
 }
@@ -182,8 +249,10 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
   // axes move with it.
   PermuteOp keyTranspose;
   PermuteOp valueTranspose;
-  Value transposedKey = peelHeadSeqTranspose(srcOp.getKey(), keyTranspose);
-  Value transposedValue = peelHeadSeqTranspose(srcOp.getValue(), valueTranspose);
+  Value transposedKey =
+      peelHeadSeqTranspose(skipLayoutLike(srcOp.getKey()), keyTranspose);
+  Value transposedValue =
+      peelHeadSeqTranspose(skipLayoutLike(srcOp.getValue()), valueTranspose);
   if (static_cast<bool>(keyTranspose) != static_cast<bool>(valueTranspose)) {
     return rewriter.notifyMatchFailure(
         srcOp, "only one of key/value carries a head/sequence transpose");
@@ -198,9 +267,9 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
   SliceStaticOp keySlice;
   SliceStaticOp valueSlice;
   Value gatheredKey =
-      peelPaddingSlice(transposedKey, gatherSeqDim, keySlice);
-  Value gatheredValue =
-      peelPaddingSlice(transposedValue, gatherSeqDim, valueSlice);
+      peelPaddingSlice(skipLayoutLike(transposedKey), gatherSeqDim, keySlice);
+  Value gatheredValue = peelPaddingSlice(skipLayoutLike(transposedValue),
+                                         gatherSeqDim, valueSlice);
   if (static_cast<bool>(keySlice) != static_cast<bool>(valueSlice)) {
     return rewriter.notifyMatchFailure(
         srcOp, "only one of key/value carries a padding slice");
@@ -210,12 +279,13 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
                                        "key and value padding slices disagree");
   }
 
-  auto keyGather = gatheredKey.getDefiningOp<AllGatherOp>();
+  auto keyGather = skipLayoutLike(gatheredKey).getDefiningOp<AllGatherOp>();
   if (!keyGather || !keyGather->hasOneUse()) {
     return rewriter.notifyMatchFailure(
         srcOp, "key is not produced by a single-use all_gather");
   }
-  AllGatherOp valueGather = matchPairedGather(gatheredValue, keyGather);
+  AllGatherOp valueGather =
+      matchPairedGather(skipLayoutLike(gatheredValue), keyGather);
   if (!valueGather) {
     return rewriter.notifyMatchFailure(
         srcOp, "value is not produced by a matching single-use all_gather");
@@ -295,8 +365,19 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
         srcOp, "padding slice would leave a device with only padded tokens");
   }
 
+  int64_t tpSize = 1;
+  for (size_t i = 0; i < meshShape.size(); ++i) {
+    if (i != clusterAxis) {
+      tpSize *= meshShape[i];
+    }
+  }
+  const bool useExpKernel =
+      meshShape[clusterAxis] == kExpRingSP && tpSize == kExpRingTP;
+
   SDPAProgramConfigAttr programConfig =
-      buildProgramConfig(srcOp, localSeqLen, gatheredSeqLen);
+      buildProgramConfig(srcOp, localSeqLen, gatheredSeqLen,
+                         /*spFactor=*/meshShape[clusterAxis], tpSize,
+                         /*reserveCclColumn=*/!useExpKernel);
 
   // The op takes K/V in the query's layout. When the transpose was peeled the
   // shards are still in the gather's layout, so re-apply the swap here -- on one
@@ -326,39 +407,38 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
   RankedTensorType statsType =
       utils::RankedTensorTypeFactory::create(queryType, statsShape);
 
-  auto ringOp = rewriter.create<ExpRingJointScaledDotProductAttentionOp>(
-      srcOp.getLoc(),
-      /*result=*/srcOp.getResult().getType(), jointResultType, statsType,
-      /*query=*/srcOp.getQuery(), ringKey, /*value=*/ringValue,
-      /*joint_query=*/Value(), /*joint_key=*/Value(), /*joint_value=*/Value(),
-      /*persistent_output_buffer_k=*/Value(),
-      /*persistent_output_buffer_v=*/Value(),
-      /*multi_device_global_semaphore=*/ValueRange(),
-      /*joint_strategy=*/rewriter.getStringAttr(kJointStrategy),
-      /*logical_n=*/rewriter.getI64IntegerAttr(logicalN),
-      /*dim=*/rewriter.getSI32IntegerAttr(seqDim),
-      /*cluster_axis=*/rewriter.getUI32IntegerAttr(clusterAxis), programConfig,
-      // Neither can be lifted off the all-gather: both are optional there and
-      // the K/V gathers routinely carry neither, and in any case the ring kernel
-      // asserts on exact values rather than accepting whatever the gather used
-      // (exp_ring_joint_sdpa_device_operation.cpp:228-229 --
-      // `args.num_links == 2` and `args.topology == Ring`). So pin both. The
-      // mesh must be opened with a ring fabric on this cluster_axis, or the
-      // topology assert is satisfied while the hardware is not a ring and the
-      // kernel faults reading its run mailbox.
-      /*num_links=*/rewriter.getUI32IntegerAttr(kNumLinks),
-      /*topology=*/
-      ttcore::TopologyAttr::get(rewriter.getContext(), ttcore::Topology::Ring),
-      /*sub_device_id=*/keyGather.getSubDeviceIdAttr(),
-      /*scale=*/srcOp.getScaleAttr(),
-      /*num_workers_per_link=*/rewriter.getUI32IntegerAttr(kNumWorkersPerLink),
-      /*num_buffers_per_channel=*/
-      rewriter.getUI32IntegerAttr(kNumBuffersPerChannel),
-      /*compute_config=*/nullptr);
+  auto jointStrategy = rewriter.getStringAttr(kJointStrategy);
+  auto logicalNAttr = rewriter.getI64IntegerAttr(logicalN);
+  auto dimAttr = rewriter.getSI32IntegerAttr(seqDim);
+  auto clusterAxisAttr = rewriter.getUI32IntegerAttr(clusterAxis);
+  auto numLinksAttr = rewriter.getUI32IntegerAttr(kNumLinks);
+  auto topologyAttr =
+      ttcore::TopologyAttr::get(rewriter.getContext(), ttcore::Topology::Ring);
+  auto workersAttr = rewriter.getUI32IntegerAttr(kNumWorkersPerLink);
+  auto buffersAttr = rewriter.getUI32IntegerAttr(kNumBuffersPerChannel);
 
-  // Only the attention output has users; the all-gathers were single-use and
-  // die with the SDPA.
-  rewriter.replaceOp(srcOp, ringOp.getResult());
+  Value result;
+  if (useExpKernel) {
+    auto ringOp = rewriter.create<ExpRingJointScaledDotProductAttentionOp>(
+        srcOp.getLoc(), srcOp.getResult().getType(), jointResultType, statsType,
+        srcOp.getQuery(), ringKey, ringValue, Value(), Value(), Value(),
+        Value(), Value(), ValueRange(), jointStrategy, logicalNAttr, dimAttr,
+        clusterAxisAttr, programConfig, numLinksAttr, topologyAttr,
+        keyGather.getSubDeviceIdAttr(), srcOp.getScaleAttr(), workersAttr,
+        buffersAttr, /*compute_config=*/nullptr);
+    result = ringOp.getResult();
+  } else {
+    auto ringOp = rewriter.create<RingJointScaledDotProductAttentionOp>(
+        srcOp.getLoc(), srcOp.getResult().getType(), jointResultType, statsType,
+        srcOp.getQuery(), ringKey, ringValue, Value(), Value(), Value(),
+        Value(), Value(), ValueRange(), jointStrategy, logicalNAttr, dimAttr,
+        clusterAxisAttr, programConfig, numLinksAttr, topologyAttr,
+        keyGather.getSubDeviceIdAttr(), srcOp.getScaleAttr(), workersAttr,
+        buffersAttr, /*compute_config=*/nullptr);
+    result = ringOp.getResult();
+  }
+
+  rewriter.replaceOp(srcOp, result);
   return success();
 }
 

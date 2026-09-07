@@ -7283,7 +7283,8 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// ExpRingJointScaledDotProductAttentionOp
+// ExpRingJointScaledDotProductAttentionOp /
+// RingJointScaledDotProductAttentionOp
 //===----------------------------------------------------------------------===//
 
 // Depth of the global-semaphore ping-pong pool tt-metal's ring all-gather
@@ -7304,118 +7305,120 @@ static constexpr unsigned kRingSemaphorePoolDepth = 2;
 //
 // `joint_result` and `lse` are deliberately unconstrained here: their shapes
 // are set by the tt-metal kernel and are not derivable from the operands alone.
-::mlir::LogicalResult
-mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::verify() {
-  RankedTensorType queryType = getQuery().getType();
-  RankedTensorType keyType = getKey().getType();
-  RankedTensorType valueType = getValue().getType();
-  RankedTensorType resultType = getResult().getType();
+template <typename RingSDPAOp>
+static ::mlir::LogicalResult verifyRingJointSDPA(RingSDPAOp op) {
+  RankedTensorType queryType = op.getQuery().getType();
+  RankedTensorType keyType = op.getKey().getType();
+  RankedTensorType valueType = op.getValue().getType();
+  RankedTensorType resultType = op.getResult().getType();
 
   const int64_t queryRank = queryType.getRank();
   if (queryRank != 4) {
-    return emitOpError("Query must be a 4D tensor");
+    return op.emitOpError("Query must be a 4D tensor");
   }
   if (keyType.getRank() != 4) {
-    return emitOpError("Key/Value must be a 4D tensor");
+    return op.emitOpError("Key/Value must be a 4D tensor");
   }
   if (keyType.getShape() != valueType.getShape()) {
-    return emitOpError("Key and value must have the same shape");
+    return op.emitOpError("Key and value must have the same shape");
   }
   if (keyType.getElementType() != valueType.getElementType()) {
-    return emitOpError("Key and value must have the same element type");
+    return op.emitOpError("Key and value must have the same element type");
   }
   if (queryType.getShape() != resultType.getShape()) {
-    return emitOpError("Query and result must have the same shape");
+    return op.emitOpError("Query and result must have the same shape");
   }
   if (queryType.getElementType() != resultType.getElementType()) {
-    return emitOpError("Query and result must have the same element type");
+    return op.emitOpError("Query and result must have the same element type");
   }
 
   const int64_t seqDim = queryRank - 2;
-  if (getDim() != seqDim) {
-    return emitOpError("dim must be the sequence axis (")
+  if (op.getDim() != seqDim) {
+    return op.emitOpError("dim must be the sequence axis (")
            << seqDim << " for a rank-" << queryRank << " query), got "
-           << getDim();
+           << op.getDim();
   }
 
   if (keyType.getShape()[0] != queryType.getShape()[0]) {
-    return emitOpError("Key/Value batch size must match query batch size");
+    return op.emitOpError("Key/Value batch size must match query batch size");
   }
   if (keyType.getShape()[queryRank - 1] !=
       queryType.getShape()[queryRank - 1]) {
-    return emitOpError("Key/Value head size must match query head size");
+    return op.emitOpError("Key/Value head size must match query head size");
   }
   // tt-metal's validate has TT_FATAL(NQH == NKH): the ring kernel does not
   // support GQA/MQA, unlike plain SDPA.
   const int64_t nQueryHeads = queryType.getShape()[queryRank - 3];
   const int64_t nKVHeads = keyType.getShape()[queryRank - 3];
   if (nQueryHeads != nKVHeads) {
-    return emitOpError("Query and key/value num heads must be equal (the ring "
-                       "kernel does not support GQA), got ")
+    return op.emitOpError("Query and key/value num heads must be equal (the "
+                          "ring kernel does not support GQA), got ")
            << nQueryHeads << " and " << nKVHeads;
   }
   if (keyType.getElementType() != queryType.getElementType()) {
-    return emitOpError("Query and key/value must have the same element type");
+    return op.emitOpError("Query and key/value must have the same element type");
   }
   // Every rank holds the same slice of the sequence, so the per-device K/V
   // sequence length must match Q's. A K/V that is already at the gathered
   // length means an all-gather was left in place and this op should not have
   // been formed.
   if (keyType.getShape()[seqDim] != queryType.getShape()[seqDim]) {
-    return emitOpError("Key/Value sequence length must match query sequence "
-                       "length (both are sequence-sharded)");
+    return op.emitOpError("Key/Value sequence length must match query sequence "
+                          "length (both are sequence-sharded)");
   }
 
   // joint_* are all-or-none.
-  const unsigned numJoint = static_cast<unsigned>(!!getJointQuery()) +
-                            static_cast<unsigned>(!!getJointKey()) +
-                            static_cast<unsigned>(!!getJointValue());
+  const unsigned numJoint = static_cast<unsigned>(!!op.getJointQuery()) +
+                            static_cast<unsigned>(!!op.getJointKey()) +
+                            static_cast<unsigned>(!!op.getJointValue());
   if (numJoint != 0 && numJoint != 3) {
-    return emitOpError("joint_query, joint_key and joint_value must all be "
-                       "present or all be absent");
+    return op.emitOpError("joint_query, joint_key and joint_value must all be "
+                          "present or all be absent");
   }
 
-  const bool hasBufferK = static_cast<bool>(getPersistentOutputBufferK());
-  const bool hasBufferV = static_cast<bool>(getPersistentOutputBufferV());
+  const bool hasBufferK = static_cast<bool>(op.getPersistentOutputBufferK());
+  const bool hasBufferV = static_cast<bool>(op.getPersistentOutputBufferV());
   if (hasBufferK != hasBufferV) {
-    return emitOpError("persistent_output_buffer_k and "
-                       "persistent_output_buffer_v must both be present or "
-                       "both be absent");
+    return op.emitOpError("persistent_output_buffer_k and "
+                          "persistent_output_buffer_v must both be present or "
+                          "both be absent");
   }
 
   // tt-metal's ring all-gather rotates a two-deep semaphore pool, so a bound
   // op needs at least two. Empty means the prelude pass has not run yet.
-  const size_t numSemaphores = getMultiDeviceGlobalSemaphore().size();
+  const size_t numSemaphores = op.getMultiDeviceGlobalSemaphore().size();
   if (numSemaphores > 0 && numSemaphores < kRingSemaphorePoolDepth) {
-    return emitOpError("multi_device_global_semaphore must be empty (before "
-                       "prelude allocation) or hold at least ")
+    return op.emitOpError("multi_device_global_semaphore must be empty (before "
+                          "prelude allocation) or hold at least ")
            << kRingSemaphorePoolDepth
            << " semaphores for the ping-pong pool, got " << numSemaphores;
   }
   if (numSemaphores > 0 && !hasBufferK) {
-    return emitOpError("semaphores are bound but the persistent buffers are "
-                       "not; buffers are allocated before the optimizer and "
-                       "semaphores after, so this ordering is invalid");
+    return op.emitOpError("semaphores are bound but the persistent buffers are "
+                          "not; buffers are allocated before the optimizer and "
+                          "semaphores after, so this ordering is invalid");
   }
 
   int64_t gatheredSeqLen = 0;
   if (hasBufferK) {
-    RankedTensorType bufferKType =
-        mlir::cast<RankedTensorType>(getPersistentOutputBufferK().getType());
-    RankedTensorType bufferVType =
-        mlir::cast<RankedTensorType>(getPersistentOutputBufferV().getType());
+    RankedTensorType bufferKType = mlir::cast<RankedTensorType>(
+        op.getPersistentOutputBufferK().getType());
+    RankedTensorType bufferVType = mlir::cast<RankedTensorType>(
+        op.getPersistentOutputBufferV().getType());
     if (bufferKType.getShape() != bufferVType.getShape()) {
-      return emitOpError("persistent K and V buffers must have the same shape");
+      return op.emitOpError(
+          "persistent K and V buffers must have the same shape");
     }
     if (bufferKType.getRank() != queryRank) {
-      return emitOpError("persistent buffers must have the same rank as query");
+      return op.emitOpError(
+          "persistent buffers must have the same rank as query");
     }
     for (int64_t i = 0; i < queryRank; ++i) {
       if (i == seqDim) {
         continue;
       }
       if (bufferKType.getShape()[i] != keyType.getShape()[i]) {
-        return emitOpError("persistent buffer dim ")
+        return op.emitOpError("persistent buffer dim ")
                << i << " must match key dim " << i << " ("
                << keyType.getShape()[i] << "), got "
                << bufferKType.getShape()[i];
@@ -7427,7 +7430,7 @@ mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::verify() {
     const int64_t localSeqLen = keyType.getShape()[seqDim];
     if (localSeqLen == 0 || gatheredSeqLen % localSeqLen != 0 ||
         gatheredSeqLen / localSeqLen < 2) {
-      return emitOpError("persistent buffer sequence length (")
+      return op.emitOpError("persistent buffer sequence length (")
              << gatheredSeqLen
              << ") must be the key sequence length times the ring size (>= 2), "
                 "key sequence length is "
@@ -7442,22 +7445,22 @@ mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::verify() {
   // TT_FATAL((N_global - logical_n) < N_local). A larger delta means some
   // device holds nothing but padding.
   if (gatheredSeqLen != 0 &&
-      getLogicalN() <= static_cast<uint64_t>(gatheredSeqLen)) {
+      op.getLogicalN() <= static_cast<uint64_t>(gatheredSeqLen)) {
     const int64_t localSeqLen = keyType.getShape()[seqDim];
     const int64_t padding =
-        gatheredSeqLen - static_cast<int64_t>(getLogicalN());
+        gatheredSeqLen - static_cast<int64_t>(op.getLogicalN());
     if (padding >= localSeqLen) {
-      return emitOpError("the gap between the gathered sequence length (")
-             << gatheredSeqLen << ") and logical_n (" << getLogicalN()
+      return op.emitOpError("the gap between the gathered sequence length (")
+             << gatheredSeqLen << ") and logical_n (" << op.getLogicalN()
              << ") must be smaller than the per-device sequence length ("
              << localSeqLen
              << "); otherwise at least one device holds only padding";
     }
   }
   if (gatheredSeqLen != 0 &&
-      getLogicalN() > static_cast<uint64_t>(gatheredSeqLen)) {
-    return emitOpError("logical_n (")
-           << getLogicalN()
+      op.getLogicalN() > static_cast<uint64_t>(gatheredSeqLen)) {
+    return op.emitOpError("logical_n (")
+           << op.getLogicalN()
            << ") must not exceed the gathered sequence length ("
            << gatheredSeqLen << ")";
   }
@@ -7465,11 +7468,21 @@ mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::verify() {
   return success();
 }
 
+::mlir::LogicalResult
+mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::verify() {
+  return verifyRingJointSDPA(*this);
+}
+
+::mlir::LogicalResult
+mlir::tt::ttnn::RingJointScaledDotProductAttentionOp::verify() {
+  return verifyRingJointSDPA(*this);
+}
+
 // Ring size along `cluster_axis`, i.e. how many devices the K/V blocks travel
 // around. Returns nullopt when the enclosing module has no device (the op is
 // then not yet in a state where buffers can be sized).
-static std::optional<int64_t>
-getRingSize(mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp op) {
+template <typename RingSDPAOp>
+static std::optional<int64_t> getRingSize(RingSDPAOp op) {
   mlir::tt::ttcore::DeviceOp deviceOp = mlir::tt::ttcore::lookupDeviceOp(op);
   if (!deviceOp) {
     return std::nullopt;
@@ -7486,35 +7499,40 @@ bool mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::
   return !getPersistentOutputBufferK() || !getPersistentOutputBufferV();
 }
 
+bool mlir::tt::ttnn::RingJointScaledDotProductAttentionOp::hasUnboundBuffers() {
+  return !getPersistentOutputBufferK() || !getPersistentOutputBufferV();
+}
+
 // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-void mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::allocateBuffers(
-    ::mlir::RewriterBase &rewriter) {
-  if (!hasUnboundBuffers()) {
+template <typename RingSDPAOp>
+static void allocateRingSDPABuffers(::mlir::RewriterBase &rewriter,
+                                    RingSDPAOp op) {
+  if (!op.hasUnboundBuffers()) {
     return;
   }
 
-  std::optional<int64_t> ringSize = getRingSize(*this);
+  std::optional<int64_t> ringSize = getRingSize(op);
   assert(ringSize.has_value() &&
-         "ExpRingJointScaledDotProductAttentionOp buffer allocation needs a "
-         "device; expected ttcore-register-device to have run.");
+         "ring SDPA buffer allocation needs a device; expected "
+         "ttcore-register-device to have run.");
 
   // The ring streams K/V blocks into a buffer holding the whole gathered
   // sequence, so the sequence extent is the per-device length times the ring
   // size. Mirrors tt-metal's own sizing (models/tt_dit/parallel/manager.py:
   // output_buffer_shape[dim] *= mesh_device.shape[mesh_axis]).
-  RankedTensorType keyType = getKey().getType();
+  RankedTensorType keyType = op.getKey().getType();
   llvm::SmallVector<int64_t> gatheredShape{keyType.getShape()};
-  gatheredShape[getDim()] *= *ringSize;
+  gatheredShape[op.getDim()] *= *ringSize;
   RankedTensorType bufferType =
       utils::RankedTensorTypeFactory::create(keyType, gatheredShape);
 
-  auto device = utils::getOrInsertDevice(rewriter, *this);
+  auto device = utils::getOrInsertDevice(rewriter, op);
 
   auto makeEmpty = [&]() -> ttnn::EmptyOp {
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointAfter(device);
     return rewriter.create<ttnn::EmptyOp>(
-        getLoc(), bufferType, device,
+        op.getLoc(), bufferType, device,
         ShapeAttr::get(rewriter.getContext(), bufferType.getShape()));
   };
 
@@ -7522,10 +7540,20 @@ void mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::allocateBuffers(
   ttnn::EmptyOp bufferK = makeEmpty();
   ttnn::EmptyOp bufferV = makeEmpty();
 
-  rewriter.modifyOpInPlace(*this, [&]() {
-    getPersistentOutputBufferKMutable().assign(bufferK.getResult());
-    getPersistentOutputBufferVMutable().assign(bufferV.getResult());
+  rewriter.modifyOpInPlace(op, [&]() {
+    op.getPersistentOutputBufferKMutable().assign(bufferK.getResult());
+    op.getPersistentOutputBufferVMutable().assign(bufferV.getResult());
   });
+}
+
+void mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::allocateBuffers(
+    ::mlir::RewriterBase &rewriter) {
+  allocateRingSDPABuffers(rewriter, *this);
+}
+
+void mlir::tt::ttnn::RingJointScaledDotProductAttentionOp::allocateBuffers(
+    ::mlir::RewriterBase &rewriter) {
+  allocateRingSDPABuffers(rewriter, *this);
 }
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
@@ -7534,29 +7562,39 @@ bool mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::
   return getMultiDeviceGlobalSemaphore().empty();
 }
 
+bool mlir::tt::ttnn::RingJointScaledDotProductAttentionOp::
+    hasUnboundSemaphores() {
+  return getMultiDeviceGlobalSemaphore().empty();
+}
+
 // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-void mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::
-    allocateSemaphores(::mlir::RewriterBase &rewriter) {
-  if (!hasUnboundSemaphores()) {
+template <typename RingSDPAOp>
+static void allocateRingSDPASemaphores(::mlir::RewriterBase &rewriter,
+                                       RingSDPAOp op) {
+  if (!op.hasUnboundSemaphores()) {
     return;
   }
 
   MLIRContext *ctx = rewriter.getContext();
 
-  // The semaphores must span the cores the kernel actually runs on. This op
-  // has no memory_config to read a shard spec from (unlike
-  // DistributedRMSNormOp), but the program config's compute grid is exactly
-  // that core set, and it is a required attribute.
-  CoreCoordAttr grid = getProgramConfig().getComputeWithStorageGridSize();
-  assert(grid.getX() > 0 && grid.getY() > 0 &&
-         "program_config compute grid must be non-empty");
+  // Metal creates these on the full compute_with_storage grid (CCLManager
+  // `ccl_cores`). Non-exp ring_joint shrinks program_config by one column and
+  // places CCL workers at (program_config.x, 0); those cores are outside the
+  // SDPA grid, so allocating on program_config leaves the ring waiting on
+  // semaphores that were never instantiated there.
+  ttcore::ChipDescAttr chip = ttcore::getOpChipDescAttr(op.getOperation());
+  llvm::ArrayRef<int64_t> chipGrid = chip.getGrid();
+  assert(chipGrid.size() == 2 && chipGrid[0] > 0 && chipGrid[1] > 0 &&
+         "ChipDesc.grid must be a non-empty (Y, X) compute grid");
+  int64_t gridY = chipGrid[0];
+  int64_t gridX = chipGrid[1];
   auto coreRange = CoreRangeAttr::get(
       ctx, CoreCoordAttr::get(ctx, /*x=*/0, /*y=*/0),
-      CoreCoordAttr::get(ctx, grid.getX() - 1, grid.getY() - 1));
+      CoreCoordAttr::get(ctx, gridX - 1, gridY - 1));
   auto coreRangeSet =
       CoreRangeSetAttr::get(ctx, llvm::ArrayRef<CoreRangeAttr>{coreRange});
 
-  auto device = utils::getOrInsertDevice(rewriter, *this);
+  auto device = utils::getOrInsertDevice(rewriter, op);
 
   // tt-metal's ring all-gather rotates a two-deep semaphore pool so the set
   // handed to a call is clear of the previous call's in-flight traffic
@@ -7569,16 +7607,26 @@ void mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::
     rewriter.setInsertionPointAfter(device);
     semaphores.push_back(rewriter
                              .create<ttnn::CreateGlobalSemaphoreOp>(
-                                 getLoc(), GlobalSemaphoreType::get(ctx),
+                                 op.getLoc(), GlobalSemaphoreType::get(ctx),
                                  device.getResult(),
                                  /*initial_value=*/
                                  rewriter.getUI32IntegerAttr(0), coreRangeSet)
                              .getResult());
   }
 
-  rewriter.modifyOpInPlace(*this, [&]() {
-    getMultiDeviceGlobalSemaphoreMutable().assign(semaphores);
+  rewriter.modifyOpInPlace(op, [&]() {
+    op.getMultiDeviceGlobalSemaphoreMutable().assign(semaphores);
   });
+}
+
+void mlir::tt::ttnn::ExpRingJointScaledDotProductAttentionOp::
+    allocateSemaphores(::mlir::RewriterBase &rewriter) {
+  allocateRingSDPASemaphores(rewriter, *this);
+}
+
+void mlir::tt::ttnn::RingJointScaledDotProductAttentionOp::allocateSemaphores(
+    ::mlir::RewriterBase &rewriter) {
+  allocateRingSDPASemaphores(rewriter, *this);
 }
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 

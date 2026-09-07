@@ -3755,6 +3755,78 @@ createOp(FlatbufferObjectCache &cache,
 }
 
 ::flatbuffers::Offset<
+    ::tt::target::ttnn::RingJointScaledDotProductAttentionOp>
+createOp(FlatbufferObjectCache &cache,
+         RingJointScaledDotProductAttentionOp op) {
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+  auto value = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getValue()));
+
+  auto optionalTensor = [&](::mlir::Value v)
+      -> ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> {
+    return v ? cache.at<::tt::target::ttnn::TensorRef>(
+                   getOperandThroughDPSOps(v))
+             : 0;
+  };
+  auto jointQuery = optionalTensor(op.getJointQuery());
+  auto jointKey = optionalTensor(op.getJointKey());
+  auto jointValue = optionalTensor(op.getJointValue());
+  auto persistentOutputBufferK =
+      optionalTensor(op.getPersistentOutputBufferK());
+  auto persistentOutputBufferV =
+      optionalTensor(op.getPersistentOutputBufferV());
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
+      semaphores;
+  semaphores.reserve(op.getMultiDeviceGlobalSemaphore().size());
+  for (::mlir::Value semaphore : op.getMultiDeviceGlobalSemaphore()) {
+    semaphores.push_back(
+        cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(semaphore));
+  }
+  auto semaphoresVec = cache.fbb->CreateVector(semaphores);
+
+  auto jointStrategy = cache.fbb->CreateString(op.getJointStrategy().str());
+
+  ::flatbuffers::Optional<uint8_t> subDeviceId = std::nullopt;
+  if (op.getSubDeviceId()) {
+    subDeviceId = std::make_optional<uint8_t>(
+        static_cast<uint8_t>(op.getSubDeviceId().value()));
+  }
+  auto numLinks = toFlatbuffer(cache, op.getNumLinks());
+  auto topology = toFlatbuffer(cache, op.getTopology());
+  auto scale = toFlatbuffer(
+      cache, op.getScale()
+                 ? std::make_optional(op.getScale().value().convertToFloat())
+                 : std::nullopt);
+  ::flatbuffers::Offset<::tt::target::ttnn::SDPAConfig> programConfig =
+      toFlatbuffer(cache, op.getProgramConfig());
+  auto computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  auto out =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+  auto jointOut =
+      cache.getOrCreateNoSharding(op.getJointResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+  auto stats =
+      cache.getOrCreateNoSharding(op.getStats(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+  return ::tt::target::ttnn::CreateRingJointScaledDotProductAttentionOp(
+      *cache.fbb, query, key, value, jointQuery, jointKey, jointValue,
+      persistentOutputBufferK, persistentOutputBufferV, semaphoresVec,
+      jointStrategy, static_cast<uint64_t>(op.getLogicalN()), op.getDim(),
+      op.getClusterAxis(), programConfig, numLinks, topology, subDeviceId,
+      scale, op.getNumWorkersPerLink(), op.getNumBuffersPerChannel(),
+      computeConfig.value_or(0), out, jointOut, stats);
+}
+
+::flatbuffers::Offset<
     ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOp>
 createOp(FlatbufferObjectCache &cache,
          PagedFlashMultiLatentAttentionDecodeOp op) {
@@ -5409,6 +5481,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       expRingJointSdpaOp) {
     return createOperation(cache, createOp(cache, expRingJointSdpaOp),
                            debugString, locInfo);
+  }
+  if (auto ringJointSdpaOp = dyn_cast<RingJointScaledDotProductAttentionOp>(op);
+      ringJointSdpaOp) {
+    return createOperation(cache, createOp(cache, ringJointSdpaOp), debugString,
+                           locInfo);
   }
   if (auto flashMlaPrefillOp = dyn_cast<FlashMlaPrefillOp>(op);
       flashMlaPrefillOp) {

@@ -37,7 +37,7 @@ module {
     // FUSED-LABEL: @ring_sdpa_prelude_binding
     // FUSED-NOT: "ttnn.empty"
     // FUSED-NOT: "ttnn.create_global_semaphore"
-    // FUSED: "ttnn.exp_ring_joint_scaled_dot_product_attention"
+    // FUSED: "ttnn.ring_joint_scaled_dot_product_attention"
     // FUSED-SAME: operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 0, 0>
 
     // BUFFERS-LABEL: @ring_sdpa_prelude_binding
@@ -48,7 +48,7 @@ module {
     // BUFFERS-SAME: shape = #ttnn.shape<1x8x256x64>
     // BUFFERS-NOT: "ttnn.create_global_semaphore"
     // Buffers bound (slots 7 and 8), semaphore pool still empty.
-    // BUFFERS: "ttnn.exp_ring_joint_scaled_dot_product_attention"
+    // BUFFERS: "ttnn.ring_joint_scaled_dot_product_attention"
     // BUFFERS-SAME: operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 1, 0>
 
     // ALL-LABEL: @ring_sdpa_prelude_binding
@@ -56,11 +56,15 @@ module {
     // that runs later (semaphores) ends up earlier in the block. Order between
     // the two groups is not meaningful; only that all four exist and are bound.
     // A two-deep ping-pong pool, matching tt-metal's ring all-gather.
-    // ALL-DAG: "ttnn.create_global_semaphore"
-    // ALL-DAG: "ttnn.create_global_semaphore"
+    // Core range is the full ChipDesc compute grid (default WH 8x8), not the
+    // shrunk SDPA program_config — CCL workers sit on the reserved column.
+    // ALL: "ttnn.create_global_semaphore"
+    // ALL-SAME: core_range_set = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,7)>]>
+    // ALL: "ttnn.create_global_semaphore"
+    // ALL-SAME: core_range_set = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,7)>]>
     // ALL-DAG: "ttnn.empty"
     // ALL-DAG: "ttnn.empty"
-    // ALL: "ttnn.exp_ring_joint_scaled_dot_product_attention"
+    // ALL: "ttnn.ring_joint_scaled_dot_product_attention"
     // ALL-SAME: operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 1, 2>
 
     %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32}> : (tensor<1x8x128x64xbf16, #sharded>) -> tensor<1x8x256x64xbf16, #gathered>

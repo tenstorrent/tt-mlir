@@ -373,16 +373,12 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
             "Fuse unary activation ops into eltwise binary ops.">
     Option<"enableRingSDPAFusion",
             "enable-ring-sdpa",
-            // TEMPORARY (local experiment): flipped to true to exercise the ring
-            // path on silicon. Nothing plumbs this option from a pipeline
-            // option, so the default is the only way to reach the pattern.
-            // Revert to "false" before this leaves a scratch branch.
-            "bool", /*default=*/"true",
+            "bool", /*default=*/"false",
             "Rewrite an exposed sequence-parallel K/V all-gather feeding a "
             "plain SDPA into the ring variant, which overlaps the K/V "
             "transfer with the attention compute. Disabled by default: the "
-            "ring kernel needs a multi-chip mesh and has not been validated "
-            "on silicon yet.">
+            "ring kernel needs a multi-chip mesh. Galaxy (SP!=32) uses "
+            "ring_joint; TP=4 and SP=32 uses exp_ring_joint.">
   ];
 }
 
