@@ -254,11 +254,16 @@ struct TTIRToTTNNCommonPipelineOptions
   // by default: DS trades compute width for per-bank read efficiency, and
   // whether that pays depends on the part's bank-to-worker ratio. Unset, the
   // matmul DRAM-shard rule book is suppressed and matmuls take the other
-  // (1D/2D mcast) program configs.
-  Option<bool> enableDRAMShardedMatmul{
+  // (1D/2D mcast) program configs. Takes effect only with memory layout
+  // analysis enabled (optimization level 2): DS relies on the L1 sharded
+  // layouts and the L1 spill management that only that tier runs, so the
+  // option is forced off below it once the level is resolved, for the optimizer
+  // and the fusing pass alike.
+  mutable Option<bool> enableDRAMShardedMatmul{
       *this, OptionNames::enableDramShardedMatmul,
-      llvm::cl::desc(
-          "Enable generation of DRAM-sharded matmuls in the optimizer."),
+      llvm::cl::desc("Enable generation of DRAM-sharded matmuls in the "
+                     "optimizer. Requires memory-layout-analysis-enabled "
+                     "(optimization level 2)."),
       llvm::cl::init(false)};
 
   // Option to enable/disable the workaround pass.
@@ -594,6 +599,9 @@ struct TTIRToTTNNCommonPipelineOptions
     }
     if (!memoryLayoutAnalysisEnabled.hasValue()) {
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
+    }
+    if (!memoryLayoutAnalysisEnabled) {
+      enableDRAMShardedMatmul = false;
     }
     if (!computeCfgMathFidelity.hasValue() && optimizationLevel > 0) {
       computeCfgMathFidelity = OptionalMathFidelity::Undefined;
