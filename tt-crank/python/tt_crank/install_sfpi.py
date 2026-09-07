@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-``tt-kurbla-install-sfpi`` console script.
+``tt-crank-install-sfpi`` console script.
 
 The wheel does NOT bundle the SFPI RISC-V toolchain (GPLv3 GCC, ~436 MB) — the
 payload rules drop it, so tt-metal's kernel JIT falls through to
@@ -13,9 +13,9 @@ wheel's copy, or the dev submodule), downloads the matching distro package from
 the sfpi GitHub releases, verifies its sha256, and installs it with the system
 package manager (``apt``/``dnf``/``yum``/``zypper``).
 
-Run once after ``pip install tt-kurbla`` (needs sudo unless already root):
+Run once after ``pip install tt-crank`` (needs sudo unless already root):
 
-    tt-kurbla-install-sfpi
+    tt-crank-install-sfpi
 
 URL, filename and distro naming follow tt-metal's ``tt_metal/sfpi-info.sh``,
 which is the upstream source of truth for them.

@@ -136,7 +136,7 @@ class TTProcessGroup(dist.ProcessGroup):
         The inverse of `_allgather_base`. This is the c10d entry torch drives, so
         it always scatters dim 0 (the `_reduce_scatter_base` contract). The
         Replicate -> Shard redistribute does not go through here — it calls
-        `tt_kurbla.reduce_scatter` directly with the real shard dim (see
+        `tt_crank.reduce_scatter` directly with the real shard dim (see
         `_install_replicate_to_shard_patch`).
         """
         if opts.reduceOp != dist.ReduceOp.SUM:
@@ -187,7 +187,7 @@ def _reduce_scatter_out_shape(shape, group_size: int, scatter_dim: int) -> list[
     dim = scatter_dim % len(out)
     if out[dim] % group_size:
         raise ValueError(
-            f"tt_kurbla.reduce_scatter: dim {dim} (size {out[dim]}) is not "
+            f"tt_crank.reduce_scatter: dim {dim} (size {out[dim]}) is not "
             f"divisible by the group size {group_size}"
         )
     out[dim] //= group_size
@@ -198,7 +198,7 @@ def _reduce_scatter_out_shape(shape, group_size: int, scatter_dim: int) -> list[
 # only scatters dim 0 (faking other dims with a split we'd have to lower), so we
 # expose our own op instead: TTIR/TTNN reduce_scatter carry an arbitrary
 # scatter_dim, so we pass it straight through.
-@torch.library.custom_op("tt_kurbla::reduce_scatter", mutates_args=())
+@torch.library.custom_op("tt_crank::reduce_scatter", mutates_args=())
 def reduce_scatter(
     input: torch.Tensor, group_name: str, group_size: int, scatter_dim: int
 ) -> torch.Tensor:
@@ -248,7 +248,7 @@ def _install_replicate_to_shard_patch() -> None:
             return _orig(self, local_tensor, mesh, mesh_dim, shard_index)
         num_chunks = mesh.size(mesh_dim)
         group_name = _resolve_group_name((mesh, mesh_dim))
-        scattered = torch.ops.tt_kurbla.reduce_scatter(
+        scattered = torch.ops.tt_crank.reduce_scatter(
             local_tensor, group_name, num_chunks, self.dim
         )
         return scattered / num_chunks

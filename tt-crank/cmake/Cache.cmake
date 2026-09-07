@@ -1,8 +1,8 @@
 # Wire up ccache as the compiler launcher if it's available on PATH.
 
-option(TT_KURBLA_USE_CCACHE "Use ccache as compiler launcher if available" ON)
+option(TT_CRANK_USE_CCACHE "Use ccache as compiler launcher if available" ON)
 
-if(TT_KURBLA_USE_CCACHE)
+if(TT_CRANK_USE_CCACHE)
     find_program(CCACHE_PROGRAM ccache)
     if(CCACHE_PROGRAM)
         message(STATUS "ccache found at ${CCACHE_PROGRAM}; using as compiler launcher")

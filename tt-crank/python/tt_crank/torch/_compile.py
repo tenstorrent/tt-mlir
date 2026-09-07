@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""`torch.compile()` backend for tt-kurbla.
+"""`torch.compile()` backend for tt-crank.
 
 Registers a dynamo backend under the name `tt` that lowers a post-aot FX
 graph into a single TTIR module, compiles it through tt-mlir, and returns a
@@ -58,7 +58,7 @@ def _to_runtime_dtype(dtype: torch.dtype) -> "_native.DataType":
         return _DTYPE_TO_RUNTIME[dtype]
     except KeyError as e:
         raise NotImplementedError(
-            f"tt-kurbla compile: unsupported torch dtype {dtype}"
+            f"tt-crank compile: unsupported torch dtype {dtype}"
         ) from e
 
 
@@ -89,11 +89,11 @@ def _(container, idx):
             # than letting the None flow on (it would otherwise be silently
             # accepted as a graph output and returned to the caller).
             raise NotImplementedError(
-                f"tt-kurbla compile: output [{idx}] of a multi-output op is not lowered"
+                f"tt-crank compile: output [{idx}] of a multi-output op is not lowered"
             )
         return item
     raise NotImplementedError(
-        f"tt-kurbla compile: getitem on non-tuple {type(container).__name__}"
+        f"tt-crank compile: getitem on non-tuple {type(container).__name__}"
     )
 
 
@@ -165,7 +165,7 @@ def _(mb, x, dim, keepdim=False, *, dtype=None):
 def _(mb, x, ord=2, dim=None, keepdim=False, *, dtype=None):
     if ord != 2:
         raise NotImplementedError(
-            f"tt-kurbla compile: linalg_vector_norm only supports ord=2, got {ord}"
+            f"tt-crank compile: linalg_vector_norm only supports ord=2, got {ord}"
         )
     return mb.vector_norm(x, [] if dim is None else [int(d) for d in dim], keepdim)
 
@@ -257,14 +257,14 @@ def _(
 ):
     if transposed:
         raise NotImplementedError(
-            "tt-kurbla compile: transposed convolution not supported"
+            "tt-crank compile: transposed convolution not supported"
         )
     # NCW / NCHW / NCDHW select conv1d / conv2d / conv3d respectively.
     builders = {3: mb.conv1d, 4: mb.conv2d, 5: mb.conv3d}
     rank = len(input.shape)
     if rank not in builders:
         raise NotImplementedError(
-            f"tt-kurbla compile: convolution supports rank 3, 4, or 5 inputs, got rank {rank}"
+            f"tt-crank compile: convolution supports rank 3, 4, or 5 inputs, got rank {rank}"
         )
     return builders[rank](
         input, weight, bias, list(stride), list(padding), list(dilation), int(groups)
@@ -294,7 +294,7 @@ def _(mb, x, kernel_size, stride, padding=0, dilation=1, ceil_mode=False):
 def _(mb, input, weight, bias, running_mean, running_var, momentum, eps):
     if weight is None or bias is None:
         raise NotImplementedError(
-            "tt-kurbla compile: batch_norm without affine parameters (affine=False) not supported"
+            "tt-crank compile: batch_norm without affine parameters (affine=False) not supported"
         )
     result = mb.batch_norm_inference(
         input, weight, bias, running_mean, running_var, float(eps)
@@ -624,7 +624,7 @@ def _(mb, weight, indices, padding_idx=-1, scale_grad_by_freq=False, sparse=Fals
 def _(mb, grad_output, indices, num_weights, padding_idx, scale_grad_by_freq=False):
     if scale_grad_by_freq:
         raise NotImplementedError(
-            "tt-kurbla compile: embedding_dense_backward with scale_grad_by_freq=True is not lowered"
+            "tt-crank compile: embedding_dense_backward with scale_grad_by_freq=True is not lowered"
         )
     return mb.embedding_backward(
         grad_output, indices, int(num_weights), int(padding_idx)
@@ -719,7 +719,7 @@ def _numpy_broadcast_shape(shapes):
             if d != 1:
                 if out[i] != 1 and out[i] != d:
                     raise NotImplementedError(
-                        f"tt-kurbla compile: incompatible index broadcast {shapes}"
+                        f"tt-crank compile: incompatible index broadcast {shapes}"
                     )
                 out[i] = d
     return out
@@ -759,7 +759,7 @@ def _(mb, x, indices):
         idx_shape = list(idx.shape)
         if len(idx_shape) != 1:
             raise NotImplementedError(
-                "tt-kurbla compile: single-index aten.index.Tensor requires a 1-D index"
+                "tt-crank compile: single-index aten.index.Tensor requires a 1-D index"
             )
         k = idx_shape[0]
         out_shape = list(in_shape)
@@ -776,7 +776,7 @@ def _(mb, x, indices):
     k = len(non_none)
     if dims != list(range(k)) or k != len(in_shape):
         raise NotImplementedError(
-            "tt-kurbla compile: aten.index.Tensor supports a single index, or index "
+            "tt-crank compile: aten.index.Tensor supports a single index, or index "
             "tensors covering all leading dims with no trailing dims; "
             f"got indexed dims {dims} on a {len(in_shape)}-D tensor"
         )
@@ -861,11 +861,11 @@ def _(
 ):
     if dropout_p:
         raise NotImplementedError(
-            f"tt-kurbla sdpa: dropout_p must be 0 (inference only), got {dropout_p}"
+            f"tt-crank sdpa: dropout_p must be 0 (inference only), got {dropout_p}"
         )
     if return_debug_mask:
         raise NotImplementedError(
-            "tt-kurbla sdpa: return_debug_mask=True is not supported"
+            "tt-crank sdpa: return_debug_mask=True is not supported"
         )
     result = mb.sdpa(
         query, key, value, is_causal=is_causal, scale=scale, attn_mask=attn_bias
@@ -926,7 +926,7 @@ def _(mb, x, **kwargs):
     if isinstance(x, torch.Tensor):
         if x.numel() > 1:
             raise NotImplementedError(
-                f"tt-kurbla compile: non-scalar constant tensor (shape {tuple(x.shape)}) not supported"
+                f"tt-crank compile: non-scalar constant tensor (shape {tuple(x.shape)}) not supported"
             )
         # .item() under fake mode would dispatch _local_scalar_dense
         with unset_fake_temporarily():
@@ -1064,7 +1064,7 @@ def _(mb, input, reduce_op, group_size, group_name):
     return mb.reduce_scatter(input, group_size, _cluster_axis_for_group(group_name), 0)
 
 
-@_lowering(torch.ops.tt_kurbla.reduce_scatter.default)
+@_lowering(torch.ops.tt_crank.reduce_scatter.default)
 def _(mb, input, group_name, group_size, scatter_dim):
     # Our own reduce_scatter carries the real shard dim (used by the
     # Replicate->Shard redistribute patch); scatter it directly.
@@ -1306,7 +1306,7 @@ class _TTIRInterpreter(torch.fx.Interpreter):
     def _lower_op(self, target, args, kwargs):
         fn = _LOWERINGS.get(target)
         if fn is None:
-            raise NotImplementedError(f"tt-kurbla compile: op {target} not implemented")
+            raise NotImplementedError(f"tt-crank compile: op {target} not implemented")
 
         val = self._current_node.meta["val"]
         if isinstance(val, (tuple, list)):
@@ -1319,7 +1319,7 @@ class _TTIRInterpreter(torch.fx.Interpreter):
         op = _OPERATORS.get(target)
         if op is None:
             raise NotImplementedError(
-                f"tt-kurbla compile: operator {target} not implemented"
+                f"tt-crank compile: operator {target} not implemented"
             )
 
         return op(*args, **kwargs)
@@ -1391,7 +1391,7 @@ def _lower_and_compile(
             continue
         if isinstance(v, tuple):
             raise NotImplementedError(
-                "tt-kurbla compile: tuple-valued graph output not supported (use getitem first)"
+                "tt-crank compile: tuple-valued graph output not supported (use getitem first)"
             )
         none_mask.append(False)
         outputs.append(v)
@@ -1437,7 +1437,7 @@ def _new_empty_strided_decomp(
         acc *= dim
     if any(s != c for d, s, c in zip(size, stride, contiguous) if d > 1):
         raise NotImplementedError(
-            f"tt-kurbla compile: new_empty_strided with non-contiguous strides {list(stride)} "
+            f"tt-crank compile: new_empty_strided with non-contiguous strides {list(stride)} "
             f"for size {list(size)} (contiguous would be {contiguous})"
         )
     return self.new_zeros(size, dtype=dtype if dtype is not None else self.dtype)

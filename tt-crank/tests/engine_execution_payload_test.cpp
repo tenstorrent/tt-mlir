@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The inner getNumAvailableDevices() guard skips cleanly on card-less hosts.
-// Running with TT_KURBLA_USE_SIMULATOR=1 (e.g. `ctest --preset sim`) routes the
+// Running with TT_CRANK_USE_SIMULATOR=1 (e.g. `ctest --preset sim`) routes the
 // runtime through ttsim via src/engine/sim_env.cpp, so these execute without a
 // physical device.
 
@@ -42,8 +42,8 @@ bool device_available() {
 
 // Returns the cached CompiledProgram by reference; sibling payloads compiled
 // from the same TTIR share one program instance (the compile cache dedupes).
-tt::kurbla::CompiledProgram &compile_for_current_device() {
-    return *tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir).program;
+tt::crank::CompiledProgram &compile_for_current_device() {
+    return *tt::crank::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir).program;
 }
 
 // bf16 has the same sign+exponent encoding as f32; truncating the low 16 bits
@@ -64,7 +64,7 @@ tt::runtime::Tensor make_filled_host_tensor(const tt::runtime::TensorDesc &desc,
 // bind_tensor takes a non-const Tensor& (it may rewrite the tensor's layout in
 // place), so the make_filled_host_tensor temporary must be materialized as an
 // lvalue before binding.
-void bind_filled(tt::kurbla::ExecutionPayload &payload, const tt::runtime::TensorDesc &desc, float fill,
+void bind_filled(tt::crank::ExecutionPayload &payload, const tt::runtime::TensorDesc &desc, float fill,
                  std::uint32_t index) {
     tt::runtime::Tensor tensor = make_filled_host_tensor(desc, fill);
     payload.bind_tensor(tensor, index);
@@ -90,7 +90,7 @@ TEST(EngineExecutionPayloadTest, RunsTrivialAdd) {
     }
 
     auto &program = compile_for_current_device();
-    tt::kurbla::ExecutionPayload payload(program);
+    tt::crank::ExecutionPayload payload(program);
 
     const auto &input_descs = program.input_descs;
     ASSERT_EQ(input_descs.size(), 2U);
@@ -114,7 +114,7 @@ TEST(EngineExecutionPayloadTest, RunsMultipleAdds) {
 
     for (size_t i = 0; i < 16; ++i) {
         auto &program = compile_for_current_device();
-        tt::kurbla::ExecutionPayload payload(program);
+        tt::crank::ExecutionPayload payload(program);
 
         const auto &input_descs = program.input_descs;
         ASSERT_EQ(input_descs.size(), 2U);
@@ -138,7 +138,7 @@ TEST(EngineExecutionPayloadTest, ReuseAcrossRuns) {
     }
 
     auto &program = compile_for_current_device();
-    tt::kurbla::ExecutionPayload payload(program);
+    tt::crank::ExecutionPayload payload(program);
 
     const auto &input_descs = program.input_descs;
     bind_filled(payload, input_descs[0], 1.0F, 0);
@@ -158,7 +158,7 @@ TEST(EngineExecutionPayloadTest, RebindSlotReplacesTensor) {
     }
 
     auto &program = compile_for_current_device();
-    tt::kurbla::ExecutionPayload payload(program);
+    tt::crank::ExecutionPayload payload(program);
 
     const auto &input_descs = program.input_descs;
     bind_filled(payload, input_descs[0], 0.0F, 0);
@@ -178,8 +178,8 @@ TEST(EngineExecutionPayloadTest, SiblingPayloadsShareProgram) {
     }
 
     auto &program = compile_for_current_device();
-    tt::kurbla::ExecutionPayload a(program);
-    tt::kurbla::ExecutionPayload b(program);
+    tt::crank::ExecutionPayload a(program);
+    tt::crank::ExecutionPayload b(program);
 
     EXPECT_EQ(&a.compiled_program(), &b.compiled_program());
 
@@ -198,7 +198,7 @@ TEST(EngineExecutionPayloadTest, RejectsWrongShape) {
     }
 
     auto &program = compile_for_current_device();
-    tt::kurbla::ExecutionPayload payload(program);
+    tt::crank::ExecutionPayload payload(program);
 
     // Build a desc with deliberately wrong shape (64x64 instead of 64x128).
     tt::runtime::TensorDesc wrong = program.input_descs[0];
@@ -214,7 +214,7 @@ TEST(EngineExecutionPayloadTest, RejectsMissingInput) {
     }
 
     auto &program = compile_for_current_device();
-    tt::kurbla::ExecutionPayload payload(program);
+    tt::crank::ExecutionPayload payload(program);
 
     const auto &input_descs = program.input_descs;
     bind_filled(payload, input_descs[0], 0.0F, 0);

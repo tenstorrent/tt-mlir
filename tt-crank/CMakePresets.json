@@ -40,8 +40,8 @@
             "inherits": "_clang-base",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-                "TT_KURBLA_ENABLE_ASAN": "ON",
-                "TT_KURBLA_ENABLE_UBSAN": "ON"
+                "TT_CRANK_ENABLE_ASAN": "ON",
+                "TT_CRANK_ENABLE_UBSAN": "ON"
             }
         }
     ],

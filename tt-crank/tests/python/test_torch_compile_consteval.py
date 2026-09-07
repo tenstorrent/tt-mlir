@@ -5,7 +5,7 @@
 """Tests for const-eval argument tagging in the `torch.compile(backend="tt")` path.
 
 Const-eval relies on tt-mlir's ConstEvalHoist pass + runtime GlobalTensorCache,
-already wired in the pinned pipeline. tt-kurbla's job is to tag the *forward*
+already wired in the pinned pipeline. tt-crank's job is to tag the *forward*
 graph's lifted weight/buffer args ``ttcore.argument_type = parameter`` so the
 pass can fold weight-only subgraphs across calls; the compiler does its own
 per-function dataflow over those args, so only the args need marking.
@@ -26,7 +26,7 @@ from unittest.mock import patch
 import torch
 import torch.nn as nn
 
-from tt_kurbla.torch import _compile, _native
+from tt_crank.torch import _compile, _native
 
 # Short alias for the const-eval argument-type enum (mlir::tt::ttcore::ArgumentType).
 AT = _native.ArgumentType

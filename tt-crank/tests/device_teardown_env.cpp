@@ -12,7 +12,7 @@ namespace {
 // still live (worker threads + thread-local state intact).
 class DeviceTeardownEnvironment : public ::testing::Environment {
 public:
-    void TearDown() override { ::tt::kurbla::close_runtime_device_mesh(); }
+    void TearDown() override { ::tt::crank::close_runtime_device_mesh(); }
 };
 
 // Registered at static-init time, which runs before gtest_main reaches

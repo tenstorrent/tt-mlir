@@ -40,7 +40,7 @@
 namespace nb = nanobind;
 using namespace nb::literals; // for `"name"_a` argument literals
 
-namespace tk = ::tt::kurbla::torch_backend;
+namespace tk = ::tt::crank::torch_backend;
 
 namespace {
 
@@ -60,7 +60,7 @@ public:
     mlir::Value arg(std::size_t index) {
         assert_builder();
         const auto args = mb_->args();
-        TORCH_CHECK(index < args.size(), "tt-kurbla ModuleBuilder.arg: index ", index, " out of range (", args.size(),
+        TORCH_CHECK(index < args.size(), "tt-crank ModuleBuilder.arg: index ", index, " out of range (", args.size(),
                     " args)");
         return args[index];
     }
@@ -263,8 +263,8 @@ public:
     }
 
     // Returns the compiled program along with metadata.
-    ::tt::kurbla::CompileResult compile(const std::vector<mlir::Value> &outputs,
-                                        const ::tt::kurbla::CompileOptions &options, bool capture_ttir) {
+    ::tt::crank::CompileResult compile(const std::vector<mlir::Value> &outputs,
+                                       const ::tt::crank::CompileOptions &options, bool capture_ttir) {
         assert_builder();
         auto module_op = std::move(*mb_).finalize(outputs);
         mb_.reset();
@@ -442,7 +442,7 @@ public:
         for (int64_t i = 0; i < target_rank; ++i) {
             if (target_shape[as<std::size_t>(i)] == -1) {
                 int64_t input_i = i - (target_rank - input_rank);
-                TORCH_CHECK(input_i >= 0, "tt-kurbla broadcast: -1 in target_shape at a prepended dim");
+                TORCH_CHECK(input_i >= 0, "tt-crank broadcast: -1 in target_shape at a prepended dim");
                 target_shape[as<std::size_t>(i)] = input_shape[as<std::size_t>(input_i)];
             }
         }
@@ -587,7 +587,7 @@ public:
 
 private:
     void assert_builder() const {
-        TORCH_CHECK(mb_.has_value(), "tt-kurbla ModuleBuilder: builder already consumed by compile()");
+        TORCH_CHECK(mb_.has_value(), "tt-crank ModuleBuilder: builder already consumed by compile()");
     }
 
     std::optional<tk::ModuleBuilder> mb_;
@@ -599,7 +599,7 @@ private:
 // TensorImpl; the Python wrapper's ref is unchanged.
 at::Tensor unpack_torch_tensor(nb::handle h) {
     PyObject *p = h.ptr();
-    TORCH_CHECK(THPVariable_Check(p) != 0, "tt-kurbla: expected a torch.Tensor");
+    TORCH_CHECK(THPVariable_Check(p) != 0, "tt-crank: expected a torch.Tensor");
     return THPVariable_Unpack(p);
 }
 
@@ -614,7 +614,7 @@ nb::object wrap_torch_tensor(at::Tensor t) {
     return nb::steal<nb::object>(p);
 }
 
-nb::list run_program(::tt::kurbla::CompiledProgram &program, nb::list &inputs,
+nb::list run_program(::tt::crank::CompiledProgram &program, nb::list &inputs,
                      std::vector<::tt::target::DataType> &output_dtypes) {
     std::vector<at::Tensor> at_inputs;
     at_inputs.reserve(nb::len(inputs));
@@ -642,11 +642,11 @@ NB_MODULE(_native, m) {
     // possible), the kernels are still wired correctly.
     //
     // The Python-side counterpart, torch.utils.rename_privateuse1_backend("tt")
-    // in tt_kurbla.torch._device.register(), adds the framework-level
+    // in tt_crank.torch._device.register(), adds the framework-level
     // ergonomics on top (Tensor.tt() method, the autograd-aware dispatch-key
     // alias, etc.). It calls into the same c10 primitive internally and is a
     // no-op when the name already matches — the supported order is the one
-    // enforced by python/tt_kurbla/torch/__init__.py: this C++ call first,
+    // enforced by python/tt_crank/torch/__init__.py: this C++ call first,
     // then register() afterwards.
     c10::register_privateuse1_backend("tt");
 
@@ -656,26 +656,26 @@ NB_MODULE(_native, m) {
     // guard sides; we just need the allocator hook.
     tk::register_allocator();
 
-    m.doc() = "tt-kurbla torch backend native module";
+    m.doc() = "tt-crank torch backend native module";
     m.def("loaded", []() { return true; });
 
     m.def("artifacts_dir", &artifacts_dir_config, "Directory where the artifacts should be stored.");
 
-    m.def("runtime_device_num_chips", &::tt::kurbla::runtime_device_num_chips,
+    m.def("runtime_device_num_chips", &::tt::crank::runtime_device_num_chips,
           "Number of physical chips behind the single logical tt device.");
 
     m.def(
-        "runtime_device_arch", []() { return std::string(mlir::tt::ttcore::stringifyArch(::tt::kurbla::arch())); },
+        "runtime_device_arch", []() { return std::string(mlir::tt::ttcore::stringifyArch(::tt::crank::arch())); },
         "Architecture of the chips behind the tt device, e.g. \"wormhole_b0\".");
 
-    m.def("open_runtime_device_mesh", &::tt::kurbla::open_runtime_device_mesh, "rows"_a, "cols"_a,
+    m.def("open_runtime_device_mesh", &::tt::crank::open_runtime_device_mesh, "rows"_a, "cols"_a,
           "Open (or reopen, if already open with a different shape) the MeshDevice "
           "with mesh shape (rows, cols). rows*cols must be in [1, num_chips()].");
 
-    m.def("runtime_device_mesh_shape", &::tt::kurbla::runtime_device_mesh_shape,
+    m.def("runtime_device_mesh_shape", &::tt::crank::runtime_device_mesh_shape,
           "Current runtime mesh shape as [rows, cols].");
 
-    m.def("close_runtime_device_mesh", &::tt::kurbla::close_runtime_device_mesh,
+    m.def("close_runtime_device_mesh", &::tt::crank::close_runtime_device_mesh,
           "Close the process-wide MeshDevice if open.");
 
     // Thin binding wrappers over the distributed primitives in tensor.cpp:
@@ -726,7 +726,7 @@ NB_MODULE(_native, m) {
 
     // ====== torch.compile backend bindings ======
     //
-    // The Python `tt_kurbla.torch._compile` module walks an FX graph and calls
+    // The Python `tt_crank.torch._compile` module walks an FX graph and calls
     // these to emit a single TTIR module, compile it, and run it on each
     // invocation. Phase-0 surface: add only — enough for a stacked-add model.
 
@@ -763,38 +763,38 @@ NB_MODULE(_native, m) {
     });
 
     // Typed enums for the dtype / math-fidelity compile options.
-    nb::enum_<::tt::kurbla::CompileOptions::BfpDtype>(m, "BfpDtype")
-        .value("BfpBf8", ::tt::kurbla::CompileOptions::BfpDtype::BfpBf8)
-        .value("BfpBf4", ::tt::kurbla::CompileOptions::BfpDtype::BfpBf4);
+    nb::enum_<::tt::crank::CompileOptions::BfpDtype>(m, "BfpDtype")
+        .value("BfpBf8", ::tt::crank::CompileOptions::BfpDtype::BfpBf8)
+        .value("BfpBf4", ::tt::crank::CompileOptions::BfpDtype::BfpBf4);
 
-    nb::enum_<::tt::kurbla::CompileOptions::MathFidelity>(m, "MathFidelity")
-        .value("LoFi", ::tt::kurbla::CompileOptions::MathFidelity::LoFi)
-        .value("HiFi2", ::tt::kurbla::CompileOptions::MathFidelity::HiFi2)
-        .value("HiFi3", ::tt::kurbla::CompileOptions::MathFidelity::HiFi3)
-        .value("HiFi4", ::tt::kurbla::CompileOptions::MathFidelity::HiFi4);
+    nb::enum_<::tt::crank::CompileOptions::MathFidelity>(m, "MathFidelity")
+        .value("LoFi", ::tt::crank::CompileOptions::MathFidelity::LoFi)
+        .value("HiFi2", ::tt::crank::CompileOptions::MathFidelity::HiFi2)
+        .value("HiFi3", ::tt::crank::CompileOptions::MathFidelity::HiFi3)
+        .value("HiFi4", ::tt::crank::CompileOptions::MathFidelity::HiFi4);
 
     // Compile options: `torch.compile(..., options=...)`
-    nb::class_<::tt::kurbla::CompileOptions>(m, "CompileOptions")
-        .def("__init__", [](::tt::kurbla::CompileOptions *self) { new (self)::tt::kurbla::CompileOptions{}; })
-        .def_rw("optimization_level", &::tt::kurbla::CompileOptions::optimization_level)
-        .def_rw("experimental_weight_dtype", &::tt::kurbla::CompileOptions::experimental_weight_dtype)
-        .def_rw("experimental_kv_cache_dtype", &::tt::kurbla::CompileOptions::experimental_kv_cache_dtype)
-        .def_rw("math_fidelity", &::tt::kurbla::CompileOptions::math_fidelity)
-        .def_rw("fp32_dest_acc_en", &::tt::kurbla::CompileOptions::fp32_dest_acc_en)
+    nb::class_<::tt::crank::CompileOptions>(m, "CompileOptions")
+        .def("__init__", [](::tt::crank::CompileOptions *self) { new (self)::tt::crank::CompileOptions{}; })
+        .def_rw("optimization_level", &::tt::crank::CompileOptions::optimization_level)
+        .def_rw("experimental_weight_dtype", &::tt::crank::CompileOptions::experimental_weight_dtype)
+        .def_rw("experimental_kv_cache_dtype", &::tt::crank::CompileOptions::experimental_kv_cache_dtype)
+        .def_rw("math_fidelity", &::tt::crank::CompileOptions::math_fidelity)
+        .def_rw("fp32_dest_acc_en", &::tt::crank::CompileOptions::fp32_dest_acc_en)
         .def_rw("experimental_enable_fusing_conv2d_with_multiply_pattern",
-                &::tt::kurbla::CompileOptions::experimental_enable_fusing_conv2d_with_multiply_pattern)
+                &::tt::crank::CompileOptions::experimental_enable_fusing_conv2d_with_multiply_pattern)
         .def_rw("experimental_enable_permute_matmul_fusion",
-                &::tt::kurbla::CompileOptions::experimental_enable_permute_matmul_fusion)
-        .def_rw("enable_trace", &::tt::kurbla::CompileOptions::enable_trace)
-        .def_rw("enable_const_eval", &::tt::kurbla::CompileOptions::enable_const_eval)
-        .def_rw("enable_const_eval_on_cpu", &::tt::kurbla::CompileOptions::enable_const_eval_on_cpu)
+                &::tt::crank::CompileOptions::experimental_enable_permute_matmul_fusion)
+        .def_rw("enable_trace", &::tt::crank::CompileOptions::enable_trace)
+        .def_rw("enable_const_eval", &::tt::crank::CompileOptions::enable_const_eval)
+        .def_rw("enable_const_eval_on_cpu", &::tt::crank::CompileOptions::enable_const_eval_on_cpu)
         .def_rw("enable_const_eval_inputs_to_system_memory",
-                &::tt::kurbla::CompileOptions::enable_const_eval_inputs_to_system_memory)
+                &::tt::crank::CompileOptions::enable_const_eval_inputs_to_system_memory)
         .def_rw("experimental_enable_dram_space_saving_optimization",
-                &::tt::kurbla::CompileOptions::experimental_enable_dram_space_saving_optimization)
-        .def_rw("enable_create_d2m_subgraphs", &::tt::kurbla::CompileOptions::enable_create_d2m_subgraphs)
-        .def_rw("ttnn_perf_metrics_enabled", &::tt::kurbla::CompileOptions::ttnn_perf_metrics_enabled)
-        .def_rw("ttnn_perf_metrics_output_file", &::tt::kurbla::CompileOptions::ttnn_perf_metrics_output_file);
+                &::tt::crank::CompileOptions::experimental_enable_dram_space_saving_optimization)
+        .def_rw("enable_create_d2m_subgraphs", &::tt::crank::CompileOptions::enable_create_d2m_subgraphs)
+        .def_rw("ttnn_perf_metrics_enabled", &::tt::crank::CompileOptions::ttnn_perf_metrics_enabled)
+        .def_rw("ttnn_perf_metrics_output_file", &::tt::crank::CompileOptions::ttnn_perf_metrics_output_file);
 
     nb::class_<PyModuleBuilder>(m, "ModuleBuilder")
         .def(nb::init<std::vector<tk::TensorTypeSpec>, const std::vector<mlir::tt::ttcore::ArgumentType> &>(),
@@ -903,29 +903,28 @@ NB_MODULE(_native, m) {
         // `capture_ttir`: set when the TTIR string is needed.
         .def("compile", &PyModuleBuilder::compile, "outputs"_a, "options"_a, "capture_ttir"_a = false);
 
-    nb::class_<::tt::kurbla::CompileResult>(m, "CompileResult")
+    nb::class_<::tt::crank::CompileResult>(m, "CompileResult")
         // `reference` overrides the `reference_internal` a property getter uses by
         // default. Both are non-owning — Python never frees the program either way —
         // but `reference_internal` would also keep this `CompileResult` (and its
         // TTIR string) alive for as long as the returned program object, which
         // outlives it. The compile cache owns the program, so no keepalive is needed.
         .def_prop_ro(
-            "program", [](const ::tt::kurbla::CompileResult &self) { return self.program; }, nb::rv_policy::reference,
+            "program", [](const ::tt::crank::CompileResult &self) { return self.program; }, nb::rv_policy::reference,
             "The compiled program, owned by the process-wide compile cache.")
-        .def_ro("ttir", &::tt::kurbla::CompileResult::ttir,
+        .def_ro("ttir", &::tt::crank::CompileResult::ttir,
                 "The TTIR this program was compiled from. Empty unless `capture_ttir` was set.")
-        .def_ro("cache_hit", &::tt::kurbla::CompileResult::cache_hit,
+        .def_ro("cache_hit", &::tt::crank::CompileResult::cache_hit,
                 "True when the program came from the compile cache and no pipeline ran.")
         .def_prop_ro(
-            "compile_duration_ms",
-            [](const ::tt::kurbla::CompileResult &self) { return self.compile_duration.count(); },
+            "compile_duration_ms", [](const ::tt::crank::CompileResult &self) { return self.compile_duration.count(); },
             "Wall-clock engine compile time in milliseconds. Near zero on a cache hit.");
 
-    nb::class_<::tt::kurbla::CompiledProgram>(m, "CompiledProgram")
+    nb::class_<::tt::crank::CompiledProgram>(m, "CompiledProgram")
         // Returns a copy: `ttnn_ir()` hands out a view into the flatbuffer, and
         // nanobind has no string_view caster here.
         .def(
-            "ttnn_ir", [](const ::tt::kurbla::CompiledProgram &self) { return std::string(self.ttnn_ir()); },
+            "ttnn_ir", [](const ::tt::crank::CompiledProgram &self) { return std::string(self.ttnn_ir()); },
             "Gets the TTNN IR.");
 
     m.def("run_program", &run_program, "program"_a, "inputs"_a, "output_dtypes"_a,

@@ -40,7 +40,7 @@
 #include "torch/ops/builders.hpp"
 #include "torch/tensor.hpp"
 
-namespace tt::kurbla::torch_backend {
+namespace tt::crank::torch_backend {
 
 namespace {
 
@@ -52,7 +52,7 @@ int64_t tt_fused_sdp_choice(const at::Tensor &query, const at::Tensor &key, cons
     // has no meta kernel. MATH decomposes to differentiable primitives instead, so
     // training keeps working at the cost of the single fused op.
     if (at::GradMode::is_enabled() && (query.requires_grad() || key.requires_grad() || value.requires_grad())) {
-        TORCH_WARN_ONCE("tt-kurbla sdpa: inputs require grad, so SDPA is using the math decomposition "
+        TORCH_WARN_ONCE("tt-crank sdpa: inputs require grad, so SDPA is using the math decomposition "
                         "instead of the fused tt kernel. For inference, run under torch.no_grad() or "
                         "torch.inference_mode() to get the fused op.");
         return as<int64_t>(at::SDPBackend::math);
@@ -67,7 +67,7 @@ at::Tensor run_sdpa(const at::Tensor &query, const at::Tensor &key, const at::Te
                     const std::optional<at::Tensor> &attn_mask, bool is_causal, std::optional<double> scale) {
     const std::optional<float> scale_f = scale.has_value() ? std::optional<float>(as<float>(*scale)) : std::nullopt;
     // build_sdpa types the result after Q; the query and value head_dim must match.
-    TORCH_CHECK(query.size(3) == value.size(3), "tt-kurbla sdpa: query head_dim (", query.size(3),
+    TORCH_CHECK(query.size(3) == value.size(3), "tt-crank sdpa: query head_dim (", query.size(3),
                 ") must equal value head_dim (", value.size(3), ")");
     const std::vector<int64_t> out_shape{query.size(0), query.size(1), query.size(2), value.size(3)};
 
@@ -102,11 +102,11 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, c10::SymInt, c10::Sym
 tt_sdpa_overrideable(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
                      const std::optional<at::Tensor> &attn_bias, double dropout_p, bool is_causal,
                      bool return_debug_mask, std::optional<double> scale) {
-    TORCH_CHECK(!return_debug_mask, "tt-kurbla sdpa: return_debug_mask=True is not supported "
+    TORCH_CHECK(!return_debug_mask, "tt-crank sdpa: return_debug_mask=True is not supported "
                                     "(the debug_attn_mask output slot is left undefined)");
-    TORCH_CHECK(dropout_p == 0.0, "tt-kurbla sdpa: dropout_p must be 0 (inference only), got ", dropout_p);
+    TORCH_CHECK(dropout_p == 0.0, "tt-crank sdpa: dropout_p must be 0 (inference only), got ", dropout_p);
     TORCH_CHECK(query.dim() == 4 && key.dim() == 4 && value.dim() == 4,
-                "tt-kurbla sdpa: query/key/value must be 4-D [batch, heads, seq, dim]");
+                "tt-crank sdpa: query/key/value must be 4-D [batch, heads, seq, dim]");
 
     at::Tensor output = run_sdpa(query, key, value, attn_bias, is_causal, scale);
 
@@ -124,7 +124,7 @@ tt_sdpa_overrideable_backward(const at::Tensor &, const at::Tensor &, const at::
                               const at::Tensor &, std::array<bool, 4>, const at::Tensor &, const at::Tensor &,
                               const at::Tensor &, const at::Tensor &, c10::SymInt, c10::SymInt, double, bool,
                               const at::Tensor &, const at::Tensor &, std::optional<double>) {
-    TORCH_CHECK(false, "tt-kurbla sdpa: backward is not implemented (inference only)");
+    TORCH_CHECK(false, "tt-crank sdpa: backward is not implemented (inference only)");
 }
 
 } // namespace
@@ -143,4 +143,4 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("_scaled_dot_product_fused_attention_overrideable_backward", TORCH_FN(tt_sdpa_overrideable_backward));
 }
 
-} // namespace tt::kurbla::torch_backend
+} // namespace tt::crank::torch_backend

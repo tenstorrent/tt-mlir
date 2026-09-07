@@ -1,4 +1,4 @@
-# tt-kurbla
+# tt-crank
 
 > **Import note.** This project (formerly `tt-kurbla`) was imported into
 > tt-mlir with its full git history from the standalone repository
@@ -22,8 +22,8 @@ See [`architecture-overview.md`](architecture-overview.md) for the high-level de
 The first build builds the LLVM/MLIR toolchain that `tt-mlir` depends on — multi-GB, ~30 min, **once per machine**.
 
 ```sh
-git clone --recurse-submodules <repo> tt-kurbla
-cd tt-kurbla
+git clone --recurse-submodules <repo> tt-crank
+cd tt-crank
 source venv/activate
 ./scripts/build
 ```
@@ -63,7 +63,7 @@ Every build already stages `tenstorrent/ttsim` alongside its SoC descriptor — 
 ./scripts/test sim -- -R EngineCompileTest   # filter tests + ttsim
 ```
 
-`TT_KURBLA_USE_SIMULATOR=1` is the underlying switch — set it directly to use ttsim with any other runner (Python extension, manual binary invocation, etc.).
+`TT_CRANK_USE_SIMULATOR=1` is the underlying switch — set it directly to use ttsim with any other runner (Python extension, manual binary invocation, etc.).
 
 Override the source tree of `tt-mlir` without editing the submodule:
 
@@ -74,28 +74,28 @@ cmake --preset debug -DTTMLIR_SOURCE_DIR_OVERRIDE=/path/to/sibling/tt-mlir
 ## Building a wheel
 
 ```sh
-uv build --wheel                                       # → dist/tt_kurbla-0.1.0-cp312-cp312-linux_x86_64.whl
+uv build --wheel                                       # → dist/tt_crank-0.1.0-cp312-cp312-linux_x86_64.whl
 pip wheel . --no-build-isolation --no-deps -w dist/     # same, via pip
 ```
 
 The wheel bundles the native stack but not the SFPI toolchain, which is installed once per machine instead:
 
 ```sh
-tt-kurbla-install-sfpi        # provisions /opt/tenstorrent/sfpi; prompts for sudo
+tt-crank-install-sfpi        # provisions /opt/tenstorrent/sfpi; prompts for sudo
 ```
 
 ### Installing the wheel
 
 ```sh
-uv pip install dist/tt_kurbla-*.whl
-pip install dist/tt_kurbla-*.whl      # same, via pip
+uv pip install dist/tt_crank-*.whl
+pip install dist/tt_crank-*.whl      # same, via pip
 
-tt-kurbla-install-sfpi                # then, once per machine (prompts for sudo)
+tt-crank-install-sfpi                # then, once per machine (prompts for sudo)
 ```
 
 ## Python tests
 
-The Python test suite lives in `tests/python/` and runs with pytest. The build must exist first (`./scripts/build`), as pytest imports the compiled `tt_kurbla` extension.
+The Python test suite lives in `tests/python/` and runs with pytest. The build must exist first (`./scripts/build`), as pytest imports the compiled `tt_crank` extension.
 
 ```sh
 source venv/activate
@@ -105,7 +105,7 @@ pytest tests/python/ -k test_device   # filter by name
 pytest tests/python/op_tests/         # run a subdirectory only
 ```
 
-`--sim` sets `TT_KURBLA_USE_SIMULATOR=1` before the extension is loaded. It is equivalent to setting the variable manually, but must be passed as a pytest flag (not an env var) because the extension reads it in a static initializer at import time — before pytest option parsing runs.
+`--sim` sets `TT_CRANK_USE_SIMULATOR=1` before the extension is loaded. It is equivalent to setting the variable manually, but must be passed as a pytest flag (not an env var) because the extension reads it in a static initializer at import time — before pytest option parsing runs.
 
 ## Benchmarks
 
@@ -167,7 +167,7 @@ LLM generate loop (`run_llm_benchmark`) emits:
 ## Layout
 
 ```
-tt-kurbla/
+tt-crank/
 ├── CMakeLists.txt
 ├── CMakePresets.json
 ├── cmake/                 # CompilerWarnings, Sanitizers, StaticAnalyzers, Cache, SystemIncludes
@@ -201,12 +201,12 @@ Logging uses [`tt-logger`](https://github.com/tenstorrent/tt-logger) (spdlog-bas
 TT_LOGGER_LEVEL=debug ./scripts/test sim
 
 # Debug output to a file
-TT_LOGGER_LEVEL=debug TT_LOGGER_FILE=/tmp/kurbla.log ./scripts/test sim
+TT_LOGGER_LEVEL=debug TT_LOGGER_FILE=/tmp/crank.log ./scripts/test sim
 
 # Filter to specific subsystems
 TT_LOGGER_LEVEL=debug TT_LOGGER_TYPES=TTNN,Op ./scripts/test sim
 
-# Show only tt-kurbla logs (suppress tt-mlir/tt-metal noise)
+# Show only tt-crank logs (suppress tt-mlir/tt-metal noise)
 TT_LOGGER_LEVEL=debug TT_LOGGER_TYPES=Always ./scripts/test sim
 ```
 

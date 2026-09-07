@@ -26,7 +26,7 @@ inline constexpr bool build_release = true;
 //
 // Example usage:
 //
-// config.hpp: FS_WITH_DISABLER(feature_0, true, "TT_KURBLA_FEATURE_0_DISABLED")
+// config.hpp: FS_WITH_DISABLER(feature_0, true, "TT_CRANK_FEATURE_0_DISABLED")
 //
 // somewhere.cpp:
 // void use_feature_0() {
@@ -62,7 +62,7 @@ inline constexpr bool build_release = true;
 //
 // Example usage:
 //
-// config.hpp: CONFIG_STR(some_str, "default_str_value", "TT_KURBLA_SOME_STR")
+// config.hpp: CONFIG_STR(some_str, "default_str_value", "TT_CRANK_SOME_STR")
 //
 // somewhere.cpp: std::string dir = some_str_config();
 

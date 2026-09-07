@@ -17,8 +17,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch._dynamo.exc import BackendCompilerFailed
 
-from tt_kurbla.torch.testing import DeviceType, ExecutionMode, assert_close_cpu_vs_tt
-from tt_kurbla.torch._compile import (
+from tt_crank.torch.testing import DeviceType, ExecutionMode, assert_close_cpu_vs_tt
+from tt_crank.torch._compile import (
     _compile_options,
     CompileOption,
     BfpDtype,

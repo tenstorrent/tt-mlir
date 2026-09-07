@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 import torch
 
-from tt_kurbla.torch import _artifacts
-from tt_kurbla.torch._artifacts import collect_artifacts
+from tt_crank.torch import _artifacts
+from tt_crank.torch._artifacts import collect_artifacts
 
 from _models import MNISTLinear
 
@@ -35,7 +35,7 @@ _DTYPE = torch.bfloat16
 def artifacts_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect dumps into `tmp_path`.
 
-    Patches `_artifacts_root` rather than setting TT_KURBLA_ARTIFACTS_DIR: the C++
+    Patches `_artifacts_root` rather than setting TT_CRANK_ARTIFACTS_DIR: the C++
     side reads the environment in a static initializer when the extension loads, so
     setting it from a test would have no effect.
     """

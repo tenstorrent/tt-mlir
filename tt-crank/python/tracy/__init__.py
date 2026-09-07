@@ -13,9 +13,9 @@ import os
 import sys
 from pathlib import Path
 
-import tt_kurbla
-from tt_kurbla._runtime_env import setup_tt_metal_home
-from tt_kurbla._wrapper import create_wrapper_redirector, proxy_import
+import tt_crank
+from tt_crank._runtime_env import setup_tt_metal_home
+from tt_crank._wrapper import create_wrapper_redirector, proxy_import
 
 setup_tt_metal_home()
 
@@ -26,7 +26,7 @@ _original_path = Path(__file__).parent / "_original"
 if not _original_path.exists():
     raise RuntimeError(
         f"tracy._original symlink missing at {_original_path}. "
-        "Run a tt-kurbla build (./scripts/build) so the bundle-tracy target "
+        "Run a tt-crank build (./scripts/build) so the bundle-tracy target "
         "creates it."
     )
 
@@ -45,9 +45,9 @@ with proxy_import("tracy"):
     from tracy._original import *
 
 # Override profiler binary path to point to the correct location.
-# In wheel: tt_kurbla/bin/
+# In wheel: tt_crank/bin/
 # In dev: build/third_party/tt-mlir-install/bin/
-_wheel_bin_dir = Path(tt_kurbla.__file__).parent / "bin"
+_wheel_bin_dir = Path(tt_crank.__file__).parent / "bin"
 _dev_bin_dir = (
     Path(__file__).parent
     / ".."

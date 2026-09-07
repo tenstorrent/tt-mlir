@@ -8,7 +8,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from tt_kurbla.torch.testing import post_aot_fx_hook, strict_no_fallback
+from tt_crank.torch.testing import post_aot_fx_hook, strict_no_fallback
 
 # Present in the post-aot graph iff torch doesn't decompose the
 # `torch.nn.functional.scaled_dot_product_attention` op - this is prevented by

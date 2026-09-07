@@ -5,7 +5,7 @@
 import pytest
 import torch
 
-from tt_kurbla.torch.testing import get_supported_dtypes, assert_close_cpu_vs_tt
+from tt_crank.torch.testing import get_supported_dtypes, assert_close_cpu_vs_tt
 
 from _models import MNISTLinear
 

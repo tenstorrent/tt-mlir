@@ -83,10 +83,10 @@ def create_wrapper_redirector(
             """Find spec for C extension (.so file) from shared lib directory."""
             ext_filename = extensions[submodule]
 
-            # Load from tt_kurbla/lib/ instead of _original/ directory
-            import tt_kurbla
+            # Load from tt_crank/lib/ instead of _original/ directory
+            import tt_crank
 
-            shared_lib_path = Path(tt_kurbla.__file__).parent / "lib" / ext_filename
+            shared_lib_path = Path(tt_crank.__file__).parent / "lib" / ext_filename
 
             if shared_lib_path.exists():
                 return ModuleSpec(
@@ -95,7 +95,7 @@ def create_wrapper_redirector(
                     origin=str(shared_lib_path),
                 )
 
-            shared_lib_path = Path(tt_kurbla.__file__).parent / "lib64" / ext_filename
+            shared_lib_path = Path(tt_crank.__file__).parent / "lib64" / ext_filename
 
             if shared_lib_path.exists():
                 return ModuleSpec(

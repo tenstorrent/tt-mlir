@@ -1,4 +1,4 @@
-# tt-kurbla
+# tt-crank
 
 Compiler & Runtime frontend for Tenstorrent hardware.
 
@@ -12,10 +12,10 @@ Compiler & Runtime frontend for Tenstorrent hardware.
 ## High-level architecture
 
 framework integration layer:
- - provides APIs for ML frameworks to integrate with tt-kurbla
- - handles conversion from framework-specific IRs (e.g. PyTorch FX graph) to a common IR (e.g. TTIR) that tt-kurbla can understand
+ - provides APIs for ML frameworks to integrate with tt-crank
+ - handles conversion from framework-specific IRs (e.g. PyTorch FX graph) to a common IR (e.g. TTIR) that tt-crank can understand
 
-tt-kurbla engine:
+tt-crank engine:
  - provides APIs for compiling user workloads - take in an IR (TTIR, StableHLO, etc.) and produce an executable image
  - provides APIs for runtime execution of compiled workloads - create and manage tensors, execute compiled images, etc.
  - caching layer for compiled images - avoid recompilation of the same workloads
@@ -30,7 +30,7 @@ ttnn & tt-metal:
 
 ## Design plan
 
-1. Create CMake project for `tt-kurbla` and set up basic project structure, consume `tt-mlir` as a git submodule and external project in cmake.
+1. Create CMake project for `tt-crank` and set up basic project structure, consume `tt-mlir` as a git submodule and external project in cmake.
   - Use `https://github.com/cpp-best-practices/cmake_template` as an inspiration for setting up c++ build system to have all warnings enabled and tooling around c++.
   - The build system should be designed in such a way that the default build commands are simple
   - Also, have a flag for building with additional checks such as `clang-tidy`

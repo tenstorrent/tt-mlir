@@ -24,7 +24,7 @@
 #include "torch/backend.hpp"
 #include "torch/tensor.hpp"
 
-namespace tt::kurbla::torch_backend {
+namespace tt::crank::torch_backend {
 
 namespace {
 
@@ -42,7 +42,7 @@ mlir::Value build_conv_by_rank(ModuleBuilder &mb, mlir::Value input, mlir::Value
             return build_conv3d(mb, input, weight, bias, stride, padding, dilation, groups);
     }
     TORCH_CHECK(false,
-                "tt-kurbla aten::convolution: only 3D (conv1d), 4D (conv2d), and 5D (conv3d) inputs are "
+                "tt-crank aten::convolution: only 3D (conv1d), 4D (conv2d), and 5D (conv3d) inputs are "
                 "supported, got rank ",
                 rank);
 }
@@ -51,8 +51,8 @@ at::Tensor tt_convolution(const at::Tensor &input_in, const at::Tensor &weight_i
                           const std::optional<at::Tensor> &bias_in, at::IntArrayRef stride, at::IntArrayRef padding,
                           at::IntArrayRef dilation, bool transposed, at::IntArrayRef /*output_padding*/,
                           int64_t groups) {
-    TORCH_CHECK(is_tt(input_in), "tt-kurbla aten::convolution: input must be on tt backend");
-    TORCH_CHECK(!transposed, "tt-kurbla aten::convolution: transposed convolution not supported");
+    TORCH_CHECK(is_tt(input_in), "tt-crank aten::convolution: input must be on tt backend");
+    TORCH_CHECK(!transposed, "tt-crank aten::convolution: transposed convolution not supported");
 
     if (bias_in.has_value() && bias_in->defined()) {
         const auto [input, weight, bias] = align_on_tt(input_in, weight_in, *bias_in);
@@ -83,4 +83,4 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("convolution_overrideable", TORCH_FN(tt_convolution));
 }
 
-} // namespace tt::kurbla::torch_backend
+} // namespace tt::crank::torch_backend

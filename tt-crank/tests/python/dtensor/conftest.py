@@ -10,7 +10,7 @@ import math
 import pytest
 import torch
 
-import tt_kurbla.torch  # noqa: F401  — registers the "tt" backend (and torch.tt)
+import tt_crank.torch  # noqa: F401  — registers the "tt" backend (and torch.tt)
 
 
 @pytest.fixture

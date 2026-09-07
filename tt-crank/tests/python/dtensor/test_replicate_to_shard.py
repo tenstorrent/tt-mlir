@@ -26,7 +26,7 @@ def _distinct(rows: int, cols: int) -> torch.Tensor:
 @pytest.mark.parametrize("dim", [0, 1])
 def test_replicate_to_shard_eager(tt_pg, dim: int) -> None:
     """Eager Replicate -> Shard(dim) -> Replicate must round-trip to the
-    original. Dispatches through the 'tt_kurbla.reduce_scatter' op."""
+    original. Dispatches through the 'tt_crank.reduce_scatter' op."""
     n = torch.tt.num_chips()
     mesh = torch.tt.init_device_mesh((n,), mesh_dim_names=("x",))
     x = _distinct(n, 3) if dim == 0 else _distinct(3, n)

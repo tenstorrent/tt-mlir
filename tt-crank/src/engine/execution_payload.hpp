@@ -11,9 +11,9 @@
 #include <tt/runtime/types.h>
 
 #include "engine/compile.hpp"
-#include "tt_kurbla_export.hpp"
+#include "tt_crank_export.hpp"
 
-namespace tt::kurbla {
+namespace tt::crank {
 
 // Binds inputs to a CompiledProgram and runs it. Holds a non-owning reference to
 // the program (owned by the compile cache) so multiple payloads can target the
@@ -21,7 +21,7 @@ namespace tt::kurbla {
 // bind_tensor time, not at run() time, so a "bind once, run many" loop only
 // re-toLayouts slots that get rebound between runs. Not thread-safe in v1 — the
 // runtime device singleton has no internal locking.
-class TT_KURBLA_API ExecutionPayload {
+class TT_CRANK_API ExecutionPayload {
 public:
     explicit ExecutionPayload(CompiledProgram &program);
 
@@ -45,4 +45,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace tt::kurbla
+} // namespace tt::crank

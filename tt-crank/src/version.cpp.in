@@ -1,6 +1,6 @@
 #include "version.hpp"
 
-namespace tt::kurbla {
+namespace tt::crank {
 
 std::string_view version() noexcept {
     return "@PROJECT_VERSION@";
@@ -14,4 +14,4 @@ std::string_view ttmlir_git_worktree_hash() noexcept {
     return "@TTMLIR_GIT_WORKTREE_HASH@";
 }
 
-} // namespace tt::kurbla
+} // namespace tt::crank

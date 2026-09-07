@@ -30,7 +30,7 @@
 #include "torch/ops/builders.hpp"
 #include "torch/tensor.hpp"
 
-namespace tt::kurbla::torch_backend {
+namespace tt::crank::torch_backend {
 
 namespace {
 
@@ -43,7 +43,7 @@ public:
     ::c10::DataPtr allocate(std::size_t n) override {
         // Defensively assert that we don't get called.
         // Implement once it is needed.
-        TORCH_CHECK(false, "tt-kurbla Allocator::allocate called for ", n, " bytes — not implemented!");
+        TORCH_CHECK(false, "tt-crank Allocator::allocate called for ", n, " bytes — not implemented!");
     }
 
     ::c10::DeleterFnPtr raw_deleter() const override { return &raw_delete; }
@@ -104,15 +104,15 @@ static bool register_hooks_flag [[maybe_unused]] = []() {
 
 } // namespace
 
-::tt::kurbla::CompileResult compile_module(mlir::OwningOpRef<mlir::ModuleOp> module_op,
-                                           const ::tt::kurbla::CompileOptions &options, bool capture_ttir) {
-    return ::tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get(), options, capture_ttir);
+::tt::crank::CompileResult compile_module(mlir::OwningOpRef<mlir::ModuleOp> module_op,
+                                          const ::tt::crank::CompileOptions &options, bool capture_ttir) {
+    return ::tt::crank::compile_ttir_to_ttnn_flatbuffer(module_op.get(), options, capture_ttir);
 }
 
 // Binds input tensors to execution payload.
 // Since bind_tensor can change tensor layout, we must update tensor storage with new runtime tensor.
 // Tensor version is checked before binding, which ensures that tensor is not modified in-place.
-void bind_inputs(::tt::kurbla::ExecutionPayload &payload, const llvm::ArrayRef<at::Tensor> &inputs) {
+void bind_inputs(::tt::crank::ExecutionPayload &payload, const llvm::ArrayRef<at::Tensor> &inputs) {
     for (std::uint32_t i = 0; i < inputs.size(); ++i) {
         TensorStorage &storage = storage_of(inputs[i]);
         storage.check_version();
@@ -123,9 +123,9 @@ void bind_inputs(::tt::kurbla::ExecutionPayload &payload, const llvm::ArrayRef<a
     }
 }
 
-std::vector<at::Tensor> run_compiled_program(::tt::kurbla::CompiledProgram &program, llvm::ArrayRef<at::Tensor> inputs,
+std::vector<at::Tensor> run_compiled_program(::tt::crank::CompiledProgram &program, llvm::ArrayRef<at::Tensor> inputs,
                                              llvm::ArrayRef<::tt::target::DataType> logical_output_dtypes) {
-    ::tt::kurbla::ExecutionPayload payload(program);
+    ::tt::crank::ExecutionPayload payload(program);
     bind_inputs(payload, inputs);
 
     std::vector<::tt::runtime::Tensor> raw_outputs = payload.run();
@@ -152,8 +152,8 @@ std::vector<at::Tensor> run_compiled_program(::tt::kurbla::CompiledProgram &prog
 
 std::vector<::tt::runtime::Tensor> compile_and_run(mlir::OwningOpRef<mlir::ModuleOp> module_op,
                                                    llvm::ArrayRef<at::Tensor> inputs) {
-    ::tt::kurbla::CompiledProgram &program = *compile_module(std::move(module_op)).program;
-    ::tt::kurbla::ExecutionPayload payload(program);
+    ::tt::crank::CompiledProgram &program = *compile_module(std::move(module_op)).program;
+    ::tt::crank::ExecutionPayload payload(program);
     bind_inputs(payload, inputs);
     return payload.run();
 }
@@ -167,7 +167,7 @@ TensorTypeSpec spec_for(const at::Tensor &t) {
 }
 
 mlir::Type mlir_element_type_for(c10::ScalarType torch_dtype) {
-    return ::tt::kurbla::to_mlir_element_type(::tt::kurbla::mlir_context(), to_runtime_dtype(torch_dtype));
+    return ::tt::crank::to_mlir_element_type(::tt::crank::mlir_context(), to_runtime_dtype(torch_dtype));
 }
 
 ::tt::target::DataType to_runtime_dtype(c10::ScalarType torch_dtype) {
@@ -191,7 +191,7 @@ mlir::Type mlir_element_type_for(c10::ScalarType torch_dtype) {
         default:
             break;
     }
-    TORCH_CHECK(false, "tt-kurbla: unsupported torch dtype: ", torch_dtype);
+    TORCH_CHECK(false, "tt-crank: unsupported torch dtype: ", torch_dtype);
 }
 
 c10::ScalarType to_torch_dtype(::tt::target::DataType runtime_dtype) {
@@ -215,7 +215,7 @@ c10::ScalarType to_torch_dtype(::tt::target::DataType runtime_dtype) {
         default:
             break;
     }
-    TORCH_CHECK(false, "tt-kurbla: unsupported runtime dtype for torch backend: ", as<int>(runtime_dtype));
+    TORCH_CHECK(false, "tt-crank: unsupported runtime dtype for torch backend: ", as<int>(runtime_dtype));
 }
 
 std::size_t element_size(::tt::target::DataType runtime_dtype) {
@@ -241,7 +241,7 @@ std::size_t element_size(::tt::target::DataType runtime_dtype) {
         default:
             break;
     }
-    TORCH_CHECK(false, "tt-kurbla: no known element size for runtime dtype: ", as<int>(runtime_dtype));
+    TORCH_CHECK(false, "tt-crank: no known element size for runtime dtype: ", as<int>(runtime_dtype));
 }
 
-} // namespace tt::kurbla::torch_backend
+} // namespace tt::crank::torch_backend

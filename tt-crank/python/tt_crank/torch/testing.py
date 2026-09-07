@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Test-time helpers for the tt-kurbla torch backend.
+Test-time helpers for the tt-crank torch backend.
 """
 
 import enum
@@ -14,14 +14,14 @@ from typing import Any
 
 import torch
 import torch.fx
-from tt_kurbla.torch._compile import CompileOption
+from tt_crank.torch._compile import CompileOption
 
 from . import _compile, _native
 
 
 class DeviceType(enum.Enum):
     """Where tt-backend kernels actually run for this process. `SIM` routes
-    through ttsim (TT_KURBLA_USE_SIMULATOR=1), `REAL` is silicon.
+    through ttsim (TT_CRANK_USE_SIMULATOR=1), `REAL` is silicon.
     """
 
     SIM = "sim"
@@ -97,7 +97,7 @@ def assert_close_cpu_vs_tt(
     it is ignored in ``EAGER`` mode.
     """
     # Detach to free the CPU forward's autograd graph before the move: with
-    # swap_module_params_on_conversion enabled (tt_kurbla/torch/__init__.py),
+    # swap_module_params_on_conversion enabled (tt_crank/torch/__init__.py),
     # `.to("tt")` refuses to swap parameters still referenced by a live
     # graph's SavedVariables. Only the output values are compared here, so the
     # graph is dead weight anyway.
@@ -147,13 +147,13 @@ def get_supported_dtypes() -> list[torch.dtype]:
 
     Currently:
       - Real silicon: bf16 and f32.
-      - ttsim (TT_KURBLA_USE_SIMULATOR=1): bf16 only. TTNN-emitted f32 kernels
+      - ttsim (TT_CRANK_USE_SIMULATOR=1): bf16 only. TTNN-emitted f32 kernels
         trip ``tensix_execute_unpacr: in_data_format=0`` UB on the simulator
         (unpacker config registers come up zeroed and ttsim flags that as
         undefined). Same caveat documented in
         ``tests/engine_execution_payload_test.cpp``.
     """
-    if os.environ.get("TT_KURBLA_USE_SIMULATOR") == "1":
+    if os.environ.get("TT_CRANK_USE_SIMULATOR") == "1":
         return [torch.bfloat16]
     return [torch.bfloat16, torch.float32]
 

@@ -8,7 +8,7 @@ import copy
 
 import pytest
 import torch
-from tt_kurbla.torch._compile import CompileOption
+from tt_crank.torch._compile import CompileOption
 
 from ._runner import prepare_model, run_benchmark
 

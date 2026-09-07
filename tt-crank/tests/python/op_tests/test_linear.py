@@ -5,7 +5,7 @@
 import pytest
 import torch
 
-from tt_kurbla.torch.testing import ExecutionMode, assert_close_cpu_vs_tt
+from tt_crank.torch.testing import ExecutionMode, assert_close_cpu_vs_tt
 
 _MODES = [ExecutionMode.EAGER, ExecutionMode.COMPILE]
 _MODE_IDS = [m.value for m in _MODES]
@@ -47,7 +47,7 @@ def test_addmm(m: int, k: int, n: int, beta: float, alpha: float) -> None:
 
 
 def test_linear_backward_lowered_for_compile() -> None:
-    from tt_kurbla.torch import _compile
+    from tt_crank.torch import _compile
 
     op = torch.ops.aten.linear_backward.default
     assert op in _compile._LOWERINGS

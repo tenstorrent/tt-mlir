@@ -20,7 +20,7 @@
 #include <c10/util/Exception.h>
 #include <tt/runtime/types.h>
 
-namespace tt::kurbla::torch_backend {
+namespace tt::crank::torch_backend {
 
 // Pin over a borrowed torch tensor: keeps its host buffer alive
 // as long as we need it (via the ref-counted Storage) and detects
@@ -133,10 +133,10 @@ at::Device tt_device_of(const Range &tensors) {
             device = t.device();
             continue;
         }
-        TORCH_CHECK(*device == t.device(), "tt-kurbla tt_device_of: tt operands must share a device, got ", *device,
+        TORCH_CHECK(*device == t.device(), "tt-crank tt_device_of: tt operands must share a device, got ", *device,
                     " and ", t.device());
     }
-    TORCH_CHECK(device.has_value(), "tt-kurbla tt_device_of: no tt-backed operand to take device from");
+    TORCH_CHECK(device.has_value(), "tt-crank tt_device_of: no tt-backed operand to take device from");
     return *device;
 }
 //
@@ -205,4 +205,4 @@ template <typename... Tensors> auto align_on_tt(const Tensors &...tensors) {
     return std::make_tuple(to_tt(tensors, device)...);
 }
 
-} // namespace tt::kurbla::torch_backend
+} // namespace tt::crank::torch_backend

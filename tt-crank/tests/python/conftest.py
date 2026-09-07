@@ -3,23 +3,23 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Top-level pytest conftest for tt-kurbla Python tests.
+Top-level pytest conftest for tt-crank Python tests.
 """
 
 import os
 import sys
 
-# TT_KURBLA_USE_SIMULATOR is read in a static initializer when _native.so is
-# dlopened by `import tt_kurbla.torch` (see src/engine/sim_env.cpp), so it must
+# TT_CRANK_USE_SIMULATOR is read in a static initializer when _native.so is
+# dlopened by `import tt_crank.torch` (see src/engine/sim_env.cpp), so it must
 # be set before that import. pytest_addoption runs after conftest import, hence
 # the sys.argv sniff here.
 if "--sim" in sys.argv:
-    os.environ["TT_KURBLA_USE_SIMULATOR"] = "1"
+    os.environ["TT_CRANK_USE_SIMULATOR"] = "1"
 
 import pytest  # noqa: E402
 import torch  # noqa: E402
 
-from tt_kurbla.torch.testing import DeviceType  # noqa: E402
+from tt_crank.torch.testing import DeviceType  # noqa: E402
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -27,7 +27,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--sim",
         action="store_true",
         default=False,
-        help="Route the runtime through ttsim by setting TT_KURBLA_USE_SIMULATOR=1.",
+        help="Route the runtime through ttsim by setting TT_CRANK_USE_SIMULATOR=1.",
     )
 
 
@@ -73,7 +73,7 @@ def device_type() -> DeviceType:
     """
     return (
         DeviceType.SIM
-        if os.environ.get("TT_KURBLA_USE_SIMULATOR") == "1"
+        if os.environ.get("TT_CRANK_USE_SIMULATOR") == "1"
         else DeviceType.REAL
     )
 

@@ -5,7 +5,7 @@
 """Collecting the artifacts a run produced — today the IR of each compiled graph.
 
 Each compiled graph contributes an `Artifact` while a `collect_artifacts` context
-is open; closing it writes one directory under `$TT_KURBLA_ARTIFACTS_DIR`, plus an
+is open; closing it writes one directory under `$TT_CRANK_ARTIFACTS_DIR`, plus an
 `artifacts.json` index of what is in it.
 """
 
@@ -177,7 +177,7 @@ _global_artifacts_dumper_context: _ArtifactsDumperContext | None = None
 @contextmanager
 def collect_artifacts(collection_name: str):
     """Collect the artifacts produced in this context, dumped on exit into
-    `$TT_KURBLA_ARTIFACTS_DIR/<collection_name>_<timestamp>/`.
+    `$TT_CRANK_ARTIFACTS_DIR/<collection_name>_<timestamp>/`.
 
     Yields the collection, so the caller can inspect what was gathered (e.g.
     `compile_stats()`) after the body ran.

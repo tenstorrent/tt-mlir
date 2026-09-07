@@ -7,7 +7,7 @@
 import pytest
 import torch
 
-from tt_kurbla.torch.testing import assert_close_cpu_vs_tt
+from tt_crank.torch.testing import assert_close_cpu_vs_tt
 
 
 @pytest.mark.parametrize("dim", [0, 1, -1])

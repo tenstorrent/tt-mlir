@@ -32,7 +32,7 @@
 #include "torch/backend.hpp"
 #include "torch/tensor.hpp"
 
-namespace tt::kurbla::torch_backend {
+namespace tt::crank::torch_backend {
 
 namespace {
 
@@ -82,7 +82,7 @@ at::Tensor tt_mul(const at::Tensor &a_in, const at::Tensor &b_in) {
 }
 
 at::Tensor tt_relu(const at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::relu: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::relu: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_relu(mb, mb.args()[0]);
     auto module_op = std::move(mb).finalize({result});
@@ -91,7 +91,7 @@ at::Tensor tt_relu(const at::Tensor &self) {
 }
 
 at::Tensor tt_rsqrt(const at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::rsqrt: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::rsqrt: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_rsqrt(mb, mb.args()[0]);
     auto module_op = std::move(mb).finalize({result});
@@ -104,12 +104,12 @@ at::Tensor tt_batch_norm_inference(const at::Tensor &input_in, const std::option
                                    const std::optional<at::Tensor> &running_mean_in,
                                    const std::optional<at::Tensor> &running_var_in, bool training, double /*momentum*/,
                                    double eps, bool /*cudnn_enabled*/) {
-    TORCH_CHECK(is_tt(input_in), "tt-kurbla aten::batch_norm: tensor must be on tt backend");
-    TORCH_CHECK(!training, "tt-kurbla aten::batch_norm: training mode not supported");
+    TORCH_CHECK(is_tt(input_in), "tt-crank aten::batch_norm: tensor must be on tt backend");
+    TORCH_CHECK(!training, "tt-crank aten::batch_norm: training mode not supported");
     TORCH_CHECK(running_mean_in.has_value() && running_var_in.has_value(),
-                "tt-kurbla aten::batch_norm: running_mean and running_var must be provided");
+                "tt-crank aten::batch_norm: running_mean and running_var must be provided");
     TORCH_CHECK(weight_in.has_value() && bias_in.has_value(),
-                "tt-kurbla aten::batch_norm: weight and bias must be provided (affine=True)");
+                "tt-crank aten::batch_norm: weight and bias must be provided (affine=True)");
 
     const auto [input, weight, bias, running_mean, running_var] =
         align_on_tt(input_in, *weight_in, *bias_in, *running_mean_in, *running_var_in);
@@ -127,7 +127,7 @@ at::Tensor tt_batch_norm_inference(const at::Tensor &input_in, const std::option
 std::tuple<at::Tensor, at::Tensor, at::Tensor>
 tt_native_layer_norm(const at::Tensor &input, at::IntArrayRef normalized_shape,
                      const std::optional<at::Tensor> &weight_in, const std::optional<at::Tensor> &bias_in, double eps) {
-    TORCH_CHECK(is_tt(input), "tt-kurbla aten::native_layer_norm: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(input), "tt-crank aten::native_layer_norm: tensor must be on tt backend");
 
     std::vector<int64_t> stat_shape(input.sizes().begin(), input.sizes().end());
     stat_shape.back() = 1;
@@ -165,8 +165,8 @@ tt_native_layer_norm(const at::Tensor &input, at::IntArrayRef normalized_shape,
 
 at::Tensor tt_mean(const at::Tensor &self, at::OptionalIntArrayRef dim, bool keepdim,
                    std::optional<at::ScalarType> /*dtype*/) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::mean.dim: tensor must be on tt backend");
-    TORCH_CHECK(dim.has_value(), "tt-kurbla aten::mean.dim: dim must be specified");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::mean.dim: tensor must be on tt backend");
+    TORCH_CHECK(dim.has_value(), "tt-crank aten::mean.dim: dim must be specified");
 
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_mean(mb, mb.args()[0], dim.value(), keepdim);
@@ -180,7 +180,7 @@ at::Tensor tt_mean(const at::Tensor &self, at::OptionalIntArrayRef dim, bool kee
 std::tuple<at::Tensor, at::Tensor> tt_max_pool2d_with_indices(const at::Tensor &self_in, at::IntArrayRef kernel_size,
                                                               at::IntArrayRef stride, at::IntArrayRef padding,
                                                               at::IntArrayRef dilation, bool ceil_mode) {
-    TORCH_CHECK(is_tt(self_in), "tt-kurbla aten::max_pool2d_with_indices: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self_in), "tt-crank aten::max_pool2d_with_indices: tensor must be on tt backend");
 
     auto effective_stride = stride.empty() ? kernel_size : stride;
 
@@ -205,14 +205,14 @@ std::tuple<at::Tensor, at::Tensor> tt_max_pool2d_with_indices(const at::Tensor &
 // pre-size `out`, so a mismatch means an assumption broke - fail loudly so we
 // can revisit before silently reshaping.
 at::Tensor &write_result_into(at::Tensor &out, const at::Tensor &result) {
-    TORCH_CHECK(out.sizes() == result.sizes(), "tt-kurbla .out kernel: out tensor shape ", out.sizes(),
+    TORCH_CHECK(out.sizes() == result.sizes(), "tt-crank .out kernel: out tensor shape ", out.sizes(),
                 " does not match computed result shape ", result.sizes());
     // Equal sizes + equal storage bytes still allow a dtype mismatch when the
     // itemsizes coincide (e.g. f32 vs i32, bf16 vs f16). Replacing the storage
     // would then reinterpret the buffer's bits as out's dtype - check loudly.
-    TORCH_CHECK(out.scalar_type() == result.scalar_type(), "tt-kurbla .out kernel: out dtype ", out.scalar_type(),
+    TORCH_CHECK(out.scalar_type() == result.scalar_type(), "tt-crank .out kernel: out dtype ", out.scalar_type(),
                 " does not match computed result dtype ", result.scalar_type());
-    TORCH_CHECK(out.storage().nbytes() == result.storage().nbytes(), "tt-kurbla .out kernel: out storage is ",
+    TORCH_CHECK(out.storage().nbytes() == result.storage().nbytes(), "tt-crank .out kernel: out storage is ",
                 out.storage().nbytes(), " bytes but result needs ", result.storage().nbytes());
     storage_of(out).replace(storage_of(result).tensor());
     return out;
@@ -261,7 +261,7 @@ at::Tensor &tt_threshold_backward_out(const at::Tensor &grad_output_in, const at
 // sum.IntList_out: reduce `self` over `dim`.
 at::Tensor &tt_sum_out(const at::Tensor &self, at::OptionalIntArrayRef dim, bool keepdim,
                        std::optional<at::ScalarType> dtype, at::Tensor &out) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::sum.IntList_out: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::sum.IntList_out: tensor must be on tt backend");
     // dim=None means reduce over all dimensions; build_reduce treats empty dims
     // the same way.
     llvm::SmallVector<int64_t> reduce_dims;
@@ -270,7 +270,7 @@ at::Tensor &tt_sum_out(const at::Tensor &self, at::OptionalIntArrayRef dim, bool
     }
 
     TORCH_CHECK(!dtype.has_value() || dtype.value() == self.scalar_type(),
-                "tt-kurbla aten::sum.IntList_out: dtype conversion is not yet supported (requested ", dtype.value(),
+                "tt-crank aten::sum.IntList_out: dtype conversion is not yet supported (requested ", dtype.value(),
                 " for a ", self.scalar_type(), " tensor)");
 
     const auto target_dtype = out.scalar_type();
@@ -291,8 +291,8 @@ at::Tensor &tt_sum_out(const at::Tensor &self, at::OptionalIntArrayRef dim, bool
 
 at::Tensor &tt_linalg_vector_norm_out(const at::Tensor &self, const at::Scalar &ord, at::OptionalIntArrayRef dim,
                                       bool keepdim, std::optional<at::ScalarType> dtype, at::Tensor &out) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::linalg_vector_norm.out: tensor must be on tt backend");
-    TORCH_CHECK(ord.toDouble() == 2.0, "tt-kurbla aten::linalg_vector_norm.out: only ord=2 is supported, got ",
+    TORCH_CHECK(is_tt(self), "tt-crank aten::linalg_vector_norm.out: tensor must be on tt backend");
+    TORCH_CHECK(ord.toDouble() == 2.0, "tt-crank aten::linalg_vector_norm.out: only ord=2 is supported, got ",
                 ord.toDouble());
 
     llvm::SmallVector<int64_t> reduce_dims;
@@ -333,7 +333,7 @@ at::Tensor tt_mse_loss_backward(const at::Tensor &grad_output_in, const at::Tens
 } // namespace
 
 at::Tensor tt_unsqueeze(const at::Tensor &self, int64_t dim) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::unsqueeze: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::unsqueeze: tensor must be on tt backend");
     int64_t rank = self.dim();
     // Normalize: valid range [-(rank+1), rank]
     int64_t norm_dim = (dim + rank + 1) % (rank + 1);
@@ -347,7 +347,7 @@ at::Tensor tt_unsqueeze(const at::Tensor &self, int64_t dim) {
 }
 
 at::Tensor tt_squeeze_dim(const at::Tensor &self, int64_t dim) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::squeeze.dim: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::squeeze.dim: tensor must be on tt backend");
     int64_t rank = self.dim();
     int64_t norm_dim = (dim + rank) % rank;
     // squeeze on a non-size-1 dim is a no-op in shape — but we must return a
@@ -375,7 +375,7 @@ at::Tensor tt_squeeze_dim(const at::Tensor &self, int64_t dim) {
 }
 
 at::Tensor tt_expand(const at::Tensor &self, at::IntArrayRef size, bool /*implicit*/) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::expand: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::expand: tensor must be on tt backend");
     int64_t input_rank = self.dim();
     int64_t target_rank = as<int64_t>(size.size());
     int64_t offset = target_rank - input_rank;
@@ -396,7 +396,7 @@ at::Tensor tt_expand(const at::Tensor &self, at::IntArrayRef size, bool /*implic
 }
 
 at::Tensor tt_transpose_int(const at::Tensor &self, int64_t dim0, int64_t dim1) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::transpose.int: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::transpose.int: tensor must be on tt backend");
     int64_t rank = self.dim();
     int64_t nd0 = (dim0 + rank) % rank;
     int64_t nd1 = (dim1 + rank) % rank;
@@ -423,8 +423,8 @@ at::Tensor tt_to_copy(const at::Tensor &self_in, std::optional<at::ScalarType> d
         return self_in;
     }
     // Cross-device copies should not reach this kernel; fallback handles them.
-    TT_FATAL(same_device, "tt-kurbla _to_copy: cross-device copy reached native kernel");
-    TORCH_CHECK(is_tt(self_in), "tt-kurbla aten::_to_copy: tensor must be on tt backend");
+    TT_FATAL(same_device, "tt-crank _to_copy: cross-device copy reached native kernel");
+    TORCH_CHECK(is_tt(self_in), "tt-crank aten::_to_copy: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self_in)});
     auto target_mlir_type = mlir_element_type_for(target_dtype);
     auto result = mb.insert_typecast(mb.args()[0], target_mlir_type);
@@ -434,7 +434,7 @@ at::Tensor tt_to_copy(const at::Tensor &self_in, std::optional<at::ScalarType> d
 }
 
 at::Tensor tt_permute(const at::Tensor &self, at::IntArrayRef dims) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::permute: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::permute: tensor must be on tt backend");
     int64_t rank = self.dim();
     std::vector<int64_t> perm(dims.begin(), dims.end());
     for (auto &d : perm) {
@@ -450,7 +450,7 @@ at::Tensor tt_permute(const at::Tensor &self, at::IntArrayRef dims) {
 }
 
 at::Tensor tt_cat(const c10::IListRef<at::Tensor> &tensors_list, int64_t dim) {
-    TORCH_CHECK(!tensors_list.empty(), "tt-kurbla aten::cat: tensors must be non-empty");
+    TORCH_CHECK(!tensors_list.empty(), "tt-crank aten::cat: tensors must be non-empty");
     auto aligned = align_on_tt(tensors_list);
     // CPU cat silently ignores zero-numel tensors regardless of rank; TTIR concat
     // rejects mixed-rank inputs, so we must filter them out first.
@@ -488,8 +488,8 @@ at::Tensor tt_cat(const c10::IListRef<at::Tensor> &tensors_list, int64_t dim) {
 
 at::Tensor tt_slice(const at::Tensor &self, int64_t dim, std::optional<int64_t> start, std::optional<int64_t> end,
                     int64_t step) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::slice.Tensor: tensor must be on tt backend");
-    TORCH_CHECK(step > 0, "tt-kurbla aten::slice.Tensor: step must be positive, got ", step);
+    TORCH_CHECK(is_tt(self), "tt-crank aten::slice.Tensor: tensor must be on tt backend");
+    TORCH_CHECK(step > 0, "tt-crank aten::slice.Tensor: step must be positive, got ", step);
     int64_t rank = self.dim();
     int64_t norm_dim = (dim + rank) % rank;
     int64_t dim_size = self.size(norm_dim);
@@ -523,7 +523,7 @@ at::Tensor tt_slice(const at::Tensor &self, int64_t dim, std::optional<int64_t> 
 }
 
 at::Tensor tt_argmax(const at::Tensor &self, std::optional<int64_t> dim, bool keepdim) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::argmax.default: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::argmax.default: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_argmax(mb, mb.args()[0], dim, keepdim);
     auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result.getType()).getShape();
@@ -537,7 +537,7 @@ at::Tensor tt_argmax(const at::Tensor &self, std::optional<int64_t> dim, bool ke
 // (`max_values`).
 std::tuple<at::Tensor &, at::Tensor &> tt_max_dim_max(const at::Tensor &self, int64_t dim, bool keepdim,
                                                       at::Tensor &max, at::Tensor &max_values) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::max.dim_max: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::max.dim_max: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto values_v = build_reduce<mlir::tt::ttir::MaxOp>(mb, mb.args()[0], {dim}, keepdim);
     auto indices_v = build_argmax(mb, mb.args()[0], dim, keepdim);
@@ -555,7 +555,7 @@ std::tuple<at::Tensor &, at::Tensor &> tt_max_dim_max(const at::Tensor &self, in
 }
 
 at::Tensor tt_pow_tensor_scalar(const at::Tensor &self, const at::Scalar &exponent) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::pow.Tensor_Scalar: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::pow.Tensor_Scalar: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto input = mb.args()[0];
     auto elem_type = mlir::cast<mlir::RankedTensorType>(input.getType()).getElementType();
@@ -568,7 +568,7 @@ at::Tensor tt_pow_tensor_scalar(const at::Tensor &self, const at::Scalar &expone
 
 // pow.Scalar is the mirror of pow.Tensor_Scalar: scalar base, tensor exponent.
 at::Tensor tt_pow_scalar(const at::Scalar &self, const at::Tensor &exponent) {
-    TORCH_CHECK(is_tt(exponent), "tt-kurbla aten::pow.Scalar: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(exponent), "tt-crank aten::pow.Scalar: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(exponent)});
     auto exp_v = mb.args()[0];
     auto elem_type = mlir::cast<mlir::RankedTensorType>(exp_v.getType()).getElementType();
@@ -580,7 +580,7 @@ at::Tensor tt_pow_scalar(const at::Scalar &self, const at::Tensor &exponent) {
 }
 
 at::Tensor tt_add_scalar(const at::Tensor &self, const at::Scalar &other, const at::Scalar &alpha) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::add.Scalar: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::add.Scalar: tensor must be on tt backend");
     double effective = other.toDouble() * alpha.toDouble();
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto input = mb.args()[0];
@@ -593,7 +593,7 @@ at::Tensor tt_add_scalar(const at::Tensor &self, const at::Scalar &other, const 
 }
 
 at::Tensor tt_mul_scalar(const at::Tensor &self, const at::Scalar &other) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::mul.Scalar: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::mul.Scalar: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = scale_tensor(mb, mb.args()[0], other.toDouble());
     auto module_op = std::move(mb).finalize({result});
@@ -634,7 +634,7 @@ at::Tensor tt_floor_divide(const at::Tensor &a_in, const at::Tensor &b_in) {
 }
 
 at::Tensor tt_div_scalar(const at::Tensor &self, const at::Scalar &other) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::div.Scalar: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::div.Scalar: tensor must be on tt backend");
     TT_FATAL(other.toDouble() != 0.0, "tt_div_scalar: division by zero");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = scale_tensor(mb, mb.args()[0], 1.0 / other.toDouble());
@@ -644,7 +644,7 @@ at::Tensor tt_div_scalar(const at::Tensor &self, const at::Scalar &other) {
 }
 
 at::Tensor tt_cos(const at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::cos: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::cos: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_cos(mb, mb.args()[0]);
     auto module_op = std::move(mb).finalize({result});
@@ -653,7 +653,7 @@ at::Tensor tt_cos(const at::Tensor &self) {
 }
 
 at::Tensor tt_sin(const at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::sin: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::sin: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_sin(mb, mb.args()[0]);
     auto module_op = std::move(mb).finalize({result});
@@ -662,7 +662,7 @@ at::Tensor tt_sin(const at::Tensor &self) {
 }
 
 at::Tensor tt_log(const at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::log: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::log: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_log(mb, mb.args()[0]);
     auto module_op = std::move(mb).finalize({result});
@@ -671,7 +671,7 @@ at::Tensor tt_log(const at::Tensor &self) {
 }
 
 at::Tensor tt_exp(const at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::exp: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::exp: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_exp(mb, mb.args()[0]);
     auto module_op = std::move(mb).finalize({result});
@@ -680,7 +680,7 @@ at::Tensor tt_exp(const at::Tensor &self) {
 }
 
 at::Tensor tt_log1p(const at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::log1p: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::log1p: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_log1p(mb, mb.args()[0]);
     auto module_op = std::move(mb).finalize({result});
@@ -689,7 +689,7 @@ at::Tensor tt_log1p(const at::Tensor &self) {
 }
 
 at::Tensor tt_sqrt(const at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::sqrt: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::sqrt: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_sqrt(mb, mb.args()[0]);
     auto module_op = std::move(mb).finalize({result});
@@ -698,7 +698,7 @@ at::Tensor tt_sqrt(const at::Tensor &self) {
 }
 
 at::Tensor tt_tanh(const at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::tanh: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::tanh: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_tanh(mb, mb.args()[0]);
     auto module_op = std::move(mb).finalize({result});
@@ -707,7 +707,7 @@ at::Tensor tt_tanh(const at::Tensor &self) {
 }
 
 at::Tensor tt_reciprocal(const at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::reciprocal: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::reciprocal: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_reciprocal(mb, mb.args()[0]);
     auto module_op = std::move(mb).finalize({result});
@@ -719,9 +719,9 @@ at::Tensor tt_reciprocal(const at::Tensor &self) {
 // ttir.cumsum accumulates in the input's element type, so only a same-dtype (or
 // absent) request maps onto it.
 at::Tensor tt_cumsum(const at::Tensor &self, int64_t dim, std::optional<at::ScalarType> dtype) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::cumsum: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::cumsum: tensor must be on tt backend");
     TORCH_CHECK(!dtype.has_value() || *dtype == self.scalar_type(),
-                "tt-kurbla aten::cumsum: dtype must match the input's (", self.scalar_type(), "), got ", *dtype);
+                "tt-crank aten::cumsum: dtype must match the input's (", self.scalar_type(), "), got ", *dtype);
     auto mb = ModuleBuilder::init({spec_for(self)});
     int64_t rank = std::max<int64_t>(self.dim(), 1);
     auto result = build_cumsum(mb, mb.args()[0], (dim % rank + rank) % rank);
@@ -736,7 +736,7 @@ at::Tensor tt_cumsum(const at::Tensor &self, int64_t dim, std::optional<at::Scal
 at::Tensor tt_full_like(const at::Tensor &self, const at::Scalar &fill_value, std::optional<at::ScalarType> dtype,
                         std::optional<at::Layout> /*layout*/, std::optional<at::Device> /*device*/,
                         std::optional<bool> /*pin_memory*/, std::optional<at::MemoryFormat> /*memory_format*/) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::full_like: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::full_like: tensor must be on tt backend");
     auto out_dtype = dtype.value_or(self.scalar_type());
     auto mb = ModuleBuilder::init({});
     auto result = build_full(mb, self.sizes(), fill_value.toDouble(), mlir_element_type_for(out_dtype));
@@ -746,7 +746,7 @@ at::Tensor tt_full_like(const at::Tensor &self, const at::Scalar &fill_value, st
 }
 
 at::Tensor tt_neg(const at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::neg: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::neg: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_neg(mb, mb.args()[0]);
     auto module_op = std::move(mb).finalize({result});
@@ -799,7 +799,7 @@ at::Tensor tt_arange_start_step(const at::Scalar &start_scalar, const at::Scalar
 }
 
 at::Tensor tt_sigmoid(const at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::sigmoid: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::sigmoid: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_sigmoid(mb, mb.args()[0]);
     auto module_op = std::move(mb).finalize({result});
@@ -809,7 +809,7 @@ at::Tensor tt_sigmoid(const at::Tensor &self) {
 
 at::Tensor tt_clamp(const at::Tensor &self, const std::optional<at::Scalar> &min,
                     const std::optional<at::Scalar> &max) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::clamp: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::clamp: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     std::optional<double> min_v = min.has_value() ? std::optional<double>(min->toDouble()) : std::nullopt;
     std::optional<double> max_v = max.has_value() ? std::optional<double>(max->toDouble()) : std::nullopt;
@@ -821,7 +821,7 @@ at::Tensor tt_clamp(const at::Tensor &self, const std::optional<at::Scalar> &min
 
 // clamp_min is clamp with no upper bound; both map onto ttir.clamp_scalar.
 at::Tensor tt_clamp_min(const at::Tensor &self, const at::Scalar &min) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::clamp_min: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::clamp_min: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_clamp(mb, mb.args()[0], min.toDouble(), std::nullopt);
     auto module_op = std::move(mb).finalize({result});
@@ -831,7 +831,7 @@ at::Tensor tt_clamp_min(const at::Tensor &self, const at::Scalar &min) {
 
 // clamp_max is clamp with no lower bound; both map onto ttir.clamp_scalar.
 at::Tensor tt_clamp_max(const at::Tensor &self, const at::Scalar &max) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::clamp_max: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::clamp_max: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_clamp(mb, mb.args()[0], std::nullopt, max.toDouble());
     auto module_op = std::move(mb).finalize({result});
@@ -840,7 +840,7 @@ at::Tensor tt_clamp_max(const at::Tensor &self, const at::Scalar &max) {
 }
 
 at::Tensor tt_silu(const at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::silu: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::silu: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_silu(mb, mb.args()[0]);
     auto module_op = std::move(mb).finalize({result});
@@ -849,7 +849,7 @@ at::Tensor tt_silu(const at::Tensor &self) {
 }
 
 at::Tensor tt_gelu(const at::Tensor &self, c10::string_view approximate) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::gelu: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::gelu: tensor must be on tt backend");
     // tt-mlir lowers gelu to ttnn.gelu(fast_and_approximate_mode=false): the
     // exact/accurate variant, i.e. approximate="none". A "tanh" request is
     // served by this same accurate op - correct, it just doesn't get the
@@ -863,7 +863,7 @@ at::Tensor tt_gelu(const at::Tensor &self, c10::string_view approximate) {
 }
 
 at::Tensor tt_softmax(const at::Tensor &self_in, int64_t dim, bool half_to_float) {
-    TORCH_CHECK(is_tt(self_in), "tt-kurbla aten::_softmax: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self_in), "tt-crank aten::_softmax: tensor must be on tt backend");
     auto out_dtype = half_to_float ? at::ScalarType::Float : self_in.scalar_type();
     auto mb = ModuleBuilder::init({spec_for(self_in)});
     mlir::Value input = mb.args()[0];
@@ -993,7 +993,7 @@ at::Tensor &tt_bitwise_or_tensor_out(const at::Tensor &self, const at::Tensor &o
 }
 
 at::Tensor tt_bitwise_not(const at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::bitwise_not: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::bitwise_not: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result_v = build_bitwise_not(mb, mb.args()[0]);
     auto module_op = std::move(mb).finalize({result_v});
@@ -1007,7 +1007,7 @@ at::Tensor &tt_bitwise_not_out(const at::Tensor &self, at::Tensor &out) {
 
 // tril.out: lower-triangular part of self, written into `out`.
 at::Tensor &tt_tril_out(const at::Tensor &self_in, int64_t diagonal, at::Tensor &out) {
-    TORCH_CHECK(is_tt(self_in), "tt-kurbla aten::tril.out: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self_in), "tt-crank aten::tril.out: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self_in)});
     auto result_v = build_tril(mb, mb.args()[0], diagonal);
     auto module_op = std::move(mb).finalize({result_v});
@@ -1018,7 +1018,7 @@ at::Tensor &tt_tril_out(const at::Tensor &self_in, int64_t diagonal, at::Tensor 
 
 // isneginf.out: element-wise test for negative infinity.
 at::Tensor &tt_isneginf_out(const at::Tensor &self_in, at::Tensor &out) {
-    TORCH_CHECK(is_tt(self_in), "tt-kurbla aten::isneginf.out: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self_in), "tt-crank aten::isneginf.out: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self_in)});
     auto result_v = build_isneginf(mb, mb.args()[0]);
     auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result_v.getType()).getShape();
@@ -1031,7 +1031,7 @@ at::Tensor &tt_isneginf_out(const at::Tensor &self_in, at::Tensor &out) {
 
 // all.out: logical AND reduction along `dim`.
 at::Tensor &tt_all_out(const at::Tensor &self_in, int64_t dim, bool keepdim, at::Tensor &out) {
-    TORCH_CHECK(is_tt(self_in), "tt-kurbla aten::all.out: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self_in), "tt-crank aten::all.out: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self_in)});
     auto result_v = build_all(mb, mb.args()[0], {dim}, keepdim);
     auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result_v.getType()).getShape();
@@ -1045,7 +1045,7 @@ at::Tensor &tt_all_out(const at::Tensor &self_in, int64_t dim, bool keepdim, at:
 // Shared body of the three any.* out kernels. `dims` is empty for a reduction
 // over every element (rank-0 result); build_any normalizes negative dims.
 at::Tensor &tt_any_reduce_out(const at::Tensor &self, llvm::ArrayRef<int64_t> dims, bool keepdim, at::Tensor &out) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::any: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::any: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result_v = build_any(mb, mb.args()[0], dims, keepdim);
     auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result_v.getType()).getShape();
@@ -1060,10 +1060,10 @@ at::Tensor &tt_any_reduce_out(const at::Tensor &self, llvm::ArrayRef<int64_t> di
 // backwards as (low, high) pairs, and only for the trailing dims it touches.
 // Spread them over one low/high entry per dim, in dim order, for build_pad.
 at::Tensor tt_constant_pad_nd(const at::Tensor &self, at::IntArrayRef pad, const at::Scalar &value) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::constant_pad_nd: tensor must be on tt backend");
-    TORCH_CHECK(pad.size() % 2 == 0, "tt-kurbla aten::constant_pad_nd: pad must have an even length, got ", pad.size());
+    TORCH_CHECK(is_tt(self), "tt-crank aten::constant_pad_nd: tensor must be on tt backend");
+    TORCH_CHECK(pad.size() % 2 == 0, "tt-crank aten::constant_pad_nd: pad must have an even length, got ", pad.size());
     int64_t rank = self.dim();
-    TORCH_CHECK(as<int64_t>(pad.size()) <= 2 * rank, "tt-kurbla aten::constant_pad_nd: pad covers ", pad.size() / 2,
+    TORCH_CHECK(as<int64_t>(pad.size()) <= 2 * rank, "tt-crank aten::constant_pad_nd: pad covers ", pad.size() / 2,
                 " dims but the tensor has rank ", rank);
 
     std::vector<int64_t> low(as<std::size_t>(rank), 0);
@@ -1105,7 +1105,7 @@ at::Tensor &tt_any_dims_out(const at::Tensor &self, at::OptionalIntArrayRef dim,
 at::Tensor tt_embedding(const at::Tensor &weight_in, const at::Tensor &indices_in, int64_t /*padding_idx*/,
                         bool /*scale_grad_by_freq*/, bool /*sparse*/) {
     TORCH_CHECK(is_tt(weight_in) || is_tt(indices_in),
-                "tt-kurbla aten::embedding: at least one of weight/indices must be on tt backend");
+                "tt-crank aten::embedding: at least one of weight/indices must be on tt backend");
     auto device = is_tt(weight_in) ? weight_in.device() : indices_in.device();
     const auto weight = to_tt(weight_in, device);
     const auto indices = to_tt(indices_in, device);
@@ -1122,11 +1122,11 @@ at::Tensor tt_embedding(const at::Tensor &weight_in, const at::Tensor &indices_i
 at::Tensor tt_embedding_dense_backward(const at::Tensor &grad_output_in, const at::Tensor &indices_in,
                                        int64_t num_weights, int64_t padding_idx, bool scale_grad_by_freq) {
     TORCH_CHECK(is_tt(grad_output_in) || is_tt(indices_in),
-                "tt-kurbla aten::embedding_dense_backward: at least one of grad_output/indices must be on tt backend");
+                "tt-crank aten::embedding_dense_backward: at least one of grad_output/indices must be on tt backend");
     // Scaling each row by its index's frequency needs a histogram over the
     // indices, which has no TTNN kernel. nn.Embedding defaults it off.
     TORCH_CHECK_NOT_IMPLEMENTED(!scale_grad_by_freq,
-                                "tt-kurbla aten::embedding_dense_backward: scale_grad_by_freq=True is not implemented");
+                                "tt-crank aten::embedding_dense_backward: scale_grad_by_freq=True is not implemented");
     auto device = is_tt(grad_output_in) ? grad_output_in.device() : indices_in.device();
     const auto grad_output = to_tt(grad_output_in, device);
     const auto indices = to_tt(indices_in, device);
@@ -1216,4 +1216,4 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("embedding_dense_backward", TORCH_FN(tt_embedding_dense_backward));
 }
 
-} // namespace tt::kurbla::torch_backend
+} // namespace tt::crank::torch_backend

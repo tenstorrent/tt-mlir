@@ -29,7 +29,7 @@
 #include "torch/backend.hpp"
 #include "torch/ops/builders.hpp"
 
-namespace tt::kurbla::torch_backend {
+namespace tt::crank::torch_backend {
 
 namespace {
 
@@ -71,7 +71,7 @@ std::unordered_map<std::string, std::string> shard_strategy(std::size_t num_shar
 ::tt::runtime::Tensor
 create_multi_device_host_tensor(std::vector<void *> &shards, const ::tt::runtime::TensorDesc &desc,
                                 const std::unordered_map<std::string, std::string> &shard_strategy, bool borrow) {
-    const auto mesh_shape = ::tt::kurbla::runtime_device_mesh_shape();
+    const auto mesh_shape = ::tt::crank::runtime_device_mesh_shape();
     if (borrow) {
         return ::tt::runtime::createMultiDeviceBorrowedHostTensor(shards, desc.shape, desc.stride, desc.elementSize(),
                                                                   desc.dataType, shard_strategy, mesh_shape);
@@ -111,7 +111,7 @@ void TensorStorage::check_version() {
                 log_warning(tt::LogAlways, "To verify that no in-place modifications occur, run forward without "
                                            "inference mode.");
                 log_warning(tt::LogAlways, "Once assured the borrow is safe, you can disable this warning with: "
-                                           "TT_KURBLA_WARN_ON_UNSAFE_BORROW_DISABLED=1");
+                                           "TT_CRANK_WARN_ON_UNSAFE_BORROW_DISABLED=1");
             }
         }
         return;
@@ -127,9 +127,9 @@ std::vector<::tt::runtime::Tensor> TensorStorage::to_host(bool untilize) {
 }
 
 TensorStorage &storage_of(const at::Tensor &t) {
-    TORCH_CHECK(is_tt(t), "tt-kurbla storage_of: tensor is not on the tt backend (device: ", t.device(), ")");
+    TORCH_CHECK(is_tt(t), "tt-crank storage_of: tensor is not on the tt backend (device: ", t.device(), ")");
     void *ctx = t.storage().data_ptr().get_context();
-    TORCH_CHECK(ctx != nullptr, "tt-kurbla storage_of: tt tensor has no attached storage");
+    TORCH_CHECK(ctx != nullptr, "tt-crank storage_of: tt tensor has no attached storage");
     return *as<TensorStorage *>(ctx);
 }
 
@@ -168,10 +168,10 @@ at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef 
 ::tt::runtime::Tensor runtime_from_host_shards(std::vector<void *> shards, at::IntArrayRef sizes, c10::ScalarType dtype,
                                                bool borrow) {
     const size_t num_shards = shards.size();
-    const auto mesh_size = ::tt::kurbla::runtime_device_mesh_size();
+    const auto mesh_size = ::tt::crank::runtime_device_mesh_size();
 
     TORCH_CHECK(num_shards == 1 || num_shards == mesh_size,
-                "tt-kurbla runtime_from_host_shards: invalid number of shards ", num_shards);
+                "tt-crank runtime_from_host_shards: invalid number of shards ", num_shards);
 
     const auto desc = make_contiguous_desc(sizes, dtype);
 
@@ -189,21 +189,21 @@ at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef 
 // ownership of each shard's host buffer, so the shards may be released after
 // this returns. On a 1x1 mesh there's a single chip - return its shard as-is.
 ::tt::runtime::Tensor runtime_from_host_shards(std::vector<::tt::runtime::Tensor> shards) {
-    TORCH_CHECK(!shards.empty(), "tt-kurbla runtime_from_tensor_shards: no shards");
-    const auto mesh_size = ::tt::kurbla::runtime_device_mesh_size();
+    TORCH_CHECK(!shards.empty(), "tt-crank runtime_from_tensor_shards: no shards");
+    const auto mesh_size = ::tt::crank::runtime_device_mesh_size();
     if (mesh_size <= 1) {
         return std::move(shards.front());
     }
     return ::tt::runtime::createMultiDeviceHostTensor(shards, shard_strategy(shards.size(), mesh_size),
-                                                      ::tt::kurbla::runtime_device_mesh_shape());
+                                                      ::tt::crank::runtime_device_mesh_shape());
 }
 
 // Creates runtime tensor from torch tensor ``t``.
 // If try_borrow is true and borrowing is supported, tensor will be borrowed. Otherwise, new tensor is made.
 // Returns pair of runtime tensor, and bool that represents whether tensor is borrowed from ``t``.
 std::pair<::tt::runtime::Tensor, bool> runtime_from_torch_tensor(const at::Tensor &t, bool try_borrow) {
-    TORCH_CHECK(t.is_cpu(), "tt-kurbla runtime_from_torch_tensor: source must be a CPU tensor, got ", t.device());
-    TORCH_CHECK(t.is_contiguous(), "tt-kurbla runtime_from_torch_tensor: source must be contiguous");
+    TORCH_CHECK(t.is_cpu(), "tt-crank runtime_from_torch_tensor: source must be a CPU tensor, got ", t.device());
+    TORCH_CHECK(t.is_contiguous(), "tt-crank runtime_from_torch_tensor: source must be contiguous");
 
     bool borrow = try_borrow && borrowable(t);
     return {runtime_from_host_shards({t.data_ptr()}, t.sizes(), t.scalar_type(), /*borrow=*/borrow), borrow};
@@ -218,16 +218,16 @@ bool is_tt(const at::Tensor &t) {
 }
 
 at::Tensor to_tt(const at::Tensor &t, at::Device device) {
-    TORCH_CHECK(is_tt(device), "tt-kurbla to_tt: target device must be tt, got ", device);
+    TORCH_CHECK(is_tt(device), "tt-crank to_tt: target device must be tt, got ", device);
     return t.device() == device ? t : t.to(device);
 }
 
 // ===== Distributed primitives =====
 
 void scatter_into(const at::Tensor &output, const std::vector<at::Tensor> &chunks, std::uint32_t cluster_axis) {
-    const auto mesh_shape = ::tt::kurbla::runtime_device_mesh_shape();
+    const auto mesh_shape = ::tt::crank::runtime_device_mesh_shape();
     const auto cols = mesh_shape[1];
-    const auto mesh_size = ::tt::kurbla::runtime_device_mesh_size();
+    const auto mesh_size = ::tt::crank::runtime_device_mesh_size();
     const auto axis_len = mesh_shape[cluster_axis];
     TORCH_CHECK(chunks.size() == axis_len, "scatter_into: expected ", axis_len, " chunks for mesh axis ", cluster_axis,
                 " of the ", mesh_shape[0], "x", cols, " mesh, got ", chunks.size());
@@ -337,4 +337,4 @@ void reduce_scatter_into(const at::Tensor &output, const at::Tensor &input, std:
     });
 }
 
-} // namespace tt::kurbla::torch_backend
+} // namespace tt::crank::torch_backend

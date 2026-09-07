@@ -16,13 +16,13 @@
 
 // Besides covering the builder itself, this test is the RTTI tripwire for the
 // exported class: the test target builds with default RTTI against the
-// -fno-rtti libtt_kurbla.so, so a public-header change that drags RTTI-needing
+// -fno-rtti libtt_crank.so, so a public-header change that drags RTTI-needing
 // tt-mlir machinery into consumers fails to link here first.
 
 namespace {
 
-using tt::kurbla::ModuleBuilder;
-using tt::kurbla::TensorTypeSpec;
+using tt::crank::ModuleBuilder;
+using tt::crank::TensorTypeSpec;
 
 TensorTypeSpec f32_spec(std::vector<std::int64_t> shape) {
     return TensorTypeSpec{std::move(shape), ::tt::target::DataType::Float32};
@@ -38,7 +38,7 @@ TEST(EngineModuleBuilderTest, BuildsAndCompilesAddModule) {
     mlir::Value sum = mb.create<mlir::tt::ttir::AddOp>(result_type, mb.args()[0], mb.args()[1]).getResult();
     auto module_op = std::move(mb).finalize({sum});
 
-    tt::kurbla::CompiledProgram &program = *tt::kurbla::compile_ttir_to_ttnn_flatbuffer(*module_op).program;
+    tt::crank::CompiledProgram &program = *tt::crank::compile_ttir_to_ttnn_flatbuffer(*module_op).program;
     ASSERT_EQ(program.num_inputs, 2U);
     ASSERT_EQ(program.output_descs.size(), 1U);
     EXPECT_EQ(program.output_descs[0].shape, (std::vector<std::uint32_t>{64, 128}));

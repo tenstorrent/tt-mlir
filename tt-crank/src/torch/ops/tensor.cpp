@@ -25,7 +25,7 @@
 #include "torch/backend.hpp"
 #include "torch/tensor.hpp"
 
-namespace tt::kurbla::torch_backend {
+namespace tt::crank::torch_backend {
 
 namespace {
 
@@ -42,7 +42,7 @@ at::Tensor make_tt_tensor_from_host(void *data, at::IntArrayRef sizes, c10::Scal
 // reconstructed by DTensor's `full_tensor()` via a collective, not here.
 void read_local_shard_to_host(const at::Tensor &self, void *dst, const char *who) {
     auto host_shards = storage_of(self).to_host(/*untilize=*/true);
-    TORCH_CHECK(!host_shards.empty(), "tt-kurbla ", who, ": runtime returned no shards");
+    TORCH_CHECK(!host_shards.empty(), "tt-crank ", who, ": runtime returned no shards");
     ::tt::runtime::memcpy(dst, host_shards[0], to_runtime_dtype(self.scalar_type()));
 }
 
@@ -61,9 +61,9 @@ at::Tensor empty_memory_format(at::IntArrayRef size, std::optional<at::ScalarTyp
                                std::optional<at::Layout> /*layout*/, std::optional<at::Device> device,
                                std::optional<bool> /*pin_memory*/, std::optional<at::MemoryFormat> memory_format) {
     TORCH_CHECK(!device.has_value() || is_tt(*device),
-                "tt-kurbla empty.memory_format: device must be tt or unspecified");
+                "tt-crank empty.memory_format: device must be tt or unspecified");
     TORCH_CHECK(!memory_format.has_value() || memory_format.value() == c10::MemoryFormat::Contiguous,
-                "tt-kurbla empty.memory_format: only contiguous memory_format is supported");
+                "tt-crank empty.memory_format: only contiguous memory_format is supported");
     return make_tt_tensor_from_host(/*data=*/nullptr, size, dtype.value_or(c10::ScalarType::Float));
 }
 
@@ -75,7 +75,7 @@ at::Tensor empty_memory_format(at::IntArrayRef size, std::optional<at::ScalarTyp
 std::vector<std::vector<std::byte>> read_per_shard_to_host(const at::Tensor &self, const char *who) {
     auto &storage = storage_of(self);
     auto host_shards = storage.to_host(/*untilize=*/true);
-    TORCH_CHECK(!host_shards.empty(), "tt-kurbla ", who, ": runtime returned no shards");
+    TORCH_CHECK(!host_shards.empty(), "tt-crank ", who, ": runtime returned no shards");
     const auto element_dtype = to_runtime_dtype(self.scalar_type());
     const auto element_size = as<std::size_t>(self.element_size());
 
@@ -109,14 +109,14 @@ std::vector<std::vector<std::byte>> read_per_shard_to_host(const at::Tensor &sel
 at::Tensor empty_strided(at::IntArrayRef size, at::IntArrayRef stride, std::optional<at::ScalarType> dtype,
                          std::optional<at::Layout> /*layout*/, std::optional<at::Device> device,
                          std::optional<bool> /*pin_memory*/) {
-    TORCH_CHECK(!device.has_value() || is_tt(*device), "tt-kurbla empty_strided: device must be tt or unspecified");
+    TORCH_CHECK(!device.has_value() || is_tt(*device), "tt-crank empty_strided: device must be tt or unspecified");
     // Ignore requested stride and force contig layout.
     (void)stride;
     return make_tt_tensor_from_host(/*data=*/nullptr, size, dtype.value_or(c10::ScalarType::Float));
 }
 
 at::Tensor copy_from(const at::Tensor &self, const at::Tensor &dst, bool /*non_blocking*/) {
-    TORCH_CHECK(self.sizes() == dst.sizes(), "tt-kurbla _copy_from: shape mismatch");
+    TORCH_CHECK(self.sizes() == dst.sizes(), "tt-crank _copy_from: shape mismatch");
 
     // `tensor.to(other_dtype)` reaches us as a `_copy_from` with mismatched
     // dtypes. Do the dtype conversion on CPU (slow but correct) then recurse;
@@ -131,7 +131,7 @@ at::Tensor copy_from(const at::Tensor &self, const at::Tensor &dst, bool /*non_b
     }
 
     if (is_tt(self) && dst.is_cpu()) {
-        TORCH_CHECK(dst.is_contiguous(), "tt-kurbla _copy_from(tt→cpu): destination must be contiguous");
+        TORCH_CHECK(dst.is_contiguous(), "tt-crank _copy_from(tt→cpu): destination must be contiguous");
         read_local_shard_to_host(self, dst.data_ptr(), "_copy_from(tt→cpu)");
         return dst;
     }
@@ -159,14 +159,14 @@ at::Tensor copy_from(const at::Tensor &self, const at::Tensor &dst, bool /*non_b
         return dst;
     }
 
-    TORCH_CHECK(false, "tt-kurbla _copy_from: unsupported device pair ", self.device(), " → ", dst.device());
+    TORCH_CHECK(false, "tt-crank _copy_from: unsupported device pair ", self.device(), " → ", dst.device());
 }
 
 // aten::fill_.Scalar - fill every element of `self` in place with `value`.
 // Builds the filled buffer on CPU and uploads it through the existing
 // cpu→tt copy path.
 at::Tensor &fill_scalar(at::Tensor &self, const at::Scalar &value) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::fill_.Scalar: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::fill_.Scalar: tensor must be on tt backend");
     auto cpu_full = at::full(self.sizes(), value, at::TensorOptions().dtype(self.scalar_type()));
     copy_from(cpu_full, self, /*non_blocking=*/false);
     return self;
@@ -175,7 +175,7 @@ at::Tensor &fill_scalar(at::Tensor &self, const at::Scalar &value) {
 // aten::zero_ - fill every element of `self` with 0 in place. Shares the
 // cpu→tt upload path with fill_.Scalar.
 at::Tensor &zero_(at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::zero_: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::zero_: tensor must be on tt backend");
     return fill_scalar(self, 0);
 }
 
@@ -206,9 +206,9 @@ at::Tensor &zero_(at::Tensor &self) {
 //  tensor. And then we materialize it first time we need to access its content. Then `resize_`
 //  could know that it is dealing with an uninitialized tensor and can just modify its metadata.
 const at::Tensor &resize_(const at::Tensor &self, at::IntArrayRef size, std::optional<at::MemoryFormat> memory_format) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla resize_: self must be tt (device: ", self.device(), ")");
+    TORCH_CHECK(is_tt(self), "tt-crank resize_: self must be tt (device: ", self.device(), ")");
     TORCH_CHECK(!memory_format.has_value() || memory_format.value() == c10::MemoryFormat::Contiguous,
-                "tt-kurbla resize_: only contiguous memory_format is supported");
+                "tt-crank resize_: only contiguous memory_format is supported");
 
     const std::int64_t new_numel = c10::multiply_integers(size);
     if (new_numel != self.numel()) {
@@ -236,8 +236,8 @@ at::Tensor copy_from_and_resize(const at::Tensor &self, const at::Tensor &dst) {
 // set_.source_Tensor: re-point `self` at `source`'s storage and metadata. Both
 // tensors then share the same underlying TensorStorage.
 at::Tensor &set_source_Tensor(at::Tensor &self, const at::Tensor &source) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla set_.source_Tensor: self must be tt");
-    TORCH_CHECK(is_tt(source), "tt-kurbla set_.source_Tensor: source must be tt");
+    TORCH_CHECK(is_tt(self), "tt-crank set_.source_Tensor: self must be tt");
+    TORCH_CHECK(is_tt(source), "tt-crank set_.source_Tensor: source must be tt");
     if (self.unsafeGetTensorImpl() == source.unsafeGetTensorImpl()) {
         return self;
     }
@@ -256,7 +256,7 @@ at::Tensor &set_source_Tensor(at::Tensor &self, const at::Tensor &source) {
 //     y = x.view(-1); y[0] = 5
 // will NOT update x[...]. Pinned by an XFAIL in tests/python/op_tests/test_view.py.
 at::Tensor view(const at::Tensor &self, at::IntArrayRef size) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::view: tensor is not on the tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::view: tensor is not on the tt backend");
     // `at::infer_size` resolves the at-most-one `-1` against numel and runs the
     // same shape/divisibility checks CPU/CUDA do — the dispatcher doesn't
     // unfold `-1` for non-native backends, so we have to do it here.
@@ -270,7 +270,7 @@ at::Tensor view(const at::Tensor &self, at::IntArrayRef size) {
 
 at::Tensor as_strided(const at::Tensor &self, at::IntArrayRef size, at::IntArrayRef stride,
                       std::optional<int64_t> storage_offset) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::as_strided: tensor is not on the tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::as_strided: tensor is not on the tt backend");
 
     // Apply the strided view to every shard independently and keep the results
     // distinct. Correct whether `self` is sharded (each shard viewed on its own
@@ -301,8 +301,8 @@ at::Tensor as_strided(const at::Tensor &self, at::IntArrayRef size, at::IntArray
 // for single-element reads; tt-runtime's toHost API moves the whole tensor
 // regardless, so this is one full readback per .item().
 at::Scalar local_scalar_dense(const at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla _local_scalar_dense: tensor is not on the tt backend");
-    TORCH_CHECK(self.numel() >= 1, "tt-kurbla _local_scalar_dense: tensor must have at least one element");
+    TORCH_CHECK(is_tt(self), "tt-crank _local_scalar_dense: tensor is not on the tt backend");
+    TORCH_CHECK(self.numel() >= 1, "tt-crank _local_scalar_dense: tensor must have at least one element");
 
     auto buffer = read_to_host(self, "_local_scalar_dense");
 
@@ -333,7 +333,7 @@ at::Scalar local_scalar_dense(const at::Tensor &self) {
             return at::Scalar(as<bool>(v));
         }
         default:
-            TORCH_CHECK(false, "tt-kurbla _local_scalar_dense: unsupported dtype ", self.scalar_type());
+            TORCH_CHECK(false, "tt-crank _local_scalar_dense: unsupported dtype ", self.scalar_type());
     }
 }
 
@@ -359,4 +359,4 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("_local_scalar_dense", TORCH_FN(local_scalar_dense));
 }
 
-} // namespace tt::kurbla::torch_backend
+} // namespace tt::crank::torch_backend
