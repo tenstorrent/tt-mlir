@@ -1061,11 +1061,13 @@ def D2MDataflowPlanning : Pass<"d2m-dataflow-planning", "::mlir::ModuleOp"> {
     D2MScalarizeConstTensors, while d2m.generic operations still use tensor
     semantics, and before D2MGridSelection fixes grid and layout decisions.
 
-    The initial implementation builds an immutable temporal fallback plan and
-    deliberately leaves the IR unchanged. Future planning policies can add wrap
-    partitioning, internal variants, spatial placement, and explicit
-    communication without changing the pipeline boundary. This initial pass is
-    enabled only for the TTMetal path.
+    The framework builds a candidate graph, selects immutable kernel variants,
+    rejects structurally infeasible plans, evaluates available cost estimates,
+    and materializes only the selected plan. The initial policy selects an
+    always-legal temporal fallback and deliberately leaves the IR unchanged.
+    Future policies can add wrap partitioning, internal variants, spatial
+    placement, resource models, and explicit communication without changing
+    the pipeline boundary. This pass is enabled only for the TTMetal path.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
   let options = [

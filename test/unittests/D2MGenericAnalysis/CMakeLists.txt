@@ -1,6 +1,7 @@
 set(TESTSUITE D2MGenericAnalysisTests)
 
 add_mlir_unittest(${TESTSUITE}
+    TestDataflowPlanning.cpp
     TestD2MGenericAnalysis.cpp
 )
 

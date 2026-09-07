@@ -6,8 +6,9 @@
 #any_device = #ttcore.device<workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
 
 module attributes {ttcore.device = #any_device} {
-  // PLAN: d2m-dataflow-plan function=@planner_skeleton scope=0 strategy=temporal-fallback generics=1
-  // PLAN-NEXT: d2m-dataflow-plan function=@planner_second_function scope=0 strategy=temporal-fallback generics=1
+  // PLAN: d2m-dataflow-plan function=@planner_skeleton scope=0 strategy=temporal-fallback candidates=1 dependencies=0 kernels=1 connections=0 latency=unknown ii=unknown
+  // PLAN-NEXT: d2m-dataflow-plan function=@planner_second_function scope=0 strategy=temporal-fallback candidates=1 dependencies=0 kernels=1 connections=0 latency=unknown ii=unknown
+  // PLAN-NEXT: d2m-dataflow-plan function=@planner_chain scope=0 strategy=temporal-fallback candidates=2 dependencies=1 kernels=2 connections=1 latency=unknown ii=unknown
   // PIPELINE: IR Dump After D2MDataflowPlanning (d2m-dataflow-planning)
   // PIPELINE: func.func @planner_skeleton
   // PIPELINE: d2m.generic {{.*}}grid = #ttcore.grid<1x1>
@@ -21,5 +22,11 @@ module attributes {ttcore.device = #any_device} {
   func.func @planner_second_function(%arg0: tensor<64x64xbf16>) -> tensor<64x64xbf16> {
     %0 = "ttir.exp"(%arg0) : (tensor<64x64xbf16>) -> tensor<64x64xbf16>
     return %0 : tensor<64x64xbf16>
+  }
+
+  func.func @planner_chain(%arg0: tensor<64x64xbf16>) -> tensor<64x64xbf16> {
+    %0 = "ttir.relu"(%arg0) : (tensor<64x64xbf16>) -> tensor<64x64xbf16>
+    %1 = "ttir.exp"(%0) : (tensor<64x64xbf16>) -> tensor<64x64xbf16>
+    return %1 : tensor<64x64xbf16>
   }
 }
