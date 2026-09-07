@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 // Catch-all CPU fallback for the tt backend. Any aten op without an explicit
 // PrivateUse1 kernel routes through here: tensors get materialized to CPU, the
 // op runs on CPU, results are copied back to tt. Slow, but correct.

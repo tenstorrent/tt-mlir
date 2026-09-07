@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 // Optionally points the tt-mlir runtime at ttsim, so any consumer of
 // libtt_kurbla.so (tests, Python wheel, future bindings) routes through the
 // simulator instead of opening a physical device.

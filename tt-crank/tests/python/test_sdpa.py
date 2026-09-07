@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 import pytest
@@ -42,9 +46,9 @@ def _run_sdpa(mode: str, fn, *tt_args):
     with post_aot_fx_hook(record):
         out = torch.compile(fn, backend="tt", fullgraph=True)(*tt_args)
     torch._dynamo.reset()
-    assert any(_SDPA_OVERRIDEABLE in op for op in ops), (
-        f"SDPA did not stay atomic under compile; post-aot ops: {sorted(ops)}"
-    )
+    assert any(
+        _SDPA_OVERRIDEABLE in op for op in ops
+    ), f"SDPA did not stay atomic under compile; post-aot ops: {sorted(ops)}"
     return out
 
 
@@ -66,7 +70,9 @@ def test_sdpa_single_chip(variant: str, mode: str) -> None:
     mt = mask.to("tt") if mask is not None else None
 
     def sdpa(a, b, c):
-        return F.scaled_dot_product_attention(a, b, c, attn_mask=mt, is_causal=is_causal)
+        return F.scaled_dot_product_attention(
+            a, b, c, attn_mask=mt, is_causal=is_causal
+        )
 
     got = _run_sdpa(mode, sdpa, q.to("tt"), k.to("tt"), v.to("tt")).cpu()
     assert got.shape == ref.shape
@@ -96,7 +102,9 @@ def test_sdpa_multi_chip(tt_pg, parallel: str, masked: bool, mode: str) -> None:
     dim = 1 if parallel == "tp" else 0
     if parallel == "tp" and _H % n:
         pytest.skip(f"needs num_heads ({_H}) divisible by chip count ({n})")
-    batch = _B if parallel == "tp" else n  # DP shards batch, so it must be >= chip count
+    batch = (
+        _B if parallel == "tp" else n
+    )  # DP shards batch, so it must be >= chip count
     q, k, v = (torch.randn(batch, _H, _S, _E, dtype=_DT) for _ in range(3))
     mask = torch.randn(batch, 1, _S, _S, dtype=_DT) if masked else None
     ref = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
@@ -115,7 +123,9 @@ def test_sdpa_multi_chip(tt_pg, parallel: str, masked: bool, mode: str) -> None:
 
     out = _run_sdpa(mode, sdpa, *tt_args)
     # No gather (both modes): the output must stay sharded on the same dim.
-    assert out.placements == (Shard(dim),), f"expected Shard({dim}) output, got {out.placements}"
+    assert out.placements == (
+        Shard(dim),
+    ), f"expected Shard({dim}) output, got {out.placements}"
     got = out.full_tensor().cpu()
     assert got.shape == ref.shape
     assert _pcc(got, ref) >= _PCC
@@ -149,9 +159,9 @@ def test_sdpa_backward(mode: str) -> None:
         with post_aot_fx_hook(record):
             torch.compile(sdpa, backend="tt", fullgraph=True)(*tts).backward()
         torch._dynamo.reset()
-        assert not any(_SDPA_OVERRIDEABLE in op for op in ops), (
-            f"SDPA stayed atomic under autograd, which has no backward; post-aot ops: {sorted(ops)}"
-        )
+        assert not any(
+            _SDPA_OVERRIDEABLE in op for op in ops
+        ), f"SDPA stayed atomic under autograd, which has no backward; post-aot ops: {sorted(ops)}"
 
     for got, ref in zip(tts, refs):
         assert got.grad is not None

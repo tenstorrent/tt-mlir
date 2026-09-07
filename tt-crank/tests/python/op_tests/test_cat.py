@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """Tests for aten::cat (concatenation) including the empty-tensor edge case."""
 
 import pytest

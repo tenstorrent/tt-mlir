@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 // SDPA integration for the tt (PrivateUse1) backend.
 //
 // `scaled_dot_product_attention` is CompositeImplicitAutograd: it asks the
@@ -23,12 +27,12 @@
 #include <tuple>
 #include <vector>
 
+#include "mlir/IR/Value.h"
 #include <ATen/ATen.h>
 #include <ATen/SDPBackend.h>
 #include <ATen/core/grad_mode.h>
 #include <ATen/native/DispatchStub.h>
 #include <ATen/native/transformers/attention.h>
-#include <mlir/IR/Value.h>
 #include <torch/library.h>
 
 #include "cast.hpp"

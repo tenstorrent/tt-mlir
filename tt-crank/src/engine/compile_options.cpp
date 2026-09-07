@@ -1,12 +1,16 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #include "engine/compile_options.hpp"
 
 #include <optional>
 #include <sstream>
 #include <string>
 
-#include <ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h>
-#include <ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h>
-#include <ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h>
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 
 namespace tt::kurbla {
 

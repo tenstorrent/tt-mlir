@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """Tests for scalar-lift and trig math ops."""
 
 import pytest
@@ -134,7 +138,11 @@ def test_reciprocal(shape: tuple) -> None:
     assert_close_cpu_vs_tt(torch.reciprocal, a, atol=1e-2, rtol=1e-2)
 
 
-@pytest.mark.parametrize("min,max", [(-0.5, 0.5), (0.0, None), (None, 1.0)], ids=["both", "min_only", "max_only"])
+@pytest.mark.parametrize(
+    "min,max",
+    [(-0.5, 0.5), (0.0, None), (None, 1.0)],
+    ids=["both", "min_only", "max_only"],
+)
 @pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])
 def test_clamp(shape: tuple, min: float | None, max: float | None) -> None:
     # Clamp only selects between the input and a bound — no arithmetic error to

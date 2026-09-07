@@ -1,9 +1,19 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """Regression tests for the Replicate -> Shard redistribute on the tt mesh.
 """
 
 import pytest
 import torch
-from torch.distributed.tensor import DTensor, Partial, Replicate, Shard, distribute_tensor
+from torch.distributed.tensor import (
+    DTensor,
+    Partial,
+    Replicate,
+    Shard,
+    distribute_tensor,
+)
 
 pytestmark = pytest.mark.multichip
 

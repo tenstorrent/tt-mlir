@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """DTensor tensor distribution & manipulation on the tt backend.
 """
 
@@ -19,8 +23,10 @@ def test_distribute_replicate_round_trip(tt_pg) -> None:
 
     # distribute → broadcast under the hood
     dt = distribute_tensor(t.to("tt"), mesh, [Replicate()])
-    assert tuple(dt._local_tensor.shape) == (32, 64), \
-        f"replicate local should match global, got {dt._local_tensor.shape}"
+    assert tuple(dt._local_tensor.shape) == (
+        32,
+        64,
+    ), f"replicate local should match global, got {dt._local_tensor.shape}"
 
     full = dt.full_tensor().cpu()
     torch.testing.assert_close(full, t, atol=0.05, rtol=0.05)
@@ -46,14 +52,20 @@ def test_reshape_sharded_stays_sharded(tt_pg) -> None:
     # Each chip's contiguous slab maps to a contiguous output block, so DTensor
     # keeps Shard(0) and runs the local view per-shard — no redistribution.
     dy = dx.reshape(rows // 2, cols * 2)
-    assert dy._spec.placements == (Shard(0),), f"expected Shard(0), got {dy._spec.placements}"
-    assert tuple(dy._local_tensor.shape) == (16, cols * 2), \
-        f"local view should be per-shard, got {tuple(dy._local_tensor.shape)}"
+    assert dy._spec.placements == (
+        Shard(0),
+    ), f"expected Shard(0), got {dy._spec.placements}"
+    assert tuple(dy._local_tensor.shape) == (
+        16,
+        cols * 2,
+    ), f"local view should be per-shard, got {tuple(dy._local_tensor.shape)}"
 
     # full_tensor() all-gathers the shards back; a shard-0 collapse would make
     # every block equal chip 0's data (all 1.0).
     full = dy.full_tensor().cpu()
-    assert torch.equal(full, x.reshape(rows // 2, cols * 2)), "reconstructed reshape must match the global reshape"
+    assert torch.equal(
+        full, x.reshape(rows // 2, cols * 2)
+    ), "reconstructed reshape must match the global reshape"
 
 
 def test_reshape_incompatible_with_sharding_raises(tt_pg) -> None:

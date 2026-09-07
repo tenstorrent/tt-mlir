@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """
 Dtype-resolution tests for native tt kernels.
 
@@ -24,7 +28,12 @@ from __future__ import annotations
 import pytest
 import torch
 
-from tt_kurbla.torch.testing import DeviceType, ExecutionMode, assert_close_cpu_vs_tt, strict_no_fallback
+from tt_kurbla.torch.testing import (
+    DeviceType,
+    ExecutionMode,
+    assert_close_cpu_vs_tt,
+    strict_no_fallback,
+)
 
 
 # Run every binary-op test in both modes so any eager-vs-compile dtype
@@ -114,15 +123,21 @@ def test_binary_op_scalar(
 ) -> None:
     op, _ = BINARY_OPS[op_name]
     a = _make_tensor(a_dtype)
-    assert_close_cpu_vs_tt(lambda x: op(x, scalar), a, mode=mode, **_tolerance(a_dtype, a_dtype))
+    assert_close_cpu_vs_tt(
+        lambda x: op(x, scalar), a, mode=mode, **_tolerance(a_dtype, a_dtype)
+    )
 
 
 # Cross-device: one tt operand, one CPU operand. Eager only - torch.compile
 # rejects mixed-device inputs at FakeTensor trace time, so the compile path
 # never sees this case.
 @pytest.mark.parametrize("op_name", list(BINARY_OPS))
-@pytest.mark.parametrize("a_dtype,b_dtype", [(torch.float32, torch.float32), (torch.float32, torch.float64)])
-def test_binary_op_mixed_device(op_name: str, a_dtype: torch.dtype, b_dtype: torch.dtype) -> None:
+@pytest.mark.parametrize(
+    "a_dtype,b_dtype", [(torch.float32, torch.float32), (torch.float32, torch.float64)]
+)
+def test_binary_op_mixed_device(
+    op_name: str, a_dtype: torch.dtype, b_dtype: torch.dtype
+) -> None:
     op, _ = BINARY_OPS[op_name]
     a = _make_tensor(a_dtype)
     b = _make_tensor(b_dtype)
@@ -131,9 +146,9 @@ def test_binary_op_mixed_device(op_name: str, a_dtype: torch.dtype, b_dtype: tor
     a_tt = a.to("tt")  # b stays on CPU
     with strict_no_fallback():
         out_tt = op(a_tt, b)
-    assert out_tt.dtype == expected_dtype, (
-        f"{op_name}({a_dtype}@tt, {b_dtype}@cpu): tt dtype {out_tt.dtype} != expected {expected_dtype}"
-    )
+    assert (
+        out_tt.dtype == expected_dtype
+    ), f"{op_name}({a_dtype}@tt, {b_dtype}@cpu): tt dtype {out_tt.dtype} != expected {expected_dtype}"
 
 
 # `tensor.to(other_dtype)` on tt: values survive the cross-dtype conversion
@@ -157,5 +172,9 @@ def test_to_dtype_on_tt(src_dtype: torch.dtype, dst_dtype: torch.dtype) -> None:
     a_tt = a.to("tt")
     out_tt = a_tt.to(dst_dtype)
 
-    assert out_tt.dtype == dst_dtype, f"to({dst_dtype}): tt dtype {out_tt.dtype} != expected {dst_dtype}"
-    torch.testing.assert_close(out_tt.cpu(), expected, **_tolerance(src_dtype, dst_dtype))
+    assert (
+        out_tt.dtype == dst_dtype
+    ), f"to({dst_dtype}): tt dtype {out_tt.dtype} != expected {dst_dtype}"
+    torch.testing.assert_close(
+        out_tt.cpu(), expected, **_tolerance(src_dtype, dst_dtype)
+    )

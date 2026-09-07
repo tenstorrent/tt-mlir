@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """Coverage for the tensor-lifecycle aten kernels in src/torch/ops/tensor.cpp.
 
 The tests below also exercise `aten::empty.memory_format`, `aten::resize_`, and
@@ -98,7 +102,7 @@ def test_tensor_borrowing() -> None:
     assert tt_owned.cpu().item() == 7
 
     with pytest.raises(RuntimeError, match="source must be contiguous"):
-        torch.ones((32, 32), dtype=torch.bfloat16).transpose(0, 1).to("tt") # raises
+        torch.ones((32, 32), dtype=torch.bfloat16).transpose(0, 1).to("tt")  # raises
 
     src = torch.randn((32, 32), dtype=torch.bfloat16)  # survives del src via pin_
     expected = src.clone()
@@ -118,25 +122,35 @@ def test_tensor_borrowing() -> None:
     tt_indep = indep.to("tt")
     _ = (tt_indep + x).cpu()
     indep[0, 0] = 999.0
-    torch.testing.assert_close(tt_indep.cpu(), torch.ones((32, 32), dtype=torch.bfloat16), atol=0, rtol=0)
+    torch.testing.assert_close(
+        tt_indep.cpu(), torch.ones((32, 32), dtype=torch.bfloat16), atol=0, rtol=0
+    )
 
-    mutated = torch.ones((32, 32), dtype=torch.bfloat16)  # mutation rejected at readback
+    mutated = torch.ones(
+        (32, 32), dtype=torch.bfloat16
+    )  # mutation rejected at readback
     tt_mutated = mutated.to("tt")
     mutated.mul_(0)
     with pytest.raises(RuntimeError, match="modified in-place"):
         tt_mutated.cpu()
 
-    mutated = torch.ones((32, 32), dtype=torch.bfloat16)  # mutation rejected at device use
+    mutated = torch.ones(
+        (32, 32), dtype=torch.bfloat16
+    )  # mutation rejected at device use
     tt_mutated = mutated.to("tt")
     mutated.add_(1.0)
     with pytest.raises(RuntimeError, match="modified in-place"):
         _ = (tt_mutated + x).cpu()
 
-    over = torch.ones((32, 32), dtype=torch.bfloat16)  # overwrite discards the stale borrow
+    over = torch.ones(
+        (32, 32), dtype=torch.bfloat16
+    )  # overwrite discards the stale borrow
     tt_over = over.to("tt")
     over.mul_(0)
     tt_over.zero_()
-    torch.testing.assert_close(tt_over.cpu(), torch.zeros((32, 32), dtype=torch.bfloat16), atol=0, rtol=0)
+    torch.testing.assert_close(
+        tt_over.cpu(), torch.zeros((32, 32), dtype=torch.bfloat16), atol=0, rtol=0
+    )
 
     with torch.inference_mode():  # unversioned tensors: guard steps aside, no crash
         inf = torch.ones((32, 32), dtype=torch.bfloat16)
@@ -195,7 +209,9 @@ def test_zero_inplace(dtype: torch.dtype) -> None:
     with strict_no_fallback():
         ret = tt.zero_()
     assert ret is tt, "zero_ must return self"
-    torch.testing.assert_close(tt.cpu(), torch.zeros((32, 32), dtype=dtype), atol=0, rtol=0)
+    torch.testing.assert_close(
+        tt.cpu(), torch.zeros((32, 32), dtype=dtype), atol=0, rtol=0
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -264,7 +280,10 @@ def test_view_numel_mismatch_raises() -> None:
         src.view((33, 32))
 
 
-@pytest.mark.xfail(reason="tt-backend view materializes — aliasing is intentionally not preserved", strict=True)
+@pytest.mark.xfail(
+    reason="tt-backend view materializes — aliasing is intentionally not preserved",
+    strict=True,
+)
 def test_view_aliasing_is_broken_by_design() -> None:
     # On CPU/CUDA: y = x.view(-1); y[0] = 5 mutates x[0, 0]. On tt, view
     # returns a fresh contiguous copy, so x is untouched. This xfail pins the

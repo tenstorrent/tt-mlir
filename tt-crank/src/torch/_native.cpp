@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -6,12 +10,13 @@
 #include <utility>
 #include <vector>
 
+#include "mlir/IR/Value.h"
+#include "ttmlir/Target/Common/types_generated.h"
 #include <ATen/ATen.h>
 #include <ATen/InferSize.h>
 #include <ATen/core/ScalarType.h>
 #include <c10/core/Device.h>
 #include <c10/core/ScalarType.h>
-#include <mlir/IR/Value.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/pair.h>
@@ -20,7 +25,6 @@
 #include <nanobind/stl/tuple.h>
 #include <nanobind/stl/vector.h>
 #include <torch/csrc/autograd/python_variable.h>
-#include <ttmlir/Target/Common/types_generated.h>
 
 #include "cast.hpp"
 #include "config.hpp"
@@ -31,7 +35,7 @@
 #include "torch/ops/builders.hpp"
 #include "torch/ops/fallback.hpp"
 #include "torch/tensor.hpp"
-#include <ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h>
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 namespace nb = nanobind;
 using namespace nb::literals; // for `"name"_a` argument literals

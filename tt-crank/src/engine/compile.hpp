@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 #include "assert.hpp"
@@ -7,8 +11,8 @@
 #include <string_view>
 #include <vector>
 
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/IR/MLIRContext.h>
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/MLIRContext.h"
 #include <tt/runtime/types.h>
 
 #include "compile_options.hpp"

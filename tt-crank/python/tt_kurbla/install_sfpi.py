@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+
 """
 ``tt-kurbla-install-sfpi`` console script.
 
@@ -103,8 +104,7 @@ def main() -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     if not version_path.exists():
-        print(f"Error: sfpi-version file not found at {version_path}.",
-              file=sys.stderr)
+        print(f"Error: sfpi-version file not found at {version_path}.", file=sys.stderr)
         return 1
 
     content = version_path.read_text()
@@ -115,8 +115,10 @@ def main() -> int:
     # release tag and the package filename.
     release = _find_value(content, "sfpi_base") or version
     if not repo or not version:
-        print(f"Error: could not parse sfpi_repo/sfpi_version from {version_path}.",
-              file=sys.stderr)
+        print(
+            f"Error: could not parse sfpi_repo/sfpi_version from {version_path}.",
+            file=sys.stderr,
+        )
         return 1
 
     arch = _detect_arch()
@@ -130,8 +132,10 @@ def main() -> int:
     # which is the whole point of reading sfpi-version. Fail like tt-metal's own
     # installer rather than falling back to an unverified install.
     if hashtype != "sha256":
-        print(f"Error: unsupported hash type {hashtype!r} in {version_path}.",
-              file=sys.stderr)
+        print(
+            f"Error: unsupported hash type {hashtype!r} in {version_path}.",
+            file=sys.stderr,
+        )
         return 1
     if not expected_hash:
         print(

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """DTensor sharding helpers for the multi-chip Llama benchmark.
 
 Two parallelism strategies, both eager DTensor over a 1-D chip mesh:

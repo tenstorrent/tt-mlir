@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+
 """
 Shared wrapper utilities for tt-metal modules.
 
@@ -85,9 +86,7 @@ def create_wrapper_redirector(
             # Load from tt_kurbla/lib/ instead of _original/ directory
             import tt_kurbla
 
-            shared_lib_path = (
-                Path(tt_kurbla.__file__).parent / "lib" / ext_filename
-            )
+            shared_lib_path = Path(tt_kurbla.__file__).parent / "lib" / ext_filename
 
             if shared_lib_path.exists():
                 return ModuleSpec(
@@ -96,9 +95,7 @@ def create_wrapper_redirector(
                     origin=str(shared_lib_path),
                 )
 
-            shared_lib_path = (
-                Path(tt_kurbla.__file__).parent / "lib64" / ext_filename
-            )
+            shared_lib_path = Path(tt_kurbla.__file__).parent / "lib64" / ext_filename
 
             if shared_lib_path.exists():
                 return ModuleSpec(

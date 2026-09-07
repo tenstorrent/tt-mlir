@@ -1,9 +1,17 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """Tests for aten::embedding (token lookup table) and its weight gradient."""
 
 import pytest
 import torch
 
-from tt_kurbla.torch.testing import ExecutionMode, assert_close_cpu_vs_tt, strict_no_fallback
+from tt_kurbla.torch.testing import (
+    ExecutionMode,
+    assert_close_cpu_vs_tt,
+    strict_no_fallback,
+)
 
 _MODES = [ExecutionMode.EAGER, ExecutionMode.COMPILE]
 _MODE_IDS = [m.value for m in _MODES]
@@ -39,8 +47,12 @@ def test_embedding_dense_backward_lowered_for_compile() -> None:
     assert op not in _compile._TT_DECOMPOSITIONS
 
 
-def _weight_grad(dev: str, weight, indices, grad_output, padding_idx=None, compile: bool = False):
-    module = torch.nn.Embedding(*weight.shape, padding_idx=padding_idx, dtype=weight.dtype)
+def _weight_grad(
+    dev: str, weight, indices, grad_output, padding_idx=None, compile: bool = False
+):
+    module = torch.nn.Embedding(
+        *weight.shape, padding_idx=padding_idx, dtype=weight.dtype
+    )
     with torch.no_grad():
         module.weight.copy_(weight)
     module.to(dev)
@@ -67,10 +79,23 @@ def _weight_grad(dev: str, weight, indices, grad_output, padding_idx=None, compi
         (256, 64, (1, 64), 0),
         (256, 64, (1, 64), 255),
     ],
-    ids=["32", "64", "seq40", "seq33", "vocab100", "vocab1023", "batch4", "1d_pad5", "pad0", "pad255"],
+    ids=[
+        "32",
+        "64",
+        "seq40",
+        "seq33",
+        "vocab100",
+        "vocab1023",
+        "batch4",
+        "1d_pad5",
+        "pad0",
+        "pad255",
+    ],
 )
 @pytest.mark.parametrize("mode", _MODES, ids=_MODE_IDS)
-def test_embedding_dense_backward(vocab_size, hidden, idx_shape, padding_idx, mode: ExecutionMode) -> None:
+def test_embedding_dense_backward(
+    vocab_size, hidden, idx_shape, padding_idx, mode: ExecutionMode
+) -> None:
     weight = torch.randn((vocab_size, hidden), dtype=torch.bfloat16)
     indices = torch.randint(0, vocab_size, idx_shape, dtype=torch.long)
     # Always hit the last row (the one #9220 drops) and, when there is one, the padding row.
@@ -79,7 +104,14 @@ def test_embedding_dense_backward(vocab_size, hidden, idx_shape, padding_idx, mo
         indices.view(-1)[1::4] = padding_idx
     grad_output = torch.randn((*idx_shape, hidden), dtype=torch.bfloat16)
 
-    tt = _weight_grad("tt", weight, indices, grad_output, padding_idx, compile=mode is ExecutionMode.COMPILE)
+    tt = _weight_grad(
+        "tt",
+        weight,
+        indices,
+        grad_output,
+        padding_idx,
+        compile=mode is ExecutionMode.COMPILE,
+    )
     cpu = _weight_grad("cpu", weight, indices, grad_output, padding_idx)
     assert tt.shape == cpu.shape
     torch.testing.assert_close(tt, cpu, atol=0.2, rtol=0.2)
@@ -92,7 +124,9 @@ def test_embedding_dense_backward_float32() -> None:
     grad_output = torch.randn((1, 64, 64), dtype=torch.float32)
     tt = _weight_grad("tt", weight, indices, grad_output)
     assert tt.dtype == torch.float32
-    torch.testing.assert_close(tt, _weight_grad("cpu", weight, indices, grad_output), atol=0.2, rtol=0.2)
+    torch.testing.assert_close(
+        tt, _weight_grad("cpu", weight, indices, grad_output), atol=0.2, rtol=0.2
+    )
 
 
 def test_embedding_dense_backward_grad_feeds_other_programs() -> None:
@@ -100,19 +134,32 @@ def test_embedding_dense_backward_grad_feeds_other_programs() -> None:
     # still has to bind into later programs, eager and compiled.
     w = torch.randn((256, 64), dtype=torch.bfloat16).to("tt").requires_grad_(True)
     indices = torch.randint(0, 256, (1, 64), dtype=torch.long).to("tt")
-    torch.nn.functional.embedding(indices, w).backward(torch.randn((1, 64, 64), dtype=torch.bfloat16).to("tt"))
+    torch.nn.functional.embedding(indices, w).backward(
+        torch.randn((1, 64, 64), dtype=torch.bfloat16).to("tt")
+    )
     g = w.grad
     torch.testing.assert_close((g * 2.0).cpu(), g.cpu() * 2.0)
     step = torch.compile(lambda p, g: p - 0.1 * g, backend="tt")
-    torch.testing.assert_close(step(w.detach(), g).cpu(), w.detach().cpu() - 0.1 * g.cpu(), atol=1e-2, rtol=1e-2)
+    torch.testing.assert_close(
+        step(w.detach(), g).cpu(),
+        w.detach().cpu() - 0.1 * g.cpu(),
+        atol=1e-2,
+        rtol=1e-2,
+    )
 
 
 @pytest.mark.parametrize("mode", _MODES, ids=_MODE_IDS)
-def test_embedding_dense_backward_scale_grad_by_freq_rejected(mode: ExecutionMode) -> None:
+def test_embedding_dense_backward_scale_grad_by_freq_rejected(
+    mode: ExecutionMode,
+) -> None:
     # No histogram kernel to scale rows by index frequency; both paths must refuse rather than
     # return an unscaled gradient.
-    module = torch.nn.Embedding(64, 32, scale_grad_by_freq=True, dtype=torch.bfloat16).to("tt")
-    fn = torch.compile(module, backend="tt") if mode is ExecutionMode.COMPILE else module
+    module = torch.nn.Embedding(
+        64, 32, scale_grad_by_freq=True, dtype=torch.bfloat16
+    ).to("tt")
+    fn = (
+        torch.compile(module, backend="tt") if mode is ExecutionMode.COMPILE else module
+    )
     out = fn(torch.randint(0, 16, (1, 32), dtype=torch.long).to("tt"))
     with pytest.raises(NotImplementedError, match="scale_grad_by_freq"):
         out.backward(torch.randn((1, 32, 32), dtype=torch.bfloat16, device="tt"))
@@ -128,10 +175,21 @@ def test_embedding_dense_backward_scale_grad_by_freq_rejected(mode: ExecutionMod
         ((1, 32, 64), (1, 32), 64, 64, "padding_idx"),
         ((1, 32, 64), (1, 32), 0, -1, "num_weights must be positive"),
     ],
-    ids=["seq_mismatch", "rank_mismatch", "3d_indices", "padding_below_-1", "padding_past_end", "no_rows"],
+    ids=[
+        "seq_mismatch",
+        "rank_mismatch",
+        "3d_indices",
+        "padding_below_-1",
+        "padding_past_end",
+        "no_rows",
+    ],
 )
-def test_embedding_dense_backward_rejects_bad_args(grad_shape, idx_shape, num_weights, padding_idx, match) -> None:
+def test_embedding_dense_backward_rejects_bad_args(
+    grad_shape, idx_shape, num_weights, padding_idx, match
+) -> None:
     indices = torch.randint(0, 16, idx_shape, dtype=torch.long).to("tt")
     grad_output = torch.randn(grad_shape, dtype=torch.bfloat16).to("tt")
     with pytest.raises(RuntimeError, match=match):
-        torch.ops.aten.embedding_dense_backward(grad_output, indices, num_weights, padding_idx, False)
+        torch.ops.aten.embedding_dense_backward(
+            grad_output, indices, num_weights, padding_idx, False
+        )

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """Collecting the artifacts a run produced — today the IR of each compiled graph.
 
 Each compiled graph contributes an `Artifact` while a `collect_artifacts` context
@@ -126,7 +130,11 @@ class _ArtifactsDumperContext:
         graphs: list[dict[str, Any]] = []
         for index, artifact in enumerate(self.artifacts):
             # Registration order, so a model's forward comes before its backward.
-            stem = f"graph_{index}" if artifact.graph_kind is None else f"graph_{index}_{artifact.graph_kind}"
+            stem = (
+                f"graph_{index}"
+                if artifact.graph_kind is None
+                else f"graph_{index}_{artifact.graph_kind}"
+            )
 
             result = artifact.compile_result
             entry: dict[str, Any] = {"graph": stem}
@@ -153,7 +161,9 @@ class _ArtifactsDumperContext:
             "timestamp": stamp.isoformat(),
             "graphs": graphs,
         }
-        (out_dir / _ARTIFACTS_JSON).write_text(json.dumps(contents, indent=2) + "\n", encoding="utf-8")
+        (out_dir / _ARTIFACTS_JSON).write_text(
+            json.dumps(contents, indent=2) + "\n", encoding="utf-8"
+        )
 
         return out_dir
 
@@ -174,8 +184,12 @@ def collect_artifacts(collection_name: str):
     """
     global _global_artifacts_dumper_context
 
-    assert _global_artifacts_dumper_context is None, "artifacts dumper is already active!"
-    assert _path_safe(collection_name), f"collection name has no path-safe characters: {collection_name!r}"
+    assert (
+        _global_artifacts_dumper_context is None
+    ), "artifacts dumper is already active!"
+    assert _path_safe(
+        collection_name
+    ), f"collection name has no path-safe characters: {collection_name!r}"
     context = _ArtifactsDumperContext(collection_name)
     _global_artifacts_dumper_context = context
 
@@ -195,7 +209,9 @@ def is_artifacts_dumper_active() -> bool:
 
 
 def register_artifact(artifact: Artifact):
-    assert _global_artifacts_dumper_context is not None, "artifacts dumper is not active!"
+    assert (
+        _global_artifacts_dumper_context is not None
+    ), "artifacts dumper is not active!"
 
     _global_artifacts_dumper_context.register_artifact(artifact)
 
@@ -205,7 +221,9 @@ def dump_artifacts() -> Path | None:
     waiting for the enclosing `collect_artifacts` block to close."""
     global _global_artifacts_dumper_context
 
-    assert _global_artifacts_dumper_context is not None, "artifacts dumper is not active!"
+    assert (
+        _global_artifacts_dumper_context is not None
+    ), "artifacts dumper is not active!"
     context = _global_artifacts_dumper_context
     _global_artifacts_dumper_context = None
 

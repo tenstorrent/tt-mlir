@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #include "engine/compile.hpp"
 
 #include <chrono>
@@ -17,27 +21,27 @@
 #include "engine/compile_options.hpp"
 #include "engine/device.hpp"
 #include "misc.hpp"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/DialectRegistry.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/OwningOpRef.h"
+#include "mlir/Parser/Parser.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Support/LogicalResult.h"
+#include "ttmlir/Support/IRHasher.h"
 #include "version.hpp"
-#include <llvm/Support/raw_ostream.h>
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/IR/Diagnostics.h>
-#include <mlir/IR/DialectRegistry.h>
-#include <mlir/IR/MLIRContext.h>
-#include <mlir/IR/OwningOpRef.h>
-#include <mlir/Parser/Parser.h>
-#include <mlir/Pass/PassManager.h>
-#include <mlir/Support/LogicalResult.h>
-#include <ttmlir/Support/IRHasher.h>
+#include "llvm/Support/raw_ostream.h"
 
 #include <tracy/Tracy.hpp>
 
 #include <tt/runtime/runtime.h>
 
-#include <ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h>
-#include <ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h>
-#include <ttmlir/RegisterAll.h>
-#include <ttmlir/Target/TTNN/TTNNToFlatbuffer.h>
-#include <ttmlir/Target/TTNN/Target.h>
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
+#include "ttmlir/RegisterAll.h"
+#include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
+#include "ttmlir/Target/TTNN/Target.h"
 
 namespace tt::kurbla {
 

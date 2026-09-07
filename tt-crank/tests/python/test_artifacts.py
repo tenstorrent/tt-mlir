@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """The artifacts dumper end to end: compile MNISTLinear three ways and read back
 what landed on disk.
 
@@ -55,7 +59,9 @@ def test_artifacts_dump(
     run_backward: bool,
     expected_graphs: list[str],
 ) -> None:
-    model = torch.compile(MNISTLinear(_FEAT, _HIDDEN, _CLASSES).to(tt_device, dtype=_DTYPE), backend="tt")
+    model = torch.compile(
+        MNISTLinear(_FEAT, _HIDDEN, _CLASSES).to(tt_device, dtype=_DTYPE), backend="tt"
+    )
     x = torch.randn(_BATCH, _FEAT, device=tt_device, dtype=_DTYPE)
 
     with collect_artifacts("mnist_linear") as collection:

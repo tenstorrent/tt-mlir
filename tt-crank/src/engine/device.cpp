@@ -1,5 +1,10 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #include "engine/device.hpp"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
@@ -8,14 +13,13 @@
 #include <numeric>
 #include <optional>
 #include <tt/runtime/types.h>
-#include <ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h>
 #include <utility>
 #include <vector>
 
 #include <tt-logger/tt-logger.hpp>
 
+#include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 #include <tt/runtime/runtime.h>
-#include <ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h>
 
 #include "assert.hpp"
 

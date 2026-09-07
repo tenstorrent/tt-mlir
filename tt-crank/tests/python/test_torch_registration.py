@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 import torch
 
 import tt_kurbla.torch  # noqa: F401  — import registers the backend

@@ -1,9 +1,13 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #include "engine/compile.hpp"
 
 #include <gtest/gtest.h>
 
-#include <mlir/IR/OwningOpRef.h>
-#include <mlir/Parser/Parser.h>
+#include "mlir/IR/OwningOpRef.h"
+#include "mlir/Parser/Parser.h"
 #include <stdexcept>
 #include <string>
 #include <string_view>

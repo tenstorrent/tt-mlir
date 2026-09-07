@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """Benchmark: decoder-LM autoregressive generate loop (single-chip / DP / TP).
 
 One test per model (select with e.g. ``-k gemma``); each is parametrized over a
@@ -70,7 +74,9 @@ def _gather(t: torch.Tensor) -> torch.Tensor:
     return t.detach().to(torch.float32).cpu()
 
 
-def _two_step_logits(wrapper, prompt_ids, cache, cache_position, force_second_token=None):
+def _two_step_logits(
+    wrapper, prompt_ids, cache, cache_position, force_second_token=None
+):
     """Prefill + one decode step -> (prefill_logits, decode_logits, prefill_token) on CPU.
 
     Gathers sharded outputs. The second token can be teacher-forced so a weak
@@ -97,7 +103,7 @@ def _run_decode_benchmark(
     profile_dir: str,
     record_bench,
     tt_device: torch.device,
-    options: dict [CompileOption, str | int | bool] | None = None,
+    options: dict[CompileOption, str | int | bool] | None = None,
 ) -> None:
     n = torch.tt.num_chips()
     if parallel != "none" and n < 2:
@@ -110,9 +116,13 @@ def _run_decode_benchmark(
     tokenizer = load_tokenizer(llm_model_id)
 
     if parallel == "tp":
-        num_kv_heads = getattr(model.config, "num_key_value_heads", model.config.num_attention_heads)
+        num_kv_heads = getattr(
+            model.config, "num_key_value_heads", model.config.num_attention_heads
+        )
         if num_kv_heads % n:
-            pytest.skip(f"tp needs num_key_value_heads ({num_kv_heads}) divisible by {n}")
+            pytest.skip(
+                f"tp needs num_key_value_heads ({num_kv_heads}) divisible by {n}"
+            )
 
     prompt_ids = tokenizer(
         [BENCHMARK_PROMPT] * total_batch,
@@ -125,12 +135,17 @@ def _run_decode_benchmark(
     warmup_steps = min(_MIN_WARMUP_STEPS, total_steps)
 
     mesh = (
-        None if parallel == "none" else torch.tt.init_device_mesh((n,), mesh_dim_names=(parallel,))
+        None
+        if parallel == "none"
+        else torch.tt.init_device_mesh((n,), mesh_dim_names=(parallel,))
     )
 
     def fresh_cache(device, *, shard: bool = False):
         cache = init_static_cache(
-            model.config, batch_size=total_batch, max_cache_len=_MAX_CACHE_LEN, device=device
+            model.config,
+            batch_size=total_batch,
+            max_cache_len=_MAX_CACHE_LEN,
+            device=device,
         )
         if shard:
             shard_static_cache(cache, mesh, parallel=parallel)
@@ -140,7 +155,9 @@ def _run_decode_benchmark(
     # replicated DTensor so the sharded index_copy_ dispatches; a no-op for the
     # single-chip baseline. Fresh per use (these are single-shot context managers).
     def repl():
-        return implicit_replication() if parallel != "none" else contextlib.nullcontext()
+        return (
+            implicit_replication() if parallel != "none" else contextlib.nullcontext()
+        )
 
     # CPU reference for --accuracy must run before the model moves/shards onto tt.
     cpu_prefill = cpu_decode = cpu_tok = None
@@ -184,8 +201,12 @@ def _run_decode_benchmark(
             profile_dir=profile_dir,
         )
     # Geometry, so the report can turn per-user tokens/s into aggregate throughput.
-    result.measurements.append(Measurement("total_batch", float(total_batch), "samples"))
-    result.measurements.append(Measurement("chips", float(n if parallel != "none" else 1), "chips"))
+    result.measurements.append(
+        Measurement("total_batch", float(total_batch), "samples")
+    )
+    result.measurements.append(
+        Measurement("chips", float(n if parallel != "none" else 1), "chips")
+    )
 
     if accuracy:
         # PCC the device prefill / first-decode logits against the CPU run, teacher-
@@ -198,7 +219,9 @@ def _run_decode_benchmark(
             )
         with repl():
             dev_prefill, dev_decode, _ = _two_step_logits(
-                prepare_model(LLMSamplingWrapper(model, return_logits=True), mode, options=options),
+                prepare_model(
+                    LLMSamplingWrapper(model, return_logits=True), mode, options=options
+                ),
                 input_ids,
                 fresh_cache(tt_device, shard=parallel != "none"),
                 cache_position,
@@ -211,13 +234,15 @@ def _run_decode_benchmark(
         pcc_prefill = compute_pcc(dev_prefill, cpu_prefill)
         pcc_first_decode = compute_pcc(dev_decode, cpu_decode)
         result.measurements.append(Measurement("pcc_prefill", pcc_prefill, "pcc"))
-        result.measurements.append(Measurement("pcc_first_decode", pcc_first_decode, "pcc"))
-        assert pcc_prefill >= _PCC_TARGET, (
-            f"{label}: prefill PCC {pcc_prefill:.4f} < {_PCC_TARGET}"
+        result.measurements.append(
+            Measurement("pcc_first_decode", pcc_first_decode, "pcc")
         )
-        assert pcc_first_decode >= _PCC_TARGET, (
-            f"{label}: first-decode PCC {pcc_first_decode:.4f} < {_PCC_TARGET}"
-        )
+        assert (
+            pcc_prefill >= _PCC_TARGET
+        ), f"{label}: prefill PCC {pcc_prefill:.4f} < {_PCC_TARGET}"
+        assert (
+            pcc_first_decode >= _PCC_TARGET
+        ), f"{label}: first-decode PCC {pcc_first_decode:.4f} < {_PCC_TARGET}"
 
     record_bench(result)
 
@@ -268,7 +293,10 @@ def _run(request: pytest.FixtureRequest, llm_model_id: str, parallel: str) -> No
     # would otherwise xpass.
     if parallel == "tp" and request.getfixturevalue("mode") == "eager":
         request.node.add_marker(
-            pytest.mark.xfail(reason="eager TP mis-shards head-sharded SDPA under DTensor", strict=False)
+            pytest.mark.xfail(
+                reason="eager TP mis-shards head-sharded SDPA under DTensor",
+                strict=False,
+            )
         )
     opt_level = request.getfixturevalue("opt_level")
     options = {

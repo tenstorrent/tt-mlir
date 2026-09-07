@@ -1,5 +1,11 @@
 # tt-kurbla
 
+> **Import note.** This project (formerly `tt-kurbla`) was imported into
+> tt-mlir with its full git history from the standalone repository
+> [`pilkicTT/tt-kurbla`](https://github.com/pilkicTT/tt-kurbla) (now private).
+> The standalone build instructions below no longer apply, and the subproject
+> is not yet buildable in-tree; build integration follows.
+
 Compiler & runtime frontend for Tenstorrent hardware. POC.
 
 See [`architecture-overview.md`](architecture-overview.md) for the high-level design goals and the plan.

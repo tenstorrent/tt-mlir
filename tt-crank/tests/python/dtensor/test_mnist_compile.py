@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 import gc
 
 import pytest
@@ -26,7 +30,9 @@ def _shard_param(module: nn.Module, name: str, mesh, placements) -> None:
     """Replace `module.<name>` with its DTensor distributed per `placements`.
     Used inside a `distribute_module` `partition_fn`."""
     p = getattr(module, name)
-    module.register_parameter(name, nn.Parameter(distribute_tensor(p, mesh, placements), requires_grad=False))
+    module.register_parameter(
+        name, nn.Parameter(distribute_tensor(p, mesh, placements), requires_grad=False)
+    )
 
 
 def _compiled(model: nn.Module, dx, mesh, *, fused: bool) -> torch.Tensor:
@@ -112,8 +118,9 @@ def test_mnist_tp_compile(tt_pg, fused: bool) -> None:
     # Confirm fc2 really produces a Partial output before the redistribute.
     with torch.no_grad():
         eager_out = dmodel(dx)
-    assert eager_out._spec.placements == (Partial(),), \
-        f"expected Partial output from row-parallel fc2, got {eager_out._spec.placements}"
+    assert eager_out._spec.placements == (
+        Partial(),
+    ), f"expected Partial output from row-parallel fc2, got {eager_out._spec.placements}"
 
     full = _compiled(dmodel, dx, mesh, fused=fused)
 

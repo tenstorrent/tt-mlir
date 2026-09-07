@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """
 Test-time helpers for the tt-kurbla torch backend.
 """
@@ -60,7 +64,7 @@ def assert_close_cpu_vs_tt(
     rtol: float | None = None,
     assert_native: bool = True,
     mode: ExecutionMode = ExecutionMode.EAGER,
-    options: dict [CompileOption, str | int | bool] | None = None,
+    options: dict[CompileOption, str | int | bool] | None = None,
 ) -> None:
     """Run ``fn`` on CPU and on tt with mirrored args; assert the outputs match.
 

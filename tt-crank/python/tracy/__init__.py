@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+
 """
 Tracy profiler wrapper module.
 
@@ -48,7 +49,13 @@ with proxy_import("tracy"):
 # In dev: build/third_party/tt-mlir-install/bin/
 _wheel_bin_dir = Path(tt_kurbla.__file__).parent / "bin"
 _dev_bin_dir = (
-    Path(__file__).parent / ".." / ".." / "build" / "third_party" / "tt-mlir-install" / "bin"
+    Path(__file__).parent
+    / ".."
+    / ".."
+    / "build"
+    / "third_party"
+    / "tt-mlir-install"
+    / "bin"
 )
 
 if _wheel_bin_dir.exists() and (_wheel_bin_dir / "tracy-capture").exists():

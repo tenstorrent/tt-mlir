@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """DTensor Linear / matmul on the tt backend: data-parallel and row-parallel (TP).
 
 - DP: replicated weight/bias + Shard(0) input → broadcast + scatter; F.linear
@@ -33,16 +37,21 @@ def test_linear_replicated_weight_sharded_input(tt_pg) -> None:
 
     # Shard(0) input × Replicate weight → Shard(0) output (batch-dim sharding).
     dout = F.linear(dx, dweight, dbias)
-    assert dout._spec.placements == (Shard(0),), \
-        f"expected output placement (Shard(0),), got {dout._spec.placements}"
-    assert tuple(dout._local_tensor.shape) == (batch // n, out_features), \
-        f"per-rank output shape mismatch: {dout._local_tensor.shape}"
+    assert dout._spec.placements == (
+        Shard(0),
+    ), f"expected output placement (Shard(0),), got {dout._spec.placements}"
+    assert tuple(dout._local_tensor.shape) == (
+        batch // n,
+        out_features,
+    ), f"per-rank output shape mismatch: {dout._local_tensor.shape}"
 
     # full_tensor() redistributes Shard(0) → Replicate via allgather.
     full = dout.full_tensor()
     assert full.device.type == "tt", f"full_tensor should stay on tt, got {full.device}"
-    assert tuple(full.shape) == (batch, out_features), \
-        f"full_tensor shape mismatch: got {tuple(full.shape)}, expected ({batch}, {out_features})"
+    assert tuple(full.shape) == (
+        batch,
+        out_features,
+    ), f"full_tensor shape mismatch: got {tuple(full.shape)}, expected ({batch}, {out_features})"
 
     full_cpu = full.cpu()
     torch.testing.assert_close(full_cpu, expected, atol=0.1, rtol=0.1)
@@ -74,8 +83,9 @@ def test_linear_row_parallel(tt_pg) -> None:
 
     # Shard(K)×Shard(K) → Partial output (per-chip partial sums).
     dout = dx @ dweight
-    assert dout._spec.placements == (Partial(),), \
-        f"expected Partial output, got {dout._spec.placements}"
+    assert dout._spec.placements == (
+        Partial(),
+    ), f"expected Partial output, got {dout._spec.placements}"
 
     # full_tensor() redistributes Partial → Replicate, firing all_reduce.
     full = dout.full_tensor()

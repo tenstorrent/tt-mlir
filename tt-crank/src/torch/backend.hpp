@@ -1,15 +1,19 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 #include <cstddef>
 #include <vector>
 
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/OwningOpRef.h"
+#include "ttmlir/Target/Common/types_generated.h"
+#include "llvm/ADT/ArrayRef.h"
 #include <ATen/core/ScalarType.h>
 #include <ATen/core/Tensor.h>
-#include <llvm/ADT/ArrayRef.h>
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/IR/OwningOpRef.h>
 #include <tt/runtime/types.h>
-#include <ttmlir/Target/Common/types_generated.h>
 
 #include "engine/compile.hpp"
 

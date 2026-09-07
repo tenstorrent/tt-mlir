@@ -1,9 +1,13 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #include "torch/backend.hpp"
 
+#include "llvm/ADT/ArrayRef.h"
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <llvm/ADT/ArrayRef.h>
 #include <memory>
 #include <new>
 #include <stdexcept>

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 import atexit
 
 import torch  # noqa: F401  — load libtorch before importing the _native extension
@@ -18,7 +22,9 @@ import torch  # noqa: F401  — load libtorch before importing the _native exten
 # NOTE: this setting seems like it will be a future on-by-default in torch.
 torch.__future__.set_swap_module_params_on_conversion(True)
 
-from . import _native  # noqa: F401  — loading the .so runs c10::register_privateuse1_backend("tt")
+from . import (
+    _native,
+)  # noqa: F401  — loading the .so runs c10::register_privateuse1_backend("tt")
 from ._device import register
 
 # Close the process-wide MeshDevice before interpreter finalization. Python's

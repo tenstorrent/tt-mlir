@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 import torch
 
 import tt_kurbla.torch  # noqa: F401  — import registers the backend
@@ -34,5 +38,9 @@ def test_optimizer_references_survive_move():
 
     model.to("tt")
 
-    assert all(p.device.type == "tt" for group in optimizer.param_groups for p in group["params"])
+    assert all(
+        p.device.type == "tt"
+        for group in optimizer.param_groups
+        for p in group["params"]
+    )
     assert optimizer.param_groups[0]["params"][0] is model[0].weight
