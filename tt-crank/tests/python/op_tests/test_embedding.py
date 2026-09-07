@@ -7,7 +7,7 @@
 import pytest
 import torch
 
-from tt_kurbla.torch.testing import (
+from tt_crank.torch.testing import (
     ExecutionMode,
     assert_close_cpu_vs_tt,
     strict_no_fallback,
@@ -40,7 +40,7 @@ def test_embedding_module() -> None:
 
 
 def test_embedding_dense_backward_lowered_for_compile() -> None:
-    from tt_kurbla.torch import _compile
+    from tt_crank.torch import _compile
 
     op = torch.ops.aten.embedding_dense_backward.default
     assert op in _compile._LOWERINGS

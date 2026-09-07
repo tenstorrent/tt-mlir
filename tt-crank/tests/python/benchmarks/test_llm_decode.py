@@ -39,7 +39,7 @@ import pytest
 import torch
 from torch.distributed.tensor import DTensor, distribute_module
 from torch.distributed.tensor.experimental import implicit_replication
-from tt_kurbla.torch._compile import BfpDtype, CompileOption
+from tt_crank.torch._compile import BfpDtype, CompileOption
 
 from ._runner import Measurement, compute_pcc, prepare_model, run_llm_benchmark
 

@@ -4,7 +4,7 @@
 
 import torch
 
-import tt_kurbla.torch  # noqa: F401  — import registers the backend
+import tt_crank.torch  # noqa: F401  — import registers the backend
 
 
 def tied_model() -> torch.nn.Sequential:

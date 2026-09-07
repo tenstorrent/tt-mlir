@@ -31,7 +31,7 @@ from ._device import register
 # atexit runs while threads and thread-locals are still alive, unlike a
 # C-runtime atexit handler.
 atexit.register(_native.close_runtime_device_mesh)
-from tt_kurbla._runtime_env import setup_tt_metal_home
+from tt_crank._runtime_env import setup_tt_metal_home
 
 setup_tt_metal_home()
 

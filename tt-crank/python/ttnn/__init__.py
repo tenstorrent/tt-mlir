@@ -10,8 +10,8 @@ the environment correctly before delegating to the original module.
 import sys
 from pathlib import Path
 
-from tt_kurbla._runtime_env import setup_tt_metal_home
-from tt_kurbla._wrapper import create_wrapper_redirector, proxy_import
+from tt_crank._runtime_env import setup_tt_metal_home
+from tt_crank._wrapper import create_wrapper_redirector, proxy_import
 
 setup_tt_metal_home()
 
@@ -19,7 +19,7 @@ _original_path = Path(__file__).parent / "_original"
 if not _original_path.exists():
     raise RuntimeError(
         f"ttnn._original symlink missing at {_original_path}. "
-        "Run a tt-kurbla build (./scripts/build) so the bundle-ttnn target "
+        "Run a tt-crank build (./scripts/build) so the bundle-ttnn target "
         "creates it."
     )
 

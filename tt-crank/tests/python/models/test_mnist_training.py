@@ -15,7 +15,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from tt_kurbla.torch.testing import (
+from tt_crank.torch.testing import (
     ExecutionMode,
     get_supported_dtypes,
     strict_no_fallback,

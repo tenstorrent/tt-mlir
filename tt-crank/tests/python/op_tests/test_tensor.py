@@ -15,7 +15,7 @@ import gc
 import pytest
 import torch
 
-from tt_kurbla.torch.testing import strict_no_fallback
+from tt_crank.torch.testing import strict_no_fallback
 
 # Not borrow-eligible in the runtime, so cpu→tt falls back to an owned copy.
 OWNED_COPY_DTYPE = torch.float16

@@ -6,7 +6,7 @@
 // PrivateUse1 kernel routes through here: tensors get materialized to CPU, the
 // op runs on CPU, results are copied back to tt. Slow, but correct.
 //
-// For debugging, TT_KURBLA_LOG_FALLBACK_ENABLED=1 environment variable can be used
+// For debugging, TT_CRANK_LOG_FALLBACK_ENABLED=1 environment variable can be used
 // which causes us to log every operation that triggers a fallback.
 
 #include <atomic>
@@ -21,7 +21,7 @@
 #include "config.hpp"
 #include "torch/ops/fallback.hpp"
 
-namespace tt::kurbla::torch_backend {
+namespace tt::crank::torch_backend {
 
 namespace {
 
@@ -31,11 +31,11 @@ namespace {
 std::atomic<bool> g_fallback_strict{false};
 
 void tt_cpu_fallback(const c10::OperatorHandle &op, torch::jit::Stack *stack) {
-    TORCH_CHECK(!g_fallback_strict, "tt-kurbla strict-fallback: op `", op.operator_name(),
+    TORCH_CHECK(!g_fallback_strict, "tt-crank strict-fallback: op `", op.operator_name(),
                 "` would fall back to CPU but strict mode is enabled");
 
     if (log_fallback_enabled()) {
-        log_info(tt::LogAlways, "tt-kurbla fallback: {}", c10::toString(op.operator_name()));
+        log_info(tt::LogAlways, "tt-crank fallback: {}", c10::toString(op.operator_name()));
     }
 
     // error_on_views=true: a view op's contract is that the result shares
@@ -59,4 +59,4 @@ bool fallback_strict() {
     return g_fallback_strict;
 }
 
-} // namespace tt::kurbla::torch_backend
+} // namespace tt::crank::torch_backend

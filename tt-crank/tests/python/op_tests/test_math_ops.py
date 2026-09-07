@@ -7,7 +7,7 @@
 import pytest
 import torch
 
-from tt_kurbla.torch.testing import (
+from tt_crank.torch.testing import (
     assert_close_cpu_vs_tt,
     get_supported_dtypes,
     strict_no_fallback,

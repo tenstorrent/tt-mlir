@@ -3,7 +3,7 @@ requires = ["scikit-build-core>=1.0", "nanobind>=2.2", "dynamic-metadata>=0.5"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "tt-kurbla"
+name = "tt-crank"
 version = "0.1.0"
 description = "Compiler & runtime frontend for Tenstorrent hardware"
 requires-python = "==3.12.*"
@@ -13,7 +13,7 @@ dynamic = ["dependencies"]
 
 [project.scripts]
 tracy = "tracy.__main__:main"
-tt-kurbla-install-sfpi = "tt_kurbla.install_sfpi:main"
+tt-crank-install-sfpi = "tt_crank.install_sfpi:main"
 
 # Reads requirements.txt into [project.dependencies] above, one PEP 508 entry per
 # line. Dev-only pins live in requirements-dev.txt and never reach metadata.
@@ -26,20 +26,20 @@ path = "requirements.txt"
 minimum-version = "build-system.requires"
 cmake.version = ">=3.24"
 cmake.build-type = ""
-wheel.packages = ["python/tt_kurbla", "python/tracy", "python/ttnn"]
+wheel.packages = ["python/tt_crank", "python/tracy", "python/ttnn"]
 editable.mode = "redirect"
 editable.rebuild = true
 # Drop the fmt/spdlog dev artifacts that tt-logger's FetchContent subprojects
 # install to the platlib root (headers + static .a + cmake/pkgconfig). They serve
 # no runtime purpose and would otherwise land in site-packages/{include,lib}.
-# Leading "/" anchors to the wheel root so this can NOT match tt_kurbla/lib (our
+# Leading "/" anchors to the wheel root so this can NOT match tt_crank/lib (our
 # intentional bundled-.so dir).
 wheel.exclude = ["/include/**", "/lib/**"]
 # Separate cmake dir so wheel builds don't mix with the dev build.
 build-dir = "build_wheel"
 
 [tool.scikit-build.cmake.define]
-TT_KURBLA_BUILD_PYTHON_EXT = "ON"
+TT_CRANK_BUILD_PYTHON_EXT = "ON"
 
 # Wheel-specific flags, appended onto the defines above (without `inherit` an
 # override replaces the whole table).
@@ -48,8 +48,8 @@ if.state = "^(metadata_)?wheel$"
 inherit.cmake.define = "append"
 cmake.build-type = "Release"
 cmake.args = ["-GNinja"]
-cmake.define.TT_KURBLA_WHEEL = "ON"
-cmake.define.TT_KURBLA_BUILD_TESTS = "OFF"
+cmake.define.TT_CRANK_WHEEL = "ON"
+cmake.define.TT_CRANK_BUILD_TESTS = "OFF"
 cmake.define.CMAKE_C_COMPILER = "clang"
 cmake.define.CMAKE_CXX_COMPILER = "clang++"
 install.components = ["wheel_payload"]
@@ -59,4 +59,4 @@ install.components = ["wheel_payload"]
 # torch is too heavy to download into a sandboxed build env. The caller's venv
 # has torch as a runtime dep; reusing it for the build is the natural fit.
 [tool.uv]
-no-build-isolation-package = ["tt-kurbla"]
+no-build-isolation-package = ["tt-crank"]

@@ -17,7 +17,7 @@
 
 #include "engine/compile.hpp"
 
-namespace tt::kurbla::torch_backend {
+namespace tt::crank::torch_backend {
 
 // Compile a finalized TTIR module through the engine pipeline, execute it with
 // `inputs`, and return the raw runtime output tensors. Callers wrap the result
@@ -32,8 +32,8 @@ std::vector<::tt::runtime::Tensor> compile_and_run(mlir::OwningOpRef<mlir::Modul
 
 // Compile a finalized TTIR module into a `CompiledProgram` that can back
 // many `run_compiled_program` calls — compile once, bind-and-run many.
-::tt::kurbla::CompileResult compile_module(mlir::OwningOpRef<mlir::ModuleOp> module_op,
-                                           const ::tt::kurbla::CompileOptions &options = {}, bool capture_ttir = false);
+::tt::crank::CompileResult compile_module(mlir::OwningOpRef<mlir::ModuleOp> module_op,
+                                          const ::tt::crank::CompileOptions &options = {}, bool capture_ttir = false);
 
 // Bind `inputs` to an already-compiled program, execute it, and wrap the
 // device-resident outputs as tt-backend `at::Tensor`s. Output shapes come
@@ -41,7 +41,7 @@ std::vector<::tt::runtime::Tensor> compile_and_run(mlir::OwningOpRef<mlir::Modul
 // `logical_output_dtypes` the caller provides — the caller knows the
 // user-facing dtype (e.g. i64) which may differ from the program's physical
 // dtype after the rewriter demotes wide types (e.g. i64 → i32).
-std::vector<at::Tensor> run_compiled_program(::tt::kurbla::CompiledProgram &program, llvm::ArrayRef<at::Tensor> inputs,
+std::vector<at::Tensor> run_compiled_program(::tt::crank::CompiledProgram &program, llvm::ArrayRef<at::Tensor> inputs,
                                              llvm::ArrayRef<::tt::target::DataType> logical_output_dtypes);
 
 // Installs the PrivateUse1 allocator with c10. Idempotent; safe to call from
@@ -61,4 +61,4 @@ c10::ScalarType to_torch_dtype(::tt::target::DataType runtime_dtype);
 // have to translate to torch and back.
 std::size_t element_size(::tt::target::DataType runtime_dtype);
 
-} // namespace tt::kurbla::torch_backend
+} // namespace tt::crank::torch_backend

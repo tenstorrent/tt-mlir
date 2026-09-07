@@ -11,8 +11,8 @@ PrivateUse1 kernel through CPU.
 import pytest
 import torch
 
-from tt_kurbla.torch import _native
-from tt_kurbla.torch.testing import strict_no_fallback
+from tt_crank.torch import _native
+from tt_crank.torch.testing import strict_no_fallback
 
 
 # torch.erf is not natively registered on tt — exercises the fallback.

@@ -24,7 +24,7 @@ import torch
 from ._runner import BenchmarkResult, Measurement
 
 
-_RESULTS_KEY = "_tt_kurbla_bench_results"
+_RESULTS_KEY = "_tt_crank_bench_results"
 
 
 def _results_bucket(config: pytest.Config) -> list[BenchmarkResult]:
@@ -214,7 +214,7 @@ def _strict_no_fallback(request: pytest.FixtureRequest) -> Any:
     if not request.config.getoption("--strict-no-fallback"):
         yield
         return
-    from tt_kurbla.torch.testing import strict_no_fallback
+    from tt_crank.torch.testing import strict_no_fallback
 
     with strict_no_fallback():
         yield
@@ -229,7 +229,7 @@ def _test_report(request: pytest.FixtureRequest) -> Any:
     time, graph and cache-hit counts) into the results the test recorded, then
     flushes them into the session-wide list the reporting hooks read.
     """
-    from tt_kurbla.torch._artifacts import collect_artifacts
+    from tt_crank.torch._artifacts import collect_artifacts
 
     report = _TestReport()
     try:
@@ -328,7 +328,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     payload = {
         "session": {
             "git_sha": _git_sha(),
-            "simulator": os.environ.get("TT_KURBLA_USE_SIMULATOR") == "1",
+            "simulator": os.environ.get("TT_CRANK_USE_SIMULATOR") == "1",
             "mode": session.config.getoption("--mode"),
             "warmup": session.config.getoption("--warmup"),
             "iters": session.config.getoption("--iters"),

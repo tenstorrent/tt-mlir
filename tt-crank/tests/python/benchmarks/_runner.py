@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Benchmarking helpers for the tt-kurbla torch backend.
+Benchmarking helpers for the tt-crank torch backend.
 
 Every measurement uses host-side wall-clock via `time.perf_counter_ns` with
 explicit fences via `_sync` (recursive `.cpu()` on tensor leaves).
@@ -27,7 +27,7 @@ from typing import Any, Iterator
 
 import torch
 import torch.nn as nn
-from tt_kurbla.torch._compile import CompileOption
+from tt_crank.torch._compile import CompileOption
 
 try:
     import tracy as _tracy

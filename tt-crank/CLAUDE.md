@@ -1,4 +1,4 @@
-# tt-kurbla — Claude Code guidance
+# tt-crank — Claude Code guidance
 
 ## Build & test
 

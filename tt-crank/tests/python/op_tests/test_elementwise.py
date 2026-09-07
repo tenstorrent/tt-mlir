@@ -6,7 +6,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from tt_kurbla.torch.testing import assert_close_cpu_vs_tt, strict_no_fallback
+from tt_crank.torch.testing import assert_close_cpu_vs_tt, strict_no_fallback
 
 _REDUCTIONS = ["none", "mean", "sum"]
 

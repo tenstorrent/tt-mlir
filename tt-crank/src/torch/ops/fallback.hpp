@@ -4,7 +4,7 @@
 
 #pragma once
 
-namespace tt::kurbla::torch_backend {
+namespace tt::crank::torch_backend {
 
 // Strict mode: when true, the global CPU fallback raises TORCH_CHECK instead
 // of running. Used by tests to assert that a code path uses native tt kernels
@@ -12,4 +12,4 @@ namespace tt::kurbla::torch_backend {
 void set_fallback_strict(bool strict);
 bool fallback_strict();
 
-} // namespace tt::kurbla::torch_backend
+} // namespace tt::crank::torch_backend

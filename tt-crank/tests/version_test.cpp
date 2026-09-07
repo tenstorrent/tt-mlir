@@ -7,5 +7,5 @@
 #include <gtest/gtest.h>
 
 TEST(VersionTest, IsNonEmpty) {
-    EXPECT_FALSE(tt::kurbla::version().empty());
+    EXPECT_FALSE(tt::crank::version().empty());
 }

@@ -8,7 +8,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from tt_kurbla.torch.testing import assert_close_cpu_vs_tt
+from tt_crank.torch.testing import assert_close_cpu_vs_tt
 
 
 @pytest.mark.parametrize("dim", [0, 1, 2, -1])

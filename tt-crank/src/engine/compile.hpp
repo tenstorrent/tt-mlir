@@ -16,11 +16,11 @@
 #include <tt/runtime/types.h>
 
 #include "compile_options.hpp"
-#include "tt_kurbla_export.hpp"
+#include "tt_crank_export.hpp"
 
-namespace tt::kurbla {
+namespace tt::crank {
 
-struct TT_KURBLA_API CompiledProgram {
+struct TT_CRANK_API CompiledProgram {
     CompiledProgram(tt::runtime::Binary binary);
 
     tt::runtime::Binary binary;
@@ -52,7 +52,7 @@ struct TT_KURBLA_API CompiledProgram {
 };
 
 // `CompiledProgram` with additional metadata produced by the compilation.
-struct TT_KURBLA_API CompileResult {
+struct TT_CRANK_API CompileResult {
     // Borrowed: the program is owned by the process-wide compile cache and
     // outlives this result. Never null.
     CompiledProgram *program;
@@ -70,11 +70,11 @@ struct TT_KURBLA_API CompileResult {
     std::chrono::duration<double, std::milli> compile_duration{};
 };
 
-// Returns the process-wide MLIRContext used by tt-kurbla's compile pipelines.
+// Returns the process-wide MLIRContext used by tt-crank's compile pipelines.
 // Use this when building TTIR modules programmatically (e.g. lowering from
 // framework IR like PyTorch FX) — the resulting ModuleOp must live in this
 // context for the ModuleOp-based compile overload to work.
-TT_KURBLA_API mlir::MLIRContext &mlir_context();
+TT_CRANK_API mlir::MLIRContext &mlir_context();
 
 // Compile TTIR text through the ttir-to-ttnn runtime pipeline and emit a TTNN
 // flatbuffer. `capture_ttir` copies `ttir` into the result — no re-print needed,
@@ -83,8 +83,8 @@ TT_KURBLA_API mlir::MLIRContext &mlir_context();
 // Not safe to call from multiple threads concurrently in v1 — the underlying
 // MLIRContext is a process-wide singleton without internal locking. Callers
 // must serialize.
-TT_KURBLA_API CompileResult compile_ttir_to_ttnn_flatbuffer(std::string_view ttir, const CompileOptions &options = {},
-                                                            bool capture_ttir = false);
+TT_CRANK_API CompileResult compile_ttir_to_ttnn_flatbuffer(std::string_view ttir, const CompileOptions &options = {},
+                                                           bool capture_ttir = false);
 
 // Compile a pre-built TTIR ModuleOp. The module must live in mlir_context()
 // and is mutated in place — on success it holds TTNN ops, not TTIR.
@@ -93,8 +93,7 @@ TT_KURBLA_API CompileResult compile_ttir_to_ttnn_flatbuffer(std::string_view tti
 // and stored in the `CompileResult`.
 //
 // Same threading caveat as the string overload: serialize calls.
-TT_KURBLA_API CompileResult compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module_op,
-                                                            const CompileOptions &options = {},
-                                                            bool capture_ttir = false);
+TT_CRANK_API CompileResult compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module_op, const CompileOptions &options = {},
+                                                           bool capture_ttir = false);
 
-} // namespace tt::kurbla
+} // namespace tt::crank

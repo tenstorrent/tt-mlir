@@ -9,7 +9,7 @@
 
 #include <tt/runtime/types.h>
 
-#include "tt_kurbla_export.hpp"
+#include "tt_crank_export.hpp"
 
 // Forward-declared so this header stays free of the heavy tt-mlir TTNN pipeline
 // header; set_compile_options only takes a reference to it.
@@ -17,12 +17,12 @@ namespace mlir::tt::ttnn {
 struct TTIRToTTNNRuntimePipelineOptions;
 } // namespace mlir::tt::ttnn
 
-namespace tt::kurbla {
+namespace tt::crank {
 
 // Options for TTIR-starting pipelines.
 // Default values are only set for options that we want to override by default.
 // For other values, we will take default mlir values.
-struct TT_KURBLA_API CompileOptions {
+struct TT_CRANK_API CompileOptions {
     // Block-float dtype for weight / KV-cache conversion. Maps to tt-mlir's
     // ttnn::BFPDtype.
     enum class BfpDtype { BfpBf8, BfpBf4 };
@@ -86,9 +86,9 @@ struct TT_KURBLA_API CompileOptions {
 
     std::string to_string() const;
 
-    // Translates kurbla CompileOptions into the tt-mlir TTIR->TTNN runtime pipeline
+    // Translates crank CompileOptions into the tt-mlir TTIR->TTNN runtime pipeline
     // options (enum conversions + the has_value()-gated overrides).
     void set_options_on(mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &opts) const;
 };
 
-} // namespace tt::kurbla
+} // namespace tt::crank

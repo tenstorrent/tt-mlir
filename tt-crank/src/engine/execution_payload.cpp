@@ -14,7 +14,7 @@
 #include <tt/runtime/runtime.h>
 #include <tt/runtime/utils.h>
 
-namespace tt::kurbla {
+namespace tt::crank {
 
 namespace {
 
@@ -88,7 +88,7 @@ tt::runtime::Tensor ExecutionPayload::bind_tensor(tt::runtime::Tensor tensor, st
 }
 
 std::vector<tt::runtime::Tensor> ExecutionPayload::run() {
-    ZoneScopedN("tt_kurbla::ExecutionPayload::run");
+    ZoneScopedN("tt_crank::ExecutionPayload::run");
     std::vector<std::uint32_t> missing;
     for (std::uint32_t i = 0; i < impl_->input_slots.size(); ++i) {
         if (!impl_->input_slots[i].has_value()) {
@@ -116,4 +116,4 @@ std::vector<tt::runtime::Tensor> ExecutionPayload::run() {
     }
 }
 
-} // namespace tt::kurbla
+} // namespace tt::crank

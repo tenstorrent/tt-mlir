@@ -2,9 +2,9 @@
 # Third-party targets (gtest, tt-mlir) explicitly clear CXX_CLANG_TIDY so this
 # global default doesn't apply to them.
 
-option(TT_KURBLA_ENABLE_CLANG_TIDY "Run clang-tidy during compilation of first-party code" OFF)
+option(TT_CRANK_ENABLE_CLANG_TIDY "Run clang-tidy during compilation of first-party code" OFF)
 
-if(TT_KURBLA_ENABLE_CLANG_TIDY)
+if(TT_CRANK_ENABLE_CLANG_TIDY)
     find_program(CLANG_TIDY_PROGRAM
         NAMES clang-tidy
         HINTS "$ENV{TTMLIR_TOOLCHAIN_DIR}/venv/bin"
@@ -17,6 +17,6 @@ if(TT_KURBLA_ENABLE_CLANG_TIDY)
         set(CMAKE_CXX_CLANG_TIDY
             "${CLANG_TIDY_PROGRAM};--use-color;--extra-arg-before=-Wno-unknown-warning-option")
     else()
-        message(WARNING "TT_KURBLA_ENABLE_CLANG_TIDY=ON but clang-tidy was not found; skipping")
+        message(WARNING "TT_CRANK_ENABLE_CLANG_TIDY=ON but clang-tidy was not found; skipping")
     endif()
 endif()

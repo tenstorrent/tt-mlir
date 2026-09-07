@@ -17,7 +17,7 @@ mark_as_system_includes(tt-logger spdlog_header_only fmt-header-only)
 #     TTMLIR_ENV_ACTIVATED at configure time; embedding it would constrain our
 #     parent build.
 #   - tt-mlir's configure is slow; isolating it keeps incremental builds of
-#     tt-kurbla fast.
+#     tt-crank fast.
 #
 # Downstream consumes the installed shared libs + headers via IMPORTED targets
 # `tt_mlir::compiler` (libTTMLIRCompiler.so) and `tt_mlir::runtime`
@@ -45,7 +45,7 @@ if(NOT DEFINED ENV{TTMLIR_TOOLCHAIN_DIR})
     message(FATAL_ERROR
         "TTMLIR_TOOLCHAIN_DIR is not set in the environment. "
         "Run `source third_party/tt-mlir/env/activate` from tt-mlir's root "
-        "(or use ./scripts/build) before configuring tt-kurbla.")
+        "(or use ./scripts/build) before configuring tt-crank.")
 endif()
 
 # Promoted to PARENT_SCOPE at the end of this file so cmake/Tracy.cmake (and
@@ -82,9 +82,9 @@ set(_TTMLIR_CMAKE_ARGS
     -DTTMLIR_ENABLE_ALCHEMIST=OFF
     -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF
     # Always build tt-metal/tt-mlir with Tracy. The Tracy CLI + tracy-capture
-    # binaries are bundled into every tt-kurbla build via cmake/Tracy.cmake;
-    # whether libtt_kurbla itself is instrumented is a separate switch
-    # (TT_KURBLA_TRACY_ZONES, defined in the top-level CMakeLists.txt).
+    # binaries are bundled into every tt-crank build via cmake/Tracy.cmake;
+    # whether libtt_crank itself is instrumented is a separate switch
+    # (TT_CRANK_TRACY_ZONES, defined in the top-level CMakeLists.txt).
     -DTT_RUNTIME_ENABLE_PERF_TRACE=ON
 )
 
@@ -98,14 +98,14 @@ ExternalProject_Add(tt-mlir-ep
     PREFIX      "${CMAKE_CURRENT_BINARY_DIR}/tt-mlir-prefix"
     INSTALL_DIR "${_TTMLIR_INSTALL_DIR}"
     CMAKE_GENERATOR Ninja
-    CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${TT_KURBLA_MLIR_ENV}
+    CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${TT_CRANK_MLIR_ENV}
         ${CMAKE_COMMAND} -GNinja ${_TTMLIR_CMAKE_ARGS}
         -S <SOURCE_DIR> -B <BINARY_DIR>
-    BUILD_COMMAND ${CMAKE_COMMAND} -E env ${TT_KURBLA_MLIR_ENV}
+    BUILD_COMMAND ${CMAKE_COMMAND} -E env ${TT_CRANK_MLIR_ENV}
         ${CMAKE_COMMAND} --build <BINARY_DIR>
-    INSTALL_COMMAND ${CMAKE_COMMAND} -E env ${TT_KURBLA_MLIR_ENV}
+    INSTALL_COMMAND ${CMAKE_COMMAND} -E env ${TT_CRANK_MLIR_ENV}
         ${CMAKE_COMMAND} --install <BINARY_DIR> --component SharedLib
-    COMMAND ${CMAKE_COMMAND} -E env ${TT_KURBLA_MLIR_ENV}
+    COMMAND ${CMAKE_COMMAND} -E env ${TT_CRANK_MLIR_ENV}
         ${CMAKE_COMMAND} --install <BINARY_DIR> --component DistributedRuntime
     # Declare the install outputs we consume so Ninja can wire the dependency
     # graph; without this it errors with "no known rule to make" on link.
@@ -157,22 +157,22 @@ set(_TRACY_INCLUDE_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/tt-mlir/third_party/tt-metal/src/tt-metal/tt_metal/third_party/tracy/public")
 file(MAKE_DIRECTORY "${_TRACY_INCLUDE_DIR}")
 
-add_library(tt_kurbla_tracy_headers INTERFACE)
-target_include_directories(tt_kurbla_tracy_headers SYSTEM INTERFACE "${_TRACY_INCLUDE_DIR}")
-add_dependencies(tt_kurbla_tracy_headers tt-mlir-ep)
-add_library(tt_kurbla::tracy_headers ALIAS tt_kurbla_tracy_headers)
+add_library(tt_crank_tracy_headers INTERFACE)
+target_include_directories(tt_crank_tracy_headers SYSTEM INTERFACE "${_TRACY_INCLUDE_DIR}")
+add_dependencies(tt_crank_tracy_headers tt-mlir-ep)
+add_library(tt_crank::tracy_headers ALIAS tt_crank_tracy_headers)
 
-add_library(tt_kurbla::tracy SHARED IMPORTED GLOBAL)
-add_dependencies(tt_kurbla::tracy tt-mlir-ep)
-set_target_properties(tt_kurbla::tracy PROPERTIES
+add_library(tt_crank::tracy SHARED IMPORTED GLOBAL)
+add_dependencies(tt_crank::tracy tt-mlir-ep)
+set_target_properties(tt_crank::tracy PROPERTIES
     IMPORTED_LOCATION "${_TTMLIR_TRACY_LIB}"
     INTERFACE_INCLUDE_DIRECTORIES "${_TRACY_INCLUDE_DIR}"
     INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_TRACY_INCLUDE_DIR}"
 )
 
 # Expose the source + install dirs to the parent CMake scope.
-set(TT_KURBLA_TTMLIR_SOURCE_DIR  "${_TTMLIR_SRC}" PARENT_SCOPE)
-set(TT_KURBLA_TTMLIR_INSTALL_DIR "${_TTMLIR_INSTALL_DIR}" PARENT_SCOPE)
+set(TT_CRANK_TTMLIR_SOURCE_DIR  "${_TTMLIR_SRC}" PARENT_SCOPE)
+set(TT_CRANK_TTMLIR_INSTALL_DIR "${_TTMLIR_INSTALL_DIR}" PARENT_SCOPE)
 
 # ---------------------------------------------------------------------------
 # Wheel payload: harvest the tt-mlir install tree. scikit-build-core turns these
@@ -187,7 +187,7 @@ set(TT_KURBLA_TTMLIR_INSTALL_DIR "${_TTMLIR_INSTALL_DIR}" PARENT_SCOPE)
 # (a) Runtime shared libraries. .so only: skips ~140 MB of .a archives and the
 #     lib/cmake export files.
 install(DIRECTORY "${_TTMLIR_INSTALL_DIR}/lib/"
-    DESTINATION "tt_kurbla/lib"
+    DESTINATION "tt_crank/lib"
     USE_SOURCE_PERMISSIONS
     COMPONENT wheel_payload
     EXCLUDE_FROM_ALL
@@ -196,16 +196,16 @@ install(DIRECTORY "${_TTMLIR_INSTALL_DIR}/lib/"
 # (b) All of bin/: the Tracy CLI pair that python/tracy points PROFILER_BIN_DIR
 #     at, plus ttmlir/runtime/distributed/worker.
 install(DIRECTORY "${_TTMLIR_INSTALL_DIR}/bin/"
-    DESTINATION "tt_kurbla/bin"
+    DESTINATION "tt_crank/bin"
     USE_SOURCE_PERMISSIONS
     COMPONENT wheel_payload
     EXCLUDE_FROM_ALL)
 
 # (c) tt-metal tree, resolved as TT_METAL_HOME at runtime. Excludes sfpi
-#     (provisioned separately by `tt-kurbla-install-sfpi`) and _ttnn.so
-#     (shipped from tt_kurbla/lib).
+#     (provisioned separately by `tt-crank-install-sfpi`) and _ttnn.so
+#     (shipped from tt_crank/lib).
 install(DIRECTORY "${_TTMLIR_INSTALL_DIR}/tt-metal/"
-    DESTINATION "tt_kurbla/tt-metal"
+    DESTINATION "tt_crank/tt-metal"
     USE_SOURCE_PERMISSIONS
     COMPONENT wheel_payload
     EXCLUDE_FROM_ALL
@@ -214,7 +214,7 @@ install(DIRECTORY "${_TTMLIR_INSTALL_DIR}/tt-metal/"
 
 # (d) Re-export _original trees as REAL directories — the wheel writer can't carry
 #     the build-tree symlinks from cmake/Tracy.cmake. python/{ttnn,tracy} import
-#     from these; _wrapper.py loads _ttnn.so from tt_kurbla/lib instead.
+#     from these; _wrapper.py loads _ttnn.so from tt_crank/lib instead.
 install(DIRECTORY "${_TTMLIR_INSTALL_DIR}/tt-metal/ttnn/ttnn/"
     DESTINATION "ttnn/_original"
     USE_SOURCE_PERMISSIONS

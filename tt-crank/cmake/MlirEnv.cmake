@@ -7,14 +7,14 @@
 #      `if(NOT DEFINED ENV{TTMLIR_TOOLCHAIN_DIR})` check in third_party/
 #      CMakeLists.txt pass at our configure time.
 #
-#   2. TT_KURBLA_MLIR_ENV — a list of KEY=VALUE entries that third_party/
+#   2. TT_CRANK_MLIR_ENV — a list of KEY=VALUE entries that third_party/
 #      CMakeLists.txt prepends to ExternalProject's subprocess commands via
 #      `${CMAKE_COMMAND} -E env`. This is the load-bearing part: ExternalProject
 #      spawns tt-mlir's own cmake at *build time* in a process that inherits
 #      env from ninja, not from our configure-time cmake — so set(ENV) alone
 #      is invisible there.
 
-set(TT_KURBLA_MLIR_ENV "" CACHE INTERNAL
+set(TT_CRANK_MLIR_ENV "" CACHE INTERNAL
     "env/activate's KEY=VALUE entries, forwarded to tt-mlir-ep subprocesses")
 
 if(DEFINED ENV{TTMLIR_ENV_ACTIVATED})
@@ -24,10 +24,10 @@ if(DEFINED ENV{TTMLIR_ENV_ACTIVATED})
                  TT_MLIR_HOME TT_METAL_HOME TT_METAL_RUNTIME_ROOT
                  TT_METAL_BUILD_HOME PATH)
         if(DEFINED ENV{${_var}})
-            list(APPEND TT_KURBLA_MLIR_ENV "${_var}=$ENV{${_var}}")
+            list(APPEND TT_CRANK_MLIR_ENV "${_var}=$ENV{${_var}}")
         endif()
     endforeach()
-    set(TT_KURBLA_MLIR_ENV "${TT_KURBLA_MLIR_ENV}" CACHE INTERNAL "" FORCE)
+    set(TT_CRANK_MLIR_ENV "${TT_CRANK_MLIR_ENV}" CACHE INTERNAL "" FORCE)
     return()
 endif()
 
@@ -66,8 +66,8 @@ foreach(_kv IN LISTS _entries)
             continue()
         endif()
         set(ENV{${_name}} "${_value}")
-        list(APPEND TT_KURBLA_MLIR_ENV "${_name}=${_value}")
+        list(APPEND TT_CRANK_MLIR_ENV "${_name}=${_value}")
     endif()
 endforeach()
 
-set(TT_KURBLA_MLIR_ENV "${TT_KURBLA_MLIR_ENV}" CACHE INTERNAL "" FORCE)
+set(TT_CRANK_MLIR_ENV "${TT_CRANK_MLIR_ENV}" CACHE INTERNAL "" FORCE)

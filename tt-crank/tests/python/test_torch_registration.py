@@ -4,11 +4,11 @@
 
 import torch
 
-import tt_kurbla.torch  # noqa: F401  — import registers the backend
+import tt_crank.torch  # noqa: F401  — import registers the backend
 
 
 def test_native_loaded():
-    from tt_kurbla.torch import _native
+    from tt_crank.torch import _native
 
     assert _native.loaded()
 

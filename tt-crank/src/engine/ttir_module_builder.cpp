@@ -28,7 +28,7 @@
 #include "config.hpp"
 #include "engine/compile.hpp"
 
-namespace tt::kurbla {
+namespace tt::crank {
 
 namespace {
 
@@ -56,7 +56,7 @@ mlir::Type to_mlir_element_type(mlir::MLIRContext &ctx, ::tt::target::DataType d
         default:
             break;
     }
-    TT_THROW("tt-kurbla ModuleBuilder: unsupported runtime dtype for MLIR element type: {}", as<int>(dtype));
+    TT_THROW("tt-crank ModuleBuilder: unsupported runtime dtype for MLIR element type: {}", as<int>(dtype));
 }
 
 ModuleBuilder::ModuleBuilder(mlir::OwningOpRef<mlir::ModuleOp> module_op, mlir::func::FuncOp func,
@@ -66,7 +66,7 @@ ModuleBuilder::ModuleBuilder(mlir::OwningOpRef<mlir::ModuleOp> module_op, mlir::
 ModuleBuilder ModuleBuilder::init(llvm::ArrayRef<TensorTypeSpec> inputs,
                                   llvm::ArrayRef<mlir::tt::ttcore::ArgumentType> arg_types) {
     TT_FATAL(arg_types.empty() || arg_types.size() == inputs.size(),
-             "tt-kurbla ModuleBuilder: inputs and arg_types size mismatch: {} vs {}", inputs.size(), arg_types.size());
+             "tt-crank ModuleBuilder: inputs and arg_types size mismatch: {} vs {}", inputs.size(), arg_types.size());
 
     auto &ctx = mlir_context();
     auto loc = mlir::UnknownLoc::get(&ctx);
@@ -249,7 +249,7 @@ mlir::Value build_sub(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs, doubl
     auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
     auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
     TT_FATAL(lhs_type.getElementType() == rhs_type.getElementType(),
-             "tt-kurbla build_sub: lhs and rhs must share element type — callers must promote first");
+             "tt-crank build_sub: lhs and rhs must share element type — callers must promote first");
 
     if (alpha != 1.0) {
         rhs = scale_tensor(mb, rhs, alpha);
@@ -264,7 +264,7 @@ mlir::Value build_mul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
     auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
     auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
     TT_FATAL(lhs_type.getElementType() == rhs_type.getElementType(),
-             "tt-kurbla build_mul: lhs and rhs must share element type — callers must promote first");
+             "tt-crank build_mul: lhs and rhs must share element type — callers must promote first");
 
     auto out_shape = broadcast_shape(lhs_type.getShape(), rhs_type.getShape());
     auto result_type = mlir::RankedTensorType::get(out_shape, lhs_type.getElementType());
@@ -352,7 +352,7 @@ mlir::Value build_all_reduce(ModuleBuilder &mb, mlir::Value input, const std::st
     // Map the c10d reduce-op string to a ttcore ReduceType. Only Sum is wired
     // end-to-end today (the metal all_reduce kernel hardcodes sum); other ops
     // surface here as a clear error rather than silently summing.
-    TT_FATAL(reduce_op == "sum", "tt-kurbla build_all_reduce: only reduce_op='sum' supported, got '{}'", reduce_op);
+    TT_FATAL(reduce_op == "sum", "tt-crank build_all_reduce: only reduce_op='sum' supported, got '{}'", reduce_op);
     auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     auto reduce_type_attr =
         ::mlir::tt::ttcore::ReduceTypeAttr::get(result_type.getContext(), ::mlir::tt::ttcore::ReduceType::Sum);
@@ -371,12 +371,12 @@ mlir::Value build_reduce_scatter(ModuleBuilder &mb, mlir::Value input, std::int6
     auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     std::vector<std::int64_t> out_shape(input_type.getShape().begin(), input_type.getShape().end());
     const auto rank = as<std::int64_t>(out_shape.size());
-    TT_FATAL(rank > 0, "tt-kurbla build_reduce_scatter: input must be at least 1-D");
+    TT_FATAL(rank > 0, "tt-crank build_reduce_scatter: input must be at least 1-D");
     const auto dim = scatter_dim < 0 ? scatter_dim + rank : scatter_dim;
-    TT_FATAL(dim >= 0 && dim < rank, "tt-kurbla build_reduce_scatter: scatter_dim {} out of range for rank {}",
+    TT_FATAL(dim >= 0 && dim < rank, "tt-crank build_reduce_scatter: scatter_dim {} out of range for rank {}",
              scatter_dim, rank);
     TT_FATAL(out_shape[as<std::size_t>(dim)] % group_size == 0,
-             "tt-kurbla build_reduce_scatter: dim {} ({}) not divisible by group size {}", dim,
+             "tt-crank build_reduce_scatter: dim {} ({}) not divisible by group size {}", dim,
              out_shape[as<std::size_t>(dim)], group_size);
     out_shape[as<std::size_t>(dim)] /= group_size;
     auto result_type = mlir::RankedTensorType::get(out_shape, input_type.getElementType());
@@ -393,7 +393,7 @@ mlir::Value build_all_gather(ModuleBuilder &mb, mlir::Value input, std::int64_t 
                              std::uint32_t cluster_axis) {
     auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     std::vector<std::int64_t> out_shape(input_type.getShape().begin(), input_type.getShape().end());
-    TT_FATAL(!out_shape.empty(), "tt-kurbla build_all_gather: input must be at least 1-D");
+    TT_FATAL(!out_shape.empty(), "tt-crank build_all_gather: input must be at least 1-D");
     // all_gather_dim is fixed at 0 by the all_gather_into_tensor / _allgather_base
     // contract (the result concatenates the per-rank slabs along dim 0).
     out_shape[0] *= group_size;
@@ -461,7 +461,7 @@ mlir::Value build_bn_inference(ModuleBuilder &mb, mlir::Value operand, mlir::Val
                  mlir::cast<mlir::RankedTensorType>(offset.getType()).getElementType() == operand_elem &&
                  mlir::cast<mlir::RankedTensorType>(mean.getType()).getElementType() == operand_elem &&
                  mlir::cast<mlir::RankedTensorType>(variance.getType()).getElementType() == operand_elem,
-             "tt-kurbla build_bn_inference: all inputs must share element type — callers must promote first");
+             "tt-crank build_bn_inference: all inputs must share element type — callers must promote first");
 
     auto result_type = mlir::cast<mlir::RankedTensorType>(operand.getType());
     llvm::APFloat eps_ap(as<double>(eps));
@@ -478,7 +478,7 @@ mlir::Value build_layer_norm(ModuleBuilder &mb, mlir::Value input, mlir::Value w
     auto input_elem = mlir::cast<mlir::RankedTensorType>(input.getType()).getElementType();
     TT_FATAL((!weight || mlir::cast<mlir::RankedTensorType>(weight.getType()).getElementType() == input_elem) &&
                  (!bias || mlir::cast<mlir::RankedTensorType>(bias.getType()).getElementType() == input_elem),
-             "tt-kurbla build_layer_norm: all inputs must share element type — callers must promote first");
+             "tt-crank build_layer_norm: all inputs must share element type — callers must promote first");
 
     auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     auto shape_attr = mb.attrs().getDenseI64ArrayAttr(normalized_shape);
@@ -509,7 +509,7 @@ mlir::Value build_add(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs, doubl
     auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
     auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
     TT_FATAL(lhs_type.getElementType() == rhs_type.getElementType(),
-             "tt-kurbla build_add: lhs and rhs must share element type — callers must promote first");
+             "tt-crank build_add: lhs and rhs must share element type — callers must promote first");
 
     // aten::add: lhs + alpha * rhs. Elide the scale when alpha == 1.
     if (alpha != 1.0) {
@@ -1127,7 +1127,7 @@ mlir::Value build_index_copy(ModuleBuilder &mb, mlir::Value input, int64_t dim, 
     auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     auto source_type = mlir::cast<mlir::RankedTensorType>(source.getType());
     auto index_type = mlir::cast<mlir::RankedTensorType>(index.getType());
-    TT_FATAL(index_type.getRank() == 1, "tt-kurbla build_index_copy: index must be 1D");
+    TT_FATAL(index_type.getRank() == 1, "tt-crank build_index_copy: index must be 1D");
     int64_t rank = as<int64_t>(input_type.getShape().size());
     if (dim < 0) {
         dim += rank;
@@ -1212,7 +1212,7 @@ mlir::Value scale_tensor(ModuleBuilder &mb, mlir::Value tensor, double value) {
 
 mlir::Value build_t(ModuleBuilder &mb, mlir::Value input) {
     auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
-    TT_FATAL(input_type.getRank() == 2, "tt-kurbla build_t: input must be 2D");
+    TT_FATAL(input_type.getRank() == 2, "tt-crank build_t: input must be 2D");
     auto shape = input_type.getShape();
     auto result_type = mlir::RankedTensorType::get({shape[1], shape[0]}, input_type.getElementType());
     return mb.create<mlir::tt::ttir::TransposeOp>(result_type, input, 0, 1).getResult();
@@ -1222,7 +1222,7 @@ mlir::Value build_mm(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
     auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
     auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
     TT_FATAL(lhs_type.getElementType() == rhs_type.getElementType(),
-             "tt-kurbla build_mm: lhs and rhs must share element type — callers must promote first");
+             "tt-crank build_mm: lhs and rhs must share element type — callers must promote first");
     auto result_type =
         mlir::RankedTensorType::get({lhs_type.getShape()[0], rhs_type.getShape()[1]}, lhs_type.getElementType());
     return mb.create<mlir::tt::ttir::MatmulOp>(result_type, lhs, rhs, false, false).getResult();
@@ -1234,7 +1234,7 @@ mlir::Value build_addmm(ModuleBuilder &mb, mlir::Value bias, mlir::Value mat1, m
     auto mat2_type = mlir::cast<mlir::RankedTensorType>(mat2.getType());
     TT_FATAL(mat1_type.getElementType() == mat2_type.getElementType() &&
                  mat1_type.getElementType() == mlir::cast<mlir::RankedTensorType>(bias.getType()).getElementType(),
-             "tt-kurbla build_addmm: all inputs must share element type — callers must promote first");
+             "tt-crank build_addmm: all inputs must share element type — callers must promote first");
 
     auto result_type =
         mlir::RankedTensorType::get({mat1_type.getShape()[0], mat2_type.getShape()[1]}, mat1_type.getElementType());
@@ -1258,7 +1258,7 @@ std::tuple<std::optional<mlir::Value>, std::optional<mlir::Value>, std::optional
 build_linear_backward(ModuleBuilder &mb, mlir::Value self, mlir::Value grad, mlir::Value weight, bool need_self,
                       bool need_weight, bool need_bias) {
     auto weight_type = mlir::cast<mlir::RankedTensorType>(weight.getType());
-    TT_FATAL(weight_type.getRank() == 2, "tt-kurbla build_linear_backward: weight must be 2D");
+    TT_FATAL(weight_type.getRank() == 2, "tt-crank build_linear_backward: weight must be 2D");
     int64_t out_features = weight_type.getShape()[0];
     int64_t in_features = weight_type.getShape()[1];
 
@@ -1296,8 +1296,8 @@ mlir::Value build_linear(ModuleBuilder &mb, mlir::Value input, mlir::Value weigh
     auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     auto weight_type = mlir::cast<mlir::RankedTensorType>(weight.getType());
     TT_FATAL(input_type.getElementType() == weight_type.getElementType(),
-             "tt-kurbla build_linear: input and weight must share element type");
-    TT_FATAL(weight_type.getRank() == 2, "tt-kurbla build_linear: weight must be 2D");
+             "tt-crank build_linear: input and weight must share element type");
+    TT_FATAL(weight_type.getRank() == 2, "tt-crank build_linear: weight must be 2D");
 
     // weight is [out_features, in_features]; transpose_b makes the contraction use in_features.
     auto input_shape = input_type.getShape();
@@ -1315,12 +1315,12 @@ mlir::Value build_matmul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
     auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
     auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
     TT_FATAL(lhs_type.getElementType() == rhs_type.getElementType(),
-             "tt-kurbla build_matmul: lhs and rhs must share element type — callers must promote first");
+             "tt-crank build_matmul: lhs and rhs must share element type — callers must promote first");
     auto lhs_shape = lhs_type.getShape();
     auto rhs_shape = rhs_type.getShape();
     int64_t lhs_rank = as<int64_t>(lhs_shape.size());
     int64_t rhs_rank = as<int64_t>(rhs_shape.size());
-    TT_FATAL(lhs_rank >= 2 && rhs_rank >= 2, "tt-kurbla build_matmul: inputs must be at least 2D");
+    TT_FATAL(lhs_rank >= 2 && rhs_rank >= 2, "tt-crank build_matmul: inputs must be at least 2D");
 
     // PERF: When RHS is a plain 2-D weight and LHS carries leading/batch dims, flatten all
     // of LHS's leading dims into a single M so a batch of small matmuls becomes one
@@ -1377,7 +1377,7 @@ mlir::Value build_sum_to(ModuleBuilder &mb, mlir::Value t, llvm::ArrayRef<int64_
         return t;
     }
     int64_t leading = as<int64_t>(t_shape.size()) - as<int64_t>(target.size());
-    TT_FATAL(leading >= 0, "tt-kurbla build_sum_to: target rank exceeds input rank");
+    TT_FATAL(leading >= 0, "tt-crank build_sum_to: target rank exceeds input rank");
     if (leading > 0) {
         llvm::SmallVector<int64_t> dims;
         for (int64_t i = 0; i < leading; ++i) {
@@ -1398,7 +1398,7 @@ mlir::Value build_sum_to(ModuleBuilder &mb, mlir::Value t, llvm::ArrayRef<int64_
     // Leading-dim + broadcast-dim reductions above should land exactly on target;
     // assert the invariant so a shape-inference bug surfaces here, not downstream.
     auto final_shape = mlir::cast<mlir::RankedTensorType>(t.getType()).getShape();
-    TT_FATAL(final_shape == target, "tt-kurbla build_sum_to: reduction did not reach target shape");
+    TT_FATAL(final_shape == target, "tt-crank build_sum_to: reduction did not reach target shape");
     return t;
 }
 
@@ -1565,4 +1565,4 @@ mlir::Value build_conv3d(ModuleBuilder &mb, mlir::Value input, mlir::Value weigh
     return build_permute(mb, ndhwc_result, {0, 4, 1, 2, 3});
 }
 
-} // namespace tt::kurbla
+} // namespace tt::crank

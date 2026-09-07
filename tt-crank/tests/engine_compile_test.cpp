@@ -24,14 +24,14 @@ func.func @add(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<6
 } // namespace
 
 TEST(EngineCompileTest, CompilesTrivialModule) {
-    tt::kurbla::CompiledProgram &program = *tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir).program;
+    tt::crank::CompiledProgram &program = *tt::crank::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir).program;
 
     EXPECT_GE(program.num_programs(), 1U);
 }
 
 TEST(EngineCompileTest, ThrowsOnParseError) {
     try {
-        tt::kurbla::compile_ttir_to_ttnn_flatbuffer("not valid mlir");
+        tt::crank::compile_ttir_to_ttnn_flatbuffer("not valid mlir");
         FAIL() << "expected ParseError";
     } catch (const std::runtime_error &e) {
         EXPECT_NE(std::string_view(e.what()).find_first_not_of(' '), std::string_view::npos);
@@ -41,8 +41,8 @@ TEST(EngineCompileTest, ThrowsOnParseError) {
 }
 
 TEST(EngineCompileTest, ReusesEngineAcrossCalls) {
-    auto &program_a = *tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir).program;
-    auto &program_b = *tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir).program;
+    auto &program_a = *tt::crank::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir).program;
+    auto &program_b = *tt::crank::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir).program;
 
     EXPECT_GE(program_a.num_programs(), 1U);
     EXPECT_GE(program_b.num_programs(), 1U);
@@ -53,12 +53,12 @@ TEST(EngineCompileTest, ReusesEngineAcrossCalls) {
 // text into the shared MLIRContext; a real producer would construct the IR
 // via mlir::OpBuilder instead, but the compile call site is identical.
 TEST(EngineCompileTest, CompilesPreBuiltModule) {
-    mlir::MLIRContext &ctx = tt::kurbla::mlir_context();
+    mlir::MLIRContext &ctx = tt::crank::mlir_context();
 
     mlir::OwningOpRef<mlir::ModuleOp> module_op = mlir::parseSourceString<mlir::ModuleOp>(k_trivial_add_ttir, &ctx);
     ASSERT_TRUE(module_op);
 
-    tt::kurbla::CompiledProgram &program = *tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get()).program;
+    tt::crank::CompiledProgram &program = *tt::crank::compile_ttir_to_ttnn_flatbuffer(module_op.get()).program;
 
     EXPECT_GE(program.num_programs(), 1U);
 }
@@ -66,7 +66,7 @@ TEST(EngineCompileTest, CompilesPreBuiltModule) {
 // ttnn_ir() recovers the post-pipeline module from the compiled flatbuffer.
 // Confirm it recovers the real lowered module, not an empty or partial buffer.
 TEST(EngineCompileTest, RecoversTTNNIRFromFlatbuffer) {
-    auto &program = *tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir).program;
+    auto &program = *tt::crank::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir).program;
 
     std::string_view ir = program.ttnn_ir();
     EXPECT_FALSE(ir.empty());
@@ -76,7 +76,7 @@ TEST(EngineCompileTest, RecoversTTNNIRFromFlatbuffer) {
 
 // Capturing the TTIR costs a full module print, so it is opt-in.
 TEST(EngineCompileTest, DoesNotCaptureTTIRByDefault) {
-    tt::kurbla::CompileResult result = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
+    tt::crank::CompileResult result = tt::crank::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
 
     EXPECT_NE(result.program, nullptr);
     EXPECT_TRUE(result.ttir.empty());
@@ -84,13 +84,13 @@ TEST(EngineCompileTest, DoesNotCaptureTTIRByDefault) {
 
 // Verify that the TTIR is properly captured when the user demands it.
 TEST(EngineCompileTest, CapturesTTIRFromModuleBeforePipeline) {
-    mlir::MLIRContext &ctx = tt::kurbla::mlir_context();
+    mlir::MLIRContext &ctx = tt::crank::mlir_context();
 
     mlir::OwningOpRef<mlir::ModuleOp> module_op = mlir::parseSourceString<mlir::ModuleOp>(k_trivial_add_ttir, &ctx);
     ASSERT_TRUE(module_op);
 
-    tt::kurbla::CompileResult result =
-        tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get(), {}, /*capture_ttir=*/true);
+    tt::crank::CompileResult result =
+        tt::crank::compile_ttir_to_ttnn_flatbuffer(module_op.get(), {}, /*capture_ttir=*/true);
 
     EXPECT_NE(result.program, nullptr);
     ASSERT_FALSE(result.ttir.empty());
@@ -102,18 +102,18 @@ TEST(EngineCompileTest, CapturesTTIRFromModuleBeforePipeline) {
 // No cold-vs-warm comparison: the on-disk cache persists across runs, so the
 // first call here isn't guaranteed to be a real compile.
 TEST(EngineCompileTest, ReportsCompileDuration) {
-    tt::kurbla::CompileResult first = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
+    tt::crank::CompileResult first = tt::crank::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
     EXPECT_GT(first.compile_duration.count(), 0.0);
 
-    tt::kurbla::CompileResult second = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
+    tt::crank::CompileResult second = tt::crank::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir);
     EXPECT_TRUE(second.cache_hit);
     EXPECT_GT(second.compile_duration.count(), 0.0);
 }
 
 // Verify that the TTIR is properly captured when the user demands it.
 TEST(EngineCompileTest, CapturesTTIRFromStringInput) {
-    tt::kurbla::CompileResult result =
-        tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, {}, /* capture_ttir= */ true);
+    tt::crank::CompileResult result =
+        tt::crank::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, {}, /* capture_ttir= */ true);
 
     EXPECT_NE(result.program, nullptr);
     EXPECT_EQ(std::string_view(result.ttir), k_trivial_add_ttir);

@@ -23,7 +23,7 @@
 
 #include "assert.hpp"
 
-namespace tt::kurbla {
+namespace tt::crank {
 
 namespace {
 
@@ -61,9 +61,9 @@ public:
         try {
             close_device();
         } catch (const std::exception &e) {
-            log_error(tt::LogAlways, "tt-kurbla: closeMeshDevice failed during shutdown: {}", e.what());
+            log_error(tt::LogAlways, "tt-crank: closeMeshDevice failed during shutdown: {}", e.what());
         } catch (...) {
-            log_error(tt::LogAlways, "tt-kurbla: closeMeshDevice failed during shutdown: unknown exception");
+            log_error(tt::LogAlways, "tt-crank: closeMeshDevice failed during shutdown: unknown exception");
         }
     }
 
@@ -143,7 +143,7 @@ public:
     const tt::runtime::Device &open_device(std::uint32_t rows, std::uint32_t cols) {
         const auto available = num_chips();
         TT_FATAL(rows >= 1 && cols >= 1 && rows * cols <= available,
-                 "tt-kurbla open_device: rows*cols ({}*{} = {}) must be in [1, "
+                 "tt-crank open_device: rows*cols ({}*{} = {}) must be in [1, "
                  "getNumAvailableDevices() ({})]",
                  rows, cols, rows * cols, available);
 
@@ -207,4 +207,4 @@ const ::tt::runtime::SystemDesc &sys_desc() {
     return device_state.sys_desc();
 }
 
-} // namespace tt::kurbla
+} // namespace tt::crank

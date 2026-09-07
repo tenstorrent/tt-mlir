@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Runtime-environment helpers shared between tt_kurbla modules.
+Runtime-environment helpers shared between tt_crank modules.
 
 The Tracy wrapper and the torch backend both need to point tt-metal at a
 real on-disk copy of itself (via ``TT_METAL_HOME`` / ``TT_METAL_RUNTIME_ROOT``).
@@ -19,9 +19,9 @@ from pathlib import Path
 def _wheel_tt_metal() -> Path:
     """Path to the tt-metal runtime tree bundled inside an installed wheel.
 
-    third_party/CMakeLists.txt stages it at ``tt_kurbla/tt-metal`` (a sibling of
-    this file inside the ``tt_kurbla`` package), so it resolves to
-    ``site-packages/tt_kurbla/tt-metal`` for a pip-installed wheel. Absent in an
+    third_party/CMakeLists.txt stages it at ``tt_crank/tt-metal`` (a sibling of
+    this file inside the ``tt_crank`` package), so it resolves to
+    ``site-packages/tt_crank/tt-metal`` for a pip-installed wheel. Absent in an
     editable/source checkout (nothing installs the payload there).
     """
     return Path(__file__).resolve().parent / "tt-metal"
@@ -29,7 +29,7 @@ def _wheel_tt_metal() -> Path:
 
 def _vendored_tt_metal() -> Path:
     """Path to the tt-metal source tree populated by tt-mlir-ep at build time."""
-    # python/tt_kurbla/_runtime_env.py -> repo root -> third_party/...
+    # python/tt_crank/_runtime_env.py -> repo root -> third_party/...
     return (
         Path(__file__).resolve().parents[2]
         / "third_party"
@@ -50,7 +50,7 @@ def tt_metal_home() -> Path:
          Every one that is set must exist — a stale override is a hard error,
          since silently falling back would mask what the user pointed at.
       2. The tt-metal tree bundled inside an installed wheel
-         (``tt_kurbla/tt-metal``). This is the normal pip-install path.
+         (``tt_crank/tt-metal``). This is the normal pip-install path.
       3. Otherwise the tt-mlir-ep submodule checkout
          ``third_party/tt-mlir/third_party/tt-metal/src/tt-metal/`` (editable dev).
     """
@@ -82,7 +82,7 @@ def setup_tt_metal_home() -> None:
     Ensure ``TT_METAL_HOME`` and ``TT_METAL_RUNTIME_ROOT`` point at a valid
     tt-metal tree, leaving whatever the user already set untouched.
 
-    Mirrors the behavior of ``python/tt_kurbla/torch/__init__.py`` so that
+    Mirrors the behavior of ``python/tt_crank/torch/__init__.py`` so that
     importing either module first leaves the environment in the same state.
     """
     # The tracy CLI reads TT_METAL_HOME, not TT_METAL_RUNTIME_ROOT, so both.

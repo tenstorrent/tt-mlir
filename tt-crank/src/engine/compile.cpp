@@ -43,7 +43,7 @@
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/Target.h"
 
-namespace tt::kurbla {
+namespace tt::crank {
 
 namespace {
 
@@ -170,7 +170,7 @@ std::string calc_compilation_key(mlir::ModuleOp module_op,
     llvm::SHA256 sha;
 
     std::vector<std::uint8_t> sys_desc_bytes;
-    ::tt::kurbla::sys_desc().storeToMemory(sys_desc_bytes);
+    ::tt::crank::sys_desc().storeToMemory(sys_desc_bytes);
     sha.update(sys_desc_bytes);
 
     module_op->walk([&](mlir::func::FuncOp func) { sha.update(mlir::tt::hashFuncOp(func)); });
@@ -187,11 +187,11 @@ std::string calc_compilation_key(mlir::ModuleOp module_op,
 void set_pipeline_options(const CompileOptions &options, mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &pm_opts) {
     options.set_options_on(pm_opts);
 
-    const auto &mesh_shape = ::tt::kurbla::runtime_device_mesh_shape();
+    const auto &mesh_shape = ::tt::crank::runtime_device_mesh_shape();
     pm_opts.meshShape = std::vector<std::int64_t>(mesh_shape.begin(), mesh_shape.end());
 
     // Match CCL topology to what the fabric actually supports per mesh axis.
-    const auto &mesh_fabric = ::tt::kurbla::runtime_mesh_fabric_config();
+    const auto &mesh_fabric = ::tt::crank::runtime_mesh_fabric_config();
     std::vector<mlir::tt::ttcore::Topology> mesh_topology;
     mesh_topology.reserve(mesh_fabric.perAxisConfig.size());
     for (const auto axis : mesh_fabric.perAxisConfig) {
@@ -205,7 +205,7 @@ void set_pipeline_options(const CompileOptions &options, mlir::tt::ttnn::TTIRToT
 
 // Attaches system descriptor attribute to module op.
 void attach_sys_desc_attr(mlir::ModuleOp module_op, const std::string &diag_buffer) {
-    void *sys_desc_handle = tt::kurbla::sys_desc().handle.get();
+    void *sys_desc_handle = tt::crank::sys_desc().handle.get();
     auto diag_fn = [&]() -> mlir::InFlightDiagnostic { return module_op->emitOpError(); };
     auto attr_or = mlir::tt::ttcore::SystemDescAttr::getFromBuffer(module_op.getContext(), sys_desc_handle, diag_fn);
     TT_FATAL(mlir::succeeded(attr_or), "{}", make_error_message("failed to attach system desc", diag_buffer));
@@ -215,9 +215,9 @@ void attach_sys_desc_attr(mlir::ModuleOp module_op, const std::string &diag_buff
 // Opt-in dump of the TTIR — useful when debugging.
 void print_tt_ir(mlir::ModuleOp module_op) {
     if (print_tt_ir_enabled()) {
-        llvm::errs() << "[tt_kurbla] ===== TTIR module =====\n";
+        llvm::errs() << "[tt_crank] ===== TTIR module =====\n";
         module_op.print(llvm::errs());
-        llvm::errs() << "\n[tt_kurbla] ========================\n";
+        llvm::errs() << "\n[tt_crank] ========================\n";
     }
 }
 
@@ -228,9 +228,9 @@ void print_ttnn_ir(const CompiledProgram &prog) {
     }
 
     auto ir = prog.ttnn_ir();
-    llvm::errs() << "[tt_kurbla] ===== TTNN module =====\n";
-    llvm::errs() << (ir.empty() ? "[tt_kurbla] <no TTNN IR embedded in binary>" : ir);
-    llvm::errs() << "\n[tt_kurbla] ========================\n";
+    llvm::errs() << "[tt_crank] ===== TTNN module =====\n";
+    llvm::errs() << (ir.empty() ? "[tt_crank] <no TTNN IR embedded in binary>" : ir);
+    llvm::errs() << "\n[tt_crank] ========================\n";
 }
 
 // Prints compile options.
@@ -281,14 +281,14 @@ CompileResult run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const CompileO
     mlir::tt::ttnn::createTTIRToTTNNRuntimePipeline(pm, pm_opts);
 
     {
-        ZoneScopedN("tt_kurbla::ttir_to_ttnn_pipeline");
+        ZoneScopedN("tt_crank::ttir_to_ttnn_pipeline");
         TT_FATAL(mlir::succeeded(pm.run(module_op)), "{}",
                  make_error_message("ttir-to-ttnn pipeline failed", diag_buffer));
     }
 
     std::shared_ptr<void> fb;
     {
-        ZoneScopedN("tt_kurbla::ttnn_to_flatbuffer");
+        ZoneScopedN("tt_crank::ttnn_to_flatbuffer");
         fb = mlir::tt::ttnn::ttnnToFlatbuffer(module_op);
         TT_FATAL(fb != nullptr, "{}", make_error_message("ttnnToFlatbuffer returned null", diag_buffer));
     }
@@ -365,4 +365,4 @@ CompileResult compile_ttir_to_ttnn_flatbuffer(std::string_view ttir, const Compi
     return result;
 }
 
-} // namespace tt::kurbla
+} // namespace tt::crank

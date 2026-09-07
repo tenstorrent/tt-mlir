@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(
-    tt_kurbla
+    tt_crank
     VERSION 0.1.0
     DESCRIPTION "Compiler & runtime frontend for Tenstorrent hardware"
     LANGUAGES CXX
@@ -15,11 +15,11 @@ if(PROJECT_IS_TOP_LEVEL)
     enable_testing()
 endif()
 
-option(TT_KURBLA_WHEEL "Configure the build for a distributable Python wheel" OFF)
+option(TT_CRANK_WHEEL "Configure the build for a distributable Python wheel" OFF)
 
 # Dev builds resolve deps from the build tree; wheels set $ORIGIN per target.
 # Must precede add_subdirectory — targets capture this at creation.
-if(NOT TT_KURBLA_WHEEL)
+if(NOT TT_CRANK_WHEEL)
     set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 endif()
 
@@ -27,16 +27,16 @@ endif()
 # Set before any add_subdirectory so it applies to third-party install rules too.
 set(CMAKE_INSTALL_MESSAGE NEVER)
 
-option(TT_KURBLA_BUILD_TESTS "Build tt-kurbla unit tests" ${PROJECT_IS_TOP_LEVEL})
-option(TT_KURBLA_BUILD_PYTHON_EXT
+option(TT_CRANK_BUILD_TESTS "Build tt-crank unit tests" ${PROJECT_IS_TOP_LEVEL})
+option(TT_CRANK_BUILD_PYTHON_EXT
     "Build Python extension modules (set ON by scikit-build-core; OFF for C++-only builds)"
     OFF)
 # Decoupled from CLI bundling: the Tracy CLI (`tracy`, tracy-capture,
-# tracy-csvexport) is always built and shipped with tt-kurbla. This flag
-# only controls whether libtt_kurbla itself is instrumented with ZoneScoped
+# tracy-csvexport) is always built and shipped with tt-crank. This flag
+# only controls whether libtt_crank itself is instrumented with ZoneScoped
 # macros.
-option(TT_KURBLA_TRACY_ZONES
-    "Compile Tracy zones into libtt_kurbla (TRACY_ENABLE + link libtracy)"
+option(TT_CRANK_TRACY_ZONES
+    "Compile Tracy zones into libtt_crank (TRACY_ENABLE + link libtracy)"
     ON)
 
 # Auto-source third_party/tt-mlir/env/activate so callers don't have to.
@@ -57,6 +57,6 @@ add_subdirectory(src)
 include(cmake/TTsim.cmake)
 include(cmake/Tracy.cmake)
 
-if(TT_KURBLA_BUILD_TESTS AND PROJECT_IS_TOP_LEVEL)
+if(TT_CRANK_BUILD_TESTS AND PROJECT_IS_TOP_LEVEL)
     add_subdirectory(tests)
 endif()

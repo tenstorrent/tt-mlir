@@ -1,13 +1,13 @@
-# Profiling tt-kurbla with Tracy
+# Profiling tt-crank with Tracy
 
-tt-kurbla bundles tt-metal's Tracy profiler. Every build ships:
+tt-crank bundles tt-metal's Tracy profiler. Every build ships:
 
 - the `tracy` console script (a thin wrapper around tt-metal's `tools/tracy`
   module — orchestrates a profiling run and writes the per-op CSV report),
 - the `tracy-capture` binary (headless Tracy capture),
 - `tracy-csvexport` (export `.tracy` files to CSV).
 
-`libtt_kurbla.so` is also instrumented with Tracy zones by default. The zones
+`libtt_crank.so` is also instrumented with Tracy zones by default. The zones
 mark the hot paths in our compile / run pipeline so a recorded trace shows
 where time is actually spent.
 
@@ -20,7 +20,7 @@ source venv/activate && source third_party/tt-mlir/env/activate
 ./scripts/build release
 ./scripts/install-py
 
-# Run any tt-kurbla workload under the tracy CLI.
+# Run any tt-crank workload under the tracy CLI.
 tracy -p -r --sync-host-device \
     -m pytest -svv tests/python/op_tests/test_elementwise.py
 ```
@@ -46,14 +46,14 @@ Output lands in `.tracy_artifacts/reports/<timestamp>/`:
 
 `tracy --help` lists everything.
 
-## Toggling tt-kurbla zones off
+## Toggling tt-crank zones off
 
-For a clean release build with zero Tracy hooks in `libtt_kurbla.so`,
-configure with `-DTT_KURBLA_TRACY_ZONES=OFF`. The CLI keeps working — it just
-won't show `tt_kurbla::*` zones in the recorded trace.
+For a clean release build with zero Tracy hooks in `libtt_crank.so`,
+configure with `-DTT_CRANK_TRACY_ZONES=OFF`. The CLI keeps working — it just
+won't show `tt_crank::*` zones in the recorded trace.
 
 ```bash
-cmake --preset release -DTT_KURBLA_TRACY_ZONES=OFF
+cmake --preset release -DTT_CRANK_TRACY_ZONES=OFF
 cmake --build --preset release
 ```
 
@@ -99,7 +99,7 @@ To add a new zone in C++ code:
 #include <tracy/Tracy.hpp>
 
 void some_function() {
-    ZoneScopedN("tt_kurbla::some_function");
+    ZoneScopedN("tt_crank::some_function");
     // ...
 }
 ```

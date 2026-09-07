@@ -17,16 +17,16 @@
 #include "torch/ops/builders.hpp"
 #include "torch/tensor.hpp"
 
-namespace tt::kurbla::torch_backend {
+namespace tt::crank::torch_backend {
 
 namespace {
 
 at::Tensor tt_t(const at::Tensor &self) {
-    TORCH_CHECK(is_tt(self), "tt-kurbla aten::t: tensor must be on tt backend");
+    TORCH_CHECK(is_tt(self), "tt-crank aten::t: tensor must be on tt backend");
     if (self.dim() < 2) {
         return self;
     }
-    TORCH_CHECK(self.dim() == 2, "tt-kurbla aten::t: input must be 0-D, 1-D, or 2-D");
+    TORCH_CHECK(self.dim() == 2, "tt-crank aten::t: input must be 0-D, 1-D, or 2-D");
 
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_t(mb, mb.args()[0]);
@@ -39,8 +39,8 @@ at::Tensor tt_t(const at::Tensor &self) {
 
 at::Tensor tt_mm(const at::Tensor &self, const at::Tensor &mat2) {
     const auto [a_in, b_in] = align_on_tt(self, mat2);
-    TORCH_CHECK(a_in.dim() == 2 && b_in.dim() == 2, "tt-kurbla aten::mm: inputs must be 2D");
-    TORCH_CHECK(a_in.size(1) == b_in.size(0), "tt-kurbla aten::mm: shape mismatch: ", a_in.sizes(), " vs ",
+    TORCH_CHECK(a_in.dim() == 2 && b_in.dim() == 2, "tt-crank aten::mm: inputs must be 2D");
+    TORCH_CHECK(a_in.size(1) == b_in.size(0), "tt-crank aten::mm: shape mismatch: ", a_in.sizes(), " vs ",
                 b_in.sizes());
 
     auto mb = ModuleBuilder::init({spec_for(a_in), spec_for(b_in)});
@@ -56,8 +56,8 @@ at::Tensor tt_mm(const at::Tensor &self, const at::Tensor &mat2) {
 // aten::addmm(bias, mat1, mat2, beta=1, alpha=1) = beta*bias + alpha*(mat1 @ mat2)
 at::Tensor tt_addmm(const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2, const at::Scalar &beta,
                     const at::Scalar &alpha) {
-    TORCH_CHECK(mat1.dim() == 2 && mat2.dim() == 2, "tt-kurbla aten::addmm: mat1/mat2 must be 2D");
-    TORCH_CHECK(mat1.size(1) == mat2.size(0), "tt-kurbla aten::addmm: shape mismatch: ", mat1.sizes(), " @ ",
+    TORCH_CHECK(mat1.dim() == 2 && mat2.dim() == 2, "tt-crank aten::addmm: mat1/mat2 must be 2D");
+    TORCH_CHECK(mat1.size(1) == mat2.size(0), "tt-crank aten::addmm: shape mismatch: ", mat1.sizes(), " @ ",
                 mat2.sizes());
 
     const auto [a_in, b_in, bias_in] = align_on_tt(mat1, mat2, self);
@@ -74,7 +74,7 @@ at::Tensor tt_addmm(const at::Tensor &self, const at::Tensor &mat1, const at::Te
 
 at::Tensor tt_matmul(const at::Tensor &self_in, const at::Tensor &mat2_in) {
     const auto [a_in, b_in] = align_on_tt(self_in, mat2_in);
-    TORCH_CHECK(a_in.dim() >= 2 && b_in.dim() >= 2, "tt-kurbla aten::matmul: inputs must be at least 2D");
+    TORCH_CHECK(a_in.dim() >= 2 && b_in.dim() >= 2, "tt-crank aten::matmul: inputs must be at least 2D");
 
     auto mb = ModuleBuilder::init({spec_for(a_in), spec_for(b_in)});
     auto [promoted, a, b] = promote_inputs(mb, a_in, b_in);
@@ -91,10 +91,10 @@ at::Tensor tt_matmul(const at::Tensor &self_in, const at::Tensor &mat2_in) {
 
 at::Tensor tt_bmm(const at::Tensor &self_in, const at::Tensor &mat2_in) {
     const auto [a_in, b_in] = align_on_tt(self_in, mat2_in);
-    TORCH_CHECK(a_in.dim() == 3 && b_in.dim() == 3, "tt-kurbla aten::bmm: inputs must be 3D");
-    TORCH_CHECK(a_in.size(0) == b_in.size(0), "tt-kurbla aten::bmm: batch size mismatch: ", a_in.size(0), " vs ",
+    TORCH_CHECK(a_in.dim() == 3 && b_in.dim() == 3, "tt-crank aten::bmm: inputs must be 3D");
+    TORCH_CHECK(a_in.size(0) == b_in.size(0), "tt-crank aten::bmm: batch size mismatch: ", a_in.size(0), " vs ",
                 b_in.size(0));
-    TORCH_CHECK(a_in.size(2) == b_in.size(1), "tt-kurbla aten::bmm: shape mismatch: ", a_in.sizes(), " @ ",
+    TORCH_CHECK(a_in.size(2) == b_in.size(1), "tt-crank aten::bmm: shape mismatch: ", a_in.sizes(), " @ ",
                 b_in.sizes());
 
     auto mb = ModuleBuilder::init({spec_for(a_in), spec_for(b_in)});
@@ -144,7 +144,7 @@ at::Tensor tt_linear(const at::Tensor &input_in, const at::Tensor &weight_in,
                      const std::optional<at::Tensor> &bias_in) {
     if (bias_in.has_value() && bias_in->defined()) {
         const auto [i_in, w_in, b_in] = align_on_tt(input_in, weight_in, *bias_in);
-        TORCH_CHECK(w_in.dim() == 2, "tt-kurbla aten::linear: weight must be 2D");
+        TORCH_CHECK(w_in.dim() == 2, "tt-crank aten::linear: weight must be 2D");
         auto mb = ModuleBuilder::init({spec_for(i_in), spec_for(w_in), spec_for(b_in)});
         auto [promoted, i, w, b] = promote_inputs(mb, i_in, w_in, b_in);
         auto result = build_linear(mb, i, w, b);
@@ -156,7 +156,7 @@ at::Tensor tt_linear(const at::Tensor &input_in, const at::Tensor &weight_in,
     }
 
     const auto [i_in, w_in] = align_on_tt(input_in, weight_in);
-    TORCH_CHECK(w_in.dim() == 2, "tt-kurbla aten::linear: weight must be 2D");
+    TORCH_CHECK(w_in.dim() == 2, "tt-crank aten::linear: weight must be 2D");
     auto mb = ModuleBuilder::init({spec_for(i_in), spec_for(w_in)});
     auto [promoted, i, w] = promote_inputs(mb, i_in, w_in);
     auto result = build_linear(mb, i, w, mlir::Value{});
@@ -175,7 +175,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> tt_linear_backward(const at::Tens
                                                                   const at::Tensor &weight_in,
                                                                   ::std::array<bool, 3> mask) {
     const auto [s_in, g_in, w_in] = align_on_tt(self_in, grad_in, weight_in);
-    TORCH_CHECK(w_in.dim() == 2, "tt-kurbla aten::linear_backward: weight must be 2D");
+    TORCH_CHECK(w_in.dim() == 2, "tt-crank aten::linear_backward: weight must be 2D");
 
     auto mb = ModuleBuilder::init({spec_for(s_in), spec_for(g_in), spec_for(w_in)});
     auto [promoted, s, g, w] = promote_inputs(mb, s_in, g_in, w_in);
@@ -230,4 +230,4 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("matmul_backward", TORCH_FN(tt_matmul_backward));
 }
 
-} // namespace tt::kurbla::torch_backend
+} // namespace tt::crank::torch_backend

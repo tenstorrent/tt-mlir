@@ -12,11 +12,11 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 
-namespace tt::kurbla {
+namespace tt::crank {
 
 namespace {
 
-// Maps the kurbla-facing block-float dtype enum to tt-mlir's BFPDtype.
+// Maps the crank-facing block-float dtype enum to tt-mlir's BFPDtype.
 mlir::tt::ttnn::BFPDtype to_bfp_dtype(CompileOptions::BfpDtype dtype) {
     switch (dtype) {
         case CompileOptions::BfpDtype::BfpBf8:
@@ -27,7 +27,7 @@ mlir::tt::ttnn::BFPDtype to_bfp_dtype(CompileOptions::BfpDtype dtype) {
     return mlir::tt::ttnn::BFPDtype::None;
 }
 
-// Maps the kurbla-facing math fidelity enum to tt-mlir's OptionalMathFidelity.
+// Maps the crank-facing math fidelity enum to tt-mlir's OptionalMathFidelity.
 // TtnnDefault maps to Undefined (defer the per-op choice to ttnn).
 mlir::tt::ttnn::OptionalMathFidelity to_math_fidelity(CompileOptions::MathFidelity fidelity) {
     switch (fidelity) {
@@ -73,9 +73,9 @@ std::string CompileOptions::to_string() const {
     const auto opt_int = [](const std::optional<int> &v) { return v ? std::to_string(*v) : "none"; };
     const auto opt_str = [](const std::optional<std::string> &v) { return v ? *v : "none"; };
     const auto opt_bool = [](const std::optional<bool> &v) { return v ? (*v ? "true" : "false") : "none"; };
-    const auto opt_bfp = [](const std::optional<BfpDtype> &v) { return v ? tt::kurbla::to_string(*v) : "none"; };
+    const auto opt_bfp = [](const std::optional<BfpDtype> &v) { return v ? tt::crank::to_string(*v) : "none"; };
     const auto opt_fidelity = [](const std::optional<MathFidelity> &v) {
-        return v ? tt::kurbla::to_string(*v) : "none";
+        return v ? tt::crank::to_string(*v) : "none";
     };
 
     std::stringstream ss;
@@ -150,4 +150,4 @@ void CompileOptions::set_options_on(mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOpt
     }
 }
 
-} // namespace tt::kurbla
+} // namespace tt::crank
