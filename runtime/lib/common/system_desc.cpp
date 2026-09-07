@@ -13,11 +13,13 @@
 #include "types_generated.h"
 
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 #define FMT_HEADER_ONLY
 #include "hostdevcommon/common_values.hpp"
 #include "tt-metalium/allocator.hpp"
+#include "tt-metalium/tt_backend_api_types.hpp"
 #include "tt-metalium/hal.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/mesh_device.hpp"
@@ -176,19 +178,52 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
     // worker cores
     auto coordTranslationOffsets = getCoordinateTranslationOffsets(device);
 
-    // The following is temporary place-holder value to be replaced by API
-    // value.
-    std::vector<::tt::target::DataType> supportedDataTypesVector = {
-        ::tt::target::DataType::Float32,     ::tt::target::DataType::Float16,
-        ::tt::target::DataType::BFloat16,    ::tt::target::DataType::BFP_Float8,
-        ::tt::target::DataType::BFP_BFloat8, ::tt::target::DataType::BFP_Float4,
-        ::tt::target::DataType::BFP_BFloat4, ::tt::target::DataType::BFP_Float2,
-        ::tt::target::DataType::BFP_BFloat2, ::tt::target::DataType::UInt32,
-        ::tt::target::DataType::UInt16,      ::tt::target::DataType::UInt8,
-        ::tt::target::DataType::Int32};
+    // Ask tt-metal which formats this architecture actually supports, rather
+    // than reporting one hardcoded list for every arch.
+    //
+    // This used to be a fixed 13-entry list carrying every block-float and
+    // unsigned format, which is right for Wormhole/Blackhole and wrong for
+    // Quasar: `is_supported_quasar` excludes Bfp2/Bfp4/Bfp8 (and their _b
+    // variants), UInt16 and UInt32 -- Quasar's narrow formats are MX
+    // (microscaling), and its 32-bit formats are Float32/Int32. Advertising
+    // bf8_b on a Quasar descriptor makes every legality check downstream
+    // believe it is available, and the failure only surfaces much later as a
+    // tt-metal host format-validator throw.
+    //
+    // `toDataFormat` in common.h is deliberately not reused here: it covers
+    // only the subset the runtime needs elsewhere and LOG_FATALs on the rest,
+    // whereas this needs the full enumeration to ask about each one.
+    static constexpr std::pair<::tt::target::DataType, ::tt::DataFormat>
+        kAllDataTypes[] = {
+            {::tt::target::DataType::Float32, ::tt::DataFormat::Float32},
+            {::tt::target::DataType::Float16, ::tt::DataFormat::Float16},
+            {::tt::target::DataType::BFloat16, ::tt::DataFormat::Float16_b},
+            {::tt::target::DataType::BFP_Float8, ::tt::DataFormat::Bfp8},
+            {::tt::target::DataType::BFP_BFloat8, ::tt::DataFormat::Bfp8_b},
+            {::tt::target::DataType::BFP_Float4, ::tt::DataFormat::Bfp4},
+            {::tt::target::DataType::BFP_BFloat4, ::tt::DataFormat::Bfp4_b},
+            {::tt::target::DataType::BFP_Float2, ::tt::DataFormat::Bfp2},
+            {::tt::target::DataType::BFP_BFloat2, ::tt::DataFormat::Bfp2_b},
+            {::tt::target::DataType::UInt32, ::tt::DataFormat::UInt32},
+            {::tt::target::DataType::UInt16, ::tt::DataFormat::UInt16},
+            {::tt::target::DataType::UInt8, ::tt::DataFormat::UInt8},
+            {::tt::target::DataType::Int32, ::tt::DataFormat::Int32},
+        };
+
+    std::vector<::tt::target::DataType> supportedDataTypesVector;
+    for (const auto &[dataType, dataFormat] : kAllDataTypes) {
+      if (::tt::is_data_format_supported(dataFormat, device->arch())) {
+        supportedDataTypesVector.push_back(dataType);
+      }
+    }
+    LOG_ASSERT(!supportedDataTypesVector.empty(),
+               "no supported data formats reported for this architecture");
 
     auto supportedDataTypes = fbb.CreateVector(supportedDataTypesVector);
 
+    // Still a placeholder: tt-metal exposes no per-arch tile-size query to ask.
+    // Unlike the formats above, guessing here would be worse than reporting the
+    // common set, so this stays until such an API exists.
     std::vector<::tt::target::Dim2d> supportedTileSizesVector = {
         ::tt::target::Dim2d(4, 16),  ::tt::target::Dim2d(16, 16),
         ::tt::target::Dim2d(32, 16), ::tt::target::Dim2d(4, 32),
@@ -228,6 +263,11 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
       // QSR DM cores: 6 programmable v.s. 8 physical.
       kNumDatamovementThreads = 6;
     }
+    // NUM_CIRCULAR_BUFFERS is a compile-time constant sized for array
+    // allocation, not the device limit: it is 32 only under the device-side
+    // ARCH_WORMHOLE define and 64 for every host build, so reporting it made a
+    // live Wormhole descriptor claim 64 CBs. circular_buffer_constants.h says
+    // outright to use the HAL query instead, which is arch-correct.
     chipDescs.emplace_back(::tt::target::CreateChipDesc(
         fbb, toFlatbuffer(device->arch()), &deviceGrid,
         &coordTranslationOffsets, device->l1_size_per_core(),
@@ -235,7 +275,9 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
         l1Alignment, pcieAlignment, dramAlignment, l1UnreservedBase,
         ::tt::tt_metal::hal::get_erisc_l1_unreserved_base(), dramUnreservedBase,
         dramUnreservedEnd, supportedDataTypes, supportedTileSizes,
-        kDstPhysicalSizeTiles, NUM_CIRCULAR_BUFFERS, kNumComputeThreads,
+        kDstPhysicalSizeTiles,
+        ::tt::tt_metal::hal::get_arch_num_circular_buffers(),
+        kNumComputeThreads,
         kNumDatamovementThreads, &dramGridSize,
         fbb.CreateVectorOfStructs(dramBankToLogicalWorkerNoc0),
         fbb.CreateVectorOfStructs(dramBankToLogicalWorkerNoc1)));

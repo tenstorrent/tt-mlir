@@ -82,18 +82,21 @@ createDefaultQuasarSystemDesc(mlir::MLIRContext *context,
   // device reports no assignment for either NoC. Quasar also has a single NoC.
   llvm::SmallVector<CoreCoordAttr> dramBankToLogicalWorker = {};
 
+  // Quasar's format set, mirroring tt-metal's `is_supported_quasar`
+  // (tt_metal/common/tt_backend_api_types.cpp). This is deliberately NOT the
+  // Wormhole list: Quasar has no block-float (Bfp2/Bfp4/Bfp8 and their _b
+  // variants) -- its narrow formats are MX/microscaling -- and no unsigned
+  // 16/32-bit device format, its 32-bit formats being Float32 and Int32.
+  //
+  // Keep this in agreement with the live builder in
+  // runtime/lib/common/system_desc.cpp, which now derives the same answer by
+  // querying `tt::is_data_format_supported(format, arch)`. Anything wider here
+  // makes downstream legality checks believe a format is available on Quasar
+  // and defers the failure to a tt-metal host format-validator throw.
   llvm::SmallVector<DataTypeAttr> supported_data_types = {
       DataTypeAttr::get(context, DataType::Float32),
       DataTypeAttr::get(context, DataType::Float16),
       DataTypeAttr::get(context, DataType::BFloat16),
-      DataTypeAttr::get(context, DataType::BFP_Float8),
-      DataTypeAttr::get(context, DataType::BFP_BFloat8),
-      DataTypeAttr::get(context, DataType::BFP_Float4),
-      DataTypeAttr::get(context, DataType::BFP_BFloat4),
-      DataTypeAttr::get(context, DataType::BFP_Float2),
-      DataTypeAttr::get(context, DataType::BFP_BFloat2),
-      DataTypeAttr::get(context, DataType::UInt32),
-      DataTypeAttr::get(context, DataType::UInt16),
       DataTypeAttr::get(context, DataType::UInt8),
       DataTypeAttr::get(context, DataType::Int32),
   };
