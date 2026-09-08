@@ -41,7 +41,7 @@ def check_op(mlir_file: str, op_name: str) -> bool:
     "stride,padding,dilation,groups", [([2, 1], [2, 1], [2, 1], 2)]
 )
 @pytest.mark.parametrize("dimension", [1])  # channel dimension for NCHW format
-@pytest.mark.parametrize("epsilon", [0.0])
+@pytest.mark.parametrize("epsilon", [1e-5])
 def test_batch_norm_decomposition(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
