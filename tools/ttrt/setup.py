@@ -70,10 +70,10 @@ install_requires = load_requirements("requirements.txt")
 # Add platform-specific torch requirement
 if platform.system() == "Linux":
     install_requires.append(
-        "torch @ https://download.pytorch.org/whl/cpu/torch-2.9.1%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl"
+        "torch @ https://download.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl"
     )
 elif platform.system() == "Darwin":
-    install_requires.append("torch==2.9.1")
+    install_requires.append("torch==2.10.0")
 
 if enable_ttnn:
     runlibs += ["_ttnncpp.so"]
