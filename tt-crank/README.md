@@ -1,123 +1,92 @@
 # tt-crank
 
-> **Import note.** This project (formerly `tt-kurbla`) was imported into
-> tt-mlir with its full git history from the standalone repository
-> [`pilkicTT/tt-kurbla`](https://github.com/pilkicTT/tt-kurbla) (now private).
-> The standalone build instructions below no longer apply, and the subproject
-> is not yet buildable in-tree; build integration follows.
+Compiler & runtime frontend for `tt-mlir`
 
-Compiler & runtime frontend for Tenstorrent hardware. POC.
-
-See [`architecture-overview.md`](architecture-overview.md) for the high-level design goals and the plan.
+This is an experimental project which provides a thin frontend layer (enabling easier integration with `tt-mlir`) along with implementation of a torch backend (and possibly other integrations as well).
 
 ## Prerequisites
 
-- Linux (x86_64)
-- CMake ≥ 3.24, Ninja
-- clang ≥ 20 via the tt-mlir toolchain (built / activated by `env/activate`)
-- `ccache` (optional — used automatically if on `PATH`)
+`tt-crank` is a subproject of `tt-mlir` - so everything `tt-mlir` requires is a pre-requisite.
 
-## First-time setup
+We reuse the same python virtual environment as `tt-mlir`.
 
-The first build builds the LLVM/MLIR toolchain that `tt-mlir` depends on — multi-GB, ~30 min, **once per machine**.
+## Build & test
 
-```sh
-git clone --recurse-submodules <repo> tt-crank
-cd tt-crank
-source venv/activate
-./scripts/build
-```
-
-## Daily build & test
+Everything runs from the tt-mlir root:
 
 ```sh
-./scripts/build [preset]     # configure + build (default: debug)
-./scripts/test [sim]         # run tests against the current build
+source env/activate
+cmake -G Ninja -B build -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTTMLIR_ENABLE_CRANK=ON
+cmake --build build
+./tt-crank/scripts/test          # C++ unit tests on a device
+./tt-crank/scripts/test sim      # … routed through ttsim
 ```
+
+`-DTTMLIR_ENABLE_CRANK=ON` adds `tt-crank/` to tt-mlir's build graph and auto-enables what it depends on, e.g. `TTMLIR_ENABLE_RUNTIME`, `TTMLIR_ENABLE_OPMODEL`, etc.
+
+To run C++ unit tests you can use the following script:
 
 ```sh
-# Or, with the env already activated in your shell:
-cmake --preset <preset>
-cmake --build --preset <preset>
+./tt-crank/scripts/test
 ```
-
-Pass `--help` to either script for full usage.
-
-## Preset cheat sheet
-
-| Preset    | Build type     | Compiler | Extras                                       |
-|---        |---             |---       |---                                           |
-| `debug`   | Debug          | clang    | Default preset                               |
-| `release` | Release        | clang    |                                              |
-| `san`     | RelWithDebInfo | clang    | ASan + UBSan on first-party code (tt-mlir unsanitized) |
-
-Build directories are created as `build_<preset>/`. `scripts/build` symlinks `build/` to the most recently built preset, which is what `scripts/test` uses.
 
 ### Running through ttsim
 
-Every build already stages `tenstorrent/ttsim` alongside its SoC descriptor — no separate configure flag. Pass `sim` to `scripts/test` to route the runtime through the simulator:
+Every build stages `tenstorrent/ttsim` next to its SoC descriptor under `build/tt-crank/ttsim_home/` — no separate configure flag. Pass `sim` to `scripts/test` to route the runtime through the simulator:
 
 ```sh
-./scripts/build                # build (debug preset)
-./scripts/test sim             # run tests via ttsim
-./scripts/test sim -- -R EngineCompileTest   # filter tests + ttsim
+./tt-crank/scripts/test sim                                            # run tests via ttsim
+./tt-crank/scripts/test sim -- --gtest_filter='EngineCompileTest.*'    # filter tests + ttsim
 ```
 
-`TT_CRANK_USE_SIMULATOR=1` is the underlying switch — set it directly to use ttsim with any other runner (Python extension, manual binary invocation, etc.).
+`TT_CRANK_USE_SIMULATOR=1` is the underlying switch, so it can be set directly to use ttsim in any other circumstance (Python extension, manual binary invocation, etc.).
 
-Override the source tree of `tt-mlir` without editing the submodule:
+## Python package
+
+We support both editable and wheel installation.
+
+Use:
+```sh
+./tt-crank/scripts/install-py
+```
+
+to install the editable (dev) package.
+
+**NOTE:** the editable installation is required for running tests/benchmarks.
+
+### Wheel
+
+To build a self-contained wheel, run from the `tt-mlir` root:
 
 ```sh
-cmake --preset debug -DTTMLIR_SOURCE_DIR_OVERRIDE=/path/to/sibling/tt-mlir
+pip wheel tt-crank/ --no-build-isolation --no-deps -w dist/
+# or
+uv build --wheel --no-build-isolation tt-crank/ -o dist/
 ```
 
-## Building a wheel
-
-```sh
-uv build --wheel                                       # → dist/tt_crank-0.1.0-cp312-cp312-linux_x86_64.whl
-pip wheel . --no-build-isolation --no-deps -w dist/     # same, via pip
-```
-
-The wheel bundles the native stack but not the SFPI toolchain, which is installed once per machine instead:
-
-```sh
-tt-crank-install-sfpi        # provisions /opt/tenstorrent/sfpi; prompts for sudo
-```
-
-### Installing the wheel
-
-```sh
-uv pip install dist/tt_crank-*.whl
-pip install dist/tt_crank-*.whl      # same, via pip
-
-tt-crank-install-sfpi                # then, once per machine (prompts for sudo)
-```
+The build requirements come with the dev requirements (installed by `install-py`). `tt-mlir` is configured and built separately in `tt-crank/build_wheel`, so the dev build is untouched. The wheel installs into any Python 3.12 environment with `pip install dist/tt_crank-*.whl`; the target machine needs `sfpi` (`tt-crank-install-sfpi` installs it) and tt-metal's system dependencies.
 
 ## Python tests
 
-The Python test suite lives in `tests/python/` and runs with pytest. The build must exist first (`./scripts/build`), as pytest imports the compiled `tt_crank` extension.
+The Python test suite lives in `tests/python/` and runs with pytest from `tt-crank/`. It imports the compiled `tt_crank` extension, so the Python package has to be installed first (see above).
+
+Some examples of running tests with different options:
 
 ```sh
-source venv/activate
-pytest tests/python/                  # run all Python tests
-pytest tests/python/ --sim            # route through ttsim
-pytest tests/python/ -k test_device   # filter by name
-pytest tests/python/op_tests/         # run a subdirectory only
+pytest tt-crank/tests/python/                  # run all Python tests
+pytest tt-crank/tests/python/ --sim            # route through ttsim
 ```
-
-`--sim` sets `TT_CRANK_USE_SIMULATOR=1` before the extension is loaded. It is equivalent to setting the variable manually, but must be passed as a pytest flag (not an env var) because the extension reads it in a static initializer at import time — before pytest option parsing runs.
 
 ## Benchmarks
 
 Benchmarks live under `tests/python/benchmarks/` and run as a pytest target. The benchmark-only CLI flags are registered by `tests/python/benchmarks/conftest.py`, so you have to invoke pytest at-or-below that directory for them to be recognized.
 
 ```sh
-pytest tests/python/                                   # sanity suite (this is what CI runs)
-pytest tests/python/benchmarks/                        # run all benchmarks
-pytest tests/python/benchmarks/test_mnist_linear.py    # one benchmark
+pytest tt-crank/tests/python/benchmarks/                        # run all benchmarks
+pytest tt-crank/tests/python/benchmarks/test_mnist_linear.py    # one benchmark
 ```
 
-The `benchmarks/` directory is in `norecursedirs` (`pytest.ini`), so plain `pytest tests/python` skips it during collection. Targeting a path inside `tests/python/benchmarks/` overrides that — pytest always collects from paths passed on the CLI.
+**NOTE:** The `benchmarks/` directory is in `norecursedirs` (in `pytest.ini`), so plain `pytest tests/python` skips it during collection. Pytest will collect them once you run target the `benchmarks/` or it sub-dirs.
 
 Flags (defaults shown):
 
@@ -128,25 +97,13 @@ Flags (defaults shown):
 | `--iters=N` | `20` | Timed iterations per benchmark |
 | `--cpu-baseline` | off | Time the same model on CPU for a comparison row |
 | `--accuracy` | off | Build a CPU reference and emit `pcc_before_warmup` / `pcc_after_warmup` |
-| `--benchmark-json=PATH` | `benchmark_results.json` | Per-test JSON output for CI ingestion |
+| `--benchmark-json=PATH` | `.data/benchmark_results.json` | Per-test JSON output for CI ingestion |
 | `--profiler` | off | Capture a `torch.profiler` Chrome trace per benchmark (open in `chrome://tracing` or Perfetto) |
-| `--profile-dir=DIR` | `./profile_data` | Where `--profiler` writes its traces |
+| `--profile-dir=DIR` | `.data/profile_data` | Where `--profiler` writes its traces |
 | `--llm-batch-size=N` | `32` | Batch size for the LLM decode benchmark |
 | `--llm-max-output-tokens=N` | fill 128-slot cache | Override the generate-step count; small values for smoke runs |
 
 Results print as one card per test at session end, with `total_ms`, `iter_mean_ms`, `samples_per_sec` for CNN/prefill workloads and `ttft_ms`, `itl_p50_ms`, `itl_p95_ms`, `tokens_per_sec` for the decode benchmark. The same data lands in `--benchmark-json` keyed on `measurement_name`.
-
-```sh
-# typical run on real silicon
-pytest tests/python/benchmarks/ --mode=eager --warmup=5 --iters=50
-
-# under sim, with accuracy + cpu baseline for the workloads that can run
-pytest tests/python/benchmarks/ --sim --accuracy --cpu-baseline
-
-# capture a torch.profiler trace per benchmark for kernel-level inspection
-pytest tests/python/benchmarks/ --profiler                       # → ./profile_data/
-pytest tests/python/benchmarks/ --profiler --profile-dir=./traces
-```
 
 The runners emit Tracy signposts — named timestamps in the captured trace — at every phase boundary, so a post-run `tt-perf-report` invocation can slice the device-side perf for one phase (e.g. just the decode steps, or just the drain) instead of the whole region. The signposts are emitted unconditionally; if Tracy isn't loaded into the process they become no-ops.
 
@@ -164,28 +121,6 @@ LLM generate loop (`run_llm_benchmark`) emits:
 - `decode_<i>_start` / `decode_<i>_end` for each step `i`
 - `end`
 
-## Layout
-
-```
-tt-crank/
-├── CMakeLists.txt
-├── CMakePresets.json
-├── cmake/                 # CompilerWarnings, Sanitizers, StaticAnalyzers, Cache, SystemIncludes
-├── scripts/
-│   ├── build              # configure + build wrapper
-│   └── test               # test runner wrapper (supports sim)
-├── src/                   # public + private headers + sources, by component
-│   ├── version.{hpp,cpp.in}
-│   └── engine/            # compile / runtime API (POC)
-├── tests/                 # unit tests, one file per src component
-├── third_party/
-│   ├── CMakeLists.txt     # ExternalProject_Add(tt-mlir), FetchContent(tt-logger)
-│   └── tt-mlir/           # submodule
-└── architecture-overview.md
-```
-
-Headers live alongside their `.cpp` under `src/<component>/...` — no separate `include/` tree. Internal/downstream callers include as `"engine/foo.hpp"`.
-
 ## Logging
 
 Logging uses [`tt-logger`](https://github.com/tenstorrent/tt-logger) (spdlog-based). Control it at runtime via environment variables:
@@ -198,29 +133,16 @@ Logging uses [`tt-logger`](https://github.com/tenstorrent/tt-logger) (spdlog-bas
 
 ```sh
 # Enable debug logging
-TT_LOGGER_LEVEL=debug ./scripts/test sim
+TT_LOGGER_LEVEL=debug ./tt-crank/scripts/test sim
 
 # Debug output to a file
-TT_LOGGER_LEVEL=debug TT_LOGGER_FILE=/tmp/crank.log ./scripts/test sim
+TT_LOGGER_LEVEL=debug TT_LOGGER_FILE=/tmp/crank.log ./tt-crank/scripts/test sim
 
 # Filter to specific subsystems
-TT_LOGGER_LEVEL=debug TT_LOGGER_TYPES=TTNN,Op ./scripts/test sim
+TT_LOGGER_LEVEL=debug TT_LOGGER_TYPES=TTNN,Op ./tt-crank/scripts/test sim
 
 # Show only tt-crank logs (suppress tt-mlir/tt-metal noise)
-TT_LOGGER_LEVEL=debug TT_LOGGER_TYPES=Always ./scripts/test sim
+TT_LOGGER_LEVEL=debug TT_LOGGER_TYPES=Always ./tt-crank/scripts/test sim
 ```
 
-`debug` log calls are compiled in only on `debug`/`san` builds — they are no-ops in `release`.
-
-## Dev tooling
-
-`venv/activate` sets up the project environment. Pre-commit hooks are installed on first `./scripts/build` run.
-
-```sh
-pre-commit run --all-files    # run all hooks across the tree
-pre-commit uninstall          # remove the git hook
-```
-
-## Status
-
-POC. See [`architecture-overview.md`](architecture-overview.md) for the design plan.
+`debug` log calls are compiled in only for `Debug` and `RelWithDebInfo` builds (the tt-mlir build's `CMAKE_BUILD_TYPE`) — they are no-ops in `Release`.

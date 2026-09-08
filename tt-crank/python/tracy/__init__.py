@@ -26,8 +26,8 @@ _original_path = Path(__file__).parent / "_original"
 if not _original_path.exists():
     raise RuntimeError(
         f"tracy._original symlink missing at {_original_path}. "
-        "Run a tt-crank build (./scripts/build) so the bundle-tracy target "
-        "creates it."
+        "Build tt-crank in-tree (cmake --build <tt-mlir>/build, configured with "
+        "-DTTMLIR_ENABLE_CRANK=ON) so the bundle-tracy target creates it."
     )
 
 # Install wrapper redirector.
