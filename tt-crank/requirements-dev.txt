@@ -1,5 +1,6 @@
 # Dev-only tooling. Runtime deps live in requirements.txt, which also feeds the
-# wheel's [project.dependencies]; `source venv/activate` installs both files.
+# wheel's [project.dependencies]. Both install into the toolchain venv that
+# tt-mlir's `env/activate` provides: `pip install -r <file>` after activating.
 pre-commit>=4.0,<5
 pytest
 # Pinned by direct URL to the CPU build, for the same reason as torch in

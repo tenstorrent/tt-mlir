@@ -9,8 +9,9 @@ The wheel does NOT bundle the SFPI RISC-V toolchain (GPLv3 GCC, ~436 MB) — the
 payload rules drop it, so tt-metal's kernel JIT falls through to
 ``/opt/tenstorrent/sfpi`` at runtime. This script provisions that: it reads the
 version pinned in ``tt_metal/sfpi-version`` of the resolved tt-metal tree (the
-wheel's copy, or the dev submodule), downloads the matching distro package from
-the sfpi GitHub releases, verifies its sha256, and installs it with the system
+wheel's copy, or the tt-mlir checkout's vendored tt-metal in development),
+downloads the matching distro package from the sfpi GitHub releases, verifies
+its sha256, and installs it with the system
 package manager (``apt``/``dnf``/``yum``/``zypper``).
 
 Run once after ``pip install tt-crank`` (needs sudo unless already root):

@@ -39,12 +39,6 @@ option(TT_CRANK_TRACY_ZONES
     "Compile Tracy zones into libtt_crank (TRACY_ENABLE + link libtracy)"
     ON)
 
-# Auto-source third_party/tt-mlir/env/activate so callers don't have to.
-# No-op if already activated (e.g. by scripts/build). Must run before
-# add_subdirectory(third_party), which checks $ENV{TTMLIR_TOOLCHAIN_DIR}.
-include(cmake/MlirEnv.cmake)
-
-include(cmake/Cache.cmake)
 include(cmake/CompilerOptions.cmake)
 include(cmake/Sanitizers.cmake)
 include(cmake/StaticAnalyzers.cmake)

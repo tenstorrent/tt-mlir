@@ -17,7 +17,8 @@
 #   ./scripts/test
 #   ./scripts/test sim -- --gtest_filter='EngineCompileTest.*'
 #
-# Expects the build to already exist. Run ./scripts/build first.
+# Expects the build to already exist: configure tt-mlir with
+# -DTTMLIR_ENABLE_CRANK=ON and run `cmake --build build` from the tt-mlir root.
 
 set -euo pipefail
 
@@ -51,7 +52,7 @@ BUILD_DIR="$REPO_DIR/build"
 TEST_BIN="$BUILD_DIR/tests/tt_crank_unit_tests"
 
 if [[ ! -x "$TEST_BIN" ]]; then
-    echo "error: test binary '$TEST_BIN' not found — run ./scripts/build first" >&2
+    echo "error: test binary '$TEST_BIN' not found — build tt-mlir with -DTTMLIR_ENABLE_CRANK=ON first" >&2
     exit 1
 fi
 

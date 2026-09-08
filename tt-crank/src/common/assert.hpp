@@ -12,9 +12,10 @@
 //
 //  TT_THROW -> always throws exception with condition, location and backtrace.
 //
-//  Environment variables:
-//  TT_CRANK_DISABLE_BACKTRACE -> disables backtrace.
-//  TT_CRANK_ASSERT_ABORT -> forces abort instead of throw.
+//  Environment variables (declared in config.hpp; being set to any value is
+//  what counts):
+//  TT_CRANK_BACKTRACE_DISABLED -> disables backtrace.
+//  TT_CRANK_ASSERT_ABORT_ENABLED -> forces abort instead of throw.
 //
 //  This header is taken from tt-metal repo and slightly modified.
 #pragma once

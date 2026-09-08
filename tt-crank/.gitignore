@@ -8,9 +8,7 @@
 
 /.cpmcache/
 
-# Python venv (dev tooling — pre-commit, etc.)
-/venv/*
-!/venv/activate
+# Python
 __pycache__/
 
 # Compile commands (when symlinked or copied into source tree)
