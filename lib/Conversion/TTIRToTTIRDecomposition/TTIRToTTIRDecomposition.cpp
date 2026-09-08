@@ -1288,6 +1288,71 @@ public:
 } // namespace
 
 //===----------------------------------------------------------------------===//
+// RMSNorm forward decomposition pattern
+//===----------------------------------------------------------------------===//
+
+// ttml::metal::rmsnorm_fw only accepts rank-4 tensors. Normalize the
+// composite signature while preserving a valid decomposition fallback.
+namespace {
+struct RMSNormForwardPattern : public OpConversionPattern<ttcore::CompositeOp> {
+public:
+  using OpConversionPattern<ttcore::CompositeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttcore::CompositeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (op.getCompositeName() != "rmsnorm_fw") {
+      return failure();
+    }
+
+    auto isRank4 = [](Value value) {
+      return cast<RankedTensorType>(value.getType()).getRank() == 4;
+    };
+    if (llvm::all_of(adaptor.getInputs(), isRank4) &&
+        llvm::all_of(op.getResults(), isRank4)) {
+      return rewriter.notifyMatchFailure(op, "already 4D");
+    }
+
+    Location loc = op.getLoc();
+    SmallVector<Value> inputs4D;
+    for (Value input : adaptor.getInputs()) {
+      inputs4D.push_back(reshapeToRank4IfNeeded(rewriter, loc, input));
+    }
+
+    SmallVector<Type> resultTypes4D;
+    for (Type type : op.getResultTypes()) {
+      auto tensorType = cast<RankedTensorType>(type);
+      SmallVector<int64_t, 4> shape4D;
+      if (tensorType.getRank() == 4) {
+        shape4D.assign(tensorType.getShape().begin(),
+                       tensorType.getShape().end());
+      } else {
+        shape4D = collapseShapeToRank4(tensorType.getShape());
+      }
+      resultTypes4D.push_back(RankedTensorType::get(
+          shape4D, tensorType.getElementType(), tensorType.getEncoding()));
+    }
+
+    auto decomposition = createRank4DecompositionWrapper(
+        op, TypeRange(inputs4D), resultTypes4D, rewriter);
+    auto rmsNorm4D = rewriter.create<ttcore::CompositeOp>(
+        loc, resultTypes4D, inputs4D, op.getCompositeNameAttr(), decomposition,
+        op.getCompositeAttributesAttr());
+
+    SmallVector<Value> restored;
+    for (auto [result4D, originalType] :
+         llvm::zip(rmsNorm4D.getResults(), op.getResultTypes())) {
+      restored.push_back(
+          reshapeValue(rewriter, loc, result4D,
+                       cast<RankedTensorType>(originalType).getShape()));
+    }
+    rewriter.replaceOp(op, restored);
+    return success();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
 // LayerNorm forward decomposition pattern
 //===----------------------------------------------------------------------===//
 
@@ -2572,6 +2637,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<AdamWPattern>(typeConverter, ctx);
   patterns.add<SDPAForwardPattern>(typeConverter, ctx);
   patterns.add<SDPABackwardPattern>(typeConverter, ctx);
+  patterns.add<RMSNormForwardPattern>(typeConverter, ctx);
   patterns.add<LayerNormForwardPattern>(typeConverter, ctx);
   patterns.add<CrossEntropyForwardPattern>(typeConverter, ctx);
   patterns.add<CrossEntropyBackwardPattern>(typeConverter, ctx);

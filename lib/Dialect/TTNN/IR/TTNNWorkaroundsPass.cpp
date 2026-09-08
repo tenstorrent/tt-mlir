@@ -1262,6 +1262,36 @@ TTNNOperandsWorkaroundsFactory::createSDPABackwardOpOperandsWorkarounds(
   return operandsWorkaround;
 }
 
+// Create workarounds for the ttml rmsnorm_fw op. The backing metal op
+// (ttml::metal::rmsnorm_fw) requires every tensor it touches to be bf16,
+// tiled and interleaved in DRAM.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createRMSNormForwardOpOperandsWorkarounds(
+    Operation *op) {
+  TTNNOperandWorkarounds tileDramBf16;
+  tileDramBf16.tensorLayoutWorkaround = Layout::Tile;
+  tileDramBf16.tensorBufferTypeWorkaround = BufferType::DRAM;
+  tileDramBf16.tensorMemoryLayoutWorkaround = TensorMemoryLayoutAttr::get(
+      op->getContext(), TensorMemoryLayout::Interleaved);
+  tileDramBf16.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  // Input, gamma and output
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+          .addInputOperandWorkaround(tileDramBf16)
+          .addInputOperandWorkaround(tileDramBf16)
+          .addOutputOperandWorkaround(tileDramBf16);
+
+  auto rmsNormForwardOp = cast<RMSNormForwardOp>(op);
+  if (rmsNormForwardOp.getRms()) {
+    // RMS
+    operandsWorkaround =
+        operandsWorkaround.addOutputOperandWorkaround(tileDramBf16);
+  }
+
+  return operandsWorkaround;
+}
+
 // Create workarounds for the ttml layernorm_fw op. The backing metal op
 // (ttml::metal::layernorm_fw) requires every tensor it touches to be bf16,
 // tiled and interleaved in DRAM (see the TT_FATALs in
