@@ -5,7 +5,9 @@
 module {
   func.func @cross_entropy_fw(%input: tensor<4x1x32x64xbf16>, %target: tensor<4x32xui32>)
       -> tensor<4x1x32x1xbf16> {
-    // CHECK: "ttir.cross_entropy_fw"
+    // CHECK: "ttcore.composite"
+    // CHECK-SAME: composite_name = "cross_entropy_fw"
+    // CHECK-SAME: decomposition = @tenstorrent.cross_entropy_fw.impl
     // CHECK-SAME: (tensor<4x1x32x64xbf16>, tensor<4x32xui32>) -> tensor<4x1x32x1xbf16>
     // CHECK-NOT: stablehlo.composite
     %0 = stablehlo.composite "tenstorrent.cross_entropy_fw" %input, %target {
