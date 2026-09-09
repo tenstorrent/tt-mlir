@@ -4,10 +4,6 @@
 #
 # Run tt-crank unit tests against an existing build.
 #
-# Runs the gtest binary directly rather than going through ctest: gtest already
-# reports each test by name with its own timing, and ctest would only add a second
-# registration layer that hides that output unless run with -V.
-#
 # Arguments:
 #   sim              Route the runtime through ttsim (sets TT_CRANK_USE_SIMULATOR=1).
 #   -- <gtest-args>  Extra flags forwarded verbatim to the test binary.
@@ -22,7 +18,7 @@
 
 set -euo pipefail
 
-REPO_DIR=$(realpath "$(dirname "${BASH_SOURCE[0]}")"/..)
+REPO_DIR=$(realpath "$(dirname "${BASH_SOURCE[0]}")"/../../)
 
 SIM=0
 EXTRA_ARGS=()
@@ -49,7 +45,7 @@ for arg in "$@"; do
 done
 
 BUILD_DIR="$REPO_DIR/build"
-TEST_BIN="$BUILD_DIR/tests/tt_crank_unit_tests"
+TEST_BIN="$BUILD_DIR/tt-crank/tests/tt_crank_unit_tests"
 
 if [[ ! -x "$TEST_BIN" ]]; then
     echo "error: test binary '$TEST_BIN' not found — build tt-mlir with -DTTMLIR_ENABLE_CRANK=ON first" >&2
