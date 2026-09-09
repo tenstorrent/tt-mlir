@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=8388608" -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-reblock-generics "--d2m-allocate=test-assume-l1-capacity=8388608" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // This test verifies that when reblockGenerics creates a view on a generic's output,
@@ -28,13 +28,16 @@ module {
   // NOT between the generic and the restoring view_layout.
   //
   // CHECK: d2m.view_layout
+  // CHECK: d2m.view_layout
+  // CHECK: d2m.view_layout %[[OUT_ALLOC:[A-Za-z0-9_]+]]
   // CHECK: d2m.generic {block_factors = [2, 1]
   //
   // Between the generic closing brace and the restoring view_layout,
   // there must NOT be a memref.dealloc of the output's underlying alloc.
   // CHECK: }
-  // CHECK-NOT: memref.dealloc
+  // CHECK-NOT: memref.dealloc %[[OUT_ALLOC]]
   // CHECK: d2m.view_layout
+  // CHECK: memref.dealloc %[[OUT_ALLOC]]
   func.func @reblock_dealloc_order() {
     %lhs = memref.alloc() : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
     %rhs = memref.alloc() : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>

@@ -4,13 +4,15 @@
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/Interfaces/InferIntRangeInterface.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
+
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/InferIntRangeInterface.h"
 
 #include <limits>
 
@@ -18,6 +20,65 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.cpp.inc"
 
 namespace mlir::tt::ttkernel {
+
+void ComputeKernelHWStartupOp::print(::mlir::OpAsmPrinter &printer) {
+  printer << "(" << getIcb0();
+  if (getIcb1()) {
+    printer << ", " << getIcb1();
+  }
+  printer << ", " << getOcb() << ")";
+  printer.printOptionalAttrDict((*this)->getAttrs());
+  printer << " : ";
+  printer.printFunctionalType(getOperation()->getOperandTypes(),
+                              getOperation()->getResultTypes());
+}
+
+::mlir::ParseResult
+ComputeKernelHWStartupOp::parse(::mlir::OpAsmParser &parser,
+                                ::mlir::OperationState &result) {
+  SmallVector<OpAsmParser::UnresolvedOperand, 3> operands;
+  OpAsmParser::UnresolvedOperand operand;
+
+  if (parser.parseLParen() || parser.parseOperand(operand)) {
+    return failure();
+  }
+  operands.push_back(operand);
+
+  while (succeeded(parser.parseOptionalComma())) {
+    if (parser.parseOperand(operand)) {
+      return failure();
+    }
+    operands.push_back(operand);
+  }
+
+  if (operands.size() != 2 && operands.size() != 3) {
+    return parser.emitError(parser.getNameLoc()) << "expected 2 or 3 operands";
+  }
+
+  if (parser.parseRParen() || parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColon()) {
+    return failure();
+  }
+
+  FunctionType functionType;
+  if (parser.parseType(functionType)) {
+    return failure();
+  }
+
+  ArrayRef<Type> operandTypes = functionType.getInputs();
+  if (operandTypes.size() != operands.size()) {
+    return parser.emitError(parser.getNameLoc())
+           << "expected " << operands.size() << " operand types";
+  }
+
+  result.addTypes(functionType.getResults());
+  if (parser.resolveOperands(operands, operandTypes, parser.getNameLoc(),
+                             result.operands)) {
+    return failure();
+  }
+
+  return success();
+}
 
 static bool insideEnqueueProgramOpRegion(mlir::Operation *op) {
   mlir::Operation *parentOp = op->getParentOp();
@@ -303,17 +364,44 @@ static bool isSFPUReduceDataFormatSupported(ttcore::DataType dt) {
   }
   return success();
 }
-::mlir::LogicalResult ResetNocTridBarrierCounterOp::verify() {
-  Value noc = getNoc();
-  if (noc) {
-    auto nocValue = getConstantIntValue(noc);
-    constexpr int32_t kNumNocs =
-        TTKernelTridNocOpTrait<ResetNocTridBarrierCounterOp>::kNumNocs;
-    if (nocValue && (*nocValue < 0 || *nocValue >= kNumNocs)) {
-      return emitOpError() << "noc must be in [0, " << (kNumNocs - 1) << "].";
-    }
+static ::mlir::LogicalResult verifyNocAsyncAddressMode(Operation *op,
+                                                       OperandRange core,
+                                                       OperandRange bankId) {
+  if (core.empty() == bankId.empty()) {
+    return op->emitOpError("must specify exactly one NoC address mode");
+  }
+  if (!core.empty() && core.size() != 2) {
+    return op->emitOpError("core address mode requires x and y coordinates");
+  }
+  if (!bankId.empty() && bankId.size() != 1) {
+    return op->emitOpError("bank address mode requires one bank id");
   }
   return success();
+}
+
+::mlir::LogicalResult NocAsyncReadOp::verify() {
+  return verifyNocAsyncAddressMode(getOperation(), getSrcCoreXY(),
+                                   getSrcBankId());
+}
+
+::mlir::LogicalResult NocAsyncWriteOp::verify() {
+  return verifyNocAsyncAddressMode(getOperation(), getDstCoreXY(),
+                                   getDstBankId());
+}
+
+::mlir::LogicalResult NocAsyncReadOnePacketSetStateOp::verify() {
+  return verifyNocAsyncAddressMode(getOperation(), getSrcCoreXY(),
+                                   getSrcBankId());
+}
+
+::mlir::LogicalResult NocAsyncReadOnePacketWithStateOp::verify() {
+  return verifyNocAsyncAddressMode(getOperation(), getSrcCoreXY(),
+                                   getSrcBankId());
+}
+
+::mlir::LogicalResult NocAsyncWriteOnePacketWithTridOp::verify() {
+  return verifyNocAsyncAddressMode(getOperation(), getDstCoreXY(),
+                                   getDstBankId());
 }
 
 ::mlir::LogicalResult TensorAccessorArgsOp::verify() {
@@ -501,13 +589,15 @@ void NocAsyncReadBarrierOp::getCanonicalizationPatterns(
     for (Operation *it = op->getPrevNode(); it != nullptr;
          it = it->getPrevNode()) {
       if (mlir::isa<NocAsyncReadBarrierOp>(it)) {
-        rewriter.eraseOp(op);
-        return success();
+        auto previousBarrier = mlir::cast<NocAsyncReadBarrierOp>(it);
+        if (previousBarrier.getNoc() == op.getNoc()) {
+          rewriter.eraseOp(op);
+          return success();
+        }
       }
       if (mlir::isa<NocAsyncReadOp, NocAsyncReadTileOp,
                     NocAsyncReadOnePacketSetStateOp,
-                    NocAsyncReadOnePacketWithStateOp, NocAsyncReadSetTridOp,
-                    NocAsyncReadOnePacketWithStateWithTridOp>(it) ||
+                    NocAsyncReadOnePacketWithStateOp>(it) ||
           it->getNumRegions() > 0) {
         break;
       }
@@ -523,13 +613,17 @@ void NocAsyncWriteBarrierOp::getCanonicalizationPatterns(
     for (Operation *it = op->getPrevNode(); it != nullptr;
          it = it->getPrevNode()) {
       if (mlir::isa<NocAsyncWriteBarrierOp>(it)) {
-        rewriter.eraseOp(op);
-        return success();
+        auto previousBarrier = mlir::cast<NocAsyncWriteBarrierOp>(it);
+        if (previousBarrier.getNoc() == op.getNoc()) {
+          rewriter.eraseOp(op);
+          return success();
+        }
       }
       if (mlir::isa<NocAsyncWriteOp, NocAsyncWriteTileOp,
-                    NocAsyncWriteSetTridOp, NocAsyncWriteOnePacketWithTridOp,
-                    NocAsyncWriteMulticastOp, NocAsyncWriteMulticastOnePacketOp,
-                    NocAsyncWriteMulticastLoopbackSrcOp>(it) ||
+                    NocAsyncWriteOnePacketWithTridOp, NocAsyncWriteMulticastOp,
+                    NocAsyncWriteMulticastOnePacketOp,
+                    NocAsyncWriteMulticastLoopbackSrcOp, NocInlineDwWriteOp>(
+              it) ||
           it->getNumRegions() > 0) {
         break;
       }

@@ -20,7 +20,12 @@ from ttmlir.dialects import stablehlo, sdy, mpmd, func
 from builder.base.builder import *
 from builder.base.builder_utils import *
 
-from golden import get_golden_function, apply_sharding, apply_unsharding
+from golden import (
+    get_golden_function,
+    get_custom_call_golden_function,
+    apply_sharding,
+    apply_unsharding,
+)
 
 
 class StableHLOBuilder(Builder):
@@ -37,6 +42,7 @@ class StableHLOBuilder(Builder):
         ] = OrderedDict([("x", 1), ("y", 1)]),
         deallocate_goldens: bool = False,
         deallocated_goldens_dir: Optional[str] = "./deallocated_goldens",
+        system_desc_path: Optional[str] = None,
     ):
         super().__init__(
             ctx,
@@ -45,6 +51,7 @@ class StableHLOBuilder(Builder):
             mesh_dict,
             deallocate_goldens=deallocate_goldens,
             deallocated_goldens_dir=deallocated_goldens_dir,
+            system_desc_path=system_desc_path,
         )
 
     # ----- Class helper methods -----
@@ -3563,6 +3570,8 @@ class StableHLOBuilder(Builder):
         self,
         decomp_fn: func.FuncOp,
         arg_goldens: Sequence[Any],
+        composite_name: Optional[str] = None,
+        composite_attributes: Optional[DictAttr] = None,
     ) -> Union[Any, Tuple[Any, ...]]:
         """
         Compute the golden for a ``stablehlo.composite`` by delegating to the
@@ -3571,7 +3580,12 @@ class StableHLOBuilder(Builder):
         the same global golden mapping.
         """
         composite_golden = get_golden_function(stablehlo.CompositeOp)
-        return composite_golden(*arg_goldens, decomposition_fn=decomp_fn)
+        return composite_golden(
+            *arg_goldens,
+            decomposition_fn=decomp_fn,
+            composite_name=composite_name,
+            composite_attributes=composite_attributes,
+        )
 
     ################ stablehlo.CompositeOp ###############
 
@@ -3585,7 +3599,7 @@ class StableHLOBuilder(Builder):
         unit_attrs: Optional[List[str]] = None,
         sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
         composite_attributes: Optional[DictAttr] = None,
-    ) -> OpResult:
+    ) -> Union[OpResult, Tuple[OpResult, ...]]:
         # Accept either a symbol name (for parse/split re-emission flows that
         # already populated _func_name_to_op) or a func.FuncOp directly (for
         # Python-authored builders where the user just produced the private
@@ -3609,14 +3623,10 @@ class StableHLOBuilder(Builder):
 
         operand_goldens = [self._get_golden_tensor(o) for o in operands]
         golden_output = self._golden_from_stablehlo_decomposition(
-            decomp_fn, operand_goldens
+            decomp_fn, operand_goldens, composite_name, composite_attributes
         )
 
         result_types = list(decomp_fn.type.results)
-        if len(result_types) != 1:
-            raise NotImplementedError(
-                "stablehlo.composite with multiple results is not supported yet."
-            )
 
         op_loc = Location.name(loc) if loc is not None else self._get_location()
 
@@ -3635,8 +3645,6 @@ class StableHLOBuilder(Builder):
             regions=0,
             loc=op_loc,
         )
-        op_result = new_op.results[0]
-
         if sharding_attr is not None:
             new_op.attributes["sdy.sharding"] = sharding_attr
 
@@ -3644,9 +3652,18 @@ class StableHLOBuilder(Builder):
             for attr_name in unit_attrs:
                 new_op.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        self._set_golden_tensor(op_result, golden_output)
+        op_results = list(new_op.results)
+        golden_outputs = (
+            golden_output if isinstance(golden_output, tuple) else (golden_output,)
+        )
+        if len(golden_outputs) != len(op_results):
+            raise ValueError(
+                "stablehlo.composite golden result count does not match op result count."
+            )
+        for op_result, golden in zip(op_results, golden_outputs):
+            self._set_golden_tensor(op_result, golden)
 
-        return op_result
+        return op_results[0] if len(op_results) == 1 else tuple(op_results)
 
     @parse(stablehlo.CompositeOp)
     def composite_parser(
@@ -3737,17 +3754,15 @@ class StableHLOBuilder(Builder):
                         regions=0,
                         loc=old_op.location,
                     )
-                    new_op_result = new_op.results[0]
-
-                    old_op_result = self._get_golden_tensor(old_op.results[0])
-                    composite_builder._set_golden_tensor(new_op_result, old_op_result)
+                    for new_result, old_result in zip(new_op.results, old_op.results):
+                        result_golden = self._get_golden_tensor(old_result)
+                        composite_builder._set_golden_tensor(new_result, result_golden)
+                        ordered_outputs.append(new_result)
                     for inp, old_operand in zip(inputs, old_op.operands):
                         input_golden = self._get_golden_tensor(old_operand)
                         composite_builder._set_golden_tensor(inp, input_golden)
                         composite_builder._annotate_presharded_arg(inp)
                         ordered_inputs.append(inp)
-                    ordered_outputs.append(new_op_result)
-
                     return new_op
 
                 new_func_op = decorated_func.func_op
@@ -9120,6 +9135,317 @@ class StableHLOBuilder(Builder):
 
         return gather_module, gather_builder
 
+    ############### stablehlo.ScatterOp ###############
+
+    @tag(stablehlo.ScatterOp)
+    def scatter(
+        self,
+        inputs: Sequence[Operand],
+        scatter_indices: Operand,
+        updates: Sequence[Operand],
+        update_window_dims: List[int],
+        inserted_window_dims: List[int],
+        scattered_dims_to_operand_dims: List[int],
+        index_vector_dim: int,
+        update_computation: Callable[..., OpResult],
+        input_batching_dims: Optional[List[int]] = None,
+        scatter_indices_batching_dims: Optional[List[int]] = None,
+        indices_are_sorted: bool = False,
+        unique_indices: bool = False,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> Union[OpResult, List[OpResult]]:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.scatter)
+
+        inputs = list(inputs)
+        updates = list(updates)
+
+        if len(inputs) != len(updates):
+            raise ValueError("Number of inputs must match number of updates")
+
+        if input_batching_dims is None:
+            input_batching_dims = []
+        if scatter_indices_batching_dims is None:
+            scatter_indices_batching_dims = []
+
+        scatter_dimension_numbers = stablehlo.ScatterDimensionNumbers.get(
+            update_window_dims=update_window_dims,
+            inserted_window_dims=inserted_window_dims,
+            input_batching_dims=input_batching_dims,
+            scatter_indices_batching_dims=scatter_indices_batching_dims,
+            scattered_dims_to_operand_dims=scattered_dims_to_operand_dims,
+            index_vector_dim=index_vector_dim,
+            context=self._ctx,
+        )
+
+        result_types = [inp.type for inp in inputs]
+
+        indices_are_sorted_attr = BoolAttr.get(indices_are_sorted, self._ctx)
+        unique_indices_attr = BoolAttr.get(unique_indices, self._ctx)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            result_types,
+            inputs=inputs,
+            scatter_indices=scatter_indices,
+            updates=updates,
+            scatter_dimension_numbers=scatter_dimension_numbers,
+            indices_are_sorted=indices_are_sorted_attr,
+            unique_indices=unique_indices_attr,
+            loc=loc,
+        )
+
+        # Build the update_computation region
+        # The region takes 2*N scalar arguments (N from inputs, N from updates)
+        body_arg_types = []
+        for inp in inputs:
+            element_type = RankedTensorType(inp.type).element_type
+            body_arg_types.append(RankedTensorType.get([], element_type))
+        for upd in updates:
+            element_type = RankedTensorType(upd.type).element_type
+            body_arg_types.append(RankedTensorType.get([], element_type))
+
+        update_region = op.update_computation
+        update_block = Block.create_at_start(update_region, body_arg_types)
+
+        with InsertionPoint(update_block):
+            # Call the user-provided update computation with block arguments
+            update_results = update_computation(*update_block.arguments)
+            if not isinstance(update_results, (list, tuple)):
+                update_results = [update_results]
+            stablehlo.ReturnOp(list(update_results), loc=loc)
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        # Compute golden tensors
+        input_goldens = [self._get_golden_tensor(inp) for inp in inputs]
+        indices_golden = self._get_golden_tensor(scatter_indices)
+        update_goldens = [self._get_golden_tensor(upd) for upd in updates]
+
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input_goldens,
+            indices_golden,
+            update_goldens,
+            scatter_dimension_numbers,
+            update_region,
+            result_types,
+        )
+
+        results = list(op.results)
+        if isinstance(golden_output, (list, tuple)):
+            for r, g in zip(results, golden_output):
+                self._set_golden_tensor(r, g)
+        else:
+            self._set_golden_tensor(results[0], golden_output)
+
+        return results[0] if len(results) == 1 else results
+
+    @parse(stablehlo.ScatterOp)
+    def scatter_parser(
+        self,
+        old_op: stablehlo.ScatterOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.scatter_parser)
+
+        new_inputs = [global_dict[inp] for inp in old_op.inputs]
+        new_scatter_indices = global_dict[old_op.scatter_indices]
+        new_updates = [global_dict[upd] for upd in old_op.updates]
+
+        result_types = [r.type for r in old_op.results]
+        scatter_dimension_numbers = stablehlo.ScatterDimensionNumbers(
+            old_op.scatter_dimension_numbers
+        )
+
+        # Reuse the original op's attributes
+        attrs = {named_attr.name: named_attr.attr for named_attr in old_op.attributes}
+
+        new_op = Operation.create(
+            name=old_op.operation.name,
+            results=result_types,
+            operands=list(new_inputs) + [new_scatter_indices] + list(new_updates),
+            attributes=attrs,
+            regions=1,
+            loc=old_op.location,
+        )
+
+        # Clone the update_computation region
+        old_region = old_op.update_computation
+        new_region = new_op.regions[0]
+        body_arg_types = [arg.type for arg in old_region.blocks[0].arguments]
+        new_block = Block.create_at_start(new_region, body_arg_types)
+
+        body_value_map: Dict[Any, Any] = {}
+        for old_arg, new_arg in zip(
+            old_region.blocks[0].arguments, new_block.arguments
+        ):
+            body_value_map[old_arg] = new_arg
+
+        with InsertionPoint(new_block):
+            for old_inner_op in old_region.blocks[0].operations:
+                cloned = old_inner_op.operation.clone()
+                for idx, opnd in enumerate(old_inner_op.operands):
+                    if opnd in body_value_map:
+                        cloned.operands[idx] = body_value_map[opnd]
+                for old_r, new_r in zip(old_inner_op.results, cloned.results):
+                    body_value_map[old_r] = new_r
+
+        # Compute golden tensors
+        input_goldens = [self._get_golden_tensor(inp) for inp in new_inputs]
+        indices_golden = self._get_golden_tensor(new_scatter_indices)
+        update_goldens = [self._get_golden_tensor(upd) for upd in new_updates]
+
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input_goldens,
+            indices_golden,
+            update_goldens,
+            scatter_dimension_numbers,
+            new_region,
+            result_types,
+        )
+
+        op_map_dictionary: Dict[OpResult, OpResult] = {}
+        results = list(new_op.results)
+        goldens = (
+            list(golden_output)
+            if isinstance(golden_output, (list, tuple))
+            else [golden_output] * len(results)
+        )
+        for old_r, new_r, g in zip(old_op.results, results, goldens):
+            self._set_golden_tensor(new_r, g)
+            op_map_dictionary[old_r] = new_r
+
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.ScatterOp)
+    def scatter_split(
+        self,
+        old_op: stablehlo.ScatterOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        old_ctx = old_op.context
+        old_location = Location.unknown(old_ctx)
+
+        with old_ctx, old_location:
+            scatter_module = Module.create()
+            scatter_builder = StableHLOBuilder(
+                old_ctx,
+                old_location,
+                mesh_name=self._mesh_name,
+                mesh_dict=self._mesh_dict,
+            )
+
+            op_input_types = (
+                [inp.type for inp in old_op.inputs]
+                + [old_op.scatter_indices.type]
+                + [upd.type for upd in old_op.updates]
+            )
+
+            with InsertionPoint(scatter_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="scatter_module")
+                def decorated_func(*inputs):
+                    num_inputs = len(list(old_op.inputs))
+                    num_updates = len(list(old_op.updates))
+
+                    new_inputs = list(inputs[:num_inputs])
+                    new_scatter_indices = inputs[num_inputs]
+                    new_updates = list(inputs[num_inputs + 1 :])
+
+                    result_types = [r.type for r in old_op.results]
+
+                    attrs = {
+                        named_attr.name: named_attr.attr
+                        for named_attr in old_op.attributes
+                    }
+
+                    new_op = Operation.create(
+                        name=old_op.operation.name,
+                        results=result_types,
+                        operands=list(new_inputs)
+                        + [new_scatter_indices]
+                        + list(new_updates),
+                        attributes=attrs,
+                        regions=1,
+                        loc=old_op.location,
+                    )
+
+                    # Clone the update_computation region
+                    old_region = old_op.update_computation
+                    new_region = new_op.regions[0]
+                    body_arg_types = [
+                        arg.type for arg in old_region.blocks[0].arguments
+                    ]
+                    new_block = Block.create_at_start(new_region, body_arg_types)
+
+                    body_value_map: Dict[Any, Any] = {}
+                    for old_arg, new_arg in zip(
+                        old_region.blocks[0].arguments, new_block.arguments
+                    ):
+                        body_value_map[old_arg] = new_arg
+
+                    with InsertionPoint(new_block):
+                        for old_inner_op in old_region.blocks[0].operations:
+                            cloned = old_inner_op.operation.clone()
+                            for idx, opnd in enumerate(old_inner_op.operands):
+                                if opnd in body_value_map:
+                                    cloned.operands[idx] = body_value_map[opnd]
+                            for old_r, new_r in zip(
+                                old_inner_op.results, cloned.results
+                            ):
+                                body_value_map[old_r] = new_r
+
+                    # Wire goldens through
+                    for new_input, old_input in zip(new_inputs, old_op.inputs):
+                        scatter_builder._set_golden_tensor(
+                            new_input, self._get_golden_tensor(old_input)
+                        )
+                        scatter_builder._annotate_presharded_arg(new_input)
+                        ordered_inputs.append(new_input)
+
+                    scatter_builder._set_golden_tensor(
+                        new_scatter_indices,
+                        self._get_golden_tensor(old_op.scatter_indices),
+                    )
+                    scatter_builder._annotate_presharded_arg(new_scatter_indices)
+                    ordered_inputs.append(new_scatter_indices)
+
+                    for new_update, old_update in zip(new_updates, old_op.updates):
+                        scatter_builder._set_golden_tensor(
+                            new_update, self._get_golden_tensor(old_update)
+                        )
+                        scatter_builder._annotate_presharded_arg(new_update)
+                        ordered_inputs.append(new_update)
+
+                    for new_result, old_result in zip(new_op.results, old_op.results):
+                        scatter_builder._set_golden_tensor(
+                            new_result, self._get_golden_tensor(old_result)
+                        )
+                        ordered_outputs.append(new_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                scatter_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return scatter_module, scatter_builder
+
     ############### stablehlo.DotGeneralOp ###############
 
     @tag(stablehlo.DotGeneralOp)
@@ -9458,6 +9784,164 @@ class StableHLOBuilder(Builder):
             output_types_in_self_ctx.append(new_result)
 
         return output_types_in_self_ctx
+
+    ############### stablehlo.CustomCallOp @tt.flash_mla_prefill ###############
+
+    @tag(stablehlo.CustomCallOp)
+    def flash_mla_prefill(
+        self,
+        query: Operand,
+        key: Operand,
+        head_dim_v: int,
+        value: Optional[Operand] = None,
+        attention_mask: Optional[Operand] = None,
+        is_causal: bool = True,
+        scale: Optional[float] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Emit a `stablehlo.custom_call @tt.flash_mla_prefill`.
+
+        Operands are passed in canonical order: query, key, [value],
+        [attention_mask]. Whether `value`/`attention_mask` are present is encoded
+        in the `has_value`/`has_attention_mask` frontend attributes. When `value` is
+        omitted, V is derived from the first `head_dim_v` features of K.
+        The output has the query shape with its last dim replaced by head_dim_v.
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.flash_mla_prefill)
+
+        has_value = value is not None
+        has_attention_mask = attention_mask is not None
+
+        inputs = [query, key]
+        if has_value:
+            inputs.append(value)
+        if has_attention_mask:
+            inputs.append(attention_mask)
+
+        # Output is the query shape with the last (head) dim replaced by head_dim_v.
+        output_shape = list(self.get_shape(query))[:-1] + [head_dim_v]
+        output_type = self._create_ranked_tensor_type(
+            output_shape, self.get_type(query)
+        )
+
+        # tt.flash_mla_prefill carries its parameters as string-valued
+        frontend_attrs = {
+            "head_dim_v": StringAttr.get(str(head_dim_v)),
+            "is_causal": StringAttr.get("True" if is_causal else "False"),
+            "has_value": StringAttr.get("True" if has_value else "False"),
+            "has_attention_mask": StringAttr.get(
+                "True" if has_attention_mask else "False"
+            ),
+        }
+        if scale is not None:
+            frontend_attrs["scale"] = StringAttr.get(str(scale))
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            [output_type],
+            inputs,
+            "tt.flash_mla_prefill",
+            api_version=IntegerAttr.get(IntegerType.get_signless(32), 0),
+            loc=loc,
+        )
+        op.operation.attributes["mhlo.frontend_attributes"] = DictAttr.get(
+            frontend_attrs, self._ctx
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        op_golden_function = get_custom_call_golden_function("tt.flash_mla_prefill")
+        golden_output = op_golden_function(
+            self._get_golden_tensor(query),
+            self._get_golden_tensor(key),
+            self._get_golden_tensor(value) if has_value else None,
+            self._get_golden_tensor(attention_mask) if has_attention_mask else None,
+            head_dim_v,
+            is_causal,
+            scale,
+        )
+        self._set_golden_tensor(op.result, golden_output)
+
+        return op.result
+
+    ############### stablehlo.CustomCallOp @tt.indexer_score_dsa ###############
+
+    @tag(stablehlo.CustomCallOp)
+    def indexer_score_dsa(
+        self,
+        query: Operand,
+        key: Operand,
+        weights: Operand,
+        chunk_start_idx: int = 0,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Emit a `stablehlo.custom_call @tt.indexer_score_dsa`.
+
+        DeepSeek Sparse Attention lightning-indexer scorer. Operands are passed
+        in canonical order: query [B, Hi, Sq, D], key [B, 1, T, D],
+        weights [B, Hi, Sq, 1] -> score [B, 1, Sq, T]. The `chunk_start_idx`
+        causal offset is carried as a string-valued frontend attribute (defaults
+        to 0).
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.indexer_score_dsa)
+
+        inputs = [query, key, weights]
+
+        # Output is [B, 1, Sq, T]: query batch, single (summed) head, query seq
+        # length, key seq length.
+        query_shape = list(self.get_shape(query))
+        key_shape = list(self.get_shape(key))
+        output_shape = [query_shape[0], 1, query_shape[2], key_shape[2]]
+        output_type = self._create_ranked_tensor_type(
+            output_shape, self.get_type(query)
+        )
+
+        # tt.indexer_score_dsa carries chunk_start_idx as a string-valued
+        # attribute.
+        frontend_attrs = {
+            "chunk_start_idx": StringAttr.get(str(chunk_start_idx)),
+        }
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            [output_type],
+            inputs,
+            "tt.indexer_score_dsa",
+            api_version=IntegerAttr.get(IntegerType.get_signless(32), 0),
+            loc=loc,
+        )
+        op.operation.attributes["mhlo.frontend_attributes"] = DictAttr.get(
+            frontend_attrs, self._ctx
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        op_golden_function = get_custom_call_golden_function("tt.indexer_score_dsa")
+        golden_output = op_golden_function(
+            self._get_golden_tensor(query),
+            self._get_golden_tensor(key),
+            self._get_golden_tensor(weights),
+            chunk_start_idx,
+        )
+        self._set_golden_tensor(op.result, golden_output)
+
+        return op.result
 
     # ----- Public Shardy Attribute Generators ----
 

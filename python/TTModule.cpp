@@ -124,6 +124,14 @@ void populateTTModule(nb::module_ &m) {
                   [](MlirContext ctx, std::vector<int64_t> shape) {
                     return wrap(tt::ttcore::GridAttr::get(unwrap(ctx), shape));
                   })
+      .def_static(
+          "get",
+          [](MlirContext ctx, std::vector<int64_t> shape,
+             MlirAffineMap virtToPhysicalMap, MlirAffineMap physicalToVirtMap) {
+            return wrap(tt::ttcore::GridAttr::get(unwrap(ctx), shape,
+                                                  unwrap(virtToPhysicalMap),
+                                                  unwrap(physicalToVirtMap)));
+          })
       .def_prop_ro("shape", [](const tt::ttcore::GridAttr &ga) {
         return ga.getShape().vec();
       });
@@ -265,6 +273,17 @@ void populateTTModule(nb::module_ &m) {
                   })
       .def_prop_ro("y", &tt::ttcore::CoreCoordAttr::getY)
       .def_prop_ro("x", &tt::ttcore::CoreCoordAttr::getX);
+
+  tt_attribute_class<tt::ttcore::CoreRangeAttr>(m, "CoreRangeAttr")
+      .def_static("get",
+                  [](MlirContext ctx, MlirAttribute start, MlirAttribute end) {
+                    return wrap(tt::ttcore::CoreRangeAttr::get(
+                        unwrap(ctx),
+                        mlir::cast<tt::ttcore::CoreCoordAttr>(unwrap(start)),
+                        mlir::cast<tt::ttcore::CoreCoordAttr>(unwrap(end))));
+                  })
+      .def_prop_ro("start_coord", &tt::ttcore::CoreRangeAttr::getStartCoord)
+      .def_prop_ro("end_coord", &tt::ttcore::CoreRangeAttr::getEndCoord);
 
   tt_attribute_class<tt::ttcore::ChipCoordAttr>(m, "ChipCoordAttr")
       .def_static("get",
@@ -506,8 +525,23 @@ void populateTTModule(nb::module_ &m) {
         return self.getValue();
       });
 
+  nb::enum_<tt::ttcore::AttentionMaskType>(m, "AttentionMaskType")
+      .value("NoMask", tt::ttcore::AttentionMaskType::None)
+      .value("Causal", tt::ttcore::AttentionMaskType::Causal)
+      .value("Arbitrary", tt::ttcore::AttentionMaskType::Arbitrary);
+
+  tt_attribute_class<tt::ttcore::AttentionMaskTypeAttr>(m,
+                                                        "AttentionMaskTypeAttr")
+      .def_static("get",
+                  [](MlirContext ctx, tt::ttcore::AttentionMaskType maskType) {
+                    return wrap(tt::ttcore::AttentionMaskTypeAttr::get(
+                        unwrap(ctx), maskType));
+                  })
+      .def_prop_ro("value", [](tt::ttcore::AttentionMaskTypeAttr self) {
+        return self.getValue();
+      });
+
   nb::enum_<tt::ttcore::MeshShardType>(m, "MeshShardType")
-      .value("Identity", tt::ttcore::MeshShardType::Identity)
       .value("Replicate", tt::ttcore::MeshShardType::Replicate)
       .value("Maximal", tt::ttcore::MeshShardType::Maximal)
       .value("Devices", tt::ttcore::MeshShardType::Devices);

@@ -23,6 +23,13 @@ from ...utils import (
     assert_pcc,
 )
 
+# Skipped after the 2026-07-08 tt-metal uplift: multi-process device open hangs in
+# UMD's multimesh remote-IO flush (wait_for_non_mmio_flush timeout). Single-process
+# llmbox paths are unaffected. See https://github.com/tenstorrent/tt-mlir/issues/9004.
+pytestmark = pytest.mark.skip(
+    reason="tt-metal uplift: multi-process device open hangs in UMD multimesh remote-IO flush (tt-mlir#9004)"
+)
+
 FLATBUFFER_BASE_PATH = (
     f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/llmbox/binary/Output"
 )
@@ -163,6 +170,24 @@ def test_get_num_devices():
 
     num_devices = ttrt.runtime.get_num_available_devices()
     assert num_devices == 8
+
+    shutdown_distributed_runtime()
+
+
+def test_get_worker_debug_stats():
+    launch_distributed_runtime()
+
+    worker_debug_stats = ttrt.runtime.get_worker_debug_stats()
+    assert isinstance(worker_debug_stats, list)
+
+    for worker_stat in worker_debug_stats:
+        print(worker_stat)
+        assert isinstance(worker_stat.hostname, str)
+        assert worker_stat.hostname != ""
+        assert isinstance(worker_stat.stats, dict)
+        for key, value in worker_stat.stats.items():
+            assert isinstance(key, str)
+            assert isinstance(value, int)
 
     shutdown_distributed_runtime()
 

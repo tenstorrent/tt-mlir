@@ -31,7 +31,7 @@ def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [MemoryEffects<[Mem
                          Variadic<AnyNon0RankedMemRef>:$cbs,
                          DenseI64ArrayAttr:$cb_ports,
                          TTMetal_KernelConfigArrayAttr:$kernelConfigs,
-                         OptionalAttr<TTCore_FabricConnectionConfigAttr>:$fabricConnectionConfig);
+                         OptionalAttr<TTCore_FabricConnectionConfigArrayAttr>:$fabricConnectionConfigs);
     let hasVerifier = 1;
 }
 
@@ -41,7 +41,7 @@ def TTMetal_EnqueueWriteBufferOp : TTMetal_Op<"enqueue_write_buffer", [MemoryEff
       Enqueue write buffer operation
     }];
 
-    let arguments = (ins AnyNon0RankedMemRef:$input, AnyNon0RankedMemRef:$output);
+    let arguments = (ins AnyMemRef:$input, AnyNon0RankedMemRef:$output);
     let hasVerifier = 1;
 }
 
@@ -52,7 +52,7 @@ def TTMetal_EnqueueReadBufferOp : TTMetal_Op<"enqueue_read_buffer", [MemoryEffec
     }];
 
     let arguments = (ins AnyNon0RankedMemRef:$input,
-                         AnyNon0RankedMemRef:$output);
+                         AnyMemRef:$output);
     let hasVerifier = 1;
 }
 

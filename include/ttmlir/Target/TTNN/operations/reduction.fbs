@@ -24,7 +24,6 @@ table ReductionArgMaxOp {
   out: tt.target.ttnn.TensorRef;
   dim: int32 = null;
   keep_dim: bool;
-  use_multicore: bool;
   memcfg: tt.target.ttnn.MemoryConfig;
 }
 

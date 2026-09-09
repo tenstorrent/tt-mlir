@@ -12,7 +12,7 @@
 #include "tt-metalium/buffer_types.hpp"
 #include "tt-metalium/core_coord.hpp"
 #include "tt-metalium/device.hpp"
-#include "tt-metalium/experimental/mock_device.hpp"
+#include "tt-metalium/experimental/mock_device/mock_device.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "ttnn/graph/graph_processor.hpp"
 // using namespace removed in metal
@@ -32,10 +32,16 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 }
 } // namespace ttnn::graph::detail
 
+#include "metal/ops/cross_entropy_fw/cross_entropy_fw.hpp"
+#include "metal/ops/layernorm_fw/layernorm_fw.hpp"
+#include "metal/ops/sdpa_bw/sdpa_bw.hpp"
+#include "metal/ops/sdpa_fw/sdpa_fw.hpp"
+#include "metal/optimizers/adamw/adamw.hpp"
 #include "ttnn/graph/graph_query_op_constraints.hpp"
 #include "ttnn/graph/graph_query_op_runtime.hpp"
 #include "ttnn/graph/graph_trace_utils.hpp"
 #include "ttnn/operations/ccl/mesh_partition/mesh_partition.hpp"
+#include "ttnn/operations/conv/conv1d/conv1d.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/conv/conv2d/prepare_conv2d_weights.hpp"
 #include "ttnn/operations/conv/conv_transpose2d/conv_transpose2d.hpp"
@@ -65,7 +71,9 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 #include "ttnn/operations/embedding_backward/embedding_backward.hpp"
 #include "ttnn/operations/experimental/ccl/all_reduce_async/all_reduce_async.hpp"
 #include "ttnn/operations/experimental/conv3d/conv3d.hpp"
+#include "ttnn/operations/experimental/conv3d/prepare_conv3d_weights.hpp"
 #include "ttnn/operations/experimental/dropout/dropout.hpp"
+#include "ttnn/operations/experimental/indexer_score/indexer_score.hpp"
 #include "ttnn/operations/experimental/paged_cache/paged_cache.hpp"
 #include "ttnn/operations/experimental/topk_router_gpt/topk_router_gpt.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
@@ -86,6 +94,7 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 #include "ttnn/operations/normalization/softmax/softmax.hpp"
 #include "ttnn/operations/pool/upsample/upsample.hpp"
 #include "ttnn/operations/rand/rand.hpp"
+#include "ttnn/operations/reduction/accumulation/cumprod/cumprod.hpp"
 #include "ttnn/operations/reduction/accumulation/cumsum/cumsum.hpp"
 #include "ttnn/operations/reduction/argmax/argmax.hpp"
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"

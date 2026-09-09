@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --mlir-print-debuginfo --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-greedy-optimizer=false override-output-layout=matmul_1_in_1_layout=1x1:l1:interleaved:tile:bf16" -o %t %s
+// RUN: ttmlir-opt --mlir-print-debuginfo --ttir-to-ttnn-backend-pipeline="optimization-level=2 override-output-layout=matmul_1_in_1_layout=1x1:l1:interleaved:tile:bf16" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 #loc = loc("Matmul":4294967295:0)
 // CHECK-DAG: #[[LOC_MATMUL_IN0:.*]] = loc("matmul_1_in_0_layout"(#loc3))
@@ -11,7 +11,7 @@
 module attributes {} {
   func.func @forward(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x96xbf16>) -> tensor<64x96xbf16> {
     // CHECK-DAG: %{{.*}} = "ttnn.to_device"{{.*}} loc(#[[LOC_MATMUL_IN0]])
-    // CHECK-DAG: %{{.*}} = "ttnn.to_layout"{{.*}} <{layout = #ttnn.layout<tile>}> : {{.*}} -> tensor<128x96xbf16, #[[IN_1_LAYOUT]]> loc(#[[LOC_MATMUL_IN1]])
+    // CHECK-DAG: %{{.*}} = "ttnn.to_layout"{{.*}}  : {{.*}} -> tensor<128x96xbf16, #[[IN_1_LAYOUT]]> loc(#[[LOC_MATMUL_IN1]])
     // CHECK-DAG: %{{.*}} = "ttnn.matmul"{{.*}} loc(#[[LOC_MATMUL]])
     %1 = "ttir.matmul"(%arg0, %arg1) : (tensor<64x128xbf16>, tensor<128x96xbf16>) -> tensor<64x96xbf16> loc(#loc2)
     return %1 : tensor<64x96xbf16>

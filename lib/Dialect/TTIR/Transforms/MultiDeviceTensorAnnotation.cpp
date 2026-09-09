@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -118,8 +119,26 @@ public:
     // Visit all functions and add multi-device tensor annotations to each op if
     // necessary.
     for (auto funcOp : moduleOp.getOps<mlir::func::FuncOp>()) {
+      // Presharded args carry local shapes directly (no preceding mesh_shard).
+      // Mark them as multi-device so the annotation propagates to consumers.
+      for (auto arg : funcOp.getArguments()) {
+        if (auto ssAttr =
+                funcOp.getArgAttrOfType<mlir::tt::ttcore::ShardStatusAttr>(
+                    arg.getArgNumber(),
+                    mlir::tt::ttcore::ShardStatusAttr::name);
+            ssAttr &&
+            ssAttr.getValue() == mlir::tt::ttcore::ShardStatus::Presharded) {
+          annotateMeshToValue(arg, meshAttr);
+        }
+      }
+
       funcOp->walk<mlir::WalkOrder::PostOrder, mlir::ReverseIterator>(
           [&](mlir::Operation *op) {
+            // This pass only annotates TTIR ops. Skip ops from other dialects
+            // (e.g. D2M) defensively.
+            if (!isa<TTIRDialect>(op->getDialect())) {
+              return mlir::WalkResult::advance();
+            }
             if (mlir::isa<mlir::func::ReturnOp>(op)) {
               return mlir::WalkResult::skip();
             }

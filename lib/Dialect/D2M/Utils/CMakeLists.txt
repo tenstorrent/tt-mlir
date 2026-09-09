@@ -4,6 +4,7 @@ add_mlir_library(MLIRD2MUtils
   DstRegisterAnalysis.cpp
   GridSelectionUtils.cpp
   SpatialOpNormalizeUtil.cpp
+  TopKUtils.cpp
   Utils.cpp
   AffineMapAnalysis.cpp
   VirtualGrid.cpp
@@ -17,4 +18,5 @@ add_mlir_library(MLIRD2MUtils
   MLIRIR
   MLIRAffineDialect
   MLIRAffineUtils
+  MLIRLinalgDialect
 )

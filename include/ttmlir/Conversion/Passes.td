@@ -178,12 +178,14 @@ def ConvertD2MToTTMetal: Pass<"convert-d2m-to-ttmetal", "::mlir::ModuleOp"> {
   ];
 }
 
-def ConvertD2MToTTKernel: Pass<"convert-d2m-to-ttkernel", "::mlir::ModuleOp"> {
+def ConvertD2MToTTKernel: Pass<"convert-d2m-to-ttkernel", "::mlir::func::FuncOp"> {
   let summary = "Convert D2M dialect to TTKernel dialect.";
   let constructor = "createConvertD2MToTTKernelPass()";
   let dependentDialects = ["mlir::tt::d2m::D2MDialect", "mlir::tt::ttmetal::TTMetalDialect", "mlir::tt::ttkernel::TTKernelDialect", "mlir::arith::ArithDialect"];
   let options = [
-    Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false", "Enable TTNN mode">
+    Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false", "Enable TTNN mode">,
+    Option<"forceCompileTimeArgs", "force-compile-time-args", "bool", /*default=*/"false",
+           "Force uniform D2M kernel arguments into compile-time args when legal for CRTA performance comparison.">
   ];
 }
 
@@ -203,6 +205,17 @@ def ConvertTTIRCPUToEmitPy : Pass<"convert-ttir-cpu-to-emitpy", "::mlir::ModuleO
   let constructor = "createConvertTTIRCPUToEmitPyPass()";
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect",
                            "mlir::tt::ttir::TTIRDialect"];
+}
+
+def CaptureMeshShape : Pass<"capture-mesh-shape", "::mlir::ModuleOp"> {
+  let summary = "Stamp the device mesh shape onto CPU-hoisted functions";
+  let description = [{
+    Reads the device mesh shape from the `ttcore.device` op in the device module
+    and stamps it as the `ttcore.device_mesh_shape` attribute on each
+    CPU-hoisted (`forward_cpu`) function in the CPU module.
+  }];
+  let constructor = "createCaptureMeshShapePass()";
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect"];
 }
 
 def ConvertTTNNToEmitPy : Pass<"convert-ttnn-to-emitpy", "::mlir::ModuleOp"> {
@@ -319,10 +332,24 @@ def EmitPyAddImports : Pass<"emitpy-add-imports", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
 }
 
-def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp"> {
+def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::func::FuncOp"> {
   let summary = "Convert TTKernel dialect to EmitC dialect.";
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::func::FuncDialect",
                            "mlir::tt::ttkernel::TTKernelDialect"];
+}
+
+def RemoveDeadEmitCExpressions : Pass<"remove-dead-emitc-expressions", "::mlir::func::FuncOp"> {
+  let summary = "Remove unused side-effect-free EmitC operations.";
+  let description = [{
+    Remove unused EmitC operations that implement CExpressionInterface or wrap
+    expression bodies in emitc.expression and report no side effects. Also
+    remove EmitC variables whose only uses are writes, together with the dead
+    assignments. This covers pure C expression fragments and write-only locals
+    that MLIR's generic DCE cannot see because EmitC models expression effects
+    through CExpressionInterface and variables carry memory effects.
+  }];
+  let constructor = "createRemoveDeadEmitCExpressionsPass()";
+  let dependentDialects = ["mlir::emitc::EmitCDialect"];
 }
 
 def ConvertSFPIToEmitC : Pass<"convert-sfpi-to-emitc", "::mlir::ModuleOp"> {
@@ -386,7 +413,7 @@ def ConvertD2MToTTNN: Pass<"convert-d2m-to-ttnn", "::mlir::ModuleOp">{
 
     Example:
     Input IR:
-      %ttnn_input_l1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #l1_memory_config}> : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
+      %ttnn_input_l1 = "ttnn.to_memory_config"(%arg0) : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
       %ttnn_output_l1 = ttir.empty() : tensor<32x32xf32, #l1_layout>
       %metal_input_l1 = ttir.ttnn_metal_layout_cast %ttnn_input_l1 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>
       %metal_output_l1 = ttir.ttnn_metal_layout_cast %ttnn_output_l1 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>
@@ -396,8 +423,8 @@ def ConvertD2MToTTNN: Pass<"convert-d2m-to-ttnn", "::mlir::ModuleOp">{
       %output_l1 = ttir.ttnn_metal_layout_cast
 
     Output IR (post canonicalization):
-      %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>, <physical>>>}> : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
-      %2 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>, <physical>>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout1>
+      %1 = "ttnn.to_memory_config"(%arg0) : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
+      %2 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout1>
       "ttnn.generic"(%1, %2) ...
   }];
   let constructor = "createConvertD2MToTTNNPass()";

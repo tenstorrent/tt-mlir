@@ -54,4 +54,38 @@ module {
     %0 = "ttir.embedding"(%indices, %weight) : (tensor<1x4xi32>, tensor<16x16xf32>) -> tensor<1x4x16xf32>
     return %0 : tensor<1x4x16xf32>
   }
+
+  func.func @embedding_flatten_then_typecast_restore(
+      %indices: tensor<32x18xi64>,
+      %weight: tensor<128256x4096xbf16>) -> tensor<32x18x4096xbf16> {
+    // AFTER-LABEL: func.func @embedding_flatten_then_typecast_restore
+    // AFTER: %[[WEIGHT:.*]] = d2m.to_layout %arg1
+    // AFTER: %[[GENERIC:.*]] = d2m.generic
+    // AFTER-SAME: grid = #ttcore.grid<8x8
+    // AFTER: d2m.embedding
+    // AFTER-SAME: <576, 4096>
+    // AFTER-SAME: {indicesShape = array<i64: 32, 18>}
+    %0 = "ttir.reshape"(%indices) <{shape = [1 : i32, 32 : i32, 18 : i32]}> : (tensor<32x18xi64>) -> tensor<1x32x18xi64>
+    %1 = "ttir.reshape"(%0) <{shape = [576 : i32]}> : (tensor<1x32x18xi64>) -> tensor<576xi64>
+    %2 = "ttir.typecast"(%1) <{conservative_folding = true}> : (tensor<576xi64>) -> tensor<576xui32>
+    %3 = "ttir.embedding"(%2, %weight) : (tensor<576xui32>, tensor<128256x4096xbf16>) -> tensor<576x4096xbf16>
+    %4 = "ttir.reshape"(%3) <{shape = [32 : i32, 18 : i32, 4096 : i32]}> : (tensor<576x4096xbf16>) -> tensor<32x18x4096xbf16>
+    return %4 : tensor<32x18x4096xbf16>
+  }
+
+  func.func @embedding_typecast_then_flatten(
+      %indices: tensor<32x18xsi32>,
+      %weight: tensor<128256x4096xbf16>) -> tensor<576x4096xbf16> {
+    // AFTER-LABEL: func.func @embedding_typecast_then_flatten
+    // AFTER: %[[WEIGHT:.*]] = d2m.to_layout %arg1
+    // AFTER: %[[GENERIC:.*]] = d2m.generic
+    // AFTER-SAME: grid = #ttcore.grid<8x8
+    // AFTER: d2m.embedding
+    // AFTER-SAME: <576, 4096>
+    // AFTER-SAME: {indicesShape = array<i64: 32, 18>}
+    %0 = "ttir.typecast"(%indices) <{conservative_folding = false}> : (tensor<32x18xsi32>) -> tensor<32x18xui32>
+    %1 = "ttir.reshape"(%0) <{shape = [576 : i32]}> : (tensor<32x18xui32>) -> tensor<576xui32>
+    %2 = "ttir.embedding"(%1, %weight) : (tensor<576xui32>, tensor<128256x4096xbf16>) -> tensor<576x4096xbf16>
+    return %2 : tensor<576x4096xbf16>
+  }
 }

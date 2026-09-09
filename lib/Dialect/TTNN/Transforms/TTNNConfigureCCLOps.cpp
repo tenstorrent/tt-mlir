@@ -44,6 +44,8 @@ public:
         [&](AllReduceOp op) { setCCLTopology(op, meshTopology, context); });
     moduleOp.walk(
         [&](ReduceScatterOp op) { setCCLTopology(op, meshTopology, context); });
+    moduleOp.walk(
+        [&](MoeComputeOp op) { setCCLTopology(op, meshTopology, context); });
   }
 
 private:

@@ -201,7 +201,7 @@ mlir::AffineMap buildDeviceToLogicalMap(MetalLayoutAttr layout,
     // Tiled tensors: convert from scalar units to tile units.
     logicalShapeInUnits.reserve(logicalShape.size());
     for (size_t i = 0; i < logicalShape.size(); ++i) {
-      int64_t tileSize = tileShape[i];
+      int64_t tileSize = logicalShape.size() == 1 ? tileShape[1] : tileShape[i];
       assert(logicalShape[i] % tileSize == 0 &&
              "Logical shape must be divisible by tile size");
       logicalShapeInUnits.push_back(logicalShape[i] / tileSize);

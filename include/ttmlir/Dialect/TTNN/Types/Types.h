@@ -19,6 +19,8 @@ inline constexpr int64_t LAYER_NORM_SUM_X_OFFSET = TILE_WIDTH;
 inline constexpr std::array<uint32_t, 2> VALID_CQ_IDS = {0, 1};
 inline constexpr llvm::StringLiteral g_TTNNHoistGenericViaD2MAttrName =
     "ttnn.hoist_generic_via_d2m";
+inline constexpr llvm::StringLiteral g_TTNNAllocateSlotsTracePrefix =
+    "allocate_slots_";
 inline constexpr llvm::StringLiteral g_TTNNCaptureTracePrefix =
     "run_and_capture_";
 inline constexpr llvm::StringLiteral g_TTNNExecuteTracePrefix = "execute_";

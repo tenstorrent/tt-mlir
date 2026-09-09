@@ -32,9 +32,6 @@ MLIR_CAPI_EXPORTED MlirType ttmlirTTKernelL1AddrTypeGet(MlirContext ctx);
 
 MLIR_CAPI_EXPORTED MlirType ttmlirTTKernelL1AddrPtrTypeGet(MlirContext ctx);
 
-MLIR_CAPI_EXPORTED MlirType
-ttmlirTTKernelInterleavedAddrGenFastTypeGet(MlirContext ctx);
-
 MLIR_CAPI_EXPORTED MlirType ttmlirTTKernelDataFormatTypeGet(MlirContext ctx);
 
 MLIR_CAPI_EXPORTED MlirType

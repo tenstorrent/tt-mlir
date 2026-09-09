@@ -41,7 +41,7 @@
 // CHECK-LABEL: func.func private @trace_0_single_add
 // CHECK:       emitpy.call_opaque "ttnn.add"
 
-// --- run_and_capture_trace (write_tensor, begin/end trace, execute) for single_add ---
+// --- capture_trace (write_tensor, begin/end trace, execute) for single_add ---
 // CHECK-LABEL: func.func private @run_and_capture_trace_0_single_add
 // CHECK:       emitpy.call_opaque "ttnn.copy_host_to_device_tensor"
 // CHECK:       emitpy.call_opaque "ttnn.begin_trace_capture"
@@ -66,7 +66,7 @@ func.func @single_add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16> {ttco
 // CHECK:       emitpy.call_opaque "ttnn.add"
 // CHECK:       emitpy.call_opaque "ttnn.multiply"
 
-// --- run_and_capture_trace (write_tensor, begin/end trace, execute) for multi_output ---
+// --- capture_trace (write_tensor, begin/end trace, execute) for multi_output ---
 // CHECK-LABEL: func.func private @run_and_capture_trace_1_multi_output
 // CHECK:       emitpy.call_opaque "ttnn.copy_host_to_device_tensor"
 // CHECK:       emitpy.call_opaque "ttnn.begin_trace_capture"

@@ -33,9 +33,7 @@ def TTKernel_ComputeKernelHWStartupOp : TTKernel_InitOp<"compute_kernel_hw_start
                          Optional<TTKernel_CB>:$icb1,
                          TTKernel_CB:$ocb);
 
-    let assemblyFormat = [{
-      `(` $icb0 (`,` $icb1^)? `,` $ocb `)` attr-dict `:` functional-type(operands, results)
-    }];
+    let hasCustomAssemblyFormat = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -43,7 +41,7 @@ def TTKernel_ComputeKernelHWStartupOp : TTKernel_InitOp<"compute_kernel_hw_start
 //===----------------------------------------------------------------------===//
 
 def TTKernel_UnpackStallOnPackOp
-    : TTKernel_Op<"experimental::unpack_stall_on_pack"> {
+    : TTKernel_Op<"experimental.unpack_stall_on_pack"> {
   let summary = "Stall UNPACK thread until previous PACK write is committed to L1.";
   let description = [{
     Issues a hardware semaphore wait on the MATH_PACK semaphore from the
@@ -55,7 +53,7 @@ def TTKernel_UnpackStallOnPackOp
   let assemblyFormat = [{ attr-dict }];
 }
 
-def TTKernel_TileRegsAcquireOp : TTKernel_Op<"tile_regs_acquire"> {
+def TTKernel_TileRegsAcquireOp : TTKernel_Op<"tile_regs_acquire", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "tile_regs_acquire";
     let description = [{
       Acquire an exclusive lock on the DST register for the MATH thread.
@@ -189,6 +187,19 @@ def TTKernel_PackReconfigDataFormatOp : TTKernel_Op<"pack_reconfig_data_format">
 
     let assemblyFormat = [{
       `(` $out_cb `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ReconfigDataFormatSrcAOp : TTKernel_Op<"reconfig_data_format_srca"> {
+    let summary = "Reconfigure Src A data format for the given input CB.";
+    let description = [{
+      Reconfigures the srcA data format for a new operand, always re-deriving the int8/unsigned state from the new format.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in_cb);
+
+    let assemblyFormat = [{
+      `(` $in_cb `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -405,13 +416,14 @@ def TTKernel_MatmulBlockOp : TTKernel_FPUOp<"matmul_block", [TTKernel_TernaryOpT
     }];
 }
 
-def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental::matmul_block", [TTKernel_TernaryOpTrait]> {
+def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental.matmul_block", [TTKernel_TernaryOpTrait]> {
     let summary = "Matmul tiles operation";
     let description = [{
       Performs block-sized matrix multiplication *C=A\*B* between the blocks in two
       different input CBs and writes the result to DST. The DST register buffer
-      must be in acquired state via *acquire_dst* call. This call is blocking and
-      is only available on the compute engine.
+      must be in acquired state via *acquire_dst* call. `in1_k_stride` is the
+      source-tile stride between consecutive K tiles in input 1. This call is
+      blocking and is only available on the compute engine.
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb_id,
@@ -423,9 +435,59 @@ def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental::matmul_bl
                          I32:$ct_dim,
                          I32:$rt_dim,
                          I32:$kt_dim,
-                         I32:$nt_dim);
+                         I32:$in1_k_stride);
 }
 
+def TTKernel_TopkTileInitOp : TTKernel_InitOp<"topk_tile_init"> {
+    let summary = "TopK tile init function";
+    let description = [{
+      Initialization for the topk operations. Must be called before
+      topk_local_sort/topk_merge/topk_rebuild.
+    }];
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TopkLocalSortOp : TTKernel_SFPUOp<"topk_local_sort"> {
+    let summary = "TopK local sort operation";
+    let description = [{
+      Bitonic local-sort stage of TopK over the value and index tiles pre-loaded in DST. Compute engine only.
+    }];
+
+    let arguments = (ins IndexLike:$idst, I32:$idir, I32:$i_end_phase, I32:$i_start_phase);
+
+    let assemblyFormat = [{
+      `(` $idst `,` $idir `,` $i_end_phase `,` $i_start_phase `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TopkMergeOp : TTKernel_SFPUOp<"topk_merge"> {
+    let summary = "TopK merge operation";
+    let description = [{
+      Merge stage of TopK combining length-K subsequences in DST. Compute engine only.
+    }];
+
+    let arguments = (ins IndexLike:$idst, I32:$m_iter, I32:$k);
+
+    let assemblyFormat = [{
+      `(` $idst `,` $m_iter `,` $k `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TopkRebuildOp : TTKernel_SFPUOp<"topk_rebuild"> {
+    let summary = "TopK rebuild operation";
+    let description = [{
+      Rebuild stage of TopK re-sorting the surviving subsequences in DST. Compute engine only.
+    }];
+
+    let arguments = (ins IndexLike:$idst, I32:$idir, I32:$m_iter, I32:$k, I32:$logk, I32:$skip_second);
+
+    let assemblyFormat = [{
+      `(` $idst `,` $idir `,` $m_iter `,` $k `,` $logk `,` $skip_second `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
 
 def TTKernel_AddTilesInitOp : TTKernel_InitOp<"add_tiles_init"> {
     let summary = "Short init function";
@@ -602,8 +664,7 @@ def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
                          TTKernel_CB:$scaling_cb,
                          TTKernel_CB:$out_cb,
                          TTKernel_ReduceTypeAttr:$reduce_type,
-                         TTKernel_ReduceDimAttr:$reduce_dim,
-                         UnitAttr:$full_fp32);
+                         TTKernel_ReduceDimAttr:$reduce_dim);
 
     let assemblyFormat = [{
       `(` $in_cb `,` $scaling_cb `,` $out_cb `,` $reduce_type `,` $reduce_dim `)` attr-dict `:` functional-type(operands, results)
@@ -618,14 +679,10 @@ def TTKernel_ReduceUninitOp : TTKernel_InitOp<"reduce_uninit"> {
        same dimension, this call can be omitted. If this function is not called, the packer will continue to use the edge masks set
        by the latest reduce_init call, which may lead to incorrect packing behavior in subsequent operations.
 
-       The `full_fp32` attribute emits reduce_uninit<true>, which performs the extra cleanup required after some
-       full-fp32 reduce sequences. Without the attribute, lowering emits reduce_uninit(), matching tt-metal's
-       default false behavior.
-
        This function is not in line with our programming mode. To be removed by end of 2025. tt-metal#22904.
     }];
 
-    let arguments = (ins UnitAttr:$full_fp32);
+    let arguments = (ins);
 
     let assemblyFormat = [{
       `(` `)` attr-dict `:` functional-type(operands, results)
@@ -653,8 +710,7 @@ def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_TernaryOpTra
                          IndexLike:$scaling_tile_index,
                          IndexLike:$dst_index,
                          TTKernel_ReduceTypeAttr:$reduce_type,
-                         TTKernel_ReduceDimAttr:$reduce_dim,
-                         UnitAttr:$full_fp32);
+                         TTKernel_ReduceDimAttr:$reduce_dim);
 
     let assemblyFormat = [{
       `(` $in_cb `,` $scaling_cb `,` $in_tile_index `,` $scaling_tile_index `,` $dst_index `,` $reduce_type `,` $reduce_dim `)` attr-dict `:` functional-type(operands, results)
@@ -682,6 +738,33 @@ def TTKernel_SFPUReduceInitOp : TTKernel_InitOp<"sfpu_reduce_init"> {
     }];
 
     let hasVerifier = 1;
+}
+
+def TTKernel_MaxReduceWithIndicesInitOp : TTKernel_InitOp<"max_reduce_with_indices_init"> {
+    let summary = "Init for max_reduce_with_indices.";
+    let description = [{
+      Initializes max_reduce_with_indices. Must be called before max_reduce_with_indices.
+    }];
+}
+
+def TTKernel_MaxReduceWithIndicesTileOp : TTKernel_SFPUOp<"max_reduce_with_indices"> {
+    let summary = "Max reduce with indices operation";
+    let description = [{
+      Performs MaxPool with indices algorithm on the data tile and index tile
+      that are pre-loaded in DST register. The DST register buffer must be in
+      acquired state via *acquire_dst* call. This call is blocking and is only
+      available on the compute engine. The chunk operand is only used when the
+      accumulate flag is true, controlling when the intermediate data is stored
+      to the accumulators. When accumulate is true, the chunk operand must be
+      zero on the first iteration of a reduction loop and non-zero for the rest
+      of the loop.
+    }];
+
+    let arguments = (ins IndexLike:$idst,
+                         IndexLike:$idst_idx,
+                         IndexLike:$chunk,
+                         DefaultValuedAttr<I32Attr, "32">:$num_rows,
+                         DefaultValuedAttr<BoolAttr, "false">:$accumulate);
 }
 
 def TTKernel_SFPUReduceTileOp : TTKernel_SFPUOp<"sfpu_reduce"> {
@@ -752,12 +835,16 @@ def TTKernel_CopyDestValuesOp : TTKernel_SFPUOp<"copy_dest_values", [TTKernel_Bi
       register buffer. Performs element-wise copy: DST[idst_out] <- DST[idst_in].
       The DST register buffer must be in acquired state via *tile_regs_acquire* call.
       This call is blocking and is only available on the compute engine.
+
+      Lowers to: copy_dest_values<DataFormat>(idst_in, idst_out).
     }];
 
-    let arguments = (ins IndexLike:$idst_in, IndexLike:$idst_out);
+    let arguments = (ins IndexLike:$idst_in,
+                         IndexLike:$idst_out,
+                         TTCore_DataTypeAttr:$data_format);
 
     let assemblyFormat = [{
-      `(` $idst_in `,` $idst_out `)` attr-dict `:` functional-type(operands, results)
+      `(` $idst_in `,` $idst_out `,` $data_format `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -1167,6 +1254,180 @@ def TTKernel_DivBinaryTilesOp : TTKernel_SFPUOp<"div_binary_tile", [TTKernel_Bin
     }];
 }
 
+def TTKernel_EqBinaryTilesInitOp : TTKernel_InitOp<"eq_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before eq_binary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:`functional-type(operands, results)
+    }];
+}
+
+def TTKernel_EqBinaryTilesOp : TTKernel_SFPUOp<"eq_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Equality operation between two tiles";
+    let description = [{
+      Performs element-wise computation of equality operation
+      DST[odst_index] <- DST[dst0_index] == DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_NeBinaryTilesInitOp : TTKernel_InitOp<"ne_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before ne_binary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:`functional-type(operands, results)
+    }];
+}
+
+def TTKernel_NeBinaryTilesOp : TTKernel_SFPUOp<"ne_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Inequality operation between two tiles";
+    let description = [{
+      Performs element-wise computation of inequality operation
+      DST[odst_index] <- DST[dst0_index] != DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GtBinaryTilesInitOp : TTKernel_InitOp<"gt_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before gt_binary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:`functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GtBinaryTilesOp : TTKernel_SFPUOp<"gt_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Greater-than operation between two tiles";
+    let description = [{
+      Performs element-wise computation of greater-than operation
+      DST[odst_index] <- DST[dst0_index] > DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_LtBinaryTilesInitOp : TTKernel_InitOp<"lt_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before lt_binary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:`functional-type(operands, results)
+    }];
+}
+
+def TTKernel_LtBinaryTilesOp : TTKernel_SFPUOp<"lt_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Less-than operation between two tiles";
+    let description = [{
+      Performs element-wise computation of less-than operation
+      DST[odst_index] <- DST[dst0_index] < DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GeBinaryTilesInitOp : TTKernel_InitOp<"ge_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before ge_binary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:`functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GeBinaryTilesOp : TTKernel_SFPUOp<"ge_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Greater-than-or-equal operation between two tiles";
+    let description = [{
+      Performs element-wise computation of greater-than-or-equal operation
+      DST[odst_index] <- DST[dst0_index] >= DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_LeBinaryTilesInitOp : TTKernel_InitOp<"le_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before le_binary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:`functional-type(operands, results)
+    }];
+}
+
+def TTKernel_LeBinaryTilesOp : TTKernel_SFPUOp<"le_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Less-than-or-equal operation between two tiles";
+    let description = [{
+      Performs element-wise computation of less-than-or-equal operation
+      DST[odst_index] <- DST[dst0_index] <= DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_BinaryBitwiseTileInitOp : TTKernel_InitOp<"binary_bitwise_tile_init"> {
     let summary = "Init function for binary bitwise operations (AND, OR, XOR). Refer to documentation for any init function.";
     let description = [{
@@ -1508,9 +1769,25 @@ def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of exp_tile.";
     let description = [{
       Must be run before exp_tile.
+
+      The optional attributes map onto the metal template parameters
+      `exp_tile_init<bool approx, uint32_t scale, InputClamping input_clamping>()`.
+      When all attributes are omitted the op lowers to a bare `exp_tile_init()`
+      call, preserving the metal defaults
+      (approx=false, scale=0x3F800000, input_clamping=ClampToNegative).
     }];
 
-    let arguments = (ins);
+    let arguments = (ins
+      OptionalAttr<BoolAttr>:$approx,
+      OptionalAttr<I32Attr>:$scale,
+      OptionalAttr<TTKernel_InputClampingAttr>:$input_clamping);
+
+    let builders = [
+      OpBuilder<(ins), [{
+        build($_builder, $_state, /*approx=*/nullptr, /*scale=*/nullptr,
+              /*input_clamping=*/nullptr);
+      }]>,
+    ];
 
     let assemblyFormat = [{
       `(` `)` attr-dict `:` functional-type(operands, results)
@@ -1524,9 +1801,31 @@ def TTKernel_ExpTileOp : TTKernel_SFPUOp<"exp_tile", [TTKernel_UnaryOpTrait]> {
       in DST register at index tile_index. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call. This call is blocking and is only
       available on the compute engine.
+
+      The optional attributes map onto the metal template parameters
+      `exp_tile<bool approx, bool scale_en, InputClamping input_clamping, int iterations>(idst, vector_mode, scale)`.
+      When all attributes are omitted the op lowers to a bare `exp_tile(idst)`
+      call, preserving the metal defaults
+      (approx=false, scale_en=false, input_clamping=ClampToNegative, iterations=8).
+      `scale` holds the runtime scale argument; when present and not equal to
+      the default 1.0 value it enables metal's `scale_en` template parameter and
+      is emitted as the third positional argument with `vector_mode` defaulted
+      to `VectorMode::RC`.
     }];
 
-    let arguments = (ins IndexLike:$tile_index);
+    let arguments = (ins IndexLike:$tile_index,
+      OptionalAttr<BoolAttr>:$approx,
+      OptionalAttr<TTKernel_InputClampingAttr>:$input_clamping,
+      OptionalAttr<I32Attr>:$iterations,
+      OptionalAttr<I32Attr>:$scale);
+
+    let builders = [
+      OpBuilder<(ins "::mlir::Value":$tile_index), [{
+        build($_builder, $_state, tile_index, /*approx=*/nullptr,
+              /*input_clamping=*/nullptr, /*iterations=*/nullptr,
+              /*scale=*/nullptr);
+      }]>,
+    ];
 
     let assemblyFormat = [{
       `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
@@ -1952,6 +2251,35 @@ def TTKernel_AtanTileOp : TTKernel_SFPUOp<"atan_tile", [TTKernel_UnaryOpTrait]> 
 
     let assemblyFormat = [{
       `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_Atan2BinaryTilesInitOp : TTKernel_InitOp<"atan2_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before atan2_binary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_Atan2BinaryTilesOp : TTKernel_SFPUOp<"atan2_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Elementwise atan2 operation between two tiles";
+    let description = [{
+      Performs element-wise computation of atan2 operation
+      DST[odst_index] <- atan2(DST[dst0_index], DST[dst1_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *acquire_dst* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -2901,7 +3229,7 @@ def TTKernel_CBPopFrontOp : TTKernel_Op<"cb_pop_front"> {
     }];
 }
 
-def TTKernel_CBReserveBackOp : TTKernel_Op<"cb_reserve_back"> {
+def TTKernel_CBReserveBackOp : TTKernel_Op<"cb_reserve_back", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "CBReserveBack call.";
     let description = [{
       CBReserveBack operation
@@ -2935,7 +3263,7 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front", [TTKernel_DeviceZoneOp
 // TTKernel Tile operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block"> {
+def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block", [TTKernel_LayoutOpTrait]> {
     let summary = "TilizeBlockOp call.";
     let description = [{
       TilizeBlockOp operation
@@ -2950,7 +3278,7 @@ def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block"> {
     }];
 }
 
-def TTKernel_ExperimentalTilizeBlockOp : TTKernel_Op<"experimental::tilize_block"> {
+def TTKernel_ExperimentalTilizeBlockOp : TTKernel_Op<"experimental.tilize_block", [TTKernel_LayoutOpTrait]> {
     let summary = "Experimental TilizeBlockOp call.";
     let description = [{
       This is a custom tilize block LLK that takes the dimensions of the block, and properly tilizes each row.
@@ -2965,7 +3293,7 @@ def TTKernel_ExperimentalTilizeBlockOp : TTKernel_Op<"experimental::tilize_block
     }];
 }
 
-def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
+def TTKernel_TilizeInitOp : TTKernel_InitOp<"tilize_init", [TTKernel_LayoutOpTrait]> {
     let summary = "TilizeInitOp call.";
     let description = [{
       Initialize the tilize operation. To be called once at beginning of a
@@ -2981,7 +3309,7 @@ def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
     }];
 }
 
-def TTKernel_TilizeUninitOp : TTKernel_Op<"tilize_uninit"> {
+def TTKernel_TilizeUninitOp : TTKernel_Op<"tilize_uninit", [TTKernel_LayoutOpTrait]> {
     let summary = "TilizeUninitOp call.";
     let description = [{
       Uninitialize tilize operation before re-initializing for another operation.
@@ -2994,7 +3322,7 @@ def TTKernel_TilizeUninitOp : TTKernel_Op<"tilize_uninit"> {
     }];
 }
 
-def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
+def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block", [TTKernel_LayoutOpTrait]> {
     let summary = "UntilizeBlockOp call.";
     let description = [{
       UntilizeBlockOp operation
@@ -3009,7 +3337,7 @@ def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
     }];
 }
 
-def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_block"> {
+def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental.untilize_block", [TTKernel_LayoutOpTrait]> {
     let summary = "Experimental UntilizeBlockOp call.";
     let description = [{
       This is a custom untilize block LLK that takes the dimensions of the block.
@@ -3024,7 +3352,7 @@ def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_b
     }];
 }
 
-def TTKernel_PackUntilizeInitOp : TTKernel_Op<"pack_untilize_init"> {
+def TTKernel_PackUntilizeInitOp : TTKernel_InitOp<"pack_untilize_init", [TTKernel_LayoutOpTrait]> {
     let summary = "PackUntilizeInitOp call.";
     let description = [{
       Initializes UNPACK, MATH, and PACK threads for the pack untilize
@@ -3037,7 +3365,7 @@ def TTKernel_PackUntilizeInitOp : TTKernel_Op<"pack_untilize_init"> {
       `cols_per_dst_pass` must fit
       in DST capacity for the target data type. Both default to 1.
       This op is expected to be paired with
-      `experimental::pack_untilize_block` and finalized by
+      `experimental.pack_untilize_block` and finalized by
       `pack_untilize_uninit`.
     }];
 
@@ -3052,7 +3380,7 @@ def TTKernel_PackUntilizeInitOp : TTKernel_Op<"pack_untilize_init"> {
     }];
 }
 
-def TTKernel_PackUntilizeUninitOp : TTKernel_Op<"pack_untilize_uninit"> {
+def TTKernel_PackUntilizeUninitOp : TTKernel_Op<"pack_untilize_uninit", [TTKernel_LayoutOpTrait]> {
     let summary = "PackUntilizeUninitOp call.";
     let description = [{
       Uninitializes the pack untilize operation.  Maps to the official tt-metal
@@ -3066,7 +3394,7 @@ def TTKernel_PackUntilizeUninitOp : TTKernel_Op<"pack_untilize_uninit"> {
     }];
 }
 
-def TTKernel_ExperimentalPackUntilizeBlockOp : TTKernel_Op<"experimental::pack_untilize_block"> {
+def TTKernel_ExperimentalPackUntilizeBlockOp : TTKernel_Op<"experimental.pack_untilize_block", [TTKernel_LayoutOpTrait]> {
     let summary = "Experimental PackUntilizeBlockOp call.";
     let description = [{
       Custom pack untilize block LLK that takes the dimensions of the block.
@@ -3080,7 +3408,7 @@ def TTKernel_ExperimentalPackUntilizeBlockOp : TTKernel_Op<"experimental::pack_u
       `cols_per_dst_pass` (the implementation processes
       `block_c / cols_per_dst_pass` column blocks).
       Use this op in the sequence:
-      `pack_untilize_init -> experimental::pack_untilize_block -> pack_untilize_uninit`.
+      `pack_untilize_init -> experimental.pack_untilize_block -> pack_untilize_uninit`.
     }];
 
     let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut, I32:$blockR, I32:$blockC,
@@ -3093,7 +3421,7 @@ def TTKernel_ExperimentalPackUntilizeBlockOp : TTKernel_Op<"experimental::pack_u
     }];
 }
 
-def TTKernel_ExperimentalWriteRowMaskTileOp : TTKernel_Op<"experimental::write_row_mask_tile"> {
+def TTKernel_ExperimentalWriteRowMaskTileOp : TTKernel_Op<"experimental.write_row_mask_tile"> {
     let summary = "Experimental Write Row Mask Tile Op";
     let description = [{
       Writes a row mask tile pattern to a CB, where element[i,j] = 1.0 if i < validRows, else 0.0.
@@ -3108,7 +3436,7 @@ def TTKernel_ExperimentalWriteRowMaskTileOp : TTKernel_Op<"experimental::write_r
     }];
 }
 
-def TTKernel_ExperimentalWriteColMaskTileOp : TTKernel_Op<"experimental::write_col_mask_tile"> {
+def TTKernel_ExperimentalWriteColMaskTileOp : TTKernel_Op<"experimental.write_col_mask_tile"> {
     let summary = "Experimental Write Col Mask Tile Op";
     let description = [{
       Writes a column mask tile pattern to a CB, where element[i,j] = 1.0 if j < validCols, else 0.0.
@@ -3124,7 +3452,7 @@ def TTKernel_ExperimentalWriteColMaskTileOp : TTKernel_Op<"experimental::write_c
 }
 
 
-def TTKernel_ExperimentalFillArangeTileOp : TTKernel_Op<"experimental::fill_arange_tile"> {
+def TTKernel_ExperimentalFillArangeTileOp : TTKernel_Op<"experimental.fill_arange_tile"> {
     let summary = "Experimental Write Full Linear Index Tile Op";
     let description = [{
       Writes a full linear index tile pattern to a CB, where element[i,j] = i * 32 + j
@@ -3144,7 +3472,7 @@ def TTKernel_ExperimentalFillArangeTileOp : TTKernel_Op<"experimental::fill_aran
     }];
 }
 
-def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
+def TTKernel_UntilizeInitOp : TTKernel_InitOp<"untilize_init", [TTKernel_LayoutOpTrait]> {
     let summary = "UntilizeInitOp call.";
     let description = [{
       Init function for untilize operations, to be used at the beginning of the
@@ -3160,7 +3488,7 @@ def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
     }];
 }
 
-def TTKernel_UntilizeUninitOp : TTKernel_Op<"untilize_uninit"> {
+def TTKernel_UntilizeUninitOp : TTKernel_Op<"untilize_uninit", [TTKernel_LayoutOpTrait]> {
     let summary = "UntilizeUninitOp call.";
     let description = [{
       Uninitialize untilize operation, to allow initializing another operation.
@@ -3213,15 +3541,21 @@ def TTKernel_TransposeTileOp : TTKernel_Op<"transpose_wh_tile"> {
 def TTKernel_GetNocAddrOp : TTKernel_Op<"get_noc_addr"> {
     let summary = "GetNocAddr";
     let description = [{
-      GetNocAddr api including core coordinates
+      GetNocAddr api including core coordinates.
     }];
 
-    let arguments = (ins IndexLike:$x, IndexLike:$y, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$l1Address);
+    let arguments = (ins IndexLike:$x, IndexLike:$y, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$l1Address, Optional<I8>:$noc);
     let results = (outs TTKernel_NocAddr:$nocAddr);
 
     let assemblyFormat = [{
-      `(` $x `,` $y `,` $l1Address `)` attr-dict `:` functional-type(operands, results)
+      `(` $x `,` $y `,` $l1Address (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let builders = [
+      OpBuilder<(ins "Value":$x, "Value":$y, "Value":$l1Address), [{
+        build($_builder, $_state, x, y, l1Address, /*noc=*/Value{});
+      }]>,
+    ];
 }
 
 def TTKernel_GetNocAddrFromBankIDOp: TTKernel_Op<"get_noc_addr_from_bank_id"> {
@@ -3238,17 +3572,24 @@ def TTKernel_GetNocAddrFromBankIDOp: TTKernel_Op<"get_noc_addr_from_bank_id"> {
     }];
 }
 
-def TTKernel_NocAsyncReadOp : TTKernel_Op<"noc_async_read"> {
+def TTKernel_NocAsyncReadOp : TTKernel_Op<"noc_async_read", [AttrSizedOperandSegments]> {
     let summary = "NocAsyncRead";
     let description = [{
-      NocAsyncRead
+      NocAsyncRead from either an L1 core coordinate or a DRAM bank.
     }];
 
-    let arguments = (ins TTKernel_NocAddr:$srcNocAddr, I32:$dstLocalL1Addr, I32:$size);
+    let arguments = (ins Variadic<IndexLike>:$srcCoreXY,
+                         Variadic<I32>:$srcBankId,
+                         I32:$srcAddress,
+                         I32:$dstLocalL1Addr,
+                         I32:$size,
+                         Optional<I8>:$noc);
 
     let assemblyFormat = [{
-      `(` $srcNocAddr `,` $dstLocalL1Addr `,` $size `)` attr-dict `:` functional-type(operands, results)
+      (`core` `[` $srcCoreXY^ `]`)? (`bank` `[` $srcBankId^ `]`)? `,` $srcAddress `,` $dstLocalL1Addr `,` $size (`,` `noc` $noc^)? attr-dict `:` functional-type(operands, results)
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTKernel_NocAsyncReadTileOp : TTKernel_Op<"noc_async_read_tile"> {
@@ -3258,89 +3599,73 @@ def TTKernel_NocAsyncReadTileOp : TTKernel_Op<"noc_async_read_tile"> {
     }];
 
     let arguments = (ins I32:$id,
-                    AnyTypeOf<[TTKernel_InterleavedAddrGenFast, TTKernel_TensorAccessor]>:$addrGenStruct,
-                    I32:$dstLocalL1Addr);
+                         TTKernel_TensorAccessor:$addrGenStruct,
+                         I32:$dstLocalL1Addr,
+                         Optional<I8>:$noc);
 
     let assemblyFormat = [{
-      `(` $id `,` $addrGenStruct `,` $dstLocalL1Addr `)` attr-dict `:` functional-type(operands, results)
+      `(` $id `,` $addrGenStruct `,` $dstLocalL1Addr (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
-def TTKernel_NocAsyncReadOnePacketSetStateOp : TTKernel_Op<"noc_async_read_one_packet_set_state"> {
+def TTKernel_NocAsyncReadOnePacketSetStateOp : TTKernel_Op<"noc_async_read_one_packet_set_state",
+                                                           [AttrSizedOperandSegments]> {
     let summary = "NocAsyncReadOnePacketSetState";
     let description = [{
       NocAsyncReadOnePacketSetState
     }];
 
-    let arguments = (ins TTKernel_NocAddr:$srcNocAddr, I32:$size);
+    let arguments = (ins Variadic<IndexLike>:$srcCoreXY,
+                         Variadic<I32>:$srcBankId,
+                         I32:$srcAddress,
+                         I32:$size,
+                         Optional<I8>:$noc);
 
     let assemblyFormat = [{
-      `(` $srcNocAddr `,` $size `)` attr-dict `:` functional-type(operands, results)
+      `(` (`core` `[` $srcCoreXY^ `]`)? (`bank` `[` $srcBankId^ `]`)? `,` $srcAddress `,` $size (`,` `noc` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let hasVerifier = 1;
 }
 
-def TTKernel_NocAsyncReadOnePacketWithStateOp : TTKernel_Op<"noc_async_read_one_packet_with_state"> {
+def TTKernel_NocAsyncReadOnePacketWithStateOp : TTKernel_Op<"noc_async_read_one_packet_with_state",
+                                                            [AttrSizedOperandSegments]> {
     let summary = "NocAsyncReadOnePacketWithState";
     let description = [{
       NocAsyncReadOnePacketWithState
     }];
 
-    let arguments = (ins TTKernel_NocAddr:$srcNocAddr, AnyTypeOf<[I32, TTKernel_L1Addr]>:$dstLocalL1Addr);
+    let arguments = (ins Variadic<IndexLike>:$srcCoreXY,
+                         Variadic<I32>:$srcBankId,
+                         I32:$srcAddress,
+                         AnyTypeOf<[I32, TTKernel_L1Addr]>:$dstLocalL1Addr,
+                         I32:$size,
+                         Optional<I8>:$noc);
 
     let assemblyFormat = [{
-      `(` $srcNocAddr `,` $dstLocalL1Addr `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_NocAsyncReadSetTridOp : TTKernel_Op<"noc_async_read_set_trid", [TTKernel_TridNocOpTrait]> {
-    let summary = "NocAsyncReadSetTrid";
-    let description = [{
-      Sets the transaction ID for subsequent NOC reads. TRID is 0-15, NOC is 0 or 1.
-
-      Example:
-      ```
-      ttkernel.noc_async_read_set_trid(%trid, %noc_idx) : (i32, i8) -> ()
-      ```
+      `(` (`core` `[` $srcCoreXY^ `]`)? (`bank` `[` $srcBankId^ `]`)? `,` $srcAddress `,` $dstLocalL1Addr `,` $size (`,` `noc` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 
-    let arguments = (ins I32:$trid, Optional<I8>:$noc);
-
-    let assemblyFormat = [{
-      `(` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_NocAsyncReadOnePacketWithStateWithTridOp : TTKernel_Op<"noc_async_read_one_packet_with_state_with_trid", [TTKernel_TridNocOpTrait]> {
-    let summary = "NocAsyncReadOnePacketWithStateWithTrid";
-    let description = [{
-      Issues a one-packet NOC read with a specific transaction ID. TRID is 0-15, NOC is 0 or 1.
-
-      Example:
-      ```
-      // Must set TRID before calling.
-      // ttkernel.noc_async_read_set_trid(%trid, %noc_idx) : (i32, i8) -> ()
-      ttkernel.noc_async_read_one_packet_with_state_with_trid(%src_base, %src_addr, %dst_l1, %trid, %noc_idx) : (i32, i32, i32, i32, i8) -> ()
-      // TRID-specific barrier should follow.
-      // ttkernel.noc_async_read_barrier_with_trid(%trid, %noc_idx) : (i32, i8) -> ()
-      ```
-    }];
-
-    let arguments = (ins I32:$srcBaseAddr, I32:$srcAddr, AnyTypeOf<[I32, TTKernel_L1Addr]>:$dstLocalL1Addr, I32:$trid, Optional<I8>:$noc);
-
-    let assemblyFormat = [{
-      `(` $srcBaseAddr `,` $srcAddr `,` $dstLocalL1Addr `,` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
-    }];
+    let hasVerifier = 1;
 }
 
 def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "NocAsyncReadBarrier";
     let description = [{
-      NocAsyncReadBarrier
+      Waits for all outstanding read transactions on the given NOC.
     }];
 
+    let arguments = (ins Optional<I8>:$noc);
+
     let assemblyFormat = [{
-      `(` `)` attr-dict `:` functional-type(operands, results)
+      `(` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let builders = [
+      OpBuilder<(ins), [{
+        build($_builder, $_state, /*noc=*/Value{});
+      }]>,
+    ];
 
     let hasCanonicalizer = 1;
 }
@@ -3363,17 +3688,24 @@ def TTKernel_NocAsyncReadBarrierWithTridOp : TTKernel_Op<"noc_async_read_barrier
     }];
 }
 
-def TTKernel_NocAsyncWriteOp : TTKernel_Op<"noc_async_write"> {
+def TTKernel_NocAsyncWriteOp : TTKernel_Op<"noc_async_write", [AttrSizedOperandSegments]> {
     let summary = "NocAsyncWrite";
     let description = [{
-      NocAsyncWrite
+      NocAsyncWrite to either an L1 core coordinate or a DRAM bank.
     }];
 
-    let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddr, I32:$size);
+    let arguments = (ins I32:$srcLocalL1Addr,
+                         Variadic<IndexLike>:$dstCoreXY,
+                         Variadic<I32>:$dstBankId,
+                         I32:$dstAddress,
+                         I32:$size,
+                         Optional<I8>:$noc);
 
     let assemblyFormat = [{
-      `(` $srcLocalL1Addr `,` $dstNocAddr `,` $size `)` attr-dict `:` functional-type(operands, results)
+      $srcLocalL1Addr `,` (`core` `[` $dstCoreXY^ `]`)? (`bank` `[` $dstBankId^ `]`)? `,` $dstAddress `,` $size (`,` `noc` $noc^)? attr-dict `:` functional-type(operands, results)
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
@@ -3383,63 +3715,61 @@ def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
     }];
 
     let arguments = (ins IndexLike:$id,
-                    AnyTypeOf<[TTKernel_InterleavedAddrGenFast, TTKernel_TensorAccessor]>:$addrGenStruct,
-                    I32:$srcLocalL1Addr);
+                         TTKernel_TensorAccessor:$addrGenStruct,
+                         I32:$srcLocalL1Addr,
+                         Optional<I8>:$noc);
 
     let assemblyFormat = [{
-      `(` $id `,` $addrGenStruct `,` $srcLocalL1Addr `)` attr-dict `:` functional-type(operands, results)
+      `(` $id `,` $addrGenStruct `,` $srcLocalL1Addr (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
-def TTKernel_NocAsyncWriteSetTridOp : TTKernel_Op<"noc_async_write_set_trid", [TTKernel_TridNocOpTrait]> {
-    let summary = "NocAsyncWriteSetTrid";
-    let description = [{
-      Sets the transaction ID for subsequent NOC writes. TRID is 0-15, NOC is 0 or 1.
-
-      Example:
-      ```
-      ttkernel.noc_async_write_set_trid(%trid, %noc_idx) : (i32, i8) -> ()
-      ```
-    }];
-
-    let arguments = (ins I32:$trid, Optional<I8>:$noc);
-
-    let assemblyFormat = [{
-      `(` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_NocAsyncWriteOnePacketWithTridOp : TTKernel_Op<"noc_async_write_one_packet_with_trid", [TTKernel_TridNocOpTrait]> {
+def TTKernel_NocAsyncWriteOnePacketWithTridOp : TTKernel_Op<"noc_async_write_one_packet_with_trid",
+                                                            [TTKernel_TridNocOpTrait, AttrSizedOperandSegments]> {
     let summary = "NocAsyncWriteOnePacketWithTrid";
     let description = [{
       Issues a one-packet NOC write with a specific transaction ID. TRID is 0-15, NOC is 0 or 1.
 
       Example:
       ```
-      // Must set TRID before calling.
-      // ttkernel.noc_async_write_set_trid(%trid, %noc_idx) : (i32, i8) -> ()
-      ttkernel.noc_async_write_one_packet_with_trid(%l1_src, %dst_noc, %size, %trid, %noc_idx) : (i32, !ttkernel.noc_addr, i32, i32, i8) -> ()
+      ttkernel.noc_async_write_one_packet_with_trid(%l1_src, core[%x, %y], %dst_addr, %size, %trid, noc %noc_idx) : (i32, index, index, i32, i32, i32, i8) -> ()
       // TRID-specific barrier should follow.
       // ttkernel.noc_async_write_barrier_with_trid(%trid, %noc_idx) : (i32, i8) -> ()
       ```
     }];
 
-    let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddr, I32:$size, I32:$trid, Optional<I8>:$noc);
+    let arguments = (ins I32:$srcLocalL1Addr,
+                         Variadic<IndexLike>:$dstCoreXY,
+                         Variadic<I32>:$dstBankId,
+                         I32:$dstAddress,
+                         I32:$size,
+                         I32:$trid,
+                         Optional<I8>:$noc);
 
     let assemblyFormat = [{
-      `(` $srcLocalL1Addr `,` $dstNocAddr `,` $size `,` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` $srcLocalL1Addr `,` (`core` `[` $dstCoreXY^ `]`)? (`bank` `[` $dstBankId^ `]`)? `,` $dstAddress `,` $size `,` $trid (`,` `noc` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "NocAsyncWriteBarrier";
     let description = [{
-      NocAsyncWriteBarrier
+      Waits for all outstanding write transactions on the given NOC.
     }];
 
+    let arguments = (ins Optional<I8>:$noc);
+
     let assemblyFormat = [{
-      `(` `)` attr-dict `:` functional-type(operands, results)
+      `(` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let builders = [
+      OpBuilder<(ins), [{
+        build($_builder, $_state, /*noc=*/Value{});
+      }]>,
+    ];
 
     let hasCanonicalizer = 1;
 }
@@ -3452,10 +3782,10 @@ def TTKernel_NocAsyncAtomicBarrierOp : TTKernel_Op<"noc_async_atomic_barrier"> {
       `noc_semaphore_inc_multicast`.
     }];
 
-    let arguments = (ins Optional<I8>:$noc_id);
+    let arguments = (ins Optional<I8>:$noc);
 
     let assemblyFormat = [{
-      `(` ($noc_id^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -3474,26 +3804,6 @@ def TTKernel_NocAsyncWriteBarrierWithTridOp : TTKernel_Op<"noc_async_write_barri
 
     let assemblyFormat = [{
       `(` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_ResetNocTridBarrierCounterOp : TTKernel_Op<"reset_noc_trid_barrier_counter"> {
-    let summary = "ResetNocTridBarrierCounter";
-    let description = [{
-      Resets the barrier counters for a set of transaction IDs on a given NOC. Mask bits correspond to TRIDs 0-15; NOC is 0 or 1.
-
-      Example:
-      ```
-      ttkernel.reset_noc_trid_barrier_counter(%mask, %noc_idx) : (i32, i8) -> ()
-      ```
-    }];
-
-    let arguments = (ins I32:$idMask, Optional<I8>:$noc);
-
-    let hasVerifier = 1;
-
-    let assemblyFormat = [{
-      `(` $idMask (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -3530,20 +3840,20 @@ def TTKernel_NocSemaphoreIncOp : TTKernel_Op<"noc_semaphore_inc"> {
 
     let arguments = (ins TTKernel_NocAddr:$addr,
                          IndexLike:$incr,
-                         Optional<I8>:$noc_id,
+                         Optional<I8>:$noc,
                          OptionalAttr<BoolAttr>:$posted);
 
     let assemblyFormat = [{
-      `(` $addr `,` $incr (`,` $noc_id^)? `)` (`posted` $posted^)? attr-dict `:` functional-type(operands, results)
+      `(` $addr `,` $incr (`,` $noc^)? `)` (`posted` $posted^)? attr-dict `:` functional-type(operands, results)
     }];
 
     let builders = [
       OpBuilder<(ins "Value":$addr, "Value":$incr), [{
-        build($_builder, $_state, addr, incr, /*noc_id=*/Value{},
+        build($_builder, $_state, addr, incr, /*noc=*/Value{},
               /*posted=*/BoolAttr{});
       }]>,
-      OpBuilder<(ins "Value":$addr, "Value":$incr, "Value":$noc_id), [{
-        build($_builder, $_state, addr, incr, noc_id, /*posted=*/BoolAttr{});
+      OpBuilder<(ins "Value":$addr, "Value":$incr, "Value":$noc), [{
+        build($_builder, $_state, addr, incr, noc, /*posted=*/BoolAttr{});
       }]>,
     ];
 }
@@ -3569,19 +3879,40 @@ def TTKernel_RemoteSramWriteU32Op : TTKernel_Op<"remote_sram_write_u32"> {
     let description = [{
       Initiates a 4-byte remote SRAM write of the u32 value stored at a local
       SRAM address on the Tensix core executing this function call. The source
-      SRAM word is usually used as a semaphore or mailbox value.
+      SRAM word may be referenced by a typed SRAM address, a computed i32 SRAM
+      address, or a local semaphore handle.
     }];
 
-    let arguments = (ins AnyTypeOf<[TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$src_sram_addr,
+    let arguments = (ins AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$src_sram_addr,
                          TTKernel_NocAddr:$dst_remote_addr,
-                         Optional<I8>:$noc_id);
+                         Optional<I8>:$noc);
 
     let assemblyFormat = [{
-      `(` $src_sram_addr `,` $dst_remote_addr (`,` $noc_id^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` $src_sram_addr `,` $dst_remote_addr (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
-def TTKernel_SemaphoreWaitOp : TTKernel_Op<"experimental::semaphore_wait"> {
+def TTKernel_NocInlineDwWriteOp : TTKernel_Op<"noc_inline_dw_write"> {
+    let summary = "NocInlineDwWrite";
+    let description = [{
+      Initiates an inline 32-bit NOC write to a remote L1 address. The value is
+      provided as an SSA value, so the operation does not require a local SRAM
+      staging word.
+    }];
+
+    let arguments = (ins IndexLike:$dstNocX,
+                         IndexLike:$dstNocY,
+                         I32:$dstAddress,
+                         I32:$val,
+                         I8:$byte_enable,
+                         Optional<I8>:$noc);
+
+    let assemblyFormat = [{
+      `(` `core` `[` $dstNocX `,` $dstNocY `]` `,` $dstAddress `,` $val `,` $byte_enable (`,` `noc` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_SemaphoreWaitOp : TTKernel_Op<"experimental.semaphore_wait"> {
     let summary = "SemaphoreWait";
     let description = [{
       A blocking call that waits until the value of a local L1 memory address on
@@ -3597,7 +3928,7 @@ def TTKernel_SemaphoreWaitOp : TTKernel_Op<"experimental::semaphore_wait"> {
     }];
 }
 
-def TTKernel_SemaphoreWaitMinOp : TTKernel_Op<"experimental::semaphore_wait_min"> {
+def TTKernel_SemaphoreWaitMinOp : TTKernel_Op<"experimental.semaphore_wait_min"> {
     let summary = "SemaphoreWaitMin";
     let description = [{
       A blocking call that waits until the value of a local L1 memory address on
@@ -3634,11 +3965,10 @@ def TTKernel_NocSemaphoreSetMulticastOp : TTKernel_Op<"noc_semaphore_set_multica
     let arguments = (ins AnyTypeOf<[TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$src_local_l1_addr,
                          TTKernel_NocAddr:$dst_noc_addr_multicast,
                          I32:$num_dests,
-                         OptionalAttr<BoolAttr>:$linked,
-                         OptionalAttr<BoolAttr>:$multicast_path_reserve);
+                         OptionalAttr<BoolAttr>:$linked);
 
     let assemblyFormat = [{
-      `(` $src_local_l1_addr `,` $dst_noc_addr_multicast `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` $src_local_l1_addr `,` $dst_noc_addr_multicast `,` $num_dests (`,` $linked^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -3678,7 +4008,7 @@ def TTKernel_NocSemaphoreIncMulticastOp : TTKernel_Op<"noc_semaphore_inc_multica
       encoded in a uint64_t produced by *get_noc_multicast_addr* covering the
       NOC coordinate range (x_start, y_start, x_end, y_end) and the target L1
       address. Used for cumulative synchronization across multiple senders
-      sharing receivers, paired with *experimental::semaphore_wait_min*.
+      sharing receivers, paired with *experimental.semaphore_wait_min*.
 
       The sender must not be a member of the multicast destination set; for
       including the sender there is no corresponding loopback variant in
@@ -3693,21 +4023,21 @@ def TTKernel_NocSemaphoreIncMulticastOp : TTKernel_Op<"noc_semaphore_inc_multica
     let arguments = (ins TTKernel_NocAddr:$addr,
                          IndexLike:$incr,
                          I32:$num_dests,
-                         Optional<I8>:$noc_id,
+                         Optional<I8>:$noc,
                          OptionalAttr<BoolAttr>:$posted);
 
     let assemblyFormat = [{
-      `(` $addr `,` $incr `,` $num_dests (`,` $noc_id^)? `)` (`posted` $posted^)? attr-dict `:` functional-type(operands, results)
+      `(` $addr `,` $incr `,` $num_dests (`,` $noc^)? `)` (`posted` $posted^)? attr-dict `:` functional-type(operands, results)
     }];
 
     let builders = [
       OpBuilder<(ins "Value":$addr, "Value":$incr, "Value":$num_dests), [{
-        build($_builder, $_state, addr, incr, num_dests, /*noc_id=*/Value{},
+        build($_builder, $_state, addr, incr, num_dests, /*noc=*/Value{},
               /*posted=*/BoolAttr{});
       }]>,
       OpBuilder<(ins "Value":$addr, "Value":$incr, "Value":$num_dests,
-                     "Value":$noc_id), [{
-        build($_builder, $_state, addr, incr, num_dests, noc_id,
+                     "Value":$noc), [{
+        build($_builder, $_state, addr, incr, num_dests, noc,
               /*posted=*/BoolAttr{});
       }]>,
     ];
@@ -3787,7 +4117,7 @@ def TTKernel_BitcastOp : TTKernel_Op<"bitcast", [Pure]> {
     }];
 }
 
-def TTKernel_CastToL1PtrOp : TTKernel_Op<"reinterpret_cast<tt_l1_ptr uint32_t*>"> {
+def TTKernel_CastToL1PtrOp : TTKernel_Op<"reinterpret_cast"> {
     let summary = "CastToL1Ptr";
     let description = [{
       Cast specified addr to L1 pointer.
@@ -3827,34 +4157,6 @@ def TTKernel_LoadFromL1Op : TTKernel_Op<"load_from_l1"> {
 
     let assemblyFormat = [{
       `(` $l1_ptr `,` $offset `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen_fast"> {
-    let summary = "GetInterleavedAddrGenFastOp";
-    let description = [{
-      Returns an InterleavedAddrGenFast type.
-    }];
-
-    let arguments = (ins I1:$DRAM, I32:$bank_base_address, I32:$page_size, TTKernel_DataFormat:$data_format);
-    let results = (outs TTKernel_InterleavedAddrGenFast:$result);
-
-    let assemblyFormat = [{
-      `(` $DRAM `,` $bank_base_address `,` $page_size `,` $data_format `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_InterleavedAddrGenFastGetNocAddrOp : TTKernel_Op<"interleaved_addr_gen_fast.get_noc_addr"> {
-    let summary = "InterleavedAddrGenFastGetNocAddr";
-    let description = [{
-      Returns an raw noc address from an interleaved addr gen struct.
-    }];
-
-    let arguments = (ins TTKernel_InterleavedAddrGenFast:$self, I32:$id, I32:$offset, Optional<I8>:$noc);
-    let results = (outs TTKernel_NocAddr:$result);
-
-    let assemblyFormat = [{
-      `(` $self `,` $id `,` $offset `,` $noc `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -3916,7 +4218,7 @@ def TTKernel_MyLogicalYOp : TTKernel_Op<"my_logical_y_",
     }];
 }
 
-def TTKernel_ConvertLogicalXToTranslatedOp : TTKernel_Op<"experimental::convert_logical_x_to_translated", [Pure]> {
+def TTKernel_ConvertLogicalXToTranslatedOp : TTKernel_Op<"experimental.convert_logical_x_to_translated", [Pure]> {
   let summary = "ConvertLogicalToTranslatedX";
   let description = [{
     this converts the x coordinate from the LOGICAL coordinate system to TRANSLATED
@@ -3930,7 +4232,7 @@ def TTKernel_ConvertLogicalXToTranslatedOp : TTKernel_Op<"experimental::convert_
   }];
 }
 
-def TTKernel_ConvertLogicalYToTranslatedOp : TTKernel_Op<"experimental::convert_logical_y_to_translated", [Pure]> {
+def TTKernel_ConvertLogicalYToTranslatedOp : TTKernel_Op<"experimental.convert_logical_y_to_translated", [Pure]> {
   let summary = "ConvertLogicalToTranslatedY";
   let description = [{
     this converts the y coordinate from the LOGICAL coordinate system to TRANSLATED
@@ -3948,7 +4250,7 @@ def TTKernel_ConvertLogicalYToTranslatedOp : TTKernel_Op<"experimental::convert_
 // TTKernel Fabric API operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_GetMyDeviceIdOp : TTKernel_Op<"experimental::get_my_device_id", [Pure]> {
+def TTKernel_GetMyDeviceIdOp : TTKernel_Op<"experimental.get_my_device_id", [Pure]> {
   let summary = "GetMyDeviceId";
   let description = [{
     Get my device id. This is a 16 bit value.
@@ -3962,7 +4264,7 @@ def TTKernel_GetMyDeviceIdOp : TTKernel_Op<"experimental::get_my_device_id", [Pu
   }];
 }
 
-def TTKernel_FabricWriteOp : TTKernel_Op<"experimental::fabric_fast_write_any_len"> {
+def TTKernel_FabricWriteOp : TTKernel_Op<"experimental.fabric_fast_write_any_len"> {
   let summary = "FabricWriteOp";
   let description = [{
     FabricWriteOp
@@ -3976,7 +4278,7 @@ def TTKernel_FabricWriteOp : TTKernel_Op<"experimental::fabric_fast_write_any_le
   }];
 }
 
-def TTKernel_FabricMulticastWriteOp : TTKernel_Op<"experimental::fabric_mcast_fast_write_any_len"> {
+def TTKernel_FabricMulticastWriteOp : TTKernel_Op<"experimental.fabric_mcast_fast_write_any_len"> {
   let summary = "FabricMulticastWriteOp";
   let description = [{
     FabricMulticastWriteOp
@@ -3990,7 +4292,7 @@ def TTKernel_FabricMulticastWriteOp : TTKernel_Op<"experimental::fabric_mcast_fa
   }];
 }
 
-def TTKernel_FabricSemIncOp : TTKernel_Op<"experimental::fabric_sem_inc"> {
+def TTKernel_FabricSemIncOp : TTKernel_Op<"experimental.fabric_sem_inc"> {
   let summary = "FabricSemIncOp";
   let description = [{
     FabricSemIncOp. This operation increments a semaphore on a remote device.
@@ -4004,7 +4306,7 @@ def TTKernel_FabricSemIncOp : TTKernel_Op<"experimental::fabric_sem_inc"> {
   }];
 }
 
-def TTKernel_FabricMulticastSemIncOp : TTKernel_Op<"experimental::fabric_mcast_sem_inc"> {
+def TTKernel_FabricMulticastSemIncOp : TTKernel_Op<"experimental.fabric_mcast_sem_inc"> {
   let summary = "FabricMulticastSemIncOp";
   let description = [{
     FabricMulticastSemIncOp. This operation increments a semaphore on a range of remote devices.
@@ -4018,7 +4320,7 @@ def TTKernel_FabricMulticastSemIncOp : TTKernel_Op<"experimental::fabric_mcast_s
   }];
 }
 
-def TTKernel_CreateFabricConnectionManagerOp : TTKernel_Op<"experimental::create_fabric_connection_manager"> {
+def TTKernel_CreateFabricConnectionManagerOp : TTKernel_Op<"experimental.create_fabric_connection_manager"> {
   let summary = "CreateFabricConnectionManager";
   let description = [{
     Create fabric connection manager. The fabric connection manager is required for all fabric operations.
@@ -4032,14 +4334,14 @@ def TTKernel_CreateFabricConnectionManagerOp : TTKernel_Op<"experimental::create
   }];
 }
 
-def TTKernel_SetupFabricConnectionsOp : TTKernel_Op<"experimental::setup_fabric_connections"> {
+def TTKernel_SetupFabricConnectionsOp : TTKernel_Op<"experimental.setup_fabric_connections"> {
   let summary = "SetupFabricConnections";
   let description = [{
     Setup fabric connections for inter-device communication. The connection scheme
-    is derived from the attribute `TTMetal_FabricConnectionConfigAttr` in the
-    `EnqueueProgramOp`.
+    is selected by the owning kernel's `fabric_config_index`, which indexes into
+    `EnqueueProgramOp`'s `fabricConnectionConfigs` table.
 
-   `TTMetal_FabricConnectionConfigAttr` specifies:
+    `FabricConnectionConfig` specifies:
       - `noc_index`: Which NOC the fabric uses (must match kernel's NocConfig)
       - `topology`: The routing scheme to use for the mesh device (e.g. Line, Ring)
       - `cluster_axis`: The axis along which the to route for 1D topologies
@@ -4057,7 +4359,7 @@ def TTKernel_SetupFabricConnectionsOp : TTKernel_Op<"experimental::setup_fabric_
   }];
 }
 
-def TTKernel_CloseFabricConnectionsOp : TTKernel_Op<"experimental::close_fabric_connections"> {
+def TTKernel_CloseFabricConnectionsOp : TTKernel_Op<"experimental.close_fabric_connections"> {
   let summary = "CloseFabricConnections";
   let description = [{
     Close fabric connections.
@@ -4075,7 +4377,7 @@ def TTKernel_CloseFabricConnectionsOp : TTKernel_Op<"experimental::close_fabric_
 // TTKernel Logical Mesh Position operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_GetMyLogicalMeshPositionOp : TTKernel_Op<"experimental::get_my_logical_mesh_position", [Pure]> {
+def TTKernel_GetMyLogicalMeshPositionOp : TTKernel_Op<"experimental.get_my_logical_mesh_position", [Pure]> {
   let summary = "GetMyLogicalMeshPosition";
   let description = [{
     Get the mesh position for the current device at the given dimension.
@@ -4089,7 +4391,7 @@ def TTKernel_GetMyLogicalMeshPositionOp : TTKernel_Op<"experimental::get_my_logi
   }];
 }
 
-def TTKernel_GetDeviceIdFromLogicalMeshPositionOp : TTKernel_Op<"experimental::get_device_id_from_logical_mesh_position", [Pure]> {
+def TTKernel_GetDeviceIdFromLogicalMeshPositionOp : TTKernel_Op<"experimental.get_device_id_from_logical_mesh_position", [Pure]> {
   let summary = "GetDeviceIdFromLogicalMeshPosition";
   let description = [{
     Get the device ID for a given logical mesh position.
@@ -4112,21 +4414,10 @@ def TTKernel_GetDeviceIdFromLogicalMeshPositionOp : TTKernel_Op<"experimental::g
 def TTKernel_GetNocMulticastAddrOp : TTKernel_Op<"get_noc_multicast_addr"> {
   let summary = "GetNocMulticastAddr";
   let description = [{
-    Default tt-metal get_noc_multicast_addr
-  }];
+    Default tt-metal get_noc_multicast_addr.
 
-  let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$addr, Optional<I8>:$noc);
-  let results = (outs TTKernel_NocAddr:$mcastNocAddr);
-
-    let assemblyFormat = [{
-      `(` $noc_x_start `,` $noc_y_start `,` $noc_x_end `,` $noc_y_end `,` $addr (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_ExperimentalGetNocMulticastAddrOp : TTKernel_Op<"experimental::get_noc_multicast_addr"> {
-  let summary = "Experimental GetNocMulticastAddr";
-  let description = [{
-    Default tt-metal get_noc_multicast_addr, but flips mcast start and end coordinates on NOC1.
+    The caller must make sure the start and end coordinates are flipped on
+    WH/BH's NoC1, especially when the optional `noc` operand is absent.
   }];
 
   let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$addr, Optional<I8>:$noc);
@@ -4144,10 +4435,22 @@ def TTKernel_NocAsyncWriteMulticastOnePacketOp : TTKernel_Op<"noc_async_write_mu
     this issues only a single packet with size <= NOC_MAX_BURST_SIZE (ie maximum packet size)
   }];
 
-  let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve, Optional<I8>:$noc);
+  let arguments = (ins I32:$srcLocalL1Addr,
+                       I32:$size,
+                       I32:$num_dests,
+                       IndexLike:$dstNocXStart,
+                       IndexLike:$dstNocYStart,
+                       IndexLike:$dstNocXEnd,
+                       IndexLike:$dstNocYEnd,
+                       I32:$dstLocalL1Addr,
+                       Optional<I8>:$noc,
+                       OptionalAttr<BoolAttr>:$linked);
 
     let assemblyFormat = [{
-      `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` $srcLocalL1Addr `,` $size `,` $num_dests `,`
+          `start_xy` `[` $dstNocXStart `,` $dstNocYStart `]` `,`
+          `end_xy` `[` $dstNocXEnd `,` $dstNocYEnd `]` `,`
+          $dstLocalL1Addr (`,` `noc` $noc^)? (`,` `linked` $linked^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -4156,10 +4459,12 @@ def TTKernel_NocAsyncWriteMulticastOp : TTKernel_Op<"noc_async_write_multicast">
   let description = [{
     Initiates an asynchronous write from a source address in L1 memory on the
     Tensix core executing this function call to a rectangular destination grid.
-    The destinations are specified using a uint64_t encoding referencing an
-    on-chip grid of nodes located at NOC coordinate range
-    (x_start,y_start,x_end,y_end) and a local address created using
-    *get_noc_multicast_addr* function. Also, *see noc_async_write_barrier*.
+    The destinations are specified using an on-chip grid of nodes located at
+    NOC coordinate range (x_start,y_start,x_end,y_end) and a local address.
+    Also, *see noc_async_write_barrier*.
+
+    The caller must make sure the start and end coordinates are flipped on
+    WH/BH's NoC1, especially when the optional `noc` operand is absent.
 
     The destination nodes can only be a set of Tensix cores + L1 memory address.
     The destination nodes must form a rectangular grid. The destination L1
@@ -4177,23 +4482,50 @@ def TTKernel_NocAsyncWriteMulticastOp : TTKernel_Op<"noc_async_write_multicast">
     maximum number of destinations is 119.
   }];
 
-  let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve, Optional<I8>:$noc);
+  let arguments = (ins I32:$srcLocalL1Addr,
+                       I32:$size,
+                       I32:$num_dests,
+                       IndexLike:$dstNocXStart,
+                       IndexLike:$dstNocYStart,
+                       IndexLike:$dstNocXEnd,
+                       IndexLike:$dstNocYEnd,
+                       I32:$dstLocalL1Addr,
+                       Optional<I8>:$noc,
+                       OptionalAttr<BoolAttr>:$linked);
 
   let assemblyFormat = [{
-    `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? (`,` $noc^)? `)` attr-dict `:`functional-type(operands, results)
+    `(` $srcLocalL1Addr `,` $size `,` $num_dests `,`
+        `start_xy` `[` $dstNocXStart `,` $dstNocYStart `]` `,`
+        `end_xy` `[` $dstNocXEnd `,` $dstNocYEnd `]` `,`
+        $dstLocalL1Addr (`,` `noc` $noc^)? (`,` `linked` $linked^)? `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 
 def TTKernel_NocAsyncWriteMulticastLoopbackSrcOp : TTKernel_Op<"noc_async_write_multicast_loopback_src"> {
   let summary = "NocAsyncWriteMulticastLoopbackSrc";
   let description = [{
-    NocAsyncWriteMulticastLoopbackSrc
+    Multicast write that allows the sender to be part of the destinations.
+
+    The caller must make sure the start and end coordinates are flipped on
+    WH/BH's NoC1, especially when the optional `noc` operand is absent.
   }];
 
-  let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve, Optional<I8>:$noc);
+  let arguments = (ins I32:$srcLocalL1Addr,
+                       I32:$size,
+                       I32:$num_dests,
+                       IndexLike:$dstNocXStart,
+                       IndexLike:$dstNocYStart,
+                       IndexLike:$dstNocXEnd,
+                       IndexLike:$dstNocYEnd,
+                       I32:$dstLocalL1Addr,
+                       Optional<I8>:$noc,
+                       OptionalAttr<BoolAttr>:$linked);
 
   let assemblyFormat = [{
-    `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+    `(` $srcLocalL1Addr `,` $size `,` $num_dests `,`
+        `start_xy` `[` $dstNocXStart `,` $dstNocYStart `]` `,`
+        `end_xy` `[` $dstNocXEnd `,` $dstNocYEnd `]` `,`
+        $dstLocalL1Addr (`,` `noc` $noc^)? (`,` `linked` $linked^)? `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 
@@ -4255,11 +4587,13 @@ def TTKernel_TensorAccessorOp : TTKernel_Op<"TensorAccessor"> {
     TensorAccessor constructor.
   }];
 
-  let arguments = (ins TTKernel_TensorAccessorArgs:$args, I32:$bank_base_address_in, I32:$page_size_in);
+  let arguments = (ins TTKernel_TensorAccessorArgs:$args,
+                       I32:$bank_base_address_in,
+                       Optional<I32>:$page_size_in);
   let results = (outs TTKernel_TensorAccessor:$result);
 
   let assemblyFormat = [{
-    `(` $args `,` $bank_base_address_in `,` $page_size_in `)` attr-dict `:` functional-type(operands, results)
+    `(` $args `,` $bank_base_address_in (`,` $page_size_in^)? `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 
@@ -4446,6 +4780,39 @@ def TTKernel_GetDataFormatOp: TTKernel_Op<"get_dataformat"> {
 
     let assemblyFormat = [{
       `(` $cb `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+//===----------------------------------------------------------------------===//
+// TTKernel Numeric operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_Bfloat16GreaterOp : TTKernel_Op<"bfloat16_greater", [Pure]> {
+    let summary = "Compare two bfloat16 values using integer arithmetic.";
+    let description = [{
+      Returns true if bf16_a > bf16_b.  Operates on raw bits in int16 format
+      representation.  Maps to bfloat16_greater() in device code.
+    }];
+
+    let arguments = (ins I16:$bf16_a, I16:$bf16_b);
+    let results = (outs I1:$result);
+
+    let assemblyFormat = [{
+      `(` $bf16_a `,` $bf16_b `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_Float32GreaterOp : TTKernel_Op<"float32_greater", [Pure]> {
+    let summary = "Compare two float32 values using integer arithmetic.";
+    let description = [{
+      Returns true if f32_a > f32_b.  Operates on raw bits in int32 format.  Maps to float32_greater() in device code.
+    }];
+
+    let arguments = (ins I32:$f32_a, I32:$f32_b);
+    let results = (outs I1:$result);
+
+    let assemblyFormat = [{
+      `(` $f32_a `,` $f32_b `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

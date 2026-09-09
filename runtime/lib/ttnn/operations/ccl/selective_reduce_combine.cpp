@@ -45,7 +45,7 @@ void run(const ::tt::target::ttnn::SelectiveReduceCombineOp *op,
   ::ttnn::Tensor output = ::ttnn::prim::selective_reduce_combine(
       denseInputTensor, denseActivationsTensor, denseTokenMapsTensor,
       denseTokenCountsTensor, op->hidden_size(), op->batch_size(),
-      op->seq_size(), op->select_experts_k(), op->experts(),
+      op->seq_size(), op->select_experts_k(),
       /*axis=*/kDefaultClusterAxis,
       /*topology=*/::tt::tt_fabric::Topology::Ring,
       /*num_links=*/kDefaultNumLinks,

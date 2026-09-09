@@ -4,12 +4,11 @@
 
 #include "Constants.h"
 
+#include "operations/cpu/cpu.h"
 #include "tt-metalium/experimental/fabric/fabric.hpp"
-#include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
-#include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/layout_converter.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
@@ -19,7 +18,6 @@
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
-#include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/types_generated.h"
 #include "ttnn/tensor/serialization.hpp"
@@ -39,13 +37,86 @@ namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
 
+// Returns the number of elements described by `shape`.
+static std::uint64_t getNumElements(const std::vector<std::uint32_t> &shape) {
+  return std::accumulate(shape.begin(), shape.end(),
+                         static_cast<std::uint64_t>(1),
+                         std::multiplies<std::uint64_t>());
+}
+
+// Returns true if `stride` (element strides) describes a contiguous, row-major
+// layout for `shape`. Dimensions of size <= 1 are ignored (their stride is
+// irrelevant). A stride vector that does not match the rank is treated as
+// contiguous (we cannot interpret it).
+static bool isContiguous(const std::vector<std::uint32_t> &shape,
+                         const std::vector<std::int64_t> &stride) {
+  if (stride.size() != shape.size()) {
+    // this can happen with complex tensors and we treat them as contiguous
+    return true;
+  }
+  std::int64_t rowMajorStride = 1;
+  for (size_t d = shape.size(); d-- > 0;) {
+    if (shape[d] > 1 && stride[d] != rowMajorStride) {
+      return false;
+    }
+    rowMajorStride *= shape[d];
+  }
+  return true;
+}
+
+// Gathers a strided host buffer into a dense, contiguous byte buffer.
+static std::vector<std::byte>
+gatherContiguousBytes(const void *data, const std::vector<std::uint32_t> &shape,
+                      const std::vector<std::int64_t> &stride,
+                      std::uint32_t itemsize) {
+  std::uint64_t numElements = getNumElements(shape);
+  std::vector<std::byte> out(numElements * itemsize);
+  if (numElements == 0) {
+    return out;
+  }
+
+  const std::byte *src = static_cast<const std::byte *>(data);
+  const size_t numDims = shape.size();
+  std::vector<std::int64_t> idx(numDims, 0);
+
+  // `stride` is signed: a negative stride (e.g. a reversed view) walks backward
+  // from `data`, which points at the first logical element.
+  for (std::uint64_t i = 0; i < numElements; ++i) {
+    std::int64_t srcOffset = 0;
+    for (size_t d = 0; d < numDims; ++d) {
+      srcOffset += idx[d] * stride[d];
+    }
+
+    std::memcpy(out.data() + i * itemsize,
+                src + srcOffset * static_cast<std::int64_t>(itemsize),
+                itemsize);
+
+    for (size_t d = numDims; d-- > 0;) {
+      if (++idx[d] < shape[d]) {
+        break;
+      }
+      idx[d] = 0;
+    }
+  }
+
+  return out;
+}
+
 static ::ttnn::Tensor
 createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
-                      const std::vector<std::uint32_t> &stride,
+                      const std::vector<std::int64_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
-  const void *dataToUse = data;
+  const void *src = data;
   ::tt::target::DataType dataTypeToUse = dataType;
   std::vector<std::byte> castedData;
+
+  // Non-contiguous input: gather into a contiguous byte buffer first.
+  std::vector<std::byte> gatheredData;
+  if (data != nullptr && !isContiguous(shape, stride)) {
+    gatheredData = gatherContiguousBytes(data, shape, stride, itemsize);
+    src = gatheredData.data();
+  }
+
   if (!::tt::runtime::utils::isSupportedDataType(dataType)) {
     dataTypeToUse = ::tt::runtime::utils::getUnsupportedDataTypeAlias(dataType);
 
@@ -55,20 +126,18 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
               ::tt::target::EnumNameDataType(dataTypeToUse),
               ", this may impact throughput and the integrity of the data.");
 
-    uint64_t numElements = std::accumulate(shape.begin(), shape.end(),
-                                           static_cast<std::uint64_t>(1),
-                                           std::multiplies<std::uint64_t>());
+    std::uint64_t numElements = getNumElements(shape);
 
     std::uint32_t itemSizeToUse =
         ::tt::runtime::utils::dataTypeElementSize(dataTypeToUse);
 
     castedData.resize(itemSizeToUse * numElements);
 
-    if (data != nullptr) {
-      ::tt::runtime::utils::handleBufferCast(data, castedData.data(), dataType,
+    if (src != nullptr) {
+      ::tt::runtime::utils::handleBufferCast(src, castedData.data(), dataType,
                                              dataTypeToUse, numElements);
     }
-    dataToUse = castedData.data();
+    src = castedData.data();
   }
 
   ::ttnn::Shape ttnnShape(shape);
@@ -76,20 +145,17 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
 
   switch (ttnnDataType) {
   case ::ttnn::DataType::FLOAT32:
-    return utils::createTTNNTensor<float>(dataToUse, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<float>(src, ttnnShape, ttnnDataType);
   case ::ttnn::DataType::BFLOAT16:
-    return utils::createTTNNTensor<bfloat16>(dataToUse, ttnnShape,
-                                             ttnnDataType);
+    return utils::createTTNNTensor<bfloat16>(src, ttnnShape, ttnnDataType);
   case ::ttnn::DataType::UINT32:
-    return utils::createTTNNTensor<uint32_t>(dataToUse, ttnnShape,
-                                             ttnnDataType);
+    return utils::createTTNNTensor<uint32_t>(src, ttnnShape, ttnnDataType);
   case ::ttnn::DataType::UINT16:
-    return utils::createTTNNTensor<uint16_t>(dataToUse, ttnnShape,
-                                             ttnnDataType);
+    return utils::createTTNNTensor<uint16_t>(src, ttnnShape, ttnnDataType);
   case ::ttnn::DataType::UINT8:
-    return utils::createTTNNTensor<uint8_t>(dataToUse, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<uint8_t>(src, ttnnShape, ttnnDataType);
   case ::ttnn::DataType::INT32:
-    return utils::createTTNNTensor<int32_t>(dataToUse, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<int32_t>(src, ttnnShape, ttnnDataType);
   default:
     LOG_FATAL("Unsupported data type");
   }
@@ -170,7 +236,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
 
 ::tt::runtime::Tensor
 createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
-                         const std::vector<std::uint32_t> &stride,
+                         const std::vector<std::int64_t> &stride,
                          std::uint32_t itemsize,
                          ::tt::target::DataType dataType) {
   LOG_ASSERT(
@@ -181,6 +247,13 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
       "Cannot create borrowed tensor with null data unless the volume is 0.");
   LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(dataType),
              "Cannot create borrowed tensor with unsupported data type");
+  // A borrowed tensor aliases the caller's buffer and reads it as dense
+  // row-major, so it cannot represent a non-contiguous (e.g. transposed or
+  // sliced) layout. Such input must go through an owned tensor, which gathers
+  // the data into a contiguous buffer.
+  LOG_ASSERT(isContiguous(shape, stride),
+             "Cannot create borrowed tensor from a non-contiguous host buffer; "
+             "non-contiguous input must use an owned host tensor.");
   ::ttnn::Shape ttnnShape(shape);
 
   switch (dataType) {
@@ -232,7 +305,7 @@ createUnsafeBorrowedHostTensor(::tt::runtime::Tensor ownedHostTensor) {
 
 ::tt::runtime::Tensor
 createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
-                      const std::vector<std::uint32_t> &stride,
+                      const std::vector<std::int64_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
 
   ::tt::runtime::Tensor tensor = utils::createRuntimeTensorFromTTNN(
@@ -264,7 +337,7 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data,
     const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape) {
@@ -280,7 +353,7 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
 
 Tensor createMultiDeviceBorrowedHostTensor(
     std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape) {
@@ -294,9 +367,10 @@ Tensor createMultiDeviceBorrowedHostTensor(
   return createMultiDeviceHostTensor(tensorShards, strategy, meshShape);
 }
 
-::tt::runtime::Tensor createEmptyTensor(
-    Device device, Layout layout, const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize) {
+::tt::runtime::Tensor createEmptyTensor(Device device, Layout layout,
+                                        const std::vector<std::uint32_t> &shape,
+                                        const std::vector<std::int64_t> &stride,
+                                        std::uint32_t itemsize) {
   const LayoutDesc &layoutDesc = layout.as<LayoutDesc>(DeviceRuntime::TTNN);
   LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(
                  utils::fromTTNNDataType(layoutDesc.dataType)),
@@ -310,13 +384,12 @@ Tensor createMultiDeviceBorrowedHostTensor(
   }
   ::ttnn::MeshDevice &meshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  ::ttnn::TensorSpec tensorSpec(
+  ::tt::tt_metal::TensorSpec tensorSpec(
       ::ttnn::Shape(shape),
       ::ttnn::TensorLayout(
           layoutDesc.dataType, ::ttnn::PageConfig(layoutDesc.layout),
           layoutDesc.memoryConfig.value_or(::ttnn::MemoryConfig{})));
-  ::ttnn::Tensor tensor =
-      ::tt::tt_metal::create_device_tensor(tensorSpec, &meshDevice);
+  ::ttnn::Tensor tensor = ::ttnn::create_device_tensor(tensorSpec, &meshDevice);
 
   return utils::createRuntimeTensorFromTTNN(tensor);
 }
@@ -450,10 +523,10 @@ std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor) {
   return shape;
 }
 
-std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor) {
+std::vector<std::int64_t> getTensorStride(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
       utils::getTTNNTensorFromRuntimeTensor(tensor);
-  std::vector<std::uint32_t> stride;
+  std::vector<std::int64_t> stride;
   for (size_t i = 0; i < ttnnTensor.strides().size(); ++i) {
     stride.push_back(ttnnTensor.strides()[i]);
   }
@@ -668,9 +741,12 @@ size_t getL1SmallSize(Device meshDevice) {
 size_t getTraceRegionSize(Device meshDevice) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  return ttnnMeshDevice.allocator()
-      ->get_statistics(::ttnn::BufferType::TRACE)
-      .total_allocatable_size_bytes;
+  // Metal reserves the trace region per DRAM bank, rounded up per bank, so
+  // report the aggregate reserved capacity (>= the requested
+  // trace_region_size).
+  const auto &allocator = ttnnMeshDevice.allocator();
+  return allocator->get_bank_size(::ttnn::BufferType::TRACE) *
+         allocator->get_num_banks(::ttnn::BufferType::TRACE);
 }
 
 size_t getNumDramChannels(Device meshDevice) {
@@ -730,7 +806,13 @@ getMemoryView(Device deviceHandle) {
 }
 
 void setFabricConfig(tt::runtime::FabricConfig config) {
-  ::tt::tt_fabric::SetFabricConfig(common::toMetalFabricConfig(config));
+  // RELAXED reliability mode brings fabric up on the live links only, rather
+  // than requiring every link in the mesh graph descriptor to be healthy. The
+  // STRICT default errors/hangs at init on any downed link, stalling
+  // multi-device CCL ops (e.g. moe_compute's combine) on a Galaxy.
+  ::tt::tt_fabric::SetFabricConfig(
+      common::toMetalFabricConfig(config),
+      ::tt::tt_fabric::FabricReliabilityMode::RELAXED_SYSTEM_HEALTH_SETUP_MODE);
   RuntimeContext::instance().setCurrentFabricConfig(config);
 }
 
@@ -924,10 +1006,24 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
     ::tt::target::DataType unsupportedDataTypeAlias =
         tt::runtime::utils::getUnsupportedDataTypeAlias(dstDataType.value());
 
+    // An unsigned integer source the same width as the alias is also valid:
+    // ttnn ops such as argmax return UInt32 indices while Int64's alias is the
+    // (signed) Int32. Widening an unsigned source into the wider destination is
+    // always value-preserving, so this only relaxes the unsigned-source
+    // direction (a signed source into an unsigned destination would clamp
+    // negatives and is intentionally not accepted here).
+    bool unsignedSrcSameWidthAlias =
+        tt::runtime::utils::isUnsignedIntegerDataType(srcDataType) &&
+        tt::runtime::utils::isIntegerDataType(unsupportedDataTypeAlias) &&
+        tt::runtime::utils::dataTypeElementSize(srcDataType) ==
+            tt::runtime::utils::dataTypeElementSize(unsupportedDataTypeAlias);
+
     LOG_ASSERT(
-        srcDataType == unsupportedDataTypeAlias,
-        "Tensor data type must be the alias of the unsupported data type: " +
-            std::string(target::EnumNameDataType(unsupportedDataTypeAlias)));
+        srcDataType == unsupportedDataTypeAlias || unsignedSrcSameWidthAlias,
+        "Tensor data type must be the alias of the unsupported data type (" +
+            std::string(target::EnumNameDataType(unsupportedDataTypeAlias)) +
+            ") or an unsigned integer of the same width, but got " +
+            std::string(target::EnumNameDataType(srcDataType)));
 
     LOG_DEBUG(
         "User is requesting to copy the data from a runtime tensor with "
@@ -950,8 +1046,8 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
     size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dst, srcPtr, size);
   } else {
-    ::tt::tt_metal::copy_to_host(srcTensor.device()->mesh_command_queue(),
-                                 srcTensor, reinterpret_cast<std::byte *>(dst));
+    ::ttnn::copy_to_host(srcTensor.device()->mesh_command_queue(), srcTensor,
+                         reinterpret_cast<std::byte *>(dst));
   }
 }
 
@@ -971,12 +1067,11 @@ void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
     size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dstPtr, srcPtr, size);
   } else if (utils::isOnHost(srcTensor.storage_type())) {
-    ::tt::tt_metal::copy_to_device(srcTensor, dstTensor);
+    ::ttnn::copy_to_device(srcTensor, dstTensor);
   } else {
     void *dstPtr = utils::getRawHostDataPtr(dstTensor);
-    ::tt::tt_metal::copy_to_host(srcTensor.device()->mesh_command_queue(),
-                                 srcTensor,
-                                 reinterpret_cast<std::byte *>(dstPtr));
+    ::ttnn::copy_to_host(srcTensor.device()->mesh_command_queue(), srcTensor,
+                         reinterpret_cast<std::byte *>(dstPtr));
   }
 }
 
@@ -1098,6 +1193,13 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_EltwiseBinaryCompositeOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::
+      EltwiseBinaryCompositeWithoutFusedActivationOp: {
+    tensorRefs = {
+        opContext.type_as_EltwiseBinaryCompositeWithoutFusedActivationOp()
+            ->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
     tensorRefs = {opContext.type_as_EltwiseBinaryCompositeScalarOp()->out()};
     break;
@@ -1137,6 +1239,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::CumSumOp: {
     tensorRefs = {opContext.type_as_CumSumOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CumProdOp: {
+    tensorRefs = {opContext.type_as_CumProdOp()->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::RandOp: {
@@ -1215,6 +1321,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_RepeatInterleaveOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::Conv1dOp: {
+    tensorRefs = {opContext.type_as_Conv1dOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     tensorRefs = {opContext.type_as_Conv2dOp()->out()};
     break;
@@ -1243,6 +1353,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_PrepareConv2dBiasOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConv3dWeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareConv3dWeightsOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
     tensorRefs = {opContext.type_as_PrepareConvTranspose2dWeightsOp()->out()};
     break;
@@ -1257,6 +1371,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {
     tensorRefs = {opContext.type_as_RMSNormOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DitRMSNormUnaryFusedOp: {
+    tensorRefs = {opContext.type_as_DitRMSNormUnaryFusedOp()->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormPreAllGatherOp: {
@@ -1297,10 +1415,6 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     tensorRefs = {opContext.type_as_ReduceScatterOp()->out()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::MeshShardOp: {
-    tensorRefs = {opContext.type_as_MeshShardOp()->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::MeshPartitionOp: {
@@ -1368,6 +1482,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
         opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::ChunkedScaledDotProductAttentionOp: {
+    tensorRefs = {
+        opContext.type_as_ChunkedScaledDotProductAttentionOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::PagedFlashMultiLatentAttentionDecodeOp: {
     tensorRefs = {
         opContext.type_as_PagedFlashMultiLatentAttentionDecodeOp()->out()};
@@ -1375,6 +1494,14 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
     tensorRefs = {opContext.type_as_ScaledDotProductAttentionOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FlashMlaPrefillOp: {
+    tensorRefs = {opContext.type_as_FlashMlaPrefillOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::IndexerScoreDsaOp: {
+    tensorRefs = {opContext.type_as_IndexerScoreDsaOp()->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
@@ -1441,6 +1568,25 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {op->mapping(), op->reduced()};
     break;
   }
+  case ::tt::target::ttnn::OpType::MoeGptOp: {
+    auto *op = opContext.type_as_MoeGptOp();
+    tensorRefs = {op->token_counts(), op->activation_records(),
+                  op->token_indices(), op->tilize_out(), op->tilize_out_rm()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareMoEComputeW0W1WeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareMoEComputeW0W1WeightsOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareMoEComputeW2WeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareMoEComputeW2WeightsOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MoeComputeOp: {
+    auto *op = opContext.type_as_MoeComputeOp();
+    tensorRefs = {op->combine_output()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::TopKOp: {
     tensorRefs = utils::convertFbTensorRefsToVector(
         opContext.type_as_TopKOp()->outputs());
@@ -1451,11 +1597,43 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {op->expert_indices(), op->expert_weights()};
     break;
   }
+  case ::tt::target::ttnn::OpType::SDPAForwardOp: {
+    auto *op = opContext.type_as_SDPAForwardOp();
+    tensorRefs = {op->out()};
+    if (op->intermediates()) {
+      tensorRefs.push_back(op->intermediates());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SDPABackwardOp: {
+    auto *op = opContext.type_as_SDPABackwardOp();
+    tensorRefs = {op->grad_query(), op->grad_key(), op->grad_value()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
+    auto *op = opContext.type_as_LayerNormForwardOp();
+    tensorRefs = {op->out()};
+    if (op->mean()) {
+      tensorRefs.push_back(op->mean());
+    }
+    if (op->rstd()) {
+      tensorRefs.push_back(op->rstd());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {
+    tensorRefs = {opContext.type_as_CrossEntropyForwardOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AdamWOp:
   case ::tt::target::ttnn::OpType::FillCacheOp:
   case ::tt::target::ttnn::OpType::PagedFillCacheOp:
   case ::tt::target::ttnn::OpType::UpdateCacheOp:
   case ::tt::target::ttnn::OpType::PagedUpdateCacheOp:
   case ::tt::target::ttnn::OpType::WriteTensorOp:
+  // ttnn.copy writes into a caller-provided destination and has no result of
+  // its own, so it contributes no output tensor refs.
+  case ::tt::target::ttnn::OpType::CopyOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
   case ::tt::target::ttnn::OpType::DeallocateOp:
   case ::tt::target::ttnn::OpType::EndTraceCaptureOp:
@@ -1491,6 +1669,9 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     break;
   }
   case ::tt::target::ttnn::OpType::ResetGlobalSemaphoreOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllocateMoeComputeSemaphoreOp: {
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1572,6 +1753,15 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
                   opContext.type_as_EltwiseBinaryCompositeOp()->rhs()};
     break;
   }
+  case ::tt::target::ttnn::OpType::
+      EltwiseBinaryCompositeWithoutFusedActivationOp: {
+    tensorRefs = {
+        opContext.type_as_EltwiseBinaryCompositeWithoutFusedActivationOp()
+            ->lhs(),
+        opContext.type_as_EltwiseBinaryCompositeWithoutFusedActivationOp()
+            ->rhs()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
     tensorRefs = {opContext.type_as_EltwiseBinaryCompositeScalarOp()->lhs()};
     break;
@@ -1626,6 +1816,10 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::CumSumOp: {
     tensorRefs = {opContext.type_as_CumSumOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CumProdOp: {
+    tensorRefs = {opContext.type_as_CumProdOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
@@ -1713,6 +1907,14 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_RepeatInterleaveOp()->input()};
     break;
   }
+  case ::tt::target::ttnn::OpType::Conv1dOp: {
+    auto *op = opContext.type_as_Conv1dOp();
+    tensorRefs = {op->input(), op->weight()};
+    if (op->bias()) {
+      tensorRefs.push_back(op->bias());
+    }
+    break;
+  }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     auto *op = opContext.type_as_Conv2dOp();
     tensorRefs = {op->input(), op->weight()};
@@ -1757,6 +1959,10 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_PrepareConv2dBiasOp()->bias_tensor()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConv3dWeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareConv3dWeightsOp()->weight_tensor()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
     tensorRefs = {
         opContext.type_as_PrepareConvTranspose2dWeightsOp()->weight_tensor()};
@@ -1783,6 +1989,47 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
                   opContext.type_as_BatchNormTrainingOp()->bias()};
     break;
   }
+  case ::tt::target::ttnn::OpType::AdamWOp: {
+    tensorRefs = {opContext.type_as_AdamWOp()->param(),
+                  opContext.type_as_AdamWOp()->grad(),
+                  opContext.type_as_AdamWOp()->exp_avg(),
+                  opContext.type_as_AdamWOp()->exp_avg_sq(),
+                  opContext.type_as_AdamWOp()->lr(),
+                  opContext.type_as_AdamWOp()->beta1_pow(),
+                  opContext.type_as_AdamWOp()->beta2_pow()};
+    if (opContext.type_as_AdamWOp()->max_exp_avg_sq()) {
+      tensorRefs.push_back(opContext.type_as_AdamWOp()->max_exp_avg_sq());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SDPAForwardOp: {
+    tensorRefs = {opContext.type_as_SDPAForwardOp()->query(),
+                  opContext.type_as_SDPAForwardOp()->key(),
+                  opContext.type_as_SDPAForwardOp()->value()};
+    if (opContext.type_as_SDPAForwardOp()->attention_mask()) {
+      tensorRefs.push_back(opContext.type_as_SDPAForwardOp()->attention_mask());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SDPABackwardOp: {
+    auto *op = opContext.type_as_SDPABackwardOp();
+    tensorRefs = {op->grad_output(), op->attn_output(), op->query(),
+                  op->key(),         op->value(),       op->intermediates()};
+    if (op->attention_mask()) {
+      tensorRefs.push_back(op->attention_mask());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
+    auto *op = opContext.type_as_LayerNormForwardOp();
+    tensorRefs = {op->input(), op->weight(), op->bias()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {
+    tensorRefs = {opContext.type_as_CrossEntropyForwardOp()->input(),
+                  opContext.type_as_CrossEntropyForwardOp()->target()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::RMSNormOp: {
     tensorRefs = {opContext.type_as_RMSNormOp()->input()};
     if (opContext.type_as_RMSNormOp()->weight()) {
@@ -1790,6 +2037,21 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     }
     if (opContext.type_as_RMSNormOp()->bias()) {
       tensorRefs.push_back(opContext.type_as_RMSNormOp()->bias());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DitRMSNormUnaryFusedOp: {
+    tensorRefs = {opContext.type_as_DitRMSNormUnaryFusedOp()->input()};
+    if (opContext.type_as_DitRMSNormUnaryFusedOp()->weight()) {
+      tensorRefs.push_back(
+          opContext.type_as_DitRMSNormUnaryFusedOp()->weight());
+    }
+    if (opContext.type_as_DitRMSNormUnaryFusedOp()->bias()) {
+      tensorRefs.push_back(opContext.type_as_DitRMSNormUnaryFusedOp()->bias());
+    }
+    if (opContext.type_as_DitRMSNormUnaryFusedOp()->residual_input()) {
+      tensorRefs.push_back(
+          opContext.type_as_DitRMSNormUnaryFusedOp()->residual_input());
     }
     break;
   }
@@ -1876,10 +2138,6 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_ReduceScatterOp()->in()};
     break;
   }
-  case ::tt::target::ttnn::OpType::MeshShardOp: {
-    tensorRefs = {opContext.type_as_MeshShardOp()->in()};
-    break;
-  }
   case ::tt::target::ttnn::OpType::MeshPartitionOp: {
     tensorRefs = {opContext.type_as_MeshPartitionOp()->out()};
     break;
@@ -1918,6 +2176,42 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_MoeExpertTokenRemapOp()->topk_tensor(),
                   opContext.type_as_MoeExpertTokenRemapOp()->expert_mapping(),
                   opContext.type_as_MoeExpertTokenRemapOp()->expert_metadata()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MoeGptOp: {
+    tensorRefs = {opContext.type_as_MoeGptOp()->input_tensor(),
+                  opContext.type_as_MoeGptOp()->expert_indices(),
+                  opContext.type_as_MoeGptOp()->expert_scores(),
+                  opContext.type_as_MoeGptOp()->expert_mapping(),
+                  opContext.type_as_MoeGptOp()->w0_w1_tensor(),
+                  opContext.type_as_MoeGptOp()->w2_tensor()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareMoEComputeW0W1WeightsOp: {
+    auto *op = opContext.type_as_PrepareMoEComputeW0W1WeightsOp();
+    tensorRefs = {op->w0(), op->w1()};
+    if (op->bias_0() != nullptr) {
+      tensorRefs.push_back(op->bias_0());
+    }
+    if (op->bias_1() != nullptr) {
+      tensorRefs.push_back(op->bias_1());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareMoEComputeW2WeightsOp: {
+    auto *op = opContext.type_as_PrepareMoEComputeW2WeightsOp();
+    tensorRefs = {op->w2()};
+    if (op->bias_2() != nullptr) {
+      tensorRefs.push_back(op->bias_2());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MoeComputeOp: {
+    auto *op = opContext.type_as_MoeComputeOp();
+    tensorRefs = {
+        op->tilize_input_tensor(),         op->tilize_expert_indices_tensor(),
+        op->tilize_expert_scores_tensor(), op->tilize_expert_mapping_tensor(),
+        op->matmul_w0_w1_tensor(),         op->matmul_w2_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
@@ -1994,6 +2288,11 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
                   opContext.type_as_WriteTensorOp()->device_tensor()};
     break;
   }
+  case ::tt::target::ttnn::OpType::CopyOp: {
+    tensorRefs = {opContext.type_as_CopyOp()->src(),
+                  opContext.type_as_CopyOp()->dst()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::BeginTraceCaptureOp: {
     break;
   }
@@ -2063,6 +2362,22 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::FlashMlaPrefillOp: {
+    auto *op = opContext.type_as_FlashMlaPrefillOp();
+    tensorRefs = {op->query(), op->key()};
+    if (op->value()) {
+      tensorRefs.push_back(op->value());
+    }
+    if (op->attention_mask()) {
+      tensorRefs.push_back(op->attention_mask());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::IndexerScoreDsaOp: {
+    auto *op = opContext.type_as_IndexerScoreDsaOp();
+    tensorRefs = {op->query(), op->key(), op->weights()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
     tensorRefs = {
         opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->query(),
@@ -2076,6 +2391,12 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
             ->cur_pos_tensor(),
         opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
             ->attention_sink()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ChunkedScaledDotProductAttentionOp: {
+    auto *chunkedOp = opContext.type_as_ChunkedScaledDotProductAttentionOp();
+    tensorRefs = {chunkedOp->query(), chunkedOp->key(), chunkedOp->value(),
+                  chunkedOp->page_table(), chunkedOp->chunk_start_idx()};
     break;
   }
   case ::tt::target::ttnn::OpType::PagedFlashMultiLatentAttentionDecodeOp: {
@@ -2162,6 +2483,9 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   case ::tt::target::ttnn::OpType::ResetGlobalSemaphoreOp: {
     break;
   }
+  case ::tt::target::ttnn::OpType::AllocateMoeComputeSemaphoreOp: {
+    break;
+  }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Invalid op type");
     break;
@@ -2231,19 +2555,7 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
   ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
       tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
 
-  std::vector<tt::runtime::Tensor> hostTensors =
-      ::tt::runtime::ttnn::toHost(outTensor, untilize);
-
-  if (hostTensors.empty()) {
-    LOG_WARNING("Failed to get host tensor when retrieving tensor");
-    return std::nullopt;
-  }
-
-  if (hostTensors.size() != 1) {
-    LOG_FATAL("Multi device tensor not supported when retrieving tensor");
-  }
-
-  return hostTensors[0];
+  return outTensor;
 }
 
 std::vector<uint32_t> getTensorRefShape(tt::runtime::TensorRef tensorRef) {
@@ -2292,11 +2604,32 @@ void updateTensorInPool(CallbackContext programContextHandle,
   ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
   ::ttnn::Tensor &dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
   srcTensor = ::ttnn::to_layout(srcTensor, dstTensor.layout());
-  if (utils::isOnDevice(dstTensor.storage_type())) {
-    srcTensor = ::ttnn::to_device(srcTensor, dstTensor.device(),
-                                  dstTensor.memory_config());
+
+  LOG_ASSERT(srcTensor.logical_volume() == dstTensor.logical_volume(),
+             "Logical volume mismatch when updating tensor in tensor pool: ",
+             srcTensor.logical_volume(), " != ", dstTensor.logical_volume());
+  LOG_ASSERT(srcTensor.dtype() == dstTensor.dtype(),
+             "Dtype mismatch when updating tensor in tensor pool");
+
+  const std::size_t srcShardCount =
+      ::ttnn::distributed::get_device_tensors(srcTensor).size();
+  const std::size_t dstShardCount =
+      ::ttnn::distributed::get_device_tensors(dstTensor).size();
+  LOG_ASSERT(srcShardCount == dstShardCount,
+             "Shard count mismatch when updating tensor in tensor pool: ",
+             srcShardCount, " != ", dstShardCount);
+
+  const bool srcOnHost = utils::isOnHost(srcTensor.storage_type());
+  const bool dstOnHost = utils::isOnHost(dstTensor.storage_type());
+  if (!srcOnHost && !dstOnHost) {
+    ::ttnn::Tensor hostSrcTensor = ::ttnn::from_device(srcTensor);
+    ::ttnn::copy_to_device(hostSrcTensor, dstTensor);
+  } else {
+    ::tt::runtime::Tensor &dstRuntimeTensor =
+        tensorPool.getRuntimeTensorAndValidate(tensorRefPtr);
+    memcpy(dstRuntimeTensor, tensor);
   }
-  tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
+  tensorPool.getTTNNTensorWrapperAndValidate(tensorRefPtr).updateVersion();
 }
 
 size_t getProgramIndex(CallbackContext programContextHandle) {
@@ -2306,9 +2639,24 @@ size_t getProgramIndex(CallbackContext programContextHandle) {
   return programContext.getProgramIndex();
 }
 
+std::vector<::tt::runtime::Tensor>
+invokeCpuOp(CallbackContext programContextHandle, OpContext opContextHandle,
+            const std::vector<::tt::runtime::Tensor> &inputs) {
+  auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  const auto &opContext =
+      opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
+  LOG_ASSERT(opContext.type_type() == ::tt::target::ttnn::OpType::CpuOp,
+             "invokeCpuOp: opContext must wrap a CpuOp, got ",
+             ::tt::target::ttnn::EnumNameOpType(opContext.type_type()));
+  return operations::cpu::invokeCpuOp(programContext, opContext.type_as_CpuOp(),
+                                      inputs);
+}
+
 void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
   ::ttnn::Tensor ttnnTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
-  ::tt::tt_metal::dump_tensor_flatbuffer(filePath, ttnnTensor);
+  ::ttnn::dump_tensor_flatbuffer(filePath, ttnnTensor);
 }
 
 ::tt::runtime::Tensor loadTensor(const std::string &filePath,
@@ -2320,7 +2668,7 @@ void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
   }
 
   ::ttnn::Tensor metalTensor =
-      ::tt::tt_metal::load_tensor_flatbuffer(filePath, devicePtr);
+      ::ttnn::load_tensor_flatbuffer(filePath, devicePtr);
 
   auto tensor = utils::createRuntimeTensorFromTTNN(metalTensor);
 

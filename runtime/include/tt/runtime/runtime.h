@@ -48,13 +48,14 @@ SystemDesc getCurrentSystemDesc(
 
 void launchDistributedRuntime(const DistributedOptions &options = {});
 void shutdownDistributedRuntime();
+WorkerDebugStats getWorkerDebugStats();
 
 // Creates host tensor with a view of the input data (the buffer of the tensor
 // is on the host and it was borrowed from an external buffer which is
 // responsible for its allocation/deallocation).
 Tensor createBorrowedHostTensor(void *data,
                                 const std::vector<std::uint32_t> &shape,
-                                const std::vector<std::uint32_t> &stride,
+                                const std::vector<std::int64_t> &stride,
                                 std::uint32_t itemsize,
                                 ::tt::target::DataType dataType);
 
@@ -63,7 +64,7 @@ Tensor createBorrowedHostTensor(void *data,
 // instance).
 Tensor createOwnedHostTensor(const void *data,
                              const std::vector<std::uint32_t> &shape,
-                             const std::vector<std::uint32_t> &stride,
+                             const std::vector<std::int64_t> &stride,
                              std::uint32_t itemsize,
                              ::tt::target::DataType dataType);
 
@@ -80,7 +81,7 @@ Tensor createUnsafeBorrowedHostTensor(Tensor ownedHostTensor);
 Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data,
     const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
@@ -97,7 +98,7 @@ Tensor createMultiDeviceHostTensor(
 // responsible for its allocation/deallocation).
 Tensor createMultiDeviceBorrowedHostTensor(
     std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
@@ -105,7 +106,7 @@ Tensor createMultiDeviceBorrowedHostTensor(
 // Creates empty tensor on host/device depending on the passed layout.
 Tensor createEmptyTensor(Device device, Layout layout,
                          const std::vector<std::uint32_t> &shape,
-                         const std::vector<std::uint32_t> &stride,
+                         const std::vector<std::int64_t> &stride,
                          std::uint32_t itemsize);
 
 Tensor createScalarTensor(Scalar scalar);
@@ -142,7 +143,7 @@ std::uint32_t getTensorElementSize(Tensor tensor);
 std::uint32_t getTensorVolume(Tensor tensor);
 std::uint32_t getTensorLogicalVolume(Tensor tensor);
 std::vector<std::uint32_t> getTensorShape(Tensor tensor);
-std::vector<std::uint32_t> getTensorStride(Tensor tensor);
+std::vector<std::int64_t> getTensorStride(Tensor tensor);
 TensorDesc getTensorDesc(Tensor tensor);
 bool getTensorRetain(Tensor tensor);
 void setTensorRetain(Tensor tensor, bool retain);
@@ -263,19 +264,32 @@ std::vector<uint32_t> getTensorRefShape(TensorRef tensorRef);
 ::tt::target::DataType getTensorRefDataType(TensorRef tensorRef);
 
 // For the given tensor reference, retrieves the tensor from the program's
-// tensor pool. Returns the tensor if found, or nullopt if not found or on
-// error.
+// tensor pool.
+// Returns std::nullopt when the tensor cannot be retrieved (e.g. it is not
+// in the pool).
 std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize);
 
-// Updates the tensor in the program's tensor pool that is referenced by the
-// given tensor reference. Performs necessary layout and device conversions to
-// match the existing tensor.
+// Overwrites only the payload data of the existing tensor pool entry referenced
+// by the given tensor reference.
+// Preserves the existing tensor wrapper metadata/state (for example mesh event,
+// retain flag, callbacks, and wrapper identity/version lineage), while
+// performing the necessary layout normalization on srcTensor to
+// match the existing destination tensor.
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor);
 
 size_t getProgramIndex(CallbackContext programContextHandle);
+
+// Invoke a sequence of CPU-hoisted ops (represented through a CpuOp)
+// with custom caller-supplied host inputs.
+//
+// Useful for scenarios where a CPU-hoisted sequence of operations needs to be
+// invoked externally, out of the context of TTNN program execution.
+std::vector<Tensor> invokeCpuOp(CallbackContext programContextHandle,
+                                OpContext opContextHandle,
+                                const std::vector<Tensor> &inputs);
 
 using OpWalkFn = std::function<void(OpContext)>;
 

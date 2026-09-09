@@ -286,6 +286,7 @@ static void addRemainingStableHLOPasses(OpPassManager &pm) {
   pm.addPass(createDecoupleConstFanoutPass());
   pm.addPass(createFlattenOrConvertCompositesPass());
   pm.addPass(createRegisterCustomShardingRulePass());
+  pm.addPass(createRegisterUserShardingRulePass());
 
   mlir::sdy::PropagationOptions propagationOptions;
   propagationOptions.conservativePropagation = true;
@@ -294,7 +295,7 @@ static void addRemainingStableHLOPasses(OpPassManager &pm) {
   pm.nest<func::FuncOp>().addPass(
       mlir::sdy::createShardingConstraintToReshardPass());
 
-  pm.addPass(createReplicateNonSplittableConstantsPass());
+  pm.addPass(createReplicateNonSplittableValuesPass());
   pm.addPass(createInsertExplicitReshardsPass());
   pm.addPass(createWrapUnderManualComputationPass());
 

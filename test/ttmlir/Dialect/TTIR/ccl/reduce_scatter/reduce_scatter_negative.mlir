@@ -9,7 +9,7 @@ module attributes {} {
     return %1 : tensor<1x1x8192x256xf32>
   }
 }
-// CHECK: error: 'ttir.reduce_scatter' op Invalid reduction op for reduce scatter op
+// CHECK: error: 'ttir.reduce_scatter' op Invalid reduction type for reduce scatter op
 
 // -----
 
@@ -19,7 +19,7 @@ module attributes {} {
     return %1 : tensor<1x1x8192x256xf32>
   }
 }
-// CHECK: error: 'ttir.reduce_scatter' op Invalid reduction op for reduce scatter op
+// CHECK: error: 'ttir.reduce_scatter' op Invalid reduction type for reduce scatter op
 
 // -----
 
@@ -29,7 +29,7 @@ module attributes {} {
     return %1 : tensor<1x1x8192x256xf32>
   }
 }
-// CHECK: error: 'ttir.reduce_scatter' op Invalid reduction op for reduce scatter op
+// CHECK: error: 'ttir.reduce_scatter' op Invalid reduction type for reduce scatter op
 
 // -----
 

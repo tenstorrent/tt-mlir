@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "c5ebc6351098dfb68ce913eedcc20ee5abd1509f")
+set(TT_METAL_VERSION "d04395ed862b4c65eb6877000c40200f456cb74e")
 
 set(TTMLIR_TTMETAL_SOURCE_DIR "" CACHE PATH
     "Path to a user-managed tt-metal checkout. If empty, ExternalProject clones tt-metal at TT_METAL_VERSION.")
@@ -55,6 +55,9 @@ set(TTMETAL_BUILD_SYMLINK ${TTMETAL_SOURCE_DIR}/build)
 include(GNUInstallDirs)
 set(TTMETAL_LIBRARY_DIR ${TTMETAL_BUILD_DIR}/${CMAKE_INSTALL_LIBDIR})
 
+set(TTML_RELPATH tt-train/sources/ttml)
+set(TTML_SOURCE_DIR ${TTMETAL_SOURCE_DIR}/${TTML_RELPATH})
+
 set(TRACY_INCLUDE_DIRS
   ${TTMETAL_SOURCE_DIR}/tt_metal/third_party/tracy/public
 )
@@ -88,8 +91,8 @@ set(TTMETAL_INCLUDE_DIRS
   ${CPM_SOURCE_CACHE}/xtl/0_8_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor/0_26_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor-blas/0_22_0_patched/include
-  PARENT_SCOPE
 )
+set(TTMETAL_INCLUDE_DIRS ${TTMETAL_INCLUDE_DIRS} PARENT_SCOPE)
 
 set(TTNN_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so)
 set(TTNN_PY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnn.so)
@@ -115,6 +118,7 @@ set(TT_STL_LIBRARY_PATH ${TT_STL_LIBRARY_PATH} PARENT_SCOPE)
 set(TRACY_LIBRARY_PATH ${TRACY_LIBRARY_PATH} PARENT_SCOPE)
 set(TRACY_BINARY_DIR ${TRACY_BINARY_DIR} PARENT_SCOPE)
 set(FMT_LIBRARY_PATH ${FMT_LIBRARY_PATH} PARENT_SCOPE)
+set(TTML_SOURCE_DIR ${TTML_SOURCE_DIR} PARENT_SCOPE)
 
 if ("${CMAKE_CXX_COMPILER_LAUNCHER}" STREQUAL "ccache")
   # `tt-metal` has specific setup for ccache.
@@ -247,6 +251,15 @@ install(
   REGEX "third_party/umd/"
 )
 
+install(
+  DIRECTORY
+    ${TTML_SOURCE_DIR}/metal
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal/${TTML_RELPATH}
+  USE_SOURCE_PERMISSIONS
+  COMPONENT SharedLib
+  EXCLUDE_FROM_ALL
+)
+
 # TTNN Standalone install commands
 #
 # Copy .cpmcache libs
@@ -366,8 +379,8 @@ if (TT_RUNTIME_ENABLE_PERF_TRACE)
       MESSAGE(STATUS \"Installing tt-metal profiler binaries to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
       file(
           INSTALL
-          ${TRACY_BINARY_DIR}/csvexport-release
-          ${TRACY_BINARY_DIR}/capture-release
+          ${TRACY_BINARY_DIR}/tracy-csvexport
+          ${TRACY_BINARY_DIR}/tracy-capture
           DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}
           TYPE SHARED_LIBRARY
           USE_SOURCE_PERMISSIONS
@@ -389,3 +402,5 @@ else() # TTMLIR_ENABLE_RUNTIME OR TTMLIR_ENABLE_OPMODEL
   add_library(tt-metal-update INTERFACE EXCLUDE_FROM_ALL)
   add_library(tt-metal-configure INTERFACE EXCLUDE_FROM_ALL)
 endif() # TTMLIR_ENABLE_RUNTIME OR TTMLIR_ENABLE_OPMODEL
+
+add_subdirectory(ttml)

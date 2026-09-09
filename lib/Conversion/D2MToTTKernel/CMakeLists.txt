@@ -9,4 +9,5 @@ add_mlir_conversion_library(TTMLIRD2MToTTKernel
   MLIRIR
   MLIRPass
   MLIRD2MAnalysis
+  MLIRD2MUtils
 )

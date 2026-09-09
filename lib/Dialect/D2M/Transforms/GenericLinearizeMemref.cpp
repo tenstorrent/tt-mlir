@@ -79,6 +79,14 @@ public:
       return;
     }
 
+    // If the memref is a GenericOp operand the collapse shape must be inserted
+    // in the GenericOp region, not at the memref definition site.
+    for (auto *user : memrefValue.getUsers()) {
+      if (auto genericOp = dyn_cast<d2m::GenericOp>(user)) {
+        rewriter.setInsertionPointToStart(&genericOp.getRegion(0).front());
+        return;
+      }
+    }
     rewriter.setInsertionPointAfterValue(memrefValue);
   }
 
@@ -86,8 +94,12 @@ public:
                                 PatternRewriter &rewriter) const final {
     Value val = op.getMemRef();
     auto memref = mlir::cast<MemRefType>(val.getType());
-    if (memref.getRank() == 1) {
+    if (memref.getRank() <= 1) {
       // Already linearized.
+      return failure();
+    }
+
+    if (ttcore::getMemorySpace(memref) != ttcore::MemorySpace::DeviceL1) {
       return failure();
     }
 

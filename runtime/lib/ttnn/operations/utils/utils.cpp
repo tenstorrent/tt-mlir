@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/utils.h"
-#include "tt/runtime/workarounds.h"
 
 namespace tt::runtime::ttnn::operations::utils {
 
@@ -13,6 +13,24 @@ void eventSync(::ttnn::MeshDevice *meshDevice, const ::ttnn::QueueId &recordCq,
   ::ttnn::MeshEvent event =
       ::ttnn::events::record_mesh_event(meshDevice, recordCq);
   ::ttnn::events::wait_for_mesh_event(waitCq, event);
+}
+
+std::vector<::tt::runtime::GlobalSemaphore> collectSemaphoreInputs(
+    const ::flatbuffers::Vector<
+        ::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
+        *semaphoreInputs,
+    ProgramContext &context) {
+  std::vector<::tt::runtime::GlobalSemaphore> result;
+  if (!semaphoreInputs) {
+    return result;
+  }
+  result.reserve(semaphoreInputs->size());
+  for (const auto *semaphoreRef : *semaphoreInputs) {
+    result.push_back(
+        context.getGlobalSemaphorePool().getRuntimeGlobalSemaphoreAndValidate(
+            semaphoreRef));
+  }
+  return result;
 }
 
 bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
@@ -112,6 +130,8 @@ toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType) {
       {FbUnaryOpType::Fill, TTNNUnaryOpType::FILL},
       {FbUnaryOpType::PreluSfpu, TTNNUnaryOpType::PRELU_SFPU},
       {FbUnaryOpType::ZeroPoint, TTNNUnaryOpType::ZERO_POINT},
+      {FbUnaryOpType::Log1p, TTNNUnaryOpType::LOG1P},
+      {FbUnaryOpType::Asinh, TTNNUnaryOpType::ASINH},
   };
 
   auto it = opTypeMap.find(unaryOpType);
@@ -564,12 +584,12 @@ allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(tensorRef));
   LOG_ASSERT(memoryConfig.has_value());
-  ::ttnn::TensorSpec tensorSpec(
+  ::tt::tt_metal::TensorSpec tensorSpec(
       ttnnShape,
       ::ttnn::TensorLayout(ttnnDataType, ::ttnn::PageConfig(ttnnLayout),
                            *memoryConfig));
   ::ttnn::Tensor deviceTensor =
-      ::tt::tt_metal::create_device_tensor(tensorSpec, &meshDevice);
+      ::ttnn::create_device_tensor(tensorSpec, &meshDevice);
   return deviceTensor;
 }
 

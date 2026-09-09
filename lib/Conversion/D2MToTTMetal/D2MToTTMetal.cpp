@@ -20,9 +20,11 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -46,8 +48,35 @@ static bool kernelContainsOp(const SymbolTable &symbolTable,
 
 class D2MGenericRewriter : public OpConversionPattern<d2m::GenericOp> {
 public:
-  D2MGenericRewriter(MLIRContext *ctx, ttmetal::MathFidelity mathFidelity)
-      : OpConversionPattern<d2m::GenericOp>(ctx), mathFidelity_(mathFidelity) {}
+  D2MGenericRewriter(MLIRContext *ctx, SymbolTable &symbolTable,
+                     ttcore::Arch arch, ttmetal::MathFidelity mathFidelity)
+      : OpConversionPattern<d2m::GenericOp>(ctx), symbolTable_(&symbolTable),
+        arch_(arch), mathFidelity_(mathFidelity) {}
+
+  static void collectCBOperandIndicesFromArgs(ArrayRef<ttkernel::ArgAttr> args,
+                                              DenseSet<size_t> &indices) {
+    for (ttkernel::ArgAttr arg : args) {
+      if (arg.getArgType() == ttkernel::ArgType::CBPort) {
+        indices.insert(arg.getOperandIndex());
+      }
+    }
+  }
+
+  DenseSet<size_t> collectReferencedCBOperandIndices(ArrayAttr threads) const {
+    DenseSet<size_t> indices;
+    for (Attribute threadAttr : threads) {
+      d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
+      auto kernelFunc = symbolTable_->lookup<func::FuncOp>(
+          thread.getKernelSymbol().getRootReference());
+      assert(kernelFunc && "thread kernel symbol must resolve");
+      auto kernelSpec = kernelFunc->getAttrOfType<ttkernel::ArgSpecAttr>(
+          ttkernel::ArgSpecAttr::name);
+      assert(kernelSpec && "thread kernel must have an ArgSpec");
+      collectCBOperandIndicesFromArgs(kernelSpec.getRtArgs(), indices);
+      collectCBOperandIndicesFromArgs(kernelSpec.getCtArgs(), indices);
+    }
+    return indices;
+  }
 
   static KernelArgsAttr
   evalKernelArgsFromSpec(Builder &builder, const SymbolTable &symbolTable,
@@ -59,17 +88,19 @@ public:
     ttkernel::ArgSpecAttr kernelSpec =
         kernelFunc->getAttrOfType<ttkernel::ArgSpecAttr>(
             ttkernel::ArgSpecAttr::name);
+    SmallVector<ttmetal::KernelArgAttr> crtArgs;
     SmallVector<ttmetal::KernelArgAttr> rtArgs;
     SmallVector<ttmetal::KernelArgAttr> ctArgs;
     for (ttkernel::ArgAttr arg : kernelSpec.getRtArgs()) {
+      auto &args = arg.getIsUniform() ? crtArgs : rtArgs;
       if (arg.getArgType() == ttkernel::ArgType::CBPort) {
-        rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+        args.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
             arg.getArgType(), cbOperandIndexToPort.at(arg.getOperandIndex())));
       } else if (arg.getArgType() == ttkernel::ArgType::NamedArgument) {
-        rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+        args.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
             arg.getArgType(), arg.getOperandIndex()));
       } else {
-        rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+        args.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
             arg.getArgType(), argMapping.at(arg.getOperandIndex())));
       }
     }
@@ -85,23 +116,22 @@ public:
             arg.getArgType(), argMapping.at(arg.getOperandIndex())));
       }
     }
-    return builder.getAttr<ttmetal::KernelArgsAttr>(rtArgs, ctArgs);
+    return builder.getAttr<ttmetal::KernelArgsAttr>(crtArgs, rtArgs, ctArgs);
   }
 
-  static ArrayAttr convertThreadsToKernelConfigs(
+  ArrayAttr convertThreadsToKernelConfigs(
       Builder &builder, mlir::ValueRange inputOutputOperands, ArrayAttr threads,
-      CoreRangeAttr coreRange, const SymbolTable &symbolTable,
-      ttmetal::MathFidelity mathFidelity,
+      CoreRangeAttr coreRange, ttmetal::MathFidelity mathFidelity,
       const DenseMap<size_t, size_t> &cbOperandIndexToPort,
-      const DenseMap<uint32_t, uint32_t> &argMapping) {
+      const DenseMap<uint32_t, uint32_t> &argMapping,
+      bool hasFabricConnectionConfig) const {
     SmallVector<Attribute> kernelConfigs;
-    int unassignedNocCounter = 0;
 
     for (Attribute threadAttr : threads) {
       d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
-      KernelArgsAttr kernelArgs =
-          evalKernelArgsFromSpec(builder, symbolTable, thread.getKernelSymbol(),
-                                 cbOperandIndexToPort, argMapping);
+      KernelArgsAttr kernelArgs = evalKernelArgsFromSpec(
+          builder, *symbolTable_, thread.getKernelSymbol(),
+          cbOperandIndexToPort, argMapping);
       Attribute kernelConfig = nullptr;
       switch (thread.getThreadType()) {
       case d2m::ThreadType::Compute: {
@@ -118,8 +148,7 @@ public:
         constexpr bool dstFullSyncEn = false;
         // Enable fp32 unpack mode for typecast kernels.
         // TODO(ckaravasilisTT): Enable fp32 unpack mode in the general case.
-        bool isTypecast = kernelContainsOp<ttkernel::TypecastTileOp>(
-            symbolTable, thread.getKernelSymbol());
+        bool isTypecast = kernelContainsTypecast(thread.getKernelSymbol());
         UnpackToDestMode mode = (fp32DestAccum && isTypecast)
                                     ? UnpackToDestMode::Fp32
                                     : UnpackToDestMode::Default;
@@ -130,18 +159,19 @@ public:
         break;
       }
       case d2m::ThreadType::Datamovement: {
-        int32_t processorIdx = thread.getProcessorIndex();
-        ttcore::NocIndex nocIndex;
-        if (processorIdx < 0) {
-          int32_t index = unassignedNocCounter++ % 2;
-          nocIndex =
-              index == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
-        } else {
-          nocIndex = processorIdx == 1 ? ttcore::NocIndex::Noc0
-                                       : ttcore::NocIndex::Noc1;
+        const int32_t dmCoreIndex = thread.getDmCoreIndex();
+        TT_assert(dmCoreIndex >= 0);
+        const auto nocIdx = ttcore::getDmCoreDefaultNoc(arch_, dmCoreIndex);
+        std::optional<uint32_t> fabricConfigIndex = std::nullopt;
+        if (hasFabricConnectionConfig &&
+            kernelContainsOp<ttkernel::SetupFabricConnectionsOp>(
+                *symbolTable_, thread.getKernelSymbol())) {
+          // Single fabric config on this enqueue is at index 0.
+          fabricConfigIndex = 0u;
         }
         kernelConfig = builder.getAttr<ttmetal::NocConfigAttr>(
-            thread.getKernelSymbol(), coreRange, kernelArgs, nocIndex);
+            thread.getKernelSymbol(), coreRange, kernelArgs, dmCoreIndex,
+            nocIdx, fabricConfigIndex);
         break;
       }
       case d2m::ThreadType::Unified: {
@@ -169,23 +199,20 @@ public:
   LogicalResult
   matchAndRewrite(d2m::GenericOp op, d2m::GenericOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
-
-    llvm::SmallVector<Value> remappedBuffers;
     llvm::SmallVector<Value> args;
     DenseMap<uint32_t, uint32_t> argMapping;
     for (unsigned i = 0; i < op.getInputsAndOutputs().size(); ++i) {
       auto operand = adaptor.getOperands()[i];
       argMapping[i] = args.size();
       args.push_back(getUnderlyingMemref(operand));
-      remappedBuffers.push_back(
-          rewriter.getRemappedValue(getUnderlyingMemref(operand)));
     }
 
     // Add additional args.
     llvm::SmallVector<Value> cbs;
     llvm::SmallVector<int64_t> cbPorts;
     DenseMap<size_t, size_t> cbOperandIndexToPort;
+    DenseSet<size_t> referencedCBOperandIndices =
+        collectReferencedCBOperandIndices(op.getThreads());
     unsigned ioSize = op.getInputsAndOutputs().size();
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
       auto operandIndex = ioSize + i;
@@ -199,6 +226,9 @@ public:
       } else if (auto memrefType =
                      mlir::dyn_cast_if_present<MemRefType>(operand.getType());
                  memrefType) {
+        if (!referencedCBOperandIndices.contains(operandIndex)) {
+          continue;
+        }
         // Hoisted CB buffer (already converted to CreateBufferOp by
         // MemrefAllocRewriter).
         if (auto aliasOp = mlir::dyn_cast<d2m::OperandAliasOp>(
@@ -235,18 +265,39 @@ public:
 
     ArrayAttr threads = op.getThreads();
     CoreRangeAttr coreRange = coreRangeAttrFromOp(rewriter, op);
+    auto fabricConfig = op.getFabricConnectionConfigAttr();
     auto kernelConfigs = convertThreadsToKernelConfigs(
-        rewriter, op.getInputsAndOutputs(), threads, coreRange, symbolTable,
-        mathFidelity_, cbOperandIndexToPort, argMapping);
+        rewriter, op.getInputsAndOutputs(), threads, coreRange, mathFidelity_,
+        cbOperandIndexToPort, argMapping, /*hasFabricConnectionConfig=*/
+        static_cast<bool>(fabricConfig));
+    ArrayAttr fabricConnectionConfigs = nullptr;
+    if (fabricConfig) {
+      fabricConnectionConfigs = rewriter.getArrayAttr({fabricConfig});
+    }
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
-        op, args, cbs, cbPorts, kernelConfigs,
-        op.getFabricConnectionConfigAttr());
+        op, args, cbs, cbPorts, kernelConfigs, fabricConnectionConfigs);
     return success();
   };
 
 private:
   static CoreRangeAttr coreRangeAttrFromOp(Builder &builder, d2m::GenericOp op);
 
+  bool kernelContainsTypecast(SymbolRefAttr kernelSymbol) const {
+    StringAttr kernelName = kernelSymbol.getRootReference();
+    auto it = typecastKernelCache_.find(kernelName);
+    if (it != typecastKernelCache_.end()) {
+      return it->second;
+    }
+
+    bool containsTypecast =
+        kernelContainsOp<ttkernel::TypecastTileOp>(*symbolTable_, kernelSymbol);
+    typecastKernelCache_.try_emplace(kernelName, containsTypecast);
+    return containsTypecast;
+  }
+
+  const SymbolTable *symbolTable_;
+  mutable DenseMap<StringAttr, bool> typecastKernelCache_;
+  ttcore::Arch arch_;
   ttmetal::MathFidelity mathFidelity_;
 };
 
@@ -534,8 +585,20 @@ public:
   LogicalResult
   matchAndRewrite(d2m::ViewLayoutOp op, d2m::ViewLayoutOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    Value sourceInput = adaptor.getInput();
+
+    // When d2m.spatial consumes the view result, pre-update that use to the
+    // view input so the spatial operand type tracks the underlying memref type.
+    for (OpOperand &use :
+         llvm::make_early_inc_range(op.getResult().getUses())) {
+      if (mlir::isa<d2m::SpatialOp>(use.getOwner())) {
+        use.set(sourceInput);
+        continue;
+      }
+    }
+
     // Erase views.
-    rewriter.replaceOp(op, adaptor.getInput());
+    rewriter.replaceOp(op, sourceInput);
     return success();
   }
 };
@@ -587,7 +650,7 @@ public:
     SmallVector<Value> mergedCbs;
     SmallVector<int64_t> mergedCbPorts;
     SmallVector<Attribute> mergedKernelConfigs;
-    ttcore::FabricConnectionConfigAttr mergedFabricConfig = nullptr;
+    SmallVector<Attribute> mergedFabricConfigs;
     SmallVector<Operation *> preEnqueueOps;
     SmallVector<Operation *> postEnqueueOps;
 
@@ -614,19 +677,16 @@ public:
           mergedCbPorts,
           llvm::seq<int64_t>(
               portBase, portBase + static_cast<int64_t>(regionCbPortCount)));
-      for (Attribute kernelConfig : enqueueProgram.getKernelConfigs()) {
-        mergedKernelConfigs.push_back(remapKernelConfig(
-            kernelConfig, enqueueProgram, remapTable, mergedCbSlotBase));
-      }
 
-      auto enqueueFabricConfig = enqueueProgram.getFabricConnectionConfigAttr();
-      if (hasConflictingFabricConfig(mergedFabricConfig, enqueueFabricConfig)) {
-        return rewriter.notifyMatchFailure(
-            op, "failed to merge region enqueue_program ops due to fabric "
-                "config conflict");
+      const size_t fabricConfigBase = mergedFabricConfigs.size();
+      if (ArrayAttr regionFabricConfigs =
+              enqueueProgram.getFabricConnectionConfigsAttr()) {
+        llvm::append_range(mergedFabricConfigs, regionFabricConfigs);
       }
-      if (enqueueFabricConfig) {
-        mergedFabricConfig = enqueueFabricConfig;
+      for (Attribute kernelConfig : enqueueProgram.getKernelConfigs()) {
+        mergedKernelConfigs.push_back(
+            remapKernelConfig(kernelConfig, enqueueProgram, remapTable,
+                              mergedCbSlotBase, fabricConfigBase));
       }
     }
 
@@ -639,9 +699,13 @@ public:
       rewriter.moveOpBefore(operation, op);
     }
 
+    ArrayAttr fabricConnectionConfigs =
+        mergedFabricConfigs.empty()
+            ? nullptr
+            : rewriter.getArrayAttr(mergedFabricConfigs);
     rewriter.create<ttmetal::EnqueueProgramOp>(
         op.getLoc(), remapTable.getUnifiedArgs(), mergedCbs, mergedCbPorts,
-        rewriter.getArrayAttr(mergedKernelConfigs), mergedFabricConfig);
+        rewriter.getArrayAttr(mergedKernelConfigs), fabricConnectionConfigs);
 
     for (Operation *operation : postEnqueueOps) {
       rewriter.moveOpBefore(operation, op);
@@ -659,6 +723,7 @@ private:
     DenseMap<Value, size_t> ioToUnifiedIdx_;
     DenseMap<LocalKey, size_t> ioArgMap_;
     DenseMap<LocalKey, size_t> globalSemaphoreArgMap_;
+    DenseMap<LocalKey, size_t> localSemaphoreArgMap_;
 
   public:
     void addEnqueueArgs(ttmetal::EnqueueProgramOp enqueueProgram) {
@@ -669,6 +734,12 @@ private:
           size_t unifiedIdx = unifiedArgs_.size();
           unifiedArgs_.push_back(arg);
           globalSemaphoreArgMap_.insert({{op, localIdx}, unifiedIdx});
+          continue;
+        }
+        if (mlir::isa<ttmetal::LocalSemaphoreType>(arg.getType())) {
+          size_t unifiedIdx = unifiedArgs_.size();
+          unifiedArgs_.push_back(arg);
+          localSemaphoreArgMap_.insert({{op, localIdx}, unifiedIdx});
           continue;
         }
 
@@ -706,6 +777,17 @@ private:
       }
       return std::nullopt;
     }
+
+    std::optional<size_t>
+    lookupLocalSemaphore(ttmetal::EnqueueProgramOp enqueueProgram,
+                         size_t localIdx) const {
+      auto it =
+          localSemaphoreArgMap_.find({enqueueProgram.getOperation(), localIdx});
+      if (it != localSemaphoreArgMap_.end()) {
+        return it->second;
+      }
+      return std::nullopt;
+    }
   };
 
   static KernelArgAttr remapKernelArg(Builder &builder, KernelArgAttr kernelArg,
@@ -713,13 +795,20 @@ private:
                                       const SpatialRemapTable &remapTable,
                                       size_t mergedCbSlotBase) {
     size_t operandIndex = kernelArg.getOperandIndex();
-    if (kernelArg.getType() == ttkernel::ArgType::BufferAddress) {
+    if (kernelArg.getType() == ttkernel::ArgType::BufferAddress ||
+        kernelArg.getType() == ttkernel::ArgType::Scalar ||
+        kernelArg.getType() == ttkernel::ArgType::TensorAccessorArgs) {
       if (auto unified = remapTable.lookupIO(enqueueProgram, operandIndex)) {
         operandIndex = *unified;
       }
     } else if (kernelArg.getType() == ttkernel::ArgType::GlobalSemaphore) {
       if (auto unified =
               remapTable.lookupGlobalSemaphore(enqueueProgram, operandIndex)) {
+        operandIndex = *unified;
+      }
+    } else if (kernelArg.getType() == ttkernel::ArgType::LocalSemaphore) {
+      if (auto unified =
+              remapTable.lookupLocalSemaphore(enqueueProgram, operandIndex)) {
         operandIndex = *unified;
       }
     } else if (kernelArg.getType() == ttkernel::ArgType::CBPort) {
@@ -733,11 +822,18 @@ private:
                   ttmetal::EnqueueProgramOp enqueueProgram,
                   const SpatialRemapTable &remapTable,
                   size_t mergedCbSlotBase) {
+    SmallVector<KernelArgAttr> remappedCommonRuntimeArgs;
     SmallVector<KernelArgAttr> remappedRuntimeArgs;
     SmallVector<KernelArgAttr> remappedCompileTimeArgs;
+    remappedCommonRuntimeArgs.reserve(kernelArgs.getCommonRtArgs().size());
     remappedRuntimeArgs.reserve(kernelArgs.getRtArgs().size());
     remappedCompileTimeArgs.reserve(kernelArgs.getCtArgs().size());
 
+    for (KernelArgAttr commonRuntimeArg : kernelArgs.getCommonRtArgs()) {
+      remappedCommonRuntimeArgs.push_back(
+          remapKernelArg(builder, commonRuntimeArg, enqueueProgram, remapTable,
+                         mergedCbSlotBase));
+    }
     for (KernelArgAttr runtimeArg : kernelArgs.getRtArgs()) {
       remappedRuntimeArgs.push_back(remapKernelArg(
           builder, runtimeArg, enqueueProgram, remapTable, mergedCbSlotBase));
@@ -748,14 +844,16 @@ private:
                          mergedCbSlotBase));
     }
 
-    return builder.getAttr<KernelArgsAttr>(remappedRuntimeArgs,
+    return builder.getAttr<KernelArgsAttr>(remappedCommonRuntimeArgs,
+                                           remappedRuntimeArgs,
                                            remappedCompileTimeArgs);
   }
 
   static Attribute remapKernelConfig(Attribute kernelConfig,
                                      ttmetal::EnqueueProgramOp enqueueProgram,
                                      const SpatialRemapTable &remapTable,
-                                     size_t mergedCbSlotBase) {
+                                     size_t mergedCbSlotBase,
+                                     size_t fabricConfigBase) {
     Builder builder(kernelConfig.getContext());
     return TypeSwitch<Attribute, Attribute>(kernelConfig)
         .Case<ComputeConfigAttr>([&](ComputeConfigAttr computeConfig) {
@@ -770,12 +868,19 @@ private:
               computeConfig.getUnpackToDestMode());
         })
         .Case<NocConfigAttr>([&](NocConfigAttr nocConfig) {
+          std::optional<uint32_t> fabricConfigIndex = std::nullopt;
+          if (std::optional<uint32_t> localIndex =
+                  nocConfig.getFabricConfigIndex()) {
+            fabricConfigIndex =
+                static_cast<uint32_t>(*localIndex + fabricConfigBase);
+          }
           return NocConfigAttr::get(
               nocConfig.getContext(), nocConfig.getKernelSymbol(),
               nocConfig.getCoreRange(),
               remapKernelArgs(builder, nocConfig.getKernelArgs(),
                               enqueueProgram, remapTable, mergedCbSlotBase),
-              nocConfig.getNocIndex());
+              nocConfig.getDmCoreIndex(), nocConfig.getNocIndex(),
+              fabricConfigIndex);
         })
         .Case<EthernetConfigAttr>([&](EthernetConfigAttr ethernetConfig) {
           return EthernetConfigAttr::get(
@@ -789,13 +894,6 @@ private:
           llvm_unreachable(
               "unexpected kernel config attribute kind in spatial merge");
         });
-  }
-
-  static bool hasConflictingFabricConfig(
-      ttcore::FabricConnectionConfigAttr mergedFabricConfig,
-      ttcore::FabricConnectionConfigAttr enqueueFabricConfig) {
-    return mergedFabricConfig && enqueueFabricConfig &&
-           mergedFabricConfig != enqueueFabricConfig;
   }
 
   static FailureOr<ttmetal::EnqueueProgramOp>
@@ -854,6 +952,7 @@ namespace mlir::tt {
 
 void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter & /*typeConverter*/,
+                                  SymbolTable &symbolTable, ttcore::Arch arch,
                                   ttmetal::MathFidelity mathFidelity) {
   patterns.add<
       ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
@@ -862,7 +961,8 @@ void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ttmetal::D2MResetGlobalSemaphoreRewriter,
       ttmetal::D2MCreateLocalSemaphoreRewriter, ttmetal::D2MViewLayoutRewriter>(
       ctx);
-  patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);
+  patterns.add<ttmetal::D2MGenericRewriter>(ctx, symbolTable, arch,
+                                            mathFidelity);
   patterns.add<ttmetal::D2MOperandAliasRewriter>(ctx);
 }
 

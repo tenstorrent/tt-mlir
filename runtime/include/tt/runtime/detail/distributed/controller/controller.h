@@ -87,6 +87,7 @@ public:
 
   // Runtime APIs
   void setMemoryLogLevel(const MemoryLogLevel &logLevel);
+  WorkerDebugStats getWorkerDebugStats();
 
   SystemDesc getCurrentSystemDesc(
       std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType =
@@ -114,7 +115,7 @@ public:
 
   ::tt::runtime::Tensor createOwnedHostTensor(
       const void *data, const std::vector<std::uint32_t> &shape,
-      const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+      const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
       ::tt::target::DataType dataType);
 
   ::tt::runtime::Tensor createMultiDeviceHostTensor(
@@ -215,6 +216,9 @@ private:
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 
   void handleSetMemoryLogLevelResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+  void handleGetWorkerDebugStatsResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 

@@ -44,7 +44,7 @@ LogicalResult GroupNormAffineReshapeRewritePattern::matchAndRewrite(
   auto newOp = rewriter.create<ttnn::GroupNormOp>(
       srcOp.getLoc(), srcOp.getResult().getType(), srcOp.getInput(),
       srcOp.getInputMask(), newWeight, newBias, srcOp.getNumGroupsAttr(),
-      srcOp.getEpsilonAttr(), srcOp.getCoreGridAttr());
+      srcOp.getEpsilonAttr());
 
   rewriter.replaceOp(srcOp, newOp.getResult());
   return success();

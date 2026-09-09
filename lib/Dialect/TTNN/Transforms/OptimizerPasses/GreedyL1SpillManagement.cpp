@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -19,6 +20,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/ErrorHandling.h"
 
 namespace mlir::tt::ttnn {
@@ -43,22 +45,21 @@ public:
 
     ModuleOp moduleOp = getOperation();
 
-    // Get L1 budget from system description and usage cap.
     ttcore::GridAttr deviceGrid =
         ttcore::lookupDevice(moduleOp).getWorkerGrid();
-    ttcore::ChipDescAttr chipDesc = ttcore::getOpChipDescAttr(moduleOp);
-    float tensorL1UsageCap = utils::getTensorL1UsageCap(moduleOp);
-    uint64_t l1BudgetPerCore =
-        static_cast<uint64_t>(tensorL1UsageCap * chipDesc.getUsableL1Size());
+    uint64_t l1BudgetPerCore = utils::getUsableL1PerCore(moduleOp);
 
     TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                  "L1 spill management: budget per core = {0} bytes "
-                 "(usable = {1}, cap = {2})",
-                 l1BudgetPerCore, chipDesc.getUsableL1Size(), tensorL1UsageCap);
+                 "(usable = {1}, cap = {2}, reserved = {3})",
+                 l1BudgetPerCore,
+                 ttcore::getOpChipDescAttr(moduleOp).getUsableL1Size(),
+                 utils::getTensorL1UsageCap(moduleOp),
+                 utils::getReservedL1Usage(moduleOp));
 
-    moduleOp->walk([&](func::FuncOp func) {
+    moduleOp->walk([&](func::FuncOp func) -> WalkResult {
       if (!ttmlir::utils::isForwardDeviceFunc(func)) {
-        return;
+        return WalkResult::advance();
       }
 
       // Create observer if tracing is enabled.
@@ -67,31 +68,71 @@ public:
         observer = std::make_unique<DecisionTraceObserver>();
       }
 
-      L1SpillManagement<SumL1MemoryTracker> spill(
-          func, deviceGrid, l1BudgetPerCore, std::move(observer));
-      spill.run();
+      // Post-run finalize, shared by both tracker instantiations.
+      auto finalize = [&](auto &spill) -> WalkResult {
+        // run() emits a diagnostic but cannot fail the pass on its own; surface
+        // any unrecoverable condition (e.g. an op whose CBs overlap a required
+        // inserted-reshard input) as a pass failure. Interrupt the walk too:
+        // the pass is already doomed, so don't keep mutating later
+        // forward-device funcs.
+        if (spill.hasFailed()) {
+          signalPassFailure();
+          return WalkResult::interrupt();
+        }
 
-      // Sync D2M subgraph function types to match dispatch op's current inputs
-      // (e.g. after spill, operand types may have changed to DRAM).
-      d2m_optimizer_utils::syncAllD2MFuncTypes(func);
+        // Sync D2M subgraph function types to match dispatch op's current
+        // inputs (e.g. after spill, operand types may have changed to DRAM).
+        d2m_optimizer_utils::syncAllD2MFuncTypes(func);
 
-      // Merge spill management data into the existing decision trace JSON.
-      if (enableDecisionTrace) {
-        if (const DecisionTrace *dt = spill.getObserver()->getDecisionTrace()) {
-          if (DecisionTrace::mergeSpillTrace(decisionTraceDir, func.getName(),
-                                             *dt)) {
-            TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                         "Merged spill management trace into {0}/{1}",
-                         decisionTraceDir, func.getName());
-          } else {
-            TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                         "Failed to merge spill management trace for func "
-                         "{0}; layout propagation may not have written a "
-                         "decision trace to {1}.",
-                         func.getName(), decisionTraceDir);
+        // Merge spill management data into the existing decision trace JSON.
+        if (enableDecisionTrace) {
+          if (const DecisionTrace *dt =
+                  spill.getObserver()->getDecisionTrace()) {
+            if (DecisionTrace::mergeSpillTrace(decisionTraceDir, func.getName(),
+                                               *dt)) {
+              TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                           "Merged spill management trace into {0}/{1}",
+                           decisionTraceDir, func.getName());
+            } else {
+              TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                           "Failed to merge spill management trace for func "
+                           "{0}; layout propagation may not have written a "
+                           "decision trace to {1}.",
+                           func.getName(), decisionTraceDir);
+            }
           }
         }
+        return WalkResult::advance();
+      };
+
+      // Default: stateful, fragmentation-accurate L1 tracking backed by
+      // tt-metal's MockAllocatorState. Toggle off to fall back to the
+      // scalar-heuristic tracker.
+      if (useMockAllocatorState) {
+        StatefulL1SpillManagement spill(func, deviceGrid, l1BudgetPerCore,
+                                        std::move(observer));
+        {
+          // The stateful spill queries mutate the shared mock device's
+          // allocator. Snapshot it before and restore it after, so later
+          // stateless op-model queries (conv2d config search, pool/conv
+          // constraint checks in OperationValidationAndFallback) see the exact
+          // device state main sees. RAII: restore must run even if spill.run()
+          // throws or a future early-return is added between the snapshot and
+          // here -- otherwise a corrupted shared mock device leaks into every
+          // subsequent stateless query. The guard fires at this inner scope's
+          // exit, i.e. right after run() and before finalize(), matching the
+          // original explicit-restore ordering.
+          op_model::snapshotMockAllocatorState();
+          auto restoreGuard = llvm::make_scope_exit(
+              []() noexcept { op_model::restoreMockAllocatorState(); });
+          spill.run();
+        }
+        return finalize(spill);
       }
+      SumL1SpillManagement spill(func, deviceGrid, l1BudgetPerCore,
+                                 std::move(observer));
+      spill.run();
+      return finalize(spill);
     });
 #endif
   }

@@ -105,8 +105,6 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         start_id = 0
         num_tiles = ceil(max(map(lambda t: t.volume(), [in_tensor, out_tensor])) / 1024)
 
-        self.set_tensor_accessor_config([in_tensor, out_tensor])
-
         kernels = [
             self.create_kernel(
                 EltwiseSFPUPyKernelOp.eltwise_sfpu,
@@ -121,6 +119,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
                 out_tensor.buffer_address(),
                 num_tiles,
                 start_id,
+                tensor_accessor_configs=[out_tensor],
             ),
             self.create_kernel(
                 EltwiseSFPUPyKernelOp.reader_unary_interleaved,
@@ -128,6 +127,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
                 in_tensor.buffer_address(),
                 num_tiles,
                 start_id,
+                tensor_accessor_configs=[in_tensor],
             ),
         ]
 

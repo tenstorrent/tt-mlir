@@ -10,6 +10,7 @@ declare_mlir_python_sources(BuilderSources
     base/builder_runtime.py
     base/builder_apis.py
     base/builder_enums.py
+    base/input_range_constraints.py
 
     # ttir subpackage files
     ttir/__init__.py

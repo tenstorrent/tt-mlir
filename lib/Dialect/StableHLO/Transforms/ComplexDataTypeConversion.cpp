@@ -290,6 +290,53 @@ public:
   }
 };
 
+// Rewrites stablehlo::GatherOp on complex tensors: operand/result become
+// ...x2xf32 and slice_sizes gains a trailing 2 (gather full real+imag pair).
+class ComplexGatherOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::GatherOp> {
+  using OpConversionPattern<mlir::stablehlo::GatherOp>::OpConversionPattern;
+
+public:
+  LogicalResult matchAndRewrite(
+      mlir::stablehlo::GatherOp op,
+      OpConversionPattern<mlir::stablehlo::GatherOp>::OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    auto origResultType =
+        mlir::dyn_cast<RankedTensorType>(op.getResult().getType());
+    if (!origResultType ||
+        !mlir::isa<mlir::ComplexType>(origResultType.getElementType())) {
+      return failure();
+    }
+
+    auto newResultType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+
+    SmallVector<int64_t> newSliceSizes(op.getSliceSizes().begin(),
+                                       op.getSliceSizes().end());
+    newSliceSizes.push_back(2);
+
+    auto dimNums = op.getDimensionNumbersAttr();
+    SmallVector<int64_t> newOffsetDims(dimNums.getOffsetDims().begin(),
+                                       dimNums.getOffsetDims().end());
+    // The trailing real/imag dim appended to the result must be referenced by
+    // its position in the *result* (newResultType.getRank() - 1), not by the
+    // operand rank.  When the gather collapses dimensions the result rank is
+    // less than the operand rank, so using origOperandType.getRank() would
+    // produce an out-of-range offset_dim that fails StableHLO verification.
+    newOffsetDims.push_back(newResultType.getRank() - 1);
+    auto newDimNums = mlir::stablehlo::GatherDimensionNumbersAttr::get(
+        rewriter.getContext(), newOffsetDims, dimNums.getCollapsedSliceDims(),
+        dimNums.getOperandBatchingDims(), dimNums.getStartIndicesBatchingDims(),
+        dimNums.getStartIndexMap(), dimNums.getIndexVectorDim());
+
+    rewriter.replaceOpWithNewOp<mlir::stablehlo::GatherOp>(
+        op, newResultType, adaptor.getOperand(), adaptor.getStartIndices(),
+        newDimNums, rewriter.getDenseI64ArrayAttr(newSliceSizes),
+        op.getIndicesAreSortedAttr());
+    return success();
+  }
+};
+
 // Rewrites stablehlo::SliceOp with complex-typed tensor results by appending
 // a full-range slice (0:2:1) for the trailing real/imag dimension.
 class ComplexSliceOpConversionPattern
@@ -318,6 +365,32 @@ public:
         rewriter.getDenseI64ArrayAttr(newStartIndices),
         rewriter.getDenseI64ArrayAttr(newLimitIndices),
         rewriter.getDenseI64ArrayAttr(newStrides));
+    return success();
+  }
+};
+
+// Rewrites Shardy-emitted data-movement ops (collectives like
+// stablehlo.all_to_all, and stablehlo.composite reshards like "sdy.all_slice")
+// to operate on the unpacked real representation. These ops only forward data,
+// so appending the trailing real/imag dim leaves their attributes/dimension
+// indices valid. Supports variadic operands/results (unlike
+// ComplexTypeDefaultConversionPattern).
+template <typename OpTy>
+class ComplexPassthroughConversionPattern : public OpConversionPattern<OpTy> {
+  using OpConversionPattern<OpTy>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(OpTy op,
+                  typename OpConversionPattern<OpTy>::OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> newResultTypes;
+    for (Type t : op->getResultTypes()) {
+      newResultTypes.push_back(this->getTypeConverter()->convertType(t));
+    }
+    rewriter.replaceOpWithNewOp<OpTy>(op, TypeRange(newResultTypes),
+                                      adaptor.getOperands(),
+                                      op.getProperties());
     return success();
   }
 };
@@ -458,8 +531,10 @@ struct StableHLOComplexDataTypeConversionPass
 
     target.addDynamicallyLegalOp<
         mlir::stablehlo::ConstantOp, mlir::stablehlo::ReshapeOp,
-        mlir::stablehlo::SliceOp, mlir::stablehlo::ConcatenateOp,
-        mlir::stablehlo::BroadcastInDimOp>(isNotComplexType);
+        mlir::stablehlo::SliceOp, mlir::stablehlo::GatherOp,
+        mlir::stablehlo::ConcatenateOp, mlir::stablehlo::BroadcastInDimOp,
+        mlir::stablehlo::AllToAllOp, mlir::stablehlo::CompositeOp>(
+        isNotComplexType);
 
     target.addIllegalOp<mlir::stablehlo::ComplexOp, mlir::stablehlo::RealOp,
                         mlir::stablehlo::ImagOp>();
@@ -499,9 +574,12 @@ struct StableHLOComplexDataTypeConversionPass
     RewritePatternSet patterns(&getContext());
     patterns.add<
         ComplexBroadcastInDimOpConversionPattern,
-        ComplexConstantOpConversionPattern, ComplexSliceOpConversionPattern,
+        ComplexConstantOpConversionPattern, ComplexGatherOpConversionPattern,
+        ComplexSliceOpConversionPattern,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ConcatenateOp>,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
+        ComplexPassthroughConversionPattern<mlir::stablehlo::AllToAllOp>,
+        ComplexPassthroughConversionPattern<mlir::stablehlo::CompositeOp>,
         ShardyManualComputationComplexConversionPattern,
         ShardyReturnOpTypeConversionPattern,
         StablehloComplexToDecomposedPattern,

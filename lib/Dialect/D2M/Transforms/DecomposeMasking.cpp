@@ -14,7 +14,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 #include <functional>
 #include <limits>
@@ -251,10 +251,19 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
     if (validColsInLastTile == 0) {
       validColsInLastTile = kTileWidth;
     }
+    bool hasPartialRow = validRowsInLastTile != kTileHeight;
+    bool hasPartialCol = validColsInLastTile != kTileWidth;
 
     // Total tiles in the padded shape.
     int64_t totalTileRows = shardTileRows * gridShape[gridShape.size() - 2];
     int64_t totalTileCols = shardTileCols * gridShape[gridShape.size() - 1];
+    int64_t validTileRows = lastValidRow + 1;
+    int64_t validTileCols = lastValidCol + 1;
+
+    // Fully valid regions can include the final tile row/col when the logical
+    // size is tile-aligned along that dimension.
+    int64_t interiorRowEnd = hasPartialRow ? lastValidRow : validTileRows;
+    int64_t interiorColEnd = hasPartialCol ? lastValidCol : validTileCols;
 
     Value zeroIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     Value oneIdx = rewriter.create<arith::ConstantIndexOp>(loc, 1);
@@ -278,9 +287,13 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
         rewriter.create<arith::ConstantIndexOp>(loc, validColsInLastTile);
 
     TT_assert(rowMaskCB);
-    rewriter.create<WriteRowMaskTileOp>(loc, validRowsVal, rowMaskCB);
+    if (hasPartialRow) {
+      rewriter.create<WriteRowMaskTileOp>(loc, validRowsVal, rowMaskCB);
+    }
     TT_assert(colMaskCB);
-    rewriter.create<WriteColMaskTileOp>(loc, validColsVal, colMaskCB);
+    if (hasPartialCol) {
+      rewriter.create<WriteColMaskTileOp>(loc, validColsVal, colMaskCB);
+    }
 
     // === Tile operation helpers ===
     auto createTileFill = [&]() {
@@ -416,52 +429,66 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
           return outermostLoop;
         };
 
+    auto createGlobalRegionLoop =
+        [&](int64_t rowGlobalStart, int64_t rowGlobalEnd,
+            int64_t colGlobalStart, int64_t colGlobalEnd,
+            std::function<void(ArrayRef<Value>, Value, Value)> emitBody) {
+          if (rowGlobalStart >= rowGlobalEnd ||
+              colGlobalStart >= colGlobalEnd) {
+            return static_cast<Operation *>(nullptr);
+          }
+          auto [rowStart, rowEnd] =
+              computeLocalBounds(rewriter, loc, rowGlobalStart, rowGlobalEnd,
+                                 coreY, shardTileRows);
+          auto [colStart, colEnd] =
+              computeLocalBounds(rewriter, loc, colGlobalStart, colGlobalEnd,
+                                 coreX, shardTileCols);
+          return createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitBody);
+        };
+
     OpBuilder::InsertionGuard guard(rewriter);
     Operation *insertionPoint = &region.front().back();
 
     // =========================================================================
     // LOOP 0: Interior tiles - fully valid.
-    // Global region: [0, lastValidRow) x [0, lastValidCol).
+    // Global region: [0, interiorRowEnd) x [0, interiorColEnd).
+    // Tile-aligned dimensions include their final valid tile here.
     // =========================================================================
     {
       rewriter.setInsertionPointAfter(insertionPoint);
-      auto [rowStart, rowEnd] = computeLocalBounds(
-          rewriter, loc, 0, lastValidRow, coreY, shardTileRows);
-      auto [colStart, colEnd] = computeLocalBounds(
-          rewriter, loc, 0, lastValidCol, coreX, shardTileCols);
-      auto *loop =
-          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitPassthrough);
-      insertionPoint = loop;
+      auto *loop = createGlobalRegionLoop(0, interiorRowEnd, 0, interiorColEnd,
+                                          emitPassthrough);
+      if (loop) {
+        insertionPoint = loop;
+      }
     }
 
     // =========================================================================
     // LOOP 1: Last valid row - needs row masking.
-    // Global region: [lastValidRow, lastValidRow+1) x [0, lastValidCol).
+    // Global region: [lastValidRow, lastValidRow+1) x [0, interiorColEnd).
+    // Emitted only when the row dimension has a partial final tile.
     // =========================================================================
-    {
+    if (hasPartialRow) {
       rewriter.setInsertionPointAfter(insertionPoint);
-      auto [rowStart, rowEnd] = computeLocalBounds(
-          rewriter, loc, lastValidRow, lastValidRow + 1, coreY, shardTileRows);
-      auto [colStart, colEnd] = computeLocalBounds(
-          rewriter, loc, 0, lastValidCol, coreX, shardTileCols);
-      auto *loop =
-          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitRowMasked);
-      insertionPoint = loop;
+      auto *loop = createGlobalRegionLoop(lastValidRow, lastValidRow + 1, 0,
+                                          interiorColEnd, emitRowMasked);
+      if (loop) {
+        insertionPoint = loop;
+      }
     }
 
     // =========================================================================
     // LOOP 2: Last valid col - needs col masking.
-    // Global region: [0, lastValidRow) x [lastValidCol, lastValidCol+1).
+    // Global region: [0, interiorRowEnd) x [lastValidCol, lastValidCol+1).
+    // Emitted only when the column dimension has a partial final tile.
     // =========================================================================
-    {
+    if (hasPartialCol) {
       rewriter.setInsertionPointAfter(insertionPoint);
-      auto [rowStart, rowEnd] = computeLocalBounds(
-          rewriter, loc, 0, lastValidRow, coreY, shardTileRows);
-      auto [colStart, colEnd] = computeLocalBounds(
-          rewriter, loc, lastValidCol, lastValidCol + 1, coreX, shardTileCols);
-      auto *loop =
-          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitColMasked);
-      insertionPoint = loop;
+      auto *loop = createGlobalRegionLoop(0, interiorRowEnd, lastValidCol,
+                                          lastValidCol + 1, emitColMasked);
+      if (loop) {
+        insertionPoint = loop;
+      }
     }
 
     // =========================================================================
@@ -469,15 +496,14 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
     // Global region: [lastValidRow, lastValidRow+1) x [lastValidCol,
     // lastValidCol+1).
     // =========================================================================
-    if (rowMaskCB && colMaskCB) {
+    if (hasPartialRow && hasPartialCol) {
       rewriter.setInsertionPointAfter(insertionPoint);
-      auto [rowStart, rowEnd] = computeLocalBounds(
-          rewriter, loc, lastValidRow, lastValidRow + 1, coreY, shardTileRows);
-      auto [colStart, colEnd] = computeLocalBounds(
-          rewriter, loc, lastValidCol, lastValidCol + 1, coreX, shardTileCols);
       auto *loop =
-          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitCornerMasked);
-      insertionPoint = loop;
+          createGlobalRegionLoop(lastValidRow, lastValidRow + 1, lastValidCol,
+                                 lastValidCol + 1, emitCornerMasked);
+      if (loop) {
+        insertionPoint = loop;
+      }
     }
 
     // =========================================================================
@@ -486,29 +512,25 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
     // =========================================================================
     {
       rewriter.setInsertionPointAfter(insertionPoint);
-      auto [rowStart, rowEnd] = computeLocalBounds(
-          rewriter, loc, lastValidRow + 1, totalTileRows, coreY, shardTileRows);
-      auto [colStart, colEnd] = computeLocalBounds(
-          rewriter, loc, 0, totalTileCols, coreX, shardTileCols);
-      auto *loop =
-          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
-      insertionPoint = loop;
+      auto *loop = createGlobalRegionLoop(validTileRows, totalTileRows, 0,
+                                          totalTileCols, emitFill);
+      if (loop) {
+        insertionPoint = loop;
+      }
     }
 
     // =========================================================================
     // LOOP 5: OOB cols - fill columns beyond valid region (for valid rows
-    // only). Global region: [0, lastValidRow+1) x [lastValidCol+1,
+    // only). Global region: [0, validTileRows) x [validTileCols,
     // totalTileCols).
     // =========================================================================
     {
       rewriter.setInsertionPointAfter(insertionPoint);
-      auto [rowStart, rowEnd] = computeLocalBounds(
-          rewriter, loc, 0, lastValidRow + 1, coreY, shardTileRows);
-      auto [colStart, colEnd] = computeLocalBounds(
-          rewriter, loc, lastValidCol + 1, totalTileCols, coreX, shardTileCols);
-      auto *loop =
-          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
-      insertionPoint = loop;
+      auto *loop = createGlobalRegionLoop(0, validTileRows, validTileCols,
+                                          totalTileCols, emitFill);
+      if (loop) {
+        insertionPoint = loop;
+      }
     }
 
     rewriter.setInsertionPointAfter(insertionPoint);
@@ -533,9 +555,7 @@ struct D2MDecomposeMasking
     RewritePatternSet patterns(ctx);
     patterns.add<DecomposeMaskPattern>(ctx, numStreamBuffers);
 
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
-    }
+    walkAndApplyPatterns(getOperation(), std::move(patterns));
   }
 };
 

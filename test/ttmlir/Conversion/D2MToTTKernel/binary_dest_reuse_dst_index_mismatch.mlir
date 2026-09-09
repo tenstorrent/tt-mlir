@@ -38,7 +38,7 @@ module {
 
     // CHECK: ttkernel.unary_bcast({{.*}}, {{.*}}, <row>)
     // CHECK: ttkernel.copy_dest_values_init
-    // CHECK: ttkernel.copy_dest_values(%[[DST_SRC:.*]], %[[DST_OUT:.*]]) : (index, index) -> ()
+    // CHECK: ttkernel.copy_dest_values(%[[DST_SRC:.*]], %[[DST_OUT:.*]], <f32>) : (index, index) -> ()
     // CHECK: ttkernel.binary_dest_reuse_tiles_init({{.*}}, <mul>, <dest_to_srcb>)
     // CHECK: ttkernel.binary_dest_reuse_tiles({{.*}}, {{.*}}, %[[DST_OUT]], <mul>, <dest_to_srcb>)
     return

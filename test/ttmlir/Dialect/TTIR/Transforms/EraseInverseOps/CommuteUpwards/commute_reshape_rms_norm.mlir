@@ -64,6 +64,19 @@ module {
         return %2 : tensor<32x2048xbf16>
     }
 
+    // Negative case: reshape appends a trailing 1, (...,N) -> (...,N,1).
+    // Should NOT commute because the trailing dim becomes 1 instead of N.
+    func.func @test_reshape_rms_norm_appends_trailing_one(%arg0: tensor<1x3648x3840xbf16>, %arg1: tensor<3840xbf16>) -> tensor<1x3648x3840x1xbf16> {
+        // CHECK-LABEL: @test_reshape_rms_norm_appends_trailing_one
+        // CHECK: "ttir.rms_norm"
+        // CHECK-SAME: (tensor<1x3648x3840xbf16>, tensor<3840xbf16>) -> tensor<1x3648x3840xbf16>
+        // CHECK: "ttir.reshape"
+        // CHECK-SAME: -> tensor<1x3648x3840x1xbf16>
+        %0 = "ttir.rms_norm"(%arg0, %arg1) <{epsilon = 9.99999974E-6 : f32, normalized_shape = array<i64: 3840>, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<1x3648x3840xbf16>, tensor<3840xbf16>) -> tensor<1x3648x3840xbf16>
+        %1 = "ttir.reshape"(%0) <{shape = [1 : i32, 3648 : i32, 3840 : i32, 1 : i32]}> : (tensor<1x3648x3840xbf16>) -> tensor<1x3648x3840x1xbf16>
+        return %1 : tensor<1x3648x3840x1xbf16>
+    }
+
     // Negative case: rms_norm has non-reshape user.
     // Should NOT commute because not all users are identical reshapes.
     func.func @test_reshape_rms_norm_non_reshape_user(%arg0: tensor<32x2048xbf16>, %arg1: tensor<2048xbf16>) -> (tensor<32x2048xbf16>, tensor<32x1x2048xbf16>) {

@@ -62,21 +62,25 @@ void createStableHLOToTTIRPipeline(
   if (options.arithDialectConversionsEnabled) {
     pm.addPass(createConvertArithToStableHLOPass());
   }
+  if (options.enableAggressiveSimplification) {
+    pm.addPass(
+        ::mlir::stablehlo::createStablehloAggressiveSimplificationPass());
+  }
+  // Lower complex types to the float-pair representation while still in
+  // StableHLO, before any pass legalizes ops into TTIR. Otherwise complex-typed
+  // composite/collective ops (e.g. Shardy "sdy.all_slice" reshards) are
+  // legalized to TTIR ops (ttir.mesh_partition) that the StableHLO-only complex
+  // conversion can no longer reach (tt-xla #5313). Runs after aggressive
+  // simplification so real/imag-of-complex folds still happen on complex ops.
+  pm.addPass(::mlir::stablehlo::createStablehloComplexMathExpanderPass());
+  pm.addPass(
+      mlir::tt::stablehlo::createStableHLOComplexDataTypeConversionPass());
+
   pm.addPass(createLegalizeStableHLOCompositeToTTIRPass());
   if (options.legalizeCompositeToCallEnabled) {
     pm.addPass(::mlir::stablehlo::createStablehloLegalizeCompositeToCallPass());
   }
   pm.addPass(mlir::createInlinerPass());
-  if (options.enableAggressiveSimplification) {
-    pm.addPass(
-        ::mlir::stablehlo::createStablehloAggressiveSimplificationPass());
-  }
-  // Expand complex math ops (e.g. mul, sqrt, log) into real arithmetic before
-  // converting complex types to float-pair representation.
-  pm.addPass(::mlir::stablehlo::createStablehloComplexMathExpanderPass());
-  // Convert complex types to float-pair representation before lowering.
-  pm.addPass(
-      mlir::tt::stablehlo::createStableHLOComplexDataTypeConversionPass());
 
   ttir::ConvertStableHLOToTTIROptions passOptions;
   passOptions.enablePartialConversion = options.enableCPUFallback;

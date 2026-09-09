@@ -10,6 +10,6 @@
 // https://github.com/tenstorrent/tt-mlir/issues/4383
 
 func.func @test_rand() -> tensor<32x32xbf16>{
-  %0 = "ttir.rand"() <{dtype = bf16, size = [32 : i32, 32 : i32]}> : () -> tensor<32x32xbf16>
+  %0 = "ttir.rand"() <{size = [32 : i32, 32 : i32]}> : () -> tensor<32x32xbf16>
   return %0 : tensor<32x32xbf16>
 }

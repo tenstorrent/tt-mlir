@@ -16,18 +16,65 @@
 
 namespace mlir::tt::d2m {
 
+/// Grid and materialized type selected for one CompositeViewOp input.
+struct CompositeInputGridInfo {
+  Value input;
+  llvm::SmallVector<int64_t> selectedGrid;
+  RankedTensorType materializedType;
+};
+
 /// Per-operand analysis result describing the chosen grid for a GenericOp
 /// operand. The concrete update strategy is recovered at apply time from the
 /// operand's defining op.
+///
+/// The operand is never cached as a Value; it is referenced indirectly by
+/// `owner` + `operandIndex` and resolved on demand via getLiveOperand(). This
+/// makes stale operands impossible: between analysis and apply, an earlier
+/// generic's rewrite may replace or erase a producer, but replaceAllUsesWith
+/// updates this generic's operand in place, so re-reading it by index always
+/// yields the current producer.
 struct OperandGridInfo {
-  Value operand;
+private:
+  // The generic this operand belongs to, plus the operand index within
+  // `owner.getInputsAndOutputs()`. The operand is resolved from these on demand
+  // (see getLiveOperand()) rather than cached, so it can never go stale.
+  GenericOp owner;
+  unsigned operandIndex = 0;
+
+public:
+  void setOwner(GenericOp owner) { this->owner = owner; }
+
+  void setOperandIndex(unsigned index) { this->operandIndex = index; }
+
+  // Resolve the current operand value from the owning generic. Valid in both
+  // the analysis and apply phases: it reads operand `operandIndex` live off
+  // `owner`, so it reflects any in-place rewrites made since analysis.
+  //
+  // Relies on inputs+outputs being the leading operand segment of GenericOp, so
+  // that the index into getInputsAndOutputs() (used at construction) matches
+  // getOperand(operandIndex).
+  Value getLiveOperand() const {
+    GenericOp op = owner;
+    return op.getOperand(operandIndex);
+  }
+
   llvm::SmallVector<int64_t> selectedGrid;
   llvm::SmallVector<int64_t> targetGrid;
+
+  // Set only when a scalar materialized operand must stay compatible with
+  // a tiled layout bridge selected during analysis. Empty means row-major
+  // padding is sufficient.
+  llvm::SmallVector<int64_t> paddingTileShape;
 
   // Set only when the operand is a ViewLayoutOp whose input is a ToLayoutOp
   // that should have its grid optimized independently. Carries the optimal
   // grid for that upstream ToLayoutOp's own tensor shape. Empty otherwise.
   llvm::SmallVector<int64_t> viewSourceGrid;
+
+  // Set only when the operand is a CompositeViewOp. Carries each composite
+  // input's selected grid and padded/materialized tensor type so apply-time
+  // rewriting does not re-run grid selection.
+  llvm::SmallVector<CompositeInputGridInfo> compositeInputInfos;
 };
 
 /// Effective target grid range for a GenericOp.
@@ -47,6 +94,11 @@ struct GenericGridAnalysisResult {
   // default, or the range scoped by an enclosing d2m.spatial region.
   EffectiveTargetGridRange effectiveTargetGridRange;
 };
+
+/// Determines where on the device grid a generic op is allowed to place its
+/// grid.
+EffectiveTargetGridRange getTargetGridRange(GenericOp genericOp,
+                                            ArrayRef<int64_t> deviceGridShape);
 
 /// Module-level analysis that computes optimal grid assignments for all
 /// d2m.generic ops before any IR modification.
@@ -74,10 +126,6 @@ private:
   GenericGridAnalysisResult
   analyzeGenericOp(GenericOp genericOp,
                    const EffectiveTargetGridRange &effectiveTargetGridRange);
-
-  /// Compute the effective target grid range for a generic, accounting for
-  /// spatial region grid ranges.
-  EffectiveTargetGridRange getTargetGridRange(GenericOp genericOp) const;
 
   /// Normalize operand grids within a generic to ensure consistency across
   /// operands sharing loop dimensions. Physical shapes are required to ensure

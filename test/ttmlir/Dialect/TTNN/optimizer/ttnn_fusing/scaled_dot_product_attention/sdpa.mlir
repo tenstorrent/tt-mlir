@@ -213,7 +213,11 @@ module {
   }
 
   // 3D single-head attention: Q/K/V shaped [B, S, D] with H=1 squeezed.
-  // CHECK: "ttnn.scaled_dot_product_attention"
+  // Not fused: the TTIR-level SDPA fuser does not yet cover the 3D single-head
+  // shape, and TTNN-level SDPA fusion is now off by default (enable-sdpa-fusion),
+  // so this variant stays as explicit matmul-based attention.
+  // CHECK-LABEL: func.func @sdpa_simple_softmax_3d_single_head(
+  // CHECK-NOT: ttnn.scaled_dot_product_attention
   func.func @sdpa_simple_softmax_3d_single_head(%arg0: tensor<1x128x64xbf16>, %arg1: tensor<1x128x64xbf16>, %arg2: tensor<1x128x64xbf16>, %arg3: tensor<1x128x128xbf16>) -> tensor<1x128x64xbf16> {
     %0 = "ttir.transpose"(%arg1) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x64xbf16>) -> tensor<1x64x128xbf16>
     %1 = "ttir.matmul"(%arg0, %0) <{transpose_a = false, transpose_b = false}> : (tensor<1x128x64xbf16>, tensor<1x64x128xbf16>) -> tensor<1x128x128xbf16>

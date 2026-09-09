@@ -28,13 +28,12 @@ module {
   func.func public @test_topk_workaround_with_optimizer_ui16(%arg0: tensor<2x3x32x128xbf16>) -> (tensor<2x3x32x5xbf16>, tensor<2x3x32x5xsi32>) {
     // CHECK-LABEL: func.func public @test_topk_workaround_with_optimizer_ui16
     // CHECK: %{{.*}}, %[[INDICES:.*]] = "ttnn.topk"
-    // CHECK-SAME: <{dim = -1 : i32, k = 5 : i32, largest = true, sorted = false}>
+    // CHECK-SAME: <{dim = -1 : si32, k = 5 : i32, largest = true, sorted = false}>
     // CHECK-SAME: tensor<2x3x32x128xbf16,
     // CHECK-SAME: -> (tensor<2x3x32x5xbf16,
     // CHECK-SAME: tensor<2x3x32x5xui16,
     %values, %indices = "ttir.topk"(%arg0) { k = 5 : i32 } : (tensor<2x3x32x128xbf16>) -> (tensor<2x3x32x5xbf16>, tensor<2x3x32x5xsi32>)
-    // CHECK: %{{[0-9]+}} = "ttnn.to_layout"(%[[INDICES]])
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<si32>
+    // CHECK: %{{[0-9]+}} = "ttnn.to_tensor_spec"(%[[INDICES]])
     // CHECK-SAME: tensor<2x3x32x5xui16,
     // CHECK-SAME: -> tensor<2x3x32x5xsi32,
     return %values, %indices : tensor<2x3x32x5xbf16>, tensor<2x3x32x5xsi32>
@@ -46,13 +45,12 @@ module {
   func.func public @test_topk_workaround_with_optimizer_ui32(%arg0: tensor<2x3x32x128000xbf16>) -> (tensor<2x3x32x5xbf16>, tensor<2x3x32x5xsi32>) {
     // CHECK-LABEL: func.func public @test_topk_workaround_with_optimizer_ui32
     // CHECK: %{{.*}}, %[[INDICES:.*]] = "ttnn.topk"
-    // CHECK-SAME: <{dim = -1 : i32, k = 5 : i32, largest = true, sorted = false}>
+    // CHECK-SAME: <{dim = -1 : si32, k = 5 : i32, largest = true, sorted = false}>
     // CHECK-SAME: tensor<2x3x32x128000xbf16,
     // CHECK-SAME: -> (tensor<2x3x32x5xbf16,
     // CHECK-SAME: tensor<2x3x32x5xui32,
     %values, %indices = "ttir.topk"(%arg0) { k = 5 : i32 } : (tensor<2x3x32x128000xbf16>) -> (tensor<2x3x32x5xbf16>, tensor<2x3x32x5xsi32>)
-    // CHECK: %{{[0-9]+}} = "ttnn.to_layout"(%[[INDICES]])
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<si32>
+    // CHECK: %{{[0-9]+}} = "ttnn.to_tensor_spec"(%[[INDICES]])
     // CHECK-SAME: tensor<2x3x32x5xui32,
     // CHECK-SAME: -> tensor<2x3x32x5xsi32,
     return %values, %indices : tensor<2x3x32x5xbf16>, tensor<2x3x32x5xsi32>
@@ -66,21 +64,18 @@ module {
 module {
   func.func public @test_topk_workaround_with_optimizer_f32_input(%arg0: tensor<2x3x32x128xf32>) -> (tensor<2x3x32x5xf32>, tensor<2x3x32x5xsi32>) {
     // CHECK-LABEL: func.func public @test_topk_workaround_with_optimizer_f32_input
-    // CHECK: %[[INPUT_BF16:.*]] = "ttnn.to_layout"(%arg0)
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
+    // CHECK: %[[INPUT_BF16:.*]] = "ttnn.to_tensor_spec"(%arg0)
     // CHECK-SAME: tensor<2x3x32x128xf32
     // CHECK-SAME: -> tensor<2x3x32x128xbf16
     // CHECK: %[[VALUES:.*]], %[[INDICES:.*]] = "ttnn.topk"(%[[INPUT_BF16]])
-    // CHECK-SAME: <{dim = -1 : i32, k = 5 : i32, largest = true, sorted = false}>
+    // CHECK-SAME: <{dim = -1 : si32, k = 5 : i32, largest = true, sorted = false}>
     // CHECK-SAME: tensor<2x3x32x128xbf16
     // CHECK-SAME: -> (tensor<2x3x32x5xbf16
     // CHECK-SAME: tensor<2x3x32x5xui16
-    // CHECK: %{{[0-9]+}} = "ttnn.to_layout"(%[[INDICES]])
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<si32>
+    // CHECK: %{{[0-9]+}} = "ttnn.to_tensor_spec"(%[[INDICES]])
     // CHECK-SAME: tensor<2x3x32x5xui16
     // CHECK-SAME: -> tensor<2x3x32x5xsi32
-    // CHECK: %{{[0-9]+}} = "ttnn.to_layout"(%[[VALUES]])
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
+    // CHECK: %{{[0-9]+}} = "ttnn.to_tensor_spec"(%[[VALUES]])
     // CHECK-SAME: tensor<2x3x32x5xbf16
     // CHECK-SAME: -> tensor<2x3x32x5xf32
     %values, %indices = "ttir.topk"(%arg0) { k = 5 : i32 } : (tensor<2x3x32x128xf32>) -> (tensor<2x3x32x5xf32>, tensor<2x3x32x5xsi32>)

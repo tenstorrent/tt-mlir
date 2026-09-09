@@ -4,6 +4,7 @@
 
 import pytest
 import torch
+from pathlib import Path
 from typing import List
 from conftest import get_request_kwargs
 from test_utils import SkipIf
@@ -17,6 +18,29 @@ from builder.base.builder_apis import compile_and_execute_d2m
 
 
 pytestmark = pytest.mark.frontend("ttir")
+
+
+D2M_TILIZE_PIPELINE = (
+    "ttcore-mark-functions-as-forward,d2m-lower-to-layout,canonicalize,"
+    "ttir-bufferization-pipeline,d2m-insert-scratch-buffers,"
+    "d2m-generic-apply-interchange,d2m-generate-outer-loops,"
+    "d2m-reblock-generics,d2m-allocate,"
+    "d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,"
+    "canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,"
+    "d2m-to-ttmetal-pipeline"
+)
+
+
+def assert_reblocked_ir(ir_dump_dir: Path, op_name: str, block_factors: str):
+    for path in sorted(ir_dump_dir.rglob("*.mlir")):
+        ir = path.read_text()
+        if op_name in ir and block_factors in ir:
+            return
+
+    dumped_files = "\n".join(str(path) for path in sorted(ir_dump_dir.rglob("*")))
+    raise AssertionError(
+        f"Did not find {op_name} with {block_factors} in IR dumps:\n{dumped_files}"
+    )
 
 
 def tilize_golden(input_tensor):
@@ -75,6 +99,125 @@ def untilize_golden(input_tensor):
                             idx += 1
 
     return untilized
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_tilize_auto_reblock(target: str, request, device, tmp_path: Path):
+    shape = (256, 256)
+    dtype = torch.float32
+    test_base = request.node.name
+    ir_dump_dir = tmp_path / "ir_dumps"
+
+    def module(builder: D2MBuilder):
+        in_golden = torch.randn(shape, dtype=dtype)
+        out_golden = tilize_golden(in_golden)
+
+        @builder.func([shape], [dtype])
+        def tilize(
+            in0: Operand,
+            builder: D2MBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            to_device = builder.tilize(
+                in0,
+                output_type=builder.get_metal_tensor_layout(
+                    shape, tiled=True, grid=(1, 1), element_dtype=dtype
+                ),
+                unit_attrs=unit_attrs,
+            )
+
+            id_map = AffineMap.get_identity(2 * len(shape), builder._ctx)
+            view_as_rm = builder.view_layout(
+                to_device,
+                output_type=builder.get_metal_tensor_layout(
+                    shape, tiled=False, grid=(1, 1), element_dtype=dtype
+                ),
+                remapping=id_map,
+                reinterpret_layout=True,
+                unit_attrs=unit_attrs,
+            )
+
+            from_device = builder.to_layout(
+                view_as_rm,
+                output_type=in0.type,
+                unit_attrs=unit_attrs,
+            )
+
+            builder.set_goldens({in0: in_golden}, {from_device: out_golden})
+            return from_device
+
+    kwargs = get_request_kwargs(request)
+    kwargs.update(
+        test_base=test_base,
+        output_root=str(tmp_path),
+        save_artifacts=True,
+        print_ir=str(ir_dump_dir),
+        check_pcc=True,
+    )
+    compile_and_execute_d2m(
+        module,
+        target=target,
+        custom_pipeline=D2M_TILIZE_PIPELINE,
+        device=device,
+        **kwargs,
+    )
+
+    assert_reblocked_ir(ir_dump_dir, "d2m.tile_tilize_block", "block_factors = [8, 1]")
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_untilize_auto_reblock(target: str, request, device, tmp_path: Path):
+    shape = (256, 256)
+    dtype = torch.float32
+    test_base = request.node.name
+    ir_dump_dir = tmp_path / "ir_dumps"
+
+    def module(builder: D2MBuilder):
+        in_golden = torch.randn(shape, dtype=dtype)
+        out_golden = in_golden
+
+        @builder.func([shape], [dtype])
+        def untilize(
+            in0: Operand,
+            builder: D2MBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            tiled = builder.tilize(
+                in0,
+                output_type=builder.get_metal_tensor_layout(
+                    shape, tiled=True, grid=(1, 1), element_dtype=dtype
+                ),
+                unit_attrs=unit_attrs,
+            )
+
+            from_device = builder.untilize(
+                tiled,
+                output_type=in0.type,
+                unit_attrs=unit_attrs,
+            )
+
+            builder.set_goldens({in0: in_golden}, {from_device: out_golden})
+            return from_device
+
+    kwargs = get_request_kwargs(request)
+    kwargs.update(
+        test_base=test_base,
+        output_root=str(tmp_path),
+        save_artifacts=True,
+        print_ir=str(ir_dump_dir),
+        check_pcc=True,
+    )
+    compile_and_execute_d2m(
+        module,
+        target=target,
+        custom_pipeline=D2M_TILIZE_PIPELINE,
+        device=device,
+        **kwargs,
+    )
+
+    assert_reblocked_ir(
+        ir_dump_dir, "d2m.tile_untilize_block", "block_factors = [8, 2]"
+    )
 
 
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])

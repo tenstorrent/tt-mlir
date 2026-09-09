@@ -9,7 +9,7 @@ module @reduce_scatter_negative_invalid_reduce_type_mean attributes {mhlo.num_pa
     return %1 : tensor<4096x16384xf32, #ttnn_layout1>
   }
 }
-// CHECK: error: 'ttnn.reduce_scatter' op Invalid reduction op for reduce scatter op
+// CHECK: error: 'ttnn.reduce_scatter' op Invalid reduction type for reduce scatter op
 
 // -----
 
@@ -21,7 +21,7 @@ module @reduce_scatter_negative_invalid_reduce_type_std attributes {mhlo.num_par
     return %1 : tensor<4096x16384xf32, #ttnn_layout1>
   }
 }
-// CHECK: error: 'ttnn.reduce_scatter' op Invalid reduction op for reduce scatter op
+// CHECK: error: 'ttnn.reduce_scatter' op Invalid reduction type for reduce scatter op
 
 // -----
 
@@ -33,7 +33,7 @@ module @reduce_scatter_negative_invalid_reduce_type_var attributes {mhlo.num_par
     return %1 : tensor<4096x16384xf32, #ttnn_layout1>
   }
 }
-// CHECK: error: 'ttnn.reduce_scatter' op Invalid reduction op for reduce scatter op
+// CHECK: error: 'ttnn.reduce_scatter' op Invalid reduction type for reduce scatter op
 
 // -----
 
@@ -45,7 +45,7 @@ module @reduce_scatter_negative_invalid_reduce_type_var attributes {mhlo.num_par
     return %1 : tensor<4096x16384xf32, #ttnn_layout1>
   }
 }
-// CHECK: error: 'ttnn.reduce_scatter' op Invalid reduction op for reduce scatter op
+// CHECK: error: 'ttnn.reduce_scatter' op Invalid reduction type for reduce scatter op
 
 // -----
 
@@ -57,7 +57,7 @@ module @reduce_scatter_negative_invalid_reduce_type_var attributes {mhlo.num_par
     return %1 : tensor<4096x16384xf32, #ttnn_layout1>
   }
 }
-// CHECK: error: 'ttnn.reduce_scatter' op Invalid reduction op for reduce scatter op
+// CHECK: error: 'ttnn.reduce_scatter' op Invalid reduction type for reduce scatter op
 
 // -----
 

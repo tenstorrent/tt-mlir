@@ -22,7 +22,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK-SAME: grid = #ttcore.grid<1x1>
     // CHECK: d2m.remote_load
     // CHECK: d2m.write_row_mask_tile
-    // CHECK: d2m.write_col_mask_tile
+    // CHECK-NOT: d2m.write_col_mask_tile
     // CHECK: scf.for
     // CHECK: d2m.tile_where
     // CHECK: d2m.remote_store

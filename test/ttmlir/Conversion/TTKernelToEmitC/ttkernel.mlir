@@ -46,9 +46,6 @@ module {
   // TTKernel Register operations
   //===----------------------------------------------------------------------===//
 
-  // CHECK-LABEL: ttkernel_register_operations
-  module @ttkernel_register_operations {
-
     // CHECK-LABEL: func @tile_regs_acquire
     func.func @tile_regs_acquire() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "tile_regs_acquire"()
@@ -201,15 +198,9 @@ module {
       "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #ttcore.supportedDataTypes<u16>, out_dtype = #ttcore.supportedDataTypes<u8>}> : (i32) -> ()
       return
     }
-
-  } // module
-
   //===----------------------------------------------------------------------===//
   // TTKernel FPU operations
   //===----------------------------------------------------------------------===//
-
-  // CHECK-LABEL: ttkernel_fpu_operations
-  module @ttkernel_fpu_operations {
 
     // CHECK-LABEL: func @unary_op_init_common
     func.func @unary_op_init_common() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
@@ -273,10 +264,10 @@ module {
       "ttkernel.unary_bcast_init"(%in_cb, %out_cb) <{bcast_type = #ttkernel.bcast_type<col>}> : (!cb0_tiles, !cb1_tiles) -> ()
       "ttkernel.unary_bcast_init"(%in_cb, %out_cb) <{bcast_type = #ttkernel.bcast_type<scalar>}> : (!cb0_tiles, !cb1_tiles) -> ()
       "ttkernel.unary_bcast_init"(%in_cb, %out_cb) <{bcast_type = #ttkernel.bcast_type<none>}> : (!cb0_tiles, !cb1_tiles) -> ()
-      // CHECK: call_opaque "unary_bcast_init"(%[[IN_CB]], %[[OUT_CB]]) {template_args = [#emitc.opaque<"BroadcastType::ROW">]} : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
-      // CHECK: call_opaque "unary_bcast_init"(%[[IN_CB]], %[[OUT_CB]]) {template_args = [#emitc.opaque<"BroadcastType::COL">]} : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
-      // CHECK: call_opaque "unary_bcast_init"(%[[IN_CB]], %[[OUT_CB]]) {template_args = [#emitc.opaque<"BroadcastType::SCALAR">]} : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
-      // CHECK: call_opaque "unary_bcast_init"(%[[IN_CB]], %[[OUT_CB]]) {template_args = [#emitc.opaque<"BroadcastType::NONE">]} : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+      // CHECK: call_opaque "unary_bcast_init"(%[[IN_CB]], %[[OUT_CB]]) {template_args = [#emitc.opaque<"BroadcastType::ROW">]} : (ui32, ui32) -> ()
+      // CHECK: call_opaque "unary_bcast_init"(%[[IN_CB]], %[[OUT_CB]]) {template_args = [#emitc.opaque<"BroadcastType::COL">]} : (ui32, ui32) -> ()
+      // CHECK: call_opaque "unary_bcast_init"(%[[IN_CB]], %[[OUT_CB]]) {template_args = [#emitc.opaque<"BroadcastType::SCALAR">]} : (ui32, ui32) -> ()
+      // CHECK: call_opaque "unary_bcast_init"(%[[IN_CB]], %[[OUT_CB]]) {template_args = [#emitc.opaque<"BroadcastType::NONE">]} : (ui32, ui32) -> ()
       return
     }
 
@@ -365,7 +356,8 @@ module {
       %cb_C = "ttkernel.get_compile_time_arg_val"() <{arg_index = 2 : i32}> : () -> !cb2_tiles
       // CHECK: %[[TRANSPOSE:.*]] = "emitc.constant"
       %transpose = arith.constant 0 : i32
-      // CHECK: emitc.call_opaque "mm_init"(%[[CB_A]], %[[CB_B]], %[[CB_C]], %[[TRANSPOSE]])
+      // CHECK: emitc.call_opaque "compute_kernel_hw_startup"(%[[CB_A]], %[[CB_B]], %[[CB_C]]) {template_args = [#emitc.opaque<"SrcOrder::Reverse">]}
+      // CHECK: emitc.call_opaque "matmul_init"(%[[CB_A]], %[[CB_B]], %[[TRANSPOSE]])
       "ttkernel.mm_init"(%cb_A, %cb_B, %cb_C, %transpose) : (!cb0_tiles, !cb1_tiles, !cb2_tiles, i32) -> ()
       return
     }
@@ -378,7 +370,7 @@ module {
       %cb_B = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
       // CHECK: %[[TRANSPOSE:.*]] = "emitc.constant"
       %transpose = arith.constant 0 : i32
-      // CHECK: emitc.call_opaque "mm_init_short"(%[[CB_A]], %[[CB_B]], %[[TRANSPOSE]])
+      // CHECK: emitc.call_opaque "matmul_init"(%[[CB_A]], %[[CB_B]], %[[TRANSPOSE]])
       "ttkernel.mm_init_short"(%cb_A, %cb_B, %transpose) : (!cb0_tiles, !cb1_tiles, i32) -> ()
       return
     }
@@ -418,7 +410,8 @@ module {
       %ct_dim = arith.constant 1 : i32
       %rt_dim = arith.constant 2 : i32
       %kt_dim = arith.constant 3 : i32
-      // CHECK: emitc.call_opaque "mm_block_init"(%[[CB_A]], %[[CB_B]], %[[CB_C]], %[[TRANSPOSE]], %[[CT_DIM]], %[[RT_DIM]], %[[KT_DIM]])
+      // CHECK: emitc.call_opaque "compute_kernel_hw_startup"(%[[CB_A]], %[[CB_B]], %[[CB_C]]) {template_args = [#emitc.opaque<"SrcOrder::Reverse">]}
+      // CHECK: emitc.call_opaque "matmul_block_init"(%[[CB_A]], %[[CB_B]], %[[TRANSPOSE]], %[[CT_DIM]], %[[RT_DIM]], %[[KT_DIM]])
       "ttkernel.mm_block_init"(%cb_A, %cb_B, %cb_C, %transpose, %ct_dim, %rt_dim, %kt_dim) : (!cb0_tiles, !cb1_tiles, !cb2_tiles, i32, i32, i32, i32) -> ()
       return
     }
@@ -437,7 +430,7 @@ module {
       %ct_dim = arith.constant 1 : i32
       %rt_dim = arith.constant 2 : i32
       %kt_dim = arith.constant 3 : i32
-      // CHECK: emitc.call_opaque "mm_block_init_short"(%[[CB_A]], %[[CB_B]], %[[TRANSPOSE]], %[[CT_DIM]], %[[RT_DIM]], %[[KT_DIM]])
+      // CHECK: emitc.call_opaque "matmul_block_init"(%[[CB_A]], %[[CB_B]], %[[TRANSPOSE]], %[[CT_DIM]], %[[RT_DIM]], %[[KT_DIM]])
       "ttkernel.mm_block_init_short"(%cb_A, %cb_B, %transpose, %ct_dim, %rt_dim, %kt_dim) : (!cb0_tiles, !cb1_tiles, i32, i32, i32, i32) -> ()
       return
     }
@@ -480,7 +473,7 @@ module {
       // CHECK: %[[CT_DIM:.*]] = "emitc.constant"
       // CHECK: %[[RT_DIM:.*]] = "emitc.constant"
       // CHECK: %[[KT_DIM:.*]] = "emitc.constant"
-      // CHECK: %[[NT_DIM:.*]] = "emitc.constant"
+      // CHECK: %[[IN1_K_STRIDE:.*]] = "emitc.constant"
       %transpose = arith.constant 0 : i32
       %in0_tile_index = arith.constant 1 : i32
       %in1_tile_index = arith.constant 2 : i32
@@ -488,9 +481,9 @@ module {
       %ct_dim = arith.constant 2 : i32
       %rt_dim = arith.constant 2 : i32
       %kt_dim = arith.constant 2 : i32
-      %nt_dim = arith.constant 2 : i32
-      // CHECK: emitc.call_opaque "experimental::matmul_block"(%[[CB_A]], %[[CB_B]], %[[IN0_TILE_INDEX]], %[[IN1_TILE_INDEX]], %[[DST_TILE_INDEX]], %[[TRANSPOSE]], %[[CT_DIM]], %[[RT_DIM]], %[[KT_DIM]], %[[NT_DIM]])
-      "ttkernel.experimental::matmul_block"(%cb_A, %cb_B, %in0_tile_index, %in1_tile_index, %dst_tile_index, %transpose, %ct_dim, %rt_dim, %kt_dim, %nt_dim) : (!cb0_tiles, !cb1_tiles, i32, i32, i32, i32, i32, i32, i32, i32) -> ()
+      %in1_k_stride = arith.constant 2 : i32
+      // CHECK: emitc.call_opaque "experimental::matmul_block"(%[[CB_A]], %[[CB_B]], %[[IN0_TILE_INDEX]], %[[IN1_TILE_INDEX]], %[[DST_TILE_INDEX]], %[[TRANSPOSE]], %[[CT_DIM]], %[[RT_DIM]], %[[KT_DIM]], %[[IN1_K_STRIDE]])
+      "ttkernel.experimental.matmul_block"(%cb_A, %cb_B, %in0_tile_index, %in1_tile_index, %dst_tile_index, %transpose, %ct_dim, %rt_dim, %kt_dim, %in1_k_stride) : (!cb0_tiles, !cb1_tiles, i32, i32, i32, i32, i32, i32, i32, i32) -> ()
       return
     }
 
@@ -502,7 +495,7 @@ module {
       %scaling_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
       // CHECK: %[[OUT_CB:.*]] = emitc.literal "get_compile_time_arg_val(2)"
       %out_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 2 : i32}> : () -> !cb2_tiles
-      // CHECK: emitc.call_opaque "reduce_init"(%[[IN_CB]], %[[SCALING_CB]], %[[OUT_CB]]) {template_args = [#emitc.opaque<"PoolType::SUM">, #emitc.opaque<"ReduceDim::REDUCE_SCALAR">, #emitc.opaque<"false">]}
+      // CHECK: emitc.call_opaque "reduce_init"(%[[IN_CB]], %[[SCALING_CB]], %[[OUT_CB]]) {template_args = [#emitc.opaque<"PoolType::SUM">, #emitc.opaque<"ReduceDim::REDUCE_SCALAR">]}
       "ttkernel.reduce_init"(%in_cb, %scaling_cb, %out_cb) <{reduce_dim = #ttkernel.reduce_dim<reduce_dim_scalar>, reduce_type = #ttkernel.reduce_type<reduce_sum>}> : (!cb0_tiles, !cb1_tiles, !cb2_tiles) -> ()
       return
     }
@@ -519,17 +512,10 @@ module {
       %scaling_tile_index = arith.constant 2 : i32
       // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
       %dst_index = arith.constant 3 : i32
-      // CHECK: emitc.call_opaque "reduce_tile"(%[[IN_CB]], %[[SCALING_CB]],  %[[IN_TILE_INDEX]], %[[SCALING_TILE_INDEX]], %[[DST_INDEX]]) {template_args = [#emitc.opaque<"PoolType::MAX">, #emitc.opaque<"ReduceDim::REDUCE_ROW">, #emitc.opaque<"false">]}
+      // CHECK: emitc.call_opaque "reduce_tile"(%[[IN_CB]], %[[SCALING_CB]],  %[[IN_TILE_INDEX]], %[[SCALING_TILE_INDEX]], %[[DST_INDEX]]) {template_args = [#emitc.opaque<"PoolType::MAX">, #emitc.opaque<"ReduceDim::REDUCE_ROW">]}
       "ttkernel.reduce_tile"(%in_cb, %scaling_cb, %in_tile_index, %scaling_tile_index, %dst_index) <{
         reduce_dim = #ttkernel.reduce_dim<reduce_dim_row>, reduce_type = #ttkernel.reduce_type<reduce_max>
         }> : (!cb0_tiles, !cb1_tiles, i32, i32, i32) -> ()
-      return
-    }
-
-    // CHECK-LABEL: func @reduce_uninit_full_fp32
-    func.func @reduce_uninit_full_fp32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: emitc.call_opaque "reduce_uninit"() {template_args = [#emitc.opaque<"true">]}
-      "ttkernel.reduce_uninit"() <{full_fp32}> : () -> ()
       return
     }
 
@@ -546,7 +532,7 @@ module {
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       %scaling_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
       %out_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 2 : i32}> : () -> !cb2_tiles
-      // CHECK: emitc.call_opaque "reduce_init"({{.*}}) {template_args = [#emitc.opaque<"PoolType::AVG">, #emitc.opaque<"ReduceDim::REDUCE_COL">, #emitc.opaque<"false">]}
+      // CHECK: emitc.call_opaque "reduce_init"({{.*}}) {template_args = [#emitc.opaque<"PoolType::AVG">, #emitc.opaque<"ReduceDim::REDUCE_COL">]}
       "ttkernel.reduce_init"(%in_cb, %scaling_cb, %out_cb) <{reduce_dim = #ttkernel.reduce_dim<reduce_dim_col>, reduce_type = #ttkernel.reduce_type<reduce_avg>}> : (!cb0_tiles, !cb1_tiles, !cb2_tiles) -> ()
       return
     }
@@ -558,21 +544,15 @@ module {
       %in_tile_index = arith.constant 0 : i32
       %scaling_tile_index = arith.constant 0 : i32
       %dst_index = arith.constant 0 : i32
-      // CHECK: emitc.call_opaque "reduce_tile"({{.*}}) {template_args = [#emitc.opaque<"PoolType::AVG">, #emitc.opaque<"ReduceDim::REDUCE_COL">, #emitc.opaque<"false">]}
+      // CHECK: emitc.call_opaque "reduce_tile"({{.*}}) {template_args = [#emitc.opaque<"PoolType::AVG">, #emitc.opaque<"ReduceDim::REDUCE_COL">]}
       "ttkernel.reduce_tile"(%in_cb, %scaling_cb, %in_tile_index, %scaling_tile_index, %dst_index) <{
         reduce_dim = #ttkernel.reduce_dim<reduce_dim_col>, reduce_type = #ttkernel.reduce_type<reduce_avg>
         }> : (!cb0_tiles, !cb1_tiles, i32, i32, i32) -> ()
       return
     }
-
-  } // module
-
   //===----------------------------------------------------------------------===//
   // TTKernel SFPU operations
   //===----------------------------------------------------------------------===//
-
-  // CHECK-LABEL: ttkernel_sfpu_operations
-  module @ttkernel_sfpu_operations {
 
     // CHECK-LABEL: func @init_sfpu
     func.func @init_sfpu() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
@@ -698,8 +678,8 @@ module {
       %c1 = arith.constant 1 : index
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
-      // CHECK: emitc.call_opaque "copy_dest_values"(%[[DST0_INDEX]], %[[DST1_INDEX]])
-      "ttkernel.copy_dest_values"(%c0, %c1) : (index, index) -> ()
+      // CHECK: emitc.call_opaque "copy_dest_values"(%[[DST0_INDEX]], %[[DST1_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Float16_b">]}
+      "ttkernel.copy_dest_values"(%c0, %c1) <{data_format = #ttcore.supportedDataTypes<bf16>}> : (index, index) -> ()
       return
     }
 
@@ -720,6 +700,126 @@ module {
       %odst_index = arith.constant 3 : i32
       // CHECK: emitc.call_opaque "div_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
       "ttkernel.div_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @eq_binary_tile_init
+    func.func @eq_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "eq_binary_tile_init"()
+      "ttkernel.eq_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @eq_binary_tile
+    func.func @eq_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 2 : i32
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "eq_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.eq_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @ne_binary_tile_init
+    func.func @ne_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "ne_binary_tile_init"()
+      "ttkernel.ne_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @ne_binary_tile
+    func.func @ne_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 2 : i32
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "ne_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.ne_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @gt_binary_tile_init
+    func.func @gt_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "gt_binary_tile_init"()
+      "ttkernel.gt_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @gt_binary_tile
+    func.func @gt_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 2 : i32
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "gt_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.gt_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @lt_binary_tile_init
+    func.func @lt_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "lt_binary_tile_init"()
+      "ttkernel.lt_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @lt_binary_tile
+    func.func @lt_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 2 : i32
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "lt_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.lt_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @ge_binary_tile_init
+    func.func @ge_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "ge_binary_tile_init"()
+      "ttkernel.ge_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @ge_binary_tile
+    func.func @ge_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 2 : i32
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "ge_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.ge_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @le_binary_tile_init
+    func.func @le_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "le_binary_tile_init"()
+      "ttkernel.le_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @le_binary_tile
+    func.func @le_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 2 : i32
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "le_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.le_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
       return
     }
 
@@ -772,6 +872,72 @@ module {
       %dst_index = arith.constant 3 : i32
       // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]])
       "ttkernel.exp_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @exp_tile_init_approx
+    func.func @exp_tile_init_approx() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "exp_tile_init"() {template_args = [#emitc.opaque<"true">]}
+      "ttkernel.exp_tile_init"() <{approx = true}> : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @exp_tile_init_clamping
+    func.func @exp_tile_init_clamping() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // The unset `scale` template arg is backfilled with the metal default (0x3F800000).
+      // CHECK: emitc.call_opaque "exp_tile_init"() {template_args = [#emitc.opaque<"false">, #emitc.opaque<"1065353216">, #emitc.opaque<"InputClamping::None">]}
+      "ttkernel.exp_tile_init"() <{input_clamping = #ttkernel.input_clamping<none>}> : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @exp_tile_init_scale
+    func.func @exp_tile_init_scale() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // The unset `approx` template arg is backfilled with the metal default (false).
+      // CHECK: emitc.call_opaque "exp_tile_init"() {template_args = [#emitc.opaque<"false">, #emitc.opaque<"1077936128">]}
+      "ttkernel.exp_tile_init"() <{scale = 1077936128 : i32}> : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @exp_tile_flags
+    func.func @exp_tile_flags() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]]) {template_args = [#emitc.opaque<"true">, #emitc.opaque<"false">, #emitc.opaque<"InputClamping::None">]}
+      "ttkernel.exp_tile"(%dst_index) <{approx = true, input_clamping = #ttkernel.input_clamping<none>}> : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @exp_tile_runtime_scale
+    func.func @exp_tile_runtime_scale() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: %[[VECTOR_MODE:.*]] = emitc.literal "VectorMode::RC" : !emitc.opaque<"VectorMode">
+      // CHECK: %[[SCALE:.*]] = emitc.literal "static_cast<uint16_t>(16384u)" : !emitc.opaque<"uint16_t">
+      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]], %[[VECTOR_MODE]], %[[SCALE]])
+      // CHECK-SAME: template_args = [#emitc.opaque<"true">, #emitc.opaque<"true">, #emitc.opaque<"InputClamping::None">]
+      "ttkernel.exp_tile"(%dst_index) <{approx = true, input_clamping = #ttkernel.input_clamping<none>, scale = 1073741824 : i32}> : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @exp_tile_default_scale
+    func.func @exp_tile_default_scale() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]])
+      // CHECK-NOT: args =
+      // CHECK-NOT: template_args
+      "ttkernel.exp_tile"(%dst_index) <{scale = 1065353216 : i32}> : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @exp_tile_iterations
+    func.func @exp_tile_iterations() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // Unset approx/scale_en are backfilled with metal defaults; unset
+      // input_clamping is backfilled with ClampToNegative when iterations is set.
+      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]]) {template_args = [#emitc.opaque<"false">, #emitc.opaque<"false">, #emitc.opaque<"InputClamping::ClampToNegative">, #emitc.opaque<"12">]}
+      "ttkernel.exp_tile"(%dst_index) <{iterations = 12 : i32}> : (i32) -> ()
       return
     }
 
@@ -1507,14 +1673,9 @@ module {
       "ttkernel.where_tile"(%cond_index, %true_index, %false_index, %odst_index) {dtype = #ttcore.supportedDataTypes<f32>} : (index, index, index, index) -> ()
       return
     }
-  } // module
-
   //===----------------------------------------------------------------------===//
   // TTKernel CB operations
   //===----------------------------------------------------------------------===//
-
-  // CHECK-LABEL: ttkernel_cb_operations
-  module @ttkernel_cb_operations {
 
     // CHECK-LABEL: func @cb_push_back
     func.func @cb_push_back() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
@@ -1649,15 +1810,9 @@ module {
       }
       return
     }
-
-  } // module
-
   //===----------------------------------------------------------------------===//
   // TTKernel Tile operations
   //===----------------------------------------------------------------------===//
-
-  // CHECK-LABEL: ttkernel_tile_operations
-  module @ttkernel_tile_operations {
 
     // CHECK-LABEL: func @tilize_init
     func.func @tilize_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
@@ -1727,27 +1882,68 @@ module {
       "ttkernel.untilize_block"(%in_cb, %num_tiles, %out_cb) : (!cb0_tiles, i32, !cb1_scalar) -> ()
       return
     }
-
-  } // module
-
   //===----------------------------------------------------------------------===//
   // TTKernel NOC operations
   //===----------------------------------------------------------------------===//
 
-  // CHECK-LABEL: ttkernel_noc_operations
-  module @ttkernel_noc_operations {
-
     // CHECK-LABEL: func @get_noc_addr
     func.func @get_noc_addr() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: emitc.verbatim "UnicastEndpoint unicast_ep;"
+      // CHECK: emitc.verbatim "Noc noc0(0);"
       // CHECK: %[[X:.*]] = "emitc.constant"
       %x = arith.constant 1 : index
       // CHECK: %[[Y:.*]] = "emitc.constant"
       %y = arith.constant 2 : index
       // CHECK: %[[ADDR:.*]] = "emitc.constant"
       %addr = arith.constant 262400 : i32
-      // note: ttkernel.get_noc_addr() converts to one of metallium get_noc_addr() overloads
-      // CHECK: emitc.call_opaque "get_noc_addr"(%[[X]], %[[Y]], %[[ADDR]])
-      "ttkernel.get_noc_addr"(%x, %y, %addr) : (index, index, i32) -> (!ttkernel.noc_addr)
+      // CHECK: %[[NOC:.*]] = "emitc.constant"
+      %noc = arith.constant 0 : i8
+      // CHECK: emitc.verbatim "uint64_t noc_addr_{{[0-9]+}} = unicast_ep.get_noc_unicast_addr(static_cast<uint32_t>({}), static_cast<uint32_t>({}), static_cast<uint32_t>({}), noc0.get_noc_id());" args %[[X]], %[[Y]], %[[ADDR]]
+      // CHECK: emitc.literal "noc_addr_{{[0-9]+}}" : i64
+      "ttkernel.get_noc_addr"(%x, %y, %addr, %noc) : (index, index, i32, i8) -> (!ttkernel.noc_addr)
+      return
+    }
+
+    // CHECK-LABEL: func @get_noc_addr_with_noc_id
+    func.func @get_noc_addr_with_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: emitc.verbatim "UnicastEndpoint unicast_ep;"
+      // CHECK: emitc.verbatim "Noc noc1(1);"
+      // CHECK: %[[X:.*]] = "emitc.constant"
+      %x = arith.constant 1 : index
+      // CHECK: %[[Y:.*]] = "emitc.constant"
+      %y = arith.constant 2 : index
+      // CHECK: %[[ADDR:.*]] = "emitc.constant"
+      %addr = arith.constant 262400 : i32
+      // CHECK: %[[NOC:.*]] = "emitc.constant"
+      %noc = arith.constant 1 : i8
+      // CHECK: emitc.verbatim "uint64_t noc_addr_{{[0-9]+}} = unicast_ep.get_noc_unicast_addr(static_cast<uint32_t>({}), static_cast<uint32_t>({}), static_cast<uint32_t>({}), noc1.get_noc_id());" args %[[X]], %[[Y]], %[[ADDR]]
+      // CHECK: emitc.literal "noc_addr_{{[0-9]+}}" : i64
+      "ttkernel.get_noc_addr"(%x, %y, %addr, %noc) : (index, index, i32, i8) -> (!ttkernel.noc_addr)
+      return
+    }
+
+    // CHECK-LABEL: func @get_noc_addr_with_dynamic_noc_id
+    func.func @get_noc_addr_with_dynamic_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: emitc.verbatim "UnicastEndpoint unicast_ep;"
+      %noc_arg = arith.constant 262400 : i32
+      %noc_ptr = ttkernel.reinterpret_cast(%noc_arg) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
+      %noc_offset = arith.constant 0 : i32
+      %noc = ttkernel.load_from_l1(%noc_ptr, %noc_offset) : (!ttkernel.l1_addr_ptr<8>, i32) -> i8
+      // CHECK: %[[NOC_ARG:.*]] = "emitc.constant"() <{value = 262400 : i32}>
+      // CHECK: %[[NOC_PTR:.*]] = emitc.call_opaque "reinterpret_cast<tt_l1_ptr uint8_t*>"(%[[NOC_ARG]])
+      // CHECK: %[[NOC_OFFSET:.*]] = "emitc.constant"() <{value = 0 : i32}>
+      // CHECK: %[[NOC_SLOT:.*]] = emitc.subscript %[[NOC_PTR]][%[[NOC_OFFSET]]
+      // CHECK: %[[LOADED_NOC:.*]] = emitc.load %[[NOC_SLOT]]
+      // CHECK: %[[DYNAMIC_NOC:.*]] = emitc.cast %[[LOADED_NOC]]
+      // CHECK: %[[X:.*]] = "emitc.constant"
+      %x = arith.constant 1 : index
+      // CHECK: %[[Y:.*]] = "emitc.constant"
+      %y = arith.constant 2 : index
+      // CHECK: %[[ADDR:.*]] = "emitc.constant"
+      %addr = arith.constant 262400 : i32
+      // CHECK: emitc.verbatim "uint64_t noc_addr_{{[0-9]+}} = unicast_ep.get_noc_unicast_addr(static_cast<uint32_t>({}), static_cast<uint32_t>({}), static_cast<uint32_t>({}), Noc({}).get_noc_id());" args %[[X]], %[[Y]], %[[ADDR]], %[[DYNAMIC_NOC]]
+      // CHECK: emitc.literal "noc_addr_{{[0-9]+}}" : i64
+      "ttkernel.get_noc_addr"(%x, %y, %addr, %noc) : (index, index, i32, i8) -> (!ttkernel.noc_addr)
       return
     }
 
@@ -1764,76 +1960,220 @@ module {
 
     // CHECK-LABEL: func @noc_async_read
     func.func @noc_async_read() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: emitc.verbatim "UnicastEndpoint unicast_ep;"
+      // CHECK: emitc.verbatim "Noc noc0(0);"
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %src_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
       // CHECK: %[[DST_ADDR:.*]] = "emitc.constant"
       %dst_addr = arith.constant 303104 : i32
       // CHECK: %[[SIZE:.*]] = "emitc.constant"
       %size = arith.constant 2048 : i32
-      // CHECK: emitc.call_opaque "noc_async_read"(%[[SRC_ADDR]], %[[DST_ADDR]], %[[SIZE]])
-      "ttkernel.noc_async_read"(%src_addr, %dst_addr, %size) : (!ttkernel.noc_addr, i32, i32) -> ()
+      %noc = arith.constant 0 : i8
+      // CHECK: emitc.verbatim "noc0.async_read
+      ttkernel.noc_async_read core[%x, %y], %temp, %dst_addr, %size, noc %noc : (index, index, i32, i32, i32, i8) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_read_dram
+    func.func @noc_async_read_dram() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %bank_id = arith.constant 1 : i32
+      %offset = arith.constant 4096 : i32
+      %dst = arith.constant 8192 : i32
+      %size = arith.constant 128 : i32
+      %noc = arith.constant 0 : i8
+      // CHECK: emitc.verbatim "AllocatorBank<AllocatorBankType::DRAM> dram_ep;"
+      // CHECK: emitc.verbatim "Noc noc0(0);"
+      // CHECK: emitc.verbatim "noc0.async_read(dram_ep
+      // CHECK-SAME: .bank_id = static_cast<uint32_t>
+      // CHECK-SAME: .addr = static_cast<uint32_t>
+      // CHECK-NOT: emitc.call_opaque "get_noc_addr_from_bank_id"
+      // CHECK-NOT: emitc.call_opaque "noc_async_read"
+      ttkernel.noc_async_read bank[%bank_id], %offset, %dst, %size, noc %noc : (i32, i32, i32, i32, i8) -> ()
       return
     }
 
     // CHECK-LABEL: func @noc_async_read_one_packet_set_state
     func.func @noc_async_read_one_packet_set_state() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %src_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
       // CHECK: %[[SIZE:.*]] = "emitc.constant"
       %size = arith.constant 2048 : i32
-      // CHECK: emitc.call_opaque "noc_async_read_one_packet_set_state"(%[[SRC_ADDR]], %[[SIZE]])
-      "ttkernel.noc_async_read_one_packet_set_state"(%src_addr, %size) : (!ttkernel.noc_addr, i32) -> ()
+      %noc = arith.constant 0 : i8
+      // CHECK: emitc.verbatim "noc0.set_async_read_state<NocOptions::DEFAULT, NOC_MAX_BURST_SIZE>(
+      ttkernel.noc_async_read_one_packet_set_state(core[%x, %y], %temp, %size, noc %noc) : (index, index, i32, i32, i8) -> ()
       return
     }
 
     // CHECK-LABEL: func @noc_async_read_one_packet_with_state
     func.func @noc_async_read_one_packet_with_state() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %src_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
       // CHECK: %[[DST_ADDR:.*]] = "emitc.constant"
       %dst_addr = arith.constant 327680 : i32
-      // CHECK: emitc.call_opaque "noc_async_read_one_packet_with_state"(%[[SRC_ADDR]], %[[DST_ADDR]])
-      "ttkernel.noc_async_read_one_packet_with_state"(%src_addr, %dst_addr) : (!ttkernel.noc_addr, i32) -> ()
+      %size = arith.constant 2048 : i32
+      %noc = arith.constant 0 : i8
+      // CHECK: emitc.verbatim "noc0.async_read_with_state<NocOptions::DEFAULT, NOC_MAX_BURST_SIZE>(
+      ttkernel.noc_async_read_one_packet_with_state(core[%x, %y], %temp, %dst_addr, %size, noc %noc) : (index, index, i32, i32, i32, i8) -> ()
       // TODO: test %dst_addr of type TTKernel_L1Addr?
       return
     }
 
     // CHECK-LABEL: func @noc_async_read_barrier
     func.func @noc_async_read_barrier() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: emitc.call_opaque "noc_async_read_barrier"()
-      "ttkernel.noc_async_read_barrier"() : () -> ()
+      // CHECK: emitc.verbatim "Noc noc0(0);"
+      %noc_id = arith.constant 0 : i8
+      // CHECK: emitc.verbatim "noc0.async_read_barrier();"
+      "ttkernel.noc_async_read_barrier"(%noc_id) : (i8) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_read_barrier_with_noc_id
+    func.func @noc_async_read_barrier_with_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: emitc.verbatim "Noc noc1(1);"
+      // CHECK: %[[NOC_ID:.*]] = "emitc.constant"
+      %noc_id = arith.constant 1 : i8
+      // CHECK: emitc.verbatim "noc1.async_read_barrier();"
+      ttkernel.noc_async_read_barrier(%noc_id) : (i8) -> ()
       return
     }
 
     // CHECK-LABEL: func @noc_async_write
     func.func @noc_async_write() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: emitc.verbatim "UnicastEndpoint unicast_ep;"
+      // CHECK: emitc.verbatim "Noc noc0(0);"
       // CHECK: %[[SRC_ADDR:.*]] = "emitc.constant"
       %src_addr = arith.constant 303104 : i32
-      // CHECK: %[[DST_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %dst_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
       // CHECK: %[[SIZE:.*]] = "emitc.constant"
       %size = arith.constant 2048 : i32
-      // CHECK: emitc.call_opaque "noc_async_write"(%[[SRC_ADDR]], %[[DST_ADDR]], %[[SIZE]])
-      "ttkernel.noc_async_write"(%src_addr, %dst_addr, %size) : (i32, !ttkernel.noc_addr, i32) -> ()
+      %noc = arith.constant 0 : i8
+      // CHECK: emitc.verbatim "noc0.async_write
+      ttkernel.noc_async_write %src_addr, core[%x, %y], %temp, %size, noc %noc : (i32, index, index, i32, i32, i8) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_multicasts
+    func.func @noc_async_multicasts() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %xs = arith.constant 0 : index
+      %ys = arith.constant 1 : index
+      %xe = arith.constant 2 : index
+      %ye = arith.constant 3 : index
+      %addr = arith.constant 262144 : i32
+      %src = arith.constant 303104 : i32
+      %size = arith.constant 64 : i32
+      %num_dests = arith.constant 4 : i32
+      %noc = arith.constant 1 : i8
+      // CHECK-NOT: get_noc_id
+      // CHECK-NOT: get_noc_multicast_addr
+      // CHECK-NOT: noc_async_write_multicast
+      // CHECK: emitc.verbatim "MulticastEndpoint mcast_ep;"
+      // CHECK: emitc.verbatim "Noc noc1(1);"
+      // CHECK: %[[XS:.*]] = "emitc.constant"() <{value = 0 : index}>
+      // CHECK: %[[YS:.*]] = "emitc.constant"() <{value = 1 : index}>
+      // CHECK: %[[XE:.*]] = "emitc.constant"() <{value = 2 : index}>
+      // CHECK: %[[YE:.*]] = "emitc.constant"() <{value = 3 : index}>
+      // CHECK: %[[ADDR:.*]] = "emitc.constant"() <{value = 262144 : i32}>
+      // CHECK: %[[SRC:.*]] = "emitc.constant"() <{value = 303104 : i32}>
+      // CHECK: %[[SIZE:.*]] = "emitc.constant"() <{value = 64 : i32}>
+      // CHECK: %[[NUM_DESTS:.*]] = "emitc.constant"() <{value = 4 : i32}>
+      // CHECK: %[[NOC:.*]] = "emitc.constant"() <{value = 1 : i8}>
+      // CHECK: emitc.verbatim "noc1.async_write_multicast(
+      // CHECK-SAME: noc_traits_t<MulticastEndpoint>::dst_args_mcast_type
+      // CHECK-SAME: args %[[SRC]], %[[SIZE]], %[[NUM_DESTS]], %[[XE]], %[[YE]], %[[XS]], %[[YS]], %[[ADDR]]
+      ttkernel.noc_async_write_multicast(%src, %size, %num_dests, start_xy[%xe, %ye], end_xy[%xs, %ys], %addr, noc %noc) : (i32, i32, i32, index, index, index, index, i32, i8) -> ()
+      // CHECK: emitc.verbatim "noc1.async_write_multicast<NocOptions::MCAST_INCL_SRC>
+      // CHECK-SAME: noc_traits_t<MulticastEndpoint>::dst_args_mcast_type
+      // CHECK-SAME: args %[[SRC]], %[[SIZE]], %[[NUM_DESTS]], %[[XE]], %[[YE]], %[[XS]], %[[YS]], %[[ADDR]]
+      ttkernel.noc_async_write_multicast_loopback_src(%src, %size, %num_dests, start_xy[%xe, %ye], end_xy[%xs, %ys], %addr, noc %noc) : (i32, i32, i32, index, index, index, index, i32, i8) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_multicast_after_default_noc_user
+    func.func @noc_async_multicast_after_default_noc_user() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %xs = arith.constant 0 : index
+      %ys = arith.constant 1 : index
+      %xe = arith.constant 2 : index
+      %ye = arith.constant 3 : index
+      %addr = arith.constant 262144 : i32
+      %src = arith.constant 303104 : i32
+      %size = arith.constant 64 : i32
+      %num_dests = arith.constant 4 : i32
+      %noc0 = arith.constant 0 : i8
+      %noc = arith.constant 1 : i8
+      // CHECK-DAG: emitc.verbatim "Noc noc0(0);"
+      // CHECK-DAG: emitc.verbatim "Noc noc1(1);"
+      // CHECK: %[[XS2:.*]] = "emitc.constant"() <{value = 0 : index}>
+      // CHECK: %[[YS2:.*]] = "emitc.constant"() <{value = 1 : index}>
+      // CHECK: %[[XE2:.*]] = "emitc.constant"() <{value = 2 : index}>
+      // CHECK: %[[YE2:.*]] = "emitc.constant"() <{value = 3 : index}>
+      // CHECK: %[[ADDR2:.*]] = "emitc.constant"() <{value = 262144 : i32}>
+      // CHECK: %[[SRC2:.*]] = "emitc.constant"() <{value = 303104 : i32}>
+      // CHECK: %[[SIZE2:.*]] = "emitc.constant"() <{value = 64 : i32}>
+      // CHECK: %[[NUM_DESTS2:.*]] = "emitc.constant"() <{value = 4 : i32}>
+      // CHECK: %[[NOC2:.*]] = "emitc.constant"() <{value = 1 : i8}>
+      // CHECK: emitc.verbatim "noc0.async_write_barrier();"
+      "ttkernel.noc_async_write_barrier"(%noc0) : (i8) -> ()
+      // CHECK: emitc.verbatim "noc1.async_write_multicast(
+      // CHECK-SAME: args %[[SRC2]], %[[SIZE2]], %[[NUM_DESTS2]], %[[XE2]], %[[YE2]], %[[XS2]], %[[YS2]], %[[ADDR2]]
+      ttkernel.noc_async_write_multicast(%src, %size, %num_dests, start_xy[%xe, %ye], end_xy[%xs, %ys], %addr, noc %noc) : (i32, i32, i32, index, index, index, index, i32, i8) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_multicast_dynamic_noc
+    func.func @noc_async_multicast_dynamic_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %xs = arith.constant 0 : index
+      %ys = arith.constant 1 : index
+      %xe = arith.constant 2 : index
+      %ye = arith.constant 3 : index
+      %addr = arith.constant 262144 : i32
+      %src = arith.constant 303104 : i32
+      %size = arith.constant 64 : i32
+      %num_dests = arith.constant 4 : i32
+      %noc_arg = arith.constant 262400 : i32
+      %noc_ptr = ttkernel.reinterpret_cast(%noc_arg) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
+      %noc_offset = arith.constant 0 : i32
+      %noc = ttkernel.load_from_l1(%noc_ptr, %noc_offset) : (!ttkernel.l1_addr_ptr<8>, i32) -> i8
+      // CHECK: %[[XS3:.*]] = "emitc.constant"() <{value = 0 : index}>
+      // CHECK: %[[YS3:.*]] = "emitc.constant"() <{value = 1 : index}>
+      // CHECK: %[[XE3:.*]] = "emitc.constant"() <{value = 2 : index}>
+      // CHECK: %[[YE3:.*]] = "emitc.constant"() <{value = 3 : index}>
+      // CHECK: %[[ADDR3:.*]] = "emitc.constant"() <{value = 262144 : i32}>
+      // CHECK: %[[SRC3:.*]] = "emitc.constant"() <{value = 303104 : i32}>
+      // CHECK: %[[SIZE3:.*]] = "emitc.constant"() <{value = 64 : i32}>
+      // CHECK: %[[NUM_DESTS3:.*]] = "emitc.constant"() <{value = 4 : i32}>
+      // CHECK: %[[NOC_ARG:.*]] = "emitc.constant"() <{value = 262400 : i32}>
+      // CHECK: %[[NOC_PTR:.*]] = emitc.call_opaque "reinterpret_cast<tt_l1_ptr uint8_t*>"(%[[NOC_ARG]])
+      // CHECK: %[[NOC_OFFSET:.*]] = "emitc.constant"() <{value = 0 : i32}>
+      // CHECK: %[[NOC_SLOT:.*]] = emitc.subscript %[[NOC_PTR]][%[[NOC_OFFSET]]
+      // CHECK: %[[LOADED_NOC:.*]] = emitc.load %[[NOC_SLOT]]
+      // CHECK: %[[DYNAMIC_NOC:.*]] = emitc.cast %[[LOADED_NOC]]
+      // CHECK: emitc.verbatim "Noc({}).async_write_multicast(
+      // CHECK-SAME: args %[[DYNAMIC_NOC]], %[[SRC3]], %[[SIZE3]], %[[NUM_DESTS3]], %[[XE3]], %[[YE3]], %[[XS3]], %[[YS3]], %[[ADDR3]]
+      ttkernel.noc_async_write_multicast(%src, %size, %num_dests, start_xy[%xe, %ye], end_xy[%xs, %ys], %addr, noc %noc) : (i32, i32, i32, index, index, index, index, i32, i8) -> ()
       return
     }
 
     // CHECK-LABEL: func @noc_async_write_barrier
     func.func @noc_async_write_barrier() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: emitc.call_opaque "noc_async_write_barrier"()
-      "ttkernel.noc_async_write_barrier"() : () -> ()
+      // CHECK: emitc.verbatim "Noc noc0(0);"
+      %noc_id = arith.constant 0 : i8
+      // CHECK: emitc.verbatim "noc0.async_write_barrier();"
+      "ttkernel.noc_async_write_barrier"(%noc_id) : (i8) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_write_barrier_with_noc_id
+    func.func @noc_async_write_barrier_with_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: emitc.verbatim "Noc noc1(1);"
+      // CHECK: %[[NOC_ID:.*]] = "emitc.constant"
+      %noc_id = arith.constant 1 : i8
+      // CHECK: emitc.verbatim "noc1.async_write_barrier();"
+      ttkernel.noc_async_write_barrier(%noc_id) : (i8) -> ()
       return
     }
 
@@ -1848,11 +2188,12 @@ module {
 
     // CHECK-LABEL: func @noc_semaphore_inc
     func.func @noc_semaphore_inc() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
+      %addr_noc = arith.constant 0 : i8
+      %addr = "ttkernel.get_noc_addr"(%x, %y, %temp, %addr_noc) : (index, index, i32, i8) -> (!ttkernel.noc_addr)
       // CHECK: %[[INCR:.*]] = "emitc.constant"
       %incr = arith.constant 1 : i32
       // CHECK: %[[NOC_ID:.*]] = "emitc.constant"
@@ -1864,41 +2205,44 @@ module {
 
     // CHECK-LABEL: func @noc_semaphore_inc_posted
     func.func @noc_semaphore_inc_posted() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
+      %noc_id = arith.constant 0 : i8
+      %addr = "ttkernel.get_noc_addr"(%x, %y, %temp, %noc_id) : (index, index, i32, i8) -> (!ttkernel.noc_addr)
       // CHECK: %[[INCR:.*]] = "emitc.constant"
       %incr = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "noc_semaphore_inc"(%[[ADDR]], %[[INCR]]) {template_args = [#emitc.opaque<"true">]}
-      "ttkernel.noc_semaphore_inc"(%addr, %incr) <{posted = true}> : (!ttkernel.noc_addr, i32) -> ()
+      // CHECK: emitc.call_opaque "noc_semaphore_inc"(%[[ADDR]], %[[INCR]], {{.*}}) {template_args = [#emitc.opaque<"true">]}
+      "ttkernel.noc_semaphore_inc"(%addr, %incr, %noc_id) <{posted = true}> : (!ttkernel.noc_addr, i32, i8) -> ()
       return
     }
 
     // CHECK-LABEL: func @noc_semaphore_inc_multicast
     func.func @noc_semaphore_inc_multicast() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr) // dummy l1 addr (use mcast getter)
+      %noc_id = arith.constant 0 : i8
+      %mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp, %noc_id) : (index, index, i32, i8) -> (!ttkernel.noc_addr) // dummy l1 addr (use mcast getter)
       // CHECK: %[[INCR:.*]] = "emitc.constant"
       %incr = arith.constant 1 : i32
       // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
       %num_dsts = arith.constant 8 : i32
-      // CHECK: emitc.call_opaque "noc_semaphore_inc_multicast"(%[[ADDR]], %[[INCR]], %[[NUM_DSTS]])
-      "ttkernel.noc_semaphore_inc_multicast"(%mcast_addr, %incr, %num_dsts) : (!ttkernel.noc_addr, i32, i32) -> ()
+      // CHECK: emitc.call_opaque "noc_semaphore_inc_multicast"(%[[ADDR]], %[[INCR]], %[[NUM_DSTS]], {{.*}})
+      "ttkernel.noc_semaphore_inc_multicast"(%mcast_addr, %incr, %num_dsts, %noc_id) : (!ttkernel.noc_addr, i32, i32, i8) -> ()
       return
     }
 
     // CHECK-LABEL: func @noc_semaphore_inc_multicast_with_noc_id
     func.func @noc_semaphore_inc_multicast_with_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
+      %addr_noc = arith.constant 0 : i8
+      %mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp, %addr_noc) : (index, index, i32, i8) -> (!ttkernel.noc_addr)
       // CHECK: %[[INCR:.*]] = "emitc.constant"
       %incr = arith.constant 1 : i32
       // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
@@ -1912,17 +2256,18 @@ module {
 
     // CHECK-LABEL: func @noc_semaphore_inc_multicast_posted
     func.func @noc_semaphore_inc_multicast_posted() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
+      %noc_id = arith.constant 0 : i8
+      %mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp, %noc_id) : (index, index, i32, i8) -> (!ttkernel.noc_addr)
       // CHECK: %[[INCR:.*]] = "emitc.constant"
       %incr = arith.constant 1 : i32
       // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
       %num_dsts = arith.constant 8 : i32
-      // CHECK: emitc.call_opaque "noc_semaphore_inc_multicast"(%[[ADDR]], %[[INCR]], %[[NUM_DSTS]]) {template_args = [#emitc.opaque<"true">]}
-      "ttkernel.noc_semaphore_inc_multicast"(%mcast_addr, %incr, %num_dsts) <{posted = true}> : (!ttkernel.noc_addr, i32, i32) -> ()
+      // CHECK: emitc.call_opaque "noc_semaphore_inc_multicast"(%[[ADDR]], %[[INCR]], %[[NUM_DSTS]], {{.*}}) {template_args = [#emitc.opaque<"true">]}
+      "ttkernel.noc_semaphore_inc_multicast"(%mcast_addr, %incr, %num_dsts, %noc_id) <{posted = true}> : (!ttkernel.noc_addr, i32, i32, i8) -> ()
       return
     }
 
@@ -1930,43 +2275,46 @@ module {
     // Verify explicit `posted = false` round-trips and emits no template args
     // (must match the unset case byte-for-byte).
     func.func @noc_semaphore_inc_posted_false() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
+      %noc_id = arith.constant 0 : i8
+      %addr = "ttkernel.get_noc_addr"(%x, %y, %temp, %noc_id) : (index, index, i32, i8) -> (!ttkernel.noc_addr)
       // CHECK: %[[INCR:.*]] = "emitc.constant"
       %incr = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "noc_semaphore_inc"(%[[ADDR]], %[[INCR]]) :
+      // CHECK: emitc.call_opaque "noc_semaphore_inc"(%[[ADDR]], %[[INCR]], {{.*}}) :
       // CHECK-NOT: template_args
-      "ttkernel.noc_semaphore_inc"(%addr, %incr) <{posted = false}> : (!ttkernel.noc_addr, i32) -> ()
+      "ttkernel.noc_semaphore_inc"(%addr, %incr, %noc_id) <{posted = false}> : (!ttkernel.noc_addr, i32, i8) -> ()
       return
     }
 
     // CHECK-LABEL: func @noc_semaphore_inc_multicast_posted_false
     func.func @noc_semaphore_inc_multicast_posted_false() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
+      %noc_id = arith.constant 0 : i8
+      %mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp, %noc_id) : (index, index, i32, i8) -> (!ttkernel.noc_addr)
       // CHECK: %[[INCR:.*]] = "emitc.constant"
       %incr = arith.constant 1 : i32
       // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
       %num_dsts = arith.constant 8 : i32
-      // CHECK: emitc.call_opaque "noc_semaphore_inc_multicast"(%[[ADDR]], %[[INCR]], %[[NUM_DSTS]]) :
+      // CHECK: emitc.call_opaque "noc_semaphore_inc_multicast"(%[[ADDR]], %[[INCR]], %[[NUM_DSTS]], {{.*}}) :
       // CHECK-NOT: template_args
-      "ttkernel.noc_semaphore_inc_multicast"(%mcast_addr, %incr, %num_dsts) <{posted = false}> : (!ttkernel.noc_addr, i32, i32) -> ()
+      "ttkernel.noc_semaphore_inc_multicast"(%mcast_addr, %incr, %num_dsts, %noc_id) <{posted = false}> : (!ttkernel.noc_addr, i32, i32, i8) -> ()
       return
     }
 
     // CHECK-LABEL: func @noc_semaphore_inc_multicast_with_noc_id_posted
     func.func @noc_semaphore_inc_multicast_with_noc_id_posted() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
+      %addr_noc = arith.constant 0 : i8
+      %mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp, %addr_noc) : (index, index, i32, i8) -> (!ttkernel.noc_addr)
       // CHECK: %[[INCR:.*]] = "emitc.constant"
       %incr = arith.constant 1 : i32
       // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
@@ -1980,16 +2328,36 @@ module {
 
     // CHECK-LABEL: func @noc_async_atomic_barrier
     func.func @noc_async_atomic_barrier() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: emitc.call_opaque "noc_async_atomic_barrier"() :
-      ttkernel.noc_async_atomic_barrier() : () -> ()
+      // CHECK: emitc.verbatim "Noc noc0(0);"
+      %noc_id = arith.constant 0 : i8
+      // CHECK: emitc.verbatim "noc0.async_atomic_barrier();"
+      ttkernel.noc_async_atomic_barrier(%noc_id) : (i8) -> ()
       return
     }
 
     // CHECK-LABEL: func @noc_async_atomic_barrier_with_noc_id
     func.func @noc_async_atomic_barrier_with_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: emitc.verbatim "Noc noc1(1);"
       // CHECK: %[[NOC_ID:.*]] = "emitc.constant"
       %noc_id = arith.constant 1 : i8
-      // CHECK: emitc.call_opaque "noc_async_atomic_barrier"(%[[NOC_ID]]) :
+      // CHECK: emitc.verbatim "noc1.async_atomic_barrier();"
+      ttkernel.noc_async_atomic_barrier(%noc_id) : (i8) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_atomic_barrier_with_dynamic_noc_id
+    func.func @noc_async_atomic_barrier_with_dynamic_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %noc_arg = arith.constant 262400 : i32
+      %noc_ptr = ttkernel.reinterpret_cast(%noc_arg) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
+      %noc_offset = arith.constant 0 : i32
+      %noc_id = ttkernel.load_from_l1(%noc_ptr, %noc_offset) : (!ttkernel.l1_addr_ptr<8>, i32) -> i8
+      // CHECK: %[[NOC_ARG:.*]] = "emitc.constant"() <{value = 262400 : i32}>
+      // CHECK: %[[NOC_PTR:.*]] = emitc.call_opaque "reinterpret_cast<tt_l1_ptr uint8_t*>"(%[[NOC_ARG]])
+      // CHECK: %[[NOC_OFFSET:.*]] = "emitc.constant"() <{value = 0 : i32}>
+      // CHECK: %[[NOC_SLOT:.*]] = emitc.subscript %[[NOC_PTR]][%[[NOC_OFFSET]]
+      // CHECK: %[[LOADED_NOC:.*]] = emitc.load %[[NOC_SLOT]]
+      // CHECK: %[[DYNAMIC_NOC:.*]] = emitc.cast %[[LOADED_NOC]]
+      // CHECK: emitc.verbatim "Noc({}).async_atomic_barrier();" args %[[DYNAMIC_NOC]] : i8
       ttkernel.noc_async_atomic_barrier(%noc_id) : (i8) -> ()
       return
     }
@@ -1998,7 +2366,7 @@ module {
     func.func @noc_semaphore_set() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[ADDR:.*]] = emitc.call_opaque "reinterpret_cast
       %temp = arith.constant 262400 : i32
-      %addr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
+      %addr = ttkernel.reinterpret_cast(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
       // CHECK: %[[VAL:.*]] = "emitc.constant"
       %val = arith.constant 123 : i32
       // CHECK: emitc.call_opaque "noc_semaphore_set"(%[[ADDR]], %[[VAL]])
@@ -2010,13 +2378,77 @@ module {
     func.func @remote_sram_write_u32_sram_addr() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = buffer_address, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %src_addr = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !ttkernel.l1_addr
-      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %noc_x = arith.constant 1 : index
       %noc_y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %dst_noc_addr = "ttkernel.get_noc_addr"(%noc_x, %noc_y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
+      %addr_noc = arith.constant 0 : i8
+      %dst_noc_addr = "ttkernel.get_noc_addr"(%noc_x, %noc_y, %temp, %addr_noc) : (index, index, i32, i8) -> (!ttkernel.noc_addr)
       // CHECK: emitc.call_opaque "noc_semaphore_set_remote"(%[[SRC_ADDR]], %[[DST_NOC_ADDR]])
       "ttkernel.remote_sram_write_u32"(%src_addr, %dst_noc_addr) : (!ttkernel.l1_addr, !ttkernel.noc_addr) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @sram_address_table_ops
+    func.func @sram_address_table_ops() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %staging_arg = arith.constant 0 : index
+      %table_arg = arith.constant 1 : index
+      // CHECK: %[[STAGING_BASE:.*]] = emitc.call_opaque "get_common_arg_val"(%{{.*}}) {template_args = [#emitc.opaque<"uint32_t">]} : (!emitc.size_t) -> i32
+      %staging_base = "ttkernel.get_common_arg_val"(%staging_arg) : (index) -> i32
+      // CHECK: %[[TABLE_BASE:.*]] = emitc.call_opaque "get_common_arg_val"(%{{.*}}) {template_args = [#emitc.opaque<"uint32_t">]} : (!emitc.size_t) -> i32
+      %table_base = "ttkernel.get_common_arg_val"(%table_arg) : (index) -> i32
+      %staging_offset = arith.constant 16 : i32
+      // CHECK: %[[STAGING_BASE_U32:.*]] = emitc.cast %[[STAGING_BASE]] : i32 to ui32
+      // CHECK: %[[STAGING_OFFSET_U32:.*]] = emitc.cast %{{.*}} : i32 to ui32
+      // CHECK: %[[STAGING_ADDR_U32:.*]] = emitc.add %[[STAGING_BASE_U32]], %[[STAGING_OFFSET_U32]] : (ui32, ui32) -> ui32
+      // CHECK: %[[STAGING_ADDR:.*]] = emitc.cast %[[STAGING_ADDR_U32]] : ui32 to i32
+      %staging_addr = arith.addi %staging_base, %staging_offset : i32
+      // CHECK: %[[STAGING_PTR:.*]] = emitc.call_opaque "reinterpret_cast<tt_l1_ptr uint32_t*>"(%[[STAGING_BASE]]) : (i32) -> !emitc.ptr<!emitc.opaque<"tt_l1_ptr uint32_t">>
+      %staging_ptr = ttkernel.reinterpret_cast(%staging_base) : (i32) -> !ttkernel.l1_addr_ptr
+      %value = arith.constant 262400 : i32
+      %word_offset = arith.constant 4 : i32
+      // CHECK: %[[STAGING_SLOT:.*]] = emitc.subscript %[[STAGING_PTR]][%{{.*}}]
+      // CHECK: emitc.assign %{{.*}} : !emitc.opaque<"tt_l1_ptr uint32_t"> to %[[STAGING_SLOT]]
+      ttkernel.store_to_l1(%value, %staging_ptr, %word_offset) : (i32, !ttkernel.l1_addr_ptr, i32) -> ()
+      // CHECK: %[[LOAD_SLOT:.*]] = emitc.subscript %[[STAGING_PTR]][%{{.*}}]
+      // CHECK: %[[LOADED:.*]] = emitc.load %[[LOAD_SLOT]]
+      // CHECK: emitc.cast %[[LOADED]]
+      %loaded = ttkernel.load_from_l1(%staging_ptr, %word_offset) : (!ttkernel.l1_addr_ptr, i32) -> i32
+      %table_offset = arith.constant 64 : i32
+      // CHECK: %[[TABLE_BASE_U32:.*]] = emitc.cast %[[TABLE_BASE]] : i32 to ui32
+      // CHECK: %[[TABLE_OFFSET_U32:.*]] = emitc.cast %{{.*}} : i32 to ui32
+      // CHECK: %[[REMOTE_TABLE_ADDR_U32:.*]] = emitc.add %[[TABLE_BASE_U32]], %[[TABLE_OFFSET_U32]] : (ui32, ui32) -> ui32
+      // CHECK: %[[REMOTE_TABLE_ADDR:.*]] = emitc.cast %[[REMOTE_TABLE_ADDR_U32]] : ui32 to i32
+      %remote_table_addr = arith.addi %table_base, %table_offset : i32
+      %noc_x = arith.constant 1 : index
+      %noc_y = arith.constant 2 : index
+      %addr_noc = arith.constant 0 : i8
+      // CHECK: emitc.verbatim "uint64_t noc_addr_{{[0-9]+}} = unicast_ep.get_noc_unicast_addr(static_cast<uint32_t>({}), static_cast<uint32_t>({}), static_cast<uint32_t>({}), noc0.get_noc_id());" args %{{.*}}, %{{.*}}, %[[REMOTE_TABLE_ADDR]]
+      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
+      %dst_noc_addr = "ttkernel.get_noc_addr"(%noc_x, %noc_y, %remote_table_addr, %addr_noc) : (index, index, i32, i8) -> !ttkernel.noc_addr
+      // CHECK: emitc.call_opaque "noc_semaphore_set_remote"(%[[STAGING_ADDR]], %[[DST_NOC_ADDR]])
+      "ttkernel.remote_sram_write_u32"(%staging_addr, %dst_noc_addr) : (i32, !ttkernel.noc_addr) -> ()
+      %sink = arith.addi %loaded, %word_offset : i32
+      return
+    }
+
+    // CHECK-LABEL: func @noc_inline_dw_write
+    func.func @noc_inline_dw_write() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK-DAG: %[[NOC_X:.*]] = "emitc.constant"() <{value = 1 : index}> : () -> !emitc.size_t
+      // CHECK-DAG: %[[NOC_Y:.*]] = "emitc.constant"() <{value = 1 : index}> : () -> !emitc.size_t
+      // CHECK-DAG: %[[DST_ADDR:.*]] = "emitc.constant"() <{value = 262400 : i32}> : () -> i32
+      %noc_x = arith.constant 1 : index
+      %noc_y = arith.constant 1 : index
+      %dst_addr = arith.constant 262400 : i32
+      // CHECK-DAG: %[[VAL:.*]] = "emitc.constant"() <{value = 7 : i32}> : () -> i32
+      // CHECK-DAG: %[[BE:.*]] = "emitc.constant"() <{value = 15 : i8}> : () -> i8
+      // CHECK-DAG: %[[NOC:.*]] = "emitc.constant"() <{value = 1 : i8}> : () -> i8
+      %val = arith.constant 7 : i32
+      %be = arith.constant 15 : i8
+      %noc = arith.constant 1 : i8
+      // CHECK: emitc.verbatim "noc1.inline_dw_write<NocOptions::INLINE_L1>(
+      // CHECK-SAME: args %[[VAL]], %[[NOC_X]], %[[NOC_Y]], %[[DST_ADDR]], %[[BE]]
+      ttkernel.noc_inline_dw_write(core[%noc_x, %noc_y], %dst_addr, %val, %be, noc %noc) : (index, index, i32, i32, i8, i8) -> ()
       return
     }
 
@@ -2025,11 +2457,12 @@ module {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_semaphore"
       %sem_idx = arith.constant 2 : i32
       %src_addr = "ttkernel.get_semaphore"(%sem_idx) : (i32) -> (!ttkernel.local_semaphore)
-      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %noc_x = arith.constant 1 : index
       %noc_y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %dst_noc_addr = "ttkernel.get_noc_addr"(%noc_x, %noc_y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
+      %addr_noc = arith.constant 0 : i8
+      %dst_noc_addr = "ttkernel.get_noc_addr"(%noc_x, %noc_y, %temp, %addr_noc) : (index, index, i32, i8) -> (!ttkernel.noc_addr)
       // CHECK: %[[NOC_ID:.*]] = "emitc.constant"
       %noc_id = arith.constant 1 : i8
       // CHECK: emitc.call_opaque "noc_semaphore_set_remote"(%[[SRC_ADDR]], %[[DST_NOC_ADDR]], %[[NOC_ID]])
@@ -2041,11 +2474,11 @@ module {
     func.func @semaphore_wait() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[ADDR:.*]] = emitc.call_opaque "reinterpret_cast
       %temp = arith.constant 262400 : i32
-      %addr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
+      %addr = ttkernel.reinterpret_cast(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
       // CHECK: %[[VAL:.*]] = "emitc.constant"
       %val = arith.constant 123 : i32
       // CHECK: emitc.call_opaque "experimental::semaphore_wait"(%[[ADDR]], %[[VAL]])
-      "ttkernel.experimental::semaphore_wait"(%addr, %val) : (!ttkernel.l1_addr_ptr, i32) -> ()
+      "ttkernel.experimental.semaphore_wait"(%addr, %val) : (!ttkernel.l1_addr_ptr, i32) -> ()
       return
     }
 
@@ -2053,11 +2486,11 @@ module {
     func.func @semaphore_wait_min() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[ADDR:.*]] = emitc.call_opaque "reinterpret_cast
       %temp = arith.constant 262400 : i32
-      %addr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
+      %addr = ttkernel.reinterpret_cast(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
       // CHECK: %[[VAL:.*]] = "emitc.constant"
       %val = arith.constant 123 : i32
       // CHECK: emitc.call_opaque "experimental::semaphore_wait_min"(%[[ADDR]], %[[VAL]])
-      "ttkernel.experimental::semaphore_wait_min"(%addr, %val) : (!ttkernel.l1_addr_ptr, i32) -> ()
+      "ttkernel.experimental.semaphore_wait_min"(%addr, %val) : (!ttkernel.l1_addr_ptr, i32) -> ()
       return
     }
 
@@ -2066,17 +2499,17 @@ module {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_semaphore"
       %temp1 = arith.constant 2 : i32
       %src_addr = "ttkernel.get_semaphore"(%temp1) : (i32) -> (!ttkernel.local_semaphore) // a dummy l1 addr
-      // CHECK: %[[DST_MCAST_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[DST_MCAST_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp2 = arith.constant 262400 : i32
-      %dst_mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp2) : (index, index, i32) -> (!ttkernel.noc_addr) // dummy l1 addr (use mcast getter)
+      %addr_noc = arith.constant 0 : i8
+      %dst_mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp2, %addr_noc) : (index, index, i32, i8) -> (!ttkernel.noc_addr) // dummy l1 addr (use mcast getter)
       // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
       %num_dsts = arith.constant 8 : i32
-      // TODO(#2229): emitc lowering ignores 'linked' and 'multicast_path_reserve'
       // CHECK: emitc.call_opaque "noc_semaphore_set_multicast"(%[[SRC_ADDR]], %[[DST_MCAST_ADDR]], %[[NUM_DSTS]])
       "ttkernel.noc_semaphore_set_multicast"(%src_addr, %dst_mcast_addr, %num_dsts) <{
-          linked = false, multicast_path_reserve = true
+          linked = false
         }> : (!ttkernel.local_semaphore, !ttkernel.noc_addr, i32) -> ()
       return
     }
@@ -2086,48 +2519,58 @@ module {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_semaphore"
       %temp1 = arith.constant 2 : i32
       %src_addr = "ttkernel.get_semaphore"(%temp1) : (i32) -> (!ttkernel.local_semaphore) // a dummy l1 addr
-      // CHECK: %[[DST_MCAST_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[DST_MCAST_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp2 = arith.constant 303104 : i32
-      %dst_mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp2) : (index, index, i32) -> (!ttkernel.noc_addr) // dummy l1 addr (use mcast getter)
+      %addr_noc = arith.constant 0 : i8
+      %dst_mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp2, %addr_noc) : (index, index, i32, i8) -> (!ttkernel.noc_addr) // dummy l1 addr (use mcast getter)
       // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
       %num_dsts = arith.constant 8 : i32
-      // TODO(#2229): emitc lowering ignores 'linked' and 'multicast_path_reserve'
       // CHECK: emitc.call_opaque "noc_semaphore_set_multicast_loopback_src"(%[[SRC_ADDR]], %[[DST_MCAST_ADDR]], %[[NUM_DSTS]])
       "ttkernel.noc_semaphore_set_multicast_loopback_src"(%src_addr, %dst_mcast_addr, %num_dsts) <{
-          linked = false, multicast_path_reserve = true
+          linked = false
         }> : (!ttkernel.local_semaphore, !ttkernel.noc_addr, i32) -> ()
       return
     }
 
-    // CHECK-LABEL: func @interleaved_addr_gen_fast_funcs
-    func.func @interleaved_addr_gen_fast_funcs() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
-      %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
-      // CHECK: %[[DATA_FORMAT:.*]]= emitc.call_opaque "get_dataformat"
-      %data_format = "ttkernel.get_dataformat"(%cb) : (!cb0_tiles) -> !ttkernel.DataFormat
-      // CHECK: = "emitc.constant"() <{value = true}>
+    // CHECK-LABEL: func @tensor_accessor_tile_noc
+    func.func @tensor_accessor_tile_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %cta_offset = arith.constant 2 : i32
+      %crta_offset = arith.constant 0 : i32
       // CHECK: %[[TEMP_ADDR:.*]] = "emitc.constant"()
       // CHECK: %[[TILE_SIZE:.*]] = "emitc.constant"()
       // CHECK: %[[TILE:.*]] = "emitc.constant"()
-      %is_dram = arith.constant 1 : i1
       %temp_addr = arith.constant 262400 : i32
       %tile_size = arith.constant 8 : i32
       %tile = arith.constant 1 : i32
-      // CHECK: %[[VAR:.*]] = "emitc.variable"() <{value = #emitc.opaque<"">}> : () -> !emitc.lvalue<!emitc.opaque<"InterleavedAddrGenFast<true>">>
-      // CHECK: "emitc.member"(%[[VAR]]) <{member = "bank_base_address"}>
-      // CHECK: "emitc.member"(%[[VAR]]) <{member = "page_size"}>
-      // CHECK: "emitc.member"(%[[VAR]]) <{member = "data_format"}>
-      // CHECK: emitc.assign %[[TEMP_ADDR]]
-      // CHECK: emitc.assign %[[TILE_SIZE]]
-      // CHECK: emitc.assign %[[DATA_FORMAT]]
-      // CHECK: %[[ADDR_GEN:.*]] = emitc.load %[[VAR]] : <!emitc.opaque<"InterleavedAddrGenFast<true>">>
-      %s = "ttkernel.get_interleaved_addr_gen_fast"(%is_dram, %temp_addr, %tile_size, %data_format) : (i1, i32, i32, !ttkernel.DataFormat) -> !ttkernel.interleaved_addr_gen_fast
-      // CHECK: emitc.call_opaque "noc_async_write_tile"(%[[TILE]], %[[ADDR_GEN]], %[[TEMP_ADDR]])
-      "ttkernel.noc_async_write_tile"(%tile, %s, %temp_addr) : (i32, !ttkernel.interleaved_addr_gen_fast, i32) -> ()
-      // CHECK: emitc.call_opaque "noc_async_read_tile"(%[[TILE]], %[[ADDR_GEN]], %[[TEMP_ADDR]])
-      "ttkernel.noc_async_read_tile"(%tile, %s, %temp_addr) : (i32, !ttkernel.interleaved_addr_gen_fast, i32) -> ()
+      %noc = arith.constant 0 : i8
+      // CHECK: emitc.verbatim "constexpr auto [[ARGS:tensor_accessor_args_[0-9]+]] = TensorAccessorArgs<2, 0>();"
+      %tensor_accessor_args = ttkernel.TensorAccessorArgs(%cta_offset, %crta_offset)
+      // CHECK: %[[ACCESSOR:.*]] = emitc.call_opaque "TensorAccessor"
+      %s = "ttkernel.TensorAccessor"(%tensor_accessor_args, %temp_addr, %tile_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
+      // CHECK: emitc.verbatim "const uint32_t [[WRITE_PAGE_ID:page_id_[0-9]+]] = static_cast<uint32_t>({});"
+      // CHECK-NEXT: emitc.verbatim "noc0.async_write(CoreLocalMem<uint32_t>({}), {}, {}.get_aligned_page_size()
+      // CHECK-SAME: .page_id = [[WRITE_PAGE_ID]]
+      "ttkernel.noc_async_write_tile"(%tile, %s, %temp_addr, %noc) : (i32, !ttkernel.TensorAccessor, i32, i8) -> ()
+      // CHECK: emitc.verbatim "const uint32_t [[READ_PAGE_ID:page_id_[0-9]+]] = static_cast<uint32_t>({});"
+      // CHECK-NEXT: emitc.verbatim "noc0.async_read({}, CoreLocalMem<uint32_t>({}), {}.get_aligned_page_size()
+      // CHECK-SAME: .page_id = [[READ_PAGE_ID]]
+      "ttkernel.noc_async_read_tile"(%tile, %s, %temp_addr, %noc) : (i32, !ttkernel.TensorAccessor, i32, i8) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @tensor_accessor_default_page_size
+    func.func @tensor_accessor_default_page_size() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %cta_offset = arith.constant 0 : i32
+      %crta_offset = arith.constant 0 : i32
+      %bank_address = arith.constant 303104 : i32
+      // CHECK: %[[DEFAULT_BANK:.*]] = "emitc.constant"() <{value = 303104 : i32}>
+      // CHECK: emitc.verbatim "constexpr auto [[DEFAULT_ARGS:tensor_accessor_args_[0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK-NEXT: %[[DEFAULT_ARGS_LIT:.*]] = emitc.literal "[[DEFAULT_ARGS]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args = ttkernel.TensorAccessorArgs(%cta_offset, %crta_offset)
+      // CHECK: emitc.call_opaque "TensorAccessor"(%[[DEFAULT_ARGS_LIT]], %[[DEFAULT_BANK]]) : (!emitc.opaque<"TensorAccessorArgs">, i32) -> !emitc.opaque<"TensorAccessor">
+      %tensor_accessor = "ttkernel.TensorAccessor"(%args, %bank_address) : (!ttkernel.TensorAccessorArgs, i32) -> !ttkernel.TensorAccessor
       return
     }
 
@@ -2141,34 +2584,35 @@ module {
       // CHECK: %[[SIZE:.*]] = "emitc.constant"
       %bank_address = arith.constant 303104 : i32
       %page_size = arith.constant 32 : i32
-      // CHECK: emitc.verbatim "auto [[ARGS:tensor_accessor_args_[0-9]+]] = TensorAccessorArgs<2, 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[ARGS:tensor_accessor_args_[0-9]+]] = TensorAccessorArgs<2, 0>();"
       // CHECK: %[[ARGS_LIT:.*]] = emitc.literal "[[ARGS]]" : !emitc.opaque<"TensorAccessorArgs">
       %tensor_accessor_args = ttkernel.TensorAccessorArgs(%cta_offset, %crta_offset)
       // CHECK: %[[TENSOR_ACCESSOR:.*]] = emitc.call_opaque "TensorAccessor"(%[[ARGS_LIT]], %[[ADDR]], %[[SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
       %tensor_accessor = "ttkernel.TensorAccessor"(%tensor_accessor_args, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
       %temp1 = arith.constant 0 : i32
       %temp2 = arith.constant 32: i32
-      // CHECK: emitc.verbatim "uint64_t [[NOC_ADDR:.*]] = {}.get_noc_addr({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32
+      %noc = arith.constant 0 : i8
+      // CHECK: emitc.verbatim "uint64_t [[NOC_ADDR:.*]] = {}.get_noc_addr({}, {}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32, i8
       // CHECK: emitc.literal "[[NOC_ADDR]]" : i64
-      %noc_addr = "ttkernel.tensor_accessor.get_noc_addr"(%tensor_accessor, %temp1, %temp2) : (!ttkernel.TensorAccessor, i32, i32) -> !ttkernel.noc_addr
-      // CHECK: emitc.verbatim "uint32_t [[SHARD_ADDR:.*]] = {}.get_shard_noc_addr({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32
+      %noc_addr = "ttkernel.tensor_accessor.get_noc_addr"(%tensor_accessor, %temp1, %temp2, %noc) : (!ttkernel.TensorAccessor, i32, i32, i8) -> !ttkernel.noc_addr
+      // CHECK: emitc.verbatim "uint32_t [[SHARD_ADDR:.*]] = {}.get_shard_noc_addr({}, {}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32, i8
       // CHECK: emitc.literal "[[SHARD_ADDR]]"
-      %shard_noc_addr = "ttkernel.tensor_accessor.get_shard_noc_addr"(%tensor_accessor, %temp1, %temp2) : (!ttkernel.TensorAccessor, i32, i32) -> i32
+      %shard_noc_addr = "ttkernel.tensor_accessor.get_shard_noc_addr"(%tensor_accessor, %temp1, %temp2, %noc) : (!ttkernel.TensorAccessor, i32, i32, i8) -> i32
       // CHECK: emitc.verbatim "PageMapping [[BANK_AND_OFFSET:.*]] = {}.get_bank_and_offset({});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32
       // CHECK: emitc.literal "[[BANK_AND_OFFSET]]" : !emitc.opaque<"PageMapping">
       %bank_and_offset = "ttkernel.tensor_accessor.get_bank_and_offset"(%tensor_accessor, %temp1) : (!ttkernel.TensorAccessor, i32) -> !ttkernel.PageMapping
-      // CHECK: emitc.verbatim "bool [[IS_LOCAL_BANK:.*]] = {}.is_local_bank({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32
+      // CHECK: emitc.verbatim "bool [[IS_LOCAL_BANK:.*]] = {}.is_local_bank({}, {}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32, i8
       // CHECK: emitc.literal "[[IS_LOCAL_BANK]]" : i1
-      %is_local_bank = "ttkernel.tensor_accessor.is_local_bank"(%tensor_accessor, %temp1, %temp2) : (!ttkernel.TensorAccessor, i32, i32) -> i1
-      // CHECK: emitc.verbatim "bool [[IS_LOCAL_ADDR:.*]] = {}.is_local_addr({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32
+      %is_local_bank = "ttkernel.tensor_accessor.is_local_bank"(%tensor_accessor, %temp1, %temp2, %noc) : (!ttkernel.TensorAccessor, i32, i32, i8) -> i1
+      // CHECK: emitc.verbatim "bool [[IS_LOCAL_ADDR:.*]] = {}.is_local_addr({}, {}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32, i8
       // CHECK: emitc.literal "[[IS_LOCAL_ADDR]]" : i1
-      %is_local_addr = "ttkernel.tensor_accessor.is_local_addr"(%tensor_accessor, %temp1, %temp2) : (!ttkernel.TensorAccessor, i32, i32) -> i1
-      // CHECK: emitc.verbatim "bool [[IS_LOCAL_PAGE:.*]] = {}.is_local_page({});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32
+      %is_local_addr = "ttkernel.tensor_accessor.is_local_addr"(%tensor_accessor, %temp1, %temp2, %noc) : (!ttkernel.TensorAccessor, i32, i32, i8) -> i1
+      // CHECK: emitc.verbatim "bool [[IS_LOCAL_PAGE:.*]] = {}.is_local_page({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i8
       // CHECK: emitc.literal "[[IS_LOCAL_PAGE]]" : i1
-      %is_local_page = "ttkernel.tensor_accessor.is_local_page"(%tensor_accessor, %temp1) : (!ttkernel.TensorAccessor, i32) -> i1
-      // CHECK: emitc.verbatim "bool [[IS_LOCAL_SHARD:.*]] = {}.is_local_shard({});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32
+      %is_local_page = "ttkernel.tensor_accessor.is_local_page"(%tensor_accessor, %temp1, %noc) : (!ttkernel.TensorAccessor, i32, i8) -> i1
+      // CHECK: emitc.verbatim "bool [[IS_LOCAL_SHARD:.*]] = {}.is_local_shard({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i8
       // CHECK: emitc.literal "[[IS_LOCAL_SHARD]]" : i1
-      %is_local_shard = "ttkernel.tensor_accessor.is_local_shard"(%tensor_accessor, %temp1) : (!ttkernel.TensorAccessor, i32) -> i1
+      %is_local_shard = "ttkernel.tensor_accessor.is_local_shard"(%tensor_accessor, %temp1, %noc) : (!ttkernel.TensorAccessor, i32, i8) -> i1
       return
     }
 
@@ -2183,17 +2627,17 @@ module {
       %crta_offset_2 = arith.constant 4 : i32
 
       // Case 1: First accessor with literal integer offset (existing functionality)
-      // CHECK: emitc.verbatim "auto [[ARGS1:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[ARGS1:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
       // CHECK-NEXT: %[[ARGS1_LIT:.*]] = emitc.literal "[[ARGS1]]" : !emitc.opaque<"TensorAccessorArgs">
       %args1 = ttkernel.TensorAccessorArgs(%cta_offset, %crta_offset)
 
       // Case 2: Second accessor chained from first (NEW: chaining via prev_args)
-      // CHECK: emitc.verbatim "auto [[ARGS2:[a-z_0-9]+]] = TensorAccessorArgs<[[ARGS1]].next_compile_time_args_offset(), [[ARGS1]].next_common_runtime_args_offset()>();"
+      // CHECK: emitc.verbatim "constexpr auto [[ARGS2:[a-z_0-9]+]] = TensorAccessorArgs<[[ARGS1]].next_compile_time_args_offset(), [[ARGS1]].next_common_runtime_args_offset()>();"
       // CHECK-NEXT: %[[ARGS2_LIT:.*]] = emitc.literal "[[ARGS2]]" : !emitc.opaque<"TensorAccessorArgs">
       %args2 = ttkernel.TensorAccessorArgs(prev = %args1)
 
       // Case 3: Third accessor chained from second (chaining continues)
-      // CHECK: emitc.verbatim "auto [[ARGS3:[a-z_0-9]+]] = TensorAccessorArgs<[[ARGS2]].next_compile_time_args_offset(), [[ARGS2]].next_common_runtime_args_offset()>();"
+      // CHECK: emitc.verbatim "constexpr auto [[ARGS3:[a-z_0-9]+]] = TensorAccessorArgs<[[ARGS2]].next_compile_time_args_offset(), [[ARGS2]].next_common_runtime_args_offset()>();"
       // CHECK-NEXT: %[[ARGS3_LIT:.*]] = emitc.literal "[[ARGS3]]" : !emitc.opaque<"TensorAccessorArgs">
       %args3 = ttkernel.TensorAccessorArgs(prev = %args2)
 
@@ -2220,13 +2664,13 @@ module {
       %page_size = arith.constant 32 : i32
 
       // Case 1: First accessor args_src with literal offsets
-      // CHECK: emitc.verbatim "auto [[SRC:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[SRC:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
       // CHECK-NEXT: %[[SRC_LIT:.*]] = emitc.literal "[[SRC]]" : !emitc.opaque<"TensorAccessorArgs">
       %args_src = ttkernel.TensorAccessorArgs(%cta_0, %crta_0)
 
       // Case 2: Second accessor args_dst chains BOTH CTA and CRTA from args_src
       // This is the COMMON PATTERN: TensorAccessorArgs<args_src.next_compile_time_args_offset(), args_src.next_common_runtime_args_offset()>
-      // CHECK: emitc.verbatim "auto [[DST:[a-z_0-9]+]] = TensorAccessorArgs<[[SRC]].next_compile_time_args_offset(), [[SRC]].next_common_runtime_args_offset()>();"
+      // CHECK: emitc.verbatim "constexpr auto [[DST:[a-z_0-9]+]] = TensorAccessorArgs<[[SRC]].next_compile_time_args_offset(), [[SRC]].next_common_runtime_args_offset()>();"
       // CHECK-NEXT: %[[DST_LIT:.*]] = emitc.literal "[[DST]]" : !emitc.opaque<"TensorAccessorArgs">
       %args_dst = ttkernel.TensorAccessorArgs(prev = %args_src)
 
@@ -2252,12 +2696,12 @@ module {
       %page_size = arith.constant 32 : i32
 
       // First accessor
-      // CHECK: emitc.verbatim "auto [[BASE:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[BASE:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
       // CHECK-NEXT: %[[BASE_LIT:.*]] = emitc.literal "[[BASE]]" : !emitc.opaque<"TensorAccessorArgs">
       %args_base = ttkernel.TensorAccessorArgs(%cta_0, %crta_0)
 
       // Chain CTA only, use literal 0 for CRTA
-      // CHECK: emitc.verbatim "auto [[CTA_ONLY:[a-z_0-9]+]] = TensorAccessorArgs<[[BASE]].next_compile_time_args_offset(), 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[CTA_ONLY:[a-z_0-9]+]] = TensorAccessorArgs<[[BASE]].next_compile_time_args_offset(), 0>();"
       // CHECK-NEXT: %[[CTA_ONLY_LIT:.*]] = emitc.literal "[[CTA_ONLY]]" : !emitc.opaque<"TensorAccessorArgs">
       %args_cta_only = ttkernel.TensorAccessorArgs(prev = %args_base) crta_expr = "0"
 
@@ -2282,12 +2726,12 @@ module {
       %page_size = arith.constant 32 : i32
 
       // Case: First accessor with constexpr string expression (NEW: cta_expr attribute)
-      // CHECK: emitc.verbatim "auto [[CEXPR:[a-z_0-9]+]] = TensorAccessorArgs<get_base_offset(), 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[CEXPR:[a-z_0-9]+]] = TensorAccessorArgs<get_base_offset(), 0>();"
       // CHECK-NEXT: %[[CEXPR_LIT:.*]] = emitc.literal "[[CEXPR]]" : !emitc.opaque<"TensorAccessorArgs">
       %args = ttkernel.TensorAccessorArgs(%cta_offset, %crta_offset) cta_expr = "get_base_offset()"
 
       // Chain from a constexpr-based accessor
-      // CHECK: emitc.verbatim "auto [[CEXPR2:[a-z_0-9]+]] = TensorAccessorArgs<[[CEXPR]].next_compile_time_args_offset(), [[CEXPR]].next_common_runtime_args_offset()>();"
+      // CHECK: emitc.verbatim "constexpr auto [[CEXPR2:[a-z_0-9]+]] = TensorAccessorArgs<[[CEXPR]].next_compile_time_args_offset(), [[CEXPR]].next_common_runtime_args_offset()>();"
       // CHECK-NEXT: %[[CEXPR2_LIT:.*]] = emitc.literal "[[CEXPR2]]" : !emitc.opaque<"TensorAccessorArgs">
       %args2 = ttkernel.TensorAccessorArgs(prev = %args)
 
@@ -2314,15 +2758,15 @@ module {
       // CHECK: %[[PAGE_SIZE:.*]] = "emitc.constant"() <{value = 32 : i32}>
       %page_size = arith.constant 32 : i32
 
-      // CHECK: emitc.verbatim "auto [[M1:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[M1:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
       // CHECK-NEXT: %[[M1_LIT:.*]] = emitc.literal "[[M1]]" : !emitc.opaque<"TensorAccessorArgs">
       %args1 = ttkernel.TensorAccessorArgs(%cta_0, %crta_0)
 
-      // CHECK: emitc.verbatim "auto [[M2:[a-z_0-9]+]] = TensorAccessorArgs<[[M1]].next_compile_time_args_offset(), [[M1]].next_common_runtime_args_offset()>();"
+      // CHECK: emitc.verbatim "constexpr auto [[M2:[a-z_0-9]+]] = TensorAccessorArgs<[[M1]].next_compile_time_args_offset(), [[M1]].next_common_runtime_args_offset()>();"
       // CHECK-NEXT: %[[M2_LIT:.*]] = emitc.literal "[[M2]]" : !emitc.opaque<"TensorAccessorArgs">
       %args2 = ttkernel.TensorAccessorArgs(prev = %args1)
 
-      // CHECK: emitc.verbatim "auto [[M3:[a-z_0-9]+]] = TensorAccessorArgs<[[M2]].next_compile_time_args_offset(), [[M2]].next_common_runtime_args_offset()>();"
+      // CHECK: emitc.verbatim "constexpr auto [[M3:[a-z_0-9]+]] = TensorAccessorArgs<[[M2]].next_compile_time_args_offset(), [[M2]].next_common_runtime_args_offset()>();"
       // CHECK-NEXT: %[[M3_LIT:.*]] = emitc.literal "[[M3]]" : !emitc.opaque<"TensorAccessorArgs">
       %args3 = ttkernel.TensorAccessorArgs(prev = %args2)
 
@@ -2363,13 +2807,13 @@ module {
       %page_size = arith.constant 32 : i32
 
       // First accessor
-      // CHECK: emitc.verbatim "auto [[BASE:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[BASE:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
       // CHECK-NEXT: %[[BASE_LIT:.*]] = emitc.literal "[[BASE]]" : !emitc.opaque<"TensorAccessorArgs">
       %args_base = ttkernel.TensorAccessorArgs(%cta_0, %crta_0)
 
       // Override chaining with explicit cta_expr (prev_args provided but cta_expr takes precedence)
       // CTA uses explicit "42", CRTA chains from [[BASE]]
-      // CHECK: emitc.verbatim "auto [[OVERRIDE:[a-z_0-9]+]] = TensorAccessorArgs<42, [[BASE]].next_common_runtime_args_offset()>();"
+      // CHECK: emitc.verbatim "constexpr auto [[OVERRIDE:[a-z_0-9]+]] = TensorAccessorArgs<42, [[BASE]].next_common_runtime_args_offset()>();"
       // CHECK-NEXT: %[[OVERRIDE_LIT:.*]] = emitc.literal "[[OVERRIDE]]" : !emitc.opaque<"TensorAccessorArgs">
       %args_override = ttkernel.TensorAccessorArgs(prev = %args_base) cta_expr = "42"
 
@@ -2379,30 +2823,11 @@ module {
       return
     }
 
-    // CHECK-LABEL: func @interleaved_addr_gen
-    func.func @interleaved_addr_gen() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
-      %data_format = "ttkernel.get_dataformat"(%cb) : (!cb0_tiles) -> !ttkernel.DataFormat
-
-      %is_dram = arith.constant 1 : i1
-      %bank_address = arith.constant 303104 : i32
-      %page_size = arith.constant 32 : i32
-
-      %interleaved_addr_gen = "ttkernel.get_interleaved_addr_gen_fast"(%is_dram, %bank_address, %page_size, %data_format) : (i1, i32, i32, !ttkernel.DataFormat) -> !ttkernel.interleaved_addr_gen_fast
-
-      %temp1 = arith.constant 0 : i32
-      %temp2 = arith.constant 32: i32
-      // CHECK: emitc.verbatim "uint64_t [[NOC_ADDR:.*]] = {}.get_noc_addr({}, {});" args
-      // CHECK: emitc.literal "[[NOC_ADDR]]" : i64
-      %noc_addr = "ttkernel.interleaved_addr_gen_fast.get_noc_addr"(%interleaved_addr_gen, %temp1, %temp2) : (!ttkernel.interleaved_addr_gen_fast, i32, i32) -> !ttkernel.noc_addr
-      return
-    }
-
     // CHECK-LABEL: func @cast_to_l1_ptr_8
     func.func @cast_to_l1_ptr_8() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       %temp = arith.constant 262400 : i32
       // CHECK: emitc.call_opaque "reinterpret_cast<tt_l1_ptr uint8_t*>"
-      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
+      %ptr = ttkernel.reinterpret_cast(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
       return
     }
 
@@ -2410,7 +2835,7 @@ module {
     func.func @cast_to_l1_ptr_16() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       %temp = arith.constant 262400 : i32
       // CHECK: emitc.call_opaque "reinterpret_cast<tt_l1_ptr uint16_t*>"
-      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<16>)
+      %ptr = ttkernel.reinterpret_cast(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<16>)
       return
     }
 
@@ -2418,14 +2843,14 @@ module {
     func.func @cast_to_l1_ptr_32() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       %temp = arith.constant 262400 : i32
       // CHECK: emitc.call_opaque "reinterpret_cast<tt_l1_ptr uint32_t*>"
-      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr)
+      %ptr = ttkernel.reinterpret_cast(%temp) : (i32) -> (!ttkernel.l1_addr_ptr)
       return
     }
 
     // CHECK-LABEL: func @store_to_l1_i8
     func.func @store_to_l1_i8() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       %temp = arith.constant 262400 : i32
-      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
+      %ptr = ttkernel.reinterpret_cast(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
       %offset = arith.constant 0 : i32
       %val = arith.constant 42 : i8
       // CHECK: emitc.cast %{{.*}} : i8 to !emitc.opaque<"tt_l1_ptr uint8_t">
@@ -2436,7 +2861,7 @@ module {
     // CHECK-LABEL: func @store_to_l1_i16
     func.func @store_to_l1_i16() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       %temp = arith.constant 262400 : i32
-      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<16>)
+      %ptr = ttkernel.reinterpret_cast(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<16>)
       %offset = arith.constant 0 : i32
       %val = arith.constant 42 : i16
       // CHECK: emitc.cast %{{.*}} : i16 to !emitc.opaque<"tt_l1_ptr uint16_t">
@@ -2447,7 +2872,7 @@ module {
     // CHECK-LABEL: func @store_to_l1_i32
     func.func @store_to_l1_i32() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       %temp = arith.constant 262400 : i32
-      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr)
+      %ptr = ttkernel.reinterpret_cast(%temp) : (i32) -> (!ttkernel.l1_addr_ptr)
       %offset = arith.constant 0 : i32
       %val = arith.constant 42 : i32
       // CHECK: emitc.cast %{{.*}} : i32 to !emitc.opaque<"tt_l1_ptr uint32_t">
@@ -2458,7 +2883,7 @@ module {
     // CHECK-LABEL: func @load_from_l1_i8
     func.func @load_from_l1_i8() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       %temp = arith.constant 262400 : i32
-      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
+      %ptr = ttkernel.reinterpret_cast(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
       %offset = arith.constant 0 : i32
       // CHECK: %[[SUBSCRIPT:.*]] = emitc.subscript %{{.*}}[%{{.*}}] : (!emitc.ptr<!emitc.opaque<"tt_l1_ptr uint8_t">>, i32) -> !emitc.lvalue<!emitc.opaque<"tt_l1_ptr uint8_t">>
       // CHECK: %[[LOADED:.*]] = emitc.load %[[SUBSCRIPT]] : <{{.*}}>
@@ -2470,7 +2895,7 @@ module {
     // CHECK-LABEL: func @load_from_l1_i16
     func.func @load_from_l1_i16() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       %temp = arith.constant 262400 : i32
-      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<16>)
+      %ptr = ttkernel.reinterpret_cast(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<16>)
       %offset = arith.constant 0 : i32
       // CHECK: %[[SUBSCRIPT:.*]] = emitc.subscript %{{.*}}[%{{.*}}] : (!emitc.ptr<!emitc.opaque<"tt_l1_ptr uint16_t">>, i32) -> !emitc.lvalue<!emitc.opaque<"tt_l1_ptr uint16_t">>
       // CHECK: %[[LOADED:.*]] = emitc.load %[[SUBSCRIPT]] : <{{.*}}>
@@ -2482,7 +2907,7 @@ module {
     // CHECK-LABEL: func @load_from_l1_i32
     func.func @load_from_l1_i32() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       %temp = arith.constant 262400 : i32
-      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr)
+      %ptr = ttkernel.reinterpret_cast(%temp) : (i32) -> (!ttkernel.l1_addr_ptr)
       %offset = arith.constant 0 : i32
       // CHECK: %[[SUBSCRIPT:.*]] = emitc.subscript %{{.*}}[%{{.*}}] : (!emitc.ptr<!emitc.opaque<"tt_l1_ptr uint32_t">>, i32) -> !emitc.lvalue<!emitc.opaque<"tt_l1_ptr uint32_t">>
       // CHECK: %[[LOADED:.*]] = emitc.load %[[SUBSCRIPT]] : <{{.*}}>
@@ -2491,6 +2916,76 @@ module {
       return
     }
 
-  } // module
+    // CHECK-LABEL: func @fabric_connection_manager
+    func.func @fabric_connection_manager() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: emitc.verbatim "experimental::FabricConnectionManager [[FCM:fabric_connection_manager_[0-9]+]];"
+      // CHECK: %[[FCM_LIT:.*]] = emitc.literal "[[FCM]]" : !emitc.opaque<"experimental::FabricConnectionManager">
+      %fcm = "ttkernel.experimental.create_fabric_connection_manager"() : () -> !ttkernel.fabric_connection_manager
+      // CHECK: emitc.call_opaque "experimental::setup_fabric_connections"(%[[FCM_LIT]])
+      "ttkernel.experimental.setup_fabric_connections"(%fcm) : (!ttkernel.fabric_connection_manager) -> ()
 
+      %bank_id = arith.constant 0 : i32
+      %addr_offset = arith.constant 0 : i32
+      %noc_addr = ttkernel.get_noc_addr_from_bank_id(%bank_id, %addr_offset) : (i32, i32) -> !ttkernel.noc_addr
+      %l1_addr = arith.constant 1024 : i32
+      %size = arith.constant 16 : i32
+      %src_dev = arith.constant 0 : i16
+      %mesh_y = arith.constant 0 : index
+      %mesh_x = arith.constant 1 : index
+      // CHECK: emitc.verbatim "std::array<uint32_t, 2> [[POS:logical_mesh_position_[0-9]+]] = std::array<uint32_t, 2>{{.*}};" args
+      // CHECK: %[[POS_LIT:.*]] = emitc.literal "[[POS]]" : !emitc.opaque<"std::array<uint32_t, 2>">
+      // CHECK: call_opaque "experimental::get_device_id_from_logical_mesh_position"(%[[FCM_LIT]], %[[POS_LIT]])
+      %device_id = "ttkernel.experimental.get_device_id_from_logical_mesh_position"(%fcm, %mesh_y, %mesh_x) : (!ttkernel.fabric_connection_manager, index, index) -> i16
+      // CHECK: emitc.call_opaque "experimental::fabric_fast_write_any_len"(%[[FCM_LIT]]
+      "ttkernel.experimental.fabric_fast_write_any_len"(%fcm, %src_dev, %device_id, %noc_addr, %l1_addr, %size) : (!ttkernel.fabric_connection_manager, i16, i16, !ttkernel.noc_addr, i32, i32) -> ()
+      // CHECK: emitc.call_opaque "experimental::close_fabric_connections"(%[[FCM_LIT]])
+      "ttkernel.experimental.close_fabric_connections"(%fcm) : (!ttkernel.fabric_connection_manager) -> ()
+      return
+    }
+  //===----------------------------------------------------------------------===//
+  // TTKernel Arith operations
+  //===----------------------------------------------------------------------===//
+
+    // CHECK-LABEL: func @bool_logical_andi_ori
+    func.func @bool_logical_andi_ori() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = scalar, operand_index = 0>, <arg_type = scalar, operand_index = 1>, <arg_type = scalar, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+      %arg0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> i32
+      %arg1 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> i32
+      %arg2 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 2 : i32}> : () -> i32
+      // CHECK: %[[LHS:.*]] = emitc.cmp ne
+      %lhs = arith.cmpi ne, %arg0, %arg1 : i32
+      // CHECK: %[[RHS:.*]] = emitc.cmp eq
+      %rhs = arith.cmpi eq, %arg0, %arg2 : i32
+      // CHECK: emitc.logical_or %[[LHS]], %[[RHS]]
+      %logical_or = arith.ori %lhs, %rhs : i1
+      // CHECK: emitc.logical_and %[[LHS]], %[[RHS]]
+      %logical_and = arith.andi %lhs, %rhs : i1
+      // CHECK: emitc.bitwise_or
+      %bitwise_or = arith.ori %arg0, %arg1 : i32
+      // CHECK: emitc.bitwise_and
+      %bitwise_and = arith.andi %arg0, %arg2 : i32
+      return
+    }
+  //===----------------------------------------------------------------------===//
+  // TTKernel Numeric operations
+  //===----------------------------------------------------------------------===//
+
+    // CHECK-LABEL: func @bfloat16_greater
+    func.func @bfloat16_greater() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = scalar, operand_index = 0>, <arg_type = scalar, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      %raw0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> i32
+      %raw1 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> i32
+      %arg0 = arith.trunci %raw0 : i32 to i16
+      %arg1 = arith.trunci %raw1 : i32 to i16
+      // CHECK: emitc.call_opaque "bfloat16_greater"(%{{.*}}, %{{.*}}) : (i16, i16) -> i1
+      %0 = ttkernel.bfloat16_greater(%arg0, %arg1) : (i16, i16) -> i1
+      return
+    }
+
+    // CHECK-LABEL: func @float32_greater
+    func.func @float32_greater() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = scalar, operand_index = 0>, <arg_type = scalar, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      %arg0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> i32
+      %arg1 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> i32
+      // CHECK: emitc.call_opaque "float32_greater"(%{{.*}}, %{{.*}}) : (i32, i32) -> i1
+      %0 = ttkernel.float32_greater(%arg0, %arg1) : (i32, i32) -> i1
+      return
+    }
 } // module

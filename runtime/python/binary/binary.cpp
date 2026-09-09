@@ -67,6 +67,11 @@ void registerBinaryBindings(nb::module_ &m) {
         static_cast<std::shared_ptr<void> *>(capsule.data());
     return tt::runtime::Binary(tt::runtime::Flatbuffer(*binary).handle);
   });
+  m.def("load_binary_from_bytes", [](nb::bytes data) {
+    tt::runtime::Flatbuffer fb =
+        tt::runtime::Flatbuffer::loadFromMemory(data.data(), data.size());
+    return tt::runtime::Binary(fb);
+  });
   m.def("load_system_desc_from_path", &tt::runtime::SystemDesc::loadFromPath);
 
   /**

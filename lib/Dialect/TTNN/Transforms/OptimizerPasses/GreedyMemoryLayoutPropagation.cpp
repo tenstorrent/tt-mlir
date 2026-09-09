@@ -70,6 +70,7 @@ public:
     enableCompileTimeStats = opts.enableCompileTimeStats;
     overrideOutputLayout = std::move(opts.overrideOutputLayout);
     overrideConv2dConfig = std::move(opts.overrideConv2dConfig);
+    overrideConv3dConfig = std::move(opts.overrideConv3dConfig);
   }
 
   void runOnOperation() final {
@@ -127,7 +128,7 @@ public:
 
       func->walk([&](Operation *op) {
         if (!optimizer_utils::opHasTensorResult(op)) {
-          // Constraint sinks (FillCacheOp, PagedUpdateCacheOp) have no tensor
+          // Constraint sinks (see optimizer_utils::isSinkOp) have no tensor
           // result but still need input layout validation. Register a
           // null-output OpConfig so processOp can validate their input
           // combinations and drive upstream reshards.
@@ -141,8 +142,8 @@ public:
         if (!mlir::dyn_cast<OpModel>(op)) {
           return;
         }
-        // Skip ToLayoutOp -- their layouts are set by other passes.
-        if (isa<ToLayoutOp>(op)) {
+        // Skip ToTensorSpecOp -- their layouts are set by other passes.
+        if (isa<ToTensorSpecOp>(op)) {
           return;
         }
 
@@ -162,7 +163,8 @@ public:
         LegalOpConfigAnalysis legalOpConfigAnalysis =
             getChildAnalysis<LegalOpConfigAnalysis>(op);
         legalOpConfigAnalysis.init(LegalOpConfigAnalysisInput(
-            legalOpLayoutAnalysis.getResult(), &overrideConv2dConfig));
+            legalOpLayoutAnalysis.getResult(), &overrideConv2dConfig,
+            &overrideConv3dConfig));
         legalConfigs[op] = legalOpConfigAnalysis.getResult();
       });
     });
@@ -232,6 +234,12 @@ protected:
           *this, OptionNames::overrideConv2dConfig,
           ::llvm::cl::desc("Override Conv2d configuration for specific ops."),
           ::llvm::cl::init(llvm::StringMap<Conv2dConfigOverrideParams>())};
+  ::mlir::Pass::Option<llvm::StringMap<Conv3dConfigOverrideParams>,
+                       Conv3dConfigOverrideParser>
+      overrideConv3dConfig{
+          *this, OptionNames::overrideConv3dConfig,
+          ::llvm::cl::desc("Override Conv3d configuration for specific ops."),
+          ::llvm::cl::init(llvm::StringMap<Conv3dConfigOverrideParams>())};
 };
 
 // Pipeline create function.

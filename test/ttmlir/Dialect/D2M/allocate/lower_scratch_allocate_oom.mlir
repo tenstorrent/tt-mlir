@@ -28,10 +28,13 @@ func.func @scratch_overflow() {
     %c0 = arith.constant 0 : index
     %s0 = d2m.scratch_allocate {slot = 0 : i64} : memref<5x!ttcore.tile<32x32, f32>, #l1>
     %s1 = d2m.scratch_allocate {slot = 1 : i64} : memref<5x!ttcore.tile<32x32, f32>, #l1>
-    // Both slots are used after both are defined, so their live ranges overlap
-    // and they cannot be packed together. Total = 10 > capacity 8.
+    // Interleaved use spans (load s0, store s1, load s1, store s0) make the
+    // two slots' live ranges genuinely overlap, so they cannot be packed
+    // together. Total = 10 > capacity 8.
     %t0 = memref.load %s0[%c0] : memref<5x!ttcore.tile<32x32, f32>, #l1>
     memref.store %t0, %s1[%c0] : memref<5x!ttcore.tile<32x32, f32>, #l1>
+    %t1 = memref.load %s1[%c0] : memref<5x!ttcore.tile<32x32, f32>, #l1>
+    memref.store %t1, %s0[%c0] : memref<5x!ttcore.tile<32x32, f32>, #l1>
   }
   return
 }

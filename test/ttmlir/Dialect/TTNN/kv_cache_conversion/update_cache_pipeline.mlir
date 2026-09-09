@@ -9,7 +9,7 @@ module {
     // CHECK-NOT: "ttnn.typecast"
     // CHECK: "ttnn.paged_update_cache"
     %update_index = "ttir.constant"() <{value = dense<0> : tensor<1xi32>}> : () -> tensor<1xi32>
-    %1 = "ttir.update_cache"(%arg0, %arg1, %update_index) <{batch_offset = 0 : i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x1x512xbf16>, tensor<1xi32>) -> tensor<1x32x64x512xbf16>
-    return %1 : tensor<1x32x64x512xbf16>
+    "ttir.update_cache"(%arg0, %arg1, %update_index) <{batch_offset = 0 : i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x1x512xbf16>, tensor<1xi32>) -> ()
+    return %arg0 : tensor<1x32x64x512xbf16>
   }
 }

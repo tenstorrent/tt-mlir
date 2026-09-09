@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
+#include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/IRMapping.h"
 #include "llvm/Support/Error.h"
 
@@ -328,6 +329,44 @@ getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
                                             {});
 }
 
+mlir::sdy::TensorShardingAttr getClosedReplicatedTensorSdyShardingAttr(
+    MLIRContext *context, llvm::StringRef meshName, int64_t rank) {
+  llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;
+  dimShardings.reserve(rank);
+  for (int64_t d = 0; d < rank; ++d) {
+    dimShardings.push_back(mlir::sdy::DimensionShardingAttr::get(
+        context, /*axes=*/{}, /*isClosed=*/true));
+  }
+  return mlir::sdy::TensorShardingAttr::get(context, meshName, dimShardings,
+                                            /*replicatedAxes=*/{},
+                                            /*unknownAxes=*/{});
+}
+
+mlir::sdy::TensorShardingAttr getFirstSharding(mlir::Operation *op) {
+  auto spv = op->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
+      mlir::sdy::TensorShardingAttr::name);
+  if (!spv) {
+    return nullptr;
+  }
+
+  auto shardings = spv.getShardings();
+  if (shardings.empty()) {
+    return nullptr;
+  }
+
+  return shardings[0];
+}
+
+void setReplicatedSharding(mlir::Operation *op, MLIRContext *context,
+                           llvm::StringRef meshName, int64_t rank) {
+  mlir::sdy::TensorShardingAttr replicatedSharding =
+      getClosedReplicatedTensorSdyShardingAttr(context, meshName, rank);
+
+  op->setAttr(mlir::sdy::TensorShardingAttr::name,
+              mlir::sdy::TensorShardingPerValueAttr::get(context,
+                                                         {replicatedSharding}));
+}
+
 // Get the argument sharding attributes.
 // If createIfMissing is true, create default sharding attributes (replicated
 // on) for any arguments that do not have sdy.sharding annotations.
@@ -426,7 +465,7 @@ getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
 // Falls back to full replicate if none found.
 mlir::sdy::TensorShardingAttr
 getOperandShardingAttr(const mlir::OpOperand &operand,
-                       mlir::sdy::MeshOp globalMeshOp) {
+                       mlir::sdy::MeshOp globalMeshOp, bool createIfMissing) {
   mlir::Value val = operand.get();
 
   mlir::sdy::TensorShardingAttr result =
@@ -437,7 +476,8 @@ getOperandShardingAttr(const mlir::OpOperand &operand,
     unsigned argNo = barg.getArgNumber();
     mlir::Operation *parentOp = barg.getOwner()->getParentOp();
     if (auto func = llvm::dyn_cast_or_null<mlir::func::FuncOp>(parentOp)) {
-      auto inAttrs = getInShardingAttrs(func.getContext(), func, globalMeshOp);
+      auto inAttrs = getInShardingAttrs(func.getContext(), func, globalMeshOp,
+                                        createIfMissing);
       if (argNo < inAttrs.size()) {
         result = inAttrs[argNo];
       }
@@ -606,29 +646,13 @@ llvm::Expected<bool> parseSdySharding(mlir::sdy::TensorShardingAttr sdySharding,
   return true;
 }
 
-// Generate default ShardyMeshSharding.
-llvm::Expected<ShardyMeshSharding> ShardyMeshSharding::generateDefault() {
-  return ShardyMeshSharding{
-      mlir::tt::ttcore::MeshShardDirection::FullToShard,
-      mlir::tt::ttcore::MeshShardType::Identity,
-      /*shardShape=*/llvm::SmallVector<int64_t>{},
-      /*shardDims=*/llvm::SmallVector<int64_t>{},
-      /*meshShape=*/llvm::SmallVector<int64_t>{},
-      /*deviceIds=*/llvm::SmallVector<int64_t>{},
-      mlir::tt::ttcore::ShardStatus::Unsharded,
-      sdy::MeshAttr(),
-      mlir::sdy::TensorShardingAttr(),
-  };
-}
-
 llvm::Expected<ShardyMeshSharding>
 ShardyMeshSharding::generate(sdy::MeshAttr meshAttr,
                              sdy::TensorShardingAttr sdySharding,
                              mlir::tt::ttcore::ShardStatus shardStatus,
                              ttcore::MeshShardDirection shardDirection) {
   // Need to parse sdy sharding and fill out MeshSharding info.
-  mlir::tt::ttcore::MeshShardType shardType =
-      mlir::tt::ttcore::MeshShardType::Identity;
+  mlir::tt::ttcore::MeshShardType shardType{};
   llvm::SmallVector<int64_t> shardShape = {-1};
   llvm::SmallVector<int64_t> shardDims = {-1};
   llvm::SmallVector<int64_t> meshShape = {-1};
@@ -643,12 +667,10 @@ ShardyMeshSharding::generate(sdy::MeshAttr meshAttr,
     meshShape = llvm::SmallVector<int64_t>{-1};
   };
 
-  // Empty meshAttr indicates single device, so no need to convert.
   if (meshAttr.empty()) {
-    meshShape.clear();
-    return ShardyMeshSharding{shardDirection, shardType, shardShape,
-                              shardDims,      meshShape, deviceIds,
-                              shardStatus,    meshAttr,  sdySharding};
+    return llvm::createStringError(
+        std::errc::invalid_argument,
+        "Empty meshAttr: manual_computation requires a mesh.");
   }
 
   if (meshAttr.getAxes().empty()) {
@@ -682,21 +704,32 @@ ShardyMeshSharding::generate(sdy::MeshAttr meshAttr,
     setNonDevicesShardType(mlir::tt::ttcore::MeshShardType::Replicate);
   }
 
-  // Check if the input is already pre-sharded. If it is, override shardType to
-  // Identity.
-  shardType = shardStatus == mlir::tt::ttcore::ShardStatus::Presharded
-                  ? ttcore::MeshShardType::Identity
-                  : shardType;
-
   return ShardyMeshSharding{shardDirection, shardType, shardShape,
                             shardDims,      meshShape, deviceIds,
                             shardStatus,    meshAttr,  sdySharding};
 }
 
-bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh) {
+bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh,
+                             mlir::sdy::MeshOp meshOp) {
   for (auto dim : tsh.getDimShardings()) {
-    if (!dim.getAxes().empty()) {
+    if (dim.getAxes().empty()) {
+      continue;
+    }
+    if (!meshOp) {
       return false;
+    }
+    mlir::sdy::MeshAttr meshAttr = meshOp.getMesh();
+    for (mlir::sdy::AxisRefAttr axisRef : dim.getAxes()) {
+      int64_t axisSize = 1;
+      for (mlir::sdy::MeshAxisAttr meshAxis : meshAttr.getAxes()) {
+        if (meshAxis.getName() == axisRef.getName()) {
+          axisSize = meshAxis.getSize();
+          break;
+        }
+      }
+      if (axisSize > 1) {
+        return false;
+      }
     }
   }
   return true;
@@ -1206,6 +1239,40 @@ bool opHasShardySharding(mlir::Operation *op) {
   }
 
   return false;
+}
+
+llvm::StringRef getUserShardingRuleStr(mlir::Operation *op) {
+  auto frontendAttrs = op->getAttrOfType<mlir::DictionaryAttr>(
+      gspmd_utils::kFrontendAttributesAttr);
+  if (!frontendAttrs) {
+    return {};
+  }
+
+  auto ruleStrAttr = frontendAttrs.getAs<mlir::StringAttr>(
+      sharding_utils::kXlaSdyCustomShardingRuleAttr);
+  if (!ruleStrAttr) {
+    return {};
+  }
+
+  llvm::StringRef ruleStr = ruleStrAttr.getValue().trim();
+  return ruleStr.empty() ? llvm::StringRef() : ruleStr;
+}
+
+mlir::sdy::OpShardingRuleAttr
+parseUserShardingRule(llvm::StringRef ruleStr, mlir::MLIRContext *context) {
+  auto rule = mlir::dyn_cast_or_null<mlir::sdy::OpShardingRuleAttr>(
+      mlir::parseAttribute(ruleStr, context));
+  if (!rule || !rule.isCustom()) {
+    return rule;
+  }
+
+  // Rebuild through the builder that omits `is_custom_rule`, which defaults it
+  // to false.
+  return mlir::sdy::OpShardingRuleAttr::get(
+      context, rule.getFactorSizes(), rule.getOperandMappings(),
+      rule.getResultMappings(), rule.getReductionFactors(),
+      rule.getNeedReplicationFactors(), rule.getPermutationFactors(),
+      rule.getBlockedPropagationFactors());
 }
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO

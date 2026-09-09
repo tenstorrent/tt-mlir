@@ -42,6 +42,14 @@ LogicalResult TopKDecompositionRewritePattern::matchAndRewrite(
     TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
                  "TopK decomposition triggered (validation failed): {0}",
                  validationResult.errorMessage);
+  } else {
+    // No validator available (e.g. optimizer disabled / opt_level=0).
+    // Preserve the TopK rather than regenerating sort+slice with default
+    // attributes — the regenerated ops can differ from the original sort+slice
+    // (e.g. stable=false, null memory_config) and break downstream paths such
+    // as trace capture. TopK has native TTNN runtime support, so keeping it
+    // is safe.
+    return failure();
   }
 
   // Decompose TopK back into Sort + SliceStatic.

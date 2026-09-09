@@ -29,10 +29,11 @@ module attributes {} {
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       // High-level mcast form: mcast on dim 1 (reduction dimension)
-      // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
-      // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
-      // CHECK-DAG: %[[C4:.*]] = arith.constant 4 : index
-      // CHECK-DAG: %[[CORE0:.*]] = d2m.core_index(0)
+      // CHECK: %{{.*}} = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      // CHECK-NEXT: %[[C0:.*]] = arith.constant 0 : index
+      // CHECK-NEXT: %[[CORE0:.*]] = d2m.core_index(0)
+      // CHECK-NEXT: %[[C1:.*]] = arith.constant 1 : index
+      // CHECK-NEXT: %[[C4:.*]] = arith.constant 4 : index
       // CHECK: d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] mcore[%[[CORE0]], %[[C0]]] mshape[%[[C1]], %[[C4]]]
       %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
       d2m.remote_load %buffer %stream[%c0, %c1] mcast[%c0] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram>
@@ -58,10 +59,11 @@ module attributes {} {
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       // High-level mcast form: mcast on dim 0 (reduction dimension)
-      // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
-      // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
-      // CHECK-DAG: %[[C4:.*]] = arith.constant 4 : index
-      // CHECK-DAG: %[[CORE1:.*]] = d2m.core_index(1)
+      // CHECK: %{{.*}} = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      // CHECK-NEXT: %[[C0:.*]] = arith.constant 0 : index
+      // CHECK-NEXT: %[[CORE1:.*]] = d2m.core_index(1)
+      // CHECK-NEXT: %[[C4:.*]] = arith.constant 4 : index
+      // CHECK-NEXT: %[[C1:.*]] = arith.constant 1 : index
       // CHECK: d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] mcore[%[[C0]], %[[CORE1]]] mshape[%[[C4]], %[[C1]]]
       %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
       d2m.remote_load %buffer %stream[%c0, %c1] mcast[%c1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram>
@@ -110,10 +112,11 @@ module attributes {} {
     ^unified0:
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
-      // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
-      // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
-      // CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
-      // CHECK-DAG: %[[CORE0:.*]] = d2m.core_index(0) : index
+      // CHECK: %{{.*}} = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      // CHECK-NEXT: %[[C0:.*]] = arith.constant 0 : index
+      // CHECK-NEXT: %[[CORE0:.*]] = d2m.core_index(0) : index
+      // CHECK-NEXT: %[[C1:.*]] = arith.constant 1 : index
+      // CHECK-NEXT: %[[C2:.*]] = arith.constant 2 : index
       // CHECK-NOT: affine.apply
       // CHECK: d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] mcore[%[[CORE0]], %[[C0]]] mshape[%[[C1]], %[[C2]]]
       %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>

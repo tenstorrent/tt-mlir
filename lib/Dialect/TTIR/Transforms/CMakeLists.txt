@@ -19,10 +19,10 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Quantization.cpp
         QuantDequantConversion.cpp
         ReductionForceKeepDim.cpp
-        RankNormalization.cpp
         Transforms.cpp
         TTIRFusing.cpp
         Fusing/RoPEFusingPattern.cpp
+        Fusing/SDPAFusingPattern.cpp
         Fusing/TopKFusingPattern.cpp
         MultiDeviceTensorAnnotation.cpp
 

@@ -1,8 +1,11 @@
 // RUN: ttmlir-opt %s --split-input-file --verify-diagnostics
 
-// Test: logical_shape must have at least 2 dimensions (only 1 dimension)
-// expected-error @+1 {{logical_shape must have at least 2 dimensions, got 1}}
+// Test: Valid rank-1 layout (should parse without error)
 #layout_1d = #ttcore.metal_layout<logical_shape = 32, dim_alignments = 32, collapsed_intervals = dense<[[0, 1]]> : tensor<1x2xi64>, l1, sharded>
+
+func.func @test_valid_rank_1_layout(%arg0: tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout_1d>) -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout_1d> {
+  return %arg0 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout_1d>
+}
 
 // -----
 

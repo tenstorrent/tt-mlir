@@ -19,6 +19,7 @@
 #include "ttnn/operations/core/core.hpp"
 #include "ttnn/operations/creation/creation.hpp"
 #include "ttnn/operations/data_movement/concat/concat.hpp"
+#include "ttnn/operations/data_movement/copy/copy.hpp"
 #include "ttnn/operations/data_movement/pad/pad.hpp"
 #include "ttnn/operations/data_movement/permute/permute.hpp"
 #include "ttnn/operations/data_movement/repeat/repeat.hpp"
@@ -33,6 +34,7 @@
 #include "ttnn/operations/embedding/embedding.hpp"
 #include "ttnn/operations/embedding_backward/embedding_backward.hpp"
 #include "ttnn/operations/experimental/ccl/rms_allgather/rms_allgather.hpp"
+#include "ttnn/operations/experimental/conv3d/prepare_conv3d_weights.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_concat_heads_decode/nlp_concat_heads_decode.hpp"
 #include "ttnn/operations/experimental/transformer/rotary_embedding/rotary_embedding.hpp"
@@ -64,11 +66,19 @@
 #include <cstddef>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <vector>
 
 template <typename... T>
 std::vector<ttnn::Tensor> util_create_vec(T &&...t) {
   return std::vector<ttnn::Tensor>{std::forward<T>(t)...};
+}
+
+// Unwraps a std::optional<T> into a T. Used to extract tensors from ttml metal
+// ops that return std::vector<std::optional<ttnn::Tensor>>.
+template <typename T>
+T util_get_optional_value(const std::optional<T> &opt) {
+  return opt.value();
 }
 
 namespace ttnn {
@@ -79,7 +89,7 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
-  static constexpr std::size_t l1SmallSize = 1 << 15; // 32kB
+  static constexpr std::size_t l1SmallSize = 1 << 16; // 64kB
   static constexpr std::size_t traceRegionSize = 0;
 
   static ttnn::MeshDevice *getInstance() {
@@ -89,7 +99,16 @@ public:
       return externalDevice;
     }
 
-    static std::shared_ptr<ttnn::MeshDevice> ownedInstance =
+    // NOTE: `ownedInstance` is intentionally `thread_local` (not a plain
+    // function-local static) to avoid a use-after-free crash during process
+    // exit. thread_local variables are destroyed when the thread exits,
+    // which happens before static destruction begins. This guarantees that
+    // GraphTracker (a function-local static in libtt_metal.so, initialized
+    // lazily during the first op) is still alive when the MeshDevice's
+    // program cache is destroyed. With a plain static, GraphTracker could
+    // be destroyed first (reverse init order), causing ProgramImpl's
+    // destructor to crash in deallocate_circular_buffers().
+    static thread_local std::shared_ptr<ttnn::MeshDevice> ownedInstance =
         ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize, traceRegionSize);
     hasOwnedDevice = true;
     return ownedInstance.get();
@@ -126,16 +145,16 @@ void setDevice(ttnn::MeshDevice *device) { DeviceGetter::setInstance(device); }
 }
 
 // Registry for all const-eval cache vectors.
-// Using a function-local static (Meyers singleton) ensures this is initialized
-// after DeviceGetter::getInstance() (which initializes the device), and thus
-// destroyed before the device during program exit. This prevents a
-// use-after-free crash when the global g_cached_result_* vectors (initialized
-// before main) try to destroy device-side tensors after the device and its
-// GraphTracker have already been closed.
+// Using a thread_local function-local static (Meyers singleton) ensures this
+// is destroyed before the thread_local device during thread exit. thread_local
+// variables are destroyed in reverse initialization order within the same
+// thread, so since the device is initialized before the registry, the registry
+// is destroyed first — clearing all cached tensors while the device and
+// GraphTracker are still alive.
 class ConstEvalCacheRegistry {
 public:
   static ConstEvalCacheRegistry &instance() {
-    static ConstEvalCacheRegistry reg;
+    static thread_local ConstEvalCacheRegistry reg;
     return reg;
   }
 
@@ -180,8 +199,7 @@ uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
 ::ttnn::Tensor loadTensor(const std::string &filePath, ttnn::Layout layout,
                           ttnn::DataType dtype, ttnn::MeshDevice *device,
                           ttnn::MemoryConfig memoryConfig) {
-  ::ttnn::Tensor loadedTensor =
-      ::tt::tt_metal::load_tensor_flatbuffer(filePath);
+  ::ttnn::Tensor loadedTensor = ::ttnn::load_tensor_flatbuffer(filePath);
 
   assert(loadedTensor.device() == nullptr && "loaded tensor must be on host");
 

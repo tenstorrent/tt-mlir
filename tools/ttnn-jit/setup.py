@@ -240,7 +240,7 @@ TT_METAL_HOME build/lib/ contains (used at runtime via LD_LIBRARY_PATH):
 ├── _ttnn.so
 ├── libdevice.so
 ├── libtt_stl.so
-└── libtracy.so.0.10.0
+└── libtracy.so.0.13.3
 """
 
 setup(

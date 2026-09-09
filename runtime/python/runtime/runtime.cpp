@@ -2,7 +2,16 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <iterator>
+#include <map>
+#include <optional>
 #include <sstream>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "tt/runtime/debug.h"
 #include "tt/runtime/perf.h"
@@ -154,6 +163,10 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("with_controller_hostname",
            &tt::runtime::MultiProcessArgs::withControllerHostname,
            nb::rv_policy::reference_internal)
+      .def("with_tracy", &tt::runtime::MultiProcessArgs::withTracy,
+           nb::rv_policy::reference_internal)
+      .def("with_tracy_args", &tt::runtime::MultiProcessArgs::withTracyArgs,
+           nb::rv_policy::reference_internal)
       .def("to_arg_string", &tt::runtime::MultiProcessArgs::toArgString);
 
   nb::class_<tt::runtime::DistributedOptions>(m, "DistributedOptions")
@@ -241,9 +254,12 @@ void registerRuntimeBindings(nb::module_ &m) {
            [](tt::runtime::Tensor self, tt::runtime::Layout layout) {
              return tt::runtime::hasLayout(self, layout);
            })
-      .def("get_layout", [](tt::runtime::Tensor self) {
-        return tt::runtime::getTensorLayout(self);
-      });
+      .def("get_layout",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorLayout(self);
+           })
+      .def("get_global_id",
+           [](tt::runtime::Tensor self) { return self.getGlobalId(); });
 
   nb::class_<tt::runtime::TensorRef>(m, "TensorRef")
       .def(
@@ -363,10 +379,31 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def("shutdown_distributed_runtime",
         &tt::runtime::shutdownDistributedRuntime,
         "Shutdown the distributed runtime");
+  nb::class_<tt::runtime::WorkerDebugStatsEntry>(m, "WorkerDebugStatsEntry")
+      .def_ro("hostname", &tt::runtime::WorkerDebugStatsEntry::hostname)
+      .def_ro("stats", &tt::runtime::WorkerDebugStatsEntry::stats)
+      .def("__repr__", [](const tt::runtime::WorkerDebugStatsEntry &entry) {
+        std::ostringstream oss;
+        oss << "Worker: " << entry.hostname << "\n";
+        // Sort keys for consistent output
+        std::vector<std::string> keys;
+        keys.reserve(entry.stats.size());
+        for (const auto &[key, value] : entry.stats) {
+          keys.push_back(key);
+        }
+        std::sort(keys.begin(), keys.end());
+        for (const auto &key : keys) {
+          oss << "  " << key << ": " << entry.stats.at(key) << "\n";
+        }
+        return oss.str();
+      });
+  m.def("get_worker_debug_stats", &tt::runtime::getWorkerDebugStats,
+        "Get per-worker runtime debug stats (hostname and counter map per "
+        "worker)");
   m.def(
       "create_borrowed_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
-         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+         const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType) {
         return tt::runtime::createBorrowedHostTensor(
             reinterpret_cast<void *>(ptr), shape, stride, itemsize, dataType);
@@ -375,7 +412,7 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def(
       "create_owned_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
-         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+         const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType) {
         return tt::runtime::createOwnedHostTensor(
             reinterpret_cast<const void *>(ptr), shape, stride, itemsize,
@@ -392,7 +429,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       "create_empty_tensor",
       [](::tt::runtime::Device device, ::tt::runtime::Layout layout,
          const std::vector<std::uint32_t> &shape,
-         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize) {
+         const std::vector<std::int64_t> &stride, std::uint32_t itemsize) {
         return tt::runtime::createEmptyTensor(device, layout, shape, stride,
                                               itemsize);
       },
@@ -403,7 +440,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       "create_multi_device_host_tensor",
       [](std::vector<std::uintptr_t> &ptrs,
          const std::vector<std::uint32_t> &shape,
-         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+         const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType,
          const std::unordered_map<std::string, std::string> &strategy,
          const std::vector<uint32_t> &meshShape) {
@@ -430,7 +467,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       "create_multi_device_borrowed_host_tensor",
       [](std::vector<std::uintptr_t> &ptrs,
          const std::vector<std::uint32_t> &shape,
-         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+         const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType,
          const std::unordered_map<std::string, std::string> &strategy,
          const std::vector<uint32_t> &meshShape) {
@@ -560,8 +597,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       nb::arg("program_context_handle"), nb::arg("tensor_ref"),
       nb::arg("untilize") = true,
       R"(
-    Returns tensor from tensor pool to which tensor_ref refers
-    For now only supports single device tensors
+    Returns the tensor from the tensor pool that is referenced by the given tensor reference.
 
     Parameters
     ----------
@@ -574,8 +610,7 @@ void registerRuntimeBindings(nb::module_ &m) {
     Returns
     -------
     Optional[tt.runtime.Tensor]
-        The tensor corresponding to *tensor_ref*, or ``None`` if the
-        tensor is not present in the pool (e.g., it was deallocated).
+        The tensor from the tensor pool that is referenced by the given tensor reference, or ``None`` when the tensor is not present in the pool (e.g., it was deallocated).
     )");
 
   m.def(
@@ -627,6 +662,22 @@ void registerRuntimeBindings(nb::module_ &m) {
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
         "Get the location info of the op");
+  m.def(
+      "invoke_cpu_op",
+      [](tt::runtime::CallbackContext program_context_handle,
+         tt::runtime::OpContext op_context_handle,
+         const std::vector<tt::runtime::Tensor> &inputs) {
+        return tt::runtime::invokeCpuOp(program_context_handle,
+                                        op_context_handle, inputs);
+      },
+      nb::arg("program_context_handle"), nb::arg("op_context_handle"),
+      nb::arg("inputs"),
+      R"(
+    Invoke the sequence of CPU-hoisted ops wrapped by a CpuOp behind `op_context_handle`
+    with caller-supplied host inputs.
+
+    Inputs must match the CpuOp's `ins[]` shapes/dtypes.
+    )");
   m.def(
       "memcpy",
       [](std::uintptr_t dst, ::tt::runtime::Tensor src,

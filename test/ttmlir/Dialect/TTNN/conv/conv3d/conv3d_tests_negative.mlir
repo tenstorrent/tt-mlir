@@ -29,7 +29,7 @@ module {
 module {
   func.func @conv3d_invalid_weight_shape(%arg0: tensor<1x8x28x28x4xbf16>, %arg1: tensor<108x3x16xbf16>, %arg2: tensor<1x16xbf16>) -> tensor<1x6x26x26x16xbf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: error: 'ttnn.conv3d' op weight must be a 2D tensor [kD*kH*kW*C/G, O]
+    // CHECK: error: 'ttnn.conv3d' op weight must be either a 5D tensor [O, C/G, kD, kH, kW] (raw) or a 2D tensor [kD*kH*kW*C_in, O] (prepared)
     %1 = "ttnn.conv3d"(%arg0, %arg1, %arg2, %0)
             <{
               in_channels = 4: i32,
@@ -270,12 +270,12 @@ module {
 
 // -----
 module {
-  func.func @conv3d_input_channels_not_divisible_by_groups(%arg0: tensor<1x8x28x28x7xbf16>, %arg1: tensor<54x16xbf16>, %arg2: tensor<1x16xbf16>) -> tensor<1x6x26x26x16xbf16> {
+  func.func @conv3d_in_channels_mismatch_with_raw_weight(%arg0: tensor<1x8x28x28x32xbf16>, %arg1: tensor<16x2x3x3x3xbf16>, %arg2: tensor<1x16xbf16>) -> tensor<1x6x26x26x16xbf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: error: 'ttnn.conv3d' op in_channels (7) must be divisible by groups (4)
+    // CHECK: error: 'ttnn.conv3d' op in_channels (64) must equal the weight's input channels per group (2) * groups (4) aligned to 32 (32)
     %1 = "ttnn.conv3d"(%arg0, %arg1, %arg2, %0)
             <{
-              in_channels = 7: i32,
+              in_channels = 64: i32,
               out_channels = 16: i32,
               batch_size = 1: i32,
               input_depth = 8: i32,
@@ -287,7 +287,7 @@ module {
               padding_mode = "zeros",
               groups = 4: i32,
               dtype = #ttcore.supportedDataTypes<bf16>
-            }> : (tensor<1x8x28x28x7xbf16>, tensor<54x16xbf16>, tensor<1x16xbf16>, !ttnn.device) -> tensor<1x6x26x26x16xbf16>
+            }> : (tensor<1x8x28x28x32xbf16>, tensor<16x2x3x3x3xbf16>, tensor<1x16xbf16>, !ttnn.device) -> tensor<1x6x26x26x16xbf16>
     return %1 : tensor<1x6x26x26x16xbf16>
   }
 }
@@ -318,9 +318,9 @@ module {
 
 // -----
 module {
-  func.func @conv3d_weight_flattened_dim_mismatch(%arg0: tensor<1x8x28x28x8xbf16>, %arg1: tensor<216x16xbf16>, %arg2: tensor<1x16xbf16>) -> tensor<1x6x26x26x16xbf16> {
+  func.func @conv3d_weight_flattened_dim_mismatch(%arg0: tensor<1x8x28x28x8xbf16>, %arg1: tensor<108x16xbf16>, %arg2: tensor<1x16xbf16>) -> tensor<1x6x26x26x16xbf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: error: 'ttnn.conv3d' op weight flattened dimension (216) must equal kD*kH*kW*C_in/groups (108)
+    // CHECK: error: 'ttnn.conv3d' op weight flattened dimension (108) must equal kD*kH*kW*C_in (216)
     %1 = "ttnn.conv3d"(%arg0, %arg1, %arg2, %0)
             <{
               in_channels = 8: i32,
@@ -335,7 +335,7 @@ module {
               padding_mode = "zeros",
               groups = 2: i32,
               dtype = #ttcore.supportedDataTypes<bf16>
-            }> : (tensor<1x8x28x28x8xbf16>, tensor<216x16xbf16>, tensor<1x16xbf16>, !ttnn.device) -> tensor<1x6x26x26x16xbf16>
+            }> : (tensor<1x8x28x28x8xbf16>, tensor<108x16xbf16>, tensor<1x16xbf16>, !ttnn.device) -> tensor<1x6x26x26x16xbf16>
     return %1 : tensor<1x6x26x26x16xbf16>
   }
 }
@@ -360,6 +360,31 @@ module {
               groups = 1: i32,
               dtype = #ttcore.supportedDataTypes<bf16>
             }> : (tensor<1x8x28x28x4xbf16>, tensor<108x16xbf16>, tensor<1x32xbf16>, !ttnn.device) -> tensor<1x6x26x26x16xbf16>
+    return %1 : tensor<1x6x26x26x16xbf16>
+  }
+}
+
+// -----
+module {
+  func.func @conv3d_invalid_dilation(%arg0: tensor<1x8x28x28x4xbf16>, %arg1: tensor<108x16xbf16>) -> tensor<1x6x26x26x16xbf16> {
+    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+    // CHECK: error: 'ttnn.conv3d' op dilation values must be >= 1, got: (1, 0, 1)
+    %1 = "ttnn.conv3d"(%arg0, %arg1, %0)
+            <{
+              in_channels = 4: i32,
+              out_channels = 16: i32,
+              batch_size = 1: i32,
+              input_depth = 8: i32,
+              input_height = 28: i32,
+              input_width = 28: i32,
+              kernel_size = array<i32: 3, 3, 3>,
+              stride = array<i32: 1, 1, 1>,
+              padding = array<i32: 0, 0, 0>,
+              dilation = array<i32: 1, 0, 1>,
+              padding_mode = "zeros",
+              groups = 1: i32,
+              dtype = #ttcore.supportedDataTypes<bf16>
+            }> : (tensor<1x8x28x28x4xbf16>, tensor<108x16xbf16>, !ttnn.device) -> tensor<1x6x26x26x16xbf16>
     return %1 : tensor<1x6x26x26x16xbf16>
   }
 }

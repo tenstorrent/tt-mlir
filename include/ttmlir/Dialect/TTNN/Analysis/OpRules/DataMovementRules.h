@@ -46,6 +46,21 @@ struct ConcatRuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
+/// RepeatOp: pin the output sharding grid to the input's grid.
+/// With a NULL/gridless output memory config, tt-metal's repeat re-derives the
+/// output shard spec onto the full compute grid, so the grid it reports no
+/// longer matches the physically-allocated (trimmed) grid and downstream
+/// consumers read the wrong cores (tt-xla#5605). Force an explicit sharded
+/// output on the input's memory layout and grid.
+struct RepeatRuleBook : OpRuleBook {
+  bool isValidOutputHintForInputs(
+      const OpConfig &hint,
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
 /// SliceStaticOp, SliceDynamicOp: reject all sharded inputs, non-sharded
 /// output, no reshards.
 struct SliceRuleBook : OpRuleBook {
@@ -60,6 +75,24 @@ struct SliceRuleBook : OpRuleBook {
 /// its input (same buffer, same address). Mirrors the `this_is_view`
 /// condition in tt-metal's reshape.cpp.
 bool canReshapeBeView(Operation *op);
+
+/// True if a `ttnn.pad` returns its input as a view (all-zero padding, same
+/// shape, or the TILE fast-path). Mirrors tt-metal's pad.cpp.
+bool canPadBeView(Operation *op);
+
+/// True if a `ttnn.repeat` with an all-ones repetition returns its input as a
+/// view. Mirrors tt-metal's repeat.cpp:196.
+bool canRepeatBeView(Operation *op);
+
+/// True if a `ttnn.permute` is a no-op (is_permute_nop) whose output memory
+/// config matches its input, so tt-metal returns the input as a view. Mirrors
+/// tt-metal's permute.cpp is_permute_nop.
+bool canPermuteBeView(Operation *op);
+
+/// True if `op` is realized by tt-metal as an input-aliasing (zero-copy) view:
+/// any of the per-op view predicates above. Used by the L1 spill pass to alias
+/// the op onto its source's L1 slot instead of tracking a fresh allocation.
+bool isAliasingViewOp(Operation *op);
 
 /// ReshapeOp, PermuteOp: reject width-sharded inputs, no reshards.
 /// View-eligible reshapes use NULL hint only (inherit input memory config).

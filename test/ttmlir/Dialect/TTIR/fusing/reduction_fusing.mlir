@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-fusing -o %t %s
+// RUN: ttmlir-opt --canonicalize --ttir-fusing -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Test basic reduction + reshape fusion (sum operation).
@@ -135,5 +135,56 @@ module {
     %3 = "ttir.reshape"(%1) {shape = [1 : i32, 32 : i32, 128 : i32]} : (tensor<32x128xf32>) -> tensor<1x32x128xf32>
 
     return %3 : tensor<1x32x128xf32>
+  }
+}
+
+// The unsqueeze version of @sum_reshape_fusion.
+module {
+  // CHECK-LABEL: func.func @sum_unsqueeze_fusion
+  func.func @sum_unsqueeze_fusion(%arg0: tensor<32x64x128xf32>) -> tensor<32x1x128xf32> {
+    // CHECK: %[[RESULT:.*]] = "ttir.sum"(%arg0) <{dim_arg = [1 : i32], keep_dim = true}> : (tensor<32x64x128xf32>) -> tensor<32x1x128xf32>
+    // CHECK-NOT: ttir.unsqueeze
+    // CHECK-NOT: ttir.reshape
+    // CHECK: return %[[RESULT]]
+
+    %1 = "ttir.sum"(%arg0) {dim_arg = [1 : i32], keep_dim = false} : (tensor<32x64x128xf32>) -> tensor<32x128xf32>
+
+    %3 = "ttir.unsqueeze"(%1) <{dim = 1 : si32}> : (tensor<32x128xf32>) -> tensor<32x1x128xf32>
+
+    return %3 : tensor<32x1x128xf32>
+  }
+}
+
+// The unsqueeze version of @mean_reshape_fusion.
+module {
+  // CHECK-LABEL: func.func @mean_unsqueeze_fusion
+  func.func @mean_unsqueeze_fusion(%arg0: tensor<32x64x128xf32>) -> tensor<32x64x1xf32> {
+    // CHECK: %[[RESULT:.*]] = "ttir.mean"(%arg0) <{dim_arg = [2 : i32], keep_dim = true}> : (tensor<32x64x128xf32>) -> tensor<32x64x1xf32>
+    // CHECK-NOT: ttir.unsqueeze
+    // CHECK-NOT: ttir.reshape
+    // CHECK: return %[[RESULT]]
+
+    %1 = "ttir.mean"(%arg0) {dim_arg = [2 : i32], keep_dim = false} : (tensor<32x64x128xf32>) -> tensor<32x64xf32>
+
+    %3 = "ttir.unsqueeze"(%1) <{dim = 2 : si32}> : (tensor<32x64xf32>) -> tensor<32x64x1xf32>
+
+    return %3 : tensor<32x64x1xf32>
+  }
+}
+
+// The unsqueeze version of @max_reshape_fusion.
+module {
+  // CHECK-LABEL: func.func @max_unsqueeze_fusion
+  func.func @max_unsqueeze_fusion(%arg0: tensor<32x64x128xf32>) -> tensor<1x64x128xf32> {
+    // CHECK: %[[RESULT:.*]] = "ttir.max"(%arg0) <{dim_arg = [0 : i32], keep_dim = true}> : (tensor<32x64x128xf32>) -> tensor<1x64x128xf32>
+    // CHECK-NOT: ttir.unsqueeze
+    // CHECK-NOT: ttir.reshape
+    // CHECK: return %[[RESULT]]
+
+    %1 = "ttir.max"(%arg0) {dim_arg = [0 : i32], keep_dim = false} : (tensor<32x64x128xf32>) -> tensor<64x128xf32>
+
+    %3 = "ttir.unsqueeze"(%1) <{dim = 0 : si32}> : (tensor<64x128xf32>) -> tensor<1x64x128xf32>
+
+    return %3 : tensor<1x64x128xf32>
   }
 }

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-decompose-layouts -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-decompose-layouts --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Tests for device-to-device layout transformations in TTNNDecomposeLayouts.
@@ -16,25 +16,18 @@
 
 module attributes {} {
 
-    // Verify that when moving a ui16 tensor from device L1 row-major to device
-    // DRAM tiled, a typecast workaround is inserted around to_memory_config
-    // because ttnn.copy (used internally by ttnn.to_memory_config) does not
-    // support ui16. The expected decomposition is:
-    //   to_layout (tilize on device, L1 rm ui16 -> L1 tile ui16)
-    //   typecast (ui16 -> u32, L1 tile)
-    //   to_memory_config (L1 tile u32 -> DRAM tile u32)
-    //   typecast (u32 -> ui16, DRAM tile)
-    func.func @device_l1_rm_ui16_to_dram_tile_ui16_inserts_typecast_workaround(%arg0: tensor<64x128xui16, #ttnn_layout_l1_rm_ui16>) -> tensor<64x128xui16, #ttnn_layout_dram_tile_ui16> {
-        // CHECK-LABEL: func.func @device_l1_rm_ui16_to_dram_tile_ui16_inserts_typecast_workaround
+    // Moving a ui16 tensor from device L1 row-major to device DRAM tiled:
+    // tilize on device in the (preferred) L1 input memory, then a single
+    // to_memory_config moves the tilized tensor to DRAM. uint16 to_memory_config
+    // works like every other dtype, so no typecast workaround is needed.
+    func.func @device_l1_rm_ui16_to_dram_tile_ui16(%arg0: tensor<64x128xui16, #ttnn_layout_l1_rm_ui16>) -> tensor<64x128xui16, #ttnn_layout_dram_tile_ui16> {
+        // CHECK-LABEL: func.func @device_l1_rm_ui16_to_dram_tile_ui16
         // CHECK: %[[TO_LAYOUT:.*]] = "ttnn.to_layout"(%arg0)
-        // CHECK-SAME: layout = #ttnn.layout<tile>
-        // CHECK-NEXT: %[[TYPECAST_U32:.*]] = "ttnn.typecast"(%[[TO_LAYOUT]])
-        // CHECK-SAME: dtype = #ttcore.supportedDataTypes<u32>
-        // CHECK-NEXT: %[[TO_MEM_CONFIG:.*]] = "ttnn.to_memory_config"(%[[TYPECAST_U32]])
-        // CHECK-NEXT: %[[TYPECAST_U16:.*]] = "ttnn.typecast"(%[[TO_MEM_CONFIG]])
-        // CHECK-SAME: dtype = #ttcore.supportedDataTypes<u16>
-        // CHECK-NEXT: return %[[TYPECAST_U16]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<u16>, layout = #ttnn.layout<tile>}> : (tensor<64x128xui16, #ttnn_layout_l1_rm_ui16>) -> tensor<64x128xui16, #ttnn_layout_dram_tile_ui16>
+        // CHECK-SAME: !ttcore.tile<32x32, u16>
+        // CHECK-NEXT: %[[TO_MEM_CONFIG:.*]] = "ttnn.to_memory_config"(%[[TO_LAYOUT]])
+        // CHECK-NOT: "ttnn.typecast"
+        // CHECK: return %[[TO_MEM_CONFIG]]
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<64x128xui16, #ttnn_layout_l1_rm_ui16>) -> tensor<64x128xui16, #ttnn_layout_dram_tile_ui16>
         return %0 : tensor<64x128xui16, #ttnn_layout_dram_tile_ui16>
     }
 
@@ -47,11 +40,11 @@ module attributes {} {
         // CHECK: %[[UNSHARD:.*]] = "ttnn.to_memory_config"(%arg0)
         // CHECK-NEXT: %[[PAD:.*]] = "ttnn.pad"(%[[UNSHARD]])
         // CHECK-NEXT: %[[TILIZE:.*]] = "ttnn.to_layout"(%[[PAD]])
-        // CHECK-SAME: layout = #ttnn.layout<tile>
+        // CHECK-SAME: !ttcore.tile<32x32,
         // CHECK-NEXT: %[[SLICE:.*]] = "ttnn.slice_static"(%[[TILIZE]])
         // CHECK-NEXT: %[[RESHARD:.*]] = "ttnn.to_memory_config"(%[[SLICE]])
         // CHECK-NEXT: return %[[RESHARD]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>}> : (tensor<32x4xbf16, #ttnn_layout_l1_hs_rm_bf16_nontile>) -> tensor<32x4xbf16, #ttnn_layout_l1_hs_tile_bf16_nontile>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<32x4xbf16, #ttnn_layout_l1_hs_rm_bf16_nontile>) -> tensor<32x4xbf16, #ttnn_layout_l1_hs_tile_bf16_nontile>
         return %0 : tensor<32x4xbf16, #ttnn_layout_l1_hs_tile_bf16_nontile>
     }
 }

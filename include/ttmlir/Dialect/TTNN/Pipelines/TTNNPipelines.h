@@ -9,8 +9,8 @@
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTNN/Utils/BFPDtypeParser.h"
-#include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
-#include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
+#include "ttmlir/Dialect/TTNN/Utils/CompositeResolution.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOptionParsers.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
 #include "mlir/Pass/PassManager.h"
@@ -165,34 +165,26 @@ struct TTIRToTTNNCommonPipelineOptions
           llvm::cl::desc("Override Conv2d configuration for specific ops."),
           llvm::cl::init(llvm::StringMap<Conv2dConfigOverrideParams>())};
 
+  // Override Conv3d block sizes / weights_dtype per op (matched by NameLoc).
+  // Grammar mirrors override-conv2d-config:
+  //   "loc1=t_out_block#3:h_out_block#2:c_in_block#128,loc2=weights_dtype#bf16"
+  //
+  // Recognized parameters:
+  //   weights_dtype, t_out_block, w_out_block, h_out_block, c_out_block,
+  //   c_in_block
+  Option<llvm::StringMap<Conv3dConfigOverrideParams>,
+         Conv3dConfigOverrideParser>
+      overrideConv3dConfig{
+          *this, OptionNames::overrideConv3dConfig,
+          llvm::cl::desc("Override Conv3d configuration for specific ops."),
+          llvm::cl::init(llvm::StringMap<Conv3dConfigOverrideParams>())};
+
   // Enable memory layout analysis for performant tensor layouts (sharding).
   // If not explicitly set, determined by optimization_level.
   mutable Option<bool> memoryLayoutAnalysisEnabled{
       *this, OptionNames::memoryLayoutAnalysisEnabled,
       llvm::cl::desc("Enable memory layout optimization."),
       llvm::cl::init(false)};
-
-  // If this option is true, run L1 interleaved layout analysis.
-  //
-  Option<bool> l1InterleavedFallbackAnalysisEnabled{
-      *this, OptionNames::l1InterleavedFallbackAnalysisEnabled,
-      llvm::cl::desc("Enable DRAM to L1 interleaved fallback optimization."),
-      llvm::cl::init(false)};
-
-  // If this option is true, insert memory reconfiguration ops.
-  //
-  Option<bool> memReconfigEnabled{
-      *this, OptionNames::memReconfigEnabled,
-      llvm::cl::desc("Memory layout reconfiguration pass."),
-      llvm::cl::init(true)};
-
-  // Specify policy for memory layout analysis.
-  //
-  Option<MemoryLayoutAnalysisPolicyType, MemoryLayoutAnalysisPolicyTypeParser>
-      memoryLayoutAnalysisPolicy{
-          *this, OptionNames::memoryLayoutAnalysisPolicy,
-          llvm::cl::desc("Specify policy for memory layout analysis."),
-          llvm::cl::init(MemoryLayoutAnalysisPolicyType::DFSharding)};
 
   // Option to provide a system descriptor flatbuffer file to compile
   // against.
@@ -219,14 +211,14 @@ struct TTIRToTTNNCommonPipelineOptions
                                   "Use mock quasar system desc.")),
       llvm::cl::init(ttcore::Arch::WormholeB0)};
 
-  // Option to override maximum number of sharded layouts to be generated
-  // in legal layout analysis.
-  //
+  // Maximum number of sharded layouts per op in legal layout analysis.
+  // Needs to be at least maxReshardCandidatesPerType * numShardingTypes (=12
+  // with defaults of 4 and 3) so all reshard types get adequate coverage.
   Option<int64_t> maxLegalLayouts{
       *this, OptionNames::maxLegalLayouts,
       llvm::cl::desc("Override maximum number of sharded layouts for legal "
                      "layout analysis."),
-      llvm::cl::init(8)};
+      llvm::cl::init(64)};
 
   ListOption<int64_t> meshShape{
       *this, OptionNames::meshShape,
@@ -281,6 +273,22 @@ struct TTIRToTTNNCommonPipelineOptions
       *this, "enable-ttnn-decomposition-pass",
       llvm::cl::desc("Enable TTNN decomposition pass."), llvm::cl::init(true)};
 
+  Option<ttnn::CompositeResolution> compositeResolution{
+      *this, "composite-resolution",
+      llvm::cl::desc("How to resolve composites."),
+      llvm::cl::values(
+          clEnumValN(ttnn::CompositeResolution::Auto, "auto",
+                     "Pipeline decides: validate when optimizer+OpModel "
+                     "available, else inline (default)."),
+          clEnumValN(
+              ttnn::CompositeResolution::Inline, "inline",
+              "Always inline decomposition; never upgraded by pipeline."),
+          clEnumValN(ttnn::CompositeResolution::Validate, "validate",
+                     "Promote if OpModel validates, else inline."),
+          clEnumValN(ttnn::CompositeResolution::ForcePromote, "force-promote",
+                     "Unconditionally promote (testing only).")),
+      llvm::cl::init(ttnn::CompositeResolution::Auto)};
+
   Option<bool> implicitBroadcastFoldingEnabled{
       *this, "enable-implicit-broadcast-folding-pass",
       llvm::cl::desc("Enable implicit broadcast folding pass."),
@@ -334,6 +342,20 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::desc(
           "Fuse permute ops into matmul/linear transpose attributes."),
       llvm::cl::init(false)};
+
+  // Enable fusing of unary activations into eltwise binary ops.
+  Option<bool> enableEltwiseActivationFusion{
+      *this, "enable-eltwise-activation-fusion",
+      llvm::cl::desc("Fuse unary activation ops into eltwise binary ops."),
+      llvm::cl::init(false)};
+
+  // Push a matmul/linear output slice into the operand producing the sliced
+  // dim so the op only computes the rows/columns that are used.
+  Option<bool> enablePermuteSliceAfterMatmulFusion{
+      *this, "enable-permute-slice-after-matmul-fusion",
+      llvm::cl::desc("Push a matmul/linear output slice into the operand "
+                     "producing the sliced dim."),
+      llvm::cl::init(true)};
 
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
@@ -410,14 +432,28 @@ struct TTIRToTTNNCommonPipelineOptions
           clEnumValN(BFPDtype::BFP_BFloat4, "bfp_bf4", "BFP BFloat4 format")),
       llvm::cl::init(BFPDtype::None)};
 
+  Option<bool> enableActivationDtypeLowering{
+      *this, "enable-activation-dtype-lowering",
+      llvm::cl::desc(
+          "Lower activation precision to bfp_bf8 across CCL "
+          "boundaries (matmul -> reduce_scatter/all_gather -> consumer). "
+          "Pattern-matches Llama-style sub-graphs (O-proj+residual,"
+          "MLP + residual)."),
+      llvm::cl::init(false)};
+
   // ComputeKernelConfig options
   // Note: computeCfgMathFidelity default value is HiFi4
   // And computeCfgFp32DestAccEn default value is true.
   // This is done as part of generality effort,
   // to boost accuracy on all operations exposing compute kernel config by
   // default. At optimization levels > 0, these are overridden to
-  // Undefined/false to defer to runtime defaults (see
+  // Undefined/unset to defer to runtime defaults (see
   // resolveOptimizationLevelOptions).
+  // The remaining bool knobs (math_approx_mode, packer_l1_acc,
+  // dst_full_sync_en) default to unset (std::nullopt) at every optimization
+  // level, so TTNN decides unless a frontend explicitly overrides them. All
+  // bool knobs are tri-state (true / false / unset) so a frontend can force a
+  // knob OFF as distinct from leaving it to TTNN.
   mutable Option<OptionalMathFidelity> computeCfgMathFidelity{
       *this, "compute-cfg-math-fidelity",
       llvm::cl::desc("Set math fidelity for all ttnn operations exposing "
@@ -431,11 +467,30 @@ struct TTIRToTTNNCommonPipelineOptions
                      "Undefined math fidelity")),
       llvm::cl::init(OptionalMathFidelity::HiFi4)};
 
-  mutable Option<bool> computeCfgFp32DestAccEn{
+  mutable Option<std::optional<bool>> computeCfgFp32DestAccEn{
       *this, "compute-cfg-fp32-dest-acc-en",
       llvm::cl::desc("Set fp32 destination accumulation for all ttnn "
-                     "operations exposing compute kernel config."),
-      llvm::cl::init(true)};
+                     "operations exposing compute kernel config "
+                     "(true, false, unset)."),
+      llvm::cl::init(std::optional<bool>(true))};
+
+  mutable Option<std::optional<bool>> computeCfgMathApproxMode{
+      *this, "compute-cfg-math-approx-mode",
+      llvm::cl::desc("Set math approx mode for all ttnn operations exposing "
+                     "compute kernel config (true, false, unset)."),
+      llvm::cl::init(std::optional<bool>(std::nullopt))};
+
+  mutable Option<std::optional<bool>> computeCfgPackerL1Acc{
+      *this, "compute-cfg-packer-l1-acc",
+      llvm::cl::desc("Set packer L1 accumulation for all ttnn operations "
+                     "exposing compute kernel config (true, false, unset)."),
+      llvm::cl::init(std::optional<bool>(std::nullopt))};
+
+  mutable Option<std::optional<bool>> computeCfgDstFullSyncEn{
+      *this, "compute-cfg-dst-full-sync-en",
+      llvm::cl::desc("Set dst full sync enable for all ttnn operations "
+                     "exposing compute kernel config (true, false, unset)."),
+      llvm::cl::init(std::optional<bool>(std::nullopt))};
 
   Option<bool> ttnnPerfMetricsEnabled{
       *this, "ttnn-perf-metrics-enabled",
@@ -468,17 +523,6 @@ struct TTIRToTTNNCommonPipelineOptions
   // This allows frontends to pass in an active device without closing it.
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 
-  // Enable the greedy optimizer (GreedyLayoutPropagation + L1SpillManagement)
-  // instead of the chain-based TTNNOptimizer. Enabled by default when
-  // optimization level >= 1.
-  mutable Option<bool> enableGreedyOptimizer{
-      *this, "enable-greedy-optimizer",
-      llvm::cl::desc(
-          "Use the greedy layout propagation optimizer instead of the "
-          "chain-based TTNNOptimizer. If not explicitly set, enabled when "
-          "optimization level >= 1."),
-      llvm::cl::init(false)};
-
   // Enable decision trace JSON output from the greedy optimizer passes.
   Option<bool> enableDecisionTrace{
       *this, "enable-decision-trace",
@@ -490,6 +534,15 @@ struct TTIRToTTNNCommonPipelineOptions
       *this, "decision-trace-dir",
       llvm::cl::desc("Output directory for decision trace JSON files."),
       llvm::cl::init("ttrt-artifacts/decision_trace")};
+
+  // Greedy L1 spill: use the stateful (tt-metal MockAllocatorState-backed)
+  // memory tracker vs the scalar-heuristic tracker. Exposed here so it can be
+  // toggled without a rebuild (e.g. for stateful-vs-scalar A/B).
+  Option<bool> useMockAllocatorState{
+      *this, "use-mock-allocator-state",
+      llvm::cl::desc("Greedy L1 spill: use the stateful allocator-backed L1 "
+                     "tracker (true) vs the scalar-heuristic tracker (false)."),
+      llvm::cl::init(true)};
 
   // Enable per-op compile-time statistics from the greedy optimizer.
   Option<bool> enableCompileTimeStats{
@@ -506,8 +559,7 @@ struct TTIRToTTNNCommonPipelineOptions
                                   "enable-create-d2m-subgraphs to be enabled.");
     }
 
-    if (enableCreateD2MSubgraphs &&
-        enableD2MElementwiseFusion.getNumOccurrences() == 0) {
+    if (enableCreateD2MSubgraphs && !enableD2MElementwiseFusion.hasValue()) {
       enableD2MElementwiseFusion = true;
     }
   }
@@ -521,27 +573,22 @@ struct TTIRToTTNNCommonPipelineOptions
           ". Must be 0, 1, or 2.");
     }
 
-    // Only apply optimization_level if user didn't explicitly set the option.
-    // Use getNumOccurrences() to detect explicit user settings.
-    if (optimizerPassEnabled.getNumOccurrences() == 0) {
+    // Only apply optimization_level to options not explicitly set (via CLI or
+    // direct assignment).
+    if (!optimizerPassEnabled.hasValue()) {
       optimizerPassEnabled = (optimizationLevel >= 1);
     }
-    if (enableFusingConv2dWithMultiplyPattern.getNumOccurrences() == 0) {
+    if (!enableFusingConv2dWithMultiplyPattern.hasValue()) {
       enableFusingConv2dWithMultiplyPattern = (optimizationLevel >= 1);
     }
-    if (memoryLayoutAnalysisEnabled.getNumOccurrences() == 0) {
+    if (!memoryLayoutAnalysisEnabled.hasValue()) {
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
     }
-    if (enableGreedyOptimizer.getNumOccurrences() == 0) {
-      enableGreedyOptimizer = (optimizationLevel >= 1);
-    }
-    if (computeCfgMathFidelity.getNumOccurrences() == 0 &&
-        optimizationLevel > 0) {
+    if (!computeCfgMathFidelity.hasValue() && optimizationLevel > 0) {
       computeCfgMathFidelity = OptionalMathFidelity::Undefined;
     }
-    if (computeCfgFp32DestAccEn.getNumOccurrences() == 0 &&
-        optimizationLevel > 0) {
-      computeCfgFp32DestAccEn = false;
+    if (!computeCfgFp32DestAccEn.hasValue() && optimizationLevel > 0) {
+      computeCfgFp32DestAccEn = std::optional<bool>(std::nullopt);
     }
   }
 };
@@ -651,14 +698,6 @@ struct TTNNCommonToEmitPyPipelineOptions
   Option<bool> splitFiles{*this, "split-files",
                           llvm::cl::desc("Enables TTNNFileSplit pass"),
                           llvm::cl::init(true)};
-
-  Option<bool> createMainForTest{
-      *this, "create-main-for-test",
-      llvm::cl::desc(
-          "Create main_for_test wrapper for frontend-driven execution "
-          "(e.g. PythonModelRunner). Injects device as an explicit "
-          "argument into the forward function."),
-      llvm::cl::init(false)};
 };
 
 void createTTNNCommonToRuntimePipeline(

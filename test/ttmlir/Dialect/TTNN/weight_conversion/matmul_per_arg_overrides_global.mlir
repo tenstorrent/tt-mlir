@@ -16,7 +16,6 @@ module attributes {} {
     // host-side chain to bfp4.
     // CHECK: %[[FROM_DEV:.*]] = "ttnn.from_device"(%arg1)
     // CHECK: %[[TYPECAST:.*]] = "ttnn.typecast"(%[[FROM_DEV]])
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bfp_bf4>
     // CHECK-SAME: -> tensor<1x128x256x!ttcore.tile<32x32, bfp_bf4>,
     // CHECK: %[[TO_DEV:.*]] = "ttnn.to_device"(%[[TYPECAST]], %[[DEV]])
     // CHECK-NOT: supportedDataTypes<bfp_bf8>

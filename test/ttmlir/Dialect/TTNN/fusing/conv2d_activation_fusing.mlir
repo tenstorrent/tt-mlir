@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-flatten-sliding-window --ttnn-layout --convert-ttir-to-ttnn --ttnn-fusing -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-flatten-sliding-window --ttnn-layout --convert-ttir-to-ttnn --ttnn-fusing="enable-eltwise-activation-fusion=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 module {
@@ -104,10 +104,10 @@ module {
               groups = 1: i32
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16>
 
-    // CHECK: %[[RELU:.*]] = "ttnn.relu"
     %1 = "ttir.relu"(%0) : (tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
     // CHECK: %[[ADD:.*]] = "ttnn.add"
+    // CHECK-SAME: input_tensor_b_activations = [#ttnn.unary_with_param<op_type = relu>]
     // Second use of conv2d, we cannot fuse.
     %2 = "ttir.add"(%0, %1) : (tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 

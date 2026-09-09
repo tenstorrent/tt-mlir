@@ -749,6 +749,45 @@ static LogicalResult printOperation(PythonEmitter &emitter, ClassOp classOp) {
 }
 
 static LogicalResult printOperation(PythonEmitter &emitter,
+                                    NestedFuncOp funcOp) {
+  emitter.reserveName(funcOp.getSymName().str());
+  PythonEmitter::Scope scope(emitter);
+  raw_indented_ostream &os = emitter.ostream();
+
+  os << "def " << funcOp.getSymName() << "(";
+  Block &body = funcOp.getBody().front();
+  if (failed(interleaveCommaWithError(body.getArguments(), os,
+                                      [&](BlockArgument arg) {
+                                        return emitter.emitOperand(arg, "arg");
+                                      }))) {
+    return failure();
+  }
+  os << "): \n";
+
+  os.indent();
+  for (Operation &op : body.getOperations()) {
+    if (failed(emitter.emitOperation(op))) {
+      return failure();
+    }
+  }
+  os.unindent();
+  return success();
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    NestedFuncReturnOp returnOp) {
+  raw_indented_ostream &os = emitter.ostream();
+  os << "return";
+  if (returnOp.getNumOperands() > 0) {
+    os << " ";
+    if (failed(emitter.emitOperands(*returnOp.getOperation()))) {
+      return failure();
+    }
+  }
+  return success();
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
                                     ConstantOp constantOp) {
   Attribute value = constantOp.getValue();
 
@@ -1006,7 +1045,8 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           .Case<CallOpaqueOp, ImportOp, AssignOp, GetAttrOp, SetAttrOp,
                 ConstantOp, SubscriptOp, ClassOp, GlobalOp, AssignGlobalOp,
                 GlobalStatementOp, CreateDictOp, ExpressionOp, YieldOp, IfOp,
-                FileOp>([&](auto op) { return printOperation(*this, op); })
+                NestedFuncOp, NestedFuncReturnOp, FileOp>(
+              [&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             registerDeferredValue(op.getResult(), op.getValue());
             return success();

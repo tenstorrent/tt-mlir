@@ -31,49 +31,52 @@ jobs:
     timeout-minutes: 45
     runs-on: ubuntu-latest
 
-    container:
-      image: ${{ inputs.docker-image }}
-      options: --user root
-
     env:
-      MDBOOK_VERSION: v0.4.40
+      SEARCH_API_BASE: https://csl860x2oj.execute-api.us-east-2.amazonaws.com/prod
+      DOC_CATALOG_SOURCE_ID: docs-tenstorrent
+      DOC_SITE_BASE_URL: https://docs.tenstorrent.com/tt-mlir
+      DOCS_ID_NAMESPACE: tt-mlir
+      DOCS_INDEX_VERSION: latest
+      DOCS_OUTPUT_DIR: docs/build/html
+      DOCS_SEARCH_INGEST_API_KEY: ${{ secrets.DOCS_SEARCH_INGEST_API_KEY_DOCS_TENSTORRENT }}
 
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 0 # Fetch all history and tags
+          fetch-depth: 0
 
-      - name: Set reusable strings
-        id: strings
-        shell: bash
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install documentation dependencies
         run: |
-          echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
-          echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
-
-      - name: Git safe dir
-        run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
-
-      - name: Install mdBook
-        run: |
-          wget https://github.com/rust-lang/mdBook/releases/download/${MDBOOK_VERSION}/mdbook-${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz
-          tar xvf mdbook-${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz
+          python -m pip install --upgrade pip
+          pip install -r docs/requirements-docs.txt
 
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@v5
 
-      - name: Build the docs
-        shell: bash
+      - name: Build docs
         run: |
-          source env/activate
-          export PATH="$PATH:${{ steps.strings.outputs.work-dir }}"
-          cmake -B build -S ${{ steps.strings.outputs.work-dir }} -G Ninja
-          cmake --build build -- docs
+          mkdir -p docs/build/html
+          sphinx-build docs/src docs/build/html
+          touch docs/build/html/.nojekyll
+
+      - name: Warn if remote search ingest key is missing
+        if: ${{ env.DOCS_SEARCH_INGEST_API_KEY == '' }}
+        run: echo "::warning::Skipping OpenSearch indexing because DOCS_SEARCH_INGEST_API_KEY is not set."
+
+      - name: Index docs into OpenSearch
+        if: ${{ env.DOCS_SEARCH_INGEST_API_KEY != '' }}
+        run: python scripts/index_remote_search.py
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@57f0e8492b437b7818227931fef2faa1a379839b # v4 + upload-artifact@v7 update
         with:
-          path: ./build/docs/book
+          path: docs/build/html
 
   # Deployment job
   deploy:

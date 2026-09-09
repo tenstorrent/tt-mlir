@@ -1,4 +1,5 @@
 add_mlir_dialect_library(TTMLIRStableHLOUtils
+  CollectMeshShardings.cpp
   GSPMDUtils.cpp
   ShardingCostModel.cpp
   ShardyUtils.cpp

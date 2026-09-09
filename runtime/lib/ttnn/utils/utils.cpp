@@ -2,20 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <memory>
-#include <vector>
-
-#include "tt/runtime/detail/common/common.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/common/runtime_context.h"
-#include "tt/runtime/detail/ttnn/debug_apis.h"
-#include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
 #include "tt/runtime/detail/ttnn/types/trace_cache.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
-#include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
-#include "tt/runtime/workarounds.h"
+
+#include <memory>
+#include <vector>
 
 namespace tt::runtime::ttnn::utils {
 
@@ -103,7 +98,7 @@ bool canTilizeOnDevice(
          canTilizeMemoryLayoutOnDevice(memoryConfig);
 }
 
-// tt-metal untilize supports: bfloat16, float32, uint32, int32
+// tt-metal untilize supports: bfloat16, float32, uint32, int32, uint16
 // (requires use_pack_untilize for uint32/int32)
 // See: ttnn/operations/data_movement/untilize/device/untilize_op.cpp
 // FP32 untilize fix: https://github.com/tenstorrent/tt-metal/pull/33904
@@ -113,6 +108,7 @@ bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
   return dataType == ::ttnn::DataType::BFLOAT16 ||
          dataType == ::ttnn::DataType::FLOAT32 ||
          dataType == ::ttnn::DataType::UINT32 ||
+         dataType == ::ttnn::DataType::UINT16 ||
          dataType == ::ttnn::DataType::INT32;
 }
 
@@ -623,11 +619,11 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
   return static_cast<void *>(hostBuffer.view_bytes().data());
 }
 
-::ttnn::TensorSpec createTensorSpec(const ::ttnn::Shape &shape,
-                                    const ::ttnn::DataType &dataType,
-                                    const ::ttnn::Layout &layout,
-                                    const ::ttnn::MemoryConfig &memoryConfig) {
-  ::ttnn::TensorSpec tensorSpec(
+::tt::tt_metal::TensorSpec
+createTensorSpec(const ::ttnn::Shape &shape, const ::ttnn::DataType &dataType,
+                 const ::ttnn::Layout &layout,
+                 const ::ttnn::MemoryConfig &memoryConfig) {
+  ::tt::tt_metal::TensorSpec tensorSpec(
       shape, tt::tt_metal::TensorLayout(dataType, layout, memoryConfig));
   return tensorSpec;
 }

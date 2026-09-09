@@ -37,6 +37,7 @@ UNALIGNED_SHAPES = [
     (9, 43, 7),
     (5, 61, 49),
     (51, 19, 23),
+    (677, 1, 1),
     (2, 3, 5, 7),
     (3, 37, 5, 53),
     (37, 3, 5, 53),
@@ -48,7 +49,7 @@ UNALIGNED_SHAPES = [
 ]
 
 
-@pytest.mark.parametrize("shape", UNALIGNED_SHAPES + [(677, 1, 1)], ids=shape_str)
+@pytest.mark.parametrize("shape", UNALIGNED_SHAPES, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_unaligned_shapes_neg(
@@ -72,16 +73,7 @@ def test_unaligned_shapes_neg(
     )
 
 
-@pytest.mark.parametrize(
-    "shape",
-    UNALIGNED_SHAPES
-    + [
-        pytest.param(
-            (677, 1, 1), marks=pytest.mark.skip_config(["n150"])
-        ),  # TODO (anuragsingh): Fix nondeterministic issue with Allocator for this test.
-    ],
-    ids=shape_str,
-)
+@pytest.mark.parametrize("shape", UNALIGNED_SHAPES, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_unaligned_shapes_add(

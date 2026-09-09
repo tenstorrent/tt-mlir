@@ -27,12 +27,15 @@ void run(const ::tt::target::ttnn::PrepareConvTranspose2dWeightsOp *op,
   LOG_ASSERT(op->stride()->size() == 2, "Stride expected to have 2 elements");
   LOG_ASSERT(op->padding()->size() == 2 || op->padding()->size() == 4,
              "Padding expected to have 2 or 4 elements");
+  LOG_ASSERT(op->output_padding()->size() == 2,
+             "Output padding expected to have 2 elements");
   LOG_ASSERT(op->dilation()->size() == 2,
              "Dilation expected to have 2 elements");
 
-  std::array<uint32_t, 2> kernelSize, stride, dilation;
+  std::array<uint32_t, 2> kernelSize, stride, outputPadding, dilation;
   std::copy_n(op->kernel_size()->begin(), 2, kernelSize.begin());
   std::copy_n(op->stride()->begin(), 2, stride.begin());
+  std::copy_n(op->output_padding()->begin(), 2, outputPadding.begin());
   std::copy_n(op->dilation()->begin(), 2, dilation.begin());
 
   std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>> padding;
@@ -78,9 +81,9 @@ void run(const ::tt::target::ttnn::PrepareConvTranspose2dWeightsOp *op,
           ::tt::runtime::ttnn::utils::toTTNNLayout(op->input_tensor_layout()),
           op->weights_format()->str(), op->in_channels(), op->out_channels(),
           op->batch_size(), op->input_height(), op->input_width(), kernelSize,
-          stride, padding, dilation, op->has_bias(), op->groups(),
-          &targetDevice, inputDtype, outputDtype, conv2dConfig, computeConfig,
-          sliceConfig, op->mirror_kernel());
+          stride, padding, outputPadding, dilation, op->has_bias(),
+          op->groups(), &targetDevice, inputDtype, outputDtype, conv2dConfig,
+          computeConfig, sliceConfig, op->mirror_kernel());
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

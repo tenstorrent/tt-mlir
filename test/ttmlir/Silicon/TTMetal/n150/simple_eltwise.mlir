@@ -61,6 +61,86 @@ func.func @div(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<6
   return %1 : tensor<64x128xf32>
 }
 
+func.func @eq(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // CHECK: emitc.call_opaque "init_sfpu"
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB0]], %{{.+}}, %[[DST_IDX0:.+]])
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB1:.+]]) :
+  // CHECK-NOT: emitc.call_opaque "copy_tile"(%{{.+}}, %{{.+}}, %[[DST_IDX0]])
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB1]], %{{.+}}, %[[DST_IDX1:.+]])
+  // CHECK: emitc.call_opaque "eq_binary_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "eq_binary_tile"
+  %1 = "ttir.eq"(%arg0, %arg1) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}
+
+func.func @ne(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // CHECK: emitc.call_opaque "init_sfpu"
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB0]], %{{.+}}, %[[DST_IDX0:.+]])
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB1:.+]]) :
+  // CHECK-NOT: emitc.call_opaque "copy_tile"(%{{.+}}, %{{.+}}, %[[DST_IDX0]])
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB1]], %{{.+}}, %[[DST_IDX1:.+]])
+  // CHECK: emitc.call_opaque "ne_binary_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "ne_binary_tile"
+  %1 = "ttir.ne"(%arg0, %arg1) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}
+
+func.func @gt(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // CHECK: emitc.call_opaque "init_sfpu"
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB0]], %{{.+}}, %[[DST_IDX0:.+]])
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB1:.+]]) :
+  // CHECK-NOT: emitc.call_opaque "copy_tile"(%{{.+}}, %{{.+}}, %[[DST_IDX0]])
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB1]], %{{.+}}, %[[DST_IDX1:.+]])
+  // CHECK: emitc.call_opaque "gt_binary_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "gt_binary_tile"
+  %1 = "ttir.gt"(%arg0, %arg1) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}
+
+func.func @lt(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // ttir.lt(a, b) is canonicalized to ttir.gt(b, a), so this lowers to gt_binary_tile.
+  // CHECK: emitc.call_opaque "init_sfpu"
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB0]], %{{.+}}, %[[DST_IDX0:.+]])
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB1:.+]]) :
+  // CHECK-NOT: emitc.call_opaque "copy_tile"(%{{.+}}, %{{.+}}, %[[DST_IDX0]])
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB1]], %{{.+}}, %[[DST_IDX1:.+]])
+  // CHECK: emitc.call_opaque "gt_binary_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "gt_binary_tile"
+  %1 = "ttir.lt"(%arg0, %arg1) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}
+
+func.func @ge(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // CHECK: emitc.call_opaque "init_sfpu"
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB0]], %{{.+}}, %[[DST_IDX0:.+]])
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB1:.+]]) :
+  // CHECK-NOT: emitc.call_opaque "copy_tile"(%{{.+}}, %{{.+}}, %[[DST_IDX0]])
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB1]], %{{.+}}, %[[DST_IDX1:.+]])
+  // CHECK: emitc.call_opaque "ge_binary_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "ge_binary_tile"
+  %1 = "ttir.ge"(%arg0, %arg1) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}
+
+func.func @le(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // ttir.le(a, b) is canonicalized to ttir.ge(b, a), so this lowers to ge_binary_tile.
+  // CHECK: emitc.call_opaque "init_sfpu"
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB0]], %{{.+}}, %[[DST_IDX0:.+]])
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB1:.+]]) :
+  // CHECK-NOT: emitc.call_opaque "copy_tile"(%{{.+}}, %{{.+}}, %[[DST_IDX0]])
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB1]], %{{.+}}, %[[DST_IDX1:.+]])
+  // CHECK: emitc.call_opaque "ge_binary_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "ge_binary_tile"
+  %1 = "ttir.le"(%arg0, %arg1) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}
+
 func.func @reciprocal(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   // CHECK: emitc.call_opaque "init_sfpu"
   // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :

@@ -588,6 +588,26 @@ defvar D2MNumStreamBuffersOption = [
          "Number of backing buffers to allocate per stream storage (>=1). Default is 2.">,
 ];
 
+def D2MReblockGenerics : Pass<"d2m-reblock-generics", "::mlir::ModuleOp"> {
+  let summary = "Rebuild d2m.generic ops using block-factor analysis.";
+  let description = [{
+    This pass uses
+    BlockFactorAnalysis to select block factors for affine blocked d2m.generic
+    ops, then rebuilds those generics with the selected factors.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::tt::ttcore::TTCoreDialect",
+    "::mlir::memref::MemRefDialect"
+  ];
+  let options = D2MNumStreamBuffersOption # [
+    Option<"testBufferSizePolicy",
+          "test-buffer-size-policy",
+          "std::string", /*default=*/"\"auto\"",
+          "Set policy for sizing stream buffers ('auto', 'auto-mn', 'bounded', 'min', 'max').">,
+  ];
+}
+
 def D2MMarkSynchronizedBuffers : Pass<"d2m-mark-synchronized-buffers", "::mlir::ModuleOp"> {
   let summary = "Mark in-generic allocs that require synchronization with d2m.synchronized_buffer attribute.";
   let description = [{
@@ -672,10 +692,6 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
           "test-assume-l1-capacity",
           "std::int64_t", /*default=*/"0",
           "Assume given L1 capacity.">,
-    Option<"testBufferSizePolicy",
-          "test-buffer-size-policy",
-          "std::string", /*default=*/"\"auto\"",
-          "Set policy for sizing stream buffers ('auto', 'bounded', 'min', 'max').">,
   ];
 }
 
@@ -738,7 +754,7 @@ def D2MGenericReplaceGlobals : Pass<"d2m-generic-replace-globals", "::mlir::Modu
 def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::ModuleOp"> {
   let summary = "Materialize unmaterialized views before return operations";
   let description = [{
-    This pass detects when a return value is an unmaterialized tensor view
+    This pass detects when a return value is an unmaterialized tensor or memref view
     (produced by view operations like d2m.view_layout)
     and emits a d2m.generic op to consume and materialize the view before
     returning it.
@@ -775,7 +791,9 @@ def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::Mo
     }
     ```
 
-    This pass should run after layout lowering and before bufferization.
+    This pass can run before or after bufferization. Tensor views are
+    materialized with tensor outputs and memref views are materialized with a
+    device allocation plus datamovement-only generic.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
 }
@@ -906,6 +924,79 @@ def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {
   ];
 }
 
+def D2MBuildTopkChain : Pass<"d2m-build-topk-chain", "::mlir::ModuleOp"> {
+  let summary = "Build a `topk_block` chain from its placement plan";
+  let description = [{
+    Replaces every placeholder `topk_block` carrying a `d2m.topk_plan` with the
+    chain that plan describes: the input laid out banded and/or data-parallel,
+    a leaf topk per core, the bands collapsed by a merge tree (`mergeSchedule`)
+    built on `d2m.composite_view` gathers, and the extracts that narrow the
+    result to `k` and cast its indices to the type the user asked for.
+
+    Must run after `d2m-grid-selection`, which is what chose the split, folded
+    every buffer's grid onto physical cores, and wrote the plan. Every buffer
+    built here comes from the plan, including the single-core case.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::linalg::LinalgDialect",
+    "::mlir::tensor::TensorDialect",
+    "::mlir::arith::ArithDialect"
+  ];
+}
+
+def D2MDecomposeTopk : Pass<"d2m-decompose-topk", "::mlir::ModuleOp"> {
+  let summary = "Decompose topk_block ops into low-level tile operations";
+  let description = [{
+    This pass decomposes high-level `topk_block` operations into low-level
+    tile operations for computing top-K values and indices.
+
+    The topk_block op operates at block level (memref of tiles) and wraps
+    the full topk computation: index generation, bitonic sort, merge, and
+    rebuild.
+
+    The decomposition:
+    1. Allocate an index scratch buffer (buf_idx)
+    2. Generate initial indices via arange_block
+    3. Bitonic sort each tile independently via tile_topk_local_sort
+    4. Merge sorted tile pairs to find top-K via tile_topk_merge
+    5. Rebuild final sorted order via tile_topk_rebuild
+
+    Example transformation:
+    ```mlir
+    // Before:
+    %vals, %idx = d2m.topk_block(%input, %scratch, %out_vals, %out_idx)
+        {k = 16, num_elements = 64, stable_sort = false}
+        : (memref<1x2x!ttcore.tile<32x32, f32>>,
+           memref<1x1x!ttcore.tile<32x32, si32>>,
+           memref<1x2x!ttcore.tile<32x32, f32>>,
+           memref<1x2x!ttcore.tile<32x32, si32>>)
+        -> (memref<1x2x!ttcore.tile<32x32, f32>>,
+            memref<1x2x!ttcore.tile<32x32, si32>>)
+
+    // After:
+    %buf_idx = memref.alloc() : memref<1x2x!ttcore.tile<32x32, si32>, #l1>
+    %buf_idx_filled = d2m.arange_block(%scratch, %buf_idx) ...
+    %sorted_vals = memref.alloc() ...
+    %sorted_idx = memref.alloc() ...
+    d2m.tile_topk_local_sort(%input, %buf_idx_filled, %sorted_vals, %sorted_idx) ...
+    %merged_vals = memref.alloc() ...
+    %merged_idx = memref.alloc() ...
+    d2m.tile_topk_merge(%sorted_vals, %sorted_idx, %merged_vals, %merged_idx) ...
+    d2m.tile_topk_rebuild(%merged_vals, %merged_idx, %out_vals, %out_idx) ...
+    ```
+
+    This pass should run after bufferization and before
+    MarkSynchronizedBuffers.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::scf::SCFDialect"
+  ];
+}
+
 def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::ModuleOp"> {
   let summary = "Scalarize uses of splat fills produced inside d2m.generic (tile_fill pattern)";
   let description = [{
@@ -968,7 +1059,8 @@ def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp">
     This pass generates outer loops for generic operations.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
-                           "::mlir::affine::AffineDialect"];
+                           "::mlir::affine::AffineDialect",
+                           "::mlir::arith::ArithDialect"];
 }
 
 def D2MLowerToExplicitForm : Pass<"d2m-generic-lower-to-explicit-form", "::mlir::ModuleOp"> {
@@ -1008,10 +1100,83 @@ def D2MLowerMulticastLoads : Pass<"d2m-lower-multicast-loads", "::mlir::ModuleOp
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::arith::ArithDialect"];
 }
 
-def D2MSplitUnifiedThread : Pass<"d2m-split-unified-thread", "::mlir::ModuleOp"> {
-  let summary = "Split unified thread regions.";
+def D2MAssignThreads : Pass<"d2m-assign-threads", "::mlir::ModuleOp"> {
+  let summary = "Lower data-movement ops to explicit-CB form and assign each op "
+                "in a unified thread region to a thread.";
   let description = [{
-    This pass splits unified thread regions into separate regions.
+    First stage of unified-thread splitting. For each `#d2m.thread<unified>`
+    generic region it does two things, without splitting the region:
+
+    - Lowers the streaming data-movement ops (`remote_load`/`remote_store` and
+      `local_copy`) from implicit form to explicit-CB form (introducing
+      `get_cb`). Aliased remote ops carry no DMA transfer and are left in
+      implicit form.
+    - Annotates each effectful leaf op with a `d2m.thread` attribute naming the
+      thread it will be split into. All remote/`local_copy` ops -- including
+      aliased ones -- are assigned to `datamovement` (the verifier requires
+      remote ops to live on the datamovement thread); compute ops are assigned
+      to `compute`. Ops replicated into both threads (structural ops,
+      `semaphore_wait`) are left untagged.
+
+    The annotations are an internal handoff consumed by `d2m-split-threads`.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MSplitThreads : Pass<"d2m-split-threads", "::mlir::ModuleOp"> {
+  let summary = "Split a unified thread region into datamovement and compute.";
+  let description = [{
+    Second stage of unified-thread splitting. Mechanically splits a
+    `#d2m.thread<unified>` generic into a 2-region generic (`datamovement`,
+    `compute`) driven by the `d2m.thread` annotations from `d2m-assign-threads`:
+    the region is cloned to both threads and each thread drops the ops that do
+    not belong to it. The compute side is tag-driven; the datamovement side
+    additionally uses dead-op elimination to remove the untagged, side-effecting
+    structural ops of lowered compute nests (`memref.load`/`store` into `#dst`,
+    `scf.for`, `acquire_dst`).
+
+    Aliased remote ops stay on the datamovement thread (they have no transfer,
+    but the verifier requires remote ops there); `d2m-insert-compute-cb` later
+    reads them to add the matching compute-side synchronization. The `d2m.thread`
+    annotations are stripped. This pass inserts no CB synchronization ops. It
+    also diagnoses compute that spans multiple synchronization scopes (cross-nest
+    fan-out), which the single-scope CB protocol cannot express.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MInsertComputeCB : Pass<"d2m-insert-compute-cb", "::mlir::ModuleOp"> {
+  let summary = "Insert compute-side circular-buffer synchronization ops.";
+  let description = [{
+    Third stage of unified-thread splitting. For each split generic it analyses
+    the compute region and inserts the circular-buffer synchronization ops:
+    `wait`/`pop` around the consumers of each CB and `reserve`/`push` around the
+    producers, with a single pair per CB (so fan-out -- one CB consumed by
+    several compute ops -- collapses to one `wait`/`pop`).
+
+    Compute CB usage is discovered from both the high-level form (`linalg.generic`
+    and `tile_*_block`, via `SynchronizableOpInterface`) and the lowered form
+    that reaches this pass in the real pipeline (`scf.for` nests with
+    `memref.load`/`store` into `#dst` plus tile ops), tracing memref accesses
+    through `collapse_shape`/`subview` back to their CB.
+
+    Aliased CBs have no DMA-side producer/consumer; this pass inspects the
+    aliased remote markers on the datamovement thread, supplies the missing
+    compute-side half (`reserve`/`push` for an aliased load, `wait`/`pop` for an
+    aliased store), and then erases those markers.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MSplitUnifiedThread : Pass<"d2m-split-unified-thread", "::mlir::ModuleOp"> {
+  let summary = "Split unified thread regions into datamovement and compute.";
+  let description = [{
+    Umbrella pass that runs the three stages of unified-thread splitting in
+    sequence: `d2m-assign-threads`, `d2m-split-threads`, and
+    `d2m-insert-compute-cb`. The net effect is that each `#d2m.thread<unified>`
+    generic becomes a 2-region (`datamovement`, `compute`) generic with the
+    data-movement ops in explicit-CB form and the required circular-buffer
+    synchronization inserted on the compute side.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
@@ -1111,9 +1276,9 @@ def D2MScheduleDMA : Pass<"d2m-schedule-dma", "::mlir::ModuleOp"> {
     number of datamovement regions are emitted.
   }];
   list<Option> options = [
-    Option<"numDatamovementProcessors", "num-datamovement-processors",
+    Option<"numDmCores", "num-dm-cores",
            "unsigned", "0",
-           "Override the available datamovement processor count. 0 means use the system descriptor.">,
+           "Override the available DM core count. 0 means use the system descriptor.">,
   ];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
@@ -1176,6 +1341,10 @@ def D2MLowerDMAToFullyIndexedForm : Pass<"d2m-lower-dma-to-fully-indexed-form", 
            /*default=*/"false",
            "Enable debug mode for coalescing inference. Runs both analytical and "
            "sampling-based coalescing checks and prints debug output comparing them.">,
+    Option<"useTensorAccessorDMA", "use-tensor-accessor-dma", "bool",
+           /*default=*/"false",
+           "Preserve eligible tiled shard-level DMA operations for "
+           "TensorAccessor lowering.">,
   ];
 }
 
@@ -1271,6 +1440,35 @@ def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::Module
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
     "::mlir::memref::MemRefDialect"
+  ];
+}
+
+def D2MPythonRewrites : Pass<"d2m-python-rewrites", "::mlir::ModuleOp"> {
+  let summary = "Apply Python-defined pattern rewrites via d2m-jit.";
+  let description = [{
+    Embeds a Python interpreter, loads each user-supplied `.py` file
+    listed in `module-path` (which is expected to register one or more
+    `@d2m_jit.pattern` decorators on import), and runs
+    `d2m_jit.apply_patterns(module)` on the current `ModuleOp`. The
+    Python rewrites mutate the same MLIR module the pass owns.
+
+    Adding a new pattern is then a matter of dropping a new `.py` file
+    in next to your driver and re-running -- no C++ rebuild required.
+
+    Requires the build to be configured with `-DTTMLIR_ENABLE_D2M_JIT=ON`;
+    otherwise the pass fails fast with a diagnostic at run time.
+  }];
+  let options = [
+    ListOption<"modulePaths", "module-path", "std::string",
+               "Path(s) to .py files registering d2m-jit patterns. May be "
+               "repeated; the pass imports them in order before running.">,
+  ];
+  // We don't construct any dialect ops directly in C++ — Python handles
+  // dialect setup against the host module's existing context. Listing
+  // only D2M here so the pass infrastructure has the same expectation
+  // as the rest of the suite.
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
   ];
 }
 

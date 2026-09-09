@@ -220,6 +220,20 @@ func.func @sqrt_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   return %diff : tensor<32x32xf32>
 }
 
+// Unary round
+// CHECK-LABEL: def cpu_hoisted_ttir_round_{{.*}}
+// CHECK: ttir_cpu.round(
+// CHECK-LABEL: def round_validation
+// CHECK: cpu_hoisted_ttir_round_{{.*}}
+// CHECK: ttnn.round(
+// CHECK: ttnn.subtract(
+func.func @round_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
+  %cpu_result = "ttir.round"(%arg0) {ttir.should_hoist} : (tensor<32x32xf32>) -> tensor<32x32xf32>
+  %device_result = "ttir.round"(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+  %diff = "ttir.subtract"(%cpu_result, %device_result) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+  return %diff : tensor<32x32xf32>
+}
+
 // Pooling
 // CHECK-LABEL: def cpu_hoisted_ttir_max_{{.*}}
 // CHECK: ttir_cpu.max_pool2d(

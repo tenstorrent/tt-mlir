@@ -8,6 +8,7 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-private-field"
 
+#include "tt/runtime/debug.h"
 #include "tt/runtime/perf.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
@@ -73,6 +74,15 @@ MultiProcessArgs &MultiProcessArgs::withAllowRunAsRoot(bool allowRunAsRoot) {
 
 MultiProcessArgs &MultiProcessArgs::withExtraMpiArgs(
     const std::vector<std::string> &extraMpiArgs) {
+  __builtin_trap();
+}
+
+MultiProcessArgs &MultiProcessArgs::withTracy(bool enabled) {
+  __builtin_trap();
+}
+
+MultiProcessArgs &
+MultiProcessArgs::withTracyArgs(const std::vector<std::string> &args) {
   __builtin_trap();
 }
 

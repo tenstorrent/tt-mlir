@@ -48,11 +48,11 @@ namespace mlir::tt::ttnn {
     isDone = true;
   }
 
-  TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Next conv2d config: {}",
+  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer, "Next conv2d config: {}",
                generatedAttr);
 
   if (filterOutFn(generatedAttr)) {
-    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Filtered out {}",
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer, "Filtered out {}",
                  generatedAttr);
     return getNextConfig();
   }

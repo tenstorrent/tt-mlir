@@ -48,6 +48,7 @@ struct ConvertTTIRToTTNNPass
     target.addLegalOp<ttcore::DeviceOp>();
     target.addLegalOp<ttcore::OptimizationBarrierOp>();
     target.addLegalOp<ttcore::LoadCachedOp>();
+    target.addLegalOp<ttcore::CompositeOp>();
 
     // Debug dialect ops.
     target.addLegalOp<debug::AnnotateOp>();

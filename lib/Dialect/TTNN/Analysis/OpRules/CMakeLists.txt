@@ -2,9 +2,13 @@ set(OPRULES_SRCS
     ConvRules.cpp
     DataMovementRules.cpp
     EmbeddingRules.cpp
+    LossRules.cpp
     MatmulRules.cpp
+    MoeRules.cpp
     NormalizationRules.cpp
     OpRuleBook.cpp
+    OptimizerRules.cpp
+    ReductionRules.cpp
     TransformerRules.cpp
     TypecastRules.cpp
 )

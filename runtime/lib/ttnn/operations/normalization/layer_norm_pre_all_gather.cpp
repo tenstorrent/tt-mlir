@@ -48,7 +48,7 @@ void run(const ::tt::target::ttnn::LayerNormPreAllGatherOp *op,
 
   ::ttnn::Tensor output = ::ttnn::layer_norm_pre_all_gather(
       input, dtype, residualInput, computeConfig, programConfig, memoryConfig,
-      recip);
+      recip, /*fast_and_approximate_mode=*/false);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }

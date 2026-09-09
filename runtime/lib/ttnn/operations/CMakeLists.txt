@@ -1,5 +1,7 @@
 find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Development.Embed)
 
+add_subdirectory(ttml)
+
 if (NOT TTNN_RUNTIME_ENABLED)
   add_library(TTRuntimeTTNNOps INTERFACE)
   return()
@@ -16,18 +18,24 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_combine.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_dispatch.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_dispatch_metadata.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/allocate_moe_compute_semaphore.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/moe_compute.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/moe_expert_token_remap.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/prepare_moe_compute_w0_w1_weights.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/prepare_moe_compute_w2_weights.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/selective_reduce_combine.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/moe_gpt.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/distribute_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_partition.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_shard.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/point_to_point.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/reduce_scatter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/context/get_device.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv1d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv_transpose2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv2d_weights.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv2d_bias.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv3d_weights.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv_transpose2d_weights.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv_transpose2d_bias.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv3d.cpp
@@ -40,6 +48,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/global_semaphore/global_semaphore.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/assign.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/concat.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/copy.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/pad.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/permute.cpp
@@ -78,7 +87,9 @@ set(TTNN_OPS_SRCS
   # ANCHOR_END: adding_an_op_matmul_runtime_cmake
   ${CMAKE_CURRENT_SOURCE_DIR}/mlir_native/func_call.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/cumsum.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/reduction/cumprod.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/batch_norm.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/normalization/dit_rms_norm_unary_fused.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/distributed_rms_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/group_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/rms_norm_pre_all_gather.cpp
@@ -113,6 +124,9 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/split_query_key_value_and_split_heads.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/paged_flash_multi_latent_attention_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/paged_scaled_dot_product_attention_decode.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/transformer/flash_mla_prefill.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/transformer/indexer_score_dsa.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/transformer/chunked_scaled_dot_product_attention.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
 )
 

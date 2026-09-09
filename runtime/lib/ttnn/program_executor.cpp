@@ -18,19 +18,25 @@
 #include "operations/ccl/all_to_all_combine.h"
 #include "operations/ccl/all_to_all_dispatch.h"
 #include "operations/ccl/all_to_all_dispatch_metadata.h"
+#include "operations/ccl/allocate_moe_compute_semaphore.h"
 #include "operations/ccl/distribute_tensor.h"
 #include "operations/ccl/mesh_partition.h"
-#include "operations/ccl/mesh_shard.h"
+#include "operations/ccl/moe_compute.h"
 #include "operations/ccl/moe_expert_token_remap.h"
+#include "operations/ccl/moe_gpt.h"
 #include "operations/ccl/point_to_point.h"
+#include "operations/ccl/prepare_moe_compute_w0_w1_weights.h"
+#include "operations/ccl/prepare_moe_compute_w2_weights.h"
 #include "operations/ccl/reduce_scatter.h"
 #include "operations/ccl/selective_reduce_combine.h"
 #include "operations/context/get_device.h"
+#include "operations/conv/conv1d.h"
 #include "operations/conv/conv2d.h"
 #include "operations/conv/conv3d.h"
 #include "operations/conv/conv_transpose2d.h"
 #include "operations/conv/prepare_conv2d_bias.h"
 #include "operations/conv/prepare_conv2d_weights.h"
+#include "operations/conv/prepare_conv3d_weights.h"
 #include "operations/conv/prepare_conv_transpose2d_bias.h"
 #include "operations/conv/prepare_conv_transpose2d_weights.h"
 #include "operations/cpu/cpu.h"
@@ -41,6 +47,7 @@
 #include "operations/creation/full_with.h"
 #include "operations/data_movement/assign.h"
 #include "operations/data_movement/concat.h"
+#include "operations/data_movement/copy.h"
 #include "operations/data_movement/gather.h"
 #include "operations/data_movement/pad.h"
 #include "operations/data_movement/permute.h"
@@ -80,6 +87,7 @@
 #include "operations/mlir_native/func_call.h"
 #include "operations/normalization/batch_norm.h"
 #include "operations/normalization/distributed_rms_norm.h"
+#include "operations/normalization/dit_rms_norm_unary_fused.h"
 #include "operations/normalization/group_norm.h"
 #include "operations/normalization/layer_norm.h"
 #include "operations/normalization/layer_norm_post_all_gather.h"
@@ -91,6 +99,7 @@
 #include "operations/pool/upsample.h"
 #include "operations/rand/rand.h"
 #include "operations/reduction/argmax.h"
+#include "operations/reduction/cumprod.h"
 #include "operations/reduction/cumsum.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
@@ -103,7 +112,10 @@
 #include "operations/trace/capture_or_execute_trace.h"
 #include "operations/trace/end_trace_capture.h"
 #include "operations/trace/execute_trace.h"
+#include "operations/transformer/chunked_scaled_dot_product_attention.h"
 #include "operations/transformer/concatenate_heads.h"
+#include "operations/transformer/flash_mla_prefill.h"
+#include "operations/transformer/indexer_score_dsa.h"
 #include "operations/transformer/nlp_concat_heads.h"
 #include "operations/transformer/nlp_concat_heads_decode.h"
 #include "operations/transformer/nlp_create_qkv_heads_decode.h"
@@ -114,6 +126,11 @@
 #include "operations/transformer/scaled_dot_product_attention.h"
 #include "operations/transformer/scaled_dot_product_attention_decode.h"
 #include "operations/transformer/split_query_key_value_and_split_heads.h"
+#include "operations/ttml/adamw.h"
+#include "operations/ttml/cross_entropy_fw.h"
+#include "operations/ttml/layernorm_fw.h"
+#include "operations/ttml/sdpa_bw.h"
+#include "operations/ttml/sdpa_fw.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -132,7 +149,7 @@ ProgramExecutor::ProgramExecutor(
     ::tt::runtime::Device deviceHandle, ::tt::runtime::Binary &executableHandle,
     const size_t programIndex,
     std::vector<::tt::runtime::Tensor> &programInputs, bool constEvalProgram,
-    ProgramContext *parentContext)
+    const std::vector<::tt::runtime::GlobalSemaphore> &programSemaphoreInputs)
     : program(utils::getProgram(executableHandle, programIndex)),
       executableHandle(executableHandle), constEvalProgram(constEvalProgram) {
   LOG_ASSERT(program, "Program must be provided for execution");
@@ -155,10 +172,26 @@ ProgramExecutor::ProgramExecutor(
     programOutputIds.push_back(output->global_id());
   }
 
+  GlobalSemaphoreMap liveGlobalSemaphores;
+  size_t expectedSemaphoreInputs =
+      program->semaphore_inputs() ? program->semaphore_inputs()->size() : 0;
+  LOG_ASSERT(programSemaphoreInputs.size() == expectedSemaphoreInputs,
+             "Program semaphore input size mismatch: ", expectedSemaphoreInputs,
+             " != ", programSemaphoreInputs.size());
+  if (program->semaphore_inputs()) {
+    size_t i = 0;
+    for (const ::tt::target::ttnn::GlobalSemaphoreRef *semaphoreRef :
+         *program->semaphore_inputs()) {
+      auto [iter, inserted] = liveGlobalSemaphores.try_emplace(
+          semaphoreRef->global_id(), programSemaphoreInputs[i++]);
+      LOG_ASSERT(inserted, "Duplicate input semaphore");
+    }
+  }
+
   context = std::make_unique<ProgramContext>(
       programInputIds, programOutputIds, std::move(liveTensors),
-      GlobalSemaphoreMap(), common::DylibManager(program->dylibs()),
-      std::move(deviceHandle), executableHandle, programIndex, parentContext);
+      std::move(liveGlobalSemaphores), common::DylibManager(program->dylibs()),
+      std::move(deviceHandle), executableHandle, programIndex);
 }
 
 void ProgramExecutor::runOpCallback(
@@ -292,6 +325,12 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::eltwise::binary::run(
         op->type_as_EltwiseBinaryCompositeOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::
+      EltwiseBinaryCompositeWithoutFusedActivationOp: {
+    return operations::eltwise::binary::run(
+        op->type_as_EltwiseBinaryCompositeWithoutFusedActivationOp(),
+        getContext());
+  }
   case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
     return operations::eltwise::binary::run(
         op->type_as_EltwiseBinaryCompositeScalarOp(), getContext());
@@ -336,6 +375,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::CumSumOp: {
     return operations::reduction::cumsum::run(op->type_as_CumSumOp(),
                                               getContext());
+  }
+  case ::tt::target::ttnn::OpType::CumProdOp: {
+    return operations::reduction::cumprod::run(op->type_as_CumProdOp(),
+                                               getContext());
   }
   case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
     return operations::reduction::run(op->type_as_ReductionArgMaxOp(),
@@ -408,6 +451,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::data_movement::run(op->type_as_WriteTensorOp(),
                                           getContext());
   }
+  case ::tt::target::ttnn::OpType::CopyOp: {
+    return operations::data_movement::run(op->type_as_CopyOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::PermuteOp: {
     return operations::data_movement::run(op->type_as_PermuteOp(),
                                           getContext());
@@ -430,6 +476,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {
     return operations::rms_norm::run(op->type_as_RMSNormOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::DitRMSNormUnaryFusedOp: {
+    return operations::dit_rms_norm_unary_fused::run(
+        op->type_as_DitRMSNormUnaryFusedOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::RMSNormPreAllGatherOp: {
     return operations::rms_norm_pre_all_gather::run(
@@ -468,6 +518,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::conv::run(op->type_as_PrepareConv2dBiasOp(),
                                  getContext());
   }
+  case ::tt::target::ttnn::OpType::PrepareConv3dWeightsOp: {
+    return operations::conv::run(op->type_as_PrepareConv3dWeightsOp(),
+                                 getContext());
+  }
   case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
     return operations::conv::run(op->type_as_PrepareConvTranspose2dWeightsOp(),
                                  getContext());
@@ -475,6 +529,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::PrepareConvTranspose2dBiasOp: {
     return operations::conv::run(op->type_as_PrepareConvTranspose2dBiasOp(),
                                  getContext());
+  }
+  case ::tt::target::ttnn::OpType::Conv1dOp: {
+    return operations::conv::run(op->type_as_Conv1dOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     return operations::conv::run(op->type_as_Conv2dOp(), getContext());
@@ -531,8 +588,23 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::ccl::run(op->type_as_MoeExpertTokenRemapOp(),
                                 getContext());
   }
-  case ::tt::target::ttnn::OpType::MeshShardOp: {
-    return operations::ccl::run(op->type_as_MeshShardOp(), getContext());
+  case ::tt::target::ttnn::OpType::MoeGptOp: {
+    return operations::ccl::run(op->type_as_MoeGptOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::PrepareMoEComputeW0W1WeightsOp: {
+    return operations::ccl::run(op->type_as_PrepareMoEComputeW0W1WeightsOp(),
+                                getContext());
+  }
+  case ::tt::target::ttnn::OpType::PrepareMoEComputeW2WeightsOp: {
+    return operations::ccl::run(op->type_as_PrepareMoEComputeW2WeightsOp(),
+                                getContext());
+  }
+  case ::tt::target::ttnn::OpType::MoeComputeOp: {
+    return operations::ccl::run(op->type_as_MoeComputeOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::AllocateMoeComputeSemaphoreOp: {
+    return operations::ccl::run(op->type_as_AllocateMoeComputeSemaphoreOp(),
+                                getContext());
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
     return operations::creation::run(op->type_as_ArangeOp(), getContext());
@@ -575,6 +647,23 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::batch_norm::run(op->type_as_BatchNormTrainingOp(),
                                        getContext());
   }
+  case ::tt::target::ttnn::OpType::AdamWOp: {
+    return operations::ttml::run(op->type_as_AdamWOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::SDPAForwardOp: {
+    return operations::ttml::run(op->type_as_SDPAForwardOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::SDPABackwardOp: {
+    return operations::ttml::run(op->type_as_SDPABackwardOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
+    return operations::ttml::run(op->type_as_LayerNormForwardOp(),
+                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {
+    return operations::ttml::run(op->type_as_CrossEntropyForwardOp(),
+                                 getContext());
+  }
   case ::tt::target::ttnn::OpType::DumpTensorOp: {
     return operations::tensor_serialization::run(op->type_as_DumpTensorOp(),
                                                  getContext());
@@ -612,6 +701,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::transformer::run(
         op->type_as_PagedScaledDotProductAttentionDecodeOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::ChunkedScaledDotProductAttentionOp: {
+    return operations::transformer::run(
+        op->type_as_ChunkedScaledDotProductAttentionOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::PagedFlashMultiLatentAttentionDecodeOp: {
     return operations::transformer::run(
         op->type_as_PagedFlashMultiLatentAttentionDecodeOp(), getContext());
@@ -619,6 +712,14 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
     return operations::transformer::run(
         op->type_as_ScaledDotProductAttentionOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::FlashMlaPrefillOp: {
+    return operations::transformer::run(op->type_as_FlashMlaPrefillOp(),
+                                        getContext());
+  }
+  case ::tt::target::ttnn::OpType::IndexerScoreDsaOp: {
+    return operations::transformer::run(op->type_as_IndexerScoreDsaOp(),
+                                        getContext());
   }
   case ::tt::target::ttnn::OpType::AggregateTensorOp: {
     return operations::ccl::run(op->type_as_AggregateTensorOp(), getContext());
@@ -697,7 +798,7 @@ void ProgramExecutor::syncAfterOpIfNeeded() {
   static const bool enabled =
       std::getenv("TT_RUNTIME_SYNC_AFTER_OP") != nullptr;
   if (enabled) {
-    ::tt::tt_metal::distributed::Synchronize(&context->getMeshDevice(),
+    ::tt::tt_metal::distributed::Synchronize(context->getMeshDevice(),
                                              std::nullopt);
   }
 }

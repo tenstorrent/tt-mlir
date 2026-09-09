@@ -5,6 +5,7 @@
 #ifndef TTMLIR_DIALECT_D2M_UTILS_GRIDSELECTIONUTILS_H
 #define TTMLIR_DIALECT_D2M_UTILS_GRIDSELECTIONUTILS_H
 
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/IR/Builders.h"
@@ -16,6 +17,29 @@
 namespace mlir::tt::d2m {
 
 namespace utils {
+
+// Walk back through any chain of ViewLayoutOp producers and return the
+// ToLayoutOp that feeds them. Returns a null ToLayoutOp if `operand` is not
+// produced through at least one view, or if the value behind the views is not
+// a ToLayoutOp.
+d2m::ToLayoutOp getToLayoutProducerBehindViews(mlir::Value operand);
+
+// Walk forward through layout-bridge ops until reaching a tiled ToLayoutOp
+// consumer. Returns the tile shape, or empty if no tiled consumer is reachable.
+llvm::SmallVector<int64_t>
+findDownstreamTiledToLayoutTileShape(mlir::Value value);
+
+// Walk backward through layout-bridge producers until reaching a tiled tensor.
+// Returns the tile shape, or empty if the producer chain remains scalar.
+llvm::SmallVector<int64_t>
+findUpstreamTiledLayoutBridgeTileShape(mlir::Value value);
+
+// Compute the size of a single collapsed-interval row across the given
+// logical-shape range, propagating alignment from the innermost dim outward.
+int64_t computeCollapsedIntervalSize(ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> alignments,
+                                     int64_t intervalStart,
+                                     int64_t intervalEnd);
 
 // Compute optimal grid shape for a given physical shape and target grid by
 // finding the largest grid dimensions that evenly divide the physical shape.
@@ -54,17 +78,18 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
                                                 bool ttnnMode);
 
 // Create a new MetalLayoutAttr with grid-aware dimension alignments for the
-// given target grid.
+// given selected grid. The tile shape is empty for row-major tensors.
 ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
-                                              ArrayRef<int64_t> targetGrid,
-                                              bool ttnnMode);
+                                              ArrayRef<int64_t> selectedGrid,
+                                              bool ttnnMode,
+                                              ArrayRef<int64_t> tileShape);
 
 // Create a new RankedTensorType with the given optimal grid, recomputing the
 // device shape and layout accordingly.
-mlir::RankedTensorType tensorWithOptimalGrid(mlir::RankedTensorType oldTensor,
-                                             ArrayRef<int64_t> targetGrid,
-                                             bool ttnnMode,
-                                             ArrayRef<int64_t> optimalGrid);
+mlir::RankedTensorType
+tensorWithOptimalGrid(mlir::RankedTensorType oldTensor, bool ttnnMode,
+                      ArrayRef<int64_t> optimalGrid,
+                      ArrayRef<int64_t> paddingTileShape = {});
 
 } // namespace utils
 } // namespace mlir::tt::d2m

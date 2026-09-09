@@ -91,16 +91,12 @@ TEST_P(MeshPartitionLibMockDeviceTest, MeshPartitionOp) {
   // tiling succeeds only if the split dimension stays a multiple of 32.
   // e.g. 128/2=64 ✓, 128/4=32 ✓, 128/8=16 ✗, 64/2=32 ✓, 64/4=16 ✗
   const llvm::SmallVector<int64_t> inputShape = {64, 128};
-  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
   const TTNNLayoutAttr layoutDRAMRowMajor = CreateRowMajorLayout(
       inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
   const TTNNLayoutAttr layoutDRAMTiled = CreateTiledLayout(
       inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
   const TTNNLayoutAttr layoutL1Tiled = CreateTiledLayout(
       inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
-
-  auto legalExp = Device::getDeviceConstraints(workerGrid);
-  EXPECT_TRUE(static_cast<bool>(legalExp));
 
   const int32_t dim = p.dim;
   const std::optional<uint32_t> clusterAxis = p.clusterAxis;
@@ -112,14 +108,12 @@ TEST_P(MeshPartitionLibMockDeviceTest, MeshPartitionOp) {
 
   // Row-major layouts should always succeed.
   auto constraintsExp = OpModel<MeshPartitionOp>::getOpConstraints(
-      CreateWorkerGrid(), inputShape, layoutDRAMRowMajor, dim, clusterAxis,
-      layoutDRAMRowMajor);
+      inputShape, layoutDRAMRowMajor, dim, clusterAxis, layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
 
   // Tiled DRAM layout — succeeds only if post-split shape is tile-aligned.
   constraintsExp = OpModel<MeshPartitionOp>::getOpConstraints(
-      CreateWorkerGrid(), inputShape, layoutDRAMTiled, dim, clusterAxis,
-      layoutDRAMTiled);
+      inputShape, layoutDRAMTiled, dim, clusterAxis, layoutDRAMTiled);
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectTilingSuccess);
   if (!constraintsExp) {
     llvm::consumeError(constraintsExp.takeError());
@@ -127,8 +121,7 @@ TEST_P(MeshPartitionLibMockDeviceTest, MeshPartitionOp) {
 
   // Tiled L1 layout — same condition.
   constraintsExp = OpModel<MeshPartitionOp>::getOpConstraints(
-      CreateWorkerGrid(), inputShape, layoutL1Tiled, dim, clusterAxis,
-      layoutL1Tiled);
+      inputShape, layoutL1Tiled, dim, clusterAxis, layoutL1Tiled);
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectTilingSuccess);
   if (!constraintsExp) {
     llvm::consumeError(constraintsExp.takeError());
@@ -167,6 +160,138 @@ INSTANTIATE_TEST_SUITE_P(
         MeshPartitionParam{4, 1, 0, 0}, // split dim 0 on axis 0
         MeshPartitionParam{4, 1, 1, 0}  // split dim 1 on axis 0
         ));
+
+// --- IndexerScoreDsaOp stateful-constraint test ---
+
+// ttnn.experimental.indexer_score_dsa is Blackhole-only (its device op asserts
+// arch == BLACKHOLE), so this fixture reopens the per-binary singleton on a
+// Blackhole mock and restores the Wormhole 1x8 device afterwards -- leaving the
+// singleton on Blackhole would poison every later test in this binary.
+class IndexerScoreDsaLibMockDeviceTest : public OpModelLibMockDeviceBase {
+public:
+  void SetUp() override {
+    context.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
+    context.loadDialect<mlir::tt::ttnn::TTNNDialect>();
+    module = mlir::ModuleOp::create(builder.getUnknownLoc());
+    builder.setInsertionPointToStart(&module->getBodyRegion().front());
+
+    reopenMockDevice(ttcore::Arch::Blackhole, {1, 1});
+    mlir::tt::ttcore::registerDevice(module.get());
+  }
+
+  void TearDown() override {
+    // Restore the topology MockDeviceEnvironment established for this binary.
+    reopenMockDevice(ttcore::Arch::WormholeB0, {1, maxMockChips});
+  }
+
+private:
+  // SystemDescAttr::getDefault's Blackhole worker grid (TTCoreOpsTypes.cpp) is
+  // 13 wide, but tt-metal's mock blackhole_P150.yaml is 2-column harvested and
+  // its device reports 11. SingletonDeviceContext::openDevice validates the two
+  // against each other and hard-errors on a mismatch, so give this test a desc
+  // whose grid matches the mock device it opens. Only the grid differs from the
+  // default; the shared default is deliberately left alone, since it is the
+  // fallback for every Blackhole compile and correcting it is a separate change
+  // with its own golden churn.
+  static constexpr int64_t mockBlackholeGridX = 11;
+
+  static ttcore::SystemDescAttr
+  withGridMatchingMockDevice(mlir::MLIRContext *ctx,
+                             ttcore::SystemDescAttr desc) {
+    llvm::SmallVector<ttcore::ChipDescAttr> chipDescs;
+    for (ttcore::ChipDescAttr chip : desc.getChipDescs()) {
+      llvm::SmallVector<int64_t> grid(chip.getGrid());
+      assert(grid.size() == 2 && "expected a 2D worker grid");
+      grid[1] = mockBlackholeGridX;
+      chipDescs.push_back(ttcore::ChipDescAttr::get(
+          ctx, chip.getArch(), grid, chip.getCoordTranslationOffsets(),
+          chip.getL1Size(), chip.getNumDramChannels(),
+          chip.getDramChannelSize(), chip.getNocL1AddressAlignBytes(),
+          chip.getPcieAddressAlignBytes(), chip.getNocDRAMAddressAlignBytes(),
+          chip.getL1UnreservedBase(), chip.getEriscL1UnreservedBase(),
+          chip.getDramUnreservedBase(), chip.getDramUnreservedEnd(),
+          chip.getSupportedDataTypes(), chip.getSupportedTileSizes(),
+          chip.getDstPhysicalSizeTiles(), chip.getNumCBs(),
+          chip.getNumComputeThreads(), chip.getNumDatamovementThreads(),
+          chip.getDramGrid(), chip.getDramBankToLogicalWorkerNoc0(),
+          chip.getDramBankToLogicalWorkerNoc1()));
+    }
+    return ttcore::SystemDescAttr::get(
+        ctx, desc.getCpuDescs(), chipDescs, desc.getChipDescIndices(),
+        desc.getChipCapabilities(), desc.getChipCoords(),
+        desc.getChipChannels());
+  }
+
+  void reopenMockDevice(ttcore::Arch arch,
+                        const std::pair<size_t, size_t> &meshShape) {
+    mlir::MLIRContext tmpCtx;
+    tmpCtx.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
+    ttcore::SystemDescAttr desc = ttcore::SystemDescAttr::getDefault(
+        &tmpCtx, arch,
+        {static_cast<int>(meshShape.first),
+         static_cast<int>(meshShape.second)});
+    if (arch == ttcore::Arch::Blackhole) {
+      desc = withGridMatchingMockDevice(&tmpCtx, desc);
+    }
+    SingletonDeviceContext::closeInstance();
+    SingletonDeviceContext::setSystemDesc(desc);
+    SingletonDeviceContext::getInstance().openMockDevice(
+        /*traceRegionSize=*/0, meshShape);
+  }
+};
+
+// Pins the branch that the stateful migration introduced: a null initialState
+// takes the stateless query, which reports no output allocations; a non-null
+// one takes the with-state query, which really allocates and reports the
+// output's record. The indexer's output inherits q's memory config, so an
+// L1-resident q yields an L1 record -- the untracked-L1-output gap this
+// migration closes.
+TEST_F(IndexerScoreDsaLibMockDeviceTest, StatefulReportsOutputAllocation) {
+  // Shapes mirror the transformer lit tests: query [B, Hi, Sq, D],
+  // key [B, 1, T, D], weights [B, Hi, Sq, 1] -> score [B, 1, Sq, T].
+  const llvm::SmallVector<int64_t> queryShape = {1, 8, 32, 128};
+  const llvm::SmallVector<int64_t> keyShape = {1, 1, 32, 128};
+  const llvm::SmallVector<int64_t> weightsShape = {1, 8, 32, 1};
+  const llvm::SmallVector<int64_t> outputShape = {1, 1, 32, 32};
+
+  const llvm::SmallVector<int64_t> physicalGrid = {1, 1};
+
+  // q in L1 so the output inherits an L1 memory config.
+  const TTNNLayoutAttr queryLayout = CreateTiledLayout(
+      queryShape, BufferType::L1, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, physicalGrid);
+  const TTNNLayoutAttr keyLayout = CreateTiledLayout(
+      keyShape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, physicalGrid);
+  const TTNNLayoutAttr weightsLayout = CreateTiledLayout(
+      weightsShape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, physicalGrid);
+  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, BufferType::L1, TensorMemoryLayout::Interleaved,
+      /*virtualGrid=*/std::nullopt, physicalGrid);
+
+  // Stateless: no state to apply, so tt-metal runs the NO_DISPATCH capture and
+  // reports no output allocations.
+  auto statelessExp = OpModel<IndexerScoreDsaOp>::getOpConstraints(
+      queryShape, queryLayout, keyShape, keyLayout, weightsShape, weightsLayout,
+      /*chunkStartIdx=*/0, outputLayout, /*initialState=*/nullptr);
+  ASSERT_TRUE(static_cast<bool>(statelessExp))
+      << llvm::toString(statelessExp.takeError());
+  EXPECT_TRUE(statelessExp->outputAllocations.empty());
+
+  // Stateful: an empty live set still yields a non-null state, which selects
+  // the with-initial-state query and its NORMAL-mode allocating capture.
+  std::shared_ptr<MockAllocatorState> state = buildInitialState({});
+  ASSERT_NE(state, nullptr);
+
+  auto statefulExp = OpModel<IndexerScoreDsaOp>::getOpConstraints(
+      queryShape, queryLayout, keyShape, keyLayout, weightsShape, weightsLayout,
+      /*chunkStartIdx=*/0, outputLayout, state.get());
+  ASSERT_TRUE(static_cast<bool>(statefulExp))
+      << llvm::toString(statefulExp.takeError());
+  ASSERT_EQ(statefulExp->outputAllocations.size(), 1u);
+  EXPECT_EQ(statefulExp->outputAllocations[0].bufferType, BufferType::L1);
+}
 
 } // namespace mlir::tt::ttnn::op_model
 

@@ -21,7 +21,6 @@ runReductionArgMaxOp(const ::tt::target::ttnn::ReductionArgMaxOp *op,
   ::ttnn::Tensor out = ::ttnn::argmax(in, op->dim(),
                                       /*keepdim=*/op->keep_dim(),
                                       /*sub_core_grids=*/std::nullopt,
-                                      /*use_multicore=*/op->use_multicore(),
                                       /*memory_config_arg=*/outputMemoryConfig,
                                       /*optional_output_tensor=*/std::nullopt);
 

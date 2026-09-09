@@ -6,9 +6,13 @@
 
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/Analysis/BlockFactorAnalysis.h"
 #include "ttmlir/Dialect/D2M/Analysis/GridAnalysis.h"
+#include "ttmlir/Dialect/D2M/Analysis/TopKShardingStrategy.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/GridSelectionUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/SpatialOpNormalizeUtil.h"
+#include "ttmlir/Dialect/D2M/Utils/TopKUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
@@ -21,6 +25,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/SmallVector.h"
@@ -122,12 +127,36 @@ static void verifySingleGenericConsumerThroughViewsAndMasks(Value root) {
         worklist.push_back(maskOp.getResult());
         continue;
       }
+      if (auto compositeView = dyn_cast<d2m::CompositeViewOp>(user)) {
+        worklist.push_back(compositeView.getResult());
+        continue;
+      }
       if (isa<d2m::SpatialOp>(user)) {
         continue;
       }
       recordGenericConsumer(user, parentGeneric);
     }
   }
+}
+
+static RankedTensorType gridAdjustedType(const OperandGridInfo &info,
+                                         RankedTensorType oldType,
+                                         bool ttnnMode) {
+  return utils::tensorWithOptimalGrid(oldType, ttnnMode, info.selectedGrid,
+                                      info.paddingTileShape);
+}
+
+static llvm::SmallVector<int64_t>
+getScalarBridgePaddingTileShape(d2m::ToLayoutOp toLayoutOp,
+                                RankedTensorType outputType) {
+  if (mlir::isa<ttcore::TileType>(outputType.getElementType())) {
+    return {};
+  }
+
+  // A scalar result can still be a layout bridge for a tiled stream, possibly
+  // through earlier to_layout/view_layout ops. Keep that bridge tile-compatible
+  // so later layout conversion sees the same final grid/padding contract.
+  return utils::findUpstreamTiledLayoutBridgeTileShape(toLayoutOp.getInput());
 }
 
 // Update a ToLayoutOp and its associated EmptyOp to use a specified grid by
@@ -143,7 +172,6 @@ optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> targetGrid,
     return;
   }
 
-  // Check if we're already at the target grid.
   auto emptyType = mlir::cast<mlir::RankedTensorType>(emptyOp.getType());
   if (emptyType.getShape().take_front(2) == llvm::ArrayRef(optimalGrid)) {
     return;
@@ -172,8 +200,10 @@ optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> targetGrid,
     return;
   }
 
+  llvm::SmallVector<int64_t> paddingTileShape =
+      getScalarBridgePaddingTileShape(toLayoutOp, outputType);
   RankedTensorType newTensorType = utils::tensorWithOptimalGrid(
-      outputType, targetGrid, ttnnMode, optimalGrid);
+      outputType, ttnnMode, optimalGrid, paddingTileShape);
   builder.setInsertionPoint(emptyOp);
 
   // VGM is NOT propagated from the to_layout's input here — the output EmptyOp
@@ -323,7 +353,7 @@ static void
 applyToLayoutUpdate(const OperandGridInfo &info,
                     const EffectiveTargetGridRange &effectiveTargetGridRange,
                     bool ttnnMode, OpBuilder &builder) {
-  auto toLayoutOp = info.operand.getDefiningOp<d2m::ToLayoutOp>();
+  auto toLayoutOp = info.getLiveOperand().getDefiningOp<d2m::ToLayoutOp>();
   optimizeToLayoutGrid(toLayoutOp, info.targetGrid, effectiveTargetGridRange,
                        ttnnMode, info.selectedGrid, builder);
 }
@@ -332,8 +362,9 @@ static void applyBehindViewToLayoutUpdate(
     const OperandGridInfo &info,
     const EffectiveTargetGridRange &effectiveTargetGridRange, bool ttnnMode,
     OpBuilder &builder) {
-  auto view = info.operand.getDefiningOp<d2m::ViewLayoutOp>();
-  auto toLayoutOp = view.getInput().getDefiningOp<d2m::ToLayoutOp>();
+  auto toLayoutOp =
+      utils::getToLayoutProducerBehindViews(info.getLiveOperand());
+  TT_assert(toLayoutOp);
   optimizeToLayoutGrid(toLayoutOp, info.targetGrid, effectiveTargetGridRange,
                        ttnnMode, info.viewSourceGrid, builder);
 }
@@ -342,7 +373,7 @@ static void
 applyMaskUpdate(const OperandGridInfo &info,
                 const EffectiveTargetGridRange &effectiveTargetGridRange,
                 bool ttnnMode, OpBuilder &builder) {
-  auto maskOp = info.operand.getDefiningOp<d2m::MaskOp>();
+  auto maskOp = info.getLiveOperand().getDefiningOp<d2m::MaskOp>();
   if (!maskOp) {
     return;
   }
@@ -360,8 +391,8 @@ applyMaskUpdate(const OperandGridInfo &info,
 
   auto oldResultType =
       mlir::cast<RankedTensorType>(maskOp.getResult().getType());
-  RankedTensorType newResultType = utils::tensorWithOptimalGrid(
-      oldResultType, info.targetGrid, ttnnMode, info.selectedGrid);
+  RankedTensorType newResultType =
+      gridAdjustedType(info, oldResultType, ttnnMode);
   if (newResultType == oldResultType) {
     return;
   }
@@ -396,7 +427,7 @@ applyMaskUpdate(const OperandGridInfo &info,
 
 static void applyTTNNTensorUpdate(const OperandGridInfo &info,
                                   OpBuilder &builder) {
-  Value ttnnOperand = info.operand;
+  Value ttnnOperand = info.getLiveOperand();
   auto metalTensor = mlir::cast<mlir::RankedTensorType>(ttnnOperand.getType());
   auto metalLayout =
       mlir::cast<ttcore::MetalLayoutAttr>(metalTensor.getEncoding());
@@ -418,108 +449,90 @@ static void applyTTNNTensorUpdate(const OperandGridInfo &info,
   }
 }
 
+static Value rewriteSingleUseCompositeInputProducer(
+    Value input, RankedTensorType newInputType,
+    ArrayRef<int64_t> inputSelectedGrid,
+    const EffectiveTargetGridRange &effectiveTargetGridRange,
+    OpBuilder &builder) {
+  auto toLayoutOp = input.getDefiningOp<d2m::ToLayoutOp>();
+  // Only rewrite single-use producers. Shared to_layout results may feed users
+  // that still require the original layout, so multi-use inputs need a view.
+  if (!toLayoutOp || !input.hasOneUse()) {
+    return {};
+  }
+
+  auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
+  if (!emptyOp) {
+    return {};
+  }
+
+  auto [virtualGridInverseMapping, virtualGridForwardMapping] =
+      deriveVirtualGridAttrs(inputSelectedGrid, effectiveTargetGridRange,
+                             builder);
+  builder.setInsertionPoint(emptyOp);
+  auto newEmptyOp = builder.create<d2m::EmptyOp>(emptyOp.getLoc(), newInputType,
+                                                 virtualGridInverseMapping,
+                                                 virtualGridForwardMapping);
+
+  builder.setInsertionPoint(toLayoutOp);
+  auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
+      toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
+  toLayoutOp.getResult(0).replaceAllUsesWith(newToLayoutOp.getResult(0));
+  toLayoutOp.erase();
+  if (emptyOp.getResult().use_empty()) {
+    emptyOp.erase();
+  }
+  return newToLayoutOp.getResult(0);
+}
+
+static Value materializeCompositeInput(
+    d2m::CompositeViewOp compositeView, Value input,
+    const CompositeInputGridInfo &inputInfo,
+    const EffectiveTargetGridRange &effectiveTargetGridRange,
+    OpBuilder &builder) {
+  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  auto inputLayout =
+      mlir::dyn_cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+  if (!inputLayout) {
+    return input;
+  }
+
+  if (Value rewrittenProducer = rewriteSingleUseCompositeInputProducer(
+          input, inputInfo.materializedType, inputInfo.selectedGrid,
+          effectiveTargetGridRange, builder)) {
+    return rewrittenProducer;
+  }
+
+  builder.setInsertionPoint(compositeView);
+  return builder
+      .create<d2m::ViewLayoutOp>(compositeView.getLoc(),
+                                 inputInfo.materializedType, input)
+      .getResult();
+}
+
 static void applyCompositeViewUpdate(
     const OperandGridInfo &info,
     const EffectiveTargetGridRange &effectiveTargetGridRange, bool ttnnMode,
     OpBuilder &builder) {
-  auto compositeView = info.operand.getDefiningOp<d2m::CompositeViewOp>();
-  const int32_t concatDim = compositeView.getDim();
+  auto compositeView =
+      info.getLiveOperand().getDefiningOp<d2m::CompositeViewOp>();
   auto outType =
       mlir::cast<RankedTensorType>(compositeView.getResult().getType());
-  const bool isTiled = mlir::isa<ttcore::TileType>(outType.getElementType());
 
-  RankedTensorType newOutType = utils::tensorWithOptimalGrid(
-      outType, info.targetGrid, ttnnMode, info.selectedGrid);
+  RankedTensorType newOutType = gridAdjustedType(info, outType, ttnnMode);
+
+  TT_assertv(info.compositeInputInfos.size() ==
+                 compositeView.getInputs().size(),
+             "CompositeViewOp input grid analysis is stale");
 
   SmallVector<Value> reblockedInputs;
-  for (Value input : compositeView.getInputs()) {
-    auto inputType = mlir::cast<RankedTensorType>(input.getType());
-    auto inputLayout =
-        mlir::dyn_cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
-    if (!inputLayout) {
-      reblockedInputs.push_back(input);
-      continue;
-    }
-
-    RankedTensorType newInputType;
-    llvm::SmallVector<int64_t> inputOptimalGrid;
-    if (isTiled) {
-      // Use the grid-aligned output type's dim alignments for the inputs, as
-      // they should mostly match on non-concat dimensions.
-      auto newOutLayout =
-          mlir::cast<ttcore::MetalLayoutAttr>(newOutType.getEncoding());
-      auto newOutDimAlignments = newOutLayout.getDimAlignments();
-      SmallVector<int64_t> inputAlignments(newOutDimAlignments.begin(),
-                                           newOutDimAlignments.end());
-
-      auto tileType = mlir::cast<ttcore::TileType>(inputType.getElementType());
-      auto tileShape = tileType.getShape();
-      int64_t logicalRank = inputLayout.getLogicalShape().size();
-
-      // For height/width concat: uses tile-only alignment so the input's
-      // contribution isn't inflated, keeping sum <= output extent.
-      // For outer concat: default to 1 since the inputs are "passive" and the
-      // output tensor is already padded correctly.
-      const int64_t tileHWIdx = concatDim - (logicalRank - 2);
-      inputAlignments[concatDim] = (tileHWIdx >= 0) ? tileShape[tileHWIdx] : 1;
-
-      auto newLayout = ttcore::MetalLayoutAttr::get(
-          builder.getContext(), inputLayout.getLogicalShape(),
-          inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
-          inputLayout.getCollapsedIntervals(), inputAlignments);
-
-      auto inputPhysShape = newLayout.getPhysicalShape(tileShape);
-      inputOptimalGrid =
-          utils::computeOptimalGrid(inputType, inputPhysShape, info.targetGrid);
-
-      auto deviceShape = newLayout.getDeviceShape(inputOptimalGrid, tileShape);
-      newInputType = RankedTensorType::get(
-          deviceShape, inputType.getElementType(), newLayout);
-    } else {
-      // For row-major, compute alignments independently via
-      // tensorWithOptimalGrid. Since non-concat dims share the same logical
-      // size and target grid, they will have identical alignments & grid +
-      // shard shapes.
-      auto inputPhysShape =
-          utils::computePhysicalShape(input, info.targetGrid, ttnnMode);
-      inputOptimalGrid =
-          utils::computeOptimalGrid(inputType, inputPhysShape, info.targetGrid);
-      newInputType = utils::tensorWithOptimalGrid(inputType, info.targetGrid,
-                                                  ttnnMode, inputOptimalGrid);
-    }
-
-    // When the input comes directly from a to_layout op with a single use,
-    // update the to_layout's grid so that data is physically distributed
-    // across multiple cores, preventing L1 overflow when multiple concat
-    // inputs must coexist in L1 on a single core.
-    if (auto toLayoutOp = input.getDefiningOp<d2m::ToLayoutOp>();
-        toLayoutOp && input.hasOneUse()) {
-      auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
-      if (emptyOp) {
-        auto [virtualGridInverseMapping, virtualGridForwardMapping] =
-            deriveVirtualGridAttrs(inputOptimalGrid, effectiveTargetGridRange,
-                                   builder);
-        builder.setInsertionPoint(emptyOp);
-        auto newEmptyOp = builder.create<d2m::EmptyOp>(
-            emptyOp.getLoc(), newInputType, virtualGridInverseMapping,
-            virtualGridForwardMapping);
-        builder.setInsertionPoint(toLayoutOp);
-        auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
-            toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
-        toLayoutOp.getResult(0).replaceAllUsesWith(newToLayoutOp.getResult(0));
-        toLayoutOp.erase();
-        if (emptyOp.getResult().use_empty()) {
-          emptyOp.erase();
-        }
-        reblockedInputs.push_back(newToLayoutOp.getResult(0));
-        continue;
-      }
-    }
-
-    builder.setInsertionPoint(compositeView);
-    auto view = builder.create<d2m::ViewLayoutOp>(compositeView.getLoc(),
-                                                  newInputType, input);
-    reblockedInputs.push_back(view.getResult());
+  for (auto &&[input, inputInfo] :
+       llvm::zip_equal(compositeView.getInputs(), info.compositeInputInfos)) {
+    TT_assertv(
+        input == inputInfo.input,
+        "CompositeViewOp input grid analysis does not match input order");
+    reblockedInputs.push_back(materializeCompositeInput(
+        compositeView, input, inputInfo, effectiveTargetGridRange, builder));
   }
 
   builder.setInsertionPoint(compositeView);
@@ -535,11 +548,10 @@ static void
 applyEmptyOpUpdate(const OperandGridInfo &info,
                    const EffectiveTargetGridRange &effectiveTargetGridRange,
                    bool ttnnMode, OpBuilder &builder) {
-  EmptyOp emptyOp = info.operand.getDefiningOp<d2m::EmptyOp>();
+  EmptyOp emptyOp = info.getLiveOperand().getDefiningOp<d2m::EmptyOp>();
   auto emptyType =
       mlir::cast<mlir::RankedTensorType>(emptyOp.getResult().getType());
-  RankedTensorType newTensorType = utils::tensorWithOptimalGrid(
-      emptyType, info.targetGrid, ttnnMode, info.selectedGrid);
+  RankedTensorType newTensorType = gridAdjustedType(info, emptyType, ttnnMode);
   builder.setInsertionPoint(emptyOp);
 
   // The selected grid may differ from the EmptyOp's previous grid.
@@ -610,13 +622,14 @@ deriveGenericGridAttr(d2m::GenericOp genericOp,
 // accounts for the shape change from the old grid to the new grid.
 static void applyViewLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
                                   OpBuilder &builder) {
-  d2m::ViewLayoutOp viewOp = info.operand.getDefiningOp<d2m::ViewLayoutOp>();
+  d2m::ViewLayoutOp viewOp =
+      info.getLiveOperand().getDefiningOp<d2m::ViewLayoutOp>();
   auto oldResultType =
       mlir::cast<RankedTensorType>(viewOp.getResult().getType());
   auto oldLayout =
       mlir::cast<ttcore::MetalLayoutAttr>(oldResultType.getEncoding());
-  RankedTensorType newResultType = utils::tensorWithOptimalGrid(
-      oldResultType, info.targetGrid, ttnnMode, info.selectedGrid);
+  RankedTensorType newResultType =
+      gridAdjustedType(info, oldResultType, ttnnMode);
 
   // Compose the original remapping with a reblock map that maps from the
   // old output shape to the new output shape.
@@ -633,8 +646,6 @@ static void applyViewLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
             mlir::dyn_cast<ttcore::TileType>(oldResultType.getElementType())) {
       tileShape = llvm::to_vector(tileType.getShape());
     }
-    TT_assert(ttmlir::utils::volume(oldLayout.getGridShape(oldResultType)) ==
-              1);
     oldShape = newLayout.getDeviceShape(oldLayout.getGridShape(oldResultType),
                                         tileShape);
   }
@@ -727,7 +738,10 @@ static LogicalResult applyGridDecisions(d2m::GenericOp genericOp,
   llvm::SmallVector<Kind, 4> kinds;
   kinds.reserve(result.operandInfos.size());
   for (const auto &info : result.operandInfos) {
-    Value operand = info.operand;
+    // Resolve the operand live from the owning generic. A prior generic's apply
+    // may have rewritten this producer (replaceAllUsesWith updated the operand
+    // in place); reading it live reflects that. See OperandGridInfo.
+    Value operand = info.getLiveOperand();
     if (GridAnalysis::isTTNNOperand(operand)) {
       kinds.push_back(Kind::TTNNTensor);
     } else if (auto view = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
@@ -796,6 +810,111 @@ static LogicalResult applyGridDecisions(d2m::GenericOp genericOp,
   return success();
 }
 
+// A topk's split decides how many generics the lowering will build, so this
+// phase folds a grid per planned buffer from shape and target range alone,
+// without those buffers existing yet.
+static TopKPlacementAttr
+foldTopKBuffer(const TopKBufferPlan &buffer,
+               const EffectiveTargetGridRange &effectiveTargetGridRange,
+               OpBuilder &builder) {
+  auto layout = mlir::cast<ttcore::MetalLayoutAttr>(buffer.type.getEncoding());
+  llvm::SmallVector<int64_t> gridShape =
+      llvm::to_vector(layout.getGridShape(buffer.type));
+
+  auto [virtualGridInverseMapping, virtualGridForwardMapping] =
+      deriveVirtualGridAttrs(gridShape, effectiveTargetGridRange, builder);
+
+  // Mirrors deriveGridAttrForOutput: derive rather than store the same maps
+  // twice under two meanings.
+  ttcore::GridAttr grid = builder.getAttr<ttcore::GridAttr>(gridShape);
+  if (virtualGridForwardMapping && virtualGridInverseMapping) {
+    if (auto maps = utils::getGridMapsFromVirtualGridMapping(
+            virtualGridForwardMapping.getAffineMap(),
+            virtualGridInverseMapping.getAffineMap(), gridShape)) {
+      grid = builder.getAttr<ttcore::GridAttr>(gridShape, maps->first,
+                                               maps->second);
+    }
+  }
+
+  return builder.getAttr<TopKPlacementAttr>(
+      buffer.type, grid, virtualGridForwardMapping, virtualGridInverseMapping);
+}
+
+// Lays out and masks the topk's input on the planned cores.
+static Value placeTopKInput(IRRewriter &rewriter, SingleCoreTopK chain,
+                            TopKPlacementAttr input,
+                            TopKPlacementAttr inputMask) {
+  Location loc = chain.leaf->getLoc();
+  rewriter.setInsertionPoint(chain.leaf);
+
+  auto emptyFor = [&](TopKPlacementAttr placement) {
+    return rewriter
+        .create<EmptyOp>(loc, placement.getType(), placement.getVgmInverse(),
+                         placement.getVgmForward())
+        .getResult();
+  };
+
+  Value laidOut =
+      rewriter.create<ToLayoutOp>(loc, chain.logicalInput, emptyFor(input))
+          .getResult(0);
+  // A mask is planned only when grid times shard overshoots the logical extent,
+  // leaving a padding tail that would otherwise win the reduction.
+  if (inputMask) {
+    auto layout =
+        mlir::cast<ttcore::MetalLayoutAttr>(inputMask.getType().getEncoding());
+    laidOut =
+        rewriter
+            .create<MaskOp>(loc, laidOut, emptyFor(inputMask),
+                            layout.getLogicalShape(), ttcore::OOBVal::NegInf)
+            .getResult();
+  }
+  return laidOut;
+}
+
+static LogicalResult planTopKPlacement(GenericOp leaf,
+                                       ArrayRef<int64_t> deviceGridShape,
+                                       ttcore::ChipDescAttr chipDesc) {
+  auto topkBlock = *leaf->getRegion(0).getOps<TopkBlockOp>().begin();
+  const int32_t dim = topkBlock.getDim();
+  const int64_t k = topkBlock.getK();
+  SingleCoreTopK chain = readSingleCoreTopK(leaf);
+
+  std::string failureReason;
+  auto strategy = selectTopKShardingStrategy(
+      k, dim,
+      mlir::cast<RankedTensorType>(chain.logicalInput.getType()).getShape(),
+      deviceGridShape,
+      topKL1Budget(leaf, chipDesc, BlockFactorAnalysis::Options{}.numBuffers),
+      failureReason);
+  if (failed(strategy)) {
+    return topkBlock->emitOpError(failureReason);
+  }
+
+  IRRewriter rewriter(leaf->getContext());
+  const EffectiveTargetGridRange effectiveTargetGridRange =
+      getTargetGridRange(leaf, deviceGridShape);
+
+  TopKBufferPlans plans = planTopKBuffers(chain, *strategy, k, dim);
+  auto fold = [&](const TopKBufferPlan &buffer) {
+    return foldTopKBuffer(buffer, effectiveTargetGridRange, rewriter);
+  };
+  llvm::SmallVector<TopKPlacementAttr> placements;
+  for (const TopKBufferPlan &buffer : plans.lowered) {
+    placements.push_back(fold(buffer));
+  }
+  auto plan =
+      rewriter.getAttr<TopKPlanAttr>(strategy->numShards, strategy->ntShards,
+                                     strategy->mergeSchedule, placements);
+
+  Value laidOut = placeTopKInput(rewriter, chain, fold(plans.input),
+                                 plans.inputMask.type ? fold(plans.inputMask)
+                                                      : TopKPlacementAttr());
+  laidOut.getDefiningOp()->setAttr(utils::kTopKInputAttr,
+                                   rewriter.getUnitAttr());
+  leaf->setAttr(utils::kTopKPlanAttr, plan);
+  return success();
+}
+
 // ----------------------------------------------------------------------------
 // Pass implementation
 // ----------------------------------------------------------------------------
@@ -843,9 +962,40 @@ public:
         return;
       }
     }
+
+    if (failed(planTopKPlacements(module))) {
+      signalPassFailure();
+      return;
+    }
   }
 
 private:
+  // A leaf reduces raw input (`generate_indices`). Collected before any leaf is
+  // rebuilt, so the replacements this phase emits are not walked again.
+  LogicalResult planTopKPlacements(ModuleOp module) {
+    llvm::SmallVector<GenericOp> leaves;
+    module.walk([&](TopkBlockOp op) {
+      GenericOp leaf = op->getParentOfType<GenericOp>();
+      if (op.getGenerateIndices() && leaf && leaf.getInputs().size() == 2 &&
+          leaf->getNumResults() == 2) {
+        leaves.push_back(leaf);
+      }
+    });
+    if (leaves.empty()) {
+      return success();
+    }
+
+    llvm::SmallVector<int64_t> deviceGridShape = getDeviceGridShape();
+    ttcore::ChipDescAttr chipDesc =
+        ttcore::getCurrentScopeSystemDesc(module).getChipDesc(0);
+    for (GenericOp leaf : leaves) {
+      if (failed(planTopKPlacement(leaf, deviceGridShape, chipDesc))) {
+        return failure();
+      }
+    }
+    return success();
+  }
+
   // Returns the device-wide grid shape (worker grid or override).
   llvm::SmallVector<int64_t> getDeviceGridShape() {
     if (!overrideDeviceShape.empty()) {

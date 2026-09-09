@@ -14,7 +14,7 @@ module {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
 
     // CHECK: d2m.generic
-    // CHECK-SAME: threads = [#d2m.thread<datamovement, processor = 1>, #d2m.thread<datamovement, processor = 0>, #d2m.thread<compute>]
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, dm_core = 1>, #d2m.thread<datamovement, dm_core = 0>, #d2m.thread<compute>]
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0, %arg1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
@@ -65,7 +65,7 @@ module {
 
     // CHECK: d2m.generic
     // Should remain 1 datamovement + 1 compute since only 1 CB has DMA work
-    // CHECK-SAME: threads = [#d2m.thread<datamovement, processor = 1>, #d2m.thread<compute>]
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, dm_core = 1>, #d2m.thread<compute>]
     // CHECK-NOT: threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
@@ -141,7 +141,7 @@ module {
 
     // CHECK: d2m.generic
     // Limited to 2 HW datamovement threads even with 3 CBs
-    // CHECK-SAME: threads = [#d2m.thread<datamovement, processor = 1>, #d2m.thread<datamovement, processor = 0>, #d2m.thread<compute>]
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, dm_core = 1>, #d2m.thread<datamovement, dm_core = 0>, #d2m.thread<compute>]
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0, %arg1, %arg2 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
@@ -194,7 +194,7 @@ module {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
 
     // CHECK: d2m.generic
-    // CHECK-SAME: threads = [#d2m.thread<datamovement, processor = 1>, #d2m.thread<datamovement, processor = 0>, #d2m.thread<compute>]
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, dm_core = 1>, #d2m.thread<datamovement, dm_core = 0>, #d2m.thread<compute>]
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0, %alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%arg1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)  {
@@ -244,7 +244,7 @@ module {
 
     // CHECK: d2m.generic
     // 3 CBs with DMA work -> split into 2 HW threads
-    // CHECK-SAME: threads = [#d2m.thread<datamovement, processor = 0>, #d2m.thread<datamovement, processor = 1>, #d2m.thread<compute>]
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, dm_core = 0>, #d2m.thread<datamovement, dm_core = 1>, #d2m.thread<compute>]
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0, %arg1, %alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%arg2 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)  {
@@ -301,7 +301,7 @@ module {
 
     // CHECK: d2m.generic
     // Should remain 1 datamovement + 1 compute since only 1 CB has DMA work
-    // CHECK-SAME: threads = [#d2m.thread<datamovement, processor = 0>, #d2m.thread<compute>]
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, dm_core = 0>, #d2m.thread<compute>]
     // CHECK-NOT: threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
@@ -350,7 +350,7 @@ module {
 
     // CHECK: d2m.generic
     // 4 CBs with DMA work -> split into 2 HW threads, balanced 2 ops each
-    // CHECK-SAME: threads = [#d2m.thread<datamovement, processor = 0>, #d2m.thread<datamovement, processor = 1>, #d2m.thread<compute>]
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, dm_core = 0>, #d2m.thread<datamovement, dm_core = 1>, #d2m.thread<compute>]
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0, %arg1, %arg2, %alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%arg3 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)  {
@@ -412,7 +412,7 @@ module {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
 
     // CHECK: d2m.generic
-    // CHECK-SAME: threads = [#d2m.thread<datamovement, processor = 1>, #d2m.thread<datamovement, processor = 0>, #d2m.thread<compute>]
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, dm_core = 1>, #d2m.thread<datamovement, dm_core = 0>, #d2m.thread<compute>]
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
@@ -452,7 +452,7 @@ module {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
 
     // CHECK: d2m.generic
-    // CHECK-SAME: threads = [#d2m.thread<datamovement, processor = 1>, #d2m.thread<compute>]
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, dm_core = 1>, #d2m.thread<compute>]
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
@@ -477,7 +477,7 @@ module {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
 
     // CHECK: d2m.generic
-    // CHECK-SAME: threads = [#d2m.thread<datamovement, processor = 1>, #d2m.thread<datamovement, processor = 0>, #d2m.thread<compute>]
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, dm_core = 1>, #d2m.thread<datamovement, dm_core = 0>, #d2m.thread<compute>]
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
@@ -507,7 +507,7 @@ module {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
 
     // CHECK: d2m.generic
-    // CHECK-SAME: threads = [#d2m.thread<datamovement, processor = 1>, #d2m.thread<datamovement, processor = 0>, #d2m.thread<compute>]
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, dm_core = 1>, #d2m.thread<datamovement, dm_core = 0>, #d2m.thread<compute>]
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0, %arg1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {

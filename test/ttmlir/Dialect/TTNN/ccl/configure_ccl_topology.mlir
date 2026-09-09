@@ -30,3 +30,15 @@ module attributes {} {
     return %0 : tensor<1x1x32x64xbf16>
   }
 }
+
+// Explicit CCL configuration must not be overwritten by the device default.
+module attributes {} {
+  // CHECK-LABEL: all_gather_explicit_topology
+  func.func @all_gather_explicit_topology(%arg0: tensor<1x1x32x32xbf16>) -> tensor<1x1x32x64xbf16> {
+    %0 = "ttnn.all_gather"(%arg0) <{all_gather_dim = 3 : si32, cluster_axis = 1 : ui32, num_links = 2 : ui32, topology = #ttcore.topology<linear>}> : (tensor<1x1x32x32xbf16>) -> tensor<1x1x32x64xbf16>
+    // CHECK: "ttnn.all_gather"
+    // CHECK-SAME: num_links = 2 : ui32
+    // CHECK-SAME: topology = #ttcore.topology<linear>
+    return %0 : tensor<1x1x32x64xbf16>
+  }
+}

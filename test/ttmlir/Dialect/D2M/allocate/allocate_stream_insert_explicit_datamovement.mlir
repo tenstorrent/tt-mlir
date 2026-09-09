@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=stream-insert-policy=infer test-buffer-size-policy=max" -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device "--d2m-reblock-generics=test-buffer-size-policy=max" "--d2m-allocate=stream-insert-policy=infer" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #l1 = #ttcore.memory_space<l1>

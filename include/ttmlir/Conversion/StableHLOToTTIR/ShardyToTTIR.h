@@ -5,7 +5,6 @@
 #ifndef TTMLIR_CONVERSION_STABLEHLOTOTTIR_SHARDYTOTTIR_H
 #define TTMLIR_CONVERSION_STABLEHLOTOTTIR_SHARDYTOTTIR_H
 
-#include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 namespace mlir::tt {

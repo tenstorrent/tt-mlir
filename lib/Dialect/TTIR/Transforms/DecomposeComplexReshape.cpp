@@ -132,6 +132,9 @@ Value createPermuteSwapLastTwoDims(IRRewriter &rewriter, Location loc,
 //
 bool isSingletonTranspose(llvm::ArrayRef<int64_t> inputShape,
                           llvm::ArrayRef<int64_t> outputShape) {
+  if (inputShape.empty() || outputShape.empty()) {
+    return false;
+  }
   if (getNonOneDims(inputShape) != getNonOneDims(outputShape)) {
     return false;
   }

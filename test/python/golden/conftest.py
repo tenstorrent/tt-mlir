@@ -92,6 +92,11 @@ def _get_device_for_target(
             return _current_device
         elif _current_device_target == "emitpy":
             ttnn.close_mesh_device(_current_device)
+            # Clear the DeviceGetter singleton too; otherwise it keeps the old
+            # mesh shape and rejects the next emitpy test that requests a
+            # different one.
+            utils.DeviceGetter._instance = None
+            utils.DeviceGetter._mesh_shape = None
         else:  # Cache miss, need to teardown
             print(
                 f"Found new target {target} with mesh shape {mesh_shape} and fabric config {fabric_config}, closing device for {_current_device_target} with {_current_device_mesh_shape} and {_current_fabric_config}"
@@ -786,9 +791,12 @@ def _mark_item_for_skip(
     skip_handler_fn,
     negate_check=False,
 ):
-    matches = []
+    matching_markers = []
+    has_marker_configs = False
     for marker in item.iter_markers(name=marker_name):
+        marker_matches = False
         for platform_config in marker.args:
+            has_marker_configs = True
 
             # All of the operations we need to do on these are set membership based
             platform_config = set(platform_config)
@@ -803,19 +811,22 @@ def _mark_item_for_skip(
             match = platform_config <= set(
                 [current_target, board_id, current_environment, current_image]
             )
-            matches.append(match)
+            marker_matches = marker_matches or match
 
-    if len(matches) == 0:
+        if marker_matches:
+            matching_markers.append(marker)
+
+    if not has_marker_configs:
         return
 
-    should_skip = any(matches)
+    should_skip = bool(matching_markers)
 
     # For only_config we want to skip if config is NOT in the allowed list
     if negate_check:
         should_skip = not should_skip
 
     if should_skip:
-        skip_handler_fn(item)
+        skip_handler_fn(item, matching_markers)
 
 
 def pytest_collection_modifyitems(config, items):
@@ -857,31 +868,37 @@ def pytest_collection_modifyitems(config, items):
         current_image = _get_current_image()
         board_id = get_board_id(system_desc)
 
-        def skip_config_handler(item):
-            reason = next(
-                (
-                    m.kwargs["reason"]
-                    for m in item.iter_markers("skip_config")
-                    if "reason" in m.kwargs
-                ),
+        def skip_config_handler(item, matching_markers):
+            marker_kwargs = matching_markers[0].kwargs
+            reason = marker_kwargs.get(
+                "reason",
                 "Test marked as skip for this platform/target combination",
             )
             item.add_marker(pytest.mark.skip(reason=reason))
 
-        def only_config_handler(item):
+        def only_config_handler(item, _matching_markers):
             item.add_marker(
                 pytest.mark.skip(
                     reason="Test marked as skip for this platform/target combination"
                 )
             )
 
-        def skip_exec_handler(item):
+        def xfail_config_handler(item, matching_markers):
+            marker_kwargs = matching_markers[0].kwargs
+            reason = marker_kwargs.get(
+                "reason",
+                "Test marked as xfail for this platform/target combination",
+            )
+            strict = marker_kwargs.get("strict", True)
+            item.add_marker(pytest.mark.xfail(reason=reason, strict=strict))
+
+        def skip_exec_handler(item, _matching_markers):
             # Set skip_exec attribute on the item instead of marking as skipped
             item.skip_exec = True
             xfail_reason = f"Execution marked as skip"
             item.skip_exec_reason = xfail_reason
             # Mark test as xfail so it's expected to fail
-            item.add_marker(pytest.mark.xfail(reason=xfail_reason, strict=False))
+            item.add_marker(pytest.mark.xfail(reason=xfail_reason, strict=True))
 
         _mark_item_for_skip(
             item,
@@ -901,6 +918,15 @@ def pytest_collection_modifyitems(config, items):
             "only_config",
             only_config_handler,
             negate_check=True,
+        )
+        _mark_item_for_skip(
+            item,
+            current_target,
+            board_id,
+            current_environment,
+            current_image,
+            "xfail_config",
+            xfail_config_handler,
         )
         _mark_item_for_skip(
             item,

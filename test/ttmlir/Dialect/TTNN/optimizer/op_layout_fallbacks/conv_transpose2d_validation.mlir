@@ -25,7 +25,6 @@ module attributes {} {
     // CHECK-SAME: batch_size = 1 : i32
     // CHECK-SAME: conv2d_config = #ttnn.conv2d_config<weights_dtype = bf16, deallocate_activation = true, act_block_h_override = {{[0-9]+}}, enable_kernel_stride_folding = false>
     // CHECK-SAME: dilation = array<i32: 1, 1>
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: groups = 1 : i32
     // CHECK-SAME: in_channels = 128 : i32
     // CHECK-SAME: input_height = 128 : i32
@@ -36,11 +35,9 @@ module attributes {} {
     // CHECK-SAME: padding = array<i32: 0, 0>
     // CHECK-SAME: stride = array<i32: 2, 2>
 
-    %1 = "ttnn.conv_transpose2d"(%arg0, %arg1, %arg2, %0) <{
-      batch_size = 1 : i32,
+    %1 = "ttnn.conv_transpose2d"(%arg0, %arg1, %arg2, %0) <{batch_size = 1 : i32,
       conv2d_config = #ttnn.conv2d_config<weights_dtype = bf16, deallocate_activation = true, act_block_h_override = 0, enable_kernel_stride_folding = false>,
       dilation = array<i32: 1, 1>,
-      dtype = #ttcore.supportedDataTypes<bf16>,
       groups = 1 : i32,
       in_channels = 128 : i32,
       input_height = 128 : i32,
@@ -49,8 +46,7 @@ module attributes {} {
       out_channels = 64 : i32,
       output_padding = array<i32: 0, 0>,
       padding = array<i32: 0, 0>,
-      stride = array<i32: 2, 2>
-    }> : (tensor<1x1x16384x128xbf16, #ttnn_layout_input>,
+      stride = array<i32: 2, 2>}> : (tensor<1x1x16384x128xbf16, #ttnn_layout_input>,
          tensor<128x64x2x2xbf16, #ttnn_layout_weight>,
          tensor<1x1x1x64xbf16, #ttnn_layout_bias>,
          !ttnn.device) -> tensor<1x1x65536x64xbf16, #ttnn_layout_output>

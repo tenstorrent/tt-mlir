@@ -31,7 +31,9 @@
 
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
+#include <cmath>
 #include <cstdint>
+#include <numeric>
 #include <optional>
 
 using namespace mlir;
@@ -51,22 +53,11 @@ public:
     ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         op.getResult().getType().getEncoding());
 
-    // Get the shape of the tensor, tensor layout, and data type
+    // Get the shape of the tensor and tensor layout.
     //
     ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
         rewriter.getContext(),
         mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
-    ttcore::DataType dtype = layoutAttr.getDataType();
-    ttcore::DataTypeAttr dTypeAttr =
-        ttcore::DataTypeAttr::get(rewriter.getContext(), dtype);
-
-    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
-
-    if (layoutAttr.isTiled()) {
-      ttnnLayoutEnum = ttnn::Layout::Tile;
-    }
-    ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
 
     // Due to API constraints, we need to use a host_empty op if tensor is in
     // system_memory.
@@ -75,7 +66,7 @@ public:
       //
       rewriter.replaceOpWithNewOp<ttnn::ZerosOp>(
           op, this->getTypeConverter()->convertType(op.getType()),
-          /*device=*/nullptr, shapeAttr, dTypeAttr, tensorLayoutAttr);
+          /*device=*/nullptr, shapeAttr);
       // Otherwise, we use regular empty op, with device-specific fields.
     } else {
       // Device
@@ -86,7 +77,7 @@ public:
       //
       rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
           op, this->getTypeConverter()->convertType(op.getType()), device,
-          shapeAttr, dTypeAttr, tensorLayoutAttr);
+          shapeAttr);
     }
     return success();
   }
@@ -117,12 +108,6 @@ public:
         rewriter.getContext(), llvm::SmallVector<int64_t, 4>(
                                    op.getShape().begin(), op.getShape().end()));
 
-    // Get data type, tensor layout, device and memory config
-    //
-    ttcore::DataTypeAttr dTypeAttr = ttcore::DataTypeAttr::get(
-        rewriter.getContext(), layoutAttr.getDataType());
-    ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), layoutAttr.getLayout());
     ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
 
     // Device only exists if memLayout is *not* null
@@ -133,7 +118,7 @@ public:
 
     rewriter.replaceOpWithNewOp<TTNNType>(
         op, this->getTypeConverter()->convertType(op.getType()), device,
-        shapeAttr, dTypeAttr, tensorLayoutAttr);
+        shapeAttr);
 
     return success();
   }
@@ -186,26 +171,10 @@ public:
     assert(mlir::isa<mlir::RankedTensorType>(adaptor.getInput().getType()) &&
            "Expected RankedTensorType for ToLayoutOp input");
 
-    auto outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-        mlir::cast<mlir::RankedTensorType>(op.getResult(0).getType())
-            .getEncoding());
-
-    // Determine the output data type
-    ttcore::DataType dtype = outputLayoutAttr.getDataType();
-    ttcore::DataTypeAttr outputDataType =
-        ttcore::DataTypeAttr::get(rewriter.getContext(), dtype);
-
-    // Determine the output layout (tile or row major)
-    ttnn::Layout outputLayoutEnum = outputLayoutAttr.getLayout();
-
     RankedTensorType result = mlir::cast<RankedTensorType>(op.getType(0));
 
-    ttnn::LayoutAttr outputLayout =
-        ttnn::LayoutAttr::get(rewriter.getContext(), outputLayoutEnum);
-
-    rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
-        op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
-        outputLayout, outputDataType);
+    rewriter.replaceOpWithNewOp<ttnn::ToTensorSpecOp>(
+        op, this->getTypeConverter()->convertType(result), adaptor.getInput());
 
     return success();
   }
@@ -299,8 +268,8 @@ public:
     mlir::IntegerAttr newDimArg = nullptr;
     if (dimArg && dimArg->size() == 1) {
       auto int32Attr = mlir::cast<mlir::IntegerAttr>(dimArg->getValue()[0]);
-      newDimArg =
-          mlir::IntegerAttr::get(rewriter.getI64Type(), int32Attr.getInt());
+      newDimArg = mlir::IntegerAttr::get(
+          rewriter.getIntegerType(64, /*isSigned=*/true), int32Attr.getInt());
     }
 
     rewriter.replaceOpWithNewOp<ttnn::ProdOp>(
@@ -320,7 +289,7 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Most of the frontends uses signed or sign less integer as return type for
+    // Most of the frontends uses signed or signless integer as return type for
     // argmax op (tt-mlir uses signed integer in this case); whereas, tt-metal
     // uses UINT32 as return type. This difference is ignored as the output
     // indices will always be positive.
@@ -330,12 +299,14 @@ public:
     if (dimArg) {
       assert(dimArg->size() == 1 &&
              "ttir::ArgMaxOp dim argument must be a single integer");
-      reductionAxis = *dimArg->getAsRange<mlir::IntegerAttr>().begin();
+
+      auto int32Attr = mlir::cast<mlir::IntegerAttr>(dimArg->getValue()[0]);
+      reductionAxis =
+          rewriter.getSI32IntegerAttr(static_cast<int32_t>(int32Attr.getInt()));
     }
     rewriter.replaceOpWithNewOp<ttnn::ArgMaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), reductionAxis, adaptor.getKeepDim(),
-        /*use_multicore=*/true);
+        adaptor.getInput(), reductionAxis, adaptor.getKeepDim());
     return success();
   }
 };
@@ -387,12 +358,7 @@ public:
       indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
     }
 
-    // tt-metal reshapes indices from (batch, seq_len) to (batch, 1, 1, seq_len)
-    // and asserts batch * seq_len == number of gradient vectors which are
-    // further embedded into the weight tensor. For 1D indices (N,) it takes
-    // first_dim == last_dim == N, producing (N, 1, 1, N) and the assert fails
-    // (N*N != N). Unsqueeze to 2D: (N,) -> (1, N) so tt-metal sees
-    // (1, 1, 1, N).
+    // Unsqueeze 1D tensor to 2D tensor: (N,) -> (1, N).
     if (indicesType.getRank() == 1) {
       llvm::SmallVector<int64_t, 2> unsqueezedShape{1,
                                                     indicesType.getDimSize(0)};
@@ -464,16 +430,38 @@ public:
         reshapedGradShape, rewriter,
         ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshaped_grad"));
 
-    // Get TTNNLayoutAttr of the result type.
-    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-        op.getResult().getType().getEncoding());
+    // tt-metal requires 4D indices tensor:
+    // [batch_size, seq_len] --> [batch_size, 1, 1, seq_len].
+    auto currentIndicesType =
+        mlir::cast<RankedTensorType>(inputIndices.getType());
+    if (currentIndicesType.getRank() == 2) {
+      llvm::SmallVector<int64_t, 4> fourDShape{
+          currentIndicesType.getDimSize(0), 1, 1,
+          currentIndicesType.getDimSize(1)};
+      inputIndices = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<TypedValue<RankedTensorType>>(inputIndices), fourDShape,
+          rewriter, ttmlir::utils::appendLocationSuffix(loc, "_4d_indices"));
+    }
 
-    // Get data type, tensor layout, buffer type and memory config.
-    ttcore::DataTypeAttr dTypeAttr = ttcore::DataTypeAttr::get(
-        rewriter.getContext(), layoutAttr.getDataType());
-    rewriter.replaceOpWithNewOp<ttnn::EmbeddingBackwardOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), inputIndices,
-        adaptor.getWeight(), reshapedGrad, dTypeAttr);
+    // tt-metal always returns the weight gradient as a 4D tensor of shape
+    // [1, 1, dictionary_size, embedding_size], so the ttnn op is typed that way
+    // and reshaped back to the 2D weight shape the ttir op declares.
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getType()));
+    llvm::SmallVector<int64_t, 4> gradient4DShape{
+        1, 1, outputType.getDimSize(0), outputType.getDimSize(1)};
+    auto gradient4DType = ttnn::utils::RankedTensorTypeFactory::create(
+        outputType, gradient4DShape);
+
+    auto embeddingBackwardOp = rewriter.create<ttnn::EmbeddingBackwardOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_embedding_bw"),
+        gradient4DType, inputIndices, adaptor.getWeight(), reshapedGrad);
+
+    llvm::SmallVector<int32_t, 2> outputShapeI32(outputType.getShape().begin(),
+                                                 outputType.getShape().end());
+    rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+        op, outputType, embeddingBackwardOp.getResult(),
+        rewriter.getI32ArrayAttr(outputShapeI32));
     return success();
   }
 };
@@ -487,16 +475,25 @@ public:
   LogicalResult
   matchAndRewrite(ttir::CumSumOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto outputLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
-    auto dTypeAttr =
-        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
-
     rewriter.replaceOpWithNewOp<ttnn::CumSumOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(),
-        rewriter.getI32IntegerAttr(static_cast<int32_t>(adaptor.getDim())),
-        dTypeAttr);
+        adaptor.getInput(), static_cast<int32_t>(adaptor.getDim()));
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class CumProdOpConversionPattern : public OpConversionPattern<ttir::CumProdOp> {
+public:
+  using OpConversionPattern<ttir::CumProdOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CumProdOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::CumProdOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), static_cast<int32_t>(adaptor.getDim()));
     return success();
   }
 };
@@ -703,29 +700,9 @@ public:
   matchAndRewrite(ttir::UpdateCacheOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // The TTIR version of this op is pure. In TTNN this op is in-place.
-    // We need to replace uses of the result ot the TTIR op with uses
-    // of the cache argument.
-    //
-    // The presence of the MemWrite trait of this op should preserve
-    // the order of this op relative to the cache arguments uses, preserving
-    // program correctness.
-
-    // This op can only work if it is the final use of the cache tensor in the
-    // order of execution. For now, checking that there is only one user (this
-    // op) of the cache tensor will suffice.
-    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
-                                         op.getCache().getUsers().end());
-    if (users.size() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "UpdateCacheOp cache argument must have exactly one user");
-    }
-
-    rewriter.create<ttnn::UpdateCacheOp>(
-        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
-        adaptor.getUpdateIndex(), adaptor.getBatchOffset());
-
-    rewriter.replaceOp(op, adaptor.getCache());
+    rewriter.replaceOpWithNewOp<ttnn::UpdateCacheOp>(
+        op, adaptor.getCache(), adaptor.getInput(), adaptor.getUpdateIndex(),
+        adaptor.getBatchOffset());
     return success();
   }
 };
@@ -740,19 +717,9 @@ public:
   LogicalResult
   matchAndRewrite(ttir::PagedUpdateCacheOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
-                                         op.getCache().getUsers().end());
-    if (users.size() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "PagedUpdateCacheOp cache argument must have exactly one user");
-    }
-
-    rewriter.create<ttnn::PagedUpdateCacheOp>(
-        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
-        adaptor.getUpdateIndex(), adaptor.getShareCache(),
-        adaptor.getPageTable());
-
-    rewriter.replaceOp(op, adaptor.getCache());
+    rewriter.replaceOpWithNewOp<ttnn::PagedUpdateCacheOp>(
+        op, adaptor.getCache(), adaptor.getInput(), adaptor.getUpdateIndex(),
+        adaptor.getShareCache(), adaptor.getPageTable());
     return success();
   }
 };
@@ -783,18 +750,44 @@ public:
   LogicalResult
   matchAndRewrite(ttir::PagedFillCacheOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
-                                         op.getCache().getUsers().end());
-    if (users.size() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "PagedFillCacheOp cache argument must have exactly one user");
+    rewriter.replaceOpWithNewOp<ttnn::PagedFillCacheOp>(
+        op, adaptor.getCache(), adaptor.getInput(), adaptor.getPageTable(),
+        adaptor.getBatchIdxTensor());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// Converts `ttir.tt_lang_op` to `ttnn.tt_lang_op`. The op is opaque to the
+// compiler: we forward all metadata attributes (`kernel_id`, `version_tag`,
+// `arg_roles`, `shard_spec`) verbatim and leave `kernel_artifact` empty for
+// the tt-xla plugin to populate after the pipeline completes.
+class TTLangOpConversionPattern : public OpConversionPattern<ttir::TTLangOp> {
+public:
+  using OpConversionPattern<ttir::TTLangOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::TTLangOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    resultTypes.reserve(op.getNumResults());
+    for (Type resultType : op.getResultTypes()) {
+      Type converted = this->getTypeConverter()->convertType(resultType);
+      if (!converted) {
+        return rewriter.notifyMatchFailure(
+            op, "Failed to convert ttir.tt_lang_op result type.");
+      }
+      resultTypes.push_back(converted);
     }
 
-    rewriter.create<ttnn::PagedFillCacheOp>(
-        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
-        adaptor.getPageTable(), adaptor.getBatchIdxTensor());
-
-    rewriter.replaceOp(op, adaptor.getCache());
+    rewriter.replaceOpWithNewOp<ttnn::TTLangOp>(
+        op, resultTypes, adaptor.getInputs(),
+        /*kernel_id=*/op.getKernelIdAttr(),
+        /*version_tag=*/op.getVersionTagAttr(),
+        /*arg_roles=*/op.getArgRolesAttr(),
+        /*shard_spec=*/op.getShardSpecAttr(),
+        /*kernel_artifact=*/mlir::StringAttr{});
     return success();
   }
 };
@@ -810,29 +803,8 @@ public:
   matchAndRewrite(ttir::FillCacheOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // The TTIR version of this op is pure. In TTNN this op is in-place.
-    // We need to replace uses of the result ot the TTIR op with uses
-    // of the cache argument.
-    //
-    // The presence of the MemWrite trait of this op should preserve
-    // the order of this op relative to the cache arguments uses, preserving
-    // program correctness.
-
-    // This op can only work if it is the final use of the cache tensor in the
-    // order of execution. For now, checking that there is only one user (this
-    // op) of the cache tensor will suffice.
-    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
-                                         op.getCache().getUsers().end());
-    if (users.size() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "FillCacheOp must have exactly one user");
-    }
-
-    rewriter.create<ttnn::FillCacheOp>(op.getLoc(), adaptor.getCache(),
-                                       adaptor.getInput(),
-                                       adaptor.getBatchOffset());
-
-    rewriter.replaceOp(op, adaptor.getCache());
+    rewriter.replaceOpWithNewOp<ttnn::FillCacheOp>(
+        op, adaptor.getCache(), adaptor.getInput(), adaptor.getBatchOffset());
     return success();
   }
 };
@@ -1086,20 +1058,6 @@ public:
     ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         op.getResult().getType().getEncoding());
 
-    // Get the data type and tensor layout
-    //
-    ttcore::DataType dtype = layoutAttr.getDataType();
-    ttcore::DataTypeAttr dTypeAttr =
-        ttcore::DataTypeAttr::get(rewriter.getContext(), dtype);
-
-    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
-
-    if (layoutAttr.isTiled()) {
-      ttnnLayoutEnum = ttnn::Layout::Tile;
-    }
-    ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
-
     mlir::Value device = nullptr;
 
     if (!mlir::tt::ttnn::isSystemBufferType(layoutAttr.getBufferType())) {
@@ -1108,7 +1066,7 @@ public:
 
     rewriter.replaceOpWithNewOp<ttnn::ConstantOp>(
         op, this->getTypeConverter()->convertType(op.getType()), device,
-        adaptor.getValue(), dTypeAttr, tensorLayoutAttr);
+        adaptor.getValue());
 
     return success();
   }
@@ -1267,6 +1225,59 @@ public:
     return success();
   }
 };
+
+class AdamWOpConversionPattern : public OpConversionPattern<ttir::AdamWOp> {
+public:
+  using OpConversionPattern<ttir::AdamWOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AdamWOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Value> updated{op.getParam(), op.getExpAvg(), op.getExpAvgSq()};
+    if (op.getMaxExpAvgSq()) {
+      updated.push_back(op.getMaxExpAvgSq());
+    }
+    for (Value operand : updated) {
+      if (llvm::any_of(operand.getUsers(), [&](Operation *user) {
+            return user != op && (user->getBlock() != op->getBlock() ||
+                                  !user->isBeforeInBlock(op));
+          })) {
+        return rewriter.notifyMatchFailure(
+            op, "an in-place operand is read after the step");
+      }
+    }
+
+    rewriter.create<ttnn::AdamWOp>(
+        op.getLoc(), adaptor.getParam(), adaptor.getGrad(), adaptor.getExpAvg(),
+        adaptor.getExpAvgSq(), adaptor.getLr(), adaptor.getBeta1Pow(),
+        adaptor.getBeta2Pow(), adaptor.getMaxExpAvgSq(), adaptor.getBeta1(),
+        adaptor.getBeta2(), adaptor.getEpsilon(), adaptor.getWeightDecay(),
+        adaptor.getStochasticRounding());
+
+    SmallVector<Value> replacements{adaptor.getParam(), adaptor.getExpAvg(),
+                                    adaptor.getExpAvgSq()};
+    if (adaptor.getMaxExpAvgSq()) {
+      replacements.push_back(adaptor.getMaxExpAvgSq());
+    }
+    rewriter.replaceOp(op, replacements);
+    return success();
+  }
+};
+
+class CrossEntropyForwardOpConversionPattern
+    : public OpConversionPattern<ttir::CrossEntropyForwardOp> {
+public:
+  using OpConversionPattern<ttir::CrossEntropyForwardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CrossEntropyForwardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::CrossEntropyForwardOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getTarget());
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -1282,7 +1293,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::DistributedRMSNormOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getResidual(),
-        /*stats=*/nullptr, device,
+        /*stats=*/nullptr,
+        /*semaphore=*/nullptr, device,
         static_cast<uint32_t>(adaptor.getClusterAxis()), adaptor.getEpsilon(),
         /*sub_device_id=*/nullptr,
         /*num_links=*/nullptr,
@@ -1357,47 +1369,6 @@ public:
 namespace {
 class GroupNormOpConversionPattern
     : public OpConversionPattern<ttir::GroupNormOp> {
-private:
-  // Compute a valid core grid for group_norm.
-  // This mirrors tt-metal's find_expected_dram_grid.
-  // ttnn/cpp/ttnn/operations/normalization/groupnorm/groupnorm_grid_utils.cpp
-  // metal issue: https://github.com/tenstorrent/tt-metal/issues/40916
-  static std::pair<uint64_t, uint64_t>
-  computeGroupNormCoreGrid(int64_t deviceGridX, int64_t deviceGridY,
-                           int64_t numChannels, int64_t numGroups,
-                           int64_t inputNHW, int64_t numBatches) {
-    assert(numBatches >= 1 && "group_norm numBatches must be >= 1");
-    constexpr int64_t tileSize = ttcore::TileType::getDefaultShape()[0];
-    int64_t Ht = llvm::divideCeil(inputNHW, tileSize);
-
-    for (int64_t gx = deviceGridX; gx >= 1; --gx) {
-      int64_t nvc = std::min(gx, numGroups);
-      while (nvc > 0 &&
-             ((numChannels / nvc) % tileSize != 0 || (numGroups % nvc) != 0)) {
-        --nvc;
-      }
-      if (nvc == 0) {
-        continue;
-      }
-
-      int64_t rowsPerY = gx / nvc;
-      if (rowsPerY == 0) {
-        continue;
-      }
-
-      int64_t maxGy = std::min(Ht / rowsPerY, deviceGridY);
-      for (int64_t gy = maxGy; gy >= 1; --gy) {
-        int64_t numVirtualRows = rowsPerY * gy;
-        if (Ht % numVirtualRows == 0 &&
-            (numVirtualRows < numBatches || numVirtualRows % numBatches == 0)) {
-          return {static_cast<uint64_t>(gx), static_cast<uint64_t>(gy)};
-        }
-      }
-    }
-
-    return {1, 1};
-  }
-
 public:
   using OpConversionPattern<ttir::GroupNormOp>::OpConversionPattern;
 
@@ -1413,12 +1384,11 @@ public:
     Location loc = op.getLoc();
     Value input = adaptor.getInput();
 
-    assert(inputType.getRank() == 4 && "input must be a 4D tensor");
-
     int64_t channelDimIdx = adaptor.getChannelDim();
 
     // If channel_dim is not the last dimension, permute to move it
     // there. E.g. for NCHW (channel_dim=1), permute [0,2,3,1] -> NHWC.
+    // Works for any rank >= 4, e.g. NCDHW -> NDHWC with [0,2,3,4,1].
     bool needsPermute = channelDimIdx != rank - 1;
     llvm::SmallVector<int64_t> permutation;
     llvm::SmallVector<int64_t> inversePermutation;
@@ -1449,16 +1419,21 @@ public:
 
     // TTNN group_norm requires [N, 1, H*W, C].
     // Reshape to [N, 1, H*W, C] if not already in that form.
+    // For >4D inputs (e.g. 5D [N, D, H, W, C] after permute), collapse all
+    // spatial dimensions (dims 1..rank-2) into one.
     llvm::SmallVector<int64_t> preNormShape(inputShape.begin(),
                                             inputShape.end());
 
-    bool needsReshape = inputShape[1] != 1;
+    bool needsReshape = rank > 4 || inputShape[1] != 1;
     if (needsReshape) {
       int64_t n = inputShape[0];
-      int64_t c = inputShape[3];
-      int64_t hw = inputShape[1] * inputShape[2];
+      int64_t c = inputShape[rank - 1];
+      int64_t spatialProduct = 1;
+      for (int64_t i = 1; i < rank - 1; ++i) {
+        spatialProduct *= inputShape[i];
+      }
 
-      llvm::SmallVector<int64_t> reshapedShape = {n, 1, hw, c};
+      llvm::SmallVector<int64_t> reshapedShape = {n, 1, spatialProduct, c};
       llvm::SmallVector<int32_t> reshapedShapeI32(reshapedShape.begin(),
                                                   reshapedShape.end());
       RankedTensorType reshapedType =
@@ -1467,30 +1442,11 @@ public:
       input = rewriter.create<ttnn::ReshapeOp>(
           loc, reshapedType, input, rewriter.getI32ArrayAttr(reshapedShapeI32));
     }
-    // Compute core_grid from the device worker grid and input dimensions.
     // Input is now in [N, 1, H*W, C] form.
-
     RankedTensorType groupNormInputType =
         mlir::cast<RankedTensorType>(input.getType());
 
-    llvm::SmallVector<int64_t> paddedGnShape =
-        ttnn::utils::getTilePaddedShape(groupNormInputType.getShape());
-    int64_t inputNHW = paddedGnShape[0] * paddedGnShape[1] * paddedGnShape[2];
-    int64_t numChannels = paddedGnShape[3];
-    int64_t numGroups = adaptor.getNumGroups();
-    int64_t numBatches = paddedGnShape[0];
-
-    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
-    auto workerGridShape = deviceAttr.getWorkerGrid().getShape();
-    // GridAttr shape is [y, x].
-    int64_t deviceGridX = workerGridShape[1];
-    int64_t deviceGridY = workerGridShape[0];
-
-    auto [gridX, gridY] = computeGroupNormCoreGrid(
-        deviceGridX, deviceGridY, numChannels, numGroups, inputNHW, numBatches);
-
-    auto coreGridAttr =
-        ttnn::CoreCoordAttr::get(rewriter.getContext(), gridX, gridY);
+    int64_t numChannels = groupNormInputType.getShape().back();
 
     // Materialize missing affine parameters to avoid runtime issues in
     // optional-weight/bias GroupNorm paths.
@@ -1512,10 +1468,6 @@ public:
           mlir::cast<ttnn::TTNNLayoutAttr>(affineType.getEncoding());
       auto affineShapeAttr =
           ttnn::ShapeAttr::get(rewriter.getContext(), affineType.getShape());
-      auto affineDTypeAttr = ttcore::DataTypeAttr::get(
-          rewriter.getContext(), affineLayoutAttr.getDataType());
-      auto affineTensorLayoutAttr =
-          ttnn::LayoutAttr::get(op.getContext(), affineLayoutAttr.getLayout());
       Value affineDevice =
           affineLayoutAttr.isDeviceBufferType()
               ? mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op))
@@ -1524,15 +1476,13 @@ public:
       if (!weight) {
         weight = rewriter
                      .create<ttnn::OnesOp>(loc, affineType, affineDevice,
-                                           affineShapeAttr, affineDTypeAttr,
-                                           affineTensorLayoutAttr)
+                                           affineShapeAttr)
                      .getResult();
       }
       if (!bias) {
         bias = rewriter
                    .create<ttnn::ZerosOp>(loc, affineType, affineDevice,
-                                          affineShapeAttr, affineDTypeAttr,
-                                          affineTensorLayoutAttr)
+                                          affineShapeAttr)
                    .getResult();
       }
     }
@@ -1541,7 +1491,7 @@ public:
     Value groupNormResult = rewriter.create<ttnn::GroupNormOp>(
         loc, this->getTypeConverter()->convertType(groupNormInputType), input,
         adaptor.getInputMask(), weight, bias, adaptor.getNumGroups(),
-        adaptor.getEpsilon(), coreGridAttr);
+        adaptor.getEpsilon());
 
     // Reshape back to original shape if reshaped.
     if (needsReshape) {
@@ -1681,7 +1631,6 @@ public:
         adaptor.getB(), adaptor.getSparsity(), op.getIsInputASparse(),
         op.getIsInputBSparse(), nnzAttr,
         /*program_config=*/programConfigAttr,
-        /*dtype=*/nullptr,
         /*compute_config=*/nullptr);
     if (auto attr = op->getAttr("ttcore.weight_dtype")) {
       newOp->setAttr("ttcore.weight_dtype", attr);
@@ -1751,8 +1700,9 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::AllToAllDispatchMetadataOp>(
         op, dispatched3D, indices3D, scores3D, adaptor.getInputTensor(),
         adaptor.getExpertIndices(), adaptor.getExpertScores(), expertMapping,
-        op.getNumDevicesAttr(), op.getClusterAxisAttr(),
-        /*drain_core=*/nullptr);
+        /*dispatched_buffer=*/Value(), /*indices_buffer=*/Value(),
+        /*scores_buffer=*/Value(), /*cross_device_semaphore=*/Value(),
+        op.getNumDevicesAttr(), op.getClusterAxisAttr());
     return success();
   }
 };
@@ -1826,6 +1776,232 @@ public:
 } // namespace
 
 namespace {
+class MoeGptOpConversionPattern : public OpConversionPattern<ttir::MoeGptOp> {
+public:
+  using OpConversionPattern<ttir::MoeGptOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MoeGptOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto tokenCountsType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getTokenCounts().getType()));
+    auto activationRecordsType =
+        cast<RankedTensorType>(this->getTypeConverter()->convertType(
+            op.getActivationRecords().getType()));
+    auto tokenIndicesType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getTokenIndices().getType()));
+    auto tilizeOutType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getTilizeOut().getType()));
+    auto tilizeOutRmType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getTilizeOutRm().getType()));
+
+    rewriter.replaceOpWithNewOp<ttnn::MoeGptOp>(
+        op, tokenCountsType, activationRecordsType, tokenIndicesType,
+        tilizeOutType, tilizeOutRmType, adaptor.getInputTensor(),
+        adaptor.getExpertIndices(), adaptor.getExpertScores(),
+        adaptor.getExpertMapping(), adaptor.getW0W1Tensor(),
+        adaptor.getW2Tensor(), op.getOutputHeightShardDimAttr(),
+        op.getOutputWidthShardDimAttr(), op.getHiddenSizeAttr(),
+        op.getClusterAxisAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class MoeComputeOpConversionPattern
+    : public OpConversionPattern<ttir::MoeComputeOp> {
+public:
+  using OpConversionPattern<ttir::MoeComputeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MoeComputeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Single result: the A2A combine output. Use the default type converter;
+    // its ROW_MAJOR/DRAM-interleaved layout is set by the moe_compute operand
+    // workaround.
+    Type combineType =
+        getTypeConverter()->convertType(op.getCombineOutput().getType());
+
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    // Prepack the raw weights into device-specific ttnn.prepare_moe_compute_*
+    // ops. Their result type is bank-sharded and device-dependent, so create
+    // with a placeholder and let TTNNDeduceMoEComputeLayouts refine it
+    // via OpModel.
+    auto w0Type = cast<RankedTensorType>(adaptor.getW0().getType());
+    auto w2Type = cast<RankedTensorType>(adaptor.getW2().getType());
+    // w0 logical shape is (L, E, K=hidden_size, N=intermediate_size).
+    auto u32Ty = rewriter.getIntegerType(32, /*isSigned=*/false);
+    auto hiddenSizeAttr = rewriter.getIntegerAttr(u32Ty, w0Type.getShape()[2]);
+    auto intermediateSizeAttr = op.getIntermediateSizeAttr();
+
+    auto w0w1Prepared = rewriter.create<ttnn::PrepareMoEComputeW0W1WeightsOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_prepare_w0_w1"),
+        /*placeholder=*/w0Type, adaptor.getW0(), adaptor.getW1(),
+        adaptor.getBias_0(), adaptor.getBias_1(), device, hiddenSizeAttr,
+        intermediateSizeAttr);
+
+    auto w2Prepared = rewriter.create<ttnn::PrepareMoEComputeW2WeightsOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_prepare_w2"),
+        /*placeholder=*/w2Type, adaptor.getW2(), adaptor.getBias_2(), device,
+        hiddenSizeAttr, intermediateSizeAttr);
+
+    // has_bias is derived from the bias operands.
+    auto hasBiasAttr =
+        rewriter.getBoolAttr(static_cast<bool>(adaptor.getBias_0()));
+
+    // Fabric-mux cores for the A2A combine; default to the 6U-test 3x3 block
+    // at (1,1)-(3,3) = 9 cores.
+    MLIRContext *ctx = rewriter.getContext();
+    ttnn::CoreRangeSetAttr muxCoreRangeSet = ttnn::CoreRangeSetAttr::get(
+        ctx, ttnn::CoreRangeAttr::get(ctx, ttnn::CoreCoordAttr::get(ctx, 1, 1),
+                                      ttnn::CoreCoordAttr::get(ctx, 3, 3)));
+
+    // optional_output_tensor and cross_device_semaphore are left unbound here;
+    // MoeComputeOp's DistributedOpInterface hooks binds them in the prelude.
+    rewriter.replaceOpWithNewOp<ttnn::MoeComputeOp>(
+        op, combineType, adaptor.getTilizeInputTensor(),
+        adaptor.getTilizeExpertIndicesTensor(),
+        adaptor.getTilizeExpertScoresTensor(),
+        adaptor.getTilizeExpertMappingTensor(), w0w1Prepared.getResult(),
+        w2Prepared.getResult(), /*optional_output_tensor=*/Value(),
+        /*cross_device_semaphore=*/Value(), device, op.getLayerIdAttr(),
+        op.getOutputHeightShardDimAttr(), op.getIntermediateSizeAttr(),
+        hasBiasAttr, op.getActivationFunctionAttr(), op.getClusterAxisAttr(),
+        /*num_links=*/mlir::IntegerAttr(), /*topology=*/ttcore::TopologyAttr(),
+        muxCoreRangeSet);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class Conv1dOpConversionPattern : public OpConversionPattern<ttir::Conv1dOp> {
+public:
+  using OpConversionPattern<ttir::Conv1dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::Conv1dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto weightTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+    auto inputShape = inputTy.getShape();
+
+    int64_t batchDim = op.getBatchDim();
+    int64_t lengthDim = op.getLengthDim();
+    int64_t channelDim = op.getChannelDim();
+
+    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputShape[batchDim]);
+    auto inputLengthAttr = rewriter.getI32IntegerAttr(inputShape[lengthDim]);
+    auto inChannelsAttr = rewriter.getI32IntegerAttr(inputShape[channelDim]);
+    auto outChannelsAttr = rewriter.getI32IntegerAttr(
+        op.getResult().getType().getDimSize(channelDim));
+
+    // Weight is (O, C/G, K); the kernel length is the last dimension.
+    auto kernelSizeAttr = rewriter.getI32IntegerAttr(weightTy.getDimSize(2));
+
+    // stride and dilation are scalars in the TTNN op. The TTIR op allows them
+    // to be either a scalar integer or a 1-element array.
+    auto scalarAttr =
+        [&](mlir::Attribute attr) -> std::optional<mlir::IntegerAttr> {
+      if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+        return rewriter.getI32IntegerAttr(intAttr.getInt());
+      }
+      if (auto arrAttr = mlir::dyn_cast<DenseI32ArrayAttr>(attr)) {
+        if (arrAttr.size() != 1) {
+          return std::nullopt;
+        }
+        return rewriter.getI32IntegerAttr(arrAttr[0]);
+      }
+      return std::nullopt;
+    };
+
+    auto strideAttr = scalarAttr(adaptor.getStride());
+    if (!strideAttr) {
+      return rewriter.notifyMatchFailure(
+          op, "conv1d stride must be a scalar or a 1-element array");
+    }
+    auto dilationAttr = scalarAttr(adaptor.getDilation());
+    if (!dilationAttr) {
+      return rewriter.notifyMatchFailure(
+          op, "conv1d dilation must be a scalar or a 1-element array");
+    }
+
+    // padding is normalized to a 2-element [pL, pR] array in the TTNN op.
+    DenseI32ArrayAttr paddingAttr;
+    mlir::Attribute padding = adaptor.getPadding();
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(padding)) {
+      int32_t p = static_cast<int32_t>(intAttr.getInt());
+      paddingAttr = rewriter.getDenseI32ArrayAttr({p, p});
+    } else if (auto arrAttr = mlir::dyn_cast<DenseI32ArrayAttr>(padding)) {
+      if (arrAttr.size() == 1) {
+        paddingAttr = rewriter.getDenseI32ArrayAttr({arrAttr[0], arrAttr[0]});
+      } else if (arrAttr.size() == 2) {
+        paddingAttr = arrAttr;
+      } else {
+        return rewriter.notifyMatchFailure(
+            op, "conv1d padding must be a scalar, 1-element, or 2-element "
+                "array");
+      }
+    } else {
+      return rewriter.notifyMatchFailure(op,
+                                         "unexpected conv1d padding attribute");
+    }
+
+    auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
+
+    // ttnn::conv1d forwards the bias unchanged to ttnn::conv2d, which expects a
+    // 4D (1, 1, 1, O) bias. The conv1d bias is (1, 1, O), so unsqueeze a height
+    // dimension before handing it off.
+    Value bias = adaptor.getBias();
+    if (bias) {
+      auto biasTy = mlir::cast<RankedTensorType>(bias.getType());
+      llvm::SmallVector<int64_t> biasShape(biasTy.getShape());
+      biasShape.insert(biasShape.begin() + 2, 1);
+      bias = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<TypedValue<RankedTensorType>>(bias), biasShape, rewriter,
+          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_bias_unsqueeze"));
+    }
+
+    // Keep conv1d config tensors in L1 (the Metal default). ttnn::conv1d wraps
+    // conv2d, and the in-DRAM depthwise conv2d path hangs in tt-metal (#45075),
+    // so we must not force DRAM here as the general conv2d path does.
+    auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
+                                .withConfigTensorsInDram(false);
+
+    // ttnn::conv1d delegates to ttnn::conv2d and returns the output in conv2d's
+    // flattened layout (1, 1, N * L_out, O). Create the op with that flattened
+    // result type and reshape back to the original (N, L_out, O) shape.
+    auto resultTy = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+    int64_t outLength = resultTy.getDimSize(lengthDim);
+    llvm::SmallVector<int64_t> flattenedShape = {
+        1, 1, inputShape[batchDim] * outLength,
+        resultTy.getDimSize(channelDim)};
+    RankedTensorType flattenedResultTy =
+        ttnn::utils::RankedTensorTypeFactory::create(resultTy, flattenedShape);
+
+    auto convOp = rewriter.create<ttnn::Conv1dOp>(
+        op.getLoc(), flattenedResultTy, adaptor.getInput(), adaptor.getWeight(),
+        bias, device, inChannelsAttr, outChannelsAttr, batchSizeAttr,
+        inputLengthAttr, kernelSizeAttr, *strideAttr, paddingAttr,
+        *dilationAttr, groupsAttr, conv2dConfigAttr, /*compute_config=*/nullptr,
+        /*conv2d_slice_config=*/nullptr);
+
+    Value output = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+        mlir::cast<TypedValue<RankedTensorType>>(convOp.getResult()),
+        llvm::SmallVector<int64_t>(resultTy.getShape()), rewriter,
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_unflatten"));
+
+    rewriter.replaceOp(op, output);
+
+    return success();
+  }
+};
+
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
@@ -1886,11 +2062,6 @@ public:
 
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
-    auto outputLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
-    auto outputDtypeAttr =
-        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
-
     // Config tensors are allocated in L1 by default in Metal.
     // In the general path, we want to allocate them in DRAM to prevent OOM.
     auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
@@ -1901,7 +2072,7 @@ public:
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, paddingAttr, *dilationAttr,
-        groupsAttr, outputDtypeAttr, conv2dConfigAttr,
+        groupsAttr, conv2dConfigAttr,
         /*compute_config=*/nullptr, /*conv2d_slice_config=*/nullptr);
 
     return success();
@@ -1981,28 +2152,17 @@ public:
       return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
 
-    auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
-
-    if (adaptor.getGroups() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "ttnn.conv3d only supports groups == 1");
+    auto dilationAttr = attrToTripleI32ArrayAttr(adaptor.getDilationAttr(),
+                                                 rewriter, "dilation");
+    if (auto error = dilationAttr.takeError()) {
+      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
+
+    auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
     auto paddingModeAttr = adaptor.getPaddingModeAttr();
 
-    auto outputLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
-    auto outputDtypeAttr =
-        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
-
-    // Preserve TT-Metal's default conv3d behavior when no config is attached to
-    // the lowered TTNN op. Weight preparation must use C_in_block = 0 as well,
-    // otherwise the weights are pre-blocked differently from runtime defaults.
-    // Current tt-metal default conv3d config sets C_in_block = TILE_WIDTH.
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
-    Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
-                                                  rewriter, op.getLoc(),
-                                                  /*cInBlock=*/TILE_WIDTH);
 
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
     Value reshapedBias = adaptor.getBias();
@@ -2030,12 +2190,56 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
 
+    // Attach a *complete* default Conv3dConfigAttr. tt-metal only auto-derives
+    // a full default config when conv3d_config is entirely absent (conv3d.cpp
+    // `config_opt.value_or(<full default>)`); given any partial config it
+    // leaves the unset fields at their C++ struct defaults (C_out_block = 0,
+    // compute grid = {1, 1}), which violate the kernel's blocking invariants
+    // for some shapes (C_out_block = 0 collapses to the full padded output
+    // channels, breaking `matmul_N_t % out_subblock_w`; a 1x1 grid breaks
+    // `C_in_blocks <= total_cores`). So mirror tt-metal's own defaults here —
+    // spatial out-blocks = 1, c_out_block = TILE_WIDTH, the minimal valid
+    // c_in_block, and the compute grid taken from the device's worker grid — so
+    // the op's config is the single source of truth on every backend. This is
+    // the one place that encodes tt-metal's default knowledge; the optimizer
+    // may refine fields later (its overrides merge onto this config, preserving
+    // the rest), and TTNNPrepareConv3dWeights only reads c_in_block back out.
+    //
+    // c_in_block: the minimal block that satisfies weight tile-alignment
+    // (kernel_vol * C_in_block divisible by TILE_WIDTH) and L1 alignment, then
+    // clamped to the padded input-channel count. This mirrors tt-metal's own
+    // minimal default (#42146): a full TILE_WIDTH block put the whole K
+    // reduction in one matmul block and overflowed L1 for large-kernel
+    // patch-embed convs. Since this op always carries an explicit config, the
+    // ttnn-side minimal default never triggers, so the minimum must be chosen
+    // here.
+    int64_t kernelVol = weightTy.getDimSize(2) * weightTy.getDimSize(3) *
+                        weightTy.getDimSize(4);
+    int64_t l1Alignment =
+        ttcore::getCurrentScopeSystemDesc(op).getNocL1AddressAlignBytes();
+    int64_t tileAlignFactor =
+        TILE_WIDTH / std::gcd(kernelVol, static_cast<int64_t>(TILE_WIDTH));
+    int64_t cInBlock = std::min<int64_t>(std::lcm(l1Alignment, tileAlignFactor),
+                                         inChannelsAttr.getInt());
+
+    auto computeGrid = ttcore::GridAttr::get(
+        getContext(), ttcore::lookupDevice(op).getWorkerGrid().getShape());
+    auto defaultConv3dConfig = ttnn::Conv3dConfigAttr::get(
+        getContext(), /*weights_dtype=*/std::nullopt, /*t_out_block=*/1,
+        /*w_out_block=*/1, /*h_out_block=*/1, /*c_out_block=*/TILE_WIDTH,
+        /*c_in_block=*/cInBlock,
+        /*compute_with_storage_grid_size=*/computeGrid);
+
+    // The raw 5D weight is passed through unchanged; TTNNPrepareConv3dWeights
+    // (a post-optimizer pass) inserts the PrepareConv3dWeightsOp once the
+    // optimizer has chosen (or kept) the Conv3dConfigAttr.
     auto convOp = rewriter.create<ttnn::Conv3dOp>(
-        op.getLoc(), outputType, input, reshapedWeight, reshapedBias, device,
-        inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
+        op.getLoc(), outputType, input, adaptor.getWeight(), reshapedBias,
+        device, inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
-        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr, nullptr,
-        nullptr);
+        *paddingAttr, *dilationAttr, paddingModeAttr, groupsAttr,
+        defaultConv3dConfig,
+        /*compute_config=*/nullptr);
 
     rewriter.replaceOp(op, convOp.getResult());
 
@@ -2067,81 +2271,6 @@ private:
 
     return llvm::createStringError("Unexpected attribute type for '%s'",
                                    attrName.data());
-  }
-
-  // Transforms: (O, C/G, K_D, K_H, K_W) →
-  //   (num_C_in_blocks * K_D * K_H * K_W * C_in_block, O)
-  // When cInBlock == 0, uses full padded C (no blocking).
-  Value reshapeWeightForConv3d(Value weight, RankedTensorType weightTy,
-                               PatternRewriter &rewriter, Location loc,
-                               uint32_t cInBlock = 0) const {
-    constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
-
-    llvm::ArrayRef<int64_t> weightShape = weightTy.getShape();
-    int64_t outChannels = weightShape[0];
-    int64_t inChannPerGroup = weightShape[1];
-    int64_t kernelDepth = weightShape[2];
-    int64_t kernelHeight = weightShape[3];
-    int64_t kernelWidth = weightShape[4];
-
-    // Step 1: Permute (O, C/G, K_D, K_H, K_W) → (K_D, K_H, K_W, C/G, O)
-    Value result = ttir_to_ttnn::utils::generatePermute(
-        mlir::cast<TypedValue<RankedTensorType>>(weight), {2, 3, 4, 1, 0},
-        rewriter, loc);
-
-    // Step 2: Pad C/G to tile width alignment
-    int64_t cInAligned =
-        llvm::divideCeil(inChannPerGroup, TILE_WIDTH) * TILE_WIDTH;
-    if (cInAligned != inChannPerGroup) {
-      int32_t cinPadAmount = static_cast<int32_t>(cInAligned - inChannPerGroup);
-      llvm::SmallVector<int32_t> padding = {0, 0, 0, 0, 0, 0, 0, cinPadAmount,
-                                            0, 0};
-      result = ttir_to_ttnn::utils::generatePad(
-          mlir::cast<TypedValue<RankedTensorType>>(result), padding, rewriter,
-          ttmlir::utils::appendLocationSuffix(loc, "_pad_cin"));
-    }
-
-    // Step 3: Block C_in and reorder so num_C_in_blocks is outermost
-    // cInBlock == 0 means use full cInAligned (no blocking).
-    if (cInBlock == 0) {
-      cInBlock = cInAligned;
-    }
-    int64_t numCInBlocks = cInAligned / cInBlock;
-
-    if (numCInBlocks > 1) {
-      // Reshape 5D→6D: (K_D, K_H, K_W, C_aligned, O)
-      //              → (K_D, K_H, K_W, num_blocks, C_in_block, O)
-      llvm::SmallVector<int64_t> blockedShape = {kernelDepth, kernelHeight,
-                                                 kernelWidth, numCInBlocks,
-                                                 cInBlock,    outChannels};
-      llvm::SmallVector<int32_t> blockedShapeI32(blockedShape.begin(),
-                                                 blockedShape.end());
-      auto curTy = mlir::cast<RankedTensorType>(result.getType());
-      auto blockedTy =
-          ttnn::utils::RankedTensorTypeFactory::create(curTy, blockedShape);
-      result = rewriter.create<ttnn::ReshapeOp>(
-          loc, blockedTy, result, rewriter.getI32ArrayAttr(blockedShapeI32));
-
-      // Permute 6D: (K_D, K_H, K_W, num_blocks, C_in_block, O)
-      //           → (num_blocks, K_D, K_H, K_W, C_in_block, O)
-      result = ttir_to_ttnn::utils::generatePermute(
-          mlir::cast<TypedValue<RankedTensorType>>(result), {3, 0, 1, 2, 4, 5},
-          rewriter, ttmlir::utils::appendLocationSuffix(loc, "_block_permute"));
-    }
-
-    // Step 4: Flatten to 2D
-    int64_t flattenedDim =
-        numCInBlocks * kernelDepth * kernelHeight * kernelWidth * cInBlock;
-    llvm::SmallVector<int64_t> finalShape = {flattenedDim, outChannels};
-    llvm::SmallVector<int32_t> finalShapeI32(finalShape.begin(),
-                                             finalShape.end());
-
-    auto resultTy = mlir::cast<RankedTensorType>(result.getType());
-    RankedTensorType outputType =
-        ttnn::utils::RankedTensorTypeFactory::create(resultTy, finalShape);
-
-    return rewriter.create<ttnn::ReshapeOp>(
-        loc, outputType, result, rewriter.getI32ArrayAttr(finalShapeI32));
   }
 
   // Transforms bias tensor to 2D: (1, 1, 1, 1, O) → (1, O)
@@ -2238,11 +2367,6 @@ public:
 
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
-    auto outputLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
-    auto outputDtypeAttr =
-        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
-
     // Config tensors are allocated in L1 by default in Metal.
     // In the general path, we want to allocate them in DRAM to prevent OOM.
     auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
@@ -2253,7 +2377,7 @@ public:
         adaptor.getWeight(), adaptor.getBias(), device, inChannelsAttr,
         outChannelsAttr, batchSizeAttr, inputHeightAttr, inputWidthAttr,
         kernelSizeAttr, *strideAttr, reducedPaddingAttr, *outputPaddingAttr,
-        *dilationAttr, groupsAttr, outputDtypeAttr, conv2dConfigAttr,
+        *dilationAttr, groupsAttr, conv2dConfigAttr,
         /*compute_config=*/nullptr,
         /*conv2d_slice_config=*/nullptr);
 
@@ -2462,15 +2586,9 @@ public:
     // as params. That is why we don't inherit from the
     // Pooling2dOpConversionPattern.
 
-    // Extract output layout and dtype from the result type
-    auto outputLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
-    auto outputDtypeAttr =
-        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
-
     rewriter.replaceOpWithNewOp<ttnn::GlobalAvgPool2dOp>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInput(), outputDtypeAttr);
+        adaptor.getInput());
 
     return success();
   }
@@ -2486,15 +2604,9 @@ public:
   LogicalResult
   matchAndRewrite(ttir::GeluBackwardOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto outputLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
-    auto outputDtypeAttr =
-        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
-
     rewriter.replaceOpWithNewOp<ttnn::GeluBackwardOp>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getLhs(), adaptor.getRhs(), outputDtypeAttr,
-        op.getApproximate());
+        adaptor.getLhs(), adaptor.getRhs(), op.getApproximate());
     return success();
   }
 };
@@ -2511,14 +2623,10 @@ public:
                   ttir::BitcastConvertOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = op.getType();
-    ttnn::TTNNLayoutAttr outputLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
-    ttcore::DataTypeAttr outputDataTypeAttr = ttcore::DataTypeAttr::get(
-        op.getContext(), outputLayoutAttr.getDataType());
 
     rewriter.replaceOpWithNewOp<ttnn::BitcastConvertOp>(
         op, this->getTypeConverter()->convertType(resultType),
-        adaptor.getInput(), outputDataTypeAttr);
+        adaptor.getInput());
     return success();
   }
 };
@@ -2534,14 +2642,10 @@ public:
   matchAndRewrite(ttir::TypecastOp op, ttir::TypecastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = op.getType();
-    ttnn::TTNNLayoutAttr outputLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
-    ttcore::DataTypeAttr outputDataTypeAttr = ttcore::DataTypeAttr::get(
-        op.getContext(), outputLayoutAttr.getDataType());
 
     rewriter.replaceOpWithNewOp<ttnn::TypecastOp>(
         op, this->getTypeConverter()->convertType(resultType),
-        adaptor.getInput(), outputDataTypeAttr);
+        adaptor.getInput());
     return success();
   }
 };
@@ -2624,18 +2728,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::MeshShardOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (adaptor.getShardType() == ttcore::MeshShardType::Identity) {
-      // Use ttnn.mesh_shard op for now. This is a temporary workaround until we
-      // have a proper way to handle identity shard type.
-      auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-      rewriter.replaceOpWithNewOp<ttnn::MeshShardOp>(
-          op, this->getTypeConverter()->convertType(op.getType()),
-          adaptor.getInput(), device, adaptor.getShardDirection(),
-          adaptor.getShardType(), adaptor.getShardShape(),
-          adaptor.getShardDims());
-      return success();
-    }
-
     switch (adaptor.getShardDirection()) {
     case ttcore::MeshShardDirection::FullToShard:
       return rewriteFullToShard(op, adaptor, rewriter);
@@ -2836,13 +2928,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::CollectivePermuteOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    RankedTensorType inputType =
-        mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    ttnn::TTNNLayoutAttr layoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
-    ttcore::DataTypeAttr dTypeAttr = ttcore::DataTypeAttr::get(
-        rewriter.getContext(), layoutAttr.getDataType());
-
     llvm::SmallVector<int64_t> pairs = llvm::SmallVector<int64_t>(
         adaptor.getSourceTargetPairs().getValues<int64_t>());
     if (pairs.empty()) {
@@ -2864,7 +2949,7 @@ public:
             .create<ttnn::AssignOp>(
                 op.getLoc(),
                 this->getTypeConverter()->convertType(op.getType()),
-                adaptor.getInput(), dTypeAttr)
+                adaptor.getInput())
             .getResult();
 
     auto meshDevice = ttcore::lookupDevice(op);
@@ -2951,25 +3036,14 @@ public:
     ttnn::TTNNLayoutAttr ttnnLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
 
-    ttcore::DataTypeAttr dtypeAttr = rewriter.getAttr<ttcore::DataTypeAttr>(
-        ttcore::elementTypeToDataType(outputType.getElementType()));
-
     mlir::Value device =
         ttnnLayoutAttr.isDeviceBufferType()
             ? mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op))
             : nullptr;
 
-    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
-
-    if (ttnnLayoutAttr.isTiled()) {
-      ttnnLayoutEnum = ttnn::Layout::Tile;
-    }
-    ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
-
     rewriter.replaceOpWithNewOp<ttnn::ArangeOp>(
         op, outputType, device, adaptor.getStart(), adaptor.getEnd(),
-        adaptor.getStep(), dtypeAttr, tensorLayoutAttr);
+        adaptor.getStep());
 
     return success();
   }
@@ -2987,19 +3061,6 @@ public:
 
     // Get ttnn::TTNNLayoutAttr of the result type.
     //
-    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-        op.getResult().getType().getEncoding());
-
-    mlir::tt::ttcore::DataType dtype =
-        mlir::tt::ttcore::elementTypeToDataType(adaptor.getDtype());
-    ttcore::DataTypeAttr dTypeAttr =
-        ttcore::DataTypeAttr::get(rewriter.getContext(), dtype);
-
-    ttnn::Layout ttnnLayoutEnum =
-        layoutAttr.isTiled() ? ttnn::Layout::Tile : ttnn::Layout::RowMajor;
-    ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
-
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
     ttnn::ShapeAttr sizeAttr = ttnn::ShapeAttr::get(
@@ -3008,7 +3069,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::RandOp>(
         op, this->getTypeConverter()->convertType(op.getType()), device,
         sizeAttr, adaptor.getLowAttr(), adaptor.getHighAttr(),
-        adaptor.getSeedAttr(), dTypeAttr, tensorLayoutAttr);
+        adaptor.getSeedAttr());
     return success();
   }
 };
@@ -3046,7 +3107,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getIndex(), adaptor.getSource(),
-        rewriter.getI32IntegerAttr(op.getDim()),
+        rewriter.getSI32IntegerAttr(op.getDim()),
         adaptor.getScatterReduceTypeAttr());
     return success();
   }
@@ -3063,8 +3124,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::GatherOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getIndex(),
-        rewriter.getI32IntegerAttr(adaptor.getDim()));
+        adaptor.getInput(), adaptor.getIndex(), adaptor.getDim());
     return success();
   }
 };
@@ -3130,13 +3190,8 @@ public:
     auto meshDevice = ttcore::lookupDevice(op);
     llvm::SmallVector<int64_t> meshShape{meshDevice.getMeshShape()};
 
-    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-        op.getResult().getType().getEncoding());
-    ttcore::DataTypeAttr dTypeAttr =
-        ttcore::DataTypeAttr::get(op.getContext(), layoutAttr.getDataType());
-
-    Value finalValue = rewriter.create<ttnn::AssignOp>(
-        op.getLoc(), inputType, adaptor.getInput(), dTypeAttr);
+    Value finalValue = rewriter.create<ttnn::AssignOp>(op.getLoc(), inputType,
+                                                       adaptor.getInput());
     auto replicaGroups = ttmlir::utils::denseElementsAttrTo2D<int64_t>(
         adaptor.getReplicaGroups());
 
@@ -3276,7 +3331,8 @@ public:
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
         adaptor.getIsCausal(), adaptor.getAttentionMask(),
         adaptor.getCurPosTensor(), adaptor.getAttentionSink(),
-        adaptor.getScaleAttr(), /*program_config=*/nullptr);
+        adaptor.getScaleAttr(), /*sliding_window_size=*/IntegerAttr(),
+        /*program_config=*/nullptr);
     return success();
   }
 };
@@ -3299,6 +3355,27 @@ public:
         adaptor.getAttentionMask(), adaptor.getCurPosTensor(),
         adaptor.getAttentionSink(), adaptor.getScaleAttr(),
         adaptor.getSlidingWindowSizeAttr(),
+        /*program_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class ChunkedScaledDotProductAttentionOpConversionPattern
+    : public OpConversionPattern<ttir::ChunkedScaledDotProductAttentionOp> {
+public:
+  using OpConversionPattern<
+      ttir::ChunkedScaledDotProductAttentionOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(ttir::ChunkedScaledDotProductAttentionOp op,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::ChunkedScaledDotProductAttentionOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
+        adaptor.getPageTable(), adaptor.getChunkStartIdx(),
+        adaptor.getScaleAttr(),
         /*program_config=*/nullptr);
     return success();
   }
@@ -3393,6 +3470,38 @@ private:
     return rewriter.create<ttnn::RepeatOp>(loc, broadcastType, mask, shapeAttr);
   }
 
+  // Pre-divide the attention sink by `scale` so the tt-metal kernel reproduces
+  // the faithful sink logit.
+  //
+  // Workaround for https://github.com/tenstorrent/tt-metal/issues/40470: the
+  // SDPA prefill and decode kernels apply `scale` inside the exp path to BOTH
+  // the QK scores and the attention sink (exp((sink - max) * scale)).
+  Value
+  compensateAttentionSinkForScale(ttir::ScaledDotProductAttentionOp op,
+                                  Value sink,
+                                  ConversionPatternRewriter &rewriter) const {
+    if (!sink) {
+      return sink;
+    }
+    // The effective scale must match what the kernel applies: the explicit
+    // scale attribute, else the default 1 / sqrt(head_dim).
+    auto queryType = mlir::cast<RankedTensorType>(op.getQuery().getType());
+    int64_t headDim = queryType.getShape().back();
+    float scale = op.getScaleAttr()
+                      ? static_cast<float>(op.getScaleAttr().getValueAsDouble())
+                      : 1.0f / std::sqrt(static_cast<float>(headDim));
+    // scale == 1 (or the degenerate 0) needs no compensation.
+    if (scale == 1.0f || scale == 0.0f) {
+      return sink;
+    }
+    auto sinkType = mlir::cast<RankedTensorType>(sink.getType());
+    Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    Value invScale = rewriter.create<ttnn::FullOp>(
+        op.getLoc(), sinkType, rewriter.getF32FloatAttr(1.0f / scale), device);
+    return rewriter.create<ttnn::MultiplyOp>(op.getLoc(), sinkType, sink,
+                                             invScale);
+  }
+
   // Lower to SDPA decode op. Operand layout transitions:
   //   Q:      [B, Hq, 1, D]      -> [1, B, Hq, D]  (permute {2,0,1,3})
   //   K, V:   [B, Hkv, Sk, D]    -> unchanged (TTIR generic and TTNN decode
@@ -3421,11 +3530,15 @@ private:
                                              op.getLoc());
     }
 
+    Value attentionSink = compensateAttentionSinkForScale(
+        op, adaptor.getAttentionSink(), rewriter);
+
     auto decodeOp = rewriter.create<ttnn::ScaledDotProductAttentionDecodeOp>(
         op.getLoc(), permutedQuery.getType(), permutedQuery, adaptor.getKey(),
         adaptor.getValue(), op.getIsCausal(), attentionMask,
-        /*cur_pos_tensor=*/Value(), /*attention_sink=*/Value(),
-        adaptor.getScaleAttr(),
+        /*cur_pos_tensor=*/Value(),
+        /*attention_sink=*/attentionSink, adaptor.getScaleAttr(),
+        adaptor.getSlidingWindowSizeAttr(),
         /*program_config=*/nullptr);
 
     // Permute result back: [1, B, H, D] -> [B, H, 1, D].
@@ -3442,11 +3555,35 @@ private:
   LogicalResult lowerToSDPAOp(ttir::ScaledDotProductAttentionOp op,
                               OpAdaptor adaptor,
                               ConversionPatternRewriter &rewriter) const {
+    // The TTNN SDPA kernel streams over the query dim and cannot broadcast it,
+    // so materialize a query-broadcast mask ([.., 1, Sk]) to [.., Sq, Sk].
+    Value mask = adaptor.getAttentionMask();
+    if (mask) {
+      auto maskType = mlir::cast<RankedTensorType>(mask.getType());
+      int64_t seqLen =
+          mlir::cast<RankedTensorType>(adaptor.getQuery().getType())
+              .getDimSize(kSeqLenDim);
+      if (maskType.getDimSize(kSeqLenDim) == 1 && seqLen != 1) {
+        SmallVector<int64_t> broadcastShape(maskType.getShape());
+        broadcastShape[kSeqLenDim] = seqLen;
+        auto broadcastType = ttnn::utils::RankedTensorTypeFactory::create(
+            maskType, broadcastShape);
+        auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
+            maskType.getShape(), broadcastShape);
+        mask = rewriter.create<ttnn::RepeatOp>(
+            op.getLoc(), broadcastType, mask,
+            ttnn::ShapeAttr::get(rewriter.getContext(), broadcastDims));
+      }
+    }
+
+    Value attentionSink = compensateAttentionSinkForScale(
+        op, adaptor.getAttentionSink(), rewriter);
+
     rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
-        adaptor.getAttentionMask(), op.getIsCausal(), adaptor.getScaleAttr(),
-        adaptor.getSlidingWindowSizeAttr(), adaptor.getAttentionSink());
+        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(), mask,
+        op.getIsCausal(), adaptor.getScaleAttr(),
+        adaptor.getSlidingWindowSizeAttr(), attentionSink);
 
     return success();
   }
@@ -3513,15 +3650,10 @@ public:
 
     // Buffers to hold the output for each device (initialized as cloned).
 
-    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-        op.getResult().getType().getEncoding());
-    ttcore::DataTypeAttr dTypeAttr =
-        ttcore::DataTypeAttr::get(op.getContext(), layoutAttr.getDataType());
-
     llvm::SmallVector<Value> reorgBuffers(splitCount);
     for (int32_t i = 0; i < splitCount; i++) {
       reorgBuffers[i] = rewriter.create<ttnn::AssignOp>(
-          loc, sliceOpResults[i].getType(), sliceOpResults[i], dTypeAttr);
+          loc, sliceOpResults[i].getType(), sliceOpResults[i]);
     }
 
     auto meshShape = ttcore::lookupDevice(op).getMeshShape();
@@ -3595,28 +3727,6 @@ public:
   }
 };
 
-class RotaryEmbeddingOpConversionPattern
-    : public OpConversionPattern<ttir::RotaryEmbeddingOp> {
-public:
-  using OpConversionPattern<ttir::RotaryEmbeddingOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::RotaryEmbeddingOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto resultType =
-        this->getTypeConverter()->convertType(op.getResult().getType());
-    if (!resultType) {
-      return failure();
-    }
-    rewriter.replaceOpWithNewOp<ttnn::RotaryEmbeddingOp>(
-        op, resultType, adaptor.getInput(), adaptor.getCosCache(),
-        adaptor.getSinCache(),
-        /*token_index=*/mlir::IntegerAttr(),
-        /*compute_config=*/nullptr);
-    return success();
-  }
-};
-
 class TopKOpConversionPattern : public OpConversionPattern<ttir::TopKOp> {
 public:
   using OpConversionPattern<ttir::TopKOp>::OpConversionPattern;
@@ -3634,6 +3744,7 @@ public:
     return success();
   }
 };
+
 } // namespace
 
 namespace mlir::tt {
@@ -3665,14 +3776,14 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseBinaryOpConversionPattern<ttir::LogicalAndOp, ttnn::LogicalAndOp>,
            ElementwiseBinaryOpConversionPattern<ttir::LogicalOrOp, ttnn::LogicalOrOp>,
            ElementwiseBinaryOpConversionPattern<ttir::LogicalXorOp, ttnn::LogicalXorOp>,
-           ElementwiseOpConversionPattern<ttir::BitwiseAndOp, ttnn::BitwiseAndOp>,
-           ElementwiseOpConversionPattern<ttir::LogicalLeftShiftOp, ttnn::LogicalLeftShiftOp>,
-           ElementwiseOpConversionPattern<ttir::BitwiseOrOp, ttnn::BitwiseOrOp>,
-           ElementwiseOpConversionPattern<ttir::BitwiseXorOp, ttnn::BitwiseXorOp>,
-           ElementwiseOpConversionPattern<ttir::MaximumOp, ttnn::MaximumOp>,
-           ElementwiseOpConversionPattern<ttir::MinimumOp, ttnn::MinimumOp>,
-           ElementwiseOpConversionPattern<ttir::RemainderOp, ttnn::RemainderOp>,
-           ElementwiseOpConversionPattern<ttir::Atan2Op, ttnn::Atan2Op>,
+           ElementwiseBinaryOpConversionPattern<ttir::BitwiseAndOp, ttnn::BitwiseAndOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::LogicalLeftShiftOp, ttnn::LogicalLeftShiftOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::BitwiseOrOp, ttnn::BitwiseOrOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::BitwiseXorOp, ttnn::BitwiseXorOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::MaximumOp, ttnn::MaximumOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::MinimumOp, ttnn::MinimumOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::RemainderOp, ttnn::RemainderOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::Atan2Op, ttnn::Atan2Op>,
            ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
            ElementwiseOpConversionPattern<ttir::CbrtOp, ttnn::CbrtOp>,
            ElementwiseOpConversionPattern<ttir::FloorOp, ttnn::FloorOp>,
@@ -3707,6 +3818,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::TanOp, ttnn::TanOp>,
            ElementwiseOpConversionPattern<ttir::TanhOp, ttnn::TanhOp>,
            ElementwiseOpConversionPattern<ttir::AtanOp, ttnn::AtanOp>,
+           ElementwiseOpConversionPattern<ttir::RoundOp, ttnn::RoundOp>,
            Pooling2dOpConversionPattern<ttir::MaxPool2dOp, ttnn::MaxPool2dOp>,
            Pooling2dOpConversionPattern<ttir::MaxPool2dWithIndicesOp, ttnn::MaxPool2dWithIndicesOp>,
            Pooling2dOpConversionPattern<ttir::AvgPool2dOp, ttnn::AvgPool2dOp>,
@@ -3725,6 +3837,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            EmbeddingBackwardOpConversionPattern,
            RepeatOpConversionPattern,
            CumSumOpConversionPattern,
+           CumProdOpConversionPattern,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
            SortOpConversionPattern,
@@ -3742,6 +3855,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            LinearOpConversionPattern,
            BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern,
+           AdamWOpConversionPattern,
+           CrossEntropyForwardOpConversionPattern,
            RMSNormOpConversionPattern,
            DistributedRMSNormOpConversionPattern,
            DistributedLayerNormOpConversionPattern,
@@ -3754,6 +3869,9 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            AllToAllCombineOpConversionPattern,
            SelectiveReduceCombineOpConversionPattern,
            MoeExpertTokenRemapOpConversionPattern,
+           MoeGptOpConversionPattern,
+           MoeComputeOpConversionPattern,
+           Conv1dOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
@@ -3781,14 +3899,15 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ScaledDotProductAttentionOpConversionPattern,
            ScaledDotProductAttentionDecodeOpConversionPattern,
            PagedScaledDotProductAttentionDecodeOpConversionPattern,
+           ChunkedScaledDotProductAttentionOpConversionPattern,
            PagedFlashMultiLatentAttentionDecodeOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern,
            GeluBackwardOpConversionPattern,
            DropoutOpConversionPattern,
            DebugOpConversionPattern<debug::DumpOp, ttnn::DumpTensorOp>,
-           RotaryEmbeddingOpConversionPattern,
            TopKOpConversionPattern,
-           TopKRouterGptOpConversionPattern
+           TopKRouterGptOpConversionPattern,
+           TTLangOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

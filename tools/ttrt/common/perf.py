@@ -214,10 +214,10 @@ class Perf:
         self.ttnn_binaries = []
         self.ttmetal_binaries = []
         self.tracy_capture_tool_path = (
-            f"{self.globals.get_ttmetal_home_path()}/capture-release"
+            f"{self.globals.get_ttmetal_home_path()}/tracy-capture"
         )
         self.tracy_csvexport_tool_path = (
-            f"{self.globals.get_ttmetal_home_path()}/csvexport-release"
+            f"{self.globals.get_ttmetal_home_path()}/tracy-csvexport"
         )
         self.tracy_capture_tool_process = None
         self.results = Results(self.logger, self.file_manager)
@@ -496,7 +496,7 @@ class Perf:
                         child_calls = ["CompileProgram", "HWCommandQueue_write_buffer"]
                         child_calls_str = f"-x {','.join(child_calls)}"
                         subprocess.run(
-                            f"{self.tracy_csvexport_tool_path} -u -p TT_DNN {child_calls_str} {tracy_file_path}",
+                            f"{self.tracy_csvexport_tool_path} -u -t TT_DNN {child_calls_str} {tracy_file_path}",
                             shell=True,
                             check=True,
                             stdout=csv_file,

@@ -156,14 +156,12 @@ def TTCore_MeshShardDirection: I32EnumAttr<"MeshShardDirection", "TT MeshShardDi
   let cppNamespace = "::mlir::tt::ttcore";
 }
 
-def TTCore_MeshShardType_Identity  : I32EnumAttrCase<"Identity",  0, "identity">;
 def TTCore_MeshShardType_Replicate : I32EnumAttrCase<"Replicate", 1, "replicate">;
 def TTCore_MeshShardType_Maximal   : I32EnumAttrCase<"Maximal",   2, "maximal">;
 def TTCore_MeshShardType_Devices   : I32EnumAttrCase<"Devices",   3, "devices">;
 
 def TTCore_MeshShardType: I32EnumAttr<"MeshShardType", "TT MeshShardType",
                           [
-                           TTCore_MeshShardType_Identity,
                            TTCore_MeshShardType_Replicate,
                            TTCore_MeshShardType_Maximal,
                            TTCore_MeshShardType_Devices,
@@ -256,6 +254,19 @@ def TTCore_Topology: I32EnumAttr<"Topology", "CCL Topology Type",
   let cppNamespace = "::mlir::tt::ttcore";
 }
 
+def TTCore_MoEActivationFunction_Silu   : I32EnumAttrCase<"Silu",   0, "silu">;
+def TTCore_MoEActivationFunction_SwiGLU : I32EnumAttrCase<"SwiGLU", 1, "swiglu">;
+
+def TTCore_MoEActivationFunction : I32EnumAttr<"MoEActivationFunction",
+                                               "Activation function for the MoE expert FFN",
+                          [
+                           TTCore_MoEActivationFunction_Silu,
+                           TTCore_MoEActivationFunction_SwiGLU,
+                          ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttcore";
+}
+
 // Routing mode for fabric connections. This is used in D2M to decide how we want to route
 // in the given topology, as well as which links a core should connect to.
 // In line/mesh topologies, we need to connect to all links to ensure reachability, and there is
@@ -274,6 +285,25 @@ def TTCore_RoutingMode : I32EnumAttr<"RoutingMode", "TT RoutingMode",
                            [
                             TTCore_RoutingModeBidirLineMesh,
                             TTCore_RoutingModeUnidirRingTorus,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttcore";
+}
+
+// Attention mask mode for scaled dot-product attention. Mirrors
+// `ttml::metal::AttentionMaskType` (values must match its declaration order):
+//  - None: no mask, scores are only scaled.
+//  - Causal: lower-triangular causal mask generated on device.
+//  - Arbitrary: use the provided mask tensor.
+def TTCore_AttentionMaskType_None : I32EnumAttrCase<"None", 0, "none">;
+def TTCore_AttentionMaskType_Causal : I32EnumAttrCase<"Causal", 1, "causal">;
+def TTCore_AttentionMaskType_Arbitrary : I32EnumAttrCase<"Arbitrary", 2, "arbitrary">;
+
+def TTCore_AttentionMaskType : I32EnumAttr<"AttentionMaskType", "TT AttentionMaskType",
+                           [
+                            TTCore_AttentionMaskType_None,
+                            TTCore_AttentionMaskType_Causal,
+                            TTCore_AttentionMaskType_Arbitrary,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttcore";

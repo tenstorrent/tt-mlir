@@ -7,8 +7,8 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
-#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.h"
+#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
@@ -21,15 +21,21 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallPtrSet.h"
 
+#include "llvm/Support/LogicalResult.h"
 #include <algorithm>
 #include <cstdint>
+#include <memory>
+#include <optional>
 #include <type_traits>
 #include <utility>
 
@@ -37,18 +43,55 @@ namespace mlir::tt::ttkernel {
 
 namespace {
 
-static Value i16(OpBuilder &rewriter, Location loc, int16_t value) {
-  return rewriter
-      .create<arith::ConstantOp>(loc, rewriter.getI16Type(),
-                                 rewriter.getI16IntegerAttr(value))
-      .getResult();
+template <typename T>
+static Value intConstant(OpBuilder &rewriter, Location loc, T value) {
+  static_assert(std::is_integral_v<T>, "T must be an integer type.");
+
+  // Signless types are required, don't pass std::is_signed_v<T>.
+  auto type = rewriter.getIntegerType(sizeof(T) * 8);
+  auto attr = rewriter.getIntegerAttr(type, value);
+  return rewriter.create<arith::ConstantOp>(loc, type, attr).getResult();
 }
 
-static Value i32(OpBuilder &rewriter, Location loc, int32_t value) {
-  return rewriter
-      .create<arith::ConstantOp>(loc, rewriter.getI32Type(),
-                                 rewriter.getI32IntegerAttr(value))
-      .getResult();
+static FailureOr<int32_t> getKernelNocIndex(Operation *op) {
+  const auto arch = ttcore::getOpChipDescAttr(op).getArch().getValue();
+
+  auto funcOp = op->getParentOfType<func::FuncOp>();
+  if (!funcOp) {
+    return failure();
+  }
+
+  auto threadAttr =
+      funcOp->getAttrOfType<d2m::ThreadAttr>(d2m::ThreadAttr::name);
+  if (!threadAttr ||
+      threadAttr.getThreadType() != d2m::ThreadType::Datamovement) {
+    return failure();
+  }
+
+  return static_cast<int32_t>(
+      ttcore::getDmCoreDefaultNoc(arch, threadAttr.getDmCoreIndex()));
+}
+
+// Early resolution & materialization of the DM kernel's NoC index in the
+// pipeline (before TTKernelToEmitC & D2MToTTMetal). Returns null when the NoC
+// index cannot be resolved (e.g. a function with no d2m.thread attribute).
+static Value materializeKernelNocId(OpBuilder &rewriter, Operation *op) {
+  FailureOr<int32_t> nocIdx = getKernelNocIndex(op);
+  if (failed(nocIdx)) {
+    return Value{};
+  }
+  return intConstant<int8_t>(rewriter, op->getLoc(),
+                             static_cast<int8_t>(*nocIdx));
+}
+
+// On WH & BH, NoC1's traversal direciton (bottom left to top right) is the
+// opposite of NoC0's, reverse the coords accordingly.
+static void flipMcastCoordsIfNoc1(const int32_t nocIdx, Value &startX,
+                                  Value &startY, Value &endX, Value &endY) {
+  if (nocIdx == 1) {
+    std::swap(startX, endX);
+    std::swap(startY, endY);
+  }
 }
 
 static Value index(OpBuilder &rewriter, Location loc, int64_t value) {
@@ -195,6 +238,17 @@ static Value getDeviceInMcastRange(OpBuilder &rewriter, Location loc,
 }
 
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
+  // After D2MSplitUnifiedThread, operands may point to the memref extracted
+  // by d2m.wait or d2m.reserve rather than the CB itself. Unwrap to get the
+  // underlying CB.
+  if (auto waitOp = cb.getDefiningOp<d2m::WaitOp>()) {
+    return rewriter.getRemappedValue(waitOp.getCb());
+  }
+
+  if (auto reserveOp = cb.getDefiningOp<d2m::ReserveOp>()) {
+    return rewriter.getRemappedValue(reserveOp.getCb());
+  }
+
   if (auto loadOp = cb.getDefiningOp<memref::LoadOp>()) {
     assert(loadOp.getIndices().size() == 1 &&
            "Expected single index in load op, failing.");
@@ -212,25 +266,45 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   if (auto castOp = cb.getDefiningOp<memref::CastOp>()) {
     return rewriter.getRemappedValue(castOp.getSource());
   }
+
+  if (cb.getDefiningOp<d2m::GetArgOp>()) {
+    return rewriter.getRemappedValue(cb);
+  }
+
   llvm_unreachable("Expected load or subview op");
 }
 
-// Get DST index from where a compute op result is stored.
-// Handles both affine.store and memref.store.
-// When a value has multiple stores to different DST memrefs (due to value
-// reuse across DST regions after LICM), we prefer stores in the same block
-// as the defining op. This ensures we get the DST index for the correct
-// allocation context.
-static Value getDstIdxFromResult(Value d2mOpResult) {
-  memref::StoreOp storeOp;
-  for (Operation *op : d2mOpResult.getUsers()) {
-    auto maybeStore = mlir::dyn_cast<memref::StoreOp>(op);
-    if (maybeStore && ttcore::getMemorySpace(maybeStore.getMemRef()) ==
-                          ttcore::MemorySpace::RegisterDst) {
-      storeOp = mlir::cast<memref::StoreOp>(op);
-      break;
+// Finds the memref.store that writes `value` (or a dst_reinterpret_cast of it)
+// back into RegisterDst; null if none. The cast case covers results whose
+// element type differs from the DST buffer type (e.g. tile_argmax's bf16 value
+// stored into an si32 DST slot).
+static memref::StoreOp findDstStoreForValue(Value value) {
+  auto directStore = [](Value v) -> memref::StoreOp {
+    for (Operation *op : v.getUsers()) {
+      auto maybeStore = mlir::dyn_cast<memref::StoreOp>(op);
+      if (maybeStore && ttcore::getMemorySpace(maybeStore.getMemRef()) ==
+                            ttcore::MemorySpace::RegisterDst) {
+        return maybeStore;
+      }
+    }
+    return {};
+  };
+
+  if (memref::StoreOp store = directStore(value)) {
+    return store;
+  }
+  for (Operation *op : value.getUsers()) {
+    if (auto cast = mlir::dyn_cast<d2m::DstReinterpretCastOp>(op)) {
+      if (memref::StoreOp store = directStore(cast.getResult())) {
+        return store;
+      }
     }
   }
+  return {};
+}
+
+static Value getDstIdxFromResult(Value d2mOpResult) {
+  memref::StoreOp storeOp = findDstStoreForValue(d2mOpResult);
   assert(storeOp && "Expected store op.");
   assert(storeOp.getIndices().size() == 1 &&
          "Expected single index in store op");
@@ -276,6 +350,90 @@ static void ensureDominatesInsertionPoint(OpBuilder &rewriter, Value value) {
   }
 
   defOp->moveBefore(insertBlock, rewriter.getInsertionPoint());
+}
+
+static bool valueDependsOn(Value value, Value needle,
+                           llvm::SmallPtrSetImpl<Operation *> &visited) {
+  if (value == needle) {
+    return true;
+  }
+
+  Operation *defOp = value.getDefiningOp();
+  if (!defOp || !visited.insert(defOp).second) {
+    return false;
+  }
+
+  return llvm::any_of(defOp->getOperands(), [&](Value operand) {
+    return valueDependsOn(operand, needle, visited);
+  });
+}
+
+static bool valueDependsOn(Value value, Value needle) {
+  llvm::SmallPtrSet<Operation *, 8> visited;
+  return valueDependsOn(value, needle, visited);
+}
+
+static Value getLoopLowerBoundValue(OpBuilder &rewriter, Location loc,
+                                    Operation *loopOp) {
+  if (auto scfFor = dyn_cast<scf::ForOp>(loopOp)) {
+    return scfFor.getLowerBound();
+  }
+
+  if (auto affineFor = dyn_cast<affine::AffineForOp>(loopOp)) {
+    if (affineFor.hasConstantLowerBound()) {
+      return index(rewriter, loc, affineFor.getConstantLowerBound());
+    }
+
+    AffineMap lowerBoundMap = affineFor.getLowerBoundMap();
+    if (lowerBoundMap.getNumResults() == 1) {
+      return rewriter.create<affine::AffineApplyOp>(
+          loc, lowerBoundMap, affineFor.getLowerBoundOperands());
+    }
+  }
+
+  return index(rewriter, loc, 0);
+}
+
+static SmallVector<Operation *> getEnclosingLoops(Operation *op) {
+  SmallVector<Operation *> loops;
+  for (Operation *parent = op->getParentOp(); parent;
+       parent = parent->getParentOp()) {
+    if (isa<scf::ForOp, affine::AffineForOp>(parent)) {
+      loops.push_back(parent);
+    }
+  }
+  std::reverse(loops.begin(), loops.end());
+  return loops;
+}
+
+static Value getSingleBlockLoopIV(Operation *loopOp) {
+  if (auto scfFor = dyn_cast<scf::ForOp>(loopOp)) {
+    return scfFor.getInductionVar();
+  }
+  if (auto affineFor = dyn_cast<affine::AffineForOp>(loopOp)) {
+    return affineFor.getInductionVar();
+  }
+  return {};
+}
+
+static Value buildFirstReductionIterationGuard(OpBuilder &rewriter,
+                                               Location loc, Operation *op,
+                                               Value dstIndex) {
+  Value guard;
+  for (Operation *loop : getEnclosingLoops(op)) {
+    Value loopIV = getSingleBlockLoopIV(loop);
+    if (!loopIV || valueDependsOn(dstIndex, loopIV)) {
+      continue;
+    }
+
+    Value firstIteration = getLoopLowerBoundValue(rewriter, loc, loop);
+    Value isFirstIteration = rewriter.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::eq, loopIV, firstIteration);
+    guard = guard ? rewriter.create<arith::AndIOp>(loc, guard, isFirstIteration)
+                        .getResult()
+                  : isFirstIteration;
+  }
+  return guard;
 }
 
 // Remapped L1 CB for a tile loaded from L1; null if the value is not an L1 load
@@ -619,9 +777,12 @@ public:
     rewriter.setInsertionPointToStart(rewriter.getInsertionBlock());
     setInsertionPointAfterOperands(rewriter, {inCB, outCB},
                                    /*allowHoisting*/ true);
-    rewriter.create<ttkernel::InitSFPUOp>(store.getLoc(), inCB, outCB);
+    rewriter.create<ttkernel::ComputeKernelHWStartupOp>(store.getLoc(), inCB,
+                                                        nullptr, outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
+    // Need to reconfigure Src A to the correct data format.
+    rewriter.create<ttkernel::ReconfigDataFormatSrcAOp>(store.getLoc(), cb);
     rewriter.create<ttkernel::CopyTileInitOp>(store.getLoc(), cb);
     rewriter.replaceOpWithNewOp<ttkernel::CopyTileOp>(store, cb, cbIndex,
                                                       dstIndex);
@@ -636,6 +797,8 @@ public:
     auto storeIdx =
         computeLinearIndex(store.getLoc(), store.getMemRefType().getShape(),
                            adaptor.getIndices(), rewriter);
+    // Need to reconfigure the packer to the correct data format.
+    rewriter.create<ttkernel::PackReconfigDataFormatOp>(store.getLoc(), cb);
     rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
         store, dst, cb, storeIdx, rewriter.getBoolAttr(true));
     return success();
@@ -765,9 +928,16 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileLogicalRightShiftOp, std::pair<ttkernel::BinaryShiftTileInitOp, ttkernel::BinaryLogicalRightShiftTileOp>>,
   std::pair<d2m::TileRightShiftOp,        std::pair<ttkernel::BinaryShiftTileInitOp, ttkernel::BinaryRightShiftTileOp>>,
   std::pair<d2m::TileDivOp,         std::pair<ttkernel::DivBinaryTilesInitOp,      ttkernel::DivBinaryTilesOp>>,
+  std::pair<d2m::TileEqOp,          std::pair<ttkernel::EqBinaryTilesInitOp,       ttkernel::EqBinaryTilesOp>>,
+  std::pair<d2m::TileNeOp,          std::pair<ttkernel::NeBinaryTilesInitOp,       ttkernel::NeBinaryTilesOp>>,
+  std::pair<d2m::TileGtOp,          std::pair<ttkernel::GtBinaryTilesInitOp,       ttkernel::GtBinaryTilesOp>>,
+  std::pair<d2m::TileLtOp,          std::pair<ttkernel::LtBinaryTilesInitOp,       ttkernel::LtBinaryTilesOp>>,
+  std::pair<d2m::TileGeOp,          std::pair<ttkernel::GeBinaryTilesInitOp,       ttkernel::GeBinaryTilesOp>>,
+  std::pair<d2m::TileLeOp,          std::pair<ttkernel::LeBinaryTilesInitOp,       ttkernel::LeBinaryTilesOp>>,
   std::pair<d2m::TileMaximumOp,     std::pair<ttkernel::BinaryMaxTileInitOp,       ttkernel::BinaryMaxTileOp>>,
   std::pair<d2m::TileMinimumOp,     std::pair<ttkernel::BinaryMinTileInitOp,       ttkernel::BinaryMinTileOp>>,
   std::pair<d2m::TilePowOp,         std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>,
+  std::pair<d2m::TileAtan2Op,       std::pair<ttkernel::Atan2BinaryTilesInitOp,    ttkernel::Atan2BinaryTilesOp>>,
 
   // Elementwise SFPU Ternary.
   std::pair<d2m::TileWhereOp,       std::pair<ttkernel::WhereTileInitOp,           ttkernel::WhereTileOp>>
@@ -868,19 +1038,23 @@ public:
       auto cbA = getCB(rewriter, op.getA());
       auto cbB = getCB(rewriter, op.getB());
       auto outCB = getOutCB(rewriter, op);
+      auto func = op->template getParentOfType<func::FuncOp>();
+      if (!func) {
+        return rewriter.notifyMatchFailure(op,
+                                           "tile_matmul must be inside a func");
+      }
 
       // Must have only 1 MatmulInit op per kernel, so we always insert at
       // beginning of the func, and only if no MatmulInit already exists.
-      if (auto func = op->template getParentOfType<func::FuncOp>();
-          !hasMatmulInit(func)) {
+      if (!hasMatmulInit(func)) {
         setInsertionPointToFuncStart(rewriter, func, op);
-        auto transposeInit = i32(rewriter, op->getLoc(), 0);
+        auto transposeInit = intConstant<int32_t>(rewriter, op->getLoc(), 0);
         rewriter.create<ttkernel::MatmulInitOp>(op->getLoc(), cbA, cbB, outCB,
                                                 transposeInit);
       }
 
       rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
-      auto transpose = i32(rewriter, op->getLoc(), 0);
+      auto transpose = intConstant<int32_t>(rewriter, op->getLoc(), 0);
       rewriter.create<ttkernel::MatmulInitShortOp>(op->getLoc(), cbA, cbB,
                                                    transpose);
       rewriter.create<ttkernel::MatmulTilesOp>(op->getLoc(), cbA, cbB,
@@ -900,11 +1074,22 @@ public:
 
       auto typeA = llvm::cast<MemRefType>(op.getA().getType());
       auto typeB = llvm::cast<MemRefType>(op.getB().getType());
-      auto rt_i32 = i32(rewriter, op->getLoc(), typeA.getShape()[0]);
-      auto kt_i32 = i32(rewriter, op->getLoc(), typeA.getShape()[1]);
-      auto ct_i32 = i32(rewriter, op->getLoc(), typeB.getShape()[1]);
+      const bool transposeB = op.getTransposeB();
+      auto rt_i32 =
+          intConstant<int32_t>(rewriter, op->getLoc(), typeA.getShape()[0]);
+      auto kt_i32 =
+          intConstant<int32_t>(rewriter, op->getLoc(), typeA.getShape()[1]);
+      // When B is transposed its block shape is [nt, kt]; when not, it is
+      // [kt, nt].  ct_dim always denotes the number of output columns (nt).
+      auto ct_i32 = intConstant<int32_t>(rewriter, op->getLoc(),
+                                         transposeB ? typeB.getShape()[0]
+                                                    : typeB.getShape()[1]);
 
-      auto getNumColumns = [](Value view) {
+      // bKStride is the source-memref stride between consecutive K tiles in B.
+      // For an un-transposed B laid out as [K, N], advancing K moves by the
+      // source's N tile count.  For a transposed B laid out as [N, K],
+      // consecutive K tiles are contiguous.
+      auto getSourceDim = [](Value view, unsigned dim) {
         if (auto castOp =
                 dyn_cast_or_null<memref::CastOp>(view.getDefiningOp())) {
           view = castOp.getSource();
@@ -913,11 +1098,13 @@ public:
           view = svOp.getSource();
         }
         auto srcTy = cast<MemRefType>(view.getType());
-        return srcTy.getShape()[1];
+        return srcTy.getShape()[dim];
       };
-      auto nt_i32 = i32(rewriter, op->getLoc(), getNumColumns(op.getB()));
+      auto bKStride_i32 = intConstant<int32_t>(
+          rewriter, op->getLoc(), transposeB ? 1 : getSourceDim(op.getB(), 1));
 
-      auto transpose = i32(rewriter, op->getLoc(), 0);
+      auto transpose =
+          intConstant<int32_t>(rewriter, op->getLoc(), transposeB ? 1 : 0);
 
       rewriter.create<ttkernel::MatmulBlockInitOp>(
           op->getLoc(), cbA, cbB, outCB, transpose, ct_i32, rt_i32, kt_i32);
@@ -934,18 +1121,24 @@ public:
       // If the input didn't come from a subview, we'll expect the CB directly
       // which implicitly comes from an unrealized conversion cast.  This is a
       // special case where we're reading from offset 0.
-      if (mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
+      auto needsZeroTileIndex = [](Value tileIndex) {
+        Type type = tileIndex.getType();
+        return !type.isIndex() && !llvm::isa<IntegerType>(type);
+      };
+      if (needsZeroTileIndex(aTileIndex) ||
+          mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
               aTileIndex.getDefiningOp())) {
         aTileIndex = index(rewriter, op.getLoc(), 0);
       }
-      if (mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
+      if (needsZeroTileIndex(bTileIndex) ||
+          mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
               bTileIndex.getDefiningOp())) {
         bTileIndex = index(rewriter, op.getLoc(), 0);
       }
 
       rewriter.create<ttkernel::ExperimentalMatmulBlockOp>(
           op->getLoc(), cbA, cbB, aTileIndex, bTileIndex, destIndex, transpose,
-          ct_i32, rt_i32, kt_i32, nt_i32);
+          ct_i32, rt_i32, kt_i32, bKStride_i32);
     } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceSumOp> ||
                          std::is_same_v<ConcreteOp, d2m::TileReduceMaxOp> ||
                          std::is_same_v<ConcreteOp, d2m::TileReduceMeanOp>) {
@@ -1070,32 +1263,52 @@ public:
     Value outCB = getOutCB(rewriter, op);
     Value cIdx = adaptor.getC();
 
-    // cIdx is defined inside the scf loops, so re-materialize a constant
-    // copy for use at the hoisted init point.
-    std::optional<int64_t> cIdxVal = getConstantIntValue(cIdx);
-    if (!cIdxVal) {
-      return op->emitOpError(
-          "tile_sfpu_reduce_* expects C operand's DST index to be a "
-          "compile-time constant; got a non-constant value");
-    }
-
     int32_t identityInt = (reduceType == ttkernel::ReduceType::Max)
                               ? std::numeric_limits<int32_t>::min()
                               : 0;
+
+    std::optional<int64_t> cIdxVal = getConstantIntValue(cIdx);
 
     {
       OpBuilder::InsertionGuard guard(rewriter);
       setInsertionPointAfterOperands(rewriter, {cbA, outCB},
                                      /*allowHoisting*/ true);
       rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), cbA, outCB);
-      Value hoistedCIdx =
-          rewriter.create<arith::ConstantIndexOp>(op->getLoc(), *cIdxVal);
-      Value identityVal = rewriter.create<arith::ConstantOp>(
-          op->getLoc(), rewriter.getI32Type(),
-          rewriter.getI32IntegerAttr(identityInt));
-      rewriter.create<ttkernel::FillTileInitOp>(op->getLoc());
-      rewriter.create<ttkernel::FillTileIntOp>(op->getLoc(), hoistedCIdx,
-                                               identityVal);
+
+      if (cIdxVal) {
+        Value hoistedCIdx =
+            rewriter.create<arith::ConstantIndexOp>(op->getLoc(), *cIdxVal);
+        Value identityVal = rewriter.create<arith::ConstantOp>(
+            op->getLoc(), rewriter.getI32Type(),
+            rewriter.getI32IntegerAttr(identityInt));
+        rewriter.create<ttkernel::FillTileInitOp>(op->getLoc());
+        rewriter.create<ttkernel::FillTileIntOp>(op->getLoc(), hoistedCIdx,
+                                                 identityVal);
+      }
+    }
+
+    if (!cIdxVal) {
+      ensureDominatesInsertionPoint(rewriter, cIdx);
+      auto emitSeed = [&]() {
+        Value identityVal = rewriter.create<arith::ConstantOp>(
+            op->getLoc(), rewriter.getI32Type(),
+            rewriter.getI32IntegerAttr(identityInt));
+        rewriter.create<ttkernel::FillTileInitOp>(op->getLoc());
+        rewriter.create<ttkernel::FillTileIntOp>(op->getLoc(), cIdx,
+                                                 identityVal);
+      };
+
+      Value seedGuard =
+          buildFirstReductionIterationGuard(rewriter, op->getLoc(), op, cIdx);
+      if (seedGuard) {
+        auto ifOp = rewriter.create<scf::IfOp>(op->getLoc(), seedGuard,
+                                               /*withElseRegion=*/false);
+        OpBuilder::InsertionGuard guard(rewriter);
+        rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+        emitSeed();
+      } else {
+        emitSeed();
+      }
     }
 
     int64_t scratchIdxVal = op.getDstScratchIndex();
@@ -1307,9 +1520,7 @@ public:
           auto scalarParam = scalarToI32Bits(rewriter, loc, adaptor.getRhs());
           rewriter.create<ttkernel::DivUnaryTileOp>(loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TilePowOp>) {
-          // For power, convert float value to integer (not bitcast)
-          auto scalarParam = rewriter.create<arith::FPToSIOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
+          auto scalarParam = scalarToI32Bits(rewriter, loc, adaptor.getRhs());
           rewriter.create<ttkernel::PowUnaryTileOp>(loc, dstIdx, scalarParam);
         }
         // Scalar ops operate in-place on DST slot - replace with the same
@@ -1536,15 +1747,18 @@ private:
     Value cb;
     Value cbTileIdx;
     Value dstOperandIdx;
+    Type dstOperandType;
     if (reuseType == BinaryDestReuseType::DestToSrcA) {
       // LHS from Dst, RHS from Cb
       cb = getCB(rewriter, op.getRhs());
       cbTileIdx = adaptor.getRhs();
       dstOperandIdx = adaptor.getLhs();
+      dstOperandType = op.getLhs().getType();
     } else {
       cb = getCB(rewriter, op.getLhs());
       cbTileIdx = adaptor.getLhs();
       dstOperandIdx = adaptor.getRhs();
+      dstOperandType = op.getRhs().getType();
     }
 
     auto outCB = getOutCB(rewriter, op);
@@ -1564,8 +1778,11 @@ private:
     // binary_dest_reuse is an in-place operation. If the DST
     // operand comes from a different slot, copy it first to the output slot.
     if (dstOperandIdx != dstIdx) {
+      const auto dataFormat =
+          mlir::cast<ttcore::TileType>(dstOperandType).getDataType();
       rewriter.create<ttkernel::CopyDestValuesInitOp>(loc);
-      rewriter.create<ttkernel::CopyDestValuesOp>(loc, dstOperandIdx, dstIdx);
+      rewriter.create<ttkernel::CopyDestValuesOp>(loc, dstOperandIdx, dstIdx,
+                                                  dataFormat);
     }
 
     rewriter.create<ttkernel::BinaryDestReuseTilesInitOp>(loc, cb, eltwiseType,
@@ -1610,8 +1827,10 @@ public:
     auto collapsed2DShape =
         ttcore::collapseGridTo2D(preLinearizedMemrefType.getShape());
 
-    auto blockR = i32(rewriter, op->getLoc(), collapsed2DShape[0]);
-    auto blockC = i32(rewriter, op->getLoc(), collapsed2DShape[1]);
+    auto blockR =
+        intConstant<int32_t>(rewriter, op->getLoc(), collapsed2DShape[0]);
+    auto blockC =
+        intConstant<int32_t>(rewriter, op->getLoc(), collapsed2DShape[1]);
     rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src,
                                                         nullptr, dst);
 
@@ -1894,6 +2113,164 @@ public:
 
 namespace {
 
+static void emitTopkGroupStart(OpBuilder &rewriter, Location loc,
+                               Value cbSrcVals, Value cbSrcIdx, Value cbOutVals,
+                               Value tileA, Value tileB) {
+  Value dst0 = index(rewriter, loc, 0);
+  Value dst1 = index(rewriter, loc, 1);
+  Value dst2 = index(rewriter, loc, 2);
+  Value dst3 = index(rewriter, loc, 3);
+
+  rewriter.create<ttkernel::TileRegsAcquireOp>(loc);
+  rewriter.create<ttkernel::TopkTileInitOp>(loc);
+  rewriter.create<ttkernel::InitSFPUOp>(loc, cbSrcVals, cbOutVals);
+  rewriter.create<ttkernel::CopyTileInitOp>(loc, cbSrcVals);
+  rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcVals, tileA, dst0);
+  rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcVals, tileB, dst1);
+  rewriter.create<ttkernel::CopyTileInitOp>(loc, cbSrcIdx);
+  rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcIdx, tileA, dst2);
+  rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcIdx, tileB, dst3);
+}
+
+static void emitTopkGroupEnd(OpBuilder &rewriter, Location loc, Value cbOutVals,
+                             Value cbOutIdx, Value tileA, Value tileB) {
+  Value dst0 = index(rewriter, loc, 0);
+  Value dst1 = index(rewriter, loc, 1);
+  Value dst2 = index(rewriter, loc, 2);
+  Value dst3 = index(rewriter, loc, 3);
+
+  rewriter.create<ttkernel::TileRegsCommitOp>(loc);
+  rewriter.create<ttkernel::TileRegsWaitOp>(loc);
+  rewriter.create<ttkernel::PackReconfigDataFormatOp>(loc, cbOutVals);
+  rewriter.create<ttkernel::PackTileOp>(loc, dst0, cbOutVals, tileA,
+                                        rewriter.getBoolAttr(true));
+  rewriter.create<ttkernel::PackTileOp>(loc, dst1, cbOutVals, tileB,
+                                        rewriter.getBoolAttr(true));
+  rewriter.create<ttkernel::PackReconfigDataFormatOp>(loc, cbOutIdx);
+  rewriter.create<ttkernel::PackTileOp>(loc, dst2, cbOutIdx, tileA,
+                                        rewriter.getBoolAttr(true));
+  rewriter.create<ttkernel::PackTileOp>(loc, dst3, cbOutIdx, tileB,
+                                        rewriter.getBoolAttr(true));
+  rewriter.create<ttkernel::TileRegsReleaseOp>(loc);
+}
+
+template <typename OpTy>
+static void emitTopkGroupStartIfNeeded(ConversionPatternRewriter &rewriter,
+                                       Location loc, OpTy op, Value tileA,
+                                       Value tileB) {
+  if (!op.getIsGroupStart()) {
+    return;
+  }
+  Value cbOutVals = getCB(rewriter, op.getOutValues());
+  Value cbOutIdx = getCB(rewriter, op.getOutIndices());
+  Value cbInVals = getCB(rewriter, op.getValues());
+  Value cbInIdx = getCB(rewriter, op.getIndices());
+
+  // rfo=true: T0 reads output CB tiles that T2 just wrote. Fence so T0 sees
+  // all pack_tile L1 writes before copy_tile executes.
+  Value rfo = op.getReadFromOutput();
+  std::optional<int64_t> rfoConst = getConstantIntValue(rfo);
+  if (rfoConst && *rfoConst != 0) {
+    rewriter.create<ttkernel::UnpackStallOnPackOp>(loc);
+    emitTopkGroupStart(rewriter, loc, cbOutVals, cbOutIdx, cbOutVals, tileA,
+                       tileB);
+    return;
+  }
+  if (rfoConst) {
+    emitTopkGroupStart(rewriter, loc, cbInVals, cbInIdx, cbOutVals, tileA,
+                       tileB);
+    return;
+  }
+}
+
+template <typename OpTy>
+static void emitTopkGroupEndIfNeeded(ConversionPatternRewriter &rewriter,
+                                     Location loc, OpTy op, Value tileA,
+                                     Value tileB) {
+  Value isGroupEnd = op.getIsGroupEnd();
+  std::optional<int64_t> isGroupEndConst = getConstantIntValue(isGroupEnd);
+  if (isGroupEndConst && *isGroupEndConst != 0) {
+    emitTopkGroupEnd(rewriter, loc, getCB(rewriter, op.getOutValues()),
+                     getCB(rewriter, op.getOutIndices()), tileA, tileB);
+    return;
+  }
+  if (isGroupEndConst) {
+    return;
+  }
+}
+
+class D2MTopkLocalSortRewriter
+    : public OpConversionPattern<d2m::TileTopkLocalSortOp> {
+public:
+  using OpConversionPattern<d2m::TileTopkLocalSortOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileTopkLocalSortOp op,
+                  d2m::TileTopkLocalSortOp::Adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+    Value tileA = op.getTileA(), tileB = op.getTileB();
+    auto i32 = [&](auto v) { return intConstant<int32_t>(rewriter, loc, v); };
+
+    emitTopkGroupStartIfNeeded(rewriter, loc, op, tileA, tileB);
+    rewriter.create<ttkernel::TopkLocalSortOp>(
+        loc, index(rewriter, loc, 0), i32(op.getIdir()), i32(op.getIEndPhase()),
+        op.getIStartPhase());
+    emitTopkGroupEndIfNeeded(rewriter, loc, op, tileA, tileB);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class D2MTopkMergeRewriter : public OpConversionPattern<d2m::TileTopkMergeOp> {
+public:
+  using OpConversionPattern<d2m::TileTopkMergeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileTopkMergeOp op, d2m::TileTopkMergeOp::Adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+    Value tileA = op.getTileA(), tileB = op.getTileB();
+    auto i32 = [&](auto v) { return intConstant<int32_t>(rewriter, loc, v); };
+
+    emitTopkGroupStartIfNeeded(rewriter, loc, op, tileA, tileB);
+    rewriter.create<ttkernel::TopkMergeOp>(loc, index(rewriter, loc, 0),
+                                           op.getMIter(), i32(op.getK()));
+    emitTopkGroupEndIfNeeded(rewriter, loc, op, tileA, tileB);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class D2MTopkRebuildRewriter
+    : public OpConversionPattern<d2m::TileTopkRebuildOp> {
+public:
+  using OpConversionPattern<d2m::TileTopkRebuildOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileTopkRebuildOp op, d2m::TileTopkRebuildOp::Adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+    Value tileA = op.getTileA(), tileB = op.getTileB();
+    auto i32 = [&](auto v) { return intConstant<int32_t>(rewriter, loc, v); };
+
+    emitTopkGroupStartIfNeeded(rewriter, loc, op, tileA, tileB);
+    rewriter.create<ttkernel::TopkRebuildOp>(
+        loc, index(rewriter, loc, 0), i32(op.getIdir()), op.getMIter(),
+        i32(op.getK()), i32(op.getLogk()), i32(op.getSkipSecond()));
+    emitTopkGroupEndIfNeeded(rewriter, loc, op, tileA, tileB);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+} // namespace
+
+namespace {
+
 class D2MDstReinterpretCastRewriter
     : public OpConversionPattern<d2m::DstReinterpretCastOp> {
 public:
@@ -1939,7 +2316,7 @@ public:
 
     auto cbNumPages = device.getMemrefCBNumPages(
         op.getCb().getType().template getUnderlyingAs<MemRefType>());
-    auto numPages = i32(rewriter, op->getLoc(), cbNumPages);
+    auto numPages = intConstant<int32_t>(rewriter, op->getLoc(), cbNumPages);
 
     rewriter.create<TTKernelAcquireOp>(op.getLoc(), adaptor.getCb(), numPages);
 
@@ -1967,7 +2344,7 @@ public:
 
     auto cbNumPages = device.getMemrefCBNumPages(
         op.getCb().getType().template getUnderlyingAs<MemRefType>());
-    auto numPages = i32(rewriter, op->getLoc(), cbNumPages);
+    auto numPages = intConstant<int32_t>(rewriter, op->getLoc(), cbNumPages);
 
     rewriter.replaceOpWithNewOp<TTKernelReleaseOp>(op, adaptor.getCb(),
                                                    numPages);
@@ -1990,39 +2367,55 @@ static Value castCBTypeAsAddress(OpBuilder &rewriter, Location loc, Value cb) {
       ->getResult(0);
 }
 
-static Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
-                             ValueRange index, ttcore::ChipDescAttr chipDesc,
-                             ttcore::MemorySpace memspace) {
+struct NocEndpoint {
+  ttcore::MemorySpace memorySpace = ttcore::MemorySpace::System;
+  SmallVector<Value, 2> coreXY = {nullptr, nullptr};
+  Value bankId = nullptr;
+  Value address = nullptr;
+};
+
+static NocEndpoint buildNocEndpoint(OpBuilder &rewriter, Location loc, Value cb,
+                                    ValueRange index,
+                                    ttcore::ChipDescAttr chipDesc,
+                                    ttcore::MemorySpace memspace) {
   assert(memspace == ttcore::MemorySpace::DeviceL1 ||
          memspace == ttcore::MemorySpace::DeviceDRAM);
   auto baseAddr = castCBTypeAsAddress(rewriter, loc, cb);
   assert(index.size() == 3);
-  Value noc_addr_op;
+  NocEndpoint endpoint{memspace, {}, nullptr, nullptr};
   if (memspace == ttcore::MemorySpace::DeviceL1) {
     auto gridY = index[0];
     auto gridX = index[1];
     auto offset = index[2];
     auto offsetInt =
         rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), offset);
-    auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
-    // Translate the src coordinates to virtual coordinates.
+    endpoint.address = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
     auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
         rewriter, loc, chipDesc, ValueRange{gridY, gridX});
-    noc_addr_op =
-        rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, addr);
+    endpoint.coreXY = {virtX, virtY};
   } else {
     auto bankID = index[1];
-    auto bankIDInt =
+    endpoint.bankId =
         rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), bankID);
     auto offset = index[2];
     auto offsetInt =
         rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), offset);
-    auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
-
-    return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(loc, bankIDInt,
-                                                             addr);
+    endpoint.address = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
   }
-  return noc_addr_op;
+  return endpoint;
+}
+
+static Value materializeTranslatedNocAddr(OpBuilder &rewriter, Location loc,
+                                          const NocEndpoint &endpoint,
+                                          Value nocId) {
+  if (endpoint.memorySpace == ttcore::MemorySpace::DeviceDRAM) {
+    return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(
+        loc, endpoint.bankId, endpoint.address);
+  }
+
+  TT_assert(endpoint.memorySpace == ttcore::MemorySpace::DeviceL1);
+  return rewriter.create<ttkernel::GetNocAddrOp>(
+      loc, endpoint.coreXY[0], endpoint.coreXY[1], endpoint.address, nocId);
 }
 
 static SmallVector<Value> decomposeLinearIndex(OpBuilder &rewriter,
@@ -2120,26 +2513,46 @@ static Value getCollapsedOutputRow(OpBuilder &rewriter, Location loc,
   return row;
 }
 
-static Value buildMappedNocAddr(OpBuilder &rewriter, Location loc, Value base,
-                                AffineMap memoryMap, ValueRange logicalIndices,
-                                ttcore::ChipDescAttr chipDesc,
-                                ttcore::MemorySpace memorySpace) {
+static NocEndpoint buildMappedNocEndpoint(OpBuilder &rewriter, Location loc,
+                                          Value base, AffineMap memoryMap,
+                                          ValueRange logicalIndices,
+                                          ttcore::ChipDescAttr chipDesc,
+                                          ttcore::MemorySpace memorySpace) {
   SmallVector<Value> mappedIndices =
       d2m::utils::applyMap(rewriter, loc, memoryMap, logicalIndices, true);
-  return buildNocAddress(rewriter, loc, base, mappedIndices, chipDesc,
-                         memorySpace);
+  return buildNocEndpoint(rewriter, loc, base, mappedIndices, chipDesc,
+                          memorySpace);
 }
 
-static Value loadI32FromNocPacketThroughScratch(OpBuilder &rewriter,
-                                                Location loc, Value scratchCb,
-                                                Value srcNocAddr, Value laneI32,
-                                                Value transferSizeBytes,
-                                                Value onePage) {
+static void createNocAsyncRead(OpBuilder &rewriter, Location loc,
+                               const NocEndpoint &src, Value dstLocalL1Addr,
+                               Value size, Value nocId) {
+  SmallVector<Value, 1> srcBankId;
+  if (src.bankId) {
+    srcBankId.push_back(src.bankId);
+  }
+  rewriter.create<ttkernel::NocAsyncReadOp>(
+      loc, src.coreXY, srcBankId, src.address, dstLocalL1Addr, size, nocId);
+}
+
+static void createNocAsyncWrite(OpBuilder &rewriter, Location loc,
+                                Value srcLocalL1Addr, const NocEndpoint &dst,
+                                Value size, Value nocId) {
+  SmallVector<Value, 1> dstBankId;
+  if (dst.bankId) {
+    dstBankId.push_back(dst.bankId);
+  }
+  rewriter.create<ttkernel::NocAsyncWriteOp>(
+      loc, srcLocalL1Addr, dst.coreXY, dstBankId, dst.address, size, nocId);
+}
+
+static Value loadI32FromNocPacketThroughScratch(
+    OpBuilder &rewriter, Location loc, Value scratchCb, const NocEndpoint &src,
+    Value laneI32, Value transferSizeBytes, Value onePage, Value nocId) {
   rewriter.create<ttkernel::CBReserveBackOp>(loc, scratchCb, onePage);
   Value writePtr = rewriter.create<ttkernel::GetWritePtrOp>(loc, scratchCb);
-  rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, writePtr,
-                                            transferSizeBytes);
-  rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+  createNocAsyncRead(rewriter, loc, src, writePtr, transferSizeBytes, nocId);
+  rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc, nocId);
   rewriter.create<ttkernel::CBPushBackOp>(loc, scratchCb, onePage);
   rewriter.create<ttkernel::CBWaitFrontOp>(loc, scratchCb, onePage);
   Value readPtr = rewriter.create<ttkernel::GetReadPtrOp>(loc, scratchCb);
@@ -2152,20 +2565,19 @@ static Value loadI32FromNocPacketThroughScratch(OpBuilder &rewriter,
 }
 
 static void copyNocToNocThroughScratch(OpBuilder &rewriter, Location loc,
-                                       Value scratchCb, Value srcNocAddr,
-                                       Value dstNocAddr,
-                                       Value transferSizeBytes, Value onePage) {
+                                       Value scratchCb, const NocEndpoint &src,
+                                       const NocEndpoint &dst,
+                                       Value transferSizeBytes, Value onePage,
+                                       Value nocId) {
   rewriter.create<ttkernel::CBReserveBackOp>(loc, scratchCb, onePage);
   Value writePtr = rewriter.create<ttkernel::GetWritePtrOp>(loc, scratchCb);
-  rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, writePtr,
-                                            transferSizeBytes);
-  rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+  createNocAsyncRead(rewriter, loc, src, writePtr, transferSizeBytes, nocId);
+  rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc, nocId);
   rewriter.create<ttkernel::CBPushBackOp>(loc, scratchCb, onePage);
   rewriter.create<ttkernel::CBWaitFrontOp>(loc, scratchCb, onePage);
   Value readPtr = rewriter.create<ttkernel::GetReadPtrOp>(loc, scratchCb);
-  rewriter.create<ttkernel::NocAsyncWriteOp>(loc, readPtr, dstNocAddr,
-                                             transferSizeBytes);
-  rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
+  createNocAsyncWrite(rewriter, loc, readPtr, dst, transferSizeBytes, nocId);
+  rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(loc, nocId);
   rewriter.create<ttkernel::CBPopFrontOp>(loc, scratchCb, onePage);
 }
 
@@ -2179,6 +2591,147 @@ static Value buildL1Address(OpBuilder &rewriter, Location loc, Value cb,
   return rewriter.create<arith::AddIOp>(loc, baseAddr, offset);
 }
 
+// Stores the chain of TensorAccessorArgs for all FuncOps.
+class TensorAccessorArgsChains {
+public:
+  void bind(func::FuncOp func, const size_t operandIndex, Value args) {
+    accessorArgs[func.getOperation()][operandIndex] = args;
+  }
+
+  Value lookup(func::FuncOp func, const size_t operandIndex) const {
+    auto funcIt = accessorArgs.find(func.getOperation());
+    if (funcIt == accessorArgs.end()) {
+      return {};
+    }
+    auto argIt = funcIt->second.find(operandIndex);
+    return argIt == funcIt->second.end() ? Value{} : argIt->second;
+  }
+
+private:
+  DenseMap<Operation *, DenseMap<size_t, Value>> accessorArgs;
+};
+
+template <typename DMAOp>
+class D2MDMAViaTensorAccessorRewriter : public OpConversionPattern<DMAOp> {
+  static constexpr bool isRead = std::is_same_v<DMAOp, d2m::DMAReadOp>;
+  static_assert(std::is_same_v<DMAOp, d2m::DMAReadOp> ||
+                std::is_same_v<DMAOp, d2m::DMAWriteOp>);
+
+public:
+  D2MDMAViaTensorAccessorRewriter(
+      TypeConverter &typeConverter, MLIRContext *context,
+      std::shared_ptr<TensorAccessorArgsChains> tensorAccessorArgsChains,
+      const d2m::CBProducerConsumer *cbProducerConsumer)
+      : OpConversionPattern<DMAOp>(typeConverter, context),
+        tensorAccessorArgsChains(std::move(tensorAccessorArgsChains)),
+        cbProducerConsumer(cbProducerConsumer) {}
+
+  LogicalResult
+  matchAndRewrite(DMAOp op, typename DMAOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    AffineMapAttr pageMapAttr = op.getTensorAccessorPageMapAttr();
+    if (!pageMapAttr) {
+      return failure();
+    }
+    TT_assertv(op.isShardLevel(),
+               "TensorAccessor lowering requires shard-level DMA");
+
+    Value remoteMemref = isRead ? op.getSrc() : op.getDst();
+    auto getArg = remoteMemref.template getDefiningOp<d2m::GetArgOp>();
+    TT_assertv(getArg, "remote TensorAccessor operand must be a d2m.get_arg");
+
+    func::FuncOp func = op->template getParentOfType<func::FuncOp>();
+    Value tensorAccessorArgs =
+        tensorAccessorArgsChains->lookup(func, getArg.getOperandIndex());
+    TT_assertv(tensorAccessorArgs,
+               "TensorAccessorArgs binding was not materialized");
+
+    auto remoteType = mlir::cast<MemRefType>(remoteMemref.getType());
+    auto remoteLayout =
+        mlir::cast<ttcore::DeviceLayoutInterface>(remoteType.getLayout());
+    ArrayRef<int64_t> shardShape = remoteLayout.getShardShape(remoteType);
+
+    SmallVector<Value> remoteGridIndices;
+    Value remoteBaseAddress = nullptr;
+    Value localCB = nullptr;
+    Value localBaseAddress = nullptr;
+    if constexpr (isRead) {
+      auto dstCBMapping = cbProducerConsumer->get(op.getDst());
+      TT_assertv((dstCBMapping == d2m::ThreadCBOrientation::Producer ||
+                  dstCBMapping == d2m::ThreadCBOrientation::Default),
+                 "DMARead's dst CB must be the producer/default orientation.");
+      remoteGridIndices.assign(adaptor.getSrcIndices().begin(),
+                               adaptor.getSrcIndices().end());
+      remoteBaseAddress = adaptor.getSrc();
+      localCB = adaptor.getDst();
+      localBaseAddress =
+          rewriter.create<ttkernel::GetWritePtrOp>(op.getLoc(), localCB);
+    } else {
+      remoteGridIndices.assign(adaptor.getDstIndices().begin(),
+                               adaptor.getDstIndices().end());
+      remoteBaseAddress = adaptor.getDst();
+      localCB = adaptor.getSrc();
+      localBaseAddress =
+          rewriter.create<ttkernel::GetReadPtrOp>(op.getLoc(), localCB);
+    }
+
+    Value tensorAccessor = rewriter.create<ttkernel::TensorAccessorOp>(
+        op.getLoc(), tensorAccessorArgs, remoteBaseAddress,
+        /*page_size_in=*/Value{});
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
+    const int64_t pageSize =
+        ttcore::getElementSizeBytes(remoteType.getElementType());
+
+    auto [lbs, ubs, steps] =
+        d2m::utils::getLoopBounds(rewriter, op.getLoc(), shardShape);
+    scf::buildLoopNest(
+        rewriter, op.getLoc(), lbs, ubs, steps,
+        [&](OpBuilder &loopBuilder, Location loc, ValueRange shardIndices) {
+          SmallVector<Value> remotePageCoordinates(remoteGridIndices);
+          remotePageCoordinates.append(shardIndices.begin(),
+                                       shardIndices.end());
+          SmallVector<Value> pageIds =
+              d2m::utils::applyMap(loopBuilder, loc, pageMapAttr.getValue(),
+                                   remotePageCoordinates, /*isRemote=*/false);
+          Value pageId = loopBuilder.create<arith::IndexCastOp>(
+              loc, loopBuilder.getI32Type(), pageIds.front());
+
+          Value localPage = loopBuilder.create<arith::ConstantIndexOp>(loc, 0);
+          for (auto [shardIndex, dimSize] :
+               llvm::zip_equal(shardIndices, shardShape)) {
+            Value dim =
+                loopBuilder.create<arith::ConstantIndexOp>(loc, dimSize);
+            localPage = loopBuilder.create<arith::AddIOp>(
+                loc, loopBuilder.create<arith::MulIOp>(loc, localPage, dim),
+                shardIndex);
+          }
+          Value pageSizeValue =
+              loopBuilder.create<arith::ConstantIndexOp>(loc, pageSize);
+          Value localOffset =
+              loopBuilder.create<arith::MulIOp>(loc, localPage, pageSizeValue);
+          Value localOffsetI32 = loopBuilder.create<arith::IndexCastOp>(
+              loc, loopBuilder.getI32Type(), localOffset);
+          Value localAddress = loopBuilder.create<arith::AddIOp>(
+              loc, localBaseAddress, localOffsetI32);
+
+          if constexpr (isRead) {
+            loopBuilder.create<ttkernel::NocAsyncReadTileOp>(
+                loc, pageId, tensorAccessor, localAddress, nocId);
+          } else {
+            loopBuilder.create<ttkernel::NocAsyncWriteTileOp>(
+                loc, pageId, tensorAccessor, localAddress, nocId);
+          }
+        });
+
+    rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op, op.getResult().getType());
+    return success();
+  }
+
+private:
+  std::shared_ptr<TensorAccessorArgsChains> tensorAccessorArgsChains;
+  const d2m::CBProducerConsumer *cbProducerConsumer;
+};
+
 class D2MDMAReadRewriter : public OpConversionPattern<d2m::DMAReadOp> {
 public:
   D2MDMAReadRewriter(TypeConverter &typeConverter, MLIRContext *context,
@@ -2189,6 +2742,9 @@ public:
   LogicalResult
   matchAndRewrite(d2m::DMAReadOp op, d2m::DMAReadOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    if (!op.isFullyIndexed()) {
+      return failure();
+    }
 
     auto chipDesc = ttcore::getOpChipDescAttr(op);
     Location loc = op.getLoc();
@@ -2201,7 +2757,9 @@ public:
     Value dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
         rewriter, loc, adaptor.getDst(), op.getDstIndices());
 
-    auto size = i32(rewriter, loc, op.getSizeBytes());
+    auto size = intConstant<int32_t>(rewriter, loc, op.getSizeBytes());
+
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
 
     if (op.isSrcLocal()) {
       Value srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
@@ -2210,16 +2768,14 @@ public:
       auto myX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, loc, chipDesc, ValueRange{myY, myX});
-      auto srcNocAddr =
-          rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, srcL1Addr);
-      rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, dstL1Addr,
-                                                size);
+      NocEndpoint srcEndpoint{
+          ttcore::MemorySpace::DeviceL1, {virtX, virtY}, nullptr, srcL1Addr};
+      createNocAsyncRead(rewriter, loc, srcEndpoint, dstL1Addr, size, nocId);
     } else {
-      auto srcNocAddr =
-          buildNocAddress(rewriter, loc, adaptor.getSrc(), op.getSrcIndices(),
-                          chipDesc, op.getSrcMemorySpace());
-      rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, dstL1Addr,
-                                                size);
+      auto srcEndpoint =
+          buildNocEndpoint(rewriter, loc, adaptor.getSrc(), op.getSrcIndices(),
+                           chipDesc, op.getSrcMemorySpace());
+      createNocAsyncRead(rewriter, loc, srcEndpoint, dstL1Addr, size, nocId);
     }
 
     rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op, op.getResult().getType());
@@ -2241,17 +2797,25 @@ public:
   LogicalResult
   matchAndRewrite(d2m::DMAWriteOp op, d2m::DMAWriteOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    if (!op.isFullyIndexed()) {
+      return failure();
+    }
 
     auto chipDesc = ttcore::getOpChipDescAttr(op);
+
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
 
     if (op.getStartDevice().size() > 0) {
       auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
           rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
-      auto dstNocAddr =
-          buildNocAddress(rewriter, op.getLoc(), adaptor.getDst(),
-                          op.getDstIndices(), chipDesc, op.getDstMemorySpace());
-      auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
-      auto meshId = i16(rewriter, op->getLoc(), 0);
+      auto dstEndpoint = buildNocEndpoint(rewriter, op.getLoc(),
+                                          adaptor.getDst(), op.getDstIndices(),
+                                          chipDesc, op.getDstMemorySpace());
+      auto dstNocAddr = materializeTranslatedNocAddr(rewriter, op.getLoc(),
+                                                     dstEndpoint, nocId);
+      auto size =
+          intConstant<int32_t>(rewriter, op->getLoc(), op.getSizeBytes());
+      auto meshId = intConstant<int16_t>(rewriter, op->getLoc(), 0);
       auto fcm = getFabricConnectionManager(op);
 
       // fabric unicast
@@ -2288,8 +2852,8 @@ public:
         {
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
-          rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
-                                                     dstNocAddr, size);
+          createNocAsyncWrite(rewriter, op.getLoc(), srcL1Addr, dstEndpoint,
+                              size, nocId);
           rewriter.create<scf::YieldOp>(op.getLoc());
         }
       }
@@ -2316,7 +2880,8 @@ public:
       Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
           op.getLoc(), adaptor.getDst());
 
-      Value transferSize = i32(rewriter, op->getLoc(), op.getSizeBytes());
+      Value transferSize =
+          intConstant<int32_t>(rewriter, op->getLoc(), op.getSizeBytes());
       if (op.isMcast()) {
         // Multicast lowering
         // Get virtual start coordinates from DMA op logical coordinates
@@ -2338,44 +2903,49 @@ public:
             rewriter.create<arith::ConstantOp>(op.getLoc(),
                                                rewriter.getI32Type(),
                                                rewriter.getI32IntegerAttr(1)));
-        auto mcastAddr =
-            rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
-                op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY,
-                dstL1Start, nullptr);
+        FailureOr<int32_t> nocIdx = getKernelNocIndex(op.getOperation());
+        if (failed(nocIdx)) {
+          return rewriter.notifyMatchFailure(
+              op, "unable to resolve datamovement kernel NoC index");
+        }
+
+        flipMcastCoordsIfNoc1(*nocIdx, virtX, virtY, virtMcastEndX,
+                              virtMcastEndY);
         if (adaptor.getSrc() == adaptor.getDst()) {
           // If src and dst refer to the same memref, we do not loopback mcast
           // Dests are one less because the sender core is not included
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
-              op.getLoc(), srcL1Start, mcastAddr, transferSize,
-              numDestsMinusOne, rewriter.getBoolAttr(true), nullptr, nullptr);
+              op.getLoc(), srcL1Start, transferSize, numDestsMinusOne, virtX,
+              virtY, virtMcastEndX, virtMcastEndY, dstL1Start, nocId,
+              rewriter.getBoolAttr(true));
         } else {
           // If src != dst, we loopback mcast
           rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
-              op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
-              rewriter.getBoolAttr(true), nullptr, nullptr);
+              op.getLoc(), srcL1Start, transferSize, numDests, virtX, virtY,
+              virtMcastEndX, virtMcastEndY, dstL1Start, nocId,
+              rewriter.getBoolAttr(true));
         }
       } else {
-        // Local L1 to Local L1 local data movement lowering
-        // Get local coordinates using myY and myX ops
+        // Local L1 to Local L1 local data movement lowering.
         auto myY = rewriter.create<ttkernel::MyLogicalYOp>(op.getLoc());
         auto myX = rewriter.create<ttkernel::MyLogicalXOp>(op.getLoc());
-        // Convert local coordinates to virtual coordinates
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
             rewriter, op.getLoc(), chipDesc, ValueRange{myY, myX});
-        auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
-            op.getLoc(), virtX, virtY, dstL1Start);
-        rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
-                                                   nocAddr, transferSize);
+        NocEndpoint dstEndpoint{
+            ttcore::MemorySpace::DeviceL1, {virtX, virtY}, nullptr, dstL1Start};
+        createNocAsyncWrite(rewriter, op.getLoc(), srcL1Start, dstEndpoint,
+                            transferSize, nocId);
       }
     } else if (op.isDstRemote()) {
       auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
           rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
-      auto dstNocAddr =
-          buildNocAddress(rewriter, op.getLoc(), adaptor.getDst(),
-                          op.getDstIndices(), chipDesc, op.getDstMemorySpace());
-      auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
-      rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
-                                                 dstNocAddr, size);
+      auto dstEndpoint = buildNocEndpoint(rewriter, op.getLoc(),
+                                          adaptor.getDst(), op.getDstIndices(),
+                                          chipDesc, op.getDstMemorySpace());
+      auto size =
+          intConstant<int32_t>(rewriter, op->getLoc(), op.getSizeBytes());
+      createNocAsyncWrite(rewriter, op.getLoc(), srcL1Addr, dstEndpoint, size,
+                          nocId);
     }
 
     rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op, op.getResult().getType());
@@ -2472,10 +3042,12 @@ public:
               "to be NoC transfer aligned");
     }
 
-    Value onePage = i32(rewriter, loc, 1);
+    Value onePage = intConstant<int32_t>(rewriter, loc, 1);
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
     Value indexTransferSizeBytesValue =
-        i32(rewriter, loc, indexTransferSizeBytes);
-    Value rowTransferSizeBytesValue = i32(rewriter, loc, rowTransferSizeBytes);
+        intConstant<int32_t>(rewriter, loc, indexTransferSizeBytes);
+    Value rowTransferSizeBytesValue =
+        intConstant<int32_t>(rewriter, loc, rowTransferSizeBytes);
     Value rowElementsPerTransferValue =
         index(rewriter, loc, rowElementsPerTransfer);
     Value indexElementsPerTransferValue =
@@ -2530,12 +3102,12 @@ public:
 
       SmallVector<Value> indexLogicalIndices = getCollapsed2DElementIndices(
           rewriter, loc, indicesType, indexRow, indexGroupColumn);
-      Value indexNocAddr = buildMappedNocAddr(
+      NocEndpoint indexEndpoint = buildMappedNocEndpoint(
           rewriter, loc, adaptor.getIndices(), indicesMemoryMap,
           indexLogicalIndices, chipDesc, ttcore::MemorySpace::DeviceL1);
       Value indexValue = loadI32FromNocPacketThroughScratch(
-          rewriter, loc, adaptor.getIndexScratch(), indexNocAddr, indexLaneI32,
-          indexTransferSizeBytesValue, onePage);
+          rewriter, loc, adaptor.getIndexScratch(), indexEndpoint, indexLaneI32,
+          indexTransferSizeBytesValue, onePage, nocId);
 
       Value srcRowIndex = rewriter.create<arith::IndexCastOp>(
           loc, rewriter.getIndexType(), indexValue);
@@ -2550,19 +3122,203 @@ public:
 
         SmallVector<Value> srcLogicalIndices = getCollapsed2DElementIndices(
             rewriter, loc, srcType, srcRowIndex, j);
-        Value srcNocAddr =
-            buildMappedNocAddr(rewriter, loc, adaptor.getSrc(), srcMemoryMap,
-                               srcLogicalIndices, chipDesc, srcMemorySpace);
+        NocEndpoint srcEndpoint = buildMappedNocEndpoint(
+            rewriter, loc, adaptor.getSrc(), srcMemoryMap, srcLogicalIndices,
+            chipDesc, srcMemorySpace);
         SmallVector<Value> outputLogicalIndices =
             getCollapsed2DElementIndices(rewriter, loc, dstType, outputRow, j);
-        Value outputNocAddr =
-            buildMappedNocAddr(rewriter, loc, adaptor.getDst(), dstMemoryMap,
-                               outputLogicalIndices, chipDesc, dstMemorySpace);
+        NocEndpoint outputEndpoint = buildMappedNocEndpoint(
+            rewriter, loc, adaptor.getDst(), dstMemoryMap, outputLogicalIndices,
+            chipDesc, dstMemorySpace);
         copyNocToNocThroughScratch(rewriter, loc, adaptor.getRowScratch(),
-                                   srcNocAddr, outputNocAddr,
-                                   rowTransferSizeBytesValue, onePage);
+                                   srcEndpoint, outputEndpoint,
+                                   rowTransferSizeBytesValue, onePage, nocId);
       }
     }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class D2MArgMaxRewriter : public OpConversionPattern<d2m::TileArgMaxOp> {
+private:
+  // Returns the reduction loop whose IV is the 'chunk' counter for the LLK, or
+  // null for the single-tile case.
+  static Operation *findReductionLoop(Operation *op, Value dstIndex) {
+    for (Operation *loop : getEnclosingLoops(op)) {
+      Value loopIV = getSingleBlockLoopIV(loop);
+      if (!loopIV || valueDependsOn(dstIndex, loopIV)) {
+        continue;
+      }
+      return loop;
+    }
+    return nullptr;
+  }
+
+  // The L1 CB carrying `result` out of the region. Walk result -> DST store
+  // (through any dst_reinterpret_cast) to learn the slice, then find the load
+  // of that same slice whose value is stored to L1. Used to carry the running
+  // maximum values and indices across loop iterations.
+  static Value findL1CbForResult(ConversionPatternRewriter &rewriter,
+                                 Value result) {
+    // The DST store that parks this result (through any reinterpret cast).
+    memref::StoreOp dstStore = findDstStoreForValue(result);
+    if (!dstStore || dstStore.getIndices().size() != 1) {
+      return {};
+    }
+    Value dstSlice = dstStore.getIndices().front();
+
+    // The drain load reading that same slice, and where its value lands in L1.
+    for (Operation *dstUser : dstStore.getMemRef().getUsers()) {
+      auto load = mlir::dyn_cast<memref::LoadOp>(dstUser);
+      if (!load || load.getIndices().size() != 1 ||
+          load.getIndices().front() != dstSlice) {
+        continue;
+      }
+      // The loaded tile may pass through a reinterpret cast before the store.
+      SmallVector<Value> candidates{load.getResult()};
+      for (Operation *loadUser : load.getResult().getUsers()) {
+        if (auto cast = mlir::dyn_cast<d2m::DstReinterpretCastOp>(loadUser)) {
+          candidates.push_back(cast.getResult());
+        }
+      }
+      for (Value candidate : candidates) {
+        for (Operation *storeUser : candidate.getUsers()) {
+          auto store = mlir::dyn_cast<memref::StoreOp>(storeUser);
+          if (store && ttcore::getMemorySpace(store.getMemRef()) ==
+                           ttcore::MemorySpace::DeviceL1) {
+            return rewriter.getRemappedValue(store.getMemRef());
+          }
+        }
+      }
+    }
+    return {};
+  }
+
+  // Emit `reconfig_data_format_srca` + `copy_tile_init` + `copy_tile` to stage
+  // one tile from `cb` into DST slice `dstSlice`. Since we're working with
+  // different data types (values vs. indices), src A needs to be reconfigured
+  // before each copy.
+  static void emitReconfiguredCopyTile(ConversionPatternRewriter &rewriter,
+                                       Location loc, Value cb, Value cbIndex,
+                                       Value dstSlice) {
+    rewriter.create<ttkernel::ReconfigDataFormatSrcAOp>(loc, cb);
+    rewriter.create<ttkernel::CopyTileInitOp>(loc, cb);
+    rewriter.create<ttkernel::CopyTileOp>(loc, cb, cbIndex, dstSlice);
+  }
+
+public:
+  using OpConversionPattern<d2m::TileArgMaxOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileArgMaxOp op, d2m::TileArgMaxOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+
+    // DST slot indices of the in-place reduced value and index tiles, taken
+    // from the memref.store of each result. The slots are distinct and we fall
+    // back to value's operand slot if the intermediate is dead.
+    auto slotForResultOrOperand = [&](Value result, Value operand) -> Value {
+      if (memref::StoreOp store = findDstStoreForValue(result)) {
+        return store.getIndices().front();
+      }
+      // In-place: result slot == operand slot. Read the slot straight from the
+      // (pre-conversion) DST operand load's index operand, an index SSA value
+      // that survives conversion.
+      auto load = mlir::cast<memref::LoadOp>(operand.getDefiningOp());
+      assert(ttcore::getMemorySpace(load.getMemRef()) ==
+                 ttcore::MemorySpace::RegisterDst &&
+             "Expected in-place argmax operand to load from RegisterDst");
+      return load.getIndices().front();
+    };
+
+    Value idst = slotForResultOrOperand(op.getOutValues(), op.getValues());
+    Value idstIdx = slotForResultOrOperand(op.getOutIndices(), op.getIndices());
+    ensureDominatesInsertionPoint(rewriter, idst);
+    ensureDominatesInsertionPoint(rewriter, idstIdx);
+
+    // Configure the SFPU input/output CB formats before the compute op.
+    Value cbValues = getInCB(rewriter, op);
+    Value outCB = getOutCB(rewriter, op);
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      setInsertionPointAfterOperands(rewriter, {cbValues, outCB},
+                                     /*allowHoisting*/ true);
+      rewriter.create<ttkernel::InitSFPUOp>(loc, cbValues, outCB);
+    }
+
+    // Always reduce all 32 rows and always accumulate. For a 1x1 tile case,
+    // accumulate doesn't change anything.
+    constexpr int32_t kNumRows = 32;
+    constexpr bool accumulate = true;
+
+    Operation *reductionLoop = findReductionLoop(op, idst);
+    Value chunk = reductionLoop ? getSingleBlockLoopIV(reductionLoop) : Value();
+    if (!chunk) {
+      // No reduction loop: single-tile case, chunk is unused by the LLK.
+      chunk = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+    }
+
+    // In accumulate mode the LLK keeps running value/index maxima in the slices
+    // it addresses implicitly at `idst + 1` / `idst_idx + 1`. Due to
+    // tile_regs_commit() flippiing the DST reg slots, the accumulators get
+    // corrupted. So, after the first iteration, we reload the accumulators from
+    // L1 at the beginning of each iteration.
+    if (accumulate && op.getNumResults() > 3u) {
+      Value valAccCb = findL1CbForResult(rewriter, op.getResult(2));
+      Value idxAccCb = findL1CbForResult(rewriter, op.getResult(3));
+      if (valAccCb && idxAccCb) {
+        auto emitReloads = [&]() {
+          Value one = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+          Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+          emitReconfiguredCopyTile(
+              rewriter, loc, valAccCb, zero,
+              rewriter.create<arith::AddIOp>(loc, idst, one));
+          emitReconfiguredCopyTile(
+              rewriter, loc, idxAccCb, zero,
+              rewriter.create<arith::AddIOp>(loc, idstIdx, one));
+        };
+
+        // On chunk 0 the accumulator slice must be CLEARED rather than
+        // reloaded. We only clear values, since those are being compared and
+        // swapped, and indices simply follow the values.
+        auto emitClear = [&]() {
+          Value one = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+          Value valAccSlice = rewriter.create<arith::AddIOp>(loc, idst, one);
+          Value negInf = rewriter.create<arith::ConstantOp>(
+              loc, rewriter.getF32Type(),
+              rewriter.getF32FloatAttr(
+                  -std::numeric_limits<float>::infinity()));
+          rewriter.create<ttkernel::FillTileInitOp>(loc);
+          rewriter.create<ttkernel::FillTileOp>(loc, valAccSlice, negInf);
+        };
+
+        if (reductionLoop) {
+          Value firstIteration =
+              getLoopLowerBoundValue(rewriter, loc, reductionLoop);
+          Value notFirstIteration = rewriter.create<arith::CmpIOp>(
+              loc, arith::CmpIPredicate::ne, chunk, firstIteration);
+          auto ifOp = rewriter.create<scf::IfOp>(loc, notFirstIteration,
+                                                 /*withElseRegion=*/true);
+          OpBuilder::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+          emitReloads();
+          rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
+          emitClear();
+        }
+      }
+    }
+
+    // Initialize the max_reduce_with_indices LLK (primes the replay buffer, so
+    // must be done right before the LLK call).
+    rewriter.create<ttkernel::MaxReduceWithIndicesInitOp>(loc);
+
+    rewriter.create<ttkernel::MaxReduceWithIndicesTileOp>(
+        loc, idst, idstIdx, chunk, rewriter.getI32IntegerAttr(kNumRows),
+        rewriter.getBoolAttr(accumulate));
 
     rewriter.eraseOp(op);
     return success();
@@ -2644,12 +3400,14 @@ public:
     auto txKind =
         mlir::cast<d2m::MemTxType>(op.getMemTx().getType()).getDmaType();
 
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
+
     switch (txKind) {
     case d2m::DMAType::Read:
-      rewriter.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
+      rewriter.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc(), nocId);
       break;
     case d2m::DMAType::Write:
-      rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(op.getLoc());
+      rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(op.getLoc(), nocId);
       break;
     case d2m::DMAType::McastWrite:
       break;
@@ -2662,19 +3420,90 @@ public:
 } // namespace
 
 namespace {
+static int64_t appendRuntimeArg(func::FuncOp entry, ArgAttr arg,
+                                ConversionPatternRewriter &rewriter) {
+  rewriter.modifyOpInPlace(
+      entry, [&]() { ArgSpecAttr::appendRuntimeArg(entry, arg); });
+
+  auto argSpec = entry->getAttrOfType<ArgSpecAttr>(ArgSpecAttr::name);
+
+  // RTA (non-uniform) and CRTA (uniform) are counted in their own index spaces.
+  int64_t index = 0;
+  for (ArgAttr existingArg : argSpec.getRtArgs()) {
+    if (existingArg.getIsUniform() == arg.getIsUniform()) {
+      if (ArgSpecAttr::isSameArg(existingArg, arg)) {
+        return index;
+      }
+      index++;
+    }
+  }
+  llvm_unreachable("runtime arg missing from arg spec");
+}
+
+static int64_t appendCompileTimeArg(func::FuncOp entry, ArgAttr arg,
+                                    ConversionPatternRewriter &rewriter) {
+  size_t argIdx = 0;
+  rewriter.modifyOpInPlace(
+      entry, [&]() { argIdx = ArgSpecAttr::appendCompileTimeArg(entry, arg); });
+  return static_cast<int64_t>(argIdx);
+}
+
+static bool shouldUseCompileTimeArg(ArgAttr arg, bool forceCompileTimeArgs) {
+  return forceCompileTimeArgs && arg.getIsUniform();
+}
+
+static void replaceOpWithKernelArg(Operation *op, Type resultType,
+                                   func::FuncOp entry, ArgAttr arg,
+                                   bool forceCompileTimeArgs,
+                                   ConversionPatternRewriter &rewriter) {
+  if (shouldUseCompileTimeArg(arg, forceCompileTimeArgs)) {
+    const int64_t argIdx = appendCompileTimeArg(entry, arg, rewriter);
+    rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
+        op, resultType, static_cast<int32_t>(argIdx));
+    return;
+  }
+
+  const int64_t argIdx = appendRuntimeArg(entry, arg, rewriter);
+  Value indexValue = index(rewriter, op->getLoc(), argIdx);
+  if (arg.getIsUniform()) {
+    rewriter.replaceOpWithNewOp<ttkernel::GetCommonArgValOp>(op, resultType,
+                                                             indexValue);
+    return;
+  }
+  rewriter.replaceOpWithNewOp<ttkernel::GetArgValOp>(op, resultType,
+                                                     indexValue);
+}
+
+static Value createKernelArg(Location loc, Type resultType, func::FuncOp entry,
+                             ArgAttr arg, bool forceCompileTimeArgs,
+                             ConversionPatternRewriter &rewriter) {
+  if (shouldUseCompileTimeArg(arg, forceCompileTimeArgs)) {
+    const int64_t argIdx = appendCompileTimeArg(entry, arg, rewriter);
+    return rewriter.create<ttkernel::GetCompileArgValOp>(
+        loc, resultType, static_cast<int32_t>(argIdx));
+  }
+
+  const int64_t argIdx = appendRuntimeArg(entry, arg, rewriter);
+  Value indexValue = index(rewriter, loc, argIdx);
+  if (arg.getIsUniform()) {
+    return rewriter.create<ttkernel::GetCommonArgValOp>(loc, resultType,
+                                                        indexValue);
+  }
+  return rewriter.create<ttkernel::GetArgValOp>(loc, resultType, indexValue);
+}
+
 class D2MGetArgRewriter : public OpConversionPattern<d2m::GetArgOp> {
 public:
   D2MGetArgRewriter(TypeConverter &typeConverter, MLIRContext *context,
-                    bool ttnnMode)
+                    bool forceCompileTimeArgs)
       : OpConversionPattern<d2m::GetArgOp>(typeConverter, context),
-        ttnnMode(ttnnMode) {}
+        forceCompileTimeArgs(forceCompileTimeArgs) {}
 
   LogicalResult
   matchAndRewrite(d2m::GetArgOp op, d2m::GetArgOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
     ArgAttr arg;
-    size_t argIndex;
     Type argResultType;
 
     if (auto memrefType =
@@ -2682,15 +3511,14 @@ public:
       Type convertedType = getTypeConverter()->convertType(memrefType);
       if (mlir::isa<ttkernel::CBType>(convertedType)) {
         // CB-backed memref (e.g. scratch buffer with CBLayoutAttr).
-        // Handle identically to D2MGetCBRewriter: CBPort compile-time arg.
-        arg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getOperandIndex());
+        // Handle identically to D2MGetCBRewriter: CBPort kernel arg.
+        int64_t physicalPort =
+            d2m::getPhysicalCBPort(entry, op.getOperandIndex());
+        arg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, physicalPort);
         argResultType = convertedType;
 
-        rewriter.modifyOpInPlace(entry, [&]() {
-          argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
-        });
-        rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
-            op, argResultType, static_cast<int32_t>(argIndex));
+        replaceOpWithKernelArg(op.getOperation(), argResultType, entry, arg,
+                               forceCompileTimeArgs, rewriter);
         return success();
       }
 
@@ -2704,91 +3532,70 @@ public:
     } else if (mlir::isa<d2m::LocalSemaphoreType>(op.getResult().getType())) {
       ArgAttr semArg = rewriter.getAttr<ArgAttr>(ArgType::LocalSemaphore,
                                                  op.getOperandIndex());
-      size_t ctArgIdx;
-      rewriter.modifyOpInPlace(entry, [&]() {
-        ctArgIdx = ArgSpecAttr::appendCompileTimeArg(entry, semArg);
-      });
-      auto semaphoreIndex = rewriter.create<ttkernel::GetCompileArgValOp>(
-          op.getLoc(), rewriter.getI32Type(), static_cast<int32_t>(ctArgIdx));
+      Value semaphoreIndex =
+          createKernelArg(op.getLoc(), rewriter.getI32Type(), entry, semArg,
+                          forceCompileTimeArgs, rewriter);
       rewriter.replaceOpWithNewOp<ttkernel::GetSemaphoreOp>(op, semaphoreIndex);
       return success();
     } else if (mlir::isa<IndexType, IntegerType, FloatType>(
                    op.getResult().getType())) {
-      // Scalar additional args are always stored as ui32 in the CT arg slot.
-      // If the declared type differs from ui32, a ReinterpretCastOp recovers
-      // the correct type.
+      // Scalar additional args are stored as ui32. If the declared type differs
+      // from ui32, a BitcastOp recovers the correct type.
       Type scalarType = op.getResult().getType();
       Type ui32Type =
           IntegerType::get(op.getContext(), 32, IntegerType::Unsigned);
 
       ArgAttr scalarArg =
           rewriter.getAttr<ArgAttr>(ArgType::Scalar, op.getOperandIndex());
-      size_t ctArgIdx;
-      rewriter.modifyOpInPlace(entry, [&]() {
-        ctArgIdx = ArgSpecAttr::appendCompileTimeArg(entry, scalarArg);
-      });
 
-      Value ctArg = rewriter.create<ttkernel::GetCompileArgValOp>(
-          op.getLoc(), ui32Type, static_cast<int32_t>(ctArgIdx));
+      Value scalarArgValue =
+          createKernelArg(op.getLoc(), ui32Type, entry, scalarArg,
+                          forceCompileTimeArgs, rewriter);
 
       if (scalarType == ui32Type) {
-        rewriter.replaceOp(op, ctArg);
+        rewriter.replaceOp(op, scalarArgValue);
       } else {
-        rewriter.replaceOpWithNewOp<ttkernel::BitcastOp>(op, scalarType, ctArg);
+        rewriter.replaceOpWithNewOp<ttkernel::BitcastOp>(op, scalarType,
+                                                         scalarArgValue);
       }
       return success();
     } else {
       llvm_unreachable("unexpected arg type to GetArgOp");
     }
 
-    if (ttnnMode) {
-      rewriter.modifyOpInPlace(entry, [&]() {
-        argIndex = ArgSpecAttr::appendRuntimeArg(entry, arg);
-      });
-      rewriter.replaceOpWithNewOp<ttkernel::GetCommonArgValOp>(
-          op, argResultType, index(rewriter, op->getLoc(), argIndex));
-
-    } else {
-      rewriter.modifyOpInPlace(entry, [&]() {
-        argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
-      });
-      rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
-          op, argResultType, argIndex);
-    }
+    replaceOpWithKernelArg(op.getOperation(), argResultType, entry, arg,
+                           forceCompileTimeArgs, rewriter);
     return success();
   }
 
 private:
-  bool ttnnMode;
+  bool forceCompileTimeArgs;
 };
 
 class D2MGetCBRewriter : public OpConversionPattern<d2m::GetCBOp> {
 public:
-  using OpConversionPattern<d2m::GetCBOp>::OpConversionPattern;
+  D2MGetCBRewriter(TypeConverter &typeConverter, MLIRContext *context,
+                   bool forceCompileTimeArgs)
+      : OpConversionPattern<d2m::GetCBOp>(typeConverter, context),
+        forceCompileTimeArgs(forceCompileTimeArgs) {}
 
   LogicalResult
   matchAndRewrite(d2m::GetCBOp op, d2m::GetCBOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    // Append a CBPort entry to the parent function's ArgSpec so that
-    // D2MToTTNN can generate the corresponding cb_buffer_index in the
-    // kernel descriptor's ct_args.  The operand index tells the runtime
-    // which operand's buffer to associate with this CB.
+    // Append a CBPort entry to the parent function's ArgSpec. The operand index
+    // tells the runtime which operand's buffer to associate with this CB.
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
-    ArgAttr cbArg =
-        rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getCbOperandIdx());
-    size_t ctArgIndex;
-    rewriter.modifyOpInPlace(entry, [&]() {
-      ctArgIndex = ArgSpecAttr::appendCompileTimeArg(entry, cbArg);
-    });
-
-    // Emit a get_compile_time_arg_val that reads the port from ct_args at
-    // runtime. This allows the spatial op to remap CB ports per grid range
-    // by overriding compile-time arguments.
+    int64_t physicalPort = d2m::getPhysicalCBPort(entry, op.getCbOperandIdx());
+    ArgAttr cbArg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, physicalPort);
     Type cbType = getTypeConverter()->convertType(op.getResult().getType());
-    rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
-        op, cbType, static_cast<int32_t>(ctArgIndex));
+
+    replaceOpWithKernelArg(op.getOperation(), cbType, entry, cbArg,
+                           forceCompileTimeArgs, rewriter);
     return success();
   }
+
+private:
+  bool forceCompileTimeArgs;
 };
 } // namespace
 
@@ -2826,7 +3633,13 @@ public:
 namespace {
 class D2MKernelFunctionArgsRewriter : public OpConversionPattern<func::FuncOp> {
 public:
-  using OpConversionPattern<func::FuncOp>::OpConversionPattern;
+  D2MKernelFunctionArgsRewriter(
+      TypeConverter &typeConverter, MLIRContext *context,
+      bool forceCompileTimeArgs,
+      std::shared_ptr<TensorAccessorArgsChains> tensorAccessorArgsChains)
+      : OpConversionPattern<func::FuncOp>(typeConverter, context),
+        forceCompileTimeArgs(forceCompileTimeArgs),
+        tensorAccessorArgsChains(std::move(tensorAccessorArgsChains)) {}
 
   static ThreadType getTTKernelThreadType(func::FuncOp op) {
     d2m::ThreadAttr threadAttr =
@@ -2849,43 +3662,174 @@ public:
   static void convertFunctionAttrs(Builder &builder, func::FuncOp op,
                                    ArrayRef<ArgAttr> rtArgs,
                                    ArrayRef<ArgAttr> ctArgs) {
-
-    // Get the TTKernel thread type and replace D2M thread type with TTKernel
-    // thread type
     ThreadType threadType = getTTKernelThreadType(op);
-    op->removeAttr(d2m::ThreadAttr::name);
     op->setAttr(ThreadTypeAttr::name,
                 builder.getAttr<ThreadTypeAttr>(threadType));
     ArgSpecAttr::setArgSpec(op, builder.getAttr<ArgSpecAttr>(rtArgs, ctArgs));
   }
 
+  static void insertSortedUnique(SmallVectorImpl<ArgAttr> &args, ArgAttr arg) {
+    if (llvm::any_of(args, [&](ArgAttr existing) {
+          return ArgSpecAttr::isSameArg(existing, arg);
+        })) {
+      return;
+    }
+    auto *it = std::lower_bound(args.begin(), args.end(), arg,
+                                [](ArgAttr lhs, ArgAttr rhs) {
+                                  return ArgSpecAttr::isLessArg(lhs, rhs);
+                                });
+    args.insert(it, arg);
+  }
+
+  void insertKernelArg(SmallVectorImpl<ArgAttr> &rtArgs,
+                       SmallVectorImpl<ArgAttr> &ctArgs, ArgAttr arg) const {
+    if (shouldUseCompileTimeArg(arg, forceCompileTimeArgs)) {
+      insertSortedUnique(ctArgs, arg);
+      return;
+    }
+    insertSortedUnique(rtArgs, arg);
+  }
+
+  void collectArgSpecs(Builder &builder, func::FuncOp op,
+                       SmallVectorImpl<ArgAttr> &rtArgs,
+                       SmallVectorImpl<ArgAttr> &ctArgs) const {
+    op.walk([&](d2m::GetCBOp getCBOp) {
+      int64_t physicalPort =
+          d2m::getPhysicalCBPort(op, getCBOp.getCbOperandIdx());
+      insertKernelArg(rtArgs, ctArgs,
+                      builder.getAttr<ArgAttr>(ArgType::CBPort, physicalPort));
+    });
+
+    op.walk([&](d2m::GetArgOp getArgOp) {
+      Type argType = getArgOp.getResult().getType();
+      if (auto memrefType = mlir::dyn_cast<MemRefType>(argType)) {
+        Type convertedType = getTypeConverter()->convertType(memrefType);
+        if (mlir::isa<ttkernel::CBType>(convertedType)) {
+          int64_t physicalPort =
+              d2m::getPhysicalCBPort(op, getArgOp.getOperandIndex());
+          insertKernelArg(
+              rtArgs, ctArgs,
+              builder.getAttr<ArgAttr>(ArgType::CBPort, physicalPort));
+          return;
+        }
+
+        ArgAttr arg = builder.getAttr<ArgAttr>(ArgType::BufferAddress,
+                                               getArgOp.getOperandIndex());
+        insertKernelArg(rtArgs, ctArgs, arg);
+        return;
+      }
+
+      if (mlir::isa<d2m::GlobalSemaphoreType>(argType)) {
+        ArgAttr arg = builder.getAttr<ArgAttr>(ArgType::GlobalSemaphore,
+                                               getArgOp.getOperandIndex());
+        insertKernelArg(rtArgs, ctArgs, arg);
+        return;
+      }
+
+      if (mlir::isa<d2m::LocalSemaphoreType>(argType)) {
+        insertKernelArg(rtArgs, ctArgs,
+                        builder.getAttr<ArgAttr>(ArgType::LocalSemaphore,
+                                                 getArgOp.getOperandIndex()));
+        return;
+      }
+
+      if (mlir::isa<IndexType, IntegerType, FloatType>(argType)) {
+        ArgAttr arg = builder.getAttr<ArgAttr>(ArgType::Scalar,
+                                               getArgOp.getOperandIndex());
+        insertKernelArg(rtArgs, ctArgs, arg);
+      }
+    });
+
+    auto collectTensorAccessorArg = [&](Value remoteMemref) {
+      auto getArg = remoteMemref.getDefiningOp<d2m::GetArgOp>();
+      if (!getArg) {
+        return;
+      }
+      insertSortedUnique(ctArgs,
+                         builder.getAttr<ArgAttr>(ArgType::TensorAccessorArgs,
+                                                  getArg.getOperandIndex()));
+    };
+    op.walk([&](d2m::DMAReadOp dmaRead) {
+      if (dmaRead.getTensorAccessorPageMapAttr()) {
+        collectTensorAccessorArg(dmaRead.getSrc());
+      }
+    });
+    op.walk([&](d2m::DMAWriteOp dmaWrite) {
+      if (dmaWrite.getTensorAccessorPageMapAttr()) {
+        collectTensorAccessorArg(dmaWrite.getDst());
+      }
+    });
+  }
+
+  void formTensorAccessorArgsChain(ConversionPatternRewriter &rewriter,
+                                   func::FuncOp op,
+                                   ArrayRef<ArgAttr> ctArgs) const {
+    const auto *firstTensorAccessorArgs =
+        llvm::find_if(ctArgs, [](ArgAttr arg) {
+          return arg.getArgType() == ArgType::TensorAccessorArgs;
+        });
+    if (firstTensorAccessorArgs == ctArgs.end()) {
+      return;
+    }
+
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToStart(&op.getBody().front());
+
+    const size_t ctaBase = static_cast<size_t>(
+        std::distance(ctArgs.begin(), firstTensorAccessorArgs));
+    ArrayRef<ArgAttr> allTensorAccessorArgs = ctArgs.drop_front(ctaBase);
+    Value previousArgs = nullptr;
+    for (ArgAttr ctArg : allTensorAccessorArgs) {
+      TT_assertv(ctArg.getArgType() == ArgType::TensorAccessorArgs,
+                 "TensorAccessorArgs must be the last in the CTA list");
+      Value args = nullptr;
+      if (!previousArgs) {
+        Value ctaBaseValue =
+            intConstant<int32_t>(rewriter, op.getLoc(), ctaBase);
+        Value zero = intConstant<int32_t>(rewriter, op.getLoc(), 0);
+        args = rewriter
+                   .create<ttkernel::TensorAccessorArgsOp>(
+                       op.getLoc(), ctaBaseValue, zero,
+                       /*prev_args=*/Value{}, /*cta_expr=*/StringAttr{},
+                       /*crta_expr=*/StringAttr{})
+                   .getResult();
+      } else {
+        args = rewriter
+                   .create<ttkernel::TensorAccessorArgsOp>(
+                       op.getLoc(), /*cta_base=*/Value{},
+                       /*crta_base=*/Value{}, previousArgs,
+                       /*cta_expr=*/StringAttr{},
+                       /*crta_expr=*/StringAttr{})
+                   .getResult();
+      }
+      tensorAccessorArgsChains->bind(op, ctArg.getOperandIndex(), args);
+      previousArgs = args;
+    }
+  }
+
   LogicalResult
   matchAndRewrite(func::FuncOp op, func::FuncOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    if (!op->hasAttr(d2m::ThreadAttr::name)) {
+    if (!op->hasAttr(d2m::ThreadAttr::name) ||
+        op->hasAttr(ThreadTypeAttr::name)) {
       return failure();
     }
 
     SmallVector<ArgAttr> rtArgSpecVector;
     SmallVector<ArgAttr> ctArgSpecVector;
-
-    // Zero-input functions: just convert attrs and set function type.
-    // The D2MGetCBRewriter will append CB entries to the ArgSpec as it
-    // processes get_cb ops within the function body.
-    if (op.getFunctionType().getNumInputs() == 0) {
-      rewriter.modifyOpInPlace(op, [&]() {
-        op.setType(rewriter.getFunctionType(TypeRange(), TypeRange()));
-        convertFunctionAttrs(rewriter, op, rtArgSpecVector, ctArgSpecVector);
-      });
-      return success();
-    }
+    collectArgSpecs(rewriter, op, rtArgSpecVector, ctArgSpecVector);
 
     rewriter.modifyOpInPlace(op, [&]() {
       op.setType(rewriter.getFunctionType(TypeRange(), TypeRange()));
       convertFunctionAttrs(rewriter, op, rtArgSpecVector, ctArgSpecVector);
     });
+    formTensorAccessorArgsChain(rewriter, op, ctArgSpecVector);
     return success();
   }
+
+private:
+  bool forceCompileTimeArgs;
+  std::shared_ptr<TensorAccessorArgsChains> tensorAccessorArgsChains;
 };
 } // namespace
 
@@ -2912,12 +3856,13 @@ public:
     if (op.getStartDevice().size() > 0) {
       assert(mlir::isa<d2m::SemaphoreIncOp>(op) &&
              "only d2m.semaphore_inc to remote device is allowed.");
+      Value nocId = materializeKernelNocId(rewriter, op.getOperation());
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), ttcore::getOpChipDescAttr(op),
           op.getDstCoreIndex());
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
-          op.getLoc(), virtX, virtY, semaphoreAddr);
-      auto meshId = i16(rewriter, op->getLoc(), 0);
+          op.getLoc(), virtX, virtY, semaphoreAddr, nocId);
+      auto meshId = intConstant<int16_t>(rewriter, op->getLoc(), 0);
       auto fcm = getFabricConnectionManager(op);
 
       // fabric unicast
@@ -2954,7 +3899,7 @@ public:
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
           rewriter.create<ttkernel::NocSemaphoreIncOp>(op.getLoc(), nocAddr,
-                                                       value);
+                                                       value, nocId);
           rewriter.create<scf::YieldOp>(op.getLoc());
         }
       }
@@ -2972,12 +3917,13 @@ public:
     } else if (op.getMcastShape().empty()) {
       assert(!mlir::isa<d2m::SemaphoreSetOp>(op) &&
              "d2m.semaphore_set to single remote core is illegal.");
+      Value nocId = materializeKernelNocId(rewriter, op.getOperation());
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
-          op.getLoc(), virtX, virtY, semaphoreAddr);
+          op.getLoc(), virtX, virtY, semaphoreAddr, nocId);
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreIncOp>(op, nocAddr,
-                                                               value);
+                                                               value, nocId);
     } else {
       assert(!mlir::isa<d2m::SemaphoreIncOp>(op) &&
              "d2m.semaphore_inc multicast is illegal.");
@@ -2999,10 +3945,18 @@ public:
           op.getLoc(), numDests,
           rewriter.create<arith::ConstantOp>(op.getLoc(), rewriter.getI32Type(),
                                              rewriter.getI32IntegerAttr(1)));
-      auto mcastAddr =
-          rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
-              op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY,
-              semaphoreAddr, nullptr);
+      FailureOr<int32_t> nocIdx = getKernelNocIndex(op.getOperation());
+      if (failed(nocIdx)) {
+        return rewriter.notifyMatchFailure(
+            op, "unable to resolve datamovement kernel NoC index");
+      }
+      Value mcastNocId = intConstant<int8_t>(rewriter, op->getLoc(), *nocIdx);
+
+      flipMcastCoordsIfNoc1(*nocIdx, virtX, virtY, virtMcastEndX,
+                            virtMcastEndY);
+      auto mcastAddr = rewriter.create<ttkernel::GetNocMulticastAddrOp>(
+          op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY,
+          semaphoreAddr, mcastNocId);
 
       auto semaphorePtr = rewriter.create<ttkernel::CastToL1PtrOp>(
           op.getLoc(), ttkernel::L1AddrPtrType::get(rewriter.getContext(), 32),
@@ -3010,7 +3964,7 @@ public:
       rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphorePtr,
                                                    value);
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreSetMulticastOp>(
-          op, semaphoreAddr, mcastAddr, numDestsMinusOne, nullptr, nullptr);
+          op, semaphoreAddr, mcastAddr, numDestsMinusOne, nullptr);
     }
 
     return success();
@@ -3060,17 +4014,19 @@ public:
     auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
         rewriter, op.getLoc(), ttcore::getOpChipDescAttr(op),
         op.getCoreIndices());
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
     auto globalSemAddr = rewriter.create<ttkernel::GetNocAddrOp>(
-        op.getLoc(), virtX, virtY, adaptor.getSyncSemaphore());
+        op.getLoc(), virtX, virtY, adaptor.getSyncSemaphore(), nocId);
     auto globalSemPtr = rewriter.create<ttkernel::CastToL1PtrOp>(
         op.getLoc(), ttkernel::L1AddrPtrType::get(rewriter.getContext(), 32),
         adaptor.getSyncSemaphore());
 
     assert(op.getSenderStartDevice().size() > 0 && "start device must be set");
     auto fcm = getFabricConnectionManager(op);
-    auto meshId = i16(rewriter, op->getLoc(), 0);
-    auto incr = i32(rewriter, op->getLoc(), 1);
-    auto numReceivers = i32(rewriter, op->getLoc(), op.getNumReceivers());
+    auto meshId = intConstant<int16_t>(rewriter, op->getLoc(), 0);
+    auto incr = intConstant<int32_t>(rewriter, op->getLoc(), 1);
+    auto numReceivers =
+        intConstant<int32_t>(rewriter, op->getLoc(), op.getNumReceivers());
 
     // fabric unicast
     if (op.getSenderDeviceMcastShape().size()) {
@@ -3123,10 +4079,14 @@ namespace mlir::tt {
 
 void populateD2MToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    const d2m::CBProducerConsumer &cbProducerConsumer, bool ttnnMode) {
+    const d2m::CBProducerConsumer &cbProducerConsumer,
+    bool forceCompileTimeArgs) {
+  auto tensorAccessorArgsChains =
+      std::make_shared<ttkernel::TensorAccessorArgsChains>();
   // clang-format off
-  patterns.add<ttkernel::D2MKernelFunctionArgsRewriter,
-               ttkernel::PassthroughRewriter<memref::CastOp>,
+  patterns.add<ttkernel::D2MKernelFunctionArgsRewriter>(
+      typeConverter, ctx, forceCompileTimeArgs, tensorAccessorArgsChains);
+  patterns.add<ttkernel::PassthroughRewriter<memref::CastOp>,
                ttkernel::MemRefSubviewRewriter,
 
                // FPU.
@@ -3202,9 +4162,16 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLogicalRightShiftOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileRightShiftOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileDivOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileEqOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileNeOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileGtOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileLtOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileGeOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileLeOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMaximumOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMinimumOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TilePowOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileAtan2Op>,
 
                // Elementwise SFPU Ternary.
                ttkernel::D2MSFPUOpsRewriter<d2m::TileWhereOp>,
@@ -3217,6 +4184,9 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MWriteColMaskTileRewriter,
                ttkernel::D2MExperimentalFillArangeTileRewriter,
                ttkernel::D2MTileTransposeRewriter,
+               ttkernel::D2MTopkLocalSortRewriter,
+               ttkernel::D2MTopkMergeRewriter,
+               ttkernel::D2MTopkRebuildRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
                ttkernel::UnpackStallOnPackRewriter,
@@ -3236,11 +4206,17 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreSetOp>,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,
                ttkernel::D2MSemaphoreWaitRewriter,
-               ttkernel::D2MDeviceSynchronizeRewriter>(typeConverter, ctx);
+               ttkernel::D2MDeviceSynchronizeRewriter,
+               ttkernel::D2MArgMaxRewriter>(typeConverter, ctx);
 
   patterns.add<ttkernel::D2MGetArgRewriter>(typeConverter, ctx,
-                                                      ttnnMode);
-  patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx);
+                                            forceCompileTimeArgs);
+  patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx,
+                                           forceCompileTimeArgs);
+  patterns.add<
+      ttkernel::D2MDMAViaTensorAccessorRewriter<d2m::DMAReadOp>,
+      ttkernel::D2MDMAViaTensorAccessorRewriter<d2m::DMAWriteOp>>(
+      typeConverter, ctx, tensorAccessorArgsChains, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &cbProducerConsumer);
 

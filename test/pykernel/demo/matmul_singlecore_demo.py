@@ -91,7 +91,7 @@ class MatmulSinglecorePyKernelOp(PyKernelOp):
         s0 = TensorAccessor(tensor_accessor_args, src_addr0, tile_bytes0)
 
         tile_bytes1 = get_tile_size(cb_in1)
-        tensor_accessor_args = TensorAccessorArgs(cta_base=2, crta_base=0)
+        tensor_accessor_args = TensorAccessorArgs(cta_base=3, crta_base=0)
         s1 = TensorAccessor(tensor_accessor_args, src_addr1, tile_bytes1)
 
         for m in range(0, M, 1):
@@ -125,8 +125,6 @@ class MatmulSinglecorePyKernelOp(PyKernelOp):
         cb_in1 = self.create_cb(b_tensor, 1)
         cb_out = self.create_cb(out_tensor, 16)
 
-        self.set_tensor_accessor_config([a_tensor, b_tensor, out_tensor])
-
         # Calculate M, N, K as tile numbers, tiles are 32x32
         # A[MxK], B[KxN], Output[MxN]
         M = a_tensor.shape[0] // 32
@@ -143,6 +141,7 @@ class MatmulSinglecorePyKernelOp(PyKernelOp):
                 out_tensor.buffer_address(),
                 M,
                 N,
+                tensor_accessor_configs=[out_tensor],
             ),
             self.create_kernel(
                 MatmulSinglecorePyKernelOp.reader_single_core_mm,
@@ -153,6 +152,7 @@ class MatmulSinglecorePyKernelOp(PyKernelOp):
                 M,
                 N,
                 K,
+                tensor_accessor_configs=[a_tensor, b_tensor],
             ),
         ]
 

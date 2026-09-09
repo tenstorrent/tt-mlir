@@ -83,7 +83,7 @@ ScaledDotProductAttentionDecodeAttentionSinkRewritePattern::matchAndRewrite(
       srcOp, srcOp.getResult().getType(), srcOp.getQuery(), srcOp.getKey(),
       srcOp.getValue(), srcOp.getIsCausal(), srcOp.getAttentionMask(),
       srcOp.getCurPosTensor(), paddedSink, srcOp.getScaleAttr(),
-      srcOp.getProgramConfigAttr());
+      srcOp.getSlidingWindowSizeAttr(), srcOp.getProgramConfigAttr());
 
   return success();
 }

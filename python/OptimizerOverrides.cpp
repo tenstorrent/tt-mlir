@@ -19,34 +19,10 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
       .def("get_enable_optimizer",
            &tt::ttnn::OptimizerOverridesHandler::getEnableOptimizer)
 
-      .def("set_memory_reconfig",
-           &tt::ttnn::OptimizerOverridesHandler::setMemoryReconfig)
-      .def("get_memory_reconfig",
-           &tt::ttnn::OptimizerOverridesHandler::getMemoryReconfig)
-
       .def("set_enable_memory_layout_analysis",
            &tt::ttnn::OptimizerOverridesHandler::setEnableMemoryLayoutAnalysis)
       .def("get_enable_memory_layout_analysis",
            &tt::ttnn::OptimizerOverridesHandler::getEnableMemoryLayoutAnalysis)
-
-      .def("set_enable_l1_interleaved_fallback_analysis",
-           &tt::ttnn::OptimizerOverridesHandler::
-               setEnableL1InterleavedFallbackAnalysis)
-      .def("get_enable_l1_interleaved_fallback_analysis",
-           &tt::ttnn::OptimizerOverridesHandler::
-               getEnableL1InterleavedFallbackAnalysis)
-
-      .def("set_enable_memory_layout_analysis_policy",
-           &tt::ttnn::OptimizerOverridesHandler::
-               setEnableMemoryLayoutAnalysisPolicy)
-      .def("get_enable_memory_layout_analysis_policy",
-           &tt::ttnn::OptimizerOverridesHandler::
-               getEnableMemoryLayoutAnalysisPolicy)
-
-      .def("set_memory_layout_analysis_policy",
-           &tt::ttnn::OptimizerOverridesHandler::setMemoryLayoutAnalysisPolicy)
-      .def("get_memory_layout_analysis_policy",
-           &tt::ttnn::OptimizerOverridesHandler::getMemoryLayoutAnalysisPolicy)
 
       .def("set_system_desc_path",
            &tt::ttnn::OptimizerOverridesHandler::setSystemDescPath)
@@ -85,14 +61,6 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
                addConv2dConfigOverrideNanobindWrapper)
 
       .def("to_string", &tt::ttnn::OptimizerOverridesHandler::toString);
-
-  nb::enum_<mlir::tt::MemoryLayoutAnalysisPolicyType>(
-      m, "MemoryLayoutAnalysisPolicyType")
-      .value("DFSharding", mlir::tt::MemoryLayoutAnalysisPolicyType::DFSharding)
-      .value("GreedyL1Interleaved",
-             mlir::tt::MemoryLayoutAnalysisPolicyType::GreedyL1Interleaved)
-      .value("BFInterleaved",
-             mlir::tt::MemoryLayoutAnalysisPolicyType::BFInterleaved);
 
   nb::enum_<mlir::tt::ttnn::BufferType>(m, "BufferType")
       .value("DRAM", mlir::tt::ttnn::BufferType::DRAM)

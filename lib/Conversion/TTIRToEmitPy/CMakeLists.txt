@@ -1,4 +1,5 @@
 add_mlir_conversion_library(TTMLIRTTIRToEmitPy
+  CaptureMeshShape.cpp
   TTIRCPUToEmitPyPass.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -9,5 +10,6 @@ add_mlir_conversion_library(TTMLIRTTIRToEmitPy
 
   LINK_LIBS PUBLIC
   MLIREmitPyDialect
+  MLIRTTCoreDialect
   MLIRTTIRDialect
 )

@@ -67,16 +67,11 @@ LogicalResult DistributedLayerNormDecompositionRewritePattern::matchAndRewrite(
   RankedTensorType statsType = RankedTensorType::get(
       statsShape, inputType.getElementType(), statsEncoding);
 
-  auto dtypeAttr = ttcore::DataTypeAttr::get(
-      rewriter.getContext(),
-      ttcore::elementTypeToDataType(inputType.getElementType()));
-
   auto preAllGatherOp = rewriter.create<ttnn::LayerNormPreAllGatherOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_pre_all_gather"), statsType,
       normInput,
       /*residual_input=*/mlir::Value{},
       /*recip=*/mlir::Value{},
-      /*dtype=*/dtypeAttr,
       /*compute_config=*/nullptr,
       /*program_config=*/nullptr);
 
@@ -109,7 +104,6 @@ LogicalResult DistributedLayerNormDecompositionRewritePattern::matchAndRewrite(
       ttmlir::utils::appendLocationSuffix(loc, "_post_all_gather"), resultType,
       normInput, allGatherOp.getResult(), op.getWeight(), op.getBias(),
       op.getEpsilonAttr(),
-      /*dtype=*/dtypeAttr,
       /*compute_config=*/nullptr,
       /*program_config=*/nullptr);
 

@@ -44,8 +44,7 @@ struct ConvertD2MToTTNNPass final
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
-    if (failed(d2m::utils::checkBackendDatamovementProcessorSupport(
-            moduleOp, "D2MToTTNN"))) {
+    if (failed(d2m::utils::checkBackendDmCoreSupport(moduleOp, "D2MToTTNN"))) {
       signalPassFailure();
       return;
     }

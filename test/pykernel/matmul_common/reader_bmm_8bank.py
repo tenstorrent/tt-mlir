@@ -30,24 +30,17 @@ def reader_bmm_8bank(cb_id_in0: CircularBuffer, cb_id_in1: CircularBuffer):
     batch = get_arg_val(int, 7)
     bcast_B = get_arg_val(int, 8)
 
-    src0_is_dram = get_compile_time_arg_val(int, 0) == 1
-    src1_is_dram = get_compile_time_arg_val(int, 1) == 1
-
     onetile = 1
     src0_tile_bytes = get_tile_size(cb_id_in0)
-    src0_data_format = get_dataformat(cb_id_in0)
     src1_tile_bytes = get_tile_size(cb_id_in1)
-    src1_data_format = get_dataformat(cb_id_in1)
 
     itileA_batch: int = 0
     itileB_batch: int = 0
 
-    s0 = get_interleaved_addr_gen_fast(
-        src0_is_dram, src0_addr, src0_tile_bytes, src0_data_format
-    )
-    s1 = get_interleaved_addr_gen_fast(
-        src1_is_dram, src1_addr, src1_tile_bytes, src1_data_format
-    )
+    tensor_accessor_args = TensorAccessorArgs(cta_base=2, crta_base=0)
+    s0 = TensorAccessor(tensor_accessor_args, src0_addr, src0_tile_bytes)
+    tensor_accessor_args = TensorAccessorArgs(cta_base=3, crta_base=0)
+    s1 = TensorAccessor(tensor_accessor_args, src1_addr, src1_tile_bytes)
 
     for nb in range(0, batch, 1):
         itileA: int = itileA_batch + 0

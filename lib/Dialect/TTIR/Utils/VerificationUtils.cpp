@@ -302,8 +302,15 @@ llvm::Expected<Conv3dParams> getConv3dParams(mlir::tt::ttir::Conv3dOp *op) {
                                    " for padding");
   }
 
+  llvm::ArrayRef<int32_t> dilation = op->getDilation();
+  if (dilation.size() != 3) {
+    return llvm::createStringError("dilation must have 3 values, got: " +
+                                   std::to_string(dilation.size()));
+  }
+
   return Conv3dParams{Spatial3DParam(*stride), Spatial3DParam(*padding),
-                      op->getGroups(), op->getPaddingMode()};
+                      Spatial3DParam(dilation), op->getGroups(),
+                      op->getPaddingMode()};
 }
 
 mlir::LogicalResult verifyConv3dParams(mlir::tt::ttir::Conv3dOp *op,
@@ -320,6 +327,12 @@ mlir::LogicalResult verifyConv3dParams(mlir::tt::ttir::Conv3dOp *op,
       !isNonNegative(params.padding.vertical) ||
       !isNonNegative(params.padding.horizontal)) {
     return op->emitOpError("Padding attribute values must be >= 0.");
+  }
+
+  if (!isPositive(params.dilation.depth) ||
+      !isPositive(params.dilation.vertical) ||
+      !isPositive(params.dilation.horizontal)) {
+    return op->emitOpError("Dilation attribute values must be > 0.");
   }
 
   if (params.padding_mode != "zeros" && params.padding_mode != "replicate") {
@@ -373,12 +386,16 @@ verifyConv3dInputDims(mlir::tt::ttir::Conv3dOp *op,
   std::array<uint32_t, 3> paddedInputSize = inputDims.getPaddedInputSize(
       2 * params.padding.depth, 2 * params.padding.vertical,
       2 * params.padding.horizontal);
-  if (paddedInputSize[0] < weightDims.kernelDepth ||
-      paddedInputSize[1] < weightDims.kernelHeight ||
-      paddedInputSize[2] < weightDims.kernelWidth) {
+  std::array<uint32_t, 3> effectiveKernelSize =
+      weightDims.getEffectiveKernelSize(params.dilation.depth,
+                                        params.dilation.vertical,
+                                        params.dilation.horizontal);
+  if (paddedInputSize[0] < effectiveKernelSize[0] ||
+      paddedInputSize[1] < effectiveKernelSize[1] ||
+      paddedInputSize[2] < effectiveKernelSize[2]) {
     return op->emitOpError()
-           << "The kernel size (" << weightDims.kernelDepth << ", "
-           << weightDims.kernelHeight << ", " << weightDims.kernelWidth
+           << "The effective kernel size (" << effectiveKernelSize[0] << ", "
+           << effectiveKernelSize[1] << ", " << effectiveKernelSize[2]
            << ") cannot be greater than the padded input size per channel ("
            << paddedInputSize[0] << ", " << paddedInputSize[1] << ", "
            << paddedInputSize[2] << ").";
@@ -393,22 +410,22 @@ verifyConv3dInputDims(mlir::tt::ttir::Conv3dOp *op,
     const std::optional<BiasTensorDims3d> &biasDims,
     const OutputTensorDims3d &outputDims, const Conv3dParams &params) {
 
-  // Conv3d doesn't currently support dilation, so we use this formula:
-  // D_out = (D_in + 2*pD - K_D) / sD + 1
-  // H_out = (H_in + 2*pH - K_H) / sH + 1
-  // W_out = (W_in + 2*pW - K_W) / sW + 1
+  std::array<uint32_t, 3> effectiveKernelSize =
+      weightDims.getEffectiveKernelSize(params.dilation.depth,
+                                        params.dilation.vertical,
+                                        params.dilation.horizontal);
   int32_t calculatedDOut = (inputDims.inputDepth + 2 * params.padding.depth -
-                            weightDims.kernelDepth) /
+                            effectiveKernelSize[0]) /
                                params.stride.depth +
                            1;
   int32_t calculatedHOut =
       (inputDims.inputHeight + 2 * params.padding.vertical -
-       weightDims.kernelHeight) /
+       effectiveKernelSize[1]) /
           params.stride.vertical +
       1;
   int32_t calculatedWOut =
       (inputDims.inputWidth + 2 * params.padding.horizontal -
-       weightDims.kernelWidth) /
+       effectiveKernelSize[2]) /
           params.stride.horizontal +
       1;
 

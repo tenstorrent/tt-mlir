@@ -166,15 +166,16 @@ def gelu_backward_tanh(
 
 binary_ops = [
     add,
-    atan2 | Marks(pytest.mark.skip_config(["ttmetal"])),
+    atan2,
     div,
-    gelu_backward | Marks(pytest.mark.skip_config(["ttmetal"])),
-    gelu_backward_tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
+    gelu_backward | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
+    gelu_backward_tanh
+    | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
     maximum,
     minimum,
     multiply,
     pow,
-    remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
+    remainder | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
     subtract,
 ]
 
@@ -215,6 +216,8 @@ def test_binary_ops(
         pytest.xfail(
             "TODO(dloke): int32 div is not supported on ttmetal yet, need to support floor or truncate division"
         )
+    if test_fn.__name__ == "atan2" and (dtype == torch.int32 or dtype == torch.int64):
+        pytest.xfail("atan2 with integer inputs is not supported on ttmetal")
 
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [dtype, dtype])
@@ -464,7 +467,7 @@ def test_scalar_binary_ops(
     is_fractional = scalar_value != int(scalar_value)
 
     if is_int and test_fn.__name__ in float_only_ops:
-        pytest.skip(f"{test_fn.__name__} not supported for {dtype}")
+        pytest.xfail(f"{test_fn.__name__} not supported for {dtype}")
     if is_int and is_fractional:
         pytest.skip(f"fractional scalar {scalar_value} not valid for {dtype}")
 
@@ -606,10 +609,10 @@ binary_bitwise_ops = [
 ]
 
 binary_bitwise_dtypes = [
-    torch.int32 | SkipIf("sim"),
-    torch.uint32 | SkipIf("sim"),
-    torch.uint16 | SkipIf("sim"),
-    torch.uint8 | SkipIf("sim"),
+    torch.int32 | SkipIf(["n150", "sim"]),
+    torch.uint32 | SkipIf(["n150", "sim"]),
+    torch.uint16,
+    torch.uint8,
 ]
 
 
@@ -672,9 +675,9 @@ binary_logical_shift_ops = [
 ]
 
 binary_logical_shift_dtypes = [
-    torch.int32 | SkipIf("sim"),
-    torch.uint32 | SkipIf("sim"),
-    torch.uint16 | SkipIf("sim"),
+    torch.int32 | SkipIf(["n150", "sim"]),
+    torch.uint32 | SkipIf(["n150", "sim"]),
+    torch.uint16,
 ]
 
 
@@ -704,7 +707,7 @@ def test_logical_shift_binary_ops(
 
 
 binary_right_shift_dtypes = [
-    torch.int32 | SkipIf("sim"),
+    torch.int32 | SkipIf(["n150", "sim"]),
 ]
 
 
@@ -774,7 +777,7 @@ def _logical_right_shift_edge_golden(
     "op_name",
     ["logical_left_shift", "logical_right_shift", "right_shift"],
 )
-@pytest.mark.skip_config(["sim"])
+@pytest.mark.skip_config(["n150", "sim"])
 def test_shift_binary_ops_edge_cases(
     shape: Shape, target: str, op_name: str, request, device
 ):

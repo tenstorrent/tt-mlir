@@ -31,9 +31,9 @@ public:
 
   // Ops that are safe to propagate dtype through on the kv_cache → cache_op
   // path. Extend this list when new transparent ops appear on that path.
-  static bool isAllowedOnCachePath(Operation *op) {
-    return mlir::isa<MeshShardOp>(op);
-  }
+  // Currently, the list is empty, but we may want to allow certain TMs in the
+  // future.
+  static bool isAllowedOnCachePath(Operation *op) { return false; }
 
   // Walks the linear tensor chain from `value` back through allowed ops,
   // collecting intermediate tensor values into `chain`. Returns the
@@ -179,9 +179,8 @@ public:
     auto newInputType =
         ttnn::utils::RankedTensorTypeFactory::create(inputType, dtype);
     builder.setInsertionPoint(op);
-    auto typecastOp = builder.create<TypecastOp>(
-        op.getLoc(), newInputType, input,
-        ttcore::DataTypeAttr::get(builder.getContext(), dtype));
+    auto typecastOp =
+        builder.create<TypecastOp>(op.getLoc(), newInputType, input);
     op.getInputMutable().assign(typecastOp.getResult());
   }
 

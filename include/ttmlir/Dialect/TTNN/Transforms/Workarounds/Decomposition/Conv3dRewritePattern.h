@@ -27,7 +27,7 @@ mlir::Value convertToLayoutIfNeeded(Conv3dOp op,
     return nullptr;
   }
 
-  return utils::createToLayoutOp(
+  return utils::createToTensorSpecOp(
       op, tensor, rewriter, targetLayout, layoutAttr.getBufferType(),
       layoutAttr.getMemLayout(), layoutAttr.getDataType(), suffix);
 }

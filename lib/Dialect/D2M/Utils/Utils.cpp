@@ -15,6 +15,11 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/Utils.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
 
 #include <cassert>
@@ -531,6 +536,15 @@ getGridMapsFromVirtualGridMapping(Value val, ArrayRef<int64_t> gridShape) {
   if (!invMap || !fwdMap) {
     return std::nullopt;
   }
+  return getGridMapsFromVirtualGridMapping(*fwdMap, *invMap, gridShape);
+}
+
+std::optional<std::pair<AffineMap, AffineMap>>
+getGridMapsFromVirtualGridMapping(AffineMap forwardMap, AffineMap inverseMap,
+                                  ArrayRef<int64_t> gridShape) {
+  if (!forwardMap || !inverseMap) {
+    return std::nullopt;
+  }
 
   // Full VGM maps are shaped as:
   //   (virtual grid dims, shard dims) -> (physical grid dims, shard dims)
@@ -538,13 +552,13 @@ getGridMapsFromVirtualGridMapping(Value val, ArrayRef<int64_t> gridShape) {
   // the apparent grid rank, the stored VGM describes the backing value instead
   // and must not be attached to this GridAttr.
   const unsigned rank = gridShape.size();
-  if (rank == 0 || fwdMap->getNumDims() != 2 * rank ||
-      fwdMap->getNumResults() != rank + 2 || invMap->getNumDims() != 2 ||
-      invMap->getNumResults() != rank + 1) {
+  if (rank == 0 || forwardMap.getNumDims() != 2 * rank ||
+      forwardMap.getNumResults() != rank + 2 || inverseMap.getNumDims() != 2 ||
+      inverseMap.getNumResults() != rank + 1) {
     return std::nullopt;
   }
 
-  AffineMap gridFwdMap = *fwdMap;
+  AffineMap gridFwdMap = forwardMap;
   gridFwdMap = ttmlir::utils::affineMapDropBackResults(gridFwdMap, rank);
   for (int64_t i = static_cast<int64_t>(rank) - 1; i >= 0; --i) {
     gridFwdMap =
@@ -567,7 +581,7 @@ getGridMapsFromVirtualGridMapping(Value val, ArrayRef<int64_t> gridShape) {
     return std::nullopt;
   }
 
-  return std::make_pair(gridFwdMap, *invMap);
+  return std::make_pair(gridFwdMap, inverseMap);
 }
 
 std::optional<AffineMap> getAssociatedRemapping(Value val) {
@@ -673,10 +687,7 @@ getMemoryMapImpl(ttcore::DeviceAttr device, MemRefType memrefType,
   if (auto shardLayout =
           mlir::dyn_cast<ttcore::ShardLayoutAttr>(memrefType.getLayout())) {
 
-    unsigned shardRank = shardLayout.getRank();
-    unsigned gridRank = memrefType.getRank() - shardRank;
-
-    auto gridShape = memrefType.getShape().take_front(gridRank);
+    auto gridShape = shardLayout.getGridShape(memrefType);
     auto deviceGridShape = device.getWorkerGrid().getShape();
 
     // Use stored forward map if available; otherwise fall back to
@@ -855,7 +866,42 @@ AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input, bool isRemote) {
 template <typename Builder>
 SmallVector<Value> applyMap(Builder &builder, Location loc, AffineMap map,
                             ValueRange index, bool isRemote) {
-  auto affineApply = [&](AffineMap map, ValueRange index) {
+  auto affineApply = [&](AffineMap map, ValueRange index) -> Value {
+    map = mlir::simplifyAffineMap(map);
+    AffineExpr result = map.getResult(0);
+    if (auto constantExpr = dyn_cast<AffineConstantExpr>(result)) {
+      return builder.template create<arith::ConstantIndexOp>(
+          loc, constantExpr.getValue());
+    }
+    if (auto dimExpr = dyn_cast<AffineDimExpr>(result)) {
+      return index[dimExpr.getPosition()];
+    }
+
+    SmallVector<int64_t> constantOperands;
+    constantOperands.reserve(index.size());
+    for (Value operand : index) {
+      if (auto constantIndexOp =
+              operand.getDefiningOp<arith::ConstantIndexOp>()) {
+        constantOperands.push_back(constantIndexOp.value());
+        continue;
+      }
+      auto constantOp = operand.getDefiningOp<arith::ConstantOp>();
+      if (!constantOp || !mlir::isa<IndexType>(constantOp.getType())) {
+        constantOperands.clear();
+        break;
+      }
+      auto integerAttr = mlir::dyn_cast<IntegerAttr>(constantOp.getValue());
+      if (!integerAttr) {
+        constantOperands.clear();
+        break;
+      }
+      constantOperands.push_back(integerAttr.getInt());
+    }
+    if (constantOperands.size() == index.size() && map.getNumSymbols() == 0) {
+      SmallVector<int64_t> results = map.compose(constantOperands);
+      return builder.template create<arith::ConstantIndexOp>(loc, results[0]);
+    }
+
     return builder.template create<affine::AffineApplyOp>(loc, map, index);
   };
 
@@ -980,6 +1026,113 @@ getNocElementAlignment(Operation *op, ttcore::MemorySpace memorySpace,
 int32_t getNocElementAlignmentL1(
     Operation *op, const std::variant<RankedTensorType, MemRefType> &type) {
   return getNocElementAlignment(op, ttcore::MemorySpace::DeviceL1, type);
+}
+
+void buildParallelGenericRegion(
+    RewriterBase &rewriter, Location loc, GenericOp generic, ValueRange inputs,
+    ValueRange outputs,
+    llvm::function_ref<llvm::SmallVector<Value>(ArrayRef<Value>)> body) {
+  auto shardTypeOf = [](Value operand) {
+    auto tensorType = cast<RankedTensorType>(operand.getType());
+    auto layout = cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+    return RankedTensorType::get(layout.getShardShape(tensorType),
+                                 tensorType.getElementType());
+  };
+  auto localBuffer = [&](RankedTensorType shardType) {
+    return rewriter
+        .create<tensor::EmptyOp>(loc, shardType.getShape(),
+                                 shardType.getElementType())
+        .getResult();
+  };
+
+  auto insertPoint = rewriter.saveInsertionPoint();
+  rewriter.startOpModification(generic);
+  {
+    rewriter.createBlock(&generic->getRegions().front());
+
+    llvm::SmallVector<Value> blockArgs;
+    for (auto [i, input] : llvm::enumerate(inputs)) {
+      RankedTensorType shardType = shardTypeOf(input);
+      blockArgs.push_back(
+          rewriter
+              .create<RemoteLoadOp>(
+                  loc, shardType, localBuffer(shardType),
+                  generic->getOperand(i),
+                  buildGridIndices(rewriter, loc, generic.getIndexingMap(i)))
+              .getResult());
+    }
+    for (Value output : outputs) {
+      blockArgs.push_back(localBuffer(shardTypeOf(output)));
+    }
+
+    llvm::SmallVector<Value> computedResults = body(blockArgs);
+    assert(computedResults.size() == outputs.size());
+
+    llvm::SmallVector<Value> storeResults;
+    for (auto [outputIdx, result] : llvm::enumerate(computedResults)) {
+      size_t operandIdx = inputs.size() + outputIdx;
+      Value genericOperand = generic->getOperand(operandIdx);
+      storeResults.push_back(
+          rewriter
+              .create<RemoteStoreOp>(
+                  loc, genericOperand.getType(), genericOperand,
+                  buildGridIndices(rewriter, loc,
+                                   generic.getIndexingMap(operandIdx)),
+                  result)
+              .getResult());
+    }
+    rewriter.create<YieldOp>(loc, storeResults);
+  }
+  rewriter.finalizeOpModification(generic);
+  rewriter.restoreInsertionPoint(insertPoint);
+}
+
+Value emitUnaryGeneric(
+    RewriterBase &rewriter, Location loc, Value src, Value out,
+    llvm::function_ref<Value(OpBuilder &, Location, ValueRange)> makeTile,
+    ttcore::GridAttr grid) {
+  std::size_t physicalRank =
+      cast<RankedTensorType>(out.getType()).getRank() / 2;
+  AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
+  llvm::SmallVector<Attribute> iteratorTypes(
+      physicalRank, ttcore::IteratorTypeAttr::get(
+                        rewriter.getContext(), ttcore::IteratorType::Parallel));
+  llvm::SmallVector<Value> ins = {src};
+  llvm::SmallVector<Value> outs = {out};
+  auto generic = rewriter.create<GenericOp>(
+      loc, ins, outs, /*additionalArgs=*/ValueRange(),
+      rewriter.getAffineMapArrayAttr(
+          llvm::SmallVector<AffineMap>{identityMap, identityMap}),
+      rewriter.getArrayAttr(iteratorTypes), ThreadType::Unified, grid);
+  buildParallelGenericRegion(
+      rewriter, loc, generic, ins, outs,
+      [&](ArrayRef<Value> blockArgs) -> llvm::SmallVector<Value> {
+        Value input = blockArgs[0];
+        Value output = blockArgs[1];
+        std::size_t shardRank =
+            cast<RankedTensorType>(output.getType()).getRank();
+        AffineMap shardIdentity = rewriter.getMultiDimIdentityMap(shardRank);
+        llvm::SmallVector<mlir::utils::IteratorType> linalgIters(
+            shardRank, mlir::utils::IteratorType::parallel);
+        auto linalgOp = rewriter.create<linalg::GenericOp>(
+            loc, output.getType(), input, output,
+            llvm::SmallVector<AffineMap>{shardIdentity, shardIdentity},
+            linalgIters, [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
+              b.create<linalg::YieldOp>(bodyLoc, makeTile(b, bodyLoc, args));
+            });
+        return {linalgOp->getResult(0)};
+      });
+  return generic->getResult(0);
+}
+
+Value materializeToLayout(RewriterBase &rewriter, Location loc, Value value,
+                          const PlacedBuffer &destination) {
+  Value empty =
+      rewriter
+          .create<EmptyOp>(loc, destination.type, destination.vgmInverse,
+                           destination.vgmForward)
+          .getResult();
+  return rewriter.create<ToLayoutOp>(loc, value, empty).getResult(0);
 }
 
 } // namespace mlir::tt::d2m::utils

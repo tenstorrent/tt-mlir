@@ -28,12 +28,6 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
   for (Value output : dispatchOp.getOutputs()) {
     if (EmptyOp emptyOp = output.getDefiningOp<EmptyOp>()) {
       emptyOp.getResult().setType(newTensorType);
-      emptyOp.setDtype(layoutAttr.getDataType());
-      if (layoutAttr.isTiled()) {
-        emptyOp.setLayout(ttnn::Layout::Tile);
-      } else {
-        emptyOp.setLayout(ttnn::Layout::RowMajor);
-      }
     } else {
       dispatchOp.emitOpError(
           "Expected EmptyOp for D2MSubgraphOp output buffer");
@@ -52,9 +46,8 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
         ++argIdx;
       }
     }
-    // Insert a trailing to_layout to convert the last op's output to the
+    // Insert a trailing to_tensor_spec to convert the last op's output to the
     // chosen layout. The TTNN→TTIR conversion pattern will lower this to
-    // ttir.to_layout, which TTMetal's D2MToLayoutOpRewriter then handles.
     Block &block = mainFunc.getBody().front();
     Operation *terminator = block.getTerminator();
     if (func::ReturnOp returnOp = dyn_cast<func::ReturnOp>(terminator)) {
@@ -63,14 +56,10 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
         if (currentResultValue.getType() != newTensorType) {
           OpBuilder builder(dispatchOp.getContext());
           builder.setInsertionPoint(returnOp);
-          ttcore::DataTypeAttr dataType = ttcore::DataTypeAttr::get(
-              dispatchOp.getContext(), layoutAttr.getDataType());
-          LayoutAttr newLayout =
-              LayoutAttr::get(dispatchOp.getContext(), layoutAttr.getLayout());
           Location loc = mainFunc.getLoc();
-          ToLayoutOp toLayoutOp = builder.create<ToLayoutOp>(
-              loc, newTensorType, currentResultValue, newLayout, dataType);
-          returnOp.setOperand(0, toLayoutOp.getResult());
+          ToTensorSpecOp toTensorSpecOp = builder.create<ToTensorSpecOp>(
+              loc, newTensorType, currentResultValue);
+          returnOp.setOperand(0, toTensorSpecOp.getResult());
         }
       }
     }

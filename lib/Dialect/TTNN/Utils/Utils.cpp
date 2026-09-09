@@ -4,6 +4,9 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+#include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
@@ -22,9 +25,21 @@
 
 namespace mlir::tt::ttnn::utils {
 
+// Resolve the module carrying the optimizer's L1 policy attributes.
+// getParentOfType starts from getParentOp(), so it returns null when called on
+// the ModuleOp itself -- and callers legitimately pass the module (e.g. the L1
+// spill pass computing its per-core budget). Without this the lookup silently
+// falls back to the defaults, dropping both `ttnn.tensor_l1_usage_cap` and
+// `ttnn.l1_const_eval_usage`.
+static ModuleOp getPolicyModule(Operation *op) {
+  if (auto moduleOp = mlir::dyn_cast<ModuleOp>(op)) {
+    return moduleOp;
+  }
+  return op->getParentOfType<ModuleOp>();
+}
+
 float getTensorL1UsageCap(Operation *op, float defaultValue) {
-  // Walk up to find the module operation that has the attribute
-  ModuleOp moduleOp = op->getParentOfType<ModuleOp>();
+  ModuleOp moduleOp = getPolicyModule(op);
 
   if (moduleOp) {
     if (auto attr =
@@ -34,6 +49,31 @@ float getTensorL1UsageCap(Operation *op, float defaultValue) {
   }
 
   return defaultValue;
+}
+
+uint64_t getReservedL1Usage(Operation *op) {
+  ModuleOp moduleOp = getPolicyModule(op);
+
+  if (moduleOp) {
+    if (auto attr =
+            moduleOp->getAttrOfType<IntegerAttr>(g_L1ConstEvalUsageAttrName)) {
+      return attr.getValue().getZExtValue();
+    }
+  }
+
+  return 0;
+}
+
+uint64_t getUsableL1PerCore(Operation *op) {
+  const float cap = getTensorL1UsageCap(op);
+
+  ttcore::ChipDescAttr chipDesc = ttcore::getOpChipDescAttr(op);
+  const uint64_t capped =
+      static_cast<uint64_t>(cap * chipDesc.getUsableL1Size());
+  const uint64_t reserved = getReservedL1Usage(op);
+  TT_assertv(reserved <= capped, "Reserved L1 usage exceeds capped value");
+
+  return capped - reserved;
 }
 
 bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {

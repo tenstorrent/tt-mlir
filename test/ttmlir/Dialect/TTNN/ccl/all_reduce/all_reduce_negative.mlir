@@ -9,7 +9,7 @@ module @all_reduce_negative_invalid_reduce_type_mean attributes {mhlo.num_partit
     return %1 : tensor<4096x16384xf32, #ttnn_layout1>
   }
 }
-// CHECK: error: 'ttnn.all_reduce' op Invalid reduction op for all reduce op.
+// CHECK: error: 'ttnn.all_reduce' op Invalid reduction type for all reduce op.
 
 // -----
 
@@ -21,7 +21,7 @@ module @all_reduce_negative_invalid_reduce_type_std attributes {mhlo.num_partiti
     return %1 : tensor<4096x16384xf32, #ttnn_layout1>
   }
 }
-// CHECK: error: 'ttnn.all_reduce' op Invalid reduction op for all reduce op.
+// CHECK: error: 'ttnn.all_reduce' op Invalid reduction type for all reduce op.
 
 // -----
 
@@ -33,4 +33,4 @@ module @all_reduce_negative_invalid_reduce_type_var attributes {mhlo.num_partiti
     return %1 : tensor<4096x16384xf32, #ttnn_layout1>
   }
 }
-// CHECK: error: 'ttnn.all_reduce' op Invalid reduction op for all reduce op.
+// CHECK: error: 'ttnn.all_reduce' op Invalid reduction type for all reduce op.

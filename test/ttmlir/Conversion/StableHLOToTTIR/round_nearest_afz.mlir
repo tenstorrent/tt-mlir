@@ -1,3 +1,4 @@
+// REQUIRES: stablehlo
 // RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
 // RUN: FileCheck %s --input-file=%t
 

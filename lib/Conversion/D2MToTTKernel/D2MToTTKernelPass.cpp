@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/D2MToTTKernel/D2MToTTKernel.h"
+#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
@@ -41,6 +42,7 @@ namespace mlir::tt::d2m {
 } // namespace mlir::tt::d2m
 
 namespace {
+
 struct ConvertD2MToTTKernel
     : public d2m::impl::ConvertD2MToTTKernelBase<ConvertD2MToTTKernel> {
 
@@ -55,10 +57,11 @@ struct ConvertD2MToTTKernel
     // Workaround: Passes are required to be copy-constructible but autogen'ed
     // base class copy constructors ignore Pass option fields.
     this->ttnnMode = rhs.ttnnMode;
+    this->forceCompileTimeArgs = rhs.forceCompileTimeArgs;
   }
 
   void runOnOperation() final {
-    ModuleOp moduleOp = getOperation();
+    func::FuncOp funcOp = getOperation();
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalDialect<arith::ArithDialect>();
@@ -90,13 +93,29 @@ struct ConvertD2MToTTKernel
       target.addLegalDialect<ttnn::TTNNDialect>();
     }
 
-    // Allow loads and stores to integer element types.
-    //   i.e. riscv accesses to L1.
+    auto isHostScalarLoadStore = [](Operation *op, MemRefType memrefType) {
+      auto func = op->getParentOfType<func::FuncOp>();
+      if (!func || func->hasAttr(d2m::ThreadAttr::name)) {
+        return false;
+      }
+
+      return ttcore::getMemorySpace(memrefType) ==
+                 ttcore::MemorySpace::System &&
+             memrefType.hasStaticShape() && memrefType.getNumElements() == 1 &&
+             !mlir::isa<ttcore::TileType>(memrefType.getElementType());
+    };
+
+    // Allow loads and stores to integer element types, i.e. riscv accesses to
+    // L1. Host command-function scalar load/stores are also legal; those are
+    // CPU-side buffer operations and must not be lowered as circular-buffer
+    // tile accesses.
     target.addDynamicallyLegalOp<memref::LoadOp>([&](memref::LoadOp op) {
-      return op.getMemRefType().getElementType().isIntOrIndex();
+      return op.getMemRefType().getElementType().isIntOrIndex() ||
+             isHostScalarLoadStore(op, op.getMemRefType());
     });
     target.addDynamicallyLegalOp<memref::StoreOp>([&](memref::StoreOp op) {
-      return op.getMemRefType().getElementType().isIntOrIndex();
+      return op.getMemRefType().getElementType().isIntOrIndex() ||
+             isHostScalarLoadStore(op, op.getMemRefType());
     });
     target.addLegalOp<memref::AllocOp>();
     target.addLegalOp<memref::DeallocOp>();
@@ -104,11 +123,13 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<memref::GlobalOp>();
     target.addLegalOp<memref::GetGlobalOp>();
 
-    target.addDynamicallyLegalOp<func::FuncOp>(
-        [&](func::FuncOp op) { return !op->hasAttr(d2m::ThreadAttr::name); });
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+      return !op->hasAttr(d2m::ThreadAttr::name) ||
+             op->hasAttr(ttkernel::ThreadTypeAttr::name);
+    });
 
-    if (failed(d2m::utils::checkBackendDatamovementProcessorSupport(
-            moduleOp, "D2MToTTKernel"))) {
+    if (failed(
+            d2m::utils::checkBackendDmCoreSupport(funcOp, "D2MToTTKernel"))) {
       signalPassFailure();
       return;
     }
@@ -159,56 +180,58 @@ struct ConvertD2MToTTKernel
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     populateD2MToTTKernelPatterns(&getContext(), patterns, typeConverter,
-                                  cbProducerConsumer, ttnnMode);
+                                  cbProducerConsumer, forceCompileTimeArgs);
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 
     // If there is any fabric related writes,
     // insert fabric connection manager ops and setup fabric connections at the
     // start of the function and close at the end.
-    moduleOp->walk([&](func::FuncOp func) {
-      bool fabric_write_present = false;
-      func.walk([&](d2m::DMAWriteOp dmaWriteOp) {
-        if (dmaWriteOp.getStartDevice().size() > 0) {
-          fabric_write_present = true;
-          return WalkResult::interrupt();
-        }
-        return WalkResult::advance();
-      });
-
-      if (fabric_write_present) {
-        OpBuilder builder(func.getContext());
-        builder.setInsertionPointToStart(&func.getBody().front());
-        auto fabricConnectionManager =
-            builder
-                .create<ttkernel::CreateFabricConnectionManagerOp>(
-                    func.getLoc())
-                .getResult();
-        builder.create<ttkernel::SetupFabricConnectionsOp>(
-            func.getLoc(), fabricConnectionManager);
-        Operation *terminator = func.getBody().front().getTerminator();
-        builder.setInsertionPoint(terminator);
-        builder.create<ttkernel::CloseFabricConnectionsOp>(
-            func.getLoc(), fabricConnectionManager);
+    bool fabric_write_present = false;
+    funcOp.walk([&](d2m::DMAWriteOp dmaWriteOp) {
+      if (dmaWriteOp.getStartDevice().size() > 0) {
+        fabric_write_present = true;
+        return WalkResult::interrupt();
       }
+      return WalkResult::advance();
     });
 
-    if (failed(
-            applyFullConversion(getOperation(), target, std::move(patterns)))) {
+    if (fabric_write_present) {
+      OpBuilder builder(funcOp.getContext());
+      builder.setInsertionPointToStart(&funcOp.getBody().front());
+      auto fabricConnectionManager =
+          builder
+              .create<ttkernel::CreateFabricConnectionManagerOp>(
+                  funcOp.getLoc())
+              .getResult();
+      builder.create<ttkernel::SetupFabricConnectionsOp>(
+          funcOp.getLoc(), fabricConnectionManager);
+      Operation *terminator = funcOp.getBody().front().getTerminator();
+      builder.setInsertionPoint(terminator);
+      builder.create<ttkernel::CloseFabricConnectionsOp>(
+          funcOp.getLoc(), fabricConnectionManager);
+    }
+
+    if (failed(applyFullConversion(funcOp, target, std::move(patterns)))) {
       signalPassFailure();
       return;
     }
+
+    // The d2m.thread attr is kept until the end of this pass, when body
+    // rewrites have consumed nocIndex.
+    funcOp->removeAttr(d2m::ThreadAttr::name);
+    funcOp->removeAttr(d2m::getPhysicalCBPortMapAttrName());
   };
 };
 } // namespace
 
 namespace mlir::tt {
 
-std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTKernelPass() {
+std::unique_ptr<OperationPass<func::FuncOp>> createConvertD2MToTTKernelPass() {
   return std::make_unique<ConvertD2MToTTKernel>();
 }
 
-std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTKernelPass(
+std::unique_ptr<OperationPass<func::FuncOp>> createConvertD2MToTTKernelPass(
     const d2m::ConvertD2MToTTKernelOptions &options) {
   return std::make_unique<ConvertD2MToTTKernel>(options);
 }

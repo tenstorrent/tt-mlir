@@ -32,13 +32,12 @@ using namespace mlir::tt::d2m;
 // Custom assembly format for D2M_ThreadAttr.
 //
 // Format:  `<` threadType (`,` kernelSymbol)?
-//               (`,` `processor` `=` processorIndex)? `>`
+//               (`,` `dm_core` `=` dmCoreIndex)? `>`
 //
 // The two optional groups both start with `,`, so the declarative tablegen
 // format cannot disambiguate them: it always tries to parse the kernel symbol
-// after the first comma and fails on
-// `#d2m.thread<datamovement, processor = 0>`. We peek for the `processor`
-// keyword to pick the correct branch.
+// after the first comma and fails on `#d2m.thread<datamovement, dm_core = 0>`.
+// We peek for the `dm_core` keyword to pick the correct branch.
 mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
   if (parser.parseLess()) {
     return {};
@@ -51,12 +50,12 @@ mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
   }
 
   SymbolRefAttr kernelSymbol;
-  int32_t processorIndex = -1;
+  int32_t dmCoreIndex = -1;
 
-  // First optional: either `, @kernel` or `, processor = N`.
+  // First optional: either `, @kernel` or `, dm_core = N`.
   if (parser.parseOptionalComma().succeeded()) {
-    if (parser.parseOptionalKeyword("processor").succeeded()) {
-      if (parser.parseEqual() || parser.parseInteger(processorIndex)) {
+    if (parser.parseOptionalKeyword("dm_core").succeeded()) {
+      if (parser.parseEqual() || parser.parseInteger(dmCoreIndex)) {
         return {};
       }
     } else {
@@ -65,8 +64,8 @@ mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
       }
       // Second optional: only valid if a kernel symbol was given above.
       if (parser.parseOptionalComma().succeeded()) {
-        if (parser.parseKeyword("processor") || parser.parseEqual() ||
-            parser.parseInteger(processorIndex)) {
+        if (parser.parseKeyword("dm_core") || parser.parseEqual() ||
+            parser.parseInteger(dmCoreIndex)) {
           return {};
         }
       }
@@ -78,7 +77,7 @@ mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
   }
 
   return ThreadAttr::get(parser.getContext(), *threadType, kernelSymbol,
-                         processorIndex);
+                         dmCoreIndex);
 }
 
 void ThreadAttr::print(::mlir::AsmPrinter &printer) const {
@@ -88,8 +87,8 @@ void ThreadAttr::print(::mlir::AsmPrinter &printer) const {
     printer << ", ";
     printer.printAttribute(getKernelSymbol());
   }
-  if (getProcessorIndex() != -1) {
-    printer << ", processor = " << getProcessorIndex();
+  if (getDmCoreIndex() != -1) {
+    printer << ", dm_core = " << getDmCoreIndex();
   }
   printer << ">";
 }

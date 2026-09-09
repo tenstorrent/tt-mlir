@@ -25,7 +25,7 @@ protected:
 
 TEST_F(UnsafeBorrowedHostTensorTest, AliasesOwnedBuffer) {
   std::vector<uint32_t> shape = {2, 2};
-  std::vector<uint32_t> stride = tt::runtime::utils::calculateStride(shape);
+  std::vector<int64_t> stride = tt::runtime::utils::calculateStride(shape);
   tt::target::DataType dataType = tt::target::DataType::Float32;
   uint32_t itemSize = sizeof(float);
 

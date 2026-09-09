@@ -60,8 +60,18 @@ SumL1MemoryTracker::validate(Operation *op,
   }
   uint64_t additionalL1 =
       currentOccupied > inputOverlap ? currentOccupied - inputOverlap : 0;
+  return validateBackendDirect(op, inputLayouts, config, additionalL1);
+}
+
+op_constraint_validation::ValidationResult
+SumL1MemoryTracker::validateBackendDirect(
+    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+    const OpConfig &config, uint64_t additionalL1Usage) const {
+  if (backendValidator) {
+    return backendValidator(op, inputLayouts, config, additionalL1Usage);
+  }
   return op_constraint_validation::validateOperation(op, inputLayouts, config,
-                                                     additionalL1);
+                                                     additionalL1Usage);
 }
 
 uint64_t SumL1MemoryTracker::getOccupiedL1() const { return currentOccupied; }
@@ -115,10 +125,8 @@ void SumL1MemoryTracker::allocateAddress(Value result, uint64_t l1SizePerCore) {
       return;
     }
   }
-  // No fit — log warning. Sum tracker still works; frag check will catch it.
-  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-               "Address simulator: no fit for {} bytes (aligned {})",
-               l1SizePerCore, alignedSize);
+  llvm_unreachable("allocateAddress: no contiguous free block; caller must "
+                   "pre-check wouldAllocateAt");
 }
 
 void SumL1MemoryTracker::addTensor(Value result, uint64_t l1SizePerCore) {
@@ -258,11 +266,11 @@ SumL1MemoryTracker::wouldAllocateAt(uint64_t l1SizePerCore) const {
 }
 
 //===----------------------------------------------------------------------===//
-// L1SpillManagement
+// L1SpillManagementBase
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-L1SpillManagement<MemoryTracker>::L1SpillManagement(
+L1SpillManagementBase<MemoryTracker>::L1SpillManagementBase(
     func::FuncOp func, ttcore::GridAttr deviceGrid, uint64_t l1BudgetPerCore,
     std::unique_ptr<L1SpillObserver> observer)
     : func(func), deviceGrid(deviceGrid), l1BudgetPerCore(l1BudgetPerCore),
@@ -282,7 +290,7 @@ L1SpillManagement<MemoryTracker>::L1SpillManagement(
 
 template <typename MemoryTracker>
 OpConfig
-L1SpillManagement<MemoryTracker>::extractOpConfigFromIR(Operation *op) {
+L1SpillManagementBase<MemoryTracker>::extractOpConfigFromIR(Operation *op) {
   if (op->getNumResults() == 0) {
     return OpConfig{};
   }
@@ -328,13 +336,19 @@ L1SpillManagement<MemoryTracker>::extractOpConfigFromIR(Operation *op) {
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-Value L1SpillManagement<MemoryTracker>::evictFarthestUse() {
+Value L1SpillManagementBase<MemoryTracker>::evictFarthestUse() {
   while (!liveSet.empty()) {
     auto [lastUse, candidateVal] = liveSet.top();
     liveSet.pop();
 
     // Skip already-evicted entries (lazy deletion).
     if (!liveValues.count(candidateVal)) {
+      continue;
+    }
+
+    // Skip reshards we inserted for future consumers — evicting them defeats
+    // their purpose.
+    if (insertedReshardValues.count(candidateVal)) {
       continue;
     }
 
@@ -349,7 +363,7 @@ Value L1SpillManagement<MemoryTracker>::evictFarthestUse() {
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::applyOutputConfig(
+void L1SpillManagementBase<MemoryTracker>::applyOutputConfig(
     Operation *op, const op_constraint_validation::ValidationResult &result) {
   TTNNLayoutAttr chosenLayout = result.getFirstActualOutputLayout();
   if (!chosenLayout) {
@@ -364,12 +378,10 @@ void L1SpillManagement<MemoryTracker>::applyOutputConfig(
     }
 
     size_t ri = opResult.getResultNumber();
-    TTNNLayoutAttr resultLayout = (ri < result.actualOutputLayouts.size())
-                                      ? result.actualOutputLayouts[ri]
-                                      : chosenLayout;
-    if (!resultLayout) {
-      continue;
-    }
+    assert(ri < result.actualOutputLayouts.size() &&
+           "validation result has fewer output layouts than tensor results");
+    TTNNLayoutAttr resultLayout = result.actualOutputLayouts[ri];
+    assert(resultLayout && "result layout is null for tensor result");
 
     llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
@@ -384,28 +396,6 @@ void L1SpillManagement<MemoryTracker>::applyOutputConfig(
         RankedTensorType::get(tensorShape, newElementType, resultLayout);
     opResult.setType(newTensorType);
   }
-
-  // Update layout attribute for ops that have layout interface (op-level).
-  if (auto opWithLayoutIF = mlir::dyn_cast<TTNNLayoutOpInterface>(op)) {
-    opWithLayoutIF.setLayoutAttr(
-        LayoutAttr::get(op->getContext(), chosenLayout.getLayout()));
-  }
-
-  // Update output data type attribute (op-level, uses result 0's layout).
-  if (auto dtypeOp = mlir::dyn_cast<TTNNDtypeOpInterface>(op)) {
-    ttcore::DataTypeAttr newDataTypeAttr =
-        ttcore::DataTypeAttr::get(op->getContext(), chosenLayout.getDataType());
-    dtypeOp.setDtypeAttr(newDataTypeAttr);
-  }
-
-  // Update L1 usage attribute.
-  if (chosenLayout.hasL1BufferType() && result.outputL1Usage > 0) {
-    OpBuilder builder(op->getContext());
-    op->setAttr("ttnn.output_l1_usage",
-                builder.getI64IntegerAttr(result.outputL1Usage));
-  } else {
-    op->removeAttr("ttnn.output_l1_usage");
-  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -414,7 +404,7 @@ void L1SpillManagement<MemoryTracker>::applyOutputConfig(
 
 template <typename MemoryTracker>
 llvm::SmallVector<Operation *>
-L1SpillManagement<MemoryTracker>::collectDownstreamConsumers(
+L1SpillManagementBase<MemoryTracker>::collectDownstreamConsumers(
     Operation *changed) {
   // After spillToDram, a result may have a ToMemoryConfigOp user (spill op).
   // Follow through spill ops to find the actual downstream consumers.
@@ -438,7 +428,7 @@ L1SpillManagement<MemoryTracker>::collectDownstreamConsumers(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::revalidateConsumers(
+void L1SpillManagementBase<MemoryTracker>::revalidateConsumers(
     Operation *changedOp, int64_t currentPos,
     const llvm::DenseMap<Operation *, int64_t> &positionMap) {
   // Worklist of ops whose output changed — seed with the victim/changed op.
@@ -466,7 +456,7 @@ void L1SpillManagement<MemoryTracker>::revalidateConsumers(
       if (!mlir::dyn_cast<OpModel>(consumer)) {
         continue;
       }
-      if (isa<ToLayoutOp>(consumer)) {
+      if (isa<ToTensorSpecOp>(consumer)) {
         continue;
       }
 
@@ -517,12 +507,12 @@ void L1SpillManagement<MemoryTracker>::revalidateConsumers(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-typename L1SpillManagement<MemoryTracker>::ScheduleData
-L1SpillManagement<MemoryTracker>::buildScheduleData() {
+typename L1SpillManagementBase<MemoryTracker>::ScheduleData
+L1SpillManagementBase<MemoryTracker>::buildScheduleData() {
   ScheduleData data;
 
-  // Build schedule (ops in IR order = topological order). Include sink ops
-  // (paged_fill_cache / paged_update_cache / fill_cache) even though they
+  // Build schedule (ops in IR order = topological order). Include sink ops (see
+  // optimizer_utils::isSinkOp: the KV-cache writes plus adamw) even though they
   // have no tensor result — their operand uses must be visible to
   // computeLastUsePositions so that values consumed only by a cache write
   // (e.g. per-layer KV typecasts) are kept alive in L1 until the cache
@@ -556,7 +546,7 @@ L1SpillManagement<MemoryTracker>::buildScheduleData() {
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::processDeadTensors(
+void L1SpillManagementBase<MemoryTracker>::processDeadTensors(
     int64_t pos, const ScheduleData &data) {
   auto it = data.deathSchedule.find(pos - 1);
   if (it == data.deathSchedule.end()) {
@@ -581,12 +571,87 @@ void L1SpillManagement<MemoryTracker>::processDeadTensors(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
-    Operation *op, int64_t pos, const ScheduleData &data, uint64_t opL1Usage,
-    uint64_t cbPeakUsage, uint64_t l1Size) {
+bool AddressSimSpillManagement<MemoryTracker>::willAliasSourceInL1(
+    Operation *op) const {
+  // isAliasingViewOp guarantees op is a view op (reshape/pad/repeat/permute)
+  // that aliases its input operand(0). Use hasTensorAddress (not hasTensor):
+  // aliasing calls allocateAddressAt, which requires the source to occupy a
+  // simulated address slot. A tensor can be size-tracked but not
+  // address-tracked (e.g. zero-size or no-fit), in which case it cannot be
+  // aliased. This matches the replay path.
+  return isAliasingViewOp(op) &&
+         memoryTracker.hasTensorAddress(op->getOperand(0));
+}
+
+//===----------------------------------------------------------------------===//
+// Hooks (default = address-sim path)
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+uint64_t AddressSimSpillManagement<MemoryTracker>::placeValidatedOutput(
+    Operation *op, int64_t pos, ScheduleData &data,
+    const op_constraint_validation::ValidationResult &result) {
+  return ensureFitsL1(op, pos, data, result.cbPeakUsage, result.outputL1Usage);
+}
+
+template <typename MemoryTracker>
+void AddressSimSpillManagement<MemoryTracker>::handleUnvalidatedL1Output(
+    Operation *op, int64_t pos, ScheduleData &data, uint64_t derivedL1) {
+  // Pre-decomposition ToLayoutOp: no validation result, so CB peak is 0. Run
+  // the contiguous-fit check to make room if needed.
+  ensureFitsL1(op, pos, data, /*cbPeakUsage=*/0, derivedL1);
+}
+
+template <typename MemoryTracker>
+void AddressSimSpillManagement<MemoryTracker>::recoverFromOOM(
+    Operation *op, int64_t pos, llvm::ArrayRef<OpResult> tensorResults,
+    ScheduleData &data, std::function<void(uint64_t)> addResultsToLiveSet) {
+  handleOOM(op, pos, tensorResults, data, addResultsToLiveSet);
+}
+
+template <typename MemoryTracker>
+void AddressSimSpillManagement<MemoryTracker>::commitAllocation(
+    Value val, uint64_t perResultL1, ScheduleData &data) {
+  auto luIt = data.lastUsePositions.find(val);
+  assert(luIt != data.lastUsePositions.end() &&
+         "scheduled value missing its lastUsePositions entry");
+  int64_t resultLastUse = luIt->second;
+
+  // Snapshot before allocation and record event for replay.
+  allocEventIndex[val] = l1EventLog.size();
+  addressSnapshots[l1EventLog.size()] = memoryTracker.takeSnapshot();
+  l1EventLog.push_back({L1Event::kAlloc, val, perResultL1, /*skipped=*/false});
+
+  // View-eligible reshape: alias src's buffer instead of carving a fresh slot.
+  // Must stay in sync with the willAliasSourceInL1 short-circuit in
+  // ensureFitsL1.
+  Operation *defOp = val.getDefiningOp();
+  if (defOp && willAliasSourceInL1(defOp)) {
+    memoryTracker.addTensorAtAddress(val, perResultL1, defOp->getOperand(0));
+  } else {
+    memoryTracker.addTensor(val, perResultL1);
+  }
+
+  liveValues.insert(val);
+  liveSet.push({resultLastUse, val});
+}
+
+template <typename MemoryTracker>
+uint64_t AddressSimSpillManagement<MemoryTracker>::ensureFitsL1(
+    Operation *op, int64_t pos, ScheduleData &data, uint64_t cbPeakUsage,
+    uint64_t l1Size) {
+  // A view-eligible reshape aliases its source's existing L1 slot
+  // (addResultsToLiveSet uses addTensorAtAddress), so it consumes no fresh
+  // L1. Skip the fit / CB-overlap checks that assume a new allocation —
+  // otherwise wouldAllocateAt(l1Size) can falsely report no-fit and evict
+  // the very source the reshape is about to alias.
+  if (willAliasSourceInL1(op)) {
+    return l1Size;
+  }
+
   auto speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
   if (!speculativeAddr) {
-    l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
+    l1Size = handleNoFit(op, pos, data, l1Size);
     speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
   }
   // Always run the overlap check when the op declares a non-zero CB peak;
@@ -597,7 +662,7 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
       speculativeAddr.value_or(std::numeric_limits<uint64_t>::max());
   if (cbPeakUsage > 0 &&
       wouldCBsOverlapTensors(op, pos, cbPeakUsage, addrForCheck)) {
-    l1Size = handleFragmentation(op, pos, data, opL1Usage, cbPeakUsage, l1Size);
+    l1Size = handleFragmentation(op, pos, data, cbPeakUsage, l1Size);
   }
   return l1Size;
 }
@@ -607,33 +672,49 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::handleOOM(
+void AddressSimSpillManagement<MemoryTracker>::handleOOM(
     Operation *op, int64_t pos, llvm::ArrayRef<OpResult> tensorResults,
-    const ScheduleData &data, uint64_t opL1Usage,
-    std::function<void(uint64_t)> addResultsToLiveSet) {
+    ScheduleData &data, std::function<void(uint64_t)> addResultsToLiveSet) {
   observer_->onOOM(op, pos, memoryTracker.getOccupiedL1());
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "    OOM: validation failed, trying demotion/eviction");
 
-  auto inputLayouts = utils::extractInputLayouts(op);
-  auto config = extractOpConfigFromIR(op);
-
-  // Evict from live set (Belady: farthest last-use first).
+  // Evict from live set (farthest last-use first) until validation succeeds.
   // Uses evictUntil which inserts reshards for already-processed consumers
   // instead of cascade revalidation, preserving downstream sharded layouts.
-  auto result = memoryTracker.validate(op, inputLayouts, config);
-  if (!result.isSuccess()) {
-    evictUntil(pos, data, [&]() {
-      inputLayouts = utils::extractInputLayouts(op);
-      result = memoryTracker.validate(op, inputLayouts, config);
-      return result.isSuccess();
-    });
+  // handleOOM is only called when validation already failed — skip the initial
+  // redundant validate and go straight to eviction.
+  auto inputLayouts = utils::extractInputLayouts(op);
+  auto config = extractOpConfigFromIR(op);
+  auto result =
+      op_constraint_validation::ValidationResult::outOfMemoryError("");
+  bool fitsAfterEviction = evictUntil(pos, data, [&]() {
+    inputLayouts = utils::extractInputLayouts(op);
+    result = memoryTracker.validate(op, inputLayouts, config);
+    return result.isSuccess();
+  });
+  // evictUntil already failed the pass on unresolvable fragmentation; bail
+  // before touching the truncated tracker.
+  if (compilationFailed) {
+    return;
   }
 
-  if (result.isSuccess()) {
-    uint64_t l1Size =
-        result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
-    l1Size = ensureFitsL1(op, pos, data, opL1Usage, result.cbPeakUsage, l1Size);
+  // fitsAfterEviction ⟹ validate() succeeded against a fully-placed live set.
+  if (fitsAfterEviction) {
+    uint64_t l1Size = result.outputL1Usage;
+    if (l1Size > 0) {
+      l1Size = ensureFitsL1(op, pos, data, result.cbPeakUsage, l1Size);
+    } else {
+      // DRAM-output op: validate's byte-budget check accounts for CB usage in
+      // total but not for CB-vs-tensor address overlap. Evict low-address
+      // tensors that would collide with the op's CB region.
+      evictForDramCBGrowth(op, pos, data);
+    }
+    // Eviction may have inserted a reshard for `op`, shifting it past `pos`;
+    // bail so run()'s sweep reprocesses the reshard and then `op`.
+    if (data.schedule[pos] != op) {
+      return;
+    }
     if (l1Size > 0) {
       addResultsToLiveSet(l1Size);
       observer_->onLiveAdded(op, pos, l1Size, pos,
@@ -645,14 +726,38 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
                    liveValues.size());
     }
   } else {
-    // Stage 3: Op exceeds budget alone -- spill all results to DRAM.
+    // Stage 3: Op exceeds L1 budget even with no other live tensors — the op
+    // itself is too large for the configured cap. Demote its output to DRAM.
+    // No evictForDramCBGrowth needed: evictUntil already drained the live set.
     observer_->onSelfSpill(op, pos);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    SPILL SELF: op exceeds budget alone");
-    for (auto r : tensorResults) {
-      spillToDram(r);
+                 "    DEMOTE SELF: op exceeds budget alone");
+    demoteToDram(op);
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// insertEventIntoLog
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+void L1SpillManagementBase<MemoryTracker>::insertEventIntoLog(size_t pos,
+                                                              L1Event event) {
+  // Insert the event and shift every index >= pos in both index structures
+  // so the invariant "addressSnapshots[i] = state before event i" and
+  // "allocEventIndex[v] = i <=> l1EventLog[i] is v's kAlloc" are preserved.
+  l1EventLog.insert(l1EventLog.begin() + pos, event);
+  for (auto &[val, idx] : allocEventIndex) {
+    if (idx >= pos) {
+      ++idx;
     }
   }
+  decltype(addressSnapshots) shifted;
+  shifted.reserve(addressSnapshots.size());
+  for (auto &[key, snap] : addressSnapshots) {
+    shifted[key >= pos ? key + 1 : key] = std::move(snap);
+  }
+  addressSnapshots = std::move(shifted);
 }
 
 //===----------------------------------------------------------------------===//
@@ -660,7 +765,8 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(Value victim) {
+bool L1SpillManagementBase<MemoryTracker>::markEvictedAndRebuild(
+    Value victim, size_t &campaignMin) {
   // O(1) lookup of victim's alloc event.
   auto idxIt = allocEventIndex.find(victim);
   assert(idxIt != allocEventIndex.end() &&
@@ -679,36 +785,62 @@ void L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(Value victim) {
     }
   }
 
-  // Restore snapshot taken before the victim's allocation.
-  auto snapIt = addressSnapshots.find(allocIdx);
+  // Fold this victim into the campaign minimum and rebuild the whole suffix
+  // from there. Restoring from the per-victim allocIdx would be unsound:
+  // farthest-last-use victims are unordered w.r.t. alloc order, so a later
+  // victim could restore a base predating an earlier eviction and resurrect an
+  // already-spilled tensor. Replaying from the minimum with all accumulated
+  // skips re-applies every eviction.
+  campaignMin = std::min(campaignMin, allocIdx);
+  return replayFrom(campaignMin);
+}
+
+//===----------------------------------------------------------------------===//
+// replayFrom
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+bool AddressSimSpillManagement<MemoryTracker>::replayFrom(size_t startIdx) {
+  auto snapIt = addressSnapshots.find(startIdx);
   assert(snapIt != addressSnapshots.end() &&
-         "snapshot not found for evicted tensor");
+         "snapshot not found for replay start index");
   memoryTracker.restoreSnapshot(snapIt->second);
 
-  // Replay events from the alloc point forward, skipping evicted tensors.
-  // Update snapshots during replay so future evictions see accurate state.
-  for (size_t i = allocIdx; i < l1EventLog.size(); ++i) {
+  // Replay events from startIdx forward, skipping evicted tensors. Update
+  // snapshots during replay so future restores see the current schedule.
+  for (size_t i = startIdx; i < l1EventLog.size(); ++i) {
     if (l1EventLog[i].skipped) {
       continue;
     }
-    if (l1EventLog[i].kind == L1Event::kAlloc) {
-      addressSnapshots[i] = memoryTracker.takeSnapshot();
-      // View-eligible reshape: alias if src is still address-tracked in
-      // this replay, otherwise fresh-allocate (the counterfactual when
-      // src was evicted to DRAM).
-      Operation *defOp = l1EventLog[i].tensor.getDefiningOp();
-      if (defOp && canReshapeBeView(defOp) &&
-          memoryTracker.hasTensorAddress(defOp->getOperand(0))) {
-        memoryTracker.allocateAddressAt(l1EventLog[i].tensor,
-                                        defOp->getOperand(0));
-      } else {
-        memoryTracker.allocateAddress(l1EventLog[i].tensor,
-                                      l1EventLog[i].sizePerCore);
-      }
-    } else {
+    if (l1EventLog[i].kind == L1Event::kDealloc) {
       memoryTracker.freeAddress(l1EventLog[i].tensor);
+      continue;
     }
+    addressSnapshots[i] = memoryTracker.takeSnapshot();
+    // View-eligible op (reshape/pad/repeat/permute): alias if src is still
+    // address-tracked in this replay (consumes no fresh L1), otherwise
+    // fresh-allocate (the counterfactual when src was evicted to DRAM).
+    Operation *defOp = l1EventLog[i].tensor.getDefiningOp();
+    if (defOp && isAliasingViewOp(defOp) &&
+        memoryTracker.hasTensorAddress(defOp->getOperand(0))) {
+      memoryTracker.allocateAddressAt(l1EventLog[i].tensor,
+                                      defOp->getOperand(0));
+      continue;
+    }
+    // Pre-check allocateAddress's hard contract and stop at the first no-fit:
+    // a still-live tensor has no contiguous slot here (fragmentation). The
+    // partial tracker is discarded by the next eviction's restore-from-min
+    // (or, at terminal exhaustion, by failing the pass) — it is never trusted.
+    if (!memoryTracker.wouldAllocateAt(l1EventLog[i].sizePerCore)) {
+      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                   "Replay: no contiguous fit for {0} bytes",
+                   l1EventLog[i].sizePerCore);
+      return false;
+    }
+    memoryTracker.allocateAddress(l1EventLog[i].tensor,
+                                  l1EventLog[i].sizePerCore);
   }
+  return true;
 }
 
 //===----------------------------------------------------------------------===//
@@ -716,8 +848,9 @@ void L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(Value victim) {
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::evictValue(Value victim, int64_t pos,
-                                                  const ScheduleData &data) {
+bool L1SpillManagementBase<MemoryTracker>::evictValue(
+    Value victim, int64_t pos, ScheduleData &data, size_t &campaignMin,
+    Operation *skipReshardConsumer) {
   liveValues.erase(victim);
   Operation *victimOp = victim.getDefiningOp();
   uint64_t freedBytes = memoryTracker.getTensorSize(victim);
@@ -734,20 +867,66 @@ void L1SpillManagement<MemoryTracker>::evictValue(Value victim, int64_t pos,
 
   spillToDram(victim);
   memoryTracker.removeTensorFromSizes(victim);
-  markEvictedAndRebuild(victim);
+
+  // Rewind (stateful) path: the address-sim path frees the victim by marking
+  // its alloc event skipped in the replay; the rewind re-run has no such skip
+  // and re-processes the victim's op, which still produces L1. After the spill
+  // the victim's only remaining L1 use is the to_memory_config inserted right
+  // after it, so shorten its tracked lifetime to its own position — the re-run
+  // then frees it immediately (processDeadTensors) instead of keeping it live
+  // to its original far-future last use, which is what actually frees L1 for
+  // the op that triggered this eviction.
+  if (usesRewindEviction() && victimOp) {
+    int64_t victimPos = data.positionMap.lookup(victimOp);
+    auto luIt = data.lastUsePositions.find(victim);
+    if (luIt != data.lastUsePositions.end() && luIt->second != victimPos) {
+      auto &oldBucket = data.deathSchedule[luIt->second];
+      oldBucket.erase(std::remove(oldBucket.begin(), oldBucket.end(), victim),
+                      oldBucket.end());
+    }
+    data.lastUsePositions[victim] = victimPos;
+    data.deathSchedule[victimPos].push_back(victim);
+  }
 
   // Restore the original L1-sharded layout for consumers that need it:
   // - Past consumers (pos < currentPos): always restore. They were already
   //   validated assuming L1-sharded input; without reshard the IR is broken.
+  //   Log a kAlloc for the reshard just before the consumer's first alloc event
+  //   and a kDealloc just after its last alloc event. Because the victim is
+  //   always scheduled before its consumers, allocIdx < consumerFirstAllocIdx,
+  //   so the markEvictedAndRebuild replay below always passes through both
+  //   events and updates the consumer's alloc snapshots to include the
+  //   reshard's slot. Future replays then handle the reshard naturally: it is
+  //   allocated before the consumer (correct addresses) and freed after (no
+  //   stuck slot). Neither event is added to allocEventIndex, so the reshard
+  //   can never be selected as an eviction victim.
   // - Future consumers (pos >= currentPos): probe the consumer's layout
   //   constraints with the new (DRAM-after-spill) inputs in isolation
   //   (additionalL1Usage=0 — we don't know what L1 will be occupied at the
   //   consumer's position yet). If a hard input-layout constraint rejects
-  //   it (e.g. paged_update_cache requires sharded input), insert reshard.
+  //   it (e.g. paged_update_cache requires sharded input), insert reshard into
+  //   IR and schedule so the forward sweep processes it naturally, logging it
+  //   like any other live tensor.
+  //
   //   Otherwise leave the consumer to read DRAM — that's the actual L1
   //   saving the spill bought us.
+
+  // Collect all insertions first; apply largest-position-first so that
+  // inserting later events does not shift the positions of earlier ones.
+  struct TransientInsertion {
+    size_t pos;
+    L1Event event;
+  };
+  llvm::SmallVector<TransientInsertion> transientInsertions;
+
   if (originalL1Layout.hasL1BufferType()) {
     for (Operation *consumer : collectDownstreamConsumers(victimOp)) {
+      // Sibling-spill passes the op it is making all-DRAM here: don't reshard
+      // its operand back to L1. Other (past/future) consumers of the operand
+      // are still restored below — they need the L1 layout.
+      if (consumer == skipReshardConsumer) {
+        continue;
+      }
       auto posIt = data.positionMap.find(consumer);
       if (posIt == data.positionMap.end()) {
         continue;
@@ -755,7 +934,7 @@ void L1SpillManagement<MemoryTracker>::evictValue(Value victim, int64_t pos,
       if (!mlir::dyn_cast<OpModel>(consumer)) {
         continue;
       }
-      if (isa<ToLayoutOp>(consumer)) {
+      if (isa<ToTensorSpecOp>(consumer)) {
         continue;
       }
 
@@ -771,35 +950,220 @@ void L1SpillManagement<MemoryTracker>::evictValue(Value victim, int64_t pos,
         continue;
       }
 
-      bool needsReshard = posIt->second < pos;
+      // Capture the position now: insertReshardIntoSchedule below adds a key to
+      // positionMap, which can rehash and invalidate posIt.
+      int64_t consumerPos = posIt->second;
+      bool isPastConsumer = consumerPos < pos;
+      bool needsReshard = isPastConsumer;
       if (!needsReshard) {
         auto consumerInputs = utils::extractInputLayouts(consumer);
         auto consumerConfig = extractOpConfigFromIR(consumer);
-        auto consumerResult = op_constraint_validation::validateOperation(
+        auto consumerResult = memoryTracker.validateBackendDirect(
             consumer, consumerInputs, consumerConfig,
             /*additionalL1Usage=*/0);
         needsReshard = consumerResult.isMetalBackendError();
       }
 
-      if (needsReshard) {
-        for (unsigned i : spilledOperandIdx) {
-          insertReshardForConsumer(consumer, i, originalL1Layout);
+      if (!needsReshard) {
+        continue;
+      }
+
+      for (unsigned i : spilledOperandIdx) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                     "    RESHARD: inserting L1 reshard before {0} "
+                     "(operand {1} changed L1→DRAM after eviction of {2})",
+                     consumer->getName(), i, ttmlir::opToString(victimOp));
+        insertReshardForConsumer(consumer, i, originalL1Layout);
+        Value reshardResult = consumer->getOperand(i);
+        Operation *reshardOp = reshardResult.getDefiningOp();
+
+        // Aligned per-core L1 size from validating the inserted reshard;
+        // fall back to the layout estimate if validation can't model it.
+        auto reshardValidation = memoryTracker.validateBackendDirect(
+            reshardOp, utils::extractInputLayouts(reshardOp),
+            extractOpConfigFromIR(reshardOp), /*additionalL1Usage=*/0);
+        uint64_t reshardSizePerCore =
+            reshardValidation.isSuccess()
+                ? reshardValidation.outputL1Usage
+                : utils::getPerCoreL1Usage(
+                      originalL1Layout,
+                      ttmlir::utils::volume(originalL1Layout.getGridShape()));
+
+        if (isPastConsumer && !usesRewindEviction()) {
+          // Address-sim path: bracket the reshard's transient occupation in the
+          // event log so replayFrom accounts for it.
+          // Find the consumer's first and last output alloc event indices so
+          // we can bracket the reshard's transient occupation in the log.
+          size_t firstAllocIdx = std::numeric_limits<size_t>::max();
+          size_t lastAllocIdx = 0;
+          for (auto result : consumer->getResults()) {
+            auto logIt = allocEventIndex.find(result);
+            if (logIt != allocEventIndex.end()) {
+              firstAllocIdx = std::min(firstAllocIdx, logIt->second);
+              lastAllocIdx = std::max(lastAllocIdx, logIt->second);
+            }
+          }
+          // If the consumer has no L1 results (all DRAM outputs), it has no
+          // allocEventIndex entries and we cannot bracket the reshard in the
+          // log. The reshard is still inserted in the IR for correctness, but
+          // its transient slot goes untracked in the address simulation. This
+          // is a known gap: the CB overlap check for this consumer was done
+          // when it was originally processed (with the victim at its then-
+          // current address), but subsequent evictions may have rearranged
+          // the free list so the reshard lands at a lower address at runtime.
+          if (firstAllocIdx != std::numeric_limits<size_t>::max()) {
+            // kAlloc goes at firstAllocIdx (just before consumer's first
+            // result alloc) and kDealloc goes at lastAllocIdx+1 (just after
+            // consumer's last result alloc). Inserting largest-first keeps
+            // firstAllocIdx valid when the kDealloc insertion is processed.
+            // Note: reshardResult is NOT added to allocEventIndex — it should
+            // anyway never appear as an eviction victim.
+            transientInsertions.push_back(
+                {lastAllocIdx + 1,
+                 {L1Event::kDealloc, reshardResult, 0, false}});
+            transientInsertions.push_back(
+                {firstAllocIdx,
+                 {L1Event::kAlloc, reshardResult, reshardSizePerCore, false}});
+          }
+        } else {
+          // Future consumer, OR any consumer on the stateful rewind path:
+          // insert the reshard into the schedule so the (re-run) forward sweep
+          // processes it as an ordinary op — querying and tracking its L1
+          // buffer in schedule order. This is why the stateful path never
+          // leaves a reshard untracked (RCA #2). Each insertion shifts the
+          // consumer right by one, so advance consumerPos.
+          insertReshardIntoSchedule(reshardOp, reshardResult,
+                                    reshardSizePerCore, consumerPos, data);
+          ++consumerPos;
         }
       }
     }
   }
+
+  // Stateful (rewind) path: allocator state is rebuilt by the rewind + re-run
+  // of the forward sweep driven by recoverFromOOM. No event-log replay here,
+  // and all reshards were routed into the schedule above.
+  if (usesRewindEviction()) {
+    return true;
+  }
+
+  // Address-sim path: apply transient event insertions largest-position-first
+  // so earlier positions are not invalidated by later insertions, then rebuild
+  // via the first-fit replay.
+  llvm::sort(transientInsertions,
+             [](const TransientInsertion &a, const TransientInsertion &b) {
+               return a.pos > b.pos;
+             });
+  for (const auto &ins : transientInsertions) {
+    insertEventIntoLog(ins.pos, ins.event);
+  }
+
+  return markEvictedAndRebuild(victim, campaignMin);
+}
+
+//===----------------------------------------------------------------------===//
+// insertReshardIntoSchedule
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+void L1SpillManagementBase<MemoryTracker>::insertReshardIntoSchedule(
+    Operation *reshardOp, Value reshardResult, uint64_t reshardSizePerCore,
+    int64_t consumerPos, ScheduleData &data) {
+  // Register so evictFarthestUse and sibling eviction guards know not to
+  // evict this value — it exists specifically to feed its consumer.
+  insertedReshardValues.insert(reshardResult);
+
+  // Insert the reshard before the consumer in the schedule vector, shifting
+  // the consumer and all subsequent ops by +1.
+  data.schedule.insert(data.schedule.begin() + consumerPos, reshardOp);
+
+  // Shift positionMap for all ops at positions >= consumerPos.
+  for (auto &[op, opPos] : data.positionMap) {
+    if (opPos >= consumerPos) {
+      ++opPos;
+    }
+  }
+  data.positionMap[reshardOp] = consumerPos;
+
+  // Existing lastUsePositions are not shifted. An insertion adds 1 to every
+  // position at or after consumerPos, which preserves their relative order,
+  // and relative order is all liveSet's farthest-last-use priority needs. The
+  // reshard's own priority is arbitrary (reshards are never evicted; see
+  // evictFarthestUse), so consumerPos is just convenient. deathSchedule
+  // (shifted) owns freeing.
+  int64_t reshardLastUse = consumerPos + 1;
+  data.lastUsePositions[reshardResult] = consumerPos;
+
+  // Rebuild deathSchedule with shifted keys (simpler than in-place shift on a
+  // DenseMap where keys can't be updated).
+  llvm::DenseMap<int64_t, llvm::SmallVector<Value>> newDeathSchedule;
+  for (auto &[deathPos, vals] : data.deathSchedule) {
+    int64_t shiftedPos = (deathPos >= consumerPos) ? deathPos + 1 : deathPos;
+    newDeathSchedule[shiftedPos] = std::move(vals);
+  }
+  newDeathSchedule[reshardLastUse].push_back(reshardResult);
+  data.deathSchedule = std::move(newDeathSchedule);
+
+  // Keep position-keyed sweep checkpoints (stateful rewind path) aligned across
+  // the insertion: keys >= consumerPos shift by +1, mirroring positionMap.
+  // Empty (a no-op) on the Sum path, which does not capture checkpoints.
+  if (!sweepCheckpoints.empty()) {
+    llvm::DenseMap<int64_t, SweepCheckpoint> shifted;
+    shifted.reserve(sweepCheckpoints.size());
+    for (auto &[k, cp] : sweepCheckpoints) {
+      shifted[k >= consumerPos ? k + 1 : k] = std::move(cp);
+    }
+    sweepCheckpoints = std::move(shifted);
+  }
 }
 
 template <typename MemoryTracker>
-bool L1SpillManagement<MemoryTracker>::evictUntil(
-    int64_t pos, const ScheduleData &data, std::function<bool()> shouldStop) {
-  while (!shouldStop() && !liveValues.empty()) {
+bool L1SpillManagementBase<MemoryTracker>::evictUntil(
+    int64_t pos, ScheduleData &data, std::function<bool()> shouldStop) {
+  // Helper: true if every remaining live value is a non-evictable inserted
+  // reshard. Avoids exhausting the liveSet heap through stale entries when
+  // no evictable candidates exist.
+  auto onlyReshardsRemain = [&]() {
+    return llvm::all_of(liveValues, [&](Value v) {
+      return insertedReshardValues.count(v) > 0;
+    });
+  };
+
+  // A fresh campaign: every rebuild restores from the smallest alloc index
+  // evicted in this campaign and replays the whole suffix with all accumulated
+  // skips (see evictValue / markEvictedAndRebuild).
+  size_t campaignMin = SIZE_MAX;
+
+  // shouldStop() inspects tracker state, so it is only trustworthy after a
+  // rebuild that placed every live tensor. The entry state qualifies — the
+  // forward sweep placed everything via the infallible allocateAddress.
+  bool rebuildPlacedAll = true;
+  while (!rebuildPlacedAll || !shouldStop()) {
+    if (liveValues.empty() || onlyReshardsRemain()) {
+      break;
+    }
     Value victim = evictFarthestUse();
     if (!victim) {
       break;
     }
-    evictValue(victim, pos, data);
+    rebuildPlacedAll = evictValue(victim, pos, data, campaignMin);
   }
+
+  // Demoting the current op cannot help — the unplaceable tensor is in the
+  // already-scheduled suffix (or a non-evictable inserted reshard), independent
+  // of the op whose output is not yet added. Fail loudly instead of shipping a
+  // layout that clashes at runtime.
+  if (!rebuildPlacedAll) {
+    Operation *blockedOp = data.schedule[pos];
+    blockedOp->emitError(
+        "L1SpillManagementBase: a live tensor has no contiguous L1 placement "
+        "even "
+        "after evicting every spillable tensor (fragmentation: a non-evictable "
+        "inserted reshard or irreducible working set cannot be relocated)");
+    compilationFailed = true;
+    return false;
+  }
+
   return shouldStop();
 }
 
@@ -808,19 +1172,21 @@ bool L1SpillManagement<MemoryTracker>::evictUntil(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
-                                                       int64_t pos,
-                                                       const ScheduleData &data,
-                                                       uint64_t opL1Usage,
-                                                       uint64_t outputL1Size) {
+uint64_t AddressSimSpillManagement<MemoryTracker>::handleNoFit(
+    Operation *op, int64_t pos, ScheduleData &data, uint64_t outputL1Size) {
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "    NO_FIT: output {0} bytes can't fit contiguously, evicting",
                outputL1Size);
 
-  bool resolved = evictUntil(pos, data, [&]() {
+  bool fitsAfterEviction = evictUntil(pos, data, [&]() {
     return memoryTracker.wouldAllocateAt(outputL1Size).has_value();
   });
-  if (!resolved) {
+  // evictUntil already failed the pass on unresolvable fragmentation; bail
+  // before touching the truncated tracker.
+  if (compilationFailed) {
+    return 0;
+  }
+  if (!fitsAfterEviction) {
     demoteToDram(op);
     evictForDramCBGrowth(op, pos, data);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
@@ -832,10 +1198,12 @@ uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
   auto freshInputLayouts = utils::extractInputLayouts(op);
   auto freshConfig = extractOpConfigFromIR(op);
   auto freshResult = memoryTracker.validate(op, freshInputLayouts, freshConfig);
-  if (freshResult.isSuccess()) {
+  uint64_t freshL1 = freshResult.outputL1Usage;
+  // Honor allocateAddress's contract: the size handed back must still fit
+  // (re-validate could in principle return a larger output than was checked).
+  if (freshResult.isSuccess() &&
+      (freshL1 == 0 || memoryTracker.wouldAllocateAt(freshL1))) {
     applyOutputConfig(op, freshResult);
-    uint64_t freshL1 =
-        freshResult.outputL1Usage > 0 ? freshResult.outputL1Usage : opL1Usage;
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "    NO_FIT resolved: L1 now {0}/{1}",
                  memoryTracker.getOccupiedL1(), l1BudgetPerCore);
@@ -855,15 +1223,16 @@ uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
-    Operation *op, int64_t pos, const ScheduleData &data, uint64_t opL1Usage,
-    uint64_t cbPeakUsage, uint64_t outputL1Size) {
+uint64_t AddressSimSpillManagement<MemoryTracker>::handleFragmentation(
+    Operation *op, int64_t pos, ScheduleData &data, uint64_t cbPeakUsage,
+    uint64_t outputL1Size) {
   // Add the same safety cushion as wouldCBsOverlapTensors to account for
   // unmodeled runtime fragmentation from transient internal op allocations.
   uint64_t cushionedCBUsage = cbPeakUsage + cbFragCushion;
 
-  // Evict tensors using Belady's algorithm until CB overlap resolves.
-  evictUntil(pos, data, [&]() {
+  // Evict (farthest last-use first) until the output has a contiguous fit AND
+  // the CB region no longer overlaps the lowest live tensor.
+  bool fitsAfterEviction = evictUntil(pos, data, [&]() {
     auto specAddr = memoryTracker.wouldAllocateAt(outputL1Size);
     if (!specAddr) {
       return false;
@@ -872,28 +1241,19 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
         std::min(*specAddr, memoryTracker.getLowestOccupiedAddress());
     return cushionedCBUsage <= effLowest;
   });
-
-  // After eviction, re-check both conditions with the updated free list.
-  auto freshOutputAddr = memoryTracker.wouldAllocateAt(outputL1Size);
-  if (!freshOutputAddr) {
-    demoteToDram(op);
-    evictForDramCBGrowth(op, pos, data);
-    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    FRAG_DEMOTE (still no-fit after eviction): output to "
-                 "DRAM");
+  // evictUntil already failed the pass on unresolvable fragmentation; bail
+  // before touching the truncated tracker.
+  if (compilationFailed) {
     return 0;
   }
 
-  uint64_t freshEffectiveLowest =
-      std::min(*freshOutputAddr, memoryTracker.getLowestOccupiedAddress());
-  if (cushionedCBUsage > freshEffectiveLowest) {
+  // Eviction was exhausted (op's own output won't fit / CB still overlaps).
+  // Demote this op's output to DRAM rather than ship a clashing layout.
+  if (!fitsAfterEviction) {
     demoteToDram(op);
     evictForDramCBGrowth(op, pos, data);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    FRAG_DEMOTE (CB overlap persists): cb={0}+cushion={1}"
-                 "={2} > effectiveLowest={3}",
-                 cbPeakUsage, cbFragCushion, cushionedCBUsage,
-                 freshEffectiveLowest);
+                 "    FRAG_DEMOTE: eviction exhausted, output to DRAM");
     return 0;
   }
 
@@ -901,14 +1261,15 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
   auto inputLayouts = utils::extractInputLayouts(op);
   auto config = extractOpConfigFromIR(op);
   auto freshResult = memoryTracker.validate(op, inputLayouts, config);
-  if (freshResult.isSuccess()) {
-    uint64_t freshL1 =
-        freshResult.outputL1Usage > 0 ? freshResult.outputL1Usage : opL1Usage;
+  uint64_t freshL1 = freshResult.outputL1Usage;
+  // Honor allocateAddress's contract: the size handed back must still fit
+  // largest free block.
+  if (freshResult.isSuccess() &&
+      (freshL1 == 0 || memoryTracker.wouldAllocateAt(freshL1))) {
     applyOutputConfig(op, freshResult);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "    FRAG_RESOLVED: L1 now {0}/{1}",
                  memoryTracker.getOccupiedL1(), l1BudgetPerCore);
-    memoryTracker.logState();
     return freshL1;
   }
 
@@ -934,12 +1295,34 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
         toEvict.push_back(operand);
       }
     }
+    // Its own mini-campaign: campaignMin accumulates across the sibling spills.
+    size_t campaignMin = SIZE_MAX;
+    bool fitsAfterSiblingSpill = true;
     for (Value victim : toEvict) {
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                    "    SPILL_SIBLING_OPERAND: evicting {0} to DRAM to "
                    "resolve backend constraint failure for {1}",
                    ttmlir::opToString(victim.getDefiningOp()), op->getName());
-      evictValue(victim, pos, data);
+      // skipReshardConsumer=op: don't reshard `op`'s operand back to L1.
+      // Validating after spilling one operand (others still L1) would report a
+      // mixed-input failure and reshard it straight back, defeating the
+      // homogeneous spill. Past/future consumers of the operand are still
+      // restored, so their IR stays valid.
+      //
+      // Those reshards can fragment L1; keep the last result, since the replay
+      // reflects the fully-spilled state and early fragmentation clears as the
+      // rest spill.
+      fitsAfterSiblingSpill = evictValue(victim, pos, data, campaignMin,
+                                         /*skipReshardConsumer=*/op);
+    }
+    if (!fitsAfterSiblingSpill) {
+      op->emitError(
+          "L1SpillManagementBase: sibling-operand spill left a live tensor "
+          "with no "
+          "contiguous L1 placement (fragmentation cannot be resolved by "
+          "demoting this op)");
+      compilationFailed = true;
+      return 0;
     }
   }
 
@@ -955,7 +1338,7 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-bool L1SpillManagement<MemoryTracker>::wouldCBsOverlapTensors(
+bool AddressSimSpillManagement<MemoryTracker>::wouldCBsOverlapTensors(
     Operation *op, int64_t pos, uint64_t cbPeakUsage,
     uint64_t speculativeOutputAddr) {
   // Check if the op's CB region (growing bottom-up from base) would overlap
@@ -1006,7 +1389,26 @@ bool L1SpillManagement<MemoryTracker>::wouldCBsOverlapTensors(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::run() {
+void L1SpillManagementBase<MemoryTracker>::captureCheckpoint(int64_t pos) {
+  SweepCheckpoint cp;
+  cp.tracker = memoryTracker.takeSnapshot();
+  cp.liveValues = liveValues;
+  cp.liveSet = liveSet;
+  sweepCheckpoints[pos] = std::move(cp);
+}
+
+template <typename MemoryTracker>
+void L1SpillManagementBase<MemoryTracker>::restoreCheckpoint(int64_t pos) {
+  auto it = sweepCheckpoints.find(pos);
+  assert(it != sweepCheckpoints.end() &&
+         "no sweep checkpoint at rewind position");
+  memoryTracker.restoreSnapshot(it->second.tracker);
+  liveValues = it->second.liveValues;
+  liveSet = it->second.liveSet;
+}
+
+template <typename MemoryTracker>
+void L1SpillManagementBase<MemoryTracker>::run() {
   ScheduleData data = buildScheduleData();
 
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
@@ -1020,37 +1422,71 @@ void L1SpillManagement<MemoryTracker>::run() {
 
   [[maybe_unused]] int64_t spillCount = 0;
 
-  // Belady's algorithm sweep with validation-based eviction.
+  // Rewind budget (stateful path): each eviction permanently moves a value from
+  // L1 to DRAM, so rewinds are bounded by the L1-resident count (<= schedule
+  // size). The generous cap is a runaway backstop, not a real limit.
+  int64_t rewindCount = 0;
+  const int64_t kMaxRewinds =
+      4 * static_cast<int64_t>(data.schedule.size()) + 64;
+
+  // Farthest-last-use eviction sweep with validation-based enforcement.
   for (int64_t pos = 0; pos < static_cast<int64_t>(data.schedule.size());
        ++pos) {
+    // A handler hit unresolvable fragmentation and failed the pass; stop the
+    // sweep rather than process further ops against a discarded result.
+    if (compilationFailed) {
+      break;
+    }
     Operation *op = data.schedule[pos];
+
+    // Snapshot the full sweep state entering this position so the stateful
+    // eviction can rewind here and re-run the forward sweep. No-op for the
+    // address-sim path.
+    if (usesRewindEviction()) {
+      captureCheckpoint(pos);
+    }
+
+    // Eviction can insert a reshard for `op`, shifting `op` past `pos`. Rewind
+    // to the first inserted reshard (always at `pos`) so the sweep processes it
+    // (and any others) before reprocessing `op`. Returns true when the caller
+    // should `continue` the sweep.
+    auto rewindIfScheduleShifted = [&]() {
+      if (data.schedule[pos] == op) {
+        return false;
+      }
+      --pos;
+      return true;
+    };
 
     processDeadTensors(pos, data);
 
-    // Sink ops (paged_fill_cache / paged_update_cache / fill_cache) are in
-    // the schedule only so computeLastUsePositions sees their operand uses
-    // (which keeps their L1-resident input tensors alive in the tracker
-    // until the cache write actually executes). They have no tensor result,
-    // so addResultsToLiveSet / extractOpConfigFromIR / validate do not apply.
+    // Sink ops (see optimizer_utils::isSinkOp) are in the schedule only so
+    // computeLastUsePositions sees their operand uses (which keeps their
+    // L1-resident input tensors alive in the tracker until the cache write
+    // actually executes). They have no tensor result, so addResultsToLiveSet /
+    // extractOpConfigFromIR / validate do not apply.
     if (optimizer_utils::isSinkOp(op)) {
       continue;
     }
 
-    // ToLayoutOp with L1 output: workaround-inserted and always immediately
-    // consumed by the target op. MemoryLayoutPropagation skips these, so
-    // output_l1_usage is never set and pre-decomposition OpModel is inaccurate.
-    // Use Belady to evict other live tensors if needed to create room, but do
-    // not add the output to liveValues — it is not a long-lived L1 tenant and
-    // will be gone (or dead) before any subsequent eviction decision matters.
-    // Being absent from liveValues also means evictAllFromL1 (e.g. triggered by
-    // DistributedRMSNormOp's isNotImplemented) cannot spill it.
-    if (isa<ToLayoutOp>(op)) {
+    // ToTensorSpecOp requires special handling due to the fact it is a complex
+    // op which decomposes into few real TTNN ops. MemoryLayoutPropagation skips
+    // these, and pre-decomposition OpModel is impossible.
+    if (isa<ToTensorSpecOp>(op)) {
       auto resultType =
           mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
       auto lo =
           mlir::dyn_cast_or_null<TTNNLayoutAttr>(resultType.getEncoding());
       assert(lo && "ToLayoutOp result must have TTNNLayoutAttr encoding");
       if (lo.hasL1BufferType()) {
+        // Case with L1 output: workaround-inserted and always immediately
+        // consumed by the target op.
+        // Use farthest-last-use eviction for live tensors if needed to create
+        // room, but do not add the output to liveValues — it is not a
+        // long-lived L1 tenant and will be gone (or dead) before any subsequent
+        // eviction decision matters. Being absent from liveValues also means
+        // evictAllFromL1 (e.g. triggered by DistributedRMSNormOp's
+        // isNotImplemented) cannot spill it.
         uint64_t derivedL1 = utils::getPerCoreL1Usage(
             lo, ttmlir::utils::volume(lo.getGridShape()));
         TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
@@ -1060,21 +1496,28 @@ void L1SpillManagement<MemoryTracker>::run() {
                      memoryTracker.getOccupiedL1(), l1BudgetPerCore);
         // CBPeakUsage fixed to 0 as we have no validation result for ToLayoutOp
         // itself which is yet to be decomposed.
-        ensureFitsL1(op, pos, data, derivedL1, /*cbPeakUsage=*/0, derivedL1);
-        continue;
+        handleUnvalidatedL1Output(op, pos, data, derivedL1);
       }
-      // DRAM ToLayoutOp: fall through to standard processing.
+
+      // Regardless of whether the ToLayoutOp's output is L1 or DRAM, we have no
+      // way of validating this op since it is yet to be decomposed. Usually
+      // this is workaround inserted op, so we can skip it.
+      continue;
     }
 
-    // Ops with L1 output annotation get full processing.
-    // DRAM-output ops (no annotation) still need CB overlap checking against
-    // live L1 tensors -- skip only if there are no live L1 tensors that could
-    // clash. Ops that can't be checked return NotImplemented from validation,
-    // which triggers a full spill regardless of live set size.
-    auto l1Attr = op->getAttrOfType<IntegerAttr>("ttnn.output_l1_usage");
-    uint64_t opL1Usage = l1Attr ? l1Attr.getValue().getZExtValue() : 0;
+    // Determine if the op outputs to L1 by inspecting its result types
+    // directly. DRAM-output ops still need CB overlap checking against live L1
+    // tensors -- skip only if there are no live L1 tensors that could clash.
+    // Ops that can't be checked return NotImplemented from validation, which
+    // triggers a full spill regardless of live set size.
+    bool hasL1Output = llvm::any_of(op->getResults(), [](OpResult r) {
+      auto tt = mlir::dyn_cast<RankedTensorType>(r.getType());
+      auto lo = tt ? mlir::dyn_cast_or_null<TTNNLayoutAttr>(tt.getEncoding())
+                   : nullptr;
+      return lo && lo.hasL1BufferType();
+    });
 
-    if (!l1Attr) {
+    if (!hasL1Output) {
       if (liveValues.empty()) {
         continue;
       }
@@ -1091,9 +1534,9 @@ void L1SpillManagement<MemoryTracker>::run() {
 
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "  [pos={0}] PROCESS: {1}\n"
-                 "    output L1: {2} bytes, tensor results: {3}\n"
+                 "    hasL1Output: {2}, tensor results: {3}\n"
                  "    occupied L1 before: {4}/{5} ({6} tensors)",
-                 pos, ttmlir::opToString(op), opL1Usage, numTensorResults,
+                 pos, ttmlir::opToString(op), hasL1Output, numTensorResults,
                  memoryTracker.getOccupiedL1(), l1BudgetPerCore,
                  liveValues.size());
 
@@ -1106,29 +1549,7 @@ void L1SpillManagement<MemoryTracker>::run() {
       uint64_t perResultL1 =
           numTensorResults > 0 ? totalL1 / numTensorResults : 0;
       for (auto r : tensorResults) {
-        Value val = r;
-        auto luIt = data.lastUsePositions.find(val);
-        int64_t resultLastUse =
-            (luIt != data.lastUsePositions.end()) ? luIt->second : pos;
-        // Snapshot before allocation and record event for replay.
-        allocEventIndex[val] = l1EventLog.size();
-        addressSnapshots[l1EventLog.size()] = memoryTracker.takeSnapshot();
-        l1EventLog.push_back(
-            {L1Event::kAlloc, val, perResultL1, /*skipped=*/false});
-
-        // View-eligible reshape: alias src's buffer instead of carving a
-        // fresh slot. See `addTensorAtAddress`.
-        Operation *defOp = val.getDefiningOp();
-        if (defOp && canReshapeBeView(defOp) &&
-            memoryTracker.hasTensor(defOp->getOperand(0))) {
-          memoryTracker.addTensorAtAddress(val, perResultL1,
-                                           defOp->getOperand(0));
-        } else {
-          memoryTracker.addTensor(val, perResultL1);
-        }
-
-        liveValues.insert(val);
-        liveSet.push({resultLastUse, val});
+        commitAllocation(r, perResultL1, data);
       }
     };
 
@@ -1153,16 +1574,16 @@ void L1SpillManagement<MemoryTracker>::run() {
     }
 
     if (result.isSuccess()) {
-      uint64_t l1Size =
-          result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
-
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                    "    VALIDATION SUCCESS: op {0}, "
                    "cbPeakUsage={1}, outputL1={2} bytes",
-                   ttmlir::opToString(op), result.cbPeakUsage, l1Size);
+                   ttmlir::opToString(op), result.cbPeakUsage,
+                   result.outputL1Usage);
 
-      l1Size =
-          ensureFitsL1(op, pos, data, opL1Usage, result.cbPeakUsage, l1Size);
+      uint64_t l1Size = placeValidatedOutput(op, pos, data, result);
+      if (rewindIfScheduleShifted()) {
+        continue;
+      }
       if (l1Size == 0) {
         continue;
       }
@@ -1177,23 +1598,57 @@ void L1SpillManagement<MemoryTracker>::run() {
       continue;
     }
 
-    // Backend constraint error: ops like SDPA have hard input-layout
-    // constraints (e.g. mask must be DRAM) that the L1 spill management
-    // sweep can violate when upstream evictions change input buffer types.
-    // Gracefully spill to DRAM rather than crashing.
+    // Non-OOM backend constraint error: the op rejects its current
+    // input/output layout combination. Eviction can't help (the failure
+    // isn't from L1 pressure), so skip the OOM path and demote the output
+    // to DRAM as a graceful fallback rather than crash on a hard
+    // constraint.
     if (result.isMetalBackendError()) {
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                    "    BACKEND_ERROR at pos {0} for {1}: {2}. "
-                   "Spilling to DRAM.",
+                   "Demoting to DRAM.",
                    pos, ttmlir::opToString(op), result.errorMessage);
-      for (auto r : tensorResults) {
-        spillToDram(r);
-      }
+      demoteToDram(op);
       ++spillCount;
       continue;
     }
 
-    handleOOM(op, pos, tensorResults, data, opL1Usage, addResultsToLiveSet);
+    recoverFromOOM(op, pos, tensorResults, data, addResultsToLiveSet);
+    // Stateful eviction requests a rewind: restore the full sweep state at the
+    // victim's position and re-run the forward sweep from there (the victim now
+    // reads DRAM, inserted reshards are ordinary schedule ops, and this op is
+    // re-reached and re-validated against the freed state). Inert on the Sum
+    // path (never sets pendingRewindTo).
+    if (pendingRewindTo) {
+      int64_t r = *pendingRewindTo;
+      pendingRewindTo.reset();
+      restoreCheckpoint(r);
+      // Drop stale checkpoints past the rewind point; the re-run recaptures
+      // them at each position it re-processes, so no checkpoint older than the
+      // current pass is ever restored.
+      llvm::SmallVector<int64_t> stale;
+      for (const auto &kv : sweepCheckpoints) {
+        if (kv.first > r) {
+          stale.push_back(kv.first);
+        }
+      }
+      for (int64_t k : stale) {
+        sweepCheckpoints.erase(k);
+      }
+      // Safety net: each eviction permanently moves one value from L1 to DRAM,
+      // so the total number of rewinds is bounded by the L1-resident tensor
+      // count. A runaway means a logic error (a re-added victim, a rewind that
+      // makes no progress); fail loudly rather than spin.
+      if (++rewindCount > kMaxRewinds) {
+        llvm_unreachable(
+            "stateful spill: rewind budget exceeded (no progress)");
+      }
+      pos = r - 1; // ++pos brings the sweep to r
+      continue;
+    }
+    if (rewindIfScheduleShifted()) {
+      continue;
+    }
   }
 
   // Print final memory view summary.
@@ -1205,9 +1660,6 @@ void L1SpillManagement<MemoryTracker>::run() {
                "  Final live L1: {1}/{2} ({3} tensors)",
                spillCount, memoryTracker.getOccupiedL1(), l1BudgetPerCore,
                liveValues.size());
-
-  // Step 4: Cleanup L1 usage attributes.
-  cleanupL1UsageAttrs();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1216,7 +1668,7 @@ void L1SpillManagement<MemoryTracker>::run() {
 
 template <typename MemoryTracker>
 llvm::DenseMap<Value, int64_t>
-L1SpillManagement<MemoryTracker>::computeLastUsePositions(
+L1SpillManagementBase<MemoryTracker>::computeLastUsePositions(
     const llvm::SmallVector<Operation *> &schedule) {
   // Build position map.
   llvm::DenseMap<Operation *, int64_t> positionMap;
@@ -1257,7 +1709,7 @@ L1SpillManagement<MemoryTracker>::computeLastUsePositions(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::demoteToDram(Operation *op) {
+void L1SpillManagementBase<MemoryTracker>::demoteToDram(Operation *op) {
   for (auto opResult : op->getResults()) {
     auto tensorType = mlir::dyn_cast<RankedTensorType>(opResult.getType());
     if (!tensorType) {
@@ -1278,9 +1730,6 @@ void L1SpillManagement<MemoryTracker>::demoteToDram(Operation *op) {
     opResult.setType(newType);
   }
 
-  // Remove L1 usage annotation since the output is now DRAM.
-  op->removeAttr("ttnn.output_l1_usage");
-
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer, "Demoted to DRAM: {0}",
                ttmlir::opToString(op));
 }
@@ -1290,9 +1739,8 @@ void L1SpillManagement<MemoryTracker>::demoteToDram(Operation *op) {
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::evictAllFromL1(int64_t pos,
-                                                      const ScheduleData &data,
-                                                      Operation *triggerOp) {
+void L1SpillManagementBase<MemoryTracker>::evictAllFromL1(
+    int64_t pos, ScheduleData &data, Operation *triggerOp) {
   llvm::SmallVector<Operation *> evictedOps;
   for (Value victim : liveValues) {
     uint64_t freedBytes = memoryTracker.getTensorSize(victim);
@@ -1301,7 +1749,7 @@ void L1SpillManagement<MemoryTracker>::evictAllFromL1(int64_t pos,
                  "    EVICT_ALL: {0} (L1: {1} bytes)",
                  ttmlir::opToString(victimOp), freedBytes);
     observer_->onEviction(victimOp, pos, freedBytes);
-    spillToDram(victim, triggerOp);
+    spillToDramBeforeTrigger(victim, triggerOp);
     memoryTracker.removeTensor(victim);
     evictedOps.push_back(victimOp);
   }
@@ -1311,6 +1759,11 @@ void L1SpillManagement<MemoryTracker>::evictAllFromL1(int64_t pos,
     event.skipped = true;
   }
   memoryTracker.init(l1BudgetPerCore);
+  // INVARIANT: spillToDramBeforeTrigger requires a full tracker reset.
+  // Anything else here means the address simulator is out of sync with
+  // the IR's L1 occupancy.
+  assert(memoryTracker.getOccupiedL1() == 0 &&
+         "evictAllFromL1: tracker not fully reset after flush");
 
   // Revalidate consumers after all evictions to avoid revalidating against
   // transient intermediate IR states.
@@ -1324,8 +1777,8 @@ void L1SpillManagement<MemoryTracker>::evictAllFromL1(int64_t pos,
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::evictForCBOverlap(
-    uint64_t cushionedCBUsage, int64_t pos, const ScheduleData &data) {
+void AddressSimSpillManagement<MemoryTracker>::evictForCBOverlap(
+    uint64_t cushionedCBUsage, int64_t pos, ScheduleData &data) {
   evictUntil(pos, data, [&]() {
     return cushionedCBUsage <= memoryTracker.getLowestOccupiedAddress();
   });
@@ -1336,18 +1789,30 @@ void L1SpillManagement<MemoryTracker>::evictForCBOverlap(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
-    Operation *op, int64_t pos, const ScheduleData &data) {
+void AddressSimSpillManagement<MemoryTracker>::evictForDramCBGrowth(
+    Operation *op, int64_t pos, ScheduleData &data) {
 
   auto inputLayouts = utils::extractInputLayouts(op);
   auto config = extractOpConfigFromIR(op);
-  auto result =
-      op_constraint_validation::validateOperation(op, inputLayouts, config,
-                                                  /*additionalL1Usage=*/0);
+  auto result = memoryTracker.validateBackendDirect(op, inputLayouts, config,
+                                                    /*additionalL1Usage=*/0);
   if (!result.isSuccess()) {
-    op->emitError("L1SpillManagement: DRAM output config failed validation "
-                  "after demotion (")
-        << result.errorMessage << "); this indicates a compiler bug";
+    // The op's demoted (DRAM-interleaved) output config does not validate given
+    // its current inputs. This is expected for layout-constrained ops: e.g.
+    // ttnn.typecast requires input and output memory layouts to match
+    // (typecast_device_op.cpp), so a DRAM-interleaved output paired with a
+    // still-sharded L1 input is rejected. Such an op cannot be CB-managed by
+    // demoting its output. Rather than abort the whole pass, leave the op as-is
+    // and let the downstream OperationValidationAndFallback pass reconcile the
+    // layout -- the same recovery the pass gets when this op-model error is
+    // classified as a plain backend error. Aborting here instead regresses
+    // models whose CB-vs-L1 clash lands on such an op
+    // (https://github.com/tenstorrent/tt-mlir/issues/9064).
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    DRAM_CB_SKIP: {0} DRAM-output config failed validation "
+                 "after demotion ({1}); leaving op for downstream layout fixup",
+                 op->getName(),
+                 ttmlir::utils::firstNLines(result.errorMessage, 1));
     return;
   }
   if (result.cbPeakUsage == 0) {
@@ -1363,15 +1828,43 @@ void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
                memoryTracker.getLowestOccupiedAddress());
 
   evictForCBOverlap(dramCBCushioned, pos, data);
+
+  // If the CB region still overlaps a live tensor after eviction, that tensor
+  // is an inserted reshard we cannot evict (it restores a required L1 input).
+  // Demotion freed the output but not this input, so the op cannot be placed:
+  // its CBs would clobber an L1 input it requires. Fail with a clear error
+  // rather than emit IR that overflows L1 at runtime.
+  if (!liveValues.empty() &&
+      dramCBCushioned > memoryTracker.getLowestOccupiedAddress()) {
+    op->emitError("L1SpillManagementBase: ")
+        << op->getName()
+        << " requires an L1 input restored by an inserted reshard, but its "
+           "circular-buffer region overlaps that reshard's L1 slot and the "
+           "reshard cannot be evicted or relocated; the op cannot be placed "
+           "within the L1 budget";
+    compilationFailed = true;
+  }
 }
 
 //===----------------------------------------------------------------------===//
-// spillToDram
+// spillToDram / spillToDramBeforeTrigger / spillToDramImpl
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::spillToDram(Value result,
-                                                   Operation *insertBefore) {
+void L1SpillManagementBase<MemoryTracker>::spillToDram(Value result) {
+  spillToDramImpl(result, /*insertBefore=*/nullptr);
+}
+
+template <typename MemoryTracker>
+void L1SpillManagementBase<MemoryTracker>::spillToDramBeforeTrigger(
+    Value result, Operation *triggerOp) {
+  assert(triggerOp && "spillToDramBeforeTrigger requires a non-null trigger");
+  spillToDramImpl(result, triggerOp);
+}
+
+template <typename MemoryTracker>
+void L1SpillManagementBase<MemoryTracker>::spillToDramImpl(
+    Value result, Operation *insertBefore) {
   Operation *defOp = result.getDefiningOp();
   RankedTensorType tensorType = mlir::cast<RankedTensorType>(result.getType());
   TTNNLayoutAttr layoutAttr =
@@ -1432,7 +1925,7 @@ void L1SpillManagement<MemoryTracker>::spillToDram(Value result,
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::insertReshardForConsumer(
+void L1SpillManagementBase<MemoryTracker>::insertReshardForConsumer(
     Operation *consumer, unsigned operandIdx, TTNNLayoutAttr originalL1Layout) {
   Value spillOutput = consumer->getOperand(operandIdx);
   auto spillTensorType = mlir::cast<RankedTensorType>(spillOutput.getType());
@@ -1463,22 +1956,293 @@ void L1SpillManagement<MemoryTracker>::insertReshardForConsumer(
 }
 
 //===----------------------------------------------------------------------===//
-// cleanupL1UsageAttrs
+// MockAllocatorL1Tracker
 //===----------------------------------------------------------------------===//
 
-template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::cleanupL1UsageAttrs() {
-  func->walk([](Operation *op) {
-    if (op->hasAttr("ttnn.output_l1_usage")) {
-      op->removeAttr("ttnn.output_l1_usage");
+op_constraint_validation::ValidationResult
+MockAllocatorL1Tracker::validate(Operation *op,
+                                 llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                                 const OpConfig &config) const {
+  // Test-only hook takes precedence and is state-agnostic.
+  if (backendValidator) {
+    return backendValidator(op, inputLayouts, config, /*additionalL1Usage=*/0);
+  }
+
+  // Flatten the currently-live L1 allocations into the stateful query's initial
+  // state. Aliases share their owner's record (no separate entry), so there is
+  // no duplication. additionalL1Usage is 0: the live set is encoded in the
+  // records. Note that `flat` is empty on the first op of a run -- that is
+  // still a STATEFUL query (this overload selects the flavour), which is how
+  // the record set below bootstraps. Ops that are intentionally stateless
+  // ignore the records and return none.
+  llvm::SmallVector<op_model::OpModelAllocationRecord> flat;
+  for (const auto &entry : liveRecords) {
+    flat.append(entry.second.begin(), entry.second.end());
+  }
+
+  op_constraint_validation::ValidationResult result =
+      op_constraint_validation::validateOperation(op, inputLayouts, config,
+                                                  flat,
+                                                  /*additionalL1Usage=*/0);
+
+  if (result.isSuccess()) {
+    // The query decides fit / fragmentation / CB-clash on the device's physical
+    // L1, but the optimizer budget reserves headroom below that (a ~0.95 cap
+    // minus reserved). Enforce that byte ceiling here so the optimizer does not
+    // pack up to the full device L1: projected peak = currently-live L1 (which
+    // includes this op's inputs) + this op's output.
+    uint64_t projected = getOccupiedL1() + result.outputL1Usage;
+    if (l1Budget > 0 && projected > l1Budget) {
+      return op_constraint_validation::ValidationResult::outOfMemoryError(
+          "stateful: projected L1 (" + std::to_string(projected) +
+          "B) exceeds optimizer budget (" + std::to_string(l1Budget) + "B)");
     }
-  });
+    // Stash this op's output records for association at addTensor time.
+    if (!result.outputAllocations.empty()) {
+      pendingRecords[op] = RecordVec(result.outputAllocations.begin(),
+                                     result.outputAllocations.end());
+    }
+  }
+  return result;
+}
+
+op_constraint_validation::ValidationResult
+MockAllocatorL1Tracker::validateBackendDirect(
+    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+    const OpConfig &config, uint64_t additionalL1Usage) const {
+  if (backendValidator) {
+    return backendValidator(op, inputLayouts, config, additionalL1Usage);
+  }
+  return op_constraint_validation::validateOperation(op, inputLayouts, config,
+                                                     additionalL1Usage);
+}
+
+void MockAllocatorL1Tracker::init(uint64_t l1BudgetPerCore) {
+  l1Budget = l1BudgetPerCore;
+  liveRecords.clear();
+  pendingRecords.clear();
+  aliasOf.clear();
+  aliasRefcount.clear();
+}
+
+void MockAllocatorL1Tracker::addTensor(Value result,
+                                       uint64_t /*l1SizePerCore*/) {
+  // Associate the pending record for this result (positional: i-th tensor
+  // result <-> i-th output-buffer record). Ops that produced no records (not
+  // migrated to the stateful path) simply contribute nothing to the state.
+  Operation *op = result.getDefiningOp();
+  if (!op) {
+    return;
+  }
+  auto it = pendingRecords.find(op);
+  if (it == pendingRecords.end()) {
+    return;
+  }
+  const unsigned idx = mlir::cast<OpResult>(result).getResultNumber();
+  if (idx < it->second.size()) {
+    liveRecords[result] = RecordVec{it->second[idx]};
+    aliasOf[result] = result;
+    aliasRefcount[result] = 1;
+  }
+  // The pending stash for `op` is only needed to associate its records to its
+  // tensor results, which happens right after the validate() that produced it
+  // (both the forward-sweep commit and the revalidation cascade call validate()
+  // immediately before addTensor()). Drop the entry once the op's last tensor
+  // result has been associated so pendingRecords does not accumulate a stale
+  // entry per op visited over the pass. Results are committed in ascending
+  // order in both paths, so once the highest-numbered tensor result is reached
+  // every earlier result of this op has already been associated, and no further
+  // addTensor() for `op` runs before its next validate() re-stashes -- so this
+  // never orphans an association.
+  bool isLastTensorResult = true;
+  for (unsigned i = idx + 1, e = op->getNumResults(); i < e; ++i) {
+    if (mlir::isa<RankedTensorType>(op->getResult(i).getType())) {
+      isLastTensorResult = false;
+      break;
+    }
+  }
+  if (isLastTensorResult) {
+    pendingRecords.erase(it);
+  }
+}
+
+void MockAllocatorL1Tracker::addTensorAlias(Value out, Value src) {
+  // A view op's output shares src's buffer: add no new record, just bump the
+  // owner's live-aliaser refcount so the record survives until the last
+  // aliaser dies.
+  auto ownerIt = aliasOf.find(src);
+  Value owner = ownerIt != aliasOf.end() ? ownerIt->second : src;
+  aliasOf[out] = owner;
+  ++aliasRefcount[owner];
+}
+
+void MockAllocatorL1Tracker::removeTensor(Value result) {
+  auto ownerIt = aliasOf.find(result);
+  if (ownerIt == aliasOf.end()) {
+    // Untracked (op produced no records). Nothing to drop.
+    liveRecords.erase(result);
+    return;
+  }
+  Value owner = ownerIt->second;
+  aliasOf.erase(ownerIt);
+  auto rcIt = aliasRefcount.find(owner);
+  if (rcIt != aliasRefcount.end() && --rcIt->second == 0) {
+    aliasRefcount.erase(rcIt);
+    liveRecords.erase(owner);
+  }
+}
+
+void MockAllocatorL1Tracker::removeTensorFromSizes(Value result) {
+  // Records are the only size state, so the eviction spill path is identical to
+  // removeTensor.
+  removeTensor(result);
+}
+
+bool MockAllocatorL1Tracker::hasTensor(Value result) const {
+  return aliasOf.count(result) > 0;
+}
+
+uint64_t MockAllocatorL1Tracker::getTensorSize(Value result) const {
+  auto ownerIt = aliasOf.find(result);
+  Value owner = ownerIt != aliasOf.end() ? ownerIt->second : result;
+  auto it = liveRecords.find(owner);
+  if (it == liveRecords.end()) {
+    return 0;
+  }
+  uint64_t total = 0;
+  for (const auto &rec : it->second) {
+    if (rec.bufferType == BufferType::L1) {
+      total += rec.sizePerBank;
+    }
+  }
+  return total;
+}
+
+uint64_t MockAllocatorL1Tracker::getOccupiedL1() const {
+  uint64_t total = 0;
+  for (const auto &entry : liveRecords) {
+    for (const auto &rec : entry.second) {
+      if (rec.bufferType == BufferType::L1) {
+        total += rec.sizePerBank;
+      }
+    }
+  }
+  return total;
+}
+
+MockAllocatorL1Tracker::Snapshot MockAllocatorL1Tracker::takeSnapshot() const {
+  return Snapshot{liveRecords, aliasOf, aliasRefcount};
+}
+
+void MockAllocatorL1Tracker::restoreSnapshot(const Snapshot &snapshot) {
+  liveRecords = snapshot.liveRecords;
+  aliasOf = snapshot.aliasOf;
+  aliasRefcount = snapshot.aliasRefcount;
+}
+
+//===----------------------------------------------------------------------===//
+// StatefulL1SpillManagement (captured allocator state)
+//===----------------------------------------------------------------------===//
+
+uint64_t StatefulL1SpillManagement::placeValidatedOutput(
+    Operation *, int64_t, ScheduleData &,
+    const op_constraint_validation::ValidationResult &result) {
+  // Fit / fragmentation / CB-overlap are all answered by the stateful query, so
+  // a validated output is committed at its reported L1 size with no extra
+  // checks.
+  return result.outputL1Usage;
+}
+
+void StatefulL1SpillManagement::handleUnvalidatedL1Output(Operation *, int64_t,
+                                                          ScheduleData &,
+                                                          uint64_t) {
+  // Pre-decomposition ToLayoutOp: no query, and (as in the address-sim path) it
+  // is kept out of liveValues. Any real OOM surfaces at the consuming op's
+  // stateful query, so there is nothing to do here.
+}
+
+void StatefulL1SpillManagement::commitAllocation(Value val,
+                                                 uint64_t perResultL1,
+                                                 ScheduleData &data) {
+  auto luIt = data.lastUsePositions.find(val);
+  assert(luIt != data.lastUsePositions.end() &&
+         "scheduled value missing its lastUsePositions entry");
+  int64_t resultLastUse = luIt->second;
+
+  // No event log here: the stateful path rebuilds state by rewinding and
+  // re-running the sweep (per-position checkpoints), not via event-log replay.
+
+  // View-eligible op whose source is still L1-resident: alias its buffer (no
+  // new record). Otherwise associate this result's own output record.
+  Operation *defOp = val.getDefiningOp();
+  if (defOp && isAliasingViewOp(defOp) &&
+      memoryTracker.hasTensor(defOp->getOperand(0))) {
+    memoryTracker.addTensorAlias(val, defOp->getOperand(0));
+  } else {
+    memoryTracker.addTensor(val, perResultL1);
+  }
+
+  liveValues.insert(val);
+  liveSet.push({resultLastUse, val});
+}
+
+void StatefulL1SpillManagement::recoverFromOOM(
+    Operation *op, int64_t pos, llvm::ArrayRef<OpResult> /*tensorResults*/,
+    ScheduleData &data, std::function<void(uint64_t)> /*addResultsToLiveSet*/) {
+  observer_->onOOM(op, pos, memoryTracker.getOccupiedL1());
+
+  // Evict ONE farthest-last-use victim, then rewind and re-run the forward
+  // sweep. evictValue spills the victim to DRAM and routes its consumers'
+  // reshards into the schedule; the rewind (pendingRewindTo, honored by run())
+  // restores the checkpoint before the victim's allocation and re-runs the
+  // sweep from there. The victim re-processes as a briefly-live L1 buffer that
+  // is freed immediately (its shortened lifetime), the reshards process as
+  // ordinary schedule ops, and this op is re-reached and re-validated against
+  // the freed state. If it still OOMs, recoverFromOOM fires again for the next
+  // victim -- one eviction per rewind, monotonically shrinking the L1 working
+  // set. There is no separate replay: eviction reuses the one placement
+  // algorithm (the forward sweep), so it cannot diverge from it.
+  Value victim = evictFarthestUse();
+  if (!victim) {
+    // Nothing evictable remains (only non-evictable reshards / an irreducible,
+    // genuinely-unplaceable working set). Degrade gracefully: demote this op's
+    // output to DRAM and continue, rather than failing the pass.
+    observer_->onSelfSpill(op, pos);
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::GreedyOptimizer,
+        "    DEMOTE SELF (stateful): {0} unplaceable after draining L1",
+        ttmlir::opToString(op));
+    demoteToDram(op);
+    return; // no rewind; sweep advances to pos+1
+  }
+
+  Operation *victimOp = victim.getDefiningOp();
+  size_t unusedCampaign = SIZE_MAX;
+  evictValue(victim, pos, data, unusedCampaign);
+
+  // Rewind to the victim's own allocation position. Reshards insert at consumer
+  // positions (> victimPos, since a consumer follows its producer), so
+  // victimPos is the earliest position affected by this eviction. Re-read
+  // positionMap in case insertions shifted it (they should not, being after
+  // victimPos).
+  int64_t victimPos = data.positionMap.lookup(victimOp);
+  pendingRewindTo = victimPos;
+}
+
+bool StatefulL1SpillManagement::replayFrom(size_t /*startIdx*/) {
+  // The stateful path rebuilds allocator state by rewinding and re-running the
+  // forward sweep (see recoverFromOOM), not via event-log replay. evictValue
+  // never calls markEvictedAndRebuild on this path, so this override is
+  // unreachable; it exists only to satisfy the pure-virtual base declaration.
+  llvm_unreachable("StatefulL1SpillManagement uses rewind, not replayFrom");
 }
 
 //===----------------------------------------------------------------------===//
 // Explicit template instantiation
 //===----------------------------------------------------------------------===//
 
-template class L1SpillManagement<SumL1MemoryTracker>;
+template class L1SpillManagementBase<SumL1MemoryTracker>;
+template class L1SpillManagementBase<MockAllocatorL1Tracker>;
+template class AddressSimSpillManagement<SumL1MemoryTracker>;
 
 } // namespace mlir::tt::ttnn

@@ -8,7 +8,7 @@
 module {
   func.func @forward(%arg0: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x96xf32, #ttnn_layout1> {
     // CHECK: error: Memory layout is not allowed for SystemMemory buffer type.
-    %1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}>  : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
+    %1 = "ttnn.to_layout"(%arg0)   : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
     return %1 : tensor<32x32xf32, #ttnn_layout1>
   }
 }
@@ -23,7 +23,7 @@ module {
 module {
   func.func @forward(%arg0: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x96xf32, #ttnn_layout1> {
     // CHECK: error: sharded TTNN layout (width_sharded) must carry a core_range_set
-    %1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}>  : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
+    %1 = "ttnn.to_layout"(%arg0)   : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
     return %1 : tensor<32x32xf32, #ttnn_layout1>
   }
 }
@@ -37,7 +37,7 @@ module {
 module {
   func.func @forward(%arg0: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x96xf32, #ttnn_layout1> {
     // CHECK: error: Memory layout is required for non-SystemMemory buffer type.
-    %1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}>  : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
+    %1 = "ttnn.to_layout"(%arg0)   : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
     return %1 : tensor<32x32xf32, #ttnn_layout1>
   }
 }

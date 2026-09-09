@@ -70,7 +70,7 @@ calculateOutputSubblockFactors(ArrayRef<int64_t> outputBlockShape,
 //    subblocks' index space (the loop blocking) that is consistent across all
 //    operands.
 static SmallVector<int64_t> calculateOptimalSubblockSizes(
-    ArrayRef<AffineMap> indexingMaps, ValueRange inputs,
+    ArrayRef<AffineMap> indexingMaps, ValueRange inputs, ValueRange outputs,
     ArrayRef<int64_t> outputBlockShape, unsigned dstCapacity) {
   assert(!indexingMaps.empty());
 
@@ -86,23 +86,41 @@ static SmallVector<int64_t> calculateOptimalSubblockSizes(
   // future we might do something more intelligent with the free variables, or
   // enable downstream passes like allocation to adjust them based on memory
   // requirements.
-  SmallVector<int64_t> flattenedSubblockFactors(outputSubblockFactors);
+  //
+  // With several outputs the reversed concat order is (outN..out0, inN..in0),
+  // so output 0's factors sit after the other outputs' dims rather than at
+  // the front; pad those leading dims with 1s (they are free, exactly like the
+  // input dims) so the factors land on the dims they describe.
+  SmallVector<int64_t> flattenedSubblockFactors;
+  for (Value output : llvm::reverse(outputs.drop_front())) {
+    auto outputType = mlir::cast<MemRefType>(output.getType());
+    flattenedSubblockFactors.append(outputType.getShape().size(), 1);
+  }
+  flattenedSubblockFactors.append(outputSubblockFactors.begin(),
+                                  outputSubblockFactors.end());
   flattenedSubblockFactors.resize(inverse.getNumDims(), 1);
 
   // Eval the affine map to get the subblock factors.
   auto subblockFactors = inverse.compose(flattenedSubblockFactors);
 
-  SmallVector<int64_t> flattenedBlockShapes(outputBlockShape.begin(),
-                                            outputBlockShape.end());
-
-  SmallVector<int64_t> inputShapes;
-  for (auto input : llvm::reverse(inputs)) {
-    auto inputType = mlir::cast<MemRefType>(input.getType());
-    inputShapes.append(inputType.getShape().begin(),
-                       inputType.getShape().end());
+  // `inverse` was built from every indexing map with reverse=true, so its
+  // dims run in concat order (outN..out0, inN..in0).  The shape vector composed
+  // against it has to cover all of them: supplying only one output's shape
+  // leaves the trailing dims symbolic and `compose` hits a
+  // cast<AffineConstantExpr> assert.
+  SmallVector<int64_t> flattenedBlockShapes;
+  for (Value output : llvm::reverse(outputs.drop_front())) {
+    auto outputType = mlir::cast<MemRefType>(output.getType());
+    flattenedBlockShapes.append(outputType.getShape().begin(),
+                                outputType.getShape().end());
   }
+  flattenedBlockShapes.append(outputBlockShape.begin(), outputBlockShape.end());
 
-  flattenedBlockShapes.append(inputShapes.begin(), inputShapes.end());
+  for (Value input : llvm::reverse(inputs)) {
+    auto inputType = mlir::cast<MemRefType>(input.getType());
+    flattenedBlockShapes.append(inputType.getShape().begin(),
+                                inputType.getShape().end());
+  }
 
   // From this point on, "block" stands for loop index space.
   auto blockShapes = inverse.compose(flattenedBlockShapes);
@@ -234,7 +252,7 @@ private:
     // sizes that yield the correct number of outer iterations.
     SmallVector<int64_t> phase1TileSizes = calculateOptimalSubblockSizes(
         linalgOp.getIndexingMapsArray(), linalgOp.getInputs(),
-        outputType.getShape(),
+        linalgOp.getOutputs(), outputType.getShape(),
         static_cast<unsigned>(perResult.numTilesPerResult));
 
     LLVM_DEBUG({
@@ -264,7 +282,7 @@ private:
 
     SmallVector<int64_t> phase2TileSizes = calculateOptimalSubblockSizes(
         innerOp.getIndexingMapsArray(), innerOp.getInputs(),
-        innerOutputType.getShape(),
+        innerOp.getOutputs(), innerOutputType.getShape(),
         static_cast<unsigned>(perResult.numTilesPerFlip));
 
     LLVM_DEBUG({

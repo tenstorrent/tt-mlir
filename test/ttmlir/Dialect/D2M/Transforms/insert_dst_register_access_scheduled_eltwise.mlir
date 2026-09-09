@@ -7,7 +7,7 @@
 // Exercises:
 //   - In-place CB->DST load insertion (dataCopyGenerateScheduledInPlace)
 //   - Cloned loop skeleton for DST->CB stores (dataCopyGenerateWithClone)
-//   - DstStackAllocator (stack-based allocation)
+//   - DstSliceAllocator (free-slot allocation)
 //   - Intermediate results through DST
 //   - Consumption of d2m.scheduled attribute
 // RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access-scheduled --canonicalize -o %t %s
@@ -65,7 +65,7 @@ module {
   // -----------------------------------------------------------------------
   // Binary eltwise with d2m.scheduled (3 inputs for OpScheduler to trigger):
   //   - add(in0, in1) -> div(result, in2) -> store out
-  //   - DstStackAllocator allocates slots for each input
+  //   - DstSliceAllocator allocates slots for each input
   //   - Intermediate result (add) stored in DST
   //   - Separate cloned loop for DST->CB stores
   // -----------------------------------------------------------------------

@@ -116,6 +116,21 @@ mlir::sdy::TensorShardingAttr
 getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
                                 mlir::Type type);
 
+// Get a fully replicated sdy.sharding annotation with closed dims, so Shardy
+// propagation cannot re-shard the tensor.
+mlir::sdy::TensorShardingAttr getClosedReplicatedTensorSdyShardingAttr(
+    MLIRContext *context, llvm::StringRef meshName, int64_t rank);
+
+// Return the first per-value sdy tensor sharding attached to `op`, or nullptr
+// if the op has no sharding annotation or an empty sharding list.
+mlir::sdy::TensorShardingAttr getFirstSharding(mlir::Operation *op);
+
+// Overwrite `op`'s sharding annotation with a fully replicated (closed)
+// sharding, so InsertExplicitReshards will insert the reshard ops that give
+// each shard the correct data.
+void setReplicatedSharding(mlir::Operation *op, MLIRContext *context,
+                           llvm::StringRef meshName, int64_t rank);
+
 // Get the argument sharding attributes.
 llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
@@ -127,10 +142,12 @@ llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
                     mlir::sdy::MeshOp &globalMeshOp);
 
-// Get the sharding attribute for an operand.
+// Get the sharding attribute for an operand. Pass `createIfMissing=false` for
+// a read-only lookup; the default mutates unannotated func args.
 mlir::sdy::TensorShardingAttr
 getOperandShardingAttr(const mlir::OpOperand &operand,
-                       mlir::sdy::MeshOp globalMeshOp);
+                       mlir::sdy::MeshOp globalMeshOp,
+                       bool createIfMissing = true);
 
 // Calculate the updated shape based on the tensor sharding annotation.
 FailureOr<int64_t>
@@ -155,8 +172,6 @@ void copyNestedRegions(mlir::OpBuilder &builder, mlir::Operation *srcOp,
 
 class ShardyMeshSharding : public sharding_utils::MeshSharding {
 public:
-  // Static factory methods.
-  static llvm::Expected<ShardyMeshSharding> generateDefault();
   static llvm::Expected<ShardyMeshSharding>
   generate(sdy::MeshAttr meshAttr, sdy::TensorShardingAttr sdySharding,
            mlir::tt::ttcore::ShardStatus shardStatus,
@@ -184,8 +199,10 @@ private:
   mlir::sdy::TensorShardingAttr sdySharding;
 };
 
-// Return true if every dimension has no axes -> replicated.
-bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh);
+// Return true if every dimension is replicated. With `meshOp`, axes resolving
+// to unit-sized mesh dims are also treated as replicated.
+bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh,
+                             mlir::sdy::MeshOp meshOp = {});
 
 // Return true if the module has any sdy tensor sharding annotations that are
 // not fully replicated.
@@ -200,6 +217,23 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
 
 // Check if the operation has Shardy-sharded inputs or outputs.
 bool opHasShardySharding(mlir::Operation *op);
+
+// Return the serialized user-provided sharding rule carried by `op` in its
+// "xla.sdy.custom_sharding_rule" frontend attribute, or an empty StringRef if
+// the op carries no rule. An attribute that is present but empty (or
+// whitespace-only) counts as no rule, so the op falls back to Shardy's default
+// handling rather than being treated as malformed.
+llvm::StringRef getUserShardingRuleStr(mlir::Operation *op);
+
+// Parse `ruleStr` into an OpShardingRuleAttr, returning a null attribute if it
+// does not parse.
+//
+// NOTE: The "is_custom_rule" bit is always set to false on the result. By
+// setting it to false it can be dropped by sdy-user-priority-propagate and
+// rematerialized later, through ShardingRuleOpInterface, by
+// insert-explicit-reshards.
+mlir::sdy::OpShardingRuleAttr parseUserShardingRule(llvm::StringRef ruleStr,
+                                                    mlir::MLIRContext *context);
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 

@@ -15,14 +15,34 @@
 namespace mlir::tt::ttnn::utils {
 
 // Attribute name for storing tensor L1 usage cap during optimizer passes.
-// This attribute is set by DevicePassesWrapper and read by validation
-// and analysis passes to avoid parameter threading through pass infrastructure.
+// This attribute is set by DevicePassesWrapper and read by
+// getUsableL1PerCore (through getTensorL1UsageCap).
 inline constexpr llvm::StringLiteral g_TensorL1UsageCapAttrName =
     "ttnn.tensor_l1_usage_cap";
+
+// Attribute name for storing the per-core L1 usage of const-eval tensors in a
+// module, in bytes. This attribute is set by ConstEvalHoistTransform and read
+// by getUsableL1PerCore (through getReservedL1Usage).
+inline constexpr llvm::StringLiteral g_L1ConstEvalUsageAttrName =
+    "ttnn.l1_const_eval_usage";
+
+// Per-op tag opting an L1-resident op into const-eval hoisting.
+// L1-resident ops without this tag will lead to a compilation error, in order
+// to avoid accidental L1 exhaustion by unintentional candidates.
+inline constexpr llvm::StringLiteral g_ConstEvalAllowedAttrName =
+    "ttnn.const_eval_allowed";
 
 // Helper function to retrieve tensor L1 usage cap from module attribute.
 // Returns the configured cap if found, otherwise returns the default value.
 float getTensorL1UsageCap(Operation *op, float defaultValue = 0.95f);
+
+// Helper function to retrieve the per-core L1 usage reserved for the retained
+// (permanent) tensors.
+uint64_t getReservedL1Usage(Operation *op);
+
+// Helper function to retrieve the usable L1 size per core:
+// usableL1PerCore = totalL1PerCore * tensorL1UsageCap - reservedL1Usage
+uint64_t getUsableL1PerCore(Operation *op);
 
 bool isTensorOnDevice(::mlir::RankedTensorType tensorType);
 

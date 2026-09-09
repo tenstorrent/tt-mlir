@@ -9,20 +9,45 @@ from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 from test_utils import (
+    XFail,
     shapes_list_str,
-    shape_str,
 )
 
 pytestmark = pytest.mark.frontend("ttir")
 
 
-@pytest.mark.parametrize("shape", [(128, 128), (4, 128, 128)], ids=shape_str)
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(128, 128), (128, 128)],
+        [(4, 128, 128), (4, 128, 128)],
+        # Batched matmul, no broadcast.
+        [(1, 1, 128, 128), (1, 1, 128, 128)],
+        [(2, 1, 128, 128), (2, 1, 128, 128)],
+        [(1, 2, 128, 128), (1, 2, 128, 128)],
+        [(2, 2, 128, 128), (2, 2, 128, 128)],
+        # RHS broadcast: supported only when the whole RHS is a single batch.
+        [(1, 4, 128, 128), (1, 1, 128, 128)],
+        [(4, 1, 128, 128), (1, 1, 128, 128)],
+        [(4, 8, 128, 128), (1, 1, 128, 128)],
+        [(1, 8, 128, 128), (1, 1, 128, 128)],
+        [(2, 4, 128, 128), (2, 1, 128, 128)] | XFail("partial RHS batch"),
+        [(4, 2, 128, 128), (1, 2, 128, 128)] | XFail("partial RHS batch"),
+        # LHS broadcast: never supported.
+        [(1, 1, 128, 128), (1, 4, 128, 128)] | XFail("LHS batch broadcast"),
+        [(2, 1, 128, 128), (2, 4, 128, 128)] | XFail("LHS batch broadcast"),
+        [(1, 1, 128, 128), (4, 1, 128, 128)] | XFail("LHS batch broadcast"),
+        [(1, 2, 128, 128), (4, 2, 128, 128)] | XFail("LHS batch broadcast"),
+        [(1, 1, 128, 128), (4, 8, 128, 128)] | XFail("LHS batch broadcast"),
+    ],
+    ids=shapes_list_str,
+)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("transpose_a", [False, True])
 @pytest.mark.parametrize("transpose_b", [False, True])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_matmul(
-    shape: Shape,
+    shapes: List[Shape],
     dtype: torch.dtype,
     transpose_a: bool,
     transpose_b: bool,
@@ -30,8 +55,20 @@ def test_matmul(
     request,
     device,
 ):
+    """Matmul over square, batched, and batch-broadcast operand shapes.
+
+    The broadcast cases pin down which batched-matmul shapes tt-metal supports:
+    the ``XFail``-ed shapes are the ones metal cannot handle (partial RHS batch,
+    or any LHS batch broadcast). They do not exercise the broadcast-into-matmul
+    fold directly -- the builder emits a ``ttir.matmul`` with implicitly
+    mismatched batch dims, which never materializes a ``ttnn.repeat`` -- but
+    they are the ground truth the fold (``MatmulOp`` canonicalization in the
+    TTNN dialect) must respect: it may only ever produce shapes from the passing
+    set, never one of the ``XFail``-ed shapes.
+    """
+
     def module(builder: TTIRBuilder):
-        @builder.func([shape, shape], [dtype, dtype])
+        @builder.func(shapes, [dtype] * len(shapes))
         def matmul(
             in0: Operand,
             in1: Operand,

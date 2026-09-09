@@ -6,9 +6,12 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -101,6 +104,58 @@ materializeCoreCoordinateOperandsInPhysicalSpace(GenericOp generic,
   });
 }
 
+static int32_t resolveDmCoreIndex(ThreadAttr thread,
+                                  ttcore::ChipDescAttr chipDesc,
+                                  int &unassignedDmCoreCounter) {
+  int32_t dmCoreIndex = thread.getDmCoreIndex();
+  // Handle unassigned DM core.
+  if (thread.getThreadType() == ThreadType::Datamovement && dmCoreIndex < 0) {
+    const auto arch = chipDesc.getArch().getValue();
+    const auto nDmCores = chipDesc.getNumDatamovementThreads();
+    if (arch == ttcore::Arch::Quasar) {
+      // For Quasar, the downstream passes will force assign NoC0.
+      dmCoreIndex = unassignedDmCoreCounter++ % nDmCores;
+    } else {
+      // For WH & BH, alternate between Core1-NoC0 and Core0-NoC1.
+      const int32_t nocIdx = unassignedDmCoreCounter++ % nDmCores;
+      dmCoreIndex = 1 - nocIdx;
+      // Make sure this is the inverse of ttcore::getDmCoreDefaultNoc.
+      TT_assertv(static_cast<int32_t>(
+                     ttcore::getDmCoreDefaultNoc(arch, dmCoreIndex)) == nocIdx,
+                 "Fallback DM-core assignment disagrees with "
+                 "ttcore::getDmCoreDefaultNoc.");
+    }
+  }
+  return dmCoreIndex;
+}
+
+static void materializeCapturedConstants(func::FuncOp func) {
+  OpBuilder builder(func.getContext());
+  Block &body = func.getBody().front();
+  llvm::DenseMap<Operation *, Value> clonedConstants;
+
+  func.walk([&](Operation *op) {
+    for (OpOperand &operand : op->getOpOperands()) {
+      Operation *definingOp = operand.get().getDefiningOp();
+      if (!definingOp || definingOp->getParentOfType<func::FuncOp>() == func) {
+        continue;
+      }
+
+      if (!mlir::isa<arith::ConstantOp>(definingOp)) {
+        continue;
+      }
+
+      auto [it, inserted] = clonedConstants.try_emplace(definingOp, Value{});
+      if (inserted) {
+        builder.setInsertionPointToStart(&body);
+        Operation *clonedOp = builder.clone(*definingOp);
+        it->second = clonedOp->getResult(0);
+      }
+      operand.set(it->second);
+    }
+  });
+}
+
 class D2MGenericRegionsToFuncs
     : public impl::D2MGenericRegionsToFuncsBase<D2MGenericRegionsToFuncs> {
 public:
@@ -116,21 +171,25 @@ public:
       materializeCoreCoordinateOperandsInPhysicalSpace(generic, builder);
 
       SmallVector<Attribute> threads;
+      Attribute physicalCBPortMap = getPhysicalCBPortMap(generic);
       auto origThreads = generic.getThreadsAttr().getValue();
+      const auto chipDesc = ttcore::getOpChipDescAttr(generic);
+      int unassignedDmCoreCounter = 0;
       for (Region &region : generic.getRegions()) {
         builder.setInsertionPoint(moduleOp.getBody(),
                                   moduleOp.getBody()->end());
         auto origThreadAttr =
             mlir::cast<ThreadAttr>(origThreads[region.getRegionNumber()]);
         ThreadType threadType = origThreadAttr.getThreadType();
-        int32_t processorIndex = origThreadAttr.getProcessorIndex();
+        const int32_t dmCoreIndex = resolveDmCoreIndex(origThreadAttr, chipDesc,
+                                                       unassignedDmCoreCounter);
         std::string symbolName =
             stringifyEnum(threadType).str() + "_kernel" + Twine(unique++).str();
         auto threadAttrWithSym = builder.getAttr<ThreadAttr>(
             threadType, builder.getAttr<SymbolRefAttr>(symbolName),
-            processorIndex);
+            dmCoreIndex);
         auto threadAttrWithoutSym =
-            builder.getAttr<ThreadAttr>(threadType, nullptr, processorIndex);
+            builder.getAttr<ThreadAttr>(threadType, nullptr, dmCoreIndex);
         Location loc = region.getNumArguments() > 0
                            ? region.getArgument(0).getLoc()
                            : generic.getLoc();
@@ -140,7 +199,11 @@ public:
                               {}));
         func.setPrivate();
         func->setAttr(d2m::ThreadAttr::name, threadAttrWithoutSym);
+        if (physicalCBPortMap) {
+          func->setAttr(getPhysicalCBPortMapAttrName(), physicalCBPortMap);
+        }
         func.getBody().takeBody(region);
+        materializeCapturedConstants(func);
         ttmlir::utils::setFunctionType(func,
                                        ttmlir::utils::FunctionType::Kernel);
         builder.setInsertionPointToEnd(&func.getBody().front());

@@ -24,6 +24,9 @@ class RotaryEmbeddingOp;
 class Conv3dOp;
 class TopKOp;
 class TopKRouterGptOp;
+class MoeComputeOp;
+class PrepareMoEComputeW0W1WeightsOp;
+class PrepareMoEComputeW2WeightsOp;
 } // namespace mlir::tt::ttnn
 
 namespace mlir::tt::ttnn::wa {
@@ -47,6 +50,11 @@ struct TTNNOperandWorkarounds {
 
   // Tensor data format workaround.
   TensorDataTypeWorkaround tensorDataTypeWorkaround;
+
+  // Tags the inserted ToLayoutOp with "ttnn.const_eval_allowed" so
+  // ConstEvalHoist may hoist its L1-resident result. Opt in only for constant
+  // operands whose L1 residency is meant to be const-eval'd.
+  bool allowL1ConstEval = false;
 
   // Default constructor.
   TTNNOperandWorkarounds() = default;
@@ -101,7 +109,8 @@ struct TTNNOperandWorkarounds {
     return tensorLayoutWorkaround == rhs.tensorLayoutWorkaround &&
            tensorBufferTypeWorkaround == rhs.tensorBufferTypeWorkaround &&
            tensorMemoryLayoutWorkaround == rhs.tensorMemoryLayoutWorkaround &&
-           tensorDataTypeWorkaround == rhs.tensorDataTypeWorkaround;
+           tensorDataTypeWorkaround == rhs.tensorDataTypeWorkaround &&
+           allowL1ConstEval == rhs.allowL1ConstEval;
   }
 
   // Inequality operator.
@@ -112,7 +121,8 @@ struct TTNNOperandWorkarounds {
   // Returns true if any of the workarounds is set.
   bool hasAnyWorkaround() const {
     return tensorLayoutWorkaround || tensorBufferTypeWorkaround ||
-           tensorMemoryLayoutWorkaround || tensorDataTypeWorkaround;
+           tensorMemoryLayoutWorkaround || tensorDataTypeWorkaround ||
+           allowL1ConstEval;
   }
 };
 
@@ -244,18 +254,12 @@ public:
   // Create workarounds for embedding backward op operands.
   static TTNNOperandsWorkarounds createEmbeddingBackwardOpOperandsWorkarounds();
 
+  // Create workarounds for cross entropy forward op operands.
+  static TTNNOperandsWorkarounds
+  createCrossEntropyForwardOpOperandsWorkarounds();
+
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
-
-  // Create workarounds for mesh shard op operands.
-  static TTNNOperandsWorkarounds
-  createMeshShardOpOperandsWorkarounds(ttcore::MeshShardType shardType);
-
-  // Create workarounds for mesh partition op operands. The input and output
-  // tensors are always in row-major layout.
-  // TODO (hshah): Remove once
-  // https://github.com/tenstorrent/tt-metal/issues/37676 is fixed.
-  static TTNNOperandsWorkarounds createMeshPartitionOpOperandsWorkarounds();
 
   // Create workarounds for gather op operands. The input and index tensors must
   // always be in TILED layout.
@@ -363,14 +367,49 @@ public:
   createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
       Operation *op);
 
+  // TODO(#8842): The ROW_MAJOR coercion of page_table /
+  // chunk_start_idx / cur_pos_tensor for the chunked and paged SDPA decode
+  // factories below is a permanent tt-metal kernel ABI, not a temporary
+  // workaround. Move it to TTNNLayout's shouldForceInputRowMajor (this op and
+  // the paged SDPA decode op above) and drop these factories.
+  static TTNNOperandsWorkarounds
+  createChunkedScaledDotProductAttentionOpOperandsWorkarounds(Operation *op);
+
   static TTNNOperandsWorkarounds
   createPagedFlashMultiLatentAttentionDecodeOpOperandsWorkarounds(
       Operation *op);
+
+  static TTNNOperandsWorkarounds
+  createFlashMlaPrefillOpOperandsWorkarounds(Operation *op);
+
+  // Create workarounds for the ttml sdpa_fw op: force bf16 for Q/K/V/mask and
+  // the output, and f32 for the (optional) log-sum-exp intermediates. The
+  // backing metal op (ttml::metal::sdpa_fw) TT_FATALs on any other dtype.
+  static TTNNOperandsWorkarounds
+  createSDPAForwardOpOperandsWorkarounds(Operation *op);
+
+  // Create workarounds for the ttml sdpa_bw op: force bf16 for the gradient,
+  // forward output, Q/K/V, mask and the gradient outputs, and f32 for the
+  // log-sum-exp intermediates. The backing metal op (ttml::metal::sdpa_bw)
+  // TT_FATALs on any other dtype.
+  static TTNNOperandsWorkarounds
+  createSDPABackwardOpOperandsWorkarounds(Operation *op);
+
+  // Create workarounds for the ttml layernorm_fw op: force bf16, tile layout
+  // and DRAM interleaved memory for every operand and result. The backing metal
+  // op (ttml::metal::layernorm_fw) TT_FATALs on anything else.
+  static TTNNOperandsWorkarounds
+  createLayerNormForwardOpOperandsWorkarounds(Operation *op);
 
   // Create workarounds for sparse_matmul op operands.
   // Sparsity tensor must be in ROW_MAJOR layout.
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39126
   static TTNNOperandsWorkarounds createSparseMatmulOpOperandsWorkarounds();
+
+  // Create workarounds for prepare_conv3d_weights op operands.
+  // Weight tensor must be in system memory and ROW_MAJOR layout.
+  static TTNNOperandsWorkarounds
+  createPrepareConv3dWeightsOpOperandsWorkarounds();
 
   // Create workarounds for all_to_all_dispatch op operands.
   // Expert indices and mapping require uint16 dtype and ROW_MAJOR layout.
@@ -389,11 +428,33 @@ public:
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
   static TTNNOperandsWorkarounds createAllToAllCombineOpOperandsWorkarounds();
 
+  // Create workarounds for moe_gpt op operands.
+  // The metal kernel requires expert_indices and expert_scores to be
+  // HEIGHT_SHARDED L1 ROW_MAJOR (produced by all_to_all_dispatch_metadata).
+  static TTNNOperandsWorkarounds
+  createMoeGptOpOperandsWorkarounds(Operation *op);
+
   // Create workarounds for moe_expert_token_remap op operands.
   // expert_metadata requires uint16 dtype and ROW_MAJOR layout.
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39128
   static TTNNOperandsWorkarounds
   createMoeExpertTokenRemapOpOperandsWorkarounds();
+
+  // Create workarounds for moe_compute op operands.
+  // Inputs are bfloat16 / uint16 ROW_MAJOR; outputs are a mix of uint32 and
+  // bfloat16 in ROW_MAJOR and TILE layouts.
+  static TTNNOperandsWorkarounds
+  createMoeComputeOpOperandsWorkarounds(ttnn::MoeComputeOp op);
+
+  // Create workarounds for the moe_compute weight-prep op operands: the
+  // tt-metal packers require ROW_MAJOR weights/biases.
+  static TTNNOperandsWorkarounds
+  createPrepareMoEComputeW0W1WeightsOpOperandsWorkarounds(
+      ttnn::PrepareMoEComputeW0W1WeightsOp op);
+
+  static TTNNOperandsWorkarounds
+  createPrepareMoEComputeW2WeightsOpOperandsWorkarounds(
+      ttnn::PrepareMoEComputeW2WeightsOp op);
 
   // Create workarounds for topk ops.
   // Input must be BFloat16 or BFP_BFloat8.

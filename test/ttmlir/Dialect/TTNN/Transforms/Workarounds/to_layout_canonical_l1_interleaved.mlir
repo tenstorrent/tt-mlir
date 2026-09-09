@@ -33,15 +33,15 @@ module attributes {} {
   // CHECK-LABEL: func.func @dispatch_metadata_l1_canonical_form
 
   // input_tensor: 32 x 128 = 4096 -> memref<1x4096xbf16, l1>
-  // CHECK: "ttnn.to_layout"
+  // CHECK: "ttnn.to_tensor_spec"
   // CHECK-SAME: -> tensor<{{.*}}xbf16, #ttnn.ttnn_layout<{{.*}} memref<1x4096xbf16, #ttnn.buffer_type<l1>>, <interleaved>>>
 
   // expert_indices: 32 x 4 = 128 -> memref<1x128xui16, l1>
-  // CHECK: "ttnn.to_layout"
+  // CHECK: "ttnn.to_tensor_spec"
   // CHECK-SAME: -> tensor<{{.*}}xui16, #ttnn.ttnn_layout<{{.*}} memref<1x128xui16, #ttnn.buffer_type<l1>>, <interleaved>>>
 
   // expert_scores: 32 x 4 = 128 -> memref<1x128xbf16, l1>
-  // CHECK: "ttnn.to_layout"
+  // CHECK: "ttnn.to_tensor_spec"
   // CHECK-SAME: -> tensor<{{.*}}xbf16, #ttnn.ttnn_layout<{{.*}} memref<1x128xbf16, #ttnn.buffer_type<l1>>, <interleaved>>>
   func.func @dispatch_metadata_l1_canonical_form(
       %input:   tensor<1x1x32x128xbf16, #dram_input>,
@@ -52,7 +52,7 @@ module attributes {} {
         tensor<1x32x4xui16, #dram_idx_out>,
         tensor<1x32x4xbf16, #dram_sc_out>) {
     %disp, %idx, %sc = "ttnn.all_to_all_dispatch_metadata"(%input, %indices, %scores, %mapping)
-        <{cluster_axis = 0 : i64, num_devices = 1 : i64}>
+        <{cluster_axis = 0 : i64, num_devices = 1 : i64, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 0, 0>}>
         : (tensor<1x1x32x128xbf16, #dram_input>,
            tensor<1x1x32x4xui16, #dram_idx>,
            tensor<1x1x32x4xbf16, #dram_score>,

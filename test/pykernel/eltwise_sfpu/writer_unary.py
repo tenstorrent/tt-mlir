@@ -25,17 +25,14 @@ def writer_unary(cb_in: CircularBuffer, cb_out: CircularBuffer):
     ublock_size_tiles = 1
 
     for i in range(0, num_tiles, ublock_size_tiles):
-        # CHECK: %[[DST_NOC_ADDR:.*]] = ttkernel.get_noc_addr_from_bank_id(%[[BANK_ID]],{{.*}}
-        dst_noc_addr = get_noc_addr_from_bank_id(bank_id, dst_addr)
-
         # CHECK: ttkernel.cb_wait_front{{.*}}
         # CHECK: {{.*}}ttkernel.get_read_ptr{{.*}}
         cb_wait_front(cb_out, ublock_size_tiles)
         l1_read_addr = get_read_ptr(cb_out)
 
-        # CHECK: ttkernel.noc_async_write({{.*}}, %[[DST_NOC_ADDR]], {{.*}}){{.*}}
+        # CHECK: ttkernel.noc_async_write {{.*}} bank[{{.*}}], {{.*}}, {{.*}}
         # CHECK: ttkernel.noc_async_write_barrier{{.*}}
-        noc_async_write(l1_read_addr, dst_noc_addr, ublock_size_bytes)
+        noc_async_write(l1_read_addr, dst_addr, ublock_size_bytes, dst_bank_id=bank_id)
         noc_async_write_barrier()
 
         # CHECK: ttkernel.cb_pop_front{{.*}}

@@ -23,26 +23,6 @@ LogicalResult GroupNormDecompositionRewritePattern::matchAndRewrite(
   RankedTensorType resultType =
       mlir::cast<RankedTensorType>(op.getResult().getType());
 
-  // When validation config is provided, validate the GroupNorm operation using
-  // IsolatedIRValidationWrapper. If validation succeeds, keep the op as-is.
-  if (validationConfig.has_value()) {
-    IsolatedIRValidationWrapper validator(rewriter.getContext(),
-                                          *validationConfig);
-
-    auto validationResult = validator.validateOp<ttnn::GroupNormOp>(
-        op.getOperation(), op.getLoc(), {resultType}, op.getInput(),
-        op.getInputMask(), op.getWeight(), op.getBias(), op.getNumGroupsAttr(),
-        op.getEpsilonAttr(), op.getCoreGridAttr());
-
-    if (validationResult.isSuccess()) {
-      return failure();
-    }
-
-    TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
-                 "GroupNorm decomposition triggered (validation failed): {0}",
-                 validationResult.errorMessage);
-  }
-
   // The TTIRToTTNN conversion places GroupNorm inputs in [N, 1, H*W, C] form
   // (channels in the last dim). If we ever see something different, bail out
   // and leave the op as-is rather than emit an incorrect decomposition.
@@ -61,6 +41,24 @@ LogicalResult GroupNormDecompositionRewritePattern::matchAndRewrite(
         op, "num_groups must evenly divide the channel dimension");
   }
   const int64_t Cpg = C / G;
+
+  if (validationConfig.has_value()) {
+    IsolatedIRValidationWrapper validator(rewriter.getContext(),
+                                          *validationConfig);
+
+    auto validationResult = validator.validateOp<ttnn::GroupNormOp>(
+        op.getOperation(), op.getLoc(), {resultType}, op.getInput(),
+        op.getInputMask(), op.getWeight(), op.getBias(), op.getNumGroupsAttr(),
+        op.getEpsilonAttr());
+
+    if (validationResult.isSuccess()) {
+      return failure();
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
+                 "GroupNorm decomposition triggered (validation failed): {0}",
+                 validationResult.errorMessage);
+  }
 
   Location loc = op.getLoc();
 

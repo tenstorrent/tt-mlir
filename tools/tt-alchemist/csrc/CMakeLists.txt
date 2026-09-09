@@ -88,6 +88,27 @@ target_link_options(${TT_ALCHEMIST_LIBRARY_NAME}
 )
 
 ################################################################################
+# Install (downstream consumers)
+################################################################################
+
+# Note: the "Install headers and templates" section further down uses
+# add_custom_target() to copy files into the *build tree*. The two rules
+# below are standard CMake install() commands that populate the install
+# prefix so downstream consumers (e.g. the tt-xla wheel) pick the
+# artifacts up via the standard install tree.
+include(GNUInstallDirs)
+
+install(TARGETS ${TT_ALCHEMIST_LIBRARY_NAME}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  COMPONENT SharedLib
+)
+
+install(DIRECTORY ${TT_ALCHEMIST_ROOT_SOURCE_DIR}/templates/
+  DESTINATION templates
+  COMPONENT SharedLib
+)
+
+################################################################################
 # Python Model Runner Library (separate subdirectory due to RTTI requirements)
 ################################################################################
 
@@ -224,7 +245,7 @@ if(TTMLIR_ENABLE_ALCHEMIST_WHEEL)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TTNN_INSTALL_DIR}/lib/libtt_metal.so ${PYTHON_WHEEL_DIR}/tt_alchemist/lib/
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TTNN_INSTALL_DIR}/lib/libtt-umd.so ${PYTHON_WHEEL_DIR}/tt_alchemist/lib/
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TTNN_INSTALL_DIR}/lib/libtt_stl.so ${PYTHON_WHEEL_DIR}/tt_alchemist/lib/
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TTNN_INSTALL_DIR}/lib/libtracy.so.0.10.0 ${PYTHON_WHEEL_DIR}/tt_alchemist/lib/
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TTNN_INSTALL_DIR}/lib/libtracy.so.0.13.3 ${PYTHON_WHEEL_DIR}/tt_alchemist/lib/
 
     # Build wheel
     COMMAND ${Python3_EXECUTABLE} -m pip wheel

@@ -142,4 +142,34 @@ module {
     %2 = "ttir.reshape"(%1) <{shape = [1 : i32, 7 : i32, 5 : i32, 64 : i32, 64 : i32]}> : (tensor<7x5x64x64xbf16>) -> tensor<1x7x5x64x64xbf16>
     return %2 : tensor<1x7x5x64x64xbf16>
   }
+
+  // The literal ttir.squeeze/ttir.unsqueeze version of the first case above.
+  func.func @matmul_both_inputs_squeeze_op(%arg0: tensor<1x5x64x32xbf16>, %arg1: tensor<1x5x32x64xbf16>) -> tensor<1x5x64x64xbf16> {
+    // CHECK-LABEL: @matmul_both_inputs_squeeze_op
+    // CHECK-NOT: "ttir.squeeze"
+    // CHECK-NOT: "ttir.reshape"
+    // CHECK: "ttir.matmul"(%arg0, %arg1)
+    // CHECK-SAME: -> tensor<1x5x64x64xbf16>
+    // CHECK-NOT: "ttir.unsqueeze"
+    // CHECK-NOT: "ttir.reshape"
+    %0 = "ttir.squeeze"(%arg0) <{dim = 0 : si32}> : (tensor<1x5x64x32xbf16>) -> tensor<5x64x32xbf16>
+    %1 = "ttir.squeeze"(%arg1) <{dim = 0 : si32}> : (tensor<1x5x32x64xbf16>) -> tensor<5x32x64xbf16>
+    %2 = "ttir.matmul"(%0, %1) : (tensor<5x64x32xbf16>, tensor<5x32x64xbf16>) -> tensor<5x64x64xbf16>
+    %3 = "ttir.unsqueeze"(%2) <{dim = 0 : si32}> : (tensor<5x64x64xbf16>) -> tensor<1x5x64x64xbf16>
+    return %3 : tensor<1x5x64x64xbf16>
+  }
+
+  // Squeeze on the inputs, reshape on the output.
+  func.func @matmul_squeeze_inputs_reshape_output(%arg0: tensor<1x5x64x32xbf16>, %arg1: tensor<1x5x32x64xbf16>) -> tensor<1x5x64x64xbf16> {
+    // CHECK-LABEL: @matmul_squeeze_inputs_reshape_output
+    // CHECK-NOT: "ttir.squeeze"
+    // CHECK: "ttir.matmul"(%arg0, %arg1)
+    // CHECK-SAME: -> tensor<1x5x64x64xbf16>
+    // CHECK-NOT: "ttir.reshape"
+    %0 = "ttir.squeeze"(%arg0) <{dim = 0 : si32}> : (tensor<1x5x64x32xbf16>) -> tensor<5x64x32xbf16>
+    %1 = "ttir.squeeze"(%arg1) <{dim = 0 : si32}> : (tensor<1x5x32x64xbf16>) -> tensor<5x32x64xbf16>
+    %2 = "ttir.matmul"(%0, %1) : (tensor<5x64x32xbf16>, tensor<5x32x64xbf16>) -> tensor<5x64x64xbf16>
+    %3 = "ttir.reshape"(%2) <{shape = [1 : i32, 5 : i32, 64 : i32, 64 : i32]}> : (tensor<5x64x64xbf16>) -> tensor<1x5x64x64xbf16>
+    return %3 : tensor<1x5x64x64xbf16>
+  }
 }

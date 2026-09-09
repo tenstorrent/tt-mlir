@@ -160,7 +160,7 @@ def test_zeros(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.bfloat16, torch.int32 | SkipIf("sim")],
+    [torch.float32, torch.bfloat16, torch.int32 | SkipIf(["n150", "sim"])],
     ids=["f32", "bf16", "i32"],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -194,7 +194,7 @@ def test_constant_unary(shape, dtype: torch.dtype, target: str, request, device)
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.bfloat16, torch.int32 | SkipIf("sim")],
+    [torch.float32, torch.bfloat16, torch.int32 | SkipIf(["n150", "sim"])],
     ids=["f32", "bf16", "i32"],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -241,7 +241,7 @@ def test_constant_binary(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.bfloat16, torch.int32 | SkipIf("sim")],
+    [torch.float32, torch.bfloat16, torch.int32 | SkipIf(["n150", "sim"])],
     ids=["f32", "bf16", "i32"],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])

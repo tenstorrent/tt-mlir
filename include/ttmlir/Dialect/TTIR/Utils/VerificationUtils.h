@@ -435,6 +435,9 @@ struct Spatial3DParam {
   Spatial3DParam(std::tuple<int64_t, int64_t, int64_t> p)
       : depth(std::get<0>(p)), vertical(std::get<1>(p)),
         horizontal(std::get<2>(p)) {}
+
+  Spatial3DParam(llvm::ArrayRef<int32_t> p)
+      : depth(p[0]), vertical(p[1]), horizontal(p[2]) {}
 };
 
 enum class InputDim3d : unsigned {
@@ -491,6 +494,14 @@ struct WeightTensorDims3d {
   int64_t kernelDepth;
   int64_t kernelHeight;
   int64_t kernelWidth;
+
+  std::array<uint32_t, 3>
+  getEffectiveKernelSize(int64_t depthDilation, int64_t verticalDilation,
+                         int64_t horizontalDilation) const {
+    return {static_cast<uint32_t>(depthDilation * (kernelDepth - 1) + 1),
+            static_cast<uint32_t>(verticalDilation * (kernelHeight - 1) + 1),
+            static_cast<uint32_t>(horizontalDilation * (kernelWidth - 1) + 1)};
+  }
 };
 
 struct BiasTensorDims3d {
@@ -508,6 +519,7 @@ struct OutputTensorDims3d {
 struct Conv3dParams {
   Spatial3DParam stride;
   Spatial3DParam padding;
+  Spatial3DParam dilation;
   int64_t groups;
   llvm::StringRef padding_mode;
 };

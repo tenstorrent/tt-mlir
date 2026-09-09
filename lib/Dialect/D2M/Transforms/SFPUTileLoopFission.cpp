@@ -106,13 +106,21 @@ static int insertLoadOps(affine::AffineForOp outerFor, RewriterBase &rewriter) {
           prevOp = prevOp->getPrevNode();
         }
 
-        if (!loadIsOk) {
+        // Only re-materialize loads next to their use: cloning anything else
+        // duplicates real computation, and every clone's uses get rewired to
+        // result 0, so a multi-result op (e.g. d2m.tile_argmax) would have its
+        // second result's consumer silently read the first. These SFPU ops also
+        // reduce in place, so a duplicated call re-reduces its own output.
+        if (!loadIsOk && loadOpRequired &&
+            isa<affine::AffineLoadOp>(loadOpRequired)) {
           rewriter.setInsertionPoint(&op);
-          Operation *clonedOp = rewriter.clone(*operand.getDefiningOp());
+          Operation *clonedOp = rewriter.clone(*loadOpRequired);
 
           // Rewire the SSA result: replace the operand with the cloned op's
-          // result
-          Value clonedResult = clonedOp->getResult(0); // Assuming single result
+          // matching result. Loads are single-result, but map by result number
+          // rather than assuming 0 so this stays correct if that ever changes.
+          Value clonedResult =
+              clonedOp->getResult(cast<OpResult>(operand).getResultNumber());
           op.replaceUsesOfWith(operand, clonedResult);
 
           ++numInserted;
@@ -129,19 +137,58 @@ static bool fissionAtStore(affine::AffineForOp outerFor,
   // Find the innermost loop to search for triplets.
   affine::AffineForOp innermost = findInnermostLoop(outerFor);
 
+  SmallVector<Operation *> bodyOps;
+  for (Operation &op : *innermost.getBody()) {
+    bodyOps.push_back(&op);
+  }
+
   int storeIdx = -1;
   affine::AffineStoreOp store = nullptr;
-  for (Operation &op : *innermost.getBody()) {
-    store = dyn_cast<affine::AffineStoreOp>(&op);
-    ++storeIdx;
-
-    if (store) {
+  for (auto [idx, op] : llvm::enumerate(bodyOps)) {
+    if (auto candidate = dyn_cast<affine::AffineStoreOp>(op)) {
+      store = candidate;
+      storeIdx = static_cast<int>(idx);
       break;
     }
   }
 
   if (!store || storeIdx < 0) {
     return false;
+  }
+
+  // Never split between the stores of one multi-result op: the partitioning
+  // keeps any pre-split op that still has users after the split, so a
+  // multi-result op (e.g. d2m.tile_argmax) lands in both halves, and since
+  // these SFPU ops reduce in place the duplicate re-reduces its own output into
+  // garbage. Advance the boundary past every store feeding off the same op,
+  // walking back through single-result forwarding ops (e.g.
+  // dst_reinterpret_cast) to identify the real source.
+  auto multiResultSourceOf = [](Value value) -> Operation * {
+    Operation *def = value.getDefiningOp();
+    while (def && def->getNumResults() == 1 && def->getNumOperands() == 1) {
+      Operation *next = def->getOperand(0).getDefiningOp();
+      if (!next) {
+        break;
+      }
+      def = next;
+    }
+    return (def && def->getNumResults() > 1) ? def : nullptr;
+  };
+
+  if (Operation *storedFrom = multiResultSourceOf(store.getValueToStore())) {
+    for (auto [idx, op] : llvm::enumerate(bodyOps)) {
+      if (static_cast<int>(idx) <= storeIdx) {
+        continue;
+      }
+      auto laterStore = dyn_cast<affine::AffineStoreOp>(op);
+      if (!laterStore) {
+        continue;
+      }
+      if (multiResultSourceOf(laterStore.getValueToStore()) == storedFrom) {
+        store = laterStore;
+        storeIdx = static_cast<int>(idx);
+      }
+    }
   }
 
   // Avoids creating an extra loop nest during the last call to this function,

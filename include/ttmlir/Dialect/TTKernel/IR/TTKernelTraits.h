@@ -49,6 +49,10 @@ class TTKernelDeviceZoneOpTrait
 };
 
 template <typename ConcreteType>
+class TTKernelLayoutOpTrait
+    : public mlir::OpTrait::TraitBase<ConcreteType, TTKernelLayoutOpTrait> {};
+
+template <typename ConcreteType>
 class TTKernelTridNocOpTrait
     : public mlir::OpTrait::TraitBase<ConcreteType, TTKernelTridNocOpTrait> {
 public:

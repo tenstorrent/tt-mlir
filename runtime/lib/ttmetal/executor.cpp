@@ -251,7 +251,6 @@ void MCQExecutor::execute(const target::metal::Command *command) {
 void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
   LOG_ASSERT(command->dst()->address() == 0);
   const auto *bufferDesc = command->dst()->desc();
-  LOG_ASSERT(bufferDesc->shape()->size() > 0);
 
   TensorDesc desc = createTensorDescFromBufferDesc(bufferDesc);
   const size_t size = desc.sizeBytes();
@@ -326,7 +325,7 @@ void MCQExecutor::execute(
              "Global semaphore with id ", command->ref()->global_id(),
              " already exists.");
   auto global_semaphore = tt::tt_metal::experimental::CreateGlobalSemaphore(
-      meshDevice, common::toCoreRangeSet(command->core_range_set()),
+      *meshDevice, common::toCoreRangeSet(command->core_range_set()),
       command->initial_value(), tt_metal::BufferType::L1,
       deviceAddressValidator(command->ref()->address(),
                              target::BufferType::L1));
@@ -367,6 +366,7 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   auto deviceRange = distributed::MeshCoordinateRange(meshDevice->shape());
   for (auto deviceCoord : deviceRange) {
     tt_metal::Program program = tt_metal::CreateProgram();
+    bool hasFabricConfiguredKernel = false;
     for (const target::metal::KernelConfig *kernelConfig :
          *command->program()->kernels()) {
       const target::metal::KernelSource *kernelSource =
@@ -392,20 +392,44 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
           currentProgramName, debugInfo, kernelConfig->debug_info()->c_str(),
           kernelConfig->loc() ? kernelConfig->loc()->c_str() : nullptr);
 
+      std::vector<uint32_t> commonRtArgsVec = processRuntimeArgs(
+          kernelConfig->args()->crt_args(), command->arg_refs_type(),
+          command->arg_refs(), meshBuffers, global_semaphores,
+          local_semaphore_initializer, command->cbs(), deviceAddressValidator,
+          createSemaphore, hostBuffers);
+      tt_metal::SetCommonRuntimeArgs(program, handle, commonRtArgsVec);
+
       std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
           kernelConfig->args()->rt_args(), command->arg_refs_type(),
           command->arg_refs(), meshBuffers, global_semaphores,
           local_semaphore_initializer, command->cbs(), deviceAddressValidator,
           createSemaphore, hostBuffers);
 
-      if (command->fabric_connection_config() &&
-          kernelConfig->type_type() ==
+      const target::FabricConnectionConfig *fabricConnectionConfig = nullptr;
+      if (kernelConfig->type_type() ==
               target::metal::KernelConfigType::NocConfig &&
-          command->fabric_connection_config()->noc_index() ==
-              kernelConfig->type_as_NocConfig()->noc_index()) {
+          command->fabric_connection_configs() &&
+          kernelConfig->type_as_NocConfig()->fabric_config_index()) {
+        const auto *nocConfig = kernelConfig->type_as_NocConfig();
+        const auto *fabricConfigs = command->fabric_connection_configs();
+        const uint32_t fabricConfigIndex = *nocConfig->fabric_config_index();
+
+        LOG_ASSERT(fabricConfigIndex < fabricConfigs->size(),
+                   "fabric_config_index ", fabricConfigIndex,
+                   " out of range for fabric_connection_configs of size ",
+                   fabricConfigs->size());
+        fabricConnectionConfig = fabricConfigs->Get(fabricConfigIndex);
+        LOG_ASSERT(fabricConnectionConfig->noc_index() ==
+                       nocConfig->noc_index(),
+                   "fabric_connection_configs[", fabricConfigIndex,
+                   "] noc_index does not match NocConfig noc_index");
+      }
+
+      if (fabricConnectionConfig) {
+        hasFabricConfiguredKernel = true;
         auto fabricConfigArgs = common::appendFabricConfigArgs(
-            command->fabric_connection_config(), kernelConfig, program, handle,
-            deviceCoord, meshDevice, rtArgsVec, coreRangeSet);
+            fabricConnectionConfig, kernelConfig, program, handle, deviceCoord,
+            meshDevice, rtArgsVec, coreRangeSet);
 
         for (auto core : tt::tt_metal::corerange_to_cores(coreRangeSet)) {
           tt_metal::SetRuntimeArgs(program, handle, core,
@@ -440,9 +464,9 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
       tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
     }
 
-    // fabric connected cores all have separate runtime args so we add a
-    // separate program for each device
-    if (command->fabric_connection_config()) {
+    // Fabric-configured kernels have device-specific runtime args, so emit a
+    // separate program per device.
+    if (hasFabricConfiguredKernel) {
       meshWorkload.add_program(distributed::MeshCoordinateRange(deviceCoord),
                                std::move(program));
     } else {
@@ -618,12 +642,6 @@ void MCQExecutor::execute(const target::metal::MeshShardCommand *command) {
         hostBuffers.try_emplace(command->dst()->global_id(), output);
     LOG_ASSERT(inserted);
   };
-
-  if (meshShardType == target::MeshShardType::Identity) {
-    // Identity: copy from src tensor to dst tensor
-    putHostTensor(input);
-    return;
-  }
 
   if (command->shard_direction() ==
       target::MeshShardDirection::FullToShardShape) {

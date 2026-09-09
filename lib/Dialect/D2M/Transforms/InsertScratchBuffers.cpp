@@ -5,7 +5,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/D2M/Utils/DstRegisterAnalysis.h"
+#include "ttmlir/Dialect/D2M/Utils/TopKUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
@@ -22,23 +22,9 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Fallback scratch buffer size in bytes, used as an upper bound, and when the
-// DST packing analysis does not produce results for a given generic.
-//
-// The cap was bumped from 128KB to 192KB so that long fused elementwise chains
-// fit. After the D2MElementwiseFusion fix that gives every producer in a fused
-// d2m.generic its own intermediate tensor.empty (required to avoid a real
-// read-after-write hazard when aliasing producer outputs onto the consumer's
-// output CB), D2MInsertSpillAndScratch allocates one scratch slot per
-// producer with no liveness-based reuse (slotIndex++). For an N-op linear
-// chain that yields N-1 distinct slots; the 20-op test_eltwise_fuse_unary_chain
-// at 1x1 needs 76 tiles (152KB) and at 2x2 needs 72 tiles (144KB), both of
-// which overflow the old 128KB / 64-tile cap. 192KB accommodates these chains
-// with headroom; once liveness-based scratch slot reuse lands in
-// D2MLowerScratchAllocate (PR #7395) the per-producer slots can collapse and
-// this cap can drop back. Issue #7796 (subview offsets lost in DMA->CB
-// lowering) is a related latent bug that becomes observable once #7395 lands.
-constexpr size_t kFallbackScratchSizeBytes = 192 * 1024; // 192KB
+// Fixed scratch buffer size used for every fused d2m.generic that needs
+// intermediate spills.
+constexpr size_t kScratchSizeBytes = 128 * 1024;
 
 // Get the tile type from a memref type, if it has one.
 static ttcore::TileType getTileType(MemRefType memrefType) {
@@ -82,44 +68,9 @@ static unsigned countLinalgGenerics(GenericOp genericOp) {
   return linalgCount;
 }
 
-// Compute the number of scratch tiles needed for a d2m.generic. Sums the
-// per-result numTilesPerResult reported by the DST packing analysis for each
-// top-level linalg.generic in the region, skipping ops the analysis did not
-// size. Returns kFallbackScratchSizeBytes / tileSizeBytes when the analysis
-// produces no usable information. The result is capped at that fallback.
-static size_t
-computeScratchNumTiles(GenericOp genericOp, ttcore::TileType tileType,
-                       const utils::DstRegisterAnalysis &dstAnalysis) {
-  const size_t tileSizeBytes = tileType.getSizeBytes();
-  const size_t fallbackNumTiles =
-      std::max<size_t>(kFallbackScratchSizeBytes / tileSizeBytes, 1);
-
-  const utils::DSTPackingInfo *packingInfo = dstAnalysis.lookup(genericOp);
-  if (!packingInfo) {
-    return fallbackNumTiles;
-  }
-  const utils::DSTPackingRegionInfo *regionInfo =
-      packingInfo->lookup(&genericOp.getRegion(0));
-  if (!regionInfo) {
-    return fallbackNumTiles;
-  }
-
-  // Sum each top-level linalg.generic's own numTilesPerResult. Per-op entries
-  // are looked up by the linalg's single output value; ops not covered by the
-  // analysis are skipped and contribute 0 tiles.
-  size_t analysisNumTiles = 0;
-  for (linalg::GenericOp linalgOp :
-       genericOp.getRegion(0).front().getOps<linalg::GenericOp>()) {
-    auto it = regionInfo->perResult.find(linalgOp.getOutputs().front());
-    if (it == regionInfo->perResult.end()) {
-      continue;
-    }
-    analysisNumTiles += static_cast<size_t>(it->second.numTilesPerResult);
-  }
-  if (analysisNumTiles == 0) {
-    return fallbackNumTiles;
-  }
-  return std::min(analysisNumTiles, fallbackNumTiles);
+// Return kScratchSizeBytes expressed in tiles of `tileType` (at least 1).
+static size_t computeScratchNumTiles(ttcore::TileType tileType) {
+  return std::max<size_t>(kScratchSizeBytes / tileType.getSizeBytes(), 1);
 }
 
 // Transfer d2m.blocking_map attributes from inner linalg ops (set during
@@ -150,8 +101,7 @@ static void transferBlockingMaps(GenericOp genericOp) {
 // Add a scratch buffer inside a single d2m.generic op's region
 // (post-bufferization). Creates a memref.alloc + scratch_init at the start of
 // the region body.
-static void addScratchToGeneric(GenericOp genericOp,
-                                const utils::DstRegisterAnalysis &dstAnalysis) {
+static void addScratchToGeneric(GenericOp genericOp) {
   // Skip if not in compute-only form.
   if (!genericOp.isComputeOnlyForm()) {
     return;
@@ -172,8 +122,7 @@ static void addScratchToGeneric(GenericOp genericOp,
 
   ttcore::TileType tileType = getTileType(refMemRefType);
 
-  // Calculate number of scratch tiles using the DST packing analysis.
-  size_t numTiles = computeScratchNumTiles(genericOp, tileType, dstAnalysis);
+  size_t numTiles = computeScratchNumTiles(tileType);
 
   // Build scratch shard shape: [1, numTiles].
   SmallVector<int64_t> scratchShardShape = {1, static_cast<int64_t>(numTiles)};
@@ -195,6 +144,49 @@ static void addScratchToGeneric(GenericOp genericOp,
   builder.create<ScratchInitOp>(genericOp.getLoc(), scratchAlloc.getResult());
 }
 
+static void addTopkIndexBuffers(GenericOp genericOp) {
+  assert(genericOp.getNumRegions() != 0 && "d2m.generic must have a region");
+
+  // At most one generate_indices topk_block per generic.
+  TopkBlockOp topkBlock = nullptr;
+  genericOp.getRegion(0).walk([&](TopkBlockOp op) {
+    if (op.getGenerateIndices()) {
+      topkBlock = op;
+    }
+  });
+  if (!topkBlock) {
+    return;
+  }
+
+  // Runs after bufferization, so these are always memrefs.
+  auto inputType =
+      mlir::dyn_cast<MemRefType>(topkBlock.getInputValues().getType());
+  auto indicesType =
+      mlir::dyn_cast<MemRefType>(topkBlock.getOutIndices().getType());
+  assert(inputType && indicesType &&
+         "topk_block operands must be memrefs post-bufferization");
+
+  auto l1MemorySpace = ttcore::MemorySpaceAttr::get(
+      genericOp.getContext(), ttcore::MemorySpace::DeviceL1);
+
+  Block &block = genericOp.getRegion(0).front();
+  OpBuilder builder(&block, block.begin());
+
+  auto allocScratch = [&](ArrayRef<int64_t> bufShape, StringRef roleAttr) {
+    auto bufType = MemRefType::get(bufShape, indicesType.getElementType(),
+                                   MemRefLayoutAttrInterface{}, l1MemorySpace);
+    auto allocOp = builder.create<memref::AllocOp>(topkBlock.getLoc(), bufType);
+    allocOp->setAttr("d2m.scratch_buffer", builder.getUnitAttr());
+    allocOp->setAttr(roleAttr, builder.getUnitAttr());
+    // Without this the canonicalizer erases the still-unused alloc.
+    builder.create<ScratchInitOp>(topkBlock.getLoc(), allocOp.getResult());
+  };
+
+  // One index tile per value tile, plus the lane pattern they all derive from.
+  allocScratch(inputType.getShape(), utils::kTopkIndexBufferAttr);
+  allocScratch({utils::kTopkLaneTileRows, 1}, utils::kTopkLaneBufferAttr);
+}
+
 class D2MInsertScratchBuffers
     : public impl::D2MInsertScratchBuffersBase<D2MInsertScratchBuffers> {
   using D2MInsertScratchBuffersBase::D2MInsertScratchBuffersBase;
@@ -202,17 +194,14 @@ class D2MInsertScratchBuffers
   void runOnOperation() override {
     ModuleOp moduleOp = getOperation();
 
-    // Run DST packing analysis on the module to compute per-generic scratch
-    // size estimates.
-    utils::DstRegisterAnalysis dstAnalysis(moduleOp);
-
     SmallVector<GenericOp> genericsToProcess;
     moduleOp.walk(
         [&](GenericOp genericOp) { genericsToProcess.push_back(genericOp); });
 
     for (GenericOp genericOp : genericsToProcess) {
       transferBlockingMaps(genericOp);
-      addScratchToGeneric(genericOp, dstAnalysis);
+      addScratchToGeneric(genericOp);
+      addTopkIndexBuffers(genericOp);
     }
   }
 };

@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTCORE_IR_TTCOREOPS_H
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreTraits.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"

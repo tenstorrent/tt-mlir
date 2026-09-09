@@ -697,6 +697,10 @@ def TTCore_FabricConnectionConfigAttr: TTCore_Attr<"FabricConnectionConfig", "fa
   let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `routing_mode` `=` $routing_mode `,` `num_links` `=` $num_links `>`";
 }
 
+def TTCore_FabricConnectionConfigArrayAttr
+    : TypedArrayAttrBase<TTCore_FabricConnectionConfigAttr,
+                         "FabricConnectionConfig array attribute">;
+
 //===----------------------------------------------------------------------===//
 // TT type definitions
 //===----------------------------------------------------------------------===//
@@ -723,9 +727,7 @@ def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface, Float
       // Returns the scalar element type of the tile, if compressed it returns
       // the corresponding uncompressed element type, i.e. bfp_bf8 -> bf16
       Type getElementType() const;
-      const ::llvm::fltSemantics &getFloatSemantics() {
-        llvm_unreachable("TTCore_Tile::getFloatSemantics unimplemented #5124");
-      }
+      const ::llvm::fltSemantics &getFloatSemantics();
 
       // ShapedTypeInterface methods
       /// Clone this type with the given shape and element type. If the
@@ -774,6 +776,16 @@ def TTCore_ArgumentTypeAttr : EnumAttr<TTCore_Dialect, TTCore_ArgumentType, "arg
 
 
 def TTCore_TopologyAttr : EnumAttr<TTCore_Dialect, TTCore_Topology, "topology"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TTCore_MoEActivationFunctionAttr :
+    EnumAttr<TTCore_Dialect, TTCore_MoEActivationFunction, "moe_activation_function"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TTCore_AttentionMaskTypeAttr :
+    EnumAttr<TTCore_Dialect, TTCore_AttentionMaskType, "attention_mask_type"> {
   let assemblyFormat = "`<` $value `>`";
 }
 

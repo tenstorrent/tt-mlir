@@ -32,8 +32,6 @@ inline std::string opToString(mlir::Operation *op) {
 // Log components for different components
 enum class LogComponent {
   RecoverStructure,
-  Optimizer,
-  DFShardingPolicy,
   OpValidation,
   ValidationFallback,
   RMPropagation,
@@ -42,7 +40,8 @@ enum class LogComponent {
   General,
   D2MFusion,
   IsolatedIRValidationWrapper,
-  GreedyOptimizer
+  GreedyOptimizer,
+  PerfTargets
 };
 
 // Log levels in order of verbosity
@@ -57,10 +56,6 @@ inline constexpr const char *getLogComponentStr(LogComponent type) {
   switch (type) {
   case LogComponent::RecoverStructure:
     return "recover-structure";
-  case LogComponent::Optimizer:
-    return "optimizer";
-  case LogComponent::DFShardingPolicy:
-    return "df-sharding-policy";
   case LogComponent::OpValidation:
     return "op-validation";
   case LogComponent::ValidationFallback:
@@ -79,6 +74,8 @@ inline constexpr const char *getLogComponentStr(LogComponent type) {
     return "isolated-ir-validation-wrapper";
   case LogComponent::GreedyOptimizer:
     return "greedy-optimizer";
+  case LogComponent::PerfTargets:
+    return "perf-targets";
   }
   return "unknown";
 }

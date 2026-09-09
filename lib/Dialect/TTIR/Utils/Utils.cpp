@@ -116,7 +116,7 @@ int64_t findMatchingDimRTL(ReshapeOp reshapeOp, int64_t dimRTL) {
   return outputRank - 1 - ltrResult;
 }
 
-bool preservesDim(mlir::Operation *op, int64_t dim) {
+bool preservesDimUpToOnes(mlir::Operation *op, int64_t dim) {
   auto inputType = mlir::cast<RankedTensorType>(op->getOperand(0).getType());
   auto outputType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
   auto inputShape = inputType.getShape();
@@ -170,6 +170,30 @@ bool preservesDim(mlir::Operation *op, int64_t dim) {
         return inputShape[dim] == outputShape[dim];
       })
       .Default([](mlir::Operation *) { return false; });
+}
+
+bool preservesDim(mlir::Operation *op, int64_t dim) {
+  if (!preservesDimUpToOnes(op, dim)) {
+    return false;
+  }
+
+  auto inputType = mlir::cast<RankedTensorType>(op->getOperand(0).getType());
+  auto outputType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
+  int64_t inputRank = inputType.getRank();
+  int64_t outputRank = outputType.getRank();
+
+  // Normalize negative dimension.
+  if (dim < 0) {
+    dim += inputRank;
+  }
+
+  // The output dim at the same offset from the trailing edge must have the
+  // same size
+  int64_t outputDim = outputRank - inputRank + dim;
+  if (outputDim < 0 || outputDim >= outputRank) {
+    return false;
+  }
+  return inputType.getShape()[dim] == outputType.getShape()[outputDim];
 }
 
 namespace {

@@ -422,8 +422,9 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
     // CHECK: d2m.remote_load %{{.*}}[%{{.*}}, %{{.*}}] into %{{.*}}
     // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %{{.*}}
-    // Compute is emtpy
+    // Compute is empty
     // CHECK: }, {
+    // CHECK-NEXT: ^compute0:
     // CHECK-NEXT: }
     d2m.generic {block_factors = [], grid = #ttcore.grid<4x3>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%input : memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)

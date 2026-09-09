@@ -16,8 +16,10 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/DebugLog.h"
+
+#include "llvm/ADT/DenseMap.h"
+
+#include <optional>
 
 #define DEBUG_TYPE "D2MInsertDstRegisterAccessUnscheduled"
 
@@ -30,34 +32,40 @@ namespace {
 using namespace detail;
 
 // ---------------------------------------------------------------------------
-// Simple bump allocator used by the unscheduled path -- slices are handed
-// out in increasing order and never reclaimed within a region.
-// ---------------------------------------------------------------------------
-
-class DstSliceAllocationState {
-public:
-  int allocate() { return nextSliceIndex++; }
-  void setStoreToDst() { storedToDst = true; }
-  bool didStoreToDst() { return storedToDst; }
-  int getCurrSliceIndex() { return nextSliceIndex - 1; }
-
-private:
-  int64_t nextSliceIndex = 0;
-  bool storedToDst = false;
-};
-
-// ---------------------------------------------------------------------------
-// Unscheduled-only: DST access collection (bump allocator, matmul/reduction)
+// Unscheduled-only: DST access collection (matmul/reduction).
+// Tracks "first input of current op" with a local variable; otherwise
+// just bump-allocates from `DstSliceAllocator` and reserves per-op
+// scratch via `allocateScratch()`.
 // ---------------------------------------------------------------------------
 
 static DstAccessCollection
 collectDstAccesses(GenericOp gOp, Region &region,
-                   Operation *outermostInnerComputeLoop) {
+                   Operation *outermostInnerComputeLoop, unsigned dstCapacity) {
   CopyInfoMap copyInfos;
-  DstSliceAllocationState dstSliceAllocationState;
+  DstSliceAllocator dstAllocator(dstCapacity);
   DstIntermediatesMap dstIntermediates;
+  llvm::DenseMap<Operation *, int64_t> remainingUses;
 
-  auto getInPlaceDstSlice = [&](OperandLoadStoreRegisterOpInterface op) -> int {
+  region.walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
+    // The DST intermediate lifetime model below tracks one produced tile value
+    // per compute op. Multi-result ops are not modeled as reusable
+    // intermediates by the unscheduled path today.
+    if (computeOp->getNumResults() != 1u) {
+      return;
+    }
+    int64_t useCount = 0;
+    for (OpOperand &use : computeOp->getResult(0).getUses()) {
+      Operation *user = use.getOwner();
+      if (user->hasTrait<D2MGenericRegionComputeOpTrait>() ||
+          mlir::isa<affine::AffineStoreOp, memref::StoreOp>(user)) {
+        ++useCount;
+      }
+    }
+    remainingUses[computeOp.getOperation()] = useCount;
+  });
+
+  auto getInPlaceDstSlice =
+      [&](OperandLoadStoreRegisterOpInterface op) -> std::optional<int> {
     for (int64_t operandIdx : op.getOperandsLoadFromDstRegister()) {
       if (op.isScalarOperand(operandIdx)) {
         continue;
@@ -65,15 +73,40 @@ collectDstAccesses(GenericOp gOp, Region &region,
       auto *defOp = op->getOperand(operandIdx).getDefiningOp();
       if (defOp) {
         auto *it = dstIntermediates.find(defOp);
-        if (it != dstIntermediates.end()) {
+        auto remainingIt = remainingUses.find(defOp);
+        if (it != dstIntermediates.end() &&
+            remainingIt != remainingUses.end() && remainingIt->second <= 1) {
           return it->second.dstSlice;
         }
       }
     }
-    return dstSliceAllocationState.getCurrSliceIndex();
+    return std::nullopt;
   };
 
+  auto releaseConsumedIntermediates =
+      [&](OperandLoadStoreRegisterOpInterface op,
+          std::optional<int> producedDstSlice) {
+        for (Value operand : op->getOperands()) {
+          Operation *defOp = operand.getDefiningOp();
+          auto *dstIt = dstIntermediates.find(defOp);
+          if (dstIt == dstIntermediates.end()) {
+            continue;
+          }
+          auto remainingIt = remainingUses.find(defOp);
+          if (remainingIt == remainingUses.end()) {
+            continue;
+          }
+          --remainingIt->second;
+          if (remainingIt->second == 0 &&
+              (!producedDstSlice ||
+               dstIt->second.dstSlice != *producedDstSlice)) {
+            dstAllocator.deallocateIntermediate(dstIt->second.dstSlice);
+          }
+        }
+      };
+
   region.walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
+    std::optional<int> producedDstSlice;
     auto notDstMemspace = [](auto op) {
       return op && ttcore::getMemorySpace(op.getMemRef()) !=
                        ttcore::MemorySpace::RegisterDst;
@@ -101,8 +134,13 @@ collectDstAccesses(GenericOp gOp, Region &region,
     const SmallVector<int64_t> accumOperandIndices =
         getAccumClassificationOperandIndices(computeOp);
 
+    // Ops whose LLK addresses hidden slices relative to an operand slot need
+    // their DST inputs spread apart (see `getDstInputSliceStride`).
+    const unsigned inputSliceStride =
+        static_cast<unsigned>(computeOp.getDstInputSliceStride());
+
     int numLoads = 0;
-    int firstInputDstSlice = -1;
+    std::optional<int> firstInputDstSlice;
     for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
       if (computeOp.isScalarOperand(operandIdx)) {
         continue;
@@ -111,7 +149,8 @@ collectDstAccesses(GenericOp gOp, Region &region,
       auto potentialLoad = computeOp->getOperand(operandIdx)
                                .getDefiningOp<affine::AffineLoadOp>();
       if (potentialLoad && notDstMemspace(potentialLoad)) {
-        int dstSlice = dstSliceAllocationState.allocate();
+        int dstSlice = static_cast<int>(
+            dstAllocator.allocateInputStrided(inputSliceStride));
         if (numLoads == 0) {
           firstInputDstSlice = dstSlice;
         }
@@ -123,12 +162,30 @@ collectDstAccesses(GenericOp gOp, Region &region,
       }
     }
 
+    auto getFirstInputDstSlice = [&]() -> int {
+      TT_assertv(firstInputDstSlice.has_value(),
+                 "Expected at least one input DST slice");
+      return *firstInputDstSlice;
+    };
+    auto allocateOutputOrReuseFirstInput = [&]() -> int {
+      if (firstInputDstSlice) {
+        return *firstInputDstSlice;
+      }
+      return static_cast<int>(dstAllocator.allocateOutput());
+    };
+    auto getReusableOrFallbackDstSlice = [&]() -> int {
+      if (std::optional<int> reusableDstSlice = getInPlaceDstSlice(computeOp)) {
+        return *reusableDstSlice;
+      }
+      return allocateOutputOrReuseFirstInput();
+    };
+
     const bool dstRegInPlace = computeOp.getDstRegInPlace();
 
     for (auto *user : computeOp->getUsers()) {
       if (auto potentialStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
           notDstMemspace(potentialStore)) {
-        TT_assertv(!dstSliceAllocationState.didStoreToDst(),
+        TT_assertv(!dstAllocator.didStoreToDst(),
                    "Multiple stores from last op to dst not supported");
 
         const bool rhsIsScalar = computeOp.isScalarOperand(1);
@@ -141,18 +198,19 @@ collectDstAccesses(GenericOp gOp, Region &region,
           TT_assertv((isUnaryOp || isTileMatmul || isReduction || rhsIsScalar),
                      "in-place DST only supported for unary, tile matmul, "
                      "reductions, and tile+scalar ops");
-          dstSlice = getInPlaceDstSlice(computeOp);
+          dstSlice = getReusableOrFallbackDstSlice();
         } else if (numLoads >= 2) {
-          dstSlice = firstInputDstSlice;
-          dstSliceAllocationState.setStoreToDst();
+          dstSlice = getFirstInputDstSlice();
+          dstAllocator.setStoreToDst();
         } else {
-          dstSlice = dstSliceAllocationState.allocate();
-          dstSliceAllocationState.setStoreToDst();
+          dstSlice = static_cast<int>(dstAllocator.allocateOutput());
+          dstAllocator.setStoreToDst();
         }
+        producedDstSlice = dstSlice;
         collectDstStoreAccess(potentialStore, copyInfos, dstSlice,
                               outermostInnerComputeLoop);
       } else if (auto scratchStore = mlir::dyn_cast<memref::StoreOp>(user)) {
-        TT_assertv(!dstSliceAllocationState.didStoreToDst(),
+        TT_assertv(!dstAllocator.didStoreToDst(),
                    "Multiple stores from last op to dst not supported");
 
         const bool rhsIsScalar = computeOp.isScalarOperand(1);
@@ -165,53 +223,54 @@ collectDstAccesses(GenericOp gOp, Region &region,
           TT_assertv((isUnaryOp || isTileMatmul || isReduction || rhsIsScalar),
                      "in-place DST only supported for unary, tile matmul, "
                      "reductions, and tile+scalar ops");
-          dstSlice = getInPlaceDstSlice(computeOp);
+          dstSlice = getReusableOrFallbackDstSlice();
         } else if (numLoads >= 2) {
-          dstSlice = firstInputDstSlice;
-          dstSliceAllocationState.setStoreToDst();
+          dstSlice = getFirstInputDstSlice();
+          dstAllocator.setStoreToDst();
         } else {
-          dstSlice = dstSliceAllocationState.allocate();
-          dstSliceAllocationState.setStoreToDst();
+          dstSlice = static_cast<int>(dstAllocator.allocateOutput());
+          dstAllocator.setStoreToDst();
         }
+        producedDstSlice = dstSlice;
         collectDstStoreAccess(scratchStore, copyInfos, dstSlice,
                               outermostInnerComputeLoop);
       } else {
         TT_assert(user->hasTrait<D2MGenericRegionComputeOpTrait>());
-        TT_assertv(computeOp->hasOneUse(),
-                   "Currently we do not support multiple users in the same "
-                   "compute dst region.");
         TT_assert(computeOp->getNumResults() == 1u);
-        TT_assert(!dstIntermediates.contains(computeOp));
+        if (dstIntermediates.contains(computeOp)) {
+          continue;
+        }
 
         int dstSlice;
         if (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1)) {
-          dstSlice = getInPlaceDstSlice(computeOp);
+          dstSlice = getReusableOrFallbackDstSlice();
         } else if (numLoads >= 2) {
-          dstSlice = firstInputDstSlice;
+          dstSlice = getFirstInputDstSlice();
         } else {
-          dstSlice = dstSliceAllocationState.allocate();
+          dstSlice = static_cast<int>(dstAllocator.allocateOutput());
         }
 
-        if (mlir::isa<d2m::TileBcastOp>(computeOp)) {
+        if (mlir::isa<d2m::TileBcastOp>(computeOp) &&
+            computeOp->getOperand(0).getDefiningOp<affine::AffineLoadOp>()) {
           auto loadOp =
               computeOp->getOperand(0).getDefiningOp<affine::AffineLoadOp>();
-          TT_assert(loadOp != nullptr);
           auto bcastOp = mlir::cast<d2m::TileBcastOp>(computeOp);
+          producedDstSlice = dstSlice;
           recordDstAccess(loadOp, bcastOp, copyInfos, dstSlice,
                           outermostInnerComputeLoop, /*emitGuard=*/true);
         } else {
+          producedDstSlice = dstSlice;
           dstIntermediates[computeOp] = {dstSlice, outermostInnerComputeLoop};
         }
       }
     }
 
-    // Reserve any extra DST scratch slices the op declares via the
-    // interface so they don't collide with operand/output slots.
-    // TODO(https://github.com/tenstorrent/tt-mlir/issues/8081): scratch
-    // becomes the new `getCurrSliceIndex()`; safe today but a future
-    // in-region fusion would trip it.
+    releaseConsumedIntermediates(computeOp, producedDstSlice);
+
+    // Reserve any per-op DST scratch slices.
     for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n; ++i) {
-      setDstScratchIndex(computeOp, dstSliceAllocationState.allocate());
+      setDstScratchIndex(computeOp, dstAllocator.allocateScratch(),
+                         outermostInnerComputeLoop);
     }
   });
   return {copyInfos, dstIntermediates};
@@ -228,97 +287,14 @@ static void dataCopyGenerate(PatternRewriter &rewriter, Location loc, Value dst,
     rewriter.setInsertionPointAfter(loopNestOrOp);
     auto insertionPointAfterLoopNest = rewriter.saveInsertionPoint();
 
-    // Step 1: load copy loop.
     rewriter.setInsertionPoint(loopNestOrOp);
-    auto loadAccessGenerator = [&](PatternRewriter &rewriter,
-                                   LoadStoreRecord<affine::AffineLoadOp> record,
-                                   AffineMap l1AccessMap,
-                                   ValueRange l1AccessIndices,
-                                   AffineMap dstAccessMap,
-                                   ValueRange dstAccessIndices) {
-      auto loc = record.loadStore.getLoc();
-      Value cb = record.loadStore.getMemref();
+    emitDstCopyNest(rewriter, loopNestOrOp, dst, copyInfo.loads,
+                    /*isLoadSide=*/true, /*cloneLoopNest=*/true, disableL1Acc);
 
-      auto cbLoad = rewriter.create<affine::AffineLoadOp>(loc, cb, l1AccessMap,
-                                                          l1AccessIndices);
-      Value valueToStore = cbLoad.getResult();
-
-      if (record.bcast.has_value()) {
-        rewriter.setInsertionPointAfter(cbLoad);
-        auto *clonedBcast = rewriter.clone(*(record.bcast->getOperation()));
-        clonedBcast->setOperand(0, valueToStore);
-        valueToStore = clonedBcast->getResult(0);
-      }
-
-      rewriter.create<affine::AffineStoreOp>(loc, valueToStore, dst,
-                                             dstAccessMap, dstAccessIndices);
-    };
-
-    auto loadAccessRewriter = [&](PatternRewriter &rewriter,
-                                  LoadStoreRecord<affine::AffineLoadOp> record,
-                                  AffineMap dstAccessMap,
-                                  ValueRange dstAccessIndices) {
-      auto dstLoad = rewriter.create<affine::AffineLoadOp>(
-          record.loadStore.getLoc(), dst, dstAccessMap, dstAccessIndices);
-      if (record.bcast.has_value()) {
-        record.bcast->getResult().replaceAllUsesWith(dstLoad.getResult());
-        rewriter.eraseOp(*record.bcast);
-      } else {
-        rewriter.replaceOp(record.loadStore, dstLoad.getResult());
-      }
-    };
-
-    emitDstCopyNest<affine::AffineLoadOp>(rewriter, loopNestOrOp,
-                                          copyInfo.loads, loadAccessGenerator,
-                                          loadAccessRewriter,
-                                          /*disableL1Acc=*/disableL1Acc);
-
-    // Step 2: store copy loop.
     rewriter.restoreInsertionPoint(insertionPointAfterLoopNest);
-    auto storeAccessGenerator =
-        [&](PatternRewriter &rewriter,
-            LoadStoreRecord<affine::AffineStoreOp> record,
-            AffineMap l1AccessMap, ValueRange l1AccessIndices,
-            AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-          auto loc = record.loadStore.getLoc();
-          Value cb = record.loadStore.getMemref();
-          auto dstLoad = rewriter.create<affine::AffineLoadOp>(
-              loc, dst, dstAccessMap, dstAccessIndices);
-          Value valueToStore = dstLoad.getResult();
-
-          auto cbType = mlir::cast<MemRefType>(cb.getType());
-          if (valueToStore.getType() != cbType.getElementType()) {
-            valueToStore = rewriter
-                               .create<d2m::DstReinterpretCastOp>(
-                                   loc, cbType.getElementType(), valueToStore)
-                               .getResult();
-          }
-
-          rewriter.create<affine::AffineStoreOp>(loc, valueToStore, cb,
-                                                 l1AccessMap, l1AccessIndices);
-        };
-
-    auto storeAccessRewriter =
-        [&](PatternRewriter &rewriter,
-            LoadStoreRecord<affine::AffineStoreOp> record,
-            AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-          Value valueToStore = record.loadStore.getValue();
-          auto dstType = mlir::cast<MemRefType>(dst.getType());
-          if (valueToStore.getType() != dstType.getElementType()) {
-            valueToStore = rewriter
-                               .create<d2m::DstReinterpretCastOp>(
-                                   record.loadStore.getLoc(),
-                                   dstType.getElementType(), valueToStore)
-                               .getResult();
-          }
-          rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
-              record.loadStore, valueToStore, dst, dstAccessMap,
-              dstAccessIndices);
-        };
-
-    emitDstCopyNest<affine::AffineStoreOp>(
-        rewriter, loopNestOrOp, copyInfo.stores, storeAccessGenerator,
-        storeAccessRewriter);
+    emitDstCopyNest(rewriter, loopNestOrOp, dst, copyInfo.stores,
+                    /*isLoadSide=*/false, /*cloneLoopNest=*/true,
+                    /*disableL1Acc=*/true);
   }
 }
 
@@ -400,7 +376,7 @@ struct D2MInsertDstRegisterAccessUnscheduledRewriter final
             !allTileMatmulOutputsSupportPackerL1Acc(loopOp);
 
         auto [copyInfos, dstIntermediates] =
-            collectDstAccesses(gOp, *loopRegion, loopOp);
+            collectDstAccesses(gOp, *loopRegion, loopOp, dstCapacity);
 
         modified |= insertDstRegisterAccessFinalize(
             rewriter, gOp, *loopRegion, dstCapacity, loopOp, disablePackerL1Acc,

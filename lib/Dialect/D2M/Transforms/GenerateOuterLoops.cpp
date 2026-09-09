@@ -6,8 +6,10 @@
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/AffineExpr.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MGENERATEOUTERLOOPS
@@ -57,42 +59,32 @@ public:
     return loops;
   }
 
-  static void rewriteBlockIndexOps(PatternRewriter &rewriter, Location loc,
-                                   GenericOp generic) {
-    AffineMap addMap = AffineMap::get(
-        /*dimCount=*/1, /*symbolCount=*/1,
-        rewriter.getAffineDimExpr(0) + rewriter.getAffineSymbolExpr(0),
-        rewriter.getContext());
+  static void lowerIndexOps(PatternRewriter &rewriter, Location loc,
+                            SmallVector<affine::AffineForOp> &loops,
+                            GenericOp generic) {
+    SmallVector<Operation *> indexOps;
+    generic->walk([&](Operation *op) {
+      if (isa<BlockIndexOp, IterIndexOp>(op)) {
+        indexOps.push_back(op);
+      }
+    });
 
-    SmallVector<BlockIndexOp> blockIndices;
-    generic->walk(
-        [&](BlockIndexOp blockIndex) { blockIndices.push_back(blockIndex); });
-
-    for (BlockIndexOp blockIndex : blockIndices) {
-      rewriter.setInsertionPoint(blockIndex);
-      int64_t dim = blockIndex.getDim();
-      Value offset = rewriter.create<BlockOffsetOp>(loc, dim);
-      Value iterIndex = rewriter.create<IterIndexOp>(loc, dim);
-      Value index = rewriter.create<affine::AffineApplyOp>(
-          loc, addMap, ValueRange{iterIndex, offset});
-      rewriter.replaceOp(blockIndex, index);
-    }
-  }
-
-  static void lowerIterIndexOps(PatternRewriter &rewriter,
-                                SmallVector<affine::AffineForOp> &loops,
-                                GenericOp generic) {
-    SmallVector<IterIndexOp> iterIndices;
-    generic->walk(
-        [&](IterIndexOp iterIndex) { iterIndices.push_back(iterIndex); });
-
-    for (IterIndexOp iterIndex : iterIndices) {
-      uint64_t dim = iterIndex.getDim();
-      TT_assertv(dim < loops.size(),
-                 "iter_index dim {} out of bounds for loop nest size {}", dim,
+    for (Operation *op : indexOps) {
+      int64_t dim = isa<BlockIndexOp>(op) ? cast<BlockIndexOp>(op).getDim()
+                                          : cast<IterIndexOp>(op).getDim();
+      bool dimInBounds = dim >= 0 && static_cast<size_t>(dim) < loops.size();
+      TT_assertv(dimInBounds,
+                 "index dim {} out of bounds for loop nest size {}", dim,
                  loops.size());
       Value loopIv = loops[dim].getInductionVar();
-      rewriter.replaceOp(iterIndex, loopIv);
+      if (auto blockIndex = dyn_cast<BlockIndexOp>(op)) {
+        rewriter.setInsertionPoint(blockIndex);
+        Value offset = rewriter.create<BlockOffsetOp>(loc, dim);
+        Value index = rewriter.create<arith::AddIOp>(loc, loopIv, offset);
+        rewriter.replaceOp(blockIndex, index);
+        continue;
+      }
+      rewriter.replaceOp(op, ValueRange(loopIv));
     }
   }
 
@@ -160,13 +152,20 @@ public:
     for (auto [i, loop] : llvm::enumerate(loops)) {
       loop->setAttr("d2m.blocking_loop",
                     rewriter.getI64IntegerAttr(static_cast<int64_t>(i)));
+      if (generic.getIteratorTypes().size() > i) {
+        auto iteratorType =
+            mlir::cast<ttcore::IteratorTypeAttr>(generic.getIteratorTypes()[i])
+                .getValue();
+        if (iteratorType == ttcore::IteratorType::Reduction) {
+          loop->setAttr("d2m.reduction_loop", rewriter.getUnitAttr());
+        }
+      }
     }
 
-    // First rewrite block_index(dim) -> block_offset(dim) + iter_index(dim).
-    // Then lower the iter_index ops to the generated blocking loop IVs.
+    // Lower block_index(dim) -> block_offset(dim) + loop_iv(dim), and
+    // iter_index(dim) -> loop_iv(dim).
     rewriter.setInsertionPointToStart(loopedBlock);
-    rewriteBlockIndexOps(rewriter, generic.getLoc(), loopedGeneric);
-    lowerIterIndexOps(rewriter, loops, loopedGeneric);
+    lowerIndexOps(rewriter, generic.getLoc(), loops, loopedGeneric);
 
     rewriter.replaceOp(generic, loopedGeneric.getResults());
 
@@ -185,9 +184,7 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<D2MGenerateOuterLoopsRewriter>(&getContext());
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
-    }
+    walkAndApplyPatterns(getOperation(), std::move(patterns));
   }
 };
 } // namespace

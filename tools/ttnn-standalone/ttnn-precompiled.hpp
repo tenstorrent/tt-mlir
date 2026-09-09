@@ -10,12 +10,14 @@
 #include "operations/ccl/all_to_all_combine/all_to_all_combine.hpp"
 #include "operations/ccl/all_to_all_dispatch/all_to_all_dispatch.hpp"
 #include "operations/ccl/ccl_host_types.hpp"
+#include "operations/conv/conv1d/conv1d.hpp"
 #include "operations/conv/conv2d/conv2d.hpp"
 #include "operations/conv/conv2d/prepare_conv2d_weights.hpp"
 #include "operations/conv/conv_transpose2d/conv_transpose2d.hpp"
 #include "operations/core/core.hpp"
 #include "operations/creation/creation.hpp"
 #include "operations/data_movement/concat/concat.hpp"
+#include "operations/data_movement/copy/copy.hpp"
 #include "operations/data_movement/gather/gather.hpp"
 #include "operations/data_movement/moe_expert_token_remap/moe_expert_token_remap.hpp"
 #include "operations/data_movement/pad/pad.hpp"
@@ -30,14 +32,19 @@
 #include "operations/eltwise/binary/binary.hpp"
 #include "operations/eltwise/binary/binary_composite.hpp"
 #include "operations/eltwise/quantization/quantization.hpp"
+#include "operations/eltwise/unary/common/unary_op_utils.hpp"
 #include "operations/eltwise/unary/unary_composite.hpp"
 #include "operations/embedding/embedding.hpp"
 #include "operations/embedding_backward/embedding_backward.hpp"
 #include "operations/experimental/ccl/all_reduce_async/all_reduce_async.hpp"
 #include "operations/experimental/ccl/all_to_all_dispatch_metadata/all_to_all_dispatch_metadata.hpp"
+#include "operations/experimental/ccl/moe_gpt/moe_gpt.hpp"
 #include "operations/experimental/ccl/rms_allgather/rms_allgather.hpp"
 #include "operations/experimental/conv3d/conv3d.hpp"
+#include "operations/experimental/conv3d/prepare_conv3d_weights.hpp"
 #include "operations/experimental/dropout/dropout.hpp"
+#include "operations/experimental/indexer_score/indexer_score.hpp"
+#include "operations/experimental/transformer/dit_rms_norm_unary_fused/dit_rms_norm_unary_fused.hpp"
 #include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
 #include "operations/experimental/unary_backward/gelu_backward/gelu_backward.hpp"
 #include "operations/kv_cache/kv_cache.hpp"
@@ -48,6 +55,7 @@
 #include "operations/normalization/layernorm_distributed/layernorm_post_all_gather.hpp"
 #include "operations/normalization/layernorm_distributed/layernorm_pre_all_gather.hpp"
 #include "operations/normalization/rmsnorm/rmsnorm.hpp"
+#include "operations/normalization/rmsnorm_distributed/rmsnorm_pre_all_gather.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/pool/generic/generic_pools.hpp"
 #include "operations/pool/upsample/upsample.hpp"
@@ -74,6 +82,8 @@
 #include "ttnn/operations/experimental/transformer/rotary_embedding/rotary_embedding.hpp"
 #include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
 #include "ttnn/operations/normalization/layernorm/layernorm.hpp"
+#include "ttnn/operations/reduction/accumulation/cumprod/cumprod.hpp"
+#include "ttnn/operations/reduction/sampling/sampling.hpp"
 #include "ttnn/operations/reduction/topk/topk.hpp"
 #include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/tensor.hpp"
@@ -87,12 +97,21 @@
 #include <cstddef>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <tuple>
+#include <type_traits>
 #include <vector>
 
 template <typename... T>
 std::vector<ttnn::Tensor> util_create_vec(T &&...t) {
   return std::vector<ttnn::Tensor>{std::forward<T>(t)...};
+}
+
+// Unwraps a std::optional<T> into a T. Used to extract tensors from ttml metal
+// ops that return std::vector<std::optional<ttnn::Tensor>>.
+template <typename T>
+T util_get_optional_value(const std::optional<T> &opt) {
+  return opt.value();
 }
 
 namespace ttnn {
@@ -103,7 +122,7 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
-  static constexpr std::size_t l1SmallSize = 1 << 15; // 32kB
+  static constexpr std::size_t l1SmallSize = 1 << 16; // 64kB
   static constexpr std::size_t traceRegionSize = 0;
 
   static ttnn::MeshDevice *getInstance() {
@@ -113,7 +132,16 @@ public:
       return externalDevice;
     }
 
-    static std::shared_ptr<ttnn::MeshDevice> ownedInstance =
+    // NOTE: `ownedInstance` is intentionally `thread_local` (not a plain
+    // function-local static) to avoid a use-after-free crash during process
+    // exit. thread_local variables are destroyed when the thread exits,
+    // which happens before static destruction begins. This guarantees that
+    // GraphTracker (a function-local static in libtt_metal.so, initialized
+    // lazily during the first op) is still alive when the MeshDevice's
+    // program cache is destroyed. With a plain static, GraphTracker could
+    // be destroyed first (reverse init order), causing ProgramImpl's
+    // destructor to crash in deallocate_circular_buffers().
+    static thread_local std::shared_ptr<ttnn::MeshDevice> ownedInstance =
         ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize, traceRegionSize);
     hasOwnedDevice = true;
     return ownedInstance.get();
@@ -150,16 +178,16 @@ void setDevice(ttnn::MeshDevice *device) { DeviceGetter::setInstance(device); }
 }
 
 // Registry for all const-eval cache vectors.
-// Using a function-local static (Meyers singleton) ensures this is initialized
-// after DeviceGetter::getInstance() (which initializes the device), and thus
-// destroyed before the device during program exit. This prevents a
-// use-after-free crash when the global g_cached_result_* vectors (initialized
-// before main) try to destroy device-side tensors after the device and its
-// GraphTracker have already been closed.
+// Using a thread_local function-local static (Meyers singleton) ensures this
+// is destroyed before the thread_local device during thread exit. thread_local
+// variables are destroyed in reverse initialization order within the same
+// thread, so since the device is initialized before the registry, the registry
+// is destroyed first — clearing all cached tensors while the device and
+// GraphTracker are still alive.
 class ConstEvalCacheRegistry {
 public:
   static ConstEvalCacheRegistry &instance() {
-    static ConstEvalCacheRegistry reg;
+    static thread_local ConstEvalCacheRegistry reg;
     return reg;
   }
 
@@ -204,22 +232,31 @@ void constEvalFuncWrapperZeroArg(
   }
 }
 
-uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
-  assert(tensor.logical_volume() == 1 && "expected scalar tensor");
-  assert(tensor.dtype() == ttnn::DataType::UINT32 && "expected uint32 tensor");
+template <typename T>
+constexpr ::ttnn::DataType scalarDataTypeFor() {
+  static_assert(std::is_same_v<T, uint32_t> || std::is_same_v<T, float>,
+                "getScalarFromTensor supports uint32_t and float only");
+  if constexpr (std::is_same_v<T, uint32_t>) {
+    return ::ttnn::DataType::UINT32;
+  } else {
+    return ::ttnn::DataType::FLOAT32;
+  }
+}
 
-  const ::ttnn::Tensor tensorOnHost = ::ttnn::from_device(tensor);
-  const ::tt::tt_metal::HostBuffer buffer =
-      ::tt::tt_metal::host_buffer::get_host_buffer(tensorOnHost);
-  const auto &buf = buffer.view_as<uint32_t>();
-  return *buf.begin();
+template <typename T = uint32_t>
+T getScalarFromTensor(const ttnn::Tensor &tensor) {
+  assert(tensor.logical_volume() == 1 && "expected scalar tensor");
+  assert(tensor.dtype() == scalarDataTypeFor<T>() &&
+         "scalar tensor dtype does not match requested type");
+  const std::vector<T> values = ::ttnn::from_device(tensor).to_vector<T>();
+  assert(values.size() == 1 && "expected exactly one element");
+  return values[0];
 }
 
 ::ttnn::Tensor loadTensor(const std::string &filePath, ttnn::Layout layout,
                           ttnn::DataType dtype, ttnn::MeshDevice *device,
                           ttnn::MemoryConfig memoryConfig) {
-  ::ttnn::Tensor loadedTensor =
-      ::tt::tt_metal::load_tensor_flatbuffer(filePath);
+  ::ttnn::Tensor loadedTensor = ::ttnn::load_tensor_flatbuffer(filePath);
 
   assert(loadedTensor.device() == nullptr && "loaded tensor must be on host");
 

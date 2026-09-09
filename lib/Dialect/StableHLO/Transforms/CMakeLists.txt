@@ -9,10 +9,12 @@ add_mlir_dialect_library(MLIRStableHLOTransforms
   DecoupleConstFanout.cpp
   FlattenOrConvertComposites.cpp
   FuseDistributedCustomCalls.cpp
+  InsertReshardsForUnpropagatedOps.cpp
   PartiallyConvertSdyToStableHLO.cpp
   RegisterCustomShardingRule.cpp
+  RegisterUserShardingRule.cpp
   ReoutlineComposite.cpp
-  ReplicateNonSplittableConstants.cpp
+  ReplicateNonSplittableValues.cpp
   ShardyCCLCanonicalization.cpp
   ShardyCCLToStableHLOCCLPatterns.cpp
   StableHLOFusing.cpp

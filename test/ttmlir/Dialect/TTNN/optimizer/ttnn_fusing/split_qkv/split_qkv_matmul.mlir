@@ -95,4 +95,43 @@ module {
 
     return %q2, %k2, %v2 : tensor<1x8x32x64xbf16>, tensor<1x2x32x64xbf16>, tensor<1x2x32x64xbf16>
   }
+
+  // Happy-path reorder: GQA projections emitted in K, Q, V order, so the
+  // shared-LHS fusion builds the fused weight with the Q column block second.
+  // The pattern must reorder the weight so the Q block comes first and still
+  // fuse. The concat operand-type check below guards that the reorder (deferred
+  // until after fused-op validation) actually ran: the fused split op is
+  // created regardless of reorder, so asserting only its presence would pass
+  // even if the reorder were skipped. We assert only that the Q weight
+  // (512x512) is the first concat operand — the discriminator between reordered
+  // and not. K/V ordering is intentionally not pinned: with no SDPA to trace,
+  // role inference treats the two 128x512 K/V blocks as interchangeable.
+  // CHECK-LABEL: func.func @split_qkv_matmul_gqa_reorder
+  // CHECK: "ttnn.concat"({{.*}}) {{.*}} : (tensor<512x512xbf16{{.*}}>, tensor<128x512xbf16{{.*}}>, tensor<128x512xbf16{{.*}}>{{.*}})
+  // CHECK: "ttnn.split_query_key_value_and_split_heads"
+  func.func @split_qkv_matmul_gqa_reorder(
+      %input: tensor<1x32x512xbf16>,
+      %wk: tensor<128x512xbf16>,
+      %wq: tensor<512x512xbf16>,
+      %wv: tensor<128x512xbf16>) -> (tensor<1x2x32x64xbf16>, tensor<1x8x32x64xbf16>, tensor<1x2x32x64xbf16>) {
+
+    %0 = "ttir.reshape"(%input) <{shape = [32 : i32, 512 : i32]}> : (tensor<1x32x512xbf16>) -> tensor<32x512xbf16>
+
+    // K projection: 2 heads (emitted first)
+    %k0 = "ttir.matmul"(%0, %wk) <{transpose_a = false, transpose_b = true}> : (tensor<32x512xbf16>, tensor<128x512xbf16>) -> tensor<32x128xbf16>
+    %k1 = "ttir.reshape"(%k0) <{shape = [1 : i32, 32 : i32, 2 : i32, 64 : i32]}> : (tensor<32x128xbf16>) -> tensor<1x32x2x64xbf16>
+    %k2 = "ttir.permute"(%k1) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x32x2x64xbf16>) -> tensor<1x2x32x64xbf16>
+
+    // Q projection: 8 heads
+    %q0 = "ttir.matmul"(%0, %wq) <{transpose_a = false, transpose_b = true}> : (tensor<32x512xbf16>, tensor<512x512xbf16>) -> tensor<32x512xbf16>
+    %q1 = "ttir.reshape"(%q0) <{shape = [1 : i32, 32 : i32, 8 : i32, 64 : i32]}> : (tensor<32x512xbf16>) -> tensor<1x32x8x64xbf16>
+    %q2 = "ttir.permute"(%q1) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x32x8x64xbf16>) -> tensor<1x8x32x64xbf16>
+
+    // V projection: 2 heads
+    %v0 = "ttir.matmul"(%0, %wv) <{transpose_a = false, transpose_b = true}> : (tensor<32x512xbf16>, tensor<128x512xbf16>) -> tensor<32x128xbf16>
+    %v1 = "ttir.reshape"(%v0) <{shape = [1 : i32, 32 : i32, 2 : i32, 64 : i32]}> : (tensor<32x128xbf16>) -> tensor<1x32x2x64xbf16>
+    %v2 = "ttir.permute"(%v1) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x32x2x64xbf16>) -> tensor<1x2x32x64xbf16>
+
+    return %k2, %q2, %v2 : tensor<1x2x32x64xbf16>, tensor<1x8x32x64xbf16>, tensor<1x2x32x64xbf16>
+  }
 }

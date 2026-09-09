@@ -362,9 +362,6 @@ def test_hoisted_layer_norm(
         (1, 1, 128, 128),
         (1, 1, 32, 68),
         (1, 1, 37, 72),
-        # Shapes below exercise the relaxed fused-kernel eligibility check and
-        # the canonical-shape reshape in the decomposition pass: dim -2 == 32
-        # and dim -1 % 32 == 0 with all leading dims equal to 1, but rank != 4.
         (32, 128),
         (1, 32, 128),
     ],
@@ -396,22 +393,6 @@ def test_distributed_rms_norm(
     2. RMS normalization
     3. All-gather collective communication
     """
-    # Skip combinations that hang on n300 after metal uplift to commit 7fb82fd0
-    # (Reduce compute and dataflow helpers, tt-metal#41637).
-    # Hangs occur when has_weight=True with shape (1, 1, 32, X) where X is a
-    # power-of-2 last dimension. Tracked in tt-mlir#8129 / tt-metal#43173.
-    if has_weight and shape in [
-        (1, 1, 32, 128),
-        (1, 1, 32, 512),
-        (1, 1, 32, 4096),
-        (1, 1, 32, 8192),
-    ]:
-        pytest.skip(
-            f"Hangs on n300 with has_weight=True and shape={shape} after metal uplift "
-            "(Reduce compute and dataflow helpers, tt-metal#41637). "
-            "Tracked in tt-mlir#8129 / tt-metal#43173."
-        )
-
     # Determine input shapes
     shapes = [shape]
     weight_shape = (shape[-1],)  # Weight matches last dimension
@@ -494,6 +475,15 @@ def test_distributed_rms_norm(
 
             return gathered
 
+    # Without weight, DistributedRMSNorm decomposes to RMSNormPreAllGather.
+    # Metal #52081 sizes intermediate DFBs as FP32 when fp32_dest_acc_en=true;
+    # with default pipeline fp32_dest_acc_en=true, local Wt=128 (global W=8192
+    # on mesh 1x2) overflows L1. This golden checks the distributed op pattern,
+    # not intermediate dtype, so disable fp32 dest acc for that case only.
+    pipeline_options = None
+    if shape == (1, 1, 32, 8192) and not has_weight:
+        pipeline_options = ["compute-cfg-fp32-dest-acc-en=false"]
+
     compile_and_execute_ttir(
         module,
         mesh_name="mesh",
@@ -501,6 +491,7 @@ def test_distributed_rms_norm(
         **get_request_kwargs(request),
         device=device,
         target=target,
+        pipeline_options=pipeline_options,
     )
 
 
@@ -727,4 +718,50 @@ def test_group_norm(
         pipeline_options=["enable-ttnn-decomposition-pass=false"]
         if shape != (8, 32, 32, 128)
         else None,
+    )
+
+
+# Non-tile-aligned per-sample H*W; the shapes above are all aligned. opt 2 keeps
+# the fused kernel, which tt-metal#51159 / #52924 fixed for these shapes.
+@pytest.mark.parametrize("num_groups", [32])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 1, 259, 1024),  # XTTS-v2 conditioning encoder
+        (1, 5, 10, 256),  # H*W = 50
+        (2, 1, 16, 256),  # N*H*W = 32 is aligned, per-sample H*W = 16 is not
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_group_norm_non_tile_aligned(
+    shape: Shape,
+    num_groups: int,
+    target: str,
+    request,
+    device,
+):
+    n, h, w, c = shape
+    assert (h * w) % 32 != 0, "per-sample H*W must be non-tile-aligned"
+    group_norm_shape = (n, 1, h * w, c)
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def group_norm_non_tile_aligned(
+            *inputs, unit_attrs: Optional[List[str]] = None
+        ):
+            # fn(*inputs, self): the builder arrives last.
+            builder = inputs[-1]
+            in0 = inputs[0]
+            reshaped = builder.reshape(in0, group_norm_shape)
+            normalized = builder.group_norm(
+                reshaped, num_groups=num_groups, unit_attrs=unit_attrs
+            )
+            return builder.reshape(normalized, shape)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        target=target,
+        pipeline_options=["optimization-level=2"],
     )

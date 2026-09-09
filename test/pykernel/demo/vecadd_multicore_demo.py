@@ -92,7 +92,7 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         s0 = TensorAccessor(tensor_accessor_args, src_addr0, tile_bytes0)
 
         tile_bytes1 = get_tile_size(cb_in1)
-        tensor_accessor_args = TensorAccessorArgs(cta_base=2, crta_base=0)
+        tensor_accessor_args = TensorAccessorArgs(cta_base=3, crta_base=0)
         s1 = TensorAccessor(tensor_accessor_args, src_addr1, tile_bytes1)
 
         end_id = start_id + num_tiles
@@ -129,8 +129,6 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
         cb_in1 = self.create_cb(b_tensor, 1)
         cb_out = self.create_cb(out_tensor, 2)
         start_id = 0
-
-        self.set_tensor_accessor_config(a_tensor)
 
         num_tiles = ceil(
             max(map(lambda t: t.volume(), [a_tensor, b_tensor, out_tensor])) / 1024
@@ -172,6 +170,7 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
                 out_tensor.buffer_address(),
                 num_tiles_per_core,
                 start_id_multicore,
+                tensor_accessor_configs=[out_tensor],
             ),
             self.create_kernel(
                 VecAddMulticorePyKernelOp.reader_binary_interleaved,
@@ -181,6 +180,7 @@ class VecAddMulticorePyKernelOp(PyKernelOp):
                 b_tensor.buffer_address(),
                 num_tiles_per_core,
                 start_id_multicore,
+                tensor_accessor_configs=[a_tensor, b_tensor],
             ),
         ]
 

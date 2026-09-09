@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-workaround -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-workaround --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #dram = #ttnn.buffer_type<dram>
@@ -21,15 +21,15 @@ module attributes {} {
       -> tensor<2x3xf32, #ttnn_layout_output> {
     // CHECK-LABEL: func.func @gather_row_major_inputs
     // Check that the input operand is converted to tiled layout.
-    // CHECK: %[[TO_LAYOUT_INPUT:.*]] = "ttnn.to_layout"(%arg0)
-    // CHECK-SAME: layout = #ttnn.layout<tile>
+    // CHECK: %[[TO_LAYOUT_INPUT:.*]] = "ttnn.to_tensor_spec"(%arg0)
     // CHECK-SAME: -> tensor<5x3xf32,
+    // CHECK-SAME: !ttcore.tile<32x32,
     // Check that the index operand is converted to tiled layout.
-    // CHECK-NEXT: %[[TO_LAYOUT_INDEX:.*]] = "ttnn.to_layout"(%arg1)
-    // CHECK-SAME: layout = #ttnn.layout<tile>
+    // CHECK-NEXT: %[[TO_LAYOUT_INDEX:.*]] = "ttnn.to_tensor_spec"(%arg1)
     // CHECK-SAME: -> tensor<2x3xui32,
+    // CHECK-SAME: !ttcore.tile<32x32,
     %0 = "ttnn.gather"(%arg0, %arg1)
-        <{dim = 0 : i32}>
+        <{dim = 0 : si32}>
         : (tensor<5x3xf32, #ttnn_layout_input_rm>,
            tensor<2x3xui32, #ttnn_layout_index_rm>)
         -> tensor<2x3xf32, #ttnn_layout_output>
@@ -44,10 +44,10 @@ module attributes {} {
       %arg1: tensor<2x3xui32, #ttnn_layout_index_tile>)
       -> tensor<2x3xf32, #ttnn_layout_output> {
     // CHECK-LABEL: func.func @gather_tiled_inputs
-    // CHECK-NOT: "ttnn.to_layout"
+    // CHECK-NOT: "ttnn.to_tensor_spec"
     // CHECK: "ttnn.gather"
     %0 = "ttnn.gather"(%arg0, %arg1)
-        <{dim = 0 : i32}>
+        <{dim = 0 : si32}>
         : (tensor<5x3xf32, #ttnn_layout_input_tile>,
            tensor<2x3xui32, #ttnn_layout_index_tile>)
         -> tensor<2x3xf32, #ttnn_layout_output>
@@ -65,26 +65,23 @@ module attributes {} {
     // CHECK: %[[DEVICE:.*]] = "ttnn.get_device"
     // %zero = ttnn.full(0 : si32)
     // CHECK: %[[ZERO:.*]] = "ttnn.full"(%[[DEVICE]])
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<si32>
     // CHECK-SAME: fill_value = 0 : i32
     // %mask = ttnn.lt(idx, zero)  -> numeric predicate tensor
     // CHECK: %[[MASK:.*]] = "ttnn.lt"(%arg1, %[[ZERO]])
     // %safe = ttnn.maximum(idx, zero)  -> si32 (negatives clamped to 0)
     // CHECK: %[[CLAMPED:.*]] = "ttnn.maximum"(%arg1, %[[ZERO]])
-    // %safe_u32 = ttnn.to_layout(safe, dtype = ui32)
-    // CHECK: %[[SAFE_U32:.*]] = "ttnn.to_layout"(%[[CLAMPED]])
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<u32>
+    // %safe_u32 = ttnn.to_layout(safe) -> ui32
+    // CHECK: %[[SAFE_U32:.*]] = "ttnn.to_tensor_spec"(%[[CLAMPED]])
     // CHECK-SAME: -> tensor<2x3xui32,
     // %raw = ttnn.gather(input, safe_u32, dim)
     // CHECK: %[[RAW:.*]] = "ttnn.gather"(%arg0, %[[SAFE_U32]])
     // %nan = ttnn.full(NaN : f32)   ; 0x7FC00000 is the bit pattern for quiet NaN
     // CHECK: %[[NAN:.*]] = "ttnn.full"(%[[DEVICE]])
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: fill_value = 0x7FC00000 : f32
     // %result = ttnn.where(mask, NaN, raw)
     // CHECK: "ttnn.where"({{.*}}, %[[NAN]], %[[RAW]])
     %0 = "ttnn.gather"(%arg0, %arg1)
-        <{dim = 0 : i32}>
+        <{dim = 0 : si32}>
         : (tensor<5x3xf32, #ttnn_layout_input_tile>,
            tensor<2x3xi32, #ttnn_layout_index_tile_i32>)
         -> tensor<2x3xf32, #ttnn_layout_output>

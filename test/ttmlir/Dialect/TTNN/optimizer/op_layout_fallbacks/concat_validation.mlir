@@ -14,9 +14,9 @@ module attributes {} {
     // but the output layout doesn't match the expected one, so it inserts a revert to tile layout with bf16.
 
     // CHECK: %[[CONCAT_RES:.*]] = "ttnn.concat"
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK-SAME: (%[[CONCAT_RES]]
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
+    // CHECK-SAME: -> tensor<{{.*}}bf16
 
     %1 = "ttnn.concat"(%arg0, %arg1) <{
       dim = 2 : si32

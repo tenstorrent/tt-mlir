@@ -27,6 +27,14 @@ _FLOAT_DTYPES = [torch.float32, torch.bfloat16]
 _INT_DTYPES = [torch.int32]
 _DTYPE_IDS = {torch.float32: "f32", torch.bfloat16: "bf16", torch.int32: "i32"}
 _KEEP_DIMS = [True, False]
+_SIM_NOC_ALIGNMENT_SKIP_REASON = (
+    "NOC alignment violation in simulator, see "
+    "https://github.com/tenstorrent/tt-mlir/issues/8077"
+)
+
+
+def _normalize_case_value(value):
+    return tuple(value) if isinstance(value, list) else value
 
 
 def _reduction_atol(reduce_type: str, shape, dim_arg, dtype):
@@ -60,15 +68,35 @@ def _cycled_reduction_params(
     reduce_types=_REDUCE_TYPES,
     dtypes=_FLOAT_DTYPES,
     keep_dims=_KEEP_DIMS,
+    sim_noc_skip_cases=frozenset(),
+    sim_noc_skip_case_configs=None,
 ):
     def pick(options, i):
         return options[i % len(options)]
 
+    sim_noc_skip_case_configs = sim_noc_skip_case_configs or {}
     params = []
     for i, combo in enumerate(combos):
         reduce_type = pick(reduce_types, i)
         dtype = pick(dtypes, i)
         keep_dim = pick(keep_dims, i)
+        case_key = (
+            *(_normalize_case_value(value) for value in combo),
+            reduce_type,
+            dtype,
+            keep_dim,
+        )
+        marks = []
+        if case_key in sim_noc_skip_cases:
+            marks.append(
+                pytest.mark.skip_config(["sim"], reason=_SIM_NOC_ALIGNMENT_SKIP_REASON)
+            )
+        for skip_config in sim_noc_skip_case_configs.get(case_key, []):
+            marks.append(
+                pytest.mark.skip_config(
+                    skip_config, reason=_SIM_NOC_ALIGNMENT_SKIP_REASON
+                )
+            )
         ids = "-".join(
             "_".join(map(str, x)) if isinstance(x, list) else str(x) for x in combo
         )
@@ -79,6 +107,7 @@ def _cycled_reduction_params(
                 dtype,
                 keep_dim,
                 id=f"{ids}-{reduce_type}-{_DTYPE_IDS[dtype]}-keep{int(keep_dim)}",
+                marks=marks,
             )
         )
     return params
@@ -119,12 +148,20 @@ _2D_SHAPE_DIM_COMBOS = [
     for dim_arg in [[0], [1], [0, 1]]
 ]
 
+_2D_SIM_NOC_SKIP_CASE_CONFIGS = {
+    (16, 2, (1,), "mean", torch.bfloat16, False): [["p150", "sim"]],
+    (16, 8, (1,), "max", torch.bfloat16, False): [["p150", "sim"]],
+}
+
 
 @pytest.mark.parametrize(
     "m,n,dim_arg,reduce_type,dtype,keep_dim",
-    _cycled_reduction_params(_2D_SHAPE_DIM_COMBOS),
+    _cycled_reduction_params(
+        _2D_SHAPE_DIM_COMBOS,
+        sim_noc_skip_case_configs=_2D_SIM_NOC_SKIP_CASE_CONFIGS,
+    ),
 )
-@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_reduce_2d(
     m: int,
     n: int,
@@ -158,10 +195,21 @@ _2D_UNALIGNED_COMBOS = [
     for dim_arg in [[0], [1], [0, 1]]
 ]
 
+_2D_UNALIGNED_SIM_NOC_SKIP_CASES = {
+    ((50, 100), (1,), "mean", torch.bfloat16, False),
+    ((37, 61), (0,), "mean", torch.bfloat16, False),
+    ((129, 65), (0,), "max", torch.bfloat16, False),
+    ((100, 50), (1,), "max", torch.bfloat16, False),
+    ((1, 501), (1,), "max", torch.bfloat16, False),
+}
+
 
 @pytest.mark.parametrize(
     "shape,dim_arg,reduce_type,dtype,keep_dim",
-    _cycled_reduction_params(_2D_UNALIGNED_COMBOS),
+    _cycled_reduction_params(
+        _2D_UNALIGNED_COMBOS,
+        sim_noc_skip_cases=_2D_UNALIGNED_SIM_NOC_SKIP_CASES,
+    ),
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reduce_2d_unaligned(
@@ -212,7 +260,7 @@ def test_reduce_3d_inner(
     device,
 ):
     if len(dim_arg) >= 2 and not keep_dim:
-        pytest.skip(
+        pytest.xfail(
             "keep_dim=False not supported for multi-dim reductions on inner 2 dims because the reshape after the reduction is unsupported due to noc issue: https://github.com/tenstorrent/tt-mlir/issues/6377"
         )
 
@@ -243,7 +291,8 @@ _3D_OUTER_COMBOS = [
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.xfail(
-    reason="Out of place reduction not supported with blocking. See #8290"
+    reason="Out of place reduction not supported with blocking. See #8290",
+    strict=True,
 )
 def test_reduce_outer_3d(
     b: int,
@@ -305,7 +354,7 @@ def test_reduce_4d_inner(
     device,
 ):
     if len(dim_arg) >= 2 and not keep_dim:
-        pytest.skip(
+        pytest.xfail(
             "keep_dim=False not supported for multi-dim reductions on inner 2 dims because the reshape after the reduction is unsupported due to noc issue: https://github.com/tenstorrent/tt-mlir/issues/6377"
         )
 
@@ -336,7 +385,8 @@ _4D_OUTER_COMBOS = [
     _cycled_reduction_params(_4D_OUTER_COMBOS, keep_dims=[True]),
 )
 @pytest.mark.xfail(
-    reason="Out of place reduction not supported with blocking. See #8290"
+    reason="Out of place reduction not supported with blocking. See #8290",
+    strict=True,
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reduce_outer_4d(
@@ -367,7 +417,7 @@ def test_reduce_outer_4d(
     # non-square 10x13 grid. Re-enable once grid selection handles non-square
     # grids without inflating per-core L1.
     if reduce_dim == 1 and a == 3 and b == 8 and get_board_id(system_desc) == "p150":
-        pytest.skip("L1 OOM on non-square grid (see #8079)")
+        pytest.xfail("L1 OOM on non-square grid (see #8079)")
 
     tile_size = 32
     shape = (a, b, m * tile_size, n * tile_size)
@@ -391,7 +441,7 @@ def test_reduce_outer_4d(
 @pytest.mark.parametrize("keep_dim", [True, False])
 @pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
+@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf(["n150", "sim"])], ids=["i32"])
 def test_reduce_i32_2d(
     dim_arg: List[int],
     keep_dim: bool,
@@ -420,6 +470,26 @@ _2D_UNALIGNED_INT_COMBOS = [
     for dim_arg in [[0], [1], [0, 1]]
 ]
 
+_I32_2D_UNALIGNED_SIM_NOC_SKIP_CASE_CONFIGS = {
+    (
+        *(_normalize_case_value(value) for value in combo),
+        _INT_REDUCE_TYPES[i % len(_INT_REDUCE_TYPES)],
+        torch.int32,
+        _KEEP_DIMS[i % len(_KEEP_DIMS)],
+    ): [["n150", "sim"]]
+    for i, combo in enumerate(_2D_UNALIGNED_INT_COMBOS)
+}
+
+for case_key in {
+    ((50, 100), (1,), "max", torch.int32, False),
+    ((37, 61), (0,), "sum", torch.int32, False),
+    ((129, 65), (0,), "sum", torch.int32, False),
+    ((1, 501), (1,), "max", torch.int32, False),
+}:
+    _I32_2D_UNALIGNED_SIM_NOC_SKIP_CASE_CONFIGS.setdefault(case_key, []).append(
+        ["p150", "sim"]
+    )
+
 
 @pytest.mark.parametrize(
     "shape,dim_arg,reduce_type,dtype,keep_dim",
@@ -427,9 +497,10 @@ _2D_UNALIGNED_INT_COMBOS = [
         _2D_UNALIGNED_INT_COMBOS,
         reduce_types=_INT_REDUCE_TYPES,
         dtypes=_INT_DTYPES,
+        sim_noc_skip_case_configs=_I32_2D_UNALIGNED_SIM_NOC_SKIP_CASE_CONFIGS,
     ),
 )
-@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_reduce_i32_2d_unaligned(
     shape: tuple,
     dim_arg: List[int],
@@ -454,7 +525,7 @@ def test_reduce_i32_2d_unaligned(
 @pytest.mark.parametrize("dim_arg", [[1], [2], [1, 2]])
 @pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
+@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf(["n150", "sim"])], ids=["i32"])
 def test_reduce_i32_3d_inner(
     dim_arg: List[int],
     reduce_type: str,
@@ -482,9 +553,10 @@ def test_reduce_i32_3d_inner(
 @pytest.mark.parametrize("b", [2, 8])
 @pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
+@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf(["n150", "sim"])], ids=["i32"])
 @pytest.mark.xfail(
-    reason="Out of place reduction not supported with blocking. See #8290"
+    reason="Out of place reduction not supported with blocking. See #8290",
+    strict=True,
 )
 def test_reduce_i32_outer_3d(
     b: int,
@@ -510,7 +582,7 @@ def test_reduce_i32_outer_3d(
 @pytest.mark.parametrize("dim_arg", [[2], [3]])
 @pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
+@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf(["n150", "sim"])], ids=["i32"])
 def test_reduce_i32_4d_inner(
     dim_arg: List[int],
     reduce_type: str,

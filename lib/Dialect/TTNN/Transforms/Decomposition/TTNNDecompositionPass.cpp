@@ -6,7 +6,9 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedLayerNormDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedRMSNormDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/GroupNormDecompositionRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Decomposition/RotaryEmbeddingDecompositionRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Decomposition/GroupedConvChannelSplitRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Decomposition/SDPADecodeDecompositionPattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Decomposition/SDPADecompositionPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/TopKDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
@@ -30,6 +32,12 @@ public:
     patterns
         .add<decomposition::DistributedLayerNormDecompositionRewritePattern>(
             &getContext());
+    patterns.add<
+        decomposition::GroupedConvChannelSplitRewritePattern<ttnn::Conv1dOp>>(
+        &getContext());
+    patterns.add<
+        decomposition::GroupedConvChannelSplitRewritePattern<ttnn::Conv2dOp>>(
+        &getContext());
 
     if (enableOpConstraints) {
       OpValidationConfig validationConfig;
@@ -40,7 +48,9 @@ public:
           &getContext(), validationConfig);
       patterns.add<decomposition::GroupNormDecompositionRewritePattern>(
           &getContext(), validationConfig);
-      patterns.add<decomposition::RotaryEmbeddingDecompositionRewritePattern>(
+      patterns.add<decomposition::SDPADecompositionPattern>(&getContext(),
+                                                            validationConfig);
+      patterns.add<decomposition::SDPADecodeDecompositionPattern>(
           &getContext(), validationConfig);
     } else {
       patterns.add<decomposition::TopKDecompositionRewritePattern>(
@@ -49,7 +59,8 @@ public:
           &getContext());
       patterns.add<decomposition::GroupNormDecompositionRewritePattern>(
           &getContext());
-      patterns.add<decomposition::RotaryEmbeddingDecompositionRewritePattern>(
+      patterns.add<decomposition::SDPADecompositionPattern>(&getContext());
+      patterns.add<decomposition::SDPADecodeDecompositionPattern>(
           &getContext());
     }
 

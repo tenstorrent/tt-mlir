@@ -7,7 +7,7 @@ module attributes {} {
     return %1 : tensor<1x1x256x256xf32>
   }
 }
-// CHECK: error: 'ttir.all_reduce' op Invalid reduction op for all reduce op
+// CHECK: error: 'ttir.all_reduce' op Invalid reduction type for all reduce op
 
 // -----
 
@@ -17,7 +17,7 @@ module attributes {} {
     return %1 : tensor<1x1x256x256xf32>
   }
 }
-// CHECK: error: 'ttir.all_reduce' op Invalid reduction op for all reduce op
+// CHECK: error: 'ttir.all_reduce' op Invalid reduction type for all reduce op
 
 // -----
 
@@ -27,4 +27,4 @@ module attributes {} {
     return %1 : tensor<1x1x256x256xf32>
   }
 }
-// CHECK: error: 'ttir.all_reduce' op Invalid reduction op for all reduce op
+// CHECK: error: 'ttir.all_reduce' op Invalid reduction type for all reduce op

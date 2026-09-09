@@ -37,16 +37,6 @@ table AllReduceAsyncOp {
   topology: tt.target.Topology = null;
 }
 
-table MeshShardOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  device: tt.target.DeviceRef;
-  shard_direction: tt.target.MeshShardDirection;
-  shard_type: tt.target.MeshShardType;
-  shard_shape: [int64];
-  shard_dims: [int64];
-}
-
 table ReduceScatterOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
@@ -113,7 +103,10 @@ table AllToAllDispatchMetadataOp {
   num_devices: uint32;
   cluster_axis: uint32;
   memory_config: tt.target.ttnn.MemoryConfig;
-  drain_core: tt.target.ttnn.CoreCoord;
+  dispatched_buffer: tt.target.ttnn.TensorRef;
+  indices_buffer: tt.target.ttnn.TensorRef;
+  scores_buffer: tt.target.ttnn.TensorRef;
+  cross_device_semaphore: tt.target.ttnn.GlobalSemaphoreRef;
 }
 
 table AllToAllCombineOp {
@@ -149,4 +142,66 @@ table MoeExpertTokenRemapOp {
   reduced: tt.target.ttnn.TensorRef;
   reduction_size: uint32;
   memory_config: tt.target.ttnn.MemoryConfig;
+}
+
+table MoeGptOp {
+  input_tensor: tt.target.ttnn.TensorRef;
+  expert_indices: tt.target.ttnn.TensorRef;
+  expert_scores: tt.target.ttnn.TensorRef;
+  expert_mapping: tt.target.ttnn.TensorRef;
+  w0_w1_tensor: tt.target.ttnn.TensorRef;
+  w2_tensor: tt.target.ttnn.TensorRef;
+  output_height_shard_dim: uint32 = 4;
+  output_width_shard_dim: uint32 = 3;
+  hidden_size: uint32 = 2880;
+  cluster_axis: uint32 = null;
+  token_counts: tt.target.ttnn.TensorRef;
+  activation_records: tt.target.ttnn.TensorRef;
+  token_indices: tt.target.ttnn.TensorRef;
+  tilize_out: tt.target.ttnn.TensorRef;
+  tilize_out_rm: tt.target.ttnn.TensorRef;
+}
+
+table PrepareMoEComputeW0W1WeightsOp {
+  w0: tt.target.ttnn.TensorRef;
+  w1: tt.target.ttnn.TensorRef;
+  bias_0: tt.target.ttnn.TensorRef;
+  bias_1: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
+  hidden_size: uint32;
+  intermediate_size: uint32;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table PrepareMoEComputeW2WeightsOp {
+  w2: tt.target.ttnn.TensorRef;
+  bias_2: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
+  hidden_size: uint32;
+  intermediate_size: uint32;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table MoeComputeOp {
+  tilize_input_tensor: tt.target.ttnn.TensorRef;
+  tilize_expert_indices_tensor: tt.target.ttnn.TensorRef;
+  tilize_expert_scores_tensor: tt.target.ttnn.TensorRef;
+  tilize_expert_mapping_tensor: tt.target.ttnn.TensorRef;
+  matmul_w0_w1_tensor: tt.target.ttnn.TensorRef;
+  matmul_w2_tensor: tt.target.ttnn.TensorRef;
+  optional_output_tensor: tt.target.ttnn.TensorRef;
+  cross_device_semaphore: tt.target.ttnn.GlobalSemaphoreRef;
+  device: tt.target.DeviceRef;
+  layer_id: uint32;
+  output_height_shard_dim: uint32;
+  intermediate_size: uint32;
+  has_bias: bool;
+  cluster_axis: uint32 = null;
+  activation_function: tt.target.MoEActivationFunction;
+  num_links: uint32 = null;
+  topology: tt.target.Topology = null;
+  mux_core_range_set: tt.target.ttnn.CoreRangeSet;
+  // Only the A2A combine output is exposed; tt-metal's routing/tilize/matmul
+  // intermediates are allocated and freed inside the runtime handler.
+  combine_output: tt.target.ttnn.TensorRef;
 }

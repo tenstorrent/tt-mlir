@@ -5,22 +5,29 @@
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 
 #include "ttmlir/Asserts.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Location.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
 #include <numeric>
 
 using namespace mlir;
@@ -283,10 +290,25 @@ struct DotGeneralToMatmulConversionPattern
     matmulDestinationShape.push_back(
         computeProductOfDims(rhsType.getShape(), rhsResultDims));
 
-    // Perform matmul operation.
-    auto matmulOp = rewriter.create<ttir::MatmulOp>(
-        op.getLoc(), RankedTensorType::get(matmulDestinationShape, elementType),
-        lhsMatmulInput, rhsMatmulInput);
+    // Perform the contraction. When every contracting dimension has extent 1
+    // the dot_general is a pure outer product, which we lower to a broadcast
+    // elementwise multiply to keep full f32 precision. lhsMatmulInput is
+    // [..., M, 1] and rhsMatmulInput is [..., 1, N], so they broadcast-multiply
+    // to the matmul destination shape [..., M, N].
+    int64_t contractionSize =
+        computeProductOfDims(lhsType.getShape(), lhsContractDims);
+    Value contractionResult;
+    if (contractionSize == 1) {
+      contractionResult = rewriter.create<ttir::MultiplyOp>(
+          op.getLoc(),
+          RankedTensorType::get(matmulDestinationShape, elementType),
+          lhsMatmulInput, rhsMatmulInput);
+    } else {
+      contractionResult = rewriter.create<ttir::MatmulOp>(
+          op.getLoc(),
+          RankedTensorType::get(matmulDestinationShape, elementType),
+          lhsMatmulInput, rhsMatmulInput);
+    }
 
     // Reshape the result by unrolling the prod(lhsResultDims) to original
     // lhsResultDims and likewise for rhsResultDims.
@@ -306,7 +328,7 @@ struct DotGeneralToMatmulConversionPattern
                                              resultShape.end());
 
     auto reshapeOutput = rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
-        op, RankedTensorType::get(resultShape, elementType), matmulOp,
+        op, RankedTensorType::get(resultShape, elementType), contractionResult,
         rewriter.getI32ArrayAttr(finalShapeI32));
 
     reshapeOutput->setLoc(ttmlir::utils::appendLocationSuffix(
@@ -967,6 +989,433 @@ static mlir::Value reshapeBatchNorm4DTo1D(PatternRewriter &rewriter,
 } // namespace
 
 //===----------------------------------------------------------------------===//
+// Rank-4 reshape helpers (shared by ttml metal op decompositions)
+//===----------------------------------------------------------------------===//
+
+// Several ttml metal ops (e.g. ttml::metal::adamw, ttml::metal::sdpa_fw) only
+// accept rank-4 tensors and tile just the last two dims. These helpers collapse
+// an arbitrary-rank shape into 4D and build the corresponding ttir.reshape ops.
+namespace {
+
+// Collapse `shape` to a rank-4 shape {1, leading, height, width}, where
+// `leading` is the product of all dims except the last two. Missing dims (for
+// rank < 2 inputs) default to 1, so lower-rank tensors are padded with leading
+// 1s and higher-rank tensors have their leading dims folded together.
+llvm::SmallVector<int64_t, 4>
+collapseShapeToRank4(llvm::ArrayRef<int64_t> shape) {
+  int64_t height = shape.size() >= 2 ? shape[shape.size() - 2] : 1;
+  int64_t width = shape.empty() ? 1 : shape.back();
+  int64_t leading = 1;
+  for (size_t i = 0; i + 2 < shape.size(); ++i) {
+    leading *= shape[i];
+  }
+  return {1, leading, height, width};
+}
+
+mlir::Value reshapeValue(OpBuilder &builder, Location loc, mlir::Value value,
+                         llvm::ArrayRef<int64_t> targetShape) {
+  auto valueType = mlir::cast<RankedTensorType>(value.getType());
+  auto resultType = RankedTensorType::get(
+      targetShape, valueType.getElementType(), valueType.getEncoding());
+  llvm::SmallVector<int32_t> targetI32(targetShape.begin(), targetShape.end());
+  return builder.create<ttir::ReshapeOp>(loc, resultType, value,
+                                         builder.getI32ArrayAttr(targetI32));
+}
+
+mlir::Value reshapeToRank4IfNeeded(ConversionPatternRewriter &rewriter,
+                                   Location loc, mlir::Value value) {
+  auto valueType = mlir::cast<RankedTensorType>(value.getType());
+  if (valueType.getRank() == 4) {
+    return value;
+  }
+  return reshapeValue(rewriter, loc, value,
+                      collapseShapeToRank4(valueType.getShape()));
+}
+
+mlir::Value reshapeIfNeeded(ConversionPatternRewriter &rewriter, Location loc,
+                            mlir::Value value,
+                            llvm::ArrayRef<int64_t> targetShape) {
+  auto valueType = mlir::cast<RankedTensorType>(value.getType());
+  if (valueType.getShape() == targetShape) {
+    return value;
+  }
+  return reshapeValue(rewriter, loc, value, targetShape);
+}
+
+static FlatSymbolRefAttr
+createRank4DecompositionWrapper(ttcore::CompositeOp op, TypeRange inputTypes4D,
+                                TypeRange resultTypes4D,
+                                ConversionPatternRewriter &rewriter) {
+  ModuleOp moduleOp = op->getParentOfType<ModuleOp>();
+  StringRef decompositionName = op.getDecomposition();
+  func::FuncOp decomposition =
+      moduleOp.lookupSymbol<func::FuncOp>(decompositionName);
+  assert(decomposition);
+
+  std::string wrapperName = (decompositionName + "_rank4").str();
+  for (unsigned suffix = 0; moduleOp.lookupSymbol(wrapperName); ++suffix) {
+    wrapperName = (decompositionName + "_rank4_" + Twine(suffix)).str();
+  }
+
+  OpBuilder moduleBuilder(moduleOp.getContext());
+  moduleBuilder.setInsertionPointToEnd(moduleOp.getBody());
+  Location loc = op.getLoc();
+  auto wrapper = moduleBuilder.create<func::FuncOp>(
+      loc, wrapperName,
+      moduleBuilder.getFunctionType(inputTypes4D, resultTypes4D));
+  wrapper.setPrivate();
+  Block *entry = wrapper.addEntryBlock();
+  OpBuilder builder = OpBuilder::atBlockBegin(entry);
+
+  SmallVector<Value> decompositionInputs;
+  for (auto [argument, type] :
+       llvm::zip(entry->getArguments(), decomposition.getArgumentTypes())) {
+    decompositionInputs.push_back(reshapeValue(
+        builder, loc, argument, cast<RankedTensorType>(type).getShape()));
+  }
+  auto call =
+      builder.create<func::CallOp>(loc, decomposition, decompositionInputs);
+
+  SmallVector<Value> wrapperResults;
+  for (auto [result, type] : llvm::zip(call.getResults(), resultTypes4D)) {
+    wrapperResults.push_back(reshapeValue(
+        builder, loc, result, cast<RankedTensorType>(type).getShape()));
+  }
+  builder.create<func::ReturnOp>(loc, wrapperResults);
+
+  return FlatSymbolRefAttr::get(rewriter.getContext(), wrapperName);
+}
+
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// AdamW decomposition pattern
+//===----------------------------------------------------------------------===//
+
+// ttml::metal::adamw only accepts 4D tensors, so reshape every operand up to 4D
+// and every result back down. Only the last two dims are tiled, so leading dims
+// are padded (rank < 4) or collapsed (rank > 4).
+namespace {
+struct AdamWPattern : public OpConversionPattern<ttir::AdamWOp> {
+public:
+  using OpConversionPattern<ttir::AdamWOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AdamWOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto paramType = mlir::cast<RankedTensorType>(op.getParam().getType());
+    if (paramType.getRank() == 4) {
+      return rewriter.notifyMatchFailure(op, "already 4D");
+    }
+
+    Location loc = op.getLoc();
+    llvm::SmallVector<int64_t, 4> shape4D =
+        collapseShapeToRank4(paramType.getShape());
+
+    mlir::Value maxExpAvgSq4D =
+        adaptor.getMaxExpAvgSq()
+            ? reshapeToRank4IfNeeded(rewriter, loc, adaptor.getMaxExpAvgSq())
+            : mlir::Value();
+
+    llvm::SmallVector<mlir::Type> resultTypes4D;
+    for (mlir::Type type : op.getResultTypes()) {
+      auto tensorType = mlir::cast<RankedTensorType>(type);
+      resultTypes4D.push_back(RankedTensorType::get(
+          shape4D, tensorType.getElementType(), tensorType.getEncoding()));
+    }
+
+    auto adamw4D = rewriter.create<ttir::AdamWOp>(
+        loc, resultTypes4D,
+        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getParam()),
+        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getGrad()),
+        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getExpAvg()),
+        reshapeToRank4IfNeeded(rewriter, loc, adaptor.getExpAvgSq()),
+        adaptor.getLr(), adaptor.getBeta1Pow(), adaptor.getBeta2Pow(),
+        maxExpAvgSq4D, adaptor.getBeta1(), adaptor.getBeta2(),
+        adaptor.getEpsilon(), adaptor.getWeightDecay(),
+        adaptor.getStochasticRounding());
+
+    llvm::SmallVector<mlir::Value> restored;
+    for (auto [result4D, originalType] :
+         llvm::zip(adamw4D.getResults(), op.getResultTypes())) {
+      restored.push_back(
+          reshapeValue(rewriter, loc, result4D,
+                       mlir::cast<RankedTensorType>(originalType).getShape()));
+    }
+    rewriter.replaceOp(op, restored);
+    return success();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// SDPA forward decomposition pattern
+//===----------------------------------------------------------------------===//
+
+// ttml::metal::sdpa_fw only accepts rank-4 (B, H, S, D) tensors. Attention is
+// independent across the leading batch/head dims, so collapse every operand up
+// to 4D and reshape the results back to their original rank.
+namespace {
+struct SDPAForwardPattern : public OpConversionPattern<ttcore::CompositeOp> {
+public:
+  using OpConversionPattern<ttcore::CompositeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttcore::CompositeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (op.getCompositeName() != "sdpa_fw") {
+      return failure();
+    }
+
+    auto isRank4 = [](mlir::Value value) {
+      return mlir::cast<RankedTensorType>(value.getType()).getRank() == 4;
+    };
+
+    // Only reshape when some operand/result is not already rank 4; otherwise
+    // this pattern would keep re-matching its own (already 4D) output.
+    if (llvm::all_of(adaptor.getInputs(), isRank4) &&
+        llvm::all_of(op.getResults(), isRank4)) {
+      return rewriter.notifyMatchFailure(op, "already 4D");
+    }
+
+    llvm::SmallVector<mlir::Type> resultTypes4D;
+    for (mlir::Type type : op.getResultTypes()) {
+      auto tensorType = mlir::cast<RankedTensorType>(type);
+      llvm::SmallVector<int64_t, 4> shape4D;
+      if (tensorType.getRank() == 4) {
+        shape4D.assign(tensorType.getShape().begin(),
+                       tensorType.getShape().end());
+      } else {
+        shape4D = collapseShapeToRank4(tensorType.getShape());
+      }
+      resultTypes4D.push_back(RankedTensorType::get(
+          shape4D, tensorType.getElementType(), tensorType.getEncoding()));
+    }
+
+    Location loc = op.getLoc();
+    auto inputs4D = llvm::map_to_vector(
+        adaptor.getInputs(), [&rewriter, loc](mlir::Value value) {
+          return reshapeToRank4IfNeeded(rewriter, loc, value);
+        });
+
+    auto decomposition = createRank4DecompositionWrapper(
+        op, TypeRange(inputs4D), resultTypes4D, rewriter);
+    auto sdpa4D = rewriter.create<ttcore::CompositeOp>(
+        loc, resultTypes4D, inputs4D, op.getCompositeNameAttr(), decomposition,
+        op.getCompositeAttributesAttr());
+
+    llvm::SmallVector<mlir::Value> restored;
+    for (auto [result4D, originalType] :
+         llvm::zip(sdpa4D.getResults(), op.getResultTypes())) {
+      restored.push_back(
+          reshapeValue(rewriter, loc, result4D,
+                       mlir::cast<RankedTensorType>(originalType).getShape()));
+    }
+    rewriter.replaceOp(op, restored);
+    return success();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// SDPA backward decomposition pattern
+//===----------------------------------------------------------------------===//
+
+// ttml::metal::sdpa_bw only accepts rank-4 (B, H, S, D) tensors. Attention is
+// independent across the leading batch/head dims, so collapse every operand up
+// to 4D and reshape the results back to their original rank.
+namespace {
+struct SDPABackwardPattern : public OpConversionPattern<ttcore::CompositeOp> {
+public:
+  using OpConversionPattern<ttcore::CompositeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttcore::CompositeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (op.getCompositeName() != "sdpa_bw") {
+      return failure();
+    }
+
+    auto isRank4 = [](mlir::Value value) {
+      return mlir::cast<RankedTensorType>(value.getType()).getRank() == 4;
+    };
+
+    // Only reshape when some operand/result is not already rank 4.
+    if (llvm::all_of(adaptor.getInputs(), isRank4) &&
+        llvm::all_of(op->getResults(), isRank4)) {
+      return rewriter.notifyMatchFailure(op, "already 4D");
+    }
+
+    llvm::SmallVector<mlir::Type> resultTypes4D;
+    for (mlir::Type type : op.getResultTypes()) {
+      auto tensorType = mlir::cast<RankedTensorType>(type);
+      llvm::SmallVector<int64_t, 4> shape4D;
+      if (tensorType.getRank() == 4) {
+        shape4D.assign(tensorType.getShape().begin(),
+                       tensorType.getShape().end());
+      } else {
+        shape4D = collapseShapeToRank4(tensorType.getShape());
+      }
+      resultTypes4D.push_back(RankedTensorType::get(
+          shape4D, tensorType.getElementType(), tensorType.getEncoding()));
+    }
+
+    Location loc = op.getLoc();
+    auto inputs4D = llvm::map_to_vector(
+        adaptor.getInputs(), [&rewriter, loc](mlir::Value value) {
+          return reshapeToRank4IfNeeded(rewriter, loc, value);
+        });
+
+    auto decomposition = createRank4DecompositionWrapper(
+        op, TypeRange(inputs4D), resultTypes4D, rewriter);
+    auto sdpa4D = rewriter.create<ttcore::CompositeOp>(
+        loc, resultTypes4D, inputs4D, op.getCompositeNameAttr(), decomposition,
+        op.getCompositeAttributesAttr());
+
+    llvm::SmallVector<mlir::Value> restored;
+    for (auto [result4D, originalType] :
+         llvm::zip(sdpa4D.getResults(), op.getResultTypes())) {
+      restored.push_back(
+          reshapeValue(rewriter, loc, result4D,
+                       mlir::cast<RankedTensorType>(originalType).getShape()));
+    }
+    rewriter.replaceOp(op, restored);
+    return success();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// LayerNorm forward decomposition pattern
+//===----------------------------------------------------------------------===//
+
+// ttml::metal::layernorm_fw only accepts rank-4 tensors. Normalize the
+// composite signature while preserving a valid decomposition fallback.
+namespace {
+struct LayerNormForwardPattern
+    : public OpConversionPattern<ttcore::CompositeOp> {
+public:
+  using OpConversionPattern<ttcore::CompositeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttcore::CompositeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (op.getCompositeName() != "layernorm_fw") {
+      return failure();
+    }
+
+    auto isRank4 = [](Value value) {
+      return cast<RankedTensorType>(value.getType()).getRank() == 4;
+    };
+    if (llvm::all_of(adaptor.getInputs(), isRank4) &&
+        llvm::all_of(op.getResults(), isRank4)) {
+      return rewriter.notifyMatchFailure(op, "already 4D");
+    }
+
+    Location loc = op.getLoc();
+    SmallVector<Value> inputs4D;
+    for (Value input : adaptor.getInputs()) {
+      inputs4D.push_back(reshapeToRank4IfNeeded(rewriter, loc, input));
+    }
+
+    SmallVector<Type> resultTypes4D;
+    for (Type type : op.getResultTypes()) {
+      auto tensorType = cast<RankedTensorType>(type);
+      SmallVector<int64_t, 4> shape4D;
+      if (tensorType.getRank() == 4) {
+        shape4D.assign(tensorType.getShape().begin(),
+                       tensorType.getShape().end());
+      } else {
+        shape4D = collapseShapeToRank4(tensorType.getShape());
+      }
+      resultTypes4D.push_back(RankedTensorType::get(
+          shape4D, tensorType.getElementType(), tensorType.getEncoding()));
+    }
+
+    auto decomposition = createRank4DecompositionWrapper(
+        op, TypeRange(inputs4D), resultTypes4D, rewriter);
+    auto layerNorm4D = rewriter.create<ttcore::CompositeOp>(
+        loc, resultTypes4D, inputs4D, op.getCompositeNameAttr(), decomposition,
+        op.getCompositeAttributesAttr());
+
+    SmallVector<Value> restored;
+    for (auto [result4D, originalType] :
+         llvm::zip(layerNorm4D.getResults(), op.getResultTypes())) {
+      restored.push_back(
+          reshapeValue(rewriter, loc, result4D,
+                       cast<RankedTensorType>(originalType).getShape()));
+    }
+    rewriter.replaceOp(op, restored);
+    return success();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// CrossEntropyForward decomposition pattern
+//===----------------------------------------------------------------------===//
+
+// ttml::metal::cross_entropy_fw only accepts a 4D (N, 1, H, W) input paired
+// with a 2D (N, H) target, so collapse the leading dimensions into N and
+// reshape the result back. The channel dimension must be 1 because the reader
+// walks N*C*Ht rows and reads one target page per row.
+namespace {
+struct CrossEntropyForwardPattern
+    : public OpConversionPattern<ttir::CrossEntropyForwardOp> {
+public:
+  using OpConversionPattern<ttir::CrossEntropyForwardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CrossEntropyForwardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType inputType = op.getInput().getType();
+    RankedTensorType targetType = op.getTarget().getType();
+    RankedTensorType resultType = op.getResult().getType();
+
+    llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+    assert(inputShape.size() >= 2 && "input tensor must have rank >= 2");
+    int64_t height = inputShape[inputShape.size() - 2];
+    int64_t width = inputShape.back();
+    int64_t batch = std::accumulate(inputShape.begin(), inputShape.end() - 2,
+                                    1ll, std::multiplies<int64_t>());
+
+    llvm::SmallVector<int64_t, 4> inputShape4D = {batch, 1, height, width};
+    llvm::SmallVector<int64_t, 2> targetShape2D = {batch, height};
+    llvm::SmallVector<int64_t, 4> resultShape4D = {batch, 1, height, 1};
+
+    if (inputShape == llvm::ArrayRef<int64_t>(inputShape4D) &&
+        targetType.getShape() == llvm::ArrayRef<int64_t>(targetShape2D) &&
+        resultType.getShape() == llvm::ArrayRef<int64_t>(resultShape4D)) {
+      return rewriter.notifyMatchFailure(op, "already (N, 1, H, W) / (N, H)");
+    }
+
+    Location loc = op.getLoc();
+    mlir::Value inputReshaped =
+        reshapeIfNeeded(rewriter, loc, adaptor.getInput(), inputShape4D);
+    mlir::Value targetReshaped =
+        reshapeIfNeeded(rewriter, loc, adaptor.getTarget(), targetShape2D);
+
+    auto resultType4D = RankedTensorType::get(
+        resultShape4D, resultType.getElementType(), resultType.getEncoding());
+
+    if (resultType.getShape() ==
+        llvm::ArrayRef<int64_t>({batch, 1, height, 1})) {
+      rewriter.replaceOpWithNewOp<ttir::CrossEntropyForwardOp>(
+          op, resultType4D, inputReshaped, targetReshaped);
+      return success();
+    }
+
+    auto normalizedOp = rewriter.create<ttir::CrossEntropyForwardOp>(
+        op.getLoc(), resultType4D, inputReshaped, targetReshaped);
+
+    rewriter.replaceOp(op, reshapeValue(rewriter, loc, normalizedOp.getResult(),
+                                        resultType.getShape()));
+    return success();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
 // BatchNorm decomposition patterns
 //===----------------------------------------------------------------------===//
 
@@ -1555,8 +2004,8 @@ struct Conv3dChannelLastDecompositionPattern
 
     auto newConv = rewriter.create<ttir::Conv3dOp>(
         op.getLoc(), permutedOutputType, permutedInput, adaptor.getWeight(),
-        permutedBias, adaptor.getStride(), adaptor.getPadding(), op.getGroups(),
-        op.getPaddingModeAttr());
+        permutedBias, adaptor.getStride(), adaptor.getPadding(),
+        adaptor.getDilationAttr(), op.getGroups(), op.getPaddingModeAttr());
 
     // Permute output from NDHWC back to original layout.
     auto outputPermute = rewriter.create<ttir::PermuteOp>(
@@ -1996,6 +2445,11 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ReductionAndPattern>(typeConverter, ctx);
   patterns.add<BatchNormInferencePattern>(typeConverter, ctx);
   patterns.add<BatchNormTrainingPattern>(typeConverter, ctx);
+  patterns.add<AdamWPattern>(typeConverter, ctx);
+  patterns.add<SDPAForwardPattern>(typeConverter, ctx);
+  patterns.add<SDPABackwardPattern>(typeConverter, ctx);
+  patterns.add<LayerNormForwardPattern>(typeConverter, ctx);
+  patterns.add<CrossEntropyForwardPattern>(typeConverter, ctx);
   patterns.add<QuantizeOpPattern>(typeConverter, ctx);
   patterns.add<DequantizeOpPattern>(typeConverter, ctx);
   patterns.add<RequantizeOpPattern>(typeConverter, ctx);

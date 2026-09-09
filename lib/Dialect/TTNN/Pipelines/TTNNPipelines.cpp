@@ -47,7 +47,8 @@ void createTTNNPipelineTTIRPasses(
   pm.addPass(mlir::createCanonicalizerPass());
   ttir::TTIRFusingOptions fusingOptions{
       options.enableFusingConv2dWithMultiplyPattern,
-      options.enablePermuteMatmulFusion};
+      options.enablePermuteMatmulFusion,
+      options.enablePermuteSliceAfterMatmulFusion};
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -115,67 +116,49 @@ void createTTNNPipelineAnalysisPasses(
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
 
-    if (!options.enableGreedyOptimizer) {
-      // Default: chain-based TTNNOptimizer.
-      ttnn::TTNNOptimizerOptions optimizerOptions(options);
-      pm.addPass(createDevicePassesWrapper(
-          [optimizerOptions, validationOptions](OpPassManager &innerPm) {
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
-            innerPm.addPass(mlir::createCanonicalizerPass());
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
-                    validationOptions));
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
-          },
-          wrapperOptions));
-    } else {
-      // Greedy optimizer: two new passes replace TTNNOptimizer.
-      TTNNGreedyMemoryLayoutPropagationPipelineOptions propagationOptions;
-      propagationOptions.maxLegalLayouts = options.maxLegalLayouts;
-      propagationOptions.rowMajorEnabled = options.rowMajorEnabled;
-      propagationOptions.beamWidth = 8;
-      propagationOptions.enableL1ShardingLayouts =
-          options.memoryLayoutAnalysisEnabled;
-      propagationOptions.overrideOutputLayout = options.overrideOutputLayout;
-      propagationOptions.overrideConv2dConfig = options.overrideConv2dConfig;
-      propagationOptions.enableDecisionTrace = options.enableDecisionTrace;
-      propagationOptions.decisionTraceDir = options.decisionTraceDir;
-      propagationOptions.enableCompileTimeStats =
-          options.enableCompileTimeStats;
+    // Greedy optimizer: memory layout propagation + L1 spill management.
+    TTNNGreedyMemoryLayoutPropagationPipelineOptions propagationOptions;
+    propagationOptions.maxLegalLayouts = options.maxLegalLayouts;
+    propagationOptions.rowMajorEnabled = options.rowMajorEnabled;
+    propagationOptions.enableL1ShardingLayouts =
+        options.memoryLayoutAnalysisEnabled;
+    propagationOptions.overrideOutputLayout = options.overrideOutputLayout;
+    propagationOptions.overrideConv2dConfig = options.overrideConv2dConfig;
+    propagationOptions.overrideConv3dConfig = options.overrideConv3dConfig;
+    propagationOptions.enableDecisionTrace = options.enableDecisionTrace;
+    propagationOptions.decisionTraceDir = options.decisionTraceDir;
+    propagationOptions.enableCompileTimeStats = options.enableCompileTimeStats;
 
-      TTNNGreedyL1SpillManagementOptions spillOptions;
-      spillOptions.enableDecisionTrace = options.enableDecisionTrace;
-      spillOptions.decisionTraceDir = options.decisionTraceDir;
+    TTNNGreedyL1SpillManagementOptions spillOptions;
+    spillOptions.enableDecisionTrace = options.enableDecisionTrace;
+    spillOptions.decisionTraceDir = options.decisionTraceDir;
+    spillOptions.useMockAllocatorState = options.useMockAllocatorState;
 
-      bool memLayoutEnabled = options.memoryLayoutAnalysisEnabled;
-      pm.addPass(createDevicePassesWrapper(
-          [propagationOptions, spillOptions, validationOptions,
-           memLayoutEnabled](OpPassManager &innerPm) {
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNGreedyMemoryLayoutPropagation(
-                    propagationOptions));
-            if (memLayoutEnabled) {
-              innerPm.addPass(mlir::tt::ttnn::createTTNNGreedyL1SpillManagement(
-                  spillOptions));
-            }
-            innerPm.addPass(mlir::createCanonicalizerPass());
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
-                    validationOptions));
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
-          },
-          wrapperOptions));
-    }
+    bool memLayoutEnabled = options.memoryLayoutAnalysisEnabled;
+    pm.addPass(createDevicePassesWrapper(
+        [propagationOptions, spillOptions, validationOptions,
+         memLayoutEnabled](OpPassManager &innerPm) {
+          innerPm.addPass(
+              mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
+          innerPm.addPass(mlir::tt::ttnn::createTTNNDeduceMoEComputeLayouts());
+          innerPm.addPass(
+              mlir::tt::ttnn::createTTNNGreedyMemoryLayoutPropagation(
+                  propagationOptions));
+          if (memLayoutEnabled) {
+            innerPm.addPass(mlir::tt::ttnn::createTTNNGreedyL1SpillManagement(
+                spillOptions));
+          }
+          innerPm.addPass(mlir::createCanonicalizerPass());
+          innerPm.addPass(
+              mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
+                  validationOptions));
+          innerPm.addPass(
+              mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+        },
+        wrapperOptions));
 #else
     llvm::llvm_unreachable_internal(
-        "TTNNOptimizer passes require OpModel support to be enabled.");
+        "TTNN optimizer passes require OpModel support to be enabled.");
 #endif
   }
 }
@@ -190,6 +173,64 @@ void createTTNNPipelineLoweringPasses(OpPassManager &pm,
   if (removeDeadValuesEnabled) {
     pm.addPass(mlir::createRemoveDeadValuesPass());
   }
+}
+
+// Resolve composite ops into typed ops or inline their decompositions.
+//
+// Auto (the default) upgrades to Validate when the optimizer and OpModel are
+// available, otherwise falls back to Inline. Inline and ForcePromote are always
+// respected. Validate warns and falls back to Inline when prerequisites are
+// absent.
+void createTTNNResolveCompositesPass(
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
+  CompositeResolution resolution = options.compositeResolution;
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  const bool canValidate = options.optimizerPassEnabled;
+#else
+  const bool canValidate = false;
+#endif
+
+  // Resolve Auto to a concrete mode.
+  if (resolution == CompositeResolution::Auto) {
+    resolution = canValidate ? CompositeResolution::Validate
+                             : CompositeResolution::Inline;
+  }
+
+  // Warn if Validate was explicitly requested but prerequisites are absent.
+  if (resolution == CompositeResolution::Validate && !canValidate) {
+    mlir::emitWarning(
+        mlir::UnknownLoc::get(static_cast<PassManager &>(pm).getContext()),
+        "composite-resolution=validate requires the optimizer and "
+        "TTMLIR_ENABLE_OPMODEL; falling back to inline");
+    resolution = CompositeResolution::Inline;
+  }
+
+  // Validate: OpModel validation requires device access via
+  // DevicePassesWrapper.
+#ifdef TTMLIR_ENABLE_OPMODEL
+  if (resolution == CompositeResolution::Validate) {
+    DevicePassesWrapperOptions wrapperOptions;
+    wrapperOptions.devicePtr = options.devicePtr;
+    wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
+    pm.addPass(createDevicePassesWrapper(
+        [](OpPassManager &innerPm) {
+          TTNNResolveCompositesOptions resolveOptions;
+          resolveOptions.compositeResolution = CompositeResolution::Validate;
+          innerPm.addPass(createTTNNResolveComposites(resolveOptions));
+        },
+        wrapperOptions));
+
+    pm.addPass(mlir::createCanonicalizerPass());
+    return;
+  }
+#endif
+
+  // ForcePromote or Inline.
+  TTNNResolveCompositesOptions resolveOptions;
+  resolveOptions.compositeResolution = resolution;
+  pm.addPass(createTTNNResolveComposites(resolveOptions));
+  pm.addPass(mlir::createCanonicalizerPass());
 }
 
 // Create TTNN fusing pass.
@@ -208,20 +249,28 @@ void createTTNNFusingPass(OpPassManager &pm,
       wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
       uint32_t fallbackAttempts = options.maxFallbackAttempts;
+      bool enableEltwiseActivationFusion =
+          options.enableEltwiseActivationFusion;
       pm.addPass(createDevicePassesWrapper(
-          [fallbackAttempts](OpPassManager &innerPm) {
+          [fallbackAttempts,
+           enableEltwiseActivationFusion](OpPassManager &innerPm) {
             TTNNFusingOptions fusingOptions;
             fusingOptions.enableOpConstraints = true;
             fusingOptions.maxFallbackAttempts = fallbackAttempts;
+            fusingOptions.enableEltwiseActivationFusion =
+                enableEltwiseActivationFusion;
             innerPm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
           },
           wrapperOptions));
 #else
       llvm::llvm_unreachable_internal(
-          "TTNNOptimizer passes require OpModel support to be enabled.");
+          "TTNN optimizer passes require OpModel support to be enabled.");
 #endif
     } else {
-      pm.addPass(mlir::tt::ttnn::createTTNNFusing());
+      TTNNFusingOptions fusingOptions;
+      fusingOptions.enableEltwiseActivationFusion =
+          options.enableEltwiseActivationFusion;
+      pm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
     }
   }
 }
@@ -242,6 +291,12 @@ void createTTNNPipelineWorkaroundPass(
   workaroundOptions.optimizationLevel = options.optimizationLevel;
 
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
+
+  // Bind distributed-op scratch buffers before the optimizer so they
+  // contribute to L1 budgeting; the canonicalize + CSE below dedupe matching
+  // EmptyOps across multiple distributed ops.
+  pm.addPass(createTTNNAllocateDistributedOpBuffers());
+
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createCSEPass());
 }
@@ -323,6 +378,9 @@ void createTTIRToTTNNCommonPipeline(
 
     // Run TTNN lowering passes on Device module.
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
+    createTTNNResolveCompositesPass(devicePm, options);
+    // Add pass to clean up the leftover unreferenced symbols.
+    devicePm.addPass(mlir::createSymbolDCEPass());
     createTTNNFusingPass(devicePm, options);
 
     // Create TTNN decomposition pass, optionally with op-model validation.
@@ -350,9 +408,10 @@ void createTTIRToTTNNCommonPipeline(
       }
     }
 
-    if (options.dramSpaceSavingOptimizationEnabled) {
-      devicePm.addPass(createTTNNMemoryManagement());
-    }
+    TTNNMemoryManagementOptions memoryManagementOptions;
+    memoryManagementOptions.aggressiveMemorySaving =
+        options.dramSpaceSavingOptimizationEnabled;
+    devicePm.addPass(createTTNNMemoryManagement(memoryManagementOptions));
     createTTNNPipelineWorkaroundPass(devicePm, options);
     // Add weight dtype conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
@@ -373,18 +432,24 @@ void createTTIRToTTNNCommonPipeline(
       devicePm.addPass(createTTNNKVCacheDtypeConversion(convOpts));
     }
 
-    // Apply ComputeKernelConfig settings before analysis passes.
-    // Create options struct and forward pipeline options.
-    TTNNSetComputeKernelConfigOptions setConfigOptions;
-
-    // Forward the OptionalMathFidelity value directly
-    setConfigOptions.mathFidelity = options.computeCfgMathFidelity.getValue();
-    setConfigOptions.fp32DestAccEn = options.computeCfgFp32DestAccEn.getValue();
-
-    if (setConfigOptions.fp32DestAccEn ||
-        setConfigOptions.mathFidelity != OptionalMathFidelity::Undefined) {
-      devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
+    // Activation dtype lowering runs after weight dtype conversion and KV
+    // cache dtype conversion. This is important because activation dtype can
+    // be influenced by weight and KV cache dtype.
+    if (options.enableActivationDtypeLowering) {
+      devicePm.addPass(createTTNNCCLActivationDtypeLowering());
     }
+
+    // Apply ComputeKernelConfig settings before analysis passes.
+    // Always run: large-K matmul/linear packer_l1_acc logic runs even when
+    // pipeline options leave every compute-kernel-config knob unset.
+    TTNNSetComputeKernelConfigOptions setConfigOptions;
+    setConfigOptions.mathFidelity = options.computeCfgMathFidelity.getValue();
+    setConfigOptions.mathApproxMode =
+        options.computeCfgMathApproxMode.getValue();
+    setConfigOptions.fp32DestAccEn = options.computeCfgFp32DestAccEn.getValue();
+    setConfigOptions.packerL1Acc = options.computeCfgPackerL1Acc.getValue();
+    setConfigOptions.dstFullSyncEn = options.computeCfgDstFullSyncEn.getValue();
+    devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
 
     if (options.enableCreateD2MSubgraphs) {
       if (!options.optimizerPassEnabled) {
@@ -409,6 +474,12 @@ void createTTIRToTTNNCommonPipeline(
 
     createTTNNPipelineAnalysisPasses(devicePm, options);
 
+    // Materialize PrepareConv3dWeightsOp for every Conv3dOp. Runs after the
+    // optimizer (so it can read the optimizer's chosen Conv3dConfigAttr) but
+    // unconditionally — at optimization-level=0 there's no Conv3dConfigAttr
+    // and the pass falls back to TILE_WIDTH for c_in_block.
+    devicePm.addPass(mlir::tt::ttnn::createTTNNPrepareConv3dWeights());
+
     if (options.enableCreateD2MSubgraphs) {
       TTNNPipelineD2MPassOptions d2mOptions;
       d2mOptions.enableElementwiseFusion = options.enableD2MElementwiseFusion;
@@ -432,6 +503,11 @@ void createTTIRToTTNNCommonPipeline(
         devicePm.addPass(mlir::createCanonicalizerPass());
       }
     }
+
+    // Bind distributed-op semaphores after the optimizer (core range derives
+    // from the finalized input shard spec) and before trace hoisting (SSA
+    // values must be visible at the trace boundary).
+    devicePm.addPass(createTTNNAllocateDistributedOpSemaphores());
 
     // Trace hoisting must run before layout decomposition because it adjusts
     // layouts of function arguments (e.g. moving inputs to system_memory). It
@@ -515,6 +591,8 @@ void createTTNNCommonToEmitCPipeline(
   if (options.tryRecoverStructure) {
     createRecoverStructureXLATorchPipeline(
         pm, RecoverStructureXLATorchPipelineOptions());
+  } else {
+    pm.addPass(createTTNNForceFinalDeallocs());
   }
 
   if (options.targetDylib) {
@@ -551,12 +629,16 @@ void createTTNNCommonToEmitCPipeline(
 //
 void createTTNNCommonToEmitPyPipeline(
     OpPassManager &pm, const TTNNCommonToEmitPyPipelineOptions &options) {
+  pm.addPass(mlir::tt::createCaptureMeshShapePass());
+
   auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
   devicePm.addPass(createTTNNAdjustDeallocs());
   if (options.tryRecoverStructure) {
     createRecoverStructureXLATorchPipeline(
         devicePm, RecoverStructureXLATorchPipelineOptions());
+  } else {
+    devicePm.addPass(createTTNNForceFinalDeallocs());
   }
 
   // Apply EmitPy-specific workarounds before conversion
@@ -590,14 +672,6 @@ void createTTNNCommonToEmitPyPipeline(
     } else {
       devicePm.addPass(createTTNNCreateInputGenerators());
     }
-
-    // Optionally create main_for_test wrapper for frontend-driven execution
-    // (e.g. PythonModelRunner). This must run after the input generator/loader
-    // pass so that _main already exists.
-    //
-    if (options.createMainForTest) {
-      devicePm.addPass(createTTNNCreateMainForTest());
-    }
   }
 
   devicePm.addPass(createTTNNPrepareConstEvalCaching());
@@ -608,17 +682,15 @@ void createTTNNCommonToEmitPyPipeline(
     devicePm.addPass(createTTNNFileSplit(fileSplitOptions));
   }
 
-  // Both paths (targetModule and TTNNCreateMainForTest) inject device as an
-  // explicit argument into the forward function. Const-eval functions also
-  // need device injected, but this can't be done as a separate MLIR pass
-  // because load_cached ops verify callee argument count between passes
-  // (issue #6746). Setting targetModule=true on the EmitPy pass tells it to
-  // handle const-eval device injection inside its runOnOperation, before
-  // applyFullConversion.
+  // targetModule injects device as an explicit argument into the forward
+  // function. Const-eval functions also need device injected, but this can't
+  // be done as a separate MLIR pass because load_cached ops verify callee
+  // argument count between passes (issue #6746). Setting targetModule=true on
+  // the EmitPy pass tells it to handle const-eval device injection inside its
+  // runOnOperation, before applyFullConversion.
   //
   ConvertTTNNToEmitPyOptions emitpyOptions;
-  emitpyOptions.targetModule =
-      options.targetModule || options.createMainForTest;
+  emitpyOptions.targetModule = options.targetModule;
   devicePm.addPass(createConvertTTNNToEmitPyPass(emitpyOptions));
 
   devicePm.addPass(createEmitPyConstEvalCachingPass());

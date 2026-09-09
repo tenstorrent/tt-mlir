@@ -264,6 +264,7 @@ struct WriteBarrierGroup {
   DMAWaitOp barrier;
   PopOp companion;
   Value writeCB;
+  Value writeMemref;
 };
 
 // Walk backwards from the terminator to find a write barrier group.
@@ -292,14 +293,22 @@ static std::optional<WriteBarrierGroup> findWriteBarrierGroup(Block &body) {
     return std::nullopt;
   }
 
-  return WriteBarrierGroup{barrier, pop, writeCB};
+  auto dmaWrite = barrier.getMemTx().getDefiningOp<DMAWriteOp>();
+  if (!dmaWrite) {
+    return std::nullopt;
+  }
+
+  return WriteBarrierGroup{barrier, pop, writeCB, dmaWrite.getDst()};
 }
 
-static bool canDeferWriteBarrier(Block &body, Value writeCB) {
-  // Write CB must not alias any read CB (RAW hazard).
+static bool canDeferWriteBarrier(Block &body, Value writeCB,
+                                 Value writeMemref) {
+  // Deferral moves write completion into the next iteration. Reject it if the
+  // next iteration can read either the same local CB or the same remote
+  // memref before that completion barrier.
   auto readCheck = body.walk([&](DMAReadOp dmaRead) -> WalkResult {
     Value readCB = getCBFromLocalBuffer(dmaRead.getDst());
-    if (readCB && readCB == writeCB) {
+    if ((readCB && readCB == writeCB) || dmaRead.getSrc() == writeMemref) {
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
@@ -363,7 +372,7 @@ static bool deferOneWriteBarrier(scf::ForOp &forOp) {
     return false;
   }
 
-  if (!canDeferWriteBarrier(body, group->writeCB)) {
+  if (!canDeferWriteBarrier(body, group->writeCB, group->writeMemref)) {
     return false;
   }
 

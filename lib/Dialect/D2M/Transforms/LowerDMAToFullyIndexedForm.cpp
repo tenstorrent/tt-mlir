@@ -5,26 +5,225 @@
 #include "ttmlir/AffineMapAnalysis.h"
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
-#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/WalkPatternRewriteDriver.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/Hashing.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/TypeSwitch.h"
+
+#include <optional>
+#include <type_traits>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERDMATOFULLYINDEXEDFORM
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
+
+struct CoalescingCacheKey {
+  const void *map = nullptr;
+  SmallVector<int64_t, 8> shape;
+  unsigned numGridDims = 0;
+  size_t elemSizeBytes = 0;
+
+  bool operator==(const CoalescingCacheKey &other) const {
+    return map == other.map && shape == other.shape &&
+           numGridDims == other.numGridDims &&
+           elemSizeBytes == other.elemSizeBytes;
+  }
+};
+
+struct CoalescingCacheKeyInfo {
+  static CoalescingCacheKey getEmptyKey() {
+    return CoalescingCacheKey{
+        DenseMapInfo<const void *>::getEmptyKey(), {}, 0, 0};
+  }
+
+  static CoalescingCacheKey getTombstoneKey() {
+    return CoalescingCacheKey{
+        DenseMapInfo<const void *>::getTombstoneKey(), {}, 0, 0};
+  }
+
+  static unsigned getHashValue(const CoalescingCacheKey &key) {
+    return static_cast<unsigned>(llvm::hash_combine(
+        key.map, key.numGridDims, key.elemSizeBytes,
+        llvm::hash_combine_range(key.shape.begin(), key.shape.end())));
+  }
+
+  static bool isEqual(const CoalescingCacheKey &lhs,
+                      const CoalescingCacheKey &rhs) {
+    return lhs == rhs;
+  }
+};
+
+using CoalescingCache =
+    DenseMap<CoalescingCacheKey, size_t, CoalescingCacheKeyInfo>;
+
+class CoalescingFactorCache {
+public:
+  size_t get(AffineMap memoryMap, ArrayRef<int64_t> gridShape,
+             ArrayRef<int64_t> shardShape, size_t elemSizeBytes,
+             bool debugCoalescingInference);
+
+private:
+  CoalescingCache cache;
+};
 
 static size_t getElementSizeBytes(MemRefType memref) {
   mlir::Type elementType = memref.getElementType();
   auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType);
   return tileType ? tileType.getSizeBytes()
                   : elementType.getIntOrFloatBitWidth() / 8;
+}
+
+static std::optional<AffineMap> buildTensorAccessorPageMap(Value remoteMemref) {
+  MemRefType remoteType = mlir::cast<MemRefType>(remoteMemref.getType());
+  MemRefType baseType = remoteType;
+
+  AffineMap viewMap = AffineMap::getMultiDimIdentityMap(
+      remoteType.getRank(), remoteType.getContext());
+  if (Operation *definingOp = remoteMemref.getDefiningOp()) {
+    if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(definingOp)) {
+      if (viewOp.isComposite()) {
+        return std::nullopt;
+      }
+      std::tie(baseType, viewMap) = applyViews(definingOp);
+    }
+  }
+
+  if (!baseType.hasStaticShape() ||
+      !mlir::isa<ttcore::TileType>(baseType.getElementType())) {
+    return std::nullopt;
+  }
+
+  auto baseLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
+      baseType.getLayout());
+  if (!baseLayout ||
+      !mlir::isa<ttcore::ShardLayoutAttr, ttcore::InterleavedLayoutAttr>(
+          baseType.getLayout())) {
+    return std::nullopt;
+  }
+
+  ttcore::MemorySpace memorySpace = ttcore::getMemorySpace(baseType);
+  if (memorySpace != ttcore::MemorySpace::DeviceL1 &&
+      memorySpace != ttcore::MemorySpace::DeviceDRAM) {
+    return std::nullopt;
+  }
+  if (mlir::isa<ttcore::InterleavedLayoutAttr>(baseType.getLayout()) &&
+      memorySpace != ttcore::MemorySpace::DeviceDRAM) {
+    return std::nullopt;
+  }
+
+  ArrayRef<int64_t> gridShape = baseLayout.getGridShape(baseType);
+  ArrayRef<int64_t> shardShape = baseLayout.getShardShape(baseType);
+  const size_t rank = gridShape.size();
+  static constexpr size_t kTensorAccessorMaxRank = 8;
+  if (rank == 0 || rank != shardShape.size() || rank > kTensorAccessorMaxRank) {
+    return std::nullopt;
+  }
+  if (viewMap.getNumDims() != static_cast<unsigned>(remoteType.getRank()) ||
+      viewMap.getNumSymbols() != 0 ||
+      viewMap.getNumResults() != static_cast<unsigned>(baseType.getRank())) {
+    return std::nullopt;
+  }
+
+  SmallVector<int64_t> tensorShape;
+  tensorShape.reserve(rank);
+  for (auto [gridDim, shardDim] : llvm::zip_equal(gridShape, shardShape)) {
+    tensorShape.push_back(gridDim * shardDim);
+  }
+
+  SmallVector<int64_t> tensorStrides(tensorShape.size());
+  int64_t stride = 1;
+  for (int64_t dim = static_cast<int64_t>(rank) - 1; dim >= 0; dim--) {
+    tensorStrides[dim] = stride;
+    stride *= tensorShape[dim];
+  }
+
+  MLIRContext *ctx = remoteType.getContext();
+  AffineExpr pageId = getAffineConstantExpr(0, ctx);
+  for (unsigned dim = 0; dim < rank; dim++) {
+    AffineExpr gridIndex = getAffineDimExpr(dim, ctx);
+    AffineExpr shardIndex = getAffineDimExpr(rank + dim, ctx);
+    AffineExpr absolutePage = gridIndex * shardShape[dim] + shardIndex;
+    pageId = pageId + absolutePage * tensorStrides[dim];
+  }
+
+  AffineMap basePageMap = AffineMap::get(baseType.getRank(), 0, pageId, ctx);
+  return simplifyAffineMap(basePageMap.compose(viewMap));
+}
+
+template <typename DMAOp>
+static std::optional<AffineMap> getEligibleTensorAccessorPageMap(DMAOp op) {
+  static_assert(std::is_same_v<DMAOp, DMAReadOp> ||
+                std::is_same_v<DMAOp, DMAWriteOp>);
+
+  if (!op.isShardLevel()) {
+    return std::nullopt;
+  }
+
+  Value remoteMemref = nullptr;
+  Value localMemref = nullptr;
+  ValueRange remoteGridIndices;
+  if constexpr (std::is_same_v<DMAOp, DMAReadOp>) {
+    if (!op.isSrcRemote()) {
+      return std::nullopt;
+    }
+    remoteMemref = op.getSrc();
+    localMemref = op.getDst();
+    remoteGridIndices = op.getSrcIndices();
+  } else {
+    if (!op.isDstRemote() || op.isMcast() || !op.getStartDevice().empty() ||
+        !op.getDeviceMcastShape().empty()) {
+      return std::nullopt;
+    }
+    remoteMemref = op.getDst();
+    localMemref = op.getSrc();
+    remoteGridIndices = op.getDstIndices();
+  }
+
+  GenericOp generic = op->template getParentOfType<GenericOp>();
+  if (!generic || !llvm::is_contained(generic.getOperands(), remoteMemref)) {
+    return std::nullopt;
+  }
+
+  auto remoteType = mlir::dyn_cast<MemRefType>(remoteMemref.getType());
+  auto localType = mlir::dyn_cast<MemRefType>(localMemref.getType());
+  if (!remoteType || !localType || !remoteType.hasStaticShape() ||
+      !localType.hasStaticShape() ||
+      !mlir::isa<ttcore::TileType>(remoteType.getElementType()) ||
+      remoteType.getElementType() != localType.getElementType()) {
+    return std::nullopt;
+  }
+
+  int64_t pageSize = ttcore::getElementSizeBytes(remoteType.getElementType());
+  if (pageSize % utils::getNocAddressAlignmentBytes(
+                     op, ttcore::getMemorySpace(remoteType)) !=
+          0 ||
+      pageSize % utils::getNocAddressAlignmentBytes(
+                     op, ttcore::MemorySpace::DeviceL1) !=
+          0) {
+    return std::nullopt;
+  }
+
+  auto remoteLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
+      remoteType.getLayout());
+  if (!remoteLayout ||
+      remoteGridIndices.size() !=
+          remoteLayout.getGridShape(remoteType).size() ||
+      ttmlir::utils::volume(remoteLayout.getShardShape(remoteType)) !=
+          localType.getNumElements()) {
+    return std::nullopt;
+  }
+
+  return buildTensorAccessorPageMap(remoteMemref);
 }
 
 // Calculates coalescing factor using analytical method with sampling fallback.
@@ -111,6 +310,27 @@ static size_t calculateCoalescingFactorWithFallback(
   return coalescingFactor;
 }
 
+size_t CoalescingFactorCache::get(AffineMap memoryMap,
+                                  ArrayRef<int64_t> gridShape,
+                                  ArrayRef<int64_t> shardShape,
+                                  size_t elemSizeBytes,
+                                  bool debugCoalescingInference) {
+  CoalescingCacheKey key;
+  key.map = memoryMap.getAsOpaquePointer();
+  key.shape.append(gridShape.begin(), gridShape.end());
+  key.shape.append(shardShape.begin(), shardShape.end());
+  key.numGridDims = gridShape.size();
+  key.elemSizeBytes = elemSizeBytes;
+
+  auto [it, inserted] = cache.try_emplace(std::move(key));
+  if (inserted) {
+    it->second = calculateCoalescingFactorWithFallback(
+        memoryMap, gridShape, shardShape, elemSizeBytes,
+        debugCoalescingInference);
+  }
+  return it->second;
+}
+
 // Core loop generation with coalescing guard.  Handles both the fully
 // contiguous case (single call at zero indices) and the strided case
 // (nested scf.for loops with an `if (flat_index % CF == 0)` guard).
@@ -192,17 +412,23 @@ namespace {
 class D2MLowerDMAReadToFullyIndexed : public OpRewritePattern<DMAReadOp> {
 public:
   D2MLowerDMAReadToFullyIndexed(MLIRContext *context,
-                                bool debugCoalescingInference)
+                                bool debugCoalescingInference,
+                                CoalescingFactorCache &coalescingCache)
       : OpRewritePattern<DMAReadOp>(context),
-        debugCoalescingInference(debugCoalescingInference) {}
+        debugCoalescingInference(debugCoalescingInference),
+        coalescingCache(&coalescingCache) {}
 
 private:
   bool debugCoalescingInference;
+  CoalescingFactorCache *coalescingCache = nullptr;
 
 public:
   LogicalResult matchAndRewrite(DMAReadOp op,
                                 PatternRewriter &rewriter) const final {
     if (op.isFullyIndexed()) {
+      return failure();
+    }
+    if (op.getTensorAccessorPageMapAttr()) {
       return failure();
     }
 
@@ -229,9 +455,9 @@ public:
     AffineMap localMemoryMap = utils::getMemoryMap(device, localMemref, false);
 
     size_t elemSizeBytes = getElementSizeBytes(remoteMemrefType);
-    size_t coalescingFactor = calculateCoalescingFactorWithFallback(
-        remoteMemoryMap, gridShape, shardShape, elemSizeBytes,
-        debugCoalescingInference);
+    size_t coalescingFactor =
+        coalescingCache->get(remoteMemoryMap, gridShape, shardShape,
+                             elemSizeBytes, debugCoalescingInference);
 
     SmallVector<Value> gridIndices(op.getSrcIndices());
 
@@ -260,17 +486,23 @@ public:
 class D2MLowerDMAWriteToFullyIndexed : public OpRewritePattern<DMAWriteOp> {
 public:
   D2MLowerDMAWriteToFullyIndexed(MLIRContext *context,
-                                 bool debugCoalescingInference)
+                                 bool debugCoalescingInference,
+                                 CoalescingFactorCache &coalescingCache)
       : OpRewritePattern<DMAWriteOp>(context),
-        debugCoalescingInference(debugCoalescingInference) {}
+        debugCoalescingInference(debugCoalescingInference),
+        coalescingCache(&coalescingCache) {}
 
 private:
   bool debugCoalescingInference;
+  CoalescingFactorCache *coalescingCache = nullptr;
 
 public:
   LogicalResult matchAndRewrite(DMAWriteOp op,
                                 PatternRewriter &rewriter) const final {
     if (op.isFullyIndexed()) {
+      return failure();
+    }
+    if (op.getTensorAccessorPageMapAttr()) {
       return failure();
     }
 
@@ -324,9 +556,9 @@ public:
     AffineMap localMemoryMap = utils::getMemoryMap(device, localMemref, false);
 
     size_t elemSizeBytes = getElementSizeBytes(remoteMemrefType);
-    size_t coalescingFactor = calculateCoalescingFactorWithFallback(
-        remoteMemoryMap, gridShape, shardShape, elemSizeBytes,
-        debugCoalescingInference);
+    size_t coalescingFactor =
+        coalescingCache->get(remoteMemoryMap, gridShape, shardShape,
+                             elemSizeBytes, debugCoalescingInference);
 
     SmallVector<Value> gridIndices(op.getDstIndices());
     SmallVector<Value> startDevice(op.getStartDevice());
@@ -488,17 +720,39 @@ public:
       D2MLowerDMAToFullyIndexedForm>::D2MLowerDMAToFullyIndexedFormBase;
 
   void runOnOperation() final {
-    RewritePatternSet patterns(&getContext());
-    patterns.add<D2MLowerDMAReadToFullyIndexed>(&getContext(),
-                                                debugCoalescingInference);
-    patterns.add<D2MLowerDMAWriteToFullyIndexed>(&getContext(),
-                                                 debugCoalescingInference);
-    patterns.add<D2MLowerLocalCopyToFullyIndexed>(&getContext(),
-                                                  debugCoalescingInference);
-    populateAffineToStdConversionPatterns(patterns);
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+    WalkResult walkResult = getOperation()->walk([&](Operation *op) {
+      return llvm::TypeSwitch<Operation *, WalkResult>(op)
+          .Case<DMAReadOp, DMAWriteOp>([&](auto dmaOp) {
+            if (dmaOp.getTensorAccessorPageMapAttr()) {
+              dmaOp.emitOpError(
+                  "unexpected pre-existing TensorAccessor page map");
+              return WalkResult::interrupt();
+            }
+            if (useTensorAccessorDMA) {
+              if (std::optional<AffineMap> pageMap =
+                      getEligibleTensorAccessorPageMap(dmaOp)) {
+                dmaOp.setTensorAccessorPageMapAttr(
+                    AffineMapAttr::get(*pageMap));
+              }
+            }
+            return WalkResult::advance();
+          })
+          .Default([](Operation *) { return WalkResult::advance(); });
+    });
+    if (walkResult.wasInterrupted()) {
       signalPassFailure();
+      return;
     }
+
+    CoalescingFactorCache coalescingCache;
+    RewritePatternSet dmaPatterns(&getContext());
+    dmaPatterns.add<D2MLowerDMAReadToFullyIndexed>(
+        &getContext(), debugCoalescingInference, coalescingCache);
+    dmaPatterns.add<D2MLowerDMAWriteToFullyIndexed>(
+        &getContext(), debugCoalescingInference, coalescingCache);
+    dmaPatterns.add<D2MLowerLocalCopyToFullyIndexed>(&getContext(),
+                                                     debugCoalescingInference);
+    walkAndApplyPatterns(getOperation(), std::move(dmaPatterns));
   }
 };
 } // namespace

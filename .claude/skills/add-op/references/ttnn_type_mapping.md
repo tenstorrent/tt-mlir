@@ -202,8 +202,9 @@ def TTNN_MyOp : TTNN_Op<"my_op", [TTNN_ComputeKernelConfigOpInterface]> {
 
 **File:** `include/ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.td`
 
-**Purpose:** Declares that an op has a `dtype` attribute of type `TTCore_DataTypeAttr`.
-Provides `getDtypeAttr()` and `setDtypeAttr()`.
+**Purpose:** Declares that an op's output data type can be queried via
+`getDtypeAttr()`, which derives it from the first result's `TTNNLayoutAttr`
+encoding.
 
 **When to use:** Add to ops where the output data type can differ from the input (e.g.,
 binary ops, conv2d, embedding_bw, global_avg_pool2d, assign).

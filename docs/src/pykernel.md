@@ -73,16 +73,14 @@ class MyCustomOp(PyKernelOp):
     # Define reader kernel
     @reader_thread()
     def reader_kernel(cb_in: CircularBuffer, cb_out: CircularBuffer,
-                     src_addr, num_tiles, start_id,
-                     src_is_dram: CompileTimeValue):
+                     src_addr, num_tiles, start_id):
         # Reader kernel code here
         return
 
     # Define writer kernel
     @writer_thread()
     def writer_kernel(cb_in: CircularBuffer, cb_out: CircularBuffer,
-                     dst_addr, num_tiles, start_id,
-                     dst_is_dram: CompileTimeValue):
+                     dst_addr, num_tiles, start_id):
         # Writer kernel code here
         return
 
@@ -94,7 +92,6 @@ class MyCustomOp(PyKernelOp):
 
         # Prepare parameters for kernels
         start_id = 0
-        is_dram = in_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
         num_tiles = options["num_tiles"]
 
         # Create kernels with appropriate parameters
@@ -110,14 +107,14 @@ class MyCustomOp(PyKernelOp):
                 cb_in, cb_out,
                 out_tensor.buffer_address(),
                 num_tiles, start_id,
-                dst_is_dram=is_dram
+                tensor_accessor_configs=[out_tensor],
             ),
             self.create_kernel(
                 MyCustomOp.reader_kernel,
                 cb_in, cb_out,
                 in_tensor.buffer_address(),
                 num_tiles, start_id,
-                src_is_dram=is_dram
+                tensor_accessor_configs=[in_tensor],
             )
         ]
 
@@ -284,15 +281,12 @@ def writer_multicore(
     dst_addr,
     num_tiles,
     start_id,
-    dst_is_dram: CompileTimeValue,
 ):
     onetile = 1
     tile_bytes = get_tile_size(cb_out)
-    dataformat = get_dataformat(cb_out)
 
-    s0 = get_interleaved_addr_gen_fast(
-        dst_is_dram, dst_addr, tile_bytes, dataformat
-    )
+    tensor_accessor_args = TensorAccessorArgs(cta_base=1, crta_base=0)
+    s0 = TensorAccessor(tensor_accessor_args, dst_addr, tile_bytes)
 
     end_id = start_id + num_tiles
     for i in range(start_id, end_id, onetile):
@@ -315,23 +309,17 @@ def reader_binary_interleaved(
     src_addr1,
     num_tiles,
     start_id,
-    src0_is_dram: CompileTimeValue,
-    src1_is_dram: CompileTimeValue,
 ):
     onetile = 1
     tile_bytes0 = get_tile_size(cb_in0)
-    dataformat0 = get_dataformat(cb_in0)
 
-    s0 = get_interleaved_addr_gen_fast(
-        src0_is_dram, src_addr0, tile_bytes0, dataformat0
-    )
+    tensor_accessor_args = TensorAccessorArgs(cta_base=2, crta_base=0)
+    s0 = TensorAccessor(tensor_accessor_args, src_addr0, tile_bytes0)
 
     tile_bytes1 = get_tile_size(cb_in1)
-    dataformat1 = get_dataformat(cb_in1)
 
-    s1 = get_interleaved_addr_gen_fast(
-        src1_is_dram, src_addr1, tile_bytes1, dataformat1
-    )
+    tensor_accessor_args = TensorAccessorArgs(cta_base=3, crta_base=0)
+    s1 = TensorAccessor(tensor_accessor_args, src_addr1, tile_bytes1)
 
     end_id = start_id + num_tiles
     for i in range(start_id, end_id, onetile):
@@ -360,11 +348,6 @@ def invoke(self, a_tensor, b_tensor, out_tensor):
     cb_in0 = self.create_cb(a_tensor, 0)
     cb_in1 = self.create_cb(b_tensor, 1)
     cb_out = self.create_cb(out_tensor, 2)
-
-    # Set up parameters
-    is_a_dram = a_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
-    is_b_dram = b_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
-    is_out_dram = out_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
 
     num_tiles = ceil(max(map(lambda t: t.volume(), [a_tensor, b_tensor, out_tensor])) / 1024)
     num_cores = self.get_core_ranges().num_cores()
@@ -396,7 +379,7 @@ def invoke(self, a_tensor, b_tensor, out_tensor):
             out_tensor.buffer_address(),
             num_tiles_per_core,
             start_id_multicore,
-            dst_is_dram=is_out_dram,
+            tensor_accessor_configs=[out_tensor],
         ),
         self.create_kernel(
             VecAddMulticorePyKernelOp.reader_binary_interleaved,
@@ -406,8 +389,7 @@ def invoke(self, a_tensor, b_tensor, out_tensor):
             b_tensor.buffer_address(),
             num_tiles_per_core,
             start_id_multicore,
-            src0_is_dram=is_a_dram,
-            src1_is_dram=is_b_dram,
+            tensor_accessor_configs=[a_tensor, b_tensor],
         ),
     ]
 

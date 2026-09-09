@@ -1,8 +1,8 @@
 // RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection %s | FileCheck %s
 
 // Simple check to ensure we get valid metal_layout for each size.
-// We want to ensure dim_alignments round up to 256 (on 8x8) if the physical shape is > 8 after tilizing.
-// Otherwise it should just be tile size (32).
+// We want to ensure dim_alignments stay tile-sized for small layouts and scale with
+// the final selected grid when a dimension is split across several cores.
 
 // CHECK-DAG: #[[LAYOUT_SMALL:.*]] = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, {{.*}}>
 // CHECK-DAG: #[[LAYOUT_MEDIUM:.*]] = #ttcore.metal_layout<logical_shape = 128x96, dim_alignments = 32x32, {{.*}}>
@@ -17,7 +17,7 @@
 // CHECK-DAG: #[[LAYOUT_NONALIGNED_2D:.*]] = #ttcore.metal_layout<logical_shape = 100x100, dim_alignments = 32x32, {{.*}}>
 // CHECK-DAG: #[[LAYOUT_NONALIGNED_3D_LARGE_H:.*]] = #ttcore.metal_layout<logical_shape = 5x37x11, dim_alignments = 256x32x32, {{.*}}>
 // CHECK-DAG: #[[LAYOUT_NONALIGNED_3D_LARGE_W:.*]] = #ttcore.metal_layout<logical_shape = 3x61x419, dim_alignments = 1x32x256, {{.*}}>
-// CHECK-DAG: #[[LAYOUT_NONALIGNED_4D:.*]] = #ttcore.metal_layout<logical_shape = 1x19x1x1, dim_alignments = 256x1x32x32, {{.*}}>
+// CHECK-DAG: #[[LAYOUT_NONALIGNED_4D:.*]] = #ttcore.metal_layout<logical_shape = 1x19x1x1, dim_alignments = 192x1x32x32, {{.*}}>
 
 module {
   // CHECK-LABEL: func @test_alignment_rules

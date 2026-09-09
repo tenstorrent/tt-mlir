@@ -18,7 +18,6 @@ class ReduceType(Enum):
 
 
 class MeshShardType(Enum):
-    Identity = ttcore.ir.MeshShardType.Identity
     Replicate = ttcore.ir.MeshShardType.Replicate
     Maximal = ttcore.ir.MeshShardType.Maximal
     Devices = ttcore.ir.MeshShardType.Devices
@@ -27,3 +26,9 @@ class MeshShardType(Enum):
 class MeshShardDirection(Enum):
     FullToShard = ttcore.ir.MeshShardDirection.FullToShard
     ShardToFull = ttcore.ir.MeshShardDirection.ShardToFull
+
+
+class AttentionMaskType(Enum):
+    NoMask = ttcore.ir.AttentionMaskType.NoMask
+    Causal = ttcore.ir.AttentionMaskType.Causal
+    Arbitrary = ttcore.ir.AttentionMaskType.Arbitrary

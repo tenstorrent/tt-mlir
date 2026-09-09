@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttcore-register-device --ttcore-mark-functions-as-forward --ttnn-operation-validation-and-fallback %s -o %t.mlir
+// RUN: ttmlir-opt --ttcore-register-device --ttcore-mark-functions-as-forward --ttnn-operation-validation-and-fallback %s --mlir-print-local-scope -o %t.mlir
 // RUN: FileCheck %s --input-file %t.mlir
 
 #dram = #ttnn.buffer_type<dram>
@@ -15,11 +15,11 @@ module attributes {} {
     // and automatically insert layout conversion for tile input.
     // Also, the output layout of upsample op will be the same as input layout, so revert it back to the expected layout.
 
-    // CHECK: "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK-NEXT: "ttnn.upsample"
-    // CHECK-NEXT: "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<tile>
+    // CHECK-NEXT: "ttnn.to_tensor_spec"
+    // CHECK-SAME: -> tensor<4x64x128x3xbf16,
+    // CHECK-SAME: !ttcore.tile<32x32,
 
     %1 = "ttnn.upsample"(%arg0) <{mode = "nearest", scale_factor = 2 : si32}> : (tensor<4x32x64x3xbf16, #ttnn_layout_tile_input>) -> tensor<4x64x128x3xbf16, #ttnn_layout_tile_output>
 

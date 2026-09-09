@@ -8,15 +8,24 @@ from conftest import get_request_kwargs
 from typing import Callable, List, Optional, Tuple
 from collections import OrderedDict
 
-from ttmlir.ir import StringAttr
+from ttmlir.ir import DictAttr, FloatAttr, IntegerAttr, IntegerType, StringAttr
 from ttmlir.dialects import stablehlo
 
 from builder.base.builder_utils import Operand, Shape
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_apis import compile_and_execute_shlo
-from test_utils import shape_str, Marks
+from test_utils import shape_str, Marks, SkipIf
 
 pytestmark = pytest.mark.frontend("shlo")
+
+
+def check_op(mlir_file: str, op_name: str) -> bool:
+    op_name = "ttnn." + op_name
+    with open(mlir_file, "r") as f:
+        for line in f:
+            if op_name in line:
+                return True
+    return False
 
 
 def module_abs(builder: StableHLOBuilder):
@@ -231,6 +240,132 @@ def module_composite(builder: StableHLOBuilder):
             "jit_eltwise_add.my_add",
             [lhs, rhs],
             decomposition=add_impl,
+            unit_attrs=unit_attrs,
+        )
+
+
+def module_layernorm_fw_composite(builder: StableHLOBuilder):
+    shape = (1, 1, 128, 256)
+    param_shape = (1, 1, 1, 256)
+
+    @builder.func([shape, param_shape, param_shape], [torch.bfloat16] * 3)
+    def layernorm_fw_impl(
+        input: Operand,
+        weight: Operand,
+        bias: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        stats = builder.slice(input, [0, 0, 0, 0], [1, 1, 128, 1], [1, 1, 1, 1])
+        return input, stats, stats
+
+    layernorm_fw_impl.sym_visibility = StringAttr.get("private")
+    builder._nested_funcs.append(layernorm_fw_impl.name.value)
+
+    @builder.func([shape, param_shape, param_shape], [torch.bfloat16] * 3)
+    def layernorm_fw(
+        input: Operand,
+        weight: Operand,
+        bias: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        composite_attributes = DictAttr.get({"epsilon": FloatAttr.get_f32(1e-05)})
+        return builder.composite(
+            "tenstorrent.layernorm_fw",
+            [input, weight, bias],
+            decomposition=layernorm_fw_impl,
+            composite_attributes=composite_attributes,
+            unit_attrs=unit_attrs,
+        )
+
+
+def module_sdpa_fw_composite(builder: StableHLOBuilder):
+    shape = (1, 8, 64, 64)
+
+    @builder.func([shape, shape, shape], [torch.bfloat16] * 3)
+    def sdpa_fw_impl(
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return query
+
+    sdpa_fw_impl.sym_visibility = StringAttr.get("private")
+    builder._nested_funcs.append(sdpa_fw_impl.name.value)
+
+    @builder.func([shape, shape, shape], [torch.bfloat16] * 3)
+    def sdpa_fw(
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        composite_attributes = DictAttr.get(
+            {
+                "mask_type": IntegerAttr.get(IntegerType.get_signless(32), 1),
+                "dropout_probability": FloatAttr.get_f32(0.0),
+            }
+        )
+        return builder.composite(
+            "tenstorrent.sdpa_fw",
+            [query, key, value],
+            decomposition=sdpa_fw_impl,
+            composite_attributes=composite_attributes,
+            unit_attrs=unit_attrs,
+        )
+
+
+def module_sdpa_bw_composite(builder: StableHLOBuilder):
+    shape = (1, 8, 64, 64)
+    intermediates_shape = (1, 8, 64, 32)
+    input_shapes = [shape, shape, shape, shape, shape, intermediates_shape]
+    input_types = [torch.bfloat16] * 5 + [torch.float32]
+
+    @builder.func(input_shapes, input_types)
+    def sdpa_bw_impl(
+        grad_output: Operand,
+        attn_output: Operand,
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        intermediates: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return query, key, value
+
+    sdpa_bw_impl.sym_visibility = StringAttr.get("private")
+    builder._nested_funcs.append(sdpa_bw_impl.name.value)
+
+    @builder.func(input_shapes, input_types)
+    def sdpa_bw(
+        grad_output: Operand,
+        attn_output: Operand,
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        intermediates: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        composite_attributes = DictAttr.get(
+            {
+                "mask_type": IntegerAttr.get(IntegerType.get_signless(32), 1),
+                "dropout_probability": FloatAttr.get_f32(0.0),
+            }
+        )
+        return builder.composite(
+            "tenstorrent.sdpa_bw",
+            [grad_output, attn_output, query, key, value, intermediates],
+            decomposition=sdpa_bw_impl,
+            composite_attributes=composite_attributes,
             unit_attrs=unit_attrs,
         )
 
@@ -712,6 +847,11 @@ def test_sort(
     request,
     device,
 ):
+    if is_stable:
+        pytest.xfail(
+            "stable=True is not implemented in ttnn::sort: https://github.com/tenstorrent/tt-metal/issues/33492"
+        )
+
     def module(builder: StableHLOBuilder):
         @builder.func([shape], [dtype])
         def sort(
@@ -1400,7 +1540,7 @@ def test_max_pool_2d(
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitc"])
 def test_avg_pool_2d(
     shape: Shape,
     dtype: torch.dtype,
@@ -1516,6 +1656,11 @@ def module_batch_norm_grad(builder: StableHLOBuilder):
         unit_attrs: Optional[List[str]] = None,
     ):
         builder.set_graph_level_check(True)
+        # variance must be non-negative (it represents E[(x-mean)^2]).
+        # torch.randn can produce negative values causing sqrt(negative) = NaN.
+        builder.set_goldens(
+            {variance: torch.rand(builder.get_shape(variance), dtype=torch.float32)}
+        )
         return builder.batch_norm_grad(
             operand,
             scale,
@@ -1888,6 +2033,73 @@ def test_all_gather(target: str, request, device):
     )
 
 
+# Update computation body options for scatter: (factory(current, update) -> OpResult).
+_SCATTER_UPDATE_OPTIONS = {
+    "replace": lambda current_val, update_val: update_val,
+    "add": lambda current_val, update_val: stablehlo.AddOp(
+        current_val, update_val
+    ).result,
+}
+
+
+@pytest.mark.parametrize(
+    "input_shape,indices_shape,updates_shape",
+    [
+        ((8,), (3,), (3,)),
+        ((4, 8), (2, 1), (2, 8)),
+        ((32, 64), (4, 1), (4, 64)),
+    ],
+)
+@pytest.mark.parametrize("update_mode", list(_SCATTER_UPDATE_OPTIONS.keys()))
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_scatter(
+    input_shape: Shape,
+    indices_shape: Shape,
+    updates_shape: Shape,
+    update_mode: str,
+    target: str,
+    request,
+    device,
+):
+    if len(input_shape) > 1 and update_mode == "add":
+        pytest.skip(
+            "2D scatter with add mode not supported by TTIR embedding_backward lowering"
+        )
+
+    update_fn = _SCATTER_UPDATE_OPTIONS[update_mode]
+
+    def module_scatter(builder: StableHLOBuilder):
+        @builder.func([input_shape], [torch.float32])
+        def scatter_func(in0: Operand, builder: StableHLOBuilder):
+            builder.set_graph_level_check(True)
+            indices = builder.constant(torch.zeros(indices_shape, dtype=torch.int32))
+            updates = builder.constant(torch.ones(updates_shape, dtype=torch.float32))
+
+            if len(input_shape) == 1:
+                update_window_dims = []
+            else:
+                update_window_dims = [1]
+            return builder.scatter(
+                inputs=[in0],
+                scatter_indices=indices,
+                updates=[updates],
+                update_window_dims=update_window_dims,
+                inserted_window_dims=[0],
+                scattered_dims_to_operand_dims=[0],
+                index_vector_dim=1,
+                update_computation=update_fn,
+                indices_are_sorted=False,
+                unique_indices=False,
+            )
+
+    compile_and_execute_shlo(
+        module_scatter,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 @pytest.mark.parametrize(
     "shapes,stride,padding,dilation,groups",
     [
@@ -2171,6 +2383,39 @@ def test_composite_op(target: str, request, device):
     )
 
 
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_layernorm_fw_composite(target: str, request, device):
+    compile_and_execute_shlo(
+        module_layernorm_fw_composite,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_sdpa_fw_composite(target: str, request, device):
+    compile_and_execute_shlo(
+        module_sdpa_fw_composite,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_sdpa_bw_composite(target: str, request, device):
+    compile_and_execute_shlo(
+        module_sdpa_bw_composite,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+    )
+
+
 # ----- Reduce Operation -----
 
 # Body op -> (factory(acc, cur) -> OpResult, identity-init scalar value, torch dtype).
@@ -2226,3 +2471,330 @@ def test_reduce_op(body_op: str, target: str, request, device):
         target=target,
         device=device,
     )
+
+
+# tt-metal's ttnn.transformer.flash_mla_prefill silently drops the
+# attention_mask whenever use_mla=true.
+# Tracked upstream: https://github.com/tenstorrent/tt-metal/issues/43239
+_MLA_MASK_UNSUPPORTED = pytest.mark.xfail(
+    reason="tt-metal flash_mla_prefill ignores attn_mask when use_mla=true. "
+    "Tracked upstream: tt-metal#43239.",
+    strict=False,
+)
+
+
+# Causal MLA-from-latent (no value, no mask): exercises has_value=false,
+# has_attention_mask=false and the head_dim_v <= qk head size branch.
+@pytest.mark.parametrize(
+    "shapes,head_dim_v,scale",
+    [
+        # Hq=Hkv=8 (vanilla MHA).
+        ([(1, 8, 32, 128), (1, 8, 32, 128)], 64, 0.08838834764831845),
+        # Hq=16, Hkv=1 (full MLA collapse).
+        ([(1, 16, 32, 128), (1, 1, 32, 128)], 64, 0.08838834764831845),
+        # 4:1 GQA, head_dim_v == qk head size (boundary).
+        ([(2, 8, 64, 128), (2, 2, 64, 128)], 128, 0.08838834764831845),
+    ],
+    ids=["mha", "mla_collapse", "gqa_head_dim_equal_qk"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+def test_flash_mla_prefill_causal_no_value(
+    shapes: List[Shape],
+    head_dim_v: int,
+    scale: float,
+    target: str,
+    device,
+    request,
+):
+    dtypes = [torch.bfloat16] * len(shapes)
+
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, dtypes)
+        def flash_mla_prefill_causal_no_value(
+            query: Operand,
+            key: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.flash_mla_prefill(
+                query,
+                key,
+                head_dim_v=head_dim_v,
+                is_causal=True,
+                scale=scale,
+                unit_attrs=unit_attrs,
+            )
+
+    output = compile_and_execute_shlo(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+        save_artifacts=True,
+    )
+
+    check_op(output, "flash_mla_prefill")
+
+
+# Causal with explicit value: exercises has_value=true.
+@pytest.mark.parametrize(
+    "shapes,head_dim_v,scale",
+    [
+        # Hq=Hkv (MHA) with value.
+        ([(1, 8, 32, 128), (1, 8, 32, 128), (1, 8, 32, 64)], 64, 0.08838834764831845),
+        # GQA 4:1 with value.
+        ([(2, 8, 64, 128), (2, 2, 64, 128), (2, 2, 64, 96)], 96, 0.08838834764831845),
+    ],
+    ids=["mha_with_value", "gqa_with_value"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+def test_flash_mla_prefill_causal_with_value(
+    shapes: List[Shape],
+    head_dim_v: int,
+    scale: float,
+    target: str,
+    device,
+    request,
+):
+    dtypes = [torch.bfloat16] * len(shapes)
+
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, dtypes)
+        def flash_mla_prefill_causal_with_value(
+            query: Operand,
+            key: Operand,
+            value: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.flash_mla_prefill(
+                query,
+                key,
+                head_dim_v=head_dim_v,
+                value=value,
+                is_causal=True,
+                scale=scale,
+                unit_attrs=unit_attrs,
+            )
+
+    output = compile_and_execute_shlo(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+        save_artifacts=True,
+    )
+
+    check_op(output, "flash_mla_prefill")
+
+
+# Non-causal with attention mask (no value): exercises has_attention_mask=true,
+# the mutually-exclusive (mask, is_causal) path, and mask broadcast shapes.
+@pytest.mark.parametrize(
+    "shapes,mask_shape,head_dim_v,scale",
+    [
+        # Full mask broadcast (1, 1, Sq, Sq).
+        ([(1, 16, 32, 128), (1, 1, 32, 128)], (1, 1, 32, 32), 64, 0.08838834764831845),
+        # Per-batch mask (B, 1, Sq, Sq).
+        ([(2, 16, 32, 128), (2, 1, 32, 128)], (2, 1, 32, 32), 64, 0.08838834764831845),
+        # Per-head mask (1, Hq, Sq, Sq).
+        ([(1, 16, 32, 128), (1, 1, 32, 128)], (1, 16, 32, 32), 64, 0.08838834764831845),
+    ],
+    ids=["mask_broadcast_batch_and_heads", "mask_per_batch", "mask_per_head"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+@_MLA_MASK_UNSUPPORTED
+def test_flash_mla_prefill_with_mask(
+    shapes: List[Shape],
+    mask_shape: Shape,
+    head_dim_v: int,
+    scale: float,
+    target: str,
+    device,
+    request,
+):
+    all_shapes = shapes + [mask_shape]
+    dtypes = [torch.bfloat16] * len(all_shapes)
+
+    def module(builder: StableHLOBuilder):
+        @builder.func(all_shapes, dtypes)
+        def flash_mla_prefill_with_mask(
+            query: Operand,
+            key: Operand,
+            attention_mask: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.flash_mla_prefill(
+                query,
+                key,
+                head_dim_v=head_dim_v,
+                attention_mask=attention_mask,
+                is_causal=False,
+                scale=scale,
+                unit_attrs=unit_attrs,
+            )
+
+    output = compile_and_execute_shlo(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+        save_artifacts=True,
+    )
+
+    check_op(output, "flash_mla_prefill")
+
+
+# All four operands present (query, key, value, mask) with explicit scale.
+@pytest.mark.parametrize(
+    "shapes,head_dim_v,scale",
+    [
+        ([(2, 8, 64, 128), (2, 1, 64, 128), (2, 1, 64, 96), (2, 1, 64, 64)], 96, 0.125),
+        (
+            [(1, 16, 32, 128), (1, 1, 32, 128), (1, 1, 32, 64), (1, 1, 32, 32)],
+            64,
+            0.08838834764831845,
+        ),
+    ],
+    ids=["mla_value_mask_scale_b2", "mla_value_mask_scale_b1"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+@_MLA_MASK_UNSUPPORTED
+def test_flash_mla_prefill_value_mask_scale(
+    shapes: List[Shape],
+    head_dim_v: int,
+    scale: float,
+    target: str,
+    device,
+    request,
+):
+    dtypes = [torch.bfloat16] * len(shapes)
+
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, dtypes)
+        def flash_mla_prefill_value_mask_scale(
+            query: Operand,
+            key: Operand,
+            value: Operand,
+            attention_mask: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.flash_mla_prefill(
+                query,
+                key,
+                head_dim_v=head_dim_v,
+                value=value,
+                attention_mask=attention_mask,
+                is_causal=False,
+                scale=scale,
+                unit_attrs=unit_attrs,
+            )
+
+    output = compile_and_execute_shlo(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+        save_artifacts=True,
+    )
+
+    check_op(output, "flash_mla_prefill")
+
+
+# DeepSeek Sparse Attention lightning-indexer scorer (stablehlo.custom_call
+# @tt.indexer_score_dsa -> ttcore.composite -> ttnn.indexer_score_dsa).
+#
+# Two lowering paths:
+#   * on Blackhole with batch_size == 1:
+#       shlo.custom_call -> ttcore.composite -> ttnn.indexer_score_dsa
+#   * otherwise:
+#       shlo.custom_call -> ttcore.composite -> decomposed into ttnn primitives
+#       (matmul/relu/multiply/sum + causal mask)
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        # query [B, Hi, Sq, D], key [B, 1, T, D], weights [B, Hi, Sq, 1].
+        # T = 2*Sq so the query chunk can sit at a nonzero offset within the
+        # key sequence (see chunk_start_idx derivation below).
+        # Batch = 1: exercises the lowering to ttnn.indexer_score_dsa path
+        # on BH
+        [(1, 8, 64, 128), (1, 1, 128, 128), (1, 8, 64, 1)],
+        # Batch > 1; exercises the batched decomposition path.
+        [(2, 8, 32, 128), (2, 1, 64, 128), (2, 8, 32, 1)],
+    ],
+    ids=["single_batch", "multi_batch"],
+)
+@pytest.mark.parametrize("is_chunked", [False, True], ids=["dense", "chunked"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+def test_indexer_score_dsa(
+    shapes: List[Shape],
+    is_chunked: bool,
+    target: str,
+    device,
+    request,
+    system_desc,
+):
+    dtypes = [torch.bfloat16] * len(shapes)
+
+    # chunk_start_idx is the global position of the first query within the
+    # length-T key sequence; key t is visible to query s iff
+    # t <= chunk_start_idx + s. The query chunk spans
+    # [chunk_start_idx, chunk_start_idx + Sq), which must fit inside [0, T),
+    # i.e. chunk_start_idx <= T - Sq.
+    #   - dense:   chunk_start_idx = 0, the chunk is the first Sq keys.
+    #   - chunked: chunk_start_idx = T - Sq, the chunk is the most recent Sq
+    #              keys of a longer history.
+    query_seq_len = shapes[0][2]  # Sq
+    key_seq_len = shapes[1][2]  # T
+    chunk_start_idx = (key_seq_len - query_seq_len) if is_chunked else 0
+
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, dtypes)
+        def indexer_score_dsa(
+            query: Operand,
+            key: Operand,
+            weights: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.indexer_score_dsa(
+                query,
+                key,
+                weights,
+                chunk_start_idx=chunk_start_idx,
+                unit_attrs=unit_attrs,
+            )
+
+    ttir_pipeline_options = ["optimization-level=1"]
+
+    # See https://github.com/tenstorrent/tt-mlir/issues/9121
+    if target == "emitc":
+        ttir_pipeline_options.append("enable-const-eval=false")
+
+    output = compile_and_execute_shlo(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        save_artifacts=True,
+        ttir_pipeline_options=ttir_pipeline_options,
+    )
+
+    batch_size = shapes[0][0]
+    expect_typed_op = system_desc.get_arch() == "Blackhole" and batch_size == 1
+
+    # The promoted typed op appears in a target-specific form
+    typed_op_marker = {
+        "ttnn": "ttnn.indexer_score_dsa",
+        "emitc": "ttnn::experimental::indexer_score_dsa",
+        "emitpy": "ttnn.experimental.indexer_score_dsa",
+    }[target]
+    with open(output, "r") as f:
+        has_typed_op = any(typed_op_marker in line for line in f)
+    assert has_typed_op == expect_typed_op

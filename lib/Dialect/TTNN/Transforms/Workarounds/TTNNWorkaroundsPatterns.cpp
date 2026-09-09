@@ -10,15 +10,18 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllGatherOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpDimRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CollectiveReshapeOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dEnableKernelStrideFoldingRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/FillCacheInputPadRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GatherOpRank1RewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormChannelPadRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/IntegerProdOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MoeGptLayoutRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PadHighDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern.h"
@@ -26,12 +29,11 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PointToPointOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RMSNormConfigRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterConfigRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SamplingOpRank2RewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeAttentionSinkRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SliceStaticOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/TopKRouterGptDecompositionRewritePattern.h"
@@ -79,8 +81,9 @@ static void revertOutputLayout(wa::TTNNWorkaroundInterface &op,
   // Insert the toLayoutOp after the op output.
   rewriter.setInsertionPointAfter(op);
 
-  // Cast the data type back to the previous data type by inserting ToLayoutOp.
-  mlir::Value castLayoutOp = utils::createToLayoutOp(
+  // Cast the data type back to the previous data type by inserting
+  // ToTensorSpecOp.
+  mlir::Value castLayoutOp = utils::createToTensorSpecOp(
       op.getOperation(), newOpResult, rewriter,
       workaroundResults.tensorLayoutResult.previousValue,
       workaroundResults.tensorBufferTypeResult.previousValue,
@@ -116,20 +119,28 @@ static bool workaroundInputOperand(
     return false;
   }
 
-  // Apply the workarounds on the input operand by inserting the ToLayoutOp with
-  // the desired tensor layout, buffer type and memory layout.
-  mlir::Value insertedToLayoutOpValue = utils::createToLayoutOp(
+  // Apply the workarounds on the input operand by inserting the ToTensorSpecOp
+  // with the desired tensor layout, buffer type and memory layout.
+  mlir::Value insertedToTensorSpecOp = utils::createToTensorSpecOp(
       op.getOperation(), inputValue, rewriter,
       inputWorkaroundResults.tensorLayoutResult.targetValue,
       inputWorkaroundResults.tensorBufferTypeResult.targetValue,
       inputWorkaroundResults.tensorMemoryLayoutResult.targetValue,
       inputWorkaroundResults.tensorDataTypeResult.targetValue, "_workaround");
 
+  // When the operand is a const-eval'able constant whose L1 residency is
+  // intended, tag the inserted op so ConstEvalHoist permits hoisting it
+  // despite the L1-resident result.
+  if (inputWorkaround.allowL1ConstEval) {
+    insertedToTensorSpecOp.getDefiningOp()->setAttr(
+        utils::g_ConstEvalAllowedAttrName, rewriter.getUnitAttr());
+  }
+
   // Insert to layout op between the current op and the input operand
   // to convert the input operand to the desired tensor layout, buffer type.
   rewriter.modifyOpInPlace(op, [&]() {
     // Update the input operand with the new toLayout op operand.
-    op->setOperand(inputOperand.getOperandNumber(), insertedToLayoutOpValue);
+    op->setOperand(inputOperand.getOperandNumber(), insertedToTensorSpecOp);
   });
 
   return true;
@@ -199,27 +210,7 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
   rewriter.modifyOpInPlace(op, [&]() {
     opResult.setType(newOutputResultType);
 
-    // Some ops defines attributes with tensor layout, buffer type and memory
-    // layout, hence we need to update the attributes as well. For example,
-    // the empty op defines layout and memory_config attributes.
-    TTNNLayoutOpInterface layoutOp =
-        mlir::dyn_cast<TTNNLayoutOpInterface>(op.getOperation());
-    if (outputWorkaroundResults.tensorLayoutResult.isModified() && layoutOp) {
-      LayoutAttr updatedLayoutAttr = rewriter.getAttr<LayoutAttr>(
-          outputWorkaroundResults.tensorLayoutResult.targetValue);
-      layoutOp.setLayoutAttr(updatedLayoutAttr);
-    }
-
-    TTNNDtypeOpInterface dtypeOp =
-        mlir::dyn_cast<TTNNDtypeOpInterface>(op.getOperation());
-    if (outputWorkaroundResults.tensorDataTypeResult.isModified() && dtypeOp) {
-      ttcore::DataTypeAttr updatedDataTypeAttr =
-          rewriter.getAttr<ttcore::DataTypeAttr>(
-              outputWorkaroundResults.tensorDataTypeResult.targetValue);
-      dtypeOp.setDtypeAttr(updatedDataTypeAttr);
-    }
-
-    // The buffer type / memory layout changes are already encoded in the
+    // The buffer type / memory layout / page layout changes are encoded in the
     // result tensor's TTNNLayoutAttr (set above).
     TTNNDeviceOperandInterface deviceOperandOp =
         mlir::dyn_cast<TTNNDeviceOperandInterface>(op.getOperation());
@@ -284,9 +275,10 @@ public:
       return failure();
     }
 
-    // To layout op is a special case, we don't want to rewrite it. We use it
-    // to apply workarounds to the operands and results of TTNN operations.
-    if (mlir::isa<ttnn::ToLayoutOp>(op.getOperation())) {
+    // The aggregate to_tensor_spec op is a special case, we don't want to
+    // rewrite it. We use it to apply workarounds to the operands and results of
+    // TTNN operations.
+    if (mlir::isa<ttnn::ToTensorSpecOp>(op.getOperation())) {
       return failure();
     }
 
@@ -340,206 +332,6 @@ private:
   const std::set<mlir::StringRef> *enabledOps;
 };
 
-// Two workarounds are implemented here to avoid issues in ttnn
-//
-// 1. all_reduce ops are broken down into reduce_scatter and all_gather ops
-// because current support of all_reduce in TTNN is not stable.
-// 2. We prefer using the last tensor dimensions for reduce_scatter.
-// In transformers, trailing dimensions are typically larger, which gives better
-// utilization.
-// 3. The selected tensor dimension must be divisible by the number of devices
-// along the cluster axis used for all_reduce. For tiled layout, this
-// divisibility is checked in per-dimension tile counts.
-class TTNNAllReduceWorkarounds : public OpRewritePattern<ttnn::AllReduceOp> {
-public:
-  using OpRewritePattern<ttnn::AllReduceOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttnn::AllReduceOp op,
-                                PatternRewriter &rewriter) const override {
-    RankedTensorType inputType =
-        mlir::cast<RankedTensorType>(op.getInput().getType());
-    Location loc = op.getLoc();
-    uint32_t clusterAxis = op.getClusterAxis();
-    auto deviceDesc = ttcore::lookupDevice(op);
-    ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
-
-    // Algorithm: iterate through all tensor dimension values and select the
-    // last tensor dimension which is divisible by number of devices along the
-    // cluster axis on which we are performing the all reduce.
-    // For tiled layout, this divisibility check is done on per-dim tile counts.
-    auto sizeOfDevices = meshShape[clusterAxis];
-    auto inputShape = inputType.getShape();
-    auto inputLayout = utils::getLayoutAttrFromTensor(inputType);
-    llvm::SmallVector<int64_t> shapeInTileCounts(inputShape.begin(),
-                                                 inputShape.end());
-    llvm::SmallVector<int64_t> tilePaddedShape;
-    if (inputLayout.isTiled()) {
-      tilePaddedShape = utils::getTilePaddedShape(shapeInTileCounts);
-      if (!shapeInTileCounts.empty()) {
-        shapeInTileCounts[shapeInTileCounts.size() - 1] =
-            tilePaddedShape[shapeInTileCounts.size() - 1] / TILE_WIDTH;
-      }
-      if (shapeInTileCounts.size() > 1) {
-        shapeInTileCounts[shapeInTileCounts.size() - 2] =
-            tilePaddedShape[shapeInTileCounts.size() - 2] / TILE_HEIGHT;
-      }
-    }
-
-    int64_t selectedDim = -1;
-    for (int64_t dim = shapeInTileCounts.size() - 1; dim >= 0; --dim) {
-      if (shapeInTileCounts[dim] % sizeOfDevices == 0) {
-        selectedDim = dim;
-        break;
-      }
-    }
-
-    if (selectedDim < 0) {
-      // If all the dimensions are not evenly divisible by the number of
-      // devices in the cluster, use the all-gather + local reduce breakdown
-      // approach.
-      return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
-    }
-
-    Value reduceScatterInput = op.getInput();
-    RankedTensorType reduceScatterInputType = inputType;
-
-    // If the input is tiled and selectedDim is one of the tile-sensitive dims,
-    // pad first so the reduce_scatter split produces equal-sized slices on each
-    // device.
-    if (inputLayout.isTiled() &&
-        selectedDim >= static_cast<int64_t>(inputShape.size()) - 2 &&
-        inputShape[selectedDim] != tilePaddedShape[selectedDim]) {
-      llvm::SmallVector<int32_t> padding(inputShape.size() * 2, 0);
-      padding[selectedDim * 2 + 1] =
-          tilePaddedShape[selectedDim] - inputShape[selectedDim];
-
-      llvm::SmallVector<int64_t> paddedShape(inputShape.begin(),
-                                             inputShape.end());
-      paddedShape[selectedDim] = tilePaddedShape[selectedDim];
-      auto paddedType =
-          ttnn::utils::RankedTensorTypeFactory::create(inputType, paddedShape);
-
-      reduceScatterInput = rewriter.create<ttnn::PadOp>(
-          ttmlir::utils::appendLocationSuffix(loc, "_pad_for_reduce_scatter"),
-          paddedType, op.getInput(), padding, /*pad_value=*/mlir::APFloat(0.0f),
-          /*use_multicore=*/false);
-      reduceScatterInputType = paddedType;
-    }
-
-    // TODO(wooseoklee): Once ttnn supports all_reduce op
-    // (https://github.com/tenstorrent/tt-metal/issues/13835), we can
-    // convert directly to ttnn.all_reduce.
-
-    // Build reduce_scatter output type.
-    llvm::SmallVector<int64_t> reduceScatterShape(
-        reduceScatterInputType.getShape().begin(),
-        reduceScatterInputType.getShape().end());
-    reduceScatterShape[selectedDim] =
-        reduceScatterShape[selectedDim] / meshShape[clusterAxis];
-    auto reduceScatterOutputType = ttnn::utils::RankedTensorTypeFactory::create(
-        reduceScatterInputType, reduceScatterShape);
-
-    // Create a new reducer scatter op.
-    ttnn::ReduceScatterOp reduceScatterOp =
-        rewriter.create<ttnn::ReduceScatterOp>(
-            ttmlir::utils::appendLocationSuffix(loc, "_reduce_scatter"),
-            reduceScatterOutputType, reduceScatterInput, op.getReduceType(),
-            selectedDim, clusterAxis, nullptr, nullptr, nullptr, nullptr);
-
-    // all_gather restores the reduce_scatter input shape.
-    auto allGatherOutputType = ttnn::utils::RankedTensorTypeFactory::create(
-        reduceScatterInputType, reduceScatterInputType.getShape());
-    ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_all_gather"),
-        allGatherOutputType, reduceScatterOp.getResult(), selectedDim,
-        clusterAxis, nullptr /*sub_device_id*/, nullptr /*num_links*/,
-        nullptr /*topology*/);
-
-    // If padding was added, crop back to the original shape.
-    if (reduceScatterInputType.getShape() != inputType.getShape()) {
-      llvm::SmallVector<int32_t> begins(inputShape.size(), 0);
-      llvm::SmallVector<int32_t> ends(inputShape.begin(), inputShape.end());
-      llvm::SmallVector<int32_t> steps(inputShape.size(), 1);
-      auto sliceOp = rewriter.create<ttnn::SliceStaticOp>(
-          ttmlir::utils::appendLocationSuffix(loc,
-                                              "_slice_for_reduce_scatter_pad"),
-          op.getType(), allGatherOp.getResult(),
-          rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
-          rewriter.getI32ArrayAttr(steps));
-      rewriter.replaceOp(op, sliceOp.getResult());
-    } else {
-      rewriter.replaceOp(op, allGatherOp.getResult());
-    }
-    return success();
-  }
-
-private:
-  LogicalResult
-  rewriteAsAllGatherLocalReduce(ttnn::AllReduceOp op,
-                                ::llvm::ArrayRef<int64_t> meshShape,
-                                PatternRewriter &rewriter) const {
-    RankedTensorType inputType = op.getInput().getType();
-    Location loc = op.getLoc();
-    uint32_t clusterAxis = op.getClusterAxis();
-
-    // Use allGather + Reduce breakdown.
-    // Increase the rank of the current input shape by 1.
-    ArrayRef<int64_t> inputTypeShape = inputType.getShape();
-    llvm::SmallVector<int64_t> expandedInputShape = {1};
-    expandedInputShape.append(inputTypeShape.begin(), inputTypeShape.end());
-    ArrayAttr reshapedInputShapeAttr =
-        rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
-            expandedInputShape.begin(), expandedInputShape.end()));
-    RankedTensorType reshapedInputType =
-        ttnn::utils::RankedTensorTypeFactory::create(inputType,
-                                                     expandedInputShape);
-
-    ttnn::ReshapeOp leadingReshapeOp = rewriter.create<ttnn::ReshapeOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_reshape"), reshapedInputType,
-        op.getInput(), reshapedInputShapeAttr);
-
-    // Create a new all gather op.
-    expandedInputShape[0] = meshShape[clusterAxis];
-    RankedTensorType allGatherOutputType =
-        ttnn::utils::RankedTensorTypeFactory::create(reshapedInputType,
-                                                     expandedInputShape);
-    ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
-        allGatherOutputType, leadingReshapeOp.getResult(), 0, clusterAxis,
-        nullptr /*sub_device_id*/, nullptr /*num_links*/, nullptr /*topology*/);
-    // Create a new reduce op.
-    ArrayAttr reduceDimAttr =
-        rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>{0});
-    switch (op.getReduceType()) {
-    case ttcore::ReduceType::Sum:
-      rewriter.replaceOpWithNewOp<ttnn::SumOp>(op, op.getType(), allGatherOp,
-                                               false, reduceDimAttr);
-      break;
-    case ttcore::ReduceType::Mean:
-      rewriter.replaceOpWithNewOp<ttnn::MeanOp>(op, op.getType(), allGatherOp,
-                                                false, reduceDimAttr);
-      break;
-    case ttcore::ReduceType::Max:
-      rewriter.replaceOpWithNewOp<ttnn::MaxOp>(op, op.getType(), allGatherOp,
-                                               false, reduceDimAttr);
-      break;
-    case ttcore::ReduceType::Min:
-      rewriter.replaceOpWithNewOp<ttnn::MinOp>(op, op.getType(), allGatherOp,
-                                               false, reduceDimAttr);
-      break;
-    case ttcore::ReduceType::Std:
-      return op.emitOpError() << "std is not supported";
-    case ttcore::ReduceType::Var:
-      return op.emitOpError() << "var is not supported";
-    case ttcore::ReduceType::Prod:
-      return op.emitOpError() << "prod is not supported";
-    case ttcore::ReduceType::Invalid:
-      return op.emitOpError() << "invalid is not supported";
-    }
-    return success();
-  }
-};
-
 // This pattern wraps an si32-indexed gather in a fill-style mask, modeled
 // on what JAX emits for `jax.lax.gather(..., mode='fill')`:
 //
@@ -589,8 +381,8 @@ public:
         ttmlir::utils::appendLocationSuffix(loc, "_clamp"), indexType,
         op.getIndex(), zero.getResult());
 
-    // %safe_u32 = ttnn.to_layout(%safe, dtype = ui32)
-    ttnn::ToLayoutOp safeIdxU32 = ttnn::utils::createToLayoutOp(
+    // %safe_u32 = ttnn.to_layout(%safe) -> ui32
+    ttnn::ToTensorSpecOp safeIdxU32 = ttnn::utils::createToTensorSpecOp(
         op.getOperation(),
         mlir::cast<mlir::TypedValue<RankedTensorType>>(safeIdx.getResult()),
         rewriter, indexLayout.getLayout(), indexLayout.getBufferType(),
@@ -639,15 +431,25 @@ public:
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<
-          GatherSi32Workaround, TTNNAllReduceWorkarounds,
+          GatherSi32Workaround,
+          workarounds::decomposition::GatherOpRank1RewritePattern,
+          workarounds::decomposition::SamplingOpRank2RewritePattern,
+          workarounds::decomposition::TTNNCollectiveReshapeWorkaround<
+              ttnn::AllReduceOp>,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
-          workarounds::decomposition::TTNNReduceScatterWorkarounds,
-          workarounds::decomposition::TTNNScatterWorkarounds,
+          workarounds::decomposition::TTNNCollectiveReshapeWorkaround<
+              ttnn::ReduceScatterOp>,
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
+          workarounds::decomposition::GroupNormChannelPadRewritePattern,
           workarounds::decomposition::GroupNormAffineReshapeRewritePattern,
-          workarounds::decomposition::ArgMaxOpDimRewritePattern,
+          workarounds::decomposition::IntegerProdOpRewritePattern,
           workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
           workarounds::decomposition::RotaryEmbeddingOpRewritePattern,
+          workarounds::decomposition::FillCacheInputPadRewritePattern<
+              ttnn::FillCacheOp>,
+          workarounds::decomposition::FillCacheInputPadRewritePattern<
+              ttnn::PagedFillCacheOp>,
+          workarounds::decomposition::Conv2dRewritePattern<Conv1dOp>,
           workarounds::decomposition::Conv2dRewritePattern<Conv2dOp>,
           workarounds::decomposition::Conv2dRewritePattern<ConvTranspose2dOp>,
           workarounds::decomposition::
@@ -665,6 +467,8 @@ public:
           workarounds::decomposition::
               ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern,
           workarounds::decomposition::
+              PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern,
+          workarounds::decomposition::
               ScaledDotProductAttentionPadTileDimsRewritePattern,
           workarounds::decomposition::PointToPointOpRewritePattern,
           workarounds::decomposition::RMSNormConfigRewritePattern,
@@ -672,27 +476,22 @@ public:
               DistributedRMSNormWidthShardInputRewritePattern,
           workarounds::decomposition::ReduceScatterConfigRewritePattern,
           workarounds::decomposition::TopKRouterGptDecompositionRewritePattern,
-          workarounds::decomposition::
-              AllToAllDispatchMetadataDrainCoreRewritePattern,
           workarounds::decomposition::SliceStaticOpRewritePattern,
-          workarounds::decomposition::ConcatOpRewritePattern>(&getContext());
+          workarounds::decomposition::MoeGptLayoutRewritePattern>(
+          &getContext());
       patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
           &getContext(), /*benefit=*/2);
 
       // PagedUpdateCacheOpRewritePattern is only needed below opt-level 2.
-      // At level >= 2 the greedy sharding optimizer (PagedUpdateCacheRuleBook
-      // constraint sink) drives the upstream producer to L1 height-sharded
-      // and inserts a proper ToMemoryConfigOp via beam search.
+      // At level >= 2 the greedy sharding optimizer drives the upstream
+      // producer to L1 height-sharded and inserts a proper ToMemoryConfigOp
+      // via beam search: metal's own grid TT_FATAL (tt-metal #45016) makes the
+      // constraint query reject any other operand-1 layout.
       if (optimizationLevel < 2) {
         patterns
             .add<workarounds::decomposition::PagedUpdateCacheOpRewritePattern>(
                 &getContext());
       }
-
-      patterns.add<
-          workarounds::decomposition::
-              PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern>(
-          &getContext(), optimizationLevel);
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
@@ -748,5 +547,47 @@ const std::set<mlir::StringRef>
         ttnn::ScatterOp::getOperationName(),
         // TopK's operands workaround forces input bf16 + indices ui16/ui32;
         // without it, opt_level>=1 dtype propagation picks f32. See #8141.
-        ttnn::TopKOp::getOperationName()};
+        ttnn::TopKOp::getOperationName(),
+        // FlashMlaPrefill's operands workaround forces Q/K/V/output to a
+        // tt-metal SDPA-supported dtype (bf16). Without it, opt_level>=1 leaves
+        // f32 operands
+        ttnn::FlashMlaPrefillOp::getOperationName(),
+        // SDPA prefill/decode kernels TT_FATAL on non-bf16 inputs
+        // (sdpa_device_operation.cpp). Their operands workaround narrows
+        // Q/K/V/mask/output f32->bf16. Without it at opt_level>=1 the f32 op
+        // reaches the layout optimizer, whose op-model queries reject every
+        // f32 candidate -> a huge failing-query search. See #8141 (TopK has
+        // the same rationale).
+        ttnn::ScaledDotProductAttentionOp::getOperationName(),
+        ttnn::ScaledDotProductAttentionDecodeOp::getOperationName(),
+        // The moe_compute weight packers and the op itself require
+        // layout and data type workarounds.
+        ttnn::PrepareMoEComputeW0W1WeightsOp::getOperationName(),
+        ttnn::PrepareMoEComputeW2WeightsOp::getOperationName(),
+        ttnn::MoeComputeOp::getOperationName(),
+        // Conv3d's runtime kernel hard-rejects Tile input
+        // (TT_FATAL @ conv3d_device_operation.cpp:49); without the
+        // workaround running here, the optimizer's layout propagation
+        // picks Tile for the input and downstream OpModel queries
+        // (LegalOpConfigAnalysis, OperationValidationAndFallback) see
+        // an inconsistent view between in-IR layouts and runtime
+        // contract.
+        ttnn::Conv3dOp::getOperationName(),
+        // Sampling's operands workaround forces ROW_MAJOR layout on
+        // index/param tensors, UINT32 dtype on k, and ROW_MAJOR+UINT32 on
+        // the result (the kernel hard-rejects anything else and produces
+        // UINT32).
+        ttnn::SamplingOp::getOperationName(),
+        // MoE ops have layout and dtype workarounds needed for
+        // optimization_level >= 1
+        ttnn::AllToAllDispatchOp::getOperationName(),
+        ttnn::AllToAllDispatchMetadataOp::getOperationName(),
+        ttnn::AllToAllCombineOp::getOperationName(),
+        ttnn::MoeExpertTokenRemapOp::getOperationName(),
+        ttnn::SparseMatmulOp::getOperationName(),
+        // ArgMax is intentionally absent: at opt-level >= 1 ArgMaxRuleBook's
+        // RowMajor input siblings supply its ROW_MAJOR input (tt-metal #46340).
+        // SDPABackwardOp is temporarily enabled to restrict the dtype to bf16:
+        // https://github.com/tenstorrent/tt-mlir/issues/9233
+        ttnn::SDPABackwardOp::getOperationName()};
 } // namespace mlir::tt::ttnn

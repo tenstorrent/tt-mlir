@@ -2,12 +2,46 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
+#include <nanobind/stl/vector.h>
 #include <variant>
 
 namespace mlir::ttmlir::python {
 
+static std::vector<int64_t>
+collectWriteEffectOperandIndices(mlir::Operation *op) {
+  std::vector<int64_t> indices;
+  auto iface = mlir::dyn_cast<mlir::MemoryEffectOpInterface>(op);
+  if (!iface) {
+    return indices;
+  }
+
+  llvm::SmallVector<mlir::MemoryEffects::EffectInstance> effects;
+  iface.getEffects(effects);
+
+  for (const auto &eff : effects) {
+    if (!mlir::isa<mlir::MemoryEffects::Write>(eff.getEffect())) {
+      continue;
+    }
+    if (mlir::OpOperand *operand = eff.getEffectValue<mlir::OpOperand *>()) {
+      indices.push_back(static_cast<int64_t>(operand->getOperandNumber()));
+    }
+  }
+  return indices;
+}
+
 void populateUtilModule(nb::module_ &m) {
+  m.def(
+      "get_write_effect_operand_indices",
+      [](MlirOperation op) {
+        return collectWriteEffectOperandIndices(unwrap(op));
+      },
+      nb::arg("op"),
+      "Operand indices that the op declares MemoryEffects::Write on. "
+      "Returns an empty list if the op does not implement "
+      "MemoryEffectOpInterface or declares no write effects.");
+
   m.def("debug_print_module", [](MlirModule module) {
     std::string source;
     llvm::raw_string_ostream os(source);

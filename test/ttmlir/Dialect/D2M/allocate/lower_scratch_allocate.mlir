@@ -41,7 +41,8 @@ func.func @single_scratch_store_load() {
 }
 
 // --- Test 2: Two conflicting scratch_allocates ---
-// Both slots are alive at the same time, so they cannot be packed together.
+// Both slots are written then read with interleaved use ranges, so their live
+// ranges genuinely overlap and they cannot be packed together.
 // Sorted by size descending: slot 1 (2 tiles) then slot 0 (1 tile).
 // slot 1 -> offset 0, slot 0 -> offset 2.
 
@@ -65,11 +66,11 @@ func.func @two_scratch_conflicting() {
     %scratch = memref.alloc() {d2m.scratch_buffer} : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     d2m.scratch_init %scratch : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     %c0 = arith.constant 0 : index
+    %seed = memref.load %alloc_cb3[%c0, %c0] : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
 
-    // Slot 0 (1 tile) is defined first and last-used before slot 1's last use,
-    // but their live ranges overlap so they cannot share storage.
-    // Sorted by size descending: slot 1 (2 tiles) gets offset 0,
-    // slot 0 (1 tile) cannot pack inside it and gets offset 2.
+    // Sorted by size descending: slot 1 (2 tiles) gets offset 0, slot 0
+    // (1 tile) cannot pack inside it because their use spans interleave
+    // (store s0, store s1, load s0, load s1) and gets offset 2.
     // CHECK: %[[SV0:.*]] = memref.subview %[[SCRATCH]][0, 2] [1, 1] [1, 1]
     // CHECK-SAME: to memref<1x!ttcore.tile<32x32, f32>
     %s0 = d2m.scratch_allocate {slot = 0 : i64} : memref<1x!ttcore.tile<32x32, f32>, #l1>
@@ -78,9 +79,12 @@ func.func @two_scratch_conflicting() {
     // CHECK-SAME: to memref<2x!ttcore.tile<32x32, f32>
     %s1 = d2m.scratch_allocate {slot = 1 : i64} : memref<2x!ttcore.tile<32x32, f32>, #l1>
 
-    %tile = memref.load %s0[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1>
-    memref.store %tile, %s0[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1>
-    memref.store %tile, %s1[%c0] : memref<2x!ttcore.tile<32x32, f32>, #l1>
+    memref.store %seed, %s0[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1>
+    memref.store %seed, %s1[%c0] : memref<2x!ttcore.tile<32x32, f32>, #l1>
+    %t0 = memref.load %s0[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1>
+    %t1 = memref.load %s1[%c0] : memref<2x!ttcore.tile<32x32, f32>, #l1>
+    memref.store %t1, %alloc_cb4[%c0, %c0] : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    memref.store %t0, %alloc_cb4[%c0, %c0] : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
   }
   // CHECK-NOT: d2m.scratch_allocate
   return
@@ -138,10 +142,10 @@ func.func @packing_non_conflicting() {
 }
 
 // --- Test 4: Allocation between in-place read and write ---
-// Slot 0 is read, then slot 1 is allocated before slot 0 is written in place.
-// The two equal-sized slots cannot share storage because slot 0 remains live
-// across slot 1's allocation.
-// Tie-breaking by slot id makes slot 0 offset 0 and slot 1 offset 2.
+// Slot 0 is read, then slot 1 is allocated and used before slot 0 is written
+// in place. Slot 0's last store happens after slot 1's only use, so under
+// use-based liveness the two equal-sized slots overlap and cannot share
+// storage. Tie-breaking by slot id makes slot 0 offset 0 and slot 1 offset 2.
 
 // CHECK-LABEL: func.func @allocation_between_in_place_read_write
 func.func @allocation_between_in_place_read_write() {
@@ -178,10 +182,12 @@ func.func @allocation_between_in_place_read_write() {
     // CHECK-SAME: to memref<2x!ttcore.tile<32x32, f32>
     %s1 = d2m.scratch_allocate {slot = 1 : i64} : memref<2x!ttcore.tile<32x32, f32>, #l1>
 
-    // CHECK: memref.store %[[TILE]], %[[SV0]][%{{.*}}]
+    // s1 is stored to first, then s0 receives its in-place write, so
+    // s0's live range strictly contains s1's.
     // CHECK: memref.store %[[TILE]], %[[SV1]][%{{.*}}]
-    memref.store %tile, %s0[%c0] : memref<2x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK: memref.store %[[TILE]], %[[SV0]][%{{.*}}]
     memref.store %tile, %s1[%c0] : memref<2x!ttcore.tile<32x32, f32>, #l1>
+    memref.store %tile, %s0[%c0] : memref<2x!ttcore.tile<32x32, f32>, #l1>
   }
   // CHECK-NOT: d2m.scratch_allocate
   return

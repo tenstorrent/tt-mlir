@@ -36,21 +36,14 @@ void run(const ::tt::target::ttnn::GroupNormOp *op, ProgramContext &context) {
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
 
-  // Get core_grid: use compile-time value from flatbuffer if present,
-  // otherwise fallback to device grid size (required by ttnn::group_norm)
-  const auto *coreGridFb = op->core_grid();
-  auto grid_size =
-      coreGridFb ? tt::tt_metal::CoreCoord(coreGridFb->x(), coreGridFb->y())
-                 : input.device()->compute_with_storage_grid_size();
-  ::ttnn::CoreGrid core_grid(grid_size.x, grid_size.y);
-
   // Call TTNN group norm operation
   ::ttnn::Tensor output = ::ttnn::group_norm(
       input, num_groups, epsilon, input_mask, weight, bias,
       /*reciprocals=*/std::nullopt, memoryConfig,
-      /*dtype=*/std::nullopt, core_grid,
+      /*dtype=*/std::nullopt, /*core_grid=*/std::nullopt,
       /*inplace=*/std::nullopt, /*output_layout=*/std::nullopt,
-      /*num_out_blocks=*/-1, /*compute_kernel_config=*/std::nullopt,
+      /*num_out_blocks=*/std::nullopt,
+      /*compute_kernel_config=*/std::nullopt,
       /*negative_mask=*/std::nullopt,
       /*use_welford=*/false);
 

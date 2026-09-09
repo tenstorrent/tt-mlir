@@ -53,6 +53,29 @@ struct Conv2dRuleBook : OpRuleBook {
       llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
 };
 
+//===----------------------------------------------------------------------===//
+// Conv3d rules:
+//
+// Output hints:
+//   Full legal configs with Conv3dConfig (no shard-layout embedding — Conv3d
+//   is interleaved-only today). Must forward the configs so Conv3dConfig
+//   (incl. --override-conv3d-config) survives into the chosen candidate.
+//
+// Op-specific attributes:
+//   Set Conv3dConfig + DeviceComputeKernelConfig from candidate.
+//===----------------------------------------------------------------------===//
+
+struct Conv3dRuleBook : OpRuleBook {
+  /// Output hints: full legal configs with Conv3dConfig.
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+
+  /// Apply Conv3dConfig + DeviceComputeKernelConfig from candidate.
+  void applyOpSpecificAttrs(Operation *op,
+                            const BeamCandidate &candidate) const override;
+};
+
 /// Set L1Full slice config on all Conv2d ops before validation.
 void applyConvSliceConfig(ModuleOp moduleOp);
 

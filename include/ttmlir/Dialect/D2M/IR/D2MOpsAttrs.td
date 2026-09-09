@@ -21,20 +21,23 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
   let summary = "Thread information for a generic op.";
   let description = [{
     Holds the thread information corresponding to a single generic op region.
-    For datamovement threads, processorIndex indicates the assigned hardware
-    datamovement processor. ProcessorIndex 0 is a mapped to NoC1 and
-    ProcessorIndex 1 is mapped to NoC0.
+    For data movement threads, `dmCoreIndex` indicates the assigned hardware DM
+    core.
+
+    The default DM core -> NoC mapping is defined in getDmCoreDefaultNoc:
+    on Wormhole/Blackhole DM core 1 maps to NoC0 and DM core 0 maps to NoC1;
+    on Quasar every DM core maps to NoC0.
 
     A value of -1 means unassigned.
   }];
   let parameters = (ins
     "ThreadType":$threadType,
     OptionalParameter<"SymbolRefAttr">:$kernelSymbol,
-    DefaultValuedParameter<"int32_t", "-1">:$processorIndex
+    DefaultValuedParameter<"int32_t", "-1">:$dmCoreIndex
   );
 
   // Format: `<` threadType (`,` kernelSymbol)?
-  //             (`,` `processor` `=` processorIndex)? `>`.
+  //             (`,` `dm_core` `=` dmCoreIndex)? `>`.
   // The optional groups all start with `,`, which the declarative format cannot
   // disambiguate when kernelSymbol is absent, so we hand-roll the parser to
   // peek for the keyword after a comma and pick the right branch.
@@ -52,5 +55,58 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
 }
 
 def D2M_ThreadArrayAttr : TypedArrayAttrBase<D2M_ThreadAttr, "">;
+
+def D2M_TopKPlacementAttr : AttrDef<D2M_Dialect, "TopKPlacement", [], "::mlir::Attribute"> {
+  let mnemonic = "topk_placement";
+  let summary = "One buffer of a multi-core topk, already placed on cores.";
+  let description = [{
+    A single buffer of a planned topk, with its grid already folded onto
+    physical cores by `d2m-grid-selection`.
+
+    `type` is the finished device type, carried verbatim because its dim
+    alignments come from a grid-dependent search that a logical shape plus a
+    grid cannot reproduce.
+
+    `grid` is the consuming `d2m.generic`'s grid. `vgmForward`/`vgmInverse` are
+    the wider `d2m.empty` virtual grid mapping over grid and shard dims, absent
+    when the grid needs neither virtualization nor a spatial-region offset.
+  }];
+  let parameters = (ins
+    "RankedTensorType":$type,
+    "::mlir::tt::ttcore::GridAttr":$grid,
+    OptionalParameter<"::mlir::AffineMapAttr">:$vgmForward,
+    OptionalParameter<"::mlir::AffineMapAttr">:$vgmInverse
+  );
+
+  let assemblyFormat = [{ `<` struct(params) `>` }];
+}
+
+def D2M_TopKPlanAttr : AttrDef<D2M_Dialect, "TopKPlan", [], "::mlir::Attribute"> {
+  let mnemonic = "topk_plan";
+  let summary = "How a topk is split across the worker grid, and where every buffer lands.";
+  let description = [{
+    Written by `d2m-grid-selection` onto the placeholder leaf `d2m.generic`, and
+    consumed by `d2m-build-topk-chain`, which erases that leaf and re-emits the
+    whole chain from here. It is the whole handoff, so the chain build derives
+    no shape and folds nothing, single core or not. The laid-out input grid
+    selection emits itself stays out of it, since only what is left to build
+    travels here.
+
+    `numShards` bands the reduction dim, `ntShards` slices the non-target dim.
+    `mergeSchedule` holds the group count surviving *after* each merge round,
+    outermost first, so its last element is always 1.
+
+    `placements` is consumed in order, so it must stay in the order
+    `planTopKBuffers` builds it.
+  }];
+  let parameters = (ins
+    "int64_t":$numShards,
+    "int64_t":$ntShards,
+    ArrayRefParameter<"int64_t">:$mergeSchedule,
+    ArrayRefParameter<"TopKPlacementAttr">:$placements
+  );
+
+  let assemblyFormat = [{ `<` struct(params) `>` }];
+}
 
 #endif // TTMLIR_D2M_DIALECT_D2M_IR_D2MOPSATTRS_TD

@@ -28,6 +28,7 @@ from ttmlir.passes import (
     stablehlo_pipeline,
     stablehlo_to_ttir_pipeline,
     ttir_to_emitpy_pipeline,
+    ttir_to_emitc_pipeline,
     ttnn_to_flatbuffer_bin,
     ttmetal_to_flatbuffer_bin,
     ttnn_to_flatbuffer_file,
@@ -204,6 +205,7 @@ def build_module(
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
     artifact_dir: str = ".",
+    system_desc_path: Optional[str] = None,
 ) -> Tuple[Module, Union[TTIRBuilder, StableHLOBuilder, TTNNBuilder, D2MBuilder]]:
     """
     Build an MLIR `Module` from a Python emission function using the chosen builder.
@@ -223,6 +225,9 @@ def build_module(
         When True, writes the emitted module to `artifact_dir`.
     artifact_dir : str
         Directory to write artifacts if `save_artifacts` is True.
+    system_desc_path : Optional[str]
+        Path to the system descriptor file (e.g., "ttrt-artifacts/system_desc.ttsys").
+        If provided, the builder will use it to calculate canonical core placements.
 
     Returns
     -------
@@ -239,13 +244,21 @@ def build_module(
         loc = Location.unknown(ctx)
 
     if builder_type == "ttir":
-        builder = TTIRBuilder(ctx, loc, mesh_name, mesh_dict)
+        builder = TTIRBuilder(
+            ctx, loc, mesh_name, mesh_dict, system_desc_path=system_desc_path
+        )
     elif builder_type == "stablehlo":
-        builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_dict)
+        builder = StableHLOBuilder(
+            ctx, loc, mesh_name, mesh_dict, system_desc_path=system_desc_path
+        )
     elif builder_type == "ttnn":
-        builder = TTNNBuilder(ctx, loc, mesh_name, mesh_dict)
+        builder = TTNNBuilder(
+            ctx, loc, mesh_name, mesh_dict, system_desc_path=system_desc_path
+        )
     elif builder_type == "d2m":
-        builder = D2MBuilder(ctx, loc, mesh_name, mesh_dict)
+        builder = D2MBuilder(
+            ctx, loc, mesh_name, mesh_dict, system_desc_path=system_desc_path
+        )
 
     with ctx, loc:
         new_module = _compile(mod, builder)
@@ -488,6 +501,8 @@ def compile_and_execute_shlo(
         enable_intermediate_verification=enable_intermediate_verification,
         dump_memory=dump_memory,
     )
+
+    return os.path.join(artifact_dir, f"{target}_compiled.mlir")
 
 
 def compile_and_execute_ttnn(
@@ -816,6 +831,7 @@ def compile_ttir_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            system_desc_path=system_desc_path,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -902,6 +918,7 @@ def compile_ttnn_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            system_desc_path=system_desc_path,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -1002,6 +1019,7 @@ def compile_d2m_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            system_desc_path=system_desc_path,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -1121,6 +1139,7 @@ def compile_stablehlo_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            system_desc_path=system_desc_path,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -1253,8 +1272,21 @@ def compile_ttir_module_to_flatbuffer(
         If an unsupported target is specified
     """
 
-    if pipeline_options is None:
-        pipeline_options = []
+    pipeline_options = list(pipeline_options or [])
+    if (
+        target == "ttmetal"
+        and os.environ.get("TT_METAL_SIMULATOR")
+        and os.environ.get("ARCH_NAME") == "wormhole_b0"
+        and custom_pipeline is None
+        and not any(
+            option.startswith("override-device-shape=") for option in pipeline_options
+        )
+    ):
+        # Wormhole TTSim currently reports a 10x8 grid. Keep D2M compilation on
+        # the usable 9x8 grid until the simulator system descriptor reports it
+        # correctly.
+        # tracking issue: https://github.com/tenstorrent/tt-mlir/issues/9241
+        pipeline_options.append("override-device-shape=9,8")
 
     if type(custom_pipeline) is str:
         custom_pipeline = create_custom_ttir_pipeline_fn(
@@ -1290,11 +1322,10 @@ def compile_ttir_module_to_flatbuffer(
         to_file = ttmetal_to_flatbuffer_file
         target_extension = "ttm"
     elif target == "emitc":
-        ttir_to_ttnn_emitc_pipeline = create_custom_ttir_pipeline_fn(
-            "ttir-to-emitc-pipeline", print_ir=print_ir
-        )
         pipeline_fn = (
-            custom_pipeline if custom_pipeline else ttir_to_ttnn_emitc_pipeline
+            custom_pipeline
+            if custom_pipeline
+            else wrap_pipeline_with_print_ir(ttir_to_emitc_pipeline)
         )
         to_target = emitc_to_executable
         target_extension = "cpp"

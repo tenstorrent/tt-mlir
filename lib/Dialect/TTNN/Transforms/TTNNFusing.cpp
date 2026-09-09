@@ -3,12 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "llvm/ADT/SmallVector.h"
 
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/SDPAFusingPattern.h"
@@ -174,6 +178,142 @@ private:
   }
 };
 
+namespace {
+bool hasInterveningWrite(Value value, Operation *from, Operation *to) {
+  if (from->getBlock() != to->getBlock()) {
+    return true;
+  }
+
+  for (Operation *op = from->getNextNode(); op && op != to;
+       op = op->getNextNode()) {
+    auto memoryEffectOp = dyn_cast<MemoryEffectOpInterface>(op);
+    if (!memoryEffectOp) {
+      continue;
+    }
+
+    SmallVector<MemoryEffects::EffectInstance> effects;
+    memoryEffectOp.getEffects(effects);
+    if (llvm::any_of(effects, [&](const auto &effect) {
+          if (!isa<MemoryEffects::Write>(effect.getEffect())) {
+            return false;
+          }
+
+          Value writtenValue = effect.getValue();
+          return !writtenValue || writtenValue == value;
+        })) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+class TTNNBinaryOpInputsActivation
+    : public mlir::OpInterfaceRewritePattern<ElementwiseBinaryActivations> {
+  using TTNNBinaryOpInputsActivation::OpInterfaceRewritePattern<
+      ElementwiseBinaryActivations>::OpInterfaceRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ElementwiseBinaryActivations binaryOpWithActivations,
+                  mlir::PatternRewriter &rewriter) const final {
+    auto binaryOp =
+        mlir::cast<ElementwiseBinary>(binaryOpWithActivations.getOperation());
+    bool isFused = false;
+
+    if (auto lhsUnaryOp =
+            getFusableUnaryOp(binaryOp.getLhs(), binaryOp.getOperation())) {
+      fuseInputActivation(lhsUnaryOp, binaryOpWithActivations, rewriter,
+                          /*isLhs=*/true);
+      isFused = true;
+    }
+
+    if (auto rhsUnaryOp =
+            getFusableUnaryOp(binaryOp.getRhs(), binaryOp.getOperation())) {
+      fuseInputActivation(rhsUnaryOp, binaryOpWithActivations, rewriter,
+                          /*isLhs=*/false);
+      isFused = true;
+    }
+
+    return mlir::success(isFused);
+  }
+
+private:
+  ElementwiseUnary getFusableUnaryOp(Value operand, Operation *binaryOp) const {
+    if (!operand.hasOneUse()) {
+      return {};
+    }
+
+    auto unaryOp = operand.getDefiningOp<ElementwiseUnary>();
+    if (unaryOp && unaryOp.getUnaryOpType() != UnaryOpType::Unknown &&
+        !hasInterveningWrite(unaryOp.getInput(), unaryOp.getOperation(),
+                             binaryOp)) {
+      return unaryOp;
+    }
+
+    return {};
+  }
+
+  void fuseInputActivation(ElementwiseUnary unaryOp,
+                           ElementwiseBinaryActivations binaryOp,
+                           mlir::PatternRewriter &rewriter, bool isLhs) const {
+    rewriter.modifyOpInPlace(binaryOp.getOperation(), [&]() {
+      if (isLhs) {
+        binaryOp.addInputTensorAActivation(unaryOp.getUnaryOpType(),
+                                           unaryOp.getParams());
+      } else {
+        binaryOp.addInputTensorBActivation(unaryOp.getUnaryOpType(),
+                                           unaryOp.getParams());
+      }
+      rewriter.replaceOp(unaryOp, unaryOp.getInput());
+    });
+  }
+};
+} // namespace
+
+namespace {
+class TTNNBinaryOpOutputActivation
+    : public mlir::OpInterfaceRewritePattern<ElementwiseUnary> {
+  using TTNNBinaryOpOutputActivation::OpInterfaceRewritePattern<
+      ElementwiseUnary>::OpInterfaceRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ElementwiseUnary unaryOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    if (!isFusable(unaryOp)) {
+      return failure();
+    }
+
+    auto binaryOp = getFusableBinaryOp(unaryOp.getInput());
+    if (!binaryOp) {
+      return failure();
+    }
+
+    rewriter.modifyOpInPlace(binaryOp, [&]() {
+      binaryOp.addActivation(unaryOp.getUnaryOpType(), unaryOp.getParams());
+      binaryOp->getResult(0).setType(unaryOp->getResult(0).getType());
+    });
+    rewriter.replaceOp(unaryOp, unaryOp.getInput());
+
+    return mlir::success();
+  }
+
+private:
+  bool isFusable(ElementwiseUnary unaryOp) const {
+    return unaryOp.getUnaryOpType() != UnaryOpType::Unknown;
+  }
+
+  ElementwiseBinaryActivations getFusableBinaryOp(Value operand) const {
+    if (!operand.hasOneUse()) {
+      return {};
+    }
+
+    return operand.getDefiningOp<ElementwiseBinaryActivations>();
+  }
+};
+} // namespace
+
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 // ============================================================================
@@ -186,9 +326,14 @@ private:
 //   permute([1, 2, 0, 3])  :  [S, B, H, D] -> [B, H, S, D]
 //   reshape                 :  [B, H, S, D] -> [B, H*D]  (or similar collapse)
 //
-// This sequence shuffles the multi-head attention output back into a single
-// hidden dimension. It is replaced by the optimized hardware op
-// nlp_concat_heads_decode which performs:
+// Canonicalization may fold the permute into a reshape when S==1 (since only
+// size-1 dims move). In that case the pattern becomes:
+//
+//   reshape                 :  [S=1, B, H, D] -> [B, H, 1, D]
+//   reshape                 :  [B, H, 1, D]   -> [B, H*D]
+//
+// Both variants are matched. The sequence is replaced by the optimized
+// hardware op nlp_concat_heads_decode which performs:
 //
 //   [S, B, H_padded, D] -> [S, 1, B, num_heads * D]
 //
@@ -206,21 +351,66 @@ public:
   mlir::LogicalResult
   matchAndRewrite(ReshapeOp reshapeOp,
                   mlir::PatternRewriter &rewriter) const override {
-    auto permuteOp = reshapeOp.getInput().getDefiningOp<PermuteOp>();
-    if (!permuteOp) {
-      return failure();
+    // `reshapeOp` is the head-collapse reshape ([B, H, 1, D] -> [B, H*D]). Walk
+    // back through any dtype typecasts and an optional NaN-safe row-zeroing
+    // `where` to the head reorder. The reorder is [S, B, H, D] -> [B, H, S, D],
+    // expressed either as ttnn.permute([1, 2, 0, 3]) or — for decode (S == 1) —
+    // the shape-only ttnn.reshape it canonicalizes to (a [1,2,0,3] permute that
+    // only relocates the unit seq dim is rewritten to a reshape, see
+    // PermuteOp::getCanonicalizationPatterns).
+    Value beforeCollapse =
+        ttmlir::utils::lookThrough<TypecastOp>(reshapeOp.getInput());
+
+    // Optional NaN-safe scrub: where(cond, replacement, data). The attention
+    // output flows through getThird(); record the op so it can be re-applied
+    // after the concat.
+    WhereOp scrub = beforeCollapse.getDefiningOp<WhereOp>();
+    Value reorderResult =
+        scrub ? ttmlir::utils::lookThrough<TypecastOp>(scrub.getThird())
+              : beforeCollapse;
+
+    // Match the reorder and recover its [S, B, H, D] input.
+    Value input;
+    if (auto permuteOp = reorderResult.getDefiningOp<PermuteOp>()) {
+      if (!llvm::equal(permuteOp.getPermutation(),
+                       ArrayRef<int64_t>(kConcatHeadsDecodePermutation))) {
+        return failure();
+      }
+      input = permuteOp.getInput();
+    } else if (auto reorderReshape = reorderResult.getDefiningOp<ReshapeOp>()) {
+      auto inTy =
+          mlir::dyn_cast<RankedTensorType>(reorderReshape.getInput().getType());
+      auto outTy = mlir::dyn_cast<RankedTensorType>(reorderReshape.getType());
+      if (!inTy || !outTy || inTy.getRank() != 4 || outTy.getRank() != 4) {
+        return failure();
+      }
+      // Equivalent to permute([1, 2, 0, 3]) with S == 1: in [S,B,H,D] maps to
+      // out [B,H,S,D].
+      ArrayRef<int64_t> in = inTy.getShape();
+      ArrayRef<int64_t> out = outTy.getShape();
+      if (in[0] != 1 || out[0] != in[1] || out[1] != in[2] || out[2] != in[0] ||
+          out[3] != in[3]) {
+        return failure();
+      }
+      input = reorderReshape.getInput();
+    } else {
+      // Merged form: a [1, 2, 0, 3] permute that only relocates the unit seq
+      // dim is canonicalized to a reshape and then folded into this collapse
+      // (PermuteOp::getCanonicalizationPatterns + foldConsecutiveReshape), so
+      // there is no separate reorder op — `reshapeOp` itself collapses
+      // [1, B, H, D] -> [B, H*D] and `reorderResult` is the [S, B, H, D] input.
+      auto inTy = mlir::dyn_cast<RankedTensorType>(reorderResult.getType());
+      auto outTy = mlir::dyn_cast<RankedTensorType>(reshapeOp.getType());
+      if (!inTy || !outTy || inTy.getRank() != 4 || outTy.getRank() != 2 ||
+          inTy.getShape()[0] != 1 ||
+          outTy.getShape()[0] != inTy.getShape()[1] ||
+          outTy.getShape()[1] != inTy.getShape()[2] * inTy.getShape()[3]) {
+        return failure();
+      }
+      input = reorderResult;
     }
 
-    // Check permutation is [1, 2, 0, 3].
-    auto permutation = permuteOp.getPermutation();
-    if (!llvm::equal(permutation,
-                     ArrayRef<int64_t>(kConcatHeadsDecodePermutation))) {
-      return failure();
-    }
-
-    Value input = permuteOp.getInput();
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
-
     auto inputShape = inputType.getShape();
     int64_t seqLen = inputShape[0];
     int64_t batchSize = inputShape[1];
@@ -242,16 +432,92 @@ public:
       return failure();
     }
 
+    // The op height-shards the batch one shard per core, so batchSize must fit
+    // the worker grid; beyond that the sharded layout built below asserts in
+    // deriveCanonicalL1CoreRangeSet.
+    ttcore::DeviceAttr device = ttcore::lookupDevice(reshapeOp);
+    int64_t workerGridVolume =
+        ttmlir::utils::volume(device.getWorkerGrid().getShape());
+    if (batchSize > workerGridVolume) {
+      return failure();
+    }
+
+    // Ops created below are rolled back if op-model validation declines the
+    // fused op (the greedy rewriter does not auto-revert on failure()).
+    SmallVector<Operation *> createdOps;
+    Value opInput = input;
+
+    // Re-apply the NaN-safe scrub on the op's [S, B, H, D] input. The scrub ran
+    // on the reordered [B, H, 1, D] tensor with a [B, H, 1, 1] condition
+    // (broadcast over head_dim) and a splat replacement, so it zeroes whole
+    // (B, H) heads — which commutes with both the reorder and the head concat.
+    // The condition is reshaped to [S, B, H, 1] to match the pre-reorder
+    // layout.
+    if (scrub) {
+      Value cond = scrub.getFirst();
+      Value replacement = scrub.getSecond();
+      auto condType = mlir::dyn_cast<RankedTensorType>(cond.getType());
+      auto replType = mlir::dyn_cast<RankedTensorType>(replacement.getType());
+      if (!condType || !replType || condType.getRank() != 4) {
+        return failure();
+      }
+      // Soundness guard: condition per-batch and broadcast over the seq and
+      // head_dim axes, with a splat replacement. The head axis may be either
+      // per-head (numHeads) or broadcast over heads (1) — broadcasting is sound
+      // too, as it zeroes all of a batch's heads uniformly, which still
+      // commutes with the reorder and head concat. Otherwise the commute is
+      // invalid.
+      ArrayRef<int64_t> condShape = condType.getShape();
+      int64_t condHeads = condShape[1];
+      if (condShape[0] != batchSize ||
+          (condHeads != numHeads && condHeads != 1) || condShape[2] != 1 ||
+          condShape[3] != 1 ||
+          !llvm::all_of(replType.getShape(),
+                        [](int64_t d) { return d == 1; })) {
+        return failure();
+      }
+      // Re-materialize the condition on the pre-reorder [S, B, H, D] layout,
+      // preserving its head axis (numHeads or the broadcast 1).
+      auto reCondType = utils::RankedTensorTypeFactory::create(
+          condType, SmallVector<int64_t>{seqLen, batchSize, condHeads, 1});
+      auto reCondOp = rewriter.create<ReshapeOp>(
+          scrub.getLoc(), reCondType, cond,
+          rewriter.getI32ArrayAttr({static_cast<int32_t>(seqLen),
+                                    static_cast<int32_t>(batchSize),
+                                    static_cast<int32_t>(condHeads), 1}));
+      createdOps.push_back(reCondOp);
+      auto scrubbed = rewriter.create<WhereOp>(
+          scrub.getLoc(), inputType, reCondOp.getResult(), replacement, input);
+      createdOps.push_back(scrubbed);
+      opInput = scrubbed.getResult();
+    }
+
+    // nlp_concat_heads_decode runs in the collapse's element type; insert a
+    // typecast if the (possibly higher-precision) scrub/input dtype differs.
+    auto collapseType = reshapeOp.getType();
+    if (inputType.getElementType() != collapseType.getElementType()) {
+      ttcore::DataType collapseDataType =
+          mlir::cast<TTNNLayoutAttr>(collapseType.getEncoding()).getDataType();
+      auto castType = utils::RankedTensorTypeFactory::create(
+          mlir::cast<RankedTensorType>(opInput.getType()), collapseDataType);
+      auto castOp =
+          rewriter.create<TypecastOp>(reshapeOp.getLoc(), castType, opInput);
+      createdOps.push_back(castOp);
+      opInput = castOp.getResult();
+    }
+
     SmallVector<int64_t> concatHeadsOutputShape = {seqLen, 1, batchSize,
                                                    numHeads * headDim};
     auto concatHeadsResultType = utils::RankedTensorTypeFactory::create(
-        inputType, concatHeadsOutputShape);
+        mlir::cast<RankedTensorType>(opInput.getType()),
+        concatHeadsOutputShape);
 
     op_model::ScopedSingletonDeviceGuard deviceGuard(reshapeOp);
 
     auto nlpConcatHeadsDecodeOp = rewriter.create<NLPConcatHeadsDecodeOp>(
-        reshapeOp.getLoc(), concatHeadsResultType, input,
+        reshapeOp.getLoc(), concatHeadsResultType, opInput,
         rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)));
+    createdOps.push_back(nlpConcatHeadsDecodeOp);
 
     // Validate the fused op. The op requires height-sharded L1 input, so
     // try the workaround-sharded version since the workaround pass hasn't
@@ -279,7 +545,9 @@ public:
       rewriter.eraseOp(*workaround);
 
       if (!validationResult.isSuccess()) {
-        rewriter.eraseOp(nlpConcatHeadsDecodeOp);
+        for (Operation *op : llvm::reverse(createdOps)) {
+          rewriter.eraseOp(op);
+        }
         return failure();
       }
     }
@@ -287,12 +555,112 @@ public:
     rewriter.setInsertionPointAfter(nlpConcatHeadsDecodeOp);
 
     auto newReshapeOp = rewriter.create<ReshapeOp>(
-        reshapeOp.getLoc(), reshapeOp.getType(),
-        nlpConcatHeadsDecodeOp.getResult(), reshapeOp.getShapeAttr());
+        reshapeOp.getLoc(), collapseType, nlpConcatHeadsDecodeOp.getResult(),
+        reshapeOp.getShapeAttr());
 
     rewriter.replaceOp(reshapeOp, newReshapeOp.getResult());
     return mlir::success();
   }
+};
+
+// Fuses: activation(rms_norm(x, weight, bias)) -> DitRMSNormUnaryFusedOp.
+//
+// Where `activation` is a supported unary activation (silu, gelu, relu) that
+// maps to the experimental TTNN dit_rms_norm_unary_fused kernel.
+//
+// The activation does not need to consume the RMSNormOp result directly: the
+// pattern looks through a chain of value-preserving shape ops (permute /
+// reshape) sitting between the two. Because the activation is elementwise it
+// commutes with such ops, e.g.
+//   act(reshape(permute(rms_norm(x)))) == reshape(permute(act(rms_norm(x))))
+// so the activation is baked into a fused op that replaces the RMSNormOp,
+// leaving the intervening shape ops untouched. To keep this rewrite valid the
+// RMSNormOp and every shape op in the chain must have a single use,
+// guaranteeing the chain is linear and the activation is its only escape.
+//
+// Like the other constraint-gated fusings (e.g. NLPConcatHeadsDecodeFusing),
+// the fused op is only created when the op-model confirms it is valid for the
+// current layouts. If validation fails the rms_norm + activation pair is left
+// untouched, so no decomposition fallback is needed downstream.
+template <typename ActivationOp>
+class TTNNRMSNormWithActivation : public mlir::OpRewritePattern<ActivationOp> {
+public:
+  TTNNRMSNormWithActivation(mlir::MLIRContext *context,
+                            const OpValidationConfig &validationConfig)
+      : mlir::OpRewritePattern<ActivationOp>(context),
+        validationConfig(validationConfig) {}
+
+  mlir::LogicalResult
+  matchAndRewrite(ActivationOp activationOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    // Walk backwards from the activation through single-use, value-preserving
+    // shape ops (permute / reshape) to find the RMSNormOp that feeds it.
+    mlir::Value cur = activationOp.getInput();
+    while (mlir::Operation *def = cur.getDefiningOp()) {
+      if (!def->hasOneUse()) {
+        break;
+      }
+      if (auto permute = mlir::dyn_cast<PermuteOp>(def)) {
+        cur = permute.getInput();
+        continue;
+      }
+      if (auto reshape = mlir::dyn_cast<ReshapeOp>(def)) {
+        cur = reshape.getInput();
+        continue;
+      }
+      break;
+    }
+
+    auto rmsNorm = cur.template getDefiningOp<RMSNormOp>();
+    if (!rmsNorm || !rmsNorm->hasOneUse()) {
+      return mlir::failure();
+    }
+
+    llvm::StringLiteral fullOpName = ActivationOp::getOperationName();
+    llvm::StringRef activation = fullOpName.rsplit('.').second;
+
+    // Validate the candidate fused op via the op-model before committing. The
+    // fused op keeps the RMSNormOp's result type/layout, so we validate against
+    // those. Guard the singleton device for the duration of the query.
+    op_model::ScopedSingletonDeviceGuard deviceGuard(rmsNorm);
+
+    IsolatedIRValidationWrapper validator(rewriter.getContext(),
+                                          validationConfig);
+    OpValidationResult validationResult =
+        validator.template validateOp<DitRMSNormUnaryFusedOp>(
+            rmsNorm.getOperation(), rmsNorm.getLoc(),
+            {rmsNorm.getResult().getType()}, rmsNorm.getInput(),
+            rmsNorm.getWeight(), rmsNorm.getBias(),
+            /*residual_input=*/Value(), rmsNorm.getEpsilonAttr(),
+            rewriter.getStringAttr(activation),
+            /*memory_config=*/MemoryConfigAttr(),
+            rmsNorm.getComputeConfigAttr());
+
+    if (!validationResult.isSuccess()) {
+      return mlir::failure();
+    }
+
+    // Create the fused op in place of the rms_norm (activation baked in), so
+    // any intervening shape ops keep operating on the fused result. The fused
+    // op therefore takes the RMSNormOp's result type, not the activation's.
+    rewriter.setInsertionPoint(rmsNorm);
+    auto fused = rewriter.create<DitRMSNormUnaryFusedOp>(
+        rmsNorm.getLoc(), rmsNorm.getResult().getType(), rmsNorm.getInput(),
+        rmsNorm.getWeight(), rmsNorm.getBias(), /*residual_input=*/Value(),
+        rmsNorm.getEpsilon(), rewriter.getStringAttr(activation));
+    if (rmsNorm.getComputeConfigAttr()) {
+      fused.setComputeConfigAttr(rmsNorm.getComputeConfigAttr());
+    }
+
+    rewriter.replaceOp(rmsNorm, fused.getResult());
+    // Drop the now-redundant activation; its (shape-transformed) input already
+    // carries the activation via the fused op.
+    rewriter.replaceOp(activationOp, activationOp.getInput());
+    return mlir::success();
+  }
+
+private:
+  OpValidationConfig validationConfig;
 };
 
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -303,6 +671,12 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
+    RewritePatternSet firstPatterns(&getContext());
+    if (enableEltwiseActivationFusion) {
+      firstPatterns
+          .add<TTNNBinaryOpInputsActivation, TTNNBinaryOpOutputActivation>(
+              &getContext());
+    }
     // TODO(mvasiljevic): Add HardsigmoidOp once tt-metal issue is resolved
     // https://github.com/tenstorrent/tt-metal/issues/30973
     patterns.add<
@@ -325,9 +699,22 @@ public:
                                                    validationConfig);
         patterns.add<fusing::RoPEExpandedFusing>(&getContext(),
                                                  validationConfig);
-        patterns.add<fusing::RoPEDecodeFusing>(&getContext());
       }
-      patterns.add<fusing::SDPAFusing>(&getContext(), validationConfig);
+      // RoPEDecodeFusing must always run (not gated by enableRoPEFusion)
+      // because it rearranges the [2,0,1,3] permutes that
+      // NLPCreateQKVHeadsDecodeFusing depends on. When TTIR-level RoPE fusion
+      // is active (enableRoPEFusion=false), the RotaryEmbeddingOp already
+      // exists from TTIR lowering — RoPEDecodeFusing detects the decode
+      // signature and sets token_index, enabling the decode QKV upgrade.
+      // TODO(sdjordjevic): #8598 Decouple NLPCreateQKVHeadsDecodeFusing from
+      // RoPEDecodeFusing
+      patterns.add<fusing::RoPEDecodeFusing>(&getContext());
+      // Sibling that matches the canonicalized (folded reshape) form of the
+      // decode permute the same RoPEDecodeFusing handles.
+      patterns.add<fusing::RoPEDecodeReshapeFusing>(&getContext());
+      if (enableSDPAFusion) {
+        patterns.add<fusing::SDPAFusing>(&getContext(), validationConfig);
+      }
       patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<MatmulOp>>(
           &getContext(), validationConfig);
@@ -335,16 +722,22 @@ public:
           &getContext(), validationConfig);
       patterns.add<fusing::NLPCreateQKVHeadsDecodeFusing>(&getContext(),
                                                           validationConfig);
+      patterns.add<TTNNRMSNormWithActivation<SiluOp>,
+                   TTNNRMSNormWithActivation<GeluOp>,
+                   TTNNRMSNormWithActivation<ReluOp>>(&getContext(),
+                                                      validationConfig);
     }
 #endif // TTMLIR_ENABLE_OPMODEL
 
     // Add TypecastOp canonicalization patterns to fold consecutive typecasts
     // (e.g. bf16->f32->bf16) that appear after SDPA fusing, enabling
     // patterns like NLPConcatHeadsDecodeFusing to match cleanly.
+    TypecastOp::getCanonicalizationPatterns(firstPatterns, &getContext());
     TypecastOp::getCanonicalizationPatterns(patterns, &getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
+    (void)applyPatternsGreedily(getOperation(), std::move(firstPatterns));
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));
   }
 };

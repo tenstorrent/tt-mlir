@@ -14,6 +14,37 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_FLATTENORCONVERTCOMPOSITESPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
+// Record the global channel dim size of a tenstorrent.group_norm on the seed op
+// of its flattened body, so ReoutlineCompositePass can rescale `num_groups`
+// after the shapes have been localized. Best effort: with nothing stashed,
+// reoutlining leaves `num_groups` alone, which is correct for an unsharded
+// channel dim.
+static void stashGroupNormGlobalChannels(mlir::stablehlo::CompositeOp comp,
+                                         mlir::DictionaryAttr origCompAttrs,
+                                         mlir::Operation *seedOp,
+                                         mlir::OpBuilder &builder) {
+  if (comp.getNumResults() < 1) {
+    return;
+  }
+  auto resultType =
+      llvm::dyn_cast<mlir::RankedTensorType>(comp.getResult(0).getType());
+  if (!resultType) {
+    return;
+  }
+
+  int64_t channelDim = 1;
+  if (auto channelDimAttr = llvm::dyn_cast_or_null<mlir::IntegerAttr>(
+          origCompAttrs.get("channel_dim"))) {
+    channelDim = channelDimAttr.getInt();
+  }
+  if (channelDim < 0 || channelDim >= resultType.getRank()) {
+    return;
+  }
+
+  seedOp->setAttr(utils::kReoutlineGroupNormChannelsAttr,
+                  builder.getI64IntegerAttr(resultType.getDimSize(channelDim)));
+}
+
 // Inline a single stablehlo.composite op. Returns success if it was flattened.
 static mlir::LogicalResult
 flattenOneComposite(mlir::stablehlo::CompositeOp comp,
@@ -111,6 +142,11 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
       cloned->setAttr(utils::kReoutlineOrigNameAttr, origName);
       // { approximate = "tanh" }
       cloned->setAttr(utils::kReoutlineCompAttrsAttr, origCompAttrs);
+      // group_norm's stashed `num_groups` counts along the channel dim, so it
+      // goes stale once shapes are localized.
+      if (origName.getValue() == utils::kTTGroupNormCompositeName) {
+        stashGroupNormGlobalChannels(comp, origCompAttrs, cloned, builder);
+      }
       seeded = true;
     }
     clonedOps.push_back(cloned);
@@ -224,6 +260,32 @@ static bool hasCustomShardingRule(llvm::StringRef name) {
   return llvm::is_contained(utils::kCompositesWithCustomSharding, name);
 }
 
+// Returns true if the composite is one of the tenstorrent.topk* variants.
+static bool isTopKComposite(llvm::StringRef name) {
+  return name == utils::kTTTopKCustomCallTargetName ||
+         name == utils::kTTTopKValuesCustomCallTargetName ||
+         name == utils::kTTTopKIndicesCustomCallTargetName;
+}
+
+// Keep a composite as a custom_call (so Shardy can propagate its custom
+// sharding rule) vs. flatten it. topk is gated to rank-2, the only form
+// getTopKShardingRule() supports; other ranks get an empty rule (see #8601).
+static bool shouldConvertToCustomCall(mlir::stablehlo::CompositeOp composite) {
+  llvm::StringRef name = composite.getName();
+  if (!hasCustomShardingRule(name)) {
+    return false;
+  }
+  // Shape-gate the topk variants to the rank their sharding rule supports.
+  if (isTopKComposite(name)) {
+    auto inputType = composite.getNumOperands() >= 1
+                         ? llvm::dyn_cast<mlir::RankedTensorType>(
+                               composite.getOperand(0).getType())
+                         : nullptr;
+    return inputType && inputType.getRank() == 2;
+  }
+  return true;
+}
+
 // Converts a composite op with a custom sharding rule to a
 // stablehlo.custom_call op. The composite name becomes the call_target_name,
 // composite attributes are carried as a discardable attribute,
@@ -278,9 +340,10 @@ public:
       for (auto compositeOp : llvm::make_early_inc_range(
                funcOp.getOps<mlir::stablehlo::CompositeOp>())) {
 
-        // If this composite has a custom sharding rule, convert it to a
-        // stablehlo.custom_call so that Shardy can propagate through it.
-        if (hasCustomShardingRule(compositeOp.getName())) {
+        // If this composite has a custom sharding rule (and, for topk, matches
+        // the shape that rule supports), convert it to a stablehlo.custom_call
+        // so that Shardy can propagate through it.
+        if (shouldConvertToCustomCall(compositeOp)) {
           convertCompositeToCustomCall(compositeOp, builder);
           continue;
         }

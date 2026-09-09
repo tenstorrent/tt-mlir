@@ -71,7 +71,7 @@ module {
         outs(%alloc_1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
         additionalArgs(%2 : !d2m.global_semaphore)
      {
-    // CHECK: d2m.get_arg(2) resolution_stage =  compile : !d2m.global_semaphore
+    // CHECK: d2m.get_arg(2) resolution_stage =  runtime : !d2m.global_semaphore
     ^unified0():
       %cb0 = d2m.get_cb(0) : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
       %cb1 = d2m.get_cb(1) : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
@@ -103,8 +103,8 @@ module {
         outs(%alloc_out : memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
         additionalArgs(%0, %1, %2, %3 : !d2m.local_semaphore, !d2m.local_semaphore, !d2m.local_semaphore, !d2m.local_semaphore)
     {
-    // CHECK: %4 = d2m.get_arg(3) resolution_stage =  compile : !d2m.local_semaphore
-    // CHECK: %5 = d2m.get_arg(2) resolution_stage =  compile : !d2m.local_semaphore
+    // CHECK: %4 = d2m.get_arg(3) resolution_stage =  runtime : !d2m.local_semaphore
+    // CHECK: %5 = d2m.get_arg(2) resolution_stage =  runtime : !d2m.local_semaphore
     ^datamovement0():
       %cb0 = d2m.get_cb(0) : <memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>>
       %cb1 = d2m.get_cb(1) : <memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>>
@@ -123,8 +123,8 @@ module {
         d2m.semaphore_wait %1, %c1 reset %c0 : !d2m.local_semaphore
       }
     }, {
-    // CHECK: %4 = d2m.get_arg(5) resolution_stage =  compile : !d2m.local_semaphore
-    // CHECK: %5 = d2m.get_arg(4) resolution_stage =  compile : !d2m.local_semaphore
+    // CHECK: %4 = d2m.get_arg(5) resolution_stage =  runtime : !d2m.local_semaphore
+    // CHECK: %5 = d2m.get_arg(4) resolution_stage =  runtime : !d2m.local_semaphore
     ^datamovement1():
       %cb0 = d2m.get_cb(0) : <memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>>
       %cb1 = d2m.get_cb(1) : <memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>>
@@ -167,7 +167,7 @@ module {
       %2 = d2m.get_cb(2) : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %3 = d2m.wait %1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
       %c0 = arith.constant 0 : index
-      // CHECK: d2m.get_arg(0) resolution_stage =  compile : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
+      // CHECK: d2m.get_arg(0) resolution_stage =  runtime : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
       %tx = d2m.dma_read %view[%c0, %c0, %c0], %3[%c0], <1> : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<read>
       d2m.dma_wait %tx : !d2m.mem_tx<read>
     }, {
@@ -192,7 +192,7 @@ module {
         outs(%alloc : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
         additionalArgs(%arg0 : index)
      {
-    // CHECK: %0 = d2m.get_arg(2) resolution_stage =  compile : index
+    // CHECK: %0 = d2m.get_arg(2) resolution_stage =  runtime : index
     ^unified0():
       %cb0 = d2m.get_cb(0) : <memref<32x32xf32, #l1>>
       %cb1 = d2m.get_cb(1) : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
@@ -220,16 +220,16 @@ module {
         additionalArgs(%arg0, %arg1, %arg2, %arg3, %arg4, %arg5, %arg6, %arg7, %arg8, %arg9 : i32, si32, ui16, si16, ui8, si8, i1, f32, bf16, f16)
      {
     ^unified0():
-      // CHECK: %0 = d2m.get_arg(11) resolution_stage =  compile : f16
-      // CHECK: %1 = d2m.get_arg(10) resolution_stage =  compile : bf16
-      // CHECK: %2 = d2m.get_arg(9) resolution_stage =  compile : f32
-      // CHECK: %3 = d2m.get_arg(8) resolution_stage =  compile : i1
-      // CHECK: %4 = d2m.get_arg(7) resolution_stage =  compile : si8
-      // CHECK: %5 = d2m.get_arg(6) resolution_stage =  compile : ui8
-      // CHECK: %6 = d2m.get_arg(5) resolution_stage =  compile : si16
-      // CHECK: %7 = d2m.get_arg(4) resolution_stage =  compile : ui16
-      // CHECK: %8 = d2m.get_arg(3) resolution_stage =  compile : si32
-      // CHECK: %9 = d2m.get_arg(2) resolution_stage =  compile : i32
+      // CHECK: %0 = d2m.get_arg(11) resolution_stage =  runtime : f16
+      // CHECK: %1 = d2m.get_arg(10) resolution_stage =  runtime : bf16
+      // CHECK: %2 = d2m.get_arg(9) resolution_stage =  runtime : f32
+      // CHECK: %3 = d2m.get_arg(8) resolution_stage =  runtime : i1
+      // CHECK: %4 = d2m.get_arg(7) resolution_stage =  runtime : si8
+      // CHECK: %5 = d2m.get_arg(6) resolution_stage =  runtime : ui8
+      // CHECK: %6 = d2m.get_arg(5) resolution_stage =  runtime : si16
+      // CHECK: %7 = d2m.get_arg(4) resolution_stage =  runtime : ui16
+      // CHECK: %8 = d2m.get_arg(3) resolution_stage =  runtime : si32
+      // CHECK: %9 = d2m.get_arg(2) resolution_stage =  runtime : i32
       // unrealized_conversion_cast are inserted to force the argument to not be canonicalized away
       %temp0 = builtin.unrealized_conversion_cast %arg0 : i32 to i32
       %temp1 = builtin.unrealized_conversion_cast %arg1 : si32 to si32
@@ -272,9 +272,9 @@ module {
      {
       %index_scratch = memref.alloc() : memref<1x1024xi32, #l1>
       %row_scratch = memref.alloc() : memref<1x1024xf32, #l1>
-      // CHECK: %[[INDICES:.*]] = d2m.get_arg(0) resolution_stage =  compile : memref<1x1x2x4xi32, #l1>
-      // CHECK: %[[WEIGHT:.*]] = d2m.get_arg(1) resolution_stage =  compile : memref<1x1x8x16xf32, #l1>
-      // CHECK: %[[OUTPUT:.*]] = d2m.get_arg(2) resolution_stage =  compile : memref<1x1x8x16xf32, #l1>
+      // CHECK: %[[INDICES:.*]] = d2m.get_arg(0) resolution_stage =  runtime : memref<1x1x2x4xi32, #l1>
+      // CHECK: %[[WEIGHT:.*]] = d2m.get_arg(1) resolution_stage =  runtime : memref<1x1x8x16xf32, #l1>
+      // CHECK: %[[OUTPUT:.*]] = d2m.get_arg(2) resolution_stage =  runtime : memref<1x1x8x16xf32, #l1>
       // CHECK: d2m.indexed_row_copy %[[INDICES]], %[[WEIGHT]], %[[OUTPUT]] scratch
       d2m.indexed_row_copy %indices, %weight, %output scratch %index_scratch, %row_scratch<8, 16> {indicesShape = array<i64: 2, 4>} : memref<1x1x2x4xi32, #l1>, memref<1x1x8x16xf32, #l1>, memref<1x1x8x16xf32, #l1>, memref<1x1024xi32, #l1>, memref<1x1024xf32, #l1>
     }

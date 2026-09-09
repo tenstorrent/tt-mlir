@@ -63,10 +63,17 @@ class SkipIf:
     >>> test_case | SkipConfig("ttmetal", ["ttnn", "sim"])
     """
 
-    def __init__(self, *marks_groups, mark_fn=pytest.mark.skip_config, reason=None):
+    def __init__(
+        self,
+        *marks_groups,
+        mark_fn=pytest.mark.skip_config,
+        reason=None,
+        marker_kwargs=None,
+    ):
         self.marks_groups = [g if isinstance(g, list) else [g] for g in marks_groups]
         self.mark_fn = mark_fn
         self.reason = reason
+        self.marker_kwargs = dict(marker_kwargs or {})
 
     def __ror__(self, lhs):
         """
@@ -82,7 +89,9 @@ class SkipIf:
         pytest.param
             Marked test parameter
         """
-        kwargs = {"reason": self.reason} if self.reason is not None else {}
+        kwargs = self.marker_kwargs.copy()
+        if self.reason is not None:
+            kwargs["reason"] = self.reason
         return pytest.param(
             lhs, marks=[self.mark_fn(g, **kwargs) for g in self.marks_groups]
         )
@@ -93,9 +102,33 @@ class OnlyIf(SkipIf):
         super().__init__(*marks_groups, mark_fn=pytest.mark.only_config)
 
 
+class XFailIf(SkipIf):
+    def __init__(self, *marks_groups, reason=None, strict=True):
+        super().__init__(
+            *marks_groups,
+            mark_fn=pytest.mark.xfail_config,
+            reason=reason,
+            marker_kwargs={"strict": strict},
+        )
+
+
 class SkipExecIf(SkipIf):
     def __init__(self, *marks_groups):
         super().__init__(*marks_groups, mark_fn=pytest.mark.skip_exec)
+
+
+class XFail:
+    """Append a non-strict xfail mark to a parametrize case, e.g.
+    ``case | XFail("reason")``."""
+
+    def __init__(self, reason):
+        self.reason = reason
+
+    def __ror__(self, lhs):
+        mark = pytest.mark.xfail(reason=self.reason, strict=False)
+        if not isinstance(lhs, tuple):
+            lhs = (lhs,)
+        return pytest.param(*lhs, marks=[mark])
 
 
 def shape_str(shape):

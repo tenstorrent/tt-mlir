@@ -24,7 +24,7 @@ from lit.llvm.subst import FindTool
 # name: The name of this test suite.
 config.name = "TTMLIR"
 
-config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
+config.test_format = lit.formats.ShTest()
 
 # Stablehlo tests can be optionally enabled.
 if config.enable_stablehlo:
@@ -33,6 +33,10 @@ if config.enable_stablehlo:
 # Pykernel tests are optionally enabled.
 if config.enable_pykernel:
     config.available_features.add("pykernel")
+
+# d2m-jit tests are optionally enabled.
+if getattr(config, "enable_d2m_jit", False):
+    config.available_features.add("d2m-jit")
 
 # suffixes: A list of file extensions to treat as test files.
 config.suffixes = [".mlir"]
@@ -125,6 +129,7 @@ config.ttmlir_tools_dir = os.path.join(config.ttmlir_obj_root, "bin")
 config.ttmlir_libs_dir = os.path.join(config.ttmlir_obj_root, "lib")
 
 config.substitutions.append(("%ttmlir_libs", config.ttmlir_libs_dir))
+config.substitutions.append(("%ttmlir_tools", config.ttmlir_tools_dir))
 
 config.test_root = os.path.join(config.ttmlir_source_dir, "test")
 config.scripts_root = os.path.join(config.ttmlir_source_dir, "tools/scripts")
@@ -141,7 +146,27 @@ if config.enable_ttnn_jit:
     # Add test/ttnn-jit to PYTHONPATH so tests can import utils module
     llvm_config.with_environment(
         "PYTHONPATH",
-        os.path.join(config.test_source_root, "ttnn-jit"),
+        [
+            os.path.join(config.test_source_root, "ttnn-jit"),
+            os.path.join(
+                config.ttmlir_source_dir,
+                "third_party",
+                "tt-metal",
+                "src",
+                "tt-metal",
+                "tools",
+            ),
+        ],
+        append_path=True,
+    )
+
+if getattr(config, "enable_d2m_jit", False):
+    lit_config.parallelism_groups["d2m-jit"] = 1
+
+    # Add test/d2m-jit to PYTHONPATH so tests can import the local utils module.
+    llvm_config.with_environment(
+        "PYTHONPATH",
+        os.path.join(config.test_source_root, "d2m-jit"),
         append_path=True,
     )
 

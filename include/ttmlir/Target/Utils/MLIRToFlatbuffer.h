@@ -524,19 +524,18 @@ struct ArrayAttrToFlatbufferSerializer<IntegerAttr, ValueType> {
 
 template <typename AttrType, typename ValueType>
 inline flatbuffers::Offset<flatbuffers::Vector<ValueType>>
-arrayAttrToFlatbuffer(FlatbufferObjectCache &cache,
-                      const ::mlir::ArrayAttr &arrayAttr) {
+toFlatbuffer(FlatbufferObjectCache &cache, const ::mlir::ArrayAttr &arrayAttr) {
   return ArrayAttrToFlatbufferSerializer<AttrType, ValueType>::impl(cache,
                                                                     arrayAttr);
 }
 
 template <typename AttrType, typename ValueType>
 inline flatbuffers::Offset<flatbuffers::Vector<ValueType>>
-arrayAttrToFlatbuffer(FlatbufferObjectCache &cache,
-                      const std::optional<::mlir::ArrayAttr> &arrayAttrOpt) {
-  return arrayAttrOpt.has_value() ? arrayAttrToFlatbuffer<AttrType, ValueType>(
-                                        cache, arrayAttrOpt.value())
-                                  : 0;
+toFlatbuffer(FlatbufferObjectCache &cache,
+             const std::optional<::mlir::ArrayAttr> &arrayAttrOpt) {
+  return arrayAttrOpt.has_value()
+             ? toFlatbuffer<AttrType, ValueType>(cache, arrayAttrOpt.value())
+             : 0;
 }
 
 inline flatbuffers::Offset<flatbuffers::Vector<uint32_t>>
@@ -669,7 +668,9 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::UnaryOpType unaryOpType) {
       {MlirUnaryOpType::Dropout, FbUnaryOpType::Dropout},
       {MlirUnaryOpType::Fill, FbUnaryOpType::Fill},
       {MlirUnaryOpType::PreluSfpu, FbUnaryOpType::PreluSfpu},
-      {MlirUnaryOpType::ZeroPoint, FbUnaryOpType::ZeroPoint}};
+      {MlirUnaryOpType::ZeroPoint, FbUnaryOpType::ZeroPoint},
+      {MlirUnaryOpType::Log1p, FbUnaryOpType::Log1p},
+      {MlirUnaryOpType::Asinh, FbUnaryOpType::Asinh}};
 
   auto it = opTypeMap.find(unaryOpType);
   if (it != opTypeMap.end()) {
@@ -1036,6 +1037,15 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
                    layoutAttr.getCoreRangeSet()));
 }
 
+template <typename AttrTy>
+inline flatbuffers::Offset<flatbuffers::Vector<ToFlatbufferReturnType<AttrTy>>>
+toFlatbuffer(FlatbufferObjectCache &cache, mlir::ArrayAttr arrayAttr) {
+  return cache.fbb->CreateVector<ToFlatbufferReturnType<AttrTy>>(
+      arrayAttr.size(), [&](size_t i) {
+        return toFlatbuffer(cache, mlir::cast<AttrTy>(arrayAttr[i]));
+      });
+}
+
 inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc> toFlatbuffer(
     FlatbufferObjectCache &cache, mlir::MemRefType memref,
     ttnn::BufferType bufferType, ttnn::TensorMemoryLayoutAttr memLayoutAttr,
@@ -1185,6 +1195,18 @@ inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
   return fbTopology;
 }
 
+inline ::tt::target::MoEActivationFunction
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttcore::MoEActivationFunction activation) {
+  switch (activation) {
+  case ttcore::MoEActivationFunction::Silu:
+    return ::tt::target::MoEActivationFunction::Silu;
+  case ttcore::MoEActivationFunction::SwiGLU:
+    return ::tt::target::MoEActivationFunction::SwiGLU;
+  }
+  llvm_unreachable("Unknown MoEActivationFunction");
+}
+
 inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
                                            ttcore::NocIndex nocIndex) {
   switch (nocIndex) {
@@ -1194,6 +1216,15 @@ inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
     return ::tt::target::NocIndex::Noc1;
   }
   assert(false && "Unsupported NocIndex");
+}
+
+inline ::tt::target::DataMovementProcessor
+toFlatbufferDataMovementProcessor(const int32_t dmCoreIndex) {
+  // Quasar exposes 6 out of 8 DM cores.
+  assert(dmCoreIndex >= 0 &&
+         dmCoreIndex <= static_cast<int32_t>(
+                            ::tt::target::DataMovementProcessor::RISCV_5));
+  return static_cast<::tt::target::DataMovementProcessor>(dmCoreIndex);
 }
 
 inline ::tt::target::RoutingMode toFlatbuffer(FlatbufferObjectCache &cache,

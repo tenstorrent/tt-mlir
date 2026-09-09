@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/D2M/Analysis/BlockFactorAnalysis.h"
 
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -26,7 +27,11 @@ namespace {
 
 // Shape classes used by the allocator's Automatic reblocking policy, as
 // distinct from the explicit MIN and MAX policies.
-enum class AutoShapeClass { SingleReduction, AllParallelEltwise };
+enum class AutoShapeClass {
+  SingleReduction,
+  AllParallelEltwise,
+  AllParallelLayoutConversion
+};
 
 struct AutoSearchConfig {
   AutoShapeClass shapeClass;
@@ -59,52 +64,20 @@ static llvm::BitVector getDimMask(std::size_t rank,
   return mask;
 }
 
-/// Classify a generic op's iteration shape for auto-policy search.
-/// @return the search config or nullopt if auto-blocking is not applicable.
-static std::optional<AutoSearchConfig>
-classifyAutoSearch(GenericOp genericOp,
-                   ArrayRef<ttcore::IteratorType> iteratorTypes,
-                   ArrayRef<int64_t> shardFactors) {
-  if (genericOp.isDMAOnlyForm() || genericOp.isExplicitDatamovementForm() ||
-      genericOp.getOutputs().size() != 1) {
-    return std::nullopt;
-  }
-
-  // Reject generics with mixed element type kinds (e.g. tilize/untilize which
-  // have one scalar operand and one tile operand).  These are layout-conversion
-  // ops, not true eltwise compute.
-  {
-    bool hasTile = false, hasNonTile = false;
-    for (Value operand : genericOp.getInputsAndOutputs()) {
-      auto shapedTy = mlir::cast<ShapedType>(operand.getType());
-      if (mlir::isa<ttcore::TileType>(shapedTy.getElementType())) {
-        hasTile = true;
-      } else {
-        hasNonTile = true;
-      }
-    }
-    if (hasTile && hasNonTile) {
-      return std::nullopt;
-    }
-  }
-
+static SmallVector<std::size_t>
+getReductionDims(ArrayRef<ttcore::IteratorType> iteratorTypes) {
   SmallVector<std::size_t> reductionDims;
   for (auto [dim, iteratorType] : llvm::enumerate(iteratorTypes)) {
     if (iteratorType == ttcore::IteratorType::Reduction) {
       reductionDims.push_back(dim);
     }
   }
+  return reductionDims;
+}
 
-  if (reductionDims.size() == 1) {
-    return AutoSearchConfig{AutoShapeClass::SingleReduction,
-                            std::move(reductionDims)};
-  }
-  if (!reductionDims.empty()) {
-    return std::nullopt;
-  }
-  // At this point, the generic op is an all-parallel operation.
-
-  // Candidate dim filter: all participating dims with a shard factor > 1.
+static SmallVector<std::size_t>
+getAllParallelCandidateDims(GenericOp genericOp,
+                            ArrayRef<int64_t> shardFactors) {
   SmallVector<std::size_t> candidateDims;
   const llvm::BitVector participationMask = getParticipatingDimMask(genericOp);
   for (std::size_t dim = 0; dim < shardFactors.size(); ++dim) {
@@ -112,11 +85,152 @@ classifyAutoSearch(GenericOp genericOp,
       candidateDims.push_back(dim);
     }
   }
-  if (candidateDims.empty()) {
+  return candidateDims;
+}
+
+static bool isSingleReductionPanelDim(GenericOp genericOp, std::size_t dim) {
+  unsigned numOperandsUsingDim = 0;
+  AffineExpr dimExpr =
+      getAffineDimExpr(static_cast<unsigned>(dim), genericOp.getContext());
+  for (AffineMap indexingMap : genericOp.getIndexingMapsValue()) {
+    if (llvm::is_contained(indexingMap.getResults(), dimExpr)) {
+      ++numOperandsUsingDim;
+    }
+  }
+
+  // Do not reblock the batch dimension.
+  return numOperandsUsingDim > 0 &&
+         numOperandsUsingDim < genericOp.getInputsAndOutputs().size();
+}
+
+static SmallVector<std::size_t> getSingleReductionCandidateDims(
+    GenericOp genericOp, ArrayRef<std::size_t> reductionDims,
+    ArrayRef<int64_t> shardFactors, bool allowMNReblocking) {
+  if (!allowMNReblocking) {
+    return llvm::to_vector(reductionDims);
+  }
+
+  SmallVector<std::size_t> candidateDims;
+  for (std::size_t dim = 0; dim < shardFactors.size(); ++dim) {
+    if (shardFactors[dim] > 1 && isSingleReductionPanelDim(genericOp, dim)) {
+      candidateDims.push_back(dim);
+    }
+  }
+  return candidateDims;
+}
+
+static bool hasTileElementType(Value operand) {
+  auto shapedTy = mlir::cast<ShapedType>(operand.getType());
+  return mlir::isa<ttcore::TileType>(shapedTy.getElementType());
+}
+
+static bool isScalarTileLayoutConversion(GenericOp genericOp) {
+  if (genericOp.getInputs().size() != 1 || genericOp.getOutputs().size() != 1) {
+    return false;
+  }
+
+  const bool inputTiled = hasTileElementType(genericOp.getInputs().front());
+  const bool outputTiled = hasTileElementType(genericOp.getOutputs().front());
+  if (inputTiled == outputTiled) {
+    return false;
+  }
+
+  bool hasExpectedRegionOp = false;
+  genericOp->walk([&](Operation *op) {
+    if ((inputTiled && mlir::isa<TileUntilizeBlockOp>(op)) ||
+        (!inputTiled && mlir::isa<TileTilizeBlockOp>(op))) {
+      hasExpectedRegionOp = true;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+
+  return hasExpectedRegionOp;
+}
+
+static bool canReblockOperandToGrid(Value operand,
+                                    ArrayRef<int64_t> newGridShape) {
+  auto operandType = mlir::dyn_cast<ShapedType>(operand.getType());
+  if (!operandType || !operandType.hasStaticShape()) {
+    return false;
+  }
+
+  auto layout = ttcore::getDeviceLayout(operandType);
+  if (!layout) {
+    return false;
+  }
+
+  ArrayRef<int64_t> oldGridShape = layout.getGridShape(operandType);
+  ArrayRef<int64_t> oldShardShape = layout.getShardShape(operandType);
+  if (newGridShape.size() != oldGridShape.size() ||
+      oldGridShape.size() != oldShardShape.size()) {
+    return false;
+  }
+
+  for (auto [idx, gridDim] : llvm::enumerate(newGridShape)) {
+    if (gridDim <= 0 ||
+        (oldGridShape[idx] * oldShardShape[idx]) % gridDim != 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/// Classify a generic op's iteration shape for auto-policy search.
+/// @return the search config or nullopt if auto-blocking is not applicable.
+static std::optional<AutoSearchConfig>
+classifyAutoSearch(GenericOp genericOp,
+                   ArrayRef<ttcore::IteratorType> iteratorTypes,
+                   ArrayRef<int64_t> shardFactors, bool allowMNReblocking) {
+  if (genericOp.isDMAOnlyForm() || genericOp.isExplicitDatamovementForm() ||
+      genericOp.getOutputs().size() != 1) {
     return std::nullopt;
   }
 
-  return AutoSearchConfig{AutoShapeClass::AllParallelEltwise,
+  bool hasTile = false;
+  bool hasNonTile = false;
+  for (Value operand : genericOp.getInputsAndOutputs()) {
+    if (hasTileElementType(operand)) {
+      hasTile = true;
+    } else {
+      hasNonTile = true;
+    }
+  }
+  const bool hasMixedElementTypeKinds = hasTile && hasNonTile;
+
+  SmallVector<std::size_t> reductionDims = getReductionDims(iteratorTypes);
+  if (reductionDims.empty()) {
+    AutoShapeClass shapeClass = AutoShapeClass::AllParallelEltwise;
+    if (hasMixedElementTypeKinds) {
+      if (!isScalarTileLayoutConversion(genericOp)) {
+        return std::nullopt;
+      }
+      shapeClass = AutoShapeClass::AllParallelLayoutConversion;
+    }
+
+    SmallVector<std::size_t> candidateDims =
+        getAllParallelCandidateDims(genericOp, shardFactors);
+    if (candidateDims.empty()) {
+      return std::nullopt;
+    }
+    return AutoSearchConfig{shapeClass, std::move(candidateDims)};
+  }
+
+  if (reductionDims.size() != 1) {
+    return std::nullopt;
+  }
+
+  if (hasMixedElementTypeKinds) {
+    return std::nullopt;
+  }
+
+  SmallVector<std::size_t> candidateDims = getSingleReductionCandidateDims(
+      genericOp, reductionDims, shardFactors, allowMNReblocking);
+  if (candidateDims.empty()) {
+    return std::nullopt;
+  }
+  return AutoSearchConfig{AutoShapeClass::SingleReduction,
                           std::move(candidateDims)};
 }
 
@@ -170,6 +284,11 @@ static SmallVector<int64_t> buildEltwiseScaleSearchOrder(int64_t shardFactor) {
   return limited;
 }
 
+static bool usesAllParallelScaleSearch(AutoShapeClass shapeClass) {
+  return shapeClass == AutoShapeClass::AllParallelEltwise ||
+         shapeClass == AutoShapeClass::AllParallelLayoutConversion;
+}
+
 static bool isBetterPartialCandidate(const PartialCandidate &lhs,
                                      const PartialCandidate &rhs) {
   if (lhs.moderationPenalty != rhs.moderationPenalty) {
@@ -207,6 +326,9 @@ static bool isBetterCandidate(AutoShapeClass shapeClass,
   // controls parallelism gain, so prefer higher blocking volume. CB cost is
   // secondary tiebreaker since eltwise operands tend to have uniform and
   // predictable buffer sizes.
+  //
+  // Layout conversion follows the same ordering: maximize reblocking of
+  // participating movement dims while using CB bytes as a tiebreaker.
 
   // Final tiebreaker: prefer lexicographically larger dim scales.
   case AutoShapeClass::SingleReduction:
@@ -218,6 +340,7 @@ static bool isBetterCandidate(AutoShapeClass shapeClass,
     }
     return isLexicographicallyLarger(lhs.dimScales, rhs.dimScales);
   case AutoShapeClass::AllParallelEltwise:
+  case AutoShapeClass::AllParallelLayoutConversion:
     if (lhs.blockingVolume != rhs.blockingVolume) {
       return lhs.blockingVolume > rhs.blockingVolume;
     }
@@ -279,6 +402,12 @@ static std::optional<CandidateScore> evaluateCandidate(
 
     auto [operandGridShape, operandShardShape] = getOperandGridAndShardExtents(
         genericOp, operandIndex, candidateGridExtents, candidateShardExtents);
+
+    // Reblocking rebuilds the operand type using the derived grid shape. Reject
+    // candidates that cannot evenly repartition the operand's actual layout.
+    if (!canReblockOperandToGrid(operand, operandGridShape)) {
+      return std::nullopt;
+    }
 
     // Reject candidates that would result in a too small operand shard shape.
     if (ttmlir::utils::volume<int64_t>(operandShardShape) < 4) {
@@ -363,7 +492,9 @@ static SmallVector<int64_t> applyMinPolicy(GenericOp genericOp,
 
 // The auto policy currently has three cases:
 // 1. Single reduction: aggressively reduce the block factor of the reduction
-// dim.
+// dim.  M/N widening for matmul is available only through the non-default
+// auto-mn policy until issues #8346/#8369 model loop-carried output
+// accumulation explicitly.
 // 2. All parallel eltwise: aggressively reduce the block factor of all
 // participating dims.
 // 3. Unsupported: in all other cases, return the original block factors.
@@ -373,14 +504,15 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
                 ArrayRef<int64_t> gridExtents, ArrayRef<int64_t> shardExtents,
                 ArrayRef<int64_t> shardFactors, ttcore::DeviceAttr device,
                 ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers,
-                bool useBoundedEltwiseSearch) {
+                bool useBoundedEltwiseSearch, bool allowMNReblocking) {
   const SmallVector<int64_t> originalBlockFactors =
       genericOp.getBlockFactorsValue();
 
   //===------------------------------------------------------------------===//
   // Classify the generic op's iteration shape.
   //===------------------------------------------------------------------===//
-  auto config = classifyAutoSearch(genericOp, iteratorTypes, shardFactors);
+  auto config = classifyAutoSearch(genericOp, iteratorTypes, shardFactors,
+                                   allowMNReblocking);
   if (!config) {
     return originalBlockFactors;
   }
@@ -393,7 +525,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
   uint64_t boundedSearchSpace = 1;
   for (std::size_t dim : config->candidateDims) {
     SmallVector<int64_t> dimScales =
-        config->shapeClass == AutoShapeClass::AllParallelEltwise
+        usesAllParallelScaleSearch(config->shapeClass)
             ? buildEltwiseScaleSearchOrder(shardFactors[dim])
             : ttmlir::utils::getFactors(shardFactors[dim]);
     boundedSearchSpace *= dimScales.size();
@@ -415,7 +547,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
   // Restrict the large eltwise search space to the top kEltwiseBeamWidth
   // candidates unless the caller explicitly requests exhaustive search.
   if (useBoundedEltwiseSearch &&
-      config->shapeClass == AutoShapeClass::AllParallelEltwise &&
+      usesAllParallelScaleSearch(config->shapeClass) &&
       boundedSearchSpace > kEltwiseBeamWidth) {
     SmallVector<PartialCandidate> beam;
     beam.push_back(
@@ -516,11 +648,18 @@ static SmallVector<int64_t> chooseReblockedFactors(
   case BlockFactorAnalysis::BufferSizePolicy::Auto:
     return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
                            shardExtents, shardFactors, device, l1Attr,
-                           numBuffers, /*useBoundedEltwiseSearch=*/false);
+                           numBuffers, /*useBoundedEltwiseSearch=*/false,
+                           /*allowMNReblocking=*/false);
   case BlockFactorAnalysis::BufferSizePolicy::Bounded:
     return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
                            shardExtents, shardFactors, device, l1Attr,
-                           numBuffers, /*useBoundedEltwiseSearch=*/true);
+                           numBuffers, /*useBoundedEltwiseSearch=*/true,
+                           /*allowMNReblocking=*/false);
+  case BlockFactorAnalysis::BufferSizePolicy::AutoMN:
+    return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
+                           shardExtents, shardFactors, device, l1Attr,
+                           numBuffers, /*useBoundedEltwiseSearch=*/false,
+                           /*allowMNReblocking=*/true);
   }
 
   llvm_unreachable("unknown buffer size policy");

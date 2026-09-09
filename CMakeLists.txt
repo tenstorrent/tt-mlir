@@ -32,6 +32,7 @@ set(MLIR_BINDINGS_PYTHON_NB_DOMAIN "ttmlir" CACHE STRING
 option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
 option(TTMLIR_ENABLE_PYKERNEL "Enable python kernels" OFF)
+option(TTMLIR_ENABLE_D2M_JIT "Enable d2m-jit" OFF)
 option(TTMLIR_ENABLE_TTNN_JIT "Enable ttnn-jit" OFF)
 option(TTMLIR_ENABLE_TTRT "Enable ttrt" ON)
 option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
@@ -47,6 +48,7 @@ option(TTMLIR_ENABLE_ALCHEMIST "Enable tt-alchemist lib" ON)
 option(TTMLIR_ENABLE_ALCHEMIST_WHEEL "Enable tt-alchemist wheel" OFF)  # Expensive to build
 option(CODE_COVERAGE "Enable coverage reporting" OFF)
 option(TT_USE_SYSTEM_SFPI "Use system path for SFPI. SFPI is used to compile firmware." OFF)
+
 
 if (TTMLIR_ENABLE_RUNTIME)
   option(TT_RUNTIME_ENABLE_TTNN "Enable TTNN Runtime (requires TTMLIR_ENABLE_RUNTIME)" ON)

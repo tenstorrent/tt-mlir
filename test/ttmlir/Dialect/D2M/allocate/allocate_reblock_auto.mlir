@@ -1,6 +1,6 @@
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=8388608 test-buffer-size-policy=max" -o %t.max %s
+// RUN: ttmlir-opt --ttcore-register-device "--d2m-reblock-generics=test-buffer-size-policy=max" "--d2m-allocate=test-assume-l1-capacity=8388608" -o %t.max %s
 // RUN: FileCheck %s --check-prefix=CHECK-MAX --input-file=%t.max
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=8388608" -o %t.auto %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-reblock-generics "--d2m-allocate=test-assume-l1-capacity=8388608" -o %t.auto %s
 // RUN: FileCheck %s --check-prefix=CHECK-AUTO --input-file=%t.auto
 
 #l1 = #ttcore.memory_space<l1>

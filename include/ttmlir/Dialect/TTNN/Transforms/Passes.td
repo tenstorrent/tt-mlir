@@ -162,38 +162,6 @@ def TTNNLoadInputTensors: Pass<"ttnn-load-input-tensors", "::mlir::ModuleOp"> {
   ];
 }
 
-def TTNNCreateMainForTest: Pass<"ttnn-create-main-for-test", "::mlir::ModuleOp"> {
-  let summary = "Create main_for_test wrapper for frontend-driven execution.";
-  let description = [{
-    This pass creates a `main_for_test` function that wraps the forward function
-    (`_main`) for use by frontend execution drivers like PythonModelRunner.
-
-    The generated function accepts the same input tuple as the forward function
-    plus a device argument. It moves each input tensor to the device with the
-    appropriate memory configuration, then calls the forward function.
-
-    Given a forward function after tuplification and input loading:
-
-    ```mlir
-    func.func @_main(%arg0: tuple<tensor<32x32xbf16>>) -> tuple<tensor<32x32xbf16>> { ... }
-    func.func @load_inputs_for__main() -> tuple<tensor<32x32xbf16>> { ... }
-    func.func @main() -> i32 { ... }
-    ```
-
-    The pass will add:
-
-    ```mlir
-    func.func @main_for_test(%arg0: tuple<tensor<32x32xbf16>>, %arg1: !ttnn.device) -> tuple<tensor<32x32xbf16>> {
-      %0 = ttcore.get_tuple_element %arg0[0] : ...
-      %1 = "ttnn.to_device"(%0, %arg1) {memory_config = ...} : ...
-      %2 = ttcore.tuple %1 : ...
-      %3 = call @_main(%2) : ...
-      return %3 : ...
-    }
-    ```
-  }];
-}
-
 def TTNNSplitForwardFuncArgsByType : Pass<"ttnn-split-forward-func-args-by-type", "::mlir::ModuleOp"> {
   let summary = "Split forward function arguments into activations tuple and weights dictionary.";
   let description = [{
@@ -326,7 +294,7 @@ def TTNNPrepareModuleForExport : Pass<"ttnn-prepare-module-for-export", "::mlir:
     // After:
     %0 = ttcore.get_tuple_element %arg0[0]
         : (tuple<tensor<32x32xbf16, #host>, ...>)   -> tensor<32x32xbf16, #host>
-    %1 = "ttnn.to_layout"(%0) <{layout = #ttnn.layout<tile>, dtype = bf16}>
+    %1 = "ttnn.to_layout"(%0)
         : (tensor<32x32xbf16, #host>) -> tensor<32x32xbf16, #host_staged>
     %2 = "ttnn.to_device"(%1, %arg1)
         : (tensor<32x32xbf16, #host_staged>, !ttnn.device)
@@ -341,6 +309,33 @@ def TTNNPrepareConv2dWeightsAndBias : Pass<"ttnn-prepare-conv2d-weights-and-bias
     This pass inserts a PrepareConv2dWeights and a PrepareConv2dBias operation before each Conv2d op, which preprocess the weights and bias used by the Conv2d operations.
     These operations can then be const-evaluated, leading to improved performance.
     To use this pass, the project must be built with the op model library by setting -DTTMLIR_ENABLE_OPMODEL=ON during the build process.
+  }];
+}
+
+def TTNNDeduceMoEComputeLayouts : Pass<"ttnn-deduce-moe-compute-layouts", "::mlir::ModuleOp"> {
+  let summary = "Refine moe_compute weight-prep layouts and reshard its inputs using OpModel.";
+  let description = [{
+    The prepare_moe_compute_*_weights ops produce a 6-D packed tensor with a
+    bank-permuted DRAM HEIGHT_SHARDED memory config. The exact shapes and
+    layouts depend on the target device and the hidden/intermediate sizes, so
+    the TTIR caller cannot know them up front. This pass walks those ops
+    emerging from TTIR->TTNN conversion and replaces their (placeholder) result
+    layouts with the OpModel-derived specs obtained via graph-captured query of
+    the corresponding tt-metal invocation. It also reshards ttnn.moe_compute's
+    expert indices/scores inputs onto the device-derived tilize drain core.
+    Requires -DTTMLIR_ENABLE_OPMODEL=ON.
+  }];
+}
+
+def TTNNPrepareConv3dWeights : Pass<"ttnn-prepare-conv3d-weights", "::mlir::ModuleOp"> {
+  let summary = "Insert PrepareConv3dWeightsOp before every Conv3dOp.";
+  let description = [{
+    TTIRToTTNN lowers ttir.conv3d to ttnn.conv3d with the raw 5D weight still attached.
+    This pass walks every Conv3dOp, derives c_in_block from the optimizer's
+    Conv3dConfigAttr (or falls back to TILE_WIDTH = 32), and inserts a
+    PrepareConv3dWeightsOp that reshapes the raw 5D weight into the 2D layout the
+    tt-metal runtime expects. The Conv3dOp's weight operand is then rewired to the
+    prepared result. Mirrors TTNNPrepareConv2dWeightsAndBias.
   }];
 }
 
@@ -366,7 +361,16 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
             "enable-rope-fusion",
             "bool", /*default=*/"false",
             "Enable RoPE fusion patterns at the TTNN level. Disabled by "
-            "default since RoPE fusion is handled at the TTIR level.">
+            "default since RoPE fusion is handled at the TTIR level.">,
+    Option<"enableSDPAFusion",
+            "enable-sdpa-fusion",
+            "bool", /*default=*/"false",
+            "Enable SDPA fusion patterns at the TTNN level. Disabled by "
+            "default since SDPA fusion is handled at the TTIR level.">,
+    Option<"enableEltwiseActivationFusion",
+            "enable-eltwise-activation-fusion",
+            "bool", /*default=*/"false",
+            "Fuse unary activation ops into eltwise binary ops.">
   ];
 }
 
@@ -405,7 +409,7 @@ def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::Module
     ```mlir
     // Trace function. Contains the ops that were hoisted to trace.
     func.func @trace_0_single_add(%arg0: tensor<32x32xbf16, #ttnn_layout> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> attributes {ttnn.trace} {
-      %0 = "ttnn.add"(%arg0, %arg1) <{output_dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+      %0 = "ttnn.add"(%arg0, %arg1) : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
       return %0 : tensor<32x32xbf16, #ttnn_layout>
     }
 
@@ -417,7 +421,7 @@ def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::Module
     // Returns the trace id, function outputs, and the trace input output tensors.
     func.func @run_and_capture_trace_0_single_add(%arg0: tensor<32x32xbf16, #ttnn_layout> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16, #ttnn_layout> {ttcore.argument_type = #ttcore.argument_type<parameter>}) -> (tensor<ui32, #ttnn_layout1>, tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) attributes {ttnn.trace} {
       %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-      %1 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout>
+      %1 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout>
       %2 = "ttnn.from_device"(%arg0) : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout2>
       "ttnn.write_tensor"(%2, %1) <{blocking = false, cq_id = 0 : ui32}> : (tensor<32x32xbf16, #ttnn_layout2>, tensor<32x32xbf16, #ttnn_layout>) -> ()
       "ttnn.deallocate"(%2) <{force = false}> : (tensor<32x32xbf16, #ttnn_layout2>) -> ()
@@ -494,6 +498,19 @@ def TTNNAdjustDeallocs: Pass<"ttnn-adjust-deallocs", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNForceFinalDeallocs: Pass<"ttnn-force-final-deallocs", "::mlir::ModuleOp"> {
+  let summary = "Force the final deallocation of each aliased device buffer.";
+  let description = [{
+    This pass walks the deallocation ops of each buffer from bottom to top and
+    sets the force flag to true on the last one in program order (the true final
+    use of that memory), so the buffer is freed properly. The remaining
+    deallocations of that buffer are no-ops and are removed. For buffers that are
+    freed elsewhere (variables that escape the function that are freed by the caller
+    or conv activations the conv op force-deallocates itself), no deallocation
+    is forced and all of their (no-op) deallocations are removed.
+  }];
+}
+
 def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::ModuleOp"> {
   let summary = "Convert weight tensors to a specified dtype in matmul, linear, and sparse_matmul operations.";
   let description = [{
@@ -512,6 +529,38 @@ def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::Mod
            /*default=*/"::mlir::tt::ttnn::BFPDtype::None",
            "Target data type for weight conversion (bfp_bf8, bfp_bf4).">,
   ];
+}
+
+def TTNNCCLActivationDtypeLowering: Pass<"ttnn-ccl-activation-dtype-lowering", "::mlir::ModuleOp"> {
+  let summary = "Lower activation precision to bfp_bf8 around CCL ops.";
+  let description = [{
+    This pass is part of the Mixed Precision effort in compiler.
+    This pass reduces ethernet traffic for collective communication (CCL) ops
+    in large transformer models by lowering activation precision from bf16 to
+    bfp_bf8 across the CCL boundary. Producer matmul ops have their result
+    tensor's layout encoding rewritten to bfp_bf8 so no explicit ttnn.typecast is
+    required at the producer side. On the consumer side, some patterns allow for
+    implicit casting back to bf16 (e.g. residual add). Currently we added only patterns
+    that don't require explicit casts on both sides.
+
+    The pass implements two strict per-pattern matchers, each modeled after a
+    Llama-style sub-graph:
+      - Projection matmul (attention output / MLP down) -> [view / CCL]* ->
+        residual add. The residual add's result encoding stays bf16 (it was
+        constructed from the bf16 residual operand), so TTNN restores bf16
+        at the block output by combining the bfp_bf8 CCL output with the
+        bf16 residual — no exit-side cast needed.
+      - MLP up / gate matmuls -> [view / CCL]* -> silu / multiply. The
+        multiply's result encoding is rewritten to bfp_bf8 so the downstream
+        FF2 matmul receives bfp_bf8 input; the FF2 residual add then
+        restores bf16 via the projection-residual matcher when FF2 itself is
+        lowered.
+
+    A matmul only matches a pattern when the entire downstream chain shape
+    matches the template, so the pass under-triggers by design. The idea is
+    to add new patterns as we get more multichip models running and fuse patterns
+    to more general ones as we get more cases.
+  }];
 }
 
 def TTNNKVCacheDtypeConversion: Pass<"ttnn-kv-cache-dtype-conversion", "::mlir::ModuleOp"> {
@@ -574,9 +623,25 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
     - system_memory_ops: Operations with system_memory buffer type
     - Percentages: All counts as percentage of total_shardable_ops
 
+    FLOP report ("flops" section), per-chip, for one graph invocation:
+
+      MFU = total_flops / (measured_seconds * peak_flops_per_sec)
+
+    - total_flops: logical, un-padded FLOPs over the matrix-engine ops:
+      matmul/linear/sparse_matmul (2*M*K*N), conv, SDPA / flash-MLA prefill, and
+      the CCL reductions (numel(input) * (D-1) / D, D = mesh extent along
+      cluster_axis). Not counted: SFPU ops, all_gather and the other
+      data-movement collectives, and decode / chunked / paged attention, whose
+      effective key length is a runtime value.
+    - peak_flops_per_sec: the MFU denominator, flops-weighted across each op's
+      math fidelity.
+    - peak_flops_per_sec_by_fidelity: raw hardware peak per fidelity.
+
     Verbose output (--ttnn-perf-metrics-verbose-output-enabled) includes:
     - Detailed per-operation analysis with sharding and memory layout information for shardable ops
     - Complete operation type breakdown with counts for all operation types (excluding const-eval functions)
+    - A per-op FLOP array ("flops"/"per_op"): operation, location, flops and
+      math_fidelity.
   }];
 
   let options = [
@@ -592,36 +657,43 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
 def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::ModuleOp"> {
   let summary = "Set default ComputeKernelConfig attributes for operations.";
   let description = [{
-    This pass sets default ComputeKernelConfig attributes for TTNN operations that support
-    the ComputeKernelConfigOpInterface. It only sets parameter values that are not already
-    defined, preserving any existing configuration decisions made by earlier compiler passes.
+    This pass sets ComputeKernelConfig attributes for TTNN operations that implement
+    ComputeKernelConfigOpInterface.
 
-    Behaviour:
-    - If an operation has no compute_config attribute, a new compute config is created with override values
-    - If an operation has a compute_config but a specific parameter (e.g., math_fidelity) is
-      unset (std::nullopt), the override value is applied for that parameter only
-    - If a parameter is already set in the compute_config, it is not overridden, preserving
-      the existing compiler decision
+    Pipeline behaviour:
+    - If an operation has no compute_config attribute, a new config is created and pipeline
+      option values are applied.
+    - If a parameter is already set on the operation's compute_config, pipeline options do
+      not override it.
+    - If a pipeline option is unset (std::nullopt / OptionalMathFidelity::Undefined), the
+      corresponding op parameter is left untouched (TTNN decides at runtime).
+    - If a pipeline option is set (including bool options explicitly set to false), it is
+      applied to ops that do not already set that parameter. This makes true / false /
+      unset a genuine tri-state for the bool options.
 
-    This allows setting default values for ComputeKernelConfig parameters while respecting
-    any explicit configuration choices made by prior passes.
+    Large-inner-dimension bf16 matmul/linear correctness fix (tenstorrent/tt-metal#46101):
+    For `ttnn.matmul` and `ttnn.linear` with inner dimension > 50000 and bf16 output,
+    always sets `fp32_dest_acc_en = true` and `packer_l1_acc = true`, even when those
+    parameters are already set to false. This rule runs after pipeline option defaults
+    and takes precedence over explicit values on the op.
 
     Example usage:
     ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=hifi4" input.mlir
     ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=lofi fp32-dest-acc-en=true" input.mlir
+    ttmlir-opt --ttnn-set-compute-kernel-config="fp32-dest-acc-en=false packer-l1-acc=true" input.mlir
   }];
 
   let options = [
     Option<"mathFidelity", "math-fidelity", "::mlir::tt::ttnn::OptionalMathFidelity", /*default=*/"::mlir::tt::ttnn::OptionalMathFidelity::HiFi4",
-           "Set default math_fidelity (lofi, hifi2, hifi3, hifi4)">,
-    Option<"mathApproxMode", "math-approx-mode", "bool", /*default=*/"false",
-           "Set default math_approx_mode">,
-    Option<"fp32DestAccEn", "fp32-dest-acc-en", "bool", /*default=*/"true",
-           "Set default fp32_dest_acc_en">,
-    Option<"packerL1Acc", "packer-l1-acc", "bool", /*default=*/"false",
-           "Set default packer_l1_acc">,
-    Option<"dstFullSyncEn", "dst-full-sync-en", "bool", /*default=*/"false",
-           "Set default dst_full_sync_en">
+           "Set default math_fidelity (lofi, hifi2, hifi3, hifi4, undefined)">,
+    Option<"mathApproxMode", "math-approx-mode", "std::optional<bool>", /*default=*/"std::optional<bool>(std::nullopt)",
+           "Set default math_approx_mode (true, false, unset)">,
+    Option<"fp32DestAccEn", "fp32-dest-acc-en", "std::optional<bool>", /*default=*/"std::optional<bool>(true)",
+           "Set default fp32_dest_acc_en (true, false, unset)">,
+    Option<"packerL1Acc", "packer-l1-acc", "std::optional<bool>", /*default=*/"std::optional<bool>(std::nullopt)",
+           "Set default packer_l1_acc (true, false, unset)">,
+    Option<"dstFullSyncEn", "dst-full-sync-en", "std::optional<bool>", /*default=*/"std::optional<bool>(std::nullopt)",
+           "Set default dst_full_sync_en (true, false, unset)">
   ];
 }
 
@@ -693,6 +765,50 @@ def TTNNRemoveDeallocs: Pass<"ttnn-remove-deallocs", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNResolveComposites : Pass<"ttnn-resolve-composites", "::mlir::ModuleOp"> {
+  let summary = "Resolve composite ops into typed ops or inline decompositions.";
+  let description = [{
+    This pass resolves `ttcore.composite` ops by attempting to replace each one
+    with a dedicated typed TTNN op (e.g. `ttnn.rotary_embedding`).
+
+    Resolution mode is controlled by the `composite-resolution` option:
+
+    - `inline` (default): All composites are unconditionally inlined (decomposed
+      into primitives). This is the safe default — downstream TTNN fusing
+      patterns can still create typed ops from the inlined primitives.
+
+    - `validate`: The typed op is validated via OpModel before promotion. If
+      validation fails, the decomposition function body is inlined as a
+      fallback. Requires TTMLIR_ENABLE_OPMODEL.
+
+    - `force-promote`: Unconditionally promote registered composites to typed
+      ops without validation. Intended for testing only.
+
+    After resolution, decomposition functions that are no longer referenced are
+    erased from the module.
+  }];
+
+  let options = [
+    Option<"compositeResolution",
+            "composite-resolution",
+            "CompositeResolution",
+            /*default=*/"CompositeResolution::Auto",
+            "How to resolve composites.",
+            [{::llvm::cl::values(
+              clEnumValN(CompositeResolution::Auto, "auto",
+                "Pipeline decides: validate when optimizer+OpModel available, "
+                "else inline (default)."),
+              clEnumValN(CompositeResolution::Inline, "inline",
+                "Always inline decomposition; never upgraded by pipeline."),
+              clEnumValN(CompositeResolution::Validate, "validate",
+                "Promote if OpModel validates, else inline "
+                "(requires TTMLIR_ENABLE_OPMODEL)."),
+              clEnumValN(CompositeResolution::ForcePromote, "force-promote",
+                "Unconditionally promote (testing only).")
+            )}]>,
+  ];
+}
+
 def TTNNCollaspeD2M : Pass<"ttnn-collaspe-d2m", "::mlir::ModuleOp"> {
   let summary = "Collapse D2M subgraph modules(s) back into original module.";
   let description = [{
@@ -704,8 +820,31 @@ def TTNNConfigureCCLOps : Pass<"ttnn-configure-ccl-ops", "::mlir::ModuleOp"> {
   let summary = "Configure device-specific parameters on CCL operations.";
   let description = [{
     This pass configures all device-specific parameters on CCL operations
-    (AllGather, AllReduce, ReduceScatter) based on the DeviceAttr. This
-    includes setting the topology attribute from the per-axis mesh topology.
+    (AllGather, AllReduce, ReduceScatter, MoeCompute) based on the DeviceAttr.
+    This includes setting the topology attribute from the per-axis mesh
+    topology.
+  }];
+}
+
+def TTNNAllocateDistributedOpBuffers
+    : Pass<"ttnn-allocate-distributed-op-buffers", "::mlir::ModuleOp"> {
+  let summary = "Allocate explicit scratch buffers for distributed ops.";
+  let description = [{
+    Walks every op implementing `DistributedOpInterface` and invokes
+    `allocateBuffers` on it. See `DistributedOpInterface` for the rationale
+    behind splitting buffer and semaphore allocation into separate passes
+    and for the prelude placement contract.
+  }];
+}
+
+def TTNNAllocateDistributedOpSemaphores
+    : Pass<"ttnn-allocate-distributed-op-semaphores", "::mlir::ModuleOp"> {
+  let summary = "Allocate explicit global semaphores for distributed ops.";
+  let description = [{
+    Walks every op implementing `DistributedOpInterface` and invokes
+    `allocateSemaphores` on it. See `DistributedOpInterface` for the
+    rationale behind splitting buffer and semaphore allocation into
+    separate passes and for the prelude placement contract.
   }];
 }
 
@@ -714,13 +853,19 @@ def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
   let description = [{
     This pass moves slice ops and reorganizes repeat ops to reduce memory usage.
   }];
+  let options = [
+    Option<"aggressiveMemorySaving",
+           "aggressive-memory-saving",
+           "bool", /*default=*/"true",
+           "Opt-out: disable aggressive memory saving patterns to reduce DRAM usage.">,
+  ];
 }
 
 def TTNNGreedyL1SpillManagement : Pass<"ttnn-greedy-l1-spill-management", "::mlir::ModuleOp"> {
-  let summary = "Belady's algorithm for L1 budget enforcement.";
+  let summary = "Farthest-last-use eviction for L1 budget enforcement.";
   let description = [{
-    This pass uses Belady's optimal page replacement algorithm to enforce L1
-    memory budgets by spilling tensors to DRAM when necessary.
+    This pass enforces L1 memory budgets by spilling tensors to DRAM using a
+    farthest-last-use eviction strategy.
   }];
   let options = [
     Option<"enableDecisionTrace", "enable-decision-trace", "bool", "false",
@@ -728,6 +873,10 @@ def TTNNGreedyL1SpillManagement : Pass<"ttnn-greedy-l1-spill-management", "::mli
     Option<"decisionTraceDir", "decision-trace-dir", "std::string",
            "\"ttrt-artifacts/decision_trace\"",
            "Directory for decision trace JSON output.">,
+    Option<"useMockAllocatorState", "use-mock-allocator-state", "bool", "true",
+           "Use tt-metal's stateful op-constraints query (MockAllocatorL1Tracker) "
+           "for fragmentation-accurate L1 fit decisions. When false, use the "
+           "scalar additional-L1 + CB-cushion tracker (SumL1MemoryTracker).">,
   ];
 }
 
@@ -761,6 +910,92 @@ def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagat
     Option<"enableCompileTimeStats", "enable-compile-time-stats", "bool", "false",
            "Print per-op compile-time statistics at DEBUG level.">,
   ];
+}
+
+def TTNNResolveTTLangKernels : Pass<"ttnn-resolve-tt-lang-kernels", "::mlir::ModuleOp"> {
+  let summary = "Resolve deferred ttnn.tt_lang_op kernels via the tt-lang Python compiler.";
+  let description = [{
+    This pass walks the module for `ttnn.tt_lang_op` operations with an
+    empty `kernel_artifact` attribute and invokes
+    `tt_torch.tt_lang.resolve_operation` through the host process's Python
+    interpreter, passing the (now-final, post-TTIR->TTNN) shard-local
+    operand types and `arg_roles` / `shard_spec`. The
+    `tt_torch.tt_lang.resolve_operation` resolver lives in tt-xla's
+    `tt_torch` Python package and returns a `CompiledTTNNKernel` JSON
+    artifact, which the pass attaches back onto the op as the
+    `kernel_artifact` `StringAttr`. This attribute is later consumed by
+    the downstream TTNN-to-flatbuffer emitter to materialise a
+    `ttnn.generic_op` descriptor.
+
+    Important Notes:
+    This pass must be run after all TTNN layout-decomposition and
+    workaround passes (so each operand carries its final
+    `#ttnn.ttnn_layout` encoding) and before flatbuffer emission.
+
+    The Python interpreter's GIL is acquired via
+    `pybind11::gil_scoped_acquire`; this pass does NOT call
+    `Py_Initialize`. The host process is expected to already be running
+    CPython (typical when this pass runs inside `pjrt_plugin_tt.so`,
+    loaded from a `jax` / `torch_xla` Python program). When
+    `ttmlir-translate` or `ttmlir-opt` is invoked from a non-Python
+    parent the `tt_torch.tt_lang` import fails and the pass emits a
+    diagnostic to that effect. A module with no `ttnn.tt_lang_op` is
+    unaffected: the pass returns before touching Python at all.
+  }];
+
+  let options = [
+    Option<"meshShape", "mesh-shape", "std::string",
+           /*default=*/"\"\"",
+           "Comma-separated mesh shape (e.g. 1,1 or 2,4) "
+           "forwarded to `resolve_operation` so the Python compiler sees "
+           "the active mesh. Empty defaults to [1].">,
+    Option<"pythonModule", "python-module", "std::string",
+           /*default=*/"\"tt_torch.tt_lang\"",
+           "Python module exposing the resolver entry point.">,
+    Option<"pythonFunction", "python-function", "std::string",
+           /*default=*/"\"resolve_operation\"",
+           "Function in `python-module` to invoke per op.">,
+  ];
+}
+
+def TTNNLowerTTLangToGeneric : Pass<"ttnn-lower-tt-lang-to-generic", "::mlir::ModuleOp"> {
+  let summary = "Lower resolved ttnn.tt_lang_op kernels into ttnn.generic ops.";
+  let description = [{
+    This pass rewrites each `ttnn.tt_lang_op` whose `kernel_artifact`
+    attribute has been populated (by `--ttnn-resolve-tt-lang-kernels`)
+    into an equivalent `ttnn.generic` op carrying a `#ttnn.program`
+    descriptor.
+
+    The `kernel_artifact` is the UTF-8 JSON payload produced by tt-xla's
+    `tt_torch.tt_lang._serialize_compiled_operation`:
+
+    {
+      "format_version": 2,
+      "kernels": [
+        {"thread_type": "compute"|"noc",
+         "cpp_source":  "<embedded C++ source>",
+         "tensor_indices": [<int>, ...],
+         "kernel_config": {...}},
+        ...
+      ],
+      "core_range": {"start": [x, y], "end": [x, y]},
+      "cb_configs": [{buffer_index, data_format, page_size, total_size}, ...],
+      "num_pipe_sync_semaphores": <int>,
+      "num_pipe_global_semaphores": <int>,
+      "pipe_sram_scratch_bytes": <int>,
+      ...
+    }
+
+    Each kernel becomes a `#ttnn.compute_kernel` / `#ttnn.read_kernel` /
+    `#ttnn.write_kernel` attribute carrying the kernel's C++ source inline
+    (the `source` parameter), its CB-index / tensor-accessor compile-time
+    args, and its buffer-address common runtime args. `cb_configs` become
+    `#ttnn.kernel_cb` descriptors.
+
+    This pass must run after `--ttnn-resolve-tt-lang-kernels` and before
+    flatbuffer emission. A `ttnn.tt_lang_op` with an empty/unset
+    `kernel_artifact` is not allowed and will result in an error.
+  }];
 }
 
 #endif

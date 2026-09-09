@@ -11,6 +11,7 @@ add_mlir_dialect_library(MLIRTTNNDialect
         DEPENDS
         MLIRTTNNOpsIncGen
         MLIRTTCoreOpsIncGen
+        MLIRTTNNDistributedOpInterfaceIncGen
         MLIRTTNNOpModelInterfaceIncGen
         MLIRTTNNTensorSpecInterfaceIncGen
         MLIRTTNNWorkaroundInterfaceIncGen

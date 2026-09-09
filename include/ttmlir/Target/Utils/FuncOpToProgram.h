@@ -6,9 +6,11 @@
 #define TTMLIR_TARGET_UTILS_FUNCOPTOPROGRAM_H
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include "flatbuffers/flatbuffers.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
@@ -22,6 +24,8 @@ struct Program {
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> inputs;
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
   std::vector<::flatbuffers::Offset<OpT>> ops;
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
+      semaphoreInputs;
 };
 
 inline std::string getOpDebugString(mlir::Operation *op,
@@ -39,16 +43,19 @@ inline std::string getOpLocInfo(mlir::Operation *op) {
   return str;
 }
 
+// Scalar args are serialized in 32-bit unsigned integers
+inline bool isSupportedScalarArgType(mlir::Type type) {
+  return mlir::isa<mlir::IntegerType, mlir::FloatType>(type) &&
+         type.getIntOrFloatBitWidth() <= 32;
+}
+
 inline Value getOperandThroughDPSOps(Value value) {
   auto *op = value.getDefiningOp();
-  if (!op) {
-    return value;
-  }
-  while (isa<DestinationStyleOpInterface>(op)) {
-    assert(op->getResults().size() == 1);
+  while (isa_and_nonnull<DestinationStyleOpInterface>(op)) {
     auto dps = cast<DestinationStyleOpInterface>(op);
-    assert(dps.getNumDpsInits() == 1);
-    auto *opOperand = dps.getDpsInitOperand(0);
+    OpOperand *opOperand = dps.getTiedOpOperand(cast<OpResult>(value));
+    assert(opOperand &&
+           "DPS op result must be tied to a destination init operand");
     value = opOperand->get();
     op = value.getDefiningOp();
   }
@@ -72,6 +79,50 @@ funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
   program.name = entry.getSymName().data();
 
   for (auto &input : entry.getBody().getArguments()) {
+    if (mlir::isa<mlir::tt::ttnn::GlobalSemaphoreType>(input.getType())) {
+      program.semaphoreInputs.push_back(
+          cache.getOrCreate(input, [](FlatbufferObjectCache &c, mlir::Value) {
+            return ::tt::target::ttnn::CreateGlobalSemaphoreRef(
+                *c.fbb, c.nextGlobalId());
+          }));
+      continue;
+    }
+
+    if (!isa<RankedTensorType>(input.getType())) {
+      if (!isSupportedScalarArgType(input.getType())) {
+        llvm::report_fatal_error(
+            "Unsupported non-tensor program argument type in "
+            "TTNN-to-flatbuffer "
+            "lowering; only integer/float scalars up to 32 bits are supported");
+      }
+
+      program.inputs.push_back(
+          cache.getOrCreate(input, [](FlatbufferObjectCache &c, mlir::Value) {
+            // Scalars are represented as 1-element UInt32 tensors at the
+            // runtime layer regardless of their original type (see
+            // isSupportedScalarArgType above and runtime/lib/ttnn/runtime.cpp
+            // createScalarTensorImpl).
+            ttcore::DataType dtype = ttcore::DataType::UInt32;
+            std::vector<int32_t> shape = {1};
+            std::vector<int32_t> meshShape = {1, 1};
+
+            ::tt::target::Dim2d tileShape(1, 1);
+            auto memoryDesc = ::tt::target::ttnn::CreateMemoryDesc(
+                *c.fbb, ::tt::target::ttnn::StorageType::Host, &tileShape,
+                toFlatbuffer(c, dtype),
+                /* memory_config=*/0);
+            auto layoutDesc = ::tt::target::ttnn::CreateLayoutDesc(
+                *c.fbb, ::tt::target::OOBVal::Undef, memoryDesc);
+            auto tensorDesc = ::tt::target::ttnn::CreateTensorDescDirect(
+                *c.fbb, &shape, &meshShape, layoutDesc,
+                ::tt::target::ttnn::ShardStatus::Unsharded,
+                /* local_shape */ nullptr);
+            return ::tt::target::ttnn::CreateTensorRef(*c.fbb, c.nextGlobalId(),
+                                                       tensorDesc);
+          }));
+      continue;
+    }
+
     // Get argument encoding to determine sharding status.
     mlir::DictionaryAttr argAttrDict =
         entry.getArgAttrDict(input.getArgNumber());

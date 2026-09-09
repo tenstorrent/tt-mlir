@@ -47,6 +47,10 @@ OutputHints getOutputHints(Operation *op,
 /// Returns false for ops that must always be DRAM (e.g., reshape, permute).
 bool shouldExploreReshards(Operation *op);
 
+/// Whether the greedy search should synthesize a ROW_MAJOR sibling for each
+/// tiled input candidate at the given operand index.
+bool generatesRowMajorInputSiblings(Operation *op, unsigned operandIdx);
+
 //--- Scoring ---
 
 /// Score representing the quality of a layout candidate. Used for ranking.

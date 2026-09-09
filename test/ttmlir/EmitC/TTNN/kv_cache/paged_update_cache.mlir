@@ -14,7 +14,7 @@ module {
     // CHECK: "ttnn.paged_update_cache"
     %update_index = "ttir.ones"() <{shape = array<i32: 24>}> : () -> tensor<24xi32>
     %page_table = "ttir.ones"() <{shape = array<i32: 24, 16>}> : () -> tensor<24x16xi32>
-    %0 = "ttir.paged_update_cache"(%cache, %input, %update_index, %page_table) : (tensor<128x24x128x128xbf16>, tensor<1x24x32x128xbf16>, tensor<24xi32>, tensor<24x16xi32>) -> tensor<128x24x128x128xbf16>
-    return %0 : tensor<128x24x128x128xbf16>
+    "ttir.paged_update_cache"(%cache, %input, %update_index, %page_table) : (tensor<128x24x128x128xbf16>, tensor<1x24x32x128xbf16>, tensor<24xi32>, tensor<24x16xi32>) -> ()
+    return %cache : tensor<128x24x128x128xbf16>
   }
 }

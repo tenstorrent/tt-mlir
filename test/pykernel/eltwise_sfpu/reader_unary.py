@@ -32,19 +32,15 @@ def reader_unary(cb_in: CircularBuffer, cb_out: CircularBuffer):
 
     # CHECK: emitc.verbatim "// for i in range(0, num_tiles, ublock_size_tiles):"
     for i in range(0, num_tiles, ublock_size_tiles):
-        # CHECK: emitc.verbatim "// src_noc_addr = get_noc_addr_from_bank_id(bank_id, src_addr)"
-        # CHECK: %[[SRC_NOC_ADDR:.*]] = ttkernel.get_noc_addr_from_bank_id{{.*}}
-        src_noc_addr = get_noc_addr_from_bank_id(bank_id, src_addr)
-
         # CHECK: ttkernel.cb_reserve_back{{.*}}
         cb_reserve_back(cb_in, ublock_size_tiles)
 
         # CHECK: emitc.verbatim "// l1_write_addr = get_write_ptr(cb_in)"
         # CHECK: {{.*}}ttkernel.get_write_ptr{{.*}}
-        # CHECK: ttkernel.noc_async_read(%[[SRC_NOC_ADDR]], {{.*}}, {{.*}}){{.*}}
+        # CHECK: ttkernel.noc_async_read bank[{{.*}}], {{.*}}, {{.*}}, {{.*}}
         # CHECK: ttkernel.noc_async_read_barrier{{.*}}
         l1_write_addr = get_write_ptr(cb_in)
-        noc_async_read(src_noc_addr, l1_write_addr, ublock_size_bytes)
+        noc_async_read(src_addr, l1_write_addr, ublock_size_bytes, src_bank_id=bank_id)
         noc_async_read_barrier()
 
         # CHECK: ttkernel.cb_push_back{{.*}}

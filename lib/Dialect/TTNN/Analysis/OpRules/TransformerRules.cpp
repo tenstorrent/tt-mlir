@@ -47,6 +47,56 @@ OutputHints SDPARuleBook::getOutputHints(
 }
 
 //===----------------------------------------------------------------------===//
+// TTMLSDPAForwardRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+TTMLSDPAForwardRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
+  return [](TTNNLayoutAttr layout) {
+    return layout_filter_utils::requireTiled(layout) &&
+           layout_filter_utils::rejectAllSharded(layout);
+  };
+}
+
+//===----------------------------------------------------------------------===//
+// TTMLSDPABackwardRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+TTMLSDPABackwardRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
+  return layout_filter_utils::requireTiled;
+}
+
+bool TTMLSDPABackwardRuleBook::shouldExploreReshards() const { return false; }
+
+OutputHints TTMLSDPABackwardRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
+  // The backend derives grad-Q/K/V layouts from Q/K/V.
+  return layout_filter_utils::nullHintOnly();
+}
+
+//===----------------------------------------------------------------------===//
+// TTMLLayerNormForwardRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn TTMLLayerNormForwardRuleBook::getInputLayoutFilter(
+    unsigned /*operandIdx*/) const {
+  return [](TTNNLayoutAttr layout) {
+    return layout_filter_utils::requireTiled(layout) &&
+           layout_filter_utils::requireDRAMInterleaved(layout);
+  };
+}
+
+bool TTMLLayerNormForwardRuleBook::shouldExploreReshards() const {
+  return false;
+}
+
+OutputHints TTMLLayerNormForwardRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
+  return layout_filter_utils::nullHintOnly();
+}
+
+//===----------------------------------------------------------------------===//
 // SDPADecodeRuleBook
 //===----------------------------------------------------------------------===//
 
@@ -95,25 +145,6 @@ OutputHints SplitQKVRuleBook::getOutputHints(
 }
 
 //===----------------------------------------------------------------------===//
-// PagedUpdateCacheRuleBook
-//===----------------------------------------------------------------------===//
-
-LayoutFilterFn
-PagedUpdateCacheRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
-  // Operand 1 (fill value) must be L1 height-sharded.
-  // Reject interleaved and all other sharding types so the beam search
-  // is forced to explore HeightSharded reshard candidates.
-  if (operandIdx == 1) {
-    return [](TTNNLayoutAttr layout) -> bool {
-      auto ml = layout.getMemLayout();
-      return layout.hasL1BufferType() && ml &&
-             ml.getValue() == TensorMemoryLayout::HeightSharded;
-    };
-  }
-  return nullptr;
-}
-
-//===----------------------------------------------------------------------===//
 // FillCache / PagedFillCache: cache buffer (operand 0) must stay in DRAM
 //===----------------------------------------------------------------------===//
 
@@ -143,6 +174,37 @@ PagedFillCacheRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
     return cacheBufferDramOnlyFilter();
   }
   return nullptr;
+}
+
+//===----------------------------------------------------------------------===//
+// PagedUpdateCacheRuleBook
+//===----------------------------------------------------------------------===//
+
+// Operands: (0) cache, (1) value, (2) update_idxs, (3) page_table.
+LayoutFilterFn
+PagedUpdateCacheRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
+  switch (operandIdx) {
+  case 0: // in-place cache: DRAM interleaved
+    return cacheBufferDramOnlyFilter();
+  case 1: // value: the kernel needs HeightSharded, but this filter only rejects
+          // the wrong sharding types and keeps interleaved -- the greedy
+          // reshard search starts from the interleaved producer beam and
+          // derives the HeightSharded candidate, so pruning interleaved here
+          // would empty the pool. The hard HeightSharded requirement is
+          // enforced by backend validation.
+    return layout_filter_utils::allowOnlyShardingType(
+        TensorMemoryLayout::HeightSharded);
+  case 2: // index tensors: ROW_MAJOR (see generatesRowMajorInputSiblings)
+  case 3:
+    return layout_filter_utils::requireRowMajor;
+  default:
+    return nullptr;
+  }
+}
+
+bool PagedUpdateCacheRuleBook::generatesRowMajorInputSiblings(
+    unsigned operandIdx) const {
+  return operandIdx == 2 || operandIdx == 3;
 }
 
 } // namespace mlir::tt::ttnn

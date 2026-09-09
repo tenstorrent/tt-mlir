@@ -431,8 +431,14 @@ def golden(callback_runtime_config, binary, program_context, op_context):
                     tensor = tt_runtime.runtime.retrieve_tensor_from_pool(
                         program_context, output_tensor_ref
                     )
+                    if tensor is None:
+                        return
+                    host_tensor = tt_runtime.runtime.to_host(tensor, untilize=True)[0]
                     update_device_tensor(
-                        program_context, output_tensor_ref, tensor, golden_tensor_torch
+                        program_context,
+                        output_tensor_ref,
+                        host_tensor,
+                        golden_tensor_torch,
                     )
                     results["bypassed"] = "True"
 
@@ -763,6 +769,17 @@ def execute_fb(
                     ).reshape(output_device_tensors[device_id].get_shape())
 
                 golden_shard_torch = golden_outputs_torch[i][device_id]
+                if save_artifacts:
+                    save_torch_tensor(
+                        output_shard_torch,
+                        program_artifact_dir,
+                        f"device_output_{i}_device_{device_id}.pt",
+                    )
+                    save_torch_tensor(
+                        golden_shard_torch,
+                        program_artifact_dir,
+                        f"golden_output_{i}_device_{device_id}.pt",
+                    )
                 results = check_outputs(
                     golden_shard_torch,
                     output_shard_torch,
@@ -782,18 +799,6 @@ def execute_fb(
                 program_output_tensors[f"golden_output_{i}"][
                     device_id
                 ] = golden_shard_torch
-
-                if save_artifacts:
-                    save_torch_tensor(
-                        output_shard_torch,
-                        program_artifact_dir,
-                        f"device_output_{i}_device_{device_id}.pt",
-                    )
-                    save_torch_tensor(
-                        golden_shard_torch,
-                        program_artifact_dir,
-                        f"golden_output_{i}_device_{device_id}.pt",
-                    )
 
             tt_runtime.runtime.deallocate_tensor(runtime_output_tensor, force=True)
 

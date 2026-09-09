@@ -49,6 +49,7 @@ target_link_libraries(TTMLIRRuntime
     # we tell linker to link all the symbols anyway. We need this as symbols from libA might be used by whoever
     # imports libB.
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,TTRuntimeTTNNTestLib>"
+    TTRuntimeTTMLOps
     ${METAL_LIBS}
     flatbuffers
 )

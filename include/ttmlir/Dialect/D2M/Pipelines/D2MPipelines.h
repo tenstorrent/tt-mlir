@@ -122,6 +122,11 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
       llvm::cl::desc("Insert DeviceZone scopes around selected TTKernel ops"),
       llvm::cl::init(false)};
 
+  ListOption<std::string> profilerTraits{
+      *this, "profiler-traits",
+      llvm::cl::desc(
+          "TTKernel op traits to instrument with DeviceZoneScopedN.")};
+
   // Option to set  math fidelity
   Option<mlir::tt::ttmetal::MathFidelity> mathFidelity{
       *this, "set-math-fidelity", llvm::cl::desc("Set the math fidelity."),
@@ -176,7 +181,8 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
   Option<std::string> testBufferSizePolicy{
       *this, "test-buffer-size-policy",
       llvm::cl::desc(
-          "Set policy for sizing stream buffers ('auto', 'min', 'max')."),
+          "Set policy for sizing stream buffers ('auto', 'auto-mn', 'min', "
+          "'max')."),
       llvm::cl::init("auto")};
 
   // Option to ingest a mix of ttnn and ttir ops and lower through D2m to TTNN
@@ -184,6 +190,13 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
   Option<bool> ttnnMode{*this, "ttnn-mode",
                         llvm::cl::desc("D2M/TTNN integration mode."),
                         llvm::cl::init(false)};
+
+  // Evaluation knob for comparing the CRTA path against compile-time args.
+  Option<bool> forceCompileTimeArgs{
+      *this, "force-compile-time-args",
+      llvm::cl::desc("Force uniform D2M kernel arguments into compile-time "
+                     "args when legal for CRTA performance comparison."),
+      llvm::cl::init(false)};
 
   // Option to set the target data format for the global data format conversion
   // pass.
@@ -217,6 +230,12 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
                      "prints debug output comparing them."),
       llvm::cl::init(false)};
 
+  Option<bool> useTensorAccessorDMA{
+      *this, "use-tensor-accessor-dma",
+      llvm::cl::desc(
+          "Use TensorAccessor for eligible page-granular D2M DMA operations."),
+      llvm::cl::init(false)};
+
   Option<bool> disableL1Acc{
       *this, "disable-l1-acc",
       llvm::cl::desc("Disable L1 accumulation (force reloading from L1 to DST "
@@ -237,6 +256,17 @@ void createD2MBackendPipeline(OpPassManager &pm,
 // Outbound conversion pipelines.
 void createD2MToTTKernelPipeline(OpPassManager &pm,
                                  const D2MPipelineOptions &options);
+
+// Split halves of the D2M -> TTKernel + EmitC pipeline. Exposed so callers
+// that need to interleave dispatch-level conversion passes (e.g.
+// ConvertD2MToTTMetalPass) between the TTKernel and EmitC stages can compose
+// them directly. Composing pre-EmitC + dispatch + hoist-inits + EmitC matches
+// the canonical ordering in createTTIRToTTMetalPipeline.
+void createD2MToTTKernelPreEmitCPipeline(OpPassManager &pm,
+                                         const D2MPipelineOptions &options);
+
+void createD2MEmitCPipeline(OpPassManager &pm,
+                            const D2MPipelineOptions &options);
 
 void createD2MToTTMetalPipeline(OpPassManager &pm,
                                 const D2MPipelineOptions &options);

@@ -57,9 +57,14 @@ public:
   void insert(const MainProgramKey &key,
               const CaptureExecuteProgramKey &captureExecuteKey,
               TraceData traceData);
+  /// Removes all entries for the given key, releasing their device-side
+  /// traces.
   void erase(const MainProgramKey &key);
-  void erase(const MainProgramKey &key,
-             const CaptureExecuteProgramKey &captureExecuteKey);
+
+  /// Removes the entry for the given key and returns it, leaving the
+  /// device-side trace untouched. The entry must be present in the cache.
+  TraceData take(const MainProgramKey &key,
+                 const CaptureExecuteProgramKey &captureExecuteKey);
 
   uint64_t getGenerationId() const { return generationId; }
 

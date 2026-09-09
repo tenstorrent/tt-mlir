@@ -27,11 +27,11 @@ module {
   // CHECK-DAG: %{{.*}} = d2m.get_block_factor(1) : index
   // CHECK: affine.for %[[I:.*]] = 0 to %{{.*}} {
   // CHECK-NEXT:   affine.for %[[J:.*]] = 0 to %{{.*}} {
-  // CHECK-NEXT:     %[[OFF0:.*]] = d2m.block_offset(0)
-  // CHECK-NEXT:     %[[IDX0:.*]] = affine.apply #{{.*}}(%[[I]])[%[[OFF0]]]
+  // CHECK:          %[[OFF0:.*]] = d2m.block_offset(0)
+  // CHECK-NEXT:     %[[IDX0:.*]] = arith.addi %[[I]], %[[OFF0]]
   // CHECK-NEXT:     %[[OFF1:.*]] = d2m.block_offset(1)
-  // CHECK-NEXT:     %[[IDX1:.*]] = affine.apply #{{.*}}(%[[J]])[%[[OFF1]]]
-  // CHECK-NEXT:     %{{.*}} = memref.alloc
+  // CHECK-NEXT:     %[[IDX1:.*]] = arith.addi %[[J]], %[[OFF1]]
+  // CHECK:          %{{.*}} = memref.alloc
   // CHECK-NEXT:     d2m.remote_load %{{.*}} %{{.*}}[%[[IDX0]], %[[IDX1]]] : memref<{{.*}}>, memref<{{.*}}>
   // CHECK-NEXT:     %{{.*}} = memref.alloc
   // CHECK-NEXT:     d2m.remote_store %{{.*}}[%[[IDX0]], %[[IDX1]]] %{{.*}} : memref<{{.*}}>, memref<{{.*}}>
@@ -71,11 +71,11 @@ module {
   // CHECK: affine.for %[[I:.*]] = 0 to %{{.*}} {
   // CHECK-NEXT:   affine.for %[[J:.*]] = 0 to %{{.*}} {
   // CHECK-NEXT:     affine.for %{{.*}} = 0 to %{{.*}} {
-  // CHECK-NEXT:       %[[OFF0:.*]] = d2m.block_offset(0)
-  // CHECK-NEXT:       %[[IDX0:.*]] = affine.apply #{{.*}}(%[[I]])[%[[OFF0]]]
+  // CHECK:            %[[OFF0:.*]] = d2m.block_offset(0)
+  // CHECK-NEXT:       %[[IDX0:.*]] = arith.addi %[[I]], %[[OFF0]]
   // CHECK-NEXT:       %[[OFF1:.*]] = d2m.block_offset(1)
-  // CHECK-NEXT:       %[[IDX1:.*]] = affine.apply #{{.*}}(%[[J]])[%[[OFF1]]]
-  // CHECK-NEXT:       %{{.*}} = memref.alloc
+  // CHECK-NEXT:       %[[IDX1:.*]] = arith.addi %[[J]], %[[OFF1]]
+  // CHECK:            %{{.*}} = memref.alloc
   // CHECK-NEXT:       %{{.*}} = memref.alloc
   // CHECK-NEXT:       %{{.*}} = memref.alloc
   // CHECK-NEXT:       d2m.remote_load %{{.*}} %{{.*}}[%[[IDX0]], %[[IDX1]]] : memref<{{.*}}>, memref<{{.*}}>
@@ -118,11 +118,11 @@ module {
   // CHECK-DAG: %{{.*}} = d2m.get_block_factor(1) : index
   // CHECK: affine.for %[[I:.*]] = 0 to %{{.*}} {
   // CHECK-NEXT:   affine.for %[[J:.*]] = 0 to %{{.*}} {
-  // CHECK-NEXT:     %[[OFF0:.*]] = d2m.block_offset(0)
-  // CHECK-NEXT:     %[[IDX0:.*]] = affine.apply #{{.*}}(%[[I]])[%[[OFF0]]]
+  // CHECK:          %[[OFF0:.*]] = d2m.block_offset(0)
+  // CHECK-NEXT:     %[[IDX0:.*]] = arith.addi %[[I]], %[[OFF0]]
   // CHECK-NEXT:     %[[OFF1:.*]] = d2m.block_offset(1)
-  // CHECK-NEXT:     %[[IDX1:.*]] = affine.apply #{{.*}}(%[[J]])[%[[OFF1]]]
-  // CHECK-NEXT:     %{{.*}} = memref.alloc
+  // CHECK-NEXT:     %[[IDX1:.*]] = arith.addi %[[J]], %[[OFF1]]
+  // CHECK:          %{{.*}} = memref.alloc
   // CHECK-NEXT:     d2m.remote_load %{{.*}} %{{.*}}[%[[IDX0]], %[[IDX1]]] : memref<{{.*}}>, memref<{{.*}}>
     // CHECK-NEXT:   } {d2m.blocking_loop = 1
     // CHECK-NEXT: } {d2m.blocking_loop = 0

@@ -16,13 +16,14 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <array>
-#include <cmath>
 #include <optional>
 #include <string>
 #include <type_traits>
@@ -86,6 +87,7 @@ struct LayerNormShardedMultiCoreProgramConfig;
 
 namespace operations {
 namespace unary {
+struct EltwiseUnaryWithParam;
 struct UnaryWithParam;
 
 // Mock definition of VecMode enum from tt-metal
@@ -113,6 +115,10 @@ struct Conv2dSliceConfig;
 namespace transformer {
 struct SDPAProgramConfig;
 } // namespace transformer
+
+namespace experimental::indexer_score {
+struct IndexerScoreProgramConfig;
+} // namespace experimental::indexer_score
 
 } // namespace operations
 } // namespace ttnn
@@ -267,10 +273,24 @@ struct TypeName<::ttnn::operations::transformer::SDPAProgramConfig> {
       "::ttnn::operations::transformer::SDPAProgramConfig";
 };
 
+template <>
+struct TypeName<::ttnn::operations::experimental::indexer_score::
+                    IndexerScoreProgramConfig> {
+  inline static const std::string value = "::ttnn::operations::experimental::"
+                                          "indexer_score::"
+                                          "IndexerScoreProgramConfig";
+};
+
 // Marker type for MatmulMultiCoreReuseMultiCast1DProgramConfig (used by
 // sparse_matmul). The actual C++ type is not included here; this is only used
 // for EmitC code-generation purposes.
 struct SparseMatmulProgramConfig {};
+
+template <>
+struct TypeName<::ttnn::operations::unary::EltwiseUnaryWithParam> {
+  inline static const std::string value =
+      "::ttnn::operations::unary::EltwiseUnaryWithParam";
+};
 
 template <>
 struct TypeName<::ttnn::operations::unary::UnaryWithParam> {
@@ -470,32 +490,53 @@ struct EmitCTypeConverter<T,
     return convert(attr.getValue());
   }
 
+  // Formats a finite value as a C++ floating point literal.
+  //
+  // Not `std::to_string`: that formats with `%f`, i.e. six digits after the
+  // decimal point, so anything smaller than 5e-7 comes out as `0.000000` - an
+  // `epsilon` of `1e-8` being the usual casualty. `APFloat::toString` instead
+  // prints enough significant digits to recover the value, switching to
+  // scientific notation when that is shorter.
   static std::string convert(mlir::APFloat value) {
-    return convert(value.convertToDouble());
+    // Round to the target type first, so the digits printed are the ones that
+    // survive the literal's own type rather than the source attribute's.
+    llvm::APFloat rounded = value;
+    bool losesInfo = false;
+    rounded.convert(std::is_same_v<T, float> ? llvm::APFloat::IEEEsingle()
+                                             : llvm::APFloat::IEEEdouble(),
+                    llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+
+    // Check the non-finite classes on the *rounded* value: a finite f64 above
+    // FLT_MAX overflows to infinity when rounded to float, and letting it
+    // reach `toString` would emit `+Inf.0f`, which is not a C++ literal.
+    if (rounded.isInfinity()) {
+      std::string result = rounded.isNegative() ? "-" : "";
+      result.append("::std::numeric_limits<" + TypeNameV<T> + ">::infinity()");
+      return result;
+    }
+
+    if (rounded.isNaN()) {
+      return "::std::numeric_limits<" + TypeNameV<T> + ">::quiet_NaN()";
+    }
+
+    llvm::SmallString<32> literal;
+    rounded.toString(literal);
+    // A whole number prints without a decimal point or exponent, and `1f` is
+    // not a floating point literal in C++ (nor is a bare `1` a double one).
+    if (literal.find('.') == llvm::StringRef::npos &&
+        literal.find('E') == llvm::StringRef::npos) {
+      literal.append(".0");
+    }
+    if constexpr (std::is_same_v<T, float>) {
+      literal.push_back('f');
+    }
+    return literal.str().str();
   }
 
   template <typename U>
   static std::enable_if_t<std::is_floating_point_v<U>, std::string>
   convert(U value) {
-    if (std::isfinite(value)) {
-      std::string result = std::to_string(static_cast<T>(value));
-      if constexpr (std::is_same_v<T, float>) {
-        result.append("f");
-      }
-      return result;
-    }
-
-    if (std::isinf(value)) {
-      std::string result = value > 0 ? "" : "-";
-      result.append("::std::numeric_limits<" + TypeNameV<T> + ">::infinity()");
-      return result;
-    }
-
-    if (std::isnan(value)) {
-      return "::std::numeric_limits<" + TypeNameV<T> + ">::quiet_NaN()";
-    }
-
-    llvm_unreachable("Unknown class of floating point value");
+    return convert(llvm::APFloat(static_cast<double>(value)));
   }
 };
 
@@ -915,6 +956,35 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
     llvm_unreachable("Unknown ttcore::ReduceType");
   }
 };
+
+// Maps a ttcore::ReduceType to the optional reduction string accepted by
+// `ttnn::scatter`'s reduction argument. This is distinct from the
+// reduction_common::ReduceType enum that the reduce ops take
+// (EmitCTypeConverter<ReduceType> above), so it is intentionally a separate
+// helper rather than a converter overload. Mirrors the runtime mapping
+// (runtime/.../data_movement/scatter.cpp): Invalid is the no reduction mode
+// and maps to std::nullopt (a plain overwrite scatter). Reductions that
+// ttnn::scatter cannot express (Mean/Std/Var) never reach scatter.
+inline std::optional<std::string>
+reduceTypeToScatterString(ttcore::ReduceType type) {
+  switch (type) {
+  case ttcore::ReduceType::Sum:
+    return "add";
+  case ttcore::ReduceType::Prod:
+    return "multiply";
+  case ttcore::ReduceType::Max:
+    return "amax";
+  case ttcore::ReduceType::Min:
+    return "amin";
+  case ttcore::ReduceType::Invalid:
+    return std::nullopt;
+  case ttcore::ReduceType::Mean:
+  case ttcore::ReduceType::Std:
+  case ttcore::ReduceType::Var:
+    break;
+  }
+  llvm_unreachable("Unsupported ttnn::scatter reduction type");
+}
 
 template <>
 struct EmitCTypeConverter<::ttnn::QueueId> {
@@ -1540,6 +1610,8 @@ inline std::string convert(ttnn::UnaryOpType opType) {
       {ttnn::UnaryOpType::Sigmoid,
        "::ttnn::operations::unary::UnaryOpType::SIGMOID"},
       {ttnn::UnaryOpType::Log, "::ttnn::operations::unary::UnaryOpType::LOG"},
+      {ttnn::UnaryOpType::Log1p,
+       "::ttnn::operations::unary::UnaryOpType::LOG1P"},
       {ttnn::UnaryOpType::Tanh, "::ttnn::operations::unary::UnaryOpType::TANH"},
       {ttnn::UnaryOpType::Log2, "::ttnn::operations::unary::UnaryOpType::LOG2"},
       {ttnn::UnaryOpType::Log10,
@@ -1575,6 +1647,8 @@ inline std::string convert(ttnn::UnaryOpType opType) {
       {ttnn::UnaryOpType::Signbit,
        "::ttnn::operations::unary::UnaryOpType::SIGNBIT"},
       {ttnn::UnaryOpType::Asin, "::ttnn::operations::unary::UnaryOpType::ASIN"},
+      {ttnn::UnaryOpType::Asinh,
+       "::ttnn::operations::unary::UnaryOpType::ASINH"},
       {ttnn::UnaryOpType::Acos, "::ttnn::operations::unary::UnaryOpType::ACOS"},
       {ttnn::UnaryOpType::Rsqrt,
        "::ttnn::operations::unary::UnaryOpType::RSQRT"},
@@ -1654,6 +1728,32 @@ inline std::string convert(ttnn::UnaryOpType opType) {
 
   return opTypeMap.at(opType);
 }
+
+template <>
+struct EmitCTypeConverter<::ttnn::operations::unary::EltwiseUnaryWithParam> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto unaryWithParamAttr =
+            mlir::dyn_cast_if_present<ttnn::UnaryWithParamAttr>(attr)) {
+      return convert(unaryWithParamAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::UnaryWithParamAttr attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::operations::unary::EltwiseUnaryWithParam> << "(";
+    rso << ttnn_to_emitc::convert(attr.getOpType());
+    if (!attr.getParams().empty()) {
+      rso << ", ";
+      rso << EmitCTypeConverter<std::vector<float>>::convert(attr.getParams());
+    }
+    rso << ")";
+
+    return buf;
+  }
+};
 
 template <>
 struct EmitCTypeConverter<::ttnn::operations::unary::UnaryWithParam> {
@@ -1973,14 +2073,15 @@ static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
 // `ttnn::Tensor`s.
 inline constexpr const char *kCreateVectorFunctionName = "util_create_vec";
 
+// Name for the function that unwraps a `std::optional<T>` into a `T`. Used to
+// extract tensors from ttml metal ops that return
+// `std::vector<std::optional<ttnn::Tensor>>` (e.g. sdpa_fw).
+inline constexpr const char *kGetOptionalValueFunctionName =
+    "util_get_optional_value";
+
 // Name for the function that gets a scalar (uint32_t) from a `ttnn::Tensor`.
 inline constexpr const char *kGetScalarFromTensorFunctionName =
     "::ttnn::getScalarFromTensor";
-
-// Name for the function that creates a GlobalSemaphore from a tensor's shard
-// spec.
-inline constexpr const char *kCreateGlobalSemaphoreFunctionName =
-    "::ttnn::createGlobalSemaphore";
 
 template <typename TTNNOp>
 class EmitCTTNNEmitter {
@@ -2311,6 +2412,53 @@ public:
       rewriter.setInsertionPointAfter(conv2dExpr);
 
       return conv2dExpr;
+    }
+
+    // Special handling for Conv1dOp. Like Conv2dOp, `ttnn::conv1d` returns a
+    // variant (`Conv1dResult`) rather than a bare `ttnn::Tensor`, so we unwrap
+    // the first alternative via `std::get<0>`. Using an ExpressionOp built from
+    // `adaptor.getOperands()` (original operand order) is also required here:
+    // Conv1dOp has an optional `bias` operand that precedes `device` in the
+    // op's operand list, but the conversion pattern emits `device` before
+    // `bias`. The generic path below would mismatch the operand indices
+    // (swapping `device` and `bias`), so we must reference the block arguments,
+    // which follow the original operand order.
+    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::Conv1dOp>) {
+      using OutputLength = std::uint32_t;
+      using ReturnTy = std::variant<
+          ::ttnn::Tensor, std::tuple<::ttnn::Tensor, OutputLength>,
+          std::tuple<::ttnn::Tensor,
+                     std::tuple<::ttnn::Tensor, std::optional<::ttnn::Tensor>>>,
+          std::tuple<
+              ::ttnn::Tensor, OutputLength,
+              std::tuple<::ttnn::Tensor, std::optional<::ttnn::Tensor>>>>;
+
+      emitc::ExpressionOp conv1dExpr = rewriter.create<emitc::ExpressionOp>(
+          op.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
+          adaptor.getOperands());
+
+      mlir::Block &bodyBlock = conv1dExpr.createBody();
+      rewriter.setInsertionPointToStart(&bodyBlock);
+
+      auto conv1dOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+          opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
+          /*template_args=*/nullptr, bodyBlock.getArguments());
+      auto getTensorOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
+          "::std::get", /*args=*/nullptr,
+          /*template_args=*/
+          rewriter.getArrayAttr({rewriter.getI32IntegerAttr(0)}),
+          conv1dOp.getResult(0));
+      rewriter.create<emitc::YieldOp>(op.getLoc(), getTensorOp.getResult(0));
+
+      rewriter.replaceOp(op, conv1dExpr);
+
+      rewriter.setInsertionPointAfter(conv1dExpr);
+
+      return conv1dExpr;
     }
 
     // MaxPool2dOp return a std::vector<ttnn::Tensor> containing a single

@@ -265,7 +265,7 @@ print(new_module)
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 module {
   func.func @modela(%arg0: tensor<32x32xf32, #ttnn_layout>, %arg1: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
-    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout>
+    %0 = "ttnn.add"(%arg0, %arg1) : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout>
     return %0 : tensor<32x32xf32, #ttnn_layout>
   }
 }
@@ -763,7 +763,7 @@ tt_runtime.runtime.close_mesh_device(device)
             "mean_absolute_error": 0.0003432363737374544,
             "root_mean_square_error": 0.0005071352352388203,
             "cosine_similarity": 0.9999998807907104,
-            "debug_info": "%1 = \"ttnn.add\"(%0, %arg0) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>, tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>) -> tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>> loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:26\")"
+            "debug_info": "%1 = \"ttnn.add\"(%0, %arg0) : (tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>, tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>) -> tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>> loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:26\")"
         }
     }
 }
@@ -922,7 +922,7 @@ tt_runtime.runtime.close_mesh_device(device)
     },
     {
         "loc": "loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:27\")",
-        "debug_str": "%1 = \"ttnn.add\"(%0, %arg0) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>, tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>) -> tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>> loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:27\")",
+        "debug_str": "%1 = \"ttnn.add\"(%0, %arg0) : (tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>, tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>) -> tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>> loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:27\")",
         "dram": {
             "num_banks": 12,
             "total_bytes_per_bank": 1071821792,
@@ -1520,29 +1520,28 @@ module {
 }
 ```
 
-## build multi-device graphs with presharded args
+## build multi-device graphs with presharded args and results
+
+Pass `presharded_args` / `presharded_results` to `builder.func` to model tensors
+that are already sharded across the mesh, keyed by argument/result index and
+mapping to the `shard_dims` describing how the global tensor is split. The
+function signature then uses the per-device (local) shape, the arg/result is
+annotated `ttcore.shard_status<presharded>`, and no `mesh_shard` is emitted to
+scatter the inputs or gather the outputs. Goldens are still set on the logical
+(global) tensors; the builder shards them into per-device shards for comparison.
 
 ```python
 def module(builder: TTIRBuilder):
-    @builder.func([(1, 1, 256, 512)], [torch.float32])
-    def model(in0: Operand, builder: TTIRBuilder):
-        builder.preshard_arg(in0, shard_dims=(-1, 3))
-        in_shard = builder.mesh_shard(
-            in0,
-            shard_direction=MeshShardDirection.FullToShard.value,
-            shard_type=MeshShardType.Identity.value,
-            shard_shape=(1, 1, 1, 2),
-            shard_dims=(-1, 3),
-        )
-        exp = builder.exp(in_shard)
-        out_shard = builder.mesh_shard(
-            exp,
-            shard_direction=MeshShardDirection.ShardToFull.value,
-            shard_type=MeshShardType.Devices.value,
-            shard_shape=(1, 1, 1, 2),
-            shard_dims=(-1, 3),
-        )
-        return out_shard
+    # (1, 1, 256, 512) is the logical (global) shape. With a 1x2 mesh and
+    # shard_dims=(-1, 3), each device holds a local (1, 1, 256, 256) shard.
+    @builder.func(
+        [(1, 1, 256, 512), (1, 1, 256, 512)],
+        [torch.float32, torch.float32],
+        presharded_args={0: (-1, 3), 1: (-1, 3)},
+        presharded_results={0: (-1, 3)},
+    )
+    def model(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.add(in0, in1)
 
 module, builder = build_module(module, "ttir", mesh_dict=OrderedDict([("x", 1), ("y", 2)]))
 print(module)
@@ -1550,11 +1549,9 @@ print(module)
 
 ```mlir
 module attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x2>]>} {
-  func.func @model(%arg0: tensor<1x1x256x512xf32> {ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1x1x256x256xf32>>}) -> tensor<1x1x256x512xf32> {
-    %0 = "ttir.mesh_shard"(%arg0) <{shard_dims = array<i64: -1, 3>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1, 1, 1, 2>, shard_type = #ttcore.shard_type<identity>}> : (tensor<1x1x256x512xf32>) -> tensor<1x1x256x256xf32>
-    %1 = "ttir.exp"(%0) : (tensor<1x1x256x256xf32>) -> tensor<1x1x256x256xf32>
-    %2 = "ttir.mesh_shard"(%1) <{shard_dims = array<i64: -1, 3>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 1, 1, 1, 2>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x256x256xf32>) -> tensor<1x1x256x512xf32>
-    return %2 : tensor<1x1x256x512xf32>
+  func.func @model(%arg0: tensor<1x1x256x256xf32> {ttcore.shard_status = #ttcore.shard_status<presharded>}, %arg1: tensor<1x1x256x256xf32> {ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<1x1x256x256xf32> {ttcore.shard_status = #ttcore.shard_status<presharded>}) {
+    %0 = "ttir.add"(%arg0, %arg1) : (tensor<1x1x256x256xf32>, tensor<1x1x256x256xf32>) -> tensor<1x1x256x256xf32>
+    return %0 : tensor<1x1x256x256xf32>
   }
 }
 ```

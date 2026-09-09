@@ -21,6 +21,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Error.h"
 
 #include "gtest/gtest.h"
 
@@ -100,13 +101,11 @@ public:
     // Create two input tensors using OnesOp (simpler than EmptyOp)
     auto input1 = builder.create<OnesOp>(builder.getUnknownLoc(), tensorType,
                                          /*device=*/nullptr,
-                                         ShapeAttr::get(&context, inputShape),
-                                         /*dtype=*/nullptr, /*layout=*/nullptr);
+                                         ShapeAttr::get(&context, inputShape));
 
     auto input2 = builder.create<OnesOp>(builder.getUnknownLoc(), tensorType,
                                          /*device=*/nullptr,
-                                         ShapeAttr::get(&context, inputShape),
-                                         /*dtype=*/nullptr, /*layout=*/nullptr);
+                                         ShapeAttr::get(&context, inputShape));
 
     // Create AddOp
     return builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
@@ -179,8 +178,7 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
       cacheShape, builder.getBF16Type(), cacheLayout);
   auto cacheOp = builder.create<OnesOp>(
       builder.getUnknownLoc(), cacheTensorType,
-      /*device=*/nullptr, ShapeAttr::get(&context, cacheShape),
-      /*dtype=*/nullptr, /*layout=*/nullptr);
+      /*device=*/nullptr, ShapeAttr::get(&context, cacheShape));
 
   // Create input tensor (4D tensor with dim 2 = 1)
   llvm::SmallVector<int64_t> inputShape = {1, 1, 1, 32};
@@ -190,8 +188,7 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
       inputShape, builder.getBF16Type(), inputLayout);
   auto inputOp = builder.create<OnesOp>(
       builder.getUnknownLoc(), inputTensorType,
-      /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
-      /*dtype=*/nullptr, /*layout=*/nullptr);
+      /*device=*/nullptr, ShapeAttr::get(&context, inputShape));
 
   // Create update_index tensor with WRONG type (BF16 instead of uint32)
   // This should cause validation to fail
@@ -202,8 +199,7 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
       updateIndexShape, builder.getBF16Type(), updateIndexLayout);
   auto updateIndexOp = builder.create<OnesOp>(
       builder.getUnknownLoc(), updateIndexTensorType,
-      /*device=*/nullptr, ShapeAttr::get(&context, updateIndexShape),
-      /*dtype=*/nullptr, /*layout=*/nullptr);
+      /*device=*/nullptr, ShapeAttr::get(&context, updateIndexShape));
 
   // Create UpdateCacheOp (inplace operation, no result type)
   auto updateCacheOp = builder.create<ttnn::UpdateCacheOp>(
@@ -233,8 +229,7 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
       updateIndexShape, uint32Type, uint32UpdateIndexLayout);
   auto uint32UpdateIndexOp = builder.create<OnesOp>(
       builder.getUnknownLoc(), uint32UpdateIndexTensorType,
-      /*device=*/nullptr, ShapeAttr::get(&context, updateIndexShape),
-      /*dtype=*/nullptr, /*layout=*/nullptr);
+      /*device=*/nullptr, ShapeAttr::get(&context, updateIndexShape));
 
   // Create UpdateCacheOp with correct uint32 type
   auto validUpdateCacheOp = builder.create<ttnn::UpdateCacheOp>(
@@ -394,8 +389,7 @@ TEST_F(OpConstraintValidationTest, ValidationStatusMetalBackendError) {
 
   auto input = builder.create<OnesOp>(builder.getUnknownLoc(), inputTensorType,
                                       /*device=*/nullptr,
-                                      ShapeAttr::get(&context, tensorShape),
-                                      /*dtype=*/nullptr, /*layout=*/nullptr);
+                                      ShapeAttr::get(&context, tensorShape));
 
   // Output: L1 RowMajor HeightSharded layout (incompatible with DRAM Tiled)
   auto outputLayout = createRowMajorHSLayout(tensorShape, BufferType::L1,
@@ -405,10 +399,7 @@ TEST_F(OpConstraintValidationTest, ValidationStatusMetalBackendError) {
 
   // Create ToLayoutOp with incompatible input/output layouts
   auto toLayoutOp = builder.create<ToLayoutOp>(
-      builder.getUnknownLoc(), outputTensorType, input.getResult(),
-      LayoutAttr::get(&context, Layout::RowMajor),
-      // ttcore::DataTypeAttr::get(&context, ttcore::DataType::BFloat16),
-      /*dtype=*/nullptr);
+      builder.getUnknownLoc(), outputTensorType, input.getResult());
 
   auto layouts = ttnn::utils::extractInputLayouts(toLayoutOp);
   OpConfig config(outputLayout, OpConfig::OpSpecificAttrs{});
@@ -441,13 +432,11 @@ TEST_F(OpConstraintValidationTest, ValidationStatusOutOfMemoryError) {
 
   auto input1 = builder.create<OnesOp>(builder.getUnknownLoc(), tensorType,
                                        /*device=*/nullptr,
-                                       ShapeAttr::get(&context, largeShape),
-                                       /*dtype=*/nullptr, /*layout=*/nullptr);
+                                       ShapeAttr::get(&context, largeShape));
 
   auto input2 = builder.create<OnesOp>(builder.getUnknownLoc(), tensorType,
                                        /*device=*/nullptr,
-                                       ShapeAttr::get(&context, largeShape),
-                                       /*dtype=*/nullptr, /*layout=*/nullptr);
+                                       ShapeAttr::get(&context, largeShape));
 
   auto addOp = builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
                                      input1.getResult(), input2.getResult());
@@ -468,6 +457,81 @@ TEST_F(OpConstraintValidationTest, ValidationStatusOutOfMemoryError) {
   EXPECT_FALSE(result.isSuccess());
   EXPECT_FALSE(result.isNotImplemented());
   EXPECT_FALSE(result.errorMessage.empty());
+}
+
+// Regression test for https://github.com/tenstorrent/tt-mlir/issues/9064:
+// The stateful (build-from-records) op-model query places live tensors at real
+// addresses, so an op whose static circular buffers overlap a still-live L1
+// input surfaces the tt-metal CB-clash exception ("Statically allocated
+// circular buffers ... clash with L1 buffers ...").  This is an L1-pressure
+// condition recoverable by evict-and-refit, so checkConstraintsResult must
+// classify it as OutOfMemoryError (routing the spill pass to handleOOM), NOT
+// MetalBackendError (which only demotes the op's output to DRAM and leaves the
+// clashing L1 input in place -> runtime crash).
+TEST_F(OpConstraintValidationTest, ClashWithL1BuffersClassifiedAsOOM) {
+  auto addOp = createMockAddOp();
+
+  llvm::Expected<op_model::OpConstraints> clashError =
+      llvm::make_error<llvm::StringError>(
+          "TT_THROW @ program.cpp:1612: tt::exception\n"
+          "Statically allocated circular buffers in program 42 clash with L1 "
+          "buffers on core range [0-0 - 7-7]. L1 buffer allocated at 253952 "
+          "and static circular buffer region ends at 646208",
+          llvm::inconvertibleErrorCode());
+
+  auto result = op_constraint_validation::checkConstraintsResult(
+      addOp.getOperation(), std::move(clashError));
+
+  EXPECT_EQ(result.status,
+            op_constraint_validation::ValidationStatus::OutOfMemoryError);
+  EXPECT_TRUE(result.isError());
+}
+
+// Companion to the above: a genuine backend constraint error (carrying neither
+// the "Out of Memory" nor the "clash with L1 buffers" marker) must remain a
+// MetalBackendError so the op is demoted rather than sent through evict-refit.
+TEST_F(OpConstraintValidationTest, GenericBackendErrorStaysBackendError) {
+  auto addOp = createMockAddOp();
+
+  llvm::Expected<op_model::OpConstraints> backendError =
+      llvm::make_error<llvm::StringError>(
+          "Unsupported data type combination for op",
+          llvm::inconvertibleErrorCode());
+
+  auto result = op_constraint_validation::checkConstraintsResult(
+      addOp.getOperation(), std::move(backendError));
+
+  EXPECT_EQ(result.status,
+            op_constraint_validation::ValidationStatus::MetalBackendError);
+  EXPECT_TRUE(result.isError());
+}
+
+// Regression test for https://github.com/tenstorrent/tt-mlir/issues/9235:
+// Metal 2.0 validates mock ProgramSpec nodes against a WORKER dispatch grid
+// even when the program factory placed them using the mock device's ETH grid.
+// Until tt-metal uses a consistent grid, this mock-only infrastructure failure
+// must not reject otherwise valid operation configurations.
+TEST_F(OpConstraintValidationTest,
+       MockProgramSpecGridMismatchClassifiedAsNotImplemented) {
+  auto addOp = createMockAddOp();
+
+  llvm::Expected<op_model::OpConstraints> gridMismatchError =
+      llvm::make_error<llvm::StringError>(
+          "Op constraint query failed with error: TT_FATAL @ "
+          "program_spec.cpp:665: node.x < compute_grid.x && "
+          "node.y < compute_grid.y\n"
+          "info:\n"
+          "WorkUnitSpec 'typecast_group_1' targets node (0,7), which is out "
+          "of bounds. The compute worker grid on this device is 8x7.",
+          llvm::inconvertibleErrorCode());
+
+  auto result = op_constraint_validation::checkConstraintsResult(
+      addOp.getOperation(), std::move(gridMismatchError));
+
+  EXPECT_EQ(result.status,
+            op_constraint_validation::ValidationStatus::NotImplemented);
+  EXPECT_TRUE(result.isNotImplemented());
+  EXPECT_TRUE(result.isError());
 }
 
 // Test ValidationStatus::UnmatchedReferenceConfig

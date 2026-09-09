@@ -13,3 +13,11 @@ table ResetGlobalSemaphoreOp {
   semaphore: tt.target.ttnn.GlobalSemaphoreRef;
   value: uint32;
 }
+
+table AllocateMoeComputeSemaphoreOp {
+  core_range_set: tt.target.ttnn.CoreRangeSet;
+  output_height_shard_dim: uint32;
+  hidden_size: uint32;
+  initial_value: uint32 = null;
+  out: tt.target.ttnn.GlobalSemaphoreRef;
+}

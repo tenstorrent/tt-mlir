@@ -385,6 +385,56 @@ inline uint8_t getNumberOfBits(const DataType dtype) {
   }
 }
 
+// Returns true iff casting a value from srcDtype to dstDtype may lose
+// information (i.e. dstDtype cannot exactly represent every value of srcDtype).
+// Conversely, !isNarrowingConversion(src, dst) means dst is a lossless widening
+// of src, so a src->dst->src round-trip is the identity.
+inline bool isNarrowingConversion(const DataType srcDtype,
+                                  const DataType dstDtype) {
+  const bool srcIsFloat = isFloat(srcDtype);
+  const bool dstIsFloat = isFloat(dstDtype);
+  const auto srcNumberOfBits = getNumberOfBits(srcDtype);
+  const auto dstNumberOfBits = getNumberOfBits(dstDtype);
+
+  if (srcIsFloat && !dstIsFloat) {
+    return true;
+  }
+
+  if (srcIsFloat && dstIsFloat) {
+    const auto srcExponentSize = getExponentSize(srcDtype);
+    const auto dstExponentSize = getExponentSize(dstDtype);
+    const auto srcMantissaSize = getMantissaSize(srcDtype);
+    const auto dstMantissaSize = getMantissaSize(dstDtype);
+    return srcExponentSize > dstExponentSize ||
+           srcMantissaSize > dstMantissaSize;
+  }
+
+  // For integer to FP, it is narrowing if the FP type has fewer bits in its
+  // mantissa than the integer type's magnitude bits.
+  if (!srcIsFloat && dstIsFloat) {
+    if (isSignedInteger(srcDtype)) {
+      return srcNumberOfBits - 1 > getMantissaSize(dstDtype);
+    }
+    return srcNumberOfBits > getMantissaSize(dstDtype);
+  }
+
+  assert(!srcIsFloat && !dstIsFloat);
+  const auto srcIsSigned = isSignedInteger(srcDtype);
+  const auto dstIsSigned = isSignedInteger(dstDtype);
+  // When signedness are the same, reducing the number of bits is narrowing.
+  if (srcIsSigned == dstIsSigned) {
+    return srcNumberOfBits > dstNumberOfBits;
+  }
+  // Unsigned->Signed is narrowing when the signed type can't hold the largest
+  // value of the unsigned type
+  if (!srcIsSigned && dstIsSigned) {
+    return srcNumberOfBits >= dstNumberOfBits;
+  }
+  // Signed->Unsigned is always narrowing.
+  assert(srcIsSigned && !dstIsSigned);
+  return true;
+}
+
 mlir::AffineMap collapsedLinearAffineMap(
     mlir::MLIRContext *context, llvm::ArrayRef<int64_t> shape,
     llvm::ArrayRef<int64_t> gridShape,

@@ -14,6 +14,11 @@ namespace mlir::tt::sharding_utils {
 // SDY sharding related string definitions.
 inline constexpr llvm::StringRef kXlaSdyShardingAttr = "xla.sdy.sharding";
 inline constexpr llvm::StringRef kXlaSdyMeshesAttr = "xla.sdy.meshes";
+// NOTE: This attribute is used to store custom user-provided sharding rules.
+// and used for rematerializing sharding rules after shardy drops them.
+// Do not delete this attribute until after shardy has finished.
+inline constexpr llvm::StringRef kXlaSdyCustomShardingRuleAttr =
+    "xla.sdy.custom_sharding_rule";
 inline constexpr llvm::StringRef kDefaultMeshName = "mesh";
 inline constexpr llvm::StringRef kTTShardingConstraintTargetName =
     "tt.sharding_constraint";
@@ -60,7 +65,7 @@ public:
                mlir::tt::ttcore::ShardStatus shardStatus)
       : shardDirection(shardDirection), shardType(shardType),
         shardShape(shardShape), shardDims(shardDims), meshShape(meshShape),
-        deviceIds(deviceIds) {}
+        deviceIds(deviceIds), shardStatus(shardStatus) {}
 
   // Getters
   mlir::tt::ttcore::MeshShardDirection getShardDirection() const {

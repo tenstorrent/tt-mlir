@@ -248,15 +248,14 @@ public:
                  GlobalSemaphoreMap &&liveGlobalSemaphores,
                  common::DylibManager &&programDylibManager,
                  ::tt::runtime::Device deviceHandle,
-                 const Binary &executableHandle, size_t programIndex = 0,
-                 ProgramContext *parentContext = nullptr)
+                 const Binary &executableHandle, size_t programIndex = 0)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
                                      std::move(liveTensors))),
         globalSemaphorePool(
             ProgramGlobalSemaphorePool(std::move(liveGlobalSemaphores))),
         dylibManager(std::move(programDylibManager)),
         deviceHandle(deviceHandle), executableHandle(executableHandle),
-        programIndex(programIndex), parentContext(parentContext) {
+        programIndex(programIndex) {
     LOG_ASSERT(deviceHandle.handle, "DeviceHandle cannot be null");
   }
 
@@ -307,23 +306,6 @@ public:
     return globalSemaphorePool;
   }
 
-  // Returns a cached GlobalSemaphore for `opKey`, creating it on first use.
-  // Lookups forward to the root context so a semaphore created during warmup
-  // is reused during trace capture (create_global_semaphore writes L1 and
-  // cannot run inside capture).
-  ::ttnn::GlobalSemaphore getOrCreateImplicitGlobalSemaphore(
-      uintptr_t opKey,
-      const std::function<::ttnn::GlobalSemaphore()> &factory) {
-    if (parentContext) {
-      return parentContext->getOrCreateImplicitGlobalSemaphore(opKey, factory);
-    }
-    auto it = implicitOpSemaphores.find(opKey);
-    if (it == implicitOpSemaphores.end()) {
-      it = implicitOpSemaphores.emplace(opKey, factory()).first;
-    }
-    return it->second;
-  }
-
   Binary &getExecutableHandle() { return executableHandle; }
 
   //
@@ -331,13 +313,29 @@ public:
   //
   size_t getProgramIndex() const { return programIndex; }
 
+  //
+  // Host scalar cache
+  //
+  // Ops that need a device scalar as a host value (e.g. AdamW lr / beta*_pow)
+  // read it back once per program run and reuse it here, keyed by the tensor's
+  // global id. Only valid for tensors that are not mutated within the program.
+  float getHostScalar(std::uint32_t globalId,
+                      const std::function<float()> &read) {
+    auto it = hostScalarCache.find(globalId);
+    if (it != hostScalarCache.end()) {
+      return it->second;
+    }
+    float value = read();
+    hostScalarCache.emplace(globalId, value);
+    return value;
+  }
+
 private:
   ProgramTensorPool tensorPool;
 
-  ProgramGlobalSemaphorePool globalSemaphorePool;
+  std::unordered_map<std::uint32_t, float> hostScalarCache;
 
-  // Op-implicit GlobalSemaphores keyed by flatbuffer op pointer; root only.
-  std::unordered_map<uintptr_t, ::ttnn::GlobalSemaphore> implicitOpSemaphores;
+  ProgramGlobalSemaphorePool globalSemaphorePool;
 
   common::DylibManager dylibManager;
 
@@ -348,10 +346,6 @@ private:
 
   // The index of the program within the binary
   const size_t programIndex;
-
-  // Caller's context (e.g. FuncCallOp), used to forward state shared across
-  // nested invocations. Non-owning.
-  ProgramContext *parentContext = nullptr;
 };
 
 } // namespace tt::runtime::ttnn
