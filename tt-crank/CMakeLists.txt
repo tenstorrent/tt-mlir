@@ -13,27 +13,15 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 enable_testing()
 
-option(TT_CRANK_WHEEL "Configure the build for a distributable Python wheel" OFF)
 option(TT_CRANK_BUILD_TESTS "Build tt-crank unit tests" ON)
 option(TT_CRANK_BUILD_PYTHON_EXT "Build Python extension modules" ON)
 option(TT_CRANK_TRACY_ZONES "Compile tt-crank with tracy zones" ON)
-
-# Convenience aliases...
-add_library(tt_mlir::compiler ALIAS TTMLIRCompiler)
-add_library(tt_mlir::runtime ALIAS TTMLIRRuntime)
-add_library(tt_metal::tracy ALIAS TRACY_LIBRARY)
 
 # Mark `tt-mlir` include files as system includes - to ignore warnings on them.
 include(cmake/SystemIncludes.cmake)
 mark_as_system_includes(TTMLIRCompiler TTMLIRRuntime)
 
 set(TT_CRANK_TT_METAL_HOME "${CMAKE_SOURCE_DIR}/third_party/tt-metal/src/tt-metal")
-
-# Dev builds resolve deps from the build tree; wheels set $ORIGIN per target.
-# Must precede add_subdirectory — targets capture this at creation.
-if(NOT TT_CRANK_WHEEL)
-    set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
-endif()
 
 # Silence the per-file "-- Installing:"/"-- Up-to-date:" messages on install.
 # Set before any add_subdirectory so it applies to third-party install rules too.
@@ -53,7 +41,7 @@ add_subdirectory(third_party)
 add_subdirectory(src)
 
 include(cmake/TTsim.cmake)
-include(cmake/TTMetalPackages.cmake)
+add_subdirectory(python)
 
 if(TT_CRANK_BUILD_TESTS)
     add_subdirectory(tests)

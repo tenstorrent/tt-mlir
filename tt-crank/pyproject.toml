@@ -25,21 +25,18 @@ path = "requirements.txt"
 [tool.scikit-build]
 minimum-version = "build-system.requires"
 cmake.version = ">=3.24"
-cmake.build-type = ""
+cmake.source-dir = "../"
 wheel.packages = ["python/tt_crank", "python/tracy", "python/ttnn"]
 editable.mode = "redirect"
-editable.rebuild = true
-# Drop the fmt/spdlog dev artifacts that tt-logger's FetchContent subprojects
-# install to the platlib root (headers + static .a + cmake/pkgconfig). They serve
-# no runtime purpose and would otherwise land in site-packages/{include,lib}.
-# Leading "/" anchors to the wheel root so this can NOT match tt_crank/lib (our
-# intentional bundled-.so dir).
-wheel.exclude = ["/include/**", "/lib/**"]
-# Separate cmake dir so wheel builds don't mix with the dev build.
-build-dir = "build_wheel"
+build.targets = ["tt_crank_python"]
 
-[tool.scikit-build.cmake.define]
-TT_CRANK_BUILD_PYTHON_EXT = "ON"
+# Editable/dev install: reuse tt-mlir's build tree and build/install only the
+# Python extension; its RPATH resolves the other libs from the build tree.
+[[tool.scikit-build.overrides]]
+if.state = "^(metadata_)?editable$"
+cmake.define.TTMLIR_ENABLE_CRANK = "ON"
+build-dir = "../build"
+install.components = ["tt_crank_python"]
 
 # Wheel-specific flags, appended onto the defines above (without `inherit` an
 # override replaces the whole table).
@@ -48,11 +45,20 @@ if.state = "^(metadata_)?wheel$"
 inherit.cmake.define = "append"
 cmake.build-type = "Release"
 cmake.args = ["-GNinja"]
-cmake.define.TT_CRANK_WHEEL = "ON"
+cmake.define.TTMLIR_ENABLE_CRANK = "ON"
 cmake.define.TT_CRANK_BUILD_TESTS = "OFF"
+cmake.define.CMAKE_CXX_COMPILER_LAUNCHER = "ccache"
 cmake.define.CMAKE_C_COMPILER = "clang"
 cmake.define.CMAKE_CXX_COMPILER = "clang++"
 install.components = ["wheel_payload"]
+# Separate cmake dir so wheel builds don't mix with the dev build.
+build-dir = "build_wheel"
+# Drop the fmt/spdlog dev artifacts that tt-logger's FetchContent subprojects
+# install to the platlib root (headers + static .a + cmake/pkgconfig). They serve
+# no runtime purpose and would otherwise land in site-packages/{include,lib}.
+# Leading "/" anchors to the wheel root so this can NOT match tt_crank/lib (our
+# intentional bundled-.so dir).
+wheel.exclude = ["/include/**", "/lib/**"]
 
 # Skip uv's default PEP 517 build isolation for this package. We need
 # `import torch` at configure time (to discover libtorch's cmake prefix), and

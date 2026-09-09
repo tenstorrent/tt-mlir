@@ -29,18 +29,6 @@ target_link_libraries(tt_crank_common
         tt_crank_sanitizers
 )
 
-# Wheel: goes in tt_crank/lib with the other native libs. BUILD_WITH_INSTALL_RPATH
-# because this lib has no external .so deps, so it links with no RUNPATH entry and
-# CMake's install-time rewrite would have nothing to patch.
-if(TT_CRANK_WHEEL)
-    set_target_properties(tt_crank_common PROPERTIES
-        INSTALL_RPATH "$ORIGIN"
-        BUILD_WITH_INSTALL_RPATH TRUE)
-endif()
-
-install(TARGETS tt_crank_common
-    LIBRARY
-        DESTINATION tt_crank/lib
-        COMPONENT wheel_payload
-        EXCLUDE_FROM_ALL
-)
+# Wheel: goes in tt_crank/lib with the other native libs. Only the installed copy
+# gets this RPATH; build-tree binaries keep CMake's build RPATH.
+set_target_properties(tt_crank_common PROPERTIES INSTALL_RPATH "$ORIGIN")

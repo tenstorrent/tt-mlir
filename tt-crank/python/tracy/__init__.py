@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 import tt_crank
-from tt_crank._runtime_env import setup_tt_metal_home
+from tt_crank._runtime_env import setup_tt_metal_home, tt_metal_home
 from tt_crank._wrapper import create_wrapper_redirector, proxy_import
 
 setup_tt_metal_home()
@@ -46,17 +46,9 @@ with proxy_import("tracy"):
 
 # Override profiler binary path to point to the correct location.
 # In wheel: tt_crank/bin/
-# In dev: build/third_party/tt-mlir-install/bin/
+# In dev: tt-metal's build tree (`build` -> build_<type> symlink) in the vendored checkout.
 _wheel_bin_dir = Path(tt_crank.__file__).parent / "bin"
-_dev_bin_dir = (
-    Path(__file__).parent
-    / ".."
-    / ".."
-    / "build"
-    / "third_party"
-    / "tt-mlir-install"
-    / "bin"
-)
+_dev_bin_dir = tt_metal_home() / "build" / "tools" / "profiler" / "bin"
 
 if _wheel_bin_dir.exists() and (_wheel_bin_dir / "tracy-capture").exists():
     PROFILER_BIN_DIR = _wheel_bin_dir

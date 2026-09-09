@@ -90,8 +90,8 @@ target_compile_options(tt_crank PRIVATE -fno-rtti)
 
 target_link_libraries(tt_crank
     PUBLIC
-        tt_mlir::compiler
-        tt_mlir::runtime
+        TTMLIRCompiler
+        TTMLIRRuntime
         tt_crank_common
     PRIVATE
         tt_crank_warnings
@@ -104,24 +104,13 @@ if(TT_CRANK_TRACY_ZONES)
     # TODO(pilkic): These compile definitions are set globally in `tt-mlir`. There
     # should be a better way...
     # target_compile_definitions(tt_crank PUBLIC TRACY_ENABLE TRACY_TIMER_FALLBACK)
-    target_link_libraries(tt_crank PUBLIC tt_metal::tracy)
+    target_link_libraries(tt_crank PUBLIC TRACY_LIBRARY)
 endif()
 
 # Wheel: libtt_crank.so lands in tt_crank/lib alongside its deps (tt-mlir's libs,
-# libtt_crank_common.so), so $ORIGIN resolves everything. RPATH must be decided at
-# configure time; what ships is decided by the component.
-if(TT_CRANK_WHEEL)
-    set_target_properties(tt_crank PROPERTIES
-        INSTALL_RPATH "$ORIGIN"
-        BUILD_WITH_INSTALL_RPATH TRUE)
-endif()
-
-install(TARGETS tt_crank
-    LIBRARY
-        DESTINATION tt_crank/lib
-        COMPONENT wheel_payload
-        EXCLUDE_FROM_ALL
-)
+# libtt_crank_common.so), so $ORIGIN resolves everything. Only the installed copy
+# gets this RPATH; build-tree binaries keep CMake's build RPATH.
+set_target_properties(tt_crank PROPERTIES INSTALL_RPATH "$ORIGIN")
 
 if(TT_CRANK_BUILD_PYTHON_EXT)
     add_subdirectory(torch)
@@ -134,8 +123,8 @@ if (TT_CRANK_BUILD_MAIN)
     target_link_libraries(crank_main
         PUBLIC
             tt_crank
-            tt_mlir::compiler
-            tt_mlir::runtime
+            TTMLIRCompiler
+            TTMLIRRuntime
             tt_crank_common
         PRIVATE
             tt_crank_warnings

@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+# Usage: scripts/install-py
+#
+# Editable install of the tt_crank Python package (plus the tracy/ttnn wrappers)
+# into the active tt-mlir venv, via scikit-build-core against the tt-mlir build
+# tree. Needed once; afterwards a plain `cmake --build build` from the tt-mlir
+# root is picked up by Python directly (the extension is symlinked from the
+# build tree). Re-run only after changing pyproject.toml or the install rules.
+#
+# What the wrapper does that a bare `uv pip install -e tt-crank/` can't:
+#   1. Runs uv from tt-crank/, so uv picks up `[tool.uv]` from pyproject.toml
+#      (no build isolation - the build needs the venv's torch and cmake); falls
+#      back to `pip install --no-build-isolation` when uv is not installed.
+#   2. Configures <tt-mlir>/build the documented way if it does not exist yet;
+#      otherwise scikit-build-core would configure it itself, without ccache.
+#   3. Installs requirements-dev.txt first: build requirements (needed in the
+#      venv for the no-isolation build) plus the test and lint tooling.
+#
+# Expects `source env/activate` to have been run from the tt-mlir root.
+
+set -euo pipefail
+
+for arg in "$@"; do
+    if [[ "$arg" == "--help" || "$arg" == "-h" ]]; then
+        sed -n '2,/^[^#]/{ /^#/s/^# \{0,1\}//p }' "${BASH_SOURCE[0]}"
+        exit 0
+    fi
+    echo "Invalid arg: $arg"
+    exit 1
+done
+
+CRANK_DIR=$(realpath "$(dirname "${BASH_SOURCE[0]}")"/..)
+REPO_DIR=$(realpath "$CRANK_DIR"/..)
+
+if [[ -z "${TTMLIR_ENV_ACTIVATED:-}" ]]; then
+    echo "error: tt-mlir environment not activated - run 'source env/activate' from $REPO_DIR" >&2
+    exit 1
+fi
+
+if [[ ! -e "$REPO_DIR/build" ]]; then
+    echo "==> $REPO_DIR/build not found; configuring tt-mlir with tt-crank enabled"
+    cmake -G Ninja -S "$REPO_DIR" -B "$REPO_DIR/build" \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTTMLIR_ENABLE_CRANK=ON
+fi
+
+cd "$CRANK_DIR"
+
+# requirements-dev.txt carries the build requirements too (scikit-build-core,
+# nanobind, dynamic-metadata); without build isolation they must be in the venv.
+echo "==> installing dev requirements"
+if command -v uv > /dev/null; then
+    uv pip install -r requirements-dev.txt
+    echo "==> installing tt_crank editable (cmake build dir: $REPO_DIR/build)"
+    exec uv pip install -e .
+else
+    pip install -r requirements-dev.txt
+    echo "==> installing tt_crank editable (cmake build dir: $REPO_DIR/build)"
+    exec pip install --no-build-isolation -e .
+fi
