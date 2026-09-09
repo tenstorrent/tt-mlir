@@ -3996,6 +3996,13 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
         "attention_mask is only allowed when mask_type is 'arbitrary'");
   }
 
+  float dropoutProbability = getDropoutProbability().convertToFloat();
+  if (dropoutProbability != 0.0f) {
+    return emitOpError() << "dropout_probability must be 0.0 because dropout "
+                            "is not implemented in the backward pass, but got "
+                         << dropoutProbability;
+  }
+
   return success();
 }
 
