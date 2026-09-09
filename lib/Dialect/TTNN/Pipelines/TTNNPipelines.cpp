@@ -385,6 +385,10 @@ void createTTIRToTTNNCommonPipeline(
     // Add pass to clean up the leftover unreferenced symbols.
     devicePm.addPass(mlir::createSymbolDCEPass());
     createTTNNFusingPass(devicePm, options);
+    // Fusion emits ring-joint after the earlier configure-ccl walk, so rewrite
+    // fused CCL topology from fabric here. Otherwise a Ring attr on a Linear
+    // SP axis survives to silicon.
+    devicePm.addPass(mlir::tt::ttnn::createTTNNConfigureCCLOps());
 
     // Create TTNN decomposition pass, optionally with op-model validation.
     if (options.ttnnDecompositionEnabled) {

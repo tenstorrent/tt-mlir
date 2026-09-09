@@ -7383,6 +7383,14 @@ static ::mlir::LogicalResult verifyRingJointSDPA(RingSDPAOp op) {
                           "persistent_output_buffer_v must both be present or "
                           "both be absent");
   }
+  // CSE of matching ttnn.empty ops (TTNNPipelines binds buffers, then
+  // canonicalize+CSE) will alias K and V onto one DRAM tensor. Metal writes
+  // both gathers concurrently; a shared buffer wedges the ring.
+  if (hasBufferK && op.getPersistentOutputBufferK() ==
+                        op.getPersistentOutputBufferV()) {
+    return op.emitOpError(
+        "persistent K and V buffers must be distinct allocations");
+  }
 
   // tt-metal's ring all-gather rotates a two-deep semaphore pool, so a bound
   // op needs at least two. Empty means the prelude pass has not run yet.
@@ -7537,8 +7545,12 @@ static void allocateRingSDPABuffers(::mlir::RewriterBase &rewriter,
   };
 
   // Two independent buffers: tt-metal writes gathered K and V separately.
+  // Unique discardable attrs so the CSE pass after
+  // TTNNAllocateDistributedOpBuffers cannot merge them (same shape/device).
   ttnn::EmptyOp bufferK = makeEmpty();
   ttnn::EmptyOp bufferV = makeEmpty();
+  bufferK->setAttr("ttnn.ring_sdpa_buffer_id", rewriter.getI32IntegerAttr(0));
+  bufferV->setAttr("ttnn.ring_sdpa_buffer_id", rewriter.getI32IntegerAttr(1));
 
   rewriter.modifyOpInPlace(op, [&]() {
     op.getPersistentOutputBufferKMutable().assign(bufferK.getResult());
@@ -7588,6 +7600,14 @@ static void allocateRingSDPASemaphores(::mlir::RewriterBase &rewriter,
          "ChipDesc.grid must be a non-empty (Y, X) compute grid");
   int64_t gridY = chipGrid[0];
   int64_t gridX = chipGrid[1];
+  if (chip.getArch().getValue() == ttcore::Arch::WormholeB0) {
+    if (gridY > 8) {
+      gridY = 8;
+    }
+    if (gridX > 8) {
+      gridX = 8;
+    }
+  }
   auto coreRange = CoreRangeAttr::get(
       ctx, CoreCoordAttr::get(ctx, /*x=*/0, /*y=*/0),
       CoreCoordAttr::get(ctx, gridX - 1, gridY - 1));

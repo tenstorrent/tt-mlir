@@ -828,9 +828,11 @@ def TTNNConfigureCCLOps : Pass<"ttnn-configure-ccl-ops", "::mlir::ModuleOp"> {
   let summary = "Configure device-specific parameters on CCL operations.";
   let description = [{
     This pass configures all device-specific parameters on CCL operations
-    (AllGather, AllReduce, ReduceScatter, MoeCompute) based on the DeviceAttr.
-    This includes setting the topology attribute from the per-axis mesh
-    topology.
+    (AllGather, AllReduce, ReduceScatter, MoeCompute, and the fused ring-joint
+    / exp-ring-joint SDPA ops) based on the DeviceAttr. This includes setting
+    the topology attribute from the per-axis mesh topology. Ring-joint SDPA
+    topology is overwritten from the fabric even when already set, so a fused
+    op cannot keep Ring on an axis that is Linear.
   }];
 }
 

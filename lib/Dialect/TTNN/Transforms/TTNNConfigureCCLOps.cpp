@@ -8,6 +8,8 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
+#include <optional>
+
 namespace mlir::tt::ttnn {
 
 #define GEN_PASS_DEF_TTNNCONFIGURECCLOPS
@@ -31,51 +33,46 @@ public:
     }
 
     ttcore::DeviceAttr deviceAttr = deviceOp.getDeviceAttr();
-    ArrayRef<ttcore::Topology> meshTopology = deviceAttr.getMeshTopology();
-    if (meshTopology.empty()) {
+    if (deviceAttr.getMeshTopology().empty()) {
       return;
     }
 
     MLIRContext *context = &getContext();
 
     moduleOp.walk(
-        [&](AllGatherOp op) { setCCLTopology(op, meshTopology, context); });
+        [&](AllGatherOp op) { setCCLTopology(op, deviceAttr, context); });
     moduleOp.walk(
-        [&](AllReduceOp op) { setCCLTopology(op, meshTopology, context); });
+        [&](AllReduceOp op) { setCCLTopology(op, deviceAttr, context); });
     moduleOp.walk(
-        [&](ReduceScatterOp op) { setCCLTopology(op, meshTopology, context); });
+        [&](ReduceScatterOp op) { setCCLTopology(op, deviceAttr, context); });
     moduleOp.walk(
-        [&](MoeComputeOp op) { setCCLTopology(op, meshTopology, context); });
+        [&](MoeComputeOp op) { setCCLTopology(op, deviceAttr, context); });
+    // Always rewrite fused ring-joint topologyfabric: a Ring op on a
+    // Linear axis waits for a wrap link that does not exist and wedges the
+    // board. The pipeline runs this pass again after ttnn-fusing.
+    moduleOp.walk([&](RingJointScaledDotProductAttentionOp op) {
+      setCCLTopology(op, deviceAttr, context, /*overwrite=*/true);
+    });
+    moduleOp.walk([&](ExpRingJointScaledDotProductAttentionOp op) {
+      setCCLTopology(op, deviceAttr, context, /*overwrite=*/true);
+    });
   }
 
 private:
   template <typename OpTy>
-  void setCCLTopology(OpTy op, ArrayRef<ttcore::Topology> meshTopology,
-                      MLIRContext *context) {
-    if (op.getTopology()) {
+  void setCCLTopology(OpTy op, ttcore::DeviceAttr deviceAttr,
+                      MLIRContext *context, bool overwrite = false) {
+    if (op.getTopology() && !overwrite) {
       return;
     }
 
-    uint32_t clusterAxis = op.getClusterAxis();
-
-    // meshTopology follows meshShape indexing:
-    //   meshTopology[0] = row-axis (horizontal) connectivity
-    //   meshTopology[1] = col-axis (vertical) connectivity
-    // cluster_axis follows tt-metal convention:
-    //   cluster_axis=0 = vertical movement (devices in same column)
-    //   cluster_axis=1 = horizontal movement (devices in same row)
-    // Map between the two by reversing the index.
-    uint32_t topologyIdx = meshTopology.size() - 1 - clusterAxis;
-    if (topologyIdx >= meshTopology.size()) {
+    std::optional<ttcore::Topology> axisTopology =
+        ttcore::getMeshTopologyForClusterAxis(deviceAttr, op.getClusterAxis());
+    if (!axisTopology || *axisTopology == ttcore::Topology::Disabled) {
       return;
     }
 
-    ttcore::Topology axisTopology = meshTopology[topologyIdx];
-    if (axisTopology == ttcore::Topology::Disabled) {
-      return;
-    }
-
-    op.setTopologyAttr(ttcore::TopologyAttr::get(context, axisTopology));
+    op.setTopologyAttr(ttcore::TopologyAttr::get(context, *axisTopology));
   }
 };
 

@@ -11,6 +11,12 @@
 // RUN: ttmlir-opt --ttcore-register-device="mesh-shape=1,2" --ttnn-fusing="enable-ring-sdpa=true" --ttnn-allocate-distributed-op-buffers -o %t_buf.mlir %s
 // RUN: FileCheck %s --check-prefix=BUFFERS --input-file=%t_buf.mlir
 //
+// CSE after allocate is what TTNNPipelines runs for L1 budgeting. Matching
+// empties must not collapse onto one SSA value — metal writes K and V gathers
+// concurrently into those buffers.
+// RUN: ttmlir-opt --ttcore-register-device="mesh-shape=1,2" --ttnn-fusing="enable-ring-sdpa=true" --ttnn-allocate-distributed-op-buffers --canonicalize --cse -o %t_cse.mlir %s
+// RUN: FileCheck %s --check-prefix=CSE --input-file=%t_cse.mlir
+//
 // After both: fully bound, which is what the runtime requires.
 // RUN: ttmlir-opt --ttcore-register-device="mesh-shape=1,2" --ttnn-fusing="enable-ring-sdpa=true" --ttnn-allocate-distributed-op-buffers --ttnn-allocate-distributed-op-semaphores -o %t_all.mlir %s
 // RUN: FileCheck %s --check-prefix=ALL --input-file=%t_all.mlir
@@ -50,6 +56,12 @@ module {
     // Buffers bound (slots 7 and 8), semaphore pool still empty.
     // BUFFERS: "ttnn.ring_joint_scaled_dot_product_attention"
     // BUFFERS-SAME: operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 1, 0>
+
+    // CSE-LABEL: @ring_sdpa_prelude_binding
+    // CSE: %[[BUFK:.*]] = "ttnn.empty"
+    // CSE: %[[BUFV:.*]] = "ttnn.empty"
+    // CSE: "ttnn.ring_joint_scaled_dot_product_attention"
+    // CSE-SAME: %[[BUFK]], %[[BUFV]]
 
     // ALL-LABEL: @ring_sdpa_prelude_binding
     // Both allocators insert immediately after ttnn.get_device, so the pass

@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: ttmlir-opt --ttcore-register-device="mesh-shape=8,4" --ttnn-fusing="enable-ring-sdpa=true" -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device="mesh-shape=8,4 mesh-topology=ring,linear" --ttnn-fusing="enable-ring-sdpa=true" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // Wan Graph A self-attn on Galaxy 8x4 (SP=8 on cluster_axis 0, TP=4):
@@ -33,8 +33,9 @@ module {
     // CHECK-SAME: compute_with_storage_grid_size = <7, 8>
     // CHECK-SAME: q_chunk_size = 128
     // CHECK-SAME: k_chunk_size = 256
-    %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 1 : si32, cluster_axis = 0 : ui32}> : (tensor<1x128x10x64xbf16, #kv_bshd>) -> tensor<1x1024x10x64xbf16, #gathered>
-    %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 1 : si32, cluster_axis = 0 : ui32}> : (tensor<1x128x10x64xbf16, #kv_bshd>) -> tensor<1x1024x10x64xbf16, #gathered>
+    // CHECK-SAME: topology = #ttcore.topology<linear>
+    %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 1 : si32, cluster_axis = 0 : ui32, topology = #ttcore.topology<linear>}> : (tensor<1x128x10x64xbf16, #kv_bshd>) -> tensor<1x1024x10x64xbf16, #gathered>
+    %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 1 : si32, cluster_axis = 0 : ui32, topology = #ttcore.topology<linear>}> : (tensor<1x128x10x64xbf16, #kv_bshd>) -> tensor<1x1024x10x64xbf16, #gathered>
     %2 = "ttnn.slice_static"(%0) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1000 : i32, 10 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1024x10x64xbf16, #gathered>) -> tensor<1x1000x10x64xbf16, #trimmed>
     %3 = "ttnn.slice_static"(%1) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1000 : i32, 10 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1024x10x64xbf16, #gathered>) -> tensor<1x1000x10x64xbf16, #trimmed>
     %4 = "ttnn.permute"(%2) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x1000x10x64xbf16, #trimmed>) -> tensor<1x10x1000x64xbf16, #kv_bhnd>
@@ -51,8 +52,9 @@ module {
     // CHECK-LABEL: @wan_skips_to_layout
     // CHECK: "ttnn.ring_joint_scaled_dot_product_attention"
     // CHECK-SAME: logical_n = 1000 : i64
-    %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 1 : si32, cluster_axis = 0 : ui32}> : (tensor<1x128x10x64xbf16, #kv_bshd>) -> tensor<1x1024x10x64xbf16, #gathered>
-    %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 1 : si32, cluster_axis = 0 : ui32}> : (tensor<1x128x10x64xbf16, #kv_bshd>) -> tensor<1x1024x10x64xbf16, #gathered>
+    // CHECK-SAME: topology = #ttcore.topology<linear>
+    %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 1 : si32, cluster_axis = 0 : ui32, topology = #ttcore.topology<linear>}> : (tensor<1x128x10x64xbf16, #kv_bshd>) -> tensor<1x1024x10x64xbf16, #gathered>
+    %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 1 : si32, cluster_axis = 0 : ui32, topology = #ttcore.topology<linear>}> : (tensor<1x128x10x64xbf16, #kv_bshd>) -> tensor<1x1024x10x64xbf16, #gathered>
     %2 = "ttnn.slice_static"(%0) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1000 : i32, 10 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1024x10x64xbf16, #gathered>) -> tensor<1x1000x10x64xbf16, #trimmed>
     %3 = "ttnn.slice_static"(%1) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1000 : i32, 10 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1024x10x64xbf16, #gathered>) -> tensor<1x1000x10x64xbf16, #trimmed>
     %4 = "ttnn.to_layout"(%2) : (tensor<1x1000x10x64xbf16, #trimmed>) -> tensor<1x1000x10x64xbf16, #trimmed>
@@ -63,5 +65,29 @@ module {
     %9 = "ttnn.to_layout"(%7) : (tensor<1x10x1000x64xbf16, #kv_bhnd>) -> tensor<1x10x1000x64xbf16, #kv_bhnd>
     %10 = "ttnn.scaled_dot_product_attention"(%q, %8, %9) <{is_causal = false, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>}> : (tensor<1x10x128x64xbf16, #q>, tensor<1x10x1000x64xbf16, #kv_bhnd>, tensor<1x10x1000x64xbf16, #kv_bhnd>) -> tensor<1x10x128x64xbf16, #q>
     return %10 : tensor<1x10x128x64xbf16, #q>
+  }
+
+  // The hang: gather still said Ring (old fuser default) on SP while Galaxy
+  // RING_TP fabric is Linear on cluster_axis 0. The fused op must follow
+  // fabric, not the stale gather attr.
+  func.func @wan_sp_linear_fabric_overrides_ring_gather(
+      %q: tensor<1x10x128x64xbf16, #q>,
+      %k: tensor<1x128x10x64xbf16, #kv_bshd>,
+      %v: tensor<1x128x10x64xbf16, #kv_bshd>)
+      -> tensor<1x10x128x64xbf16, #q> {
+    // CHECK-LABEL: @wan_sp_linear_fabric_overrides_ring_gather
+    // CHECK-NOT: "ttnn.exp_ring_joint_scaled_dot_product_attention"
+    // CHECK: "ttnn.ring_joint_scaled_dot_product_attention"
+    // CHECK-SAME: cluster_axis = 0 : ui32
+    // CHECK-SAME: num_links = 1 : ui32
+    // CHECK-SAME: topology = #ttcore.topology<linear>
+    %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 1 : si32, cluster_axis = 0 : ui32, topology = #ttcore.topology<ring>}> : (tensor<1x128x10x64xbf16, #kv_bshd>) -> tensor<1x1024x10x64xbf16, #gathered>
+    %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 1 : si32, cluster_axis = 0 : ui32, topology = #ttcore.topology<ring>}> : (tensor<1x128x10x64xbf16, #kv_bshd>) -> tensor<1x1024x10x64xbf16, #gathered>
+    %2 = "ttnn.slice_static"(%0) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1000 : i32, 10 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1024x10x64xbf16, #gathered>) -> tensor<1x1000x10x64xbf16, #trimmed>
+    %3 = "ttnn.slice_static"(%1) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1000 : i32, 10 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1024x10x64xbf16, #gathered>) -> tensor<1x1000x10x64xbf16, #trimmed>
+    %4 = "ttnn.permute"(%2) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x1000x10x64xbf16, #trimmed>) -> tensor<1x10x1000x64xbf16, #kv_bhnd>
+    %5 = "ttnn.permute"(%3) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x1000x10x64xbf16, #trimmed>) -> tensor<1x10x1000x64xbf16, #kv_bhnd>
+    %6 = "ttnn.scaled_dot_product_attention"(%q, %4, %5) <{is_causal = false, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>}> : (tensor<1x10x128x64xbf16, #q>, tensor<1x10x1000x64xbf16, #kv_bhnd>, tensor<1x10x1000x64xbf16, #kv_bhnd>) -> tensor<1x10x128x64xbf16, #q>
+    return %6 : tensor<1x10x128x64xbf16, #q>
   }
 }

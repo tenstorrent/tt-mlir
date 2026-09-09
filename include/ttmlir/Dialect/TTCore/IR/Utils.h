@@ -15,6 +15,8 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
 
+#include <optional>
+
 namespace mlir::tt::ttcore {
 
 constexpr inline llvm::StringLiteral g_kvCacheAttrName = "ttcore.kv_cache";
@@ -46,6 +48,29 @@ DeviceAttr lookupDevice(Operation *op,
                         llvm::StringRef deviceName = getDefaultDeviceName());
 
 ChipDescAttr getOpChipDescAttr(Operation *op);
+
+// Per-axis fabric connectivity for a `cluster_axis`.
+//
+// `DeviceAttr.meshTopology` follows meshShape indexing:
+//   meshTopology[0] = row-axis (horizontal) connectivity
+//   meshTopology[1] = col-axis (vertical) connectivity
+// `cluster_axis` follows the tt-metal convention:
+//   cluster_axis=0 = vertical movement (devices in the same column)
+//   cluster_axis=1 = horizontal movement (devices in the same row)
+// Map between the two by reversing the index. Empty `meshTopology` (legacy
+// lit tests, or a client that has not set per-axis fabric) returns nullopt.
+inline std::optional<Topology>
+getMeshTopologyForClusterAxis(DeviceAttr deviceAttr, uint32_t clusterAxis) {
+  llvm::ArrayRef<Topology> meshTopology = deviceAttr.getMeshTopology();
+  if (meshTopology.empty()) {
+    return std::nullopt;
+  }
+  const uint32_t topologyIdx = meshTopology.size() - 1 - clusterAxis;
+  if (topologyIdx >= meshTopology.size()) {
+    return std::nullopt;
+  }
+  return meshTopology[topologyIdx];
+}
 
 // Default DM core -> NoC mapping, acts as the single source of truth for the
 // ScheduleDMA & D2M->{TTMetal,TTKernel,TTNN} passes to pick a NoC for a given

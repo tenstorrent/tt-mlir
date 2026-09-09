@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: ttmlir-opt --ttcore-register-device="mesh-shape=32,4" --ttnn-fusing="enable-ring-sdpa=true" -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device="mesh-shape=32,4 mesh-topology=linear,ring" --ttnn-fusing="enable-ring-sdpa=true" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // TP=4 and SP=32 is the only mesh that should select the experimental kernel.
@@ -26,8 +26,10 @@ module {
     // CHECK: "ttnn.exp_ring_joint_scaled_dot_product_attention"(%arg0,
     // CHECK-SAME: cluster_axis = 0 : ui32
     // CHECK-SAME: logical_n = 4000 : i64
+    // CHECK-SAME: num_links = 2 : ui32
     // Exp kernel uses the full compute grid; it does not take a CCL offset.
     // CHECK-SAME: compute_with_storage_grid_size = <8, 8>
+    // CHECK-SAME: topology = #ttcore.topology<ring>
     %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 1 : si32, cluster_axis = 0 : ui32}> : (tensor<1x128x10x64xbf16, #kv_bshd>) -> tensor<1x4096x10x64xbf16, #gathered>
     %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 1 : si32, cluster_axis = 0 : ui32}> : (tensor<1x128x10x64xbf16, #kv_bshd>) -> tensor<1x4096x10x64xbf16, #gathered>
     %2 = "ttnn.slice_static"(%0) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 4000 : i32, 10 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x4096x10x64xbf16, #gathered>) -> tensor<1x4000x10x64xbf16, #trimmed>

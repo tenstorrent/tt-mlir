@@ -10,6 +10,7 @@
 #include "ttmlir/Utils.h"
 
 #include <algorithm>
+#include <optional>
 #include <utility>
 
 namespace mlir::tt::ttnn::fusing {
@@ -23,10 +24,11 @@ static constexpr llvm::StringLiteral kJointStrategy = "rear";
 static constexpr uint32_t kNumWorkersPerLink = 5;
 static constexpr uint32_t kNumBuffersPerChannel = 32;
 
-// The ring kernel asserts on exactly two links
-// (exp_ring_joint_sdpa_device_operation.cpp:228), so this is a requirement
-// rather than a tuning choice.
-static constexpr uint32_t kNumLinks = 2;
+// Exp ring-joint asserts on exactly two links
+// (exp_ring_joint_sdpa_device_operation.cpp:228). The non-exp kernel does not;
+// it inherits the absorbed all-gather's link count (default 1).
+static constexpr uint32_t kExpNumLinks = 2;
+static constexpr uint32_t kDefaultNumLinks = 1;
 
 // Metal uses exp_ring_joint only when TP=4 and SP=32. Every other SP>1 mesh
 // (including Galaxy 8x4) uses the non-experimental ring_joint kernel.
@@ -205,6 +207,12 @@ RingSDPAFusing::buildProgramConfig(ScaledDotProductAttentionOp srcOp,
   llvm::ArrayRef<int64_t> chipGrid = chip.getGrid();
   uint32_t gridY = static_cast<uint32_t>(chipGrid[0]);
   uint32_t gridX = static_cast<uint32_t>(chipGrid[1]);
+  // Galaxy system-desc ChipDesc.grid can be 9x8 (worker grid including the
+  // extra row). Wormhole tensix compute is 8x8; launching SDPA on y=8 hangs.
+  if (chip.getArch().getValue() == ttcore::Arch::WormholeB0) {
+    gridY = std::min(gridY, 8u);
+    gridX = std::min(gridX, 8u);
+  }
   // Metal Wan's non-exp ring_joint uses compute grid (full.x - 1, full.y) and
   // places CCL at (sdpa_grid.x, 0). Exp uses the full grid.
   if (reserveCclColumn && gridX >= 2) {
@@ -371,8 +379,24 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
       tpSize *= meshShape[i];
     }
   }
-  const bool useExpKernel =
-      meshShape[clusterAxis] == kExpRingSP && tpSize == kExpRingTP;
+
+  // Fusion can run before the post-fuse configure-ccl walk, so the absorbed
+  // all-gather may already have a stale Ring attr. Fabric on this cluster_axis
+  // is the source of truth. Empty meshTopology defaults to Linear (Galaxy
+  // 8x4 ring-joint tests); never default to Ring, which waits on a wrap link.
+  std::optional<ttcore::Topology> axisTopology =
+      ttcore::getMeshTopologyForClusterAxis(deviceOp.getDeviceAttr(),
+                                            clusterAxis);
+  if (axisTopology && *axisTopology == ttcore::Topology::Disabled) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "cluster_axis fabric topology is disabled");
+  }
+  const ttcore::Topology fusedTopology =
+      axisTopology.value_or(ttcore::Topology::Linear);
+
+  bool useExpKernel = meshShape[clusterAxis] == kExpRingSP &&
+                      tpSize == kExpRingTP &&
+                      fusedTopology == ttcore::Topology::Ring;
 
   SDPAProgramConfigAttr programConfig =
       buildProgramConfig(srcOp, localSeqLen, gatheredSeqLen,
@@ -411,9 +435,14 @@ RingSDPAFusing::matchAndRewrite(ScaledDotProductAttentionOp srcOp,
   auto logicalNAttr = rewriter.getI64IntegerAttr(logicalN);
   auto dimAttr = rewriter.getSI32IntegerAttr(seqDim);
   auto clusterAxisAttr = rewriter.getUI32IntegerAttr(clusterAxis);
-  auto numLinksAttr = rewriter.getUI32IntegerAttr(kNumLinks);
+  mlir::IntegerAttr numLinksAttr = keyGather.getNumLinksAttr();
+  if (useExpKernel) {
+    numLinksAttr = rewriter.getUI32IntegerAttr(kExpNumLinks);
+  } else if (!numLinksAttr) {
+    numLinksAttr = rewriter.getUI32IntegerAttr(kDefaultNumLinks);
+  }
   auto topologyAttr =
-      ttcore::TopologyAttr::get(rewriter.getContext(), ttcore::Topology::Ring);
+      ttcore::TopologyAttr::get(rewriter.getContext(), fusedTopology);
   auto workersAttr = rewriter.getUI32IntegerAttr(kNumWorkersPerLink);
   auto buffersAttr = rewriter.getUI32IntegerAttr(kNumBuffersPerChannel);
 

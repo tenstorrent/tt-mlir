@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: ttmlir-opt --ttcore-register-device="mesh-shape=1,2" --ttnn-fusing="enable-ring-sdpa=true" -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device="mesh-shape=1,2 mesh-topology=ring,linear" --ttnn-fusing="enable-ring-sdpa=true" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // The rewrite that turns an exposed sequence-parallel K/V all-gather feeding a
@@ -43,7 +43,7 @@ module {
     // No padding slice absorbed yet, so logical_n is the whole gathered length.
     // CHECK-SAME: logical_n = 256 : i64
     // CHECK-SAME: num_buffers_per_channel = 32 : ui32
-    // CHECK-SAME: num_links = 2 : ui32
+    // CHECK-SAME: num_links = 1 : ui32
     // CHECK-SAME: num_workers_per_link = 5 : ui32
     // Buffers and semaphores are left unbound for the prelude passes.
     // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 0, 0>
