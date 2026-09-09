@@ -9,6 +9,8 @@
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include <cstdint>
+#include <optional>
+#include <utility>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNMEMORYMANAGEMENT
@@ -882,6 +884,164 @@ public:
   }
 };
 
+// Row-major rows narrower than this pay DRAM page padding.
+constexpr int64_t kMinWideRowElems = ttcore::TileType::getDefaultShape()[1];
+
+// Per `dst` dim, the [begin, end) range of adjacent `src` dims it merges;
+// nullopt if `dst` is not a pure merge of `src`.
+static std::optional<llvm::SmallVector<std::pair<int64_t, int64_t>>>
+computeCollapseGroups(llvm::ArrayRef<int64_t> src,
+                      llvm::ArrayRef<int64_t> dst) {
+  const int64_t srcRank = static_cast<int64_t>(src.size());
+  const int64_t dstRank = static_cast<int64_t>(dst.size());
+  llvm::SmallVector<std::pair<int64_t, int64_t>> groups;
+  int64_t s = 0;
+  for (int64_t d = 0; d < dstRank; ++d) {
+    const int64_t begin = s;
+    int64_t prod = 1;
+    while (s < srcRank && (s == begin || prod < dst[d])) {
+      prod *= src[s++];
+    }
+    if (prod != dst[d] || s == begin) {
+      return std::nullopt;
+    }
+    // Absorb trailing unit dims while enough src dims remain for the rest.
+    while (s < srcRank && src[s] == 1 && (srcRank - s) > (dstRank - d - 1)) {
+      ++s;
+    }
+    groups.emplace_back(begin, s);
+  }
+  if (s != srcRank) {
+    return std::nullopt;
+  }
+  return groups;
+}
+
+// Widest dim of the permute result (at least kMinWideRowElems) that the
+// reshape passes through unchanged, as (dim in permute result, dim in reshape
+// result); nullopt if there is none.
+static std::optional<std::pair<int64_t, int64_t>>
+findWidestPassThroughDim(llvm::ArrayRef<int64_t> permuteShape,
+                         llvm::ArrayRef<std::pair<int64_t, int64_t>> groups) {
+  std::optional<std::pair<int64_t, int64_t>> best;
+  for (auto [reshapeDim, group] : llvm::enumerate(groups)) {
+    if (group.second - group.first != 1) {
+      continue;
+    }
+    int64_t permuteDim = group.first;
+    if (permuteShape[permuteDim] < kMinWideRowElems) {
+      continue;
+    }
+    if (!best || permuteShape[permuteDim] > permuteShape[best->first]) {
+      best = {permuteDim, static_cast<int64_t>(reshapeDim)};
+    }
+  }
+  return best;
+}
+
+// permute(P) -> reshape, where the permute result has a thin last dim, becomes
+//   permute(P, dim k last) -> reshape -> to_layout(tile) -> permute(dim k back)
+// with k the widest dim the reshape passes through unchanged.
+static LogicalResult rewriteThinLastDimPermute(ttnn::PermuteOp op,
+                                               ttnn::ReshapeOp reshapeUser,
+                                               PatternRewriter &rewriter) {
+  auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+  auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
+  auto reshapeType =
+      mlir::cast<RankedTensorType>(reshapeUser.getResult().getType());
+  llvm::ArrayRef<int64_t> inShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> yShape = resultType.getShape();
+  llvm::ArrayRef<int64_t> zShape = reshapeType.getShape();
+
+  if (yShape.size() < 2 || yShape.back() >= kMinWideRowElems ||
+      inShape.back() < kMinWideRowElems) {
+    return failure();
+  }
+
+  auto groups = computeCollapseGroups(yShape, zShape);
+  if (!groups) {
+    return failure();
+  }
+
+  auto wideDim = findWidestPassThroughDim(yShape, *groups);
+  if (!wideDim) {
+    return failure();
+  }
+  const auto [permuteDim, reshapeDim] = *wideDim;
+
+  llvm::SmallVector<int64_t> perm(op.getPermutation());
+  const int64_t movedSrcDim = perm[permuteDim];
+  perm.erase(perm.begin() + permuteDim);
+  perm.push_back(movedSrcDim);
+
+  llvm::SmallVector<int64_t> yPrimeShape(yShape);
+  yPrimeShape.erase(yPrimeShape.begin() + permuteDim);
+  yPrimeShape.push_back(yShape[permuteDim]);
+
+  llvm::SmallVector<int64_t> zPrimeShape(zShape);
+  zPrimeShape.erase(zPrimeShape.begin() + reshapeDim);
+  zPrimeShape.push_back(zShape[reshapeDim]);
+
+  // Moves the last dim of Z' back to position reshapeDim.
+  const int64_t zRank = static_cast<int64_t>(zShape.size());
+  llvm::SmallVector<int64_t> backPerm;
+  for (int64_t i = 0; i < reshapeDim; ++i) {
+    backPerm.push_back(i);
+  }
+  backPerm.push_back(zRank - 1);
+  for (int64_t i = reshapeDim; i < zRank - 1; ++i) {
+    backPerm.push_back(i);
+  }
+
+  Value permuteInput = op.getInput();
+  if (!permuteInput.getDefiningOp<ttnn::ToLayoutOp>()) {
+    auto inputLayout =
+        mlir::dyn_cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+    if (inputLayout && inputLayout.isTiled()) {
+      permuteInput =
+          utils::createToTensorSpecOp(
+              op, mlir::cast<mlir::TypedValue<RankedTensorType>>(permuteInput),
+              rewriter, Layout::RowMajor, inputLayout.getBufferType(),
+              inputLayout.getMemLayout(), inputLayout.getDataType(),
+              "_input_row_major")
+              .getResult();
+    }
+  }
+
+  RankedTensorType yPrimeType = utils::RankedTensorTypeFactory::create(
+      utils::RankedTensorTypeFactory::create(resultType, yPrimeShape),
+      Layout::RowMajor);
+  auto newPermute = rewriter.create<ttnn::PermuteOp>(
+      op.getLoc(), yPrimeType, permuteInput, llvm::ArrayRef<int64_t>(perm),
+      op.getPadValue());
+
+  RankedTensorType zPrimeType = utils::RankedTensorTypeFactory::create(
+      utils::RankedTensorTypeFactory::create(reshapeType, zPrimeShape),
+      Layout::RowMajor);
+  llvm::SmallVector<int32_t> zPrimeShape32(zPrimeShape.begin(),
+                                           zPrimeShape.end());
+  auto newReshape = rewriter.create<ttnn::ReshapeOp>(
+      reshapeUser.getLoc(), zPrimeType, newPermute.getResult(),
+      rewriter.getI32ArrayAttr(zPrimeShape32));
+
+  auto reshapeLayout =
+      mlir::cast<ttnn::TTNNLayoutAttr>(reshapeType.getEncoding());
+  auto restoredLayout = utils::createToTensorSpecOp(
+      reshapeUser,
+      mlir::cast<mlir::TypedValue<RankedTensorType>>(newReshape.getResult()),
+      rewriter, reshapeLayout.getLayout(), reshapeLayout.getBufferType(),
+      reshapeLayout.getMemLayout(), reshapeLayout.getDataType(),
+      "_restore_layout");
+
+  auto backPermute = rewriter.create<ttnn::PermuteOp>(
+      reshapeUser.getLoc(), reshapeType, restoredLayout.getResult(),
+      llvm::ArrayRef<int64_t>(backPerm), op.getPadValue());
+
+  rewriter.replaceOp(reshapeUser, backPermute.getResult());
+  rewriter.eraseOp(op);
+  return success();
+}
+
 class PermuteRowMajorAdjusting : public OpRewritePattern<ttnn::PermuteOp> {
 public:
   using OpRewritePattern::OpRewritePattern;
@@ -942,6 +1102,11 @@ public:
     // If the difference is less than 1GB, nothing to do.
     if (tiledVolume - rmVolume < 1LL * 1024LL * 1024LL * 1024LL) {
       return failure();
+    }
+
+    if (!repeatUser &&
+        succeeded(rewriteThinLastDimPermute(op, reshapeUser, rewriter))) {
+      return success();
     }
 
     auto rowMajorLayout =

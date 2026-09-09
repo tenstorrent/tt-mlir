@@ -37,6 +37,9 @@
 #layout_100x50 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #layout_5000_t = #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x157x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #layout_5000_rm = #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x5000xf32, #dram>, <interleaved>>
+#layout_ps_in_tile = #ttnn.ttnn_layout<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d0 * 2228224 + d1 * 2228224 + d2 * 1114112 + d3 * 557056 + d4 * 2176 + d5 * 128 + d6, d7), <1x1>, memref<69632x7x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#layout_ps_perm_tile = #ttnn.ttnn_layout<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d0 * 233963520 + d1 * 913920 + d2 * 53760 + d3 * 53760 + d4 * 448 + d5 * 224 + d6, d7), <1x1>, memref<7311360x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#layout_ps_out_tile = #ttnn.ttnn_layout<(d0, d1, d2, d3, d4) -> (d0 * 1114112 + d1 * 4352 + d2 * 256 + d3, d4), <1x1>, memref<34816x14x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 
 module {
   // sliceReshape
@@ -245,5 +248,24 @@ module {
     %0 = "ttnn.reshape"(%arg0) <{shape = [5000 : i32]}> : (tensor<100x50xf32, #layout_100x50>) -> tensor<5000xf32, #layout_5000_t>
     %1 = "ttnn.to_tensor_spec"(%0) : (tensor<5000xf32, #layout_5000_t>) -> tensor<5000xf32, #layout_5000_rm>
     return %1 : tensor<5000xf32, #layout_5000_rm>
+  }
+
+  // permute-reshape with a thin last dim: wide dim moved last for the rewrite.
+  // CHECK-LABEL: func.func @permute_reshape_thin_last_dim_wide_row
+  // CHECK: %[[RM_IN:.*]] = "ttnn.to_tensor_spec"(%arg0)
+  // CHECK: %[[PERM:.*]] = "ttnn.permute"(%[[RM_IN]])
+  // CHECK-SAME: permutation = array<i64: 0, 5, 1, 6, 2, 7, 3, 4>
+  // CHECK-SAME: -> tensor<1x17x1x120x2x212x2x256xbf16
+  // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[PERM]]) <{shape = [1 : i32, 17 : i32, 240 : i32, 424 : i32, 256 : i32]}>
+  // CHECK-SAME: -> tensor<1x17x240x424x256xbf16
+  // CHECK: %[[RESTORED:.*]] = "ttnn.to_tensor_spec"(%[[RESHAPE]])
+  // CHECK: %[[BACK:.*]] = "ttnn.permute"(%[[RESTORED]])
+  // CHECK-SAME: permutation = array<i64: 0, 4, 1, 2, 3>
+  // CHECK-SAME: -> tensor<1x256x17x240x424xbf16
+  // CHECK: return %[[BACK]]
+  func.func @permute_reshape_thin_last_dim_wide_row(%arg0: tensor<1x1x2x2x256x17x120x212xbf16, #layout_ps_in_tile>) -> tensor<1x256x17x240x424xbf16, #layout_ps_out_tile> {
+    %0 = "ttnn.permute"(%arg0) <{permutation = array<i64: 0, 4, 5, 1, 6, 2, 7, 3>}> : (tensor<1x1x2x2x256x17x120x212xbf16, #layout_ps_in_tile>) -> tensor<1x256x17x1x120x2x212x2xbf16, #layout_ps_perm_tile>
+    %1 = "ttnn.reshape"(%0) <{shape = [1 : i32, 256 : i32, 17 : i32, 240 : i32, 424 : i32]}> : (tensor<1x256x17x1x120x2x212x2xbf16, #layout_ps_perm_tile>) -> tensor<1x256x17x240x424xbf16, #layout_ps_out_tile>
+    return %1 : tensor<1x256x17x240x424xbf16, #layout_ps_out_tile>
   }
 }
