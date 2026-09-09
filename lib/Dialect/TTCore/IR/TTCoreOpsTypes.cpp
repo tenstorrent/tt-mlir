@@ -43,10 +43,106 @@ namespace {
 SystemDescAttr
 createDefaultQuasarSystemDesc(mlir::MLIRContext *context,
                               const ::llvm::SmallVector<int64_t> &meshShape) {
+  // Captured from a Quasar device running the quasar_32_arch.yaml descriptor
+  // (32 workers in an 8x4 array at NOC (2,2)-(9,5)), read back out of the
+  // system desc that runtime/lib/common/system_desc.cpp builds from a live
+  // device. Keep these in sync with that file rather than with the YAML: the
+  // runtime derives several of them from the HAL.
+  constexpr auto l1Size = 4194304;
+  constexpr auto numDramChannels = 2;
+  constexpr auto dramChannelSize = 1073741824;
+  constexpr auto nocL1AddressAlignBytes = 16;
+  constexpr auto pcieAddressAlignBytes = 64;
+  constexpr auto nocDRAMAddressAlignBytes = 64;
+  constexpr auto l1UnreservedBase = 313088;
+  constexpr auto eriscL1UnreservedBase = 88576;
+  constexpr auto dramUnreservedBase = 1048704;
+  constexpr auto dramUnreservedEnd = 1068732416;
+  constexpr auto dstPhysicalSizeTiles = 16;
+  constexpr auto numCBs = 64;
+  // Quasar has 4 compute threads per tile, and exposes 6 of its 8 DM cores.
+  // See runtime/lib/common/system_desc.cpp.
+  constexpr auto numComputeThreads = 4;
+  constexpr auto numDatamovementThreads = 6;
+
+  // Get number of chips in mesh.
+  int64_t numberOfChips =
+      std::accumulate(meshShape.begin(), meshShape.end(), int64_t{1},
+                      std::multiplies<int64_t>());
+
+  // 4 rows of 8 worker columns.
+  llvm::SmallVector<std::int64_t> gridShape = {4, 8};
+  llvm::SmallVector<std::int64_t> dramGridShape = {1, 2};
+
+  // The worker array starts at NOC (2,2).
+  llvm::SmallVector<std::int64_t> coordTranslationOffsets = {2, 2};
+
+  // Deliberately empty: the runtime skips
+  // get_optimal_dram_bank_to_logical_worker_assignment() on Quasar, so a live
+  // device reports no assignment for either NoC. Quasar also has a single NoC.
+  llvm::SmallVector<CoreCoordAttr> dramBankToLogicalWorker = {};
+
+  // Quasar's format set, mirroring tt-metal's `is_supported_quasar`
+  // (tt_metal/common/tt_backend_api_types.cpp). This is deliberately NOT the
+  // Wormhole list: Quasar has no block-float (Bfp2/Bfp4/Bfp8 and their _b
+  // variants) -- its narrow formats are MX/microscaling -- and no unsigned
+  // 16/32-bit device format, its 32-bit formats being Float32 and Int32.
+  //
+  // Anything wider here makes downstream legality checks believe a format is
+  // available on Quasar and defers the failure to a tt-metal host
+  // format-validator throw.
+  //
+  // The live descriptor builder in runtime/lib/common/system_desc.cpp still
+  // reports one fixed list for every arch and so overstates Quasar. Fixing it
+  // there changes what Wormhole and Blackhole report too, so it is left for a
+  // separate change rather than folded in here.
+  llvm::SmallVector<DataTypeAttr> supported_data_types = {
+      DataTypeAttr::get(context, DataType::Float32),
+      DataTypeAttr::get(context, DataType::Float16),
+      DataTypeAttr::get(context, DataType::BFloat16),
+      DataTypeAttr::get(context, DataType::UInt8),
+      DataTypeAttr::get(context, DataType::Int32),
+  };
+
+  llvm::SmallVector<TileSizeAttr> supported_tile_sizes = {
+      TileSizeAttr::get(context, 4, 16),  TileSizeAttr::get(context, 16, 16),
+      TileSizeAttr::get(context, 32, 16), TileSizeAttr::get(context, 4, 32),
+      TileSizeAttr::get(context, 16, 32), TileSizeAttr::get(context, 32, 32),
+  };
+
+  llvm::SmallVector<uint32_t> chipIndicesList =
+      llvm::to_vector(llvm::seq<uint32_t>(numberOfChips));
+
   llvm::SmallVector<ChipDescAttr> chipDescs;
-  llvm::SmallVector<uint32_t> chipIndicesList;
+  chipDescs.reserve(numberOfChips);
+  for (auto i = 0; i < numberOfChips; i++) {
+    chipDescs.push_back(ChipDescAttr::get(
+        context, ArchAttr::get(context, Arch::Quasar), gridShape,
+        coordTranslationOffsets, l1Size, numDramChannels, dramChannelSize,
+        nocL1AddressAlignBytes, pcieAddressAlignBytes, nocDRAMAddressAlignBytes,
+        l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
+        dramUnreservedEnd, supported_data_types, supported_tile_sizes,
+        dstPhysicalSizeTiles, numCBs, numComputeThreads, numDatamovementThreads,
+        dramGridShape, dramBankToLogicalWorker, dramBankToLogicalWorker));
+  }
+
   llvm::SmallVector<ChipCapabilityAttr> chipCapabilities;
+  chipCapabilities.reserve(numberOfChips);
+  for (auto i = 0; i < numberOfChips; i++) {
+    chipCapabilities.push_back(
+        ChipCapabilityAttr::get(context, ChipCapability::HostMMIO));
+  }
+
   llvm::SmallVector<ChipChannelAttr> chipChannelList;
+  chipChannelList.reserve(numberOfChips);
+  if (numberOfChips != 1) {
+    for (auto i = 0; i < numberOfChips; i++) {
+      // Assume a default ring topology where final chip connects with initial
+      // chip.
+      chipChannelList.push_back(ChipChannelAttr::get(
+          context, i, {0, 0}, (i + 1) % numberOfChips, {0, 0}));
+    }
+  }
 
   return SystemDescAttr::get(
       context,
