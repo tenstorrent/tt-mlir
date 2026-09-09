@@ -62,7 +62,7 @@ set(_soc_staged "${TT_CRANK_SIM_DIR}/soc_descriptor.yaml")
 add_custom_command(
     OUTPUT "${_soc_staged}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_soc_src}" "${_soc_staged}"
-    DEPENDS tt_mlir::runtime
+    DEPENDS TTMLIRRuntime
     COMMENT "Staging ttsim SoC descriptor (${TT_CRANK_SIM_ARCH})"
     VERBATIM
 )

@@ -28,12 +28,10 @@ def _wheel_tt_metal() -> Path:
 
 
 def _vendored_tt_metal() -> Path:
-    """Path to the tt-metal source tree populated by tt-mlir-ep at build time."""
-    # python/tt_crank/_runtime_env.py -> repo root -> third_party/...
+    """Path to the tt-metal source tree tt-mlir vendors (editable/source checkout)."""
+    # python/tt_crank/_runtime_env.py -> tt-crank/ -> tt-mlir root -> third_party/...
     return (
-        Path(__file__).resolve().parents[2]
-        / "third_party"
-        / "tt-mlir"
+        Path(__file__).resolve().parents[3]
         / "third_party"
         / "tt-metal"
         / "src"
@@ -51,8 +49,8 @@ def tt_metal_home() -> Path:
          since silently falling back would mask what the user pointed at.
       2. The tt-metal tree bundled inside an installed wheel
          (``tt_crank/tt-metal``). This is the normal pip-install path.
-      3. Otherwise the tt-mlir-ep submodule checkout
-         ``third_party/tt-mlir/third_party/tt-metal/src/tt-metal/`` (editable dev).
+      3. Otherwise tt-mlir's vendored checkout
+         ``<tt-mlir>/third_party/tt-metal/src/tt-metal/`` (editable dev).
     """
     resolved = None
     for var in ("TT_METAL_RUNTIME_ROOT", "TT_METAL_HOME"):
@@ -72,8 +70,8 @@ def tt_metal_home() -> Path:
             return root
     raise RuntimeError(
         f"tt-metal runtime tree not found (looked in {_wheel_tt_metal()} and "
-        f"{_vendored_tt_metal()}); build at least once so tt-mlir-ep populates "
-        "the submodule, or set TT_METAL_RUNTIME_ROOT explicitly."
+        f"{_vendored_tt_metal()}); build tt-mlir at least once so it fetches "
+        "tt-metal, or set TT_METAL_RUNTIME_ROOT explicitly."
     )
 
 

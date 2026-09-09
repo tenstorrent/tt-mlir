@@ -59,30 +59,13 @@ find_library(TORCH_PYTHON_LIBRARY torch_python
 target_link_libraries(_tt_crank_torch_native PRIVATE ${TORCH_PYTHON_LIBRARY})
 
 # Final import name on disk is `_native.so` so Python sees tt_crank.torch._native.
-# INSTALL_RPATH lets the .so dlopen libtt_crank.so, tt-mlir's shared libs, and
-# torch's runtime from site-packages without LD_LIBRARY_PATH.
-#   - Editable/dev: point at the in-build-tree locations.
-#   - Wheel: _native.so lives in tt_crank/torch/. Bundled native libs are one
-#     level up in tt_crank/lib ($ORIGIN/../lib); libtorch is NOT bundled (it's a
-#     declared dependency) and resolves from the sibling torch wheel at
-#     $ORIGIN/../../torch/lib for a flat site-packages layout.
-if(TT_CRANK_WHEEL)
-    set(_native_install_rpath "$ORIGIN/../lib;$ORIGIN/../../torch/lib")
-else()
-    set(_native_install_rpath "${CMAKE_BINARY_DIR}/src;${CMAKE_BINARY_DIR}/src/common;${CMAKE_BINARY_DIR}/third_party/tt-mlir-install/lib;${TORCH_INSTALL_PREFIX}/lib")
-endif()
-# For the wheel, bake the $ORIGIN rpath at link time (BUILD_WITH_INSTALL_RPATH)
-# for the same reason as the other bundled libs. Editable keeps the default
-# (build with build-tree rpath, rewrite to INSTALL_RPATH at install).
+# INSTALL_RPATH is for the wheel, where the installed _native.so lives in
+# tt_crank/torch/: bundled native libs are one level up in tt_crank/lib
+# ($ORIGIN/../lib); libtorch is NOT bundled (it's a declared dependency) and
+# resolves from the sibling torch wheel at $ORIGIN/../../torch/lib. The editable
+# install uses the build-tree module, which keeps CMake's build RPATH.
 set_target_properties(_tt_crank_torch_native PROPERTIES
     OUTPUT_NAME _native
     PREFIX ""
-    INSTALL_RPATH "${_native_install_rpath}"
-    BUILD_WITH_INSTALL_RPATH ${TT_CRANK_WHEEL}
-)
-
-install(TARGETS _tt_crank_torch_native
-    LIBRARY
-        DESTINATION tt_crank/torch
-        COMPONENT wheel_payload
+    INSTALL_RPATH "$ORIGIN/../lib;$ORIGIN/../../torch/lib"
 )
