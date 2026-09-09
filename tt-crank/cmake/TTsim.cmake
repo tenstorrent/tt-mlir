@@ -30,11 +30,6 @@ else()
     message(FATAL_ERROR "TT_CRANK_SIM_ARCH must be 'wh' or 'bh', got '${TT_CRANK_SIM_ARCH}'")
 endif()
 
-# tt-metal source tree, vendored under tt-mlir's submodule. Source — not the
-# install dir — because tt-mlir's ExternalProject doesn't install the runtime
-# data files (soc descriptors, firmware sources) that ttsim needs. Populated
-# by tt-mlir-ep's build step, so the descriptor copy is deferred to build time.
-set(TT_CRANK_TT_METAL_HOME "${CMAKE_SOURCE_DIR}/third_party/tt-mlir/third_party/tt-metal/src/tt-metal")
 set(_soc_src "${TT_CRANK_TT_METAL_HOME}/tt_metal/soc_descriptors/${_soc_filename}")
 
 set(TT_CRANK_SIM_DIR "${CMAKE_BINARY_DIR}/ttsim_home")
@@ -59,14 +54,15 @@ endif()
 # libttsim.so has no build-tree dependency — stage at configure time.
 configure_file("${_lib_cache}" "${TT_CRANK_SIM_DIR}/libttsim.so" COPYONLY)
 
-# The SoC descriptor lives in tt-metal's source tree (downloaded by tt-mlir-ep
-# at build time), so we can't copy it at configure time on a fresh clone.
-# Defer to a build-time custom command that depends on tt-mlir-ep having run.
+# The SoC descriptor lives in tt-metal's source tree,
+# so we can't copy it at configure time on a fresh clone.
+# Defer to a build-time custom command that depends on `tt-mlir` runtime
+# (i.e. `tt-metal` is there).
 set(_soc_staged "${TT_CRANK_SIM_DIR}/soc_descriptor.yaml")
 add_custom_command(
     OUTPUT "${_soc_staged}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_soc_src}" "${_soc_staged}"
-    DEPENDS tt-mlir-ep
+    DEPENDS tt_mlir::runtime
     COMMENT "Staging ttsim SoC descriptor (${TT_CRANK_SIM_ARCH})"
     VERBATIM
 )

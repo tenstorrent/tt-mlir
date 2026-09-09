@@ -5,7 +5,9 @@ add_subdirectory(common)
 # Bake tt-mlir provenance into version.cpp: the plain commit hash
 # (ttmlir_git_hash()) and a combined commit+worktree hash
 # (ttmlir_git_worktree_hash(), == commit when clean) for keying a compile cache.
-include(${CMAKE_SOURCE_DIR}/cmake/GitRev.cmake)
+include(${PROJECT_SOURCE_DIR}/cmake/GitRev.cmake)
+
+set(TT_CRANK_TTMLIR_SOURCE_DIR "${CMAKE_SOURCE_DIR}")
 
 git_commit_hash(TTMLIR_GIT_HASH ${TT_CRANK_TTMLIR_SOURCE_DIR})
 if(TTMLIR_GIT_HASH STREQUAL "")
@@ -96,15 +98,13 @@ target_link_libraries(tt_crank
         tt_crank_sanitizers
 )
 
-# Tracy zone macros (`#include <tracy/Tracy.hpp>` + `ZoneScoped*`) are no-ops
-# when TRACY_ENABLE is undefined, so the headers come in unconditionally.
-# Linking libtracy.so and defining TRACY_ENABLE — the bits that actually emit
-# zone code — are the only things gated by the option. Bundling of the Tracy
-# CLI itself is independent of this option (see cmake/Tracy.cmake).
-target_link_libraries(tt_crank PUBLIC tt_crank::tracy_headers)
+# We include `tracy` files unconditionally, so add proper include dirs.
+target_include_directories(tt_crank SYSTEM PRIVATE ${TRACY_INCLUDE_DIRS})
 if(TT_CRANK_TRACY_ZONES)
-    target_compile_definitions(tt_crank PUBLIC TRACY_ENABLE TRACY_TIMER_FALLBACK)
-    target_link_libraries(tt_crank PUBLIC tt_crank::tracy)
+    # TODO(pilkic): These compile definitions are set globally in `tt-mlir`. There
+    # should be a better way...
+    # target_compile_definitions(tt_crank PUBLIC TRACY_ENABLE TRACY_TIMER_FALLBACK)
+    target_link_libraries(tt_crank PUBLIC tt_metal::tracy)
 endif()
 
 # Wheel: libtt_crank.so lands in tt_crank/lib alongside its deps (tt-mlir's libs,

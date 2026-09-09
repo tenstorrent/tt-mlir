@@ -22,15 +22,15 @@ function(_tt_crank_add_bundle_target target_name src lnk)
         COMMENT "Symlinking ${lnk} -> ${src}"
         VERBATIM
     )
-    add_dependencies(${target_name} tt-mlir-ep)
+    add_dependencies(${target_name} tt_mlir::compiler tt_mlir::runtime)
 endfunction()
 
 _tt_crank_add_bundle_target(bundle-tracy
-    "${TT_CRANK_TTMLIR_INSTALL_DIR}/tt-metal/tools/tracy"
+    "${TT_CRANK_TT_METAL_HOME}/tools/tracy"
     "${PROJECT_SOURCE_DIR}/python/tracy/_original"
 )
 
 _tt_crank_add_bundle_target(bundle-ttnn
-    "${TT_CRANK_TTMLIR_INSTALL_DIR}/tt-metal/ttnn/ttnn"
+    "${TT_CRANK_TT_METAL_HOME}/ttnn/ttnn"
     "${PROJECT_SOURCE_DIR}/python/ttnn/_original"
 )

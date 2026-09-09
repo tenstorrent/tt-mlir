@@ -1,4 +1,6 @@
-include(${CMAKE_SOURCE_DIR}/cmake/SystemIncludes.cmake)
+include(${PROJECT_SOURCE_DIR}/cmake/SystemIncludes.cmake)
+
+set(CPM_SOURCE_CACHE "${PROJECT_BINARY_DIR}/.cpmcache" CACHE PATH "CPM source cache for tt-crank third-party sources")
 
 include(FetchContent)
 FetchContent_Declare(
@@ -9,4 +11,4 @@ FetchContent_Declare(
 set(SPDLOG_BUILD_PIC ON CACHE INTERNAL "")
 FetchContent_MakeAvailable(tt-logger)
 
-mark_as_system_includes(tt-logger spdlog_header_only fmt-header-only)
+mark_as_system_includes(tt-logger spdlog spdlog_header_only fmt fmt-header-only)

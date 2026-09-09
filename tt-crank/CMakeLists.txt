@@ -7,15 +7,27 @@ project(
     LANGUAGES CXX
 )
 
-if(PROJECT_IS_TOP_LEVEL)
-    set(CMAKE_CXX_STANDARD 20)
-    set(CMAKE_CXX_STANDARD_REQUIRED ON)
-    set(CMAKE_CXX_EXTENSIONS OFF)
-    set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-    enable_testing()
-endif()
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+enable_testing()
 
 option(TT_CRANK_WHEEL "Configure the build for a distributable Python wheel" OFF)
+option(TT_CRANK_BUILD_TESTS "Build tt-crank unit tests" ON)
+option(TT_CRANK_BUILD_PYTHON_EXT "Build Python extension modules" ON)
+option(TT_CRANK_TRACY_ZONES "Compile tt-crank with tracy zones" ON)
+
+# Convenience aliases...
+add_library(tt_mlir::compiler ALIAS TTMLIRCompiler)
+add_library(tt_mlir::runtime ALIAS TTMLIRRuntime)
+add_library(tt_metal::tracy ALIAS TRACY_LIBRARY)
+
+# Mark `tt-mlir` include files as system includes - to ignore warnings on them.
+include(cmake/SystemIncludes.cmake)
+mark_as_system_includes(TTMLIRCompiler TTMLIRRuntime)
+
+set(TT_CRANK_TT_METAL_HOME "${CMAKE_SOURCE_DIR}/third_party/tt-metal/src/tt-metal")
 
 # Dev builds resolve deps from the build tree; wheels set $ORIGIN per target.
 # Must precede add_subdirectory — targets capture this at creation.
@@ -27,30 +39,22 @@ endif()
 # Set before any add_subdirectory so it applies to third-party install rules too.
 set(CMAKE_INSTALL_MESSAGE NEVER)
 
-option(TT_CRANK_BUILD_TESTS "Build tt-crank unit tests" ${PROJECT_IS_TOP_LEVEL})
-option(TT_CRANK_BUILD_PYTHON_EXT
-    "Build Python extension modules (set ON by scikit-build-core; OFF for C++-only builds)"
-    OFF)
-# Decoupled from CLI bundling: the Tracy CLI (`tracy`, tracy-capture,
-# tracy-csvexport) is always built and shipped with tt-crank. This flag
-# only controls whether libtt_crank itself is instrumented with ZoneScoped
-# macros.
-option(TT_CRANK_TRACY_ZONES
-    "Compile Tracy zones into libtt_crank (TRACY_ENABLE + link libtracy)"
-    ON)
-
 include(cmake/CompilerOptions.cmake)
 include(cmake/Sanitizers.cmake)
 include(cmake/StaticAnalyzers.cmake)
 
+# TODO(pilkic): `tt-mlir` should properly set warnings (using an interface, not
+# setting global compile options).
+get_directory_property(_tp_compile_options COMPILE_OPTIONS)
+list(REMOVE_ITEM _tp_compile_options -Werror)
+set_directory_properties(PROPERTIES COMPILE_OPTIONS "${_tp_compile_options}")
+
 add_subdirectory(third_party)
 add_subdirectory(src)
 
-# Must run after add_subdirectory(third_party) — the ttsim SoC-descriptor copy
-# is wired as a build-time dependency on the tt-mlir-ep target.
 include(cmake/TTsim.cmake)
-include(cmake/Tracy.cmake)
+include(cmake/TTMetalPackages.cmake)
 
-if(TT_CRANK_BUILD_TESTS AND PROJECT_IS_TOP_LEVEL)
+if(TT_CRANK_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
