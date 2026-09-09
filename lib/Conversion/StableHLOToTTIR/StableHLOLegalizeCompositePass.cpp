@@ -2273,6 +2273,37 @@ public:
   }
 };
 
+class TenstorrentLayerNormBackwardConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+public:
+  using OpConversionPattern<mlir::stablehlo::CompositeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.layernorm_bw") {
+      return failure();
+    }
+    if (adaptor.getOperands().size() != 5 || srcOp.getNumResults() != 3) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "tenstorrent.layernorm_bw must have "
+                                         "exactly 5 operands and 3 results");
+    }
+    if (srcOp.getCompositeAttributes() &&
+        !srcOp.getCompositeAttributes().empty()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.layernorm_bw does not accept attributes");
+    }
+
+    rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
+        srcOp, srcOp.getResultTypes(), adaptor.getOperands(),
+        rewriter.getStringAttr("layernorm_bw"), srcOp.getDecomposition(),
+        rewriter.getDictionaryAttr({}));
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -2312,6 +2343,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentSDPAForwardConversionPattern>(context);
   patterns.add<TenstorrentSDPABackwardConversionPattern>(context);
   patterns.add<TenstorrentLayerNormForwardConversionPattern>(context);
+  patterns.add<TenstorrentLayerNormBackwardConversionPattern>(context);
   patterns.add<
       StableHLOToTTIRCompositeOpConversionPattern<ttir::CrossEntropyForwardOp>>(
       context, "tenstorrent.cross_entropy_fw");

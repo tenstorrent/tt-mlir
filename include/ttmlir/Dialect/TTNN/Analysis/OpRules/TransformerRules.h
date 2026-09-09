@@ -79,6 +79,17 @@ struct TTMLLayerNormForwardRuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
+/// TTML layer norm backward:
+/// All operands must be tiled and DRAM-interleaved. The backend derives the
+/// output and optional statistics layouts from the input.
+struct TTMLLayerNormBackwardRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
 /// ScaledDotProductAttentionDecodeOp / PagedScaledDotProductAttentionDecodeOp:
 /// Per-operand input layout filtering.
 /// - Q (operand 0): DRAM (any) or L1-sharded -- L1-interleaved rejected

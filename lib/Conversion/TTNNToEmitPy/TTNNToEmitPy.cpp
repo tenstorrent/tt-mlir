@@ -5618,6 +5618,24 @@ public:
         "bindings.");
   }
 };
+
+class LayerNormBackwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::LayerNormBackwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::LayerNormBackwardOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::LayerNormBackwardOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        "EmitPy lowering for ttnn.layernorm_bw is not supported: ttml does not "
+        "expose the metal::layernorm_bw primitive through its Python "
+        "bindings.");
+  }
+};
 } // namespace
 
 namespace mlir::tt {
@@ -5931,18 +5949,14 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<PagedFlashMultiLatentAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);
 
-  // AdamW: deliberately declines conversion (see TODO(pglusac) above).
+  // TTML ops: deliberately decline conversion (see issue above).
   patterns.add<AdamWOpConversionPattern>(typeConverter, ctx);
-
-  // SDPAForward: deliberately declines conversion (see comment above).
   patterns.add<SDPAForwardOpConversionPattern>(typeConverter, ctx);
-
-  // SDPABackward: deliberately declines conversion (see comment above).
   patterns.add<SDPABackwardOpConversionPattern>(typeConverter, ctx);
   patterns.add<LayerNormForwardOpConversionPattern>(typeConverter, ctx);
-
-  // CrossEntropyForward: deliberately declines conversion, same reason.
+  patterns.add<LayerNormBackwardOpConversionPattern>(typeConverter, ctx);
   patterns.add<CrossEntropyForwardOpConversionPattern>(typeConverter, ctx);
+  
 }
 
 } // namespace mlir::tt

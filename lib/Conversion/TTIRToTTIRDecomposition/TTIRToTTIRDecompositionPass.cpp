@@ -120,13 +120,16 @@ struct TTIRToTTIRDecompositionPass
       return op.getParam().getType().getRank() == 4;
     });
 
-    // The ttml::metal SDPA and layernorm_fw ops only accept rank-4 tensors.
+
+
+
+    // The ttml::metal SDPA and layernorm ops only accept rank-4 tensors.
     // Other composites are unaffected by this decomposition.
     target.addDynamicallyLegalOp<ttcore::CompositeOp>(
         [&](ttcore::CompositeOp op) {
           StringRef compositeName = op.getCompositeName();
           if (compositeName != "sdpa_fw" && compositeName != "sdpa_bw" &&
-              compositeName != "layernorm_fw") {
+              compositeName != "layernorm_fw" && compositeName != "layernorm_bw") {
             return true;
           }
           bool operandsRank4 = llvm::all_of(op.getInputs(), [&](Value input) {

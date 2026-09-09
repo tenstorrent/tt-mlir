@@ -281,6 +281,53 @@ def module_layernorm_fw_composite(builder: StableHLOBuilder):
         )
 
 
+def module_layernorm_bw_composite(builder: StableHLOBuilder):
+    shape = (1, 1, 128, 256)
+    param_shape = (1, 1, 1, 256)
+    stats_shape = (1, 1, 128, 1)
+
+    @builder.func(
+        [shape, param_shape, stats_shape, stats_shape, shape],
+        [torch.bfloat16] * 5,
+    )
+    def layernorm_bw_impl(
+        input: Operand,
+        gamma: Operand,
+        mean: Operand,
+        rstd: Operand,
+        dL_dout: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        # The promoted TTML op supplies the implementation. Keep a valid
+        # shape-compatible decomposition for fallback.
+        return dL_dout, gamma, gamma
+
+    layernorm_bw_impl.sym_visibility = StringAttr.get("private")
+    builder._nested_funcs.append(layernorm_bw_impl.name.value)
+
+    @builder.func(
+        [shape, param_shape, stats_shape, stats_shape, shape],
+        [torch.bfloat16] * 5,
+    )
+    def layernorm_bw(
+        input: Operand,
+        gamma: Operand,
+        mean: Operand,
+        rstd: Operand,
+        dL_dout: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.composite(
+            "tenstorrent.layernorm_bw",
+            [input, gamma, mean, rstd, dL_dout],
+            decomposition=layernorm_bw_impl,
+            unit_attrs=unit_attrs,
+        )
+
+
 def module_sdpa_fw_composite(builder: StableHLOBuilder):
     shape = (1, 8, 64, 64)
 
@@ -2387,6 +2434,16 @@ def test_composite_op(target: str, request, device):
 def test_layernorm_fw_composite(target: str, request, device):
     compile_and_execute_shlo(
         module_layernorm_fw_composite,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+    )
+
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_layernorm_bw_composite(target: str, request, device):
+    compile_and_execute_shlo(
+        module_layernorm_bw_composite,
         **get_request_kwargs(request),
         target=target,
         device=device,
