@@ -11,3 +11,6 @@ $BUILD_DIR/runtime/test/common/gtest/test_handle_float_bfloat_buffer_cast
 $BUILD_DIR/runtime/test/common/gtest/test_handle_integer_buffer_cast
 $BUILD_DIR/runtime/test/ttnn/gtest/test_tensor_serialization
 $BUILD_DIR/runtime/test/ttnn/gtest/test_tensor_cache_lifetime
+
+echo "Running TTMetal Runtime Unit Tests"
+$BUILD_DIR/runtime/test/ttmetal/gtest/test_is_tensor_allocated
