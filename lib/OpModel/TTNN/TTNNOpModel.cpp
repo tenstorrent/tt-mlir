@@ -9696,6 +9696,71 @@ llvm::Expected<size_t> OpModel<SDPABackwardOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// RMSNormForwardOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<RMSNormForwardOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> gammaShape, TTNNLayoutAttr gammaLayout,
+    bool returnIntermediates, llvm::APFloat epsilon,
+    TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec gammaSpec,
+      detail::convertToTensorSpec(device, gammaShape, gammaLayout));
+
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
+  auto rmsNormForwardOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        ::ttml::metal::rmsnorm_fw, device, initialStateOpt, inputSpec,
+        gammaSpec, returnIntermediates, epsilon.convertToFloat());
+  };
+
+  return operation::getOpConstraintsWithState(inputLayout.getContext(),
+                                              rmsNormForwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<RMSNormForwardOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> gammaShape, TTNNLayoutAttr gammaLayout,
+    bool returnIntermediates, llvm::APFloat epsilon,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec gammaSpec,
+      detail::convertToTensorSpec(device, gammaShape, gammaLayout));
+
+  auto rmsNormForwardOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttml::metal::rmsnorm_fw, device, inputSpec,
+                            gammaSpec, returnIntermediates,
+                            epsilon.convertToFloat());
+  };
+
+  return operation::getOpRuntime(rmsNormForwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormForwardOp
 //===----------------------------------------------------------------------===//
 

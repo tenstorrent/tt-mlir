@@ -19,6 +19,9 @@ set(TTML_METAL_OP_SRCS
   ${TTML_SOURCE_DIR}/metal/ops/layernorm_fw/layernorm_fw.cpp
   ${TTML_SOURCE_DIR}/metal/ops/layernorm_fw/device/layernorm_fw_device_operation.cpp
   ${TTML_SOURCE_DIR}/metal/ops/layernorm_fw/device/layernorm_fw_program_factory.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/rmsnorm_fw/rmsnorm_fw.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/rmsnorm_fw/device/rmsnorm_fw_device_operation.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/rmsnorm_fw/device/rmsnorm_fw_program_factory.cpp
   ${TTML_SOURCE_DIR}/metal/ops/sdpa_fw/sdpa_fw.cpp
   ${TTML_SOURCE_DIR}/metal/ops/sdpa_fw/device/sdpa_fw_device_operation.cpp
   ${TTML_SOURCE_DIR}/metal/ops/sdpa_fw/device/sdpa_fw_program_factory.cpp

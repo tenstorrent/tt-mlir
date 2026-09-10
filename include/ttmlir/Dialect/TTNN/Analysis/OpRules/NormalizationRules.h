@@ -58,6 +58,17 @@ struct RmsNormRuleBook : OpRuleBook {
                           bool requiresReshard) const override;
 };
 
+/// TTML RMS norm forward: The backend requires all operands to be tiled and
+/// DRAM-interleaved. It derives the output and optional RMS layouts from the
+/// input.
+struct TTMLRMSNormForwardRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_NORMALIZATIONRULES_H

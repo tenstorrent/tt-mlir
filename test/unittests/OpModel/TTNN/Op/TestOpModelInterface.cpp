@@ -6449,6 +6449,50 @@ TEST_F(OpModelBase, SDPABackwardOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, RMSNormForwardOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 256};
+  llvm::SmallVector<int64_t> gammaShape = {1, 1, 1, 256};
+  llvm::SmallVector<int64_t> rmsShape = {1, 1, 128, 1};
+  auto inputLayout = CreateTiledLayout(inputShape, BufferType::DRAM,
+                                       TensorMemoryLayout::Interleaved);
+  auto gammaLayout = CreateTiledLayout(gammaShape, BufferType::DRAM,
+                                       TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
+  auto gamma =
+      createEmptyTensor(gammaShape, builder.getBF16Type(), gammaLayout);
+  auto outputType =
+      createRankedTensorType(inputShape, builder.getBF16Type(), inputLayout);
+  auto rmsType = createRankedTensorType(rmsShape);
+
+  auto rmsNormForward = builder.create<RMSNormForwardOp>(
+      builder.getUnknownLoc(), TypeRange{outputType, rmsType}, input, gamma,
+      builder.getBoolAttr(true), builder.getF32FloatAttr(1e-6f));
+
+  auto backend = dyn_cast<OpModel>(rmsNormForward.getOperation());
+  ASSERT_TRUE(backend);
+  auto inputLayouts = getInputLayouts(rmsNormForward.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 2u);
+
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+    ASSERT_EQ(constraintsExp.get().outputLayouts.size(), 2u);
+  } else {
+    FAIL() << "Missing constraints for RMSNormForwardOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for RMSNormForwardOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, LayerNormForwardOpInterface) {
   llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 256};
   llvm::SmallVector<int64_t> parameterShape = {1, 1, 1, 256};

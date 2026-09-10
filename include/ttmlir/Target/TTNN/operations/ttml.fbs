@@ -31,6 +31,15 @@ table SDPAForwardOp {
   intermediates: tt.target.ttnn.TensorRef;
 }
 
+table RMSNormForwardOp {
+  input: tt.target.ttnn.TensorRef;
+  gamma: tt.target.ttnn.TensorRef;
+  return_intermediates: bool = true;
+  epsilon: float = 1e-6;
+  out: tt.target.ttnn.TensorRef;
+  rms: tt.target.ttnn.TensorRef;
+}
+
 table LayerNormForwardOp {
   input: tt.target.ttnn.TensorRef;
   weight: tt.target.ttnn.TensorRef;

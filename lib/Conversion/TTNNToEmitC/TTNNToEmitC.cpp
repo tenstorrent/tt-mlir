@@ -3699,6 +3699,76 @@ public:
 } // namespace
 
 //
+// RMSNormForwardOp conversion pattern (emits ::ttml::metal::rmsnorm_fw)
+//
+namespace {
+class RMSNormForwardOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::RMSNormForwardOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.rmsnorm_fw";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttml::metal::rmsnorm_fw";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::RMSNormForwardOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = mlir::tt::ttnn::RMSNormForwardOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::RMSNormForwardOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::RMSNormForwardOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // Arg order matches ttml::metal::rmsnorm_fw(input, gamma,
+    // return_intermediates, epsilon).
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getGamma()),
+        emitter.emit(srcOp.getReturnIntermediates()),
+        emitter.emit(srcOp.getEpsilon()),
+    };
+
+    using ReturnTy = std::vector<std::optional<::ttnn::Tensor>>;
+    auto rmsNormForwardOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(ttnn_to_emitc::TypeNameV<ReturnTy>),
+        convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    auto optionalType = emitc::OpaqueType::get(
+        rewriter.getContext(), ttnn_to_emitc::TypeNameV<ReturnTy::value_type>);
+    auto optionalLValueType = emitc::LValueType::get(optionalType);
+    auto tensorType = rewriter.getType<emitc::OpaqueType>(
+        ttnn_to_emitc::TypeNameV<::ttnn::Tensor>);
+
+    llvm::SmallVector<mlir::Value, 2> results;
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), rewriter.getIndexType(), std::to_string(i));
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), optionalLValueType, rmsNormForwardOp.getResult(0),
+          indexOp.getResult());
+      auto loadOp = rewriter.create<emitc::LoadOp>(srcOp.getLoc(), optionalType,
+                                                   subscriptOp.getResult());
+      auto valueOp = rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), tensorType,
+          ttnn_to_emitc::kGetOptionalValueFunctionName, /*args=*/nullptr,
+          /*template_args=*/nullptr, loadOp.getResult());
+      results.push_back(valueOp.getResult(0));
+    }
+
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+};
+} // namespace
+
+//
 // LayerNormForwardOp conversion pattern (emits ::ttml::metal::layernorm_fw)
 //
 namespace {
@@ -6363,22 +6433,22 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Other ops
   //
-  patterns
-      .add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
-           DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
-           CumSumOpConversionPattern, CumProdOpConversionPattern,
-           BatchNormInferenceOpConversionPattern, AdamWOpConversionPattern,
-           SDPAForwardOpConversionPattern, SDPABackwardOpConversionPattern,
-           LayerNormForwardOpConversionPattern,
-           CrossEntropyForwardOpConversionPattern,
-           CrossEntropyBackwardOpConversionPattern,
-           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-           DitRMSNormUnaryFusedOpConversionPattern,
-           RMSNormPreAllGatherOpConversionPattern,
-           DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,
-           LayerNormPreAllGatherOpConversionPattern,
-           LayerNormPostAllGatherOpConversionPattern,
-           GroupNormOpConversionPattern>(typeConverter, ctx);
+  patterns.add<
+      SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
+      DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
+      CumSumOpConversionPattern, CumProdOpConversionPattern,
+      BatchNormInferenceOpConversionPattern, AdamWOpConversionPattern,
+      SDPAForwardOpConversionPattern, SDPABackwardOpConversionPattern,
+      RMSNormForwardOpConversionPattern, LayerNormForwardOpConversionPattern,
+      CrossEntropyForwardOpConversionPattern,
+      CrossEntropyBackwardOpConversionPattern,
+      BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
+      DitRMSNormUnaryFusedOpConversionPattern,
+      RMSNormPreAllGatherOpConversionPattern,
+      DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,
+      LayerNormPreAllGatherOpConversionPattern,
+      LayerNormPostAllGatherOpConversionPattern, GroupNormOpConversionPattern>(
+      typeConverter, ctx);
 
   // CCL ops
   //

@@ -170,6 +170,72 @@ class TTIRBuilder(Builder):
 
     # ----- Public Op Generators ----
 
+    ############### ttcore.CompositeOp ###############
+
+    @tag(ttcore.CompositeOp)
+    def composite(
+        self,
+        composite_name: str,
+        operands: Sequence[Operand],
+        decomposition: Union[str, func.FuncOp],
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        composite_attributes: Optional[DictAttr] = None,
+    ) -> Union[OpResult, Tuple[OpResult, ...]]:
+        if isinstance(decomposition, func.FuncOp):
+            decomposition_func = decomposition
+            decomposition_name = decomposition_func.name.value
+            self._func_name_to_op.setdefault(decomposition_name, decomposition_func)
+        else:
+            decomposition_name = decomposition.removeprefix("@")
+            decomposition_func = self._func_name_to_op.get(decomposition_name)
+            if decomposition_func is None:
+                raise ValueError(
+                    f"Decomposition function {decomposition_name!r} not found on builder."
+                )
+
+        result_types = list(decomposition_func.type.results)
+        operand_goldens = [self._get_golden_tensor(operand) for operand in operands]
+        composite_golden = get_golden_function(ttcore.CompositeOp)
+        golden_output = composite_golden(
+            *operand_goldens,
+            composite_name=composite_name,
+            composite_attributes=composite_attributes,
+            result_types=result_types,
+        )
+
+        attrs: Dict[str, Attribute] = {
+            "composite_name": StringAttr.get(composite_name, self._ctx),
+            "decomposition": FlatSymbolRefAttr.get(decomposition_name, self._ctx),
+        }
+        if composite_attributes is not None:
+            attrs["composite_attributes"] = composite_attributes
+
+        composite_op = Operation.create(
+            name="ttcore.composite",
+            results=result_types,
+            operands=list(operands),
+            attributes=attrs,
+            regions=0,
+            loc=Location.name(loc) if loc is not None else self._get_location(),
+        )
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                composite_op.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        op_results = list(composite_op.results)
+        golden_outputs = (
+            golden_output if isinstance(golden_output, tuple) else (golden_output,)
+        )
+        if len(golden_outputs) != len(op_results):
+            raise ValueError(
+                "ttcore.composite golden result count does not match op result count."
+            )
+        for op_result, golden in zip(op_results, golden_outputs):
+            self._set_golden_tensor(op_result, golden)
+
+        return op_results[0] if len(op_results) == 1 else tuple(op_results)
+
     ############### ttir.AllToAllOp ###############
 
     @tag(ttir.AllToAllOp)
