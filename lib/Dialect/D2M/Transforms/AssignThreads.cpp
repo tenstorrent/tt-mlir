@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 #include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
+#include "ttmlir/Dialect/D2M/Utils/SynchronizableOpInterfaceUtils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/IRMapping.h"
@@ -29,8 +30,9 @@ static bool isAliasedStore(RemoteStoreOp storeOp) {
   if (!storeOp.getLocalBuffer()) {
     return false;
   }
-  auto operandAliasOp =
-      mlir::dyn_cast<OperandAliasOp>(storeOp.getLocalBuffer().getDefiningOp());
+  Operation *definingOp =
+      utils::getSynchronizationRoot(storeOp.getLocalBuffer()).getDefiningOp();
+  auto operandAliasOp = mlir::dyn_cast_or_null<OperandAliasOp>(definingOp);
   return operandAliasOp && operandAliasOp.getMemref() == storeOp.getMemref();
 }
 
@@ -38,8 +40,9 @@ static bool isAliasedLoad(RemoteLoadOp loadOp) {
   if (!loadOp.getLocalBuffer()) {
     return false;
   }
-  auto operandAliasOp =
-      mlir::dyn_cast<OperandAliasOp>(loadOp.getLocalBuffer().getDefiningOp());
+  Operation *definingOp =
+      utils::getSynchronizationRoot(loadOp.getLocalBuffer()).getDefiningOp();
+  auto operandAliasOp = mlir::dyn_cast_or_null<OperandAliasOp>(definingOp);
   return operandAliasOp && operandAliasOp.getMemref() == loadOp.getMemref();
 }
 
@@ -60,7 +63,7 @@ static void lowerDMAOpsToExplicitCB(GenericOp generic, Block *block,
     if (loadOp.isExplicitCBForm() || isAliasedLoad(loadOp)) {
       continue;
     }
-    Value localBuffer = loadOp.getLocalBuffer();
+    Value localBuffer = utils::getSynchronizationRoot(loadOp.getLocalBuffer());
     unsigned cbOperandIdx = generic.getOperandIndex(localBuffer);
 
     rewriter.setInsertionPoint(loadOp);
@@ -81,7 +84,7 @@ static void lowerDMAOpsToExplicitCB(GenericOp generic, Block *block,
     if (storeOp.isExplicitCBForm() || isAliasedStore(storeOp)) {
       continue;
     }
-    Value localBuffer = storeOp.getLocalBuffer();
+    Value localBuffer = utils::getSynchronizationRoot(storeOp.getLocalBuffer());
     assert(localBuffer && "could not find associated local buffer for store");
     unsigned cbOperandIdx = generic.getOperandIndex(localBuffer);
 
@@ -100,9 +103,11 @@ static void lowerDMAOpsToExplicitCB(GenericOp generic, Block *block,
       continue;
     }
     Location loc = copyOp.getLoc();
-    unsigned srcCbOperandIdx = generic.getOperandIndex(copyOp.getSrc());
+    unsigned srcCbOperandIdx =
+        generic.getOperandIndex(utils::getSynchronizationRoot(copyOp.getSrc()));
     auto srcCb = d2m::getOrCreateCB(rewriter, generic, block, srcCbOperandIdx);
-    unsigned dstCbOperandIdx = generic.getOperandIndex(copyOp.getDst());
+    unsigned dstCbOperandIdx =
+        generic.getOperandIndex(utils::getSynchronizationRoot(copyOp.getDst()));
     auto dstCb = d2m::getOrCreateCB(rewriter, generic, block, dstCbOperandIdx);
 
     rewriter.setInsertionPoint(copyOp);

@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 #include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
+#include "ttmlir/Dialect/D2M/Utils/SynchronizableOpInterfaceUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -15,6 +16,7 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Interfaces/ViewLikeInterface.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
@@ -35,8 +37,9 @@ static bool isAliasedStore(RemoteStoreOp storeOp) {
   if (!storeOp.getLocalBuffer()) {
     return false;
   }
-  auto operandAliasOp =
-      mlir::dyn_cast<OperandAliasOp>(storeOp.getLocalBuffer().getDefiningOp());
+  Operation *definingOp =
+      utils::getSynchronizationRoot(storeOp.getLocalBuffer()).getDefiningOp();
+  auto operandAliasOp = mlir::dyn_cast_or_null<OperandAliasOp>(definingOp);
   return operandAliasOp && operandAliasOp.getMemref() == storeOp.getMemref();
 }
 
@@ -44,8 +47,9 @@ static bool isAliasedLoad(RemoteLoadOp loadOp) {
   if (!loadOp.getLocalBuffer()) {
     return false;
   }
-  auto operandAliasOp =
-      mlir::dyn_cast<OperandAliasOp>(loadOp.getLocalBuffer().getDefiningOp());
+  Operation *definingOp =
+      utils::getSynchronizationRoot(loadOp.getLocalBuffer()).getDefiningOp();
+  auto operandAliasOp = mlir::dyn_cast_or_null<OperandAliasOp>(definingOp);
   return operandAliasOp && operandAliasOp.getMemref() == loadOp.getMemref();
 }
 
@@ -63,23 +67,25 @@ static unsigned getDMACBPort(GenericOp generic, Operation *op) {
         if (dma.isExplicitCBForm()) {
           return dma.getCBPort();
         }
-        return generic.getOperandIndex(dma.getLocalBuffer());
+        return generic.getOperandIndex(
+            utils::getSynchronizationRoot(dma.getLocalBuffer()));
       })
       .Case<LocalCopyOp>([&](LocalCopyOp copy) -> unsigned {
         if (copy.isExplicitCBForm()) {
           return copy.getCBPort();
         }
-        return generic.getOperandIndex(copy.getDst());
+        return generic.getOperandIndex(
+            utils::getSynchronizationRoot(copy.getDst()));
       })
       .Default([](Operation *) -> unsigned {
         llvm_unreachable("unexpected ShardDMAOpInterface op");
       });
 }
 
-// Trace `use` (an operand reading/writing a memref) up through
-// collapse_shape/subview to a CB additional-arg of `generic`. Returns the CB
-// value together with the operand that directly references it (so the caller
-// can rewrite that operand to a wait/reserve result). Scratch and
+// Trace `use` (an operand reading/writing a memref) through view aliases and
+// loop-carried values to a CB additional-arg of `generic`. Returns the CB
+// value together with the operand that directly references its current view,
+// so the caller can rewrite that operand to a wait/reserve result. Scratch and
 // reduction-scaler buffers are not CBs.
 static std::optional<std::pair<Value, OpOperand *>>
 traceCBUse(OpOperand &startUse, GenericOp generic) {
@@ -98,31 +104,46 @@ traceCBUse(OpOperand &startUse, GenericOp generic) {
       return std::make_pair(value, cbUse);
     }
     Operation *definingOp = value.getDefiningOp();
-    if (!definingOp || !generic->isProperAncestor(definingOp)) {
-      return std::nullopt;
+    if (auto viewOp = mlir::dyn_cast_or_null<ViewLikeOpInterface>(definingOp)) {
+      Value source = viewOp.getViewSource();
+      OpOperand *sourceUse = nullptr;
+      for (OpOperand &operand : definingOp->getOpOperands()) {
+        if (operand.get() == source) {
+          sourceUse = &operand;
+          break;
+        }
+      }
+      if (!sourceUse) {
+        return std::nullopt;
+      }
+      cbUse = sourceUse;
+      value = source;
+      continue;
     }
-    if (mlir::isa<memref::CollapseShapeOp, memref::SubViewOp>(definingOp)) {
+    if (mlir::isa_and_nonnull<memref::CastOp, memref::CollapseShapeOp,
+                              memref::ExpandShapeOp>(definingOp)) {
       cbUse = &definingOp->getOpOperand(0);
       value = definingOp->getOperand(0);
       continue;
+    }
+    Value root = utils::getSynchronizationRoot(value);
+    if (root != value) {
+      value = root;
+      continue;
+    }
+    if (!definingOp || !generic->isProperAncestor(definingOp)) {
+      return std::nullopt;
     }
     return std::nullopt;
   }
   return std::nullopt;
 }
 
-// Compute-local L1 allocations, not CBs: no datamovement thread fills or drains
-// them, so a consumer naming one as an operand must not get a CB wait.
-static bool isComputeLocalBuffer(Value cb) {
-  Operation *definingOp = cb.getDefiningOp();
-  return definingOp && (definingOp->getAttr("d2m.scratch_buffer") ||
-                        utils::isReductionScalerBuffer(definingOp));
-}
-
-// collapse_shape / subview compute an address into a CB; they do not wait
-// for or produce tiles. They are often hoisted above the loop that uses them.
+// View-like ops compute an address into a CB; they do not wait for or produce
+// tiles. They are often hoisted above the loop that uses them.
 static bool isCBViewOp(Operation *op) {
-  return mlir::isa<memref::CollapseShapeOp, memref::SubViewOp>(op);
+  return mlir::isa<ViewLikeOpInterface, memref::CastOp, memref::CollapseShapeOp,
+                   memref::ExpandShapeOp>(op);
 }
 
 // Find the "raw" compute spans in a compute block: the outermost ancestor of
@@ -352,14 +373,15 @@ static LogicalResult insertCBOpsForCompute(
       }
     }
     for (OpOperand &operand : op->getOpOperands()) {
-      if (isComputeLocalBuffer(operand.get())) {
+      auto tracedCB = traceCBUse(operand, generic);
+      if (!tracedCB) {
         continue;
       }
       if (sync.isConsumer(operand)) {
-        add(consumers, operand.get(), op, &operand);
+        add(consumers, tracedCB->first, op, tracedCB->second);
       }
       if (sync.isProducer(operand)) {
-        add(producers, operand.get(), op, &operand);
+        add(producers, tracedCB->first, op, tracedCB->second);
       }
     }
   });
@@ -375,7 +397,8 @@ static LogicalResult insertCBOpsForCompute(
       directCBUses;
   computeBlock->walk([&](Operation *op) {
     if (mlir::isa<memref::LoadOp, memref::StoreOp, memref::CollapseShapeOp,
-                  memref::SubViewOp, d2m::TileMatmulBlockOp>(op) ||
+                  memref::SubViewOp, scf::ForOp, scf::YieldOp,
+                  d2m::TileMatmulBlockOp>(op) ||
         mlir::isa<SynchronizableOpInterface>(op) ||
         mlir::isa<ShardDMAOpInterface>(op)) {
       return;
@@ -666,10 +689,12 @@ public:
       dmBlock->walk([&](Operation *op) {
         if (auto load = mlir::dyn_cast<RemoteLoadOp>(op);
             load && isAliasedLoad(load)) {
-          aliasedLoadCBs.insert(load.getLocalBuffer());
+          aliasedLoadCBs.insert(
+              utils::getSynchronizationRoot(load.getLocalBuffer()));
         } else if (auto store = mlir::dyn_cast<RemoteStoreOp>(op);
                    store && isAliasedStore(store)) {
-          aliasedStoreCBs.insert(store.getLocalBuffer());
+          aliasedStoreCBs.insert(
+              utils::getSynchronizationRoot(store.getLocalBuffer()));
         }
       });
 

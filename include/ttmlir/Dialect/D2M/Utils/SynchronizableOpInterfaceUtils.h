@@ -18,6 +18,11 @@ struct CBUsageInfo {
   SmallVector<Operation *> consumers;
 };
 
+/// Trace view aliases and scf.for iter args/results back to the buffer that
+/// enters the outermost loop. This canonicalizes post-bufferization aliases
+/// before CB producer/consumer analysis.
+Value getSynchronizationRoot(Value value);
+
 llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion);
 } // namespace mlir::tt::d2m::utils
 
