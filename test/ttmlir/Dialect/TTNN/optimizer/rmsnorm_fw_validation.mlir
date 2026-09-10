@@ -57,10 +57,46 @@ module {
     return %output : tensor<1x1x128x256xf32>
   }
 
+  func.func @rmsnorm_fw_f32_intermediates(
+      %input: tensor<1x1x128x256xf32>,
+      %gamma: tensor<1x1x1x256xf32>)
+      -> (tensor<1x1x128x256xf32>, tensor<1x1x128x1xf32>) {
+    // CHECK-LABEL: func.func @rmsnorm_fw_f32_intermediates(
+    // CHECK: %[[INPUT_BF16:[0-9a-z_]+]] = "ttnn.typecast"(%{{.*}})
+    // CHECK-SAME: -> tensor<1x1x128x256xbf16, #[[INPUT_LAYOUT]]>
+    // CHECK: %[[GAMMA_BF16:[0-9a-z_]+]] = "ttnn.typecast"(%{{.*}})
+    // CHECK-SAME: -> tensor<1x1x1x256xbf16, #[[GAMMA_LAYOUT]]>
+    // CHECK: %[[OUTPUT_BF16:[0-9a-z_]+]], %[[RMS_BF16:[0-9a-z_]+]] = "ttnn.rmsnorm_fw"(%[[INPUT_BF16]], %[[GAMMA_BF16]])
+    // CHECK-SAME: -> (tensor<1x1x128x256xbf16, #[[INPUT_LAYOUT]]>, tensor<1x1x128x1xbf16, #[[RMS_LAYOUT]]>)
+    // CHECK-DAG: %[[OUTPUT_F32:[0-9a-z_]+]] = "ttnn.typecast"(%[[OUTPUT_BF16]])
+    // CHECK-DAG: %[[RMS_F32:[0-9a-z_]+]] = "ttnn.typecast"(%[[RMS_BF16]])
+    // CHECK: return %[[OUTPUT_F32]], %[[RMS_F32]]
+    %output, %rms = "ttcore.composite"(%input, %gamma) <{
+        composite_name = "rmsnorm_fw",
+        decomposition = @rmsnorm_fw_f32_intermediates_decomp,
+        composite_attributes = {
+          return_intermediates = true,
+          epsilon = 1.000000e-06 : f32}}>
+        : (tensor<1x1x128x256xf32>, tensor<1x1x1x256xf32>)
+          -> (tensor<1x1x128x256xf32>, tensor<1x1x128x1xf32>)
+    return %output, %rms
+        : tensor<1x1x128x256xf32>, tensor<1x1x128x1xf32>
+  }
+
   func.func private @rmsnorm_fw_decomp(
       %input: tensor<1x1x128x256xf32>,
       %gamma: tensor<1x1x1x256xf32>) -> tensor<1x1x128x256xf32> {
     return %input : tensor<1x1x128x256xf32>
+  }
+
+  func.func private @rmsnorm_fw_f32_intermediates_decomp(
+      %input: tensor<1x1x128x256xf32>,
+      %gamma: tensor<1x1x1x256xf32>)
+      -> (tensor<1x1x128x256xf32>, tensor<1x1x128x1xf32>) {
+    %rms = "ttir.zeros"() <{shape = array<i32: 1, 1, 128, 1>}>
+        : () -> tensor<1x1x128x1xf32>
+    return %input, %rms
+        : tensor<1x1x128x256xf32>, tensor<1x1x128x1xf32>
   }
 
   func.func private @rmsnorm_fw_intermediates_decomp(
