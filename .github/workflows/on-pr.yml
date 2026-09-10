@@ -52,14 +52,15 @@ jobs:
       component_matrix: ${{ needs.prepare-run.outputs.build_matrix }}
   debug-build:
     needs: [ prepare-run, build-image ]
-    if: needs.prepare-run.outputs.skip_build != 'true'
+    # tt-mlir-only checks (tt-crank is not built here): skipped on tt-crank-only changes
+    if: needs.prepare-run.outputs.skip_build != 'true' && needs.prepare-run.outputs.crank_only != 'true'
     uses: ./.github/workflows/call-build-debug.yml
     secrets: inherit
     with:
       docker-image: ${{ needs.build-image.outputs.docker-image }}
   lint:
     needs: [ prepare-run, build-image ]
-    if: needs.prepare-run.outputs.skip_build != 'true'
+    if: needs.prepare-run.outputs.skip_build != 'true' && needs.prepare-run.outputs.crank_only != 'true'
     uses: ./.github/workflows/call-lint.yml
     secrets: inherit
     with:
@@ -75,7 +76,7 @@ jobs:
       timeout: ${{ fromJson(needs.prepare-run.outputs.test_timeout) }}
   ttsim-test:
     needs: [ prepare-run, build-image, release-build ]
-    if: needs.prepare-run.outputs.skip_build != 'true'
+    if: needs.prepare-run.outputs.skip_build != 'true' && needs.prepare-run.outputs.crank_only != 'true'
     uses: ./.github/workflows/call-test-ttsim.yml
     secrets: inherit
     with:

@@ -164,6 +164,13 @@ These arguments are passed as the REQUIREMENTS environment variable to the test 
 ### if (optional)
 Specifies the name of [optional component](#optional-components). The test will be executed only if optional component is enabled.
 
+### scope (optional)
+Marks a test as belonging to a subproject that lives in its own directory; currently `crank` for `tt-crank/`.
+Unlike `if`, a scoped test is always part of the full matrix. The field works the other way around: when a change
+touches nothing outside the subproject directory (the matching key in `.github/settings/optional-components.yml`
+defines that directory), `prepare-run` keeps only the tests with that scope and skips the component build scripts,
+the debug build, lint and the TTSim golden job. Any change outside the directory runs the full matrix, scoped tests included.
+
 ### Using JSON arrays
 The **runs-on** and **image** fields can be passed as JSON arrays. With arrays, one can define a test to execute on multiple machines and images.
 Examples:

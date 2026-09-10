@@ -10,3 +10,8 @@ ttnn-jit-wheel:
   - tools/ttnn-jit/**
 ttnn-jit-nightly:
   - test/ttnn-jit/nightly/**
+# Subproject, not an optional component: its tests always run (no "if" in
+# tests.json). The key exists so prepare-run can tell when a change touches
+# nothing outside tt-crank/ and shrink the run to the "scope": "crank" lanes.
+crank:
+  - tt-crank/**

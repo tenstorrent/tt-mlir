@@ -42,5 +42,8 @@
     { "runs-on": ["n150","llmbox","p150"],   "image": "tracy",  "script": "ttnn_jit.sh" },
     { "runs-on": ["n150","p150","n300","llmbox"],   "image": "tracy",  "script": "d2m_jit.sh" },
     { "runs-on": "n150",   "image": "speedy",  "script": "alchemist.sh" },
-    { "runs-on": "n150",   "image": "speedy",  "script": "emitc.sh"}
+    { "runs-on": "n150",   "image": "speedy",  "script": "emitc.sh"},
+
+    { "runs-on": "builder",       "image": "tracy",  "script": "crank.sh", "args": "sim",    "scope": "crank" },
+    { "runs-on": "llmbox",        "image": "tracy",  "script": "crank.sh", "args": "device", "scope": "crank" }
   ]
