@@ -18,6 +18,17 @@ let summary = "Convert StableHLO dialect to TTIR dialect.";
       "Enable partial conversion mode, allowing unconverted ops to remain">
   ];
 }
+def ConvertCHLOToTTIR : Pass<"convert-chlo-to-ttir", "::mlir::ModuleOp"> {
+  let summary = "Convert CHLO dialect ops to TTIR dialect.";
+  let description = [{
+    Directly maps CHLO inverse-trig and error-function ops (acos, asin, atan,
+    erf, erfc) onto their existing TTIR equivalents, avoiding decomposition into
+    many primitive StableHLO ops. Intended to run before CHLO decomposition and
+    the StableHLO -> TTIR lowering.
+  }];
+  let constructor = "createConvertCHLOToTTIRPass()";
+  let dependentDialects = ["mlir::chlo::ChloDialect", "mlir::tt::ttir::TTIRDialect"];
+}
 def ConvertArithToStableHLO : Pass<"convert-arith-to-stablehlo", "::mlir::ModuleOp"> {
 let summary = "Convert Arith Dialect to StableHLO dialect.";
   let constructor = "createConvertArithToStableHLOPass()";
