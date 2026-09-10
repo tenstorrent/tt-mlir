@@ -77,6 +77,14 @@ specs/ttnn-optimizer
 ```
 
 ```{toctree}
+:caption: Dialect Op Reference
+:maxdepth: 1
+:glob:
+
+autogen/md/Dialect/*Op
+```
+
+```{toctree}
 :caption: Project
 :maxdepth: 1
 
