@@ -1,0 +1,11 @@
+// This file is meant to be injected with a `ttir.invoke_external` op; the `.ext`
+// extension suffix prevents it from being parsed by `llvm-lit`.
+//
+// It intentionally defines a function named `foo` to test that the inline pass
+// detects the conflict with the caller module's own `foo` and renames it.
+module {
+  func.func @foo() -> tensor<2x2xf32> {
+    %0 = "ttir.constant"() <{value = dense<1.0> : tensor<2x2xf32>}> : () -> tensor<2x2xf32>
+    return %0 : tensor<2x2xf32>
+  }
+}
