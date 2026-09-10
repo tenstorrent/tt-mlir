@@ -6,6 +6,7 @@
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -2256,6 +2257,127 @@ struct NegativePadOpDecompositionPattern
 };
 } // namespace
 
+namespace {
+// tt-metal's tile pad kernel rejects front padding, so a front pad always runs
+// on the row-major kernel, which reserves L1 for 16 padded rows plus two
+// pad-value rows however many rows the tensor has
+// (pad_rm_reader_writer_multi_core_default_program_factory.cpp).
+constexpr uint64_t kPadRowMajorKernelRowsInL1 = 18;
+} // namespace
+
+bool isWideFrontPad(ttir::PadOp op) {
+  ArrayRef<int32_t> padding = op.getPadding();
+  bool hasFrontPad = false;
+  for (size_t i = 0; i + 1 < padding.size(); i += 2) {
+    // Negative padding is sliced off by NegativePadOpDecompositionPattern;
+    // the positive pad it emits is checked again.
+    if (padding[i] < 0 || padding[i + 1] < 0) {
+      return false;
+    }
+    hasFrontPad |= padding[i] > 0;
+  }
+  RankedTensorType resultType = op.getResult().getType();
+  if (!hasFrontPad || resultType.getRank() == 0) {
+    return false;
+  }
+
+  // The row budget comes from the chip's L1 size; with no registered device
+  // (standalone lit runs) leave the pad alone.
+  ModuleOp module = op->getParentOfType<ModuleOp>();
+  if (!module || !module->hasAttr(ttcore::SystemDescAttr::name) ||
+      !ttcore::lookupDeviceOp(op.getOperation())) {
+    return false;
+  }
+
+  // Bool and 8-bit tensors are widened to bf16 before they reach the device.
+  uint64_t elementBytes = std::max<uint64_t>(
+      ttcore::getElementSizeBytes(resultType.getElementType()), 2);
+  uint64_t rowBytes =
+      static_cast<uint64_t>(resultType.getShape().back()) * elementBytes;
+  uint64_t usableL1 =
+      ttcore::getOpChipDescAttr(op.getOperation()).getUsableL1Size();
+  return rowBytes * kPadRowMajorKernelRowsInL1 > usableL1;
+}
+
+namespace {
+// Decomposes a pad flagged by isWideFrontPad() into, per padded dimension,
+// ttir.concat([ttir.full(front)], input, [ttir.full(back)]) along that
+// dimension. tt-metal's concat handles any row width.
+struct WideFrontPadToConcatPattern : public OpConversionPattern<ttir::PadOp> {
+  using OpConversionPattern<ttir::PadOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PadOp op, ttir::PadOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (!isWideFrontPad(op)) {
+      return failure();
+    }
+
+    ArrayRef<int32_t> padding = adaptor.getPadding();
+    Value current = adaptor.getInput();
+    auto inputType = cast<RankedTensorType>(current.getType());
+    Type elementType = inputType.getElementType();
+    Attribute encoding = inputType.getEncoding();
+    SmallVector<int64_t> shape(inputType.getShape());
+
+    // ttir.full takes an f32 or i32 fill; match the tensor's element kind.
+    Attribute fillValue = adaptor.getValueAttr();
+    if (isa<IntegerType>(elementType)) {
+      fillValue = rewriter.getI32IntegerAttr(
+          static_cast<int32_t>(adaptor.getValue().convertToFloat()));
+    }
+
+    SmallVector<int64_t> paddedDims;
+    for (int64_t dim = 0; dim < static_cast<int64_t>(shape.size()); ++dim) {
+      if (padding[2 * dim] != 0 || padding[2 * dim + 1] != 0) {
+        paddedDims.push_back(dim);
+      }
+    }
+
+    for (size_t idx = 0; idx < paddedDims.size(); ++idx) {
+      int64_t dim = paddedDims[idx];
+      int32_t front = padding[2 * dim];
+      int32_t back = padding[2 * dim + 1];
+
+      auto fill = [&](int64_t size, StringRef suffix) -> Value {
+        SmallVector<int64_t> fillShape(shape);
+        fillShape[dim] = size;
+        return rewriter
+            .create<ttir::FullOp>(
+                ttmlir::utils::appendLocationSuffix(op.getLoc(), suffix),
+                RankedTensorType::get(fillShape, elementType, encoding),
+                fillValue)
+            .getResult();
+      };
+
+      SmallVector<Value> pieces;
+      if (front > 0) {
+        pieces.push_back(fill(front, "_front_fill"));
+      }
+      pieces.push_back(current);
+      if (back > 0) {
+        pieces.push_back(fill(back, "_back_fill"));
+      }
+
+      shape[dim] += front + back;
+      Type concatType =
+          idx + 1 == paddedDims.size()
+              ? op.getResult().getType()
+              : RankedTensorType::get(shape, elementType, encoding);
+      current =
+          rewriter
+              .create<ttir::ConcatOp>(
+                  ttmlir::utils::appendLocationSuffix(op.getLoc(), "_concat"),
+                  concatType, pieces, static_cast<int32_t>(dim))
+              .getResult();
+    }
+
+    rewriter.replaceOp(op, current);
+    return success();
+  }
+};
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter,
@@ -2281,6 +2403,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<SplitQueryKeyValueAndSplitHeadsDecompositionPattern>(
       typeConverter, ctx);
   patterns.add<NegativePadOpDecompositionPattern>(typeConverter, ctx);
+  patterns.add<WideFrontPadToConcatPattern>(typeConverter, ctx);
 
   // Configure which ReductionPattern to add base on the configuration
   switch (decompConfig) {

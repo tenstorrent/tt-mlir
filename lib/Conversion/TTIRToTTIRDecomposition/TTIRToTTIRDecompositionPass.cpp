@@ -179,9 +179,10 @@ struct TTIRToTTIRDecompositionPass
     });
 
     target.addDynamicallyLegalOp<ttir::PadOp>([&](ttir::PadOp op) {
-      // Illegal if any padding value is negative (needs decomposition into
-      // slice + pad).
-      return llvm::none_of(op.getPadding(), [](int32_t p) { return p < 0; });
+      // Negative padding decomposes into slice + pad; a wide front pad into
+      // full + concat.
+      return llvm::none_of(op.getPadding(), [](int32_t p) { return p < 0; }) &&
+             !isWideFrontPad(op);
     });
 
     TypeConverter typeConverter;
