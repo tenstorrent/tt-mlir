@@ -1959,6 +1959,8 @@ private:
     bool refTransposeA = rootOp.getTransposeA();
     auto rootRhsType = mlir::cast<RankedTensorType>(rootOp.getB().getType());
     int64_t rootRhsRank = rootRhsType.getRank();
+    auto rootOutputType = mlir::cast<RankedTensorType>(rootOp.getType());
+    int64_t rootOutputRank = rootOutputType.getRank();
 
     for (Operation *user : sharedLHS.getUsers()) {
       auto op = dyn_cast<OpType>(user);
@@ -1986,6 +1988,14 @@ private:
         continue;
       }
 
+      // Output rank must match root's. replaceWithSlices() indexes each
+      // candidate's shape at outputFusedDim = rootOutputRank-1, so a
+      // candidate with shorter output rank causes an ArrayRef OOB.
+      auto outputType = mlir::cast<RankedTensorType>(op.getType());
+      if (outputType.getRank() != rootOutputRank) {
+        continue;
+      }
+
       // Track if transpose_b differs - if mixed, we'll need to insert permutes
       // to normalize before concatenation.
       if (op.getTransposeB() != result.firstTransposeB) {
@@ -1993,7 +2003,6 @@ private:
       }
 
       result.ops.push_back(op);
-      auto outputType = mlir::cast<RankedTensorType>(op.getType());
       result.totalOutputDim += outputType.getDimSize(outputType.getRank() - 1);
     }
 
