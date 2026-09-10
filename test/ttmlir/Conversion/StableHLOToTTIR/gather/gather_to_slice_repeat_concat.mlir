@@ -115,6 +115,22 @@ module @test_gather_uniform_max_indices {
   }
 }
 
+// Batched constant indices (e.g. RoPE position_ids) index a 2D table and
+// produce a higher-rank output than the operand. The rank mismatch means
+// SliceRepeatConcatPattern cannot build a valid ttir.concat; must fall
+// through to the embedding lowering instead.
+// CHECK-LABEL: func.func @batched_constant_indices_falls_through
+module @test_gather_batched_constant_indices {
+  func.func @batched_constant_indices_falls_through(%arg0: tensor<32x64xbf16>) -> tensor<1x4x64xbf16> {
+    // CHECK-NOT: "ttir.concat"
+    // CHECK: "ttir.embedding"
+    // CHECK-NOT: stablehlo.gather
+    %1 = "stablehlo.constant"() <{value = dense<[[0, 1, 2, 3]]> : tensor<1x4xi64>}> : () -> tensor<1x4xi64>
+    %2 = "stablehlo.gather"(%arg0, %1) <{dimension_numbers = #stablehlo.gather<offset_dims = [2], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 2>, indices_are_sorted = false, slice_sizes = array<i64: 1, 64>}> : (tensor<32x64xbf16>, tensor<1x4xi64>) -> tensor<1x4x64xbf16>
+    return %2 : tensor<1x4x64xbf16>
+  }
+}
+
 // When the indexed dim has size 1 (maxIndex == 0), 0 and maxIndex collapse;
 // all surplus indices become front padding without double-counting them as
 // back padding.
