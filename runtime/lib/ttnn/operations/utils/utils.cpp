@@ -85,6 +85,7 @@ toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType) {
       {FbUnaryOpType::Acos, TTNNUnaryOpType::ACOS},
       {FbUnaryOpType::Rsqrt, TTNNUnaryOpType::RSQRT},
       {FbUnaryOpType::Relu6, TTNNUnaryOpType::RELU6},
+      {FbUnaryOpType::Hardswish, TTNNUnaryOpType::HARDSWISH},
       {FbUnaryOpType::Hardsigmoid, TTNNUnaryOpType::HARDSIGMOID},
       {FbUnaryOpType::Atan, TTNNUnaryOpType::ATAN},
       {FbUnaryOpType::Erf, TTNNUnaryOpType::ERF},

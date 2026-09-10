@@ -890,6 +890,35 @@ def TTIR_HardsigmoidOp: TTIR_ElementwiseUnaryOp<"hardsigmoid"> {
     Mathematical definition: hardsigmoid(x) = max(0, min(1, (x + 3) / 6))
   }];
 }
+def TTIR_HardswishOp: TTIR_ElementwiseUnaryOp<"hardswish"> {
+  let summary = "Elementwise hardswish operation.";
+  let description = [{
+    The `hardswish` operation computes the hardswish activation function of each element in the input tensor.
+
+    The hardswish function is a piecewise linear approximation of the swish (SiLU) function that is
+    computationally more efficient. It is defined as:
+    - 0 if x <= -3
+    - x * (x + 3) / 6 if -3 < x < 3
+    - x if x >= 3
+
+    This activation function is commonly used in neural networks (e.g. MobileNetV3) as a computationally
+    efficient alternative to swish, particularly in mobile and embedded applications where computational
+    resources are limited.
+
+    Example:
+```mlir
+    // Compute hardswish of all elements in %input
+    %result = ttir.hardswish(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+    // Input tensor:
+    // [-3.0, -1.0, 0.0, 3.0]
+    // Output tensor:
+    // [0.0, -0.333, 0.0, 3.0]
+```
+
+    Mathematical definition: hardswish(x) = x * max(0, min(1, (x + 3) / 6))
+  }];
+}
+
 def TTIR_SiluOp: TTIR_ElementwiseUnaryOp<"silu"> {
   let summary = "Elementwise SiLU (Sigmoid Linear Unit) operation.";
   let description = [{

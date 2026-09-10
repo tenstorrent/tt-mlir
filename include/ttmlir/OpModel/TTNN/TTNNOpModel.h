@@ -150,6 +150,8 @@ struct OpModel<Relu6Op> : UnaryEltwiseOpModel<Relu6Op> {};
 
 template <>
 struct OpModel<HardsigmoidOp> : UnaryEltwiseOpModel<HardsigmoidOp> {};
+template <>
+struct OpModel<HardswishOp> : UnaryEltwiseOpModel<HardswishOp> {};
 
 template <>
 struct OpModel<SqrtOp> : UnaryEltwiseWithFastApproxModeOpModel<SqrtOp> {};

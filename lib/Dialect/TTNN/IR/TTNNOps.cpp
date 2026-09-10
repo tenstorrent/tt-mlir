@@ -193,6 +193,10 @@ UnaryOpType HardsigmoidOp::getUnaryOpType() { return UnaryOpType::Hardsigmoid; }
 
 llvm::SmallVector<mlir::FloatAttr> HardsigmoidOp::getParams() { return {}; }
 
+UnaryOpType HardswishOp::getUnaryOpType() { return UnaryOpType::Hardswish; }
+
+llvm::SmallVector<mlir::FloatAttr> HardswishOp::getParams() { return {}; }
+
 UnaryOpType SiluOp::getUnaryOpType() { return UnaryOpType::Silu; }
 
 llvm::SmallVector<mlir::FloatAttr> SiluOp::getParams() { return {}; }
