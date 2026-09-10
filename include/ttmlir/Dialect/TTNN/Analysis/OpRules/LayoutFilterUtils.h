@@ -55,6 +55,11 @@ inline bool requireTiled(TTNNLayoutAttr layout) {
   return layout.getLayout() == Layout::Tile;
 }
 
+/// Reject L1 layouts; DRAM-sharded and DRAM-interleaved pass through.
+inline bool rejectAllL1(TTNNLayoutAttr layout) {
+  return !layout.hasL1BufferType();
+}
+
 /// Reject width-sharded layouts. Returns true if the layout should be kept.
 inline bool rejectWidthSharded(TTNNLayoutAttr layout) {
   auto ml = layout.getMemLayout();
