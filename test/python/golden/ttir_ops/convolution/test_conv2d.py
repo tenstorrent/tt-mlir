@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
-import sys
 import torch
 from typing import List, Optional, Tuple, Union
 from builder.base.builder_utils import Operand, Shape
@@ -12,22 +11,6 @@ from builder.base.builder_apis import compile_and_execute_ttir
 from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("ttir")
-
-
-# TODO(jserbedzija): Remove this fixture once we support config tensors in dram for conv2d
-# https://github.com/tenstorrent/tt-mlir/issues/6105
-@pytest.fixture(autouse=True)
-def clear_program_cache_after_test(device):
-    """Clear program cache after each conv2d test to free L1 memory.
-
-    Conv operations allocate tensors in L1 small that are only deallocated
-    when the program cache is cleared. This fixture ensures the program cache
-    is cleared after each test to prevent OOM errors from accumulated allocations.
-    """
-    yield
-    conftest = sys.modules.get("conftest")
-    if conftest and conftest._current_device is not None:
-        conftest._current_device.clear_program_cache()
 
 
 @pytest.mark.parametrize(
