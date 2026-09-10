@@ -257,7 +257,7 @@ def run_benchmark(
     reference_inputs: Sequence[Any] | None = None,
     pcc_target: float = _PCC_TARGET,
     profile_enabled: bool = False,
-    profile_dir: str = "./profile_data",
+    profile_dir: str = ".data/profile_data",
 ) -> BenchmarkResult:
     """Time `iters` forward passes dispatched back-to-back with a single
     final sync.
@@ -364,7 +364,7 @@ def run_llm_benchmark(
     mode: str,
     device: str,
     profile_enabled: bool = False,
-    profile_dir: str = "./profile_data",
+    profile_dir: str = ".data/profile_data",
 ) -> BenchmarkResult:
     """Autoregressive generate loop over one StaticCache; step 0 = prefill.
 

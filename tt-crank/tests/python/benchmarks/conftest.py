@@ -115,13 +115,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     group.addoption(
         "--profile-dir",
         action="store",
-        default="./profile_data",
+        default=".data/profile_data",
         help="Where --profiler writes its Chrome traces.",
     )
     group.addoption(
         "--benchmark-json",
         action="store",
-        default="benchmark_results.json",
+        default=".data/benchmark_results.json",
         help="Path to write the per-test benchmark JSON results to.",
     )
     group.addoption(
@@ -325,6 +325,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     if not results:
         return
     out_path = session.config.getoption("--benchmark-json")
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     payload = {
         "session": {
             "git_sha": _git_sha(),
