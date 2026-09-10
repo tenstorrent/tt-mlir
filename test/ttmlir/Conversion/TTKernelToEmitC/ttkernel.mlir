@@ -1960,33 +1960,42 @@ module {
 
     // CHECK-LABEL: func @noc_async_read
     func.func @noc_async_read() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: emitc.verbatim "UnicastEndpoint unicast_ep;"
-      // CHECK: emitc.verbatim "Noc noc0(0);"
+      // CHECK-DAG: emitc.verbatim "UnicastEndpoint unicast_ep;"
+      // CHECK-DAG: emitc.verbatim "Noc noc0(0);"
+      // CHECK: %[[X:.*]] = "emitc.constant"
       %x = arith.constant 1 : index
+      // CHECK: %[[Y:.*]] = "emitc.constant"
       %y = arith.constant 1 : index
+      // CHECK: %[[SRC_ADDR:.*]] = "emitc.constant"
       %temp = arith.constant 262400 : i32
       // CHECK: %[[DST_ADDR:.*]] = "emitc.constant"
       %dst_addr = arith.constant 303104 : i32
       // CHECK: %[[SIZE:.*]] = "emitc.constant"
       %size = arith.constant 2048 : i32
       %noc = arith.constant 0 : i8
-      // CHECK: emitc.verbatim "noc0.async_read
+      // CHECK: emitc.verbatim "noc0.async_read(unicast_ep, CoreLocalMem<uint32_t>({}), {}, {{[{][{]}}.noc_x = {}, .noc_y = {}, .addr = static_cast<uint32_t>({})}, {{[{][{]}}});"
+      // CHECK-SAME: args %[[DST_ADDR]], %[[SIZE]], %[[X]], %[[Y]], %[[SRC_ADDR]]
       ttkernel.noc_async_read core[%x, %y], %temp, %dst_addr, %size, noc %noc : (index, index, i32, i32, i32, i8) -> ()
       return
     }
 
     // CHECK-LABEL: func @noc_async_read_dram
     func.func @noc_async_read_dram() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK-DAG: emitc.verbatim "AllocatorBank<AllocatorBankType::DRAM> dram_ep;"
+      // CHECK-DAG: emitc.verbatim "Noc noc0(0);"
+      // CHECK: %[[BANK_ID:.*]] = "emitc.constant"
       %bank_id = arith.constant 1 : i32
+      // CHECK: %[[SRC_ADDR:.*]] = "emitc.constant"
       %offset = arith.constant 4096 : i32
+      // CHECK: %[[DST_ADDR:.*]] = "emitc.constant"
       %dst = arith.constant 8192 : i32
+      // CHECK: %[[SIZE:.*]] = "emitc.constant"
       %size = arith.constant 128 : i32
       %noc = arith.constant 0 : i8
-      // CHECK: emitc.verbatim "AllocatorBank<AllocatorBankType::DRAM> dram_ep;"
-      // CHECK: emitc.verbatim "Noc noc0(0);"
       // CHECK: emitc.verbatim "noc0.async_read(dram_ep
       // CHECK-SAME: .bank_id = static_cast<uint32_t>
       // CHECK-SAME: .addr = static_cast<uint32_t>
+      // CHECK-SAME: args %[[DST_ADDR]], %[[SIZE]], %[[BANK_ID]], %[[SRC_ADDR]]
       // CHECK-NOT: emitc.call_opaque "get_noc_addr_from_bank_id"
       // CHECK-NOT: emitc.call_opaque "noc_async_read"
       ttkernel.noc_async_read bank[%bank_id], %offset, %dst, %size, noc %noc : (i32, i32, i32, i32, i8) -> ()
@@ -2042,18 +2051,41 @@ module {
 
     // CHECK-LABEL: func @noc_async_write
     func.func @noc_async_write() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: emitc.verbatim "UnicastEndpoint unicast_ep;"
-      // CHECK: emitc.verbatim "Noc noc0(0);"
+      // CHECK-DAG: emitc.verbatim "UnicastEndpoint unicast_ep;"
+      // CHECK-DAG: emitc.verbatim "Noc noc0(0);"
       // CHECK: %[[SRC_ADDR:.*]] = "emitc.constant"
       %src_addr = arith.constant 303104 : i32
+      // CHECK: %[[X:.*]] = "emitc.constant"
       %x = arith.constant 1 : index
+      // CHECK: %[[Y:.*]] = "emitc.constant"
       %y = arith.constant 1 : index
+      // CHECK: %[[DST_ADDR:.*]] = "emitc.constant"
       %temp = arith.constant 262400 : i32
       // CHECK: %[[SIZE:.*]] = "emitc.constant"
       %size = arith.constant 2048 : i32
       %noc = arith.constant 0 : i8
-      // CHECK: emitc.verbatim "noc0.async_write
+      // CHECK: emitc.verbatim "noc0.async_write(CoreLocalMem<uint32_t>({}), unicast_ep, {}, {{[{][{]}}}, {{[{][{]}}.noc_x = {}, .noc_y = {}, .addr = static_cast<uint32_t>({})});"
+      // CHECK-SAME: args %[[SRC_ADDR]], %[[SIZE]], %[[X]], %[[Y]], %[[DST_ADDR]]
       ttkernel.noc_async_write %src_addr, core[%x, %y], %temp, %size, noc %noc : (i32, index, index, i32, i32, i8) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_write_dram
+    func.func @noc_async_write_dram() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK-DAG: emitc.verbatim "AllocatorBank<AllocatorBankType::DRAM> dram_ep;"
+      // CHECK-DAG: emitc.verbatim "Noc noc0(0);"
+      // CHECK: %[[SRC_ADDR:.*]] = "emitc.constant"
+      %src = arith.constant 8192 : i32
+      // CHECK: %[[BANK_ID:.*]] = "emitc.constant"
+      %bank_id = arith.constant 2 : i32
+      // CHECK: %[[DST_ADDR:.*]] = "emitc.constant"
+      %offset = arith.constant 4096 : i32
+      // CHECK: %[[SIZE:.*]] = "emitc.constant"
+      %size = arith.constant 128 : i32
+      %noc = arith.constant 0 : i8
+      // CHECK: emitc.verbatim "noc0.async_write(CoreLocalMem<uint32_t>({}), dram_ep, {}, {{[{][{]}}}, {{[{][{]}}.bank_id = static_cast<uint32_t>({}), .addr = static_cast<uint32_t>({})});"
+      // CHECK-SAME: args %[[SRC_ADDR]], %[[SIZE]], %[[BANK_ID]], %[[DST_ADDR]]
+      ttkernel.noc_async_write %src, bank[%bank_id], %offset, %size, noc %noc : (i32, i32, i32, i32, i8) -> ()
       return
     }
 
@@ -2071,8 +2103,8 @@ module {
       // CHECK-NOT: get_noc_id
       // CHECK-NOT: get_noc_multicast_addr
       // CHECK-NOT: noc_async_write_multicast
-      // CHECK: emitc.verbatim "MulticastEndpoint mcast_ep;"
-      // CHECK: emitc.verbatim "Noc noc1(1);"
+      // CHECK-DAG: emitc.verbatim "MulticastEndpoint mcast_ep;"
+      // CHECK-DAG: emitc.verbatim "Noc noc1(1);"
       // CHECK: %[[XS:.*]] = "emitc.constant"() <{value = 0 : index}>
       // CHECK: %[[YS:.*]] = "emitc.constant"() <{value = 1 : index}>
       // CHECK: %[[XE:.*]] = "emitc.constant"() <{value = 2 : index}>
