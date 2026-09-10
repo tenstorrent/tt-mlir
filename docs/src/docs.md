@@ -10,10 +10,10 @@
 
  ### Build command
 
- If not already installed, be sure to install `sphinx-markdown-builder`.
+ If not already installed, install the Sphinx dependencies (including `sphinx-rtd-theme` for the Tenstorrent HTML theme):
 
  ```bash
- pip install sphinx-markdown-builder
+ pip install -r docs/requirements.txt
  ```
 
  To build the markdown docs use the `docs` target in CMake.

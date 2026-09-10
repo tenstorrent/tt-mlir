@@ -72,6 +72,7 @@ RUN wget https://apt.llvm.org/llvm.sh && \
 # Install python packages
 RUN python3.12 -m pip install --no-cache-dir --break-system-packages cmake \
     sphinx \
+    sphinx-rtd-theme \
     sphinx-markdown-builder
 
 # Install GitHub CLI
