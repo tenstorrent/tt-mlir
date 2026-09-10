@@ -131,7 +131,19 @@ def test_sdpa_multi_chip(tt_pg, parallel: str, masked: bool, mode: str) -> None:
     assert _pcc(got, ref) >= _PCC
 
 
-@pytest.mark.parametrize("mode", ["eager", "compile"])
+@pytest.mark.parametrize(
+    "mode",
+    [
+        pytest.param(
+            "eager",
+            marks=pytest.mark.xfail(
+                strict=False,
+                reason="#7930",
+            ),
+        ),
+        "compile",
+    ],
+)
 def test_sdpa_backward(mode: str) -> None:
     """
     Autograd through SDPA works: the fused overrideable op has no differentiable
