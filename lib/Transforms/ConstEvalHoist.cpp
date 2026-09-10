@@ -470,7 +470,7 @@ public:
         if (it == maxSubgraphIndexMap.end()) {
           maxSubgraphIndexMap[orgFuncOp] = subgraphIdx;
         } else {
-          it->second = std::max(it->second, subgraphIdx);
+          it->second = std::max(it->second, static_cast<size_t>(subgraphIdx));
         }
       }
       return WalkResult::advance();
