@@ -258,6 +258,10 @@ public:
   static TTNNOperandsWorkarounds
   createCrossEntropyForwardOpOperandsWorkarounds();
 
+  // Create workarounds for cross entropy backward op operands.
+  static TTNNOperandsWorkarounds
+  createCrossEntropyBackwardOpOperandsWorkarounds();
+
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
