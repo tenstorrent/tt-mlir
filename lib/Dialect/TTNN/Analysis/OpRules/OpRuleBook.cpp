@@ -82,6 +82,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static TTMLSDPAForwardRuleBook ttmlSdpaForward;
   static TTMLSDPABackwardRuleBook ttmlSdpaBackward;
   static TTMLRMSNormForwardRuleBook ttmlRmsNormForward;
+  static TTMLRMSNormBackwardRuleBook ttmlRmsNormBackward;
   static TTMLLayerNormForwardRuleBook ttmlLayerNormForward;
   static TTMLSwigluElemwiseBackwardRuleBook ttmlSwigluElemwiseBackward;
   static SDPADecodeRuleBook sdpaDecode;
@@ -126,6 +127,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(SDPAForwardOp::getOperationName(), &ttmlSdpaForward);
     reg(SDPABackwardOp::getOperationName(), &ttmlSdpaBackward);
     reg(RMSNormForwardOp::getOperationName(), &ttmlRmsNormForward);
+    reg(RMSNormBackwardOp::getOperationName(), &ttmlRmsNormBackward);
     reg(LayerNormForwardOp::getOperationName(), &ttmlLayerNormForward);
     reg(SwigluElemwiseBackwardOp::getOperationName(),
         &ttmlSwigluElemwiseBackward);

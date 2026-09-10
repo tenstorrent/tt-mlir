@@ -2453,6 +2453,28 @@ struct OpModel<RMSNormForwardOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// RMSNormBackwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<RMSNormBackwardOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      llvm::ArrayRef<int64_t> gammaShape, TTNNLayoutAttr gammaLayout,
+      llvm::ArrayRef<int64_t> rmsShape, TTNNLayoutAttr rmsLayout,
+      llvm::ArrayRef<int64_t> gradOutputShape, TTNNLayoutAttr gradOutputLayout,
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> gammaShape, TTNNLayoutAttr gammaLayout,
+               llvm::ArrayRef<int64_t> rmsShape, TTNNLayoutAttr rmsLayout,
+               llvm::ArrayRef<int64_t> gradOutputShape,
+               TTNNLayoutAttr gradOutputLayout, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // LayerNormForwardOp
 //===----------------------------------------------------------------------===//
 
