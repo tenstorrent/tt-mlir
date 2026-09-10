@@ -706,8 +706,15 @@ class Run:
 
                         inputs = []
                         outputs = []
-                        for i in program.input_tensors:
-                            new_input = create_tensor(i, fb_mesh_shape)
+                        use_goldens = len(golden_inputs) > 0
+                        for idx, i in enumerate(program.input_tensors):
+                            desc = program.inputs[idx]["desc"]
+                            if is_scalar_input(desc):
+                                new_input = create_scalar_input(
+                                    i, desc, self.logging, use_goldens
+                                )
+                            else:
+                                new_input = create_tensor(i, fb_mesh_shape)
                             inputs.append(new_input)
 
                         for i in program.output_tensors:
