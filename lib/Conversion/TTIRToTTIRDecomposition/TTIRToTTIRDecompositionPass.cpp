@@ -128,6 +128,7 @@ struct TTIRToTTIRDecompositionPass
           if (op.getCompositeName() == "sdpa_fw" ||
               op.getCompositeName() == "sdpa_bw" ||
               op.getCompositeName() == "rmsnorm_fw" ||
+              op.getCompositeName() == "rmsnorm_bw" ||
               op.getCompositeName() == "layernorm_fw") {
             bool operandsRank4 = llvm::all_of(op.getInputs(), [&](Value input) {
               return cast<RankedTensorType>(input.getType()).getRank() == 4;

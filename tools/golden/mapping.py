@@ -6632,6 +6632,15 @@ def ttcore_composite_golden(
             output_type_mlir=RankedTensorType(result_types[0]).element_type,
         )
 
+    if composite_name == "rmsnorm_bw":
+        if not result_types:
+            raise ValueError("ttcore.composite golden requires result types.")
+
+        return rmsnorm_bw_golden(
+            *operand_tensors,
+            output_type_mlir=RankedTensorType(result_types[0]).element_type,
+        )
+
     raise NotImplementedError(
         f"No ttcore.composite golden is registered for {composite_name!r}."
     )
@@ -8861,6 +8870,41 @@ def rmsnorm_fw_golden(
     if return_intermediates:
         return output, rms.to(output_dtype)
     return (output,)
+
+
+def rmsnorm_bw_golden(
+    input: GoldenMapTensor,
+    gamma: GoldenMapTensor,
+    rms: GoldenMapTensor,
+    grad_output: GoldenMapTensor,
+    output_type_mlir: Type = None,
+    **kwargs,
+) -> Tuple[GoldenMapTensor, ...]:
+    x = input.float()
+    g = gamma.float()
+    r = rms.float()
+    dy = grad_output.float()
+
+    normalized = torch.div(x, r)
+    scaled_grad = torch.mul(dy, g)
+
+    # dL/dx_j = dy_j * g_j / r - x_j * sum_c(dy_c * g_c * x_c) / (C * r^3)
+    channels = x.shape[-1]
+    dot = torch.sum(torch.mul(scaled_grad, x), dim=-1, keepdim=True)
+    grad_input = torch.sub(
+        torch.div(scaled_grad, r),
+        torch.div(torch.mul(x, dot), torch.mul(torch.pow(r, 3), channels)),
+    )
+
+    # dL/dgamma = sum over the leading dims of dy * x / r.
+    grad_gamma = torch.sum(torch.mul(dy, normalized), dim=(0, 1, 2), keepdim=True)
+
+    output_dtype = (
+        mlir_type_to_torch_dtype(output_type_mlir)
+        if output_type_mlir is not None
+        else input.dtype
+    )
+    return grad_input.to(output_dtype), grad_gamma.to(output_dtype)
 
 
 def layernorm_fw_golden(

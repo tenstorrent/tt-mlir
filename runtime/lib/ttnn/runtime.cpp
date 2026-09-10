@@ -1618,6 +1618,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::RMSNormBackwardOp: {
+    auto *op = opContext.type_as_RMSNormBackwardOp();
+    tensorRefs = {op->grad_input(), op->grad_gamma()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
     auto *op = opContext.type_as_LayerNormForwardOp();
     tensorRefs = {op->out()};
@@ -2035,6 +2040,11 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   case ::tt::target::ttnn::OpType::RMSNormForwardOp: {
     auto *op = opContext.type_as_RMSNormForwardOp();
     tensorRefs = {op->input(), op->gamma()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RMSNormBackwardOp: {
+    auto *op = opContext.type_as_RMSNormBackwardOp();
+    tensorRefs = {op->input(), op->gamma(), op->rms(), op->grad_output()};
     break;
   }
   case ::tt::target::ttnn::OpType::LayerNormForwardOp: {

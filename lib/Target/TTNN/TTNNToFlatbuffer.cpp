@@ -1708,6 +1708,25 @@ createOp(FlatbufferObjectCache &cache, RMSNormForwardOp op) {
       op.getEpsilon().convertToFloat(), output, rms);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::RMSNormBackwardOp>
+createOp(FlatbufferObjectCache &cache, RMSNormBackwardOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto gamma = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGamma()));
+  auto rms = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getRms()));
+  auto gradOutput = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGradOutput()));
+  auto gradInput = cache.getOrCreateNoSharding(
+      op.getGradInput(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+  auto gradGamma = cache.getOrCreateNoSharding(
+      op.getGradGamma(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateRMSNormBackwardOp(
+      *cache.fbb, input, gamma, rms, gradOutput, gradInput, gradGamma);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::LayerNormForwardOp>
 createOp(FlatbufferObjectCache &cache, LayerNormForwardOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -5186,6 +5205,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto rmsNormForwardOp = dyn_cast<RMSNormForwardOp>(op);
       rmsNormForwardOp) {
     return createOperation(cache, createOp(cache, rmsNormForwardOp),
+                           debugString, locInfo);
+  }
+  if (auto rmsNormBackwardOp = dyn_cast<RMSNormBackwardOp>(op);
+      rmsNormBackwardOp) {
+    return createOperation(cache, createOp(cache, rmsNormBackwardOp),
                            debugString, locInfo);
   }
   if (auto layerNormForwardOp = dyn_cast<LayerNormForwardOp>(op);

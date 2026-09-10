@@ -151,6 +151,29 @@ static void registerBuiltinComposites() {
       },
       /*promotionGuard=*/nullptr};
 
+  registry["rmsnorm_bw"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 4u);
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<RMSNormBackwardOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], compositeOp.getInputs()[3]);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        TT_assert(compositeOp.getInputs().size() == 4u);
+        return builder.create<RMSNormBackwardOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], compositeOp.getInputs()[3]);
+      },
+      /*promotionGuard=*/nullptr};
+
   registry["layernorm_fw"] = CompositeEntry{
       // Validate
       [](ttcore::CompositeOp compositeOp,

@@ -40,6 +40,15 @@ table RMSNormForwardOp {
   rms: tt.target.ttnn.TensorRef;
 }
 
+table RMSNormBackwardOp {
+  input: tt.target.ttnn.TensorRef;
+  gamma: tt.target.ttnn.TensorRef;
+  rms: tt.target.ttnn.TensorRef;
+  grad_output: tt.target.ttnn.TensorRef;
+  grad_input: tt.target.ttnn.TensorRef;
+  grad_gamma: tt.target.ttnn.TensorRef;
+}
+
 table LayerNormForwardOp {
   input: tt.target.ttnn.TensorRef;
   weight: tt.target.ttnn.TensorRef;

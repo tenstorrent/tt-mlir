@@ -79,6 +79,62 @@ def test_rmsnorm_fw_composite(return_intermediates: bool, target: str, request, 
     )
 
 
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_rmsnorm_bw_composite(target: str, request, device):
+    shape = (1, 1, 32, 64)
+    gamma_shape = (1, 1, 1, 64)
+    rms_shape = (1, 1, 32, 1)
+
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [shape, gamma_shape, rms_shape, shape],
+            [torch.bfloat16, torch.bfloat16, torch.bfloat16, torch.bfloat16],
+        )
+        def rmsnorm_bw_decomp(
+            input: Operand,
+            gamma: Operand,
+            rms: Operand,
+            grad_output: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return input, gamma
+
+        rmsnorm_bw_decomp.sym_visibility = StringAttr.get("private")
+        builder._nested_funcs.append(rmsnorm_bw_decomp.name.value)
+
+        @builder.func(
+            [shape, gamma_shape, shape],
+            [torch.bfloat16, torch.bfloat16, torch.bfloat16],
+        )
+        def rmsnorm_bw(
+            input: Operand,
+            gamma: Operand,
+            grad_output: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            # Derive rms the way rmsnorm_fw would, so it is well conditioned.
+            rms = builder.sqrt(
+                builder.mean(builder.multiply(input, input), dim_arg=[3])
+            )
+            return builder.composite(
+                "rmsnorm_bw",
+                [input, gamma, rms, grad_output],
+                decomposition=rmsnorm_bw_decomp,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=["composite-resolution=force-promote"],
+    )
+
+
 def logical_not(
     in0: Operand,
     builder: TTIRBuilder,

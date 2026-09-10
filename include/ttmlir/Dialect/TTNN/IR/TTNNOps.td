@@ -2931,6 +2931,42 @@ def TTNN_RMSNormForwardOp : TTNN_Op<"rmsnorm_fw"> {
     let hasVerifier = 1;
 }
 
+def TTNN_RMSNormBackwardOp : TTNN_Op<"rmsnorm_bw"> {
+    let summary = "Root mean square normalization backward (ttml).";
+    let description = [{
+      Training-oriented fused RMS normalization backward pass, backed by the
+      ttml metal op `ttml::metal::rmsnorm_bw`. Given the forward `input`,
+      `gamma`, the per-row `rms` produced by `ttnn.rmsnorm_fw` and the upstream
+      gradient `grad_output`, computes the gradients w.r.t. `input` and `gamma`.
+
+      The kernel cannot reduce `grad_gamma` across the leading dimensions, so
+      the wrapper finishes the job with a trailing `ttnn::sum` over dims
+      (0, 1, 2). That reduction inherits `gamma`'s memory config, which is why
+      every operand is constrained to tiled, DRAM-interleaved bfloat16.
+
+      All tensors are rank 4: `input`, `grad_output` and `grad_input` are
+      `(B, N, S, C)`, `rms` is `(B, N, S, 1)`, and `gamma` and `grad_gamma` are
+      `(1, 1, 1, C)`.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$gamma,
+                         AnyRankedTensor:$rms,
+                         AnyRankedTensor:$grad_output);
+
+    let results = (outs AnyRankedTensor:$grad_input,
+                        AnyRankedTensor:$grad_gamma);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createRMSNormBackwardOpOperandsWorkarounds(this->getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_LayerNormForwardOp : TTNN_Op<"layernorm_fw",
     [SameVariadicResultSize]> {
     let summary = "Layer normalization forward (ttml).";
