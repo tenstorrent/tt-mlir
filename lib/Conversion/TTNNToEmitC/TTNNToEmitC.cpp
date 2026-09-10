@@ -3607,6 +3607,16 @@ public:
                 : "::ttml::metal::StochasticRounding::Disabled"),
     };
 
+    // Generate a seed for stochastic rounding iff stochastic rounding is
+    // enabled. The seed needs to be drawn for every call to maintain
+    // stochastic rounding randomness.
+    if (srcOp.getStochasticRounding()) {
+      args.push_back(rewriter.getAttr<emitc::OpaqueAttr>(
+          "[]() {static thread_local ::std::mt19937 "
+          "generator(::std::random_device{}());return "
+          "::std::optional<uint32_t>{static_cast<uint32_t>(generator())};}()"));
+    }
+
     emitter.replaceOp(*this, args);
     return success();
   }
