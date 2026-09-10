@@ -136,11 +136,12 @@ public:
 
     ModuleOp module = getOperation();
 
-    // Step 1: print the host module to text.
+    // Step 1: print the host module to text with locations preserved.
     std::string inputText;
     {
       llvm::raw_string_ostream os(inputText);
       OpPrintingFlags flags;
+      flags.enableDebugInfo(/*enable=*/true, /*pretty=*/false);
       // Generic form is portable across C++/Python MLIR runtimes.
       module.print(os, flags);
     }
@@ -182,8 +183,9 @@ public:
       PyList_SET_ITEM(pathsList.get(), static_cast<Py_ssize_t>(i), path);
     }
 
-    PyRef resultPy(PyObject_CallFunctionObjArgs(applyText.get(), inputPy.get(),
-                                                pathsList.get(), nullptr));
+    PyRef resultPy(PyObject_CallFunctionObjArgs(
+        applyText.get(), inputPy.get(), pathsList.get(),
+        /*preserveDebugInfo=*/Py_True, nullptr));
     if (!resultPy) {
       emitPyError("d2m_jit apply_patterns_text raised");
       return;
