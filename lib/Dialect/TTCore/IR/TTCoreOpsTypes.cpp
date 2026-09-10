@@ -1950,37 +1950,30 @@ void TTCoreDialect::registerTypes() {
 }
 
 bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
-  bool thisEndsBeforeOtherStarts =
-      this->getEndCoord().getX() < other.getStartCoord().getX();
-  bool thisStartsAfterOtherEnds =
-      this->getStartCoord().getX() > other.getEndCoord().getX();
-  bool thisEndsBelowOtherStarts =
-      this->getEndCoord().getY() < other.getStartCoord().getY();
-  bool thisStartsAboveOtherEnds =
-      this->getStartCoord().getY() > other.getEndCoord().getY();
+  CoreCoordAttr offset = getOffset();
+  llvm::ArrayRef<int64_t> size = getSize();
+  CoreCoordAttr otherOffset = other.getOffset();
+  llvm::ArrayRef<int64_t> otherSize = other.getSize();
 
-  return !(thisEndsBeforeOtherStarts || thisStartsAfterOtherEnds ||
-           thisEndsBelowOtherStarts || thisStartsAboveOtherEnds);
+  return offset.getY() < otherOffset.getY() + otherSize[0] &&
+         otherOffset.getY() < offset.getY() + size[0] &&
+         offset.getX() < otherOffset.getX() + otherSize[1] &&
+         otherOffset.getX() < offset.getX() + size[1];
 }
 
 ::llvm::LogicalResult CoreRangeAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    mlir::tt::ttcore::CoreCoordAttr startCoord,
-    mlir::tt::ttcore::CoreCoordAttr endCoord) {
-  if (startCoord.getX() < 0 || startCoord.getY() < 0) {
-    return emitError() << "start coordinates " << startCoord
-                       << " must be non-negative";
+    CoreCoordAttr offset, ::llvm::ArrayRef<int64_t> size) {
+  if (size.size() != 2) {
+    return emitError() << "size must contain exactly 2 values, got "
+                       << size.size();
   }
-  if (endCoord.getX() < 0 || endCoord.getY() < 0) {
-    return emitError() << "end coordinates " << endCoord
-                       << " must be non-negative";
+  if (offset.getY() < 0 || offset.getX() < 0) {
+    return emitError() << "offset values must be non-negative";
   }
-
-  if (startCoord.getX() > endCoord.getX() ||
-      startCoord.getY() > endCoord.getY()) {
-    return emitError() << "Start coordinates " << startCoord
-                       << " must be less than or equal to end coordinates "
-                       << endCoord;
+  if (std::any_of(size.begin(), size.end(),
+                  [](int64_t value) { return value <= 0; })) {
+    return emitError() << "size values must be positive";
   }
 
   return ::llvm::success();
