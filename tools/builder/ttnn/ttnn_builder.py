@@ -8838,6 +8838,224 @@ class TTNNBuilder(Builder):
                 golden_kwargs=golden_kwargs,
             )
 
+    ############### ttnn.RMSNormPostAllGatherOp ###############
+
+    @tag(ttnn.RMSNormPostAllGatherOp)
+    def rms_norm_post_all_gather(
+        self,
+        input: Operand,
+        stats: Operand,
+        weight: Optional[Operand] = None,
+        bias: Optional[Operand] = None,
+        epsilon: float = 1e-12,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.rms_norm_post_all_gather)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input_golden = self._get_golden_tensor(input)
+        stats_golden = self._get_golden_tensor(stats)
+        weight_golden = self._get_golden_tensor(weight) if weight is not None else None
+        bias_golden = self._get_golden_tensor(bias) if bias is not None else None
+        epsilon_attr = FloatAttr.get_f32(epsilon)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input_golden,
+            stats_golden,
+            weight_golden,
+            bias_golden,
+            epsilon_attr,
+            mlir_output_type,
+        )
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        output_dtype = self._get_data_type_attribute(input)
+
+        op = ttnn_op(
+            result,
+            input,
+            stats,
+            loc=loc,
+            weight=weight,
+            bias=bias,
+            epsilon=epsilon_attr,
+            dtype=output_dtype,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.RMSNormPostAllGatherOp)
+    def rms_norm_post_all_gather_parser(
+        self,
+        old_op: ttnn.RMSNormPostAllGatherOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(
+            TTNNBuilder.rms_norm_post_all_gather_parser
+        )
+
+        in0 = global_dict[old_op.input]
+        stats = global_dict[old_op.stats]
+        weight = global_dict[old_op.weight] if old_op.weight is not None else None
+        bias = global_dict[old_op.bias] if old_op.bias is not None else None
+        result = old_op.result.type
+
+        new_op = ttnn_op(
+            result,
+            in0,
+            stats,
+            loc=old_op.location,
+            weight=weight,
+            bias=bias,
+            epsilon=old_op.epsilon,
+            memory_config=old_op.memory_config,
+            compute_config=old_op.compute_config,
+            program_config=old_op.program_config,
+            dtype=old_op.dtype,
+            use_2d_core_grid=old_op.use_2d_core_grid,
+        )
+        new_op_result = new_op.result
+
+        input_golden = self._get_golden_tensor(in0)
+        stats_golden = self._get_golden_tensor(stats)
+        weight_golden = self._get_golden_tensor(weight) if weight is not None else None
+        bias_golden = self._get_golden_tensor(bias) if bias is not None else None
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input_golden,
+            stats_golden,
+            weight_golden,
+            bias_golden,
+            old_op.epsilon,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op, {old_op.result: new_op_result}
+
+    @split(ttnn.RMSNormPostAllGatherOp)
+    def rms_norm_post_all_gather_split(
+        self,
+        old_op: ttnn.RMSNormPostAllGatherOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.rms_norm_post_all_gather_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            rms_norm_post_all_gather_module = Module.create()
+            rms_norm_post_all_gather_builder = TTNNBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [old_op.input.type, old_op.stats.type]
+            if old_op.weight is not None:
+                op_input_types.append(old_op.weight.type)
+            if old_op.bias is not None:
+                op_input_types.append(old_op.bias.type)
+
+            with InsertionPoint(rms_norm_post_all_gather_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="rms_norm_post_all_gather_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    stats = inputs[1]
+                    input_idx = 2
+                    weight = None
+                    bias = None
+
+                    if old_op.weight is not None:
+                        weight = inputs[input_idx]
+                        input_idx += 1
+
+                    if old_op.bias is not None:
+                        bias = inputs[input_idx]
+
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        stats,
+                        loc=old_op.location,
+                        weight=weight,
+                        bias=bias,
+                        epsilon=old_op.epsilon,
+                        memory_config=old_op.memory_config,
+                        compute_config=old_op.compute_config,
+                        program_config=old_op.program_config,
+                        dtype=old_op.dtype,
+                        use_2d_core_grid=old_op.use_2d_core_grid,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    rms_norm_post_all_gather_builder._set_golden_tensor(
+                        new_op_result, old_op_result
+                    )
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    rms_norm_post_all_gather_builder._set_golden_tensor(in0, input0)
+                    rms_norm_post_all_gather_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+
+                    stats_golden = self._get_golden_tensor(old_op.stats)
+                    rms_norm_post_all_gather_builder._set_golden_tensor(
+                        stats, stats_golden
+                    )
+                    rms_norm_post_all_gather_builder._annotate_presharded_arg(stats)
+                    ordered_inputs.append(stats)
+
+                    if old_op.weight is not None:
+                        weight_golden = self._get_golden_tensor(old_op.weight)
+                        rms_norm_post_all_gather_builder._set_golden_tensor(
+                            weight, weight_golden
+                        )
+                        rms_norm_post_all_gather_builder._annotate_presharded_arg(
+                            weight
+                        )
+                        ordered_inputs.append(weight)
+
+                    if old_op.bias is not None:
+                        bias_golden = self._get_golden_tensor(old_op.bias)
+                        rms_norm_post_all_gather_builder._set_golden_tensor(
+                            bias, bias_golden
+                        )
+                        rms_norm_post_all_gather_builder._annotate_presharded_arg(bias)
+                        ordered_inputs.append(bias)
+
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                rms_norm_post_all_gather_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return rms_norm_post_all_gather_module, rms_norm_post_all_gather_builder
+
     ############### ttnn.GetDeviceOp ###############
 
     @tag(ttnn.GetDeviceOp)
