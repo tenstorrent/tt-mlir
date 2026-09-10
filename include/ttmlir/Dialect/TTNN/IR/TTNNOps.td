@@ -1157,27 +1157,6 @@ def TTNN_EmbeddingOp : TTNN_Op<"embedding"> {
     let hasVerifier = 1;
 }
 
-def TTNN_UpdateCacheOp : TTNN_InplaceOp<"update_cache"> {
-  let summary = "Update static cache tensor.";
-  let description = [{
-      Updates the `cache` tensor in-place with values from `input` at `update_index` and `batch_offset`.
-  }];
-
-  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
-                       AnyRankedTensor:$input,
-                       AnyRankedTensor:$update_index,
-                       I32Attr:$batch_offset);
-
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        RankedTensorType updateIndexType = getUpdateIndex().getType();
-        return wa::TTNNOperandsWorkaroundsFactory::createUpdateCacheOpOperandsWorkarounds(updateIndexType);
-      }
-    }];
-
-  let hasVerifier = 1;
-}
-
 def TTNN_PagedUpdateCacheOp : TTNN_InplaceOp<"paged_update_cache"> {
   let summary = "Paged update cache op.";
   let description = [{

@@ -31,9 +31,7 @@ Binary Binary::loadFromPath(const char *path) { __builtin_trap(); }
 namespace workaround {
 
 // Stub for workaround::Env::get
-const Env &Env::get(bool swapBinaryOperands,
-                    bool readUpdateIndexFromDeviceForKVCache,
-                    bool blackholeWorkarounds) {
+const Env &Env::get(bool swapBinaryOperands, bool blackholeWorkarounds) {
   __builtin_trap();
 }
 
