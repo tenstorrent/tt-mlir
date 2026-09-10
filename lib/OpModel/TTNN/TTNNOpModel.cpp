@@ -9761,6 +9761,82 @@ llvm::Expected<size_t> OpModel<RMSNormForwardOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// RMSNormBackwardOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<RMSNormBackwardOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> gammaShape, TTNNLayoutAttr gammaLayout,
+    llvm::ArrayRef<int64_t> rmsShape, TTNNLayoutAttr rmsLayout,
+    llvm::ArrayRef<int64_t> gradOutputShape, TTNNLayoutAttr gradOutputLayout,
+    TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec gammaSpec,
+      detail::convertToTensorSpec(device, gammaShape, gammaLayout));
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec rmsSpec,
+                   detail::convertToTensorSpec(device, rmsShape, rmsLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec gradOutputSpec,
+      detail::convertToTensorSpec(device, gradOutputShape, gradOutputLayout));
+
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
+  auto rmsNormBackwardOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(::ttml::metal::rmsnorm_bw, device,
+                                           initialStateOpt, inputSpec,
+                                           gammaSpec, rmsSpec, gradOutputSpec);
+  };
+
+  return operation::getOpConstraintsWithState(inputLayout.getContext(),
+                                              rmsNormBackwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<RMSNormBackwardOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> gammaShape, TTNNLayoutAttr gammaLayout,
+    llvm::ArrayRef<int64_t> rmsShape, TTNNLayoutAttr rmsLayout,
+    llvm::ArrayRef<int64_t> gradOutputShape, TTNNLayoutAttr gradOutputLayout,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec gammaSpec,
+      detail::convertToTensorSpec(device, gammaShape, gammaLayout));
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec rmsSpec,
+                   detail::convertToTensorSpec(device, rmsShape, rmsLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec gradOutputSpec,
+      detail::convertToTensorSpec(device, gradOutputShape, gradOutputLayout));
+
+  auto rmsNormBackwardOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttml::metal::rmsnorm_bw, device, inputSpec,
+                            gammaSpec, rmsSpec, gradOutputSpec);
+  };
+
+  return operation::getOpRuntime(rmsNormBackwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormForwardOp
 //===----------------------------------------------------------------------===//
 
