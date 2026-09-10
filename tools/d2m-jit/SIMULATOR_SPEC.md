@@ -223,7 +223,8 @@ fidelity).
 ### 5.1 Movement & indexing ✅
 
 - `core_index(d)` → `int` from thread-local current core.
-- `remote_load(src, [i, j], mcast_*=None)` → `SimBlock` for block `(i,j)` of
+- `remote_load(src, [i, j], mcast_*=None)` or
+  `remote_load(local_block, src, [i, j])` → `SimBlock` for block `(i,j)` of
   `src`: slice `src.buffer[i*em:(i+1)*em, j*en:(j+1)*en]` where the per-axis
   block extent `(em,en)=block_extent(src.layout)` is `block_shape*32` (tiled)
   or `block_shape` (non-tiled), then `SimBlock.from_2d(slice)`. **Multicast
@@ -232,10 +233,16 @@ fidelity).
   result is identical. (This means the sim *runs* multicast kernels that
   currently hit the device `SplitUnifiedThread` assertion, [TODO §2] — a
   feature, flagged in output as "device-divergent: multicast".)
-- `remote_store(dst, [i, j], block)` → writes `block.to_2d()` into the same
+- `remote_store(dst, [i, j], block, fabric_*=None)` → writes `block.to_2d()` into the same
   slice of `dst.buffer` (shape-checked against the block extent). Overwrite
   (not accumulate); store index is global (no core-relative resolution in this
-  version).
+  version). Device multicast/routing metadata is accepted and ignored; a
+  supplied semaphore is incremented once for the single simulated receiver.
+- The CCL helpers `mesh_position`, `device_synchronize`, and `semaphore_wait`
+  use single-device functional semantics: the declared mesh coordinate is all
+  zeroes and synchronization completes immediately. In-kernel `empty(shape)`
+  returns a deterministic zero-filled scratch block, matching host-side sim
+  `empty` rather than the device's undefined initial contents.
 
 ### 5.2 Elementwise ✅
 
