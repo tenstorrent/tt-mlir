@@ -65,6 +65,23 @@ public:
     return true;
   }
 
+  // Converts the block argument types of the op's regions.
+  //
+  // Operand and result conversion only reaches a block argument incidentally,
+  // through ops inside the region that use it, so an unused argument would
+  // otherwise keep its original type.
+  bool convertRegionArgTypes(Operation *op) const {
+    bool updated = false;
+    SmallVector<Type> newTypes;
+    for (Region &region : op->getRegions()) {
+      for (Block &block : region) {
+        newTypes.clear();
+        updated |= convertTypes(ValueRange(block.getArguments()), newTypes);
+      }
+    }
+    return updated;
+  }
+
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
     bool updated = false;
@@ -73,6 +90,7 @@ public:
     rewriter.startOpModification(op);
     updated |= convertTypes(op->getOperands(), operands);
     updated |= convertTypes(op->getResults(), results);
+    updated |= convertRegionArgTypes(op);
     updated |= convertFuncType(op, rewriter);
     if (!updated) {
       rewriter.cancelOpModification(op);

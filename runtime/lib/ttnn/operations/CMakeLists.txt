@@ -85,6 +85,7 @@ set(TTNN_OPS_SRCS
   # ANCHOR: adding_an_op_matmul_runtime_cmake
   ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul.cpp
   # ANCHOR_END: adding_an_op_matmul_runtime_cmake
+  ${CMAKE_CURRENT_SOURCE_DIR}/control_flow/while_op.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/mlir_native/func_call.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/cumsum.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/cumprod.cpp

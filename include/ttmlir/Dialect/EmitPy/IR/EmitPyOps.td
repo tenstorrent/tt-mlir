@@ -403,6 +403,95 @@ def EmitPy_IfOp : EmitPy_Op<"if", [NoTerminator]> {
   }];
 }
 
+def EmitPy_WhileOp : EmitPy_Op<"while",
+    [AttrSizedOperandSegments, SingleBlockImplicitTerminator<"WhileYieldOp">]> {
+  let summary = "Loop statement";
+  let description = [{
+    The `emitpy.while` operation represents a Python loop.
+
+    Loop-carried values stay in SSA form: `inits` seeds them, the body block
+    arguments are the current iteration's values, `emitpy.while_yield` hands
+    the next iteration's values back, and the op's results are the values the
+    loop exits with. Python has no SSA, so the emitter gives each carried
+    value one named local that all four of those refer to.
+
+    The loop bound is either a `trip_count`, emitted as `for _ in range(n)`,
+    or a `condition` format string whose `{}` placeholders are filled by
+    `cond_args`, emitted as `while <condition>`. Exactly one of the two must
+    be present. A loop whose predicate can only be computed inside the body
+    uses `condition = "True"` and breaks out of the body itself.
+
+    Example:
+
+    ```mlir
+    %r = emitpy.while trip_count 4 inits(%a : !emitpy.opaque<"ttnn.Tensor">) {
+    ^bb0(%acc: !emitpy.opaque<"ttnn.Tensor">):
+      %0 = emitpy.call_opaque "ttnn.add"(%acc, %acc) : (...) -> ...
+      emitpy.while_yield %0 : !emitpy.opaque<"ttnn.Tensor">
+    } -> (!emitpy.opaque<"ttnn.Tensor">)
+    ```
+    ```python
+    # Code emitted:
+    carried_0 = a
+    for _ in range(4):
+        ttnn_add = ttnn.add(carried_0, carried_0)
+        carried_0 = ttnn_add
+    ```
+  }];
+
+  let arguments = (ins
+    OptionalAttr<StrAttr>:$condition,
+    Variadic<AnyType>:$cond_args,
+    Variadic<EmitPy_Type>:$inits,
+    OptionalAttr<I64Attr>:$trip_count
+  );
+
+  let results = (outs Variadic<EmitPy_Type>:$results);
+
+  let regions = (region SizedRegion<1>:$body);
+
+  let extraClassDeclaration = [{
+    FailureOr<SmallVector<::mlir::tt::emitpy::ReplacementItem>> parseFormatString();
+
+    /// The terminator carrying the next iteration's values. Defined out of
+    /// line because ODS emits op classes in alphabetical order, so
+    /// WhileYieldOp is still incomplete here.
+    WhileYieldOp getYield();
+  }];
+
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    ($condition^ (`args` $cond_args^ `:` `(` type($cond_args) `)`)?)?
+    (`trip_count` $trip_count^)?
+    (`inits` `(` $inits^ `:` type($inits) `)`)?
+    $body (`->` `(` type($results)^ `)`)? attr-dict
+  }];
+}
+
+def EmitPy_WhileYieldOp : EmitPy_Op<"while_yield",
+    [Pure, ReturnLike, Terminator, HasParent<"WhileOp">]> {
+  let summary = "Loop-carried value terminator";
+  let description = [{
+    The `emitpy.while_yield` operation terminates an `emitpy.while` body with
+    the loop-carried values the next iteration starts from. Its operand types
+    match the parent's `inits`, body block arguments and results.
+
+    Example:
+
+    ```mlir
+    emitpy.while_yield %0, %1 : !emitpy.opaque<"ttnn.Tensor">, !emitpy.opaque<"ttnn.Tensor">
+    ```
+  }];
+
+  let arguments = (ins Variadic<EmitPy_Type>:$results);
+
+  // Carries nothing by default, so SingleBlockImplicitTerminator can insert
+  // one into a freshly built region.
+  let builders = [OpBuilder<(ins), [{ /* nothing to do */ }]>];
+
+  let assemblyFormat = "($results^ `:` type($results))? attr-dict";
+}
+
 def EmitPy_VerbatimOp : EmitPy_Op<"verbatim"> {
   let summary = "Verbatim operation";
   let description = [{

@@ -9,7 +9,7 @@ from ._ttnn_op_schema import OP_SCHEMA as _OP_SCHEMA
 from .._mlir_libs._ttmlir import ttnn_ir as ir
 
 
-# Stamp generated OpView classes with operand/attribute/result name tuples
+# Stamp generated OpView classes with operand/attribute/result/region name tuples
 # sourced from the tablegen JSON dump (see tools/scripts/python_op_schema_codegen.py).
 # Lets users do e.g. `ttnn.ScatterOp.OPERAND_NAMES == ("input","index","source")`.
 def _stamp_ttnn_op_schema():
@@ -23,6 +23,7 @@ def _stamp_ttnn_op_schema():
         cls.OPERAND_NAMES = entry["operands"]
         cls.ATTRIBUTE_NAMES = entry["attributes"]
         cls.RESULT_NAMES = entry["results"]
+        cls.REGION_NAMES = entry["regions"]
 
 
 _stamp_ttnn_op_schema()
