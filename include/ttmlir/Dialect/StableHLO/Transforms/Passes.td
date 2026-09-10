@@ -209,6 +209,52 @@ def StableHLOFusingPass : Pass<"stablehlo-fusing", "::mlir::ModuleOp">
   ];
 }
 
+def StableHLOUnrollStaticWhilePass : Pass<"stablehlo-unroll-static-while", "::mlir::ModuleOp">
+{
+  let summary = "Unroll StableHLO while ops with statically provable trip counts.";
+  let description = [{
+    This pass unrolls the common JAX scan lowering pattern:
+
+      - scalar integer induction variable initialized by a constant,
+      - condition `induction < constant_limit`,
+      - body returns `induction + 1`.
+
+    Other while ops are left unchanged, so dynamic control flow remains explicit
+    and is rejected by later lowering if unsupported.
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect"
+  ];
+
+  let options = [
+    Option<"maxTripCount", "max-trip-count", "int64_t",
+           /*default=*/"128", "Maximum trip count to unroll">,
+  ];
+}
+
+def RewriteStaticDynamicUpdateSlicePass : Pass<"rewrite-static-dynamic-update-slice", "::mlir::ModuleOp">
+{
+  let summary = "Rewrite static StableHLO dynamic slice/update ops.";
+  let description = [{
+    This pass rewrites the narrow static case produced by unrolled JAX scans:
+    stablehlo.dynamic_slice or stablehlo.dynamic_update_slice with constant
+    start indices. It also recognizes simple scalar integer constant
+    expressions in start indices, such as those produced by reverse scans.
+
+    Static dynamic_update_slice updates are rewritten when the update differs
+    from the base shape in at most one dimension and is full-size in all other
+    dimensions.
+
+    Non-matching dynamic slice/update ops are left unchanged for the existing
+    fallback paths.
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect"
+  ];
+}
+
 def PartiallyConvertSdyToStableHLOPass : Pass<"partially-convert-sdy-to-stablehlo", "::mlir::ModuleOp">
 {
   let summary = "Partially convert Shardy operations to StableHLO operations.";
