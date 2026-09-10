@@ -254,6 +254,7 @@ std::vector<std::uint32_t> getTensorStride(Tensor tensor) { __builtin_trap(); }
 std::uint32_t getTensorVolume(Tensor tensor) { __builtin_trap(); }
 size_t getTraceRegionSize(Device meshDevice) { __builtin_trap(); }
 bool isProgramCacheEnabled(Device meshDevice) { __builtin_trap(); }
+size_t getNumProgramCacheEntries(Device meshDevice) { __builtin_trap(); }
 void clearProgramCache(Device meshDevice) { __builtin_trap(); }
 bool isTensorAllocated(Tensor tensor) { __builtin_trap(); }
 void launchDistributedRuntime(const DistributedOptions &options) {

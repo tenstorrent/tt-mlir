@@ -724,6 +724,12 @@ bool isProgramCacheEnabled(Device meshDevice) {
   return ttnnMeshDevice.get_program_cache().is_enabled();
 }
 
+size_t getNumProgramCacheEntries(Device meshDevice) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  return ttnnMeshDevice.num_program_cache_entries();
+}
+
 void clearProgramCache(Device meshDevice) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
