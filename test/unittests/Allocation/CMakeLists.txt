@@ -2,6 +2,7 @@ set(TESTSUITE AllocationTests)
 
 add_mlir_unittest(${TESTSUITE}
     TestAllocation.cpp
+    TestAllocationADTs.cpp
     TestGenericOpBufferAnalysis.cpp
 )
 
