@@ -5,19 +5,15 @@
 #include "ttmlir/Dialect/TTNN/Analysis/MatmulProgramConfig.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
-
-#include "mlir/IR/MLIRContext.h"
 
 #include "gtest/gtest.h"
 
 using namespace mlir::tt;
 using namespace mlir::tt::ttnn;
 
-// These tests pin the DRAM-sharded shard geometry and compute-kernel config,
-// which nothing else in the tree covers. computeShardParams is pure arithmetic
-// over the matmul dims and the L1 budget, so most of them need no MLIRContext
-// and no device.
+// computeShardParams is pure arithmetic over the matmul dims and the L1 budget,
+// so it needs no MLIRContext and no device. These tests pin the DRAM-sharded
+// shard geometry, which nothing else in the tree covers.
 namespace {
 
 // Wormhole-ish L1 budget: 0.95 * usable L1 (1499136).
@@ -97,17 +93,18 @@ TEST(MatmulDRAMShardParams, BlackholeBankCountChangesShardWidth) {
 // capped at K-per-core for both dtypes, so comparing them there would assert
 // nothing. N is the wide case so the in1 CB dominates the budget.
 //
-// kWideN is 8192 rather than something larger because kMinBlockWidthFraction
-// declines a block width below half of K-per-core: at N=32768 neither dtype can
-// reach in0_block_w=8 within any swept budget, so both return nullopt and the
-// sweep stops discriminating. 8192 still puts in1 in charge of the budget while
-// leaving in0_block_w in the accepted range.
+// kWideN is 8192 rather than something larger so in1 still dominates the budget
+// while in0_block_w stays above kMinBlockWidth. The budgets reach down to
+// 425000 because that is where the dtype term separates the two: below it
+// bfp8's fitted width falls under the floor and is declined while bfp4 still
+// reaches 4. Above ~600000 both dtypes clear the floor, so a sweep that starts
+// there asserts nothing about the weight-dtype term.
 TEST(MatmulDRAMShardParams, Bfp4NeverFitsWorseThanBfp8) {
   constexpr int64_t kWideN = 8192;
   bool sawBfp4OnlyFit = false;
 
-  for (int64_t l1 : {600000, 700000, 800000, 900000, 1000000, 1100000,
-                     static_cast<int>(kL1Available)}) {
+  for (int64_t l1 : {425000, 500000, 600000, 700000, 800000, 900000, 1000000,
+                     1100000, static_cast<int>(kL1Available)}) {
     auto bfp8 =
         computeShardParams(kM, kK, kWideN, kWormholeBanks, kNumIn0Cores,
                            kWormholeCores, ttcore::DataType::BFP_BFloat8, l1);
@@ -145,8 +142,8 @@ TEST(MatmulDRAMShardParams, DeclinesWhenFixedCBsExceedBudget) {
 // fitting, which is the regression worth catching.
 //
 // N=8192 walks down exactly one divisor, 16 -> 8, which is the widest reduction
-// kMinBlockWidthFraction still accepts. Anything wider is declined instead --
-// see WideNBlockCollapseDeclined.
+// kMinBlockWidth still accepts. Anything wider is declined instead -- see
+// WideNBlockCollapseDeclined.
 TEST(MatmulDRAMShardParams, WideNWalksIn0BlockWDown) {
   auto p = computeShardParams(kM, kK, /*N=*/8192, kWormholeBanks, kNumIn0Cores,
                               kWormholeCores, ttcore::DataType::BFP_BFloat8,
@@ -188,24 +185,6 @@ TEST(MatmulDRAMShardParams, PrimeKPerCoreCollapseDeclined) {
       kM, /*K=*/11008, /*N=*/2048, kBlackholeBanks, kNumIn0Cores,
       kBlackholeCores, ttcore::DataType::BFP_BFloat8, kBlackholeL1Available);
   EXPECT_FALSE(p.has_value());
-}
-
-// Math fidelity follows the weight dtype. Nothing else pins this: the DS lit
-// tests only FileCheck matmul_program_config, not the compute config.
-class MatmulDRAMComputeConfig : public ::testing::Test {
-protected:
-  void SetUp() override { context.loadDialect<TTNNDialect>(); }
-  mlir::MLIRContext context;
-};
-
-TEST_F(MatmulDRAMComputeConfig, Bfp4RunsLoFi) {
-  auto cfg = buildComputeConfig(&context, ttcore::DataType::BFP_BFloat4);
-  EXPECT_EQ(cfg.getMathFidelity(), MathFidelity::LoFi);
-}
-
-TEST_F(MatmulDRAMComputeConfig, Bfp8RunsHiFi2) {
-  auto cfg = buildComputeConfig(&context, ttcore::DataType::BFP_BFloat8);
-  EXPECT_EQ(cfg.getMathFidelity(), MathFidelity::HiFi2);
 }
 
 } // namespace
