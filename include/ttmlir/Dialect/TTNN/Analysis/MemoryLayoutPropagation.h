@@ -151,8 +151,9 @@ private:
   /// Only runs when beamWidth > 1.
   void consolidateBeam();
 
-  /// Resolve fork point: pick the producer candidate that minimizes
-  /// total reshard count across all consumers.
+  /// Resolve a fork using distinct materialized conversion bytes where the
+  /// memory-config transitions can be modeled and validated. Otherwise retain
+  /// the matching-use heuristic, with the forward score as a stable tiebreaker.
   size_t resolveForForkPoint(Operation *forkOp,
                              llvm::ArrayRef<Operation *> consumers);
 
@@ -162,10 +163,6 @@ private:
                        llvm::ArrayRef<int64_t> inputShape,
                        TTNNLayoutAttr producerOutputLayout,
                        TTNNLayoutAttr reshardLayout);
-
-  /// Map from tensor-operand index (used in producerCandidateIndices) back to
-  /// the actual defining op. Skips non-tensor operands.
-  Operation *getProducerForOperandIdx(Operation *op, size_t tensorOperandIdx);
 
   /// Look up the chosen BeamCandidate for an op (using finalChoice index into
   /// beamState). Returns nullptr if op is not in beamState or beam is empty.

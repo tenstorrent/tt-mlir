@@ -14,6 +14,13 @@
 
 namespace mlir::tt::ttnn {
 
+struct BeamCandidate;
+
+/// Preserve each consumer input layout when a fork selects a different
+/// producer candidate. Indices in the candidate count tensor operands only.
+void reconcileForkInputLayouts(Operation *producer, size_t chosenProducerIndex,
+                               Operation *consumer, BeamCandidate &candidate);
+
 /// An input candidate for one operand of an op.
 struct InputCandidate {
   TTNNLayoutAttr layout;

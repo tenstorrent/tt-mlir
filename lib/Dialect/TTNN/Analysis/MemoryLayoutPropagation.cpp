@@ -6,7 +6,9 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTNN/Analysis/ForkConversionCost.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagationTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/ConvRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/OpRuleBook.h"
@@ -1198,20 +1200,63 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
   return deduped;
 }
 
-Operation *
-MemoryLayoutPropagation::getProducerForOperandIdx(Operation *op,
-                                                  size_t tensorOperandIdx) {
+void reconcileForkInputLayouts(Operation *producer, size_t chosenProducerIndex,
+                               Operation *consumer, BeamCandidate &candidate) {
   size_t tensorIdx = 0;
-  for (auto operand : op->getOperands()) {
-    if (!mlir::isa<RankedTensorType>(operand.getType())) {
+  for (OpOperand &operand : consumer->getOpOperands()) {
+    if (!mlir::isa<RankedTensorType>(operand.get().getType())) {
       continue;
     }
-    if (tensorIdx == tensorOperandIdx) {
-      return operand.getDefiningOp();
+    size_t i = tensorIdx++;
+    if (i >= candidate.producerCandidateIndices.size()) {
+      break;
     }
-    ++tensorIdx;
+    if (operand.get().getDefiningOp() != producer ||
+        candidate.producerCandidateIndices[i] == chosenProducerIndex) {
+      continue;
+    }
+    assert(i < candidate.inputLayouts.size() &&
+           "Producer back-pointers require corresponding input layouts");
+    candidate.reshardLayouts[i] = candidate.inputLayouts[i];
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                 "consolidateBeam: fork reshard needed for {0} operand "
+                 "{1} (assumed producer candidate {2}, chosen {3})",
+                 consumer->getName(), i, candidate.producerCandidateIndices[i],
+                 chosenProducerIndex);
   }
-  return nullptr;
+}
+
+/// Keep no-op detection identical for scoring and materialization. In
+/// particular, equivalent producer candidates need not insert a conversion.
+static bool isMemoryConfigNoOp(TTNNLayoutAttr producerLayout,
+                               TTNNLayoutAttr targetLayout) {
+  if (producerLayout.getBufferType() != targetLayout.getBufferType() ||
+      producerLayout.getMemLayout() != targetLayout.getMemLayout() ||
+      producerLayout.getLayout() != targetLayout.getLayout()) {
+    return false;
+  }
+  bool bothSharded =
+      isShardedMemoryLayout(producerLayout.getMemLayout().getValue()) &&
+      isShardedMemoryLayout(targetLayout.getMemLayout().getValue());
+  return !bothSharded ||
+         producerLayout.getGridShape() == targetLayout.getGridShape();
+}
+
+/// Rebuild the target exactly as insertReshardOp does, including tile padding
+/// and core placement. A requested layout need not carry that physical shape.
+static TTNNLayoutAttr getReshardOutputLayout(RankedTensorType producerType,
+                                             TTNNLayoutAttr targetLayout,
+                                             ttcore::DeviceAttr deviceAttr) {
+  TTNNLayoutAttr producerLayout = utils::getLayoutAttrFromTensor(producerType);
+  Type elementType = ttnn::utils::getElementType(targetLayout.getContext(),
+                                                 targetLayout.getLayout(),
+                                                 targetLayout.getDataType());
+  return TTNNLayoutAttr::Builder(producerLayout, producerType.getShape())
+      .setBufferType(targetLayout.getBufferType())
+      .setMemoryLayout(targetLayout.getMemLayout())
+      .setGridShape(targetLayout.getGridShape())
+      .setElementType(elementType)
+      .buildWithCanonicalCorePlacement(deviceAttr);
 }
 
 void MemoryLayoutPropagation::consolidateBeam() {
@@ -1235,11 +1280,19 @@ void MemoryLayoutPropagation::consolidateBeam() {
       continue;
     }
 
-    // Collect consumers of this op that are tracked in beamState.
+    // Collect distinct consumers, but count operand uses separately. One op
+    // using two results (or the same result twice) is also a fork to reconcile.
     SmallVector<Operation *> consumers;
+    llvm::SmallDenseSet<Operation *> seenConsumers;
+    size_t useCount = 0;
     for (auto result : op->getResults()) {
-      for (Operation *user : result.getUsers()) {
-        if (beamState.count(user)) {
+      for (OpOperand &use : result.getUses()) {
+        Operation *user = use.getOwner();
+        if (!getChosenCandidate(user)) {
+          continue;
+        }
+        ++useCount;
+        if (seenConsumers.insert(user).second) {
           consumers.push_back(user);
         }
       }
@@ -1248,20 +1301,28 @@ void MemoryLayoutPropagation::consolidateBeam() {
     if (consumers.empty()) {
       // Sink op (no consumers in beam): use best candidate from forward pass.
       finalChoice[op] = 0;
-    } else if (consumers.size() == 1) {
+    } else if (useCount == 1) {
       // Single consumer: follow its back-pointer for this producer.
       Operation *consumer = consumers[0];
       size_t consumerIdx = finalChoice[consumer];
       const BeamCandidate &consumerChosen = beamState[consumer][consumerIdx];
 
       // Find which tensor operand of consumer connects to this op.
-      for (size_t opIdx = 0;
-           opIdx < consumerChosen.producerCandidateIndices.size(); ++opIdx) {
-        if (getProducerForOperandIdx(consumer, opIdx) == op) {
-          size_t prodIdx = consumerChosen.producerCandidateIndices[opIdx];
-          finalChoice[op] = prodIdx < beamState[op].size() ? prodIdx : 0;
+      size_t tensorIdx = 0;
+      for (Value operand : consumer->getOperands()) {
+        if (!mlir::isa<RankedTensorType>(operand.getType())) {
+          continue;
+        }
+        size_t i = tensorIdx++;
+        if (i >= consumerChosen.producerCandidateIndices.size()) {
           break;
         }
+        if (operand.getDefiningOp() != op) {
+          continue;
+        }
+        size_t prodIdx = consumerChosen.producerCandidateIndices[i];
+        finalChoice[op] = prodIdx < beamState[op].size() ? prodIdx : 0;
+        break;
       }
       if (!finalChoice.count(op)) {
         finalChoice[op] = 0;
@@ -1284,29 +1345,8 @@ void MemoryLayoutPropagation::consolidateBeam() {
         if (userChosenIdx >= beamState[user].size()) {
           continue;
         }
-        BeamCandidate &userChosen = beamState[user][userChosenIdx];
-
-        // Find which tensor operand connects to this fork producer.
-        for (size_t opIdx = 0;
-             opIdx < userChosen.producerCandidateIndices.size(); ++opIdx) {
-          if (getProducerForOperandIdx(user, opIdx) != op) {
-            continue;
-          }
-
-          size_t assumedK = userChosen.producerCandidateIndices[opIdx];
-          if (assumedK == chosenK) {
-            break;
-          }
-
-          // Consumer assumed a different producer candidate.
-          // Record a reshard so applyToIR inserts a ToMemoryConfigOp.
-          userChosen.reshardLayouts[opIdx] = userChosen.inputLayouts[opIdx];
-          TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                       "consolidateBeam: fork reshard needed for {0} operand "
-                       "{1} (assumed producer candidate {2}, chosen {3})",
-                       user->getName(), opIdx, assumedK, chosenK);
-          break;
-        }
+        reconcileForkInputLayouts(op, chosenK, user,
+                                  beamState[user][userChosenIdx]);
       }
     }
   }
@@ -1318,37 +1358,179 @@ void MemoryLayoutPropagation::consolidateBeam() {
 size_t MemoryLayoutPropagation::resolveForForkPoint(
     Operation *forkOp, llvm::ArrayRef<Operation *> consumers) {
   const auto &forkBeam = beamState[forkOp];
-  size_t bestK = 0;
-  int bestFreeCount = -1;
-
-  for (size_t k = 0; k < forkBeam.size(); ++k) {
-    int freeCount = 0;
-    // All consumers are guaranteed resolved (reverse topo order).
-    for (Operation *user : consumers) {
-      size_t userChosenIdx = finalChoice[user];
-      if (userChosenIdx >= beamState[user].size()) {
+  struct ConsumerUse {
+    Operation *consumer;
+    const BeamCandidate *candidate;
+    Value source;
+    size_t tensorOperandIndex;
+  };
+  SmallVector<ConsumerUse> uses;
+  bool completeInputs = true;
+  for (Operation *user : consumers) {
+    const BeamCandidate *chosen = getChosenCandidate(user);
+    if (!chosen || chosen->producerCandidateIndices.empty()) {
+      completeInputs = false;
+      continue;
+    }
+    size_t tensorIdx = 0;
+    for (Value operand : user->getOperands()) {
+      if (!mlir::isa<RankedTensorType>(operand.getType())) {
         continue;
       }
-      const BeamCandidate &userChosen = beamState[user][userChosenIdx];
-      // Check if this consumer's chosen candidate used producer candidate k.
-      for (size_t opIdx = 0; opIdx < userChosen.producerCandidateIndices.size();
-           ++opIdx) {
-        if (getProducerForOperandIdx(user, opIdx) == forkOp) {
-          if (userChosen.producerCandidateIndices[opIdx] == k) {
-            ++freeCount;
-          }
-          break;
-        }
+      size_t i = tensorIdx++;
+      if (operand.getDefiningOp() != forkOp) {
+        continue;
+      }
+      if (i >= chosen->producerCandidateIndices.size()) {
+        completeInputs = false;
+        continue;
+      }
+      uses.push_back({user, chosen, operand, i});
+    }
+  }
+
+  size_t bestK = 0;
+  size_t bestFreeCount = 0;
+  for (size_t k = 0; k < forkBeam.size(); ++k) {
+    size_t freeCount = 0;
+    // Collecting connected uses once avoids rescanning every consumer's
+    // operands for every candidate and every back-pointer.
+    for (const ConsumerUse &use : uses) {
+      if (use.candidate->producerCandidateIndices[use.tensorOperandIndex] ==
+          k) {
+        ++freeCount;
       }
     }
-    if (freeCount > bestFreeCount ||
+    if (k == 0 || freeCount > bestFreeCount ||
         (freeCount == bestFreeCount &&
          forkBeam[k].score > forkBeam[bestK].score)) {
       bestFreeCount = freeCount;
       bestK = k;
     }
   }
-  return bestK;
+
+  // Model only same-block, same-page, same-dtype conversions. Retiles have
+  // different sharing/lifetime rules, and result-dtype reconciliation inserts
+  // a cast before reshards. Retain the existing heuristic outside this domain.
+  if (!completeInputs) {
+    return bestK;
+  }
+  Block *block = forkOp->getBlock();
+  for (Value result : forkOp->getResults()) {
+    for (Operation *user : result.getUsers()) {
+      if (user->getBlock() != block || !getChosenCandidate(user)) {
+        return bestK;
+      }
+    }
+  }
+
+  using CacheKey = std::pair<Value, Attribute>;
+  std::optional<size_t> costChoice;
+  uint64_t bestBytes = 0;
+  size_t bestCount = 0;
+  for (size_t k = 0; k < forkBeam.size(); ++k) {
+    ForkConversionCost<CacheKey, llvm::SmallDenseSet<CacheKey>> cost;
+    llvm::SmallDenseSet<CacheKey> visited;
+    bool legal = true;
+    for (const ConsumerUse &use : uses) {
+      const BeamCandidate *chosen = use.candidate;
+      size_t i = use.tensorOperandIndex;
+      Value source = use.source;
+      auto sourceType = mlir::cast<RankedTensorType>(source.getType());
+      if (!sourceType.hasStaticShape() || i >= chosen->inputLayouts.size()) {
+        return bestK;
+      }
+      size_t resultIdx = mlir::cast<OpResult>(source).getResultNumber();
+      // A single output hint cannot establish the footprint of every result
+      // of a multi-result producer. Do not guess a sibling result's layout.
+      if (forkOp->getNumResults() > 1 &&
+          resultIdx >= forkBeam[k].outputLayouts.size()) {
+        return bestK;
+      }
+      TTNNLayoutAttr sourceLayout =
+          getOutputLayoutForResult(forkBeam[k], resultIdx);
+      TTNNLayoutAttr targetLayout = chosen->inputLayouts[i];
+      if (!sourceLayout || !targetLayout ||
+          (!sourceLayout.hasL1BufferType() &&
+           !isDRAMBufferType(sourceLayout.getBufferType())) ||
+          (!targetLayout.hasL1BufferType() &&
+           !isDRAMBufferType(targetLayout.getBufferType())) ||
+          sourceLayout.getIgnorePhysicalLayout() ||
+          targetLayout.getIgnorePhysicalLayout() ||
+          sourceLayout.getScalarElementType() != sourceType.getElementType() ||
+          targetLayout.getScalarElementType() != sourceType.getElementType() ||
+          sourceLayout.getElementType() != targetLayout.getElementType() ||
+          sourceLayout.getTensorMesh() != targetLayout.getTensorMesh() ||
+          sourceLayout.getLayout() != targetLayout.getLayout()) {
+        return bestK;
+      }
+      if (isMemoryConfigNoOp(sourceLayout, targetLayout)) {
+        // The materializer's historical no-op check is intentionally looser
+        // than full encoding equality. Only rank an exact no-op as free.
+        if (sourceLayout != targetLayout) {
+          return bestK;
+        }
+        continue;
+      }
+      // This key is exactly the materializer's cache key. Op-less reshard
+      // validation consults shared device/module attributes only, so repeated
+      // uses in this block need neither another query nor another charge.
+      CacheKey key{source, targetLayout};
+      if (!visited.insert(key).second) {
+        continue;
+      }
+      std::optional<uint64_t> sourceBytes = getPhysicalBufferBytes(
+          sourceLayout.getElementSizeBytes(), sourceLayout.getShardShape(),
+          sourceLayout.getGridShape());
+      std::optional<uint64_t> targetBytes = getPhysicalBufferBytes(
+          targetLayout.getElementSizeBytes(), targetLayout.getShardShape(),
+          targetLayout.getGridShape());
+      if (!sourceBytes || !targetBytes ||
+          !canRebuildForkLayout(sourceType.getShape(),
+                                targetLayout.getGridShape(),
+                                targetLayout.isTiled()) ||
+          targetLayout.getElementType() !=
+              ttnn::utils::getElementType(targetLayout.getContext(),
+                                          targetLayout.getLayout(),
+                                          targetLayout.getDataType())) {
+        return bestK;
+      }
+      auto candidateType = RankedTensorType::get(
+          sourceType.getShape(), sourceType.getElementType(), sourceLayout);
+      TTNNLayoutAttr outputLayout =
+          getReshardOutputLayout(candidateType, targetLayout, deviceAttr);
+      // Core placement, tile shape, linearization, and mesh must match the
+      // consumer's validated input, not just its buffer and sharding kind.
+      if (outputLayout != targetLayout) {
+        return bestK;
+      }
+      if (!validateReshard(use.consumer, sourceType.getShape(), sourceLayout,
+                           outputLayout)) {
+        legal = false;
+        continue;
+      }
+      // Use the requested target, not outputLayout: this is the exact key
+      // used by reshardCache. Every supported use is in this same block.
+      if (!cost.add(key, *sourceBytes, *targetBytes)) {
+        return bestK;
+      }
+    }
+    if (!legal) {
+      continue;
+    }
+    if (!costChoice || cost.getBytes() < bestBytes ||
+        (cost.getBytes() == bestBytes &&
+         (cost.getConversionCount() < bestCount ||
+          (cost.getConversionCount() == bestCount &&
+           forkBeam[k].score > forkBeam[*costChoice].score)))) {
+      costChoice = k;
+      bestBytes = cost.getBytes();
+      bestCount = cost.getConversionCount();
+    }
+  }
+  // Synthetic fallback candidates or an entirely rejected conversion set
+  // retain the previous behavior and its downstream validation/fallback pass.
+  return costChoice.value_or(bestK);
 }
 
 TTNNLayoutAttr
@@ -1449,9 +1631,24 @@ void MemoryLayoutPropagation::applyToIR() {
     if (!chosen) {
       return;
     }
-    for (const auto &[operandIdx, reshardLayout] : chosen->reshardLayouts) {
-      insertReshardOp(op, operandIdx, reshardLayout);
+    size_t tensorIdx = 0;
+    [[maybe_unused]] size_t matchedReshards = 0;
+    for (OpOperand &operand : op->getOpOperands()) {
+      if (!mlir::isa<RankedTensorType>(operand.get().getType())) {
+        continue;
+      }
+      // Beam indices skip device and other non-tensor operands. Walking in IR
+      // order maps them once and gives materialization a stable insertion
+      // order.
+      auto it = chosen->reshardLayouts.find(tensorIdx++);
+      if (it == chosen->reshardLayouts.end()) {
+        continue;
+      }
+      insertReshardOp(op, operand.getOperandNumber(), it->second);
+      ++matchedReshards;
     }
+    assert(matchedReshards == chosen->reshardLayouts.size() &&
+           "reshard targets must refer to tensor operands");
   });
 
   fixupConvDeallocate(func);
@@ -1546,24 +1743,8 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
   // Check buffer type, memory layout, and (for sharded layouts) grid.
   if (auto producerLayout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
           producerTensorType.getEncoding())) {
-    bool sameBufferType =
-        producerLayout.getBufferType() == reshardLayout.getBufferType();
-    bool sameMemLayout =
-        producerLayout.getMemLayout() == reshardLayout.getMemLayout();
-    // A tile <-> row-major page-layout change is a real reshard, even when
-    // buffer type and memory layout are unchanged (RowMajor input siblings).
-    bool samePageLayout =
-        producerLayout.getLayout() == reshardLayout.getLayout();
-
-    if (sameBufferType && sameMemLayout && samePageLayout) {
-      // For sharded layouts, also require matching grids.
-      bool bothSharded =
-          isShardedMemoryLayout(producerLayout.getMemLayout().getValue()) &&
-          isShardedMemoryLayout(reshardLayout.getMemLayout().getValue());
-      if (!bothSharded ||
-          producerLayout.getGridShape() == reshardLayout.getGridShape()) {
-        return;
-      }
+    if (isMemoryConfigNoOp(producerLayout, reshardLayout)) {
+      return;
     }
   }
 
@@ -1572,16 +1753,8 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
   // type is what lets a tile -> row-major sibling reshard materialize.
   TTNNLayoutAttr producerLayout =
       utils::getLayoutAttrFromTensor(producerTensorType);
-  Type reshardElementType = ttnn::utils::getElementType(
-      reshardLayout.getContext(), reshardLayout.getLayout(),
-      reshardLayout.getDataType());
   TTNNLayoutAttr outputLayout =
-      TTNNLayoutAttr::Builder(producerLayout, producerTensorType.getShape())
-          .setBufferType(reshardLayout.getBufferType())
-          .setMemoryLayout(reshardLayout.getMemLayout())
-          .setGridShape(reshardLayout.getGridShape())
-          .setElementType(reshardElementType)
-          .buildWithCanonicalCorePlacement(deviceAttr);
+      getReshardOutputLayout(producerTensorType, reshardLayout, deviceAttr);
   RankedTensorType newTensorType =
       utils::RankedTensorTypeFactory::create(producerTensorType, outputLayout);
 

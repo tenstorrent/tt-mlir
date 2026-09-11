@@ -4,6 +4,8 @@ add_mlir_unittest(OptimizerTests
     TestLegalTensorLayoutAnalysis.cpp
     TestConv2dConfigGenerator.cpp
     TestConv3dConfigHeuristic.cpp
+    TestForkConversionCost.cpp
+    TestForkReconciliation.cpp
     TestPipelineOptionResolution.cpp
     PARTIAL_SOURCES_INTENDED
 )
@@ -31,6 +33,24 @@ if (TTMLIR_ENABLE_OPMODEL)
         MLIRTTTransforms
         MLIRTTNNAnalysis
         MLIRTTNNValidation
+    )
+
+    # Keep mock-device initialization separate from physical-device unit tests.
+    # Run this binary from op_model.sh alongside the other mock-device suites.
+    add_executable(ForkConversionMockDeviceTests
+        TestForkConversionMockDevice.cpp
+    )
+    target_compile_options(ForkConversionMockDeviceTests PRIVATE -fno-rtti)
+    target_include_directories(ForkConversionMockDeviceTests PRIVATE
+        ${PROJECT_SOURCE_DIR}/test/unittests/OpModel/TTNN/
+    )
+    target_link_libraries(ForkConversionMockDeviceTests PRIVATE
+        gtest
+        MLIRTTNNDialect
+        MLIRTTTransforms
+        MLIRTTNNAnalysis
+        MLIRTTNNValidation
+        TTNNOpModelLib
     )
 endif()
 
