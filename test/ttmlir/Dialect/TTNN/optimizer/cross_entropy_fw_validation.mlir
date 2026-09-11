@@ -27,7 +27,8 @@ module {
     // CHECK: %[[LOSS:[0-9a-z_]+]] = "ttnn.cross_entropy_fw"(%[[INPUT]], %[[TARGET_RM]])
     // CHECK-SAME: -> tensor<4x1x32x1xbf16, #[[OUTPUT_LAYOUT]]>
     // CHECK: return %[[LOSS]]
-    %loss = "ttir.cross_entropy_fw"(%input, %target)
+    %loss = "ttcore.composite"(%input, %target) <{
+      composite_name = "cross_entropy_fw", decomposition = @decomp_bf16}>
         : (tensor<4x1x32x64xbf16>, tensor<4x32xui32>)
           -> tensor<4x1x32x1xbf16>
     return %loss : tensor<4x1x32x1xbf16>
@@ -54,7 +55,8 @@ module {
     // CHECK: %[[LOSS_F32:[0-9a-z_]+]] = "ttnn.typecast"(%[[LOSS_BF16]])
     // CHECK-SAME: -> tensor<4x1x32x1xf32, #[[OUTPUT_F32_LAYOUT]]>
     // CHECK: return %[[LOSS_F32]]
-    %loss = "ttir.cross_entropy_fw"(%input, %target)
+    %loss = "ttcore.composite"(%input, %target) <{
+      composite_name = "cross_entropy_fw", decomposition = @decomp_f32}>
         : (tensor<4x1x32x64xf32>, tensor<4x32xi32>)
           -> tensor<4x1x32x1xf32>
     return %loss : tensor<4x1x32x1xf32>
@@ -81,9 +83,24 @@ module {
     %sum = "ttir.add"(%lhs, %rhs)
         : (tensor<4x1x32x64xbf16>, tensor<4x1x32x64xbf16>)
           -> tensor<4x1x32x64xbf16>
-    %loss = "ttir.cross_entropy_fw"(%sum, %target)
+    %loss = "ttcore.composite"(%sum, %target) <{
+      composite_name = "cross_entropy_fw", decomposition = @decomp_bf16}>
         : (tensor<4x1x32x64xbf16>, tensor<4x32xui32>)
           -> tensor<4x1x32x1xbf16>
     return %loss : tensor<4x1x32x1xbf16>
+  }
+  func.func private @decomp_bf16(
+      %input: tensor<4x1x32x64xbf16>,
+      %target: tensor<4x32xui32>) -> tensor<4x1x32x1xbf16> {
+    %0 = "ttir.zeros"() <{shape = array<i32: 4, 1, 32, 1>}>
+        : () -> tensor<4x1x32x1xbf16>
+    return %0 : tensor<4x1x32x1xbf16>
+  }
+  func.func private @decomp_f32(
+      %input: tensor<4x1x32x64xf32>,
+      %target: tensor<4x32xi32>) -> tensor<4x1x32x1xf32> {
+    %0 = "ttir.zeros"() <{shape = array<i32: 4, 1, 32, 1>}>
+        : () -> tensor<4x1x32x1xf32>
+    return %0 : tensor<4x1x32x1xf32>
   }
 }

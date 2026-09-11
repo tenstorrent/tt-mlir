@@ -12,7 +12,9 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Types.h"
@@ -1361,19 +1363,33 @@ public:
 // walks N*C*Ht rows and reads one target page per row.
 namespace {
 struct CrossEntropyForwardPattern
-    : public OpConversionPattern<ttir::CrossEntropyForwardOp> {
+    : public OpConversionPattern<ttcore::CompositeOp> {
 public:
-  using OpConversionPattern<ttir::CrossEntropyForwardOp>::OpConversionPattern;
+  using OpConversionPattern<ttcore::CompositeOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::CrossEntropyForwardOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttcore::CompositeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    RankedTensorType inputType = op.getInput().getType();
-    RankedTensorType targetType = op.getTarget().getType();
-    RankedTensorType resultType = op.getResult().getType();
+    if (op.getCompositeName() != "cross_entropy_fw") {
+      return failure();
+    }
 
+    if (op.getInputs().size() != 2u || op.getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(op,
+                                         "expected two inputs and one result");
+    }
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(op.getInputs()[0].getType());
+    auto targetType =
+        mlir::cast<mlir::RankedTensorType>(op.getInputs()[1].getType());
+    auto resultType =
+        mlir::cast<mlir::RankedTensorType>(op.getResults()[0].getType());
+
+    if (!inputType.hasStaticShape() || inputType.getRank() < 2) {
+      return rewriter.notifyMatchFailure(
+          op, "expected a static input shape with rank at least two");
+    }
     llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
-    assert(inputShape.size() >= 2 && "input tensor must have rank >= 2");
     int64_t height = inputShape[inputShape.size() - 2];
     int64_t width = inputShape.back();
     int64_t batch = std::accumulate(inputShape.begin(), inputShape.end() - 2,
@@ -1389,27 +1405,135 @@ public:
       return rewriter.notifyMatchFailure(op, "already (N, 1, H, W) / (N, H)");
     }
 
+    if (!targetType.hasStaticShape() ||
+        mlir::computeProduct(targetType.getShape()) !=
+            mlir::computeProduct(targetShape2D)) {
+      return rewriter.notifyMatchFailure(op,
+                                         "target cannot be reshaped to (N, H)");
+    }
+    if (!resultType.hasStaticShape() ||
+        mlir::computeProduct(resultType.getShape()) !=
+            mlir::computeProduct(resultShape4D)) {
+      return rewriter.notifyMatchFailure(
+          op, "result cannot be reshaped to (N, 1, H, 1)");
+    }
+
     Location loc = op.getLoc();
     mlir::Value inputReshaped =
-        reshapeIfNeeded(rewriter, loc, adaptor.getInput(), inputShape4D);
+        reshapeIfNeeded(rewriter, loc, adaptor.getInputs()[0], inputShape4D);
     mlir::Value targetReshaped =
-        reshapeIfNeeded(rewriter, loc, adaptor.getTarget(), targetShape2D);
+        reshapeIfNeeded(rewriter, loc, adaptor.getInputs()[1], targetShape2D);
 
     auto resultType4D = RankedTensorType::get(
         resultShape4D, resultType.getElementType(), resultType.getEncoding());
 
-    if (resultType.getShape() ==
-        llvm::ArrayRef<int64_t>({batch, 1, height, 1})) {
-      rewriter.replaceOpWithNewOp<ttir::CrossEntropyForwardOp>(
-          op, resultType4D, inputReshaped, targetReshaped);
-      return success();
+    llvm::SmallVector<Value> normalizedInputs = {inputReshaped, targetReshaped};
+    llvm::SmallVector<Type> normalizedResultTypes = {resultType4D};
+    mlir::FlatSymbolRefAttr decomposition = createRank4DecompositionWrapper(
+        op, TypeRange(normalizedInputs), normalizedResultTypes, rewriter);
+    ttcore::CompositeOp normalizedOp = rewriter.create<ttcore::CompositeOp>(
+        loc, normalizedResultTypes, normalizedInputs, op.getCompositeNameAttr(),
+        decomposition, op.getCompositeAttributesAttr());
+
+    rewriter.replaceOp(op, reshapeIfNeeded(rewriter, loc,
+                                           normalizedOp.getResults()[0],
+                                           resultType.getShape()));
+    return success();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// CrossEntropyBackward decomposition pattern
+//===----------------------------------------------------------------------===//
+
+// Same normalization as CrossEntropyForwardPattern above, plus `grad`, which
+// ttml::metal::cross_entropy_bw takes as a (1, 1, 1, 1) tensor. The result has
+// input's shape rather than the forward op's reduced shape.
+namespace {
+struct CrossEntropyBackwardPattern
+    : public OpConversionPattern<ttcore::CompositeOp> {
+public:
+  using OpConversionPattern<ttcore::CompositeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttcore::CompositeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (op.getCompositeName() != "cross_entropy_bw") {
+      return failure();
     }
 
-    auto normalizedOp = rewriter.create<ttir::CrossEntropyForwardOp>(
-        op.getLoc(), resultType4D, inputReshaped, targetReshaped);
+    if (op.getInputs().size() != 3u || op->getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "expected three inputs and one result");
+    }
 
-    rewriter.replaceOp(op, reshapeValue(rewriter, loc, normalizedOp.getResult(),
-                                        resultType.getShape()));
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(op.getInputs()[0].getType());
+    auto targetType =
+        mlir::cast<mlir::RankedTensorType>(op.getInputs()[1].getType());
+    auto gradType =
+        mlir::cast<mlir::RankedTensorType>(op.getInputs()[2].getType());
+
+    if (!inputType.hasStaticShape() || inputType.getRank() < 2) {
+      return rewriter.notifyMatchFailure(
+          op, "expected a static input shape with rank at least two");
+    }
+    llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+    int64_t height = inputShape[inputShape.size() - 2];
+    int64_t width = inputShape.back();
+    int64_t batch = std::accumulate(inputShape.begin(), inputShape.end() - 2,
+                                    1ll, std::multiplies<int64_t>());
+
+    llvm::SmallVector<int64_t, 4> inputShape4D = {batch, 1, height, width};
+    llvm::SmallVector<int64_t, 2> targetShape2D = {batch, height};
+    llvm::SmallVector<int64_t, 4> gradShape4D = {1, 1, 1, 1};
+
+    if (inputShape == llvm::ArrayRef<int64_t>(inputShape4D) &&
+        targetType.getShape() == llvm::ArrayRef<int64_t>(targetShape2D) &&
+        gradType.getShape() == llvm::ArrayRef<int64_t>(gradShape4D)) {
+      return rewriter.notifyMatchFailure(op,
+                                         "already (N, 1, H, W) / (N, H) / 1s");
+    }
+
+    if (!targetType.hasStaticShape() ||
+        mlir::computeProduct(targetType.getShape()) !=
+            mlir::computeProduct(targetShape2D)) {
+      return rewriter.notifyMatchFailure(op,
+                                         "target cannot be reshaped to (N, H)");
+    }
+    if (!gradType.hasStaticShape() ||
+        mlir::computeProduct(gradType.getShape()) !=
+            mlir::computeProduct(gradShape4D)) {
+      return rewriter.notifyMatchFailure(
+          op, "gradient should have exactly one element");
+    }
+
+    Location loc = op.getLoc();
+    auto resultType =
+        mlir::cast<RankedTensorType>(op.getResults()[0].getType());
+    auto resultType4D = RankedTensorType::get(
+        inputShape4D, resultType.getElementType(), resultType.getEncoding());
+    if (!resultType.hasStaticShape() ||
+        resultType.getNumElements() != resultType4D.getNumElements()) {
+      return rewriter.notifyMatchFailure(
+          op, "result cannot be reshaped to (N, 1, H, W)");
+    }
+
+    llvm::SmallVector<Value> normalizedInputs = {
+        reshapeIfNeeded(rewriter, loc, adaptor.getInputs()[0], inputShape4D),
+        reshapeIfNeeded(rewriter, loc, adaptor.getInputs()[1], targetShape2D),
+        reshapeIfNeeded(rewriter, loc, adaptor.getInputs()[2], gradShape4D)};
+    llvm::SmallVector<Type> normalizedResultTypes = {resultType4D};
+    mlir::FlatSymbolRefAttr decomposition = createRank4DecompositionWrapper(
+        op, TypeRange(normalizedInputs), normalizedResultTypes, rewriter);
+    ttcore::CompositeOp normalized = rewriter.create<ttcore::CompositeOp>(
+        loc, normalizedResultTypes, normalizedInputs, op.getCompositeNameAttr(),
+        decomposition, op.getCompositeAttributesAttr());
+
+    rewriter.replaceOp(op, reshapeIfNeeded(rewriter, loc,
+                                           normalized.getResults()[0],
+                                           resultType.getShape()));
     return success();
   }
 };
@@ -2450,6 +2574,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<SDPABackwardPattern>(typeConverter, ctx);
   patterns.add<LayerNormForwardPattern>(typeConverter, ctx);
   patterns.add<CrossEntropyForwardPattern>(typeConverter, ctx);
+  patterns.add<CrossEntropyBackwardPattern>(typeConverter, ctx);
   patterns.add<QuantizeOpPattern>(typeConverter, ctx);
   patterns.add<DequantizeOpPattern>(typeConverter, ctx);
   patterns.add<RequantizeOpPattern>(typeConverter, ctx);

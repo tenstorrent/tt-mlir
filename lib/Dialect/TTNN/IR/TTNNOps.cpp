@@ -3996,6 +3996,13 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
         "attention_mask is only allowed when mask_type is 'arbitrary'");
   }
 
+  float dropoutProbability = getDropoutProbability().convertToFloat();
+  if (dropoutProbability != 0.0f) {
+    return emitOpError() << "dropout_probability must be 0.0 because dropout "
+                            "is not implemented in the backward pass, but got "
+                         << dropoutProbability;
+  }
+
   return success();
 }
 
@@ -4169,6 +4176,64 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
   if (!getTarget().getType().getElementType().isIntOrIndex()) {
     return emitOpError("target must have an integer element type, got ")
            << getTarget().getType().getElementType();
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// CrossEntropyBackwardOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::CrossEntropyBackwardOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType targetType = getTarget().getType();
+  RankedTensorType gradType = getGrad().getType();
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("input must be a 4D tensor (N, 1, H, W), got rank ")
+           << inputType.getRank();
+  }
+  if (targetType.getRank() != 2) {
+    return emitOpError("target must be a 2D tensor (N, H), got rank ")
+           << targetType.getRank();
+  }
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> targetShape = targetType.getShape();
+
+  if (inputShape[1] != 1) {
+    return emitOpError("input dim 1 must be 1, got ") << inputShape[1];
+  }
+  if (targetShape[0] != inputShape[0]) {
+    return emitOpError("target dim 0 (")
+           << targetShape[0] << ") must match input dim 0 (" << inputShape[0]
+           << ")";
+  }
+  if (targetShape[1] != inputShape[2]) {
+    return emitOpError("target dim 1 (")
+           << targetShape[1] << ") must match input dim 2 (" << inputShape[2]
+           << ")";
+  }
+
+  // ttml only supports a scalar gradient.
+  llvm::ArrayRef<int64_t> gradShape = gradType.getShape();
+  if (gradType.getRank() != 4 ||
+      llvm::any_of(gradShape, [](int64_t dim) { return dim != 1; })) {
+    return emitOpError("grad must be a (1, 1, 1, 1) tensor, got ") << gradShape;
+  }
+
+  llvm::ArrayRef<int64_t> resultShape = getResult().getType().getShape();
+  if (resultShape != inputShape) {
+    return emitOpError("result shape must match input shape, expected ")
+           << inputShape << ", got " << resultShape;
+  }
+
+  // Target holds class indices selecting along input's last dimension, so it
+  // must be an integer type.
+  if (!targetType.getElementType().isIntOrIndex()) {
+    return emitOpError("target must have an integer element type, got ")
+           << targetType.getElementType();
   }
 
   return success();
