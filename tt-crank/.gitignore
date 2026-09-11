@@ -1,0 +1,47 @@
+# Build directories
+/build
+/build_*
+/out/
+
+# Wheels built by `uv build`
+/dist/
+
+/.cpmcache/
+
+# Python venv (dev tooling — pre-commit, etc.)
+/venv/*
+!/venv/activate
+__pycache__/
+
+# Compile commands (when symlinked or copied into source tree)
+/compile_commands.json
+
+# IDE
+.vscode/
+.idea/
+.cache/
+*.swp
+*~
+
+# OS
+.DS_Store
+
+# Generated files
+generated/
+.tracy_artifacts/
+
+# Benchmark outputs
+/benchmark_results.json
+/profile_data/
+
+# scikit-build-core editable install bookkeeping — the .so lands next to the
+# Python source under editable.mode = "redirect".
+/python/tt_kurbla/**/_native*.so
+
+# Symlinks created by the bundle-tracy / bundle-ttnn CMake targets into the
+# tt-mlir install tree.
+/python/tracy/_original
+/python/ttnn/_original
+
+# data directory
+.data/*

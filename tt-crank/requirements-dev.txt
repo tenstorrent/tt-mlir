@@ -1,0 +1,19 @@
+# Dev-only tooling. Runtime deps live in requirements.txt, which also feeds the
+# wheel's [project.dependencies]; `source venv/activate` installs both files.
+pre-commit>=4.0,<5
+pytest
+# Pinned by direct URL to the CPU build, for the same reason as torch in
+# requirements.txt. Bump version + cp tag together with torch.
+torchvision@https://download.pytorch.org/whl/cpu/torchvision-0.25.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl
+
+# Pinned: transformers 5.13.0 changed StaticCache in-place update semantics,
+# breaking the KV-cache writeback in the LLM decode benchmarks (_copy_from
+# shape mismatch). Bump deliberately and re-validate the benchmarks.
+transformers==5.12.1
+
+# Build deps. Needed in the venv, not just build-system.requires, because
+# pyproject disables PEP 517 build isolation.
+scikit-build-core>=1.0
+dynamic-metadata>=0.5
+nanobind>=2.2
+uv
