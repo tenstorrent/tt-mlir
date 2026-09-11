@@ -42,9 +42,6 @@ on:
       test_timeout:
         description: Timeout in minutes for the test job
         value: ${{ jobs.prepare-run.outputs.test_timeout }}
-      crank_only:
-        description: Only tt-crank/ changed - run just the tt-crank test lanes
-        value: ${{ jobs.prepare-run.outputs.crank_only }}
 
 jobs:
   ignore-files:
@@ -92,7 +89,6 @@ jobs:
       runner: ${{ steps.decide-runner.outputs.runner }}
       sh_builder: ${{ steps.decide-runner.outputs.sh_builder }}
       test_timeout: ${{ steps.generate-test-matrix.outputs.test_timeout }}
-      crank_only: ${{ steps.scope.outputs.crank_only }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -134,30 +130,12 @@ jobs:
             echo "build_all=${{ inputs.build_all }}" >> "$GITHUB_OUTPUT"
           fi
 
-      # tt-crank is a subproject with its own test lanes ("scope": "crank" in
-      # tests.json). When a change touches nothing outside tt-crank/ (ACMRD, so
-      # deletions count too), only those lanes run. Any other change, or an
-      # explicit build_all, keeps the full matrix, which includes those lanes.
-      - id: scope
-        run: |
-          crank_only=false
-          if [[ "${{ steps.components.outputs.crank_only_modified }}" == "true" && "${{ steps.is-all.outputs.build_all }}" != "true" ]]; then
-            echo "Only tt-crank/ changed, restricting the run to the tt-crank test lanes"
-            crank_only=true
-          fi
-          echo "crank_only=$crank_only" >> "$GITHUB_OUTPUT"
-
       - name: Generate build matrix
         id: generate-build-matrix
         shell: bash
         run: |
-          if [[ "${{ steps.scope.outputs.crank_only }}" == "true" ]]; then
-            # The tt-crank lanes need only the plain release build (and the ttrt
-            # wheel, which is always uploaded); skip the component build scripts.
-            echo "Only tt-crank/ changed, skipping component build scripts"
-            echo "[]" > _components_matrix.json
-          elif [[ "${{ steps.is-all.outputs.build_all }}" == "true" ]]; then
-            # If build_all is true, include all components
+          # If build_all is true, include all components
+          if [[ "${{ steps.is-all.outputs.build_all }}" == "true" ]]; then
             echo "Including all components in build matrix"
             cp .github/settings/build.json _components_matrix.json
           else
@@ -197,12 +175,6 @@ jobs:
           else
             comp="${{ steps.components.outputs.modified_keys }}"
           fi
-          tests_json=.github/settings/tests.json
-          if [[ "${{ steps.scope.outputs.crank_only }}" == "true" ]]; then
-            echo "Only tt-crank/ changed, keeping the tt-crank test lanes only"
-            jq 'map(select(.scope == "crank"))' "$tests_json" > _tests_crank_only.json
-            tests_json=_tests_crank_only.json
-          fi
           cat << 'EOF' > _test_durations
             ${{ vars.TEST_DURATIONS }}
           EOF
@@ -213,7 +185,7 @@ jobs:
           if [ -z "$TARGET_DURATION" ]; then
             TARGET_DURATION=70
           fi
-          python .github/scripts/python/generate_test_matrix.py "$tests_json" "$TARGET_DURATION" "$comp"
+          python .github/scripts/python/generate_test_matrix.py .github/settings/tests.json "$TARGET_DURATION" "$comp"
           echo "test-matrix=$(cat _test_matrix.json | jq -c)" >> $GITHUB_OUTPUT
           timeout=$(($TARGET_DURATION * 3 + 10))
           if [ $timeout -lt ${{ inputs.min_timeout }} ]; then
