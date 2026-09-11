@@ -103,4 +103,44 @@ LayoutScore RmsNormRuleBook::adjustScore(
   return base;
 }
 
+//===----------------------------------------------------------------------===//
+// TTMLRMSNormForwardRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn TTMLRMSNormForwardRuleBook::getInputLayoutFilter(
+    unsigned /*operandIdx*/) const {
+  return [](TTNNLayoutAttr layout) {
+    return layout_filter_utils::requireTiled(layout) &&
+           layout_filter_utils::requireDRAMInterleaved(layout);
+  };
+}
+
+bool TTMLRMSNormForwardRuleBook::shouldExploreReshards() const { return false; }
+
+OutputHints TTMLRMSNormForwardRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
+  return layout_filter_utils::nullHintOnly();
+}
+
+//===----------------------------------------------------------------------===//
+// TTMLRMSNormBackwardRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn TTMLRMSNormBackwardRuleBook::getInputLayoutFilter(
+    unsigned /*operandIdx*/) const {
+  return [](TTNNLayoutAttr layout) {
+    return layout_filter_utils::requireTiled(layout) &&
+           layout_filter_utils::requireDRAMInterleaved(layout);
+  };
+}
+
+bool TTMLRMSNormBackwardRuleBook::shouldExploreReshards() const {
+  return false;
+}
+
+OutputHints TTMLRMSNormBackwardRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
+  return layout_filter_utils::nullHintOnly();
+}
+
 } // namespace mlir::tt::ttnn

@@ -80,6 +80,8 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static SDPARuleBook sdpa;
   static TTMLSDPAForwardRuleBook ttmlSdpaForward;
   static TTMLSDPABackwardRuleBook ttmlSdpaBackward;
+  static TTMLRMSNormForwardRuleBook ttmlRmsNormForward;
+  static TTMLRMSNormBackwardRuleBook ttmlRmsNormBackward;
   static TTMLLayerNormForwardRuleBook ttmlLayerNormForward;
   static SDPADecodeRuleBook sdpaDecode;
   static EmbeddingRuleBook embedding;
@@ -122,6 +124,8 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(ScaledDotProductAttentionOp::getOperationName(), &sdpa);
     reg(SDPAForwardOp::getOperationName(), &ttmlSdpaForward);
     reg(SDPABackwardOp::getOperationName(), &ttmlSdpaBackward);
+    reg(RMSNormForwardOp::getOperationName(), &ttmlRmsNormForward);
+    reg(RMSNormBackwardOp::getOperationName(), &ttmlRmsNormBackward);
     reg(LayerNormForwardOp::getOperationName(), &ttmlLayerNormForward);
     reg(ScaledDotProductAttentionDecodeOp::getOperationName(), &sdpaDecode);
     reg(PagedScaledDotProductAttentionDecodeOp::getOperationName(),

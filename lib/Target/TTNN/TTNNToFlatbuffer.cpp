@@ -39,6 +39,8 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <optional>
+
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
@@ -1686,6 +1688,45 @@ createOp(FlatbufferObjectCache &cache, SDPAForwardOp op) {
       static_cast<uint32_t>(op.getMaskType()),
       op.getDropoutProbability().convertToFloat(), op.getReturnIntermediates(),
       output, intermediates);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::RMSNormForwardOp>
+createOp(FlatbufferObjectCache &cache, RMSNormForwardOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto gamma = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGamma()));
+  auto output = cache.getOrCreateNoSharding(
+      op.getOutput(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> rms = 0;
+  if (op.getRms()) {
+    rms = cache.getOrCreateNoSharding(op.getRms(), tensorValueToFlatbuffer,
+                                      /*local_shape*/ std::nullopt);
+  }
+
+  return ::tt::target::ttnn::CreateRMSNormForwardOp(
+      *cache.fbb, input, gamma, op.getReturnIntermediates(),
+      op.getEpsilon().convertToFloat(), output, rms);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::RMSNormBackwardOp>
+createOp(FlatbufferObjectCache &cache, RMSNormBackwardOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto gamma = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGamma()));
+  auto rms = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getRms()));
+  auto gradOutput = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGradOutput()));
+  auto gradInput = cache.getOrCreateNoSharding(
+      op.getGradInput(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+  auto gradGamma = cache.getOrCreateNoSharding(
+      op.getGradGamma(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateRMSNormBackwardOp(
+      *cache.fbb, input, gamma, rms, gradOutput, gradInput, gradGamma);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::LayerNormForwardOp>
@@ -4529,6 +4570,50 @@ createOp(FlatbufferObjectCache &cache, TopKRouterGptOp op) {
       expertWeights);
 }
 
+std::optional<::flatbuffers::Offset<::tt::target::ttnn::Operation>>
+emitTTMLOperation(FlatbufferObjectCache &cache, Operation *op,
+                  const std::string &debugString, const std::string &locInfo) {
+  if (auto adamwOp = dyn_cast<AdamWOp>(op); adamwOp) {
+    return createOperation(cache, createOp(cache, adamwOp), debugString,
+                           locInfo);
+  }
+  if (auto sdpaForwardOp = dyn_cast<SDPAForwardOp>(op); sdpaForwardOp) {
+    return createOperation(cache, createOp(cache, sdpaForwardOp), debugString,
+                           locInfo);
+  }
+  if (auto sdpaBackwardOp = dyn_cast<SDPABackwardOp>(op); sdpaBackwardOp) {
+    return createOperation(cache, createOp(cache, sdpaBackwardOp), debugString,
+                           locInfo);
+  }
+  if (auto rmsNormForwardOp = dyn_cast<RMSNormForwardOp>(op);
+      rmsNormForwardOp) {
+    return createOperation(cache, createOp(cache, rmsNormForwardOp),
+                           debugString, locInfo);
+  }
+  if (auto rmsNormBackwardOp = dyn_cast<RMSNormBackwardOp>(op);
+      rmsNormBackwardOp) {
+    return createOperation(cache, createOp(cache, rmsNormBackwardOp),
+                           debugString, locInfo);
+  }
+  if (auto layerNormForwardOp = dyn_cast<LayerNormForwardOp>(op);
+      layerNormForwardOp) {
+    return createOperation(cache, createOp(cache, layerNormForwardOp),
+                           debugString, locInfo);
+  }
+  if (auto crossEntropyFwOp = dyn_cast<CrossEntropyForwardOp>(op);
+      crossEntropyFwOp) {
+    return createOperation(cache, createOp(cache, crossEntropyFwOp),
+                           debugString, locInfo);
+  }
+  if (auto crossEntropyBwOp = dyn_cast<CrossEntropyBackwardOp>(op);
+      crossEntropyBwOp) {
+    return createOperation(cache, createOp(cache, crossEntropyBwOp),
+                           debugString, locInfo);
+  }
+
+  return {};
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
@@ -5151,33 +5236,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, batchNormTrainingOp),
                            debugString, locInfo);
   }
-  if (auto adamwOp = dyn_cast<AdamWOp>(op); adamwOp) {
-    return createOperation(cache, createOp(cache, adamwOp), debugString,
-                           locInfo);
-  }
-  if (auto sdpaForwardOp = dyn_cast<SDPAForwardOp>(op); sdpaForwardOp) {
-    return createOperation(cache, createOp(cache, sdpaForwardOp), debugString,
-                           locInfo);
-  }
-  if (auto sdpaBackwardOp = dyn_cast<SDPABackwardOp>(op); sdpaBackwardOp) {
-    return createOperation(cache, createOp(cache, sdpaBackwardOp), debugString,
-                           locInfo);
-  }
-  if (auto layerNormForwardOp = dyn_cast<LayerNormForwardOp>(op);
-      layerNormForwardOp) {
-    return createOperation(cache, createOp(cache, layerNormForwardOp),
-                           debugString, locInfo);
-  }
-  if (auto crossEntropyFwOp = dyn_cast<CrossEntropyForwardOp>(op);
-      crossEntropyFwOp) {
-    return createOperation(cache, createOp(cache, crossEntropyFwOp),
-                           debugString, locInfo);
-  }
-  if (auto crossEntropyBwOp = dyn_cast<CrossEntropyBackwardOp>(op);
-      crossEntropyBwOp) {
-    return createOperation(cache, createOp(cache, crossEntropyBwOp),
-                           debugString, locInfo);
-  }
   if (auto rmsNormOp = dyn_cast<RMSNormOp>(op); rmsNormOp) {
     return createOperation(cache, createOp(cache, rmsNormOp), debugString,
                            locInfo);
@@ -5425,6 +5483,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       resetGlobalSemaphoreOp) {
     return createOperation(cache, createOp(cache, resetGlobalSemaphoreOp),
                            debugString, locInfo);
+  }
+
+  if (auto offset = emitTTMLOperation(cache, op, debugString, locInfo)) {
+    return *offset;
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

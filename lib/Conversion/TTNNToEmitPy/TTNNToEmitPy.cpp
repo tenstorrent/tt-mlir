@@ -5616,6 +5616,52 @@ public:
   }
 };
 
+// RMSNormForward conversion pattern.
+//
+// EmitPy lowering for ttnn.rmsnorm_fw is intentionally unsupported. The
+// emitted Python would need to call the low-level ttml::metal::rmsnorm_fw
+// primitive, which tt-train does not expose through its Python bindings.
+// See https://github.com/tenstorrent/tt-mlir/issues/9118.
+class RMSNormForwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::RMSNormForwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::RMSNormForwardOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::RMSNormForwardOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        "EmitPy lowering for ttnn.rmsnorm_fw is not supported: ttml does not "
+        "expose the metal::rmsnorm_fw primitive through its Python bindings.");
+  }
+};
+
+// RMSNormBackward conversion pattern.
+//
+// EmitPy lowering for ttnn.rmsnorm_bw is intentionally unsupported, for the
+// same reason as ttnn.rmsnorm_fw: tt-train does not expose the
+// ttml::metal::rmsnorm_bw primitive through its Python bindings.
+// See https://github.com/tenstorrent/tt-mlir/issues/9118.
+class RMSNormBackwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::RMSNormBackwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::RMSNormBackwardOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::RMSNormBackwardOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        "EmitPy lowering for ttnn.rmsnorm_bw is not supported: ttml does not "
+        "expose the metal::rmsnorm_bw primitive through its Python bindings.");
+  }
+};
+
 // LayerNormForward conversion pattern.
 //
 // EmitPy lowering for ttnn.layernorm_fw is intentionally unsupported. The
@@ -5961,6 +6007,10 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // SDPABackward: deliberately declines conversion (see comment above).
   patterns.add<SDPABackwardOpConversionPattern>(typeConverter, ctx);
+
+  // Normalization forward ops deliberately decline conversion.
+  patterns.add<RMSNormForwardOpConversionPattern>(typeConverter, ctx);
+  patterns.add<RMSNormBackwardOpConversionPattern>(typeConverter, ctx);
   patterns.add<LayerNormForwardOpConversionPattern>(typeConverter, ctx);
 
   // CrossEntropyForward: deliberately declines conversion, same reason.

@@ -589,5 +589,11 @@ const std::set<mlir::StringRef>
         // RowMajor input siblings supply its ROW_MAJOR input (tt-metal #46340).
         // SDPABackwardOp is temporarily enabled to restrict the dtype to bf16:
         // https://github.com/tenstorrent/tt-mlir/issues/9233
-        ttnn::SDPABackwardOp::getOperationName()};
+        ttnn::SDPABackwardOp::getOperationName(),
+        // TTML rmsnorm workarounds are enabled because they set dtype to bf16,
+        // which optimizer currently doesn't do correctly for multi-output ops
+        // with different output layouts:
+        // https://github.com/tenstorrent/tt-mlir/issues/9295
+        ttnn::RMSNormForwardOp::getOperationName(),
+        ttnn::RMSNormBackwardOp::getOperationName()};
 } // namespace mlir::tt::ttnn

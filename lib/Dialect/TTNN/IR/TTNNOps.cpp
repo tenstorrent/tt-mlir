@@ -4007,6 +4007,114 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// RMSNormForwardOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::RMSNormForwardOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType gammaType = getGamma().getType();
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("input must be rank 4 (B, N, S, C)");
+  }
+  if (gammaType.getRank() != 4) {
+    return emitOpError("gamma must be rank 4 (1, 1, 1, C)");
+  }
+
+  int64_t normalizedSize = inputType.getDimSize(3);
+  llvm::SmallVector<int64_t, 4> expectedGammaShape{1, 1, 1, normalizedSize};
+  if (gammaType.getShape() != llvm::ArrayRef<int64_t>(expectedGammaShape)) {
+    return emitOpError("gamma must have shape (1, 1, 1, ")
+           << normalizedSize << ")";
+  }
+
+  RankedTensorType outputType = getOutput().getType();
+  if (outputType.getShape() != inputType.getShape()) {
+    return emitOpError("output must have the same shape as input");
+  }
+
+  mlir::Type elementType = inputType.getElementType();
+  if (gammaType.getElementType() != elementType ||
+      outputType.getElementType() != elementType) {
+    return emitOpError(
+        "input, gamma and output must have the same element type");
+  }
+
+  if (getReturnIntermediates() != static_cast<bool>(getRms())) {
+    return emitOpError("rms result must be present iff "
+                       "return_intermediates is true");
+  }
+
+  if (getRms()) {
+    llvm::SmallVector<int64_t, 4> expectedRmsShape(inputType.getShape());
+    expectedRmsShape.back() = 1;
+    if (getRms().getType().getShape() !=
+        llvm::ArrayRef<int64_t>(expectedRmsShape)) {
+      return emitOpError("rms must have shape (B, N, S, 1)");
+    }
+    if (getRms().getType().getElementType() != elementType) {
+      return emitOpError("rms must have the same element type as input");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// RMSNormBackwardOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::RMSNormBackwardOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType gammaType = getGamma().getType();
+  RankedTensorType rmsType = getRms().getType();
+  RankedTensorType gradOutputType = getGradOutput().getType();
+  RankedTensorType gradInputType = getGradInput().getType();
+  RankedTensorType gradGammaType = getGradGamma().getType();
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("input must be rank 4 (B, N, S, C)");
+  }
+  if (gammaType.getRank() != 4) {
+    return emitOpError("gamma must be rank 4 (1, 1, 1, C)");
+  }
+
+  int64_t normalizedSize = inputType.getDimSize(3);
+  llvm::SmallVector<int64_t, 4> expectedGammaShape{1, 1, 1, normalizedSize};
+  if (gammaType.getShape() != llvm::ArrayRef<int64_t>(expectedGammaShape)) {
+    return emitOpError("gamma must have shape (1, 1, 1, ")
+           << normalizedSize << ")";
+  }
+
+  llvm::SmallVector<int64_t, 4> expectedRmsShape(inputType.getShape());
+  expectedRmsShape.back() = 1;
+  if (rmsType.getShape() != llvm::ArrayRef<int64_t>(expectedRmsShape)) {
+    return emitOpError("rms must have shape (B, N, S, 1)");
+  }
+
+  if (gradOutputType.getShape() != inputType.getShape()) {
+    return emitOpError("grad_output must have the same shape as input");
+  }
+  if (gradInputType.getShape() != inputType.getShape()) {
+    return emitOpError("grad_input must have the same shape as input");
+  }
+  if (gradGammaType.getShape() != gammaType.getShape()) {
+    return emitOpError("grad_gamma must have the same shape as gamma");
+  }
+
+  mlir::Type elementType = inputType.getElementType();
+  for (RankedTensorType type :
+       {gammaType, rmsType, gradOutputType, gradInputType, gradGammaType}) {
+    if (type.getElementType() != elementType) {
+      return emitOpError("all operands and results must have the same element "
+                         "type");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormForwardOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::LayerNormForwardOp::verify() {

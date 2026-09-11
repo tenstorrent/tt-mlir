@@ -6608,6 +6608,44 @@ def stablehlo_convert_golden(
     return input_tensor.to(output_dtype)
 
 
+def ttcore_composite_golden(
+    *operand_tensors: GoldenMapTensor,
+    composite_name=None,
+    composite_attributes=None,
+    result_types=None,
+    **_kwargs,
+) -> GoldenMapTensor:
+    if composite_name == "rmsnorm_fw":
+        attrs = composite_attributes or {}
+        try:
+            epsilon_attr = attrs["epsilon"]
+        except KeyError:
+            epsilon_attr = None
+
+        if not result_types:
+            raise ValueError("ttcore.composite golden requires result types.")
+
+        return rmsnorm_fw_golden(
+            *operand_tensors,
+            epsilon=epsilon_attr,
+            return_intermediates=len(result_types) == 2,
+            output_type_mlir=RankedTensorType(result_types[0]).element_type,
+        )
+
+    if composite_name == "rmsnorm_bw":
+        if not result_types:
+            raise ValueError("ttcore.composite golden requires result types.")
+
+        return rmsnorm_bw_golden(
+            *operand_tensors,
+            output_type_mlir=RankedTensorType(result_types[0]).element_type,
+        )
+
+    raise NotImplementedError(
+        f"No ttcore.composite golden is registered for {composite_name!r}."
+    )
+
+
 def stablehlo_composite_golden(
     *operand_tensors: GoldenMapTensor,
     decomposition_fn=None,
@@ -8807,6 +8845,68 @@ def sdpa_bw_golden(
     return dq.to(query.dtype), dk.to(key.dtype), dv.to(value.dtype)
 
 
+def rmsnorm_fw_golden(
+    input: GoldenMapTensor,
+    gamma: GoldenMapTensor,
+    return_intermediates: bool = True,
+    epsilon: FloatAttr = None,
+    output_type_mlir: Type = None,
+    **kwargs,
+) -> Tuple[GoldenMapTensor, ...]:
+    epsilon = unpack_mlir_attr(epsilon) if epsilon is not None else 1e-06
+
+    x = input.float()
+    rms = torch.sqrt(
+        torch.add(torch.mean(torch.mul(x, x), dim=-1, keepdim=True), epsilon)
+    )
+    output = torch.mul(torch.div(x, rms), gamma.float())
+
+    output_dtype = (
+        mlir_type_to_torch_dtype(output_type_mlir)
+        if output_type_mlir is not None
+        else input.dtype
+    )
+    output = output.to(output_dtype)
+    if return_intermediates:
+        return output, rms.to(output_dtype)
+    return (output,)
+
+
+def rmsnorm_bw_golden(
+    input: GoldenMapTensor,
+    gamma: GoldenMapTensor,
+    rms: GoldenMapTensor,
+    grad_output: GoldenMapTensor,
+    output_type_mlir: Type = None,
+    **kwargs,
+) -> Tuple[GoldenMapTensor, ...]:
+    x = input.float()
+    g = gamma.float()
+    r = rms.float()
+    dy = grad_output.float()
+
+    normalized = torch.div(x, r)
+    scaled_grad = torch.mul(dy, g)
+
+    # dL/dx_j = dy_j * g_j / r - x_j * sum_c(dy_c * g_c * x_c) / (C * r^3)
+    channels = x.shape[-1]
+    dot = torch.sum(torch.mul(scaled_grad, x), dim=-1, keepdim=True)
+    grad_input = torch.sub(
+        torch.div(scaled_grad, r),
+        torch.div(torch.mul(x, dot), torch.mul(torch.pow(r, 3), channels)),
+    )
+
+    # dL/dgamma = sum over the leading dims of dy * x / r.
+    grad_gamma = torch.sum(torch.mul(dy, normalized), dim=(0, 1, 2), keepdim=True)
+
+    output_dtype = (
+        mlir_type_to_torch_dtype(output_type_mlir)
+        if output_type_mlir is not None
+        else input.dtype
+    )
+    return grad_input.to(output_dtype), grad_gamma.to(output_dtype)
+
+
 def layernorm_fw_golden(
     input: GoldenMapTensor,
     weight: GoldenMapTensor,
@@ -9209,6 +9309,8 @@ def debug_region_end_golden(
 
 
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
+    # ----- TTCORE OPS -----
+    ttcore.CompositeOp: ttcore_composite_golden,
     # ----- TTIR OPS -----
     # Elementwise unary operations
     ttir.GetDimensionSizeOp: get_dimension_size_golden,

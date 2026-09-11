@@ -399,6 +399,19 @@ public:
   static TTNNOperandsWorkarounds
   createSDPABackwardOpOperandsWorkarounds(Operation *op);
 
+  // Create workarounds for the ttml rmsnorm_fw op: force bf16, tile layout
+  // and DRAM interleaved memory for every operand and result. The backing metal
+  // op (ttml::metal::rmsnorm_fw) TT_FATALs on anything else.
+  static TTNNOperandsWorkarounds
+  createRMSNormForwardOpOperandsWorkarounds(Operation *op);
+
+  // Create workarounds for the ttml rmsnorm_bw op: force bf16, tile layout
+  // and DRAM interleaved memory for every operand and result. The backing metal
+  // op (ttml::metal::rmsnorm_bw) TT_FATALs on anything else, and its trailing
+  // ttnn::sum inherits gamma's memory config.
+  static TTNNOperandsWorkarounds
+  createRMSNormBackwardOpOperandsWorkarounds(Operation *op);
+
   // Create workarounds for the ttml layernorm_fw op: force bf16, tile layout
   // and DRAM interleaved memory for every operand and result. The backing metal
   // op (ttml::metal::layernorm_fw) TT_FATALs on anything else.

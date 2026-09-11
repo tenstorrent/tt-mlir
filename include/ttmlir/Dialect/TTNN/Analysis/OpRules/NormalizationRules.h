@@ -58,6 +58,30 @@ struct RmsNormRuleBook : OpRuleBook {
                           bool requiresReshard) const override;
 };
 
+/// TTML RMS norm forward: The backend requires all operands to be tiled and
+/// DRAM-interleaved. It derives the output and optional RMS layouts from the
+/// input.
+struct TTMLRMSNormForwardRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
+/// TTML RMS norm backward: all operands must be tiled and DRAM-interleaved.
+/// The kernel cannot reduce grad_gamma across the leading dims, so the wrapper
+/// appends a ttnn::sum over dims (0, 1, 2) whose memory config is inherited
+/// from gamma; DRAM-interleaved gamma keeps that reduction on the interleaved
+/// path. The backend derives both output layouts from the inputs.
+struct TTMLRMSNormBackwardRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_NORMALIZATIONRULES_H
