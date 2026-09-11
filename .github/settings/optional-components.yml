@@ -10,3 +10,15 @@ ttnn-jit-wheel:
   - tools/ttnn-jit/**
 ttnn-jit-nightly:
   - test/ttnn-jit/nightly/**
+crank:
+  - tt-crank/**
+mlir:
+  - include/**
+  - env/**
+  - cmake/**
+  - lib/**
+  - python/**
+  - runtime/**
+  - scripts/**
+  - test/**
+  - tools/**

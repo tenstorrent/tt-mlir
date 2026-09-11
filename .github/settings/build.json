@@ -1,8 +1,8 @@
 [
-    { "image": "tracy", "script": "ttnn-standalone.sh" },
-    { "image": "tracy", "script": "explorer.sh" },
-    { "image": "speedy", "script": "alchemist.sh" },
-    { "image": "speedy", "script": "emitc.sh" },
-    { "image": "tracy", "script": "ttnn-jit.sh" },
-    { "image": "tracy", "script": "test-install.sh" }
+    { "image": "tracy", "script": "ttnn-standalone.sh", "if": "mlir" },
+    { "image": "tracy", "script": "explorer.sh", "if": "mlir" },
+    { "image": "speedy", "script": "alchemist.sh", "if": "mlir" },
+    { "image": "speedy", "script": "emitc.sh", "if": "mlir" },
+    { "image": "tracy", "script": "ttnn-jit.sh", "if": "mlir" },
+    { "image": "tracy", "script": "test-install.sh", "if": "mlir" }
 ]
