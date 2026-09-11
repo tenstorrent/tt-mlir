@@ -41,7 +41,7 @@ jobs:
       matrix:
         build: [
           { enable_op_model: "ON", enable_emitc: "ON", enable_alchemist_whl: "ON", name: "speedy" },
-          { enable_op_model: "ON", enable_perf: "ON", enable_runtime_debug: "ON", enable_explorer: "ON", enable_pykernel: "ON", enable_ttnn_jit: "ON", enable_d2m_jit: "ON", name: "tracy" }
+          { enable_op_model: "ON", enable_perf: "ON", enable_runtime_debug: "ON", enable_explorer: "ON", enable_pykernel: "ON", enable_ttnn_jit: "ON", enable_d2m_jit: "ON", enable_crank: "ON", name: "tracy" }
         ]
 
     name: Build ${{ matrix.build.name }} Release
@@ -116,6 +116,7 @@ jobs:
           -DTTMLIR_ENABLE_STABLEHLO=ON \
           -DTTMLIR_ENABLE_OPMODEL=${{ matrix.build.enable_op_model }} \
           -DTTMLIR_ENABLE_ALCHEMIST_WHEEL=${{ matrix.build.enable_alchemist_whl }} \
+          -DTTMLIR_ENABLE_CRANK=${{ matrix.build.enable_crank }} \
           -DTT_USE_SYSTEM_SFPI=ON \
           -DTT_RUNTIME_DEBUG=${{ matrix.build.enable_runtime_debug }} \
           -S ${{ steps.strings.outputs.work-dir }}
@@ -214,7 +215,8 @@ jobs:
       shell: bash
       working-directory: ${{ steps.strings.outputs.build-output-dir }}
       run: |
-        tar -I 'zstd --adapt=min=9 -T0' -cf artifact.tar.zst test runtime bin python_packages python stablehlo shardy
+        tar -I 'zstd --adapt=min=9 -T0' -cf artifact.tar.zst test runtime bin python_packages python stablehlo shardy \
+          ${{ matrix.build.enable_crank == 'ON' && 'tt-crank ttsim_home' || '' }}
 
     - name: Upload Build Folder
       uses: actions/upload-artifact@v7

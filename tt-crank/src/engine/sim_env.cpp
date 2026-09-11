@@ -1,0 +1,57 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+// Optionally points the tt-mlir runtime at ttsim, so any consumer of
+// libtt_crank.so (tests, Python wheel, future bindings) routes through the
+// simulator instead of opening a physical device.
+//
+// Opt-in via the TT_CRANK_USE_SIMULATOR env var ("1" / "true" / "on").
+// CMake injects the dir paths via TT_CRANK_SIM_DIR / TT_CRANK_TT_METAL_HOME
+// (see cmake/TTsim.cmake).
+//
+// The setenv() calls run at library-load time (before the function-local
+// static in engine's runtime_device() can be initialized), so
+// tt-metal's first device open sees the simulator env.
+
+#include "config.hpp"
+#include <cstdlib>
+#include <cstring>
+#include <string>
+
+#include <tt-logger/tt-logger.hpp>
+
+#if !defined(TT_CRANK_SIM_DIR) || !defined(TT_CRANK_TT_METAL_HOME)
+#error "sim_env.cpp requires CMake to inject TT_CRANK_SIM_DIR and TT_CRANK_TT_METAL_HOME"
+#endif
+
+namespace {
+
+struct SimEnvSetter {
+    SimEnvSetter() {
+        if (!use_sim_enabled()) {
+            return;
+        }
+
+        const std::string sim_lib = std::string(TT_CRANK_SIM_DIR) + "/libttsim.so";
+
+        // Overwrite=1 — a stale env var from the parent shell would otherwise
+        // silently win and route us to the wrong simulator.
+        ::setenv("TT_METAL_SIMULATOR_HOME", TT_CRANK_SIM_DIR, 1);
+        ::setenv("TT_METAL_SIMULATOR", sim_lib.c_str(), 1);
+        // The runtime reads TT_METAL_RUNTIME_ROOT (see tt-metal rtoptions.cpp:292);
+        // TT_METAL_HOME is the legacy alias used in shell scripts. Set both.
+        ::setenv("TT_METAL_RUNTIME_ROOT", TT_CRANK_TT_METAL_HOME, 1);
+        ::setenv("TT_METAL_HOME", TT_CRANK_TT_METAL_HOME, 1);
+        // ttsim only supports slow dispatch and has SFPU gaps — see
+        // tt-metal/.github/workflows/ttsim.yaml.
+        ::setenv("TT_METAL_SLOW_DISPATCH_MODE", "1", 1);
+        ::setenv("TT_METAL_DISABLE_SFPLOADMACRO", "1", 1);
+
+        log_info(tt::LogAlways, "[tt_crank] routing runtime through ttsim: {}", sim_lib);
+    }
+};
+
+[[maybe_unused]] const SimEnvSetter g_sim_env_setter{};
+
+} // namespace

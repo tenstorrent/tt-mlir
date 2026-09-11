@@ -62,3 +62,7 @@ env/build/
 
 # System descriptor snapshots (d2m-jit artifact)
 current.ttsys
+
+# tt-crank artifacts
+.data/
+.tracy_artifacts/
