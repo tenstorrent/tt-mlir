@@ -370,6 +370,116 @@ def module_sdpa_bw_composite(builder: StableHLOBuilder):
         )
 
 
+def make_module_cross_entropy_fw_composite(input_shape: Shape, target_shape: Shape):
+    def module(builder: StableHLOBuilder):
+        @builder.func(
+            [input_shape, target_shape],
+            [torch.bfloat16, torch.uint32],
+        )
+        def cross_entropy_fw_impl(
+            input: Operand,
+            target_idx: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.slice(
+                input,
+                [0] * len(input_shape),
+                [*input_shape[:-1], 1],
+                [1] * len(input_shape),
+            )
+
+        cross_entropy_fw_impl.sym_visibility = StringAttr.get("private")
+        builder._nested_funcs.append(cross_entropy_fw_impl.name.value)
+
+        @builder.func(
+            [input_shape, target_shape],
+            [torch.bfloat16, torch.uint32],
+        )
+        def cross_entropy_fw(
+            input: Operand,
+            target_idx: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            # The target must hold valid class indices: [0, W).
+            num_classes = input_shape[-1]
+            valid_target = torch.randint(
+                0, num_classes, target_shape, dtype=torch.uint32
+            )
+            builder.set_goldens({target_idx: valid_target}, {})
+            return builder.composite(
+                "tenstorrent.cross_entropy_fw",
+                [input, target_idx],
+                decomposition=cross_entropy_fw_impl,
+                unit_attrs=unit_attrs,
+            )
+
+    return module
+
+
+def make_module_cross_entropy_bw_composite(input_shape: Shape, target_shape: Shape):
+    grad_shape = (1, 1, 1, 1)
+    scaler = 1.0 / (input_shape[0] * input_shape[-2])
+
+    def module(builder: StableHLOBuilder):
+        @builder.func(
+            [input_shape, target_shape, grad_shape],
+            [torch.bfloat16, torch.uint32, torch.bfloat16],
+        )
+        def cross_entropy_bw_impl(
+            input: Operand,
+            target_idx: Operand,
+            grad: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return input
+
+        cross_entropy_bw_impl.sym_visibility = StringAttr.get("private")
+        builder._nested_funcs.append(cross_entropy_bw_impl.name.value)
+
+        @builder.func(
+            [input_shape, target_shape, grad_shape],
+            [torch.bfloat16, torch.uint32, torch.bfloat16],
+        )
+        def cross_entropy_bw(
+            input: Operand,
+            target_idx: Operand,
+            grad: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            # The target must hold valid class indices: [0, W).
+            num_classes = input_shape[-1]
+            valid_target = torch.randint(
+                0, num_classes, target_shape, dtype=torch.uint32
+            )
+            # Pin `grad` so that a meaningful absolute error can be set. PCC
+            # alone cannot check that `scaler` and `grad` are used properly,
+            # since they only scale the result.
+            pinned_grad = torch.full(grad_shape, 2.0, dtype=torch.bfloat16)
+            builder.set_goldens(
+                {
+                    target_idx: valid_target,
+                    grad: pinned_grad,
+                },
+                {},
+            )
+            composite_attributes = DictAttr.get({"scaler": FloatAttr.get_f32(scaler)})
+            return builder.composite(
+                "tenstorrent.cross_entropy_bw",
+                [input, target_idx, grad],
+                decomposition=cross_entropy_bw_impl,
+                composite_attributes=composite_attributes,
+                unit_attrs=unit_attrs,
+            )
+
+    return module
+
+
 def module_cbrt(builder: StableHLOBuilder):
     @builder.func([(128, 128)], [torch.float32])
     def cbrt(
@@ -2412,6 +2522,57 @@ def test_sdpa_bw_composite(target: str, request, device):
         **get_request_kwargs(request),
         target=target,
         device=device,
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,target_shape",
+    [((4, 1, 32, 64), (4, 32)), ((2, 1, 32, 100), (2, 32))],
+    ids=["4x1x32x64", "2x1x32x100"],
+)
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_cross_entropy_fw_composite(
+    input_shape: Shape,
+    target_shape: Shape,
+    target: str,
+    request,
+    device,
+):
+    compile_and_execute_shlo(
+        make_module_cross_entropy_fw_composite(input_shape, target_shape),
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,target_shape",
+    [((4, 1, 32, 64), (4, 32)), ((2, 1, 32, 100), (2, 32))],
+    ids=["4x1x32x64", "2x1x32x100"],
+)
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_cross_entropy_bw_composite(
+    input_shape: Shape,
+    target_shape: Shape,
+    target: str,
+    request,
+    device,
+):
+    # PCC is scale-invariant, so on its own it cannot see a wrong `scaler` or a
+    # dropped `grad`, both only rescale the result. `grad` is pinned to 2.0 and
+    # the absolute error is checked too (1e-03, which is larger than bf16 error
+    # and smaller than the error that eg. dropped `grad` would cause).
+    kwargs = get_request_kwargs(request)
+    kwargs["check_atol"] = True
+    compile_and_execute_shlo(
+        make_module_cross_entropy_bw_composite(input_shape, target_shape),
+        **kwargs,
+        target=target,
+        device=device,
+        atol=1e-3,
         ttir_pipeline_options=["composite-resolution=force-promote"],
     )
 

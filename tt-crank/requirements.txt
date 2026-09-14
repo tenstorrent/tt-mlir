@@ -1,0 +1,16 @@
+# Pinned by URL: PyPI's Linux torch is the CUDA build, and metadata can't name
+# the CPU index. Bump the version + cp tag together with the toolchain.
+torch@https://download.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl
+
+# Imported at module load by the re-exported ttnn/tracy. Pinned to match
+# tt-metal's own python_env requirements to avoid resolver fights.
+loguru==0.6.0
+click==8.1.7
+pandas==2.3.3
+seaborn==0.13.2
+pyyaml>=5.4
+numpy>=1.24.4,<2
+graphviz
+networkx==3.1
+pydantic==2.9.2
+websockets==16.0

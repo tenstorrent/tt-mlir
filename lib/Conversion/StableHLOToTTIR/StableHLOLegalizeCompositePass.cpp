@@ -2273,6 +2273,50 @@ public:
   }
 };
 
+class TenstorrentCrossEntropyConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+public:
+  TenstorrentCrossEntropyConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringRef compositeName;
+    size_t expectedOperands;
+    if (srcOp.getName() == "tenstorrent.cross_entropy_fw") {
+      compositeName = "cross_entropy_fw";
+      expectedOperands = 2;
+    } else if (srcOp.getName() == "tenstorrent.cross_entropy_bw") {
+      compositeName = "cross_entropy_bw";
+      expectedOperands = 3;
+    } else {
+      return failure();
+    }
+
+    if (adaptor.getOperands().size() != expectedOperands ||
+        srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "cross entropy composite has unexpected operand or result "
+                 "count");
+    }
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+    if (compositeName == "cross_entropy_bw" &&
+        (!compositeAttrs || !compositeAttrs.getAs<FloatAttr>("scaler"))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.cross_entropy_bw requires a scaler attribute");
+    }
+
+    rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
+        srcOp, srcOp.getResultTypes(), adaptor.getOperands(),
+        rewriter.getStringAttr(compositeName), srcOp.getDecomposition(),
+        compositeAttrs);
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -2312,9 +2356,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentSDPAForwardConversionPattern>(context);
   patterns.add<TenstorrentSDPABackwardConversionPattern>(context);
   patterns.add<TenstorrentLayerNormForwardConversionPattern>(context);
-  patterns.add<
-      StableHLOToTTIRCompositeOpConversionPattern<ttir::CrossEntropyForwardOp>>(
-      context, "tenstorrent.cross_entropy_fw");
+  patterns.add<TenstorrentCrossEntropyConversionPattern>(context);
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<CustomCallRMSNormConversionPattern>(context);
   patterns.add<CustomCallDistributedRMSNormConversionPattern>(context);

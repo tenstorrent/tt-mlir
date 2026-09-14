@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+
+# Usage: scripts/test [sim] [-- <gtest-args>...]
+#
+# Run tt-crank unit tests against an existing build.
+#
+# Arguments:
+#   sim              Route the runtime through ttsim (sets TT_CRANK_USE_SIMULATOR=1).
+#   -- <gtest-args>  Extra flags forwarded verbatim to the test binary.
+#   -h, --help       Print this message and exit.
+#
+# Examples:
+#   ./scripts/test
+#   ./scripts/test sim -- --gtest_filter='EngineCompileTest.*'
+#
+# Expects the build to already exist: configure tt-mlir with
+# -DTTMLIR_ENABLE_CRANK=ON and run `cmake --build build` from the tt-mlir root.
+
+set -euo pipefail
+
+REPO_DIR=$(realpath "$(dirname "${BASH_SOURCE[0]}")"/../../)
+
+SIM=0
+EXTRA_ARGS=()
+PASSTHROUGH=0
+
+for arg in "$@"; do
+    if [[ "$arg" == "--help" || "$arg" == "-h" ]]; then
+        sed -n '2,/^[^#]/{ /^#/s/^# \{0,1\}//p }' "${BASH_SOURCE[0]}"
+        exit 0
+    fi
+done
+
+for arg in "$@"; do
+    if [[ $PASSTHROUGH -eq 1 ]]; then
+        EXTRA_ARGS+=("$arg")
+    elif [[ "$arg" == "--" ]]; then
+        PASSTHROUGH=1
+    elif [[ "$arg" == "sim" ]]; then
+        SIM=1
+    else
+        echo "Invalid arg: $arg"
+        exit 1
+    fi
+done
+
+BUILD_DIR="$REPO_DIR/build"
+TEST_BIN="$BUILD_DIR/tt-crank/tests/tt_crank_unit_tests"
+
+if [[ ! -x "$TEST_BIN" ]]; then
+    echo "error: test binary '$TEST_BIN' not found — build tt-mlir with -DTTMLIR_ENABLE_CRANK=ON first" >&2
+    exit 1
+fi
+
+if [[ $SIM -eq 1 ]]; then
+    TT_CRANK_USE_SIMULATOR=1 "$TEST_BIN" "${EXTRA_ARGS[@]}"
+else
+    "$TEST_BIN" "${EXTRA_ARGS[@]}"
+fi

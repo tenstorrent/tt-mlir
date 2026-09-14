@@ -10,3 +10,8 @@ ttnn-jit-wheel:
   - tools/ttnn-jit/**
 ttnn-jit-nightly:
   - test/ttnn-jit/nightly/**
+crank:
+  - tt-crank/**
+mlir:
+  - '**'
+  - '!tt-crank/**'
