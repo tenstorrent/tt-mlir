@@ -248,10 +248,10 @@ private:
 // migration closes.
 TEST_F(IndexerScoreDsaLibMockDeviceTest, StatefulReportsOutputAllocation) {
   // Shapes mirror the transformer lit tests: query [B, Hi, Sq, D],
-  // key [B, 1, T, D], weights [B, Hi, Sq, 1] -> score [B, 1, Sq, T].
+  // key [B, 1, T, D], weights [B, 1, Sq, Hi] -> score [B, 1, Sq, T].
   const llvm::SmallVector<int64_t> queryShape = {1, 8, 32, 128};
   const llvm::SmallVector<int64_t> keyShape = {1, 1, 32, 128};
-  const llvm::SmallVector<int64_t> weightsShape = {1, 8, 32, 1};
+  const llvm::SmallVector<int64_t> weightsShape = {1, 1, 32, 8};
   const llvm::SmallVector<int64_t> outputShape = {1, 1, 32, 32};
 
   const llvm::SmallVector<int64_t> physicalGrid = {1, 1};

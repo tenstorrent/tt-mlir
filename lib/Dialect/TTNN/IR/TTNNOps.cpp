@@ -7484,7 +7484,7 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
     return emitOpError("Key must be a 4D tensor [B, 1, T, D]");
   }
   if (weightsType.getRank() != 4) {
-    return emitOpError("Weights must be a 4D tensor [B, Hi, Sq, 1]");
+    return emitOpError("Weights must be a 4D tensor [B, 1, Sq, Hi]");
   }
   if (resultType.getRank() != 4) {
     return emitOpError("Result must be a 4D tensor [B, 1, Sq, T]");
@@ -7511,12 +7511,11 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
     return emitOpError("Key head dim must match query head dim");
   }
 
-  if (weightsType.getShape()[0] != batch ||
-      weightsType.getShape()[1] != numHeads ||
+  if (weightsType.getShape()[0] != batch || weightsType.getShape()[1] != 1 ||
       weightsType.getShape()[2] != querySeqLen ||
-      weightsType.getShape()[3] != 1) {
+      weightsType.getShape()[3] != numHeads) {
     return emitOpError(
-        "Weights shape must be [batch, num_heads, query_seq_len, 1]");
+        "Weights shape must be [batch, 1, query_seq_len, num_heads]");
   }
 
   if (resultType.getShape()[0] != batch || resultType.getShape()[1] != 1 ||
