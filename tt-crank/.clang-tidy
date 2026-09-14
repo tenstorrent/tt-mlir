@@ -1,0 +1,44 @@
+---
+Checks: >
+  bugprone-*,
+  modernize-*,
+  performance-*,
+  readability-*,
+  cppcoreguidelines-*,
+  -bugprone-easily-swappable-parameters,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -readability-function-cognitive-complexity,
+  -modernize-use-auto,
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+
+# Escalation is controlled by the CMake preset (TT_CRANK_WARNINGS_AS_ERRORS); keep this empty.
+WarningsAsErrors: ''
+
+CheckOptions:
+  # Type-like things: PascalCase (clang-tidy calls this "CamelCase").
+  readability-identifier-naming.ClassCase:           CamelCase
+  readability-identifier-naming.StructCase:          CamelCase
+  readability-identifier-naming.EnumCase:            CamelCase
+  readability-identifier-naming.TypeAliasCase:       CamelCase
+  readability-identifier-naming.UnionCase:           CamelCase
+
+  # Functions, variables, namespaces: snake_case.
+  readability-identifier-naming.FunctionCase:        lower_case
+  readability-identifier-naming.MethodCase:          lower_case
+  readability-identifier-naming.VariableCase:        lower_case
+  readability-identifier-naming.MemberCase:          lower_case
+  readability-identifier-naming.ParameterCase:       lower_case
+  readability-identifier-naming.NamespaceCase:       lower_case
+  readability-identifier-naming.ConstantCase:        lower_case
+
+  # Macros: UPPER_CASE.
+  readability-identifier-naming.MacroDefinitionCase: UPPER_CASE
+
+  # Scoped-enum members: PascalCase (revisit if UPPER_CASE feels better).
+  readability-identifier-naming.EnumConstantCase:    CamelCase
