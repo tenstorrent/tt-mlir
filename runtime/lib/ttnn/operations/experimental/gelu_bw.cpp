@@ -8,7 +8,7 @@
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
-#include "ttnn/operations/experimental/unary_backward/gelu_backward/gelu_backward.hpp"
+#include "ttnn/operations/eltwise/unary_backward/unary_backward.hpp"
 #include "ttnn/tensor/tensor.hpp"
 
 namespace tt::runtime::ttnn::operations::experimental {
@@ -28,13 +28,19 @@ void run(const ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOp *op,
 
   std::string approximate =
       op->approximate() ? op->approximate()->str() : "none";
+  ::ttnn::operations::unary::GeluVariant variant =
+      approximate == "tanh" ? ::ttnn::operations::unary::GeluVariant::TANH
+                            : ::ttnn::operations::unary::GeluVariant::ACCURATE;
 
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
 
-  ::ttnn::Tensor out =
-      ::ttnn::experimental::gelu_bw(grad, input, approximate, memoryConfig);
+  std::vector<std::optional<::ttnn::Tensor>> results =
+      ::ttnn::gelu_bw(grad, input, variant, memoryConfig);
+  LOG_ASSERT(results.size() == 1 && results.front().has_value(),
+             "ttnn::gelu_bw must produce exactly one gradient tensor");
+  ::ttnn::Tensor out = *results.front();
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
