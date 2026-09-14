@@ -395,6 +395,19 @@ getNullableMemoryConfig(TTNNLayoutAttr layout) {
 }
 
 /**
+ * @brief Map the TTIR/TTNN `approximate` string onto tt-metal's GeluVariant.
+ *
+ * The dialect carries "none" (exact) or "tanh"; anything else falls back to
+ * the exact variant, matching the op's documented default.
+ */
+::ttnn::operations::unary::GeluVariant
+toGeluVariant(llvm::StringRef approximate) {
+  return approximate == "tanh"
+             ? ::ttnn::operations::unary::GeluVariant::TANH
+             : ::ttnn::operations::unary::GeluVariant::ACCURATE;
+}
+
+/**
  * @brief Reorder pool2d padding from IR convention to tt-metal convention.
  *
  * IR stores padding as [H_low, W_low, H_high, W_high] (top, left, bottom,
@@ -1884,8 +1897,8 @@ llvm::Expected<OpConstraints> OpModel<GeluBackwardOp>::getOpConstraints(
   // Create query closure
   auto query = [=]() {
     return QUERY_OP_CONSTRAINTS_WITH_STATE(
-        ::ttnn::experimental::gelu_bw, device, initialStateOpt, inputSpecA,
-        inputSpecB, approximate, outputMemoryConfig);
+        ::ttnn::gelu_bw, device, initialStateOpt, inputSpecA, inputSpecB,
+        detail::toGeluVariant(approximate), outputMemoryConfig);
   };
 
   return operation::getOpConstraintsWithState(inputLayoutA.getContext(), query);
@@ -1915,8 +1928,9 @@ llvm::Expected<size_t> OpModel<GeluBackwardOp>::getOpRuntime(
 
   // Create query closure
   auto query = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::experimental::gelu_bw, device, inputSpecA,
-                            inputSpecB, approximate, outputMemoryConfig);
+    return QUERY_OP_RUNTIME(::ttnn::gelu_bw, device, inputSpecA, inputSpecB,
+                            detail::toGeluVariant(approximate),
+                            outputMemoryConfig);
   };
 
   return operation::getOpRuntime(query);
