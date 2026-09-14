@@ -79,3 +79,11 @@ table CrossEntropyBackwardOp {
   scaler: float;
   out: tt.target.ttnn.TensorRef;
 }
+
+table SwigluElemwiseBackwardOp {
+  input: tt.target.ttnn.TensorRef;
+  gate: tt.target.ttnn.TensorRef;
+  grad_output: tt.target.ttnn.TensorRef;
+  grad_input: tt.target.ttnn.TensorRef;
+  grad_gate: tt.target.ttnn.TensorRef;
+}

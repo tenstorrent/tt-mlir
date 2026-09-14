@@ -79,6 +79,50 @@ def test_rmsnorm_fw_composite(return_intermediates: bool, target: str, request, 
     )
 
 
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_swiglu_elemwise_bw_composite(target: str, request, device):
+    shape = (1, 1, 32, 64)
+    dtypes = [torch.bfloat16, torch.bfloat16, torch.bfloat16]
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape, shape], dtypes)
+        def swiglu_elemwise_bw_decomp(
+            input: Operand,
+            gate: Operand,
+            grad_output: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return input, gate
+
+        swiglu_elemwise_bw_decomp.sym_visibility = StringAttr.get("private")
+        builder._nested_funcs.append(swiglu_elemwise_bw_decomp.name.value)
+
+        @builder.func([shape, shape, shape], dtypes)
+        def swiglu_elemwise_bw(
+            input: Operand,
+            gate: Operand,
+            grad_output: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.composite(
+                "swiglu_elemwise_bw",
+                [input, gate, grad_output],
+                decomposition=swiglu_elemwise_bw_decomp,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=["composite-resolution=force-promote"],
+    )
+
+
 def logical_not(
     in0: Operand,
     builder: TTIRBuilder,

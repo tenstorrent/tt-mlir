@@ -472,6 +472,29 @@ static void registerBuiltinComposites() {
             compositeOp.getInputs()[2], attrs.getAs<FloatAttr>("scaler"));
       },
       /*promotionGuard=*/nullptr};
+
+  registry["swiglu_elemwise_bw"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 3u);
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<SwigluElemwiseBackwardOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2]);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        TT_assert(compositeOp.getInputs().size() == 3u);
+        return builder.create<SwigluElemwiseBackwardOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2]);
+      },
+      /*promotionGuard=*/nullptr};
 }
 
 // Inline the decomposition function body at the composite ops location,

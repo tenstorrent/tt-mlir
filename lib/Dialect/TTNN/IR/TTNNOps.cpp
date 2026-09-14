@@ -4294,6 +4294,48 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// SwigluElemwiseBackwardOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::SwigluElemwiseBackwardOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("input must be a 4D tensor, got rank ")
+           << inputType.getRank();
+  }
+
+  // The kernel reads the three operands tile by tile and writes both results
+  // at the same tile index, so every tensor it touches has one shape and one
+  // element type.
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  mlir::Type elementType = inputType.getElementType();
+  auto verifyType = [this, inputShape, elementType](
+                        llvm::StringRef name, Value value) -> LogicalResult {
+    RankedTensorType type = cast<RankedTensorType>(value.getType());
+    if (type.getShape() != inputShape) {
+      return emitOpError(name) << " shape must match input shape, expected "
+                               << inputShape << ", got " << type.getShape();
+    }
+    if (type.getElementType() != elementType) {
+      return emitOpError(name)
+             << " element type must match input element type, expected "
+             << elementType << ", got " << type.getElementType();
+    }
+    return success();
+  };
+
+  if (failed(verifyType("gate", getGate())) ||
+      failed(verifyType("grad_output", getGradOutput())) ||
+      failed(verifyType("grad_input", getGradInput())) ||
+      failed(verifyType("grad_gate", getGradGate()))) {
+    return failure();
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // DistributedRMSNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::DistributedRMSNormOp::verify() {
