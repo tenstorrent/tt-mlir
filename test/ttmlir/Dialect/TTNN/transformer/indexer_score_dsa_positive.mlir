@@ -5,10 +5,18 @@
 // the typed ttnn.indexer_score_dsa op carrying chunk_start_idx. The synthesized
 // decomposition function is the fallback body and is deleted once the typed
 // promotion succeeds.
+//
+// The composite carries weights head-major ([B, Hi, Sq, 1]) while the typed op
+// takes the projection's native [B, 1, Sq, Hi] order, so promotion also emits a
+// ttnn.permute in front of the op.
 
 module {
   func.func @indexer_score_dsa(%q: tensor<1x8x32x128xbf16>, %k: tensor<1x1x32x128xbf16>, %w: tensor<1x8x32x1xbf16>) -> tensor<1x1x32x32xbf16> {
     // CHECK-LABEL: @indexer_score_dsa
+    // CHECK: "ttnn.permute"
+    // CHECK-SAME: permutation = array<i64: 0, 3, 2, 1>
+    // CHECK-SAME: tensor<1x8x32x1xbf16
+    // CHECK-SAME: -> tensor<1x1x32x8xbf16
     // CHECK: "ttnn.indexer_score_dsa"
     // CHECK-SAME: chunk_start_idx = 0 : ui32
     // A composite without cluster_axis promotes to an op without it, leaving
@@ -62,6 +70,20 @@ module {
   }
   func.func private @decomp_cluster_axis_zero(%q: tensor<1x8x32x128xbf16>, %k: tensor<1x1x32x128xbf16>, %w: tensor<1x8x32x1xbf16>) -> tensor<1x1x32x32xbf16> {
     %0 = "ttir.slice_static"(%q) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1 : i32, 32 : i32, 32 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x8x32x128xbf16>) -> tensor<1x1x32x32xbf16>
+    return %0 : tensor<1x1x32x32xbf16>
+  }
+
+  // A single indexer head makes the head-major and native orders identical, so
+  // no permute is emitted. The composite's weights feed the typed op directly.
+  func.func @indexer_score_dsa_single_head(%q: tensor<1x1x32x128xbf16>, %k: tensor<1x1x32x128xbf16>, %w: tensor<1x1x32x1xbf16>) -> tensor<1x1x32x32xbf16> {
+    // CHECK-LABEL: @indexer_score_dsa_single_head
+    // CHECK-NOT: "ttnn.permute"
+    // CHECK: "ttnn.indexer_score_dsa"
+    %0 = "ttcore.composite"(%q, %k, %w) <{composite_name = "indexer_score_dsa", decomposition = @decomp_single_head, composite_attributes = {chunk_start_idx = 0 : ui32}}> : (tensor<1x1x32x128xbf16>, tensor<1x1x32x128xbf16>, tensor<1x1x32x1xbf16>) -> tensor<1x1x32x32xbf16>
+    return %0 : tensor<1x1x32x32xbf16>
+  }
+  func.func private @decomp_single_head(%q: tensor<1x1x32x128xbf16>, %k: tensor<1x1x32x128xbf16>, %w: tensor<1x1x32x1xbf16>) -> tensor<1x1x32x32xbf16> {
+    %0 = "ttir.slice_static"(%q) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1 : i32, 32 : i32, 32 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1x32x128xbf16>) -> tensor<1x1x32x32xbf16>
     return %0 : tensor<1x1x32x32xbf16>
   }
 }
