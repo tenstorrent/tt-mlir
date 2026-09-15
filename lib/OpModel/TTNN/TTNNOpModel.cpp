@@ -8726,12 +8726,20 @@ llvm::Expected<size_t> OpModel<GatherOp>::getOpRuntime(
       ::tt::tt_metal::TensorSpec indexSpec,
       detail::convertToTensorSpec(device, indexShape, indexLayout));
 
+  // ::ttnn::gather hangs on device when an index falls outside the gathered
+  // axis. Zero indexes any non-empty axis validly, and the runtime does not
+  // depend on the index values.
+  ::ttnn::Tensor indexTensor =
+      ::ttnn::zeros(indexSpec.logical_shape(), indexSpec.data_type(),
+                    indexSpec.layout(), *device, indexSpec.memory_config());
+
   auto gatherOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::gather, device, inputSpec, static_cast<int8_t>(dim), indexSpec,
-        /*sparse_grad=*/false, detail::getNullableMemoryConfig(outputLayout),
-        /*optional_output_tensor=*/std::nullopt,
-        /*sub_core_grids=*/std::nullopt);
+    return QUERY_OP_RUNTIME(::ttnn::gather, device, inputSpec,
+                            static_cast<int8_t>(dim), indexTensor,
+                            /*sparse_grad=*/false,
+                            detail::getNullableMemoryConfig(outputLayout),
+                            /*optional_output_tensor=*/std::nullopt,
+                            /*sub_core_grids=*/std::nullopt);
   };
 
   return operation::getOpRuntime(gatherOpQuery);
