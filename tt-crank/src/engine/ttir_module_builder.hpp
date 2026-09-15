@@ -24,7 +24,9 @@
 #include "mlir/IR/Value.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 #include <tt/runtime/types.h>
 
 #include "cast.hpp"
@@ -75,6 +77,15 @@ public:
 
     llvm::ArrayRef<mlir::Value> args() const { return args_; }
     mlir::Location loc() const { return loc_; }
+
+    // `ttcore.composite`: tt-mlir promotes it to the typed op or inlines `decomposition`
+    // (emitted into a private function of this module via the usual `build_*` helpers).
+    using CompositeDecomposition =
+        llvm::function_ref<llvm::SmallVector<mlir::Value, 4>(ModuleBuilder &, mlir::ValueRange)>;
+    llvm::SmallVector<mlir::Value, 4> create_composite(llvm::StringRef name, llvm::ArrayRef<mlir::Value> inputs,
+                                                       llvm::ArrayRef<mlir::Type> result_types,
+                                                       llvm::ArrayRef<mlir::NamedAttribute> attributes,
+                                                       CompositeDecomposition decomposition);
 
     mlir::OwningOpRef<mlir::ModuleOp> finalize(llvm::ArrayRef<mlir::Value> outputs) &&;
 
@@ -587,5 +598,15 @@ TT_CRANK_API mlir::Value build_index_copy(ModuleBuilder &mb, mlir::Value input, 
 // same shape and type as `query`.
 TT_CRANK_API mlir::Value build_sdpa(ModuleBuilder &mb, mlir::Value query, mlir::Value key, mlir::Value value,
                                     bool is_causal, std::optional<float> scale, mlir::Value attn_mask);
+
+// ttml `sdpa_fw`/`sdpa_bw` composites (differentiable `build_sdpa`). Q/K/V `[B x H(kv) x S x D]`, Sq == Sk;
+// `attn_mask` (optional) is a bool keep-mask broadcastable to `[1 x 1 x S x S]`.
+TT_CRANK_API std::pair<mlir::Value, mlir::Value> build_sdpa_fw(ModuleBuilder &mb, mlir::Value query, mlir::Value key,
+                                                               mlir::Value value, bool is_causal,
+                                                               std::optional<double> scale, mlir::Value attn_mask);
+TT_CRANK_API std::tuple<mlir::Value, mlir::Value, mlir::Value>
+build_sdpa_bw(ModuleBuilder &mb, mlir::Value grad_output, mlir::Value attn_output, mlir::Value query, mlir::Value key,
+              mlir::Value value, mlir::Value logsumexp, bool is_causal, std::optional<double> scale,
+              mlir::Value attn_mask);
 
 } // namespace tt::crank

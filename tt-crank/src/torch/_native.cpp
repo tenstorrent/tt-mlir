@@ -572,6 +572,20 @@ public:
         return tk::build_sdpa(*mb_, query, key, value, is_causal, scale, attn_mask.value_or(mlir::Value{}));
     }
 
+    std::pair<mlir::Value, mlir::Value> sdpa_fw(mlir::Value query, mlir::Value key, mlir::Value value, bool is_causal,
+                                                std::optional<double> scale, std::optional<mlir::Value> attn_mask) {
+        assert_builder();
+        return tk::build_sdpa_fw(*mb_, query, key, value, is_causal, scale, attn_mask.value_or(mlir::Value{}));
+    }
+
+    std::tuple<mlir::Value, mlir::Value, mlir::Value>
+    sdpa_bw(mlir::Value grad_output, mlir::Value attn_output, mlir::Value query, mlir::Value key, mlir::Value value,
+            mlir::Value logsumexp, bool is_causal, std::optional<double> scale, std::optional<mlir::Value> attn_mask) {
+        assert_builder();
+        return tk::build_sdpa_bw(*mb_, grad_output, attn_output, query, key, value, logsumexp, is_causal, scale,
+                                 attn_mask.value_or(mlir::Value{}));
+    }
+
     // index_copy: result = self with source values placed at index positions along dim.
     // index must be 1D; source must have the same rank as self.
     mlir::Value index_copy(mlir::Value input, int64_t dim, mlir::Value index, mlir::Value source) {
@@ -897,6 +911,10 @@ NB_MODULE(_native, m) {
         .def("where", &PyModuleBuilder::where, "condition"_a, "true_val"_a, "false_val"_a)
         .def("sdpa", &PyModuleBuilder::sdpa, "query"_a, "key"_a, "value"_a, "is_causal"_a = true,
              "scale"_a = nb::none(), "attn_mask"_a = nb::none())
+        .def("sdpa_fw", &PyModuleBuilder::sdpa_fw, "query"_a, "key"_a, "value"_a, "is_causal"_a = false,
+             "scale"_a = nb::none(), "attn_mask"_a = nb::none())
+        .def("sdpa_bw", &PyModuleBuilder::sdpa_bw, "grad_output"_a, "attn_output"_a, "query"_a, "key"_a, "value"_a,
+             "logsumexp"_a, "is_causal"_a = false, "scale"_a = nb::none(), "attn_mask"_a = nb::none())
         .def("index_copy", &PyModuleBuilder::index_copy, "input"_a, "dim"_a, "index"_a, "source"_a)
         .def("tril", &PyModuleBuilder::tril, "input"_a, "diagonal"_a = 0)
         // Consumes the builder. Subsequent calls on `self` raise.
