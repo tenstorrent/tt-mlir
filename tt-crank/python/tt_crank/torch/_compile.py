@@ -30,7 +30,7 @@ from enum import StrEnum
 
 import torch
 import torch.fx
-from torch._decomp import core_aten_decompositions, get_decompositions
+from torch._decomp import core_aten_decompositions
 from torch._dynamo.backends.common import aot_module_simplified
 from torch._subclasses.fake_tensor import unset_fake_temporarily
 
