@@ -24,6 +24,8 @@ Pipeline::
 from __future__ import annotations
 
 import functools
+import math
+import warnings
 import operator
 from collections.abc import Callable
 from enum import StrEnum
@@ -880,10 +882,33 @@ def _(mb, tensors, scalar, alpha=1):
     return [mb.add(t, mb.scalar_like(t, float(scalar)), float(alpha)) for t in tensors]
 
 
+_warned_float_lr = False
+
+
 def _adamw_scalar(mb, value):
     if isinstance(value, _native.Value):
         return value
     return mb.full([1], float(value), _to_runtime_dtype(torch.float32))
+
+
+def _adamw_lr(mb, lr):
+    """`lr` as a module value. A tensor lr (`AdamW(lr=torch.tensor(...))`, the
+    `.tensor_lr` overload) is a graph input, so one compiled module serves every
+    learning rate. A Python-float lr is already specialized by dynamo before it
+    reaches this lowering (it guards on the value), so it can only be baked in as
+    a constant: each new lr recompiles, and past dynamo's recompile limit the step
+    silently runs eager. Warn once so schedulers are not slowed down unknowingly.
+    """
+    global _warned_float_lr
+    if not isinstance(lr, _native.Value) and not _warned_float_lr:
+        _warned_float_lr = True
+        warnings.warn(
+            "tt-crank: compiled AdamW received a Python-float lr, which dynamo bakes "
+            "into the graph; every lr change recompiles. Pass lr as a tensor "
+            "(torch.optim.AdamW(..., lr=torch.tensor(lr))) to compile once.",
+            stacklevel=2,
+        )
+    return _adamw_scalar(mb, lr)
 
 
 @_lowering(_aten._fused_adamw.default, _aten._fused_adamw.tensor_lr)
@@ -911,7 +936,7 @@ def _(
         raise NotImplementedError(
             "tt-crank adamw: grad_scale / found_inf (AMP gradient scaling) are not supported"
         )
-    lr = _adamw_scalar(mb, lr)
+    lr = _adamw_lr(mb, lr)
     outs = [[], [], [], []]
     for i, param in enumerate(self):
         updated = mb.adamw(
@@ -1366,23 +1391,39 @@ class _TTIRInterpreter(torch.fx.Interpreter):
         return super().run_node(n)
 
     def _lower_op(self, target, args, kwargs):
+        fn = _LOWERINGS.get(target)
+        if fn is None and target is not _aten.copy_.default:
+            raise NotImplementedError(f"tt-crank compile: op {target} not implemented")
         if target not in _SKIP_PREPARE_OP_ARGS:
             val = self._current_node.meta["val"]
             if isinstance(val, (tuple, list)):
                 val = next(v for v in val if v is not None)
             args = _prepare_op_args(self.mb, args, _to_runtime_dtype(val.dtype), target)
         if target is _aten.copy_.default:
-            target_node = self._current_node.args[0]
-            if target_node.op != "placeholder":
-                raise NotImplementedError(
-                    "tt-crank compile: copy_ into a non-input tensor"
-                )
-            self.input_mutations.append((self._placeholder_index[target_node], args[1]))
-            return args[1]
-        fn = _LOWERINGS.get(target)
-        if fn is None:
-            raise NotImplementedError(f"tt-crank compile: op {target} not implemented")
+            return self._lower_input_mutation(args[1])
         return fn(self.mb, *args, **kwargs)
+
+    def _lower_input_mutation(self, value):
+        """`dst.copy_(src)` where `dst` is a graph input: record `src` as the
+        input's new value. The runner swaps the input's storage to the produced
+        tensor, so `src` is broadcast to the target's shape here (copy_ accepts
+        any broadcastable source)."""
+        target_node = self._current_node.args[0]
+        if target_node.op != "placeholder":
+            raise NotImplementedError("tt-crank compile: copy_ into a non-input tensor")
+        # Compare IR shapes, not FX meta (0-d tensors may carry a [1] shape in
+        # the module). Same element count is a reshape; otherwise pad the rank
+        # with leading 1s and broadcast, as ttir.broadcast needs equal ranks.
+        src, dst = list(value.shape), list(self.env[target_node].shape)
+        if src != dst:
+            if math.prod(src) == math.prod(dst):
+                value = self.mb.reshape(value, dst)
+            else:
+                if len(src) < len(dst):
+                    value = self.mb.reshape(value, [1] * (len(dst) - len(src)) + src)
+                value = self.mb.broadcast(value, dst)
+        self.input_mutations.append((self._placeholder_index[target_node], value))
+        return value
 
     def _call_operator(self, target, args, kwargs):
         op = _OPERATORS.get(target)
@@ -1595,14 +1636,30 @@ def tt_backend(
 torch._dynamo.register_backend(name="tt", compiler_fn=tt_backend)
 
 
+_fused_adamw_compile_enabled = False
+
+
 def _enable_fused_adamw_compile() -> None:
     """Let dynamo trace `torch.optim.AdamW(fused=True).step()` into one graph.
+
+    Process-wide and applied at import on purpose: dynamo consults its trace
+    rules and the `torch.compiler.disable` wrapper while tracing, before any
+    backend is invoked, so arming this lazily from `tt_backend` is too late (the
+    first compiled `step()` would silently run eager). Dynamo has no per-backend
+    trace rules, so other backends in a process that imported tt_crank trace the
+    fused step through the polyfill too; that is behaviour-preserving for them
+    (functional op + copy_ is what the C binding does).
 
     torch wraps the fused optimizer body in `torch.compiler.disable` (lazily, at
     first compile) and `aten::_fused_adamw_` cannot be functionalized when
     `max_exp_avg_sqs` is empty (amsgrad=False). Unwrap the former; trace the
     latter as the functional overload plus `copy_` (eager is untouched).
     """
+    global _fused_adamw_compile_enabled
+    if _fused_adamw_compile_enabled:
+        return
+    _fused_adamw_compile_enabled = True
+
     import torch.optim.adam as adam_module
 
     torch._dynamo.eval_frame.TorchPatcher.patch()

@@ -177,6 +177,54 @@ def test_adamw_compiled_step(options: dict) -> None:
         assert tt_opt.state[tt_param]["step"].cpu().item() == 3
 
 
+def _compiled_schedule(tt_lr, lrs, capture):
+    """Run a compiled `AdamW.step()` over `lrs` on one param against eager CPU;
+    `tt_lr` is the initial tt-side lr (float or tensor), `capture` collects the
+    compiled graphs. Returns (tt_param, cpu_param)."""
+    init = torch.randn((32, 32), dtype=torch.bfloat16)
+    cpu_param, tt_param = init.clone(), init.to("tt")
+    cpu_opt = torch.optim.AdamW([cpu_param], lr=float(lrs[0]), fused=False)
+    tt_opt = torch.optim.AdamW([tt_param], lr=tt_lr, fused=True)
+    _compile._post_aot_fx_hook = lambda gm: capture.append(gm)
+    try:
+        step = torch.compile(tt_opt.step, backend="tt")
+        for lr in lrs:
+            cpu_opt.param_groups[0]["lr"] = lr
+            group_lr = tt_opt.param_groups[0]["lr"]
+            if isinstance(group_lr, torch.Tensor):
+                group_lr.fill_(lr)
+            else:
+                tt_opt.param_groups[0]["lr"] = lr
+            cpu_param.grad = torch.randn_like(cpu_param)
+            tt_param.grad = cpu_param.grad.to("tt")
+            cpu_opt.step()
+            step()
+    finally:
+        _compile._post_aot_fx_hook = None
+    return tt_param, cpu_param
+
+
+def test_adamw_compiled_lr_schedule_tensor_lr() -> None:
+    """A tensor lr is a graph input: one compiled graph serves every lr value."""
+    graphs: list = []
+    tt_param, cpu_param = _compiled_schedule(
+        torch.tensor(1e-2), (1e-2, 5e-3, 1e-3), graphs
+    )
+    assert len(graphs) == 1
+    _close(tt_param, cpu_param)
+
+
+def test_adamw_compiled_lr_schedule_float_lr_warns() -> None:
+    """A Python-float lr is baked into the graph by dynamo: still correct, but
+    each lr value is its own compile, and the lowering says so once."""
+    _compile._warned_float_lr = False
+    graphs: list = []
+    with pytest.warns(UserWarning, match="Python-float lr"):
+        tt_param, cpu_param = _compiled_schedule(1e-2, (1e-2, 5e-3, 1e-3), graphs)
+    assert len(graphs) == 3
+    _close(tt_param, cpu_param)
+
+
 def test_adamw_lr_schedule() -> None:
     init = torch.randn((32, 32), dtype=torch.bfloat16)
     cpu_param, tt_param = init.clone(), init.to("tt")
