@@ -9,6 +9,8 @@
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
+#include "ttnn/operations/experimental/quasar/to_layout/to_layout_op.hpp"
+
 namespace tt::runtime::ttnn::operations::layout {
 void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -30,8 +32,14 @@ void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
     dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->dtype()));
   }
 
+  // On Quasar, ttnn::to_layout reaches ttnn::tilize, whose program factory
+  // builds a DataMovementKernel and TT_FATALs. See utils::isQuasar(). The
+  // Quasar to_layout takes the same arguments.
   ::ttnn::Tensor out =
-      ::ttnn::to_layout(inputTensor, layout, dtype, memoryConfig);
+      utils::isQuasar()
+          ? ::ttnn::operations::experimental::quasar::to_layout(
+                inputTensor, layout, dtype, memoryConfig)
+          : ::ttnn::to_layout(inputTensor, layout, dtype, memoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

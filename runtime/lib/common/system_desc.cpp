@@ -187,6 +187,26 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
         ::tt::target::DataType::UInt16,      ::tt::target::DataType::UInt8,
         ::tt::target::DataType::Int32};
 
+    // The list above is right for Wormhole and Blackhole and wrong for Quasar,
+    // which has no block-float (its narrow formats are MX/microscaling) and no
+    // unsigned 16/32-bit device format -- see `is_supported_quasar` in
+    // tt_metal/common/tt_backend_api_types.cpp. Advertising bf8_b on a Quasar
+    // descriptor makes downstream legality checks believe it is available and
+    // defers the failure to a tt-metal host format-validator throw.
+    //
+    // Narrowed only for Quasar so Wormhole and Blackhole keep reporting exactly
+    // what they did before. Deriving all three from
+    // `tt::is_data_format_supported` would be better, but that changes what the
+    // other two report and belongs in its own change. Keep this in agreement
+    // with createDefaultQuasarSystemDesc in
+    // lib/Dialect/TTCore/IR/TTCoreOpsTypes.cpp.
+    if (device->arch() == ::tt::ARCH::QUASAR) {
+      supportedDataTypesVector = {
+          ::tt::target::DataType::Float32, ::tt::target::DataType::Float16,
+          ::tt::target::DataType::BFloat16, ::tt::target::DataType::UInt8,
+          ::tt::target::DataType::Int32};
+    }
+
     auto supportedDataTypes = fbb.CreateVector(supportedDataTypesVector);
 
     std::vector<::tt::target::Dim2d> supportedTileSizesVector = {

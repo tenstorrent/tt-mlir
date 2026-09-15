@@ -7,6 +7,8 @@
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
+#include "ttnn/operations/experimental/quasar/binary/binary.hpp"
+
 #include <vector>
 
 namespace tt::runtime::ttnn::operations::eltwise::binary {
@@ -69,7 +71,14 @@ void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
   /* Eltwise Binary */
   case ::tt::target::ttnn::EltwiseBinaryOpType::Add: {
     runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::add(std::forward<decltype(args)>(args)...);
+      // Mainline ttnn::add cannot build a kernel on Quasar: its program factory
+      // constructs a DataMovementKernel, whose constructor TT_FATALs there.
+      // The Quasar op takes the same leading arguments, so the forwarded pack
+      // binds to both.
+      return utils::isQuasar()
+                 ? ::ttnn::operations::experimental::quasar::binary::add(
+                       std::forward<decltype(args)>(args)...)
+                 : ::ttnn::add(std::forward<decltype(args)>(args)...);
     });
     break;
   }
