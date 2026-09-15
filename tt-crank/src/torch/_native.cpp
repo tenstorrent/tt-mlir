@@ -572,6 +572,21 @@ public:
         return tk::build_sdpa(*mb_, query, key, value, is_causal, scale, attn_mask.value_or(mlir::Value{}));
     }
 
+    // Always 4 entries; the last is None without amsgrad.
+    std::vector<std::optional<mlir::Value>> adamw(mlir::Value param, mlir::Value grad, mlir::Value exp_avg,
+                                                  mlir::Value exp_avg_sq, std::optional<mlir::Value> max_exp_avg_sq,
+                                                  mlir::Value step, mlir::Value lr, float beta1, float beta2,
+                                                  float epsilon, float weight_decay) {
+        assert_builder();
+        std::vector<std::optional<mlir::Value>> out;
+        for (mlir::Value v :
+             tk::build_adamw(*mb_, param, grad, exp_avg, exp_avg_sq, max_exp_avg_sq.value_or(mlir::Value{}), step, lr,
+                             {beta1, beta2, epsilon, weight_decay})) {
+            out.push_back(v ? std::optional{v} : std::nullopt);
+        }
+        return out;
+    }
+
     // index_copy: result = self with source values placed at index positions along dim.
     // index must be 1D; source must have the same rank as self.
     mlir::Value index_copy(mlir::Value input, int64_t dim, mlir::Value index, mlir::Value source) {
@@ -897,6 +912,8 @@ NB_MODULE(_native, m) {
         .def("where", &PyModuleBuilder::where, "condition"_a, "true_val"_a, "false_val"_a)
         .def("sdpa", &PyModuleBuilder::sdpa, "query"_a, "key"_a, "value"_a, "is_causal"_a = true,
              "scale"_a = nb::none(), "attn_mask"_a = nb::none())
+        .def("adamw", &PyModuleBuilder::adamw, "param"_a, "grad"_a, "exp_avg"_a, "exp_avg_sq"_a, "max_exp_avg_sq"_a,
+             "step"_a, "lr"_a, "beta1"_a, "beta2"_a, "epsilon"_a, "weight_decay"_a)
         .def("index_copy", &PyModuleBuilder::index_copy, "input"_a, "dim"_a, "index"_a, "source"_a)
         .def("tril", &PyModuleBuilder::tril, "input"_a, "diagonal"_a = 0)
         // Consumes the builder. Subsequent calls on `self` raise.

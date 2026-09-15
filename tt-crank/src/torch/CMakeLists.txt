@@ -26,6 +26,7 @@ nanobind_add_module(_tt_crank_torch_native NB_STATIC
     ops/elementwise.cpp
     ops/fallback.cpp
     ops/linear.cpp
+    ops/optimizer.cpp
     ops/sdpa.cpp
     ops/tensor.cpp
     tensor.cpp

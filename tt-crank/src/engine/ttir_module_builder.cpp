@@ -5,6 +5,7 @@
 #include "engine/ttir_module_builder.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -22,6 +23,7 @@
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include "assert.hpp"
 #include "cast.hpp"
@@ -34,6 +36,13 @@ namespace {
 
 mlir::RankedTensorType to_tensor_type(mlir::MLIRContext &ctx, const TensorTypeSpec &spec) {
     return mlir::RankedTensorType::get(spec.shape, to_mlir_element_type(ctx, spec.dtype));
+}
+
+std::string type_name(mlir::Type type) {
+    std::string name;
+    llvm::raw_string_ostream stream(name);
+    type.print(stream);
+    return name;
 }
 
 } // namespace
@@ -1369,6 +1378,52 @@ mlir::Value build_sdpa(ModuleBuilder &mb, mlir::Value query, mlir::Value key, ml
         .create<mlir::tt::ttir::ScaledDotProductAttentionOp>(result_type, query, key, value, attn_mask, is_causal_attr,
                                                              scale_attr, mlir::IntegerAttr{}, mlir::Value{})
         .getResult();
+}
+
+std::array<mlir::Value, 4> build_adamw(ModuleBuilder &mb, mlir::Value param, mlir::Value grad, mlir::Value exp_avg,
+                                       mlir::Value exp_avg_sq, mlir::Value max_exp_avg_sq, mlir::Value step,
+                                       mlir::Value lr, const AdamWParams &params) {
+    const auto param_type = mlir::cast<mlir::RankedTensorType>(param.getType());
+    TT_FATAL(param_type.getElementType().isBF16() || param_type.getElementType().isF32(),
+             "tt-crank build_adamw: the ttnn kernel takes bf16 or f32 parameters, got {}", type_name(param_type));
+    for (auto [state, name] :
+         {std::pair{exp_avg, "exp_avg"}, {exp_avg_sq, "exp_avg_sq"}, {max_exp_avg_sq, "max_exp_avg_sq"}}) {
+        TT_FATAL(!state || state.getType() == param_type, "tt-crank build_adamw: {} has type {} but param has {}", name,
+                 type_name(state.getType()), type_name(param_type));
+    }
+    TT_FATAL(mlir::cast<mlir::RankedTensorType>(grad.getType()).getShape() == param_type.getShape(),
+             "tt-crank build_adamw: grad has type {} but param has {}", type_name(grad.getType()),
+             type_name(param_type));
+    grad = mb.insert_typecast(grad, mb.attrs().getBF16Type());
+
+    const mlir::Type f32 = mb.attrs().getF32Type();
+    auto unit_f32 = [&](mlir::Value value, const char *name) {
+        const auto type = mlir::cast<mlir::RankedTensorType>(value.getType());
+        TT_FATAL(type.getNumElements() == 1, "tt-crank build_adamw: {} must hold exactly one element, got {}", name,
+                 type_name(type));
+        return mb.insert_typecast(type.getShape() == llvm::ArrayRef<int64_t>{1} ? value : build_reshape(mb, value, {1}),
+                                  f32);
+    };
+    step = unit_f32(step, "step");
+    // beta^t derived in-graph so the module is step-invariant.
+    auto beta_pow = [&](float beta) { return build_pow(mb, build_full(mb, {1}, as<double>(beta), f32), step); };
+
+    llvm::SmallVector<mlir::Type, 4> result_types{param.getType(), exp_avg.getType(), exp_avg_sq.getType()};
+    llvm::SmallVector<mlir::Value, 8> operands{
+        param, grad, exp_avg, exp_avg_sq, unit_f32(lr, "lr"), beta_pow(params.beta1), beta_pow(params.beta2)};
+    if (max_exp_avg_sq) {
+        result_types.push_back(max_exp_avg_sq.getType());
+        operands.push_back(max_exp_avg_sq);
+    }
+    auto attr = [&](const char *name, float value) {
+        return mb.attrs().getNamedAttr(name, mb.attrs().getF32FloatAttr(value));
+    };
+    auto op = mb.create<mlir::tt::ttir::AdamWOp>(
+        result_types, operands,
+        llvm::ArrayRef<mlir::NamedAttribute>{attr("beta1", params.beta1), attr("beta2", params.beta2),
+                                             attr("epsilon", params.epsilon),
+                                             attr("weight_decay", params.weight_decay)});
+    return {op.getParamOut(), op.getExpAvgOut(), op.getExpAvgSqOut(), op.getMaxExpAvgSqOut()};
 }
 
 mlir::Value build_sum_to(ModuleBuilder &mb, mlir::Value t, llvm::ArrayRef<int64_t> target) {
