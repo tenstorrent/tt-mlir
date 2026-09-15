@@ -30,6 +30,37 @@ inline bool isQuasar() {
   return ::tt::runtime::ttnn::getArch() == ::tt::target::Arch::Quasar;
 }
 
+// Quasar: ROW_MAJOR -> TILE for a tensor whose trailing dims are not tile
+// aligned, routed through host logical data.
+//
+// The device conversion corrupts such tensors. Measured on the ZeBu emulator,
+// tilizing [1, 32, 16, 8] returns data a full 1.0 of scale away from its input,
+// while every neighbouring step -- reshape, transpose, from_device, the host
+// untilize -- is exact. craq-sim converts the same tensor correctly, which is
+// why none of it shows up on the simulator.
+//
+// Tensor::to_vector returns logical row-major order whatever the physical layout
+// is and from_vector tilizes on the host, so this route cannot be affected by
+// the device conversion. Aligned tensors keep the device path: a host round trip
+// shifts the allocation pattern, and that alone has been enough to hang a later
+// op.
+//
+// Callers pass the tensor the device conversion already produced, and its spec
+// is reused rather than rebuilt -- constructing a fresh TensorSpec is what broke
+// small-spatial convolutions on craq-sim (trailing dims 2x2 and 4x4 fell from
+// 0.99999 to ~0.5), because from_vector's own spec need not match what the rest
+// of the graph was compiled against.
+// True when TTMLIR_OP_TRACE is set. Bring-up on the emulator costs ~30 s per
+// program launch, so a hang has to be attributed on the first run.
+bool opTraceEnabled();
+
+bool quasarTilizeNeedsHostRoute(const ::ttnn::Tensor &input,
+                                ::ttnn::Layout targetLayout,
+                                std::optional<::ttnn::DataType> dtype);
+
+::ttnn::Tensor rebuildFromHostData(const ::ttnn::Tensor &input,
+                                   const ::ttnn::Tensor &deviceResult);
+
 void eventSync(::ttnn::MeshDevice *meshDevice, const ::ttnn::QueueId &recordCq,
                const ::ttnn::QueueId &waitCq);
 

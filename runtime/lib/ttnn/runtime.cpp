@@ -13,6 +13,8 @@
 #include "tt/runtime/detail/ttnn/program_executor.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 
+#include <cmath>
+
 #include "ttnn/operations/experimental/quasar/to_layout/to_layout_op.hpp"
 #include "tt/runtime/detail/ttnn/types/trace_cache.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
@@ -191,6 +193,27 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
   // architecture is not blackhole
   if (::tt::runtime::workaround::Env::get().blackholeWorkarounds) {
     untilizeOnDevice &= getArch() != ::tt::target::Arch::Blackhole;
+  }
+  // Quasar: untilize on the host when the trailing dims are not tile-aligned.
+  //
+  // The on-device untilize below corrupts such a tensor once it has more than 64
+  // tiles. Measured with every graph op independently verified exact: a relu on
+  // [1, 96, 8, 8] reaches this call site correct and comes out of the untilize
+  // with a full-scale error (maxDiff 0.5 on data in [-0.5, 0.5)), while the same
+  // relu on [1, 64, 8, 8] comes out exact. Aligned tensors are fine at any size
+  // -- [1, 1, 512, 256] is 128 tiles and reads back exact -- so the trigger is
+  // the implicit tile padding, not the volume.
+  //
+  // This is the readback path for every model output, so it silently degraded
+  // whole-model results while every single-op probe passed: ResNet-50's tensors
+  // are [1, C, H, W] with C >= 128 throughout.
+  if (untilizeOnDevice && getArch() == ::tt::target::Arch::Quasar) {
+    const ::ttnn::Shape &readbackShape = inputTensor.logical_shape();
+    if (readbackShape.rank() >= 2 &&
+        (readbackShape[-1] % ::tt::constants::TILE_WIDTH != 0 ||
+         readbackShape[-2] % ::tt::constants::TILE_HEIGHT != 0)) {
+      untilizeOnDevice = false;
+    }
   }
   if (untilizeOnDevice) {
     // Quasar reimplements the op stack; the mainline device untilize reached

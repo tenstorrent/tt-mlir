@@ -84,9 +84,22 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
                "Quasar matmul: a mainline matmul program config cannot be "
                "translated to the Quasar program-config types. Add a "
                "translation before emitting one for Quasar.");
+    // Ask for the simple multi-core factory rather than letting Quasar auto-select.
+    // Auto-selection lands on the mcast-1d factory, whose fused in1-sender/writer
+    // (reader_bmm_tile_layout_in1_sender_writer_padding_metal2) never consumes the
+    // packed output: the compute kernel packs and pushes its tile, nothing writes it
+    // to DRAM, and the result reads back as zeros. That is the open compute/writer
+    // credit handshake in tt-metal #48552. MatmulMultiCoreProgramConfig uses the plain
+    // writer_unary_interleaved_start_id instead -- the same shape as the Quasar Bmm
+    // gtest that passes in the sim regression suite.
+    const std::optional<
+        ::ttnn::operations::experimental::quasar::matmul::MatmulProgramConfig>
+        quasarProgramConfig =
+            ::ttnn::operations::experimental::quasar::matmul::
+                MatmulMultiCoreProgramConfig{};
     output = ::ttnn::operations::experimental::quasar::matmul::matmul(
         lhs, rhs, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
-        outputDataType, /*program_config=*/std::nullopt,
+        outputDataType, quasarProgramConfig,
         /*activation=*/activation, /*compute_kernel_config=*/computeConfig);
   } else {
     output = ::ttnn::matmul(
@@ -147,9 +160,17 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
                "Quasar matmul: a mainline matmul program config cannot be "
                "translated to the Quasar program-config types. Add a "
                "translation before emitting one for Quasar.");
+    // Same factory choice as the matmul path above: auto-selection lands on the
+    // mcast-1d factory whose writer never consumes the packed output (tt-metal
+    // #48552). See the comment on the matmul call site.
+    const std::optional<
+        ::ttnn::operations::experimental::quasar::matmul::MatmulProgramConfig>
+        quasarLinearProgramConfig =
+            ::ttnn::operations::experimental::quasar::matmul::
+                MatmulMultiCoreProgramConfig{};
     output = ::ttnn::operations::experimental::quasar::matmul::linear(
         lhs, rhs, bias, op->transpose_a(), op->transpose_b(),
-        outputMemoryConfig, outputDataType, /*program_config=*/std::nullopt,
+        outputMemoryConfig, outputDataType, quasarLinearProgramConfig,
         /*activation=*/activation, /*compute_kernel_config=*/computeConfig);
   } else {
     output = ::ttnn::linear(

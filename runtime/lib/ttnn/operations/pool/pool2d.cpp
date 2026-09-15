@@ -16,6 +16,15 @@
 #include <ttnn/operations/functions.hpp>
 #include <ttnn/operations/pool/generic/generic_pools.hpp>
 #include "ttnn/operations/experimental/quasar/pool_generic/generic_pools.hpp"
+#include "ttnn/operations/experimental/quasar/binary/binary_composite.hpp"
+#include "ttnn/operations/experimental/quasar/pad/pad.hpp"
+#include "ttnn/operations/experimental/quasar/reshape_view/reshape.hpp"
+#include "ttnn/operations/experimental/quasar/slice/slice.hpp"
+#include "ttnn/operations/experimental/quasar/to_layout/to_layout_op.hpp"
+
+#include <cstdlib>
+#include <limits>
+#include <vector>
 
 namespace tt::runtime::ttnn::operations::pool {
 
@@ -31,6 +40,120 @@ template <typename OpT>
 bool configTensorsInDram(const OpT *op) {
   return utils::isQuasar() ? false : op->config_tensors_in_dram();
 }
+
+// Max pooling as one slice per kernel tap, then a pairwise maximum.
+//
+// quasar::max_pool2d does not complete on the ZeBu emulator: traced with
+// TTMLIR_OP_TRACE=1, the run reaches op 8 (the Pool2dOp) and sits there with no
+// further program launch for over twenty minutes, against a measured ~30 s per
+// launch. It is correct on craq-sim, so this is the emulator's halo/gather path
+// rather than the maths.
+//
+// The decomposition is the one already used for convolution: pad in ROW_MAJOR,
+// take a strided window per tap, and combine the taps with a primitive that is
+// measured to work on both targets. For max pooling the combiner is
+// quasar::maximum and the padding value has to be the identity of max, not zero
+// -- zero padding would win over every negative activation at the border.
+::ttnn::Tensor
+maxPool2dViaTaps(const ::ttnn::Tensor &input, uint32_t N, uint32_t H, uint32_t W,
+                 uint32_t C, const std::array<uint32_t, 2> &kernelSize,
+                 const std::array<uint32_t, 2> &stride,
+                 const std::array<uint32_t, 4> &pads, bool ceilMode,
+                 const std::optional<::ttnn::MemoryConfig> &outputMemoryConfig,
+                 ::ttnn::Layout outputLayout) {
+  LOG_ASSERT(!ceilMode, "Quasar max-pool tap decomposition assumes floor mode");
+  const uint32_t kh = kernelSize[0];
+  const uint32_t kw = kernelSize[1];
+  const uint32_t Hp = H + pads[0] + pads[1];
+  const uint32_t Wp = W + pads[2] + pads[3];
+  const uint32_t outH = (Hp - kh) / stride[0] + 1;
+  const uint32_t outW = (Wp - kw) / stride[1] + 1;
+
+  ::ttnn::Tensor act = input;
+  if (act.layout() != ::ttnn::Layout::ROW_MAJOR) {
+    act = ::ttnn::operations::experimental::quasar::to_layout(
+        act, ::ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt);
+  }
+  const std::vector<int32_t> spatialShape = {
+      static_cast<int32_t>(N), static_cast<int32_t>(H), static_cast<int32_t>(W),
+      static_cast<int32_t>(C)};
+  act = ::ttnn::operations::experimental::quasar::reshape(act, spatialShape,
+                                                          std::nullopt);
+  if (pads[0] || pads[1] || pads[2] || pads[3]) {
+    const ::ttsl::SmallVector<::ttnn::operations::experimental::quasar::PadSpecDim>
+        padSpec = {{0u, 0u}, {pads[0], pads[1]}, {pads[2], pads[3]}, {0u, 0u}};
+    // Not zero: the identity of max. bfloat16 carries this exactly, and every
+    // real activation compares above it.
+    act = ::ttnn::operations::experimental::quasar::pad(
+        act, padSpec, -3.0e38f, /*use_multicore=*/true, std::nullopt,
+        std::nullopt);
+  }
+
+  const std::vector<int32_t> flatShape = {
+      1, 1, static_cast<int32_t>(N * outH * outW), static_cast<int32_t>(C)};
+  std::vector<::ttnn::Tensor> taps;
+  taps.reserve(static_cast<size_t>(kh) * kw);
+  for (uint32_t i = 0; i < kh; i++) {
+    for (uint32_t j = 0; j < kw; j++) {
+      const std::vector<int32_t> begins = {
+          0, static_cast<int32_t>(i), static_cast<int32_t>(j), 0};
+      const std::vector<int32_t> ends = {
+          static_cast<int32_t>(N),
+          static_cast<int32_t>(i + (outH - 1) * stride[0] + 1),
+          static_cast<int32_t>(j + (outW - 1) * stride[1] + 1),
+          static_cast<int32_t>(C)};
+      const std::vector<int32_t> steps = {
+          1, static_cast<int32_t>(stride[0]), static_cast<int32_t>(stride[1]),
+          1};
+      ::ttnn::Tensor tap =
+          ::ttnn::operations::experimental::quasar::slice<int32_t>(
+              act, ::ttsl::Span<const int32_t>(begins),
+              ::ttsl::Span<const int32_t>(ends),
+              ::ttsl::Span<const int32_t>(steps), std::nullopt, std::nullopt,
+              std::nullopt, std::nullopt);
+      tap = ::ttnn::operations::experimental::quasar::reshape(tap, flatShape,
+                                                              std::nullopt);
+      // Tilize through logical data, never behind a launch -- see
+      // utils::quasarTilizeNeedsHostRoute.
+      if (utils::quasarTilizeNeedsHostRoute(tap, ::ttnn::Layout::TILE,
+                                            std::nullopt)) {
+        const std::vector<bfloat16> d = tap.to_vector<bfloat16>();
+        const ::tt::tt_metal::TensorSpec spec(
+            tap.logical_shape(),
+            ::tt::tt_metal::TensorLayout(tap.dtype(), ::ttnn::Layout::TILE,
+                                         tap.memory_config()));
+        tap = ::ttnn::Tensor::from_vector(std::move(d), spec, tap.device());
+      } else if (tap.layout() != ::ttnn::Layout::TILE) {
+        tap = ::ttnn::operations::experimental::quasar::to_layout(
+            tap, ::ttnn::Layout::TILE, std::nullopt, std::nullopt);
+      }
+      taps.push_back(tap);
+    }
+  }
+  LOG_ASSERT(!taps.empty(), "Pooling window has no taps");
+  // Pairwise, so the dependency chain is log2(n) deep rather than n. max is
+  // exact in bf16, so this is about launch depth, not rounding.
+  while (taps.size() > 1) {
+    std::vector<::ttnn::Tensor> next;
+    next.reserve((taps.size() + 1) / 2);
+    for (size_t t = 0; t + 1 < taps.size(); t += 2) {
+      next.push_back(::ttnn::operations::experimental::quasar::binary::maximum(
+          taps[t], taps[t + 1]));
+    }
+    if (taps.size() % 2 == 1) {
+      next.push_back(taps.back());
+    }
+    taps = std::move(next);
+  }
+
+  ::ttnn::Tensor out = taps.front();
+  if (out.layout() != outputLayout) {
+    out = ::ttnn::operations::experimental::quasar::to_layout(
+        out, outputLayout, std::nullopt, outputMemoryConfig);
+  }
+  return out;
+}
+
 } // namespace
 
 
@@ -138,6 +261,30 @@ void runMaxPool2dOp(
   if (op->applied_shard_scheme()) {
     appliedShardScheme = ::tt::runtime::ttnn::utils::toTTNNTensorMemoryLayout(
         *op->applied_shard_scheme());
+  }
+
+  // Quasar: decompose rather than call the pool, which does not complete on the
+  // emulator. Only the plain case -- no dilation, floor mode -- is covered;
+  // anything else stays on the op so it fails loudly instead of quietly wrong.
+  if (utils::isQuasar() && dilation[0] == 1 && dilation[1] == 1 &&
+      !op->ceil_mode() && !std::getenv("TTMLIR_NO_POOL_TAPS")) {
+    const std::array<uint32_t, 4> pads = std::visit(
+        [](const auto &p) -> std::array<uint32_t, 4> {
+          if constexpr (std::tuple_size_v<std::decay_t<decltype(p)>> == 2) {
+            return {p[0], p[0], p[1], p[1]};
+          } else {
+            return {p[0], p[1], p[2], p[3]};
+          }
+        },
+        padding);
+    const ::ttnn::Layout outputLayout =
+        ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out());
+    ::ttnn::Tensor out = maxPool2dViaTaps(
+        input, op->batch_size(), op->input_height(), op->input_width(),
+        op->channels(), kernelSize, stride, pads, op->ceil_mode(),
+        outputMemoryConfig, outputLayout);
+    tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+    return;
   }
 
   std::vector<::ttnn::Tensor> results =

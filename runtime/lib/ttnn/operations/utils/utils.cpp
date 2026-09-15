@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/ttnn/operations/utils.h"
+
+#include <cstdlib>
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
@@ -385,6 +387,7 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
             *config->shard_layout());
   }
 
+
   if (config->core_grid()) {
     conv2dConfig.core_grid = std::make_optional(
         ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*config->core_grid()));
@@ -413,8 +416,17 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
         *config->enable_kernel_stride_folding();
   }
 
+  // TTIRToTTNN hardcodes config_tensors_in_dram=true for conv ops
+  // (TTIRToTTNN.cpp:2568/2576/2592) to avoid L1_SMALL pressure on Wormhole. On
+  // Quasar that routes into the DRAM-config halo path, whose gather kernel does
+  // not compile: halo_gather.cpp reads a per-core runtime arg into a constexpr.
+  // Quasar has 4 MB of L1 per core rather than Wormhole's 1.5 MB, so the reason
+  // for the override does not apply -- keep the config tensors in L1 and stay on
+  // the path that works. Mirrors the pooling override in
+  // runtime/lib/ttnn/operations/pool/pool2d.cpp.
   if (config->config_tensors_in_dram()) {
-    conv2dConfig.config_tensors_in_dram = *config->config_tensors_in_dram();
+    conv2dConfig.config_tensors_in_dram =
+        isQuasar() ? false : *config->config_tensors_in_dram();
   }
 
   return conv2dConfig;
@@ -589,6 +601,59 @@ allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
   ::ttnn::Tensor deviceTensor =
       ::ttnn::create_device_tensor(tensorSpec, &meshDevice);
   return deviceTensor;
+}
+
+
+bool opTraceEnabled() {
+  static const bool on = [] {
+    const char *e = std::getenv("TTMLIR_OP_TRACE");
+    return e != nullptr && e[0] != '\0' && e[0] != '0';
+  }();
+  return on;
+}
+
+bool quasarTilizeNeedsHostRoute(const ::ttnn::Tensor &input,
+                                ::ttnn::Layout targetLayout,
+                                std::optional<::ttnn::DataType> dtype) {
+  // Both directions. ROW_MAJOR -> TILE was the original case; the untilize is
+  // broken too, and worse: converting [1,1,4,1024] from TILE to ROW_MAJOR
+  // corrupts 1024 of its 4096 elements, starting at element 512 -- tile column 16
+  // of 32 -- while the same conversion of [1,1,4,256] is exact. That untilize sits
+  // immediately before conv2d in every NCHW convolution graph, so a wide enough
+  // convolution was being handed a quarter-wrong activation.
+  if (!isQuasar() || !::ttnn::is_device_tensor(input)) {
+    return false;
+  }
+  const bool tilizing = targetLayout == ::ttnn::Layout::TILE &&
+                        input.layout() != ::ttnn::Layout::TILE;
+  const bool untilizing = targetLayout == ::ttnn::Layout::ROW_MAJOR &&
+                          input.layout() == ::ttnn::Layout::TILE;
+  if (!tilizing && !untilizing) {
+    return false;
+  }
+  // A dtype change is a separate conversion; leave it on the device path.
+  if (dtype.has_value() && *dtype != input.dtype()) {
+    return false;
+  }
+  if (input.dtype() != ::ttnn::DataType::BFLOAT16) {
+    return false;
+  }
+  const ::ttnn::Shape &ls = input.logical_shape();
+  if (ls.rank() < 2) {
+    return false;
+  }
+  const uint32_t h = ls[ls.rank() - 2];
+  const uint32_t w = ls[ls.rank() - 1];
+  return w % ::tt::constants::TILE_WIDTH != 0 ||
+         h % ::tt::constants::TILE_HEIGHT != 0;
+}
+
+::ttnn::Tensor rebuildFromHostData(const ::ttnn::Tensor &input,
+                                   const ::ttnn::Tensor &deviceResult) {
+  std::vector<bfloat16> data = input.to_vector<bfloat16>();
+  return ::ttnn::Tensor::from_vector(std::move(data),
+                                     deviceResult.tensor_spec(),
+                                     input.device());
 }
 
 } // namespace tt::runtime::ttnn::operations::utils

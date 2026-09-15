@@ -4,6 +4,9 @@
 
 #include "tt/runtime/detail/ttnn/program_executor.h"
 
+#include <cstdio>
+#include <cstdlib>
+
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 #include <cstdlib>
 
@@ -273,6 +276,23 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   ZoneScoped;
   ZoneName(::tt::target::ttnn::EnumNameOpType(op->type_type()),
            std::strlen(::tt::target::ttnn::EnumNameOpType(op->type_type())));
+
+  // A release-build op trace, for bring-up on targets where a debug build is
+  // impractical -- an emulator program launch costs ~30 s, so a hang has to be
+  // attributed to an exact op on the first run rather than bisected over many.
+  // Set TTMLIR_OP_TRACE=1. Flushed per line, since the interesting case is a
+  // process that never returns.
+  static const bool opTrace = [] {
+    const char *e = std::getenv("TTMLIR_OP_TRACE");
+    return e != nullptr && e[0] != '\0' && e[0] != '0';
+  }();
+  if (opTrace) {
+    static int opIndex = 0;
+    std::fprintf(stderr, "[optrace] %4d %-28s %s\n", opIndex++,
+                 ::tt::target::ttnn::EnumNameOpType(op->type_type()),
+                 op->debug_info() ? op->debug_info()->c_str() : "");
+    std::fflush(stderr);
+  }
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   ::tt::runtime::utils::logMemoryStateIfNeeded(
