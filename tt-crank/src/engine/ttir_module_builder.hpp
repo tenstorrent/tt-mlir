@@ -600,7 +600,8 @@ TT_CRANK_API mlir::Value build_sdpa(ModuleBuilder &mb, mlir::Value query, mlir::
                                     bool is_causal, std::optional<float> scale, mlir::Value attn_mask);
 
 // ttml `sdpa_fw`/`sdpa_bw` composites (differentiable `build_sdpa`). Q/K/V `[B x H(kv) x S x D]`, Sq == Sk;
-// `attn_mask` (optional) is a bool keep-mask broadcastable to `[1 x 1 x S x S]`.
+// `attn_mask` (optional) is one `S x S` bool keep-mask, shared by all batches and heads (rank 2-4 with
+// leading dims of 1).
 TT_CRANK_API std::pair<mlir::Value, mlir::Value> build_sdpa_fw(ModuleBuilder &mb, mlir::Value query, mlir::Value key,
                                                                mlir::Value value, bool is_causal,
                                                                std::optional<double> scale, mlir::Value attn_mask);

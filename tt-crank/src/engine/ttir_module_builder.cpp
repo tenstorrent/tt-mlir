@@ -1614,7 +1614,8 @@ mlir::Value sdpa_fold_scale(ModuleBuilder &mb, mlir::Value query, std::optional<
 }
 
 // ttml `arbitrary` takes a [1, 1, S, S] keep-mask (non-zero = attend) in the q/k/v element type. `attn_mask`
-// is a bool keep-mask or the 0/-inf float mask torch makes of one, broadcastable to that shape. Non-causal
+// is one S x S bool keep-mask (or the 0/-inf float mask torch makes of one) with leading dims of 1; it is
+// reshaped, not broadcast, so per-batch/head or singleton S dims are rejected upstream. Non-causal
 // without a mask gets all-ones: ttml's `none` kernel is broken.
 struct SdpaMask {
     mlir::Value mask;

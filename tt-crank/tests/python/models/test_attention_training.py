@@ -56,7 +56,7 @@ def test_attention_block_training(mode: ExecutionMode, tt_device: torch.device) 
     tt_model = CausalSelfAttention(_MODEL_DIM, _HEADS).to(_DTYPE).to(tt_device)
     tt_model.load_state_dict(cpu_model.state_dict())
     if mode is ExecutionMode.COMPILE:
-        tt_model = torch.compile(tt_model, backend="tt")
+        tt_model = torch.compile(tt_model, backend="tt", fullgraph=True)
 
     guard = (
         strict_no_fallback()

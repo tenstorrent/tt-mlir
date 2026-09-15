@@ -196,7 +196,7 @@ _FUSED_CASES = {
     "head-dim-80-noncausal": ((1, 8, 8, 32, 80), False, None, _G3, 0.999, None),
     "grad-q-only": ((1, 8, 8, 32, 64), True, None, (True, False, False), _PCC, None),
     "grad-kv-only": ((1, 8, 8, 32, 64), True, None, (False, True, True), _PCC, None),
-    # bool masks broadcastable to [1, 1, S, S] ride the ttml `arbitrary` mask (what HF Llama passes at batch 1)
+    # one S x S bool mask shared by all batches/heads rides the ttml `arbitrary` mask (what HF Llama passes at batch 1)
     "bool-mask-4d": (
         (1, 8, 8, 32, 64),
         False,
