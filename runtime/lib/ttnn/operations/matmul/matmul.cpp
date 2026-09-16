@@ -5,7 +5,10 @@
 #include "operations/matmul/matmul.h"
 
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
+
+#include "ttnn/operations/experimental/quasar/matmul/matmul.hpp"
 
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -72,12 +75,40 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
         utils::createDeviceComputeKernelConfig(op->compute_config());
   }
 
-  ::ttnn::Tensor output = ::ttnn::matmul(
-      lhs, rhs, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
-      outputDataType, matmulProgramConfig,
-      /*activation=*/activation, /*compute_kernel_config=*/computeConfig,
-      /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
-      /* optional_output_tensor=*/std::nullopt);
+  // Quasar's MatmulProgramConfig is its own type and is not convertible from the
+  // mainline one, so refuse loudly rather than silently dropping a config the
+  // graph asked for -- that would quietly change the schedule.
+  ::ttnn::Tensor output;
+  if (utils::isQuasar()) {
+    LOG_ASSERT(!matmulProgramConfig.has_value(),
+               "Quasar matmul cannot accept a mainline MatmulProgramConfig");
+    // Quasar must be handed an explicit program config. Letting it auto-select lands
+    // on a multicast factory that tt-metal's own Quasar ResNet-50 test documents as
+    // hanging ("The 2D-mcast matmul path currently HANGS on Quasar"), and passing
+    // nothing produced a Gen1/Gen2 kernel-spec mismatch here. MatmulMultiCoreProgramConfig
+    // is the plain multi-core factory: its only field is an optional core set, so it
+    // needs no per-shape subblock tuning and is the safe default for a generic runtime.
+    const ::ttnn::operations::experimental::quasar::matmul::MatmulProgramConfig
+        quasarProgramConfig =
+            ::ttnn::operations::experimental::quasar::matmul::
+                MatmulMultiCoreProgramConfig{};
+
+    std::optional<::ttnn::Activation> quasarActivation;
+    if (activation.has_value()) {
+      quasarActivation = ::ttnn::Activation(*activation);
+    }
+    output = ::ttnn::operations::experimental::quasar::matmul::matmul(
+        lhs, rhs, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
+        outputDataType, quasarProgramConfig, quasarActivation,
+        /*compute_kernel_config=*/computeConfig);
+  } else {
+    output = ::ttnn::matmul(
+        lhs, rhs, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
+        outputDataType, matmulProgramConfig,
+        /*activation=*/activation, /*compute_kernel_config=*/computeConfig,
+        /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
+        /* optional_output_tensor=*/std::nullopt);
+  }
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
@@ -114,12 +145,39 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
     activation = op->activation()->str();
   }
 
-  ::ttnn::Tensor output = ::ttnn::linear(
-      lhs, rhs, bias, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
-      outputDataType, programConfig,
-      /*activation=*/activation, /*compute_kernel_config=*/computeConfig,
-      /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
-      /* optional_output_tensor=*/std::nullopt);
+  // Same as matmul: both call sites need it. Fixing only matmul leaves linear on
+  // the mainline path, which TT_FATALs on Quasar.
+  ::ttnn::Tensor output;
+  if (utils::isQuasar()) {
+    LOG_ASSERT(!programConfig.has_value(),
+               "Quasar linear cannot accept a mainline MatmulProgramConfig");
+    // Quasar must be handed an explicit program config. Letting it auto-select lands
+    // on a multicast factory that tt-metal's own Quasar ResNet-50 test documents as
+    // hanging ("The 2D-mcast matmul path currently HANGS on Quasar"), and passing
+    // nothing produced a Gen1/Gen2 kernel-spec mismatch here. MatmulMultiCoreProgramConfig
+    // is the plain multi-core factory: its only field is an optional core set, so it
+    // needs no per-shape subblock tuning and is the safe default for a generic runtime.
+    const ::ttnn::operations::experimental::quasar::matmul::MatmulProgramConfig
+        quasarProgramConfig =
+            ::ttnn::operations::experimental::quasar::matmul::
+                MatmulMultiCoreProgramConfig{};
+
+    std::optional<::ttnn::Activation> quasarActivation;
+    if (activation.has_value()) {
+      quasarActivation = ::ttnn::Activation(*activation);
+    }
+    output = ::ttnn::operations::experimental::quasar::matmul::linear(
+        lhs, rhs, bias, op->transpose_a(), op->transpose_b(),
+        outputMemoryConfig, outputDataType, quasarProgramConfig,
+        quasarActivation, /*compute_kernel_config=*/computeConfig);
+  } else {
+    output = ::ttnn::linear(
+        lhs, rhs, bias, op->transpose_a(), op->transpose_b(),
+        outputMemoryConfig, outputDataType, programConfig,
+        /*activation=*/activation, /*compute_kernel_config=*/computeConfig,
+        /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
+        /* optional_output_tensor=*/std::nullopt);
+  }
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
