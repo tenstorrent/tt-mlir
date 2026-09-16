@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import functools
 import math
+import warnings
 import operator
 from collections.abc import Callable
 from enum import StrEnum
@@ -82,7 +83,7 @@ def _operator(*targets):
 
 @_operator(operator.getitem)
 def _(container, idx):
-    if isinstance(container, tuple):
+    if isinstance(container, (tuple, list)):
         item = container[idx]
         if item is None:
             # A multi-output lowering returns None for any slot it does not
@@ -94,7 +95,7 @@ def _(container, idx):
             )
         return item
     raise NotImplementedError(
-        f"tt-crank compile: getitem on non-tuple {type(container).__name__}"
+        f"tt-crank compile: getitem on non-sequence {type(container).__name__}"
     )
 
 
@@ -875,6 +876,87 @@ def _(
     return (result, None, None, None, None, None, None, None, None)
 
 
+@_lowering(_aten._foreach_add.Scalar)
+@_skip_prepare(_aten._foreach_add.Scalar)
+def _(mb, tensors, scalar, alpha=1):
+    return [mb.add(t, mb.scalar_like(t, float(scalar)), float(alpha)) for t in tensors]
+
+
+_warned_float_lr = False
+
+
+def _adamw_scalar(mb, value):
+    if isinstance(value, _native.Value):
+        return value
+    return mb.full([1], float(value), _to_runtime_dtype(torch.float32))
+
+
+def _adamw_lr(mb, lr):
+    """`lr` as a module value. A tensor lr (`AdamW(lr=torch.tensor(...))`, the
+    `.tensor_lr` overload) is a graph input, so one compiled module serves every
+    learning rate. A Python-float lr is already specialized by dynamo before it
+    reaches this lowering (it guards on the value), so it can only be baked in as
+    a constant: each new lr recompiles, and past dynamo's recompile limit the step
+    silently runs eager. Warn once so schedulers are not slowed down unknowingly.
+    """
+    global _warned_float_lr
+    if not isinstance(lr, _native.Value) and not _warned_float_lr:
+        _warned_float_lr = True
+        warnings.warn(
+            "tt-crank: compiled AdamW received a Python-float lr, which dynamo bakes "
+            "into the graph; every lr change recompiles. Pass lr as a tensor "
+            "(torch.optim.AdamW(..., lr=torch.tensor(lr))) to compile once.",
+            stacklevel=2,
+        )
+    return _adamw_scalar(mb, lr)
+
+
+@_lowering(_aten._fused_adamw.default, _aten._fused_adamw.tensor_lr)
+@_skip_prepare(_aten._fused_adamw.default, _aten._fused_adamw.tensor_lr)
+def _(
+    mb,
+    self,
+    grads,
+    exp_avgs,
+    exp_avg_sqs,
+    max_exp_avg_sqs,
+    state_steps,
+    *,
+    lr,
+    beta1,
+    beta2,
+    weight_decay,
+    eps,
+    amsgrad,
+    maximize,
+    grad_scale=None,
+    found_inf=None,
+):
+    if grad_scale is not None or found_inf is not None:
+        raise NotImplementedError(
+            "tt-crank adamw: grad_scale / found_inf (AMP gradient scaling) are not supported"
+        )
+    lr = _adamw_lr(mb, lr)
+    outs = [[], [], [], []]
+    for i, param in enumerate(self):
+        updated = mb.adamw(
+            param,
+            mb.neg(grads[i]) if maximize else grads[i],
+            exp_avgs[i],
+            exp_avg_sqs[i],
+            max_exp_avg_sqs[i] if amsgrad else None,
+            step=_adamw_scalar(mb, state_steps[i]),
+            lr=lr,
+            beta1=float(beta1),
+            beta2=float(beta2),
+            epsilon=float(eps),
+            weight_decay=float(weight_decay),
+        )
+        for out, value in zip(outs, updated):
+            out.append(value)
+    return (outs[0], list(grads), outs[1], outs[2], outs[3])
+
+
 @_lowering(_aten._to_copy.default)
 @_skip_prepare(_aten._to_copy.default)
 def _(
@@ -1419,9 +1501,9 @@ def _lower_and_compile(
         if v is None:
             none_mask.append(True)
             continue
-        if isinstance(v, tuple):
+        if isinstance(v, (tuple, list)):
             raise NotImplementedError(
-                "tt-crank compile: tuple-valued graph output not supported (use getitem first)"
+                "tt-crank compile: container-valued graph output not supported (use getitem first)"
             )
         none_mask.append(False)
         outputs.append(v)
@@ -1552,3 +1634,58 @@ def tt_backend(
 
 # Self-register on import. After this, `torch.compile(model, backend="tt")` works.
 torch._dynamo.register_backend(name="tt", compiler_fn=tt_backend)
+
+
+_fused_adamw_compile_enabled = False
+
+
+def _enable_fused_adamw_compile() -> None:
+    """Let dynamo trace `torch.optim.AdamW(fused=True).step()` into one graph.
+
+    Process-wide and applied at import on purpose: dynamo consults its trace
+    rules and the `torch.compiler.disable` wrapper while tracing, before any
+    backend is invoked, so arming this lazily from `tt_backend` is too late (the
+    first compiled `step()` would silently run eager). Dynamo has no per-backend
+    trace rules, so other backends in a process that imported tt_crank trace the
+    fused step through the polyfill too; that is behaviour-preserving for them
+    (functional op + copy_ is what the C binding does).
+
+    torch wraps the fused optimizer body in `torch.compiler.disable` (lazily, at
+    first compile) and `aten::_fused_adamw_` cannot be functionalized when
+    `max_exp_avg_sqs` is empty (amsgrad=False). Unwrap the former; trace the
+    latter as the functional overload plus `copy_` (eager is untouched).
+    """
+    global _fused_adamw_compile_enabled
+    if _fused_adamw_compile_enabled:
+        return
+    _fused_adamw_compile_enabled = True
+
+    import torch.optim.adam as adam_module
+
+    torch._dynamo.eval_frame.TorchPatcher.patch()
+    adam_module._fused_adam = getattr(
+        adam_module._fused_adam, "_torchdynamo_orig_callable", adam_module._fused_adam
+    )
+
+    # dynamo lists the C binding as an in-graph function; drop that so the polyfill wins.
+    torch._dynamo.trace_rules.torch_c_binding_in_graph_functions.pop(
+        "torch._fused_adamw_", None
+    )
+    torch._dynamo.trace_rules.get_torch_obj_rule_map.cache_clear()
+
+    @torch._dynamo.substitute_in_graph(torch._fused_adamw_, skip_signature_check=True)
+    def fused_adamw_(
+        self, grads, exp_avgs, exp_avg_sqs, max_exp_avg_sqs, state_steps, **kwargs
+    ):
+        out = _aten._fused_adamw(
+            self, grads, exp_avgs, exp_avg_sqs, max_exp_avg_sqs, state_steps, **kwargs
+        )
+        for targets, values in zip(
+            (self, exp_avgs, exp_avg_sqs, max_exp_avg_sqs),
+            (out[0], out[2], out[3], out[4]),
+        ):
+            for target, value in zip(targets, values):
+                target.copy_(value)
+
+
+_enable_fused_adamw_compile()
