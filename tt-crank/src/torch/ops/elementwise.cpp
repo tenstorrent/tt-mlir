@@ -81,6 +81,20 @@ at::Tensor tt_mul(const at::Tensor &a_in, const at::Tensor &b_in) {
     return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
 }
 
+at::Tensor tt_minimum(const at::Tensor &a_in, const at::Tensor &b_in) {
+    const auto [a, b] = align_on_tt(a_in, b_in);
+
+    auto mb = ModuleBuilder::init({spec_for(a), spec_for(b)});
+    auto [promoted, lhs, rhs] = promote_inputs(mb, a, b);
+
+    auto result = build_minimum(mb, lhs, rhs);
+    auto out_shape = at::infer_size(a.sizes(), b.sizes());
+    auto module_op = std::move(mb).finalize({result});
+
+    auto outputs = compile_and_run(std::move(module_op), {a, b});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+}
+
 at::Tensor tt_relu(const at::Tensor &self) {
     TORCH_CHECK(is_tt(self), "tt-crank aten::relu: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
@@ -1158,6 +1172,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("sub.Tensor", TORCH_FN(tt_sub));
     m.impl("mul.Tensor", TORCH_FN(tt_mul));
     m.impl("mul.Scalar", TORCH_FN(tt_mul_scalar));
+    m.impl("minimum", TORCH_FN(tt_minimum));
     m.impl("relu", TORCH_FN(tt_relu));
     m.impl("relu_", TORCH_FN(tt_relu_));
     m.impl("rsqrt", TORCH_FN(tt_rsqrt));

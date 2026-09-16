@@ -80,6 +80,11 @@ public:
         return tk::build_mul(*mb_, lhs, rhs);
     }
 
+    mlir::Value minimum(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_minimum(*mb_, lhs, rhs);
+    }
+
     mlir::Value mm(mlir::Value lhs, mlir::Value rhs) {
         assert_builder();
         return tk::build_mm(*mb_, lhs, rhs);
@@ -807,6 +812,7 @@ NB_MODULE(_native, m) {
         .def("add", &PyModuleBuilder::add, "lhs"_a, "rhs"_a, "alpha"_a = 1.0)
         .def("sub", &PyModuleBuilder::sub, "lhs"_a, "rhs"_a, "alpha"_a = 1.0)
         .def("mul", &PyModuleBuilder::mul, "lhs"_a, "rhs"_a)
+        .def("minimum", &PyModuleBuilder::minimum, "lhs"_a, "rhs"_a)
         .def("mm", &PyModuleBuilder::mm, "lhs"_a, "rhs"_a)
         .def("all_reduce", &PyModuleBuilder::all_reduce, "input"_a, "reduce_op"_a, "cluster_axis"_a)
         .def("all_gather", &PyModuleBuilder::all_gather, "input"_a, "group_size"_a, "cluster_axis"_a)

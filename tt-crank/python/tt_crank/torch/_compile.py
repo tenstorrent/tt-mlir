@@ -141,6 +141,11 @@ def _(mb, a, b):
     return mb.mul(a, b)
 
 
+@_lowering(_aten.minimum.default)
+def _(mb, a, b):
+    return mb.minimum(a, b)
+
+
 @_lowering(_aten.rsqrt.default)
 def _(mb, x):
     return mb.rsqrt(x)

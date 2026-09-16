@@ -124,6 +124,9 @@ TT_CRANK_API mlir::Value build_sub(ModuleBuilder &mb, mlir::Value lhs, mlir::Val
 // Emit TTIR for element-wise `lhs * rhs`. Inputs must share element type.
 TT_CRANK_API mlir::Value build_mul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
 
+// Emit TTIR for element-wise `min(lhs, rhs)`. Inputs must share element type.
+TT_CRANK_API mlir::Value build_minimum(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
 // Emit TTIR for element-wise reciprocal square root.
 TT_CRANK_API mlir::Value build_rsqrt(ModuleBuilder &mb, mlir::Value input);
 

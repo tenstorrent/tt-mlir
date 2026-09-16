@@ -288,6 +288,19 @@ def test_compile_mul(shape: tuple[int, ...]) -> None:
 
 
 @pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_minimum(shape: tuple[int, ...]) -> None:
+    """Single aten::minimum in a compiled graph."""
+
+    class _Minimum(nn.Module):
+        def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            return torch.minimum(a, b)
+
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    b = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Minimum(), a, b)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
 def test_compile_rsqrt(shape: tuple[int, ...]) -> None:
     """Single aten::rsqrt in a compiled graph. Positive inputs only."""
 
