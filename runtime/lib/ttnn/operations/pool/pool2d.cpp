@@ -19,6 +19,15 @@
 
 namespace tt::runtime::ttnn::operations::pool {
 
+// Gen2 cannot express the DRAM config-landing scratch buffer: halo's reader binds
+// `gather_scratch0` as both PRODUCER and CONSUMER and program_spec.cpp:1497 rejects
+// self-looped DFBs for data-movement kernels there. Every pool op routes through the
+// same halo path, and tt-metal defaults this to false. Measured on conv2d: forcing it
+// false cleared the assert, so the same applies here.
+static bool quasarSafeConfigTensorsInDram(bool requested) {
+  return utils::isQuasar() ? false : requested;
+}
+
 void runAvgPool2dOp(
     const ::tt::target::ttnn::Pool2dOp *op, ProgramTensorPool &tensorPool,
     const std::function<::ttnn::Tensor(
@@ -76,7 +85,8 @@ void runAvgPool2dOp(
              /*deallocate_input=*/false,
              /*reallocate_halo_output=*/op->reallocate_halo_output(),
              ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR,
-             /*config_tensor_in_dram=*/op->config_tensors_in_dram());
+             /*config_tensor_in_dram=*/
+                 quasarSafeConfigTensorsInDram(op->config_tensors_in_dram()));
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -134,20 +144,47 @@ void runMaxPool2dOp(
              /*reallocate_halo_output=*/op->reallocate_halo_output(),
              /*return_indices=*/false, ::ttnn::DataType::BFLOAT16,
              ::ttnn::Layout::ROW_MAJOR,
-             /*config_tensor_in_dram=*/op->config_tensors_in_dram());
+             /*config_tensor_in_dram=*/
+                 quasarSafeConfigTensorsInDram(op->config_tensors_in_dram()));
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), results[0]);
 }
 
 void run(const ::tt::target::ttnn::Pool2dOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
+  // The mainline pools are unported on Quasar, and on a Metal 2.0 device that now
+  // surfaces *before* the DataMovementKernel constructor: their program factory's
+  // compute KernelSpec carries a Gen1 ComputeHardwareConfig, which
+  // program_spec.cpp:905 rejects with
+  //   "KernelSpec 'compute' targets Gen2 (Quasar) but its ComputeHardwareConfig
+  //    holds a ComputeGen1Config"
+  // So the Gen1/Gen2 assert is the modern signature of an unported op reaching a
+  // Quasar device, not a separate defect. Quasar's pools take the identical argument
+  // list, so this is a straight substitution -- the same one MaxPool2dWithIndicesOp
+  // below already makes. That path had it and this one did not, which is why every
+  // pooled ResNet-50 row failed while add/relu/reshape passed.
+  //
+  // An if/else rather than a ternary: the mainline and Quasar entry points are
+  // distinct functor types with no common type, so a ternary would not compile even
+  // though both convert to the same std::function.
   switch (op->type()) {
   case ::tt::target::ttnn::Pool2dOpType::AvgPool2d: {
-    runAvgPool2dOp(op, tensorPool, ::ttnn::avg_pool2d);
+    if (utils::isQuasar()) {
+      runAvgPool2dOp(op, tensorPool,
+                     ::ttnn::operations::pool::quasar::avg_pool2d);
+    } else {
+      runAvgPool2dOp(op, tensorPool, ::ttnn::avg_pool2d);
+    }
     break;
   }
   case ::tt::target::ttnn::Pool2dOpType::MaxPool2d: {
-    runMaxPool2dOp(op, tensorPool, ::ttnn::max_pool2d);
+    if (utils::isQuasar()) {
+      runMaxPool2dOp(op, tensorPool,
+                     ::ttnn::operations::pool::quasar::max_pool2d);
+    } else {
+      runMaxPool2dOp(op, tensorPool, ::ttnn::max_pool2d);
+    }
+    break;
   }
   }
 }
@@ -206,7 +243,8 @@ void run(const ::tt::target::ttnn::MaxPool2dWithIndicesOp *op,
                 /*reallocate_halo_output=*/op->reallocate_halo_output(),
                 /*return_indices=*/true, ::ttnn::DataType::BFLOAT16,
                 ::ttnn::Layout::ROW_MAJOR,
-                /*config_tensor_in_dram=*/op->config_tensors_in_dram())
+                /*config_tensor_in_dram=*/
+                 quasarSafeConfigTensorsInDram(op->config_tensors_in_dram()))
           : ::ttnn::max_pool2d(
                 input, op->batch_size(), op->input_height(), op->input_width(),
                 op->channels(), kernelSize, stride, padding, dilation,
@@ -216,7 +254,8 @@ void run(const ::tt::target::ttnn::MaxPool2dWithIndicesOp *op,
                 /*reallocate_halo_output=*/op->reallocate_halo_output(),
                 /*return_indices=*/true, ::ttnn::DataType::BFLOAT16,
                 ::ttnn::Layout::ROW_MAJOR,
-                /*config_tensor_in_dram=*/op->config_tensors_in_dram());
+                /*config_tensor_in_dram=*/
+                 quasarSafeConfigTensorsInDram(op->config_tensors_in_dram()));
 
   tensorPool.insertTTNNTensorAndValidate(op->result(), outputs[0]);
   tensorPool.insertTTNNTensorAndValidate(op->result_indices(), outputs[1]);
