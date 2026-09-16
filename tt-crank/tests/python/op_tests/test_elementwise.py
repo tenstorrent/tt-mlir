@@ -58,6 +58,13 @@ def test_mul(shape: tuple[int, ...]) -> None:
 
 
 @pytest.mark.parametrize("shape", [(64, 128), (32, 32), (32, 64, 32)])
+def test_minimum(shape: tuple[int, ...]) -> None:
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    b = torch.randn(shape, dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(torch.minimum, a, b)
+
+
+@pytest.mark.parametrize("shape", [(64, 128), (32, 32), (32, 64, 32)])
 def test_rsqrt(shape: tuple[int, ...]) -> None:
     a = torch.rand(shape, dtype=torch.bfloat16).add(0.1)
     assert_close_cpu_vs_tt(torch.rsqrt, a)

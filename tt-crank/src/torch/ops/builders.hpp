@@ -60,6 +60,7 @@ template <typename... Tensors> auto promote_inputs(ModuleBuilder &mb, const Tens
 }
 
 using ::tt::crank::broadcast_shape;
+using ::tt::crank::build_abs;
 using ::tt::crank::build_add;
 using ::tt::crank::build_addmm;
 using ::tt::crank::build_all;
@@ -108,6 +109,7 @@ using ::tt::crank::build_matmul;
 using ::tt::crank::build_matmul_backward;
 using ::tt::crank::build_max_pool2d;
 using ::tt::crank::build_mean;
+using ::tt::crank::build_minimum;
 using ::tt::crank::build_mm;
 using ::tt::crank::build_mse_loss;
 using ::tt::crank::build_mse_loss_backward;
