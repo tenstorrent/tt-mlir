@@ -24,8 +24,6 @@ Pipeline::
 from __future__ import annotations
 
 import functools
-import math
-import warnings
 import operator
 from collections.abc import Callable
 from enum import StrEnum
@@ -83,7 +81,7 @@ def _operator(*targets):
 
 @_operator(operator.getitem)
 def _(container, idx):
-    if isinstance(container, (tuple, list)):
+    if isinstance(container, tuple):
         item = container[idx]
         if item is None:
             # A multi-output lowering returns None for any slot it does not
@@ -95,7 +93,7 @@ def _(container, idx):
             )
         return item
     raise NotImplementedError(
-        f"tt-crank compile: getitem on non-sequence {type(container).__name__}"
+        f"tt-crank compile: getitem on non-tuple {type(container).__name__}"
     )
 
 
@@ -876,87 +874,6 @@ def _(
     return (result, None, None, None, None, None, None, None, None)
 
 
-@_lowering(_aten._foreach_add.Scalar)
-@_skip_prepare(_aten._foreach_add.Scalar)
-def _(mb, tensors, scalar, alpha=1):
-    return [mb.add(t, mb.scalar_like(t, float(scalar)), float(alpha)) for t in tensors]
-
-
-_warned_float_lr = False
-
-
-def _adamw_scalar(mb, value):
-    if isinstance(value, _native.Value):
-        return value
-    return mb.full([1], float(value), _to_runtime_dtype(torch.float32))
-
-
-def _adamw_lr(mb, lr):
-    """`lr` as a module value. A tensor lr (`AdamW(lr=torch.tensor(...))`, the
-    `.tensor_lr` overload) is a graph input, so one compiled module serves every
-    learning rate. A Python-float lr is already specialized by dynamo before it
-    reaches this lowering (it guards on the value), so it can only be baked in as
-    a constant: each new lr recompiles, and past dynamo's recompile limit the step
-    silently runs eager. Warn once so schedulers are not slowed down unknowingly.
-    """
-    global _warned_float_lr
-    if not isinstance(lr, _native.Value) and not _warned_float_lr:
-        _warned_float_lr = True
-        warnings.warn(
-            "tt-crank: compiled AdamW received a Python-float lr, which dynamo bakes "
-            "into the graph; every lr change recompiles. Pass lr as a tensor "
-            "(torch.optim.AdamW(..., lr=torch.tensor(lr))) to compile once.",
-            stacklevel=2,
-        )
-    return _adamw_scalar(mb, lr)
-
-
-@_lowering(_aten._fused_adamw.default, _aten._fused_adamw.tensor_lr)
-@_skip_prepare(_aten._fused_adamw.default, _aten._fused_adamw.tensor_lr)
-def _(
-    mb,
-    self,
-    grads,
-    exp_avgs,
-    exp_avg_sqs,
-    max_exp_avg_sqs,
-    state_steps,
-    *,
-    lr,
-    beta1,
-    beta2,
-    weight_decay,
-    eps,
-    amsgrad,
-    maximize,
-    grad_scale=None,
-    found_inf=None,
-):
-    if grad_scale is not None or found_inf is not None:
-        raise NotImplementedError(
-            "tt-crank adamw: grad_scale / found_inf (AMP gradient scaling) are not supported"
-        )
-    lr = _adamw_lr(mb, lr)
-    outs = [[], [], [], []]
-    for i, param in enumerate(self):
-        updated = mb.adamw(
-            param,
-            mb.neg(grads[i]) if maximize else grads[i],
-            exp_avgs[i],
-            exp_avg_sqs[i],
-            max_exp_avg_sqs[i] if amsgrad else None,
-            step=_adamw_scalar(mb, state_steps[i]),
-            lr=lr,
-            beta1=float(beta1),
-            beta2=float(beta2),
-            epsilon=float(eps),
-            weight_decay=float(weight_decay),
-        )
-        for out, value in zip(outs, updated):
-            out.append(value)
-    return (outs[0], list(grads), outs[1], outs[2], outs[3])
-
-
 @_lowering(_aten._to_copy.default)
 @_skip_prepare(_aten._to_copy.default)
 def _(
@@ -1175,6 +1092,9 @@ def _prepare_op_args(
       ttir.constant (handles e.g. aten.add.Tensor(x, 3.14))
     - Everything else (None, list, bool, ...): passed through unchanged
     """
+    if target in _SKIP_PREPARE_OP_ARGS:
+        return args
+
     out = []
     for i, a in enumerate(args):
         if not _is_tensor_schema_arg(i, target._schema):
@@ -1378,13 +1298,6 @@ class _TTIRInterpreter(torch.fx.Interpreter):
         super().__init__(gm)
         self.mb = mb
         self._current_node: torch.fx.Node | None = None
-        self._placeholder_index = {
-            n: i
-            for i, n in enumerate(n for n in gm.graph.nodes if n.op == "placeholder")
-        }
-        # (graph input index, value) for each in-graph input mutation; the runner
-        # swaps the input's storage to the value instead of copying.
-        self.input_mutations: list[tuple[int, "_native.Value"]] = []
 
     def run_node(self, n: torch.fx.Node):
         self._current_node = n
@@ -1392,38 +1305,15 @@ class _TTIRInterpreter(torch.fx.Interpreter):
 
     def _lower_op(self, target, args, kwargs):
         fn = _LOWERINGS.get(target)
-        if fn is None and target is not _aten.copy_.default:
+        if fn is None:
             raise NotImplementedError(f"tt-crank compile: op {target} not implemented")
-        if target not in _SKIP_PREPARE_OP_ARGS:
-            val = self._current_node.meta["val"]
-            if isinstance(val, (tuple, list)):
-                val = next(v for v in val if v is not None)
-            args = _prepare_op_args(self.mb, args, _to_runtime_dtype(val.dtype), target)
-        if target is _aten.copy_.default:
-            return self._lower_input_mutation(args[1])
-        return fn(self.mb, *args, **kwargs)
 
-    def _lower_input_mutation(self, value):
-        """`dst.copy_(src)` where `dst` is a graph input: record `src` as the
-        input's new value. The runner swaps the input's storage to the produced
-        tensor, so `src` is broadcast to the target's shape here (copy_ accepts
-        any broadcastable source)."""
-        target_node = self._current_node.args[0]
-        if target_node.op != "placeholder":
-            raise NotImplementedError("tt-crank compile: copy_ into a non-input tensor")
-        # Compare IR shapes, not FX meta (0-d tensors may carry a [1] shape in
-        # the module). Same element count is a reshape; otherwise pad the rank
-        # with leading 1s and broadcast, as ttir.broadcast needs equal ranks.
-        src, dst = list(value.shape), list(self.env[target_node].shape)
-        if src != dst:
-            if math.prod(src) == math.prod(dst):
-                value = self.mb.reshape(value, dst)
-            else:
-                if len(src) < len(dst):
-                    value = self.mb.reshape(value, [1] * (len(dst) - len(src)) + src)
-                value = self.mb.broadcast(value, dst)
-        self.input_mutations.append((self._placeholder_index[target_node], value))
-        return value
+        val = self._current_node.meta["val"]
+        if isinstance(val, (tuple, list)):
+            val = next(v for v in val if v is not None)
+        target_dtype = _to_runtime_dtype(val.dtype)
+        args = _prepare_op_args(self.mb, args, target_dtype, target)
+        return fn(self.mb, *args, **kwargs)
 
     def _call_operator(self, target, args, kwargs):
         op = _OPERATORS.get(target)
@@ -1482,8 +1372,7 @@ def _lower_and_compile(
     if not isinstance(fx_outputs, (tuple, list)):
         fx_outputs = (fx_outputs,)
 
-    interpreter = _TTIRInterpreter(gm, mb)
-    result = interpreter.run(*placeholder_values)
+    result = _TTIRInterpreter(gm, mb).run(*placeholder_values)
     if not isinstance(result, (tuple, list)):
         result = (result,)
 
@@ -1495,25 +1384,18 @@ def _lower_and_compile(
     # in so the runner returns one value per slot, as autograd expects.
     outputs: list = []
     output_dtypes: list = []
-    output_shapes: list = []
     none_mask: list[bool] = []
     for v, fx_node in zip(result, fx_outputs):
         if v is None:
             none_mask.append(True)
             continue
-        if isinstance(v, (tuple, list)):
+        if isinstance(v, tuple):
             raise NotImplementedError(
-                "tt-crank compile: container-valued graph output not supported (use getitem first)"
+                "tt-crank compile: tuple-valued graph output not supported (use getitem first)"
             )
         none_mask.append(False)
         outputs.append(v)
         output_dtypes.append(_to_runtime_dtype(fx_node.meta["val"].dtype))
-        output_shapes.append(list(fx_node.meta["val"].shape))
-    for index, value in interpreter.input_mutations:
-        outputs.append(value)
-        output_dtypes.append(_to_runtime_dtype(example_inputs[index].dtype))
-        output_shapes.append(list(example_inputs[index].shape))
-    mutated_inputs = [index for index, _ in interpreter.input_mutations]
 
     # Capturing the TTIR costs a full module print, so only pay for it when
     # something is actually collecting artifacts.
@@ -1527,20 +1409,7 @@ def _lower_and_compile(
         )
 
     def runner(*inputs: torch.Tensor) -> list:
-        # The runtime hands 0-d results back as [1]; restore the traced shape.
-        device_inputs = [t if t.device.type == "tt" else t.to("tt") for t in inputs]
-        produced = [
-            t if list(t.shape) == shape else t.reshape(shape)
-            for t, shape in zip(
-                _native.run_program(program, device_inputs, output_dtypes),
-                output_shapes,
-            )
-        ]
-        for index, value in zip(
-            mutated_inputs, produced[len(produced) - len(mutated_inputs) :]
-        ):
-            inputs[index].set_(value)
-        produced = iter(produced)
+        produced = iter(_native.run_program(program, list(inputs), output_dtypes))
         return [None if is_none else next(produced) for is_none in none_mask]
 
     return runner
@@ -1628,64 +1497,8 @@ def tt_backend(
         fw_compiler=fw_compiler,
         bw_compiler=bw_compiler,
         decompositions=_TT_DECOMPOSITIONS,
-        keep_inference_input_mutations=True,
     )
 
 
 # Self-register on import. After this, `torch.compile(model, backend="tt")` works.
 torch._dynamo.register_backend(name="tt", compiler_fn=tt_backend)
-
-
-_fused_adamw_compile_enabled = False
-
-
-def _enable_fused_adamw_compile() -> None:
-    """Let dynamo trace `torch.optim.AdamW(fused=True).step()` into one graph.
-
-    Process-wide and applied at import on purpose: dynamo consults its trace
-    rules and the `torch.compiler.disable` wrapper while tracing, before any
-    backend is invoked, so arming this lazily from `tt_backend` is too late (the
-    first compiled `step()` would silently run eager). Dynamo has no per-backend
-    trace rules, so other backends in a process that imported tt_crank trace the
-    fused step through the polyfill too; that is behaviour-preserving for them
-    (functional op + copy_ is what the C binding does).
-
-    torch wraps the fused optimizer body in `torch.compiler.disable` (lazily, at
-    first compile) and `aten::_fused_adamw_` cannot be functionalized when
-    `max_exp_avg_sqs` is empty (amsgrad=False). Unwrap the former; trace the
-    latter as the functional overload plus `copy_` (eager is untouched).
-    """
-    global _fused_adamw_compile_enabled
-    if _fused_adamw_compile_enabled:
-        return
-    _fused_adamw_compile_enabled = True
-
-    import torch.optim.adam as adam_module
-
-    torch._dynamo.eval_frame.TorchPatcher.patch()
-    adam_module._fused_adam = getattr(
-        adam_module._fused_adam, "_torchdynamo_orig_callable", adam_module._fused_adam
-    )
-
-    # dynamo lists the C binding as an in-graph function; drop that so the polyfill wins.
-    torch._dynamo.trace_rules.torch_c_binding_in_graph_functions.pop(
-        "torch._fused_adamw_", None
-    )
-    torch._dynamo.trace_rules.get_torch_obj_rule_map.cache_clear()
-
-    @torch._dynamo.substitute_in_graph(torch._fused_adamw_, skip_signature_check=True)
-    def fused_adamw_(
-        self, grads, exp_avgs, exp_avg_sqs, max_exp_avg_sqs, state_steps, **kwargs
-    ):
-        out = _aten._fused_adamw(
-            self, grads, exp_avgs, exp_avg_sqs, max_exp_avg_sqs, state_steps, **kwargs
-        )
-        for targets, values in zip(
-            (self, exp_avgs, exp_avg_sqs, max_exp_avg_sqs),
-            (out[0], out[2], out[3], out[4]),
-        ):
-            for target, value in zip(targets, values):
-                target.copy_(value)
-
-
-_enable_fused_adamw_compile()
