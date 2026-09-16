@@ -713,6 +713,22 @@ private:
     return false;
   }
 
+  // Whether the op reading this operand needs it row major, mirroring the
+  // operand workarounds the TTNNWorkarounds pass will apply once these ops
+  // have been converted to TTNN. Only operands no kernel can read tiled
+  // belong here: an operand that merely prefers row major is better left to
+  // the workarounds pass, which sees the surrounding graph.
+  static bool operandMustBeRowMajor(OpOperand &use) {
+    // Every ttnn embedding program factory reads the table as row-major
+    // sticks and its validation rejects a tiled one outright, and
+    // createEmbeddingOpOperandsWorkarounds asks for row-major indices too
+    // even though ttnn can gather from tiled ones.
+    if (mlir::isa<ttir::EmbeddingOp>(use.getOwner())) {
+      return use.getOperandNumber() <= 1;
+    }
+    return false;
+  }
+
   bool shouldForceInputRowMajor(BlockArgument arg) const {
     func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
 
@@ -726,6 +742,20 @@ private:
       if (mlir::isa<ttir::MeshShardOp, ttir::TTLangOp>(user)) {
         return false;
       }
+    }
+
+    // An argument every consumer wants row major should arrive row major,
+    // whatever its argument type says. Otherwise the workarounds pass, which
+    // runs long after this one and can only see inside the graph, repairs the
+    // mismatch with a to_layout on each invocation. For an embedding table
+    // that untilize is hundreds of megabytes of the caller's step time and a
+    // second copy of the table alongside the tiled original, both paid per
+    // call, whereas converting at the boundary is paid once: a runtime binds
+    // an argument in the layout the program asks for and keeps the result.
+    if (!arg.use_empty() && llvm::all_of(arg.getUses(), [](OpOperand &use) {
+          return operandMustBeRowMajor(use);
+        })) {
+      return true;
     }
 
     if (auto typeAttr = owningFunc.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
