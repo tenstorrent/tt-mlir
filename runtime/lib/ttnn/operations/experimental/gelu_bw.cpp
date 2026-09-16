@@ -8,7 +8,8 @@
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
-#include "ttnn/operations/experimental/unary_backward/gelu_backward/gelu_backward.hpp"
+#include "ttnn/operations/eltwise/unary/unary.hpp"
+#include "ttnn/operations/eltwise/unary_backward/unary_backward.hpp"
 #include "ttnn/tensor/tensor.hpp"
 
 namespace tt::runtime::ttnn::operations::experimental {
@@ -26,15 +27,24 @@ void run(const ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOp *op,
           ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpType::GeluBW,
       "Expected GeluBW operation");
 
-  std::string approximate =
+  // tt-metal replaced the `approximate` string with a GeluVariant enum and
+  // moved gelu_bw out of the experimental namespace.
+  using ::ttnn::operations::unary::GeluVariant;
+  const std::string approximate =
       op->approximate() ? op->approximate()->str() : "none";
+  const GeluVariant variant =
+      approximate == "tanh" ? GeluVariant::TANH : GeluVariant::ACCURATE;
 
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
 
-  ::ttnn::Tensor out =
-      ::ttnn::experimental::gelu_bw(grad, input, approximate, memoryConfig);
+  // gelu_bw now returns a vector of optionals, one per differentiated input.
+  std::vector<std::optional<::ttnn::Tensor>> grads =
+      ::ttnn::gelu_bw(grad, input, variant, memoryConfig);
+  LOG_ASSERT(!grads.empty() && grads.front().has_value(),
+             "gelu_bw did not produce an input gradient");
+  ::ttnn::Tensor out = *grads.front();
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

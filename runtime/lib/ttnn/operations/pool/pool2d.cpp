@@ -15,6 +15,7 @@
 #include <optional>
 #include <ttnn/operations/functions.hpp>
 #include <ttnn/operations/pool/generic/generic_pools.hpp>
+#include "ttnn/operations/experimental/quasar/pool_generic/generic_pools.hpp"
 
 namespace tt::runtime::ttnn::operations::pool {
 
@@ -191,16 +192,31 @@ void run(const ::tt::target::ttnn::MaxPool2dWithIndicesOp *op,
   // Call ttnn::max_pool2d with return_indices = true, returning both output and
   // indices. Use default BFLOAT16 dtype and ROW_MAJOR layout (required for
   // indices).
-  std::vector<::ttnn::Tensor> outputs = ::ttnn::max_pool2d(
-      input, op->batch_size(), op->input_height(), op->input_width(),
-      op->channels(), kernelSize, stride, padding, dilation, op->ceil_mode(),
-      outputMemoryConfig, /*dram_slice_config=*/std::nullopt,
-      appliedShardScheme,
-      /*deallocate_input=*/false,
-      /*reallocate_halo_output=*/op->reallocate_halo_output(),
-      /*return_indices=*/true, ::ttnn::DataType::BFLOAT16,
-      ::ttnn::Layout::ROW_MAJOR,
-      /*config_tensor_in_dram=*/op->config_tensors_in_dram());
+  // Quasar's pool lives in ttnn::operations::pool::quasar and takes the identical
+  // argument list, so this is a straight substitution; the mainline pool program
+  // factory builds a DataMovementKernel and TT_FATALs on Quasar.
+  std::vector<::ttnn::Tensor> outputs =
+      utils::isQuasar()
+          ? ::ttnn::operations::pool::quasar::max_pool2d(
+                input, op->batch_size(), op->input_height(), op->input_width(),
+                op->channels(), kernelSize, stride, padding, dilation,
+                op->ceil_mode(), outputMemoryConfig,
+                /*dram_slice_config=*/std::nullopt, appliedShardScheme,
+                /*deallocate_input=*/false,
+                /*reallocate_halo_output=*/op->reallocate_halo_output(),
+                /*return_indices=*/true, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::Layout::ROW_MAJOR,
+                /*config_tensor_in_dram=*/op->config_tensors_in_dram())
+          : ::ttnn::max_pool2d(
+                input, op->batch_size(), op->input_height(), op->input_width(),
+                op->channels(), kernelSize, stride, padding, dilation,
+                op->ceil_mode(), outputMemoryConfig,
+                /*dram_slice_config=*/std::nullopt, appliedShardScheme,
+                /*deallocate_input=*/false,
+                /*reallocate_halo_output=*/op->reallocate_halo_output(),
+                /*return_indices=*/true, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::Layout::ROW_MAJOR,
+                /*config_tensor_in_dram=*/op->config_tensors_in_dram());
 
   tensorPool.insertTTNNTensorAndValidate(op->result(), outputs[0]);
   tensorPool.insertTTNNTensorAndValidate(op->result_indices(), outputs[1]);
