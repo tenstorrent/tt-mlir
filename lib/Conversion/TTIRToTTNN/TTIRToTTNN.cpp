@@ -2053,8 +2053,8 @@ public:
     // The exception is a depthwise convolution over a unit-height input, which
     // is the shape a framework produces when it decomposes a 1D convolution
     // into conv2d. The in-DRAM depthwise conv2d path hangs in tt-metal
-    // (#45075), so those config tensors must stay in L1 (the Metal default);
-    // forcing DRAM here computes wrong results (#9276).
+    // (tt-metal#47799), so those config tensors must stay in L1 (the Metal
+    // default); forcing DRAM here computes wrong results (#9276).
     // Conv1dOpConversionPattern already does this for the native ttnn::conv1d
     // path, but a framework-decomposed conv1d reaches this pattern instead.
     // Depthwise convolutions with a taller input keep the general in-DRAM
