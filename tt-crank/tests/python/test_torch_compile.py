@@ -1772,6 +1772,96 @@ def test_compile_mse_loss_backward(reduction: int) -> None:
     )
 
 
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_addcdiv(shape: tuple[int, ...]) -> None:
+    class _AddCDiv(nn.Module):
+        def forward(
+            self, a: torch.Tensor, t1: torch.Tensor, t2: torch.Tensor
+        ) -> torch.Tensor:
+            return torch.addcdiv(a, t1, t2)
+
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    t1 = torch.randn(shape, dtype=torch.bfloat16)
+    t2 = torch.rand(shape, dtype=torch.bfloat16).add(0.1)
+    _assert_compile_matches_eager(_AddCDiv(), a, t1, t2, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("value", [2.0, 0.5, -1.0])
+def test_compile_addcdiv_value(value: float) -> None:
+    class _AddCDivValue(nn.Module):
+        def __init__(self, k: float) -> None:
+            super().__init__()
+            self.k = k
+
+        def forward(
+            self, a: torch.Tensor, t1: torch.Tensor, t2: torch.Tensor
+        ) -> torch.Tensor:
+            return torch.addcdiv(a, t1, t2, value=self.k)
+
+    a = torch.randn((32, 32), dtype=torch.bfloat16)
+    t1 = torch.randn((32, 32), dtype=torch.bfloat16)
+    t2 = torch.rand((32, 32), dtype=torch.bfloat16).add(0.1)
+    _assert_compile_matches_eager(_AddCDivValue(value), a, t1, t2, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_addcmul(shape: tuple[int, ...]) -> None:
+    class _AddCMul(nn.Module):
+        def forward(
+            self, a: torch.Tensor, t1: torch.Tensor, t2: torch.Tensor
+        ) -> torch.Tensor:
+            return torch.addcmul(a, t1, t2)
+
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    t1 = torch.randn(shape, dtype=torch.bfloat16)
+    t2 = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_AddCMul(), a, t1, t2, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("value", [2.0, 0.5, -1.0])
+def test_compile_addcmul_value(value: float) -> None:
+    class _AddCMulValue(nn.Module):
+        def __init__(self, k: float) -> None:
+            super().__init__()
+            self.k = k
+
+        def forward(
+            self, a: torch.Tensor, t1: torch.Tensor, t2: torch.Tensor
+        ) -> torch.Tensor:
+            return torch.addcmul(a, t1, t2, value=self.k)
+
+    a = torch.randn((32, 32), dtype=torch.bfloat16)
+    t1 = torch.randn((32, 32), dtype=torch.bfloat16)
+    t2 = torch.randn((32, 32), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_AddCMulValue(value), a, t1, t2, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_lerp_scalar(shape: tuple[int, ...]) -> None:
+    class _LerpScalar(nn.Module):
+        def forward(self, a: torch.Tensor, end: torch.Tensor) -> torch.Tensor:
+            return torch.lerp(a, end, 0.25)
+
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    end = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_LerpScalar(), a, end, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("weight", [0.0, 1.0, 0.5, -0.5, 2.0])
+def test_compile_lerp_scalar_weight(weight: float) -> None:
+    class _LerpWeight(nn.Module):
+        def __init__(self, w: float) -> None:
+            super().__init__()
+            self.w = w
+
+        def forward(self, a: torch.Tensor, end: torch.Tensor) -> torch.Tensor:
+            return torch.lerp(a, end, self.w)
+
+    a = torch.randn((32, 32), dtype=torch.bfloat16)
+    end = torch.randn((32, 32), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_LerpWeight(weight), a, end, atol=0.05, rtol=0.05)
+
+
 def test_compile_options() -> None:
     """All in-process `_compile_options` parsing/validation in one test:
     optimization_level parsing, unset-option defaults, a full round-trip of every

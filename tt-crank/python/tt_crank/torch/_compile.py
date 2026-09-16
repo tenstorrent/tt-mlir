@@ -1042,6 +1042,21 @@ def _(
     return mb.full(shape, float(fill_value), _to_runtime_dtype(dtype))
 
 
+@_lowering(_aten.addcdiv.default)
+def _(mb, input, tensor1, tensor2, value=1.0):
+    return mb.addcdiv(input, tensor1, tensor2, float(value))
+
+
+@_lowering(_aten.addcmul.default)
+def _(mb, input, tensor1, tensor2, value=1.0):
+    return mb.addcmul(input, tensor1, tensor2, float(value))
+
+
+@_lowering(_aten.lerp.Scalar)
+def _(mb, input, end, weight):
+    return mb.lerp(input, end, float(weight))
+
+
 def _is_tensor_schema_arg(
     idx: int,
     schema: torch._C.FunctionSchema,
