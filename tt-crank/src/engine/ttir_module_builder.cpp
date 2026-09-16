@@ -584,6 +584,11 @@ mlir::Value build_sin(ModuleBuilder &mb, mlir::Value input) {
     return mb.create<mlir::tt::ttir::SinOp>(result_type, input).getResult();
 }
 
+mlir::Value build_abs(ModuleBuilder &mb, mlir::Value input) {
+    auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    return mb.create<mlir::tt::ttir::AbsOp>(result_type, input).getResult();
+}
+
 mlir::Value build_neg(ModuleBuilder &mb, mlir::Value input) {
     auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     return mb.create<mlir::tt::ttir::NegOp>(result_type, input).getResult();

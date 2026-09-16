@@ -731,6 +731,19 @@ def test_compile_exp(shape: tuple[int, ...]) -> None:
 
 
 @pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_abs(shape: tuple[int, ...]) -> None:
+    """Single aten::abs in a compiled graph."""
+
+    class _Abs(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.abs(x)
+
+    # Straddles zero so both signs are exercised.
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Abs(), x, atol=0.01, rtol=0.01)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
 def test_compile_log1p(shape: tuple[int, ...]) -> None:
     class _Log1p(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:

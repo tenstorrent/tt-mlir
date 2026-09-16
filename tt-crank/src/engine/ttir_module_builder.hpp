@@ -323,6 +323,9 @@ TT_CRANK_API mlir::Value build_cos(ModuleBuilder &mb, mlir::Value input);
 // Emit TTIR for element-wise sine.
 TT_CRANK_API mlir::Value build_sin(ModuleBuilder &mb, mlir::Value input);
 
+// Emit TTIR for element-wise absolute value.
+TT_CRANK_API mlir::Value build_abs(ModuleBuilder &mb, mlir::Value input);
+
 // Emit TTIR for element-wise negation.
 TT_CRANK_API mlir::Value build_neg(ModuleBuilder &mb, mlir::Value input);
 

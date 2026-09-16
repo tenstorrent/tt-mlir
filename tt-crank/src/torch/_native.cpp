@@ -280,6 +280,10 @@ public:
         assert_builder();
         return tk::build_sin(*mb_, input);
     }
+    mlir::Value abs(mlir::Value input) {
+        assert_builder();
+        return tk::build_abs(*mb_, input);
+    }
     mlir::Value neg(mlir::Value input) {
         assert_builder();
         return tk::build_neg(*mb_, input);
@@ -843,6 +847,7 @@ NB_MODULE(_native, m) {
         .def("typecast", &PyModuleBuilder::typecast, "value"_a, "dtype"_a)
         .def("cos", &PyModuleBuilder::cos, "input"_a)
         .def("sin", &PyModuleBuilder::sin, "input"_a)
+        .def("abs", &PyModuleBuilder::abs, "input"_a)
         .def("neg", &PyModuleBuilder::neg, "input"_a)
         .def("log", &PyModuleBuilder::log, "input"_a)
         .def("exp", &PyModuleBuilder::exp, "input"_a)

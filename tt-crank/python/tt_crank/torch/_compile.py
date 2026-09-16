@@ -322,6 +322,11 @@ def _(mb, x):
     return mb.sin(x)
 
 
+@_lowering(_aten.abs.default)
+def _(mb, x):
+    return mb.abs(x)
+
+
 @_lowering(_aten.neg.default)
 def _(mb, x):
     return mb.neg(x)

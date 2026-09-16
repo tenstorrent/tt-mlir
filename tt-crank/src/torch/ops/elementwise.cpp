@@ -661,6 +661,15 @@ at::Tensor tt_sin(const at::Tensor &self) {
     return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
 }
 
+at::Tensor tt_abs(const at::Tensor &self) {
+    TORCH_CHECK(is_tt(self), "tt-crank aten::abs: tensor must be on tt backend");
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result = build_abs(mb, mb.args()[0]);
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
+}
+
 at::Tensor tt_log(const at::Tensor &self) {
     TORCH_CHECK(is_tt(self), "tt-crank aten::log: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
@@ -1172,6 +1181,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("div.Scalar", TORCH_FN(tt_div_scalar));
     m.impl("cos", TORCH_FN(tt_cos));
     m.impl("sin", TORCH_FN(tt_sin));
+    m.impl("abs", TORCH_FN(tt_abs));
     m.impl("neg", TORCH_FN(tt_neg));
     m.impl("log", TORCH_FN(tt_log));
     m.impl("exp", TORCH_FN(tt_exp));

@@ -60,6 +60,7 @@ template <typename... Tensors> auto promote_inputs(ModuleBuilder &mb, const Tens
 }
 
 using ::tt::crank::broadcast_shape;
+using ::tt::crank::build_abs;
 using ::tt::crank::build_add;
 using ::tt::crank::build_addmm;
 using ::tt::crank::build_all;
