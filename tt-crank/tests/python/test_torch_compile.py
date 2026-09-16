@@ -185,6 +185,24 @@ def test_compile_relu(shape: tuple[int, ...]) -> None:
     _assert_compile_matches_eager(_ReLU(), x)
 
 
+@pytest.mark.parametrize("src_shape", [(32, 32), (1, 32), (32, 1), ()])
+def test_compile_copy_into_input_broadcasts(src_shape: tuple[int, ...]) -> None:
+    """`dst.copy_(src)` on a graph input stays in the compiled graph as an input
+    mutation; the source is broadcast to `dst`'s shape like eager copy_ does."""
+
+    def fn(dst: torch.Tensor, src: torch.Tensor) -> torch.Tensor:
+        dst.copy_(src)
+        return dst * 2
+
+    dst_cpu = torch.randn((32, 32), dtype=torch.bfloat16)
+    src_cpu = torch.randn(src_shape, dtype=torch.bfloat16)
+    dst_tt, src_tt = dst_cpu.clone().to("tt"), src_cpu.to("tt")
+    expected = fn(dst_cpu.clone(), src_cpu)
+    out = torch.compile(fn, backend="tt")(dst_tt, src_tt)
+    torch.testing.assert_close(out.cpu(), expected)
+    torch.testing.assert_close(dst_tt.cpu(), src_cpu.expand(32, 32).contiguous())
+
+
 @pytest.mark.parametrize("m,n", [(32, 64), (64, 32)])
 def test_compile_t(m: int, n: int) -> None:
     """Single aten::t in a compiled graph."""
