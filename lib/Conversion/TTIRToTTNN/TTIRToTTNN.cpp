@@ -2050,15 +2050,11 @@ public:
     // Config tensors are allocated in L1 by default in Metal.
     // In the general path, we want to allocate them in DRAM to prevent OOM.
     //
-    // The exception is a depthwise convolution over a unit-height input, which
-    // is the shape a framework produces when it decomposes a 1D convolution
-    // into conv2d. The in-DRAM depthwise conv2d path hangs in tt-metal
-    // (tt-metal#47799), so those config tensors must stay in L1 (the Metal
-    // default); forcing DRAM here computes wrong results (#9276).
-    // Conv1dOpConversionPattern already does this for the native ttnn::conv1d
-    // path, but a framework-decomposed conv1d reaches this pattern instead.
+    // The in-DRAM depthwise conv2d path hangs in tt-metal (tt-metal#47799),
+    // or computes wrong results for depthwise conv2d (#9276).
+    // Conv1dOpConversionPattern already does this for the native ttnn::conv1d.
     // Depthwise convolutions with a taller input keep the general in-DRAM
-    // behavior so they do not regress into the OOM this guards against.
+    // behavior so they do not regress into the OOM.
     bool isDepthwiseUnitHeight =
         static_cast<int64_t>(adaptor.getGroups()) ==
             op.getInput().getType().getDimSize(CHANNEL_DIM) &&

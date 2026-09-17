@@ -4,7 +4,7 @@
 // A depthwise conv2d over a unit-height input is the shape a framework
 // produces when it decomposes a 1D convolution. Its config tensors must stay
 // in L1, matching what Conv1dOpConversionPattern does for the native
-// ttnn::conv1d path (tt-metal #45075, tt-mlir #9276).
+// ttnn::conv1d path.
 module {
   func.func @depthwise_conv2d_unit_height(%arg0: tensor<1x1x32x64xbf16>, %arg1: tensor<64x1x1x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x1x30x64xbf16> {
     // CHECK-LABEL: func.func @depthwise_conv2d_unit_height
