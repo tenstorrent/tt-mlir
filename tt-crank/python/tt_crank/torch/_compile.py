@@ -24,6 +24,7 @@ Pipeline::
 from __future__ import annotations
 
 import functools
+import math
 import operator
 from collections.abc import Callable
 from enum import StrEnum
@@ -1102,9 +1103,6 @@ def _prepare_op_args(
       ttir.constant (handles e.g. aten.add.Tensor(x, 3.14))
     - Everything else (None, list, bool, ...): passed through unchanged
     """
-    if target in _SKIP_PREPARE_OP_ARGS:
-        return args
-
     out = []
     for i, a in enumerate(args):
         if not _is_tensor_schema_arg(i, target._schema):
@@ -1308,6 +1306,13 @@ class _TTIRInterpreter(torch.fx.Interpreter):
         super().__init__(gm)
         self.mb = mb
         self._current_node: torch.fx.Node | None = None
+        self._placeholder_index = {
+            n: i
+            for i, n in enumerate(n for n in gm.graph.nodes if n.op == "placeholder")
+        }
+        # (graph input index, value) for each in-graph input mutation; the runner
+        # swaps the input's storage to the value instead of copying.
+        self.input_mutations: list[tuple[int, "_native.Value"]] = []
 
     def run_node(self, n: torch.fx.Node):
         self._current_node = n
@@ -1315,15 +1320,38 @@ class _TTIRInterpreter(torch.fx.Interpreter):
 
     def _lower_op(self, target, args, kwargs):
         fn = _LOWERINGS.get(target)
-        if fn is None:
+        if fn is None and target is not _aten.copy_.default:
             raise NotImplementedError(f"tt-crank compile: op {target} not implemented")
-
-        val = self._current_node.meta["val"]
-        if isinstance(val, (tuple, list)):
-            val = next(v for v in val if v is not None)
-        target_dtype = _to_runtime_dtype(val.dtype)
-        args = _prepare_op_args(self.mb, args, target_dtype, target)
+        if target not in _SKIP_PREPARE_OP_ARGS:
+            val = self._current_node.meta["val"]
+            if isinstance(val, (tuple, list)):
+                val = next(v for v in val if v is not None)
+            args = _prepare_op_args(self.mb, args, _to_runtime_dtype(val.dtype), target)
+        if target is _aten.copy_.default:
+            return self._lower_input_mutation(args[1])
         return fn(self.mb, *args, **kwargs)
+
+    def _lower_input_mutation(self, value):
+        """`dst.copy_(src)` where `dst` is a graph input: record `src` as the
+        input's new value. The runner swaps the input's storage to the produced
+        tensor, so `src` is broadcast to the target's shape here (copy_ accepts
+        any broadcastable source)."""
+        target_node = self._current_node.args[0]
+        if target_node.op != "placeholder":
+            raise NotImplementedError("tt-crank compile: copy_ into a non-input tensor")
+        # Compare IR shapes, not FX meta (0-d tensors may carry a [1] shape in
+        # the module). Same element count is a reshape; otherwise pad the rank
+        # with leading 1s and broadcast, as ttir.broadcast needs equal ranks.
+        src, dst = list(value.shape), list(self.env[target_node].shape)
+        if src != dst:
+            if math.prod(src) == math.prod(dst):
+                value = self.mb.reshape(value, dst)
+            else:
+                if len(src) < len(dst):
+                    value = self.mb.reshape(value, [1] * (len(dst) - len(src)) + src)
+                value = self.mb.broadcast(value, dst)
+        self.input_mutations.append((self._placeholder_index[target_node], value))
+        return value
 
     def _call_operator(self, target, args, kwargs):
         op = _OPERATORS.get(target)
@@ -1382,7 +1410,8 @@ def _lower_and_compile(
     if not isinstance(fx_outputs, (tuple, list)):
         fx_outputs = (fx_outputs,)
 
-    result = _TTIRInterpreter(gm, mb).run(*placeholder_values)
+    interpreter = _TTIRInterpreter(gm, mb)
+    result = interpreter.run(*placeholder_values)
     if not isinstance(result, (tuple, list)):
         result = (result,)
 
@@ -1394,6 +1423,7 @@ def _lower_and_compile(
     # in so the runner returns one value per slot, as autograd expects.
     outputs: list = []
     output_dtypes: list = []
+    output_shapes: list = []
     none_mask: list[bool] = []
     for v, fx_node in zip(result, fx_outputs):
         if v is None:
@@ -1406,6 +1436,12 @@ def _lower_and_compile(
         none_mask.append(False)
         outputs.append(v)
         output_dtypes.append(_to_runtime_dtype(fx_node.meta["val"].dtype))
+        output_shapes.append(list(fx_node.meta["val"].shape))
+    for index, value in interpreter.input_mutations:
+        outputs.append(value)
+        output_dtypes.append(_to_runtime_dtype(example_inputs[index].dtype))
+        output_shapes.append(list(example_inputs[index].shape))
+    mutated_inputs = [index for index, _ in interpreter.input_mutations]
 
     # Capturing the TTIR costs a full module print, so only pay for it when
     # something is actually collecting artifacts.
@@ -1419,7 +1455,20 @@ def _lower_and_compile(
         )
 
     def runner(*inputs: torch.Tensor) -> list:
-        produced = iter(_native.run_program(program, list(inputs), output_dtypes))
+        # The runtime hands 0-d results back as [1]; restore the traced shape.
+        device_inputs = [t if t.device.type == "tt" else t.to("tt") for t in inputs]
+        produced = [
+            t if list(t.shape) == shape else t.reshape(shape)
+            for t, shape in zip(
+                _native.run_program(program, device_inputs, output_dtypes),
+                output_shapes,
+            )
+        ]
+        for index, value in zip(
+            mutated_inputs, produced[len(produced) - len(mutated_inputs) :]
+        ):
+            inputs[index].set_(value)
+        produced = iter(produced)
         return [None if is_none else next(produced) for is_none in none_mask]
 
     return runner
@@ -1507,6 +1556,7 @@ def tt_backend(
         fw_compiler=fw_compiler,
         bw_compiler=bw_compiler,
         decompositions=_TT_DECOMPOSITIONS,
+        keep_inference_input_mutations=True,
     )
 
 
