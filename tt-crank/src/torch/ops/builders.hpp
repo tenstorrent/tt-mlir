@@ -19,7 +19,6 @@
 
 namespace tt::crank::torch_backend {
 
-using ::tt::crank::AdamWParams;
 using ::tt::crank::ModuleBuilder;
 using ::tt::crank::TensorTypeSpec;
 

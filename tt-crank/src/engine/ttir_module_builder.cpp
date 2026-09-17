@@ -1398,7 +1398,7 @@ mlir::Value build_sdpa(ModuleBuilder &mb, mlir::Value query, mlir::Value key, ml
 
 std::array<mlir::Value, 4> build_adamw(ModuleBuilder &mb, mlir::Value param, mlir::Value grad, mlir::Value exp_avg,
                                        mlir::Value exp_avg_sq, mlir::Value max_exp_avg_sq, mlir::Value step,
-                                       mlir::Value lr, const AdamWParams &params) {
+                                       mlir::Value lr, float beta1, float beta2, float epsilon, float weight_decay) {
     const auto param_type = mlir::cast<mlir::RankedTensorType>(param.getType());
     TT_FATAL(param_type.getElementType().isBF16() || param_type.getElementType().isF32(),
              "tt-crank build_adamw: the ttnn kernel takes bf16 or f32 parameters, got {}", type_name(param_type));
@@ -1429,10 +1429,9 @@ std::array<mlir::Value, 4> build_adamw(ModuleBuilder &mb, mlir::Value param, mli
         result_types.push_back(max_exp_avg_sq.getType());
     }
     auto op = mb.create<mlir::tt::ttir::AdamWOp>(
-        mlir::TypeRange(result_types), param, grad, exp_avg, exp_avg_sq, unit_f32(lr, "lr"), beta_pow(params.beta1),
-        beta_pow(params.beta2), max_exp_avg_sq, mb.attrs().getF32FloatAttr(params.beta1),
-        mb.attrs().getF32FloatAttr(params.beta2), mb.attrs().getF32FloatAttr(params.epsilon),
-        mb.attrs().getF32FloatAttr(params.weight_decay));
+        mlir::TypeRange(result_types), param, grad, exp_avg, exp_avg_sq, unit_f32(lr, "lr"), beta_pow(beta1),
+        beta_pow(beta2), max_exp_avg_sq, mb.attrs().getF32FloatAttr(beta1), mb.attrs().getF32FloatAttr(beta2),
+        mb.attrs().getF32FloatAttr(epsilon), mb.attrs().getF32FloatAttr(weight_decay));
     return {op.getParamOut(), op.getExpAvgOut(), op.getExpAvgSqOut(), op.getMaxExpAvgSqOut()};
 }
 

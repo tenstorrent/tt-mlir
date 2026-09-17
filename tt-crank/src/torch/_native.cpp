@@ -590,7 +590,7 @@ public:
         std::vector<std::optional<mlir::Value>> out;
         for (mlir::Value v :
              tk::build_adamw(*mb_, param, grad, exp_avg, exp_avg_sq, max_exp_avg_sq.value_or(mlir::Value{}), step, lr,
-                             {beta1, beta2, epsilon, weight_decay})) {
+                             beta1, beta2, epsilon, weight_decay)) {
             out.push_back(v ? std::optional{v} : std::nullopt);
         }
         return out;

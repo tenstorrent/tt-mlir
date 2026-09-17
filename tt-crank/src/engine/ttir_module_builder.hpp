@@ -595,18 +595,11 @@ TT_CRANK_API mlir::Value build_index_copy(ModuleBuilder &mb, mlir::Value input, 
 TT_CRANK_API mlir::Value build_sdpa(ModuleBuilder &mb, mlir::Value query, mlir::Value key, mlir::Value value,
                                     bool is_causal, std::optional<float> scale, mlir::Value attn_mask);
 
-struct AdamWParams {
-    float beta1;
-    float beta2;
-    float epsilon;
-    float weight_decay;
-};
-
 // One fused AdamW step (`ttir.adamw`). `step`/`lr` are single-element tensors; grad is cast to bf16.
 // `max_exp_avg_sq` null = amsgrad off; then the last result is null too.
 TT_CRANK_API std::array<mlir::Value, 4> build_adamw(ModuleBuilder &mb, mlir::Value param, mlir::Value grad,
                                                     mlir::Value exp_avg, mlir::Value exp_avg_sq,
                                                     mlir::Value max_exp_avg_sq, mlir::Value step, mlir::Value lr,
-                                                    const AdamWParams &params);
+                                                    float beta1, float beta2, float epsilon, float weight_decay);
 
 } // namespace tt::crank

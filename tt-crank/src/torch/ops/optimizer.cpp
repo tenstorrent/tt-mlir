@@ -62,13 +62,13 @@ void fused_adamw_impl(at::TensorList self, at::TensorList grads, at::TensorList 
     }
     auto mb = ModuleBuilder::init(specs);
     const auto args = mb.args();
-    const AdamWParams params{as<float>(beta1), as<float>(beta2), as<float>(eps), as<float>(weight_decay)};
     llvm::SmallVector<mlir::Value, 16> outputs(targets * n);
     for (std::size_t i = 0; i < n; ++i) {
         const mlir::Value grad = args[targets * n + i];
         const auto results =
             build_adamw(mb, args[i], maximize ? build_neg(mb, grad) : grad, args[n + i], args[2 * n + i],
-                        amsgrad ? args[3 * n + i] : mlir::Value{}, args[(targets + 1) * n + i], args.back(), params);
+                        amsgrad ? args[3 * n + i] : mlir::Value{}, args[(targets + 1) * n + i], args.back(),
+                        as<float>(beta1), as<float>(beta2), as<float>(eps), as<float>(weight_decay));
         for (std::size_t k = 0; k < targets; ++k) {
             outputs[k * n + i] = results[k];
         }
