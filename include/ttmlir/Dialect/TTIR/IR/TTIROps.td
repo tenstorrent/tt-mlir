@@ -209,6 +209,101 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 }
 
 //===----------------------------------------------------------------------===//
+// TTIR control flow ops
+//===----------------------------------------------------------------------===//
+
+def TTIR_YieldOp : TTIR_Op<"yield", [Pure, Terminator]> {
+  let summary = "Terminator for TTIR control flow regions.";
+  let description = [{
+    Terminates a region of a TTIR control flow op. The meaning of the yielded
+    values is defined by the parent op;
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$operands);
+
+  // Nullary builder required by SingleBlockImplicitTerminator on the parent.
+  let builders = [OpBuilder<(ins), [{ /* nothing to do */ }]>];
+
+  let assemblyFormat = [{ attr-dict ($operands^ `:` type($operands))? }];
+}
+
+def TTIR_WhileOp : TTIR_Op<"while", [
+    AttrSizedOperandSegments,
+    IsolatedFromAbove,
+    RecursiveMemoryEffects,
+    SingleBlockImplicitTerminator<"::mlir::tt::ttir::YieldOp">]> {
+  let summary = "While loop.";
+  let description = [{
+    Repeatedly executes `body` while `cond` yields true, threading the
+    loop-carried values from one iteration to the next.
+
+    Both regions take the same block arguments: the loop-carried values
+    followed by the loop-invariant captures, i.e. `inits ++ captures`. On the
+    first iteration the loop-carried arguments are bound to `inits`; on every
+    subsequent iteration they are bound to the values yielded by `body`. The
+    captures are bound to the same values on every iteration.
+
+    `cond` yields exactly one single-element tensor, interpreted as a boolean.
+    `body` yields one value per loop-carried value, with matching types. The
+    op's results are the loop-carried values after the final iteration.
+
+    The op is `IsolatedFromAbove`: at runtime each region becomes its own
+    flatbuffer program with its own tensor pool, and a nested program can only
+    see tensors bound through its own inputs. Values a region uses but that are
+    defined outside the op must therefore be promoted to explicit `captures`
+    operands.
+
+    `trip_count`, when present, is the statically known number of iterations,
+    set by the `ttir-while-trip-count` pass. It must agree with `cond`, which
+    remains valid and is still lowered, so consumers may ignore the attribute.
+
+    Example:
+    ```mlir
+    %r:2 = ttir.while inits(%i0, %acc0 : tensor<1xi32>, tensor<2xf32>)
+                      captures(%limit : tensor<1xi32>)
+      cond {
+      ^cond(%i: tensor<1xi32>, %acc: tensor<2xf32>, %lim: tensor<1xi32>):
+        %p = ttir.lt(%i, %lim, ...) : ...
+        ttir.yield %p : tensor<1xi1>
+      } do {
+      ^body(%i: tensor<1xi32>, %acc: tensor<2xf32>, %lim: tensor<1xi32>):
+        ...
+        ttir.yield %i_next, %acc_next : tensor<1xi32>, tensor<2xf32>
+      } -> (tensor<1xi32>, tensor<2xf32>)
+    ```
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inits,
+                       Variadic<AnyRankedTensor>:$captures,
+                       OptionalAttr<ConfinedAttr<I64Attr, [IntNonNegative]>>:$trip_count);
+
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let regions = (region SizedRegion<1>:$cond, SizedRegion<1>:$body);
+
+  let assemblyFormat = [{
+    `inits` `(` $inits `:` type($inits) `)`
+    (`captures` `(` $captures^ `:` type($captures) `)`)?
+    attr-dict
+    `cond` $cond
+    `do` $body
+    `->` `(` type($results) `)`
+  }];
+
+  let extraClassDeclaration = [{
+    ::mlir::Block &getCondBlock() { return getCond().front(); }
+    ::mlir::Block &getBodyBlock() { return getBody().front(); }
+
+    // Defined out-of-line: YieldOp is only forward declared at this point in
+    // the generated header.
+    ::mlir::tt::ttir::YieldOp getCondYield();
+    ::mlir::tt::ttir::YieldOp getBodyYield();
+  }];
+
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
 // TTIR top level named ops
 //===----------------------------------------------------------------------===//
 
