@@ -280,6 +280,17 @@ mlir::Value build_mul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
     return mb.create<mlir::tt::ttir::MultiplyOp>(result_type, lhs, rhs).getResult();
 }
 
+mlir::Value build_minimum(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
+    auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
+    auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
+    TT_FATAL(lhs_type.getElementType() == rhs_type.getElementType(),
+             "tt-crank build_minimum: lhs and rhs must share element type — callers must promote first");
+
+    auto out_shape = broadcast_shape(lhs_type.getShape(), rhs_type.getShape());
+    auto result_type = mlir::RankedTensorType::get(out_shape, lhs_type.getElementType());
+    return mb.create<mlir::tt::ttir::MinimumOp>(result_type, lhs, rhs).getResult();
+}
+
 mlir::Value build_reshape(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> new_shape) {
     auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     auto result_type = mlir::RankedTensorType::get(new_shape, input_type.getElementType());
@@ -591,6 +602,11 @@ mlir::Value build_cos(ModuleBuilder &mb, mlir::Value input) {
 mlir::Value build_sin(ModuleBuilder &mb, mlir::Value input) {
     auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     return mb.create<mlir::tt::ttir::SinOp>(result_type, input).getResult();
+}
+
+mlir::Value build_abs(ModuleBuilder &mb, mlir::Value input) {
+    auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    return mb.create<mlir::tt::ttir::AbsOp>(result_type, input).getResult();
 }
 
 mlir::Value build_neg(ModuleBuilder &mb, mlir::Value input) {
