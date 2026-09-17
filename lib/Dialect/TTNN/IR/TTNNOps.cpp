@@ -3945,6 +3945,54 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 //===----------------------------------------------------------------------===//
 // SDPAForwardOp
 //===----------------------------------------------------------------------===//
+static LogicalResult verifySDPATileAlignment(Operation *op,
+                                             RankedTensorType queryType,
+                                             RankedTensorType keyType,
+                                             RankedTensorType valueType) {
+  constexpr int64_t kSequenceDim = 2;
+  constexpr int64_t kHeadDim = 3;
+
+  auto verifyDimension = [op](StringRef operandName,
+                              RankedTensorType tensorType, int64_t dim,
+                              StringRef dimensionName, int64_t tileSize,
+                              StringRef tileSizeName) -> LogicalResult {
+    if (tensorType.isDynamicDim(dim)) {
+      return success();
+    }
+
+    int64_t extent = tensorType.getDimSize(dim);
+    if (extent % tileSize != 0) {
+      return op->emitOpError()
+             << operandName << " " << dimensionName << " dimension (dim " << dim
+             << ") must be a multiple of " << tileSizeName << " (" << tileSize
+             << "), but got " << extent;
+    }
+    return success();
+  };
+
+  auto verifyOperand = [&](StringRef operandName, RankedTensorType tensorType,
+                           bool checkHeadDim) -> LogicalResult {
+    if (failed(verifyDimension(operandName, tensorType, kSequenceDim,
+                               "sequence", TILE_HEIGHT, "TILE_HEIGHT"))) {
+      return failure();
+    }
+    if (checkHeadDim &&
+        failed(verifyDimension(operandName, tensorType, kHeadDim, "head",
+                               TILE_WIDTH, "TILE_WIDTH"))) {
+      return failure();
+    }
+    return success();
+  };
+
+  if (failed(verifyOperand("query", queryType, /*checkHeadDim=*/true)) ||
+      failed(verifyOperand("key", keyType, /*checkHeadDim=*/true)) ||
+      failed(verifyOperand("value", valueType, /*checkHeadDim=*/false))) {
+    return failure();
+  }
+
+  return success();
+}
+
 ::mlir::LogicalResult mlir::tt::ttnn::SDPAForwardOp::verify() {
   RankedTensorType queryType = getQuery().getType();
   RankedTensorType keyType = getKey().getType();
@@ -3970,7 +4018,7 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
                        "return_intermediates is true");
   }
 
-  return success();
+  return verifySDPATileAlignment(getOperation(), queryType, keyType, valueType);
 }
 
 //===----------------------------------------------------------------------===//
@@ -4003,7 +4051,7 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
                          << dropoutProbability;
   }
 
-  return success();
+  return verifySDPATileAlignment(getOperation(), queryType, keyType, valueType);
 }
 
 //===----------------------------------------------------------------------===//
