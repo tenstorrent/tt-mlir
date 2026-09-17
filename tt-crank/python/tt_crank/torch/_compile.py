@@ -126,6 +126,12 @@ def _skip_prepare(*targets):
     return decorator
 
 
+def _needs_node(fn):
+    """The lowering also receives the FX node: `fn(mb, node, *args)`."""
+    fn._needs_node = True
+    return fn
+
+
 @_lowering(_aten.add.Tensor)
 def _(mb, a, b, *, alpha=1):
     return mb.add(a, b, float(alpha))
@@ -874,6 +880,93 @@ def _(
     return (result, None, None, None, None, None, None, None, None)
 
 
+# aten's cross_entropy is `_log_softmax` + `nll_loss_forward`, its backward `nll_loss_backward` +
+# `_log_softmax_backward_data`. Lowered on their own here: [rows x C] log-probabilities, integer
+# targets with ignore_index, no class weights.
+@_lowering(_aten._log_softmax.default)
+def _(mb, x, dim, half_to_float=False):
+    # log(softmax(x)) underflows to -inf past a logit gap of ~87; shift by the row max and take log-sum-exp.
+    shifted = mb.sub(x, mb.max(x, [int(dim)], True))
+    return mb.sub(shifted, mb.log(mb.sum(mb.exp(shifted), [int(dim)], True)))
+
+
+@_lowering(_aten._log_softmax_backward_data.default)
+def _(mb, grad, output, dim, input_dtype):
+    return mb.sub(grad, mb.mul(mb.exp(output), mb.sum(grad, [int(dim)], True)), 1.0)
+
+
+def _nll_loss_rows(mb, dtype, log_probs, target, ignore_index):
+    """`(onehot, valid)`: the [rows x C] one-hot of `target` and the [rows] 1/0 mask of rows to keep,
+    both in the log-probabilities' dtype. Ignored rows have an all-zero one-hot row."""
+    if len(log_probs.shape) != 2:
+        raise NotImplementedError(
+            f"tt-crank nll_loss: expected [rows x C] log-probabilities, got rank {len(log_probs.shape)}"
+        )
+    valid = mb.typecast(
+        mb.ne(target, mb.scalar_like(target, float(ignore_index))), dtype
+    )
+    classes = mb.arange(0, log_probs.shape[1], 1, _to_runtime_dtype(torch.int32))
+    onehot = mb.typecast(
+        mb.eq(
+            mb.unsqueeze(mb.typecast(target, _to_runtime_dtype(torch.int32)), 1),
+            classes,
+        ),
+        dtype,
+    )
+    return mb.mul(onehot, mb.unsqueeze(valid, 1)), valid
+
+
+_NLL_REDUCTION_NONE, _NLL_REDUCTION_MEAN, _NLL_REDUCTION_SUM = 0, 1, 2
+
+
+@_lowering(_aten.nll_loss_forward.default)
+@_skip_prepare(_aten.nll_loss_forward.default)
+@_needs_node
+def _(mb, node, log_probs, target, weight, reduction, ignore_index):
+    if weight is not None:
+        raise NotImplementedError("tt-crank nll_loss: class weights are not supported")
+    dtype = _to_runtime_dtype(node.meta["val"][0].dtype)
+    onehot, valid = _nll_loss_rows(mb, dtype, log_probs, target, ignore_index)
+    rows = mb.neg(mb.sum(mb.mul(log_probs, onehot), [1], False))
+    total_weight = mb.sum(valid, [0], False)
+    if reduction == _NLL_REDUCTION_NONE:
+        return rows, total_weight
+    loss = mb.sum(rows, [0], False)
+    return (
+        mb.div(loss, total_weight) if reduction == _NLL_REDUCTION_MEAN else loss
+    ), total_weight
+
+
+@_lowering(_aten.nll_loss_backward.default)
+@_skip_prepare(_aten.nll_loss_backward.default)
+@_needs_node
+def _(
+    mb,
+    node,
+    grad_output,
+    log_probs,
+    target,
+    weight,
+    reduction,
+    ignore_index,
+    total_weight,
+):
+    if weight is not None:
+        raise NotImplementedError(
+            "tt-crank nll_loss backward: class weights are not supported"
+        )
+    dtype = _to_runtime_dtype(node.meta["val"].dtype)
+    onehot, _ = _nll_loss_rows(mb, dtype, log_probs, target, ignore_index)
+    grad = (
+        mb.div(grad_output, total_weight)
+        if reduction == _NLL_REDUCTION_MEAN
+        else grad_output
+    )
+    if reduction == _NLL_REDUCTION_NONE:
+        grad = mb.unsqueeze(grad, 1)
+    return mb.mul(onehot, mb.neg(grad))
+
+
 @_lowering(_aten._to_copy.default)
 @_skip_prepare(_aten._to_copy.default)
 def _(
@@ -1313,6 +1406,8 @@ class _TTIRInterpreter(torch.fx.Interpreter):
             val = next(v for v in val if v is not None)
         target_dtype = _to_runtime_dtype(val.dtype)
         args = _prepare_op_args(self.mb, args, target_dtype, target)
+        if getattr(fn, "_needs_node", False):
+            return fn(self.mb, self._current_node, *args, **kwargs)
         return fn(self.mb, *args, **kwargs)
 
     def _call_operator(self, target, args, kwargs):

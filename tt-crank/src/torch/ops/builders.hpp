@@ -106,6 +106,7 @@ using ::tt::crank::build_logical_or;
 using ::tt::crank::build_lt;
 using ::tt::crank::build_matmul;
 using ::tt::crank::build_matmul_backward;
+using ::tt::crank::build_max;
 using ::tt::crank::build_max_pool2d;
 using ::tt::crank::build_mean;
 using ::tt::crank::build_mm;

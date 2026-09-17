@@ -287,6 +287,10 @@ mlir::Value build_sum(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::
     return build_reduce<mlir::tt::ttir::SumOp>(mb, input, dims, keepdim);
 }
 
+mlir::Value build_max(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims, bool keepdim) {
+    return build_reduce<mlir::tt::ttir::MaxOp>(mb, input, dims, keepdim);
+}
+
 mlir::Value build_vector_norm(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims, bool keepdim) {
     return build_sqrt(mb, build_sum(mb, build_mul(mb, input, input), dims, keepdim));
 }
