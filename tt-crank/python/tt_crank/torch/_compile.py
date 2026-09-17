@@ -957,11 +957,12 @@ def _(
         )
     dtype = _to_runtime_dtype(node.meta["val"].dtype)
     onehot, _ = _nll_loss_rows(mb, dtype, log_probs, target, ignore_index)
-    grad = (
-        mb.div(grad_output, total_weight)
-        if reduction == _NLL_REDUCTION_MEAN
-        else grad_output
-    )
+    if reduction == _NLL_REDUCTION_MEAN:
+        # All rows ignored: total_weight is 0 and torch's gradient is 0 (the forward is NaN as in torch).
+        # The count is integer-valued, so clamping to >= 1 only changes that case and keeps 0 * grad = 0.
+        grad = mb.div(grad_output, mb.clamp(total_weight, 1.0, None))
+    else:
+        grad = grad_output
     if reduction == _NLL_REDUCTION_NONE:
         grad = mb.unsqueeze(grad, 1)
     return mb.mul(onehot, mb.neg(grad))

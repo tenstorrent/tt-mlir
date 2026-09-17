@@ -96,6 +96,16 @@ def test_log_softmax_large_logits_stay_finite() -> None:
     torch.testing.assert_close(loss.float(), ref_loss, atol=1e-2, rtol=1e-3)
 
 
+def test_cross_entropy_mean_all_ignored_zero_grad() -> None:
+    """Every row ignored under mean: the 0/0 loss is undefined (NaN in torch, inf on device), the
+    gradients must still be zero like torch's, not NaN."""
+    logits, _ = _inputs(32, 64, False)
+    target = torch.full((32,), _IGNORE)
+    loss, got, _ = _run("mean", logits, target)
+    assert not torch.isfinite(loss).any()
+    assert torch.isfinite(got).all() and (got == 0).all()
+
+
 def test_nll_loss_rejects_rank_1() -> None:
     """Unbatched `[C]` logits reach `nll_loss_forward` with rank 1; the lowering says so instead of indexing."""
     with pytest.raises(Exception, match="expected \\[rows x C\\]"):
