@@ -235,6 +235,296 @@ class TTIRBuilder(Builder):
             self._set_golden_tensor(op_result, golden)
 
         return op_results[0] if len(op_results) == 1 else tuple(op_results)
+    ############### ttir.WhileOp ###############
+
+    def _clone_while_region(self, old_region: Region, new_region: Region):
+        old_block = old_region.blocks[0]
+        new_block = Block.create_at_start(
+            new_region, [arg.type for arg in old_block.arguments]
+        )
+        value_map: Dict[Operand, Operand] = dict(
+            zip(old_block.arguments, new_block.arguments)
+        )
+
+        with InsertionPoint(new_block):
+            for old_inner_op in old_block.operations:
+                cloned = old_inner_op.operation.clone()
+                for index, operand in enumerate(old_inner_op.operands):
+                    if operand in value_map:
+                        cloned.operands[index] = value_map[operand]
+                for old_result, new_result in zip(old_inner_op.results, cloned.results):
+                    value_map[old_result] = new_result
+
+    def _evaluate_while_region(
+        self,
+        region: Region,
+        argument_goldens: Sequence[GoldenMapTensor],
+    ) -> List[GoldenMapTensor]:
+        block = region.blocks[0]
+        if len(block.arguments) != len(argument_goldens):
+            raise ValueError(
+                "While region argument count does not match its golden inputs"
+            )
+
+        # Reuse the regular per-op parsers as a small region interpreter. The
+        # scratch module owns the temporary operations and is discarded after
+        # the yielded goldens have been collected.
+        scratch = Module.create()
+        value_map: Dict[Operand, Operand] = {}
+        with InsertionPoint(scratch.body):
+            for argument, golden in zip(block.arguments, argument_goldens):
+                placeholder = ttir.EmptyOp(argument.type).result
+                self._set_golden_tensor(placeholder, golden)
+                value_map[argument] = placeholder
+
+            for inner_op in block.operations:
+                if isinstance(inner_op, ttir.YieldOp):
+                    return [
+                        self._get_golden_tensor(value_map[operand])
+                        for operand in inner_op.operands
+                    ]
+
+                _, result_map = self._build_op_from_parsed_op(inner_op, value_map)
+                value_map.update(result_map)
+
+        raise ValueError("While region is missing ttir.yield")
+
+    def _evaluate_while_goldens(
+        self,
+        op: ttir.WhileOp,
+        inits: Sequence[Operand],
+        captures: Sequence[Operand],
+    ) -> List[GoldenMapTensor]:
+        carried = [self._get_golden_tensor(init) for init in inits]
+        captured = [self._get_golden_tensor(capture) for capture in captures]
+
+        trip_count = int(op.trip_count.value) if op.trip_count is not None else None
+        iteration = 0
+        while trip_count is None or iteration < trip_count:
+            if trip_count is None:
+                condition = self._evaluate_while_region(op.cond, [*carried, *captured])
+                if len(condition) != 1:
+                    raise ValueError(
+                        "While condition region must yield exactly one value"
+                    )
+                if not all(
+                    bool(shard.item()) for shard in condition[0].shard_map.values()
+                ):
+                    break
+
+            carried = self._evaluate_while_region(op.body, [*carried, *captured])
+            iteration += 1
+            if trip_count is None and iteration >= 10000:
+                raise RuntimeError("While golden evaluation exceeded 10000 iterations")
+
+        return carried
+
+    @tag(ttir.WhileOp)
+    def while_(
+        self,
+        inits: Sequence[Operand],
+        cond: Callable[..., Operand],
+        body: Callable[..., Union[Operand, Sequence[Operand]]],
+        captures: Optional[Sequence[Operand]] = None,
+        trip_count: Optional[int] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> Union[OpResult, List[OpResult]]:
+        """
+        Creates ``ttir.while``.
+
+        *Counted or data-dependent loop.*
+
+        Repeatedly executes ``body`` while ``cond`` yields true, threading the
+        loop-carried ``inits`` from one iteration to the next. Loop-invariant
+        values used inside either region must be passed as ``captures`` because
+        the op is ``IsolatedFromAbove``.
+
+        Both ``cond`` and ``body`` are callables invoked with the region's block
+        arguments (``inits`` followed by ``captures``). ``cond`` must return a
+        single-element predicate tensor. ``body`` must return one value per
+        loop-carried init.
+
+        Parameters
+        ----------
+        inits : Sequence[Operand]
+            Loop-carried initial values; also the types of the op results.
+        cond : Callable
+            Builds the condition region; returns a single-element predicate.
+        body : Callable
+            Builds the body region; returns the next loop-carried values.
+        captures : *Optional[Sequence[Operand]]*, optional
+            Loop-invariant values captured into both regions.
+        trip_count : *Optional[int]*, optional
+            Statically known iteration count. When omitted, the
+            ``ttir-while-trip-count`` pass may infer it from ``cond``/``body``.
+        loc : *Optional[str]*, optional
+            Optional location name for the op.
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes.
+
+        Returns
+        -------
+        *OpResult* or *List[OpResult]*
+            The loop-carried values after the final iteration. A single result
+            is returned unwrapped.
+        """
+        ttir_op = self.get_opview_from_method(TTIRBuilder.while_)
+        inits = list(inits)
+        captures = list(captures) if captures is not None else []
+        region_operands = inits + captures
+        result_types = [self._get_type(init) for init in inits]
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result_types,
+            inits,
+            captures,
+            trip_count=trip_count,
+            loc=loc,
+        )
+
+        arg_types = [self._get_type(operand) for operand in region_operands]
+
+        def populate_region(
+            region,
+            region_fn: Callable,
+        ) -> List[Operand]:
+            block = Block.create_at_start(region, arg_types)
+            for arg, src in zip(block.arguments, region_operands):
+                self._set_golden_tensor(arg, self._get_golden_tensor(src))
+            with InsertionPoint(block):
+                yielded = region_fn(*block.arguments)
+                if isinstance(yielded, (list, tuple)):
+                    yielded_vals = list(yielded)
+                else:
+                    yielded_vals = [yielded]
+                ttir.YieldOp(yielded_vals, loc=loc)
+            return yielded_vals
+
+        populate_region(op.cond, cond)
+        populate_region(op.body, body)
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        results = list(op.results)
+        result_goldens = self._evaluate_while_goldens(op, inits, captures)
+        for result, golden in zip(results, result_goldens):
+            self._set_golden_tensor(result, golden)
+
+        return results[0] if len(results) == 1 else results
+
+    @parse(ttir.WhileOp)
+    def while_parser(
+        self,
+        old_op: ttir.WhileOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.while_parser)
+        new_inits = [global_dict[init] for init in old_op.inits]
+        new_captures = [global_dict[capture] for capture in old_op.captures]
+        new_op = ttir_op(
+            [result.type for result in old_op.results],
+            new_inits,
+            new_captures,
+            trip_count=old_op.trip_count,
+            loc=old_op.location,
+        )
+        self._clone_while_region(old_op.cond, new_op.cond)
+        self._clone_while_region(old_op.body, new_op.body)
+
+        for named_attr in old_op.attributes:
+            if named_attr.name not in ("operandSegmentSizes", "trip_count"):
+                new_op.operation.attributes[named_attr.name] = named_attr.attr
+
+        result_map: Dict[OpResult, OpResult] = {}
+        result_goldens = self._evaluate_while_goldens(new_op, new_inits, new_captures)
+        for old_result, new_result, golden in zip(
+            old_op.results, new_op.results, result_goldens
+        ):
+            self._set_golden_tensor(new_result, golden)
+            result_map[old_result] = new_result
+
+        return new_op, result_map
+
+    @split(ttir.WhileOp)
+    def while_split(
+        self,
+        old_op: ttir.WhileOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.while_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            while_module = Module.create()
+            while_builder = TTIRBuilder(
+                old_ctx,
+                old_loc,
+                mesh_name=self._mesh_name,
+                mesh_dict=self._mesh_dict,
+            )
+            old_operands = [*old_op.inits, *old_op.captures]
+
+            with InsertionPoint(while_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(
+                    *[operand.type for operand in old_operands],
+                    name="while_module",
+                )
+                def decorated_func(*inputs):
+                    num_inits = len(old_op.inits)
+                    new_inits = list(inputs[:num_inits])
+                    new_captures = list(inputs[num_inits:])
+                    new_op = ttir_op(
+                        [result.type for result in old_op.results],
+                        new_inits,
+                        new_captures,
+                        trip_count=old_op.trip_count,
+                        loc=old_op.location,
+                    )
+                    while_builder._clone_while_region(old_op.cond, new_op.cond)
+                    while_builder._clone_while_region(old_op.body, new_op.body)
+
+                    for named_attr in old_op.attributes:
+                        if named_attr.name not in (
+                            "operandSegmentSizes",
+                            "trip_count",
+                        ):
+                            new_op.operation.attributes[
+                                named_attr.name
+                            ] = named_attr.attr
+
+                    for new_input, old_input in zip(inputs, old_operands):
+                        while_builder._set_golden_tensor(
+                            new_input, self._get_golden_tensor(old_input)
+                        )
+                        while_builder._annotate_presharded_arg(new_input)
+                        ordered_inputs.append(new_input)
+
+                    for new_result, old_result in zip(new_op.results, old_op.results):
+                        while_builder._set_golden_tensor(
+                            new_result, self._get_golden_tensor(old_result)
+                        )
+                        ordered_outputs.append(new_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                while_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return while_module, while_builder
 
     ############### ttir.AllToAllOp ###############
 
