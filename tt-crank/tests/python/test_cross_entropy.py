@@ -103,6 +103,21 @@ def test_cross_entropy_mean_all_ignored_zero_grad() -> None:
     assert torch.isfinite(got).all() and (got == 0).all()
 
 
+def test_cross_entropy_ignored_row_non_finite_logits() -> None:
+    """A non-finite logit in an ignored row must not reach the loss or the kept rows' gradients; torch
+    never reads it. (The ignored rows' own gradients are NaN in torch too, from log_softmax backward.)"""
+    logits, target = _inputs(32, 64, True, torch.float32)
+    logits[0, :] = float("inf")
+    logits[3, 5] = float("nan")
+    assert target[0] == _IGNORE and target[3] == _IGNORE
+    ref_loss, ref_grad = _reference("mean", logits, target)
+    loss, got, _ = _run("mean", logits, target)
+    kept = target != _IGNORE
+    assert torch.isfinite(loss).all() and torch.isfinite(got[kept]).all()
+    torch.testing.assert_close(loss.float(), ref_loss, atol=0.05, rtol=0.02)
+    assert _pcc(got[kept], ref_grad[kept]) >= 0.99
+
+
 def test_nll_loss_rejects_rank_1() -> None:
     """Unbatched `[C]` logits reach `nll_loss_forward` with rank 1; the lowering says so instead of indexing."""
     with pytest.raises(Exception, match="expected \\[rows x C\\]"):
