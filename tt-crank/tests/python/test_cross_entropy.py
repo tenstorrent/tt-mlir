@@ -8,7 +8,6 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from tt_crank.torch._compile import CompileOption
 from tt_crank.torch.testing import post_aot_fx_hook
 
 _IGNORE = -100
@@ -43,9 +42,7 @@ def _run(reduction: str, logits, target, grad=None):
             str(n.target) for n in gm.graph.nodes if n.op == "call_function"
         )
     ):
-        out = torch.compile(
-            loss, backend="tt", fullgraph=True, options={CompileOption.OPT_LEVEL: 1}
-        )(x, target.to("tt"))
+        out = torch.compile(loss, backend="tt", fullgraph=True)(x, target.to("tt"))
         out.backward(grad.to("tt") if grad is not None else None)
     torch._dynamo.reset()
     return out.detach().cpu(), x.grad.cpu(), ops
