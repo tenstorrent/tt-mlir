@@ -1163,6 +1163,43 @@ at::Tensor tt_embedding_dense_backward(const at::Tensor &grad_output_in, const a
     return wrap_tt_tensor(std::move(outputs[0]), out_shape, grad_output.scalar_type());
 }
 
+at::Tensor tt_addcdiv(const at::Tensor &self_in, const at::Tensor &tensor1_in, const at::Tensor &tensor2_in,
+                      const at::Scalar &value) {
+    const auto [self, tensor1, tensor2] = align_on_tt(self_in, tensor1_in, tensor2_in);
+    auto mb = ModuleBuilder::init({spec_for(self), spec_for(tensor1), spec_for(tensor2)});
+    auto [promoted, s, t1, t2] = promote_inputs(mb, self, tensor1, tensor2);
+    auto result = build_addcdiv(mb, s, t1, t2, value.toDouble());
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self, tensor1, tensor2});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+}
+
+at::Tensor tt_addcmul(const at::Tensor &self_in, const at::Tensor &tensor1_in, const at::Tensor &tensor2_in,
+                      const at::Scalar &value) {
+    const auto [self, tensor1, tensor2] = align_on_tt(self_in, tensor1_in, tensor2_in);
+    auto mb = ModuleBuilder::init({spec_for(self), spec_for(tensor1), spec_for(tensor2)});
+    auto [promoted, s, t1, t2] = promote_inputs(mb, self, tensor1, tensor2);
+    auto result = build_addcmul(mb, s, t1, t2, value.toDouble());
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self, tensor1, tensor2});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+}
+
+at::Tensor tt_lerp_scalar(const at::Tensor &self_in, const at::Tensor &end_in, const at::Scalar &weight) {
+    const auto [self, end] = align_on_tt(self_in, end_in);
+    auto mb = ModuleBuilder::init({spec_for(self), spec_for(end)});
+    auto [promoted, s, e] = promote_inputs(mb, self, end);
+    auto result = build_lerp(mb, s, e, weight.toDouble());
+    auto out_shape = at::infer_size(self.sizes(), end.sizes());
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self, end});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+}
+
 } // namespace
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
@@ -1239,6 +1276,9 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("bitwise_not.out", TORCH_FN(tt_bitwise_not_out));
     m.impl("embedding", TORCH_FN(tt_embedding));
     m.impl("embedding_dense_backward", TORCH_FN(tt_embedding_dense_backward));
+    m.impl("addcdiv", TORCH_FN(tt_addcdiv));
+    m.impl("addcmul", TORCH_FN(tt_addcmul));
+    m.impl("lerp.Scalar", TORCH_FN(tt_lerp_scalar));
 }
 
 } // namespace tt::crank::torch_backend
