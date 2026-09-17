@@ -74,9 +74,6 @@ void fused_adamw_impl(at::TensorList self, at::TensorList grads, at::TensorList 
         }
     }
 
-    // Not a recompile per step: `step` and `lr` are module inputs, so the module text (and with it the
-    // engine's compilation key, a hash over the printed IR) is identical every step and the compiled
-    // program comes back from the cache. Per-step cost is building and hashing the TTIR module.
     auto runtime_outputs = compile_and_run(std::move(mb).finalize(outputs), operands);
     for (std::size_t k = 0; k < targets; ++k) {
         for (std::size_t i = 0; i < n; ++i) {
