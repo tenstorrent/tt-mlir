@@ -284,6 +284,19 @@ at::Tensor &tt_sum_out(const at::Tensor &self, at::OptionalIntArrayRef dim, bool
     return write_result_into(out, result);
 }
 
+// amax.out: max of `self` over `dim` (empty = all dims).
+at::Tensor &tt_amax_out(const at::Tensor &self, at::IntArrayRef dim, bool keepdim, at::Tensor &out) {
+    TORCH_CHECK(is_tt(self), "tt-crank aten::amax.out: tensor must be on tt backend");
+    const llvm::SmallVector<int64_t> reduce_dims(dim.begin(), dim.end());
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result_v = build_max(mb, mb.args()[0], reduce_dims, keepdim);
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result_v.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result_v});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return write_result_into(out, wrap_tt_tensor(std::move(outputs[0]), out_shape, self.scalar_type()));
+}
+
 at::Tensor &tt_linalg_vector_norm_out(const at::Tensor &self, const at::Scalar &ord, at::OptionalIntArrayRef dim,
                                       bool keepdim, std::optional<at::ScalarType> dtype, at::Tensor &out) {
     TORCH_CHECK(is_tt(self), "tt-crank aten::linalg_vector_norm.out: tensor must be on tt backend");
@@ -1199,6 +1212,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("gelu", TORCH_FN(tt_gelu));
     m.impl("_softmax", TORCH_FN(tt_softmax));
     m.impl("sum.IntList_out", TORCH_FN(tt_sum_out));
+    m.impl("amax.out", TORCH_FN(tt_amax_out));
     m.impl("linalg_vector_norm.out", TORCH_FN(tt_linalg_vector_norm_out));
     m.impl("threshold_backward.grad_input", TORCH_FN(tt_threshold_backward_out));
     m.impl("mse_loss.out", TORCH_FN(tt_mse_loss_out));

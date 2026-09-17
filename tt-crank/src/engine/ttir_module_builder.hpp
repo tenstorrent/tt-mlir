@@ -184,6 +184,8 @@ TT_CRANK_API mlir::Value build_mean(ModuleBuilder &mb, mlir::Value input, llvm::
 // `keepdim` controls whether reduced dimensions are retained as size-1.
 TT_CRANK_API mlir::Value build_sum(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims,
                                    bool keepdim);
+TT_CRANK_API mlir::Value build_max(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims,
+                                   bool keepdim);
 
 // Emit TTIR for a cumulative sum along `dim` (which must already be
 // non-negative). Unlike the reductions above this keeps the input shape: every
