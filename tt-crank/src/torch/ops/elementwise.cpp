@@ -213,25 +213,6 @@ std::tuple<at::Tensor, at::Tensor> tt_max_pool2d_with_indices(const at::Tensor &
     return std::make_tuple(std::move(pool_result), std::move(dummy_indices));
 }
 
-// Move a freshly-computed result tensor's runtime buffer into a caller-provided
-// `.out` tensor. We assert `out` already has the expected shape and storage
-// size rather than resizing it: the structured `.out` dispatch is supposed to
-// pre-size `out`, so a mismatch means an assumption broke - fail loudly so we
-// can revisit before silently reshaping.
-at::Tensor &write_result_into(at::Tensor &out, const at::Tensor &result) {
-    TORCH_CHECK(out.sizes() == result.sizes(), "tt-crank .out kernel: out tensor shape ", out.sizes(),
-                " does not match computed result shape ", result.sizes());
-    // Equal sizes + equal storage bytes still allow a dtype mismatch when the
-    // itemsizes coincide (e.g. f32 vs i32, bf16 vs f16). Replacing the storage
-    // would then reinterpret the buffer's bits as out's dtype - check loudly.
-    TORCH_CHECK(out.scalar_type() == result.scalar_type(), "tt-crank .out kernel: out dtype ", out.scalar_type(),
-                " does not match computed result dtype ", result.scalar_type());
-    TORCH_CHECK(out.storage().nbytes() == result.storage().nbytes(), "tt-crank .out kernel: out storage is ",
-                out.storage().nbytes(), " bytes but result needs ", result.storage().nbytes());
-    storage_of(out).replace(storage_of(result).tensor());
-    return out;
-}
-
 // relu_: in-place ReLU. Runs the functional kernel and swaps self's storage for
 // the result — same storage-swap pattern as the `.out` ops below. self and the
 // result share shape and dtype, so write_result_into's checks always hold.
