@@ -964,8 +964,7 @@ def _(
         )
     onehot, _ = _nll_loss_rows(mb, log_probs, target, ignore_index)
     if reduction == _NLL_REDUCTION_MEAN:
-        # All rows ignored: total_weight is 0 and torch's gradient is 0 (the forward is NaN as in torch).
-        # The count is integer-valued, so clamping to >= 1 only changes that case and keeps 0 * grad = 0.
+        # If no row is kept, torch's gradient is 0, not NaN; the clamp keeps the division finite.
         grad = mb.div(grad_output, mb.clamp(total_weight, 1.0, None))
     else:
         grad = grad_output
