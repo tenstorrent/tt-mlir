@@ -1425,20 +1425,14 @@ std::array<mlir::Value, 4> build_adamw(ModuleBuilder &mb, mlir::Value param, mli
     auto beta_pow = [&](float beta) { return build_pow(mb, build_full(mb, {1}, as<double>(beta), f32), step); };
 
     llvm::SmallVector<mlir::Type, 4> result_types{param.getType(), exp_avg.getType(), exp_avg_sq.getType()};
-    llvm::SmallVector<mlir::Value, 8> operands{
-        param, grad, exp_avg, exp_avg_sq, unit_f32(lr, "lr"), beta_pow(params.beta1), beta_pow(params.beta2)};
     if (max_exp_avg_sq) {
         result_types.push_back(max_exp_avg_sq.getType());
-        operands.push_back(max_exp_avg_sq);
     }
-    auto attr = [&](const char *name, float value) {
-        return mb.attrs().getNamedAttr(name, mb.attrs().getF32FloatAttr(value));
-    };
     auto op = mb.create<mlir::tt::ttir::AdamWOp>(
-        result_types, operands,
-        llvm::ArrayRef<mlir::NamedAttribute>{attr("beta1", params.beta1), attr("beta2", params.beta2),
-                                             attr("epsilon", params.epsilon),
-                                             attr("weight_decay", params.weight_decay)});
+        mlir::TypeRange(result_types), param, grad, exp_avg, exp_avg_sq, unit_f32(lr, "lr"), beta_pow(params.beta1),
+        beta_pow(params.beta2), max_exp_avg_sq, mb.attrs().getF32FloatAttr(params.beta1),
+        mb.attrs().getF32FloatAttr(params.beta2), mb.attrs().getF32FloatAttr(params.epsilon),
+        mb.attrs().getF32FloatAttr(params.weight_decay));
     return {op.getParamOut(), op.getExpAvgOut(), op.getExpAvgSqOut(), op.getMaxExpAvgSqOut()};
 }
 

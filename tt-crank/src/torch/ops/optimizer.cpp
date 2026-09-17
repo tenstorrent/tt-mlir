@@ -80,7 +80,10 @@ void fused_adamw_impl(at::TensorList self, at::TensorList grads, at::TensorList 
     auto runtime_outputs = compile_and_run(std::move(mb).finalize(outputs), operands);
     for (std::size_t k = 0; k < targets; ++k) {
         for (std::size_t i = 0; i < n; ++i) {
-            storage_of(groups[k][i]).replace(std::move(runtime_outputs[k * n + i]));
+            // Same TensorImpl as the caller's tensor, so the checked storage swap lands in place.
+            at::Tensor target = groups[k][i];
+            write_result_into(
+                target, wrap_tt_tensor(std::move(runtime_outputs[k * n + i]), target.sizes(), target.scalar_type()));
         }
     }
 }
