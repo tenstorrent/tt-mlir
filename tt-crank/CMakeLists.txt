@@ -15,6 +15,7 @@ enable_testing()
 
 option(TT_CRANK_BUILD_TESTS "Build tt-crank unit tests" ON)
 option(TT_CRANK_BUILD_PYTHON_EXT "Build Python extension modules" ON)
+option(TT_CRANK_BUILD_ONNX "Build onnx lib" ON)
 option(TT_CRANK_TRACY_ZONES "Compile tt-crank with tracy zones" ON)
 
 # Mark `tt-mlir` include files as system includes - to ignore warnings on them.

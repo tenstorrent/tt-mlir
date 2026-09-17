@@ -12,3 +12,9 @@ DEFAULT:
     # SPDX-FileCopyrightText: (c) {years} Tenstorrent AI ULC
     #
     # SPDX-License-Identifier: {license}
+
+# Vendored third-party sources keep their upstream (non-Apache) notices.
+third_party_vendored:
+  perform_check: no
+  include:
+    - 'tt-crank/third_party/onnx/**'
