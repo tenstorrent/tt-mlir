@@ -12,6 +12,9 @@
 
 namespace tt::crank::onnx {
 
+// EP name as reported to ORT; also stamped into EPContext nodes as `source`.
+constexpr const char *ep_name = "TTCrankExecutionProvider";
+
 const OrtApi &ort_api();
 const OrtEpApi &ep_api();
 

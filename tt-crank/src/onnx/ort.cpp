@@ -91,7 +91,7 @@ OrtNode *make_ep_context_node(const OrtNode *fused_node, const Partition &partit
 
     const std::int64_t embed_mode = 1;
     const std::int64_t main_context = 1;
-    const std::string source = "TTKurblaExecutionProvider";
+    const std::string source = ep_name;
     const std::string partition_name = node_name(fused_node);
 
     add_attr("ep_cache_context", blob.data(), as<int>(blob.size()), ORT_OP_ATTR_STRING);
@@ -120,7 +120,7 @@ OrtNode *make_ep_context_node(const OrtNode *fused_node, const Partition &partit
 } // namespace
 
 const char *ORT_API_CALL GetNameEpImpl(const OrtEp * /*this_ptr*/) noexcept {
-    return "TTKurblaExecutionProvider";
+    return ep_name;
 }
 
 OrtStatus *ORT_API_CALL IsConcurrentRunSupportedImpl(OrtEp * /*this_ptr*/, bool *is_supported) noexcept {
@@ -181,7 +181,7 @@ bool all_nodes_supported(std::vector<const OrtNode *> nodes) {
     bool all_supp = std::ranges::count_if(nodes, [](const OrtNode *node) { return !is_node_supported(node); }) == 0;
     if (!all_supp && !log_fallback_enabled()) {
         log_error(tt::LogAlways,
-                  "Graph contains unsupported nodes. To get details, set TT_KURBLA_LOG_FALLBACK_ENABLED=1");
+                  "Graph contains unsupported nodes. To get details, set TT_CRANK_LOG_FALLBACK_ENABLED=1");
     }
 
     return all_supp;
@@ -219,7 +219,7 @@ void ORT_API_CALL ReleaseNodeComputeInfosImpl(OrtEp * /*this_ptr*/, OrtNodeCompu
 }
 
 static const char *ORT_API_CALL GetNameImpl(const OrtEpFactory * /*this_ptr*/) noexcept {
-    return "TTKurblaExecutionProvider";
+    return ep_name;
 }
 static const char *ORT_API_CALL GetVendorImpl(const OrtEpFactory * /*this_ptr*/) noexcept {
     return "Tenstorrent";
@@ -396,7 +396,7 @@ __attribute__((visibility("default"))) OrtStatus *CreateEpFactories(const char *
     factory->IsStreamAware = IsStreamAwareImpl;
     factory->CreateSyncStreamForDevice = CreateSyncStreamForDeviceImpl;
 
-    check_call(ort_api().CreateMemoryInfo_V2("TTKurbla", OrtMemoryInfoDeviceType_NPU, /*vendor_id=*/0x1E52,
+    check_call(ort_api().CreateMemoryInfo_V2("TTCrank", OrtMemoryInfoDeviceType_NPU, /*vendor_id=*/0x1E52,
                                              /*device_id=*/0, OrtDeviceMemoryType_DEFAULT, /*alignment=*/0,
                                              OrtDeviceAllocator, &tt_meminfo));
 

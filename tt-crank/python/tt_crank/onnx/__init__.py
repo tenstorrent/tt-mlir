@@ -18,7 +18,7 @@ import onnxruntime
 
 from tt_crank._runtime_env import setup_tt_metal_home
 
-EP_NAME = "TTKurblaExecutionProvider"
+EP_NAME = "TTCrankExecutionProvider"
 _REGISTRATION_NAME = "tt_crank"
 _registered = False
 

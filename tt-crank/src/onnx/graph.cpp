@@ -465,7 +465,7 @@ bool is_node_supported(const OrtNode *node) {
 
 bool is_ep_context_node(const OrtNode *node) {
     return node_op_type(node) == "EPContext" && node_domain(node) == "com.microsoft" &&
-           node_attr_string(node, "source", "") == "TTKurblaExecutionProvider";
+           node_attr_string(node, "source", "") == ep_name;
 }
 
 }; // namespace tt::crank::onnx

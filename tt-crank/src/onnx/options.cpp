@@ -35,7 +35,7 @@ std::optional<std::string> config_entry(const OrtSessionOptions *opts, const std
 // Our compile options are namespaced under the EP's prefix; ORT's own keys
 // (e.g. ep.context_enable) are not.
 std::optional<std::string> option_entry(const OrtSessionOptions *opts, const char *name) {
-    return config_entry(opts, std::string{"ep.ttkurblaexecutionprovider."} + name);
+    return config_entry(opts, std::string{"ep.ttcrankexecutionprovider."} + name);
 }
 
 int parse_int(const char *name, const std::string &value) {
