@@ -26,7 +26,7 @@ module {
     %a = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>
     %b = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>
     %c = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>
-    d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>]}
+    d2m.spatial {grid_ranges = [#ttcore.core_range<(0,0), 1x1>]}
         ins(%a, %b : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>)
         outs(%c : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>) {
       d2m.generic {block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#m0, #m1, #m2], iterator_types = [#par, #par, #red], threads = [#d2m.thread<unified>]}
