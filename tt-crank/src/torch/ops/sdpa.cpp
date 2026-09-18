@@ -37,7 +37,6 @@
 #include <ATen/core/grad_mode.h>
 #include <ATen/native/DispatchStub.h>
 #include <ATen/native/transformers/attention.h>
-#include <c10/core/impl/TorchDispatchModeTLS.h>
 #include <torch/library.h>
 
 #include "cast.hpp"

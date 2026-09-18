@@ -126,6 +126,20 @@ def _skip_prepare(*targets):
     return decorator
 
 
+def _needs_node(fn):
+    """The lowering also receives the FX node: `fn(mb, node, *args)`."""
+    fn._needs_node = True
+    return fn
+
+
+def _used_output_slots(node) -> set[int]:
+    return {
+        u.args[1]
+        for u in node.users
+        if u.op == "call_function" and u.target is operator.getitem
+    }
+
+
 @_lowering(_aten.add.Tensor)
 def _(mb, a, b, *, alpha=1):
     return mb.add(a, b, float(alpha))
@@ -860,10 +874,16 @@ def _(mb, input, diagonal=0):
     return mb.tril(input, int(diagonal))
 
 
-@_lowering(_aten._scaled_dot_product_fused_attention_overrideable.default)
-@_skip_prepare(_aten._scaled_dot_product_fused_attention_overrideable.default)
+_SDPA_FUSED_FW = _aten._scaled_dot_product_fused_attention_overrideable.default
+_SDPA_FUSED_BW = _aten._scaled_dot_product_fused_attention_overrideable_backward.default
+
+
+@_lowering(_SDPA_FUSED_FW)
+@_skip_prepare(_SDPA_FUSED_FW)
+@_needs_node
 def _(
     mb,
+    node,
     query,
     key,
     value,
@@ -875,17 +895,64 @@ def _(
 ):
     if dropout_p:
         raise NotImplementedError(
-            f"tt-crank sdpa: dropout_p must be 0 (inference only), got {dropout_p}"
+            f"tt-crank sdpa: dropout_p must be 0, got {dropout_p}"
         )
     if return_debug_mask:
         raise NotImplementedError(
             "tt-crank sdpa: return_debug_mask=True is not supported"
         )
-    result = mb.sdpa(
+    # Slot 1 (logsumexp) is only read by a following backward; inference keeps the prefill op.
+    if 1 not in _used_output_slots(node):
+        result = mb.sdpa(
+            query, key, value, is_causal=is_causal, scale=scale, attn_mask=attn_bias
+        )
+        return (result, None, None, None, None, None, None, None, None)
+    output, logsumexp = mb.sdpa_fw(
         query, key, value, is_causal=is_causal, scale=scale, attn_mask=attn_bias
     )
-    # Returns a 9-tuple; downstream getitem[0] extracts the attention output.
-    return (result, None, None, None, None, None, None, None, None)
+    # Slots 6/7 (dropout RNG state) are saved by torch's derivative formula, so they need values.
+    rng = mb.zeros([], _to_runtime_dtype(torch.int64))
+    return (output, logsumexp, None, None, None, None, rng, rng, None)
+
+
+@_lowering(_SDPA_FUSED_BW)
+@_skip_prepare(_SDPA_FUSED_BW)
+def _(
+    mb,
+    grad_out,
+    query,
+    key,
+    value,
+    attn_bias,
+    grad_input_mask,
+    out,
+    logsumexp,
+    cum_seq_q,
+    cum_seq_k,
+    max_q,
+    max_k,
+    dropout_p,
+    is_causal,
+    philox_seed,
+    philox_offset,
+    scale=None,
+):
+    if grad_input_mask[3]:
+        raise NotImplementedError(
+            "tt-crank sdpa backward: a gradient w.r.t. attn_bias is not supported"
+        )
+    grad_query, grad_key, grad_value = mb.sdpa_bw(
+        grad_out,
+        out,
+        query,
+        key,
+        value,
+        logsumexp,
+        is_causal=is_causal,
+        scale=scale,
+        attn_mask=attn_bias,
+    )
+    return (grad_query, grad_key, grad_value, None)
 
 
 # aten's cross_entropy is `_log_softmax` + `nll_loss_forward`, its backward `nll_loss_backward` +
@@ -1424,6 +1491,8 @@ class _TTIRInterpreter(torch.fx.Interpreter):
             val = next(v for v in val if v is not None)
         target_dtype = _to_runtime_dtype(val.dtype)
         args = _prepare_op_args(self.mb, args, target_dtype, target)
+        if getattr(fn, "_needs_node", False):
+            return fn(self.mb, self._current_node, *args, **kwargs)
         return fn(self.mb, *args, **kwargs)
 
     def _call_operator(self, target, args, kwargs):
