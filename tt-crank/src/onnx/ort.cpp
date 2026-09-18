@@ -63,9 +63,7 @@ struct Opts {
     bool ep_ctx_enabled;
 };
 
-// Extended OrtEp so that it has a compile options.
-// This should be rethought and implemented in a better way.
-// Hacking it for now.
+// OrtEp with the session options attached.
 struct TtEp : OrtEp {
     TtEp(const OrtSessionOptions *ort_opts) : OrtEp{}, opts{ort_opts} {}
 
@@ -419,4 +417,4 @@ __attribute__((visibility("default"))) OrtStatus *ReleaseEpFactory(OrtEpFactory 
 
 } // extern "C"
 
-}; // namespace tt::crank::onnx
+} // namespace tt::crank::onnx

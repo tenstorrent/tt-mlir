@@ -182,7 +182,7 @@ bool is_metadata_input(const OrtNode *node, std::size_t index) {
     if (index == 0) {
         return false; // input 0 is always the runtime tensor
     }
-    if (op == "Resize" || op == "Slice") {
+    if (op == "Slice") {
         return true;
     }
     if (op == "Clip") {
@@ -404,7 +404,7 @@ std::vector<std::int64_t> constant_i64s(const OrtValueInfo *value) {
     for (std::int64_t dim : tensor_shape(init)) {
         count *= dim;
     }
-    const auto *data = static_cast<const std::int64_t *>(tensor_data(init));
+    const auto *data = as<const std::int64_t *>(tensor_data(init));
     return {data, data + count};
 }
 
@@ -416,7 +416,7 @@ std::vector<float> constant_f32s(const OrtValueInfo *value) {
     for (std::int64_t dim : tensor_shape(init)) {
         count *= dim;
     }
-    const auto *data = static_cast<const float *>(tensor_data(init));
+    const auto *data = as<const float *>(tensor_data(init));
     return {data, data + count};
 }
 
@@ -468,4 +468,4 @@ bool is_ep_context_node(const OrtNode *node) {
            node_attr_string(node, "source", "") == ep_name;
 }
 
-}; // namespace tt::crank::onnx
+} // namespace tt::crank::onnx

@@ -43,7 +43,7 @@ int node_since_version(const OrtNode *node);
 std::vector<const OrtValueInfo *> node_inputs(const OrtNode *node);
 std::vector<const OrtValueInfo *> node_outputs(const OrtNode *node);
 // True for a build-time constant input the builder reads directly and excludes from program params (see Args):
-// Reshape shape, ReduceMean axes (opset>=18, as input), Resize roi/scales/sizes, etc.
+// Reshape shape, ReduceMean axes (opset>=18, as input), Slice starts/ends/axes/steps, Clip min/max, Gather index.
 bool is_metadata_input(const OrtNode *node, std::size_t index);
 
 // ---- value level ------------------------------------------------------------
@@ -94,7 +94,7 @@ std::vector<std::int64_t> tensor_shape(const OrtValue *tensor);
 // ReduceMean axes input). Throws if `value` is not an int64 constant.
 std::vector<std::int64_t> constant_i64s(const OrtValueInfo *value);
 
-// The values of a constant float32 initializer (e.g. a Resize scales input).
+// The values of a constant float32 initializer (e.g. a Clip bound).
 // Throws if `value` is not a float32 constant.
 std::vector<float> constant_f32s(const OrtValueInfo *value);
 
@@ -150,4 +150,4 @@ bool is_node_supported(const OrtNode *node);
 // load rather than compile).
 bool is_ep_context_node(const OrtNode *node);
 
-}; // namespace tt::crank::onnx
+} // namespace tt::crank::onnx

@@ -10,8 +10,7 @@
 #include "assert.hpp"
 #include "ort.hpp"
 
-// Compile options. These need to be implemented properly. Hacking them for now.
-// Find a better way to pass them or ORT, or move these parsing functions to CompileOptions.
+// Session-option parsing into CompileOptions.
 
 namespace tt::crank::onnx {
 
@@ -32,7 +31,7 @@ std::optional<std::string> config_entry(const OrtSessionOptions *opts, const std
     return value;
 }
 
-// Our compile options are namespaced under the EP's prefix; ORT's own keys
+// Our compile options are namespaced under the EP's prefix. ORT's own keys
 // (e.g. ep.context_enable) are not.
 std::optional<std::string> option_entry(const OrtSessionOptions *opts, const char *name) {
     return config_entry(opts, std::string{"ep.ttcrankexecutionprovider."} + name);
