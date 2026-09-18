@@ -3914,6 +3914,77 @@ public:
 } // namespace
 
 //
+// SwigluElemwiseBackwardOp conversion pattern
+// (emits ::ttml::metal::swiglu_elemwise_bw)
+//
+namespace {
+class SwigluElemwiseBackwardOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::SwigluElemwiseBackwardOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.swiglu_elemwise_bw";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttml::metal::swiglu_elemwise_bw";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SwigluElemwiseBackwardOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = mlir::tt::ttnn::SwigluElemwiseBackwardOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SwigluElemwiseBackwardOp srcOp,
+                  Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SwigluElemwiseBackwardOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // Arg order matches ttml::metal::swiglu_elemwise_bw(linear1, gate,
+    // dL_dprod). The trailing preallocated output operands are left defaulted.
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getGate()),
+        emitter.emit(srcOp.getGradOutput()),
+    };
+
+    auto resultType = rewriter.getType<emitc::OpaqueType>(
+        "::ttml::metal::SwigluElemwiseBwResult");
+    auto swigluElemwiseBackwardOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), resultType, convertOpName(srcOp),
+        rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    // emitc.member needs an lvalue, so bind the result struct to a variable
+    // before reading its two tensor fields.
+    auto resultVar = rewriter.create<emitc::VariableOp>(
+        srcOp.getLoc(), emitc::LValueType::get(resultType),
+        emitc::OpaqueAttr::get(rewriter.getContext(), ""));
+    rewriter.create<emitc::AssignOp>(srcOp.getLoc(), resultVar.getResult(),
+                                     swigluElemwiseBackwardOp.getResult(0));
+
+    auto tensorType = rewriter.getType<emitc::OpaqueType>(
+        ttnn_to_emitc::TypeNameV<::ttnn::Tensor>);
+    auto tensorLValueType = emitc::LValueType::get(tensorType);
+
+    llvm::SmallVector<mlir::Value, 2> results;
+    for (llvm::StringRef member : {"dL_dlinear1", "dL_dgate"}) {
+      auto memberOp = rewriter.create<emitc::MemberOp>(
+          srcOp.getLoc(), tensorLValueType, member, resultVar.getResult());
+      auto loadOp = rewriter.create<emitc::LoadOp>(srcOp.getLoc(), tensorType,
+                                                   memberOp.getResult());
+      results.push_back(loadOp.getResult());
+    }
+
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+};
+} // namespace
+
+//
 // CrossEntropyForwardOp conversion pattern
 // (emits ::ttml::metal::cross_entropy_fw)
 //
@@ -6621,6 +6692,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       RMSNormForwardOpConversionPattern, LayerNormForwardOpConversionPattern,
       CrossEntropyForwardOpConversionPattern,
       CrossEntropyBackwardOpConversionPattern,
+      SwigluElemwiseBackwardOpConversionPattern,
       BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
       DitRMSNormUnaryFusedOpConversionPattern,
       RMSNormPreAllGatherOpConversionPattern,

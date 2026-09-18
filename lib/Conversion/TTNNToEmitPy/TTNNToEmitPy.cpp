@@ -5663,6 +5663,31 @@ public:
         "bindings.");
   }
 };
+
+// SwigluElemwiseBackward conversion pattern.
+//
+// EmitPy lowering for ttnn.swiglu_elemwise_bw is intentionally unsupported.
+// The emitted Python would need to call the low-level
+// ttml::metal::swiglu_elemwise_bw primitive, which tt-train does not expose
+// through its Python bindings.
+class SwigluElemwiseBackwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::SwigluElemwiseBackwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::SwigluElemwiseBackwardOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SwigluElemwiseBackwardOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp, "EmitPy lowering for ttnn.swiglu_elemwise_bw is not supported: "
+               "ttml does not expose the metal::swiglu_elemwise_bw primitive "
+               "through its Python bindings.");
+  }
+};
 } // namespace
 
 namespace {
@@ -6100,6 +6125,9 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Normalization forward ops deliberately decline conversion.
   patterns.add<RMSNormForwardOpConversionPattern>(typeConverter, ctx);
   patterns.add<LayerNormForwardOpConversionPattern>(typeConverter, ctx);
+
+  // SwigluElemwiseBackward: deliberately declines conversion, same reason.
+  patterns.add<SwigluElemwiseBackwardOpConversionPattern>(typeConverter, ctx);
 
   // CrossEntropyForward: deliberately declines conversion, same reason.
   patterns.add<CrossEntropyForwardOpConversionPattern>(typeConverter, ctx);

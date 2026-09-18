@@ -1651,6 +1651,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_CrossEntropyBackwardOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::SwigluElemwiseBackwardOp: {
+    auto *op = opContext.type_as_SwigluElemwiseBackwardOp();
+    tensorRefs = {op->grad_input(), op->grad_gate()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::AdamWOp:
   case ::tt::target::ttnn::OpType::FillCacheOp:
   case ::tt::target::ttnn::OpType::PagedFillCacheOp:
@@ -2065,6 +2070,11 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_CrossEntropyBackwardOp()->input(),
                   opContext.type_as_CrossEntropyBackwardOp()->target(),
                   opContext.type_as_CrossEntropyBackwardOp()->grad()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SwigluElemwiseBackwardOp: {
+    auto *op = opContext.type_as_SwigluElemwiseBackwardOp();
+    tensorRefs = {op->input(), op->gate(), op->grad_output()};
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {
