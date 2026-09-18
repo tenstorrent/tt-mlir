@@ -68,7 +68,7 @@ The build requirements come with the dev requirements (installed by `install-py`
 
 ## Python tests
 
-The Python test suite lives in `tests/python/`, one subdirectory per frontend (`torch/`, `onnx/`), and runs with pytest from `tt-crank/`. The torch tests import the compiled `tt_crank` extension, so the Python package has to be installed first (see above).
+The Python test suite lives in `tests/python/`, one subdirectory per frontend (`torch/`, `onnx/`), and runs with pytest from `tt-crank/`. The torch tests import the compiled `tt_crank` extension, so the Python package has to be installed first (see above). The onnx tests load `build/tt-crank/src/onnx/libtt_crank_ort.so` into the `onnxruntime` pinned in `requirements-dev.txt` (also installed by `install-py`).
 
 Some examples of running tests with different options:
 

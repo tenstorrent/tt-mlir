@@ -12,6 +12,10 @@ torchvision@https://download.pytorch.org/whl/cpu/torchvision-0.25.0%2Bcpu-cp312-
 # shape mismatch). Bump deliberately and re-validate the benchmarks.
 transformers==5.12.1
 
+# ONNX tests.
+onnx>=1.17
+ml_dtypes
+
 # Build deps. Needed in the venv, not just build-system.requires, because
 # pyproject disables PEP 517 build isolation.
 scikit-build-core>=1.0
