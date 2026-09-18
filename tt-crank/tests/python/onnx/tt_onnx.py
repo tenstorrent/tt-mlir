@@ -4,18 +4,16 @@
 
 """Helpers for the ONNX Runtime plugin-EP tests (import as a module: tt_onnx.make_node, ...)."""
 
-import os
 import pathlib
 
 import ml_dtypes
 import numpy as np
 import onnx
 import onnxruntime as ort
+import tt_crank.onnx
 from onnx import helper, numpy_helper, shape_inference
 
-TT_MLIR_ROOT = pathlib.Path(__file__).resolve().parents[4]
-EP_NAME = "TTKurblaExecutionProvider"
-REGISTRATION_NAME = "tt_kurbla"
+EP_NAME = tt_crank.onnx.EP_NAME
 EP_OPSET_VERSION = 22
 
 
@@ -28,12 +26,6 @@ class DType:
     I32 = onnx.TensorProto.INT32
     I64 = onnx.TensorProto.INT64
     BOOL = onnx.TensorProto.BOOL
-
-
-def ep_library_path() -> pathlib.Path:
-    """The built plugin library (BUILD_DIR overrides <tt-mlir>/build)."""
-    build_dir = pathlib.Path(os.environ.get("BUILD_DIR", TT_MLIR_ROOT / "build"))
-    return build_dir / "tt-crank" / "src" / "onnx" / "libtt_crank_ort.so"
 
 
 def tt_device() -> ort.OrtEpDevice:
