@@ -530,6 +530,61 @@ def test_sdpa_fused_lowering_ir(
 
 
 @_OPT1_ON_SIM
+def test_sdpa_gqa_peel_feeds_unexpanded_kv() -> None:
+    """HF's repeat_kv expansion is peeled off: sdpa_fw and sdpa_bw see [B, Hkv, S, D] K/V and the backward
+    returns dK/dV at Hkv heads directly, with no expand/sum chain left in either graph."""
+    from tt_crank.torch import _compile
+
+    heads_q, heads_kv = 8, 2
+    q = torch.randn(1, heads_q, _S, _E, dtype=_DT).to("tt").requires_grad_(True)
+    k, v = (
+        torch.randn(1, heads_kv, _S, _E, dtype=_DT).to("tt").requires_grad_(True)
+        for _ in range(2)
+    )
+
+    def sdpa(a, b, c):
+        rep = heads_q // heads_kv
+        b = b[:, :, None].expand(1, heads_kv, rep, _S, _E).reshape(1, heads_q, _S, _E)
+        c = c[:, :, None].expand(1, heads_kv, rep, _S, _E).reshape(1, heads_q, _S, _E)
+        return F.scaled_dot_product_attention(a, b, c, is_causal=True).sum()
+
+    graphs: list = []
+    with post_aot_fx_hook(graphs.append):
+        torch.compile(sdpa, backend="tt", fullgraph=True, options=_OPT["compile"])(
+            q, k, v
+        ).backward()
+    torch._dynamo.reset()
+    assert len(graphs) == 2, [g.graph for g in graphs]
+    seen = set()
+    for gm in graphs:
+        for node in gm.graph.nodes:
+            if node.target is _compile._SDPA_FUSED_FW:
+                kv_args, seen = node.args[1:3], seen | {"fw"}
+            elif node.target is _compile._SDPA_FUSED_BW:
+                kv_args, seen = node.args[2:4], seen | {"bw"}
+            else:
+                continue
+            assert [a.meta["val"].shape[1] for a in kv_args] == [
+                heads_kv,
+                heads_kv,
+            ], node.format_node()
+        # No [B, Hkv, rep, S, D] intermediate survives: neither the expansion nor the dK/dV reduction.
+        five_d = [
+            n
+            for n in gm.graph.nodes
+            if len(getattr(n.meta.get("val"), "shape", ())) == 5
+        ]
+        assert not five_d, [n.format_node() for n in five_d]
+    assert seen == {"fw", "bw"}
+    assert k.grad.shape == (1, heads_kv, _S, _E) and v.grad.shape == (
+        1,
+        heads_kv,
+        _S,
+        _E,
+    )
+
+
+@_OPT1_ON_SIM
 def test_sdpa_training_is_two_device_programs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
