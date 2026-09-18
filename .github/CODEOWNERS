@@ -193,3 +193,6 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 # model snippet tests
 test/python/golden/mlir_snippets/models/ @tenstorrent/forge-developers-mlir-d2m
 test/python/golden/d2m/test_snippets.py @tenstorrent/forge-developers-mlir-d2m
+
+# tt-crank
+/tt-crank/ @acolicTT @agobeljicTT @pilkicTT @umalesTT

@@ -119,6 +119,38 @@ static void registerBuiltinComposites() {
     return;
   }
 
+  registry["rmsnorm_fw"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 2u);
+        auto attrs = compositeOp.getCompositeAttributes();
+        TT_assert(attrs);
+        auto returnIntermediatesAttr =
+            (*attrs).getAs<BoolAttr>("return_intermediates");
+        auto epsilonAttr = (*attrs).getAs<FloatAttr>("epsilon");
+        TT_assert(returnIntermediatesAttr);
+        TT_assert(epsilonAttr);
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<RMSNormForwardOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            returnIntermediatesAttr, epsilonAttr);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        DictionaryAttr attrs = *compositeOp.getCompositeAttributes();
+        TT_assert(compositeOp.getInputs().size() == 2u);
+        return builder.create<RMSNormForwardOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            attrs.getAs<BoolAttr>("return_intermediates"),
+            attrs.getAs<FloatAttr>("epsilon"));
+      },
+      /*promotionGuard=*/nullptr};
+
   registry["layernorm_fw"] = CompositeEntry{
       // Validate
       [](ttcore::CompositeOp compositeOp,
@@ -389,6 +421,55 @@ static void registerBuiltinComposites() {
             compositeOp.getInputs().size() == 7u ? compositeOp.getInputs()[6]
                                                  : Value(),
             maskType, dropoutProbability);
+      },
+      /*promotionGuard=*/nullptr};
+
+  registry["cross_entropy_fw"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 2u);
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<CrossEntropyForwardOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1]);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        TT_assert(compositeOp.getInputs().size() == 2u);
+        return builder.create<CrossEntropyForwardOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1]);
+      },
+      /*promotionGuard=*/nullptr};
+
+  registry["cross_entropy_bw"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 3u);
+        auto attrs = compositeOp.getCompositeAttributes();
+        TT_assert(attrs);
+        auto scalerAttr = (*attrs).getAs<FloatAttr>("scaler");
+        TT_assert(scalerAttr);
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<CrossEntropyBackwardOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], scalerAttr);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        TT_assert(compositeOp.getInputs().size() == 3u);
+        DictionaryAttr attrs = *compositeOp.getCompositeAttributes();
+        return builder.create<CrossEntropyBackwardOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], attrs.getAs<FloatAttr>("scaler"));
       },
       /*promotionGuard=*/nullptr};
 }

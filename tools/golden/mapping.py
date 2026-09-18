@@ -1250,6 +1250,44 @@ def cross_entropy_fw_golden(
     return result
 
 
+def cross_entropy_bw_golden(
+    input: GoldenMapTensor,
+    target: GoldenMapTensor,
+    grad: GoldenMapTensor,
+    scaler,
+    output_type_mlir: Type = None,
+    **kwargs,
+) -> GoldenMapTensor:
+    """Reference for the fused ttml cross entropy backward step:
+
+      d_input = (softmax(input) - one_hot(target)) * scaler * grad
+
+    Input is (N, 1, H, W) logits, target is (N, H) class indices and grad is a
+    (1, 1, 1, 1) scalar. The result has input's shape.
+    """
+    scaler = unpack_mlir_attr(scaler)
+
+    logits = input.to(torch.float32)
+    num_classes = logits.shape[-1]
+
+    probs = torch.softmax(logits, dim=-1)
+
+    # (N, H) -> (N, 1, H, W)
+    one_hot = torch.unsqueeze(
+        torch.nn.functional.one_hot(target.to(torch.int64), num_classes).to(
+            torch.float32
+        ),
+        1,
+    )
+
+    result = torch.mul(torch.sub(probs, one_hot), scaler)
+    result = torch.mul(result, grad.to(torch.float32))
+
+    if output_type_mlir is not None:
+        result = result.to(mlir_type_to_torch_dtype(output_type_mlir))
+    return result
+
+
 def rms_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor] = None,
@@ -6570,6 +6608,35 @@ def stablehlo_convert_golden(
     return input_tensor.to(output_dtype)
 
 
+def ttcore_composite_golden(
+    *operand_tensors: GoldenMapTensor,
+    composite_name=None,
+    composite_attributes=None,
+    result_types=None,
+    **_kwargs,
+) -> GoldenMapTensor:
+    if composite_name == "rmsnorm_fw":
+        attrs = composite_attributes or {}
+        try:
+            epsilon_attr = attrs["epsilon"]
+        except KeyError:
+            epsilon_attr = None
+
+        if not result_types:
+            raise ValueError("ttcore.composite golden requires result types.")
+
+        return rmsnorm_fw_golden(
+            *operand_tensors,
+            epsilon=epsilon_attr,
+            return_intermediates=len(result_types) == 2,
+            output_type_mlir=RankedTensorType(result_types[0]).element_type,
+        )
+
+    raise NotImplementedError(
+        f"No ttcore.composite golden is registered for {composite_name!r}."
+    )
+
+
 def stablehlo_composite_golden(
     *operand_tensors: GoldenMapTensor,
     decomposition_fn=None,
@@ -6640,6 +6707,28 @@ def stablehlo_composite_golden(
             *operand_tensors,
             mask_type=mask_type,
             dropout_probability=dropout_probability,
+        )
+
+    if composite_name == "tenstorrent.cross_entropy_fw":
+        result_type = RankedTensorType(list(decomposition_fn.type.results)[0])
+        return cross_entropy_fw_golden(
+            *operand_tensors,
+            output_type_mlir=result_type.element_type,
+        )
+
+    if composite_name == "tenstorrent.cross_entropy_bw":
+        attrs = composite_attributes or {}
+        try:
+            scaler_attr = attrs["scaler"]
+        except KeyError as e:
+            raise ValueError(
+                "tenstorrent.cross_entropy_bw requires a `scaler` attribute."
+            ) from e
+        result_type = RankedTensorType(list(decomposition_fn.type.results)[0])
+        return cross_entropy_bw_golden(
+            *operand_tensors,
+            scaler=scaler_attr,
+            output_type_mlir=result_type.element_type,
         )
 
     if len(decomposition_fn.body.blocks) != 1:
@@ -8747,6 +8836,33 @@ def sdpa_bw_golden(
     return dq.to(query.dtype), dk.to(key.dtype), dv.to(value.dtype)
 
 
+def rmsnorm_fw_golden(
+    input: GoldenMapTensor,
+    gamma: GoldenMapTensor,
+    return_intermediates: bool = True,
+    epsilon: FloatAttr = None,
+    output_type_mlir: Type = None,
+    **kwargs,
+) -> Tuple[GoldenMapTensor, ...]:
+    epsilon = unpack_mlir_attr(epsilon) if epsilon is not None else 1e-06
+
+    x = input.float()
+    rms = torch.sqrt(
+        torch.add(torch.mean(torch.mul(x, x), dim=-1, keepdim=True), epsilon)
+    )
+    output = torch.mul(torch.div(x, rms), gamma.float())
+
+    output_dtype = (
+        mlir_type_to_torch_dtype(output_type_mlir)
+        if output_type_mlir is not None
+        else input.dtype
+    )
+    output = output.to(output_dtype)
+    if return_intermediates:
+        return output, rms.to(output_dtype)
+    return (output,)
+
+
 def layernorm_fw_golden(
     input: GoldenMapTensor,
     weight: GoldenMapTensor,
@@ -9149,6 +9265,8 @@ def debug_region_end_golden(
 
 
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
+    # ----- TTCORE OPS -----
+    ttcore.CompositeOp: ttcore_composite_golden,
     # ----- TTIR OPS -----
     # Elementwise unary operations
     ttir.GetDimensionSizeOp: get_dimension_size_golden,
@@ -9263,7 +9381,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
     ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
     ttir.AdamWOp: adamw_golden,
-    ttir.CrossEntropyForwardOp: cross_entropy_fw_golden,
     ttir.LayerNormOp: ttir_layer_norm_golden,
     ttir.SplitQueryKeyValueAndSplitHeadsOp: ttir_split_query_key_value_and_split_heads_golden,
     ttir.GroupNormOp: ttir_group_norm_golden,
@@ -10223,17 +10340,15 @@ def chisel_ttnn_conv3d(op, inputs):
     input_width = unpack_mlir_attr(op.attributes["input_width"])
     in_channels = unpack_mlir_attr(op.attributes["in_channels"])
     out_channels = unpack_mlir_attr(op.attributes["out_channels"])
-    groups = unpack_mlir_attr(op.attributes["groups"])
     kernel_size = unpack_mlir_attr(op.attributes["kernel_size"])
     input_ndhwc = inputs["input"].reshape(
         batch_size, input_depth, input_height, input_width, in_channels
     )
-    # TTNN weight is [K_D*K_H*K_W*(C_in/groups), C_out]; reshape to OIDHW for torch conv3d.
+    # TTNN weight is [K_D*K_H*K_W*C_in, C_out]; reshape to OIDHW for torch conv3d.
     kd, kh, kw = kernel_size
-    in_channels_per_group = in_channels // groups
     weight_ncdhw = (
         inputs["weight"]
-        .reshape(kd, kh, kw, in_channels_per_group, out_channels)
+        .reshape(kd, kh, kw, in_channels, out_channels)
         .permute(4, 3, 0, 1, 2)
     )
     result_ndhwc = conv3d_golden(
@@ -10243,7 +10358,7 @@ def chisel_ttnn_conv3d(op, inputs):
         stride=op.attributes["stride"],
         padding=op.attributes["padding"],
         dilation=op.attributes["dilation"],
-        groups=op.attributes["groups"],
+        groups=1,
         batch_dim=0,
         depth_dim=1,
         height_dim=2,

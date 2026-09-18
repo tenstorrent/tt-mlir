@@ -9,6 +9,7 @@ Emits a module exposing OP_SCHEMA[<full-op-name>] = {
     "operands":   ("input", "index", "source"),
     "attributes": ("dim", "scatter_reduce_type", "memory_config"),
     "results":    ("result",),
+    "regions":    (),
 }
 
 Usage:
@@ -16,6 +17,8 @@ Usage:
 """
 import argparse
 import json
+import keyword
+import re
 import sys
 from enum import Enum, auto
 from typing import Literal, Optional
@@ -51,8 +54,8 @@ class DefRef(BaseModel):
 
 
 class OpDag(BaseModel):
-    """ODS-emitted dag for an Op's `arguments` / `results`: each arg is a
-    (def-ref, name) pair. See the LLVM JSON reference for `dag` shape."""
+    """ODS-emitted dag for an Op's `arguments` / `results` / `regions`: each arg
+    is a (def-ref, name) pair. See the LLVM JSON reference for `dag` shape."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -70,6 +73,7 @@ class OpRecord(BaseModel):
     op_dialect: DefRef = Field(alias="opDialect")
     arguments: OpDag
     results: OpDag
+    regions: OpDag
 
 
 class ArgWrapper(BaseModel):
@@ -111,17 +115,54 @@ def _unwrap_arg(name: str, records: dict) -> str:
     return ArgWrapper.model_validate(rec).constraint.def_name
 
 
-def _mangle_name(name: str) -> str:
-    """Mirror the ODS Python op generator's local-collision mangling.
+# Names that mlir-tblgen refuses to emit as-is, because the accessor would
+# shadow something the generated OpView or its `__init__` already uses. Mirrors
+# `isODSReserved` in llvm-project's mlir/tools/mlir-tblgen/OpPythonBindingGen.cpp.
+_ODS_RESERVED = frozenset(
+    {
+        "attributes",
+        "create",
+        "context",
+        "ip",
+        "operands",
+        "print",
+        "get_asm",
+        "loc",
+        "verify",
+        "regions",
+        "results",
+        "self",
+        "operation",
+        "DIALECT_NAMESPACE",
+        "OPERATION_NAME",
+    }
+)
 
-    The generated `__init__` uses a local list literally named `results` to pass into `OpView.__init__`.
-    When an ODS-declared operand/attribute/result name shadows that local,
-    the generator suffixes it with `_` (so the accessor on the class becomes e.g. `results_`, not `results`).
-    The schema has to match the actual class member name — `dir(cls)` exposes the
-    suffixed form — so we apply the same rule here.
+# Builtins `isPythonReserved` refuses on top of the language keywords; see
+# mlir/tools/mlir-tblgen/OpGenHelpers.cpp.
+_PYTHON_RESERVED_BUILTINS = frozenset({"callable", "issubclass", "type"})
+
+
+def _mangle_name(name: str) -> str:
+    """Mirror `sanitizeName` from mlir-tblgen's Python op-binding generator.
+
+    The generated accessor is not always the ODS-declared name: non-alphanumeric
+    characters become underscores, a leading digit gets an underscore prefix, and
+    a name that would shadow a Python keyword or part of the OpView surface gets
+    a `_` suffix (so ODS `$operands` surfaces as `operands_`). The schema has to
+    match the accessor, since that is what `dir(cls)` exposes.
     """
-    if name == "results":
-        return "results_"
+    name = re.sub(r"[^0-9A-Za-z]", "_", name)
+    if name[:1].isdigit():
+        return "_" + name
+    if (
+        keyword.iskeyword(name)
+        or name in _PYTHON_RESERVED_BUILTINS
+        or name in _ODS_RESERVED
+        or name.startswith("_ods_")
+        or name.endswith("_ods")
+    ):
+        return name + "_"
     return name
 
 
@@ -179,14 +220,13 @@ def _collect(records: dict):
                     f"operand nor attribute; tblgen JSON does not list it under "
                     f"TypeConstraint or AttrConstraint"
                 )
-            buckets[kind].append(arg_name)
-
-        results = [_mangle_name(r[1]) for r in op.results.args]
+            buckets[kind].append(_mangle_name(arg_name))
 
         schema[full] = {
             "operands": tuple(operands),
             "attributes": tuple(attributes),
-            "results": tuple(results),
+            "results": tuple(_mangle_name(name) for _, name in op.results.args),
+            "regions": tuple(_mangle_name(name) for _, name in op.regions.args),
         }
     return schema
 
@@ -207,6 +247,7 @@ def _emit(schema: dict, out_path: str) -> None:
         lines.append(f"        'operands':   {entry['operands']!r},")
         lines.append(f"        'attributes': {entry['attributes']!r},")
         lines.append(f"        'results':    {entry['results']!r},")
+        lines.append(f"        'regions':    {entry['regions']!r},")
         lines.append("    },")
     lines.append("}")
     lines.append("")

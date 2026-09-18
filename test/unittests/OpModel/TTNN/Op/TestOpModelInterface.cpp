@@ -3384,7 +3384,7 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
 
 TEST_F(OpModelBase, Conv3dInterface) {
   llvm::SmallVector<int64_t> inputShape = {1, 5, 10, 10, 32}; // [N, D, H, W, C]
-  // Weight must be 2D: [kD*kH*kW*C_in/groups, C_out]
+  // Weight must be 2D: [kD*kH*kW*C_in, C_out]
   // patch_size = 3*3*3*32 = 864, out_channels = 64 (multiple of 32)
   llvm::SmallVector<int64_t> weightShape = {864, 64};
   // Dilation 2 gives an effective kernel size of 5 in each dimension.
@@ -6449,6 +6449,50 @@ TEST_F(OpModelBase, SDPABackwardOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, RMSNormForwardOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 256};
+  llvm::SmallVector<int64_t> gammaShape = {1, 1, 1, 256};
+  llvm::SmallVector<int64_t> rmsShape = {1, 1, 128, 1};
+  auto inputLayout = CreateTiledLayout(inputShape, BufferType::DRAM,
+                                       TensorMemoryLayout::Interleaved);
+  auto gammaLayout = CreateTiledLayout(gammaShape, BufferType::DRAM,
+                                       TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
+  auto gamma =
+      createEmptyTensor(gammaShape, builder.getBF16Type(), gammaLayout);
+  auto outputType =
+      createRankedTensorType(inputShape, builder.getBF16Type(), inputLayout);
+  auto rmsType = createRankedTensorType(rmsShape);
+
+  auto rmsNormForward = builder.create<RMSNormForwardOp>(
+      builder.getUnknownLoc(), TypeRange{outputType, rmsType}, input, gamma,
+      builder.getBoolAttr(true), builder.getF32FloatAttr(1e-6f));
+
+  auto backend = dyn_cast<OpModel>(rmsNormForward.getOperation());
+  ASSERT_TRUE(backend);
+  auto inputLayouts = getInputLayouts(rmsNormForward.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 2u);
+
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+    ASSERT_EQ(constraintsExp.get().outputLayouts.size(), 2u);
+  } else {
+    FAIL() << "Missing constraints for RMSNormForwardOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for RMSNormForwardOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, LayerNormForwardOpInterface) {
   llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 256};
   llvm::SmallVector<int64_t> parameterShape = {1, 1, 1, 256};
@@ -7755,6 +7799,71 @@ TEST_F(OpModelBase, CrossEntropyForwardOpInterface) {
     EXPECT_GT(*runtimeExp, 0);
   } else {
     FAIL() << "Error getting runtime for CrossEntropyForwardOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// CrossEntropyBackwardOp
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelBase, CrossEntropyBackwardOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {4, 1, 32, 64};
+  llvm::SmallVector<int64_t> targetShape = {4, 32};
+  llvm::SmallVector<int64_t> gradShape = {1, 1, 1, 1};
+  TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  TTNNLayoutAttr targetLayout =
+      TTNNLayoutAttr::Builder(
+          &context, targetShape,
+          builder.getIntegerType(/*width=*/32, /*isSigned=*/false))
+          .setBufferType(BufferType::DRAM)
+          .setMemoryLayout(TensorMemoryLayout::Interleaved)
+          .setGridShape(GetVirtualGridShape(
+              targetShape, TensorMemoryLayout::Interleaved, BufferType::DRAM))
+          .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  TTNNLayoutAttr gradLayout = CreateTiledLayout(
+      gradShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  auto outputType =
+      createRankedTensorType(inputShape, builder.getBF16Type(), outputLayout);
+  mlir::Value input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
+  mlir::Value target = createEmptyTensor(
+      targetShape, builder.getIntegerType(/*width=*/32, /*isSigned=*/false),
+      targetLayout);
+  mlir::Value grad =
+      createEmptyTensor(gradShape, builder.getBF16Type(), gradLayout);
+
+  auto crossEntropyBackward = builder.create<CrossEntropyBackwardOp>(
+      builder.getUnknownLoc(), outputType, input, target, grad,
+      builder.getF32FloatAttr(0.03125F));
+  auto backend = dyn_cast<OpModel>(crossEntropyBackward.getOperation());
+  ASSERT_TRUE(backend);
+
+  auto inputLayouts = getInputLayouts(crossEntropyBackward.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 3u);
+
+  auto constraintsExp =
+      backend.getOpConstraints(inputLayouts, /*opConfig=*/OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp->cbL1PeakSize, 0);
+    EXPECT_EQ(constraintsExp->tensorL1PeakSize, 0);
+    EXPECT_EQ(constraintsExp->outputL1BufferSize, 0);
+    ASSERT_EQ(constraintsExp->outputLayouts.size(), 1u);
+    ExpectLayoutsEQ(constraintsExp->outputLayouts.front(), outputLayout);
+  } else {
+    FAIL() << "Missing constraints for CrossEntropyBackwardOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, /*opConfig=*/OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(*runtimeExp, 0);
+  } else {
+    FAIL() << "Error getting runtime for CrossEntropyBackwardOp: "
            << llvm::toString(runtimeExp.takeError());
   }
 }

@@ -2434,6 +2434,27 @@ struct OpModel<SDPABackwardOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// RMSNormForwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<RMSNormForwardOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout,
+                   llvm::ArrayRef<int64_t> gammaShape,
+                   TTNNLayoutAttr gammaLayout, bool returnIntermediates,
+                   llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> gammaShape, TTNNLayoutAttr gammaLayout,
+               bool returnIntermediates, llvm::APFloat epsilon,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // LayerNormForwardOp
 //===----------------------------------------------------------------------===//
 
@@ -2471,6 +2492,26 @@ struct OpModel<CrossEntropyForwardOp> {
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
                llvm::ArrayRef<int64_t> targetShape, TTNNLayoutAttr targetLayout,
                TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// CrossEntropyBackwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<CrossEntropyBackwardOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      llvm::ArrayRef<int64_t> targetShape, TTNNLayoutAttr targetLayout,
+      llvm::ArrayRef<int64_t> gradShape, TTNNLayoutAttr gradLayout,
+      llvm::APFloat scaler, TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> targetShape, TTNNLayoutAttr targetLayout,
+               llvm::ArrayRef<int64_t> gradShape, TTNNLayoutAttr gradLayout,
+               llvm::APFloat scaler, TTNNLayoutAttr outputLayout);
 };
 
 } // namespace mlir::tt::ttnn::op_model

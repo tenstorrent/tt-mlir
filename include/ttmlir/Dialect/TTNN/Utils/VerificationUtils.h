@@ -140,7 +140,7 @@ enum OutputDim : unsigned {
 
 // Weight is 2D: [kD*kH*kW*C_in, O]
 enum WeightDim : unsigned {
-  WEIGHT_FLATTENED = 0,  // kD*kH*kW*C_in/groups (patch_size)
+  WEIGHT_FLATTENED = 0,  // kD*kH*kW*C_in_aligned (patch_size)
   WEIGHT_OUT_CHANNEL = 1 // O (output channels)
 };
 
@@ -160,7 +160,7 @@ struct InputTensorDims3d {
 
 struct WeightTensorDims3d {
   int64_t outputChannels;
-  int64_t flattenedKernelChannels; // kD*kH*kW*C_in/groups
+  int64_t flattenedKernelChannels; // kD*kH*kW*C_in
   int64_t kernelDepth;
   int64_t kernelHeight;
   int64_t kernelWidth;

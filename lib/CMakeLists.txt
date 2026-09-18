@@ -99,6 +99,13 @@ set_target_properties(TTMLIRCompiler PROPERTIES
   BUILD_WITH_INSTALL_RPATH FALSE
 )
 
+target_include_directories(TTMLIRCompiler
+  INTERFACE
+    $<BUILD_INTERFACE:${TTMLIR_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${TTMLIR_BINARY_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+
 # Forces the inclusion of all symbols in the shared object
 # This is necessary because the JIT will not be able to find the symbols otherwise
 if (APPLE)

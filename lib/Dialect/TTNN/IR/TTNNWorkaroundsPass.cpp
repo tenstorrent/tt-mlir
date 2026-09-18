@@ -226,6 +226,41 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
       .addOutputOperandWorkaround(outputTiledBf16Workaround);
 }
 
+// Factory method to create a set of workarounds for CrossEntropyBackwardOp.
+//
+// The internal primitive requires tiled BF16 DRAM `input` and row-major UINT32
+// DRAM `target`. `grad` and the result belong to the trailing `ttnn::multiply`
+// and are not restricted to DRAM. `grad` only has to be tiled. The result is
+// also BF16.
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createCrossEntropyBackwardOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds inputTiledBf16DRAMWorkaround;
+  inputTiledBf16DRAMWorkaround.tensorLayoutWorkaround = Layout::Tile;
+  inputTiledBf16DRAMWorkaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
+  inputTiledBf16DRAMWorkaround.tensorBufferTypeWorkaround = BufferType::DRAM;
+
+  TTNNOperandWorkarounds targetRowMajorUInt32Workaround;
+  targetRowMajorUInt32Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  targetRowMajorUInt32Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::UInt32;
+  targetRowMajorUInt32Workaround.tensorBufferTypeWorkaround = BufferType::DRAM;
+
+  TTNNOperandWorkarounds gradTiledWorkaround;
+  gradTiledWorkaround.tensorLayoutWorkaround = Layout::Tile;
+
+  TTNNOperandWorkarounds resultTiledBf16Workaround;
+  resultTiledBf16Workaround.tensorLayoutWorkaround = Layout::Tile;
+  resultTiledBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
+      .addInputOperandWorkaround(inputTiledBf16DRAMWorkaround)
+      .addInputOperandWorkaround(targetRowMajorUInt32Workaround)
+      .addInputOperandWorkaround(gradTiledWorkaround)
+      .addOutputOperandWorkaround(resultTiledBf16Workaround);
+}
+
 // Factory method to create a set of workarounds for UpsampleOp. The UpsampleOp
 // expects the input to be in row-major layout and to use the bf16 data type.
 // Since the output of the UpsampleOp follows the same format as the input
@@ -1223,6 +1258,36 @@ TTNNOperandsWorkaroundsFactory::createSDPABackwardOpOperandsWorkarounds(
       operandsWorkaround.addOutputOperandWorkaround(bf16Workaround);
   operandsWorkaround =
       operandsWorkaround.addOutputOperandWorkaround(bf16Workaround);
+
+  return operandsWorkaround;
+}
+
+// Create workarounds for the ttml rmsnorm_fw op. The backing metal op
+// (ttml::metal::rmsnorm_fw) requires every tensor it touches to be bf16,
+// tiled and interleaved in DRAM.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createRMSNormForwardOpOperandsWorkarounds(
+    Operation *op) {
+  TTNNOperandWorkarounds tileDramBf16;
+  tileDramBf16.tensorLayoutWorkaround = Layout::Tile;
+  tileDramBf16.tensorBufferTypeWorkaround = BufferType::DRAM;
+  tileDramBf16.tensorMemoryLayoutWorkaround = TensorMemoryLayoutAttr::get(
+      op->getContext(), TensorMemoryLayout::Interleaved);
+  tileDramBf16.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  // Input, gamma and output
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+          .addInputOperandWorkaround(tileDramBf16)
+          .addInputOperandWorkaround(tileDramBf16)
+          .addOutputOperandWorkaround(tileDramBf16);
+
+  auto rmsNormForwardOp = cast<RMSNormForwardOp>(op);
+  if (rmsNormForwardOp.getRms()) {
+    // RMS
+    operandsWorkaround =
+        operandsWorkaround.addOutputOperandWorkaround(tileDramBf16);
+  }
 
   return operandsWorkaround;
 }

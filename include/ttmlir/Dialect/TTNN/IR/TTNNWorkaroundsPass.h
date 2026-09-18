@@ -258,6 +258,10 @@ public:
   static TTNNOperandsWorkarounds
   createCrossEntropyForwardOpOperandsWorkarounds();
 
+  // Create workarounds for cross entropy backward op operands.
+  static TTNNOperandsWorkarounds
+  createCrossEntropyBackwardOpOperandsWorkarounds();
+
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
@@ -394,6 +398,12 @@ public:
   // TT_FATALs on any other dtype.
   static TTNNOperandsWorkarounds
   createSDPABackwardOpOperandsWorkarounds(Operation *op);
+
+  // Create workarounds for the ttml rmsnorm_fw op: force bf16, tile layout
+  // and DRAM interleaved memory for every operand and result. The backing metal
+  // op (ttml::metal::rmsnorm_fw) TT_FATALs on anything else.
+  static TTNNOperandsWorkarounds
+  createRMSNormForwardOpOperandsWorkarounds(Operation *op);
 
   // Create workarounds for the ttml layernorm_fw op: force bf16, tile layout
   // and DRAM interleaved memory for every operand and result. The backing metal
