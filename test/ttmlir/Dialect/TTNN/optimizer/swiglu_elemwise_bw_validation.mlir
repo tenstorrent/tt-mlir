@@ -3,7 +3,7 @@
 // RUN: FileCheck %s --input-file=%t
 
 module {
-  // The TTML kernel requires tiled, DRAM-interleaved operands and derives both
+  // The TTML kernel requires tiled, interleaved operands and derives both
   // gradient layouts from the input.
   func.func @swiglu_elemwise_bw(
       %input: tensor<1x1x128x256xbf16>,
