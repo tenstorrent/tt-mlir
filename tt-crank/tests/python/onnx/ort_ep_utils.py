@@ -19,6 +19,17 @@ REGISTRATION_NAME = "tt_kurbla"
 EP_OPSET_VERSION = 22
 
 
+class DType:
+    """ONNX element types (onnx.TensorProto.*)."""
+
+    F32 = onnx.TensorProto.FLOAT
+    F64 = onnx.TensorProto.DOUBLE
+    BF16 = onnx.TensorProto.BFLOAT16
+    I32 = onnx.TensorProto.INT32
+    I64 = onnx.TensorProto.INT64
+    BOOL = onnx.TensorProto.BOOL
+
+
 def ep_library_path() -> pathlib.Path:
     """The built plugin library (BUILD_DIR overrides <tt-mlir>/build)."""
     build_dir = pathlib.Path(os.environ.get("BUILD_DIR", TT_MLIR_ROOT / "build"))
@@ -88,7 +99,7 @@ def reseed(seed: int = 0) -> None:
     _RNG = np.random.default_rng(seed)
 
 
-def vi(name, shape, dtype=onnx.TensorProto.FLOAT):
+def vi(name, shape, dtype=DType.F32):
     return helper.make_tensor_value_info(name, dtype, shape)
 
 
@@ -108,6 +119,10 @@ def make_model(
 
 def randn(*shape: int, dtype=np.float32) -> np.ndarray:
     return _RNG.standard_normal(shape).astype(dtype)
+
+
+def randint(*shape: int, low: int = 1, high: int = 9, dtype=np.int32) -> np.ndarray:
+    return _RNG.integers(low, high, size=shape).astype(dtype)
 
 
 def make_tensor(name: str, arr: np.ndarray) -> onnx.TensorProto:
@@ -153,15 +168,13 @@ def _numpy_dtype(ort_type: str):
 def host_ortvalue(arr: np.ndarray) -> ort.OrtValue:
     """A host OrtValue aliasing `arr`. numpy has no bf16, so bf16 goes by ONNX element type."""
     if _is_bf16(arr.dtype):
-        return ort.OrtValue.ortvalue_from_numpy_with_onnx_type(
-            arr, int(onnx.TensorProto.BFLOAT16)
-        )
+        return ort.OrtValue.ortvalue_from_numpy_with_onnx_type(arr, DType.BF16)
     return ort.OrtValue.ortvalue_from_numpy(arr)
 
 
 def tt_empty(shape, dtype) -> ort.OrtValue:
     """An uninitialized OrtValue on the TT device."""
-    elem = int(onnx.TensorProto.BFLOAT16) if _is_bf16(dtype) else np.dtype(dtype)
+    elem = DType.BF16 if _is_bf16(dtype) else np.dtype(dtype)
     return ort.OrtValue.ortvalue_from_shape_and_type(
         list(shape), elem, memory_info=tt_memory_info()
     )
