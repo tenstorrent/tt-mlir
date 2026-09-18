@@ -581,7 +581,12 @@ def TTNN_HardsigmoidOp : TTNN_ElementwiseUnaryOp<"hardsigmoid"> {
     Eltwise hardsigmoid operation. Computes hardsigmoid(x) = max(0, min(1, (x + 3) / 6)).
   }];
 }
-
+def TTNN_HardswishOp : TTNN_ElementwiseUnaryOp<"hardswish"> {
+  let summary = "Eltwise hardswish.";
+  let description = [{
+    Eltwise hardswish operation. Computes hardswish(x) = x * max(0, min(1, (x + 3) / 6)).
+  }];
+}
 def TTNN_SiluOp : TTNN_ElementwiseUnaryOp<"silu"> {
   let summary = "Eltwise SiLU.";
   let description = [{
