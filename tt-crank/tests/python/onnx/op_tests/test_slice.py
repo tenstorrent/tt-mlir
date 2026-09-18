@@ -7,7 +7,7 @@
 import numpy as np
 import pytest
 
-import tt_onnx
+import tt_crank.onnx as tt_onnx
 
 
 def _i64(name: str, values) -> object:

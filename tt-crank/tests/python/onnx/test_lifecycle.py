@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Device lifecycle through tt_crank.onnx.register().
+"""Device lifecycle through tt_onnx.register().
 
 The exit test needs a subprocess with exclusive device access, and the pytest
 parent holds the device once any test ran a session, so it is opt-in:
@@ -11,18 +11,17 @@ parent holds the device once any test ran a session, so it is opt-in:
 """
 
 import os
-import pathlib
 import subprocess
 import sys
 import textwrap
 
 import pytest
 
-import tt_crank.onnx
+import tt_crank.onnx as tt_onnx
 
 
 def test_library_path_resolves() -> None:
-    assert tt_crank.onnx.library_path().exists()
+    assert tt_onnx.library_path().exists()
 
 
 @pytest.mark.skipif(
@@ -33,21 +32,18 @@ def test_exit_without_unregister_is_clean() -> None:
     # register() installs the atexit unregister; exiting with the library still
     # registered would otherwise close the device mesh from C-runtime exit handlers.
     script = textwrap.dedent(
-        f"""
-        import sys
-        sys.path.insert(0, {str(pathlib.Path(__file__).parent)!r})
+        """
         import numpy as np
-        import tt_crank.onnx
-        import tt_onnx
+        import tt_crank.onnx as tt_onnx
 
-        tt_crank.onnx.register()
+        tt_onnx.register()
         model = tt_onnx.make_model(
             [tt_onnx.make_node("Add", ["a", "b"], ["y"])],
             [tt_onnx.vi("a", [32, 32]), tt_onnx.vi("b", [32, 32])],
             [tt_onnx.vi("y", [32, 32])],
         )
-        inputs = {{"a": tt_onnx.randn(32, 32), "b": tt_onnx.randn(32, 32)}}
-        (y,) = tt_onnx.session_on_tt(model).run(None, inputs)
+        inputs = {"a": tt_onnx.randn(32, 32), "b": tt_onnx.randn(32, 32)}
+        (y,) = tt_onnx.session(model).run(None, inputs)
         np.testing.assert_allclose(y, inputs["a"] + inputs["b"], atol=1e-5)
         print("RAN_OK")
         """
@@ -60,6 +56,5 @@ def test_exit_without_unregister_is_clean() -> None:
         check=False,
     )
     assert "RAN_OK" in result.stdout, result.stderr
-    assert (
-        result.returncode == 0
-    ), f"exit code {result.returncode}\n{result.stderr[-2000:]}"
+    detail = f"exit code {result.returncode}\n{result.stderr[-2000:]}"
+    assert result.returncode == 0, detail

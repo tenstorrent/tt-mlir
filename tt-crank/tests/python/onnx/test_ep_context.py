@@ -7,7 +7,7 @@
 import numpy as np
 import pytest
 
-import tt_onnx
+import tt_crank.onnx as tt_onnx
 
 
 def _gemm_relu() -> bytes:
@@ -52,12 +52,10 @@ def test_ep_context_round_trip(build, in_shape, tmp_path) -> None:
     want = tt_onnx.cpu_golden(model, inputs)
 
     ctx_path = tmp_path / "model_ctx.onnx"
-    tt_onnx.session_on_tt(
-        model, ep_context=ctx_path
-    )  # compiling writes the context model
+    tt_onnx.session(model, ep_context=ctx_path)  # compiling writes the context model
     assert ctx_path.exists()
 
-    got = tt_onnx.run_on_tt(tt_onnx.session_on_tt(ctx_path), inputs)
+    got = tt_onnx.run(tt_onnx.session(ctx_path), inputs)
     np.testing.assert_allclose(got[0], want[0], atol=2e-2, rtol=2e-2)
 
 
@@ -65,5 +63,5 @@ def test_ep_context_default_path(tmp_path) -> None:
     # Without an explicit file, ORT writes <model>_ctx.onnx next to a model loaded from disk.
     path = tmp_path / "model.onnx"
     path.write_bytes(_gemm_relu())
-    tt_onnx.session_on_tt(path, ep_context=True)
+    tt_onnx.session(path, ep_context=True)
     assert (tmp_path / "model_ctx.onnx").exists()

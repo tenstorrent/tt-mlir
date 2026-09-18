@@ -7,7 +7,7 @@
 import numpy as np
 import pytest
 
-import tt_onnx
+import tt_crank.onnx as tt_onnx
 
 
 @pytest.mark.parametrize("target", [[8, -1, 32], [4, 8, 32], [0, -1]])

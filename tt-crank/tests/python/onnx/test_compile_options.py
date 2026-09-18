@@ -6,7 +6,7 @@
 
 import pytest
 
-import tt_onnx
+import tt_crank.onnx as tt_onnx
 
 _GEMM = tt_onnx.make_model(
     [tt_onnx.make_node("Gemm", ["a", "b"], ["y"])],
@@ -47,6 +47,6 @@ def test_invalid_compile_option_fails_session_creation(
     with pytest.raises(
         Exception, match="Conflicting session configuration|compile option"
     ):
-        tt_onnx.session_on_tt(_GEMM, compile_options=bad)
+        tt_onnx.session(_GEMM, compile_options=bad)
     captured = capfd.readouterr()
     assert "compile option" in captured.out + captured.err

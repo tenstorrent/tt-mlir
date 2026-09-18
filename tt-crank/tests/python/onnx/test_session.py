@@ -4,7 +4,7 @@
 
 """Session-level behavior: free-dim override, running a .onnx from disk."""
 
-import tt_onnx
+import tt_crank.onnx as tt_onnx
 
 
 def test_free_dim_override() -> None:

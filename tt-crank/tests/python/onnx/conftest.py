@@ -10,14 +10,12 @@ rooted under tests/python would shadow it (see tests/python's sibling dirs).
 
 import pytest
 
-import tt_crank.onnx
-
-import tt_onnx
+import tt_crank.onnx as tt_onnx
 
 
 @pytest.fixture(scope="session", autouse=True)
 def tt_ep_library() -> None:
-    tt_crank.onnx.register()  # unregisters at interpreter exit
+    tt_onnx.register()  # unregisters at interpreter exit
 
 
 @pytest.fixture(autouse=True)

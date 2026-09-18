@@ -6,7 +6,7 @@
 
 import numpy as np
 
-import tt_onnx
+import tt_crank.onnx as tt_onnx
 
 
 def test_initializer_shared_between_metadata_and_operand() -> None:

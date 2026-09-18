@@ -7,7 +7,7 @@
 import numpy as np
 import pytest
 
-import tt_onnx
+import tt_crank.onnx as tt_onnx
 
 
 @pytest.mark.parametrize(
@@ -46,7 +46,7 @@ def test_gemm_beta_zero_ignores_c() -> None:
             tt_onnx.make_tensor("c", np.full((8, 64), np.nan, dtype=np.float32)),
         ],
     )
-    (y,) = tt_onnx.run_on_tt(tt_onnx.session_on_tt(model), {"a": tt_onnx.randn(8, 32)})
+    (y,) = tt_onnx.run(tt_onnx.session(model), {"a": tt_onnx.randn(8, 32)})
     assert not np.isnan(y).any()
 
 

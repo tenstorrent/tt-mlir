@@ -7,7 +7,7 @@
 import numpy as np
 import pytest
 
-import tt_onnx
+import tt_crank.onnx as tt_onnx
 
 _STRUCTURAL = [
     tt_onnx.make_node("Transpose", ["a"], ["t"], perm=[1, 0]),
@@ -110,4 +110,4 @@ def test_integer_matmul_div_fail_session_creation(op: str) -> None:
         [tt_onnx.vi("y", None, tt_onnx.DType.I32)],
     )
     with pytest.raises(Exception, match="integer operands not supported"):
-        tt_onnx.session_on_tt(model, allow_cpu_fallback=True)
+        tt_onnx.session(model, allow_cpu_fallback=True)
