@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #include "ttmlir/Dialect/StableHLO/Utils/GSPMDUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
 namespace mlir::tt::stablehlo {
@@ -26,6 +27,23 @@ static mlir::LogicalResult wrapFunctionBodyInManualComputationOp(
       mlir::sdy::TensorShardingPerValueAttr::get(
           context,
           shardy_utils::getOutShardingAttrs(context, funcOp, globalMeshOp));
+
+  // Shardy may infer a non-replicated output sharding even when the frontend
+  // did not annotate the public function result. Preserve that inferred
+  // sharding before local-shape annotation decides the result shard status.
+  for (auto [index, outSharding] :
+       llvm::enumerate(outShardings.getShardings())) {
+    if (shardy_utils::isFullyReplicatedTensor(outSharding, globalMeshOp)) {
+      continue;
+    }
+
+    funcOp.setResultAttr(index, mlir::sdy::TensorShardingAttr::name,
+                         outSharding);
+    funcOp.setResultAttr(
+        index, mlir::tt::ttcore::ShardStatusAttr::name,
+        mlir::tt::ttcore::ShardStatusAttr::get(
+            context, mlir::tt::ttcore::ShardStatus::Presharded));
+  }
 
   // Create sdy.manual_computation op
   mlir::FunctionType funcType = funcOp.getFunctionType();
