@@ -114,23 +114,7 @@ def session(
     return onnxruntime.InferenceSession(_as_model(model), sess_options=options)
 
 
-def cpu_golden(
-    model: str | Path | bytes, inputs: dict[str, np.ndarray]
-) -> list[np.ndarray]:
-    session = onnxruntime.InferenceSession(
-        _as_model(model), session_opts(), providers=["CPUExecutionProvider"]
-    )
-    return session.run(None, inputs)
-
-
 # ---- model-building helpers --------------------------------------------------
-
-_RNG = np.random.default_rng(0)
-
-
-def reseed(seed: int = 0) -> None:
-    global _RNG
-    _RNG = np.random.default_rng(seed)
 
 
 def numpy_dtype(dtype: int) -> np.dtype:
@@ -166,30 +150,8 @@ def make_model(
     return shape_inference.infer_shapes(model).SerializeToString()
 
 
-def randn(*shape: int, dtype=np.float32) -> np.ndarray:
-    return _RNG.standard_normal(shape).astype(dtype)
-
-
-def randint(*shape: int, low: int = 1, high: int = 9, dtype=np.int32) -> np.ndarray:
-    return _RNG.integers(low, high, size=shape).astype(dtype)
-
-
 def make_tensor(name: str, arr: np.ndarray) -> onnx.TensorProto:
     return numpy_helper.from_array(arr, name)
-
-
-def pcc(a: np.ndarray, b: np.ndarray) -> float:
-    """Pearson correlation of two arrays, flattened."""
-    return float(np.corrcoef(a.ravel(), b.ravel())[0, 1])
-
-
-def assert_tt_matches_cpu(
-    model: bytes, inputs: dict, atol: float = 2e-2, rtol: float = 2e-2, **session_kwargs
-) -> None:
-    got = run(session(model, **session_kwargs), inputs)
-    want = cpu_golden(model, inputs)
-    for g, w in zip(got, want):
-        np.testing.assert_allclose(g, w, atol=atol, rtol=rtol)
 
 
 # ---- device tensor helpers ---------------------------------------------------
@@ -274,3 +236,44 @@ def run(
     io, outputs = bind(session, inputs)
     session.run_with_iobinding(io)
     return [to_host(ov) for ov in outputs]
+
+
+# ---- testing ------------------------------------------------------------------
+
+_RNG = np.random.default_rng(0)
+
+
+def reseed(seed: int = 0) -> None:
+    global _RNG
+    _RNG = np.random.default_rng(seed)
+
+
+def randn(*shape: int, dtype=np.float32) -> np.ndarray:
+    return _RNG.standard_normal(shape).astype(dtype)
+
+
+def randint(*shape: int, low: int = 1, high: int = 9, dtype=np.int32) -> np.ndarray:
+    return _RNG.integers(low, high, size=shape).astype(dtype)
+
+
+def cpu_golden(
+    model: str | Path | bytes, inputs: dict[str, np.ndarray]
+) -> list[np.ndarray]:
+    session = onnxruntime.InferenceSession(
+        _as_model(model), session_opts(), providers=["CPUExecutionProvider"]
+    )
+    return session.run(None, inputs)
+
+
+def pcc(a: np.ndarray, b: np.ndarray) -> float:
+    """Pearson correlation of two arrays, flattened."""
+    return float(np.corrcoef(a.ravel(), b.ravel())[0, 1])
+
+
+def assert_tt_matches_cpu(
+    model: bytes, inputs: dict, atol: float = 2e-2, rtol: float = 2e-2, **session_kwargs
+) -> None:
+    got = run(session(model, **session_kwargs), inputs)
+    want = cpu_golden(model, inputs)
+    for g, w in zip(got, want):
+        np.testing.assert_allclose(g, w, atol=atol, rtol=rtol)
