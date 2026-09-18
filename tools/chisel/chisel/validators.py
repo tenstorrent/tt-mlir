@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 import torch
 
@@ -51,6 +51,14 @@ class ChiselChecksConfig:
     #   accumulation: chain goldens through a program-scoped pool.
     isolation: bool = False
     accumulation: bool = True
+
+    # Skip mode (accumulation only): a predicate consulted per op after the PCC
+    # check. When it returns True, the op's device output is overwritten with the
+    # isolation golden (golden of device inputs), simulating a correct op so
+    # downstream device ops run on a corrected value. None disables skip mode.
+    # Build predicates with the `chisel.skip` helpers. Ignored unless
+    # `accumulation` is True; `no_golden` ops cannot be skipped (no golden to substitute).
+    skip_op: Optional[Callable[["ChiselContext"], bool]] = None
 
 
 def _extract_shape_dtype(source) -> tuple[list, torch.dtype]:
@@ -119,18 +127,16 @@ def check_numerics(
         if cfg.max_rtol is not None and rtol > cfg.max_rtol:
             failed = True
         status = RecordStatus.NUMERICS_FAIL if failed else RecordStatus.OK
+        payload = NumericsPayload(
+            status=status,
+            mode=mode,
+            pcc=pcc,
+            atol=atol,
+            rtol=rtol,
+            device_id=device_id,
+        )
+
+        ctx.record_numerics(payload)
         ctx.write_record(
-            ChiselRecord(
-                op=op.name,
-                check=check,
-                ssa=ssa,
-                payload=NumericsPayload(
-                    status=status,
-                    mode=mode,
-                    pcc=pcc,
-                    atol=atol,
-                    rtol=rtol,
-                    device_id=device_id,
-                ),
-            )
+            ChiselRecord(op=op.name, check=check, ssa=ssa, payload=payload)
         )
