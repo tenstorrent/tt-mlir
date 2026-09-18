@@ -113,6 +113,7 @@
 #include "operations/trace/capture_or_execute_trace.h"
 #include "operations/trace/end_trace_capture.h"
 #include "operations/trace/execute_trace.h"
+#include "operations/transformer/chunk_gated_delta_rule.h"
 #include "operations/transformer/chunked_scaled_dot_product_attention.h"
 #include "operations/transformer/concatenate_heads.h"
 #include "operations/transformer/flash_mla_prefill.h"
@@ -728,6 +729,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::FlashMlaPrefillOp: {
     return operations::transformer::run(op->type_as_FlashMlaPrefillOp(),
+                                        getContext());
+  }
+  case ::tt::target::ttnn::OpType::ChunkGatedDeltaRuleOp: {
+    return operations::transformer::run(op->type_as_ChunkGatedDeltaRuleOp(),
                                         getContext());
   }
   case ::tt::target::ttnn::OpType::IndexerScoreDsaOp: {

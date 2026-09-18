@@ -4354,6 +4354,88 @@ public:
 };
 } // namespace
 
+// ChunkGatedDeltaRuleOp conversion pattern
+namespace {
+class ChunkGatedDeltaRuleOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::ChunkGatedDeltaRuleOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.chunk_gated_delta_rule";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::transformer::chunk_gated_delta_rule";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ChunkGatedDeltaRuleOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ChunkGatedDeltaRuleOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ChunkGatedDeltaRuleOp>
+        emitter(srcOp, adaptor, rewriter);
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getValue()),
+        emitter.emit(srcOp.getG()),
+        emitter.emit(srcOp.getBeta()),
+        emitter.emit(srcOp.getScale()),
+        emitter.emit(srcOp.getInitialState()),
+        emitter.emit(srcOp.getOutputFinalState()),
+        emitter.emit(srcOp.getChunkSize()),
+        emitter.emit(srcOp.getUseQkL2norm()),
+        emitter.emit(srcOp.getOutputHeadMajor()),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
+        emitter.emit(srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getEye()),
+        emitter.emit(srcOp.getTril()),
+        emitter.emit(srcOp.getOnes()),
+        emitter.emit(srcOp.getMasks()),
+    };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+    using ReturnTy = std::tuple<::ttnn::Tensor, std::optional<::ttnn::Tensor>>;
+    auto call = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(ttnn_to_emitc::TypeNameV<ReturnTy>),
+        convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+    auto tensorType = rewriter.getType<emitc::OpaqueType>(
+        ttnn_to_emitc::TypeNameV<::ttnn::Tensor>);
+
+    SmallVector<Value, 2> results;
+    auto output = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), tensorType, "::std::get", /*args=*/nullptr,
+        rewriter.getArrayAttr({rewriter.getI32IntegerAttr(0)}),
+        call.getResult(0));
+    results.push_back(output.getResult(0));
+
+    if (srcOp.getFinalState()) {
+      auto optionalType = rewriter.getType<emitc::OpaqueType>(
+          ttnn_to_emitc::TypeNameV<std::optional<::ttnn::Tensor>>);
+      auto optional = rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), optionalType, "::std::get", /*args=*/nullptr,
+          rewriter.getArrayAttr({rewriter.getI32IntegerAttr(1)}),
+          call.getResult(0));
+      auto finalState = rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), tensorType,
+          ttnn_to_emitc::kGetOptionalValueFunctionName, /*args=*/nullptr,
+          /*template_args=*/nullptr, optional.getResult(0));
+      results.push_back(finalState.getResult(0));
+    }
+
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+};
+} // namespace
+
 // IndexerScoreDsaOp conversion pattern
 //
 namespace {
@@ -6720,6 +6802,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
                                                              ctx);
   patterns.add<FlashMlaPrefillOpConversionPattern>(typeConverter, ctx);
+  patterns.add<ChunkGatedDeltaRuleOpConversionPattern>(typeConverter, ctx);
   patterns.add<IndexerScoreDsaOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPCreateQKVHeadsDecodeOpConversionPattern>(typeConverter, ctx);
 }

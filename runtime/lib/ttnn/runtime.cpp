@@ -1509,6 +1509,14 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_FlashMlaPrefillOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::ChunkGatedDeltaRuleOp: {
+    auto *op = opContext.type_as_ChunkGatedDeltaRuleOp();
+    tensorRefs = {op->out()};
+    if (op->final_state()) {
+      tensorRefs.push_back(op->final_state());
+    }
+    break;
+  }
   case ::tt::target::ttnn::OpType::IndexerScoreDsaOp: {
     tensorRefs = {opContext.type_as_IndexerScoreDsaOp()->out()};
     break;
@@ -2416,6 +2424,17 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     }
     if (op->attention_mask()) {
       tensorRefs.push_back(op->attention_mask());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ChunkGatedDeltaRuleOp: {
+    auto *op = opContext.type_as_ChunkGatedDeltaRuleOp();
+    tensorRefs = {op->query(), op->key(), op->value(), op->g(), op->beta()};
+    for (auto *optional : {op->initial_state(), op->eye(), op->tril(),
+                           op->ones(), op->masks()}) {
+      if (optional) {
+        tensorRefs.push_back(optional);
+      }
     }
     break;
   }

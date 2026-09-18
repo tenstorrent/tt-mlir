@@ -2370,17 +2370,25 @@ public:
 
   template <typename OpConversionPatternTy>
   mlir::Value replaceOp(OpConversionPatternTy &&opConversionPattern,
-                        llvm::ArrayRef<mlir::Attribute> args) {
+                        llvm::ArrayRef<mlir::Attribute> args,
+                        unsigned callResultCount = 0) {
     auto resultTypes = llvm::to_vector(
         llvm::map_to_vector(op->getResultTypes(), [&](Type type) -> Type {
           return opConversionPattern.getTypeConverter()->convertType(type);
         }));
+    unsigned replacementResultCount = resultTypes.size();
+    if (callResultCount > resultTypes.size()) {
+      assert(!resultTypes.empty());
+      resultTypes.resize(callResultCount, resultTypes.front());
+    }
 
     auto callee = opConversionPattern.convertOpName(op);
 
-    auto callOpaqueOp = rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        op, resultTypes, callee, operands, rewriter.getArrayAttr(args),
+    auto callOpaqueOp = rewriter.create<emitpy::CallOpaqueOp>(
+        op.getLoc(), resultTypes, callee, operands, rewriter.getArrayAttr(args),
         rewriter.getArrayAttr(keywordArgs));
+    rewriter.replaceOp(
+        op, callOpaqueOp.getResults().take_front(replacementResultCount));
 
     if (callOpaqueOp.getNumResults() == 0) {
       return {};

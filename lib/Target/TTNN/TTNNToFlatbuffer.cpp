@@ -3843,6 +3843,47 @@ createOp(FlatbufferObjectCache &cache, FlashMlaPrefillOp op) {
       out, memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ChunkGatedDeltaRuleOp>
+createOp(FlatbufferObjectCache &cache, ChunkGatedDeltaRuleOp op) {
+  auto tensorRef = [&](Value value) {
+    return value ? cache.at<::tt::target::ttnn::TensorRef>(
+                       getOperandThroughDPSOps(value))
+                 : ::flatbuffers::Offset<::tt::target::ttnn::TensorRef>(0);
+  };
+
+  auto query = tensorRef(op.getQuery());
+  auto key = tensorRef(op.getKey());
+  auto value = tensorRef(op.getValue());
+  auto g = tensorRef(op.getG());
+  auto beta = tensorRef(op.getBeta());
+  auto initialState = tensorRef(op.getInitialState());
+  auto eye = tensorRef(op.getEye());
+  auto tril = tensorRef(op.getTril());
+  auto ones = tensorRef(op.getOnes());
+  auto masks = tensorRef(op.getMasks());
+  auto out = cache.getOrCreateNoSharding(
+      op.getOutput(), tensorValueToFlatbuffer, /*local_shape=*/std::nullopt);
+  auto finalState =
+      op.getFinalState()
+          ? cache.getOrCreateNoSharding(op.getFinalState(),
+                                        tensorValueToFlatbuffer,
+                                        /*local_shape=*/std::nullopt)
+          : ::flatbuffers::Offset<::tt::target::ttnn::TensorRef>(0);
+
+  ::flatbuffers::Optional<float> scale = toFlatbuffer(
+      cache, op.getScale()
+                 ? std::make_optional(op.getScale().value().convertToFloat())
+                 : std::nullopt);
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  auto computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  return ::tt::target::ttnn::CreateChunkGatedDeltaRuleOp(
+      *cache.fbb, query, key, value, g, beta, initialState, eye, tril, ones,
+      masks, scale, op.getOutputFinalState(), op.getChunkSize(),
+      op.getUseQkL2norm(), op.getOutputHeadMajor(), out, finalState,
+      memoryConfig, computeConfig.value_or(0));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::IndexerScoreDsaOp>
 createOp(FlatbufferObjectCache &cache, IndexerScoreDsaOp op) {
   auto query = cache.at<::tt::target::ttnn::TensorRef>(
@@ -5459,6 +5500,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto flashMlaPrefillOp = dyn_cast<FlashMlaPrefillOp>(op);
       flashMlaPrefillOp) {
     return createOperation(cache, createOp(cache, flashMlaPrefillOp),
+                           debugString, locInfo);
+  }
+  if (auto chunkGatedDeltaRuleOp = dyn_cast<ChunkGatedDeltaRuleOp>(op);
+      chunkGatedDeltaRuleOp) {
+    return createOperation(cache, createOp(cache, chunkGatedDeltaRuleOp),
                            debugString, locInfo);
   }
   if (auto indexerScoreDsaOp = dyn_cast<IndexerScoreDsaOp>(op);
