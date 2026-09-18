@@ -2830,8 +2830,14 @@ def TTNN_SDPAForwardOp : TTNN_Op<"sdpa_fw"> {
       is set, also returns the per-row log-sum-exp intermediates used by the
       backward pass.
 
-      All tensors are rank 4 `(B, H, S, D)`. `attention_mask` is only valid when
-      `mask_type` is `arbitrary`.
+      All tensors are rank 4 `(B, H, S, D)`. The sequence dimension `S` of Q,
+      K and V must be a multiple of `TILE_HEIGHT`, and the head dimension `D`
+      of Q and K must be a multiple of `TILE_WIDTH`. V's head dimension may be
+      unaligned because the backing operation supports a different V dimension
+      (`DiffVDim`). Static alignment is checked by the verifier; dynamic
+      dimensions remain subject to the same requirement at runtime.
+
+      `attention_mask` is only valid when `mask_type` is `arbitrary`.
     }];
 
     let arguments = (ins AnyRankedTensor:$query,
@@ -2863,8 +2869,14 @@ def TTNN_SDPABackwardOp : TTNN_Op<"sdpa_bw"> {
       and the forward pass tensors (output, Q, K, V and log-sum-exp
       intermediates), computes the gradients w.r.t. query, key and value.
 
-      All tensors are rank 4 `(B, H, S, D)`. `attention_mask` is only valid when
-      `mask_type` is `arbitrary`.
+      All tensors are rank 4 `(B, H, S, D)`. The sequence dimension `S` of Q,
+      K and V must be a multiple of `TILE_HEIGHT`, and the head dimension `D`
+      of Q and K must be a multiple of `TILE_WIDTH`. V's head dimension may be
+      unaligned because the backing operation supports a different V dimension
+      (`DiffVDim`). Static alignment is checked by the verifier; dynamic
+      dimensions remain subject to the same requirement at runtime.
+
+      `attention_mask` is only valid when `mask_type` is `arbitrary`.
 
       `dropout_probability` must be 0.0. Dropout is not implemented in the
       backward pass, so a nonzero value would silently produce the gradients of

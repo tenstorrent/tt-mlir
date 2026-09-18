@@ -1,4 +1,5 @@
 // RUN: ttmlir-opt --ttir-to-ttir-decomposition %s | FileCheck %s
+// RUN: not ttmlir-opt --ttir-to-ttnn-runtime-pipeline="composite-resolution=force-promote" %s -o /dev/null 2>&1 | FileCheck %s --check-prefix=ALIGNMENT
 
 module {
   // Rank-3 (H, S, D) operands, causal mask: collapse to 4D and reshape results
@@ -49,6 +50,36 @@ module {
     return %0, %1, %2 : tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>
   }
 
+  // Rank normalization preserves the unaligned key head dimension. Forced
+  // promotion must therefore reject the resulting typed TTNN operation.
+  // CHECK-LABEL: func.func @sdpa_bw_rank3_unaligned_key_head
+  func.func @sdpa_bw_rank3_unaligned_key_head(
+      %grad_output: tensor<8x64x64xbf16>,
+      %attn_output: tensor<8x64x64xbf16>, %query: tensor<8x64x64xbf16>,
+      %key: tensor<8x64x33xbf16>, %value: tensor<8x64x64xbf16>,
+      %intermediates: tensor<8x64x32xf32>)
+      -> (tensor<8x64x64xbf16>, tensor<8x64x33xbf16>,
+          tensor<8x64x64xbf16>) {
+    // CHECK: "ttcore.composite"
+    // CHECK-SAME: composite_name = "sdpa_bw"
+    // CHECK-SAME: -> (tensor<1x8x64x64xbf16>, tensor<1x8x64x33xbf16>, tensor<1x8x64x64xbf16>)
+    // ALIGNMENT: 'ttnn.sdpa_bw' op key head dimension (dim 3) must be a multiple of TILE_WIDTH (32), but got 33
+    %0, %1, %2 = "ttcore.composite"(
+        %grad_output, %attn_output, %query, %key, %value, %intermediates) <{
+        composite_name = "sdpa_bw",
+        decomposition = @sdpa_bw_rank3_unaligned_key_head_decomposition,
+        composite_attributes = {
+          mask_type = #ttcore.attention_mask_type<causal>,
+          dropout_probability = 0.000000e+00 : f32}}>
+        : (tensor<8x64x64xbf16>, tensor<8x64x64xbf16>,
+           tensor<8x64x64xbf16>, tensor<8x64x33xbf16>,
+           tensor<8x64x64xbf16>, tensor<8x64x32xf32>)
+          -> (tensor<8x64x64xbf16>, tensor<8x64x33xbf16>,
+              tensor<8x64x64xbf16>)
+    return %0, %1, %2 : tensor<8x64x64xbf16>, tensor<8x64x33xbf16>,
+        tensor<8x64x64xbf16>
+  }
+
   func.func private @sdpa_bw_rank3_causal_decomposition(
       %grad_output: tensor<8x64x64xbf16>,
       %attn_output: tensor<8x64x64xbf16>, %query: tensor<8x64x64xbf16>,
@@ -70,5 +101,16 @@ module {
           tensor<1x8x64x64xbf16>) {
     return %query, %key, %value : tensor<1x8x64x64xbf16>,
         tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>
+  }
+
+  func.func private @sdpa_bw_rank3_unaligned_key_head_decomposition(
+      %grad_output: tensor<8x64x64xbf16>,
+      %attn_output: tensor<8x64x64xbf16>, %query: tensor<8x64x64xbf16>,
+      %key: tensor<8x64x33xbf16>, %value: tensor<8x64x64xbf16>,
+      %intermediates: tensor<8x64x32xf32>)
+      -> (tensor<8x64x64xbf16>, tensor<8x64x33xbf16>,
+          tensor<8x64x64xbf16>) {
+    return %query, %key, %value : tensor<8x64x64xbf16>,
+        tensor<8x64x33xbf16>, tensor<8x64x64xbf16>
   }
 }
