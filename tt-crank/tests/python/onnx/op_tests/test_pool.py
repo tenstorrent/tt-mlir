@@ -6,9 +6,8 @@
 
 import numpy as np
 import pytest
-from onnx import helper
 
-from ort_ep_utils import assert_tt_matches_cpu, make_model, randn, vi
+from ort_ep_utils import assert_tt_matches_cpu, make_model, make_node, randn, vi
 
 
 @pytest.mark.parametrize(
@@ -25,7 +24,7 @@ from ort_ep_utils import assert_tt_matches_cpu, make_model, randn, vi
 )
 def test_max_pool(attrs: dict) -> None:
     model = make_model(
-        [helper.make_node("MaxPool", ["x"], ["y"], **attrs)],
+        [make_node("MaxPool", ["x"], ["y"], **attrs)],
         [vi("x", [1, 4, 16, 16])],
         [vi("y", None)],
     )
@@ -35,7 +34,7 @@ def test_max_pool(attrs: dict) -> None:
 
 def test_global_average_pool() -> None:
     model = make_model(
-        [helper.make_node("GlobalAveragePool", ["x"], ["y"])],
+        [make_node("GlobalAveragePool", ["x"], ["y"])],
         [vi("x", [2, 8, 16, 16])],
         [vi("y", None)],
     )

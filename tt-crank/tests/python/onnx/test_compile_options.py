@@ -5,12 +5,18 @@
 """Compile options passed through the EP options dict (CompileOptions field names, C++ enum spellings)."""
 
 import pytest
-from onnx import helper
 
-from ort_ep_utils import assert_tt_matches_cpu, randn, make_model, session_on_tt, vi
+from ort_ep_utils import (
+    assert_tt_matches_cpu,
+    make_model,
+    make_node,
+    randn,
+    session_on_tt,
+    vi,
+)
 
 _GEMM = make_model(
-    [helper.make_node("Gemm", ["a", "b"], ["y"])],
+    [make_node("Gemm", ["a", "b"], ["y"])],
     [vi("a", [32, 64]), vi("b", [64, 32])],
     [vi("y", [32, 32])],
 )

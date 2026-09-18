@@ -6,11 +6,11 @@
 
 import numpy as np
 import pytest
-from onnx import helper
 
 from ort_ep_utils import (
     assert_tt_matches_cpu,
     make_model,
+    make_node,
     make_tensor,
     randn,
     run_on_tt,
@@ -34,7 +34,7 @@ def test_gemm(attrs: dict, a_shape, b_shape, c_shape) -> None:
     if c_shape:
         initializers.append(make_tensor("c", randn(*c_shape)))
     model = make_model(
-        [helper.make_node("Gemm", inputs, ["y"], **attrs)],
+        [make_node("Gemm", inputs, ["y"], **attrs)],
         [vi("a", list(a_shape))],
         [vi("y", None)],
         initializers,
@@ -45,7 +45,7 @@ def test_gemm(attrs: dict, a_shape, b_shape, c_shape) -> None:
 def test_gemm_beta_zero_ignores_c() -> None:
     # BLAS convention (and ORT CPU): beta=0 never reads C, so NaNs in C must not propagate.
     model = make_model(
-        [helper.make_node("Gemm", ["a", "b", "c"], ["y"], beta=0.0)],
+        [make_node("Gemm", ["a", "b", "c"], ["y"], beta=0.0)],
         [vi("a", [8, 32])],
         [vi("y", None)],
         [
@@ -66,7 +66,7 @@ def test_gemm_beta_zero_ignores_c() -> None:
 )
 def test_matmul(a_shape, b_shape) -> None:
     model = make_model(
-        [helper.make_node("MatMul", ["a", "b"], ["y"])],
+        [make_node("MatMul", ["a", "b"], ["y"])],
         [vi("a", list(a_shape)), vi("b", list(b_shape))],
         [vi("y", None)],
     )

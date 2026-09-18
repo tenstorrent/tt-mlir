@@ -6,15 +6,21 @@
 
 import numpy as np
 import pytest
-from onnx import helper
 
-from ort_ep_utils import assert_tt_matches_cpu, make_model, make_tensor, randn, vi
+from ort_ep_utils import (
+    assert_tt_matches_cpu,
+    make_model,
+    make_node,
+    make_tensor,
+    randn,
+    vi,
+)
 
 
 @pytest.mark.parametrize("op", ["Add", "Sub", "Mul", "Div"])
 def test_binary(op: str) -> None:
     model = make_model(
-        [helper.make_node(op, ["a", "b"], ["y"])],
+        [make_node(op, ["a", "b"], ["y"])],
         [vi("a", [32, 32]), vi("b", [32, 32])],
         [vi("y", [32, 32])],
     )
@@ -25,7 +31,7 @@ def test_binary(op: str) -> None:
 
 def test_binary_broadcast() -> None:
     model = make_model(
-        [helper.make_node("Add", ["a", "b"], ["y"])],
+        [make_node("Add", ["a", "b"], ["y"])],
         [vi("a", [4, 32, 32]), vi("b", [32])],
         [vi("y", [4, 32, 32])],
     )
@@ -35,7 +41,7 @@ def test_binary_broadcast() -> None:
 @pytest.mark.parametrize("op", ["Relu", "Sigmoid", "Exp", "Neg", "Log"])
 def test_unary(op: str) -> None:
     model = make_model(
-        [helper.make_node(op, ["x"], ["y"])], [vi("x", [32, 32])], [vi("y", [32, 32])]
+        [make_node(op, ["x"], ["y"])], [vi("x", [32, 32])], [vi("y", [32, 32])]
     )
     x = randn(32, 32)
     if op == "Log":
@@ -47,7 +53,7 @@ def test_unary(op: str) -> None:
 def test_clip(lo: float, hi: float) -> None:
     # Bounds as scalar constant inputs (opset >= 11); (0, 6) is ReLU6.
     model = make_model(
-        [helper.make_node("Clip", ["x", "lo", "hi"], ["y"])],
+        [make_node("Clip", ["x", "lo", "hi"], ["y"])],
         [vi("x", [1, 8, 16, 16])],
         [vi("y", None)],
         [make_tensor("lo", np.float32(lo)), make_tensor("hi", np.float32(hi))],
@@ -57,7 +63,7 @@ def test_clip(lo: float, hi: float) -> None:
 
 def test_softmax() -> None:
     model = make_model(
-        [helper.make_node("Softmax", ["x"], ["y"], axis=-1)],
+        [make_node("Softmax", ["x"], ["y"], axis=-1)],
         [vi("x", [8, 64])],
         [vi("y", [8, 64])],
     )

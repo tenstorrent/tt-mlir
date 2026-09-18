@@ -6,9 +6,15 @@
 
 import numpy as np
 import pytest
-from onnx import helper
 
-from ort_ep_utils import assert_tt_matches_cpu, make_model, make_tensor, randn, vi
+from ort_ep_utils import (
+    assert_tt_matches_cpu,
+    make_model,
+    make_node,
+    make_tensor,
+    randn,
+    vi,
+)
 
 
 @pytest.mark.parametrize(
@@ -23,7 +29,7 @@ from ort_ep_utils import assert_tt_matches_cpu, make_model, make_tensor, randn, 
 def test_conv2d(attrs: dict) -> None:
     groups = attrs.get("group", 1)
     model = make_model(
-        [helper.make_node("Conv", ["x", "w", "b"], ["y"], **attrs)],
+        [make_node("Conv", ["x", "w", "b"], ["y"], **attrs)],
         [vi("x", [1, 4, 16, 16])],
         [vi("y", None)],
         [make_tensor("w", randn(8, 4 // groups, 3, 3)), make_tensor("b", randn(8))],
@@ -34,7 +40,7 @@ def test_conv2d(attrs: dict) -> None:
 def test_batch_norm() -> None:
     model = make_model(
         [
-            helper.make_node(
+            make_node(
                 "BatchNormalization", ["x", "s", "b", "m", "v"], ["y"], epsilon=1e-3
             )
         ],

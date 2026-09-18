@@ -99,6 +99,17 @@ def reseed(seed: int = 0) -> None:
     _RNG = np.random.default_rng(seed)
 
 
+def numpy_dtype(dtype: int) -> np.dtype:
+    """numpy dtype for an ONNX element type (DType.*)."""
+    return helper.tensor_dtype_to_np_dtype(dtype)
+
+
+def make_node(
+    op: str, inputs: list[str], outputs: list[str], **attrs
+) -> onnx.NodeProto:
+    return helper.make_node(op, inputs, outputs, **attrs)
+
+
 def vi(name, shape, dtype=DType.F32):
     return helper.make_tensor_value_info(name, dtype, shape)
 

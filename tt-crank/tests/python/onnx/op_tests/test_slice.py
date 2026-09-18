@@ -6,9 +6,15 @@
 
 import numpy as np
 import pytest
-from onnx import helper
 
-from ort_ep_utils import assert_tt_matches_cpu, make_model, make_tensor, randn, vi
+from ort_ep_utils import (
+    assert_tt_matches_cpu,
+    make_model,
+    make_node,
+    make_tensor,
+    randn,
+    vi,
+)
 
 
 def _i64(name: str, values) -> object:
@@ -31,7 +37,7 @@ def test_slice(starts, ends, axes, steps) -> None:
         inputs.append("steps")
         initializers.append(_i64("steps", steps))
     model = make_model(
-        [helper.make_node("Slice", inputs, ["y"])],
+        [make_node("Slice", inputs, ["y"])],
         [vi("x", [1, 16, 16, 16])],
         [vi("y", None)],
         initializers,
@@ -42,7 +48,7 @@ def test_slice(starts, ends, axes, steps) -> None:
 @pytest.mark.parametrize("axis,index", [(3, 0), (1, 5), (2, -1)])
 def test_gather_scalar_index(axis: int, index: int) -> None:
     model = make_model(
-        [helper.make_node("Gather", ["x", "idx"], ["y"], axis=axis)],
+        [make_node("Gather", ["x", "idx"], ["y"], axis=axis)],
         [vi("x", [1, 8, 16, 12])],
         [vi("y", None)],
         [_i64("idx", index)],

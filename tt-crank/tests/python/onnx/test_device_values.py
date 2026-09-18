@@ -12,13 +12,13 @@ Device values are created through the EpDevice's memory_info; the by-name path
 import numpy as np
 import onnxruntime as ort
 import pytest
-from onnx import helper
 
 from ort_ep_utils import (
-    randn,
     from_tt,
-    make_tensor,
     make_model,
+    make_node,
+    make_tensor,
+    randn,
     session_on_tt,
     to_tt,
     tt_empty,
@@ -27,8 +27,8 @@ from ort_ep_utils import (
 
 _GEMM_RELU = make_model(
     [
-        helper.make_node("Gemm", ["x", "w"], ["g"], transB=1),
-        helper.make_node("Relu", ["g"], ["y"]),
+        make_node("Gemm", ["x", "w"], ["g"], transB=1),
+        make_node("Relu", ["g"], ["y"]),
     ],
     [vi("x", [32, 64])],
     [vi("y", [32, 128])],
