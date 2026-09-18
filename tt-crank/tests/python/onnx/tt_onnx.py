@@ -36,11 +36,11 @@ def ep_library_path() -> pathlib.Path:
     return build_dir / "tt-crank" / "src" / "onnx" / "libtt_crank_ort.so"
 
 
-def tt_device():
+def tt_device() -> ort.OrtEpDevice:
     return next(d for d in ort.get_ep_devices() if d.ep_name == EP_NAME)
 
 
-def session_opts():
+def session_opts() -> ort.SessionOptions:
     options = ort.SessionOptions()
     options.log_severity_level = 3
     options.intra_op_num_threads = 1
@@ -110,12 +110,16 @@ def make_node(
     return helper.make_node(op, inputs, outputs, **attrs)
 
 
-def vi(name, shape, dtype=DType.F32):
+def vi(name: str, shape: list | None, dtype: int = DType.F32) -> onnx.ValueInfoProto:
     return helper.make_tensor_value_info(name, dtype, shape)
 
 
 def make_model(
-    nodes, inputs, outputs, initializers=(), opset=EP_OPSET_VERSION
+    nodes: list[onnx.NodeProto],
+    inputs: list[onnx.ValueInfoProto],
+    outputs: list[onnx.ValueInfoProto],
+    initializers: list[onnx.TensorProto] = (),
+    opset: int = EP_OPSET_VERSION,
 ) -> bytes:
     graph = helper.make_graph(
         list(nodes),
@@ -153,7 +157,7 @@ def assert_tt_matches_cpu(
 # numpy-backed OrtValues moved to/from the TT device; bf16 uses ml_dtypes.bfloat16.
 
 
-def tt_memory_info():
+def tt_memory_info() -> ort.OrtMemoryInfo:
     """DEFAULT memory info of the TT EP device, for allocating device OrtValues."""
     return tt_device().memory_info(ort.OrtDeviceMemoryType.DEFAULT)
 
@@ -162,7 +166,7 @@ def _is_bf16(dtype) -> bool:
     return np.dtype(dtype) == np.dtype(ml_dtypes.bfloat16)
 
 
-def _numpy_dtype(ort_type: str):
+def _numpy_dtype(ort_type: str) -> type:
     """numpy dtype for an ORT type string such as "tensor(bfloat16)"."""
     name = ort_type[len("tensor(") : -1]
     return {
@@ -205,7 +209,9 @@ def from_tt(ov: ort.OrtValue) -> np.ndarray:
     return out
 
 
-def bind_on_tt(session: ort.InferenceSession, inputs: dict[str, np.ndarray]):
+def bind_on_tt(
+    session: ort.InferenceSession, inputs: dict[str, np.ndarray]
+) -> tuple[ort.IOBinding, list[ort.OrtValue]]:
     """Upload `inputs` and allocate device outputs; returns (io_binding, device_outputs).
     Run with session.run_with_iobinding(io) as often as needed, drain with from_tt."""
     io = session.io_binding()
