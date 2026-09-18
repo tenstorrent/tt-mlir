@@ -2,14 +2,16 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Helpers for the tt-kurbla ONNX Runtime plugin-EP tests."""
+"""Helpers for the ONNX Runtime plugin-EP tests."""
 
 import os
 import pathlib
 
+import ml_dtypes
 import numpy as np
+import onnx
 import onnxruntime as ort
-from onnx import helper, shape_inference
+from onnx import helper, numpy_helper, shape_inference
 
 TT_MLIR_ROOT = pathlib.Path(__file__).resolve().parents[4]
 EP_NAME = "TTKurblaExecutionProvider"
@@ -46,22 +48,20 @@ def session_on_tt(
     allow_cpu_fallback: bool = False,
     compile_options: dict[str, str] | None = None,
     free_dims: dict[str, int] | None = None,
-    ctx_enabled: bool = False,
-    ctx_file_path: str | pathlib.Path = None,
+    ep_context: bool | str | pathlib.Path = False,
 ) -> ort.InferenceSession:
-    """A session with the tt EP.
-    Model can be loaded from disk (.onnx file) when ctx_enabled or from model bytes (e.g. torch.onnx.export).
-    `free_dims` pins symbolic input dimensions by name (e.g. a dynamic batch "N")."""
+    """A session with the tt EP. `free_dims` pins symbolic dims by name. `ep_context` enables
+    EPContext export: True writes <model>_ctx.onnx next to a file model, a path writes there."""
     options = session_opts()
     options.add_provider_for_devices([tt_device()], compile_options or {})
 
     if not allow_cpu_fallback:
         options.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
 
-    if ctx_enabled:
+    if ep_context:
         options.add_session_config_entry("ep.context_enable", "1")
-        if ctx_file_path != None:
-            options.add_session_config_entry("ep.context_file_path", str(ctx_file_path))
+        if ep_context is not True:
+            options.add_session_config_entry("ep.context_file_path", str(ep_context))
 
     for name, value in (free_dims or {}).items():
         options.add_free_dimension_override_by_name(name, value)
@@ -70,12 +70,12 @@ def session_on_tt(
 
 
 def cpu_golden(
-    model: str | pathlib.Path | bytes, feeds: dict[str, np.ndarray]
+    model: str | pathlib.Path | bytes, inputs: dict[str, np.ndarray]
 ) -> list[np.ndarray]:
     session = ort.InferenceSession(
         _as_model(model), session_opts(), providers=["CPUExecutionProvider"]
     )
-    return session.run(None, feeds)
+    return session.run(None, inputs)
 
 
 # ---- model-building helpers --------------------------------------------------
@@ -83,11 +83,18 @@ def cpu_golden(
 _RNG = np.random.default_rng(0)
 
 
-def _vi(name, dtype, shape):
+def reseed(seed: int = 0) -> None:
+    global _RNG
+    _RNG = np.random.default_rng(seed)
+
+
+def vi(name, shape, dtype=onnx.TensorProto.FLOAT):
     return helper.make_tensor_value_info(name, dtype, shape)
 
 
-def _model(nodes, inputs, outputs, initializers=(), opset=EP_OPSET_VERSION) -> bytes:
+def make_model(
+    nodes, inputs, outputs, initializers=(), opset=EP_OPSET_VERSION
+) -> bytes:
     graph = helper.make_graph(
         list(nodes),
         "ep_op_test",
@@ -99,47 +106,39 @@ def _model(nodes, inputs, outputs, initializers=(), opset=EP_OPSET_VERSION) -> b
     return shape_inference.infer_shapes(model).SerializeToString()
 
 
-def _f32(*shape: int) -> np.ndarray:
-    return _RNG.standard_normal(shape).astype(np.float32)
+def randn(*shape: int, dtype=np.float32) -> np.ndarray:
+    return _RNG.standard_normal(shape).astype(dtype)
 
 
-def _assert_tt_matches_cpu(model: bytes, feeds: dict, atol: float, rtol: float) -> None:
-    got = session_on_tt(model).run(None, feeds)
-    want = cpu_golden(model, feeds)
+def make_tensor(name: str, arr: np.ndarray) -> onnx.TensorProto:
+    return numpy_helper.from_array(arr, name)
+
+
+def assert_tt_matches_cpu(
+    model: bytes, inputs: dict, atol: float = 2e-2, rtol: float = 2e-2, **session_kwargs
+) -> None:
+    got = run_on_tt(session_on_tt(model, **session_kwargs), inputs)
+    want = cpu_golden(model, inputs)
     for g, w in zip(got, want):
         np.testing.assert_allclose(g, w, atol=atol, rtol=rtol)
 
 
 # ---- device tensor helpers ---------------------------------------------------
-# numpy-backed OrtValues of any EP dtype, moved to/from the TT device (no torch). bf16 has no native numpy
-# scalar, so it uses ml_dtypes.bfloat16 and crosses via ortvalue_from_numpy_with_onnx_type (ORT >= 1.20).
+# numpy-backed OrtValues moved to/from the TT device; bf16 uses ml_dtypes.bfloat16.
 
 
 def tt_memory_info():
-    """DEFAULT memory info for the TT EP device — used to allocate device OrtValues."""
-    from onnxruntime.capi import _pybind_state as C
-
-    return tt_device().memory_info(C.OrtDeviceMemoryType.DEFAULT)
+    """DEFAULT memory info of the TT EP device, for allocating device OrtValues."""
+    return tt_device().memory_info(ort.OrtDeviceMemoryType.DEFAULT)
 
 
-def _bf16_onnx_type(dtype) -> int | None:
-    """int ONNX element type for a numpy dtype ORT's plain-numpy path can't map
-    (i.e. ml_dtypes.bfloat16); None for dtypes numpy/ORT handle natively."""
-    import ml_dtypes
-    import onnx
-
-    return (
-        int(onnx.TensorProto.BFLOAT16)
-        if np.dtype(dtype) == np.dtype(ml_dtypes.bfloat16)
-        else None
-    )
+def _is_bf16(dtype) -> bool:
+    return np.dtype(dtype) == np.dtype(ml_dtypes.bfloat16)
 
 
-def _numpy_dtype(ov: ort.OrtValue):
-    """numpy dtype for an OrtValue's element type (ml_dtypes.bfloat16 for bf16)."""
-    import ml_dtypes
-
-    name = ov.data_type()[len("tensor(") : -1]  # "tensor(bfloat16)" -> "bfloat16"
+def _numpy_dtype(ort_type: str):
+    """numpy dtype for an ORT type string such as "tensor(bfloat16)"."""
+    name = ort_type[len("tensor(") : -1]
     return {
         "float": np.float32,
         "double": np.float64,
@@ -152,43 +151,57 @@ def _numpy_dtype(ov: ort.OrtValue):
 
 
 def host_ortvalue(arr: np.ndarray) -> ort.OrtValue:
-    """A host OrtValue aliasing numpy array `arr` (any EP dtype, incl.
-    ml_dtypes.bfloat16). bf16 goes through the onnx-typed API since ORT's plain
-    numpy path rejects it."""
-    onnx_type = _bf16_onnx_type(arr.dtype)
-    if onnx_type is None:
-        return ort.OrtValue.ortvalue_from_numpy(arr)
-    return ort.OrtValue.ortvalue_from_numpy_with_onnx_type(arr, onnx_type)
-
-
-def to_tt(arr: np.ndarray) -> ort.OrtValue:
-    """Copy a host numpy array (any EP dtype, incl. ml_dtypes.bfloat16) into a
-    device-resident OrtValue on the TT device, and return it — e.g. to bind as an
-    IOBinding input the timed loop reuses without re-uploading."""
-    onnx_type = _bf16_onnx_type(arr.dtype)
-    dev = ort.OrtValue.ortvalue_from_shape_and_type(
-        list(arr.shape),
-        arr.dtype if onnx_type is None else onnx_type,
-        memory_info=tt_memory_info(),
-    )
-    ort.copy_tensors([host_ortvalue(arr)], [dev])
-    return dev
+    """A host OrtValue aliasing `arr`. numpy has no bf16, so bf16 goes by ONNX element type."""
+    if _is_bf16(arr.dtype):
+        return ort.OrtValue.ortvalue_from_numpy_with_onnx_type(
+            arr, int(onnx.TensorProto.BFLOAT16)
+        )
+    return ort.OrtValue.ortvalue_from_numpy(arr)
 
 
 def tt_empty(shape, dtype) -> ort.OrtValue:
-    """An uninitialized device-resident OrtValue on the TT device — e.g. an
-    IOBinding output the run writes in place. `dtype` is a numpy dtype (incl.
-    ml_dtypes.bfloat16) or an int ONNX element type (onnx.TensorProto.*)."""
-    elem = dtype if isinstance(dtype, int) else (_bf16_onnx_type(dtype) or dtype)
+    """An uninitialized OrtValue on the TT device."""
+    elem = int(onnx.TensorProto.BFLOAT16) if _is_bf16(dtype) else np.dtype(dtype)
     return ort.OrtValue.ortvalue_from_shape_and_type(
         list(shape), elem, memory_info=tt_memory_info()
     )
 
 
+def to_tt(arr: np.ndarray) -> ort.OrtValue:
+    """Copy `arr` into a new OrtValue on the TT device."""
+    dev = tt_empty(arr.shape, arr.dtype)
+    ort.copy_tensors([host_ortvalue(arr)], [dev])
+    return dev
+
+
 def from_tt(ov: ort.OrtValue) -> np.ndarray:
-    """Drain a device OrtValue to host and return a numpy array. bf16 comes back
-    as an ml_dtypes.bfloat16 array (cast with `.astype(np.float32)` to compare) —
-    ORT can't hand bf16 straight to numpy, so we drain into an aliased array."""
-    out = np.zeros(list(ov.shape()), dtype=_numpy_dtype(ov))
+    """Copy a device OrtValue back to a numpy array (bf16 as ml_dtypes.bfloat16)."""
+    out = np.zeros(list(ov.shape()), dtype=_numpy_dtype(ov.data_type()))
     ort.copy_tensors([ov], [host_ortvalue(out)])  # host_ortvalue aliases `out`
     return out
+
+
+def bind_on_tt(session: ort.InferenceSession, inputs: dict[str, np.ndarray]):
+    """Upload `inputs` and allocate device outputs; returns (io_binding, device_outputs).
+    Run with session.run_with_iobinding(io) as often as needed, drain with from_tt."""
+    io = session.io_binding()
+    for name, arr in inputs.items():
+        io.bind_ortvalue_input(name, to_tt(arr))
+    outputs = []
+    for out in session.get_outputs():
+        assert all(
+            isinstance(d, int) for d in out.shape
+        ), f"{out.name}: symbolic shape {out.shape}"
+        ov = tt_empty(out.shape, _numpy_dtype(out.type))
+        io.bind_ortvalue_output(out.name, ov)
+        outputs.append(ov)
+    return io, outputs
+
+
+def run_on_tt(
+    session: ort.InferenceSession, inputs: dict[str, np.ndarray]
+) -> list[np.ndarray]:
+    """One run with device-resident inputs and outputs."""
+    io, outputs = bind_on_tt(session, inputs)
+    session.run_with_iobinding(io)
+    return [from_tt(ov) for ov in outputs]

@@ -13,7 +13,7 @@ rooted under tests/python would shadow it (see tests/python's sibling dirs).
 import onnxruntime as ort
 import pytest
 
-from ort_ep_utils import REGISTRATION_NAME, ep_library_path
+from ort_ep_utils import REGISTRATION_NAME, ep_library_path, reseed
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -25,3 +25,8 @@ def tt_ep_library() -> None:
     yield
     # Sessions are per-test locals, gone by now.
     ort.unregister_execution_provider_library(REGISTRATION_NAME)
+
+
+@pytest.fixture(autouse=True)
+def _fixed_seed() -> None:
+    reseed()

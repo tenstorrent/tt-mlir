@@ -2,46 +2,25 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Compile options through the EP options dict.
+"""Compile options passed through the EP options dict (CompileOptions field names, C++ enum spellings)."""
 
-ORT stores add_provider_for_devices' dict as session config entries under
-"ep.ttkurblaexecutionprovider."; the EP parses them into the engine's
-CompileOptions at CreateEp. Keys are CompileOptions field names, enum values
-their C++ spellings — the same names the torch frontend uses.
-"""
-
-import numpy as np
 import pytest
-from onnx import TensorProto, helper
+from onnx import helper
 
-from ort_ep_utils import EP_OPSET_VERSION, cpu_golden, session_on_tt
+from ort_ep_utils import assert_tt_matches_cpu, randn, make_model, session_on_tt, vi
 
-
-def _model() -> bytes:
-    graph = helper.make_graph(
-        [helper.make_node("Gemm", ["a", "b"], ["y"])],
-        "compile_options",
-        [
-            helper.make_tensor_value_info("a", TensorProto.FLOAT, [32, 64]),
-            helper.make_tensor_value_info("b", TensorProto.FLOAT, [64, 32]),
-        ],
-        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [32, 32])],
-    )
-    return helper.make_model(
-        graph, opset_imports=[helper.make_opsetid("", EP_OPSET_VERSION)]
-    ).SerializeToString()
+_GEMM = make_model(
+    [helper.make_node("Gemm", ["a", "b"], ["y"])],
+    [vi("a", [32, 64]), vi("b", [64, 32])],
+    [vi("y", [32, 32])],
+)
 
 
 def test_compile_options_applied() -> None:
-    # Distinct options force a fresh compile (they are part of the engine's
-    # cache key); results must still match the CPU golden.
-    rng = np.random.default_rng(0)
-    feeds = {
-        "a": rng.standard_normal((32, 64), dtype=np.float32),
-        "b": rng.standard_normal((64, 32), dtype=np.float32),
-    }
-    session = session_on_tt(
-        _model(),
+    # Distinct options force a fresh compile; the result must still match CPU.
+    assert_tt_matches_cpu(
+        _GEMM,
+        {"a": randn(32, 64), "b": randn(64, 32)},
         compile_options={
             "math_fidelity": "HiFi4",
             "fp32_dest_acc_en": "true",
@@ -50,9 +29,6 @@ def test_compile_options_applied() -> None:
             "optimization_level": "0",
         },
     )
-    (got,) = session.run(None, feeds)
-    (want,) = cpu_golden(_model(), feeds)
-    np.testing.assert_allclose(got, want, atol=2e-2, rtol=2e-2)
 
 
 @pytest.mark.parametrize(
@@ -67,13 +43,11 @@ def test_compile_options_applied() -> None:
 def test_invalid_compile_option_fails_session_creation(
     bad: dict, capfd: pytest.CaptureFixture
 ) -> None:
-    # The EP's parse error fails EP creation; the python wrapper then retries
-    # with the CPU EP, which the disable_cpu_ep_fallback entry rejects — so
-    # session creation raises (with ORT's conflict message), and our parse
-    # error is printed in the wrapper's "EP Error" output.
+    # EP creation fails on the parse error; ORT's python wrapper then retries with
+    # the CPU EP, which disable_cpu_ep_fallback rejects, so session creation raises.
     with pytest.raises(
         Exception, match="Conflicting session configuration|compile option"
     ):
-        session_on_tt(_model(), compile_options=bad)
+        session_on_tt(_GEMM, compile_options=bad)
     captured = capfd.readouterr()
     assert "compile option" in captured.out + captured.err
