@@ -35,7 +35,7 @@ def test_compile_options_applied() -> None:
     [
         {"math_fidelity": "UltraFi"},
         {"optimization_level": "fast"},
-        {"fp32_dest_acc_en": "yes please"},
+        {"fp32_dest_acc_en": "jeste, aha"},
         {"experimental_weight_dtype": "bf16"},
     ],
 )

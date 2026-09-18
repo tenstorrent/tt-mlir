@@ -144,6 +144,11 @@ def make_tensor(name: str, arr: np.ndarray) -> onnx.TensorProto:
     return numpy_helper.from_array(arr, name)
 
 
+def pcc(a: np.ndarray, b: np.ndarray) -> float:
+    """Pearson correlation of two arrays, flattened."""
+    return float(np.corrcoef(a.ravel(), b.ravel())[0, 1])
+
+
 def assert_tt_matches_cpu(
     model: bytes, inputs: dict, atol: float = 2e-2, rtol: float = 2e-2, **session_kwargs
 ) -> None:
