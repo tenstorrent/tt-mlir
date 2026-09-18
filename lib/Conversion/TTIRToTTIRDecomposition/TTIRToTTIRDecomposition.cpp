@@ -1166,7 +1166,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     StringRef compositeName = op.getCompositeName();
     if (compositeName != "sdpa_fw" && compositeName != "sdpa_bw" &&
-        compositeName != "rmsnorm_fw" && compositeName != "layernorm_fw") {
+        compositeName != "rmsnorm_fw" && compositeName != "rmsnorm_bw" &&
+        compositeName != "layernorm_fw") {
       return failure();
     }
 

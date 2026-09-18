@@ -590,9 +590,10 @@ const std::set<mlir::StringRef>
         // SDPABackwardOp is temporarily enabled to restrict the dtype to bf16:
         // https://github.com/tenstorrent/tt-mlir/issues/9233
         ttnn::SDPABackwardOp::getOperationName(),
-        // RMSNormForwardOp's workaround is enabled because it sets dtype to
-        // bf16, which optimizer is currently unable to do correctly for a
-        // multi-output op with different output layouts:
+        // TTML rmsnorm workarounds are enabled because they set dtype to bf16,
+        // which optimizer currently doesn't do correctly for multi-output ops
+        // with different output layouts:
         // https://github.com/tenstorrent/tt-mlir/issues/9295
-        ttnn::RMSNormForwardOp::getOperationName()};
+        ttnn::RMSNormForwardOp::getOperationName(),
+        ttnn::RMSNormBackwardOp::getOperationName()};
 } // namespace mlir::tt::ttnn

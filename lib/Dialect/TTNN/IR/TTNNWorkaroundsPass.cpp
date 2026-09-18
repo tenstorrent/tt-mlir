@@ -1292,6 +1292,30 @@ TTNNOperandsWorkaroundsFactory::createRMSNormForwardOpOperandsWorkarounds(
   return operandsWorkaround;
 }
 
+// Create workarounds for the ttml rmsnorm_bw op. The backing metal op
+// (ttml::metal::rmsnorm_bw) requires every tensor to be bf16, tiled and
+// interleaved in DRAM. The trailing ttnn::sum that reduces
+// grad_gamma_components inherits gamma's memory config, so the same
+// constraints keep that reduction on the interleaved path.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createRMSNormBackwardOpOperandsWorkarounds(
+    Operation *op) {
+  TTNNOperandWorkarounds tileDramBf16;
+  tileDramBf16.tensorLayoutWorkaround = Layout::Tile;
+  tileDramBf16.tensorBufferTypeWorkaround = BufferType::DRAM;
+  tileDramBf16.tensorMemoryLayoutWorkaround = TensorMemoryLayoutAttr::get(
+      op->getContext(), TensorMemoryLayout::Interleaved);
+  tileDramBf16.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(tileDramBf16)
+      .addInputOperandWorkaround(tileDramBf16)
+      .addInputOperandWorkaround(tileDramBf16)
+      .addInputOperandWorkaround(tileDramBf16)
+      .addOutputOperandWorkaround(tileDramBf16)
+      .addOutputOperandWorkaround(tileDramBf16);
+}
+
 // Create workarounds for the ttml layernorm_fw op. The backing metal op
 // (ttml::metal::layernorm_fw) requires every tensor it touches to be bf16,
 // tiled and interleaved in DRAM (see the TT_FATALs in
