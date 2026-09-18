@@ -154,12 +154,12 @@ _OPT1_ON_SIM = pytest.mark.xfail(
 )
 _COMPILE = pytest.param("compile", marks=_OPT1_ON_SIM)
 _OPT_MODES = [_COMPILE if m == "compile" else m for m in _OPT]
-# Eager MATH sdpa backward hits the unary f32/bf16 DataType mismatch that the debug runtime asserts on (#7930).
+# Eager MATH sdpa backward hits the unary f32/bf16 DataType mismatch that the debug runtime asserts on (#9344, was #7930).
 _EAGER_DECOMPOSE = pytest.param(
     "eager",
     marks=pytest.mark.xfail(
         strict=False,
-        reason="#7930: MATH backward dtype mismatch under the debug runtime",
+        reason="#9344: ttnn.isfinite returns f32 for bf16, debug runtime asserts (MATH backward)",
     ),
 )
 
