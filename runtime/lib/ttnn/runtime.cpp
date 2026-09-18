@@ -20,6 +20,7 @@
 #include "tt/runtime/workarounds.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/types_generated.h"
+#include "ttnn/operations/experimental/quasar/to_layout/to_layout_op.hpp"
 #include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "types_generated.h"
@@ -191,10 +192,18 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
     untilizeOnDevice &= getArch() != ::tt::target::Arch::Blackhole;
   }
   if (untilizeOnDevice) {
-    ::ttnn::Tensor hostTensor = ::ttnn::from_device(
-        ::ttnn::to_layout(inputTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-                          std::nullopt),
-        blocking);
+    // Quasar reimplements the op stack; the mainline device untilize reached
+    // through ttnn::to_layout builds a DataMovementKernel and TT_FATALs there.
+    // Same substitution as operations/layout/to_layout.cpp -- this is the
+    // separate output-readback call site.
+    ::ttnn::Tensor rowMajor =
+        getArch() == ::tt::target::Arch::Quasar
+            ? ::ttnn::operations::experimental::quasar::to_layout(
+                  inputTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+                  std::nullopt)
+            : ::ttnn::to_layout(inputTensor, ::ttnn::Layout::ROW_MAJOR,
+                                std::nullopt, std::nullopt);
+    ::ttnn::Tensor hostTensor = ::ttnn::from_device(rowMajor, blocking);
 
     std::optional<::ttnn::MeshEvent> meshEvent = std::nullopt;
     if (!blocking) {
@@ -1548,6 +1557,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
         opContext.type_as_FuncCallOp()->outputs());
     break;
   }
+  case ::tt::target::ttnn::OpType::WhileOp: {
+    tensorRefs = utils::convertFbTensorRefsToVector(
+        opContext.type_as_WhileOp()->outputs());
+    break;
+  }
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp: {
     tensorRefs = utils::convertFbTensorRefsToVector(
         opContext.type_as_CaptureOrExecuteTraceOp()->outputs());
@@ -2290,6 +2304,15 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   case ::tt::target::ttnn::OpType::FuncCallOp: {
     for (const auto *input : *opContext.type_as_FuncCallOp()->inputs()) {
       tensorRefs.push_back(input);
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::WhileOp: {
+    for (const auto *init : *opContext.type_as_WhileOp()->inits()) {
+      tensorRefs.push_back(init);
+    }
+    for (const auto *capture : *opContext.type_as_WhileOp()->captures()) {
+      tensorRefs.push_back(capture);
     }
     break;
   }

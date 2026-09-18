@@ -87,6 +87,12 @@ TensorStorage &storage_of(const at::Tensor &t);
 // the per-chip shape.
 at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef sizes, c10::ScalarType dtype);
 
+// Move a freshly-computed result tensor's runtime buffer into a caller-provided
+// tensor (`.out` kernels, in-place ops, optimizer updates). Asserts `out` already has
+// the result's shape, dtype and storage size rather than resizing it; a mismatch
+// means an assumption broke, so it fails loudly instead of silently reinterpreting.
+at::Tensor &write_result_into(at::Tensor &out, const at::Tensor &result);
+
 // Constructs a row-major TensorDesc for the given torch shape+dtype. Used by
 // the empty/copy paths to wrap host buffers as tt::runtime::Tensors.
 ::tt::runtime::TensorDesc make_contiguous_desc(at::IntArrayRef sizes, c10::ScalarType dtype);

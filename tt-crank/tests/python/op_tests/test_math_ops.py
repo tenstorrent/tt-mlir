@@ -87,6 +87,13 @@ def test_sin(shape: tuple) -> None:
     assert_close_cpu_vs_tt(torch.sin, a, atol=1e-2, rtol=1e-2)
 
 
+@pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])
+def test_abs(shape: tuple) -> None:
+    # Straddles zero so both signs are exercised.
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(torch.abs, a)
+
+
 @pytest.mark.parametrize("shape", [(32, 64), (32, 64, 32)])
 def test_neg(shape: tuple) -> None:
     a = torch.randn(shape, dtype=torch.bfloat16)

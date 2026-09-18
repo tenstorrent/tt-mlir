@@ -156,6 +156,11 @@ def _(mb, a, b):
     return mb.mul(a, b)
 
 
+@_lowering(_aten.minimum.default)
+def _(mb, a, b):
+    return mb.minimum(a, b)
+
+
 @_lowering(_aten.rsqrt.default)
 def _(mb, x):
     return mb.rsqrt(x)
@@ -174,6 +179,12 @@ def _(mb, x, dim, keepdim=False, *, dtype=None):
 @_lowering(_aten.sum.dim_IntList)
 def _(mb, x, dim, keepdim=False, *, dtype=None):
     return mb.sum(x, list(dim), keepdim)
+
+
+@_lowering(_aten.amax.default)
+def _(mb, x, dim=(), keepdim=False):
+    # dim=[] reduces everything; mb.max treats an empty list the same way.
+    return mb.max(x, [int(d) for d in dim], bool(keepdim))
 
 
 @_lowering(_aten.linalg_vector_norm.default)
@@ -335,6 +346,11 @@ def _(mb, x):
 @_lowering(_aten.sin.default)
 def _(mb, x):
     return mb.sin(x)
+
+
+@_lowering(_aten.abs.default)
+def _(mb, x):
+    return mb.abs(x)
 
 
 @_lowering(_aten.neg.default)
@@ -532,9 +548,7 @@ def _(mb, x, dim=None, keepdim=False):
 
 @_lowering(_aten.max.dim)
 def _(mb, x, dim, keepdim=False):
-    # Materialise only the indices (== argmax). The values slot is left None:
-    # no compile-path caller reads it, and getitem raises if one ever does.
-    return (None, mb.argmax(x, int(dim), bool(keepdim)))
+    return (mb.max(x, [int(dim)], bool(keepdim)), mb.argmax(x, int(dim), bool(keepdim)))
 
 
 @_lowering(_aten.unsqueeze.default)
