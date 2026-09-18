@@ -75,9 +75,15 @@ public:
     mlir::OpBuilder builder(context);
 
     rootModule.walk([&](mlir::Operation *op) {
-      // Restricted to stablehlo.reshape — the only op known to hit this
-      // propagation gap. Other ops have custom sharding rules registered.
-      if (!mlir::isa<mlir::stablehlo::ReshapeOp>(op)) {
+      // Handle ops known to hit the sharding propagation gap: stablehlo.reshape
+      // and stablehlo.gather. For gather, Shardy may propagate a
+      // column-parallel shard annotation from FFN/attention weights through the
+      // residual stream onto position_ids and the gather result, corrupting the
+      // sequence dimension. Inserting a reshard on the sharded operands makes
+      // the gather see fully-replicated inputs and produces the correct output
+      // shape.
+      if (!mlir::isa<mlir::stablehlo::ReshapeOp, mlir::stablehlo::GatherOp>(
+              op)) {
         return;
       }
       if (op->getParentOfType<mlir::sdy::ManualComputationOp>()) {
