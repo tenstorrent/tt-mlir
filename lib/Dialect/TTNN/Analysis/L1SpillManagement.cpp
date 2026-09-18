@@ -2278,6 +2278,16 @@ void StatefulL1SpillManagement::recoverFromOOM(
   // algorithm (the forward sweep), so it cannot diverge from it.
   Value victim = evictFarthestUse();
   if (!victim) {
+    if (isDRAMShardedMatmul(op)) {
+      // The DS program requires a sharded output, so demotion cannot recover
+      // from an allocation failure after all spillable tensors are evicted.
+      op->emitError(
+          "L1SpillManagement: DRAM-sharded matmul cannot fit after evicting "
+          "every spillable tensor and cannot be demoted to DRAM "
+          "(tt-metal requires a sharded output config)");
+      compilationFailed = true;
+      return;
+    }
     // Nothing evictable remains (only non-evictable reshards / an irreducible,
     // genuinely-unplaceable working set). Degrade gracefully: demote this op's
     // output to DRAM and continue, rather than failing the pass.
