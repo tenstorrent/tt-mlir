@@ -74,9 +74,23 @@ The ONNX Runtime plugin execution provider is built by default (`-DTT_CRANK_BUIL
 import tt_crank.onnx as tt_onnx
 
 tt_onnx.register()
-session = tt_onnx.session("model.onnx", compile_options={"optimization_level": "2"})
-(y,) = tt_onnx.run(session, {"x": x})
+
+# Build a small model: y = relu(x @ w), w a constant initializer.
+model = tt_onnx.make_model(
+    [tt_onnx.make_node("MatMul", ["x", "w"], ["m"]), tt_onnx.make_node("Relu", ["m"], ["y"])],
+    [tt_onnx.vi("x", [32, 64])],
+    [tt_onnx.vi("y", [32, 128])],
+    [tt_onnx.make_tensor("w", tt_onnx.randn(64, 128))],
+)
+
+session = tt_onnx.session(model, compile_options={"optimization_level": "2"})
+(y,) = tt_onnx.run(session, {"x": tt_onnx.randn(32, 64)})
+
+# Or check it against ORT's CPU EP in one call:
+tt_onnx.assert_tt_matches_cpu(model, {"x": tt_onnx.randn(32, 64)})
 ```
+
+`session()` also takes a path to a `.onnx` file.
 
 The EP takes a graph whole or not at all: if any node is unsupported, the graph runs on ORT's CPU EP (`allow_cpu_fallback=True`; `TT_CRANK_LOG_FALLBACK_ENABLED=1` logs the declined nodes). `ep_context=` saves the compiled program as an EPContext `.onnx` that later sessions load without recompiling.
 
