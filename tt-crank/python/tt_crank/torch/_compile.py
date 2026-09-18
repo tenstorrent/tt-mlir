@@ -30,7 +30,7 @@ from enum import StrEnum
 
 import torch
 import torch.fx
-from torch._decomp import core_aten_decompositions, get_decompositions
+from torch._decomp import core_aten_decompositions
 from torch._dynamo.backends.common import aot_module_simplified
 from torch._subclasses.fake_tensor import unset_fake_temporarily
 
@@ -1539,21 +1539,60 @@ def _new_empty_strided_decomp(
     return self.new_zeros(size, dtype=dtype if dtype is not None else self.dtype)
 
 
-# A few scatter decomps we rely on aren't in the core set; pull them in explicitly.
-_EXTRA_DECOMP_OPS = [
-    torch.ops.aten.slice_scatter,
-]
+# torch's slice_scatter decomposition gathers `src` through an index tensor the size of the
+# result and masks with where; index and mask are constants the size of the result. The same
+# thing is slices and concats: the untouched parts of `input` around `src` (every `x[a:b]`
+# backward, so the lm_head shift and both RoPE halves in a Llama step), and for a stride the
+# scattered region regrouped as [.., groups, step, ..] with `src` taking column 0 of each group.
+def _slice_scatter_decomp(input, src, dim=0, start=None, end=None, step=1):
+    dim = dim % input.dim()
+    size = input.shape[dim]
+    start, end = (
+        default if b is None else min(max(b + size if b < 0 else b, 0), size)
+        for b, default in ((start, 0), (end, size))
+    )
+    count = max(end - start + step - 1, 0) // step
+    if count == 0:
+        return _aten.clone.default(input)
+    lead, trail = list(input.shape[:dim]), list(input.shape[dim + 1 :])
+    src_shape = [*lead, count, *trail]
+    src = src if list(src.shape) == src_shape else _aten.expand.default(src, src_shape)
+    parts = [_aten.slice.Tensor(input, dim, 0, start)] if start > 0 else []
+    # Groups of `step` that fit in `input`; a group cut off by the end only keeps its `src` column.
+    groups = count if start + count * step <= size else count - 1
+    if step == 1:
+        parts.append(src)
+    elif groups > 0:
+        region = _aten.slice.Tensor(input, dim, start, start + groups * step)
+        region = _aten.view.default(region, [*lead, groups, step, *trail])
+        head = _aten.unsqueeze.default(_aten.slice.Tensor(src, dim, 0, groups), dim + 1)
+        rest = _aten.slice.Tensor(region, dim + 1, 1, step)
+        parts.append(
+            _aten.view.default(
+                _aten.cat.default([head, rest], dim + 1), [*lead, groups * step, *trail]
+            )
+        )
+    if step != 1 and groups < count:
+        parts.append(_aten.slice.Tensor(src, dim, groups, count))
+    tail = end if step == 1 else start + groups * step + (1 if groups < count else 0)
+    if tail < size:
+        parts.append(_aten.slice.Tensor(input, dim, tail, size))
+    return (
+        _aten.cat.default(parts, dim)
+        if len(parts) > 1
+        else _aten.clone.default(parts[0])
+    )
 
 
 def _build_decomposition_table():
-    # Use default core decompositions, plus a few extra and some custom ones.
+    # Use default core decompositions, plus some custom ones.
     table = dict(core_aten_decompositions())
-    table.update(get_decompositions(_EXTRA_DECOMP_OPS))
     table.update(
         {
             torch.ops.aten.empty_like.default: _empty_like_decomp,
             torch.ops.aten.fill.Scalar: _fill_scalar_decomp,
             torch.ops.aten.new_empty_strided.default: _new_empty_strided_decomp,
+            torch.ops.aten.slice_scatter.default: _slice_scatter_decomp,
         }
     )
     # Never decompose an op tt lowers directly — keep it as a leaf for its kernel.
