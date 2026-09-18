@@ -9425,6 +9425,14 @@ llvm::Expected<OpConstraints> OpModel<AdamWOp>::getOpConstraints(
       stochasticRounding ? ::ttml::metal::StochasticRounding::Enabled
                          : ::ttml::metal::StochasticRounding::Disabled;
 
+  // ttml requires a seed iff stochastic rounding is enabled. The seed only
+  // affects the rounding of the parameter update, so a fixed one keeps the
+  // constraints stable.
+  constexpr uint32_t kStochasticRoundingQuerySeed = 0;
+  const std::optional<uint32_t> stochasticRoundingSeed =
+      stochasticRounding ? std::optional<uint32_t>(kStochasticRoundingQuerySeed)
+                         : std::nullopt;
+
   std::optional<MockAllocatorState> initialStateOpt =
       initialState ? std::optional<MockAllocatorState>(*initialState)
                    : std::nullopt;
@@ -9435,7 +9443,8 @@ llvm::Expected<OpConstraints> OpModel<AdamWOp>::getOpConstraints(
         expAvgSpec, expAvgSqSpec, maxExpAvgSqSpec, /*lr=*/0.0F,
         beta1.convertToFloat(), beta2.convertToFloat(), /*beta1_pow=*/0.0F,
         /*beta2_pow=*/0.0F, epsilon.convertToFloat(),
-        weightDecay.convertToFloat(), stochasticRoundingValue);
+        weightDecay.convertToFloat(), stochasticRoundingValue,
+        stochasticRoundingSeed);
   };
 
   return operation::getOpConstraintsWithState(paramLayout.getContext(),
@@ -9477,6 +9486,12 @@ llvm::Expected<size_t> OpModel<AdamWOp>::getOpRuntime(
   const ::ttml::metal::StochasticRounding stochasticRoundingValue =
       stochasticRounding ? ::ttml::metal::StochasticRounding::Enabled
                          : ::ttml::metal::StochasticRounding::Disabled;
+  // The seed is required by ttml iff stochastic rounding is enabled, but does
+  // not affect the reported cost.
+  constexpr uint32_t kStochasticRoundingQuerySeed = 0;
+  const std::optional<uint32_t> stochasticRoundingSeed =
+      stochasticRounding ? std::optional<uint32_t>(kStochasticRoundingQuerySeed)
+                         : std::nullopt;
 
   auto adamWOpQuery = [=]() {
     return QUERY_OP_RUNTIME(::ttml::metal::adamw, device, paramSpec, gradSpec,
@@ -9485,7 +9500,7 @@ llvm::Expected<size_t> OpModel<AdamWOp>::getOpRuntime(
                             beta2.convertToFloat(), /*beta1_pow=*/0.0F,
                             /*beta2_pow=*/0.0F, epsilon.convertToFloat(),
                             weightDecay.convertToFloat(),
-                            stochasticRoundingValue);
+                            stochasticRoundingValue, stochasticRoundingSeed);
   };
 
   return operation::getOpRuntime(adamWOpQuery);

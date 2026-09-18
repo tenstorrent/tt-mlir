@@ -172,14 +172,26 @@ def test_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
     )
 
 
+@pytest.mark.parametrize(
+    "tensor_types,stochastic_rounding",
+    [
+        (
+            [torch.float32, torch.bfloat16, torch.float32, torch.float32],
+            False,
+        ),
+        ([torch.bfloat16] * 4, True),
+    ],
+    ids=["default", "stochastic-rounding"],
+)
 @pytest.mark.parametrize("shape", [(1, 1, 64, 64)], ids=shape_str)
 @pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
-def test_adamw(shape: Shape, target: str, request, device):
+def test_adamw(
+    tensor_types, stochastic_rounding: bool, shape: Shape, target: str, request, device
+):
     def module(builder: TTIRBuilder):
         @builder.func(
             [shape, shape, shape, shape, (1,), (1,), (1,)],
-            [torch.float32, torch.bfloat16, torch.float32, torch.float32]
-            + [torch.float32] * 3,
+            tensor_types + [torch.float32] * 3,
         )
         def adamw(
             param: Operand,
@@ -218,6 +230,7 @@ def test_adamw(shape: Shape, target: str, request, device):
                 beta2=0.999,
                 epsilon=1e-8,
                 weight_decay=1e-2,
+                stochastic_rounding=stochastic_rounding,
             )
 
     compile_and_execute_ttir(
