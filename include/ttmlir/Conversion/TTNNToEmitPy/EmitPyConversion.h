@@ -2369,6 +2369,17 @@ public:
   }
 
   template <typename OpConversionPatternTy>
+  mlir::Value createCall(OpConversionPatternTy &&opConversionPattern,
+                         llvm::ArrayRef<mlir::Attribute> args,
+                         mlir::Type resultType) {
+    auto callee = opConversionPattern.convertOpName(op);
+    auto callOpaqueOp = rewriter.create<emitpy::CallOpaqueOp>(
+        op.getLoc(), resultType, callee, operands, rewriter.getArrayAttr(args),
+        rewriter.getArrayAttr(keywordArgs));
+    return callOpaqueOp.getResult(0);
+  }
+
+  template <typename OpConversionPatternTy>
   mlir::Value replaceOp(OpConversionPatternTy &&opConversionPattern,
                         llvm::ArrayRef<mlir::Attribute> args) {
     auto resultTypes = llvm::to_vector(
