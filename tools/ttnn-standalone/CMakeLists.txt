@@ -68,12 +68,33 @@ else()
   set(METAL_LIB_DIR "$ENV{TT_METAL_RUNTIME_ROOT}/build/lib" CACHE PATH "Path to the tt-metal lib directory")
 endif()
 
+# TTML operations emitted by TTNNToEmitC are implemented by the lightweight
+# ttml_metal_ops library in the parent tt-mlir build.
+set(TTML_SOURCE_DIR
+    "${METAL_SRC_DIR}/tt-train/sources/ttml"
+    CACHE PATH "Path to the TTML source directory")
+if(DEFINED ENV{TT_MLIR_HOME})
+  set(_TTML_METAL_OPS_LIB_DEFAULT
+      "$ENV{TT_MLIR_HOME}/build/third_party/ttml/libttml_metal_ops.a")
+else()
+  set(_TTML_METAL_OPS_LIB_DEFAULT "")
+endif()
+set(TTML_METAL_OPS_LIB
+    "${_TTML_METAL_OPS_LIB_DEFAULT}"
+    CACHE FILEPATH "Path to the ttml_metal_ops static library")
+
 if (DEFINED ENV{CPM_SOURCE_CACHE})
   set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
 else()
   set(CPM_SOURCE_CACHE $ENV{TT_METAL_RUNTIME_ROOT}/.cpmcache)
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
+
+# Some TTML public operation headers expose xtensor conversion utilities.
+file(GLOB TTML_XTL_INCLUDE_DIR "${CPM_SOURCE_CACHE}/xtl/*/include")
+file(GLOB TTML_XTENSOR_INCLUDE_DIR "${CPM_SOURCE_CACHE}/xtensor/*/include")
+file(GLOB TTML_XTENSOR_BLAS_INCLUDE_DIR
+     "${CPM_SOURCE_CACHE}/xtensor-blas/*/include")
 
 # Directories to search for headers
 #
@@ -107,6 +128,12 @@ set(INCLUDE_DIRS
     ${METAL_SRC_DIR}/ttnn/core
     ${METAL_SRC_DIR}/ttnn/cpp
     ${METAL_SRC_DIR}/ttnn/cpp/ttnn
+
+    # TTML
+    ${TTML_SOURCE_DIR}
+    ${TTML_XTL_INCLUDE_DIR}
+    ${TTML_XTENSOR_INCLUDE_DIR}
+    ${TTML_XTENSOR_BLAS_INCLUDE_DIR}
 )
 
 # Link directories
@@ -122,6 +149,17 @@ set(LINK_LIBS
     tt_stl
     ${METAL_LIB_DIR}/_ttnncpp.so
 )
+
+if(TARGET ttml_metal_ops)
+  list(APPEND LINK_LIBS ttml_metal_ops)
+elseif(EXISTS "${TTML_METAL_OPS_LIB}")
+  list(APPEND LINK_LIBS "${TTML_METAL_OPS_LIB}")
+else()
+  message(WARNING
+      "ttml_metal_ops was not found. EmitC programs containing TTML operations "
+      "will fail to link. Build the ttml_metal_ops target in tt-mlir or set "
+      "TTML_METAL_OPS_LIB.")
+endif()
 
 # Compile definitions
 #
@@ -168,6 +206,16 @@ target_link_libraries(ttnn-dylib PRIVATE ${LINK_LIBS})
 set_target_properties(ttnn-dylib PROPERTIES PUBLIC_HEADER ttnn-dylib.h)
 set_target_properties(ttnn-dylib PROPERTIES INSTALL_RPATH "$ORIGIN:${METAL_LIB_DIR}")
 set_target_properties(ttnn-dylib PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
+if(UNIX AND NOT APPLE)
+  # Do not expose implementation symbols pulled in from static libraries.
+  # The dylib test runtime discovers programs from exported symbols, so TTML
+  # functions would otherwise be mistaken for additional generated programs.
+  target_link_options(ttnn-dylib PRIVATE "LINKER:--exclude-libs,ALL")
+  # TTNN's device program cache can retain code from statically linked TTML
+  # operations until the device is closed. Keep the dylib mapped after
+  # dlclose so device teardown cannot call into unloaded code.
+  target_link_options(ttnn-dylib PRIVATE "LINKER:-z,nodelete")
+endif()
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
   target_compile_options(ttnn-dylib PRIVATE -march=x86-64-v3)
 endif()

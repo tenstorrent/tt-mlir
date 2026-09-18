@@ -89,6 +89,7 @@
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/types.hpp"
+#include "metal/operations.hpp"
 #include "workarounds.hpp"
 // ANCHOR_END: standalone_includes
 
