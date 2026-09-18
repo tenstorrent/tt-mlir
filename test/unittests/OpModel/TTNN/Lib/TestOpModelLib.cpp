@@ -6079,6 +6079,43 @@ TEST_F(OpModelTest, SDPABackwardOp) {
 }
 
 //===----------------------------------------------------------------------===//
+// RMSNormForwardOp Tests
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelTest, RMSNormForwardOp) {
+  const llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 256};
+  const llvm::SmallVector<int64_t> gammaShape = {1, 1, 1, 256};
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr gammaLayout = CreateTiledLayout(
+      gammaShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<RMSNormForwardOp>::getOpConstraints(
+      inputShape, inputLayout, gammaShape, gammaLayout,
+      /*returnIntermediates=*/true, llvm::APFloat(1e-6f),
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().tensorL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputL1BufferSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputLayouts.size(), 2u);
+
+  auto runtimeExp = OpModel<RMSNormForwardOp>::getOpRuntime(
+      inputShape, inputLayout, gammaShape, gammaLayout,
+      /*returnIntermediates=*/true, llvm::APFloat(1e-6f),
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+
+  auto outputOnlyConstraintsExp = OpModel<RMSNormForwardOp>::getOpConstraints(
+      inputShape, inputLayout, gammaShape, gammaLayout,
+      /*returnIntermediates=*/false, llvm::APFloat(1e-6f),
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(outputOnlyConstraintsExp));
+  EXPECT_EQ(outputOnlyConstraintsExp.get().outputLayouts.size(), 1u);
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormForwardOp Tests
 //===----------------------------------------------------------------------===//
 

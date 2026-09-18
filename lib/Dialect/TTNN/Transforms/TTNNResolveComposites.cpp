@@ -119,6 +119,38 @@ static void registerBuiltinComposites() {
     return;
   }
 
+  registry["rmsnorm_fw"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 2u);
+        auto attrs = compositeOp.getCompositeAttributes();
+        TT_assert(attrs);
+        auto returnIntermediatesAttr =
+            (*attrs).getAs<BoolAttr>("return_intermediates");
+        auto epsilonAttr = (*attrs).getAs<FloatAttr>("epsilon");
+        TT_assert(returnIntermediatesAttr);
+        TT_assert(epsilonAttr);
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<RMSNormForwardOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            returnIntermediatesAttr, epsilonAttr);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        DictionaryAttr attrs = *compositeOp.getCompositeAttributes();
+        TT_assert(compositeOp.getInputs().size() == 2u);
+        return builder.create<RMSNormForwardOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            attrs.getAs<BoolAttr>("return_intermediates"),
+            attrs.getAs<FloatAttr>("epsilon"));
+      },
+      /*promotionGuard=*/nullptr};
+
   registry["layernorm_fw"] = CompositeEntry{
       // Validate
       [](ttcore::CompositeOp compositeOp,
