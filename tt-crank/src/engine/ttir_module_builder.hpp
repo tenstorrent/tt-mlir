@@ -608,6 +608,17 @@ TT_CRANK_API mlir::Value build_index_copy(ModuleBuilder &mb, mlir::Value input, 
 TT_CRANK_API mlir::Value build_sdpa(ModuleBuilder &mb, mlir::Value query, mlir::Value key, mlir::Value value,
                                     bool is_causal, std::optional<float> scale, mlir::Value attn_mask);
 
+// ttml `sdpa_fw`/`sdpa_bw` composites (differentiable `build_sdpa`). Q/K/V `[B x H(kv) x S x D]`, Sq == Sk;
+// `attn_mask` (optional) is one `S x S` bool keep-mask, shared by all batches and heads (rank 2-4 with
+// leading dims of 1).
+TT_CRANK_API std::pair<mlir::Value, mlir::Value> build_sdpa_fw(ModuleBuilder &mb, mlir::Value query, mlir::Value key,
+                                                               mlir::Value value, bool is_causal,
+                                                               std::optional<double> scale, mlir::Value attn_mask);
+TT_CRANK_API std::tuple<mlir::Value, mlir::Value, mlir::Value>
+build_sdpa_bw(ModuleBuilder &mb, mlir::Value grad_output, mlir::Value attn_output, mlir::Value query, mlir::Value key,
+              mlir::Value value, mlir::Value logsumexp, bool is_causal, std::optional<double> scale,
+              mlir::Value attn_mask);
+
 // One fused AdamW step (`ttir.adamw`). `step`/`lr` are single-element tensors; grad is cast to bf16.
 // `max_exp_avg_sq` null = amsgrad off; then the last result is null too.
 TT_CRANK_API std::array<mlir::Value, 4> build_adamw(ModuleBuilder &mb, mlir::Value param, mlir::Value grad,

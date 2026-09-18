@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -24,6 +25,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -133,7 +135,6 @@ llvm::SmallVector<mlir::Value, 4> ModuleBuilder::create_composite(llvm::StringRe
                                                     builder_.getDictionaryAttr(attributes));
     return llvm::SmallVector<mlir::Value, 4>(op.getResults().begin(), op.getResults().end());
 }
-
 mlir::OwningOpRef<mlir::ModuleOp> ModuleBuilder::finalize(llvm::ArrayRef<mlir::Value> outputs) && {
     builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange(outputs));
 
@@ -1655,6 +1656,203 @@ mlir::Value build_conv3d(ModuleBuilder &mb, mlir::Value input, mlir::Value weigh
 
     // NDHWC[N,D_out,H_out,W_out,C_out] → NCDHW[N,C_out,D_out,H_out,W_out]
     return build_permute(mb, ndhwc_result, {0, 4, 1, 2, 3});
+}
+
+namespace {
+
+constexpr int64_t k_sdpa_tile_width = 32;
+constexpr double k_sdpa_masked_logit = -1.0e30;
+
+llvm::ArrayRef<int64_t> shape_of(mlir::Value v) {
+    return mlir::cast<mlir::RankedTensorType>(v.getType()).getShape();
+}
+mlir::Type element_type_of(mlir::Value v) {
+    return mlir::cast<mlir::RankedTensorType>(v.getType()).getElementType();
+}
+
+// ttml hardcodes 1/sqrt(D padded to 32); fold the wanted scale into Q instead.
+double sdpa_padded_scale(mlir::Value query) {
+    const int64_t d = shape_of(query)[3];
+    return 1.0 / std::sqrt(as<double>((d + k_sdpa_tile_width - 1) / k_sdpa_tile_width * k_sdpa_tile_width));
+}
+
+mlir::Value sdpa_fold_scale(ModuleBuilder &mb, mlir::Value query, std::optional<double> scale) {
+    const double alpha = scale.value_or(1.0 / std::sqrt(as<double>(shape_of(query)[3]))) / sdpa_padded_scale(query);
+    return std::fabs(alpha - 1.0) <= 1e-9 ? query : scale_tensor(mb, query, alpha);
+}
+
+// ttml `arbitrary` takes a [1, 1, S, S] keep-mask (non-zero = attend) in the q/k/v element type. `attn_mask`
+// is one S x S bool keep-mask (or the 0/-inf float mask torch makes of one) with leading dims of 1; it is
+// reshaped, not broadcast, so per-batch/head or singleton S dims are rejected upstream. Non-causal
+// without a mask gets all-ones: ttml's `none` kernel is broken.
+struct SdpaMask {
+    mlir::Value mask;
+    mlir::Value row_valid; // [1, 1, S, 1] 1/0, set when a mask row could be fully masked
+    mlir::tt::ttcore::AttentionMaskType type;
+};
+
+SdpaMask sdpa_mask(ModuleBuilder &mb, mlir::Value query, bool is_causal, mlir::Value attn_mask) {
+    if (is_causal) {
+        TT_FATAL(!attn_mask, "tt-crank sdpa: attn_mask together with is_causal is not supported");
+        return {{}, {}, mlir::tt::ttcore::AttentionMaskType::Causal};
+    }
+    const mlir::Type et = element_type_of(query);
+    const int64_t seq = shape_of(query)[2];
+    const llvm::SmallVector<int64_t, 4> mask_shape{1, 1, seq, seq};
+    if (!attn_mask) {
+        return {build_ones(mb, mask_shape, et), {}, mlir::tt::ttcore::AttentionMaskType::Arbitrary};
+    }
+    mlir::Value keep = attn_mask;
+    if (!element_type_of(keep).isInteger(1)) {
+        keep = build_eq(mb, keep, build_zeros(mb, shape_of(keep), element_type_of(keep)));
+    }
+    keep = mb.insert_typecast(keep, et);
+    if (shape_of(keep) != llvm::ArrayRef<int64_t>(mask_shape)) {
+        keep = build_reshape(mb, keep, mask_shape);
+    }
+    // A row with no allowed key is NaN in ttml (torch gives zeros): let it attend everything, zero it after.
+    mlir::Value row_valid = build_reduce<mlir::tt::ttir::MaxOp>(mb, keep, {3}, true);
+    keep = build_add(mb, keep, build_sub(mb, build_ones(mb, {1, 1, seq, 1}, et), row_valid));
+    return {keep, row_valid, mlir::tt::ttcore::AttentionMaskType::Arbitrary};
+}
+
+mlir::Value sdpa_zero_invalid_rows(ModuleBuilder &mb, mlir::Value value, mlir::Value row_valid) {
+    return row_valid ? build_mul(mb, value, row_valid) : value;
+}
+
+llvm::SmallVector<mlir::NamedAttribute, 3>
+sdpa_attributes(ModuleBuilder &mb, mlir::tt::ttcore::AttentionMaskType mask_type, bool forward) {
+    auto &attrs = mb.attrs();
+    llvm::SmallVector<mlir::NamedAttribute, 3> result{
+        attrs.getNamedAttr("mask_type", mlir::tt::ttcore::AttentionMaskTypeAttr::get(attrs.getContext(), mask_type)),
+        attrs.getNamedAttr("dropout_probability", attrs.getF32FloatAttr(0.0F))};
+    if (forward) {
+        result.push_back(attrs.getNamedAttr("return_intermediates", attrs.getBoolAttr(true)));
+    }
+    return result;
+}
+
+mlir::Value sdpa_expand_kv_heads(ModuleBuilder &mb, mlir::Value kv, int64_t heads) {
+    auto s = shape_of(kv);
+    if (s[1] == heads) {
+        return kv;
+    }
+    mlir::Value x = build_reshape(mb, kv, {s[0], s[1], 1, s[2], s[3]});
+    x = build_broadcast(mb, x, {s[0], s[1], heads / s[1], s[2], s[3]});
+    return build_reshape(mb, x, {s[0], heads, s[2], s[3]});
+}
+
+mlir::Value sdpa_reduce_kv_heads(ModuleBuilder &mb, mlir::Value grad, int64_t kv_heads) {
+    auto s = shape_of(grad);
+    if (s[1] == kv_heads) {
+        return grad;
+    }
+    return build_sum(mb, build_reshape(mb, grad, {s[0], kv_heads, s[1] / kv_heads, s[2], s[3]}), {2}, false);
+}
+
+// Q K^T with ttml's scaling; `mask` is a keep-mask (non-zero = attend), read only for `Arbitrary`.
+mlir::Value sdpa_logits(ModuleBuilder &mb, mlir::Value query, mlir::Value key, mlir::Value mask,
+                        mlir::tt::ttcore::AttentionMaskType mask_type) {
+    const mlir::Type et = element_type_of(query);
+    const int64_t seq = shape_of(query)[2];
+    mlir::Value logits =
+        scale_tensor(mb, build_matmul(mb, query, build_transpose(mb, key, 2, 3)), sdpa_padded_scale(query));
+    if (mask_type == mlir::tt::ttcore::AttentionMaskType::None) {
+        return logits;
+    }
+    mlir::Value keep = mask_type == mlir::tt::ttcore::AttentionMaskType::Causal
+                           ? build_tril(mb, build_ones(mb, {1, 1, seq, seq}, et), 0)
+                           : mb.insert_typecast(mask, et);
+    mlir::Value attend = build_ne(mb, keep, build_zeros(mb, shape_of(keep), et));
+    return build_where(mb, attend, logits, build_full(mb, shape_of(logits), k_sdpa_masked_logit, et));
+}
+
+llvm::SmallVector<mlir::Value, 4> sdpa_fw_decomposition(ModuleBuilder &mb, mlir::ValueRange args,
+                                                        mlir::tt::ttcore::AttentionMaskType mask_type) {
+    mlir::Value query = args[0];
+    auto q = shape_of(query);
+    mlir::Value key = sdpa_expand_kv_heads(mb, args[1], q[1]);
+    mlir::Value value = sdpa_expand_kv_heads(mb, args[2], q[1]);
+    mlir::Value logits = sdpa_logits(mb, query, key, args.size() > 3 ? args[3] : mlir::Value{}, mask_type);
+    mlir::Value output = build_matmul(mb, build_softmax(mb, logits, 3), value);
+    mlir::Value row_max = build_reduce<mlir::tt::ttir::MaxOp>(mb, logits, {3}, true);
+    mlir::Value lse =
+        build_add(mb, build_log(mb, build_sum(mb, build_exp(mb, build_sub(mb, logits, row_max)), {3}, true)), row_max);
+    lse = build_broadcast(mb, mb.insert_typecast(lse, mb.attrs().getF32Type()), {q[0], q[1], q[2], k_sdpa_tile_width});
+    return {output, lse};
+}
+
+llvm::SmallVector<mlir::Value, 4> sdpa_bw_decomposition(ModuleBuilder &mb, mlir::ValueRange args,
+                                                        mlir::tt::ttcore::AttentionMaskType mask_type) {
+    mlir::Value grad_output = args[0], attn_output = args[1], query = args[2];
+    auto q = shape_of(query);
+    const int64_t kv_heads = shape_of(args[3])[1];
+    mlir::Value key = sdpa_expand_kv_heads(mb, args[3], q[1]);
+    mlir::Value value = sdpa_expand_kv_heads(mb, args[4], q[1]);
+    mlir::Value lse = build_slice(mb, args[5], {0, 0, 0, 0}, {q[0], q[1], q[2], 1}, {1, 1, 1, 1});
+    lse = mb.insert_typecast(lse, element_type_of(query));
+
+    mlir::Value logits = sdpa_logits(mb, query, key, args.size() > 6 ? args[6] : mlir::Value{}, mask_type);
+    mlir::Value probs = build_exp(mb, build_sub(mb, logits, lse));
+    mlir::Value grad_value = build_matmul(mb, build_transpose(mb, probs, 2, 3), grad_output);
+    mlir::Value grad_probs = build_matmul(mb, grad_output, build_transpose(mb, value, 2, 3));
+    mlir::Value delta = build_sum(mb, build_mul(mb, grad_output, attn_output), {3}, true);
+    mlir::Value grad_logits = build_mul(mb, probs, build_sub(mb, grad_probs, delta));
+    const double scale = sdpa_padded_scale(query);
+    mlir::Value grad_query = scale_tensor(mb, build_matmul(mb, grad_logits, key), scale);
+    mlir::Value grad_key = scale_tensor(mb, build_matmul(mb, build_transpose(mb, grad_logits, 2, 3), query), scale);
+    return {grad_query, sdpa_reduce_kv_heads(mb, grad_key, kv_heads), sdpa_reduce_kv_heads(mb, grad_value, kv_heads)};
+}
+
+} // namespace
+
+std::pair<mlir::Value, mlir::Value> build_sdpa_fw(ModuleBuilder &mb, mlir::Value query, mlir::Value key,
+                                                  mlir::Value value, bool is_causal, std::optional<double> scale,
+                                                  mlir::Value attn_mask) {
+    query = sdpa_fold_scale(mb, query, scale);
+    auto [mask, row_valid, mask_type] = sdpa_mask(mb, query, is_causal, attn_mask);
+    auto q = shape_of(query);
+    llvm::SmallVector<mlir::Type, 2> result_types{
+        mlir::RankedTensorType::get({q[0], q[1], q[2], shape_of(value)[3]}, element_type_of(query)),
+        mlir::RankedTensorType::get({q[0], q[1], q[2], k_sdpa_tile_width}, mb.attrs().getF32Type())};
+    llvm::SmallVector<mlir::Value, 4> inputs{query, key, value};
+    if (mask) {
+        inputs.push_back(mask);
+    }
+    auto results = mb.create_composite("sdpa_fw", inputs, result_types, sdpa_attributes(mb, mask_type, true),
+                                       [mask_type](ModuleBuilder &body, mlir::ValueRange args) {
+                                           return sdpa_fw_decomposition(body, args, mask_type);
+                                       });
+    // ttml returns the lse as a [B, Hq, S, 32] f32 tile (value in column 0); aten wants [B, Hq, S].
+    mlir::Value lse = build_slice(mb, results[1], {0, 0, 0, 0}, {q[0], q[1], q[2], 1}, {1, 1, 1, 1});
+    return {sdpa_zero_invalid_rows(mb, results[0], row_valid), build_reshape(mb, lse, {q[0], q[1], q[2]})};
+}
+
+std::tuple<mlir::Value, mlir::Value, mlir::Value> build_sdpa_bw(ModuleBuilder &mb, mlir::Value grad_output,
+                                                                mlir::Value attn_output, mlir::Value query,
+                                                                mlir::Value key, mlir::Value value,
+                                                                mlir::Value logsumexp, bool is_causal,
+                                                                std::optional<double> scale, mlir::Value attn_mask) {
+    auto q = shape_of(query);
+    mlir::Value lse = mb.insert_typecast(build_reshape(mb, logsumexp, {q[0], q[1], q[2], 1}), mb.attrs().getF32Type());
+    lse = build_broadcast(mb, lse, {q[0], q[1], q[2], k_sdpa_tile_width});
+    auto [mask, row_valid, mask_type] = sdpa_mask(mb, query, is_causal, attn_mask);
+    llvm::SmallVector<mlir::Type, 3> result_types{query.getType(), key.getType(), value.getType()};
+    llvm::SmallVector<mlir::Value, 8> inputs{sdpa_zero_invalid_rows(mb, grad_output, row_valid),
+                                             attn_output,
+                                             sdpa_fold_scale(mb, query, scale),
+                                             key,
+                                             value,
+                                             lse};
+    if (mask) {
+        inputs.push_back(mask);
+    }
+    auto results = mb.create_composite("sdpa_bw", inputs, result_types, sdpa_attributes(mb, mask_type, false),
+                                       [mask_type](ModuleBuilder &body, mlir::ValueRange args) {
+                                           return sdpa_bw_decomposition(body, args, mask_type);
+                                       });
+    // dL/dQ = alpha * dL/dQ' for Q' = alpha * Q.
+    return {sdpa_fold_scale(mb, results[0], scale), results[1], results[2]};
 }
 
 } // namespace tt::crank

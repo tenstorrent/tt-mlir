@@ -130,6 +130,8 @@ using ::tt::crank::build_reshape;
 using ::tt::crank::build_rsqrt;
 using ::tt::crank::build_scalar;
 using ::tt::crank::build_sdpa;
+using ::tt::crank::build_sdpa_bw;
+using ::tt::crank::build_sdpa_fw;
 using ::tt::crank::build_sigmoid;
 using ::tt::crank::build_silu;
 using ::tt::crank::build_sin;

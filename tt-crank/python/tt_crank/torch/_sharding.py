@@ -79,6 +79,53 @@ def _sdpa_overrideable_sharding(
     ]
 
 
+# torch ships no meta kernel for the overrideable backward; DTensor's sharding propagation (and later
+# AOTAutograd) needs one to shape the outputs without running the kernel.
+@torch.library.register_fake(
+    "aten::_scaled_dot_product_fused_attention_overrideable_backward"
+)
+def _(
+    grad_out,
+    query,
+    key,
+    value,
+    attn_bias,
+    grad_input_mask,
+    out,
+    logsumexp,
+    cum_seq_q,
+    cum_seq_k,
+    max_q,
+    max_k,
+    dropout_p,
+    is_causal,
+    philox_seed,
+    philox_offset,
+    *,
+    scale=None,
+):
+    return torch.empty_like(query), torch.empty_like(key), torch.empty_like(value), None
+
+
+def _sdpa_overrideable_backward_sharding(*args, scale=None):
+    """Batch- or head-sharded grad_out/q/k/v/out/logsumexp give grads sharded the same way, no gather."""
+    assert not args[5][
+        3
+    ], "DTensor SDPA backward strategy does not support a grad w.r.t. attn_bias"
+    parallel_args = (0, 1, 2, 3, 6, 7)  # the 0-D philox tensors stay Replicate
+
+    def combo(placement):
+        inputs = [
+            None
+            if not hasattr(arg, "placements")
+            else (placement if idx in parallel_args else Replicate())
+            for idx, arg in enumerate(args)
+        ]
+        return ([placement, placement, placement, None], inputs)
+
+    return [combo(Replicate()), combo(Shard(0)), combo(Shard(1))]
+
+
 def _index_copy_sharding(self, dim, index, source):
     """DTensor sharding strategy for `index_copy_`/`index_copy`.
 
@@ -99,14 +146,17 @@ def _index_copy_sharding(self, dim, index, source):
 def register_sharding_strategies() -> None:
     """Register the tt-specific DTensor sharding strategies on the propagator.
 
-    All go through the public `register_sharding`: the overrideable SDPA op (which
-    torch ships a strategy for only in its CUDA-family fused variants) and both the
-    in-place and functional `index_copy` overloads (which appear depending on
+    All go through the public `register_sharding`: the overrideable SDPA op and its
+    backward (torch ships strategies only for the CUDA-family fused variants) and both
+    the in-place and functional `index_copy` overloads (which appear depending on
     whether the write is traced (compile) or run eagerly).
     """
     aten = torch.ops.aten
     register_sharding(aten._scaled_dot_product_fused_attention_overrideable.default)(
         _sdpa_overrideable_sharding
     )
+    register_sharding(
+        aten._scaled_dot_product_fused_attention_overrideable_backward.default
+    )(_sdpa_overrideable_backward_sharding)
     register_sharding(aten.index_copy_.default)(_index_copy_sharding)
     register_sharding(aten.index_copy.default)(_index_copy_sharding)
