@@ -11,19 +11,12 @@ namespace tt::runtime::workaround {
 
 struct Env {
   static const Env &get(bool swapBinaryOperands = true,
-                        bool readUpdateIndexFromDeviceForKVCache = true,
                         bool blackholeWorkarounds = true);
 
   // TODO(bug #1124): We're currently swapping the operands for binary ops
   // in runtime if the lhs operand is smaller (and requires broadcast onto the
   // rhs operand). We should add this check in the compiler.
   bool swapBinaryOperands;
-
-  // TODO(bug #1510): ttnn::update_cache takes a single update index as a uint32
-  // as a function argument. The tt-torch frontend and likely others model this
-  // as a tensor with integer elements. For now, to get this op to work we need
-  // to be able to pluck this update index from a runtime tensor.
-  bool readUpdateIndexFromDeviceForKVCache;
 
   // TODO(bug #3423): When link is down, get_connected_ethernet_core will throw
   // an exception.
@@ -32,12 +25,8 @@ struct Env {
   bool blackholeWorkarounds;
 
 private:
-  constexpr Env(bool swapBinaryOperands,
-                bool readUpdateIndexFromDeviceForKVCache,
-                bool blackholeWorkarounds)
+  constexpr Env(bool swapBinaryOperands, bool blackholeWorkarounds)
       : swapBinaryOperands(swapBinaryOperands),
-        readUpdateIndexFromDeviceForKVCache(
-            readUpdateIndexFromDeviceForKVCache),
         blackholeWorkarounds(blackholeWorkarounds) {}
 };
 
@@ -45,9 +34,6 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "workaround::Env{\n";
   os << "\t"
      << "swapBinaryOperands: " << env.swapBinaryOperands << ",\n";
-  os << "\t"
-     << "readUpdateIndexFromDeviceForKVCache: "
-     << env.readUpdateIndexFromDeviceForKVCache << "\n";
   os << "\t"
      << "blackholeWorkarounds: " << env.blackholeWorkarounds << "\n";
   os << "}";
