@@ -20,7 +20,7 @@ cmake --build build
 - Outputs land under `build/tt-crank/`. The unit-test binary is `build/tt-crank/tests/tt_crank_unit_tests`; `scripts/test` runs it directly (set `BUILD_DIR` for a different tt-mlir build directory).
 - tt-metal is the one tt-mlir vendors at `third_party/tt-metal/src/tt-metal`; nothing lives under `tt-crank/third_party/` except the tt-logger fetch.
 - Runtime behaviour is switched by environment variables declared in `src/common/config.hpp` (`TT_CRANK_USE_SIMULATOR`, `TT_CRANK_BACKTRACE_DISABLED`, `TT_CRANK_ASSERT_ABORT_ENABLED`, …); presence of the variable is what counts. `TT_CRANK_USE_SIMULATOR=1` routes any runner through ttsim.
-- Python installation (editable install of `tt_crank` plus the `tracy` / `ttnn` wrappers) and wheels follow in later commits. `pytest tests/python/` (run from `tt-crank/`, `--sim` for ttsim) needs that install.
+- Python installation (editable install of `tt_crank` plus the `tracy` / `ttnn` wrappers) and wheels follow in later commits. `pytest tests/python/` (run from `tt-crank/`, `--sim` for ttsim) needs that install; tests are split per frontend (`tests/python/torch/`, `tests/python/onnx/`), with only the shared `--sim` handling in the top-level conftest.
 - Formatting and lint go through tt-mlir's hooks, from the tt-mlir root: `pre-commit run --files <changed files>`.
 
 ## C++ conventions

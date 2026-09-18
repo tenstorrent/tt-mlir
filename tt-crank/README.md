@@ -68,22 +68,23 @@ The build requirements come with the dev requirements (installed by `install-py`
 
 ## Python tests
 
-The Python test suite lives in `tests/python/` and runs with pytest from `tt-crank/`. It imports the compiled `tt_crank` extension, so the Python package has to be installed first (see above).
+The Python test suite lives in `tests/python/`, one subdirectory per frontend (`torch/`, `onnx/`), and runs with pytest from `tt-crank/`. The torch tests import the compiled `tt_crank` extension, so the Python package has to be installed first (see above).
 
 Some examples of running tests with different options:
 
 ```sh
 pytest tt-crank/tests/python/                  # run all Python tests
+pytest tt-crank/tests/python/torch/            # torch backend tests only
 pytest tt-crank/tests/python/ --sim            # route through ttsim
 ```
 
 ## Benchmarks
 
-Benchmarks live under `tests/python/benchmarks/` and run as a pytest target. The benchmark-only CLI flags are registered by `tests/python/benchmarks/conftest.py`, so you have to invoke pytest at-or-below that directory for them to be recognized.
+Benchmarks live under `tests/python/torch/benchmarks/` and run as a pytest target. The benchmark-only CLI flags are registered by `tests/python/torch/benchmarks/conftest.py`, so you have to invoke pytest at-or-below that directory for them to be recognized.
 
 ```sh
-pytest tt-crank/tests/python/benchmarks/                        # run all benchmarks
-pytest tt-crank/tests/python/benchmarks/test_mnist_linear.py    # one benchmark
+pytest tt-crank/tests/python/torch/benchmarks/                        # run all benchmarks
+pytest tt-crank/tests/python/torch/benchmarks/test_mnist_linear.py    # one benchmark
 ```
 
 **NOTE:** The `benchmarks/` directory is in `norecursedirs` (in `pytest.ini`), so plain `pytest tests/python` skips it during collection. Pytest will collect them once you run target the `benchmarks/` or it sub-dirs.
