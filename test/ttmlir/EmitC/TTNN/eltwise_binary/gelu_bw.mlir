@@ -6,6 +6,14 @@
 //
 // RUN: ttmlir-opt --ttnn-common-to-emitc-pipeline -o %t2.mlir %t.mlir
 // RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
+// RUN: FileCheck %s --input-file=%basename_t.cpp --implicit-check-not="ttnn::experimental::gelu_bw"
+
+// CHECK: ttnn::gelu_bw
+// CHECK-SAME: ::ttnn::operations::unary::GeluVariant::ACCURATE
+// CHECK: util_get_optional_value
+// CHECK: ttnn::gelu_bw
+// CHECK-SAME: ::ttnn::operations::unary::GeluVariant::TANH
+// CHECK: util_get_optional_value
 
 module {
     func.func @gelu_bw_default(%arg0: tensor<4x4xbf16>, %arg1: tensor<4x4xbf16>) -> tensor<4x4xbf16> {
