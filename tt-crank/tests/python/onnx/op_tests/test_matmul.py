@@ -7,16 +7,7 @@
 import numpy as np
 import pytest
 
-from ort_ep_utils import (
-    assert_tt_matches_cpu,
-    make_model,
-    make_node,
-    make_tensor,
-    randn,
-    run_on_tt,
-    session_on_tt,
-    vi,
-)
+import tt_onnx
 
 
 @pytest.mark.parametrize(
@@ -30,30 +21,32 @@ from ort_ep_utils import (
 )
 def test_gemm(attrs: dict, a_shape, b_shape, c_shape) -> None:
     inputs = ["a", "b"] + (["c"] if c_shape else [])
-    initializers = [make_tensor("b", randn(*b_shape))]
+    initializers = [tt_onnx.make_tensor("b", tt_onnx.randn(*b_shape))]
     if c_shape:
-        initializers.append(make_tensor("c", randn(*c_shape)))
-    model = make_model(
-        [make_node("Gemm", inputs, ["y"], **attrs)],
-        [vi("a", list(a_shape))],
-        [vi("y", None)],
+        initializers.append(tt_onnx.make_tensor("c", tt_onnx.randn(*c_shape)))
+    model = tt_onnx.make_model(
+        [tt_onnx.make_node("Gemm", inputs, ["y"], **attrs)],
+        [tt_onnx.vi("a", list(a_shape))],
+        [tt_onnx.vi("y", None)],
         initializers,
     )
-    assert_tt_matches_cpu(model, {"a": randn(*a_shape)}, atol=0.1, rtol=0.1)
+    tt_onnx.assert_tt_matches_cpu(
+        model, {"a": tt_onnx.randn(*a_shape)}, atol=0.1, rtol=0.1
+    )
 
 
 def test_gemm_beta_zero_ignores_c() -> None:
     # BLAS convention (and ORT CPU): beta=0 never reads C, so NaNs in C must not propagate.
-    model = make_model(
-        [make_node("Gemm", ["a", "b", "c"], ["y"], beta=0.0)],
-        [vi("a", [8, 32])],
-        [vi("y", None)],
+    model = tt_onnx.make_model(
+        [tt_onnx.make_node("Gemm", ["a", "b", "c"], ["y"], beta=0.0)],
+        [tt_onnx.vi("a", [8, 32])],
+        [tt_onnx.vi("y", None)],
         [
-            make_tensor("b", randn(32, 64)),
-            make_tensor("c", np.full((8, 64), np.nan, dtype=np.float32)),
+            tt_onnx.make_tensor("b", tt_onnx.randn(32, 64)),
+            tt_onnx.make_tensor("c", np.full((8, 64), np.nan, dtype=np.float32)),
         ],
     )
-    (y,) = run_on_tt(session_on_tt(model), {"a": randn(8, 32)})
+    (y,) = tt_onnx.run_on_tt(tt_onnx.session_on_tt(model), {"a": tt_onnx.randn(8, 32)})
     assert not np.isnan(y).any()
 
 
@@ -65,11 +58,14 @@ def test_gemm_beta_zero_ignores_c() -> None:
     ],
 )
 def test_matmul(a_shape, b_shape) -> None:
-    model = make_model(
-        [make_node("MatMul", ["a", "b"], ["y"])],
-        [vi("a", list(a_shape)), vi("b", list(b_shape))],
-        [vi("y", None)],
+    model = tt_onnx.make_model(
+        [tt_onnx.make_node("MatMul", ["a", "b"], ["y"])],
+        [tt_onnx.vi("a", list(a_shape)), tt_onnx.vi("b", list(b_shape))],
+        [tt_onnx.vi("y", None)],
     )
-    assert_tt_matches_cpu(
-        model, {"a": randn(*a_shape), "b": randn(*b_shape)}, atol=0.1, rtol=0.1
+    tt_onnx.assert_tt_matches_cpu(
+        model,
+        {"a": tt_onnx.randn(*a_shape), "b": tt_onnx.randn(*b_shape)},
+        atol=0.1,
+        rtol=0.1,
     )

@@ -7,18 +7,11 @@
 import numpy as np
 import pytest
 
-from ort_ep_utils import (
-    assert_tt_matches_cpu,
-    make_model,
-    make_node,
-    make_tensor,
-    randn,
-    vi,
-)
+import tt_onnx
 
 
 def _i64(name: str, values) -> object:
-    return make_tensor(name, np.array(values, dtype=np.int64))
+    return tt_onnx.make_tensor(name, np.array(values, dtype=np.int64))
 
 
 @pytest.mark.parametrize(
@@ -36,21 +29,21 @@ def test_slice(starts, ends, axes, steps) -> None:
     if steps is not None:
         inputs.append("steps")
         initializers.append(_i64("steps", steps))
-    model = make_model(
-        [make_node("Slice", inputs, ["y"])],
-        [vi("x", [1, 16, 16, 16])],
-        [vi("y", None)],
+    model = tt_onnx.make_model(
+        [tt_onnx.make_node("Slice", inputs, ["y"])],
+        [tt_onnx.vi("x", [1, 16, 16, 16])],
+        [tt_onnx.vi("y", None)],
         initializers,
     )
-    assert_tt_matches_cpu(model, {"x": randn(1, 16, 16, 16)})
+    tt_onnx.assert_tt_matches_cpu(model, {"x": tt_onnx.randn(1, 16, 16, 16)})
 
 
 @pytest.mark.parametrize("axis,index", [(3, 0), (1, 5), (2, -1)])
 def test_gather_scalar_index(axis: int, index: int) -> None:
-    model = make_model(
-        [make_node("Gather", ["x", "idx"], ["y"], axis=axis)],
-        [vi("x", [1, 8, 16, 12])],
-        [vi("y", None)],
+    model = tt_onnx.make_model(
+        [tt_onnx.make_node("Gather", ["x", "idx"], ["y"], axis=axis)],
+        [tt_onnx.vi("x", [1, 8, 16, 12])],
+        [tt_onnx.vi("y", None)],
         [_i64("idx", index)],
     )
-    assert_tt_matches_cpu(model, {"x": randn(1, 8, 16, 12)})
+    tt_onnx.assert_tt_matches_cpu(model, {"x": tt_onnx.randn(1, 8, 16, 12)})

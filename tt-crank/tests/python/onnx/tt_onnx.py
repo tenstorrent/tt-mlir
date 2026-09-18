@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Helpers for the ONNX Runtime plugin-EP tests."""
+"""Helpers for the ONNX Runtime plugin-EP tests (import as a module: tt_onnx.make_node, ...)."""
 
 import os
 import pathlib

@@ -6,27 +6,20 @@
 
 import pytest
 
-from ort_ep_utils import (
-    assert_tt_matches_cpu,
-    make_model,
-    make_node,
-    randn,
-    session_on_tt,
-    vi,
-)
+import tt_onnx
 
-_GEMM = make_model(
-    [make_node("Gemm", ["a", "b"], ["y"])],
-    [vi("a", [32, 64]), vi("b", [64, 32])],
-    [vi("y", [32, 32])],
+_GEMM = tt_onnx.make_model(
+    [tt_onnx.make_node("Gemm", ["a", "b"], ["y"])],
+    [tt_onnx.vi("a", [32, 64]), tt_onnx.vi("b", [64, 32])],
+    [tt_onnx.vi("y", [32, 32])],
 )
 
 
 def test_compile_options_applied() -> None:
     # Distinct options force a fresh compile; the result must still match CPU.
-    assert_tt_matches_cpu(
+    tt_onnx.assert_tt_matches_cpu(
         _GEMM,
-        {"a": randn(32, 64), "b": randn(64, 32)},
+        {"a": tt_onnx.randn(32, 64), "b": tt_onnx.randn(64, 32)},
         compile_options={
             "math_fidelity": "HiFi4",
             "fp32_dest_acc_en": "true",
@@ -54,6 +47,6 @@ def test_invalid_compile_option_fails_session_creation(
     with pytest.raises(
         Exception, match="Conflicting session configuration|compile option"
     ):
-        session_on_tt(_GEMM, compile_options=bad)
+        tt_onnx.session_on_tt(_GEMM, compile_options=bad)
     captured = capfd.readouterr()
     assert "compile option" in captured.out + captured.err
