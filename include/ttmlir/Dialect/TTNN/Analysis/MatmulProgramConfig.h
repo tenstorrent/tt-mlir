@@ -37,22 +37,17 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout);
 
 // Geometry describing how an M×K×N matmul is sharded for DRAM-sharded
 // execution. Produced by computeShardParams; consumed by the builders below
-// and by the rule book (which reads e.g. perCoreN to size the output grid).
+// and by the rule book (which reads e.g. perCoreNStorage to size the output
+// grid). perCoreNCompute is the N tiles each DRAM bank's core computes,
+// perCoreNStorage the N tiles each output storage core holds, as in tt-metal.
 struct DRAMShardParams {
-  int64_t K;
-  int64_t N;
-  int64_t M;
   int64_t numBanks;
-  int64_t numIn0Cores;
-  int64_t numOutCores;
-  int64_t nPadded;
-  int64_t shardH;
-  int64_t shardW;
   int64_t kTiles;
-  int64_t shardWTiles;
+  int64_t nTiles;
+  int64_t perCoreNCompute;
   int64_t in0BlockW;
   int64_t perCoreM;
-  int64_t perCoreN;
+  int64_t perCoreNStorage;
   ttcore::DataType weightDataType;
 };
 
@@ -61,8 +56,8 @@ struct DRAMShardParams {
 // across `numBanks` DRAM banks and the activation across `numIn0Cores` L1
 // cores; `numOutCores` bounds the output storage grid. `l1Available` is the L1
 // budget the circular buffers must fit. Returns nullopt when no in0_block_w
-// fits. K/kTileSize must be divisible by numIn0Cores (the caller's eligibility
-// gate enforces this).
+// fits. K and N must be tile-aligned and K/kTileSize divisible by numIn0Cores
+// (the caller's eligibility gate enforces this).
 std::optional<DRAMShardParams>
 computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
                    int64_t numIn0Cores, int64_t numOutCores,

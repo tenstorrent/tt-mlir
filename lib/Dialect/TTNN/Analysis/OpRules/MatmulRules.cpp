@@ -416,7 +416,7 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
   // numOutputCores = div_up(N_tiles, per_core_N_storage): exactly how many
   // output cores compute_output_specs will allocate, ensuring no assertion
   // fire.
-  int64_t numOutputCores = llvm::divideCeil(p.N / kTileSize, p.perCoreN);
+  int64_t numOutputCores = llvm::divideCeil(p.nTiles, p.perCoreNStorage);
 
   llvm::SmallVector<int64_t, 2> outputGrid = {1, numOutputCores};
   TTNNLayoutAttr l1OutLayout =
