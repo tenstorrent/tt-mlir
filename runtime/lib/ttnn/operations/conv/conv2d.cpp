@@ -98,9 +98,20 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   // A narrow activation spread over many cores wants height sharding; once the
   // spatial extent collapses and the channel count dominates, block sharding is what
   // the reference uses. Splitting at 28 matches 50 of the 53 convolutions.
+  //
+  // BLOCK_SHARDED is what the tt-metal reference uses at 14/7, but it does not survive this
+  // frontend's path: quasar::conv2d sets in0_block_w = full_K to contract K in one block
+  // (dodging the matmul K-spill accumulate), and block sharding splits K across the grid
+  // COLUMNS, so each core holds only full_K/ncols. quasar::matmul then rejects it with
+  //   "shard_shape[1] / in0_tile.get_width() (8) must be divisible by in0_block_w (64)"
+  // -- 64/8 being exactly the grid width. conv2d.cpp's own [#48552 Stage2 REVERTED-AGAIN]
+  // note reaches the same conclusion: "HEIGHT_SHARDED is the only single-K-block shape".
+  // TT_METAL_QSR_CONV_ALL_HS forces height sharding everywhere so that holds at 14/7 too.
   if (utils::isQuasar() && !conv2dConfig.shard_layout.has_value()) {
+    const bool forceAllHeightSharded =
+        std::getenv("TT_METAL_QSR_CONV_ALL_HS") != nullptr;
     conv2dConfig.shard_layout =
-        (op->input_height() >= 28)
+        (forceAllHeightSharded || op->input_height() >= 28)
             ? ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED
             : ::ttnn::TensorMemoryLayout::BLOCK_SHARDED;
   }
