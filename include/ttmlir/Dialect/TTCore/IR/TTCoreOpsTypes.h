@@ -460,6 +460,10 @@ mlir::MemRefType buildMemRef(mlir::MLIRContext *context,
       TAttr::get(context, memorySpace));
 }
 
+// Byte size of one `dataType` tile; block-float formats are 32x32 only.
+uint64_t getTileSizeBytes(DataType dataType, llvm::ArrayRef<int64_t> tileShape =
+                                                 TileType::getDefaultShape());
+
 inline uint64_t getElementSizeBytes(mlir::Type elementType) {
   TileType tileType = mlir::dyn_cast<TileType>(elementType);
   return tileType ? tileType.getSizeBytes()

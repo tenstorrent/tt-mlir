@@ -40,19 +40,15 @@ TEST(MatmulDRAMShardParams, WormholeBaseline) {
                               kL1Available);
   ASSERT_TRUE(p.has_value());
 
-  // N is padded up to a multiple of tile*banks = 32*12 = 384: 4096 -> 4224,
-  // giving 4224/12 = 352 = 11 tiles of weight per bank.
-  EXPECT_EQ(p->nPadded, 4224);
-  EXPECT_EQ(p->shardW, 352);
-  EXPECT_EQ(p->shardWTiles, 11);
-
+  // 128 N-tiles over 12 banks do not divide evenly: each bank computes 11
+  // tiles of N, with the last bank holding padding.
+  EXPECT_EQ(p->perCoreNCompute, 11);
   EXPECT_EQ(p->kTiles, 128);
-  EXPECT_EQ(p->shardH, kK);
 
   // tt-metal requires M == per_core_M == 1 for the DS config.
   EXPECT_EQ(p->perCoreM, 1);
-  // per_core_N is the *storage* split: div_up(128 N-tiles, 64 cores).
-  EXPECT_EQ(p->perCoreN, 2);
+  // The storage split is div_up(128 N-tiles, 64 cores).
+  EXPECT_EQ(p->perCoreNStorage, 2);
 
   // in0_block_w must divide K-per-core (128/8 = 16) and fit the CBs.
   EXPECT_GT(p->in0BlockW, 0);
@@ -72,18 +68,15 @@ TEST(MatmulDRAMShardParams, SubTileBatchRoundsPerCoreMUp) {
   }
 }
 
-// The bank count changes the weight shard width, which is why it must come from
-// the device rather than a constant: on 8 banks 4096 needs no padding at all.
+// The bank count changes the per-bank compute width, which is why it must come
+// from the device rather than a constant: on 8 banks 128 tiles divide evenly.
 TEST(MatmulDRAMShardParams, BlackholeBankCountChangesShardWidth) {
   auto p = computeShardParams(kM, kK, kN, kBlackholeBanks, kNumIn0Cores,
                               kBlackholeCores, ttcore::DataType::BFP_BFloat8,
                               kL1Available);
   ASSERT_TRUE(p.has_value());
 
-  // 32*8 = 256 already divides 4096, so nPadded == N.
-  EXPECT_EQ(p->nPadded, kN);
-  EXPECT_EQ(p->shardW, 512);
-  EXPECT_EQ(p->shardWTiles, 16);
+  EXPECT_EQ(p->perCoreNCompute, 16);
   EXPECT_EQ(p->numBanks, kBlackholeBanks);
   EXPECT_EQ(p->perCoreM, 1);
 }
@@ -153,9 +146,8 @@ TEST(MatmulDRAMShardParams, WideNWalksIn0BlockWDown) {
                               kL1Available);
   ASSERT_TRUE(p.has_value());
 
-  // 8192 pads to a multiple of 32*12=384 -> 8448, /12 = 704 = 22 tiles/bank.
-  EXPECT_EQ(p->nPadded, 8448);
-  EXPECT_EQ(p->shardWTiles, 22);
+  // 8192 is 256 N-tiles over 12 banks: 22 tiles per bank.
+  EXPECT_EQ(p->perCoreNCompute, 22);
 
   // The search starts at K-per-core (128/8 = 16) and must come down to fit.
   EXPECT_LT(p->in0BlockW, 16);
@@ -165,7 +157,6 @@ TEST(MatmulDRAMShardParams, WideNWalksIn0BlockWDown) {
   EXPECT_EQ(p->perCoreM, 1);
   EXPECT_GT(p->in0BlockW, 0);
   EXPECT_EQ((kK / 32) / kNumIn0Cores % p->in0BlockW, 0);
-  EXPECT_EQ(p->nPadded % (32 * kWormholeBanks), 0);
 }
 
 // Past half of K-per-core the DS path declines instead of emitting the config.
