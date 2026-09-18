@@ -176,6 +176,10 @@ public:
 private:
   std::chrono::seconds writeTimeout_{300};
   std::chrono::seconds readTimeout_{300};
+  // toHost and memcpy responses are only sent once the device has finished
+  // executing the program (the readback blocks on device completion), so they
+  // can take much longer than other commands.
+  std::chrono::seconds dataTransferReadTimeout_{30000};
   std::chrono::seconds workerShutdownTimeout_{300};
 
   std::atomic<ControllerState> controllerState_{ControllerState::Uninitialized};
