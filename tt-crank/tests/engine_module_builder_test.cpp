@@ -7,11 +7,13 @@
 #include <gtest/gtest.h>
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/SymbolTable.h"
 #include <stdexcept>
 #include <vector>
 
 #include "engine/compile.hpp"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 // Besides covering the builder itself, this test is the RTTI tripwire for the
@@ -62,4 +64,41 @@ TEST(EngineModuleBuilderTest, ThrowsOnArgTypesSizeMismatch) {
     EXPECT_THROW(ModuleBuilder::init({f32_spec({2, 2})},
                                      {mlir::tt::ttcore::ArgumentType::Input, mlir::tt::ttcore::ArgumentType::Input}),
                  std::runtime_error);
+}
+
+// create_composite emits a `ttcore.composite` plus a private decomposition function; tt-mlir
+// inlines the function for a name its registry does not know, so the program still compiles.
+TEST(EngineModuleBuilderTest, CreateCompositeEmitsOpAndDecomposition) {
+    auto mb = ModuleBuilder::init({f32_spec({32, 32}), f32_spec({32, 32})});
+    auto result_type = mb.args()[0].getType();
+    auto attrs = mb.attrs().getNamedAttr("flag", mb.attrs().getBoolAttr(true));
+    auto results = mb.create_composite(
+        "test_add", mb.args(), {result_type}, {attrs}, [](ModuleBuilder &body, mlir::ValueRange args) {
+            return llvm::SmallVector<mlir::Value, 4>{tt::crank::build_add(body, args[0], args[1])};
+        });
+    ASSERT_EQ(results.size(), 1U);
+    auto module_op = std::move(mb).finalize({results[0]});
+
+    auto func = mlir::SymbolTable(*module_op).lookup<mlir::func::FuncOp>("test_add_decomposition");
+    ASSERT_TRUE(func);
+    EXPECT_TRUE(func.isPrivate());
+    EXPECT_EQ(func.getFunctionType().getNumInputs(), 2U);
+    int adds_in_body = 0;
+    func.walk([&](mlir::tt::ttir::AddOp) { ++adds_in_body; });
+    EXPECT_EQ(adds_in_body, 1);
+
+    int composites = 0;
+    module_op->walk([&](mlir::tt::ttcore::CompositeOp op) {
+        ++composites;
+        EXPECT_EQ(op.getCompositeName(), "test_add");
+        EXPECT_EQ(op.getDecomposition(), "test_add_decomposition");
+        ASSERT_TRUE(op.getCompositeAttributes().has_value());
+        EXPECT_TRUE(op.getCompositeAttributes()->contains("flag"));
+    });
+    EXPECT_EQ(composites, 1);
+
+    // Unknown to the promotion registry: the pipeline inlines the decomposition.
+    tt::crank::CompiledProgram &program = *tt::crank::compile_ttir_to_ttnn_flatbuffer(*module_op).program;
+    EXPECT_NE(program.ttnn_ir().find("ttnn.add"), std::string_view::npos);
+    EXPECT_EQ(program.ttnn_ir().find("composite"), std::string_view::npos);
 }
