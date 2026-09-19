@@ -104,7 +104,11 @@ def _(
     *,
     scale=None,
 ):
-    return torch.empty_like(query), torch.empty_like(key), torch.empty_like(value), None
+    # Mirror grad_input_mask like the eager kernel: undefined (None) for inputs that need no gradient.
+    dq = torch.empty_like(query) if grad_input_mask[0] else None
+    dk = torch.empty_like(key) if grad_input_mask[1] else None
+    dv = torch.empty_like(value) if grad_input_mask[2] else None
+    return dq, dk, dv, None
 
 
 def _sdpa_overrideable_backward_sharding(*args, scale=None):

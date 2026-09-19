@@ -17,7 +17,8 @@ from tt_crank.torch.testing import post_aot_fx_hook, strict_no_fallback
 # our dispatch registration of `_fused_sdp_choice_stub` which tells torch
 # we have our own kernel for sdpa.
 _SDPA_OVERRIDEABLE = "_scaled_dot_product_fused_attention_overrideable"
-_SDPA_OVERRIDEABLE_BW = _SDPA_OVERRIDEABLE + "_backward"
+# autograd node the fused op records; MATH records the decomposition's nodes instead
+_FUSED_GRAD_FN = "ScaledDotProductFusedAttentionOverrideableBackward0"
 
 _DT = torch.bfloat16
 _B, _H, _S, _E = 1, 8, 32, 64
@@ -286,6 +287,9 @@ def test_sdpa_eager_backward_fused(case: str) -> None:
         return outs[-1].sum()
 
     _run_eager_backward(sdpa, *tts)
+    assert (
+        outs[-1].grad_fn.name() == _FUSED_GRAD_FN
+    ), f"training decomposed: {outs[-1].grad_fn.name()}"
     assert _pcc(outs[-1].detach().cpu(), ref_out) >= pcc, "forward output mismatch"
     _check_grads(tts, refs, pcc)
 
@@ -330,11 +334,14 @@ def test_sdpa_eager_backward_decomposes(case: str) -> None:
 
     tts = [t.to("tt").requires_grad_(True) for t in (q, k, v)]
     tt_kw = {n: a.to("tt") if isinstance(a, torch.Tensor) else a for n, a in kw.items()}
-    _run_eager_backward(
-        lambda a, b, c: F.scaled_dot_product_attention(a, b, c, **tt_kw).sum(),
-        *tts,
-        strict=False,
-    )
+    outs: list[torch.Tensor] = []
+
+    def sdpa(a, b, c):
+        outs.append(F.scaled_dot_product_attention(a, b, c, **tt_kw))
+        return outs[-1].sum()
+
+    _run_eager_backward(sdpa, *tts, strict=False)
+    assert outs[-1].grad_fn.name() != _FUSED_GRAD_FN, "expected the math decomposition"
     _check_grads(tts, refs)
 
 
@@ -372,10 +379,16 @@ def test_sdpa_eager_multi_chip_causal_backward(tt_pg, parallel: str) -> None:
         distribute_tensor(t.to("tt"), mesh, [Shard(dim)]).requires_grad_(True)
         for t in (q, k, v)
     ]
-    _run_eager_backward(
-        lambda a, b, c: F.scaled_dot_product_attention(a, b, c, is_causal=True).sum(),
-        *tts,
-    )
+    outs: list[torch.Tensor] = []
+
+    def sdpa(a, b, c):
+        outs.append(F.scaled_dot_product_attention(a, b, c, is_causal=True))
+        return outs[-1].sum()
+
+    _run_eager_backward(sdpa, *tts)
+    assert (
+        outs[-1].grad_fn.name() == _FUSED_GRAD_FN
+    ), f"training decomposed: {outs[-1].grad_fn.name()}"
     for name, got, ref in zip("qkv", tts, refs):
         assert got.grad is not None, f"no gradient for {name}"
         assert got.grad.placements == (
