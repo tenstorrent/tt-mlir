@@ -17,7 +17,9 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/Support/LLVM.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "llvm/ADT/APFloat.h"
@@ -110,6 +112,26 @@ ModuleBuilder ModuleBuilder::init(llvm::ArrayRef<TensorTypeSpec> inputs,
 
     return ModuleBuilder(mlir::OwningOpRef<mlir::ModuleOp>(module_op), func, std::move(body_builder), loc,
                          std::move(args));
+}
+
+llvm::SmallVector<mlir::Value, 4> ModuleBuilder::create_composite(llvm::StringRef name,
+                                                                  llvm::ArrayRef<mlir::Value> inputs,
+                                                                  llvm::ArrayRef<mlir::Type> result_types,
+                                                                  llvm::ArrayRef<mlir::NamedAttribute> attributes,
+                                                                  CompositeDecomposition decomposition) {
+    auto func = mlir::func::FuncOp::create(loc_, (name + "_decomposition").str(),
+                                           builder_.getFunctionType(mlir::ValueRange(inputs).getTypes(), result_types));
+    func.setPrivate();
+    mlir::SymbolTable(*module_op_).insert(func);
+    {
+        mlir::OpBuilder::InsertionGuard guard(builder_);
+        builder_.setInsertionPointToStart(func.addEntryBlock());
+        builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange(decomposition(*this, func.getArguments())));
+    }
+    auto op = create<mlir::tt::ttcore::CompositeOp>(result_types, inputs, builder_.getStringAttr(name),
+                                                    mlir::FlatSymbolRefAttr::get(func),
+                                                    builder_.getDictionaryAttr(attributes));
+    return llvm::SmallVector<mlir::Value, 4>(op.getResults().begin(), op.getResults().end());
 }
 
 mlir::OwningOpRef<mlir::ModuleOp> ModuleBuilder::finalize(llvm::ArrayRef<mlir::Value> outputs) && {
