@@ -81,6 +81,8 @@ using ::tt::crank::build_conv1d;
 using ::tt::crank::build_conv2d;
 using ::tt::crank::build_conv3d;
 using ::tt::crank::build_cos;
+using ::tt::crank::build_cross_entropy_bw;
+using ::tt::crank::build_cross_entropy_fw;
 using ::tt::crank::build_cumsum;
 using ::tt::crank::build_div;
 using ::tt::crank::build_embedding;

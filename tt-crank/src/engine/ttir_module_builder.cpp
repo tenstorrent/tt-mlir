@@ -1409,6 +1409,74 @@ mlir::Value build_matmul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
     return mb.create<mlir::tt::ttir::MatmulOp>(result_type, lhs, rhs, false, false).getResult();
 }
 
+namespace {
+
+// `[1 x 1 x rows x C]` i1: column `target[row]` set. Composite inputs are `[1 x 1 x rows x C]` logits and
+// `[1 x rows]` i32 targets.
+mlir::Value cross_entropy_onehot(ModuleBuilder &mb, mlir::Value logits, mlir::Value target) {
+    const auto shape = mlir::cast<mlir::RankedTensorType>(logits.getType()).getShape();
+    const mlir::Type i32 = mb.attrs().getI32Type();
+    mlir::Value classes = build_reshape(mb, build_arange(mb, 0, shape[3], 1, i32), {1, 1, 1, shape[3]});
+    return build_eq(mb, build_reshape(mb, target, {1, 1, shape[2], 1}), classes);
+}
+
+llvm::SmallVector<mlir::Value, 4> cross_entropy_fw_decomposition(ModuleBuilder &mb, mlir::ValueRange args) {
+    mlir::Value logits = args[0];
+    const auto type = mlir::cast<mlir::RankedTensorType>(logits.getType());
+    mlir::Value picked = build_where(mb, cross_entropy_onehot(mb, logits, args[1]), logits,
+                                     build_zeros(mb, type.getShape(), type.getElementType()));
+    picked = build_sum(mb, picked, {3}, true);
+    mlir::Value row_max = build_reduce<mlir::tt::ttir::MaxOp>(mb, logits, {3}, true);
+    mlir::Value lse =
+        build_add(mb, build_log(mb, build_sum(mb, build_exp(mb, build_sub(mb, logits, row_max)), {3}, true)), row_max);
+    return {build_sub(mb, lse, picked)};
+}
+
+llvm::SmallVector<mlir::Value, 4> cross_entropy_bw_decomposition(ModuleBuilder &mb, mlir::ValueRange args) {
+    mlir::Value logits = args[0];
+    const mlir::Type et = mlir::cast<mlir::RankedTensorType>(logits.getType()).getElementType();
+    mlir::Value onehot = mb.insert_typecast(cross_entropy_onehot(mb, logits, args[1]), et);
+    return {build_mul(mb, build_sub(mb, build_softmax(mb, logits, 3), onehot), args[2])};
+}
+
+// The kernel's `[N x 1 x H x W]` / `[N x H]` layout for `[rows x C]` logits and `[rows]` targets.
+std::pair<mlir::Value, mlir::Value> cross_entropy_inputs(ModuleBuilder &mb, mlir::Value logits, mlir::Value target) {
+    const auto type = mlir::cast<mlir::RankedTensorType>(logits.getType());
+    TT_FATAL(type.getRank() == 2 && type.getElementType().isBF16(),
+             "tt-crank cross_entropy: ttml takes [rows x C] bf16 logits");
+    const auto target_type = mlir::cast<mlir::RankedTensorType>(target.getType());
+    TT_FATAL(target_type.getRank() == 1 && target_type.getShape()[0] == type.getShape()[0] &&
+                 target_type.getElementType().isInteger(),
+             "tt-crank cross_entropy: target must hold one integer class index per logits row");
+    return {build_reshape(mb, logits, {1, 1, type.getShape()[0], type.getShape()[1]}),
+            build_reshape(mb, mb.insert_typecast(target, mb.attrs().getI32Type()), {1, type.getShape()[0]})};
+}
+
+} // namespace
+
+mlir::Value build_cross_entropy_fw(ModuleBuilder &mb, mlir::Value logits, mlir::Value target) {
+    const int64_t rows = mlir::cast<mlir::RankedTensorType>(logits.getType()).getShape()[0];
+    auto [x, t] = cross_entropy_inputs(mb, logits, target);
+    const mlir::Type result_type =
+        mlir::RankedTensorType::get({1, 1, rows, 1}, mlir::cast<mlir::RankedTensorType>(x.getType()).getElementType());
+    auto results = mb.create_composite("cross_entropy_fw", {x, t}, {result_type}, {}, cross_entropy_fw_decomposition);
+    return build_reshape(mb, results[0], {rows});
+}
+
+mlir::Value build_cross_entropy_bw(ModuleBuilder &mb, mlir::Value grad, mlir::Value logits, mlir::Value target) {
+    const auto type = mlir::cast<mlir::RankedTensorType>(logits.getType());
+    TT_FATAL(mlir::cast<mlir::RankedTensorType>(grad.getType()).getNumElements() == 1,
+             "tt-crank cross_entropy_bw: ttml takes a single-element grad");
+    auto [x, t] = cross_entropy_inputs(mb, logits, target);
+    mlir::Value g = build_reshape(mb, mb.insert_typecast(grad, type.getElementType()), {1, 1, 1, 1});
+    // The kernel's `scaler` is a compile-time constant; anything data-dependent rides in `grad`.
+    const llvm::SmallVector<mlir::NamedAttribute, 1> attributes{
+        mb.attrs().getNamedAttr("scaler", mb.attrs().getF32FloatAttr(1.0F))};
+    auto results =
+        mb.create_composite("cross_entropy_bw", {x, t, g}, {x.getType()}, attributes, cross_entropy_bw_decomposition);
+    return build_reshape(mb, results[0], type.getShape());
+}
+
 mlir::Value build_sdpa(ModuleBuilder &mb, mlir::Value query, mlir::Value key, mlir::Value value, bool is_causal,
                        std::optional<float> scale, mlir::Value attn_mask) {
     auto result_type = mlir::cast<mlir::RankedTensorType>(query.getType());
