@@ -215,6 +215,50 @@ def test_cross_entropy_ignored_row_non_finite_logits(
     assert _pcc(got[kept], ref_grad[kept]) >= 0.99
 
 
+# Data parallel: rows sharded over the mesh. torch's DTensor strategy for nll_loss_forward reduces the per-shard
+# losses with Partial("sum") for `sum` and Partial("avg") for `mean` (the tt process group scales the SUM
+# all-reduce for AVG). The avg-of-shard-means equals the global mean only when every shard keeps the same
+# number of rows, hence the aligned ignore pattern below; torch warns about the bias otherwise. The fusion
+# itself is placement-agnostic: it rewrites the graph after DTensor has been desugared to local ops.
+@pytest.mark.multichip
+@pytest.mark.parametrize("mode", _MODES)
+@pytest.mark.parametrize("reduction", ["sum", "mean"])
+def test_cross_entropy_multi_chip_dp(tt_pg, reduction: str, mode: str) -> None:
+    """Shard(0) logits/targets: fused per shard, loss reduced across the mesh, grads keep Shard(0)."""
+    from torch.distributed.tensor import Shard, distribute_tensor
+
+    n = torch.tt.num_chips()
+    logits, target = _inputs(32 * n, 128, False)
+    target[::4] = _IGNORE  # 8 ignored rows in every 32-row shard
+    ref_loss, ref_grad = _reference(reduction, logits, target)
+    mesh = torch.tt.init_device_mesh((n,), mesh_dim_names=("dp",))
+    x = distribute_tensor(logits.to("tt"), mesh, [Shard(0)]).requires_grad_(True)
+    t = distribute_tensor(target.to("tt"), mesh, [Shard(0)])
+
+    def loss(a, b):
+        return F.cross_entropy(a, b, ignore_index=_IGNORE, reduction=reduction)
+
+    ops: set[str] = set()
+    torch._dynamo.reset()
+    with post_aot_fx_hook(
+        lambda gm: ops.update(
+            str(nd.target) for nd in gm.graph.nodes if nd.op == "call_function"
+        )
+    ):
+        out = torch.compile(loss, backend="tt", fullgraph=True, options=_OPT[mode])(
+            x, t
+        )
+        out.backward()
+    torch._dynamo.reset()
+    assert _fused(ops), sorted(ops)
+    # The Partial -> Replicate reduce of the loss happens in DTensor, outside the compiled graph.
+    torch.testing.assert_close(
+        out.full_tensor().cpu().float(), ref_loss, atol=0.05, rtol=0.02
+    )
+    assert x.grad.placements == (Shard(0),), x.grad.placements
+    assert _pcc(x.grad.full_tensor().cpu(), ref_grad) >= 0.99
+
+
 def test_nll_loss_rejects_rank_1() -> None:
     """Unbatched `[C]` logits reach `nll_loss_forward` with rank 1; the lowering says so instead of indexing."""
     with pytest.raises(Exception, match="expected \\[rows x C\\]"):
