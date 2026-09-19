@@ -153,16 +153,22 @@ class TTProcessGroup(dist.ProcessGroup):
         return FakeWork()
 
     def allreduce(self, tensors, opts):
-        """In-place elementwise sum over this group's mesh axis (emits
+        """In-place elementwise reduce over this group's mesh axis (emits
         `ttir.all_reduce`). DTensor's `Partial → Replicate` redistribute calls
-        this. SUM only — the default Partial reduce_op.
+        this: SUM for `Partial("sum")`, AVG for `Partial("avg")` (what torch's
+        loss strategies emit for `reduction="mean"`). AVG is the sum scaled by
+        the group size, the runtime has no mean collective.
         """
-        if opts.reduceOp != dist.ReduceOp.SUM:
+        # `ReduceOp` only compares equal from its own side, so no `in` over the enum.
+        average = opts.reduceOp == dist.ReduceOp.AVG
+        if not average and opts.reduceOp != dist.ReduceOp.SUM:
             raise NotImplementedError(
-                f"tt allreduce: only ReduceOp.SUM is supported, got {opts.reduceOp}"
+                f"tt allreduce: only ReduceOp.SUM and ReduceOp.AVG are supported, got {opts.reduceOp}"
             )
         for t in tensors:
             _native.allreduce_into(t, self.cluster_axis)
+            if average:
+                t.copy_(t.div(self.size()))
         return FakeWork()
 
 

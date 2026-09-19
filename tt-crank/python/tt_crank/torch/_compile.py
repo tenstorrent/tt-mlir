@@ -32,6 +32,7 @@ import torch
 import torch.fx
 from torch._decomp import core_aten_decompositions, get_decompositions
 from torch._dynamo.backends.common import aot_module_simplified
+from torch._functorch.partitioners import default_partition
 from torch._subclasses.fake_tensor import unset_fake_temporarily
 
 from . import _native
@@ -970,6 +971,170 @@ def _(
     return mb.where(picked, grad, mb.zeros_like(log_probs, list(log_probs.shape)))
 
 
+# aten's cross_entropy is `_log_softmax` + `nll_loss_forward`, its backward `nll_loss_backward` +
+# `_log_softmax_backward_data`: four passes over the [rows x C] logits, two of them f32 in torch's
+# decompositions. ttml has one kernel each way: cross_entropy_fw (per-row loss from logits and integer
+# targets) and cross_entropy_bw ((softmax - onehot) * grad). The custom ops are their graph form;
+# _fuse_cross_entropy rewrites the aten pattern onto them in the joint graph, so aot saves the logits
+# and the row mask instead of the log-probabilities. The aten lowerings below stay as the fallback.
+@torch.library.custom_op("tt_crank::cross_entropy_fw", mutates_args=())
+def _cross_entropy_fw(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    log_probs = torch.log_softmax(logits.float(), dim=-1)
+    return -log_probs.gather(1, target.long().unsqueeze(1)).squeeze(1).to(logits.dtype)
+
+
+@_cross_entropy_fw.register_fake
+def _(logits, target):
+    return logits.new_empty(logits.shape[:-1])
+
+
+@torch.library.custom_op("tt_crank::cross_entropy_bw", mutates_args=())
+def _cross_entropy_bw(
+    grad: torch.Tensor, logits: torch.Tensor, target: torch.Tensor
+) -> torch.Tensor:
+    onehot = torch.nn.functional.one_hot(target.long(), logits.shape[-1])
+    return ((torch.softmax(logits.float(), dim=-1) - onehot) * grad.float()).to(
+        logits.dtype
+    )
+
+
+@_cross_entropy_bw.register_fake
+def _(grad, logits, target):
+    return torch.empty_like(logits)
+
+
+_CROSS_ENTROPY_FW = torch.ops.tt_crank.cross_entropy_fw.default
+_CROSS_ENTROPY_BW = torch.ops.tt_crank.cross_entropy_bw.default
+
+
+@_lowering(_CROSS_ENTROPY_FW)
+@_skip_prepare(_CROSS_ENTROPY_FW)
+def _(mb, logits, target):
+    return mb.cross_entropy_fw(logits, target)
+
+
+@_lowering(_CROSS_ENTROPY_BW)
+@_skip_prepare(_CROSS_ENTROPY_BW)
+def _(mb, grad, logits, target):
+    return mb.cross_entropy_bw(grad, logits, target)
+
+
+def _fake_call(target, args, kwargs):
+    """`target(*args, **kwargs)` on the fake tensors behind `args`, for a new node's meta["val"]."""
+    vals = [a.meta["val"] if isinstance(a, torch.fx.Node) else a for a in args]
+    with torch._guards.detect_fake_mode(vals):
+        return target(*vals, **kwargs)
+
+
+def _fuse_cross_entropy(graph: torch.fx.Graph) -> bool:
+    """Rewrite `_log_softmax` + `nll_loss_forward` (and the matching backward pair) onto the ttml
+    cross_entropy_fw / cross_entropy_bw ops. Only the shapes the kernels take: [rows x C] logits with
+    the class dim last, no class weights, mean or sum reduction (the backward kernel takes one grad
+    for all rows). ignore_index rows are masked around the kernels, which know no ignore_index."""
+    changed = False
+    for fw in list(graph.nodes):
+        if fw.target is not _aten.nll_loss_forward.default:
+            continue
+        log_probs, target, weight, reduction, ignore_index = fw.args
+        lsm = log_probs
+        if (
+            weight is not None
+            or reduction == _NLL_REDUCTION_NONE
+            or lsm.target is not _aten._log_softmax.default
+            or len(lsm.meta["val"].shape) != 2
+            or lsm.args[1] not in (1, -1)
+            or lsm.meta["val"].dtype is not torch.bfloat16
+        ):
+            continue
+        logits = lsm.args[0]
+        loss_users = [
+            u for u in fw.users if u.target is operator.getitem and u.args[1] == 0
+        ]
+        weight_users = [
+            u for u in fw.users if u.target is operator.getitem and u.args[1] == 1
+        ]
+        bws = [
+            u
+            for u in lsm.users
+            if u.target is _aten.nll_loss_backward.default and u.args[1] is lsm
+        ]
+        if len(bws) > 1 or any(
+            bw.args[2] is not target or bw.args[3] is not None for bw in bws
+        ):
+            continue
+        # One backward consumer at most, and it must be the matching _log_softmax_backward_data.
+        lsm_bws = []
+        for bw in bws:
+            lsm_bws = [u for u in bw.users]
+            if (
+                len(lsm_bws) != 1
+                or lsm_bws[0].target is not _aten._log_softmax_backward_data.default
+            ):
+                break
+        else:
+            with graph.inserting_before(fw):
+
+                def emit(target, *args, **kwargs):
+                    node = graph.call_function(target, args, kwargs)
+                    node.meta["val"] = _fake_call(target, args, kwargs)
+                    return node
+
+                dtype = fw.meta["val"][0].dtype
+                valid = emit(_aten.ne.Scalar, target, ignore_index)
+                valid_f = emit(_aten._to_copy.default, valid, dtype=dtype)
+                valid_i = emit(
+                    _aten._to_copy.default, valid, dtype=target.meta["val"].dtype
+                )
+                clamped = emit(_aten.mul.Tensor, target, valid_i)
+                # Select, not multiply: a non-finite loss in an ignored row must not reach the sum.
+                per_row = emit(_CROSS_ENTROPY_FW, logits, clamped)
+                rows = emit(
+                    _aten.where.self,
+                    valid,
+                    per_row,
+                    emit(_aten.full_like.default, per_row, 0.0),
+                )
+                total_weight = emit(_aten.sum.dim_IntList, valid_f, [0])
+                loss = emit(_aten.sum.dim_IntList, rows, [0])
+                if reduction == _NLL_REDUCTION_MEAN:
+                    loss = emit(_aten.div.Tensor, loss, total_weight)
+                    # If no row is kept, torch's gradient is 0, not NaN; the clamp keeps the division finite.
+                    grad_denominator = emit(_aten.clamp_min.default, total_weight, 1.0)
+            for u in loss_users:
+                u.replace_all_uses_with(loss)
+            for u in weight_users:
+                u.replace_all_uses_with(total_weight)
+            for bw, lsm_bw in zip(bws, lsm_bws):
+                with graph.inserting_before(bw):
+                    grad = bw.args[0]
+                    if reduction == _NLL_REDUCTION_MEAN:
+                        grad = emit(_aten.div.Tensor, grad, grad_denominator)
+                    d_rows = emit(_CROSS_ENTROPY_BW, grad, logits, clamped)
+                    keep = emit(
+                        _aten.expand.default,
+                        emit(_aten.unsqueeze.default, valid, 1),
+                        list(logits.meta["val"].shape),
+                    )
+                    d_logits = emit(
+                        _aten.where.self,
+                        keep,
+                        d_rows,
+                        emit(_aten.full_like.default, d_rows, 0.0),
+                    )
+                lsm_bw.replace_all_uses_with(d_logits)
+            changed = True
+    if changed:
+        graph.eliminate_dead_code()
+        graph.lint()
+    return changed
+
+
+def _tt_partition(joint_module: torch.fx.GraphModule, joint_inputs, **kwargs):
+    if _fuse_cross_entropy(joint_module.graph):
+        joint_module.recompile()
+    return default_partition(joint_module, joint_inputs, **kwargs)
+
+
 @_lowering(_aten._to_copy.default)
 @_skip_prepare(_aten._to_copy.default)
 def _(
@@ -1593,6 +1758,7 @@ def tt_backend(
         fw_compiler=fw_compiler,
         bw_compiler=bw_compiler,
         decompositions=_TT_DECOMPOSITIONS,
+        partition_fn=_tt_partition,
     )
 
 
