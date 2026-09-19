@@ -172,3 +172,70 @@ TEST(EngineModuleBuilderTest, CompositesInterleavedWithMatmuls) {
     EXPECT_LT(m2_pos, add2);
     EXPECT_EQ(result.program->num_inputs, 3U);
 }
+
+namespace {
+
+tt::crank::TensorTypeSpec bf16_spec(std::vector<std::int64_t> shape) {
+    return tt::crank::TensorTypeSpec{std::move(shape), ::tt::target::DataType::BFloat16};
+}
+
+int64_t last_dim(mlir::Value v) {
+    return mlir::cast<mlir::RankedTensorType>(v.getType()).getShape().back();
+}
+
+template <typename Op> int count_ops(mlir::ModuleOp module) {
+    int n = 0;
+    module.walk([&](Op) { ++n; });
+    return n;
+}
+
+} // namespace
+
+// ttml's sdpa kernels refuse Q/K whose head_dim is not tile-aligned. build_sdpa_fw/bw zero-pad Q and K to the
+// next multiple of 32 around the composites and slice dQ/dK back, so the aten-facing shapes stay D = 40.
+TEST(EngineModuleBuilderTest, SdpaPadsHeadDimForTtml) {
+    const std::vector<std::int64_t> qkv{1, 8, 32, 40};
+    auto mb = ModuleBuilder::init({bf16_spec(qkv), bf16_spec(qkv), bf16_spec(qkv), bf16_spec(qkv)});
+    auto a = mb.args();
+    auto [out, lse] = tt::crank::build_sdpa_fw(mb, a[0], a[1], a[2], /*is_causal=*/true, std::nullopt, {});
+    EXPECT_EQ(last_dim(out), 40);
+    EXPECT_EQ(mlir::cast<mlir::RankedTensorType>(lse.getType()).getShape().size(), 3U);
+    auto [dq, dk, dv] =
+        tt::crank::build_sdpa_bw(mb, a[3], out, a[0], a[1], a[2], lse, /*is_causal=*/true, std::nullopt, {});
+    EXPECT_EQ(last_dim(dq), 40);
+    EXPECT_EQ(last_dim(dk), 40);
+    EXPECT_EQ(last_dim(dv), 40);
+    auto module_op = std::move(mb).finalize({dq, dk, dv});
+
+    // The composites see padded Q/K (64) and unpadded V (40); the backward's dQ/dK results are padded too.
+    module_op->walk([&](mlir::tt::ttcore::CompositeOp op) {
+        const bool forward = op.getCompositeName() == "sdpa_fw";
+        const unsigned q_idx = forward ? 0 : 2;
+        EXPECT_EQ(last_dim(op.getInputs()[q_idx]), 64) << op.getCompositeName().str();
+        EXPECT_EQ(last_dim(op.getInputs()[q_idx + 1]), 64) << op.getCompositeName().str();
+        EXPECT_EQ(last_dim(op.getInputs()[q_idx + 2]), 40) << op.getCompositeName().str();
+        if (forward) {
+            EXPECT_EQ(last_dim(op.getResults()[0]), 40);
+        } else {
+            EXPECT_EQ(last_dim(op.getResults()[0]), 64);
+            EXPECT_EQ(last_dim(op.getResults()[1]), 64);
+            EXPECT_EQ(last_dim(op.getResults()[2]), 40);
+        }
+    });
+    EXPECT_EQ(count_ops<mlir::tt::ttcore::CompositeOp>(*module_op), 2);
+    EXPECT_EQ(count_ops<mlir::tt::ttir::PadOp>(*module_op), 4); // Q and K, forward and backward
+
+    // Inlined decomposition path compiles with the padded shapes.
+    tt::crank::CompiledProgram &program = *tt::crank::compile_ttir_to_ttnn_flatbuffer(*module_op).program;
+    EXPECT_EQ(program.num_inputs, 4U);
+}
+
+TEST(EngineModuleBuilderTest, SdpaAlignedHeadDimIsNotPadded) {
+    const std::vector<std::int64_t> qkv{1, 8, 32, 64};
+    auto mb = ModuleBuilder::init({bf16_spec(qkv), bf16_spec(qkv), bf16_spec(qkv)});
+    auto a = mb.args();
+    auto [out, lse] = tt::crank::build_sdpa_fw(mb, a[0], a[1], a[2], /*is_causal=*/true, std::nullopt, {});
+    auto module_op = std::move(mb).finalize({out});
+    EXPECT_EQ(count_ops<mlir::tt::ttir::PadOp>(*module_op), 0);
+    EXPECT_EQ(count_ops<mlir::tt::ttir::SliceStaticOp>(*module_op), 1); // only the lse column slice
+}
