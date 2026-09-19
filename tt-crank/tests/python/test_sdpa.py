@@ -550,9 +550,10 @@ def test_sdpa_gqa_peel_feeds_unexpanded_kv() -> None:
 
     graphs: list = []
     with post_aot_fx_hook(graphs.append):
-        torch.compile(sdpa, backend="tt", fullgraph=True, options=_OPT["compile"])(
-            q, k, v
-        ).backward()
+        out = torch.compile(
+            sdpa, backend="tt", fullgraph=True, options=_OPT["compile"]
+        )(q, k, v)
+        out.backward()
     torch._dynamo.reset()
     assert len(graphs) == 2, [g.graph for g in graphs]
     seen = set()
@@ -576,6 +577,14 @@ def test_sdpa_gqa_peel_feeds_unexpanded_kv() -> None:
         ]
         assert not five_d, [n.format_node() for n in five_d]
     assert seen == {"fw", "bw"}
+    # Same rewrite on CPU: the peeled path must match numerically, not only in shape.
+    refs = [t.detach().cpu().clone().requires_grad_(True) for t in (q, k, v)]
+    ref_out = sdpa(*refs)
+    ref_out.backward()
+    assert torch.allclose(
+        out.detach().cpu().float(), ref_out.float(), rtol=2e-2, atol=1e-1
+    ), (out, ref_out)
+    _check_grads([q, k, v], refs)
     assert k.grad.shape == (1, heads_kv, _S, _E) and v.grad.shape == (
         1,
         heads_kv,
