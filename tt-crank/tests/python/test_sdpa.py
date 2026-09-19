@@ -209,7 +209,8 @@ _FUSED_CASES = {
     "gqa": ((1, 8, 2, 32, 64), True, None, _G3, _PCC, None),
     "gqa-noncausal": ((1, 8, 2, 32, 64), False, None, _G3, _PCC, None),
     "custom-scale": ((1, 8, 8, 32, 64), True, 0.5, _G3, _PCC, None),
-    # ttml scales by 1/sqrt(head_dim padded to 32); tight PCC catches a missing fold.
+    # head_dim not tile-aligned: Q/K are zero-padded to 64/96 for the kernel, which scales by 1/sqrt(padded D);
+    # tight PCC catches a missing fold or a missing dQ/dK slice.
     "head-dim-40": ((1, 8, 8, 32, 40), True, None, _G3, 0.999, None),
     "head-dim-80-noncausal": ((1, 8, 8, 32, 80), False, None, _G3, 0.999, None),
     "grad-q-only": ((1, 8, 8, 32, 64), True, None, (True, False, False), _PCC, None),
@@ -438,6 +439,94 @@ def test_sdpa_multi_chip_causal_backward(tt_pg, parallel: str, mode: str) -> Non
         assert (
             _pcc(got.grad.full_tensor().cpu(), ref.grad) >= _PCC
         ), f"grad_{name} mismatch"
+
+
+def _main_func(ttir: str) -> str:
+    """`@main` of a TTIR dump, without the private decomposition functions that follow it."""
+    return ttir.split("func.func private")[0]
+
+
+@pytest.mark.parametrize(
+    "opt", [pytest.param(1, marks=_OPT1_ON_SIM), 0], ids=["opt1", "opt0"]
+)
+@pytest.mark.parametrize("case", list(_FUSED_CASES), ids=list(_FUSED_CASES))
+def test_sdpa_fused_lowering_ir(
+    case: str, opt: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every fused case lowers to one sdpa_fw and one sdpa_bw composite with the expected mask handling; OPT 1
+    promotes them to the ttml kernels, OPT 0 inlines the decomposition."""
+    monkeypatch.setattr(_artifacts, "_artifacts_root", lambda: tmp_path)
+    (
+        (batch, heads_q, heads_kv, seq, head_dim),
+        is_causal,
+        scale,
+        needs_grad,
+        _,
+        make_mask,
+    ) = _FUSED_CASES[case]
+    kw = dict(is_causal=is_causal, scale=scale, enable_gqa=heads_kv != heads_q)
+    if make_mask is not None:
+        kw["attn_mask"] = make_mask().to("tt")
+    q = (
+        torch.randn(batch, heads_q, seq, head_dim, dtype=_DT)
+        .to("tt")
+        .requires_grad_(needs_grad[0])
+    )
+    k = (
+        torch.randn(batch, heads_kv, seq, head_dim, dtype=_DT)
+        .to("tt")
+        .requires_grad_(needs_grad[1])
+    )
+    v = (
+        torch.randn(batch, heads_kv, seq, head_dim, dtype=_DT)
+        .to("tt")
+        .requires_grad_(needs_grad[2])
+    )
+
+    torch._dynamo.reset()
+    with collect_artifacts("sdpa_lowering"):
+        torch.compile(
+            lambda a, b, c: F.scaled_dot_product_attention(a, b, c, **kw).sum(),
+            backend="tt",
+            fullgraph=True,
+            options={CompileOption.OPT_LEVEL: opt},
+        )(q, k, v).backward()
+    (out_dir,) = list(tmp_path.iterdir())
+    fw_ttir = _main_func((out_dir / "graph_0_forward.ttir.mlir").read_text())
+    bw_ttir = _main_func((out_dir / "graph_1_backward.ttir.mlir").read_text())
+    fw_ttnn = (out_dir / "graph_0_forward.ttnn.mlir").read_text()
+    bw_ttnn = (out_dir / "graph_1_backward.ttnn.mlir").read_text()
+
+    # One composite each way, typed by how the mask reaches ttml (see sdpa_mask in ttir_module_builder.cpp).
+    mask_type = "causal" if is_causal else "arbitrary"
+    assert fw_ttir.count('composite_name = "sdpa_fw"') == 1, fw_ttir
+    assert bw_ttir.count('composite_name = "sdpa_bw"') == 1, bw_ttir
+    for ttir in (fw_ttir, bw_ttir):
+        assert f"mask_type = #ttcore.attention_mask_type<{mask_type}>" in ttir, ttir
+    if is_causal:
+        # The kernel does causal itself: no mask tensor, nothing to rebuild or zero.
+        assert (
+            "ttir.ones" not in fw_ttir
+            and "ttir.eq" not in fw_ttir
+            and "ttir.max" not in fw_ttir
+        ), fw_ttir
+    elif make_mask is None:
+        # Stand-in for ttml's broken `none`: an all-ones keep-mask, no bool rebuild.
+        assert "ttir.ones" in fw_ttir and "ttir.eq" not in fw_ttir, fw_ttir
+    else:
+        # Bool mask: rebuilt from torch's 0/-inf float (eq), rows keeping no key detected (max) and zeroed (multiply).
+        for op in ("ttir.eq", "ttir.max", "ttir.multiply"):
+            assert op in fw_ttir and op in bw_ttir, (op, fw_ttir)
+
+    assert "composite" not in fw_ttnn and "composite" not in bw_ttnn
+    if opt == 1:
+        assert (
+            "ttnn.sdpa_fw" in fw_ttnn and "ttnn.sdpa_bw" in bw_ttnn
+        ), "composites not promoted to the ttml kernels"
+        assert "ttnn.softmax" not in fw_ttnn
+    else:
+        assert "ttnn.sdpa_fw" not in fw_ttnn and "ttnn.sdpa_bw" not in bw_ttnn
+        assert "ttnn.softmax" in fw_ttnn, "decomposition not inlined"
 
 
 @_OPT1_ON_SIM
