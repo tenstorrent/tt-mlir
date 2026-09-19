@@ -135,6 +135,7 @@ llvm::SmallVector<mlir::Value, 4> ModuleBuilder::create_composite(llvm::StringRe
                                                     builder_.getDictionaryAttr(attributes));
     return llvm::SmallVector<mlir::Value, 4>(op.getResults().begin(), op.getResults().end());
 }
+
 mlir::OwningOpRef<mlir::ModuleOp> ModuleBuilder::finalize(llvm::ArrayRef<mlir::Value> outputs) && {
     builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange(outputs));
 
