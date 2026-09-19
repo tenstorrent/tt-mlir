@@ -111,23 +111,65 @@ def _(
     return dq, dk, dv, None
 
 
-def _sdpa_overrideable_backward_sharding(*args, scale=None):
-    """Batch- or head-sharded grad_out/q/k/v/out/logsumexp give grads sharded the same way, no gather."""
-    assert not args[5][
+def _sdpa_overrideable_backward_sharding(
+    grad_out,
+    query,
+    key,
+    value,
+    attn_bias,
+    grad_input_mask,
+    out,
+    logsumexp,
+    cum_seq_q,
+    cum_seq_k,
+    max_q,
+    max_k,
+    dropout_p,
+    is_causal,
+    philox_seed,
+    philox_offset,
+    scale=None,
+):
+    """DTensor strategy for `_scaled_dot_product_fused_attention_overrideable_backward`.
+
+    grad_out, q, k, v, out and logsumexp carry one common placement (Replicate, Shard(0) = batch,
+    Shard(1) = heads) and dq/dk/dv come back with that same placement, so nothing is gathered. The
+    optional mask and the 0-D philox tensors stay replicated; non-tensor args get None.
+
+    Shard(0) row, inputs in schema order:
+        [S0, S0, S0, S0, R, -, S0, S0, -, -, -, -, -, -, R, R]  ->  outputs [S0, S0, S0, -]
+    """
+    assert not grad_input_mask[
         3
     ], "DTensor SDPA backward strategy does not support a grad w.r.t. attn_bias"
-    parallel_args = (0, 1, 2, 3, 6, 7)  # the 0-D philox tensors stay Replicate
 
-    def combo(placement):
+    def placed(arg, placement):
+        # Tensor args arrive as DTensor specs (have `placements`); undefined/None tensors and scalars get None.
+        return placement if hasattr(arg, "placements") else None
+
+    def row(shard):
+        replicated = Replicate()
         inputs = [
-            None
-            if not hasattr(arg, "placements")
-            else (placement if idx in parallel_args else Replicate())
-            for idx, arg in enumerate(args)
+            shard,  # grad_out
+            shard,  # query
+            shard,  # key
+            shard,  # value
+            placed(attn_bias, replicated),
+            None,  # grad_input_mask
+            shard,  # out
+            shard,  # logsumexp
+            placed(cum_seq_q, replicated),
+            placed(cum_seq_k, replicated),
+            None,  # max_q
+            None,  # max_k
+            None,  # dropout_p
+            None,  # is_causal
+            placed(philox_seed, replicated),
+            placed(philox_offset, replicated),
         ]
-        return ([placement, placement, placement, None], inputs)
+        return ([shard, shard, shard, None], inputs)  # dq, dk, dv, no attn_bias grad
 
-    return [combo(Replicate()), combo(Shard(0)), combo(Shard(1))]
+    return [row(Replicate()), row(Shard(0)), row(Shard(1))]
 
 
 def _index_copy_sharding(self, dim, index, source):
