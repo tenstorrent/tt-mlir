@@ -1677,6 +1677,22 @@ double sdpa_padded_scale(mlir::Value query) {
     return 1.0 / std::sqrt(as<double>((d + k_sdpa_tile_width - 1) / k_sdpa_tile_width * k_sdpa_tile_width));
 }
 
+// ttml refuses Q/K whose head_dim is not tile-aligned (V may be): zero-pad them to the next multiple of 32.
+// Q K^T is unchanged by zero columns and the kernel's 1/sqrt(padded D) is what sdpa_fold_scale already
+// assumes, so a D=40 model reaches the kernel instead of the inlined decomposition. dQ/dK come back padded
+// and are sliced in build_sdpa_bw.
+mlir::Value sdpa_pad_head_dim(ModuleBuilder &mb, mlir::Value x) {
+    const int64_t d = shape_of(x)[3];
+    const int64_t padded = (d + k_sdpa_tile_width - 1) / k_sdpa_tile_width * k_sdpa_tile_width;
+    return d == padded ? x : build_pad(mb, x, {0, 0, 0, 0}, {0, 0, 0, padded - d}, 0.0);
+}
+
+mlir::Value sdpa_unpad_head_dim(ModuleBuilder &mb, mlir::Value grad, mlir::Value like) {
+    const auto s = shape_of(like);
+    return shape_of(grad)[3] == s[3] ? grad
+                                     : build_slice(mb, grad, {0, 0, 0, 0}, {s[0], s[1], s[2], s[3]}, {1, 1, 1, 1});
+}
+
 mlir::Value sdpa_fold_scale(ModuleBuilder &mb, mlir::Value query, std::optional<double> scale) {
     const double alpha = scale.value_or(1.0 / std::sqrt(as<double>(shape_of(query)[3]))) / sdpa_padded_scale(query);
     return std::fabs(alpha - 1.0) <= 1e-9 ? query : scale_tensor(mb, query, alpha);
@@ -1840,7 +1856,8 @@ llvm::SmallVector<mlir::Value, 4> sdpa_bw_decomposition(ModuleBuilder &mb, mlir:
 std::pair<mlir::Value, mlir::Value> build_sdpa_fw(ModuleBuilder &mb, mlir::Value query, mlir::Value key,
                                                   mlir::Value value, bool is_causal, std::optional<double> scale,
                                                   mlir::Value attn_mask) {
-    query = sdpa_fold_scale(mb, query, scale);
+    query = sdpa_pad_head_dim(mb, sdpa_fold_scale(mb, query, scale)); // fold first: alpha needs the real D
+    key = sdpa_pad_head_dim(mb, key);
     auto [mask, row_valid, mask_type] = sdpa_mask(mb, query, is_causal, attn_mask);
     auto q = shape_of(query);
     llvm::SmallVector<mlir::Type, 2> result_types{
@@ -1868,13 +1885,11 @@ std::tuple<mlir::Value, mlir::Value, mlir::Value> build_sdpa_bw(ModuleBuilder &m
     mlir::Value lse = mb.insert_typecast(build_reshape(mb, logsumexp, {q[0], q[1], q[2], 1}), mb.attrs().getF32Type());
     lse = build_broadcast(mb, lse, {q[0], q[1], q[2], k_sdpa_tile_width});
     auto [mask, row_valid, mask_type] = sdpa_mask(mb, query, is_causal, attn_mask);
-    llvm::SmallVector<mlir::Type, 3> result_types{query.getType(), key.getType(), value.getType()};
-    llvm::SmallVector<mlir::Value, 8> inputs{sdpa_zero_invalid_rows(mb, grad_output, row_valid),
-                                             attn_output,
-                                             sdpa_fold_scale(mb, query, scale),
-                                             key,
-                                             value,
-                                             lse};
+    const mlir::Value query_in = sdpa_pad_head_dim(mb, sdpa_fold_scale(mb, query, scale));
+    const mlir::Value key_in = sdpa_pad_head_dim(mb, key);
+    llvm::SmallVector<mlir::Type, 3> result_types{query_in.getType(), key_in.getType(), value.getType()};
+    llvm::SmallVector<mlir::Value, 8> inputs{
+        sdpa_zero_invalid_rows(mb, grad_output, row_valid), attn_output, query_in, key_in, value, lse};
     if (mask) {
         inputs.push_back(mask);
     }
@@ -1882,8 +1897,9 @@ std::tuple<mlir::Value, mlir::Value, mlir::Value> build_sdpa_bw(ModuleBuilder &m
                                        [mask_type](ModuleBuilder &body, mlir::ValueRange args) {
                                            return sdpa_bw_decomposition(body, args, mask_type);
                                        });
-    // dL/dQ = alpha * dL/dQ' for Q' = alpha * Q.
-    return {sdpa_fold_scale(mb, results[0], scale), results[1], results[2]};
+    // Padded dQ/dK columns are gradients w.r.t. the zero padding: drop them. dL/dQ = alpha * dL/dQ' for Q' = alpha * Q.
+    return {sdpa_fold_scale(mb, sdpa_unpad_head_dim(mb, results[0], query), scale),
+            sdpa_unpad_head_dim(mb, results[1], key), results[2]};
 }
 
 } // namespace tt::crank
