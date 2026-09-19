@@ -1682,10 +1682,40 @@ mlir::Value sdpa_fold_scale(ModuleBuilder &mb, mlir::Value query, std::optional<
     return std::fabs(alpha - 1.0) <= 1e-9 ? query : scale_tensor(mb, query, alpha);
 }
 
-// ttml `arbitrary` takes a [1, 1, S, S] keep-mask (non-zero = attend) in the q/k/v element type. `attn_mask`
-// is one S x S bool keep-mask (or the 0/-inf float mask torch makes of one) with leading dims of 1; it is
-// reshaped, not broadcast, so per-batch/head or singleton S dims are rejected upstream. Non-causal
-// without a mask gets all-ones: ttml's `none` kernel is broken.
+// Attention masks, from torch to ttml.
+//
+// torch side. `F.scaled_dot_product_attention(q, k, v, attn_mask, is_causal)` allows either `is_causal=True` or
+// an `attn_mask` (never both). A bool mask means keep (True) / drop (False); a float mask is added to the logits.
+// Before the fused op runs, torch's sdpa composite converts a bool mask into a float one: True -> 0.0,
+// False -> -inf. So this builder only ever sees floats; the choice stub in sdpa.cpp remembers whether the
+// original was bool (`g_sdpa_mask_from_bool`) and the eager gate (`ttml_sdpa_supported`) already rejected
+// anything below marked unsupported, routing it to torch's MATH decomposition.
+//
+// ttml side. Two mask types: `causal`, built into the kernel (no tensor, only the lower triangle attends), and
+// `arbitrary`, one [1, 1, S, S] keep-mask tensor in the q/k/v dtype, non-zero = attend, shared by every batch
+// and head. There is a `none` type but its kernel is broken, so it is never emitted.
+//
+// What this function does, for S = 4:
+//   is_causal=True, no attn_mask (Llama with the `sdpa_causal` trick, right padding)
+//     torch: nothing.  crank: nothing.  ttml: `causal`.
+//   non-causal, no attn_mask
+//     crank: builds an all-ones [1, 1, 4, 4].  ttml: `arbitrary` (stand-in for the broken `none`).
+//   bool attn_mask of S x S with leading 1s: [4, 4], [1, 4, 4] or [1, 1, 4, 4] (HF padded-causal at batch 1)
+//       True  False False False            0    -inf -inf -inf                 1 0 0 0
+//       True  True  False False   torch    0    0    -inf -inf   crank         1 1 0 0
+//       True  True  True  False   ----->   0    0    0    -inf   ----->        1 1 1 0   -> ttml `arbitrary`
+//       True  True  True  False            0    0    0    -inf   keep=(m==0)   1 1 1 0
+//     (key 3 is a pad token)               float, what we receive              cast to q dtype, [1, 1, 4, 4]
+//   bool mask with a row that keeps nothing, e.g. left padding:  row 0 = `0 0 0 0`
+//     ttml returns NaN for that row, torch returns zeros. crank flips the row to all-ones for the kernel
+//     (`row_valid` = per-row max of the keep-mask, 0 for such rows) and multiplies the output (forward) and the
+//     incoming gradient (backward) by `row_valid`, so those rows come out as zeros like torch.
+//
+// Unsupported by ttml, caught upstream by `ttml_sdpa_supported`, never reach here:
+//   - one mask per batch or per head, [B > 1, 1, S, S] / [1, H > 1, S, S]: ttml has a single mask for all.
+//   - additive float masks (not from a bool): there is no keep/drop equivalent.
+//   - singleton S dims like [1, 1, 1, S] or [1, 1, S, 1]: the mask is reshaped, not broadcast, numel must be S * S.
+//   - attn_mask together with is_causal: torch forbids it; TT_FATAL below is only a guard for direct callers.
 struct SdpaMask {
     mlir::Value mask;
     mlir::Value row_valid; // [1, 1, S, 1] 1/0, set when a mask row could be fully masked
