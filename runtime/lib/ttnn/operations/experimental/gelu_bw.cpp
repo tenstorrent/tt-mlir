@@ -27,8 +27,8 @@ void run(const ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOp *op,
           ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpType::GeluBW,
       "Expected GeluBW operation");
 
-  // tt-metal replaced the `approximate` string with a GeluVariant enum and
-  // moved gelu_bw out of the experimental namespace.
+  // tt-metal replaced the `approximate` string with a GeluVariant enum and moved gelu_bw out of
+  // the experimental namespace; it now returns one optional per differentiated input.
   using ::ttnn::operations::unary::GeluVariant;
   const std::string approximate =
       op->approximate() ? op->approximate()->str() : "none";
@@ -39,7 +39,6 @@ void run(const ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOp *op,
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
 
-  // gelu_bw now returns a vector of optionals, one per differentiated input.
   std::vector<std::optional<::ttnn::Tensor>> grads =
       ::ttnn::gelu_bw(grad, input, variant, memoryConfig);
   LOG_ASSERT(!grads.empty() && grads.front().has_value(),

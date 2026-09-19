@@ -16,8 +16,6 @@
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 
 #include "ttnn/operations/eltwise/unary/common/unary_op_utils.hpp"
-#include "ttnn/operations/eltwise/unary/unary.hpp"
-#include "ttnn/operations/eltwise/unary_backward/unary_backward.hpp"
 #include "ttnn/operations/experimental/ccl/moe_compute/moe_compute.hpp"
 #include "ttnn/operations/experimental/ccl/moe_compute/moe_compute_utils.hpp"
 #include "ttnn/operations/experimental/transformer/dit_rms_norm_unary_fused/dit_rms_norm_unary_fused.hpp"
@@ -1883,18 +1881,16 @@ llvm::Expected<OpConstraints> OpModel<GeluBackwardOp>::getOpConstraints(
       initialState ? std::optional<MockAllocatorState>(*initialState)
                    : std::nullopt;
 
+  // Create query closure
   // tt-metal moved gelu_bw out of the experimental namespace and replaced the
   // `approximate` string with a GeluVariant enum.
-  const ::ttnn::operations::unary::GeluVariant variant =
+  const ::ttnn::operations::unary::GeluVariant geluVariant =
       approximate == "tanh" ? ::ttnn::operations::unary::GeluVariant::TANH
                             : ::ttnn::operations::unary::GeluVariant::ACCURATE;
-
-  // Create query closure
   auto query = [=]() {
-    return QUERY_OP_CONSTRAINTS_WITH_STATE(::ttnn::gelu_bw, device,
-                                           initialStateOpt, inputSpecA,
-                                           inputSpecB, variant,
-                                           outputMemoryConfig);
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        ::ttnn::gelu_bw, device, initialStateOpt, inputSpecA,
+        inputSpecB, geluVariant, outputMemoryConfig);
   };
 
   return operation::getOpConstraintsWithState(inputLayoutA.getContext(), query);
@@ -1922,16 +1918,15 @@ llvm::Expected<size_t> OpModel<GeluBackwardOp>::getOpRuntime(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
+  // Create query closure
   // tt-metal moved gelu_bw out of the experimental namespace and replaced the
   // `approximate` string with a GeluVariant enum.
-  const ::ttnn::operations::unary::GeluVariant variant =
+  const ::ttnn::operations::unary::GeluVariant geluVariant =
       approximate == "tanh" ? ::ttnn::operations::unary::GeluVariant::TANH
                             : ::ttnn::operations::unary::GeluVariant::ACCURATE;
-
-  // Create query closure
   auto query = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::gelu_bw, device, inputSpecA, inputSpecB,
-                            variant, outputMemoryConfig);
+    return QUERY_OP_RUNTIME(::ttnn::gelu_bw, device, inputSpecA,
+                            inputSpecB, geluVariant, outputMemoryConfig);
   };
 
   return operation::getOpRuntime(query);
