@@ -102,3 +102,28 @@ TEST(EngineModuleBuilderTest, CreateCompositeEmitsOpAndDecomposition) {
     EXPECT_NE(program.ttnn_ir().find("ttnn.add"), std::string_view::npos);
     EXPECT_EQ(program.ttnn_ir().find("composite"), std::string_view::npos);
 }
+
+// Two composites with the same name in one module: SymbolTable::insert renames the second decomposition
+// function and the composite references the renamed symbol, so both stay resolvable.
+TEST(EngineModuleBuilderTest, CreateCompositeUniquifiesDecompositionSymbols) {
+    auto mb = ModuleBuilder::init({f32_spec({32, 32}), f32_spec({32, 32})});
+    auto result_type = mb.args()[0].getType();
+    auto add = [](ModuleBuilder &body, mlir::ValueRange args) {
+        return llvm::SmallVector<mlir::Value, 4>{tt::crank::build_add(body, args[0], args[1])};
+    };
+    auto first = mb.create_composite("test_add", mb.args(), {result_type}, {}, add);
+    auto second = mb.create_composite("test_add", {first[0], mb.args()[1]}, {result_type}, {}, add);
+    auto module_op = std::move(mb).finalize({second[0]});
+
+    llvm::SmallVector<std::string, 2> referenced;
+    module_op->walk([&](mlir::tt::ttcore::CompositeOp op) {
+        EXPECT_EQ(op.getCompositeName(), "test_add");
+        referenced.push_back(op.getDecomposition().str());
+        EXPECT_TRUE(mlir::SymbolTable(*module_op).lookup<mlir::func::FuncOp>(op.getDecomposition()));
+    });
+    ASSERT_EQ(referenced.size(), 2U);
+    EXPECT_NE(referenced[0], referenced[1]);
+
+    tt::crank::CompiledProgram &program = *tt::crank::compile_ttir_to_ttnn_flatbuffer(*module_op).program;
+    EXPECT_EQ(program.num_inputs, 2U);
+}
