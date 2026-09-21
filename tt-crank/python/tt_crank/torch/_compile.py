@@ -34,8 +34,6 @@ import torch.fx
 from torch._decomp import core_aten_decompositions, get_decompositions
 from torch._dynamo.backends.common import aot_module_simplified
 from torch._subclasses.fake_tensor import unset_fake_temporarily
-from torch.distributed.tensor import Replicate, Shard
-from torch.distributed.tensor.experimental import register_sharding
 
 from . import _native
 from ._artifacts import Artifact, is_artifacts_dumper_active, register_artifact
@@ -1021,26 +1019,6 @@ def _(mb, logits, target):
 @_skip_prepare(_CROSS_ENTROPY_BW)
 def _(mb, grad, logits, target):
     return mb.cross_entropy_bw(grad, logits, target)
-
-
-# DTensor sees the custom ops when _TTCrossEntropy runs on DTensor inputs (aot traces through the
-# subclass), so they need a sharding strategy. Rows are independent: Shard(0) logits and targets give
-# Shard(0) per-row losses / grads; the backward's single grad is a scalar and stays Replicate. The row
-# sums in _TTCrossEntropy then come out Partial and DTensor reduces them across the mesh.
-@register_sharding(_CROSS_ENTROPY_FW)
-def _cross_entropy_fw_sharding(logits, target):
-    return [
-        ([Replicate()], [Replicate(), Replicate()]),
-        ([Shard(0)], [Shard(0), Shard(0)]),
-    ]
-
-
-@register_sharding(_CROSS_ENTROPY_BW)
-def _cross_entropy_bw_sharding(grad, logits, target):
-    return [
-        ([Replicate()], [Replicate(), Replicate(), Replicate()]),
-        ([Shard(0)], [Replicate(), Shard(0), Shard(0)]),
-    ]
 
 
 class _TTCrossEntropy(torch.autograd.Function):

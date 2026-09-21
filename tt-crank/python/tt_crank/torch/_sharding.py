@@ -96,13 +96,40 @@ def _index_copy_sharding(self, dim, index, source):
     return shardings
 
 
+def _cross_entropy_fw_sharding(logits, target):
+    """`tt_crank::cross_entropy_fw(logits [rows x C], target [rows]) -> [rows]`.
+
+    Rows are independent, so Shard(0) logits and targets give Shard(0) per-row losses. The class
+    dim is never sharded: the kernel's softmax would need the row max and sum exchanged across
+    chips. DTensor redistributes anything else onto one of these two combos.
+    """
+    return [
+        ([Replicate()], [Replicate(), Replicate()]),
+        ([Shard(0)], [Shard(0), Shard(0)]),
+    ]
+
+
+def _cross_entropy_bw_sharding(grad, logits, target):
+    """`tt_crank::cross_entropy_bw(grad [], logits [rows x C], target [rows]) -> [rows x C]`.
+
+    Same row split as the forward; the single grad is a scalar and stays Replicate.
+    """
+    return [
+        ([Replicate()], [Replicate(), Replicate(), Replicate()]),
+        ([Shard(0)], [Replicate(), Shard(0), Shard(0)]),
+    ]
+
+
 def register_sharding_strategies() -> None:
     """Register the tt-specific DTensor sharding strategies on the propagator.
 
     All go through the public `register_sharding`: the overrideable SDPA op (which
-    torch ships a strategy for only in its CUDA-family fused variants) and both the
+    torch ships a strategy for only in its CUDA-family fused variants), both the
     in-place and functional `index_copy` overloads (which appear depending on
-    whether the write is traced (compile) or run eagerly).
+    whether the write is traced (compile) or run eagerly), and the tt_crank
+    cross-entropy custom ops, which DTensor meets when the compile-time
+    _TTCrossEntropy rewrite runs on DTensor inputs. Those ops are defined in
+    `_compile`, so this must run after it is imported.
     """
     aten = torch.ops.aten
     register_sharding(aten._scaled_dot_product_fused_attention_overrideable.default)(
@@ -110,3 +137,6 @@ def register_sharding_strategies() -> None:
     )
     register_sharding(aten.index_copy_.default)(_index_copy_sharding)
     register_sharding(aten.index_copy.default)(_index_copy_sharding)
+    tt_crank = torch.ops.tt_crank
+    register_sharding(tt_crank.cross_entropy_fw.default)(_cross_entropy_fw_sharding)
+    register_sharding(tt_crank.cross_entropy_bw.default)(_cross_entropy_bw_sharding)
