@@ -62,6 +62,16 @@ install(TARGETS tt_crank tt_crank_common TTMLIRCompiler TTMLIRRuntime
         EXCLUDE_FROM_ALL
 )
 
+# wheel: ONNX Runtime plugin EP.
+if(TT_CRANK_BUILD_ONNX)
+    install(TARGETS tt_crank_ort
+        LIBRARY
+            DESTINATION tt_crank/lib
+            COMPONENT wheel_payload
+            EXCLUDE_FROM_ALL
+    )
+endif()
+
 # wheel: tt-metal's libs and tracy CLI binaries, the same set tt-mlir installs
 # (third_party/CMakeLists.txt).
 install(CODE "file(INSTALL ${TTNN_LIBRARY_PATH} ${TTNN_PY_LIBRARY_PATH}

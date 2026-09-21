@@ -14,3 +14,8 @@ graphviz
 networkx==3.1
 pydantic==2.9.2
 websockets==16.0
+
+# Must match ORT_API_VERSION in third_party/onnx.
+onnxruntime>=1.30
+# bf16 device tensors in tt_crank.onnx.
+ml_dtypes

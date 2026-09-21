@@ -116,6 +116,10 @@ if(TT_CRANK_BUILD_PYTHON_EXT)
     add_subdirectory(torch)
 endif()
 
+if (TT_CRANK_BUILD_ONNX)
+    add_subdirectory(onnx)
+endif()
+
 OPTION(TT_CRANK_BUILD_MAIN "If set, builds main.cpp for manual testing." OFF)
 if (TT_CRANK_BUILD_MAIN)
     add_executable(crank_main playground/main.cpp)

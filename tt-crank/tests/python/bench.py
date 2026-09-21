@@ -3,7 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Benchmark-suite-specific fixtures, result recording, and reporting hooks.
+Benchmark plumbing shared by the torch and onnx suites: result types, the
+per-test report, the common CLI options and fixtures, and the reporting hooks.
+Frontend-specific pieces (torch's --mode, profiler and LLM flags) stay in the
+suite's own benchmarks/conftest.py.
 """
 
 from __future__ import annotations
@@ -16,12 +19,53 @@ import socket
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import pytest
-import torch
 
-from ._runner import BenchmarkResult, Measurement
+
+@dataclass
+class Measurement:
+    name: str
+    value: float
+    unit: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class BenchmarkResult:
+    label: str
+    mode: str
+    device: str
+    warmup: int
+    iters: int
+    measurements: list[Measurement] = field(default_factory=list)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "label": self.label,
+            "mode": self.mode,
+            "device": self.device,
+            "warmup": self.warmup,
+            "iters": self.iters,
+            "measurements": [m.as_dict() for m in self.measurements],
+        }
+
+    def format_card(self) -> str:
+        """Render this result as a multi-line card for terminal output."""
+        header = (
+            f"{self.label}  "
+            f"[mode={self.mode}, device={self.device}, "
+            f"warmup={self.warmup}, iters={self.iters}]"
+        )
+        rows = [header]
+        for m in self.measurements:
+            value = f"{m.value:>12.0f}" if m.unit == "count" else f"{m.value:>12.3f}"
+            rows.append(f"  {m.name:<24} {value} {m.unit}")
+        return "\n".join(rows)
 
 
 _RESULTS_KEY = "_tt_crank_bench_results"
@@ -34,7 +78,7 @@ def _results_bucket(config: pytest.Config) -> list[BenchmarkResult]:
     return bucket
 
 
-class _TestReport:
+class TestReport:
     """One test's benchmark report: the device result, plus the optional
     --cpu-baseline row. One of each, enforced, so the compile stats folded in
     at teardown can't be misattributed; a test wanting several device results
@@ -61,16 +105,8 @@ class _TestReport:
         return [r for r in (self.device_result, self.cpu_baseline) if r is not None]
 
 
-def pytest_addoption(parser: pytest.Parser) -> None:
+def add_options(parser: pytest.Parser) -> None:
     group = parser.getgroup("benchmark", "Benchmark suite options")
-    group.addoption(
-        "--mode",
-        action="store",
-        default="compile",
-        choices=["eager", "compile"],
-        help="Model execution mode. 'compile' wraps the model with "
-        "torch.compile(backend='tt'); 'eager' runs the model as-is.",
-    )
     group.addoption(
         "--warmup",
         action="store",
@@ -86,13 +122,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Number of timed iterations per benchmark.",
     )
     group.addoption(
-        "--strict-no-fallback",
-        action="store_true",
-        default=False,
-        help="Enforce that every benchmark op runs natively on tt: any op that "
-        "would route through the CPU fallback raises instead. Eager mode only.",
-    )
-    group.addoption(
         "--cpu-baseline",
         action="store_true",
         default=False,
@@ -106,45 +135,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "pcc_after_warmup measurements alongside the perf numbers.",
     )
     group.addoption(
-        "--profiler",
-        action="store_true",
-        default=False,
-        help="Capture a torch.profiler Chrome trace per benchmark "
-        "(one JSON file per test).",
-    )
-    group.addoption(
-        "--profile-dir",
-        action="store",
-        default=".data/profile_data",
-        help="Where --profiler writes its Chrome traces.",
-    )
-    group.addoption(
         "--benchmark-json",
         action="store",
         default=".data/benchmark_results.json",
         help="Path to write the per-test benchmark JSON results to.",
-    )
-    group.addoption(
-        "--llm-batch-size",
-        action="store",
-        type=int,
-        default=32,
-        help="Batch size for the LLM decode benchmark.",
-    )
-    group.addoption(
-        "--llm-max-output-tokens",
-        action="store",
-        type=int,
-        default=None,
-        help="Override the generate-step count for the LLM decode benchmark. "
-        "Default fills the 128-slot KV cache; use a small value for smoke runs.",
-    )
-    group.addoption(
-        "--llm-num-layers",
-        action="store",
-        type=int,
-        default=None,
-        help="Truncate the model to this many decoder layers. Default keeps the full model.",
     )
     group.addoption(
         "--opt-level",
@@ -157,11 +151,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "2 = optimizer on with memory-layout/sharding analysis. "
         "When unset, each benchmark uses its own default.",
     )
-
-
-@pytest.fixture(scope="session")
-def mode(request: pytest.FixtureRequest) -> str:
-    return request.config.getoption("--mode")
 
 
 @pytest.fixture(scope="session")
@@ -185,88 +174,23 @@ def accuracy(request: pytest.FixtureRequest) -> bool:
 
 
 @pytest.fixture(scope="session")
-def profile_enabled(request: pytest.FixtureRequest) -> bool:
-    return bool(request.config.getoption("--profiler"))
-
-
-@pytest.fixture(scope="session")
-def profile_dir(request: pytest.FixtureRequest) -> str:
-    return str(request.config.getoption("--profile-dir"))
-
-
-@pytest.fixture(scope="session")
-def llm_batch_size(request: pytest.FixtureRequest) -> int:
-    return int(request.config.getoption("--llm-batch-size"))
-
-
-@pytest.fixture(scope="session")
-def llm_max_output_tokens(request: pytest.FixtureRequest) -> int | None:
-    value = request.config.getoption("--llm-max-output-tokens")
-    return None if value is None else int(value)
-
-
-@pytest.fixture(autouse=True)
-def _strict_no_fallback(request: pytest.FixtureRequest) -> Any:
-    """When --strict-no-fallback is set, run each benchmark with the CPU
-    fallback flipped to raise, so any op that isn't natively implemented on tt
-    fails the benchmark instead of silently running on host.
-    """
-    if not request.config.getoption("--strict-no-fallback"):
-        yield
-        return
-    from tt_crank.torch.testing import strict_no_fallback
-
-    with strict_no_fallback():
-        yield
-
-
-@pytest.fixture(autouse=True)
-def _test_report(request: pytest.FixtureRequest) -> Any:
-    """Per-test benchmark report, wrapped in an artifacts collection named after
-    the test (param id included, so parametrized runs don't collide).
-
-    On teardown, folds the collection's compile stats (total engine compile
-    time, graph and cache-hit counts) into the results the test recorded, then
-    flushes them into the session-wide list the reporting hooks read.
-    """
-    from tt_crank.torch._artifacts import collect_artifacts
-
-    report = _TestReport()
-    try:
-        # A failing test still dumps its artifacts on exit from the `with`
-        # block, so the IR collected up to the failure survives for debugging.
-        with collect_artifacts(request.node.name) as collection:
-            yield report
-            stats = collection.compile_stats()
-
-        if stats.num_graphs > 0 and report.device_result is not None:
-            report.device_result.measurements.extend(
-                [
-                    Measurement("compile_total_ms", stats.total_duration_ms, "ms"),
-                    Measurement("num_graphs", stats.num_graphs, "count"),
-                    Measurement("num_cache_hits", stats.num_cache_hits, "count"),
-                ]
-            )
-    finally:
-        # Flush even when the artifacts dump throws: the results themselves
-        # are fine, and dropping them would hide a finished measurement.
-        _results_bucket(request.config).extend(report.results())
-
-
-@pytest.fixture(scope="session")
-def llm_num_layers(request: pytest.FixtureRequest) -> int | None:
-    value = request.config.getoption("--llm-num-layers")
-    return None if value is None else int(value)
-
-
-@pytest.fixture(scope="session")
 def opt_level(request: pytest.FixtureRequest) -> int | None:
     value = request.config.getoption("--opt-level")
     return None if value is None else int(value)
 
 
+@pytest.fixture(autouse=True)
+def _test_report(request: pytest.FixtureRequest) -> Any:
+    """Per-test benchmark report, flushed into the session-wide list at teardown."""
+    report = TestReport()
+    try:
+        yield report
+    finally:
+        _results_bucket(request.config).extend(report.results())
+
+
 @pytest.fixture
-def record_bench(_test_report: _TestReport) -> Callable[[BenchmarkResult], None]:
+def record_bench(_test_report: TestReport) -> Callable[[BenchmarkResult], None]:
     """Record a BenchmarkResult on this test's report, for terminal + JSON
     reporting once the report is finalized."""
     return _test_report.record
@@ -290,6 +214,9 @@ def _git_sha() -> str:
 
 
 def _device_info() -> dict[str, Any]:
+    import torch  # tt_crank.torch backs the device queries; imported lazily for onnx-only runs
+    import tt_crank.torch  # noqa: F401
+
     return {
         "hostname": socket.gethostname(),
         "arch": torch.tt.arch(),
@@ -304,15 +231,14 @@ def _collect(config: pytest.Config) -> list[BenchmarkResult]:
     return list(getattr(config, _RESULTS_KEY, []))
 
 
-def pytest_terminal_summary(
-    terminalreporter: Any, exitstatus: int, config: pytest.Config
-) -> None:
+def terminal_summary(terminalreporter: Any, config: pytest.Config) -> None:
     results = _collect(config)
     if not results:
         return
     tr = terminalreporter
     tr.write_sep("=", "benchmark results")
-    tr.write_line(f"device arch: {torch.tt.arch()}, chips: {torch.tt.num_chips()}")
+    info = _device_info()
+    tr.write_line(f"device arch: {info['arch']}, chips: {info['num_chips']}")
     tr.write_line("")
     for r in results:
         for line in r.format_card().split("\n"):
@@ -320,7 +246,7 @@ def pytest_terminal_summary(
         tr.write_line("")
 
 
-def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+def session_finish(session: pytest.Session) -> None:
     results = _collect(session.config)
     if not results:
         return
@@ -330,7 +256,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         "session": {
             "git_sha": _git_sha(),
             "simulator": os.environ.get("TT_CRANK_USE_SIMULATOR") == "1",
-            "mode": session.config.getoption("--mode"),
+            "mode": session.config.getoption("--mode", None),
             "warmup": session.config.getoption("--warmup"),
             "iters": session.config.getoption("--iters"),
             "timestamp": _dt.datetime.now(_dt.timezone.utc).isoformat(),

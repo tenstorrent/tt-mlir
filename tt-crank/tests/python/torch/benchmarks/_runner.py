@@ -22,12 +22,16 @@ import statistics
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from contextlib import contextmanager, nullcontext
-from dataclasses import asdict, dataclass, field
 from typing import Any, Iterator
 
 import torch
 import torch.nn as nn
 from tt_crank.torch._compile import CompileOption
+
+from bench import (
+    BenchmarkResult,
+    Measurement,
+)  # noqa: F401  (re-exported for the tests)
 
 try:
     import tracy as _tracy
@@ -130,49 +134,6 @@ def _sync(obj: Any) -> None:
         f"_sync: don't know how to fence {type(obj).__name__}; "
         "extend the helper if a new container shape was added to model outputs"
     )
-
-
-@dataclass
-class Measurement:
-    name: str
-    value: float
-    unit: str
-
-    def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class BenchmarkResult:
-    label: str
-    mode: str
-    device: str
-    warmup: int
-    iters: int
-    measurements: list[Measurement] = field(default_factory=list)
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "label": self.label,
-            "mode": self.mode,
-            "device": self.device,
-            "warmup": self.warmup,
-            "iters": self.iters,
-            "measurements": [m.as_dict() for m in self.measurements],
-        }
-
-    def format_card(self) -> str:
-        """Render this result as a multi-line card for terminal output."""
-        header = (
-            f"{self.label}  "
-            f"[mode={self.mode}, device={self.device}, "
-            f"warmup={self.warmup}, iters={self.iters}]"
-        )
-        rows = [header]
-        for m in self.measurements:
-            value = f"{m.value:>12.0f}" if m.unit == "count" else f"{m.value:>12.3f}"
-            rows.append(f"  {m.name:<24} {value} {m.unit}")
-        return "\n".join(rows)
 
 
 def _percentile(sorted_values: Sequence[float], pct: float) -> float:
