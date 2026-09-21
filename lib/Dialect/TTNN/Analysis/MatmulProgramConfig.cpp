@@ -304,18 +304,9 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
 // DRAM-sharded matmul config generation
 // ============================================================================
 
-// Smallest in0_block_w the DS path will accept. Below it the per-bank read
-// burst is too short to keep the bank busy and the 1D/2D mcast configs win
-// instead.
-//
-// An absolute floor rather than a fraction of kPerCore: measured at matched
-// math fidelity, the cost tracks the block width itself, not its ratio to
-// kPerCore. A calibrated policy number, determined experimentally, and the two
-// architectures do not quite agree on it -- Blackhole's knee sits higher than
-// Wormhole's, so this is the more permissive of the two.
-//
-// A shape whose kPerCore is below this floor can never satisfy it, so DS is
-// declined for it outright. That is intended.
+// Smallest in0_block_w the DS path accepts: below it the per-bank read burst is
+// too short and the mcast configs win. Empirical; Blackhole's knee is higher,
+// so this is the more permissive of the two. A kPerCore below it declines DS.
 static constexpr int64_t kMinBlockWidth = 3;
 
 std::optional<DRAMShardParams>
@@ -379,7 +370,6 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
     return std::nullopt;
   }
 
-  // Decline rather than emit a degenerate block width (see kMinBlockWidth).
   if (p.in0BlockW < kMinBlockWidth) {
     return std::nullopt;
   }

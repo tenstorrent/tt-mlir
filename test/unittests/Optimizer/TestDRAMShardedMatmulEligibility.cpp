@@ -114,11 +114,7 @@ public:
     return op;
   }
 
-  // A matmul whose result is consumed by a collective rather than returned
-  // directly. The DS path declines these: no CCL implements the op-model
-  // interface (they all carry OpModelExempt, tt-mlir#4392), so the optimizer
-  // cannot weigh a DRAM-sharded output against what the collective needs and
-  // the mismatch becomes an inserted reshard on the collective's critical path.
+  // A matmul consumed by a collective; see resultFeedsCCL in MatmulRules.cpp.
   MatmulOp buildMatmulFeedingAllReduce(llvm::ArrayRef<int64_t> actShape,
                                        llvm::ArrayRef<int64_t> weightShape,
                                        llvm::ArrayRef<int64_t> outShape,
@@ -211,11 +207,7 @@ TEST_F(DRAMShardedEligibilityTest, MatmulEligible) {
   EXPECT_TRUE(isDSEligible(op, {32, 4096}));
 }
 
-// The same decode-shaped projection that is eligible above is declined once its
-// result feeds a collective. Pairs with MatmulEligible as the control: the only
-// difference between the two is the consumer, so the decline is attributable to
-// the CCL and not to the geometry. See optimizer/dram_sharded_matmul_
-// reject_ccl_consumer.mlir for the end-to-end version.
+// MatmulEligible's shape, declined for its consumer alone.
 TEST_F(DRAMShardedEligibilityTest, MatmulFeedingCollectiveDeclined) {
   auto op = buildMatmulFeedingAllReduce({32, 4096}, {4096, 4096}, {32, 4096},
                                         ttcore::DataType::BFP_BFloat8);
