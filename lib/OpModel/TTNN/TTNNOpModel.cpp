@@ -7412,12 +7412,77 @@ llvm::Expected<size_t> OpModel<PermuteOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // Upsample
 //===----------------------------------------------------------------------===//
+#ifdef TTMLIR_ENABLE_OPMODEL
+namespace {
+
+// Whether ttnn::upsample can be safely invoked by the op model with this
+// input layout.
+//
+// "bilinear" upsample is the one op whose backend query cannot be attempted
+// with a tiled input. ttnn::upsample (tt-metal
+// ttnn/cpp/ttnn/operations/pool/upsample/upsample.cpp) routes every bilinear
+// call through halo preprocessing, and it builds the SlidingWindowConfig for
+// it from the tensor's *padded* shape
+//
+//   input_height = input_tensor.padded_shape()[1];
+//   input_width  = input_tensor.padded_shape()[2];
+//
+// while compute_bilinear_autoshard_memory_config() derives the core count and
+// the shard height from the *logical* shape, and the tensor handed to halo is
+// reshaped to {1, 1, N*H*W_logical, C}. For a ROW_MAJOR tensor both shapes
+// agree and the halo config is self-consistent. For a TILE tensor they do
+// not: TILE pads the trailing two dims up to the tile size, so the config
+// describes batch * padded_H * padded_W sticks while the shard spec only
+// covers the logical ones. generate_tensor_metadata() then hands out core ids
+// past num_cores_nhw, and generate_halo_kernel_config_tensors() indexes
+// pad_config[core] / local_config[core] / remote_config[core] - unchecked
+// std::vector::operator[] on vectors sized num_cores_nhw - past the end of
+// the allocation. That is a SIGSEGV inside the compiler, which
+// QUERY_OP_CONSTRAINTS cannot catch, so the layout has to be rejected before
+// the op is invoked.
+//
+// tt-metal already forbids such an input
+// (upsample_device_operation.cpp: TT_FATAL(input.padded_shape() ==
+// input.logical_shape(), "Tiled input must be tile-aligned ...")) but in
+// bilinear mode that check runs on the haloed tensor, i.e. after the crash.
+//
+// conv2d and max_pool2d reach the same halo code from the op model without
+// trouble: they build the sliding window config and the sharded tensor from
+// one shared ParallelConfig, so the two never disagree.
+llvm::Error checkUpsampleQueryable(llvm::StringRef mode,
+                                   llvm::ArrayRef<int64_t> inputShape,
+                                   TTNNLayoutAttr inputLayout) {
+  if (mode != "bilinear") {
+    return llvm::Error::success();
+  }
+  if (inputShape.size() != 4) {
+    return llvm::createStringError(
+        "bilinear ttnn.upsample expects a 4D [N, H, W, C] input");
+  }
+  if (inputLayout.isTiled()) {
+    return llvm::createStringError(
+        "bilinear ttnn.upsample requires a ROW_MAJOR input: halo "
+        "preprocessing derives its shard spec from the logical shape but its "
+        "sliding window config from the padded shape, which disagree for a "
+        "tiled tensor");
+  }
+  return llvm::Error::success();
+}
+
+} // namespace
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     mlir::Attribute scaleFactor, llvm::StringRef mode,
     TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
+  if (llvm::Error queryable =
+          checkUpsampleQueryable(mode, inputShape, inputLayout)) {
+    return std::move(queryable);
+  }
+
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -7462,6 +7527,11 @@ llvm::Expected<size_t> OpModel<UpsampleOp>::getOpRuntime(
     TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
+  if (llvm::Error queryable =
+          checkUpsampleQueryable(mode, inputShape, inputLayout)) {
+    return std::move(queryable);
+  }
+
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
