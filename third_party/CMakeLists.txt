@@ -37,6 +37,9 @@ else()
   set(TTMETAL_SOURCE_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal)
 endif()
 
+# Expose the selected checkout to subprojects.
+set(TTMETAL_SOURCE_DIR "${TTMETAL_SOURCE_DIR}" PARENT_SCOPE)
+
 # Suppress install logs to avoid cluttering the build output
 set(CMAKE_INSTALL_MESSAGE NEVER)
 
