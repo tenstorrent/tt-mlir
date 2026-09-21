@@ -6194,6 +6194,30 @@ TEST_F(OpModelTest, LayerNormForwardOp) {
 }
 
 //===----------------------------------------------------------------------===//
+//===----------------------------------------------------------------------===//
+// SoftmaxBackwardOp Tests
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelTest, SoftmaxBackwardOp) {
+  const llvm::SmallVector<int64_t> shape = {1, 1, 128, 256};
+  const TTNNLayoutAttr layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<SoftmaxBackwardOp>::getOpConstraints(
+      shape, layout, shape, layout, /*dimension=*/-1,
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  ASSERT_EQ(constraintsExp.get().outputLayouts.size(), 1u);
+  EXPECT_EQ(constraintsExp.get().outputLayouts[0], layout);
+
+  auto runtimeExp = OpModel<SoftmaxBackwardOp>::getOpRuntime(
+      shape, layout, shape, layout, /*dimension=*/-1,
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
 // SwigluElemwiseBackwardOp Tests
 //===----------------------------------------------------------------------===//
 

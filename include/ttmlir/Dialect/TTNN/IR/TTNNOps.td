@@ -1398,6 +1398,34 @@ def TTNN_SoftmaxOp : TTNN_Op<"softmax", [TTNN_ComputeKernelConfigOpInterface]> {
     let hasVerifier = 1;
 }
 
+def TTNN_SoftmaxBackwardOp : TTNN_Op<"softmax_backward"> {
+    let summary = "Softmax backward (ttml).";
+    let description = [{
+      Computes the softmax gradient
+
+        grad_input = softmax_output *
+                     (grad - sum(softmax_output * grad, dim, keepdim=true))
+
+      using `ttml::metal::softmax_backward`. Operands and result must have the
+      same shape and element type (bfloat16 or float32), use TILE layout, and
+      `dimension` must select the last dimension.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$softmax_output,
+                         AnyRankedTensor:$grad,
+                         SI32Attr:$dimension);
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSoftmaxBackwardOpOperandsWorkarounds(this->getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_SortOp : TTNN_Op<"sort"> {
   let summary = "Sort op.";
   let description = [{

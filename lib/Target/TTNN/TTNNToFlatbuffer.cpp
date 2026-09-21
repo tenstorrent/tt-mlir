@@ -1713,6 +1713,18 @@ createOp(FlatbufferObjectCache &cache, RMSNormForwardOp op) {
       op.getEpsilon().convertToFloat(), output, rms);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SoftmaxBackwardOp>
+createOp(FlatbufferObjectCache &cache, SoftmaxBackwardOp op) {
+  auto softmaxOutput = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getSoftmaxOutput()));
+  auto grad = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGrad()));
+  auto output = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+  return ::tt::target::ttnn::CreateSoftmaxBackwardOp(
+      *cache.fbb, softmaxOutput, grad, op.getDimension(), output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::RMSNormBackwardOp>
 createOp(FlatbufferObjectCache &cache, RMSNormBackwardOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4671,6 +4683,11 @@ emitTTMLOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto rmsNormForwardOp = dyn_cast<RMSNormForwardOp>(op);
       rmsNormForwardOp) {
     return createOperation(cache, createOp(cache, rmsNormForwardOp),
+                           debugString, locInfo);
+  }
+  if (auto softmaxBackwardOp = dyn_cast<SoftmaxBackwardOp>(op);
+      softmaxBackwardOp) {
+    return createOperation(cache, createOp(cache, softmaxBackwardOp),
                            debugString, locInfo);
   }
   if (auto rmsNormBackwardOp = dyn_cast<RMSNormBackwardOp>(op);

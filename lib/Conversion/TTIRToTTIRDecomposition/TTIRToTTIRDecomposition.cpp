@@ -1180,6 +1180,7 @@ public:
       return rewriter.notifyMatchFailure(op, "already 4D");
     }
 
+    DictionaryAttr compositeAttributes = op.getCompositeAttributesAttr();
     Location loc = op.getLoc();
     auto inputs4D =
         llvm::map_to_vector(adaptor.getInputs(), [&rewriter, loc](Value value) {
@@ -1204,7 +1205,7 @@ public:
         op, TypeRange(inputs4D), resultTypes4D, rewriter);
     auto composite4D = rewriter.create<ttcore::CompositeOp>(
         loc, resultTypes4D, inputs4D, op.getCompositeNameAttr(), decomposition,
-        op.getCompositeAttributesAttr());
+        compositeAttributes);
 
     SmallVector<Value> restored;
     for (auto [result4D, originalType] :

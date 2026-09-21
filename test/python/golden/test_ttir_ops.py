@@ -14,7 +14,15 @@ from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir, build_module
 from builder.base.builder_enums import *
-from ttmlir.ir import BoolAttr, DenseI32ArrayAttr, DictAttr, FloatAttr, StringAttr
+from ttmlir.ir import (
+    BoolAttr,
+    DenseI32ArrayAttr,
+    DictAttr,
+    FloatAttr,
+    IntegerAttr,
+    IntegerType,
+    StringAttr,
+)
 from test_utils import (
     SkipIf,
     shape_str,
@@ -24,6 +32,52 @@ from test_utils import (
 )
 
 pytestmark = pytest.mark.frontend("ttir")
+
+
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_softmax_backward_composite(target: str, request, device):
+    shape = (1, 1, 32, 64)
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [torch.bfloat16, torch.bfloat16])
+        def softmax_backward_decomp(
+            softmax_output: Operand,
+            grad: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return grad
+
+        softmax_backward_decomp.sym_visibility = StringAttr.get("private")
+        builder._nested_funcs.append(softmax_backward_decomp.name.value)
+
+        @builder.func([shape, shape], [torch.bfloat16, torch.bfloat16])
+        def softmax_backward(
+            logits: Operand,
+            grad: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            softmax_output = builder.softmax(logits, dimension=-1)
+            attrs = DictAttr.get(
+                {"dimension": IntegerAttr.get(IntegerType.get_signed(32), -1)}
+            )
+            return builder.composite(
+                "softmax_backward",
+                [softmax_output, grad],
+                decomposition=softmax_backward_decomp,
+                composite_attributes=attrs,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=["composite-resolution=force-promote"],
+    )
 
 
 @pytest.mark.parametrize("return_intermediates", [False, True])

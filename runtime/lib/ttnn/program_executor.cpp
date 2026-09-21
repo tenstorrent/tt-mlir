@@ -135,6 +135,7 @@
 #include "operations/ttml/rmsnorm_fw.h"
 #include "operations/ttml/sdpa_bw.h"
 #include "operations/ttml/sdpa_fw.h"
+#include "operations/ttml/softmax_backward.h"
 #include "operations/ttml/swiglu_elemwise_bw.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
@@ -663,6 +664,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::SDPABackwardOp: {
     return operations::ttml::run(op->type_as_SDPABackwardOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::SoftmaxBackwardOp: {
+    return operations::ttml::run(op->type_as_SoftmaxBackwardOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::RMSNormForwardOp: {
     return operations::ttml::run(op->type_as_RMSNormForwardOp(), getContext());

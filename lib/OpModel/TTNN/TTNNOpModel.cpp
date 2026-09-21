@@ -9761,6 +9761,60 @@ llvm::Expected<size_t> OpModel<RMSNormForwardOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// SoftmaxBackwardOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<SoftmaxBackwardOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> softmaxOutputShape,
+    TTNNLayoutAttr softmaxOutputLayout, llvm::ArrayRef<int64_t> gradShape,
+    TTNNLayoutAttr gradLayout, int32_t dimension, TTNNLayoutAttr outputLayout,
+    const MockAllocatorState *initialState) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec softmaxOutputSpec,
+                   detail::convertToTensorSpec(device, softmaxOutputShape,
+                                               softmaxOutputLayout));
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec gradSpec,
+                   detail::convertToTensorSpec(device, gradShape, gradLayout));
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+  auto query = [=]() {
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        ::ttml::metal::softmax_backward, device, initialStateOpt,
+        softmaxOutputSpec, gradSpec, dimension);
+  };
+  return operation::getOpConstraintsWithState(softmaxOutputLayout.getContext(),
+                                              query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<SoftmaxBackwardOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> softmaxOutputShape,
+    TTNNLayoutAttr softmaxOutputLayout, llvm::ArrayRef<int64_t> gradShape,
+    TTNNLayoutAttr gradLayout, int32_t dimension, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec softmaxOutputSpec,
+                   detail::convertToTensorSpec(device, softmaxOutputShape,
+                                               softmaxOutputLayout));
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec gradSpec,
+                   detail::convertToTensorSpec(device, gradShape, gradLayout));
+  auto query = [=]() {
+    return QUERY_OP_RUNTIME(::ttml::metal::softmax_backward, device,
+                            softmaxOutputSpec, gradSpec, dimension);
+  };
+  return operation::getOpRuntime(query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // RMSNormBackwardOp
 //===----------------------------------------------------------------------===//
 

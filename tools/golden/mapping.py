@@ -1288,6 +1288,28 @@ def cross_entropy_bw_golden(
     return result
 
 
+def softmax_backward_golden(
+    softmax_output: GoldenMapTensor,
+    grad: GoldenMapTensor,
+    dimension: int = -1,
+    output_type_mlir: Type = None,
+    **kwargs,
+) -> GoldenMapTensor:
+    dimension = int(unpack_mlir_attr(dimension))
+    y = softmax_output.float()
+    dy = grad.float()
+    result = torch.mul(
+        y,
+        torch.sub(dy, torch.sum(torch.mul(y, dy), dim=dimension, keepdim=True)),
+    )
+    output_dtype = (
+        mlir_type_to_torch_dtype(output_type_mlir)
+        if output_type_mlir is not None
+        else softmax_output.dtype
+    )
+    return result.to(output_dtype)
+
+
 def swiglu_elemwise_bw_golden(
     input: GoldenMapTensor,
     gate: GoldenMapTensor,
@@ -6657,6 +6679,20 @@ def ttcore_composite_golden(
             *operand_tensors,
             epsilon=epsilon_attr,
             return_intermediates=len(result_types) == 2,
+            output_type_mlir=RankedTensorType(result_types[0]).element_type,
+        )
+
+    if composite_name == "softmax_backward":
+        if not result_types:
+            raise ValueError("ttcore.composite golden requires result types.")
+        attrs = composite_attributes or {}
+        try:
+            dimension_attr = attrs["dimension"]
+        except KeyError:
+            dimension_attr = -1
+        return softmax_backward_golden(
+            *operand_tensors,
+            dimension=dimension_attr,
             output_type_mlir=RankedTensorType(result_types[0]).element_type,
         )
 

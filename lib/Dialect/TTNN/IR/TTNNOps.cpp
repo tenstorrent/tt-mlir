@@ -3779,6 +3779,51 @@ void AllToAllDispatchMetadataOp::allocateSemaphores(
 }
 
 //===----------------------------------------------------------------------===//
+// SoftmaxBackwardOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::SoftmaxBackwardOp::verify() {
+  RankedTensorType outputType = getSoftmaxOutput().getType();
+  RankedTensorType gradType = getGrad().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  if (outputType.getRank() < 2) {
+    return emitOpError("softmax_output must have rank at least 2");
+  }
+
+  auto verifyMatchingType = [&](llvm::StringRef name,
+                                RankedTensorType type) -> LogicalResult {
+    if (type.getShape() != outputType.getShape()) {
+      return emitOpError() << name << " shape must match softmax_output shape";
+    }
+    if (type.getElementType() != outputType.getElementType()) {
+      return emitOpError() << name
+                           << " element type must match softmax_output element "
+                              "type";
+    }
+    return success();
+  };
+  if (failed(verifyMatchingType("grad", gradType)) ||
+      failed(verifyMatchingType("result", resultType))) {
+    return failure();
+  }
+
+  Type elementType = outputType.getElementType();
+  if (!elementType.isBF16() && !elementType.isF32()) {
+    return emitOpError("only bf16 and f32 element types are supported");
+  }
+
+  int64_t dim = getDimension();
+  int64_t rank = outputType.getRank();
+  int64_t normalizedDim = dim < 0 ? dim + rank : dim;
+  if (normalizedDim != rank - 1) {
+    return emitOpError("dimension must select the last dimension");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // SortOp
 //===----------------------------------------------------------------------===//
 

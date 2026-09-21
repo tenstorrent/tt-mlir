@@ -150,6 +150,7 @@ union OpType {
   SelectiveReduceCombineOp,
   SliceOp,
   SoftmaxOp,
+  SoftmaxBackwardOp,
   SortOp,
   SplitQueryKeyValueAndSplitHeadsOp,
   SwigluElemwiseBackwardOp,

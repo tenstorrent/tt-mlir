@@ -403,6 +403,11 @@ public:
   static TTNNOperandsWorkarounds
   createSDPABackwardOpOperandsWorkarounds(Operation *op);
 
+  // Force TILE layout for the ttml softmax backward operands and result.
+  // Dtype (BF16/F32) and memory configuration are preserved.
+  static TTNNOperandsWorkarounds
+  createSoftmaxBackwardOpOperandsWorkarounds(Operation *op);
+
   // Create workarounds for the ttml rmsnorm_fw op: force bf16, tile layout
   // and DRAM interleaved memory for every operand and result. The backing metal
   // op (ttml::metal::rmsnorm_fw) TT_FATALs on anything else.
