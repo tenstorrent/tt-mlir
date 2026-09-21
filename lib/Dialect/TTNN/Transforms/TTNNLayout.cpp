@@ -713,17 +713,6 @@ private:
     return false;
   }
 
-  // Mirrors the layout workarounds in TTNNOperandsWorkaroundsFactory: true if
-  // the ttnn kernel can only read this operand as row-major.
-  static bool operandMustBeRowMajor(OpOperand &use) {
-    // ttnn.embedding reads the indices and the table as row-major sticks and
-    // rejects a tiled operand outright.
-    if (mlir::isa<ttir::EmbeddingOp>(use.getOwner())) {
-      return use.getOperandNumber() <= 1;
-    }
-    return false;
-  }
-
   bool shouldForceInputRowMajor(BlockArgument arg) const {
     func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
 
@@ -739,11 +728,13 @@ private:
       }
     }
 
-    // If every consumer needs row-major, convert at the boundary instead: the
-    // runtime does it once at bind time rather than on every invocation.
-    // Requiring all uses to agree keeps e.g. matmul weights tiled.
+    // ttnn.embedding reads the indices and the table as row-major sticks and
+    // rejects a tiled operand outright. If that is all the argument feeds,
+    // convert at the boundary instead: the runtime does it once at bind time
+    // rather than on every invocation. Requiring all uses to agree keeps
+    // arguments shared with e.g. a matmul tiled.
     if (!arg.use_empty() && llvm::all_of(arg.getUses(), [](OpOperand &use) {
-          return operandMustBeRowMajor(use);
+          return mlir::isa<ttir::EmbeddingOp>(use.getOwner());
         })) {
       return true;
     }
