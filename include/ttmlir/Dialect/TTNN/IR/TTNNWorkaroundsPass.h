@@ -319,8 +319,9 @@ public:
 
   static TTNNOperandsWorkarounds createTanhOpOperandsWorkarounds();
 
+  // Create workarounds for float-only unary ops invoked with integer inputs.
   static TTNNOperandsWorkarounds
-  createErfOpOperandsWorkarounds(mlir::RankedTensorType inputType);
+  createIntegerToBFloat16OperandsWorkarounds(mlir::RankedTensorType inputType);
 
   // Create workarounds for group norm op operands.
   static TTNNOperandsWorkarounds

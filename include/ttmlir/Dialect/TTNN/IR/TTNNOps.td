@@ -360,6 +360,14 @@ def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil"> {
 
 def TTNN_SignOp: TTNN_ElementwiseUnaryOp<"sign"> {
     let summary = "Eltwise sign operation.";
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createIntegerToBFloat16OperandsWorkarounds(getInput().getType());
+      }
+    }];
+
     let description = [{
       Returns the sign of the `operand` element-wise and produces a `result`
       tensor.
@@ -398,7 +406,7 @@ def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf"> {
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::
-            createErfOpOperandsWorkarounds(getInput().getType());
+            createIntegerToBFloat16OperandsWorkarounds(getInput().getType());
       }
     }];
 
@@ -430,6 +438,14 @@ def TTNN_GeluOp: TTNN_ElementwiseUnaryOp<"gelu"> {
 
 def TTNN_IsFiniteOp: TTNN_ElementwiseUnaryOp<"isfinite"> {
     let summary = "Eltwise isfinite op.";
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createIntegerToBFloat16OperandsWorkarounds(getInput().getType());
+      }
+    }];
+
     let description = [{
       Eltwise isfinite operation.
     }];
