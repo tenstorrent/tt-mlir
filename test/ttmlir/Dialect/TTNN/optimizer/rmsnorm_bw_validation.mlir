@@ -54,7 +54,8 @@ module {
     // CHECK-SAME: -> (tensor<1x1x128x256xbf16, #[[INPUT_LAYOUT]]>, tensor<1x1x1x256xbf16, #[[GAMMA_LAYOUT]]>)
     // CHECK-DAG: %[[GRAD_INPUT_F32:[0-9a-z_]+]] = "ttnn.typecast"(%[[GRAD_INPUT_BF16]])
     // CHECK-DAG: %[[GRAD_GAMMA_F32:[0-9a-z_]+]] = "ttnn.typecast"(%[[GRAD_GAMMA_BF16]])
-    // CHECK: return %[[GRAD_INPUT_F32]], %[[GRAD_GAMMA_F32]]
+    // CHECK-COUNT-2: "ttnn.neg"
+    // CHECK: return
     %grad_input, %grad_gamma = "ttcore.composite"(
         %input, %gamma, %rms, %grad_output) <{
         composite_name = "rmsnorm_bw",
@@ -62,7 +63,14 @@ module {
         : (tensor<1x1x128x256xf32>, tensor<1x1x1x256xf32>,
            tensor<1x1x128x1xf32>, tensor<1x1x128x256xf32>)
           -> (tensor<1x1x128x256xf32>, tensor<1x1x1x256xf32>)
-    return %grad_input, %grad_gamma
+    // Keep both results behind consumers until the optimizer handles distinct
+    // layouts for multi-output ops correctly:
+    // https://github.com/tenstorrent/tt-mlir/issues/9295
+    %neg_grad_input = "ttir.neg"(%grad_input)
+        : (tensor<1x1x128x256xf32>) -> tensor<1x1x128x256xf32>
+    %neg_grad_gamma = "ttir.neg"(%grad_gamma)
+        : (tensor<1x1x1x256xf32>) -> tensor<1x1x1x256xf32>
+    return %neg_grad_input, %neg_grad_gamma
         : tensor<1x1x128x256xf32>, tensor<1x1x1x256xf32>
   }
 
