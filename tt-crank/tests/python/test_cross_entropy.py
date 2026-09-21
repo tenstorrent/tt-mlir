@@ -215,11 +215,11 @@ def test_cross_entropy_ignored_row_non_finite_logits(
     assert _pcc(got[kept], ref_grad[kept]) >= 0.99
 
 
-# Data parallel: rows sharded over the mesh. torch's DTensor strategy for nll_loss_forward reduces the per-shard
-# losses with Partial("sum") for `sum` and Partial("avg") for `mean` (the tt process group scales the SUM
-# all-reduce for AVG). The avg-of-shard-means equals the global mean only when every shard keeps the same
-# number of rows, hence the aligned ignore pattern below; torch warns about the bias otherwise. The fusion
-# itself is placement-agnostic: it rewrites the graph after DTensor has been desugared to local ops.
+# Data parallel: rows sharded over the mesh. The rewrite runs on DTensor inputs, so the custom ops carry their
+# own sharding rules (_sharding): Shard(0) logits and targets give Shard(0) per-row losses, and the row sums in
+# TTCrossEntropy come out Partial("sum"). For `mean` the loss is Partial / Partial, which DTensor resolves to
+# the exact global sum / count; the aligned ignore pattern here keeps the case comparable with torch's own
+# nll rule (Partial("avg"), exact only with equal kept rows per shard). The unequal case is tested below.
 @pytest.mark.multichip
 @pytest.mark.parametrize("mode", _MODES)
 @pytest.mark.parametrize("reduction", ["sum", "mean"])
@@ -266,3 +266,296 @@ def test_nll_loss_rejects_rank_1() -> None:
             torch.randn(128).to("tt"), torch.tensor(3).to("tt")
         )
     torch._dynamo.reset()
+
+
+# --- the dynamo rewrite: what it matches, what it leaves to aten, and the shapes it meets in practice ---
+
+# Arithmetic between a 0-d tensor and a Python scalar (`loss * 0.9`) comes back as shape [1] on tt:
+# _prepare_op_args lifts the scalar to a [1] constant and the broadcast wins. torch's label-smoothing and
+# probability-target decompositions do exactly that on the scalar loss, so the tangent no longer binds.
+# Not a cross-entropy problem; these flip to passing once that is fixed.
+_SCALAR_0D_BUG = pytest.mark.xfail(
+    strict=True, reason="0-d tensor * Python scalar returns shape [1] on tt"
+)
+
+
+def _trace(mode: str, fn, *args, backward: bool = True):
+    """Compile `fn(*args)` on tt, run backward when asked; returns (out, post-aot op names as a list)."""
+    ops: list[str] = []
+    torch._dynamo.reset()
+    with post_aot_fx_hook(
+        lambda gm: ops.extend(
+            str(n.target) for n in gm.graph.nodes if n.op == "call_function"
+        )
+    ):
+        out = torch.compile(fn, backend="tt", fullgraph=True, options=_OPT[mode])(*args)
+        if backward:
+            out.backward()
+    torch._dynamo.reset()
+    return out, ops
+
+
+def _tt(logits, target):
+    return logits.to("tt").requires_grad_(True), target.to("tt")
+
+
+_SPELLINGS = {
+    "builtin": lambda a, b: torch._C._nn.cross_entropy_loss(
+        a, b, None, 1, _IGNORE, 0.0
+    ),
+    "module": torch.nn.CrossEntropyLoss(ignore_index=_IGNORE),
+    "no-kwargs": lambda a, b: F.cross_entropy(a, b),
+}
+
+
+@pytest.mark.parametrize("mode", _MODES)
+@pytest.mark.parametrize("spelling", list(_SPELLINGS), ids=list(_SPELLINGS))
+def test_cross_entropy_spellings_fuse(spelling: str, mode: str) -> None:
+    """The C builtin, the nn.Module (dynamo inlines it to F.cross_entropy) and the all-defaults call fuse too."""
+    logits, target = _inputs(64, 128, True)
+    ref_loss, ref_grad = _reference("mean", logits, target)
+    x, t = _tt(logits, target)
+    loss, ops = _trace(mode, _SPELLINGS[spelling], x, t)
+    assert _fused(set(ops)), sorted(ops)
+    torch.testing.assert_close(loss.cpu().float(), ref_loss, atol=0.05, rtol=0.02)
+    assert _pcc(x.grad.cpu(), ref_grad) >= 0.99
+
+
+@_SCALAR_0D_BUG
+@pytest.mark.parametrize("mode", _MODES)
+def test_cross_entropy_label_smoothing_stays_aten(mode: str) -> None:
+    """label_smoothing is outside the kernels; torch decomposes it onto log_softmax and the aten lowerings run."""
+    logits, target = _inputs(64, 128, True)
+    ref = logits.detach().float().requires_grad_(True)
+    ref_loss = F.cross_entropy(ref, target, ignore_index=_IGNORE, label_smoothing=0.1)
+    ref_loss.backward()
+    x, t = _tt(logits, target)
+    loss, ops = _trace(
+        mode,
+        lambda a, b: F.cross_entropy(a, b, ignore_index=_IGNORE, label_smoothing=0.1),
+        x,
+        t,
+    )
+    assert not [op for op in ops if any(f in op for f in _FUSED)], sorted(ops)
+    torch.testing.assert_close(
+        loss.cpu().float(), ref_loss.detach(), atol=0.05, rtol=0.02
+    )
+    assert _pcc(x.grad.cpu(), ref.grad) >= 0.99
+
+
+@pytest.mark.parametrize("mode", _MODES)
+def test_cross_entropy_class_weights_rejected(mode: str) -> None:
+    """Class weights skip the rewrite and the aten nll lowering says it does not take them."""
+    logits, target = _inputs(64, 128, True)
+    x, t = _tt(logits, target)
+    weight = torch.rand(128, dtype=torch.bfloat16).to("tt")
+    with pytest.raises(Exception, match="class weights"):
+        _trace(
+            mode,
+            lambda a, b, w: F.cross_entropy(a, b, weight=w, ignore_index=_IGNORE),
+            x,
+            t,
+            weight,
+        )
+
+
+@pytest.mark.parametrize("mode", _MODES)
+def test_cross_entropy_rank_3_rejected(mode: str) -> None:
+    """[N, C, L] logits skip the rewrite (2-D only); torch decomposes N-D cross entropy onto `gather`, which
+    has no lowering, so it fails with a clear NotImplementedError rather than wrong IR."""
+    logits = (torch.randn(4, 16, 8, dtype=torch.bfloat16) * 3).to("tt")
+    target = torch.randint(16, (4, 8)).to("tt")
+    with pytest.raises(Exception, match="not implemented|expected \\[rows x C\\]"):
+        _trace(mode, lambda a, b: F.cross_entropy(a, b), logits, target, backward=False)
+
+
+@_SCALAR_0D_BUG
+@pytest.mark.parametrize("mode", _MODES)
+def test_cross_entropy_probability_targets_stay_aten(mode: str) -> None:
+    """Float targets are class probabilities, not indices: no nll at all, the rewrite must not touch them."""
+    logits, _ = _inputs(64, 128, False)
+    probs = torch.softmax(torch.randn(64, 128), dim=1)
+    ref = logits.detach().float().requires_grad_(True)
+    ref_loss = F.cross_entropy(ref, probs)
+    ref_loss.backward()
+    x = logits.to("tt").requires_grad_(True)
+    loss, ops = _trace(
+        mode, lambda a, b: F.cross_entropy(a, b), x, probs.bfloat16().to("tt")
+    )
+    assert not [op for op in ops if any(f in op for f in _FUSED)], sorted(ops)
+    torch.testing.assert_close(
+        loss.cpu().float(), ref_loss.detach(), atol=0.05, rtol=0.02
+    )
+    assert _pcc(x.grad.cpu(), ref.grad) >= 0.99
+
+
+@pytest.mark.parametrize("mode", _MODES)
+def test_cross_entropy_forward_only(mode: str) -> None:
+    """No requires_grad: only the forward graph, with the fw kernel and no bw."""
+    logits, target = _inputs(64, 128, True)
+    ref_loss, _ = _reference("mean", logits, target)
+    loss, ops = _trace(
+        mode,
+        lambda a, b: F.cross_entropy(a, b, ignore_index=_IGNORE),
+        logits.to("tt"),
+        target.to("tt"),
+        backward=False,
+    )
+    assert any(_FUSED[0] in op for op in ops), sorted(ops)
+    assert not any(_FUSED[1] in op for op in ops), sorted(ops)
+    torch.testing.assert_close(loss.cpu().float(), ref_loss, atol=0.05, rtol=0.02)
+
+
+@pytest.mark.parametrize("mode", _MODES)
+def test_cross_entropy_two_losses_one_graph(mode: str) -> None:
+    """Two calls in one graph each get their own kernel pair; the loss is also consumed twice."""
+    la, ta = _inputs(64, 128, True)
+    lb, tb = _inputs(32, 128, False)
+
+    def total(a, ta, b, tb):
+        l1 = F.cross_entropy(a, ta, ignore_index=_IGNORE)
+        l2 = F.cross_entropy(b, tb, reduction="sum")
+        return l1 + l1 + l2
+
+    ra, rb = (l.detach().float().requires_grad_(True) for l in (la, lb))
+    ref_loss = total(ra, ta, rb, tb)
+    ref_loss.backward()
+    xa, xta = _tt(la, ta)
+    xb, xtb = _tt(lb, tb)
+    loss, ops = _trace(mode, total, xa, xta, xb, xtb)
+    assert sum(_FUSED[0] in op for op in ops) == 2, ops
+    assert sum(_FUSED[1] in op for op in ops) == 2, ops
+    torch.testing.assert_close(
+        loss.cpu().float(), ref_loss.detach(), atol=0.1, rtol=0.02
+    )
+    assert _pcc(xa.grad.cpu(), ra.grad) >= 0.99
+    assert _pcc(xb.grad.cpu(), rb.grad) >= 0.99
+
+
+@pytest.mark.parametrize("mode", _MODES)
+def test_cross_entropy_custom_ignore_index(mode: str) -> None:
+    """An in-range ignore_index (a real class id) masks exactly those rows."""
+    logits, target = _inputs(64, 128, False)
+    ignore = 7
+    target[::5] = ignore
+    ref = logits.detach().float().requires_grad_(True)
+    ref_loss = F.cross_entropy(ref, target, ignore_index=ignore)
+    ref_loss.backward()
+    x, t = _tt(logits, target)
+    loss, ops = _trace(
+        mode, lambda a, b: F.cross_entropy(a, b, ignore_index=ignore), x, t
+    )
+    assert _fused(set(ops)), sorted(ops)
+    torch.testing.assert_close(
+        loss.cpu().float(), ref_loss.detach(), atol=0.05, rtol=0.02
+    )
+    assert _pcc(x.grad.cpu(), ref.grad) >= 0.99
+    assert (x.grad.cpu()[target == ignore] == 0).all()
+
+
+@pytest.mark.parametrize("mode", _MODES)
+def test_cross_entropy_single_row(mode: str) -> None:
+    """One row: the mean is that row's loss and its grad is softmax - onehot."""
+    logits, target = _inputs(1, 128, False)
+    ref_loss, ref_grad = _reference("mean", logits, target)
+    x, t = _tt(logits, target)
+    loss, ops = _trace(mode, lambda a, b: F.cross_entropy(a, b), x, t)
+    assert _fused(set(ops)), sorted(ops)
+    torch.testing.assert_close(loss.cpu().float(), ref_loss, atol=0.05, rtol=0.02)
+    assert _pcc(x.grad.cpu(), ref_grad) >= 0.99
+
+
+@pytest.mark.parametrize("mode", _MODES)
+def test_cross_entropy_shifted_lm_logits(mode: str) -> None:
+    """The LM shape: [B, S, V] logits sliced off the last position and flattened, labels shifted by one."""
+    b, s, v = 2, 17, 256
+    logits = torch.randn(b, s, v, dtype=torch.bfloat16) * 3
+    labels = torch.randint(v, (b, s))
+    labels[:, -3:] = _IGNORE  # padding at the tail
+
+    def lm_loss(x, y):
+        shifted = x[:, :-1, :]
+        return F.cross_entropy(
+            shifted.reshape(-1, shifted.shape[-1]),
+            y[:, 1:].reshape(-1),
+            ignore_index=_IGNORE,
+        )
+
+    ref = logits.detach().float().requires_grad_(True)
+    ref_loss = lm_loss(ref, labels)
+    ref_loss.backward()
+    x, y = _tt(logits, labels)
+    loss, ops = _trace(mode, lm_loss, x, y)
+    assert _fused(set(ops)), sorted(ops)
+    torch.testing.assert_close(
+        loss.cpu().float(), ref_loss.detach(), atol=0.05, rtol=0.02
+    )
+    assert x.grad.shape == ref.grad.shape
+    assert _pcc(x.grad.cpu(), ref.grad) >= 0.99
+    assert (x.grad.cpu()[:, -1, :] == 0).all()
+
+
+@pytest.mark.multichip
+@pytest.mark.parametrize("mode", _MODES)
+@pytest.mark.parametrize(
+    "placement",
+    [
+        "replicate",
+        # dynamo's fake run of F.cross_entropy on Shard(0) logits + Replicate targets dies inside torch's
+        # DTensor nll rule ("gather(): Expected dtype int32/int64 for index, but got torch.float32"),
+        # before any backend code runs. Not ours to fix.
+        pytest.param(
+            "mixed",
+            marks=pytest.mark.xfail(
+                strict=True, reason="torch DTensor nll rule with Replicate targets"
+            ),
+        ),
+    ],
+)
+def test_cross_entropy_multi_chip_other_placements(
+    tt_pg, placement: str, mode: str
+) -> None:
+    """Replicate inputs fuse with a Replicate result; Shard(0) logits with Replicate targets make DTensor
+    redistribute the targets (a slice) and the grads still come out Shard(0)."""
+    from torch.distributed.tensor import Replicate, Shard, distribute_tensor
+
+    n = torch.tt.num_chips()
+    logits, target = _inputs(32 * n, 128, True)
+    ref_loss, ref_grad = _reference("mean", logits, target)
+    mesh = torch.tt.init_device_mesh((n,), mesh_dim_names=("dp",))
+    x_place = [Replicate()] if placement == "replicate" else [Shard(0)]
+    x = distribute_tensor(logits.to("tt"), mesh, x_place).requires_grad_(True)
+    t = distribute_tensor(target.to("tt"), mesh, [Replicate()])
+    out, ops = _trace(
+        mode, lambda a, b: F.cross_entropy(a, b, ignore_index=_IGNORE), x, t
+    )
+    assert _fused(set(ops)), sorted(ops)
+    torch.testing.assert_close(
+        out.full_tensor().cpu().float(), ref_loss, atol=0.05, rtol=0.02
+    )
+    assert x.grad.placements == tuple(x_place), x.grad.placements
+    assert _pcc(x.grad.full_tensor().cpu(), ref_grad) >= 0.99
+
+
+@pytest.mark.multichip
+@pytest.mark.parametrize("mode", _MODES)
+def test_cross_entropy_multi_chip_mean_unequal_shards(tt_pg, mode: str) -> None:
+    """Shards keeping different row counts: the fused mean is sum / count across the mesh, so it is the exact
+    global mean. (torch's own nll_loss rule would give an average of per-shard means here.)"""
+    from torch.distributed.tensor import Shard, distribute_tensor
+
+    n = torch.tt.num_chips()
+    logits, target = _inputs(32 * n, 128, False)
+    target[:24] = _IGNORE  # 24 of the first shard's 32 rows ignored, none elsewhere
+    ref_loss, ref_grad = _reference("mean", logits, target)
+    mesh = torch.tt.init_device_mesh((n,), mesh_dim_names=("dp",))
+    x = distribute_tensor(logits.to("tt"), mesh, [Shard(0)]).requires_grad_(True)
+    t = distribute_tensor(target.to("tt"), mesh, [Shard(0)])
+    out, ops = _trace(
+        mode, lambda a, b: F.cross_entropy(a, b, ignore_index=_IGNORE), x, t
+    )
+    assert _fused(set(ops)), sorted(ops)
+    torch.testing.assert_close(
+        out.full_tensor().cpu().float(), ref_loss, atol=0.05, rtol=0.02
+    )
+    assert _pcc(x.grad.full_tensor().cpu(), ref_grad) >= 0.99
