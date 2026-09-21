@@ -41,6 +41,12 @@ register()
 # above (PrivateUse1 → "tt" rename) so the backend's device list matches.
 from . import _distributed  # noqa: E402, F401
 
+from ._sharding import register_sharding_strategies  # noqa: E402
+
+# Register our own DTensor sharding strategies for ops torch doesn't ship one
+# for (index_copy).
+register_sharding_strategies()
+
 # Multi-chip APIs live on the torch.tt namespace (see _device.py): num_chips,
 # init_device_mesh — that's the single front door.
 
@@ -49,10 +55,3 @@ from . import _distributed  # noqa: E402, F401
 # above — the backend constructs tt-device tensors at runtime and relies on the
 # PrivateUse1 rename being in place.
 from . import _compile  # noqa: E402, F401
-
-from ._sharding import register_sharding_strategies  # noqa: E402
-
-# Register our own DTensor sharding strategies for ops torch doesn't ship one
-# for (index_copy, SDPA, the tt_crank cross-entropy custom ops). Must come after
-# `_compile` above, which defines those custom ops.
-register_sharding_strategies()

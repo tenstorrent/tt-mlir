@@ -11,6 +11,8 @@ import torch
 from torch.distributed.tensor import Replicate, Shard
 from torch.distributed.tensor.experimental import register_sharding
 
+from .custom_ops import cross_entropy
+
 
 def _sdpa_overrideable_sharding(
     query,
@@ -128,8 +130,7 @@ def register_sharding_strategies() -> None:
     in-place and functional `index_copy` overloads (which appear depending on
     whether the write is traced (compile) or run eagerly), and the tt_crank
     cross-entropy custom ops, which DTensor meets when the compile-time
-    _TTCrossEntropy rewrite runs on DTensor inputs. Those ops are defined in
-    `_compile`, so this must run after it is imported.
+    TTCrossEntropy rewrite runs on DTensor inputs.
     """
     aten = torch.ops.aten
     register_sharding(aten._scaled_dot_product_fused_attention_overrideable.default)(
@@ -137,6 +138,5 @@ def register_sharding_strategies() -> None:
     )
     register_sharding(aten.index_copy_.default)(_index_copy_sharding)
     register_sharding(aten.index_copy.default)(_index_copy_sharding)
-    tt_crank = torch.ops.tt_crank
-    register_sharding(tt_crank.cross_entropy_fw.default)(_cross_entropy_fw_sharding)
-    register_sharding(tt_crank.cross_entropy_bw.default)(_cross_entropy_bw_sharding)
+    register_sharding(cross_entropy.cross_entropy_fw)(_cross_entropy_fw_sharding)
+    register_sharding(cross_entropy.cross_entropy_bw)(_cross_entropy_bw_sharding)
