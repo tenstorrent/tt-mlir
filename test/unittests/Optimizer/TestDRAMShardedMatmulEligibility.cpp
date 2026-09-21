@@ -27,29 +27,16 @@
 using namespace mlir::tt;
 using namespace mlir::tt::ttnn;
 
-// DRAM-sharded (DS) matmul eligibility and weight geometry, exercised through
-// the matmul rule book.
-//
-// These build a real func.func because DS requires the weight to be const-eval
-// traceable (valueTracesToConstantArgs), which means a function argument marked
-// as a parameter -- the module-level ops the other strategy tests build cannot
-// express that.
-//
-// The bias-free ttnn.linear case is only reachable here, not from lit: a
-// bias-free ttir.linear canonicalizes into ttir.matmul (TTIROps.cpp), so no
-// bias-free ttnn.linear survives the TTIR->TTNN pipeline. TTNN-level entry
-// points (ttnn tracing, the shard advisor) are where it appears.
+// DRAM-sharded matmul eligibility and weight geometry through the matmul rule
+// book. A real func.func is needed because the weight must trace to a parameter
+// argument. The bias-free ttnn.linear case is only reachable here: a bias-free
+// ttir.linear canonicalizes to ttir.matmul before lit could see it.
 namespace {
 
 constexpr int64_t kTile = 32;
 
-// Shared scaffolding. Deliberately does not open a metal device: every path
-// under test (eligibility, weight layout) needs only a DeviceAttr and the
-// system descriptor.
-//
-// These are the fast, device-free check of the per-architecture layout the rule
-// book derives; optimizer/dram_sharded_matmul_bank_count.mlir covers the same
-// ground end-to-end through the pipeline.
+// No metal device: eligibility and weight layout need only the DeviceAttr and
+// the system descriptor.
 class DSTestBase : public ::testing::Test {
 public:
   mlir::MLIRContext context;
@@ -70,8 +57,7 @@ public:
     ttcore::registerDevice(module.get(), arch);
     module->getOperation()->setAttr(utils::g_TensorL1UsageCapAttrName,
                                     builder.getF32FloatAttr(0.95f));
-    // The DS path is off unless asked for, and the pipeline always sets this
-    // attribute explicitly, so opt in here for the eligibility tests below.
+    // DS is off unless asked for.
     module->getOperation()->setAttr(utils::g_EnableDRAMShardedMatmulAttrName,
                                     builder.getBoolAttr(true));
   }
@@ -93,8 +79,7 @@ public:
                                        dramInterleaved(shape, dt));
   }
 
-  // Opens a func whose arg 1 (the weight) is marked as a parameter, and leaves
-  // the builder positioned inside it.
+  // Arg 1 (the weight) is marked as a parameter.
   mlir::Block *openFunc(llvm::ArrayRef<mlir::Type> argTypes,
                         mlir::Type resultType) {
     builder.setInsertionPointToEnd(&module->getBodyRegion().front());
@@ -190,70 +175,56 @@ class DRAMShardedEligibilityTest : public DSTestBase {};
 // Eligibility
 //===----------------------------------------------------------------------===//
 
-// Baseline: a decode-shaped bfp8 projection is DS-eligible.
 TEST_F(DRAMShardedEligibilityTest, MatmulEligible) {
   auto op = buildMatmul({32, 4096}, {4096, 4096}, {32, 4096},
                         ttcore::DataType::BFP_BFloat8);
   EXPECT_TRUE(isDSEligible(op, {32, 4096}));
 }
 
-// A bias-free ttnn.linear is the same computation the DS kernel implements, so
-// it must be offered the DS config too. ttnn decoders write their projections
-// as ttnn.linear, so this is the shape the path sees in practice.
+// The same computation, and how ttnn decoders write their projections.
 TEST_F(DRAMShardedEligibilityTest, BiasFreeLinearEligible) {
   auto op = buildLinear({32, 4096}, {4096, 4096}, {32, 4096},
                         ttcore::DataType::BFP_BFloat8, /*withBias=*/false);
   EXPECT_TRUE(isDSEligible(op, {32, 4096}));
 }
 
-// A biased linear is declined. tt-metal's DS kernel does support a bias, but it
-// reads it per DRAM bank at a bank-local offset, so the bias must be DRAM
-// width-sharded across the same bank grid as the weight. Nothing produces such
-// a layout for operand 2 yet, and a DRAM-interleaved bias would be read as a
-// strided subset of itself -- wrong results rather than a crash, with no
-// tt-metal validation to catch it.
+// The DS kernel reads a bias per DRAM bank, so it needs a DRAM width-sharded
+// bias nothing produces yet; an interleaved one is read wrong silently.
 TEST_F(DRAMShardedEligibilityTest, BiasedLinearDeclined) {
   auto op = buildLinear({32, 4096}, {4096, 4096}, {32, 4096},
                         ttcore::DataType::BFP_BFloat8, /*withBias=*/true);
   EXPECT_FALSE(isDSEligible(op, {32, 4096}));
 }
 
-// [1, 1, K, N] is the same matrix as [K, N]; ttnn models routinely hold
-// projection weights that way.
+// [1, 1, K, N] is the same matrix as [K, N].
 TEST_F(DRAMShardedEligibilityTest, UnitBatchedWeightEligible) {
   auto op = buildMatmul({1, 1, 32, 4096}, {1, 1, 4096, 4096}, {1, 1, 32, 4096},
                         ttcore::DataType::BFP_BFloat8);
   EXPECT_TRUE(isDSEligible(op, {1, 1, 32, 4096}));
 }
 
-// A non-unit batch dim is a real batched matmul, which tt-metal serves with a
-// different program config that this path does not emit.
+// A non-unit batch dim needs the batched DS config, which is not emitted.
 TEST_F(DRAMShardedEligibilityTest, BatchedWeightDeclined) {
   auto op = buildMatmul({1, 1, 32, 4096}, {2, 1, 4096, 4096}, {2, 1, 32, 4096},
                         ttcore::DataType::BFP_BFloat8);
   EXPECT_FALSE(isDSEligible(op, {2, 1, 32, 4096}));
 }
 
-// A sub-tile decode batch is still one tile row, so it is eligible: tt-metal
-// pads a 1..31-row activation up to one tile row and runs it.
+// A sub-tile batch pads up to one tile row.
 TEST_F(DRAMShardedEligibilityTest, SubTileBatchEligible) {
   auto op = buildMatmul({1, 4096}, {4096, 4096}, {1, 4096},
                         ttcore::DataType::BFP_BFloat8);
   EXPECT_TRUE(isDSEligible(op, {1, 4096}));
 }
 
-// More than one tile row must be declined at compile time: tt-metal's
-// TT_FATAL(M == 1) is an uncatchable abort, so deferring to it would crash on
-// silicon rather than fall back to another config.
+// tt-metal's M == 1 assert is uncatchable, so taller is declined here.
 TEST_F(DRAMShardedEligibilityTest, MultiTileMDeclined) {
   auto op = buildMatmul({64, 4096}, {4096, 4096}, {64, 4096},
                         ttcore::DataType::BFP_BFloat8);
   EXPECT_FALSE(isDSEligible(op, {64, 4096}));
 }
 
-// bfp4/bfp8 only. bf16 is legal for tt-metal, but DS streams the weights out of
-// DRAM, so bf16 moves 2x the bytes and the optimizer has no runtime estimate
-// with which to rank it against 1D-mcast.
+// bfp4/bfp8 only: bf16 doubles the DRAM bytes DS streams.
 TEST_F(DRAMShardedEligibilityTest, Bf16WeightDeclined) {
   auto op = buildMatmul({32, 4096}, {4096, 4096}, {32, 4096},
                         ttcore::DataType::BFloat16);
@@ -266,19 +237,15 @@ TEST_F(DRAMShardedEligibilityTest, Bfp4WeightEligible) {
   EXPECT_TRUE(isDSEligible(op, {32, 4096}));
 }
 
-// Known limitation, pinned deliberately: the activation is width-sharded across
-// a fixed 8 in0 cores, so K in tiles must be divisible by 8. 2880 is 90 tiles
-// (the gpt-oss hidden size) and is declined. Deriving the core count from K
-// would admit it -- 90 has several usable divisors -- but choosing among them
-// is a cost question the optimizer cannot answer yet.
+// K in tiles must divide by the fixed 8 in0 cores; 2880 (90 tiles) is declined
+// until the core count can be chosen by cost.
 TEST_F(DRAMShardedEligibilityTest, KTilesNotDivisibleByIn0CoresDeclined) {
   auto op = buildMatmul({32, 2880}, {2880, 2880}, {32, 2880},
                         ttcore::DataType::BFP_BFloat8);
   EXPECT_FALSE(isDSEligible(op, {32, 2880}));
 }
 
-// The flag short-circuits the single choke point, so nothing downstream can
-// reintroduce DS. Also covers the default: an absent attribute reads as off.
+// The flag gates the single choke point; an absent attribute reads as off.
 TEST_F(DRAMShardedEligibilityTest, DisableOptionSuppressesDS) {
   auto op = buildMatmul({32, 4096}, {4096, 4096}, {32, 4096},
                         ttcore::DataType::BFP_BFloat8);
@@ -292,12 +259,8 @@ TEST_F(DRAMShardedEligibilityTest, DisableOptionSuppressesDS) {
   EXPECT_FALSE(isDSEligible(op, {32, 4096}));
 }
 
-// A matmul that still carries a fused activation must be declined. TTNNFusing
-// normally places the unary on a consuming binary op's operand, so an
-// activation that reaches the optimizer had no such consumer. Taking DS anyway
-// would be inconsistent rather than merely slow: the op model validates a DS
-// config without the activation, while the runtime forwards it to
-// ::ttnn::matmul, since a DS program config's fused_activation is always null.
+// An activation left on the matmul is declined: the op model would validate the
+// DS config without it while the runtime applies it.
 TEST_F(DRAMShardedEligibilityTest, FusedActivationOnMatmulDeclined) {
   auto op =
       buildMatmul({32, 4096}, {4096, 4096}, {32, 4096},
@@ -305,10 +268,7 @@ TEST_F(DRAMShardedEligibilityTest, FusedActivationOnMatmulDeclined) {
   EXPECT_FALSE(isDSEligible(op, {32, 4096}));
 }
 
-// Same for a bias-free ttnn.linear, which the DS path also covers. This is the
-// case lit cannot reach -- a bias-free ttir.linear canonicalizes to ttir.matmul
-// -- and it is the one where the op model has no DS guard on the activation at
-// all, so the decline is what keeps validation and execution in agreement.
+// Same for a bias-free linear, which lit cannot reach.
 TEST_F(DRAMShardedEligibilityTest, FusedActivationOnLinearDeclined) {
   auto op = buildLinear({32, 4096}, {4096, 4096}, {32, 4096},
                         ttcore::DataType::BFP_BFloat8, /*withBias=*/false,
@@ -331,8 +291,7 @@ public:
   }
 };
 
-// Wormhole exposes 12 DRAM banks, so N=4096 pads up to a multiple of 32*12=384
-// (4224) and each bank holds 4224/12 = 352 = 11 tiles of weight width.
+// 12 banks: 128 N-tiles pad to 11 per bank.
 TEST_F(DRAMShardedBankCountTest, WormholeUses12Banks) {
   initModule(ttcore::Arch::WormholeB0);
   auto op = buildMatmul({32, 4096}, {4096, 4096}, {32, 4096},
@@ -345,13 +304,9 @@ TEST_F(DRAMShardedBankCountTest, WormholeUses12Banks) {
   EXPECT_EQ(layout.getBufferType(), BufferType::DRAM);
 }
 
-// Blackhole exposes 8. 32*8=256 already divides 4096, so there is no padding
-// and each bank holds 4096/8 = 512 = 16 tiles.
-//
-// The count has to come from the device: a layout sharded across more banks
-// than the part has is unallocatable (tensor creation aborts in
-// get_dram_channel_from_logical_core), and validateTensorSpec skips the shard
-// bounding-box check for DRAM buffers, so nothing before silicon would notice.
+// 8 banks: 16 per bank, no padding. The count must come from the device: a
+// layout over more banks than the part has is unallocatable, and nothing before
+// silicon would notice.
 TEST_F(DRAMShardedBankCountTest, BlackholeUses8Banks) {
   initModule(ttcore::Arch::Blackhole);
   auto op = buildMatmul({32, 4096}, {4096, 4096}, {32, 4096},
@@ -364,21 +319,15 @@ TEST_F(DRAMShardedBankCountTest, BlackholeUses8Banks) {
   EXPECT_EQ(layout.getBufferType(), BufferType::DRAM);
 }
 
-// The DS layout builders must land on canonical core placement whatever the
-// layout they are seeded from carried. buildWithCanonicalCorePlacement only
-// fills a *null* core range set, and Builder's setters each early-return when
-// the value is unchanged, so a seed that already matches the target's buffer
-// type, memory layout and grid would otherwise keep its own placement. No lit
-// test reaches this: every DS operand starts DRAM-interleaved, so the memory
-// layout always changes and invalidates the core range set on the way through.
+// The builders must force canonical placement: buildWithCanonicalCorePlacement
+// only fills a null core range set, so a matching seed would keep its own.
 TEST_F(DSTestBase, L1ShardedLayoutForcesCanonicalPlacement) {
   ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(module.get());
   llvm::SmallVector<int64_t, 2> shape{kTile, 4096};
   auto elementType = ttcore::TileType::get(&context, {kTile, kTile},
                                            ttcore::DataType::BFloat16);
 
-  // Same buffer type, memory layout and grid as the target, but deliberately
-  // placed on row 1 rather than the canonical row 0.
+  // Matches the target except for a row-1 placement.
   auto offRow = CoreRangeSetAttr::get(
       &context,
       {CoreRangeAttr::get(&context, CoreCoordAttr::get(&context, 0, 1),

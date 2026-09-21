@@ -28,18 +28,12 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout);
 // DRAM-sharded matmul config generation
 // ============================================================================
 //
-// Primitives that build a DRAM-sharded matmul
-// (MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig): the weight (in1) is
-// width-sharded across DRAM banks and the activation (in0) is width-sharded
-// across L1 cores. The optimizer's DRAM-shard rule book (MatmulRules.cpp)
-// decides *whether* a matmul is eligible and orchestrates the reshards; these
-// functions own the *how* — the shard geometry, layouts, and configs.
+// The weight (in1) is width-sharded across DRAM banks, the activation (in0)
+// across L1 cores. MatmulRules.cpp decides eligibility; these own the geometry,
+// layouts and configs.
 
-// Geometry describing how an M×K×N matmul is sharded for DRAM-sharded
-// execution. Produced by computeShardParams; consumed by the builders below
-// and by the rule book (which reads e.g. perCoreNStorage to size the output
-// grid). perCoreNCompute is the N tiles each DRAM bank's core computes,
-// perCoreNStorage the N tiles each output storage core holds, as in tt-metal.
+// perCoreNCompute: N tiles each DRAM bank's core computes. perCoreNStorage: N
+// tiles each output storage core holds. Both as tt-metal names them.
 struct DRAMShardParams {
   int64_t numBanks;
   int64_t kTiles;
@@ -51,42 +45,32 @@ struct DRAMShardParams {
   ttcore::DataType weightDataType;
 };
 
-// Compute the shard geometry and a circular-buffer-fitting in0_block_w for an
-// M×K×N matmul whose weight is BFP and DRAM-interleaved. The weight is sharded
-// across `numBanks` DRAM banks and the activation across `numIn0Cores` L1
-// cores; `numOutCores` bounds the output storage grid. `l1Available` is the L1
-// budget the circular buffers must fit. Returns nullopt when no in0_block_w
-// fits. K and N must be tile-aligned and K/kTileSize divisible by numIn0Cores
-// (the caller's eligibility gate enforces this).
+// Shard geometry and a CB-fitting in0_block_w for an M×K×N matmul, or nullopt
+// when none fits `l1Available`. K and N must be tile-aligned and K/kTileSize
+// divisible by numIn0Cores; the eligibility gate enforces both.
 std::optional<DRAMShardParams>
 computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
                    int64_t numIn0Cores, int64_t numOutCores,
                    ttcore::DataType weightDataType, int64_t l1Available);
 
-// Build the DRAM width-sharded layout for the weight (in1) of `tensorShape`,
-// sharded across `p.numBanks` DRAM banks.
+// DRAM width-sharded weight layout across p.numBanks banks.
 TTNNLayoutAttr buildDRAMShardedWeightLayout(MLIRContext *ctx,
                                             TTNNLayoutAttr origLayout,
                                             llvm::ArrayRef<int64_t> tensorShape,
                                             const DRAMShardParams &p,
                                             ttcore::DeviceAttr deviceAttr);
 
-// Build an L1 width-sharded layout for `tensorShape` over `numCores`, using
-// canonical core placement that wraps across the worker grid (a single-row
-// placement would be invalid once numCores exceeds the grid width).
+// L1 width-sharded layout over numCores with canonical placement.
 TTNNLayoutAttr buildL1ShardedLayout(MLIRContext *ctx, TTNNLayoutAttr origLayout,
                                     llvm::ArrayRef<int64_t> tensorShape,
                                     int64_t numCores,
                                     ttcore::DeviceAttr deviceAttr);
 
-// Build the DRAM-sharded program config from computed shard params.
 MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
 buildDRAMShardedProgramConfig(MLIRContext *ctx, const DRAMShardParams &p,
                               UnaryWithParamAttr fusedAct);
 
-// Build the compute-kernel config for a DRAM-sharded matmul (math fidelity
-// follows the weight dtype; bf16 partials through the packer, with
-// packer-L1-accumulate enabled).
+// Math fidelity follows the weight dtype.
 DeviceComputeKernelConfigAttr
 buildComputeConfig(MLIRContext *ctx, ttcore::DataType weightDataType);
 

@@ -306,14 +306,8 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
 
 static constexpr int64_t kTileSize = 32;
 
-// Smallest in0_block_w the DS path will accept, as a divisor of kPerCore: the
-// fitted block width must be at least kPerCore / kMinBlockWidthFraction.
-//
-// The kernel's block loop runs num_blocks = kTiles / in0_block_w rounds of
-// mcast + compute, so a width the L1 budget forced below kPerCore costs
-// proportionally more. Below half of kPerCore the DS config is a loss against
-// the 1D/2D mcast configs it would replace. A policy number, determined
-// experimentally on p150, not derived.
+// Floor on in0_block_w as a fraction of K-per-core: below it the block loop
+// runs too many rounds and the mcast configs win. Empirical.
 static constexpr int64_t kMinBlockWidthFraction = 2;
 
 std::optional<DRAMShardParams>
@@ -331,9 +325,7 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   int64_t kPerCore = p.kTiles / numIn0Cores;
   // The last bank holds padding when the tile count does not divide evenly.
   p.perCoreNCompute = llvm::divideCeil(p.nTiles, numBanks);
-  // Round up: a sub-tile activation (a decode batch of 1..31) is still one tile
-  // row, and tt-metal pads it to one. Truncating would yield per_core_M = 0 and
-  // a degenerate config.
+  // A sub-tile M still occupies one tile row.
   p.perCoreM = llvm::divideCeil(M, kTileSize);
   p.perCoreNStorage = llvm::divideCeil(p.nTiles, numOutCores);
   p.weightDataType = weightDataType;
@@ -342,28 +334,16 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   const int64_t fp32Tile = ttcore::getTileSizeBytes(ttcore::DataType::Float32);
   const int64_t weightTile = ttcore::getTileSizeBytes(weightDataType);
 
-  // Deliberately over-reserved. tt-metal allocates per_core_M *
-  // per_core_N_storage for the output shard -- p.perCoreNStorage here -- but
-  // this reserves against the in0 core count, which is numWorkerCores /
-  // numIn0Cores times larger.
-  //
-  // The margin makes computeShardParams decline DS on shapes whose L1 is tight,
-  // and that is what keeps a DS matmul out of a state L1SpillManagement cannot
-  // resolve: it can neither demote nor spill one (tt-metal requires the sharded
-  // in0 and the sharded output), so it fails the compilation instead. See
-  // #9264. Once that pass can demote a DS matmul to a multicast config, this
-  // becomes p.perCoreM * p.perCoreNStorage * bf16Tile.
+  // Over-reserved on purpose: sized against the in0 core count rather than the
+  // storage split, so a tight shape is declined instead of reaching a state
+  // L1SpillManagement cannot demote (#9264).
   int64_t outTensorBufPerCore =
       p.perCoreM * llvm::divideCeil(p.nTiles, numIn0Cores) * bf16Tile;
   int64_t in0TensorBuf = p.perCoreM * kPerCore * bf16Tile;
   int64_t cbBudget = l1Available - in0TensorBuf - outTensorBufPerCore;
 
-  // Fixed CBs (independent of in0BlockW).
-  //
-  // Also over-reserved, and part of the same margin as outTensorBufPerCore:
-  // with bf16 partials the intermediate format equals the output format, so
-  // tt-metal puts both in one shared buffer rather than the two sized here. See
-  // #9264.
+  // Fixed CBs. interm0 is sized separately in fp32 although tt-metal shares one
+  // bf16 buffer with the output; the same margin as above (#9264).
   int64_t outCB = p.perCoreM * p.perCoreNCompute * bf16Tile;
   int64_t interm0CB = p.perCoreM * p.perCoreNCompute * fp32Tile;
   int64_t fixedCost = outCB + interm0CB;
@@ -400,9 +380,6 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
     return std::nullopt;
   }
 
-  // Decline rather than emit a degenerate block width. Falling back to the
-  // 1D/2D mcast configs is measurably better than a DS config whose block loop
-  // has been stretched out by L1 pressure (see kMinBlockWidthFraction).
   if (p.in0BlockW * kMinBlockWidthFraction < kPerCore) {
     return std::nullopt;
   }
@@ -420,12 +397,7 @@ TTNNLayoutAttr buildDRAMShardedWeightLayout(MLIRContext *ctx,
       .setMemoryLayout(
           TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::WidthSharded))
       .setGridShape({1, p.numBanks})
-      // Drop the seed's placement explicitly: buildWithCanonicalCorePlacement
-      // only fills a *null* core range set, and the setters above each
-      // early-return when the value already matches, so a seed that is already
-      // DRAM width-sharded on this grid would otherwise keep its own placement.
-      // Defensive rather than observed: sharded layouts in the IR are always
-      // canonically placed, so the seed's placement and this one agree today.
+      // Force canonical placement; a matching seed would keep its own.
       .setCoreRangeSet(nullptr)
       .buildWithCanonicalCorePlacement(deviceAttr);
 }
@@ -439,7 +411,7 @@ TTNNLayoutAttr buildL1ShardedLayout(MLIRContext *ctx, TTNNLayoutAttr origLayout,
       .setMemoryLayout(
           TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::WidthSharded))
       .setGridShape({1, numCores})
-      // As above: force canonical placement rather than inheriting the seed's.
+      // As above.
       .setCoreRangeSet(nullptr)
       .buildWithCanonicalCorePlacement(deviceAttr);
 }
@@ -453,8 +425,7 @@ buildDRAMShardedProgramConfig(MLIRContext *ctx, const DRAMShardParams &p,
 
 DeviceComputeKernelConfigAttr
 buildComputeConfig(MLIRContext *ctx, ttcore::DataType weightDataType) {
-  // bfp4 weights run at LoFi, bfp8 at HiFi2 — the split models are observed to
-  // need in practice, rather than a rule derived from the formats.
+  // Observed per weight dtype, not derived from the formats.
   MathFidelity fidelity = (weightDataType == ttcore::DataType::BFP_BFloat4)
                               ? MathFidelity::LoFi
                               : MathFidelity::HiFi2;
@@ -462,8 +433,6 @@ buildComputeConfig(MLIRContext *ctx, ttcore::DataType weightDataType) {
       ctx,
       /*mathFidelity=*/fidelity,
       /*mathApproxMode=*/mlir::BoolAttr{},
-      // bf16 partials through the packer are what tt-metal defaults a
-      // bf16-output matmul to.
       /*fp32DestAccEn=*/mlir::BoolAttr::get(ctx, false),
       /*packerL1Acc=*/mlir::BoolAttr::get(ctx, true),
       /*dstFullSyncEn=*/mlir::BoolAttr{});
