@@ -1184,8 +1184,9 @@ def _prepare_op_args(
     """Uses the ATen schema to distinguish tensor-typed positions from
     non-tensor attributes (keepdim, dim, eps, momentum, etc.).
     - _native.Value at a tensor position: typecast to target_dtype
-    - Python scalar (int/float) at a tensor position: lifted to a [1]-shaped
-      ttir.constant (handles e.g. aten.add.Tensor(x, 3.14))
+    - Python scalar (int/float) at a tensor position: lifted to a 0-d
+      ttir.constant (handles e.g. aten.add.Tensor(x, 3.14)); 0-d so that a
+      0-d tensor operand keeps its shape, as in torch
     - Everything else (None, list, bool, ...): passed through unchanged
     """
     if target in _SKIP_PREPARE_OP_ARGS:

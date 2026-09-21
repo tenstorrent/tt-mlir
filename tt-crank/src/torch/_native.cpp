@@ -221,7 +221,7 @@ public:
         return tk::build_max_pool2d(*mb_, input, kernel_size, stride, padding, dilation, ceil_mode);
     }
 
-    // Lift a Python scalar to a broadcastable `ttir.constant` at `dtype`.
+    // Lift a Python scalar to a 0-d `ttir.constant` at `dtype`; broadcasts against any rank.
     mlir::Value scalar(::tt::target::DataType dtype, double value) {
         assert_builder();
         return tk::build_scalar(*mb_, tk::mlir_element_type_for(tk::to_torch_dtype(dtype)), value);
@@ -256,7 +256,7 @@ public:
         return tk::build_full(*mb_, shape, value, mlir::cast<mlir::RankedTensorType>(like.getType()).getElementType());
     }
 
-    // Lift a Python scalar to a broadcastable `ttir.constant` matching the
+    // Lift a Python scalar to a 0-d `ttir.constant` matching the
     // element type of `like`. Use this for Tensor_Scalar ops (e.g. pow) where
     // the scalar operand must carry the same dtype as the tensor operand.
     mlir::Value scalar_like(mlir::Value like, double value) {
