@@ -85,6 +85,18 @@ public:
 };
 
 TEST_P(MeshPartitionLibMockDeviceTest, MeshPartitionOp) {
+  // Blocked on a tt-metal bug. ValidateNodeBounds skips reading the device's
+  // real DispatchCoreConfig on a mock device (the `if (!is_mock)` guard in
+  // tt_metal/impl/metal2_host_api/program_spec.cpp) and validates against a
+  // default-constructed one, which is WORKER. WORKER reserves a tensix row for
+  // dispatch, so the validator checks an 8x7 grid, while our mock mesh is
+  // opened with ETH dispatch and reports 8x8. Slice's work-split legally places
+  // work on row 7 and validation then rejects it. Deleting that guard makes all
+  // of these pass. Reachable since tt-metal 70ba57dc3ab (#56494) routed
+  // mesh_partition through MakeProgramFromSpec.
+  GTEST_SKIP() << "blocked on tt-metal ValidateNodeBounds ignoring the mock "
+                  "device's DispatchCoreConfig (8x7 vs 8x8)";
+
   const auto &p = GetParam();
 
   // {64, 128} — both dims tile-aligned (multiples of 32). After splitting,
@@ -110,6 +122,9 @@ TEST_P(MeshPartitionLibMockDeviceTest, MeshPartitionOp) {
   auto constraintsExp = OpModel<MeshPartitionOp>::getOpConstraints(
       inputShape, layoutDRAMRowMajor, dim, clusterAxis, layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  if (!constraintsExp) {
+    llvm::consumeError(constraintsExp.takeError());
+  }
 
   // Tiled DRAM layout — succeeds only if post-split shape is tile-aligned.
   constraintsExp = OpModel<MeshPartitionOp>::getOpConstraints(
