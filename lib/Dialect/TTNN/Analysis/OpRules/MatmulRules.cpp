@@ -27,27 +27,14 @@ namespace mlir::tt::ttnn {
 // ============================================================================
 // DRAM-sharded matmul policy constants
 // ============================================================================
-//
-// The shard geometry, layout, and config *generation* lives in
-// MatmulProgramConfig.{h,cpp} (computeShardParams, buildDRAMSharded*). These
-// are the rule book's policy inputs: they drive eligibility and are passed into
-// computeShardParams as numBanks / numIn0Cores.
 
 static constexpr int64_t kTileSize = 32;
-// Single source of truth for how many cores the DS-matmul activation (in0) is
-// width-sharded across. Drives the in0 shard width, the K-divisibility
-// eligibility gate, and the in0 L1 tensor-buffer reservation in
-// computeShardParams. Keep these uses consistent.
+// Cores the activation (in0) is width-sharded across.
 static constexpr int64_t kNumIn0Cores = 8;
 
-// Number of DRAM banks the weight is width-sharded across: every bank the
-// device exposes. Deliberately the same source deriveCanonicalDramCoreRangeSet
-// reads to build the layout's core range set, so the bank count and the
-// placement cannot disagree.
-//
-// Returns nullopt when the grid is not a shape canonical DRAM placement can
-// express (it requires a single row), so the DS path declines instead of
-// tripping the assert inside deriveCanonicalDramCoreRangeSet.
+// DRAM banks the weight is width-sharded across: every bank the device exposes,
+// read from the same grid canonical DRAM placement uses. Nullopt when that grid
+// is not a single row, which canonical placement cannot express.
 static std::optional<int64_t> getNumDRAMBanks(ttcore::DeviceAttr deviceAttr) {
   if (!deviceAttr) {
     return std::nullopt;
@@ -63,9 +50,6 @@ static std::optional<int64_t> getNumDRAMBanks(ttcore::DeviceAttr deviceAttr) {
 // Eligibility helpers
 // ============================================================================
 
-// The weight's TTNN layout, or null when its type does not carry one. The
-// layout is where the on-device tiling and dtype live, so it is the single
-// thing the checks below need.
 static TTNNLayoutAttr getWeightLayout(Value weight) {
   auto rtt = mlir::dyn_cast<RankedTensorType>(weight.getType());
   if (!rtt) {
@@ -74,12 +58,7 @@ static TTNNLayoutAttr getWeightLayout(Value weight) {
   return mlir::dyn_cast_or_null<TTNNLayoutAttr>(rtt.getEncoding());
 }
 
-// Whether the weight is a tiled, DRAM-interleaved tensor of a data type the DS
-// kernel is offered for.
-//
-// bfp4/bfp8 only. tt-metal imposes no dtype constraint on the DS config (there
-// is no dtype TT_FATAL in the DRAM-sharded validation block), so this is a
-// heuristic trying to prevent DRAM OOM, not a legality check.
+// bfp4/bfp8 only: a heuristic against DRAM OOM, not a tt-metal constraint.
 static bool isBfpDRAMInterleaved(Value weight) {
   TTNNLayoutAttr layout = getWeightLayout(weight);
   if (!layout || !layout.isTiled()) {
@@ -93,14 +72,8 @@ static bool isBfpDRAMInterleaved(Value weight) {
   return layout.hasInterleavedDRAMTensorMemoryLayout();
 }
 
-// A weight is DS-shaped when it is a plain 2-D matrix, possibly carrying
-// leading unit batch dims: ttnn models routinely hold projection weights as [1,
-// 1, K, N], which is the same matrix as [K, N] — same element count, same tile
-// grid, and TTNN already collapses both to a 2-D memref in the layout.
-//
-// A non-unit leading dim is a genuinely batched matmul, which this path does
-// not emit: tt-metal serves that case with a different config,
-// MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig.
+// A 2-D matrix, optionally behind unit batch dims. A non-unit batch dim needs
+// the batched DS config, which this path does not emit.
 static bool isDSWeightShaped(RankedTensorType rtt) {
   llvm::ArrayRef<int64_t> shape = rtt.getShape();
   if (shape.size() < 2) {
@@ -123,17 +96,10 @@ static int64_t getActivationM(RankedTensorType rtt) {
   return M;
 }
 
-// The (activation, weight) pair for a matmul-like op the DS kernel could
-// implement, or nullopt if `op` is not one.
-//
-// ttnn.matmul and ttnn.linear alike: a bias-free linear IS the matmul the DS
-// kernel implements, and ttnn decoders write their projections as ttnn.linear.
-//
-// A bias is rejected even though tt-metal's DS kernel supports one. The kernel
-// reads it per DRAM bank at a bank-local offset and adds it on the DRAM-bank
-// compute cores, so it needs a DRAM width-sharded layout for operand 2 that
-// nothing here produces yet; a DRAM-interleaved bias would be read as a strided
-// subset of itself, which is wrong results rather than a crash.
+// (activation, weight) of a bias-free, non-transposed matmul or linear. A bias
+// is declined: the DS kernel reads it per DRAM bank, so it needs a DRAM
+// width-sharded layout nothing produces yet, and an interleaved one is read
+// wrong silently.
 static std::optional<std::pair<Value, Value>> getMatmulOperands(Operation *op) {
   if (auto matmulOp = dyn_cast<MatmulOp>(op)) {
     if (matmulOp.getTransposeA() || matmulOp.getTransposeB()) {
@@ -151,8 +117,7 @@ static std::optional<std::pair<Value, Value>> getMatmulOperands(Operation *op) {
   return std::nullopt;
 }
 
-// Whether the DS path is offered for `op` with these operands. Logs the reason
-// on every decline.
+// Logs the reason on every decline.
 static bool isDSEligible(Operation *op, Value activation, Value weight) {
   [[maybe_unused]] StringRef opName = op->getName().getStringRef();
 
@@ -188,11 +153,7 @@ static bool isDSEligible(Operation *op, Value activation, Value weight) {
                  N);
     return false;
   }
-  // K is the contraction dim, width-sharded across the in0 cores, so it must
-  // divide evenly by the in0 core count (same requirement computeShardParams
-  // enforces via kTiles % numIn0Cores). Gate on it here so an ineligible op is
-  // rejected up front rather than deep in shard-param computation — and so that
-  // computeShardParams' assert holds by construction rather than by contract.
+  // K is width-sharded across the in0 cores.
   if ((K / kTileSize) % kNumIn0Cores != 0) {
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "DS declined ({0}): K tiles {1} not divisible by the in0 core "
@@ -200,13 +161,8 @@ static bool isDSEligible(Operation *op, Value activation, Value weight) {
                  opName, K / kTileSize, kNumIn0Cores);
     return false;
   }
-  // Decode-only, and this is tt-metal's constraint rather than a proxy for it:
-  // the DS validation asserts TT_FATAL(M == 1) on the activation height in
-  // tiles, i.e. exactly one tile row. Note M here is the logical row count with
-  // leading dims collapsed, so this accepts a sub-tile batch (1..31, padded up
-  // to one tile row by tt-metal) and rejects anything taller. The assert is
-  // uncatchable, so the rejection has to happen here rather than in the op
-  // model.
+  // tt-metal asserts M == 1 tile row, uncatchably, so decline taller here. A
+  // sub-tile batch pads up to one row and is accepted.
   if (llvm::divideCeil(M, kTileSize) != 1) {
     TTMLIR_DEBUG(
         ttmlir::LogComponent::GreedyOptimizer,
@@ -226,9 +182,6 @@ struct DSDeviceContext {
   int64_t l1Available;
 };
 
-// Returns nullopt, having logged the reason, when the module carries no system
-// descriptor or the device's DRAM grid is not one canonical placement can
-// express.
 static std::optional<DSDeviceContext> getDSDeviceContext(Operation *op) {
   [[maybe_unused]] StringRef opName = op->getName().getStringRef();
 
@@ -266,13 +219,8 @@ static std::optional<DSDeviceContext> getDSDeviceContext(Operation *op) {
       l1Available};
 }
 
-// Everything the DS path derives from an op: the operand types and the shard
-// geometry.
-//
-// The output hint and the input reshard candidates are both built from one of
-// these, which is what keeps them consistent: the in0 layout's shard width has
-// to match the config's in0_block_w, and the weight layout's bank count has to
-// match the one the geometry was computed for.
+// Operand types and shard geometry. The output hint and the input reshard
+// candidates are built from the same plan, so they cannot disagree.
 struct DSPlan {
   RankedTensorType in0Type;
   RankedTensorType weightType;
@@ -280,23 +228,12 @@ struct DSPlan {
   ttcore::DeviceAttr deviceAttr;
 };
 
-// Returns nullopt, having logged the reason, when the op is not DS-eligible or
-// the shard geometry does not fit L1.
-//
-// Derived afresh on every query rather than cached. Rule books are
-// process-global singletons reached through const methods, and a plan is a
-// function of the operand layouts, which the optimizer rewrites between
-// invocations — a cache would either go stale or key on a recycled Operation *.
-// The cost is a use-def walk plus a bounded divisor search, run three times per
-// matmul (both operands and the output hint).
+// Rebuilt on every query: the optimizer rewrites operand layouts between calls,
+// so a cache would go stale.
 static std::optional<DSPlan> buildDSPlan(Operation *op) {
   [[maybe_unused]] StringRef opName = op->getName().getStringRef();
 
-  // Respect the enable-dram-sharded-matmul pipeline option (set as a module
-  // attribute by DevicePassesWrapper). This is the choke point for the whole DS
-  // path: the output hint and the input reshard candidates both need a plan,
-  // and the apply and hint-validation paths only ever see a program config one
-  // of those produced. Declining here therefore costs nothing downstream.
+  // The single choke point of the DS path: every entry needs a plan.
   if (!ttnn::utils::isDRAMShardedMatmulEnabled(op)) {
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "DS declined ({0}): enable-dram-sharded-matmul is off",
@@ -304,11 +241,8 @@ static std::optional<DSPlan> buildDSPlan(Operation *op) {
     return std::nullopt;
   }
 
-  // Decline a matmul that still carries a fused activation. A DS program
-  // config's fused_activation is always null, so the op model validates the
-  // config without the activation while the runtime forwards it to
-  // ::ttnn::matmul -- validating one thing and running another. A 1D/2D mcast
-  // config folds it into its own fused_activation instead.
+  // A DS program config carries no fused_activation, so an op-level one would
+  // be validated without and run with.
   StringAttr fusedActivation =
       llvm::TypeSwitch<Operation *, StringAttr>(op)
           .Case<MatmulOp, LinearOp>(
@@ -348,9 +282,7 @@ static std::optional<DSPlan> buildDSPlan(Operation *op) {
       M, K, N, device->numDRAMBanks, kNumIn0Cores, device->numWorkerCores,
       getWeightLayout(weight).getDataType(), device->l1Available);
   if (!params) {
-    // Either no in0_block_w dividing K-per-core leaves room for the circular
-    // buffers, or the largest one that does is a degenerate fraction of
-    // K-per-core (see kMinBlockWidthFraction in MatmulProgramConfig.cpp).
+    // No in0_block_w both fits L1 and clears the floor; see computeShardParams.
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "DS declined ({0}): no in0_block_w both fits L1 and avoids a "
                  "degenerate block count (M={1} K={2} "
@@ -395,9 +327,6 @@ static bool hasMatmulProgramConfig(const OpConfig &config) {
 // ============================================================================
 // MatmulRuleBook — private DRAM-sharding helpers
 // ============================================================================
-//
-// buildDRAMShardingHint produces the DS output hint consumed by getOutputHints,
-// and is defined ahead of its caller below.
 
 std::optional<OpConfig>
 MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
@@ -413,9 +342,7 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
       mlir::cast<RankedTensorType>(op->getResult(0).getType()).getEncoding());
   auto resultType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
 
-  // numOutputCores = div_up(N_tiles, per_core_N_storage): exactly how many
-  // output cores compute_output_specs will allocate, ensuring no assertion
-  // fire.
+  // The storage grid tt-metal allocates for the output.
   int64_t numOutputCores = llvm::divideCeil(p.nTiles, p.perCoreNStorage);
 
   llvm::SmallVector<int64_t, 2> outputGrid = {1, numOutputCores};
@@ -427,8 +354,7 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
           .setGridShape(outputGrid)
           .buildWithCanonicalCorePlacement(deviceAttr);
 
-  // No fused activation, and none is possible: buildDSPlan declines a matmul
-  // that carries one, so the op model validates the DS config without it.
+  // buildDSPlan declines a fused activation, so there is none to pass.
   UnaryWithParamAttr fusedAct;
   auto progConfig = buildDRAMShardedProgramConfig(ctx, p, fusedAct);
   auto computeConfig = buildComputeConfig(ctx, p.weightDataType);
@@ -467,8 +393,7 @@ OutputHints MatmulRuleBook::getOutputHints(
     filtered.push_back(cfg);
   }
 
-  // Prepend the DS hint when eligible. The normal hints stay behind it as a
-  // fallback, in case DS validation fails for a given input combination.
+  // DS hint first; the others stay as fallback.
   if (auto dramHint = buildDRAMShardingHint(op)) {
     filtered.insert(filtered.begin(), *dramHint);
   }
@@ -511,11 +436,8 @@ void MatmulRuleBook::applyOpSpecificAttrs(
 
   auto programConfig = matmulAttrs.matmulProgramConfig.value();
 
-  // DRAM-sharded path: program/compute config only. The input reshards
-  // (activation → L1 1×kNumIn0Cores, weight → DRAM 1×numBanks) are handled by
-  // pass-2 in applyToIR via reshardLayouts populated from the input candidates
-  // injected by getExtraInputReshardCandidates. A DS candidate is only offered
-  // for a matmul carrying no activation, so there is none to handle here.
+  // DS: program/compute config only. The operand reshards come from the input
+  // candidates getExtraInputReshardCandidates injects.
   bool isDRAMSharded =
       mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
           programConfig);
@@ -564,18 +486,15 @@ void MatmulRuleBook::applyOpSpecificAttrs(
 // MatmulRuleBook::isValidOutputHintForInputs
 // ============================================================================
 
-// Reject in0 whose shard width is incompatible with the config's in0_block_w.
-// tt-metal needs, in tiles, K % per_core_K == 0 and per_core_K % in0_block_w ==
-// 0, where per_core_K is the in0 shard width and K the in1 shard height.
+// tt-metal needs, in tiles, K % per_core_K == 0 and per_core_K % in0_block_w
+// == 0, with per_core_K the in0 shard width and K the in1 shard height.
 static bool dsIn0CompatibleWithConfig(
     TTNNLayoutAttr in0, TTNNLayoutAttr in1,
     MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr dsCfg) {
   auto in0Shard = in0.getShardShape();
   auto in1Shard = in1.getShardShape();
   if (in0Shard.size() != 2 || in1Shard.size() != 2) {
-    // Cannot read the shard width, so cannot verify the combo is legal. A
-    // width-sharded in0/in1 for these matmuls is always 2-D (and our injected
-    // in0 always is), so reject rather than risk a tt-metal abort.
+    // Not 2-D: the check cannot be made, so reject rather than risk an abort.
     return false;
   }
   int64_t perCoreK = in0Shard[1];
@@ -593,9 +512,7 @@ bool MatmulRuleBook::isValidOutputHintForInputs(
           attrs->matmulProgramConfig.value())) {
     return true;
   }
-  // Runs for every in0 the cross-product pairs with the DS hint, not just the
-  // one getExtraInputReshardCandidates injects — that one is valid by
-  // construction.
+  // Every in0 the cross-product pairs with the hint passes through here.
   if (inputLayouts.size() < 2) {
     return false;
   }
