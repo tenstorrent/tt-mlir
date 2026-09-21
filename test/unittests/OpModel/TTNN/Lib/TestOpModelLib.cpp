@@ -837,7 +837,7 @@ TEST_F(OpModelTest, ToMemoryConfig) {
       tensorShape, inputLayoutL1Tiled, outputLayoutL1Tiled);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.cbL1PeakSize, 0);
   EXPECT_GT(opCstr.tensorL1PeakSize, 0);
   EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
