@@ -148,6 +148,7 @@ union OpType {
   SDPAForwardOp,
   SDPABackwardOp,
   SelectiveReduceCombineOp,
+  SiluBackwardOp,
   SliceOp,
   SoftmaxOp,
   SortOp,

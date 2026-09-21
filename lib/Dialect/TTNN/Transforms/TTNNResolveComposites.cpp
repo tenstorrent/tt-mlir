@@ -496,6 +496,27 @@ static void registerBuiltinComposites() {
       },
       /*promotionGuard=*/nullptr};
 
+  registry["silu_bw"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 2u);
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<SiluBackwardOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1]);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        TT_assert(compositeOp.getInputs().size() == 2u);
+        return builder.create<SiluBackwardOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1]);
+      },
+      /*promotionGuard=*/nullptr};
+
   registry["swiglu_elemwise_bw"] = CompositeEntry{
       // Validate
       [](ttcore::CompositeOp compositeOp,

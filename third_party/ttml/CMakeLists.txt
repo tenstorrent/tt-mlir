@@ -35,6 +35,9 @@ set(TTML_METAL_OP_SRCS
   ${TTML_SOURCE_DIR}/metal/ops/sdpa_bw/device/sdpa_bw_q_program_factory.cpp
   ${TTML_SOURCE_DIR}/metal/ops/sdpa_bw/device/sdpa_bw_kv_device_operation.cpp
   ${TTML_SOURCE_DIR}/metal/ops/sdpa_bw/device/sdpa_bw_kv_program_factory.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/silu_bw/silu_bw.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/silu_bw/device/silu_bw_device_operation.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/silu_bw/device/silu_bw_program_factory.cpp
   ${TTML_SOURCE_DIR}/metal/ops/swiglu_elemwise_bw/swiglu_elemwise_bw.cpp
   ${TTML_SOURCE_DIR}/metal/ops/swiglu_elemwise_bw/device/swiglu_elemwise_bw_device_operation.cpp
   ${TTML_SOURCE_DIR}/metal/ops/swiglu_elemwise_bw/device/swiglu_elemwise_bw_program_factory.cpp

@@ -2535,6 +2535,25 @@ struct OpModel<CrossEntropyBackwardOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// SiluBackwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<SiluBackwardOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout,
+                   llvm::ArrayRef<int64_t> gradOutputShape,
+                   TTNNLayoutAttr gradOutputLayout, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> gradOutputShape,
+               TTNNLayoutAttr gradOutputLayout, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // SwigluElemwiseBackwardOp
 //===----------------------------------------------------------------------===//
 

@@ -84,6 +84,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static TTMLRMSNormForwardRuleBook ttmlRmsNormForward;
   static TTMLRMSNormBackwardRuleBook ttmlRmsNormBackward;
   static TTMLLayerNormForwardRuleBook ttmlLayerNormForward;
+  static TTMLSiluBackwardRuleBook ttmlSiluBackward;
   static TTMLSwigluElemwiseBackwardRuleBook ttmlSwigluElemwiseBackward;
   static SDPADecodeRuleBook sdpaDecode;
   static EmbeddingRuleBook embedding;
@@ -129,6 +130,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(RMSNormForwardOp::getOperationName(), &ttmlRmsNormForward);
     reg(RMSNormBackwardOp::getOperationName(), &ttmlRmsNormBackward);
     reg(LayerNormForwardOp::getOperationName(), &ttmlLayerNormForward);
+    reg(SiluBackwardOp::getOperationName(), &ttmlSiluBackward);
     reg(SwigluElemwiseBackwardOp::getOperationName(),
         &ttmlSwigluElemwiseBackward);
     reg(ScaledDotProductAttentionDecodeOp::getOperationName(), &sdpaDecode);

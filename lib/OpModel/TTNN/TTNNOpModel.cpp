@@ -10038,6 +10038,68 @@ llvm::Expected<size_t> OpModel<CrossEntropyBackwardOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// SiluBackwardOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<SiluBackwardOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> gradOutputShape, TTNNLayoutAttr gradOutputLayout,
+    TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec gradOutputSpec,
+      detail::convertToTensorSpec(device, gradOutputShape, gradOutputLayout));
+
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
+  auto siluBackwardOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(::ttml::metal::silu_bw, device,
+                                           initialStateOpt, inputSpec,
+                                           gradOutputSpec);
+  };
+
+  return operation::getOpConstraintsWithState(inputLayout.getContext(),
+                                              siluBackwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<SiluBackwardOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> gradOutputShape, TTNNLayoutAttr gradOutputLayout,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::tt::tt_metal::TensorSpec gradOutputSpec,
+      detail::convertToTensorSpec(device, gradOutputShape, gradOutputLayout));
+
+  auto siluBackwardOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttml::metal::silu_bw, device, inputSpec,
+                            gradOutputSpec);
+  };
+
+  return operation::getOpRuntime(siluBackwardOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // SwigluElemwiseBackwardOp
 //===----------------------------------------------------------------------===//
 

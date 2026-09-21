@@ -130,6 +130,7 @@ struct TTIRToTTIRDecompositionPass
               op.getCompositeName() == "rmsnorm_fw" ||
               op.getCompositeName() == "rmsnorm_bw" ||
               op.getCompositeName() == "layernorm_fw" ||
+              op.getCompositeName() == "silu_bw" ||
               op.getCompositeName() == "swiglu_elemwise_bw") {
             bool operandsRank4 = llvm::all_of(op.getInputs(), [&](Value input) {
               return cast<RankedTensorType>(input.getType()).getRank() == 4;
