@@ -6153,6 +6153,31 @@ TEST_F(OpModelTest, LayerNormForwardOp) {
 }
 
 //===----------------------------------------------------------------------===//
+// SwigluElemwiseBackwardOp Tests
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelTest, SwigluElemwiseBackwardOp) {
+  const llvm::SmallVector<int64_t> shape = {1, 1, 128, 256};
+  const TTNNLayoutAttr layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<SwigluElemwiseBackwardOp>::getOpConstraints(
+      shape, layout, shape, layout, shape, layout,
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().tensorL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputL1BufferSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputLayouts.size(), 2u);
+
+  auto runtimeExp = OpModel<SwigluElemwiseBackwardOp>::getOpRuntime(
+      shape, layout, shape, layout, shape, layout,
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
+//===----------------------------------------------------------------------===//
 // QuantizeOp Tests
 //===----------------------------------------------------------------------===//
 

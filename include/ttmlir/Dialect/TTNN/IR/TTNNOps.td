@@ -3086,6 +3086,44 @@ def TTNN_CrossEntropyBackwardOp : TTNN_Op<"cross_entropy_bw"> {
     let hasVerifier = 1;
 }
 
+def TTNN_SwigluElemwiseBackwardOp : TTNN_Op<"swiglu_elemwise_bw"> {
+    let summary = "SwiGLU elementwise backward (ttml).";
+    let description = [{
+      Training-oriented fused backward pass of the SwiGLU elementwise product,
+      backed by the ttml metal op `ttml::metal::swiglu_elemwise_bw`. The
+      forward pass it differentiates is
+
+        output = gate * silu(input)
+
+      where `silu(x) = x * sigmoid(x)` is applied to `input` and `gate` scales
+      it. Given the upstream gradient `grad_output`, the op computes both input
+      gradients in one kernel pass:
+
+        grad_input = grad_output * gate * silu'(input)
+        grad_gate = grad_output * silu(input)
+
+      The backing kernel requires all three operands to be rank 4 bfloat16
+      tensors with the same shape, in tiled, interleaved device memory. Both
+      results have the shape of `input`.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$gate,
+                         AnyRankedTensor:$grad_output);
+
+    let results = (outs AnyRankedTensor:$grad_input,
+                        AnyRankedTensor:$grad_gate);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSwigluElemwiseBackwardOpOperandsWorkarounds(this->getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
     [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface, TTNN_DistributedOpInterface, OpModelExempt]> {
     let summary = "Distributed RMS normalization with all-gather op.";

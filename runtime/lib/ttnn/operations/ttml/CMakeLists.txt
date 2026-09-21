@@ -14,6 +14,7 @@ add_library(TTRuntimeTTMLOps STATIC
   layernorm_fw.cpp
   sdpa_fw.cpp
   sdpa_bw.cpp
+  swiglu_elemwise_bw.cpp
   cross_entropy_fw.cpp
   cross_entropy_bw.cpp
 )

@@ -1288,6 +1288,34 @@ def cross_entropy_bw_golden(
     return result
 
 
+def swiglu_elemwise_bw_golden(
+    input: GoldenMapTensor,
+    gate: GoldenMapTensor,
+    grad_output: GoldenMapTensor,
+    output_type_mlir: Type = None,
+    **kwargs,
+) -> Tuple[GoldenMapTensor, GoldenMapTensor]:
+    # Backward of output = gate * silu(input), where silu(x) = x * sigmoid(x).
+    x = input.float()
+    sigmoid = torch.sigmoid(x)
+    silu = torch.mul(x, sigmoid)
+    # silu'(x) = sigmoid(x) * (1 + x * (1 - sigmoid(x)))
+    silu_grad = torch.mul(
+        sigmoid,
+        torch.add(torch.mul(x, torch.sub(1.0, sigmoid)), 1.0),
+    )
+
+    grad_input = torch.mul(torch.mul(grad_output.float(), gate.float()), silu_grad)
+    grad_gate = torch.mul(grad_output.float(), silu)
+
+    output_dtype = (
+        mlir_type_to_torch_dtype(output_type_mlir)
+        if output_type_mlir is not None
+        else input.dtype
+    )
+    return grad_input.to(output_dtype), grad_gate.to(output_dtype)
+
+
 def rms_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor] = None,
@@ -6614,7 +6642,7 @@ def ttcore_composite_golden(
     composite_attributes=None,
     result_types=None,
     **_kwargs,
-) -> GoldenMapTensor:
+) -> Union[GoldenMapTensor, Tuple[GoldenMapTensor, ...]]:
     if composite_name == "rmsnorm_fw":
         attrs = composite_attributes or {}
         try:
@@ -6629,6 +6657,15 @@ def ttcore_composite_golden(
             *operand_tensors,
             epsilon=epsilon_attr,
             return_intermediates=len(result_types) == 2,
+            output_type_mlir=RankedTensorType(result_types[0]).element_type,
+        )
+
+    if composite_name == "swiglu_elemwise_bw":
+        if not result_types:
+            raise ValueError("ttcore.composite golden requires result types.")
+
+        return swiglu_elemwise_bw_golden(
+            *operand_tensors,
             output_type_mlir=RankedTensorType(result_types[0]).element_type,
         )
 

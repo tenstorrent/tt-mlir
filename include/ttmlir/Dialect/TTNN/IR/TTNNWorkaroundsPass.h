@@ -262,6 +262,10 @@ public:
   static TTNNOperandsWorkarounds
   createCrossEntropyBackwardOpOperandsWorkarounds();
 
+  // Create workarounds for swiglu elementwise backward op operands.
+  static TTNNOperandsWorkarounds
+  createSwigluElemwiseBackwardOpOperandsWorkarounds(Operation *op);
+
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 

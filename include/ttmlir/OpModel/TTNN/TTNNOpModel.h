@@ -2512,5 +2512,26 @@ struct OpModel<CrossEntropyBackwardOp> {
                llvm::APFloat scaler, TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// SwigluElemwiseBackwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<SwigluElemwiseBackwardOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout,
+                   llvm::ArrayRef<int64_t> gateShape, TTNNLayoutAttr gateLayout,
+                   llvm::ArrayRef<int64_t> gradOutputShape,
+                   TTNNLayoutAttr gradOutputLayout, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> gateShape, TTNNLayoutAttr gateLayout,
+               llvm::ArrayRef<int64_t> gradOutputShape,
+               TTNNLayoutAttr gradOutputLayout, TTNNLayoutAttr outputLayout);
+};
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

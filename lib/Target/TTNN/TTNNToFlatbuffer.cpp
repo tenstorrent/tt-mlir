@@ -1806,6 +1806,23 @@ createOp(FlatbufferObjectCache &cache, CrossEntropyBackwardOp op) {
       *cache.fbb, input, target, grad, op.getScaler().convertToFloat(), output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SwigluElemwiseBackwardOp>
+createOp(FlatbufferObjectCache &cache, SwigluElemwiseBackwardOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto gate = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGate()));
+  auto gradOutput = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGradOutput()));
+  auto gradInput = cache.getOrCreateNoSharding(
+      op.getGradInput(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+  auto gradGate = cache.getOrCreateNoSharding(
+      op.getGradGate(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateSwigluElemwiseBackwardOp(
+      *cache.fbb, input, gate, gradOutput, gradInput, gradGate);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::RMSNormOp>
 createOp(FlatbufferObjectCache &cache, RMSNormOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -4650,6 +4667,11 @@ emitTTMLOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto crossEntropyBwOp = dyn_cast<CrossEntropyBackwardOp>(op);
       crossEntropyBwOp) {
     return createOperation(cache, createOp(cache, crossEntropyBwOp),
+                           debugString, locInfo);
+  }
+  if (auto swigluElemwiseBwOp = dyn_cast<SwigluElemwiseBackwardOp>(op);
+      swigluElemwiseBwOp) {
+    return createOperation(cache, createOp(cache, swigluElemwiseBwOp),
                            debugString, locInfo);
   }
 

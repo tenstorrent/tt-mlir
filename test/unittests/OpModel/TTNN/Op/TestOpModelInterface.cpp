@@ -6540,6 +6540,44 @@ TEST_F(OpModelBase, LayerNormForwardOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, SwigluElemwiseBackwardOpInterface) {
+  llvm::SmallVector<int64_t> shape = {1, 1, 128, 256};
+  auto layout = CreateTiledLayout(shape, BufferType::DRAM,
+                                  TensorMemoryLayout::Interleaved);
+
+  auto input = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto gate = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto gradOutput = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto resultType =
+      createRankedTensorType(shape, builder.getBF16Type(), layout);
+
+  auto swigluElemwiseBackward = builder.create<SwigluElemwiseBackwardOp>(
+      builder.getUnknownLoc(), TypeRange{resultType, resultType}, input, gate,
+      gradOutput);
+
+  auto backend = dyn_cast<OpModel>(swigluElemwiseBackward.getOperation());
+  ASSERT_TRUE(backend);
+  auto inputLayouts = getInputLayouts(swigluElemwiseBackward.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 3u);
+
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+    ASSERT_EQ(constraintsExp.get().outputLayouts.size(), 2u);
+  } else {
+    FAIL() << "Missing constraints for SwigluElemwiseBackwardOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for SwigluElemwiseBackwardOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, QuantizeOpInterface) {
   llvm::SmallVector<int64_t> inputShape = {32, 64};
   llvm::SmallVector<int64_t> scaleShape = {64};
