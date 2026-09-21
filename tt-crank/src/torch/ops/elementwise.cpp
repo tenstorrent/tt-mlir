@@ -81,6 +81,20 @@ at::Tensor tt_mul(const at::Tensor &a_in, const at::Tensor &b_in) {
     return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
 }
 
+at::Tensor tt_minimum(const at::Tensor &a_in, const at::Tensor &b_in) {
+    const auto [a, b] = align_on_tt(a_in, b_in);
+
+    auto mb = ModuleBuilder::init({spec_for(a), spec_for(b)});
+    auto [promoted, lhs, rhs] = promote_inputs(mb, a, b);
+
+    auto result = build_minimum(mb, lhs, rhs);
+    auto out_shape = at::infer_size(a.sizes(), b.sizes());
+    auto module_op = std::move(mb).finalize({result});
+
+    auto outputs = compile_and_run(std::move(module_op), {a, b});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+}
+
 at::Tensor tt_relu(const at::Tensor &self) {
     TORCH_CHECK(is_tt(self), "tt-crank aten::relu: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
@@ -199,25 +213,6 @@ std::tuple<at::Tensor, at::Tensor> tt_max_pool2d_with_indices(const at::Tensor &
     return std::make_tuple(std::move(pool_result), std::move(dummy_indices));
 }
 
-// Move a freshly-computed result tensor's runtime buffer into a caller-provided
-// `.out` tensor. We assert `out` already has the expected shape and storage
-// size rather than resizing it: the structured `.out` dispatch is supposed to
-// pre-size `out`, so a mismatch means an assumption broke - fail loudly so we
-// can revisit before silently reshaping.
-at::Tensor &write_result_into(at::Tensor &out, const at::Tensor &result) {
-    TORCH_CHECK(out.sizes() == result.sizes(), "tt-crank .out kernel: out tensor shape ", out.sizes(),
-                " does not match computed result shape ", result.sizes());
-    // Equal sizes + equal storage bytes still allow a dtype mismatch when the
-    // itemsizes coincide (e.g. f32 vs i32, bf16 vs f16). Replacing the storage
-    // would then reinterpret the buffer's bits as out's dtype - check loudly.
-    TORCH_CHECK(out.scalar_type() == result.scalar_type(), "tt-crank .out kernel: out dtype ", out.scalar_type(),
-                " does not match computed result dtype ", result.scalar_type());
-    TORCH_CHECK(out.storage().nbytes() == result.storage().nbytes(), "tt-crank .out kernel: out storage is ",
-                out.storage().nbytes(), " bytes but result needs ", result.storage().nbytes());
-    storage_of(out).replace(storage_of(result).tensor());
-    return out;
-}
-
 // relu_: in-place ReLU. Runs the functional kernel and swaps self's storage for
 // the result — same storage-swap pattern as the `.out` ops below. self and the
 // result share shape and dtype, so write_result_into's checks always hold.
@@ -287,6 +282,19 @@ at::Tensor &tt_sum_out(const at::Tensor &self, at::OptionalIntArrayRef dim, bool
     auto outputs = compile_and_run(std::move(module_op), {self});
     auto result = wrap_tt_tensor(std::move(outputs[0]), out_shape, target_dtype);
     return write_result_into(out, result);
+}
+
+// amax.out: max of `self` over `dim` (empty = all dims).
+at::Tensor &tt_amax_out(const at::Tensor &self, at::IntArrayRef dim, bool keepdim, at::Tensor &out) {
+    TORCH_CHECK(is_tt(self), "tt-crank aten::amax.out: tensor must be on tt backend");
+    const llvm::SmallVector<int64_t> reduce_dims(dim.begin(), dim.end());
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result_v = build_max(mb, mb.args()[0], reduce_dims, keepdim);
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result_v.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result_v});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return write_result_into(out, wrap_tt_tensor(std::move(outputs[0]), out_shape, self.scalar_type()));
 }
 
 at::Tensor &tt_linalg_vector_norm_out(const at::Tensor &self, const at::Scalar &ord, at::OptionalIntArrayRef dim,
@@ -656,6 +664,15 @@ at::Tensor tt_sin(const at::Tensor &self) {
     TORCH_CHECK(is_tt(self), "tt-crank aten::sin: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_sin(mb, mb.args()[0]);
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
+}
+
+at::Tensor tt_abs(const at::Tensor &self) {
+    TORCH_CHECK(is_tt(self), "tt-crank aten::abs: tensor must be on tt backend");
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result = build_abs(mb, mb.args()[0]);
     auto module_op = std::move(mb).finalize({result});
     auto outputs = compile_and_run(std::move(module_op), {self});
     return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
@@ -1149,6 +1166,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("sub.Tensor", TORCH_FN(tt_sub));
     m.impl("mul.Tensor", TORCH_FN(tt_mul));
     m.impl("mul.Scalar", TORCH_FN(tt_mul_scalar));
+    m.impl("minimum", TORCH_FN(tt_minimum));
     m.impl("relu", TORCH_FN(tt_relu));
     m.impl("relu_", TORCH_FN(tt_relu_));
     m.impl("rsqrt", TORCH_FN(tt_rsqrt));
@@ -1172,6 +1190,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("div.Scalar", TORCH_FN(tt_div_scalar));
     m.impl("cos", TORCH_FN(tt_cos));
     m.impl("sin", TORCH_FN(tt_sin));
+    m.impl("abs", TORCH_FN(tt_abs));
     m.impl("neg", TORCH_FN(tt_neg));
     m.impl("log", TORCH_FN(tt_log));
     m.impl("exp", TORCH_FN(tt_exp));
@@ -1193,6 +1212,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("gelu", TORCH_FN(tt_gelu));
     m.impl("_softmax", TORCH_FN(tt_softmax));
     m.impl("sum.IntList_out", TORCH_FN(tt_sum_out));
+    m.impl("amax.out", TORCH_FN(tt_amax_out));
     m.impl("linalg_vector_norm.out", TORCH_FN(tt_linalg_vector_norm_out));
     m.impl("threshold_backward.grad_input", TORCH_FN(tt_threshold_backward_out));
     m.impl("mse_loss.out", TORCH_FN(tt_mse_loss_out));

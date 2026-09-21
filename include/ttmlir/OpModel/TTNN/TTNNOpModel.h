@@ -2432,6 +2432,27 @@ struct OpModel<SDPABackwardOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// RMSNormForwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<RMSNormForwardOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout,
+                   llvm::ArrayRef<int64_t> gammaShape,
+                   TTNNLayoutAttr gammaLayout, bool returnIntermediates,
+                   llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> gammaShape, TTNNLayoutAttr gammaLayout,
+               bool returnIntermediates, llvm::APFloat epsilon,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // LayerNormForwardOp
 //===----------------------------------------------------------------------===//
 

@@ -1557,6 +1557,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
         opContext.type_as_FuncCallOp()->outputs());
     break;
   }
+  case ::tt::target::ttnn::OpType::WhileOp: {
+    tensorRefs = utils::convertFbTensorRefsToVector(
+        opContext.type_as_WhileOp()->outputs());
+    break;
+  }
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp: {
     tensorRefs = utils::convertFbTensorRefsToVector(
         opContext.type_as_CaptureOrExecuteTraceOp()->outputs());
@@ -1617,6 +1622,14 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   case ::tt::target::ttnn::OpType::SDPABackwardOp: {
     auto *op = opContext.type_as_SDPABackwardOp();
     tensorRefs = {op->grad_query(), op->grad_key(), op->grad_value()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RMSNormForwardOp: {
+    auto *op = opContext.type_as_RMSNormForwardOp();
+    tensorRefs = {op->out()};
+    if (op->rms()) {
+      tensorRefs.push_back(op->rms());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
@@ -2033,6 +2046,11 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::RMSNormForwardOp: {
+    auto *op = opContext.type_as_RMSNormForwardOp();
+    tensorRefs = {op->input(), op->gamma()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
     auto *op = opContext.type_as_LayerNormForwardOp();
     tensorRefs = {op->input(), op->weight(), op->bias()};
@@ -2299,6 +2317,15 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   case ::tt::target::ttnn::OpType::FuncCallOp: {
     for (const auto *input : *opContext.type_as_FuncCallOp()->inputs()) {
       tensorRefs.push_back(input);
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::WhileOp: {
+    for (const auto *init : *opContext.type_as_WhileOp()->inits()) {
+      tensorRefs.push_back(init);
+    }
+    for (const auto *capture : *opContext.type_as_WhileOp()->captures()) {
+      tensorRefs.push_back(capture);
     }
     break;
   }

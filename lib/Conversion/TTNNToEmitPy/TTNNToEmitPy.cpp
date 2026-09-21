@@ -5616,6 +5616,29 @@ public:
   }
 };
 
+// RMSNormForward conversion pattern.
+//
+// EmitPy lowering for ttnn.rmsnorm_fw is intentionally unsupported. The
+// emitted Python would need to call the low-level ttml::metal::rmsnorm_fw
+// primitive, which tt-train does not expose through its Python bindings.
+// See https://github.com/tenstorrent/tt-mlir/issues/9118.
+class RMSNormForwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::RMSNormForwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::RMSNormForwardOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::RMSNormForwardOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        "EmitPy lowering for ttnn.rmsnorm_fw is not supported: ttml does not "
+        "expose the metal::rmsnorm_fw primitive through its Python bindings.");
+  }
+};
+
 // LayerNormForward conversion pattern.
 //
 // EmitPy lowering for ttnn.layernorm_fw is intentionally unsupported. The
@@ -5638,6 +5661,113 @@ public:
         "EmitPy lowering for ttnn.layernorm_fw is not supported: ttml does not "
         "expose the metal::layernorm_fw primitive through its Python "
         "bindings.");
+  }
+};
+} // namespace
+
+namespace {
+// Lowers `ttnn.while` to an `emitpy.while`:
+//
+//   for _ in range(N):                       # counted loops
+//
+//   OR
+//
+//   while True:                              # data-dependent loops
+//       <cond ops>
+//       if <cond>.to_torch().item() == 0: break
+//       <body ops>
+//
+
+constexpr llvm::StringLiteral kWhileYieldRoleAttr = "ttnn.while_yield_role";
+constexpr llvm::StringLiteral kWhileYieldCond = "cond";
+constexpr llvm::StringLiteral kWhileYieldBody = "body";
+
+class WhileOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::WhileOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::WhileOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::WhileOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    mlir::Location loc = srcOp.getLoc();
+
+    llvm::SmallVector<Type> carriedTypes;
+    if (failed(getTypeConverter()->convertTypes(srcOp.getResultTypes(),
+                                                carriedTypes))) {
+      return failure();
+    }
+
+    const bool counted = srcOp.getTripCount().has_value();
+    auto whileOp = rewriter.create<emitpy::WhileOp>(
+        loc, carriedTypes,
+        /*condition=*/counted ? StringAttr() : rewriter.getStringAttr("True"),
+        /*cond_args=*/ValueRange(),
+        /*inits=*/adaptor.getInits(),
+        /*trip_count=*/
+        counted ? rewriter.getI64IntegerAttr(*srcOp.getTripCount())
+                : IntegerAttr());
+
+    llvm::SmallVector<mlir::Location> argLocs(carriedTypes.size(), loc);
+    Block *loopBody =
+        rewriter.createBlock(&whileOp.getBody(), {}, carriedTypes, argLocs);
+
+    // Both ttnn regions take `inits ++ captures`. The carried values come from
+    // the loop's own block arguments; the captures are loop-invariant, so they
+    // come straight from the enclosing scope.
+    auto regionArgValues = [&]() {
+      llvm::SmallVector<Value> values(loopBody->getArguments());
+      llvm::append_range(values, adaptor.getCaptures());
+      return values;
+    };
+
+    if (!counted) {
+      rewriter.modifyOpInPlace(srcOp.getCondYield(), [&]() {
+        srcOp.getCondYield()->setAttr(kWhileYieldRoleAttr,
+                                      rewriter.getStringAttr(kWhileYieldCond));
+      });
+      rewriter.inlineBlockBefore(&srcOp.getCondBlock(), loopBody,
+                                 loopBody->end(), regionArgValues());
+    }
+
+    rewriter.modifyOpInPlace(srcOp.getBodyYield(), [&]() {
+      srcOp.getBodyYield()->setAttr(kWhileYieldRoleAttr,
+                                    rewriter.getStringAttr(kWhileYieldBody));
+    });
+    rewriter.inlineBlockBefore(&srcOp.getBodyBlock(), loopBody, loopBody->end(),
+                               regionArgValues());
+
+    rewriter.replaceOp(srcOp, whileOp.getResults());
+    return success();
+  }
+};
+
+class WhileYieldOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::YieldOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::YieldOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::YieldOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto role = srcOp->getAttrOfType<StringAttr>(kWhileYieldRoleAttr);
+    if (!role) {
+      return rewriter.notifyMatchFailure(srcOp, "yield is not part of a loop");
+    }
+
+    // The condition region's yield is the loop's exit test. Python has no
+    // do-while, so it is a break in the middle of a `while True` body.
+    if (role.getValue() == kWhileYieldCond) {
+      rewriter.replaceOpWithNewOp<emitpy::VerbatimOp>(
+          srcOp, "if {}.to_torch().item() == 0: break", adaptor.getOperands());
+      return success();
+    }
+
+    rewriter.replaceOpWithNewOp<emitpy::WhileYieldOp>(srcOp,
+                                                      adaptor.getOperands());
+    return success();
   }
 };
 } // namespace
@@ -5906,6 +6036,11 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<ExecuteTraceOpConversionPattern>(typeConverter, ctx);
   patterns.add<CaptureOrExecuteTraceOpConversionPattern>(typeConverter, ctx);
 
+  // Control flow ops
+  //
+  patterns.add<WhileOpConversionPattern>(typeConverter, ctx);
+  patterns.add<WhileYieldOpConversionPattern>(typeConverter, ctx);
+
   // Quantization ops.
   //
   patterns.add<QuantizationOpConversionPattern<mlir::tt::ttnn::QuantizeOp>,
@@ -5961,6 +6096,9 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // SDPABackward: deliberately declines conversion (see comment above).
   patterns.add<SDPABackwardOpConversionPattern>(typeConverter, ctx);
+
+  // Normalization forward ops deliberately decline conversion.
+  patterns.add<RMSNormForwardOpConversionPattern>(typeConverter, ctx);
   patterns.add<LayerNormForwardOpConversionPattern>(typeConverter, ctx);
 
   // CrossEntropyForward: deliberately declines conversion, same reason.

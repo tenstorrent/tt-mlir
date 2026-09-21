@@ -2895,6 +2895,42 @@ def TTNN_SDPABackwardOp : TTNN_Op<"sdpa_bw"> {
     let hasVerifier = 1;
 }
 
+def TTNN_RMSNormForwardOp : TTNN_Op<"rmsnorm_fw"> {
+    let summary = "Root mean square normalization forward (ttml).";
+    let description = [{
+      Training-oriented fused RMS normalization forward pass, backed by the
+      ttml metal op `ttml::metal::rmsnorm_fw`. Computes RMS normalization over
+      the last dimension and scales the normalized values by `gamma`:
+      `output = input / rms * gamma`, where
+      `rms = sqrt(mean(input^2) + epsilon)`.
+
+      When `return_intermediates` is set, the per-row `rms` is also returned so
+      the backward pass can reuse it.
+
+      The backing kernel requires `input` and `gamma` to be 4D bfloat16 tensors
+      in tiled, interleaved device memory. The output has the same shape as
+      `input`, while `rms` has the same shape except that its last dimension is
+      one.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$gamma,
+                         DefaultValuedAttr<BoolAttr, "true">:$return_intermediates,
+                         DefaultValuedAttr<F32Attr, "1e-06">:$epsilon);
+
+    let results = (outs AnyRankedTensor:$output,
+                        Optional<AnyRankedTensor>:$rms);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createRMSNormForwardOpOperandsWorkarounds(this->getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_LayerNormForwardOp : TTNN_Op<"layernorm_fw",
     [SameVariadicResultSize]> {
     let summary = "Layer normalization forward (ttml).";
@@ -4095,6 +4131,78 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
     // in the flatbuffer, so the two must agree.
     std::pair<llvm::SmallVector<size_t>, llvm::SmallVector<size_t>>
     partitionInputIndices();
+  }];
+
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// TTNN control flow ops
+//===----------------------------------------------------------------------===//
+
+def TTNN_YieldOp : TTNN_Op<"yield", [Pure, Terminator, OpModelExempt]> {
+  let summary = "Terminator for TTNN control flow regions.";
+  let description = [{
+    Terminates a region of a TTNN control flow op. The meaning of the yielded
+    values is defined by the parent op;
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$operands);
+
+  // Nullary builder required by SingleBlockImplicitTerminator on the parent.
+  let builders = [OpBuilder<(ins), [{ /* nothing to do */ }]>];
+
+  let assemblyFormat = [{ attr-dict ($operands^ `:` type($operands))? }];
+}
+
+def TTNN_WhileOp : TTNN_Op<"while", [
+    AttrSizedOperandSegments,
+    IsolatedFromAbove,
+    RecursiveMemoryEffects,
+    SingleBlockImplicitTerminator<"::mlir::tt::ttnn::YieldOp">,
+    TTCore_NonCacheableTrait,
+    OpModelExempt,]> {
+  let summary = "While loop.";
+  let description = [{
+    Repeatedly executes `body` while `cond` yields true, threading the
+    loop-carried values from one iteration to the next.
+
+    Two requirements are specific to this level, both materialized by
+    `TTNNLayout`:
+
+    - `cond` must yield a single-element `uint32` tensor resident in system
+      memory, since the runtime reads it back to host to decide whether to
+      continue;
+    - every loop-carried value must keep the same layout across the yield,
+      because the next iteration rebinds the regions' inputs from the values
+      `body` yielded.
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inits,
+                       Variadic<AnyRankedTensor>:$captures,
+                       OptionalAttr<ConfinedAttr<I64Attr, [IntNonNegative]>>:$trip_count);
+
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let regions = (region SizedRegion<1>:$cond, SizedRegion<1>:$body);
+
+  let assemblyFormat = [{
+    `inits` `(` $inits `:` type($inits) `)`
+    (`captures` `(` $captures^ `:` type($captures) `)`)?
+    attr-dict
+    `cond` $cond
+    `do` $body
+    `->` `(` type($results) `)`
+  }];
+
+  let extraClassDeclaration = [{
+    ::mlir::Block &getCondBlock() { return getCond().front(); }
+    ::mlir::Block &getBodyBlock() { return getBody().front(); }
+
+    // Defined out-of-line: YieldOp is only forward declared at this point in
+    // the generated header.
+    ::mlir::tt::ttnn::YieldOp getCondYield();
+    ::mlir::tt::ttnn::YieldOp getBodyYield();
   }];
 
   let hasVerifier = 1;

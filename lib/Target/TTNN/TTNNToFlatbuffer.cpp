@@ -33,11 +33,16 @@
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <memory>
+#include <optional>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
@@ -1686,6 +1691,26 @@ createOp(FlatbufferObjectCache &cache, SDPAForwardOp op) {
       static_cast<uint32_t>(op.getMaskType()),
       op.getDropoutProbability().convertToFloat(), op.getReturnIntermediates(),
       output, intermediates);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::RMSNormForwardOp>
+createOp(FlatbufferObjectCache &cache, RMSNormForwardOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto gamma = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGamma()));
+  auto output = cache.getOrCreateNoSharding(
+      op.getOutput(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> rms = 0;
+  if (op.getRms()) {
+    rms = cache.getOrCreateNoSharding(op.getRms(), tensorValueToFlatbuffer,
+                                      /*local_shape*/ std::nullopt);
+  }
+
+  return ::tt::target::ttnn::CreateRMSNormForwardOp(
+      *cache.fbb, input, gamma, op.getReturnIntermediates(),
+      op.getEpsilon().convertToFloat(), output, rms);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::LayerNormForwardOp>
@@ -4529,11 +4554,118 @@ createOp(FlatbufferObjectCache &cache, TopKRouterGptOp op) {
       expertWeights);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::WhileOp>
+createOp(FlatbufferObjectCache &cache, WhileOp op,
+         const RegionProgramEmitterFn &emitRegionProgram) {
+  auto parentFunc = op->getParentOfType<func::FuncOp>();
+
+  // Number the loop by its position among the function's loops in pre-order,
+  // so that nested and sibling loops get distinguishable program names.
+  // `chisel.ops.IRModule` reconstructs these names to map a region program
+  // back onto the region it came from, and walks in the same order.
+  unsigned loopIndex = 0;
+  parentFunc.walk<WalkOrder::PreOrder>([&](WhileOp other) {
+    if (other == op) {
+      return WalkResult::interrupt();
+    }
+    ++loopIndex;
+    return WalkResult::advance();
+  });
+
+  auto regionProgramName = [&](llvm::StringRef suffix) {
+    return llvm::formatv("{0}_while_{1}_{2}", parentFunc.getSymName(),
+                         loopIndex, suffix)
+        .str();
+  };
+
+  // The regions are serialized first so that their programs are complete
+  // before this op's table refers to them by index.
+  uint32_t condProgramId =
+      emitRegionProgram(cache, op.getCond(), regionProgramName("cond"));
+  uint32_t bodyProgramId =
+      emitRegionProgram(cache, op.getBody(), regionProgramName("body"));
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> inits;
+  for (Value init : op.getInits()) {
+    inits.push_back(
+        cache.at<::tt::target::ttnn::TensorRef>(getOperandThroughDPSOps(init)));
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> captures;
+  for (Value capture : op.getCaptures()) {
+    captures.push_back(cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(capture)));
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (Value output : op.getResults()) {
+    outputs.push_back(cache.getOrCreateNoSharding(
+        output, tensorValueToFlatbuffer, /*local_shape=*/std::nullopt));
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
+      semaphoreInputs;
+
+  ::flatbuffers::Optional<uint64_t> tripCount = ::flatbuffers::nullopt;
+  if (std::optional<int64_t> attr = op.getTripCount()) {
+    assert(*attr >= 0 && "verifier rejects a negative trip_count");
+    tripCount = static_cast<uint64_t>(*attr);
+  }
+
+  return ::tt::target::ttnn::CreateWhileOpDirect(
+      *cache.fbb, condProgramId, bodyProgramId, &inits, &captures, &outputs,
+      tripCount, &semaphoreInputs);
+}
+
+std::optional<::flatbuffers::Offset<::tt::target::ttnn::Operation>>
+emitTTMLOperation(FlatbufferObjectCache &cache, Operation *op,
+                  const std::string &debugString, const std::string &locInfo) {
+  if (auto adamwOp = dyn_cast<AdamWOp>(op); adamwOp) {
+    return createOperation(cache, createOp(cache, adamwOp), debugString,
+                           locInfo);
+  }
+  if (auto sdpaForwardOp = dyn_cast<SDPAForwardOp>(op); sdpaForwardOp) {
+    return createOperation(cache, createOp(cache, sdpaForwardOp), debugString,
+                           locInfo);
+  }
+  if (auto sdpaBackwardOp = dyn_cast<SDPABackwardOp>(op); sdpaBackwardOp) {
+    return createOperation(cache, createOp(cache, sdpaBackwardOp), debugString,
+                           locInfo);
+  }
+  if (auto rmsNormForwardOp = dyn_cast<RMSNormForwardOp>(op);
+      rmsNormForwardOp) {
+    return createOperation(cache, createOp(cache, rmsNormForwardOp),
+                           debugString, locInfo);
+  }
+  if (auto layerNormForwardOp = dyn_cast<LayerNormForwardOp>(op);
+      layerNormForwardOp) {
+    return createOperation(cache, createOp(cache, layerNormForwardOp),
+                           debugString, locInfo);
+  }
+  if (auto crossEntropyFwOp = dyn_cast<CrossEntropyForwardOp>(op);
+      crossEntropyFwOp) {
+    return createOperation(cache, createOp(cache, crossEntropyFwOp),
+                           debugString, locInfo);
+  }
+  if (auto crossEntropyBwOp = dyn_cast<CrossEntropyBackwardOp>(op);
+      crossEntropyBwOp) {
+    return createOperation(cache, createOp(cache, crossEntropyBwOp),
+                           debugString, locInfo);
+  }
+
+  return {};
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
                   const std::string &debugString, const std::string &locInfo,
-                  const llvm::StringMap<std::string> &constEvalFuncHashes) {
+                  const llvm::StringMap<std::string> &constEvalFuncHashes,
+                  const RegionProgramEmitterFn &emitRegionProgram) {
+  if (auto whileOp = dyn_cast<WhileOp>(op); whileOp) {
+    return createOperation(cache, createOp(cache, whileOp, emitRegionProgram),
+                           debugString, locInfo);
+  }
   if (auto getDeviceOp = dyn_cast<GetDeviceOp>(op); getDeviceOp) {
     return createOperation(cache, createOp(cache, getDeviceOp), debugString,
                            locInfo);
@@ -5151,33 +5283,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, batchNormTrainingOp),
                            debugString, locInfo);
   }
-  if (auto adamwOp = dyn_cast<AdamWOp>(op); adamwOp) {
-    return createOperation(cache, createOp(cache, adamwOp), debugString,
-                           locInfo);
-  }
-  if (auto sdpaForwardOp = dyn_cast<SDPAForwardOp>(op); sdpaForwardOp) {
-    return createOperation(cache, createOp(cache, sdpaForwardOp), debugString,
-                           locInfo);
-  }
-  if (auto sdpaBackwardOp = dyn_cast<SDPABackwardOp>(op); sdpaBackwardOp) {
-    return createOperation(cache, createOp(cache, sdpaBackwardOp), debugString,
-                           locInfo);
-  }
-  if (auto layerNormForwardOp = dyn_cast<LayerNormForwardOp>(op);
-      layerNormForwardOp) {
-    return createOperation(cache, createOp(cache, layerNormForwardOp),
-                           debugString, locInfo);
-  }
-  if (auto crossEntropyFwOp = dyn_cast<CrossEntropyForwardOp>(op);
-      crossEntropyFwOp) {
-    return createOperation(cache, createOp(cache, crossEntropyFwOp),
-                           debugString, locInfo);
-  }
-  if (auto crossEntropyBwOp = dyn_cast<CrossEntropyBackwardOp>(op);
-      crossEntropyBwOp) {
-    return createOperation(cache, createOp(cache, crossEntropyBwOp),
-                           debugString, locInfo);
-  }
   if (auto rmsNormOp = dyn_cast<RMSNormOp>(op); rmsNormOp) {
     return createOperation(cache, createOp(cache, rmsNormOp), debugString,
                            locInfo);
@@ -5427,6 +5532,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            debugString, locInfo);
   }
 
+  if (auto offset = emitTTMLOperation(cache, op, debugString, locInfo)) {
+    return *offset;
+  }
+
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
 
@@ -5526,21 +5635,61 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 
   auto constEvalFuncHashes = computeConstEvalFuncHashesSHA256(moduleOp);
 
-  // Generate programs for each function.
-  for (auto func : programFuncs) {
+  // Regions of control-flow ops become extra programs appended after the ones
+  // derived from functions. They are private: they have no standalone meaning
+  // and `ttrt run` must not try to invoke them directly.
+  //
+  // Program bodies are built up as plain C++ vectors of offsets and only turned
+  // into flatbuffer vectors by CreateProgramDirect, so finishing a nested
+  // program part-way through building its parent is safe.
+  llvm::DenseMap<mlir::Operation *, std::unique_ptr<mlir::AsmState>>
+      printStates;
+
+  RegionProgramEmitterFn emitRegionProgram =
+      [&](FlatbufferObjectCache &regionCache, mlir::Region &region,
+          llvm::StringRef name) -> uint32_t {
+    auto func = region.getParentOfType<func::FuncOp>();
+    std::unique_ptr<mlir::AsmState> &printState =
+        printStates[func.getOperation()];
+    if (!printState) {
+      printState = std::make_unique<mlir::AsmState>(
+          func, getProgramDebugPrintingFlags());
+    }
+
+    Program<::tt::target::ttnn::Operation> regionProgram =
+        regionToProgram<::tt::target::ttnn::Operation>(
+            regionCache, region, name, emitTTNNOperation,
+            tensorValueToFlatbuffer, *printState, programIdxMap,
+            constEvalFuncHashes, emitRegionProgram);
+
+    ::tt::target::Dim2d regionMeshShape =
+        deviceToFlatbufferMeshShape(ttcore::lookupDevice(func));
+
+    programs.push_back(::tt::target::ttnn::CreateProgramDirect(
+        fbb, regionProgram.name.c_str(), &regionProgram.inputs,
+        &regionProgram.outputs, &regionProgram.ops, &dylibs, debugInfo,
+        /*private=*/true, &regionMeshShape, &regionProgram.semaphoreInputs));
+    return static_cast<uint32_t>(programs.size() - 1);
+  };
+
+  // Generate programs for each function. Reserving up front keeps the
+  // function-derived programs at the indices recorded in `programIdxMap` even
+  // though region programs are appended in between.
+  programs.resize(programFuncs.size());
+  for (auto [funcIdx, func] : llvm::enumerate(programFuncs)) {
     Program<::tt::target::ttnn::Operation> program =
         funcOpToProgram<::tt::target::ttnn::Operation>(
             cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
-            programIdxMap, constEvalFuncHashes);
+            programIdxMap, constEvalFuncHashes, emitRegionProgram);
 
     ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(func);
 
     ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
 
-    programs.push_back(::tt::target::ttnn::CreateProgramDirect(
-        fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-        &dylibs, debugInfo, func.isPrivate(), &meshShape,
-        &program.semaphoreInputs));
+    programs[funcIdx] = ::tt::target::ttnn::CreateProgramDirect(
+        fbb, program.name.c_str(), &program.inputs, &program.outputs,
+        &program.ops, &dylibs, debugInfo, func.isPrivate(), &meshShape,
+        &program.semaphoreInputs);
   }
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(

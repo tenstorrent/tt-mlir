@@ -141,6 +141,11 @@ def _(mb, a, b):
     return mb.mul(a, b)
 
 
+@_lowering(_aten.minimum.default)
+def _(mb, a, b):
+    return mb.minimum(a, b)
+
+
 @_lowering(_aten.rsqrt.default)
 def _(mb, x):
     return mb.rsqrt(x)
@@ -159,6 +164,12 @@ def _(mb, x, dim, keepdim=False, *, dtype=None):
 @_lowering(_aten.sum.dim_IntList)
 def _(mb, x, dim, keepdim=False, *, dtype=None):
     return mb.sum(x, list(dim), keepdim)
+
+
+@_lowering(_aten.amax.default)
+def _(mb, x, dim=(), keepdim=False):
+    # dim=[] reduces everything; mb.max treats an empty list the same way.
+    return mb.max(x, [int(d) for d in dim], bool(keepdim))
 
 
 @_lowering(_aten.linalg_vector_norm.default)
@@ -320,6 +331,11 @@ def _(mb, x):
 @_lowering(_aten.sin.default)
 def _(mb, x):
     return mb.sin(x)
+
+
+@_lowering(_aten.abs.default)
+def _(mb, x):
+    return mb.abs(x)
 
 
 @_lowering(_aten.neg.default)
@@ -517,9 +533,7 @@ def _(mb, x, dim=None, keepdim=False):
 
 @_lowering(_aten.max.dim)
 def _(mb, x, dim, keepdim=False):
-    # Materialise only the indices (== argmax). The values slot is left None:
-    # no compile-path caller reads it, and getitem raises if one ever does.
-    return (None, mb.argmax(x, int(dim), bool(keepdim)))
+    return (mb.max(x, [int(dim)], bool(keepdim)), mb.argmax(x, int(dim), bool(keepdim)))
 
 
 @_lowering(_aten.unsqueeze.default)
@@ -872,6 +886,88 @@ def _(
     )
     # Returns a 9-tuple; downstream getitem[0] extracts the attention output.
     return (result, None, None, None, None, None, None, None, None)
+
+
+# aten's cross_entropy is `_log_softmax` + `nll_loss_forward`, its backward `nll_loss_backward` +
+# `_log_softmax_backward_data`. Lowered on their own here: [rows x C] log-probabilities, integer
+# targets with ignore_index, no class weights.
+@_lowering(_aten._log_softmax.default)
+def _(mb, x, dim, half_to_float=False):
+    # log(softmax(x)) underflows to -inf past a logit gap of ~87; shift by the row max and take log-sum-exp.
+    shifted = mb.sub(x, mb.max(x, [int(dim)], True))
+    return mb.sub(shifted, mb.log(mb.sum(mb.exp(shifted), [int(dim)], True)))
+
+
+@_lowering(_aten._log_softmax_backward_data.default)
+def _(mb, grad, output, dim, input_dtype):
+    return mb.sub(grad, mb.mul(mb.exp(output), mb.sum(grad, [int(dim)], True)), 1.0)
+
+
+def _nll_loss_rows(mb, log_probs, target, ignore_index):
+    """`(picked, valid)`: the [rows x C] bool mask of each kept row's target class, and the [rows]
+    1/0 count of kept rows in the log-probabilities' dtype. Ignored rows select nothing."""
+    if len(log_probs.shape) != 2:
+        raise NotImplementedError(
+            f"tt-crank nll_loss: expected [rows x C] log-probabilities, got rank {len(log_probs.shape)}"
+        )
+    rows, classes = log_probs.shape
+    keep = mb.ne(target, mb.scalar_like(target, float(ignore_index)))
+    valid = mb.where(
+        keep, mb.ones_like(log_probs, [rows]), mb.zeros_like(log_probs, [rows])
+    )
+    hit = mb.eq(
+        mb.unsqueeze(mb.typecast(target, _to_runtime_dtype(torch.int32)), 1),
+        mb.arange(0, classes, 1, _to_runtime_dtype(torch.int32)),
+    )
+    picked = mb.logical_and(hit, mb.broadcast(mb.unsqueeze(keep, 1), [rows, classes]))
+    return picked, valid
+
+
+_NLL_REDUCTION_NONE, _NLL_REDUCTION_MEAN, _NLL_REDUCTION_SUM = 0, 1, 2
+
+
+@_lowering(_aten.nll_loss_forward.default)
+@_skip_prepare(_aten.nll_loss_forward.default)
+def _(mb, log_probs, target, weight, reduction, ignore_index):
+    if weight is not None:
+        raise NotImplementedError("tt-crank nll_loss: class weights are not supported")
+    picked, valid = _nll_loss_rows(mb, log_probs, target, ignore_index)
+    # Select rather than multiply by a one-hot: a non-finite log-probability in an ignored row must not
+    # reach the sum (torch never reads it; 0 * inf would be NaN).
+    zeros = mb.zeros_like(log_probs, list(log_probs.shape))
+    rows = mb.neg(mb.sum(mb.where(picked, log_probs, zeros), [1], False))
+    total_weight = mb.sum(valid, [0], False)
+    if reduction == _NLL_REDUCTION_NONE:
+        return rows, total_weight
+    loss = mb.sum(rows, [0], False)
+    return (
+        mb.div(loss, total_weight) if reduction == _NLL_REDUCTION_MEAN else loss
+    ), total_weight
+
+
+@_lowering(_aten.nll_loss_backward.default)
+@_skip_prepare(_aten.nll_loss_backward.default)
+def _(
+    mb, grad_output, log_probs, target, weight, reduction, ignore_index, total_weight
+):
+    if weight is not None:
+        raise NotImplementedError(
+            "tt-crank nll_loss backward: class weights are not supported"
+        )
+    picked, _ = _nll_loss_rows(mb, log_probs, target, ignore_index)
+    if reduction == _NLL_REDUCTION_MEAN:
+        # If no row is kept, torch's gradient is 0, not NaN; the clamp keeps the division finite.
+        grad = mb.div(grad_output, mb.clamp(total_weight, 1.0, None))
+    else:
+        grad = grad_output
+    # [rows] for reduction none, a single element otherwise; spread over the classes for the select.
+    grad = (
+        mb.unsqueeze(grad, 1)
+        if reduction == _NLL_REDUCTION_NONE
+        else mb.reshape(grad, [1, 1])
+    )
+    grad = mb.broadcast(mb.neg(grad), list(log_probs.shape))
+    return mb.where(picked, grad, mb.zeros_like(log_probs, list(log_probs.shape)))
 
 
 @_lowering(_aten._to_copy.default)

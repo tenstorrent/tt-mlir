@@ -30,6 +30,7 @@
 #include "operations/ccl/reduce_scatter.h"
 #include "operations/ccl/selective_reduce_combine.h"
 #include "operations/context/get_device.h"
+#include "operations/control_flow/while_op.h"
 #include "operations/conv/conv1d.h"
 #include "operations/conv/conv2d.h"
 #include "operations/conv/conv3d.h"
@@ -130,6 +131,7 @@
 #include "operations/ttml/cross_entropy_bw.h"
 #include "operations/ttml/cross_entropy_fw.h"
 #include "operations/ttml/layernorm_fw.h"
+#include "operations/ttml/rmsnorm_fw.h"
 #include "operations/ttml/sdpa_bw.h"
 #include "operations/ttml/sdpa_fw.h"
 #include "tt/runtime/debug.h"
@@ -372,6 +374,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::FuncCallOp: {
     return operations::mlir_native::run(op->type_as_FuncCallOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::WhileOp: {
+    return operations::control_flow::run(op->type_as_WhileOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::CumSumOp: {
     return operations::reduction::cumsum::run(op->type_as_CumSumOp(),
@@ -656,6 +661,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::SDPABackwardOp: {
     return operations::ttml::run(op->type_as_SDPABackwardOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::RMSNormForwardOp: {
+    return operations::ttml::run(op->type_as_RMSNormForwardOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
     return operations::ttml::run(op->type_as_LayerNormForwardOp(),

@@ -80,6 +80,11 @@ public:
         return tk::build_mul(*mb_, lhs, rhs);
     }
 
+    mlir::Value minimum(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_minimum(*mb_, lhs, rhs);
+    }
+
     mlir::Value mm(mlir::Value lhs, mlir::Value rhs) {
         assert_builder();
         return tk::build_mm(*mb_, lhs, rhs);
@@ -140,6 +145,11 @@ public:
     mlir::Value sum(mlir::Value input, std::vector<std::int64_t> dims, bool keepdim) {
         assert_builder();
         return tk::build_sum(*mb_, input, dims, keepdim);
+    }
+
+    mlir::Value max(mlir::Value input, std::vector<std::int64_t> dims, bool keepdim) {
+        assert_builder();
+        return tk::build_max(*mb_, input, dims, keepdim);
     }
 
     mlir::Value vector_norm(mlir::Value input, std::vector<std::int64_t> dims, bool keepdim) {
@@ -279,6 +289,10 @@ public:
     mlir::Value sin(mlir::Value input) {
         assert_builder();
         return tk::build_sin(*mb_, input);
+    }
+    mlir::Value abs(mlir::Value input) {
+        assert_builder();
+        return tk::build_abs(*mb_, input);
     }
     mlir::Value neg(mlir::Value input) {
         assert_builder();
@@ -572,6 +586,21 @@ public:
         return tk::build_sdpa(*mb_, query, key, value, is_causal, scale, attn_mask.value_or(mlir::Value{}));
     }
 
+    // Always 4 entries; the last is None without amsgrad.
+    std::vector<std::optional<mlir::Value>> adamw(mlir::Value param, mlir::Value grad, mlir::Value exp_avg,
+                                                  mlir::Value exp_avg_sq, std::optional<mlir::Value> max_exp_avg_sq,
+                                                  mlir::Value step, mlir::Value lr, float beta1, float beta2,
+                                                  float epsilon, float weight_decay) {
+        assert_builder();
+        std::vector<std::optional<mlir::Value>> out;
+        for (mlir::Value v :
+             tk::build_adamw(*mb_, param, grad, exp_avg, exp_avg_sq, max_exp_avg_sq.value_or(mlir::Value{}), step, lr,
+                             beta1, beta2, epsilon, weight_decay)) {
+            out.push_back(v ? std::optional{v} : std::nullopt);
+        }
+        return out;
+    }
+
     // index_copy: result = self with source values placed at index positions along dim.
     // index must be 1D; source must have the same rank as self.
     mlir::Value index_copy(mlir::Value input, int64_t dim, mlir::Value index, mlir::Value source) {
@@ -803,6 +832,7 @@ NB_MODULE(_native, m) {
         .def("add", &PyModuleBuilder::add, "lhs"_a, "rhs"_a, "alpha"_a = 1.0)
         .def("sub", &PyModuleBuilder::sub, "lhs"_a, "rhs"_a, "alpha"_a = 1.0)
         .def("mul", &PyModuleBuilder::mul, "lhs"_a, "rhs"_a)
+        .def("minimum", &PyModuleBuilder::minimum, "lhs"_a, "rhs"_a)
         .def("mm", &PyModuleBuilder::mm, "lhs"_a, "rhs"_a)
         .def("all_reduce", &PyModuleBuilder::all_reduce, "input"_a, "reduce_op"_a, "cluster_axis"_a)
         .def("all_gather", &PyModuleBuilder::all_gather, "input"_a, "group_size"_a, "cluster_axis"_a)
@@ -815,6 +845,7 @@ NB_MODULE(_native, m) {
         .def("reshape", &PyModuleBuilder::reshape, "input"_a, "new_shape"_a)
         .def("mean", &PyModuleBuilder::mean, "input"_a, "dims"_a, "keepdim"_a = false)
         .def("sum", &PyModuleBuilder::sum, "input"_a, "dims"_a, "keepdim"_a = false)
+        .def("max", &PyModuleBuilder::max, "input"_a, "dims"_a, "keepdim"_a = false)
         .def("vector_norm", &PyModuleBuilder::vector_norm, "input"_a, "dims"_a, "keepdim"_a = false)
         .def("any", &PyModuleBuilder::any, "input"_a, "dims"_a, "keepdim"_a = false)
         .def("pad", &PyModuleBuilder::pad, "input"_a, "low"_a, "high"_a, "value"_a = 0.0)
@@ -843,6 +874,7 @@ NB_MODULE(_native, m) {
         .def("typecast", &PyModuleBuilder::typecast, "value"_a, "dtype"_a)
         .def("cos", &PyModuleBuilder::cos, "input"_a)
         .def("sin", &PyModuleBuilder::sin, "input"_a)
+        .def("abs", &PyModuleBuilder::abs, "input"_a)
         .def("neg", &PyModuleBuilder::neg, "input"_a)
         .def("log", &PyModuleBuilder::log, "input"_a)
         .def("exp", &PyModuleBuilder::exp, "input"_a)
@@ -897,6 +929,8 @@ NB_MODULE(_native, m) {
         .def("where", &PyModuleBuilder::where, "condition"_a, "true_val"_a, "false_val"_a)
         .def("sdpa", &PyModuleBuilder::sdpa, "query"_a, "key"_a, "value"_a, "is_causal"_a = true,
              "scale"_a = nb::none(), "attn_mask"_a = nb::none())
+        .def("adamw", &PyModuleBuilder::adamw, "param"_a, "grad"_a, "exp_avg"_a, "exp_avg_sq"_a, "max_exp_avg_sq"_a,
+             "step"_a, "lr"_a, "beta1"_a, "beta2"_a, "epsilon"_a, "weight_decay"_a)
         .def("index_copy", &PyModuleBuilder::index_copy, "input"_a, "dim"_a, "index"_a, "source"_a)
         .def("tril", &PyModuleBuilder::tril, "input"_a, "diagonal"_a = 0)
         // Consumes the builder. Subsequent calls on `self` raise.

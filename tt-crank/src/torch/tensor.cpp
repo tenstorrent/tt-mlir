@@ -133,6 +133,20 @@ TensorStorage &storage_of(const at::Tensor &t) {
     return *as<TensorStorage *>(ctx);
 }
 
+at::Tensor &write_result_into(at::Tensor &out, const at::Tensor &result) {
+    TORCH_CHECK(out.sizes() == result.sizes(), "tt-crank .out kernel: out tensor shape ", out.sizes(),
+                " does not match computed result shape ", result.sizes());
+    // Equal sizes + equal storage bytes still allow a dtype mismatch when the
+    // itemsizes coincide (e.g. f32 vs i32, bf16 vs f16). Replacing the storage
+    // would then reinterpret the buffer's bits as out's dtype - check loudly.
+    TORCH_CHECK(out.scalar_type() == result.scalar_type(), "tt-crank .out kernel: out dtype ", out.scalar_type(),
+                " does not match computed result dtype ", result.scalar_type());
+    TORCH_CHECK(out.storage().nbytes() == result.storage().nbytes(), "tt-crank .out kernel: out storage is ",
+                out.storage().nbytes(), " bytes but result needs ", result.storage().nbytes());
+    storage_of(out).replace(storage_of(result).tensor());
+    return out;
+}
+
 at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef sizes, c10::ScalarType dtype) {
     TensorStorage *storage = new TensorStorage(std::move(runtime_tensor));
 
