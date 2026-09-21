@@ -2,9 +2,8 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 mock-system-desc-arch=blackhole enable-dram-sharded-matmul=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// Control for dram_sharded_matmul_reject_ccl_consumer: the identical shape with
-// an ordinary consumer still takes the DS path, so the decline there is
-// attributable to the collective and not to the geometry.
+// Control for dram_sharded_matmul_reject_ccl_consumer: the same shape with an
+// ordinary consumer takes the DS path.
 
 module attributes {} {
   // CHECK-LABEL: func.func @ds_matmul_no_ccl

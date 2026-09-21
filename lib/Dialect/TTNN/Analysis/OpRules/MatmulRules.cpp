@@ -254,35 +254,21 @@ static std::optional<DSDeviceContext> getDSDeviceContext(Operation *op) {
       l1Available};
 }
 
-// TTNN collectives. None of them implements the op-model interface: every one
-// carries OpModelExempt because tt-metal exposes no constraint or runtime query
-// for it (tt-mlir#4392, "MissingMetalDefinition").
+// No collective implements the op-model interface.
 static bool isCCLOp(Operation *op) {
   return mlir::isa<AllGatherOp, AllReduceOp, AllReduceAsyncOp, ReduceScatterOp,
                    PointToPointOp>(op);
 }
 
-// Ops that hand their operand on unchanged for the purpose of finding the
-// consumer that actually constrains the producer's layout. Mirrors the
-// view-like set in TTNNActivationDtypeLowering, plus ToLayoutOp: a layout cast
-// does not re-establish a layout the collective would accept, it just moves the
-// reconciliation one op further down.
+// Ops that pass their operand's layout on to the next consumer: the view-like
+// set from TTNNActivationDtypeLowering plus ToLayoutOp.
 static bool isLayoutForwardingOp(Operation *op) {
   return mlir::isa<ReshapeOp, SliceStaticOp, ToMemoryConfigOp, ToLayoutOp>(op);
 }
 
-// Whether this op's result reaches a collective without passing through an op
-// that establishes a layout of its own.
-//
-// Declining DS here is a policy call, not a correctness one. The optimizer can
-// cost the matmul but not the collective behind it, so it will happily pick a
-// DRAM-sharded output and leave the mismatch to an inserted ToMemoryConfigOp --
-// which then sits on the collective's critical path. Measured on qb2 (Blackhole
-// TP=4) that reshard costs 49-71 us per op on the row-parallel down projections
-// of llama_3_1_70b and qwen_2_5_coder_32b, against 10 us where the same flip
-// lands on a column-parallel gate/up with no collective behind it, and a net
-// throughput gain on single-chip p150 where there is no collective at all.
-// Until the CCLs are costable, do not offer DS into one.
+// Whether the result reaches a collective through layout-forwarding ops only.
+// The optimizer cannot cost a collective, so it would pick a DS output and put
+// the reshard on the collective's critical path: a measured loss on qb2.
 static bool resultFeedsCCL(Operation *op) {
   llvm::SmallVector<Operation *, 8> worklist(op->getUsers().begin(),
                                              op->getUsers().end());
@@ -324,10 +310,6 @@ static std::optional<DSPlan> buildDSPlan(Operation *op) {
     return std::nullopt;
   }
 
-  // Same choke point, same reasoning: the optimizer has no op model for
-  // collectives, so it cannot weigh a DRAM-sharded output against what the
-  // collective needs and the mismatch becomes an inserted reshard on the
-  // collective's critical path. See resultFeedsCCL.
   if (resultFeedsCCL(op)) {
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "DS declined ({0}): result feeds a collective, which the "
@@ -453,12 +435,8 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
   UnaryWithParamAttr fusedAct;
   auto progConfig = buildDRAMShardedProgramConfig(ctx, p, fusedAct);
 
-  // No compute-kernel config, matching every other matmul the optimizer emits:
-  // math fidelity, fp32 dest-accumulate and packer-L1-accumulate are left to
-  // tt-metal's defaults. It derives them from the program config and the output
-  // dtype, and leaving them unset is also what lets the global
-  // compute-kernel-config pipeline options reach a DS matmul at all --
-  // TTNNSetComputeKernelConfig only fills knobs the op has not already set.
+  // No compute config: tt-metal derives the knobs from the program config and
+  // output dtype, and TTNNSetComputeKernelConfig only fills knobs left unset.
   return OpConfig(l1OutLayout, MatmulAttrs{progConfig, std::nullopt});
 }
 

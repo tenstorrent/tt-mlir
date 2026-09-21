@@ -73,14 +73,8 @@ TEST(MatmulDRAMShardParams, BlackholeBankCountChangesShardWidth) {
 
 // bfp4 tiles are about half of bfp8, so anywhere bfp8 fits bfp4 must too, and
 // some budget must separate them. Swept because at a generous budget both cap
-// at K-per-core; N is wide so in1 dominates the budget.
-//
-// kWideN is 8192 rather than something larger so in1 still dominates the budget
-// while in0_block_w stays above kMinBlockWidth. The budgets reach down to
-// 425000 because that is where the dtype term separates the two: below it
-// bfp8's fitted width falls under the floor and is declined while bfp4 still
-// reaches 4. Above ~600000 both dtypes clear the floor, so a sweep that starts
-// there asserts nothing about the weight-dtype term.
+// at K-per-core; N is wide so in1 dominates the budget. The sweep reaches
+// 425000, where bfp8 falls under kMinBlockWidth and bfp4 still fits.
 TEST(MatmulDRAMShardParams, Bfp4NeverFitsWorseThanBfp8) {
   constexpr int64_t kWideN = 8192;
   bool sawBfp4OnlyFit = false;
