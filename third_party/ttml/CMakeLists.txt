@@ -13,12 +13,17 @@ if (NOT ((TTMLIR_ENABLE_RUNTIME AND TT_RUNTIME_ENABLE_TTNN) OR TTMLIR_ENABLE_OPM
 endif()
 
 set(TTML_METAL_OP_SRCS
+  # rmsnorm_bw's trailing ttnn::sum uses core::ComputeKernelConfig::precise().
+  ${TTML_SOURCE_DIR}/core/compute_kernel_config.cpp
   ${TTML_SOURCE_DIR}/metal/optimizers/adamw/adamw.cpp
   ${TTML_SOURCE_DIR}/metal/optimizers/adamw/device/adamw_device_operation.cpp
   ${TTML_SOURCE_DIR}/metal/optimizers/adamw/device/adamw_program_factory.cpp
   ${TTML_SOURCE_DIR}/metal/ops/layernorm_fw/layernorm_fw.cpp
   ${TTML_SOURCE_DIR}/metal/ops/layernorm_fw/device/layernorm_fw_device_operation.cpp
   ${TTML_SOURCE_DIR}/metal/ops/layernorm_fw/device/layernorm_fw_program_factory.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/rmsnorm_bw/rmsnorm_bw.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/rmsnorm_bw/device/rmsnorm_bw_device_operation.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/rmsnorm_bw/device/rmsnorm_bw_program_factory.cpp
   ${TTML_SOURCE_DIR}/metal/ops/rmsnorm_fw/rmsnorm_fw.cpp
   ${TTML_SOURCE_DIR}/metal/ops/rmsnorm_fw/device/rmsnorm_fw_device_operation.cpp
   ${TTML_SOURCE_DIR}/metal/ops/rmsnorm_fw/device/rmsnorm_fw_program_factory.cpp

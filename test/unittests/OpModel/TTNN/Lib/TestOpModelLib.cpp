@@ -6116,6 +6116,47 @@ TEST_F(OpModelTest, RMSNormForwardOp) {
 }
 
 //===----------------------------------------------------------------------===//
+// RMSNormBackwardOp Tests
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelTest, RMSNormBackwardOp) {
+  const llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 256};
+  const llvm::SmallVector<int64_t> gammaShape = {1, 1, 1, 256};
+  const llvm::SmallVector<int64_t> rmsShape = {1, 1, 128, 1};
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr gammaLayout = CreateTiledLayout(
+      gammaShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr rmsLayout = CreateTiledLayout(
+      rmsShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<RMSNormBackwardOp>::getOpConstraints(
+      inputShape, inputLayout, gammaShape, gammaLayout, rmsShape, rmsLayout,
+      inputShape, inputLayout, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().tensorL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputL1BufferSize, 0);
+  ASSERT_EQ(constraintsExp.get().outputLayouts.size(), 2u);
+
+  // grad_gamma is produced by the trailing ttnn::sum, which inherits gamma's
+  // memory config. Both results must land in DRAM-interleaved tile layout.
+  for (const TTNNLayoutAttr &layout : constraintsExp.get().outputLayouts) {
+    EXPECT_EQ(layout.getLayout(), Layout::Tile);
+    EXPECT_EQ(layout.getBufferType(), BufferType::DRAM);
+    ASSERT_TRUE(layout.getMemLayout());
+    EXPECT_EQ(layout.getMemLayout().getValue(),
+              TensorMemoryLayout::Interleaved);
+  }
+
+  auto runtimeExp = OpModel<RMSNormBackwardOp>::getOpRuntime(
+      inputShape, inputLayout, gammaShape, gammaLayout, rmsShape, rmsLayout,
+      inputShape, inputLayout, /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormForwardOp Tests
 //===----------------------------------------------------------------------===//
 
