@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
@@ -28,9 +29,43 @@ namespace mlir::tt::ttnn {
 // DRAM-sharded matmul policy constants
 // ============================================================================
 
-static constexpr int64_t kTileSize = 32;
-// Cores the activation (in0) is width-sharded across.
+// Cores the activation (in0) is width-sharded across. Experimental: tt-metal
+// only requires K tiles / cores to be a multiple of in0_block_w, and 8 divides
+// every targeted hidden size while leaving room for a wide in0_block_w.
 static constexpr int64_t kNumIn0Cores = 8;
+
+static bool isWidthSharded(TTNNLayoutAttr layout) {
+  auto ml = layout.getMemLayoutOpt();
+  return ml && *ml == TensorMemoryLayout::WidthSharded;
+}
+
+// L1 width-sharded over a single row of `numCores`.
+static bool isL1WidthShardedOn(TTNNLayoutAttr layout, int64_t numCores) {
+  if (!layout.hasL1BufferType() || !isWidthSharded(layout)) {
+    return false;
+  }
+  auto grid = layout.getGridShape();
+  return grid.size() == 2 && grid[0] == 1 && grid[1] == numCores;
+}
+
+// The DS program config `config` carries, or null.
+static MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
+getDSProgramConfig(const OpConfig &config) {
+  const auto *attrs = std::get_if<MatmulAttrs>(&config.opSpecificAttrs);
+  if (!attrs || !attrs->matmulProgramConfig.has_value()) {
+    return nullptr;
+  }
+  return mlir::dyn_cast_or_null<
+      MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+      attrs->matmulProgramConfig.value());
+}
+
+// Weight layouts the matmul accepts: interleaved anywhere, as for any matmul,
+// plus the DRAM width-sharded layout the DS reshard candidate injects.
+static bool acceptWeightLayout(TTNNLayoutAttr layout) {
+  return layout_filter_utils::rejectAllSharded(layout) ||
+         (!layout.hasL1BufferType() && isWidthSharded(layout));
+}
 
 // DRAM banks the weight is width-sharded across: every bank the device exposes,
 // read from the same grid canonical DRAM placement uses. Nullopt when that grid
@@ -147,23 +182,23 @@ static bool isDSEligible(Operation *op, Value activation, Value weight) {
   int64_t M = getActivationM(in0Type);
   auto [K, N] = getWeightKN(weightType);
 
-  if (K % kTileSize != 0 || N % kTileSize != 0) {
+  if (K % TILE_WIDTH != 0 || N % TILE_WIDTH != 0) {
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "DS declined ({0}): K={1} / N={2} not tile-aligned", opName, K,
                  N);
     return false;
   }
   // K is width-sharded across the in0 cores.
-  if ((K / kTileSize) % kNumIn0Cores != 0) {
+  if ((K / TILE_WIDTH) % kNumIn0Cores != 0) {
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "DS declined ({0}): K tiles {1} not divisible by the in0 core "
                  "count {2}",
-                 opName, K / kTileSize, kNumIn0Cores);
+                 opName, K / TILE_WIDTH, kNumIn0Cores);
     return false;
   }
   // tt-metal asserts M == 1 tile row, uncatchably, so decline taller here. A
   // sub-tile batch pads up to one row and is accepted.
-  if (llvm::divideCeil(M, kTileSize) != 1) {
+  if (llvm::divideCeil(M, TILE_HEIGHT) != 1) {
     TTMLIR_DEBUG(
         ttmlir::LogComponent::GreedyOptimizer,
         "DS declined ({0}): activation M={1} is more than one tile row", opName,
@@ -208,10 +243,8 @@ static std::optional<DSDeviceContext> getDSDeviceContext(Operation *op) {
     return std::nullopt;
   }
 
-  auto systemDesc = mlir::cast<ttcore::SystemDescAttr>(systemDescAttr);
   int64_t l1Available =
-      static_cast<int64_t>(ttnn::utils::getTensorL1UsageCap(moduleOp) *
-                           systemDesc.getChipDescs()[0].getUsableL1Size());
+      static_cast<int64_t>(ttnn::utils::getUsableL1PerCore(op));
 
   return DSDeviceContext{
       deviceAttr, *numDRAMBanks,
@@ -407,7 +440,7 @@ OutputHints MatmulRuleBook::getOutputHints(
 
 LayoutFilterFn MatmulRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
   if (operandIdx == 1) {
-    return layout_filter_utils::rejectAllL1;
+    return acceptWeightLayout;
   }
   return nullptr;
 }
@@ -506,34 +539,22 @@ static bool dsIn0CompatibleWithConfig(
 
 bool MatmulRuleBook::isValidOutputHintForInputs(
     const OpConfig &hint, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
-  const auto *attrs = std::get_if<MatmulAttrs>(&hint.opSpecificAttrs);
-  if (!attrs || !attrs->matmulProgramConfig.has_value() ||
-      !mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
-          attrs->matmulProgramConfig.value())) {
+  auto dsCfg = getDSProgramConfig(hint);
+  if (!dsCfg) {
     return true;
   }
   // Every in0 the cross-product pairs with the hint passes through here.
-  if (inputLayouts.size() < 2) {
+  if (inputLayouts.size() < 2 || !inputLayouts[0] || !inputLayouts[1]) {
     return false;
   }
   auto in0 = inputLayouts[0];
   auto in1 = inputLayouts[1];
-  if (!in0 || !in1) {
+  if (!in0.hasL1BufferType() || !isWidthSharded(in0)) {
     return false;
   }
-  auto ml0 = in0.getMemLayoutOpt();
-  if (!in0.hasL1BufferType() || !ml0 ||
-      *ml0 != TensorMemoryLayout::WidthSharded) {
+  if (in1.hasL1BufferType() || !isWidthSharded(in1)) {
     return false;
   }
-  auto ml1 = in1.getMemLayoutOpt();
-  if (in1.hasL1BufferType() || !ml1 ||
-      *ml1 != TensorMemoryLayout::WidthSharded) {
-    return false;
-  }
-  auto dsCfg =
-      mlir::cast<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
-          attrs->matmulProgramConfig.value());
   return dsIn0CompatibleWithConfig(in0, in1, dsCfg);
 }
 
@@ -546,28 +567,14 @@ MatmulRuleBook::adjustScore(Operation * /*op*/, LayoutScore base,
                             const OpConfig &config,
                             llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                             bool /*requiresReshard*/) const {
-  const auto *attrs = std::get_if<MatmulAttrs>(&config.opSpecificAttrs);
-  if (!attrs || !attrs->matmulProgramConfig.has_value() ||
-      !attrs->matmulProgramConfig.value()) {
+  if (!getDSProgramConfig(config)) {
     return base;
   }
-  if (!mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
-          attrs->matmulProgramConfig.value())) {
-    return base;
-  }
-  base.isDRAMShardedCandidate = true;
-  if (!inputLayouts.empty()) {
-    auto in0 = inputLayouts[0];
-    if (in0 && in0.hasL1BufferType()) {
-      auto ml = in0.getMemLayoutOpt();
-      if (ml && *ml == TensorMemoryLayout::WidthSharded) {
-        auto shape = in0.getGridShape();
-        if (shape.size() == 2 && shape[0] == 1 && shape[1] == kNumIn0Cores) {
-          base.hasCanonicalDSIn0 = true;
-        }
-      }
-    }
-  }
+  // DS above every other L1-sharded candidate; within DS, an in0 already on
+  // the canonical grid above one that needs a reshard.
+  bool canonicalIn0 = !inputLayouts.empty() && inputLayouts[0] &&
+                      isL1WidthShardedOn(inputLayouts[0], kNumIn0Cores);
+  base.rulePreference = canonicalIn0 ? 2 : 1;
   return base;
 }
 
@@ -586,15 +593,16 @@ MatmulRuleBook::getExtraInputReshardCandidates(Operation *op,
   auto *ctx = op->getContext();
   if (operandIdx == 0) {
     auto in0Layout = mlir::cast<TTNNLayoutAttr>(plan->in0Type.getEncoding());
-    return {buildL1ShardedLayout(ctx, in0Layout, plan->in0Type.getShape(),
-                                 kNumIn0Cores, plan->deviceAttr)};
+    return {buildWidthShardedLayout(ctx, in0Layout, plan->in0Type.getShape(),
+                                    BufferType::L1, kNumIn0Cores,
+                                    plan->deviceAttr)};
   }
   if (operandIdx == 1) {
     auto weightLayout =
         mlir::cast<TTNNLayoutAttr>(plan->weightType.getEncoding());
-    return {buildDRAMShardedWeightLayout(ctx, weightLayout,
-                                         plan->weightType.getShape(),
-                                         plan->params, plan->deviceAttr)};
+    return {buildWidthShardedLayout(
+        ctx, weightLayout, plan->weightType.getShape(), BufferType::DRAM,
+        plan->params.numBanks, plan->deviceAttr)};
   }
   return {};
 }

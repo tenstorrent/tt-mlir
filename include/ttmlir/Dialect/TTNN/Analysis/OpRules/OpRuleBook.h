@@ -91,8 +91,7 @@ struct OpRuleBook {
 
   /// Adjust a candidate's LayoutScore after the base scorer computed it.
   /// Receives the output config, all operand input layouts, and the reshard
-  /// flag. Used by MatmulRuleBook to set isDRAMShardedCandidate /
-  /// hasCanonicalDSIn0.
+  /// flag. MatmulRuleBook uses it to set rulePreference for DS candidates.
   virtual LayoutScore adjustScore(Operation *op, LayoutScore base,
                                   const OpConfig &config,
                                   llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,

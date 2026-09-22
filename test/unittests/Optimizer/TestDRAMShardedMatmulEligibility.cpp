@@ -341,7 +341,8 @@ TEST_F(DSTestBase, L1ShardedLayoutForcesCanonicalPlacement) {
   ASSERT_EQ(seed.getCoreRangeSet(), offRow);
 
   TTNNLayoutAttr out =
-      buildL1ShardedLayout(&context, seed, shape, /*numCores=*/8, deviceAttr);
+      buildWidthShardedLayout(&context, seed, shape, BufferType::L1,
+                              /*numCores=*/8, deviceAttr);
 
   TTNNLayoutAttr canonical =
       TTNNLayoutAttr::Builder(&context, shape, elementType)

@@ -9,8 +9,6 @@
 
 namespace mlir::tt::ttnn {
 
-class MatmulOp;
-
 //===----------------------------------------------------------------------===//
 // Matmul/Linear rules:
 //
@@ -27,15 +25,14 @@ class MatmulOp;
 
 struct MatmulRuleBook : OpRuleBook {
   /// Output hints: for DS-eligible matmuls, the DS hint is included alongside
-  /// the normal partial configs. adjustScore drives DS preference via
-  /// isDRAMShardedCandidate. For non-eligible matmuls: normal behavior.
+  /// the normal partial configs. adjustScore ranks the DS hint through
+  /// LayoutScore::rulePreference. For non-eligible matmuls: normal behavior.
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;
 
-  /// Operand 1 (weight): reject L1. DRAM layouts (interleaved and
-  /// width-sharded) are accepted; the DRAM width-sharded(DS) layout is injected
-  /// via getExtraInputReshardCandidates.
+  /// Operand 1 (weight): interleaved layouts as for any matmul, plus the DRAM
+  /// width-sharded layout getExtraInputReshardCandidates injects for DS.
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 
   /// Apply MatmulProgramConfig + fused activation dedup.
@@ -51,7 +48,8 @@ struct MatmulRuleBook : OpRuleBook {
       const OpConfig &hint,
       llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
 
-  /// Set isDRAMShardedCandidate / hasCanonicalDSIn0 for DS candidates.
+  /// Rank DS candidates through rulePreference: DS above the rest, an in0
+  /// already on the canonical grid above one that needs a reshard.
   LayoutScore adjustScore(Operation *op, LayoutScore base,
                           const OpConfig &config,
                           llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
