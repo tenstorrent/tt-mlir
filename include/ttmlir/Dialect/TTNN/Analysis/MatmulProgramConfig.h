@@ -46,25 +46,20 @@ struct DRAMShardParams {
 };
 
 // Shard geometry and a CB-fitting in0_block_w for an M×K×N matmul, or nullopt
-// when none fits `l1Available`. K and N must be tile-aligned and K/kTileSize
+// when none fits `l1Available`. K and N must be tile-aligned and K in tiles
 // divisible by numIn0Cores; the eligibility gate enforces both.
 std::optional<DRAMShardParams>
 computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
                    int64_t numIn0Cores, int64_t numOutCores,
                    ttcore::DataType weightDataType, int64_t l1Available);
 
-// DRAM width-sharded weight layout across p.numBanks banks.
-TTNNLayoutAttr buildDRAMShardedWeightLayout(MLIRContext *ctx,
-                                            TTNNLayoutAttr origLayout,
-                                            llvm::ArrayRef<int64_t> tensorShape,
-                                            const DRAMShardParams &p,
-                                            ttcore::DeviceAttr deviceAttr);
-
-// L1 width-sharded layout over numCores with canonical placement.
-TTNNLayoutAttr buildL1ShardedLayout(MLIRContext *ctx, TTNNLayoutAttr origLayout,
-                                    llvm::ArrayRef<int64_t> tensorShape,
-                                    int64_t numCores,
-                                    ttcore::DeviceAttr deviceAttr);
+// Width-sharded layout over a 1×numCores grid in `bufferType` with canonical
+// placement: DRAM over the banks for the weight, L1 over the in0 cores.
+TTNNLayoutAttr buildWidthShardedLayout(MLIRContext *ctx,
+                                       TTNNLayoutAttr origLayout,
+                                       llvm::ArrayRef<int64_t> tensorShape,
+                                       BufferType bufferType, int64_t numCores,
+                                       ttcore::DeviceAttr deviceAttr);
 
 MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
 buildDRAMShardedProgramConfig(MLIRContext *ctx, const DRAMShardParams &p,

@@ -34,17 +34,9 @@ bool LayoutScore::operator>(const LayoutScore &other) const {
     return isSharded;
   }
 
-  // 3. DRAM-sharded matmul wins when both are L1+sharded — architecturally
-  // superior for decode when available.
-  if (isDRAMShardedCandidate != other.isDRAMShardedCandidate) {
-    return isDRAMShardedCandidate;
-  }
-
-  // 3a. Among DS candidates, prefer the one with empirically optimal 1×8 in0.
-  // Only meaningful when isDRAMShardedCandidate is set for both, so this is a
-  // tiebreaker within DS.
-  if (isDRAMShardedCandidate && hasCanonicalDSIn0 != other.hasCanonicalDSIn0) {
-    return hasCanonicalDSIn0;
+  // 3. Rule-book preference (e.g. the DRAM-sharded matmul config).
+  if (rulePreference != other.rulePreference) {
+    return rulePreference > other.rulePreference;
   }
 
   // 4. Less DRAM input transfer > more DRAM input transfer.
@@ -68,8 +60,7 @@ bool LayoutScore::operator>(const LayoutScore &other) const {
 
 bool LayoutScore::operator==(const LayoutScore &other) const {
   return isL1 == other.isL1 && isSharded == other.isSharded &&
-         isDRAMShardedCandidate == other.isDRAMShardedCandidate &&
-         hasCanonicalDSIn0 == other.hasCanonicalDSIn0 &&
+         rulePreference == other.rulePreference &&
          inputDramBytes == other.inputDramBytes &&
          requiresReshard == other.requiresReshard &&
          coreCount == other.coreCount && outputL1Usage == other.outputL1Usage;
