@@ -35,9 +35,9 @@ void run(const ::tt::target::ttnn::ChunkGatedDeltaRuleOp *op,
       tensor(op->g()), tensor(op->beta()), op->scale(),
       optionalTensor(op->initial_state()), op->output_final_state(),
       op->chunk_size(), op->use_qk_l2norm(), op->output_head_major(),
-      memoryConfig, computeConfig, optionalTensor(op->eye()),
-      optionalTensor(op->tril()), optionalTensor(op->ones()),
-      optionalTensor(op->masks()));
+      /*use_mcast=*/true, memoryConfig, computeConfig,
+      optionalTensor(op->eye()), optionalTensor(op->tril()),
+      optionalTensor(op->ones()), optionalTensor(op->masks()));
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
   if (op->final_state()) {
