@@ -1,7 +1,3 @@
-// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
-//
-// SPDX-License-Identifier: Apache-2.0
-
 // RUN: ttmlir-opt --split-input-file %s -o %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 
