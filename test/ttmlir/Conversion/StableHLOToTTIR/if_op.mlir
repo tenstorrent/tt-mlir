@@ -1,5 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --convert-stablehlo-to-ttir %s | FileCheck %s
+// RUN: ttmlir-opt --convert-stablehlo-to-ttir %s -o %t.mlir
+// RUN: FileCheck %s --input-file=%t.mlir
 
 module @jit_if {
   // `stablehlo.if` runs its true branch when the predicate holds, while
