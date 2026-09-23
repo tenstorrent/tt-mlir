@@ -290,36 +290,6 @@ class TTIRBuilder(Builder):
 
         raise ValueError("While region is missing ttir.yield")
 
-    def _evaluate_while_goldens(
-        self,
-        op: ttir.WhileOp,
-        inits: Sequence[Operand],
-        captures: Sequence[Operand],
-    ) -> List[GoldenMapTensor]:
-        carried = [self._get_golden_tensor(init) for init in inits]
-        captured = [self._get_golden_tensor(capture) for capture in captures]
-
-        trip_count = int(op.trip_count.value) if op.trip_count is not None else None
-        iteration = 0
-        while trip_count is None or iteration < trip_count:
-            if trip_count is None:
-                condition = self._evaluate_while_region(op.cond, [*carried, *captured])
-                if len(condition) != 1:
-                    raise ValueError(
-                        "While condition region must yield exactly one value"
-                    )
-                if not all(
-                    bool(shard.item()) for shard in condition[0].shard_map.values()
-                ):
-                    break
-
-            carried = self._evaluate_while_region(op.body, [*carried, *captured])
-            iteration += 1
-            if trip_count is None and iteration >= 10000:
-                raise RuntimeError("While golden evaluation exceeded 10000 iterations")
-
-        return carried
-
     @tag(ttir.WhileOp)
     def while_(
         self,
@@ -415,7 +385,15 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         results = list(op.results)
-        result_goldens = self._evaluate_while_goldens(op, inits, captures)
+        while_golden = get_golden_function(ttir_op)
+        result_goldens = while_golden(
+            [self._get_golden_tensor(init) for init in inits],
+            [self._get_golden_tensor(capture) for capture in captures],
+            cond=op.cond,
+            body=op.body,
+            trip_count=op.trip_count,
+            region_evaluator=self._evaluate_while_region,
+        )
         for result, golden in zip(results, result_goldens):
             self._set_golden_tensor(result, golden)
 
@@ -445,7 +423,15 @@ class TTIRBuilder(Builder):
                 new_op.operation.attributes[named_attr.name] = named_attr.attr
 
         result_map: Dict[OpResult, OpResult] = {}
-        result_goldens = self._evaluate_while_goldens(new_op, new_inits, new_captures)
+        while_golden = get_golden_function(ttir_op)
+        result_goldens = while_golden(
+            [self._get_golden_tensor(init) for init in new_inits],
+            [self._get_golden_tensor(capture) for capture in new_captures],
+            cond=new_op.cond,
+            body=new_op.body,
+            trip_count=new_op.trip_count,
+            region_evaluator=self._evaluate_while_region,
+        )
         for old_result, new_result, golden in zip(
             old_op.results, new_op.results, result_goldens
         ):
