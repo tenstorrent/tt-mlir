@@ -48,6 +48,22 @@ public:
                   mlir::PatternRewriter &rewriter) const override;
 };
 
+// Fuses the backward (transpose) rotate-half form:
+//   x_cos = x * cos
+//   x_sin = x * sin
+//   rotated = concat(x_sin[D/2:], -x_sin[:D/2])
+//   result = x_cos + rotated
+//        -> ttcore.composite "rotary_embedding"
+//             (x, cos, concat(-sin[D/2:], -sin[:D/2]))
+//
+class RoPEBackwardFusingPattern : public mlir::OpRewritePattern<AddOp> {
+public:
+  using OpRewritePattern<AddOp>::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(AddOp srcOp, mlir::PatternRewriter &rewriter) const override;
+};
+
 // Fuses interleaved-pair RoPE:
 //   x_   = reshape(x, [..., D/2, 1, 2])
 //   out  = reshape(freqs[..., 0] * x_[..., 0] + freqs[..., 1] * x_[..., 1],
