@@ -50,6 +50,7 @@ union OpType {
   BitcastConvertOp,
   BeginTraceCaptureOp,
   CaptureOrExecuteTraceOp,
+  ChunkGatedDeltaRuleOp,
   ChunkedScaledDotProductAttentionOp,
   ConcatOp,
   ConcatenateHeadsOp,

@@ -7741,6 +7741,161 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// ChunkGatedDeltaRuleOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::ChunkGatedDeltaRuleOp::verify() {
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType valueType = getValue().getType();
+  RankedTensorType gType = getG().getType();
+  RankedTensorType betaType = getBeta().getType();
+  RankedTensorType outputType = getOutput().getType();
+
+  if (queryType.getRank() != 3 && queryType.getRank() != 4) {
+    return emitOpError("query and key must be rank-3 or rank-4 tensors");
+  }
+  if (keyType != queryType) {
+    return emitOpError("query and key must have identical types");
+  }
+  if (valueType.getRank() != 3 && valueType.getRank() != 4) {
+    return emitOpError("value must be a rank-3 or rank-4 tensor");
+  }
+  if (gType.getRank() != 3 || betaType.getRank() != 3) {
+    return emitOpError("g and beta must be rank-3 tensors");
+  }
+  if (gType != betaType) {
+    return emitOpError("g and beta must have identical types");
+  }
+
+  ArrayRef<int64_t> queryShape = queryType.getShape();
+  ArrayRef<int64_t> valueShape = valueType.getShape();
+  ArrayRef<int64_t> gateShape = gType.getShape();
+  int64_t batch = queryShape[0];
+  int64_t sequenceLength = queryShape[1];
+  if (valueShape[0] != batch || valueShape[1] != sequenceLength ||
+      gateShape[0] != batch || gateShape[1] != sequenceLength) {
+    return emitOpError("query, key, value, g, and beta must share batch and "
+                       "sequence dimensions");
+  }
+
+  int64_t valueHeads = gateShape[2];
+  if (valueHeads <= 0) {
+    return emitOpError("value head count must be positive");
+  }
+  if (valueType.getRank() == 4 && valueShape[2] != valueHeads) {
+    return emitOpError("g and beta last dimension must equal value heads");
+  }
+  if (valueType.getRank() == 3 && valueShape[2] % valueHeads != 0) {
+    return emitOpError("flat value width must be divisible by value heads");
+  }
+  int64_t valueHeadDim =
+      valueType.getRank() == 4 ? valueShape[3] : valueShape[2] / valueHeads;
+  if (valueHeadDim <= 0) {
+    return emitOpError("value head dimension must be positive");
+  }
+
+  // The flat Q/K path assumes K == V to infer the query/key head count.
+  if (queryType.getRank() == 3 && queryShape[2] % valueHeadDim != 0) {
+    return emitOpError("flat query/key width must be divisible by the inferred "
+                       "head dimension");
+  }
+  int64_t queryHeads =
+      queryType.getRank() == 4 ? queryShape[2] : queryShape[2] / valueHeadDim;
+  int64_t keyHeadDim = queryType.getRank() == 4 ? queryShape[3] : valueHeadDim;
+  if (queryHeads <= 0 || keyHeadDim <= 0) {
+    return emitOpError("query/key head count and dimension must be positive");
+  }
+  if (valueHeads % queryHeads != 0) {
+    return emitOpError("value heads must be divisible by query/key heads");
+  }
+
+  int64_t chunkSize = getChunkSize();
+  if (chunkSize == 0 || chunkSize % 32 != 0) {
+    return emitOpError("chunk_size must be a positive multiple of 32");
+  }
+  if (keyHeadDim % 32 != 0) {
+    return emitOpError("key head dimension must be a multiple of 32");
+  }
+  if (valueHeadDim % 32 != 0) {
+    return emitOpError("value head dimension must be a multiple of 32");
+  }
+
+  bool hasFlatQueryKey = queryType.getRank() == 3;
+  bool hasFlatValue = valueType.getRank() == 3;
+  if ((hasFlatQueryKey || hasFlatValue) && sequenceLength % chunkSize != 0) {
+    return emitOpError("flat Q/K/V inputs require sequence length to be "
+                       "divisible by chunk_size");
+  }
+  if (hasFlatQueryKey && chunkSize != 32) {
+    return emitOpError("flat query/key inputs require chunk_size to be 32");
+  }
+  if (getUseQkL2norm()) {
+    return emitOpError("use_qk_l2norm is not supported by tt-metal");
+  }
+
+  if (getInitialState()) {
+    RankedTensorType stateType = getInitialState().getType();
+    if (stateType.getRank() != 4 ||
+        stateType.getShape() !=
+            ArrayRef<int64_t>({batch, valueHeads, keyHeadDim, valueHeadDim})) {
+      return emitOpError("initial_state must have shape [B, HV, K, V]");
+    }
+  }
+
+  unsigned constantsPresent = (getEye() ? 1u : 0u) + (getTril() ? 1u : 0u) +
+                              (getOnes() ? 1u : 0u) + (getMasks() ? 1u : 0u);
+  if (constantsPresent != 0 && constantsPresent != 4) {
+    return emitOpError("eye, tril, ones, and masks must either all be present "
+                       "or all be absent");
+  }
+  if (constantsPresent == 4) {
+    SmallVector<int64_t> squareConstantShape = {1, 1, chunkSize, chunkSize};
+    for (auto [name, value] :
+         llvm::zip_equal(ArrayRef<StringRef>({"eye", "tril", "ones"}),
+                         ArrayRef<Value>({getEye(), getTril(), getOnes()}))) {
+      RankedTensorType type = cast<RankedTensorType>(value.getType());
+      if (!type.getElementType().isF32() ||
+          type.getShape() != ArrayRef<int64_t>(squareConstantShape)) {
+        return emitOpError() << name << " must be an f32 tensor with shape "
+                             << "[1, 1, chunk_size, chunk_size]";
+      }
+    }
+    RankedTensorType masksType = getMasks().getType();
+    if (!masksType.getElementType().isF32() ||
+        masksType.getShape() != ArrayRef<int64_t>({1, 1, 32, 96})) {
+      return emitOpError(
+          "masks must be an f32 tensor with shape [1, 1, 32, 96]");
+    }
+  }
+
+  SmallVector<int64_t> expectedOutputShape;
+  if (getOutputHeadMajor()) {
+    expectedOutputShape = {batch * valueHeads, sequenceLength, valueHeadDim};
+  } else {
+    expectedOutputShape = {batch, sequenceLength, valueHeads, valueHeadDim};
+  }
+  if (outputType.getShape() != ArrayRef<int64_t>(expectedOutputShape)) {
+    return emitOpError("output shape does not match output_head_major");
+  }
+
+  if (getOutputFinalState() != static_cast<bool>(getFinalState())) {
+    return emitOpError(
+        "final_state must be present exactly when output_final_state is true");
+  }
+  if (getFinalState()) {
+    RankedTensorType finalStateType = getFinalState().getType();
+    if (finalStateType.getRank() != 4 ||
+        finalStateType.getShape() !=
+            ArrayRef<int64_t>({batch, valueHeads, keyHeadDim, valueHeadDim})) {
+      return emitOpError("final_state must have shape [B, HV, K, V]");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // IndexerScoreDsaOp
 //===----------------------------------------------------------------------===//
 

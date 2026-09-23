@@ -4641,6 +4641,57 @@ public:
 };
 } // namespace
 
+// ChunkGatedDeltaRuleOp conversion pattern
+namespace {
+class ChunkGatedDeltaRuleOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::ChunkGatedDeltaRuleOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.chunk_gated_delta_rule";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.transformer.chunk_gated_delta_rule";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::ChunkGatedDeltaRuleOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ChunkGatedDeltaRuleOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ChunkGatedDeltaRuleOp>
+        emitter(srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getValue()),
+        emitter.emit(srcOp.getG()),
+        emitter.emit(srcOp.getBeta()),
+        emitter.emit<float>(srcOp.getScaleAttr(), "scale"),
+        emitter.emit(srcOp.getInitialState(), "initial_state"),
+        emitter.emit(srcOp.getOutputFinalState(), "output_final_state"),
+        emitter.emit(srcOp.getChunkSize(), "chunk_size"),
+        emitter.emit(srcOp.getUseQkL2norm(), "use_qk_l2norm"),
+        emitter.emit(srcOp.getOutputHeadMajor(), "output_head_major"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+        emitter.emit(srcOp.getEye(), "eye"),
+        emitter.emit(srcOp.getTril(), "tril"),
+        emitter.emit(srcOp.getOnes(), "ones"),
+        emitter.emit(srcOp.getMasks(), "masks"),
+    };
+    // The Python API always returns `(output, optional_final_state)`, including
+    // when the MLIR op omits its optional second result.
+    emitter.replaceOp(*this, args, /*callResultCount=*/2);
+    return success();
+  }
+};
+} // namespace
+
 // IndexerScoreDsaOp conversion pattern
 //
 namespace {
@@ -6126,6 +6177,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
                                                              ctx);
   patterns.add<FlashMlaPrefillOpConversionPattern>(typeConverter, ctx);
+  patterns.add<ChunkGatedDeltaRuleOpConversionPattern>(typeConverter, ctx);
   patterns.add<IndexerScoreDsaOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);
