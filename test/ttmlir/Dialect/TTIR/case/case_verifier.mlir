@@ -1,7 +1,3 @@
-// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
-//
-// SPDX-License-Identifier: Apache-2.0
-
 // RUN: ttmlir-opt --split-input-file --verify-diagnostics %s
 
 // A branch runs at most once, so its block arguments are exactly the captures -

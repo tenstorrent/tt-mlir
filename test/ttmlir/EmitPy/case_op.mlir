@@ -1,7 +1,3 @@
-// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
-//
-// SPDX-License-Identifier: Apache-2.0
-
 // RUN: ttmlir-opt --ttir-to-ttnn-common-pipeline="enable-const-eval=false" -o %t.mlir %s
 // RUN: ttmlir-opt --ttnn-common-to-emitpy-pipeline -o %t2.mlir %t.mlir
 // RUN: ttmlir-translate --mlir-to-python -o %t.py %t2.mlir
