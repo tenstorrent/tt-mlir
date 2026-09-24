@@ -1635,4 +1635,33 @@ mlir::Value build_conv3d(ModuleBuilder &mb, mlir::Value input, mlir::Value weigh
     return build_permute(mb, ndhwc_result, {0, 4, 1, 2, 3});
 }
 
+mlir::Value build_addcdiv(ModuleBuilder &mb, mlir::Value input, mlir::Value tensor1, mlir::Value tensor2,
+                          double value) {
+    auto div = build_div(mb, tensor1, tensor2);
+    mlir::Value scaled = div;
+    if (value != 1.0) {
+        scaled = scale_tensor(mb, div, value);
+    }
+    return build_add(mb, input, scaled);
+}
+
+mlir::Value build_addcmul(ModuleBuilder &mb, mlir::Value input, mlir::Value tensor1, mlir::Value tensor2,
+                          double value) {
+    auto prod = build_mul(mb, tensor1, tensor2);
+    mlir::Value scaled = prod;
+    if (value != 1.0) {
+        scaled = scale_tensor(mb, prod, value);
+    }
+    return build_add(mb, input, scaled);
+}
+
+mlir::Value build_lerp(ModuleBuilder &mb, mlir::Value input, mlir::Value end, double weight) {
+    auto diff = build_sub(mb, end, input);
+    mlir::Value scaled = diff;
+    if (weight != 1.0) {
+        scaled = scale_tensor(mb, diff, weight);
+    }
+    return build_add(mb, input, scaled);
+}
+
 } // namespace tt::crank

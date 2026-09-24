@@ -1288,6 +1288,34 @@ def cross_entropy_bw_golden(
     return result
 
 
+def swiglu_elemwise_bw_golden(
+    input: GoldenMapTensor,
+    gate: GoldenMapTensor,
+    grad_output: GoldenMapTensor,
+    output_type_mlir: Type = None,
+    **kwargs,
+) -> Tuple[GoldenMapTensor, GoldenMapTensor]:
+    # Backward of output = gate * silu(input), where silu(x) = x * sigmoid(x).
+    x = input.float()
+    sigmoid = torch.sigmoid(x)
+    silu = torch.mul(x, sigmoid)
+    # silu'(x) = sigmoid(x) * (1 + x * (1 - sigmoid(x)))
+    silu_grad = torch.mul(
+        sigmoid,
+        torch.add(torch.mul(x, torch.sub(1.0, sigmoid)), 1.0),
+    )
+
+    grad_input = torch.mul(torch.mul(grad_output.float(), gate.float()), silu_grad)
+    grad_gate = torch.mul(grad_output.float(), silu)
+
+    output_dtype = (
+        mlir_type_to_torch_dtype(output_type_mlir)
+        if output_type_mlir is not None
+        else input.dtype
+    )
+    return grad_input.to(output_dtype), grad_gate.to(output_dtype)
+
+
 def rms_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor] = None,
@@ -4300,6 +4328,35 @@ def apply_unsharding(
 ################ TTIR Op Golden Functions ###############
 
 
+def ttir_while_golden(
+    inits: List[GoldenMapTensor],
+    captures: List[GoldenMapTensor],
+    cond: Region,
+    body: Region,
+    trip_count: Optional[Union[int, IntegerAttr]],
+    region_evaluator: Callable[[Region, List[GoldenMapTensor]], List[GoldenMapTensor]],
+) -> List[GoldenMapTensor]:
+    carried = list(inits)
+    captured = list(captures)
+    trip_count = int(unpack_mlir_attr(trip_count)) if trip_count is not None else None
+
+    iteration = 0
+    while trip_count is None or iteration < trip_count:
+        if trip_count is None:
+            condition = region_evaluator(cond, [*carried, *captured])
+            if len(condition) != 1:
+                raise ValueError("While condition region must yield exactly one value")
+            if not all(bool(shard.item()) for shard in condition[0].shard_map.values()):
+                break
+
+        carried = region_evaluator(body, [*carried, *captured])
+        iteration += 1
+        if trip_count is None and iteration >= 10000:
+            raise RuntimeError("While golden evaluation exceeded 10000 iterations")
+
+    return carried
+
+
 def ttir_rearrange_golden(
     input_tensor: GoldenMapTensor, pattern: StringAttr, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -6614,7 +6671,7 @@ def ttcore_composite_golden(
     composite_attributes=None,
     result_types=None,
     **_kwargs,
-) -> GoldenMapTensor:
+) -> Union[GoldenMapTensor, Tuple[GoldenMapTensor, ...]]:
     if composite_name == "rmsnorm_fw":
         attrs = composite_attributes or {}
         try:
@@ -6629,6 +6686,24 @@ def ttcore_composite_golden(
             *operand_tensors,
             epsilon=epsilon_attr,
             return_intermediates=len(result_types) == 2,
+            output_type_mlir=RankedTensorType(result_types[0]).element_type,
+        )
+
+    if composite_name == "rmsnorm_bw":
+        if not result_types:
+            raise ValueError("ttcore.composite golden requires result types.")
+
+        return rmsnorm_bw_golden(
+            *operand_tensors,
+            output_type_mlir=RankedTensorType(result_types[0]).element_type,
+        )
+
+    if composite_name == "swiglu_elemwise_bw":
+        if not result_types:
+            raise ValueError("ttcore.composite golden requires result types.")
+
+        return swiglu_elemwise_bw_golden(
+            *operand_tensors,
             output_type_mlir=RankedTensorType(result_types[0]).element_type,
         )
 
@@ -8863,6 +8938,41 @@ def rmsnorm_fw_golden(
     return (output,)
 
 
+def rmsnorm_bw_golden(
+    input: GoldenMapTensor,
+    gamma: GoldenMapTensor,
+    rms: GoldenMapTensor,
+    grad_output: GoldenMapTensor,
+    output_type_mlir: Type = None,
+    **kwargs,
+) -> Tuple[GoldenMapTensor, ...]:
+    x = input.float()
+    g = gamma.float()
+    r = rms.float()
+    dy = grad_output.float()
+
+    normalized = torch.div(x, r)
+    scaled_grad = torch.mul(dy, g)
+
+    # dL/dx_j = dy_j * g_j / r - x_j * sum_c(dy_c * g_c * x_c) / (C * r^3)
+    channels = x.shape[-1]
+    dot = torch.sum(torch.mul(scaled_grad, x), dim=-1, keepdim=True)
+    grad_input = torch.sub(
+        torch.div(scaled_grad, r),
+        torch.div(torch.mul(x, dot), torch.mul(torch.pow(r, 3), channels)),
+    )
+
+    # dL/dgamma = sum over the leading dims of dy * x / r.
+    grad_gamma = torch.sum(torch.mul(dy, normalized), dim=(0, 1, 2), keepdim=True)
+
+    output_dtype = (
+        mlir_type_to_torch_dtype(output_type_mlir)
+        if output_type_mlir is not None
+        else input.dtype
+    )
+    return grad_input.to(output_dtype), grad_gamma.to(output_dtype)
+
+
 def layernorm_fw_golden(
     input: GoldenMapTensor,
     weight: GoldenMapTensor,
@@ -9268,6 +9378,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- TTCORE OPS -----
     ttcore.CompositeOp: ttcore_composite_golden,
     # ----- TTIR OPS -----
+    # Control flow operations
+    ttir.WhileOp: ttir_while_golden,
     # Elementwise unary operations
     ttir.GetDimensionSizeOp: get_dimension_size_golden,
     ttir.AbsOp: ttir_abs_golden,

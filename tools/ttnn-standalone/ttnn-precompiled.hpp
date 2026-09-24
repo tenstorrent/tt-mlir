@@ -65,6 +65,7 @@
 #include "operations/reduction/generic/generic_reductions.hpp"
 #include "operations/reduction/prod/prod.hpp"
 #include "operations/trace.hpp"
+#include "operations/transformer/chunk_gated_delta_rule/chunk_gated_delta_rule.hpp"
 #include "operations/transformer/concatenate_heads/concatenate_heads.hpp"
 #include "operations/transformer/sdpa/sdpa.hpp"
 #include "operations/transformer/sdpa_decode/sdpa_decode.hpp"

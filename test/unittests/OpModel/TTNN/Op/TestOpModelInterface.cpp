@@ -6493,6 +6493,56 @@ TEST_F(OpModelBase, RMSNormForwardOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, RMSNormBackwardOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 256};
+  llvm::SmallVector<int64_t> gammaShape = {1, 1, 1, 256};
+  llvm::SmallVector<int64_t> rmsShape = {1, 1, 128, 1};
+  auto inputLayout = CreateTiledLayout(inputShape, BufferType::DRAM,
+                                       TensorMemoryLayout::Interleaved);
+  auto gammaLayout = CreateTiledLayout(gammaShape, BufferType::DRAM,
+                                       TensorMemoryLayout::Interleaved);
+  auto rmsLayout = CreateTiledLayout(rmsShape, BufferType::DRAM,
+                                     TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
+  auto gamma =
+      createEmptyTensor(gammaShape, builder.getBF16Type(), gammaLayout);
+  auto rms = createEmptyTensor(rmsShape, builder.getBF16Type(), rmsLayout);
+  auto gradOutput =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
+  auto gradInputType =
+      createRankedTensorType(inputShape, builder.getBF16Type(), inputLayout);
+  auto gradGammaType =
+      createRankedTensorType(gammaShape, builder.getBF16Type(), gammaLayout);
+
+  auto rmsNormBackward = builder.create<RMSNormBackwardOp>(
+      builder.getUnknownLoc(), TypeRange{gradInputType, gradGammaType}, input,
+      gamma, rms, gradOutput);
+
+  auto backend = dyn_cast<OpModel>(rmsNormBackward.getOperation());
+  ASSERT_TRUE(backend);
+  auto inputLayouts = getInputLayouts(rmsNormBackward.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 4u);
+
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+    ASSERT_EQ(constraintsExp.get().outputLayouts.size(), 2u);
+  } else {
+    FAIL() << "Missing constraints for RMSNormBackwardOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for RMSNormBackwardOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, LayerNormForwardOpInterface) {
   llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 256};
   llvm::SmallVector<int64_t> parameterShape = {1, 1, 1, 256};
@@ -6536,6 +6586,44 @@ TEST_F(OpModelBase, LayerNormForwardOpInterface) {
     EXPECT_GT(runtimeExp.get(), 0);
   } else {
     FAIL() << "Error getting runtime for LayerNormForwardOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, SwigluElemwiseBackwardOpInterface) {
+  llvm::SmallVector<int64_t> shape = {1, 1, 128, 256};
+  auto layout = CreateTiledLayout(shape, BufferType::DRAM,
+                                  TensorMemoryLayout::Interleaved);
+
+  auto input = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto gate = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto gradOutput = createEmptyTensor(shape, builder.getBF16Type(), layout);
+  auto resultType =
+      createRankedTensorType(shape, builder.getBF16Type(), layout);
+
+  auto swigluElemwiseBackward = builder.create<SwigluElemwiseBackwardOp>(
+      builder.getUnknownLoc(), TypeRange{resultType, resultType}, input, gate,
+      gradOutput);
+
+  auto backend = dyn_cast<OpModel>(swigluElemwiseBackward.getOperation());
+  ASSERT_TRUE(backend);
+  auto inputLayouts = getInputLayouts(swigluElemwiseBackward.getOperation());
+  ASSERT_EQ(inputLayouts.size(), 3u);
+
+  auto constraintsExp = backend.getOpConstraints(inputLayouts, OpConfig());
+  if (constraintsExp) {
+    EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+    ASSERT_EQ(constraintsExp.get().outputLayouts.size(), 2u);
+  } else {
+    FAIL() << "Missing constraints for SwigluElemwiseBackwardOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = backend.getOpRuntime(inputLayouts, OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for SwigluElemwiseBackwardOp: "
            << llvm::toString(runtimeExp.takeError());
   }
 }

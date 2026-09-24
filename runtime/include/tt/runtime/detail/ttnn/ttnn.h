@@ -68,6 +68,7 @@
 #include "ttnn/operations/reduction/sampling/sampling.hpp"
 #include "ttnn/operations/reduction/topk/topk.hpp"
 #include "ttnn/operations/trace.hpp"
+#include "ttnn/operations/transformer/chunk_gated_delta_rule/chunk_gated_delta_rule.hpp"
 #include "ttnn/operations/transformer/concatenate_heads/concatenate_heads.hpp"
 #include "ttnn/operations/transformer/sdpa/sdpa.hpp"
 #include "ttnn/operations/transformer/sdpa_decode/sdpa_decode.hpp"

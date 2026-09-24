@@ -18,6 +18,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <iomanip>
+#include <optional>
 #include <type_traits>
 
 // This namespace contains mock definitions of TTNN types for the purpose of
@@ -2369,18 +2370,32 @@ public:
   }
 
   template <typename OpConversionPatternTy>
-  mlir::Value replaceOp(OpConversionPatternTy &&opConversionPattern,
-                        llvm::ArrayRef<mlir::Attribute> args) {
+  mlir::Value
+  replaceOp(OpConversionPatternTy &&opConversionPattern,
+            llvm::ArrayRef<mlir::Attribute> args,
+            std::optional<unsigned> callResultCount = std::nullopt) {
     auto resultTypes = llvm::to_vector(
         llvm::map_to_vector(op->getResultTypes(), [&](Type type) -> Type {
           return opConversionPattern.getTypeConverter()->convertType(type);
         }));
+    unsigned replacementResultCount = resultTypes.size();
+    if (callResultCount) {
+      assert(*callResultCount >= replacementResultCount);
+      if (*callResultCount > resultTypes.size()) {
+        assert(!resultTypes.empty());
+        resultTypes.resize(*callResultCount, resultTypes.front());
+      } else {
+        resultTypes.resize(*callResultCount);
+      }
+    }
 
     auto callee = opConversionPattern.convertOpName(op);
 
-    auto callOpaqueOp = rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        op, resultTypes, callee, operands, rewriter.getArrayAttr(args),
+    auto callOpaqueOp = rewriter.create<emitpy::CallOpaqueOp>(
+        op.getLoc(), resultTypes, callee, operands, rewriter.getArrayAttr(args),
         rewriter.getArrayAttr(keywordArgs));
+    rewriter.replaceOp(
+        op, callOpaqueOp.getResults().take_front(replacementResultCount));
 
     if (callOpaqueOp.getNumResults() == 0) {
       return {};
