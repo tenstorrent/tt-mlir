@@ -475,6 +475,10 @@ void createTTIRToTTNNCommonPipeline(
 
     createTTNNPipelineAnalysisPasses(devicePm, options);
 
+    if (options.enableMatmulProgramConfig) {
+      devicePm.addPass(createTTNNSetMatmulProgramConfig());
+    }
+
     // Materialize PrepareConv3dWeightsOp for every Conv3dOp. Runs after the
     // optimizer (so it can read the optimizer's chosen Conv3dConfigAttr) but
     // unconditionally — at optimization-level=0 there's no Conv3dConfigAttr
