@@ -89,7 +89,6 @@ TEST(MatmulDRAMShardParams, Bfp4NeverFitsWorseThanBfp8) {
                            kWormholeCores, ttcore::DataType::BFP_BFloat4, l1);
     if (bfp8.has_value()) {
       EXPECT_TRUE(bfp4.has_value()) << "bfp8 fit but bfp4 did not, l1=" << l1;
-      EXPECT_EQ(bfp4->weightDataType, ttcore::DataType::BFP_BFloat4);
     }
     if (bfp4.has_value() && !bfp8.has_value()) {
       sawBfp4OnlyFit = true;

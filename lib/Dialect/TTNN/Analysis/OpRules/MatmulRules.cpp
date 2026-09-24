@@ -254,21 +254,10 @@ static std::optional<DSDeviceContext> getDSDeviceContext(Operation *op) {
       l1Available};
 }
 
-// No collective implements the op-model interface.
-static bool isCCLOp(Operation *op) {
-  return mlir::isa<AllGatherOp, AllReduceOp, AllReduceAsyncOp, ReduceScatterOp,
-                   PointToPointOp>(op);
-}
-
-// Ops that pass their operand's layout on to the next consumer: the view-like
-// set from TTNNActivationDtypeLowering plus ToLayoutOp.
-static bool isLayoutForwardingOp(Operation *op) {
-  return mlir::isa<ReshapeOp, SliceStaticOp, ToMemoryConfigOp, ToLayoutOp>(op);
-}
-
-// Whether the result reaches a collective through layout-forwarding ops only.
-// The optimizer cannot cost a collective, so it would pick a DS output and put
-// the reshard on the collective's critical path: a measured loss on qb2.
+// Whether the result reaches a collective through view-like ops and layout
+// casts only. The optimizer cannot cost a collective, so it would pick a DS
+// output and put the reshard on the collective's critical path: a measured
+// loss on qb2.
 static bool resultFeedsCCL(Operation *op) {
   llvm::SmallVector<Operation *, 8> worklist(op->getUsers().begin(),
                                              op->getUsers().end());
@@ -278,10 +267,10 @@ static bool resultFeedsCCL(Operation *op) {
     if (!seen.insert(user).second) {
       continue;
     }
-    if (isCCLOp(user)) {
+    if (ttnn::utils::isCCLOp(user)) {
       return true;
     }
-    if (isLayoutForwardingOp(user)) {
+    if (ttnn::utils::isViewLikeOp(user) || mlir::isa<ToLayoutOp>(user)) {
       worklist.append(user->getUsers().begin(), user->getUsers().end());
     }
   }

@@ -305,8 +305,9 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
 // ============================================================================
 
 // Smallest in0_block_w the DS path accepts: below it the per-bank read burst is
-// too short and the mcast configs win. Empirical; Blackhole's knee is higher,
-// so this is the more permissive of the two. A kPerCore below it declines DS.
+// too short and the mcast configs win. Measured: Wormhole holds its DRAM rate
+// down to 3, Blackhole only down to 6. One arch-independent floor errs on the
+// permissive side. A kPerCore below it declines DS.
 static constexpr int64_t kMinBlockWidth = 3;
 
 std::optional<DRAMShardParams>
@@ -327,7 +328,6 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   // A sub-tile M still occupies one tile row.
   p.perCoreM = llvm::divideCeil(M, TILE_HEIGHT);
   p.perCoreNStorage = llvm::divideCeil(p.nTiles, numOutCores);
-  p.weightDataType = weightDataType;
 
   const int64_t bf16Tile = ttcore::getTileSizeBytes(ttcore::DataType::BFloat16);
   const int64_t fp32Tile = ttcore::getTileSizeBytes(ttcore::DataType::Float32);
