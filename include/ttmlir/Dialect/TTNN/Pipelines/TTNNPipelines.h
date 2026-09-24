@@ -312,6 +312,14 @@ struct TTIRToTTNNCommonPipelineOptions
                             llvm::cl::desc("Enable fusing pass."),
                             llvm::cl::init(true)};
 
+  // Set multicast program configs on DRAM-interleaved matmul/linear ops after
+  // the optimizer has decided layouts.
+  Option<bool> enableMatmulProgramConfig{
+      *this, "enable-matmul-program-config",
+      llvm::cl::desc("Set matmul program configs on DRAM-interleaved "
+                     "ttnn.matmul and ttnn.linear ops."),
+      llvm::cl::init(true)};
+
   // Enable the TTNNCreateD2MSubgraphs pass. This pass finds maximal chains
   // of elementwise TTNN ops, outlines each chain into a private function, and
   // replaces the original ops with a ttnn.d2m_subgraph op. The outlined

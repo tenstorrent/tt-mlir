@@ -4,7 +4,7 @@
 
 // Verifies that EmitPyTTNNEmitter's argument emission logic.
 //
-// RUN: ttmlir-opt --ttir-to-emitpy-pipeline -o %t.mlir %s
+// RUN: ttmlir-opt --ttir-to-emitpy-pipeline="enable-matmul-program-config=false" -o %t.mlir %s
 // RUN: ttmlir-opt %t.mlir --verify-each -o /dev/null
 // RUN: ttmlir-translate --mlir-to-python %t.mlir | FileCheck %s
 
