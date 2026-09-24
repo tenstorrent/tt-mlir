@@ -82,11 +82,11 @@ public:
     // `ttcore.composite`: tt-mlir promotes it to the typed op or inlines `decomposition`
     // (emitted into a private function of this module via the usual `build_*` helpers).
     using CompositeDecomposition =
-        llvm::function_ref<llvm::SmallVector<mlir::Value, 4>(ModuleBuilder &, mlir::ValueRange)>;
-    llvm::SmallVector<mlir::Value, 4> create_composite(llvm::StringRef name, llvm::ArrayRef<mlir::Value> inputs,
-                                                       llvm::ArrayRef<mlir::Type> result_types,
-                                                       llvm::ArrayRef<mlir::NamedAttribute> attributes,
-                                                       CompositeDecomposition decomposition);
+        llvm::function_ref<llvm::SmallVector<mlir::Value>(ModuleBuilder &, mlir::ValueRange)>;
+    llvm::SmallVector<mlir::Value> create_composite(llvm::StringRef name, llvm::ArrayRef<mlir::Value> inputs,
+                                                    llvm::ArrayRef<mlir::Type> result_types,
+                                                    llvm::ArrayRef<mlir::NamedAttribute> attributes,
+                                                    CompositeDecomposition decomposition);
 
     mlir::OwningOpRef<mlir::ModuleOp> finalize(llvm::ArrayRef<mlir::Value> outputs) &&;
 

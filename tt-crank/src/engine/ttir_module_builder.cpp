@@ -114,11 +114,10 @@ ModuleBuilder ModuleBuilder::init(llvm::ArrayRef<TensorTypeSpec> inputs,
                          std::move(args));
 }
 
-llvm::SmallVector<mlir::Value, 4> ModuleBuilder::create_composite(llvm::StringRef name,
-                                                                  llvm::ArrayRef<mlir::Value> inputs,
-                                                                  llvm::ArrayRef<mlir::Type> result_types,
-                                                                  llvm::ArrayRef<mlir::NamedAttribute> attributes,
-                                                                  CompositeDecomposition decomposition) {
+llvm::SmallVector<mlir::Value> ModuleBuilder::create_composite(llvm::StringRef name, llvm::ArrayRef<mlir::Value> inputs,
+                                                               llvm::ArrayRef<mlir::Type> result_types,
+                                                               llvm::ArrayRef<mlir::NamedAttribute> attributes,
+                                                               CompositeDecomposition decomposition) {
     auto func = mlir::func::FuncOp::create(loc_, (name + "_decomposition").str(),
                                            builder_.getFunctionType(mlir::ValueRange(inputs).getTypes(), result_types));
     func.setPrivate();
@@ -131,7 +130,7 @@ llvm::SmallVector<mlir::Value, 4> ModuleBuilder::create_composite(llvm::StringRe
     auto op = create<mlir::tt::ttcore::CompositeOp>(result_types, inputs, builder_.getStringAttr(name),
                                                     mlir::FlatSymbolRefAttr::get(func),
                                                     builder_.getDictionaryAttr(attributes));
-    return llvm::SmallVector<mlir::Value, 4>(op.getResults().begin(), op.getResults().end());
+    return llvm::SmallVector<mlir::Value>(op.getResults().begin(), op.getResults().end());
 }
 
 mlir::OwningOpRef<mlir::ModuleOp> ModuleBuilder::finalize(llvm::ArrayRef<mlir::Value> outputs) && {
