@@ -4328,6 +4328,35 @@ def apply_unsharding(
 ################ TTIR Op Golden Functions ###############
 
 
+def ttir_while_golden(
+    inits: List[GoldenMapTensor],
+    captures: List[GoldenMapTensor],
+    cond: Region,
+    body: Region,
+    trip_count: Optional[Union[int, IntegerAttr]],
+    region_evaluator: Callable[[Region, List[GoldenMapTensor]], List[GoldenMapTensor]],
+) -> List[GoldenMapTensor]:
+    carried = list(inits)
+    captured = list(captures)
+    trip_count = int(unpack_mlir_attr(trip_count)) if trip_count is not None else None
+
+    iteration = 0
+    while trip_count is None or iteration < trip_count:
+        if trip_count is None:
+            condition = region_evaluator(cond, [*carried, *captured])
+            if len(condition) != 1:
+                raise ValueError("While condition region must yield exactly one value")
+            if not all(bool(shard.item()) for shard in condition[0].shard_map.values()):
+                break
+
+        carried = region_evaluator(body, [*carried, *captured])
+        iteration += 1
+        if trip_count is None and iteration >= 10000:
+            raise RuntimeError("While golden evaluation exceeded 10000 iterations")
+
+    return carried
+
+
 def ttir_rearrange_golden(
     input_tensor: GoldenMapTensor, pattern: StringAttr, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -9349,6 +9378,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- TTCORE OPS -----
     ttcore.CompositeOp: ttcore_composite_golden,
     # ----- TTIR OPS -----
+    # Control flow operations
+    ttir.WhileOp: ttir_while_golden,
     # Elementwise unary operations
     ttir.GetDimensionSizeOp: get_dimension_size_golden,
     ttir.AbsOp: ttir_abs_golden,
