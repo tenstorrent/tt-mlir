@@ -1,4 +1,5 @@
 set(OPRULES_SRCS
+    ActivationRules.cpp
     ConvRules.cpp
     DataMovementRules.cpp
     EmbeddingRules.cpp

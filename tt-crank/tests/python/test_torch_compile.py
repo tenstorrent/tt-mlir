@@ -17,7 +17,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch._dynamo.exc import BackendCompilerFailed
 
-from tt_crank.torch.testing import DeviceType, ExecutionMode, assert_close_cpu_vs_tt
+from tt_crank.torch.testing import (
+    DeviceType,
+    ExecutionMode,
+    assert_close_cpu_vs_tt,
+    get_supported_dtypes,
+)
 from tt_crank.torch._compile import (
     _compile_options,
     CompileOption,
@@ -1770,6 +1775,69 @@ def test_compile_mse_loss_backward(reduction: int) -> None:
     _assert_compile_matches_eager(
         _MSELossBwd(reduction), grad, pred, target, atol=0.05, rtol=0.05
     )
+
+
+@pytest.mark.parametrize("dtype", get_supported_dtypes())
+@pytest.mark.parametrize("value", [1.0, 0.5, -1.0])
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_addcdiv(
+    shape: tuple[int, ...], value: float, dtype: torch.dtype
+) -> None:
+    class _AddCDiv(nn.Module):
+        def __init__(self, k: float) -> None:
+            super().__init__()
+            self.k = k
+
+        def forward(
+            self, a: torch.Tensor, t1: torch.Tensor, t2: torch.Tensor
+        ) -> torch.Tensor:
+            return torch.addcdiv(a, t1, t2, value=self.k)
+
+    a = torch.randn(shape, dtype=dtype)
+    t1 = torch.randn(shape, dtype=dtype)
+    t2 = torch.rand(shape, dtype=dtype).add(0.1)
+    _assert_compile_matches_eager(_AddCDiv(value), a, t1, t2, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("dtype", get_supported_dtypes())
+@pytest.mark.parametrize("value", [1.0, 0.5, -1.0])
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_addcmul(
+    shape: tuple[int, ...], value: float, dtype: torch.dtype
+) -> None:
+    class _AddCMul(nn.Module):
+        def __init__(self, k: float) -> None:
+            super().__init__()
+            self.k = k
+
+        def forward(
+            self, a: torch.Tensor, t1: torch.Tensor, t2: torch.Tensor
+        ) -> torch.Tensor:
+            return torch.addcmul(a, t1, t2, value=self.k)
+
+    a = torch.randn(shape, dtype=dtype)
+    t1 = torch.randn(shape, dtype=dtype)
+    t2 = torch.randn(shape, dtype=dtype)
+    _assert_compile_matches_eager(_AddCMul(value), a, t1, t2, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("dtype", get_supported_dtypes())
+@pytest.mark.parametrize("weight", [0.0, 0.25, 1.0, -0.5])
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_lerp_scalar(
+    shape: tuple[int, ...], weight: float, dtype: torch.dtype
+) -> None:
+    class _LerpScalar(nn.Module):
+        def __init__(self, w: float) -> None:
+            super().__init__()
+            self.w = w
+
+        def forward(self, a: torch.Tensor, end: torch.Tensor) -> torch.Tensor:
+            return torch.lerp(a, end, self.w)
+
+    a = torch.randn(shape, dtype=dtype)
+    end = torch.randn(shape, dtype=dtype)
+    _assert_compile_matches_eager(_LerpScalar(weight), a, end, atol=0.05, rtol=0.05)
 
 
 def test_compile_options() -> None:

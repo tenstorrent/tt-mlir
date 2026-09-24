@@ -2830,8 +2830,12 @@ def TTNN_SDPAForwardOp : TTNN_Op<"sdpa_fw"> {
       is set, also returns the per-row log-sum-exp intermediates used by the
       backward pass.
 
-      All tensors are rank 4 `(B, H, S, D)`. `attention_mask` is only valid when
-      `mask_type` is `arbitrary`.
+      All tensors are rank 4 `(B, H, S, D)`. The sequence dimension `S` of Q,
+      K and V must be a multiple of `TILE_HEIGHT`, and the head dimension `D`
+      of Q and K must be a multiple of `TILE_WIDTH`. V's head dimension may be
+      unaligned because the backing operation supports a different V dimension.
+
+      `attention_mask` is only valid when `mask_type` is `arbitrary`.
     }];
 
     let arguments = (ins AnyRankedTensor:$query,
@@ -2863,8 +2867,12 @@ def TTNN_SDPABackwardOp : TTNN_Op<"sdpa_bw"> {
       and the forward pass tensors (output, Q, K, V and log-sum-exp
       intermediates), computes the gradients w.r.t. query, key and value.
 
-      All tensors are rank 4 `(B, H, S, D)`. `attention_mask` is only valid when
-      `mask_type` is `arbitrary`.
+      All tensors are rank 4 `(B, H, S, D)`. The sequence dimension `S` of Q,
+      K and V must be a multiple of `TILE_HEIGHT`, and the head dimension `D`
+      of Q and K must be a multiple of `TILE_WIDTH`. V's head dimension may be
+      unaligned because the backing operation supports a different V dimension.
+
+      `attention_mask` is only valid when `mask_type` is `arbitrary`.
 
       `dropout_probability` must be 0.0. Dropout is not implemented in the
       backward pass, so a nonzero value would silently produce the gradients of
@@ -2925,6 +2933,42 @@ def TTNN_RMSNormForwardOp : TTNN_Op<"rmsnorm_fw"> {
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::
             createRMSNormForwardOpOperandsWorkarounds(this->getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_RMSNormBackwardOp : TTNN_Op<"rmsnorm_bw"> {
+    let summary = "Root mean square normalization backward (ttml).";
+    let description = [{
+      Training-oriented fused RMS normalization backward pass, backed by the
+      ttml metal op `ttml::metal::rmsnorm_bw`. Given the forward `input`,
+      `gamma`, the per-row `rms` produced by `ttnn.rmsnorm_fw` and the upstream
+      gradient `grad_output`, computes the gradients w.r.t. `input` and `gamma`.
+
+      The kernel cannot reduce `grad_gamma` across the leading dimensions, so
+      the wrapper finishes the job with a trailing `ttnn::sum` over dims
+      (0, 1, 2). That reduction inherits `gamma`'s memory config, which is why
+      every operand is constrained to tiled, DRAM-interleaved bfloat16.
+
+      All tensors are rank 4: `input`, `grad_output` and `grad_input` are
+      `(B, N, S, C)`, `rms` is `(B, N, S, 1)`, and `gamma` and `grad_gamma` are
+      `(1, 1, 1, C)`.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$gamma,
+                         AnyRankedTensor:$rms,
+                         AnyRankedTensor:$grad_output);
+
+    let results = (outs AnyRankedTensor:$grad_input,
+                        AnyRankedTensor:$grad_gamma);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createRMSNormBackwardOpOperandsWorkarounds(this->getOperation());
       }
     }];
 
@@ -3080,6 +3124,44 @@ def TTNN_CrossEntropyBackwardOp : TTNN_Op<"cross_entropy_bw"> {
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::
             createCrossEntropyBackwardOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_SwigluElemwiseBackwardOp : TTNN_Op<"swiglu_elemwise_bw"> {
+    let summary = "SwiGLU elementwise backward (ttml).";
+    let description = [{
+      Training-oriented fused backward pass of the SwiGLU elementwise product,
+      backed by the ttml metal op `ttml::metal::swiglu_elemwise_bw`. The
+      forward pass it differentiates is
+
+        output = gate * silu(input)
+
+      where `silu(x) = x * sigmoid(x)` is applied to `input` and `gate` scales
+      it. Given the upstream gradient `grad_output`, the op computes both input
+      gradients in one kernel pass:
+
+        grad_input = grad_output * gate * silu'(input)
+        grad_gate = grad_output * silu(input)
+
+      The backing kernel requires all three operands to be rank 4 bfloat16
+      tensors with the same shape, in tiled, interleaved device memory. Both
+      results have the shape of `input`.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$gate,
+                         AnyRankedTensor:$grad_output);
+
+    let results = (outs AnyRankedTensor:$grad_input,
+                        AnyRankedTensor:$grad_gate);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSwigluElemwiseBackwardOpOperandsWorkarounds(this->getOperation());
       }
     }];
 
@@ -4668,6 +4750,49 @@ def TTNN_FlashMlaPrefillOp : TTNN_Op<"flash_mla_prefill", [AttrSizedOperandSegme
         return wa::TTNNOperandsWorkaroundsFactory::createFlashMlaPrefillOpOperandsWorkarounds(getOperation());
       }
     }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_ChunkGatedDeltaRuleOp : TTNN_Op<"chunk_gated_delta_rule",
+    [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface, OpModelExempt]> {
+    let summary = "Chunked gated delta rule forward operation.";
+    let description = [{
+      Implements the chunked gated delta rule used by gated linear attention
+      models. Mirrors `ttnn::transformer::chunk_gated_delta_rule`.
+
+      `query` and `key` are `[B, T, H, K]`, `value` is `[B, T, HV, V]`,
+      and `g` and `beta` are `[B, T, HV]`. The operation also accepts the
+      flat rank-3 Q/K/V representation supported by tt-metal. `initial_state`
+      is `[B, HV, K, V]`.
+
+      The default output is token-major `[B, T, HV, V]`. When
+      `output_head_major` is true it is `[B * HV, T, V]`. `final_state` is
+      present exactly when `output_final_state` is true. The four optional
+      constant tensors (`eye`, `tril`, `ones`, and `masks`) must either all be
+      supplied or all be absent.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$query,
+                         AnyRankedTensor:$key,
+                         AnyRankedTensor:$value,
+                         AnyRankedTensor:$g,
+                         AnyRankedTensor:$beta,
+                         Optional<AnyRankedTensor>:$initial_state,
+                         Optional<AnyRankedTensor>:$eye,
+                         Optional<AnyRankedTensor>:$tril,
+                         Optional<AnyRankedTensor>:$ones,
+                         Optional<AnyRankedTensor>:$masks,
+                         OptionalAttr<F32Attr>:$scale,
+                         DefaultValuedAttr<BoolAttr, "false">:$output_final_state,
+                         DefaultValuedAttr<UI32Attr, "64">:$chunk_size,
+                         DefaultValuedAttr<BoolAttr, "false">:$use_qk_l2norm,
+                         DefaultValuedAttr<BoolAttr, "false">:$output_head_major,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+    let results = (outs AnyRankedTensor:$output,
+                        Optional<AnyRankedTensor>:$final_state);
 
     let hasVerifier = 1;
 }
