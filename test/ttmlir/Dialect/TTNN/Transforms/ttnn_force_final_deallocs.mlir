@@ -162,7 +162,7 @@ module {
     ^bb0(%cap: tensor<64x128xbf16, #l2>):
       %v1 = "ttnn.reshape"(%cap) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
       %v2 = "ttnn.reshape"(%cap) <{shape = [1 : i32, 1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x1x64x128xbf16, #l4>
-      %out = "ttnn.add"(%cap, %cap) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+      %out = "ttnn.add"(%cap, %cap) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
       // The views alias the capture, which the caller owns, so none of these
       // deallocations may be forced.
       // CHECK-NOT: force = true
@@ -194,7 +194,7 @@ module {
       ttnn.yield %cap : tensor<64x128xbf16, #l2>
     }, {
     ^bb0(%cap: tensor<64x128xbf16, #l2>):
-      %a = "ttnn.add"(%cap, %cap) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+      %a = "ttnn.add"(%cap, %cap) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
       ttnn.yield %a : tensor<64x128xbf16, #l2>
     } -> (tensor<64x128xbf16, #l2>)
     // CHECK-NOT: "ttnn.deallocate"
@@ -238,8 +238,8 @@ module {
   // the returned result may still name.
   // CHECK-LABEL: func.func @case_forwards_ambiguous
   func.func @case_forwards_ambiguous(%arg0: tensor<64x128xbf16, #l2>, %arg1: tensor<si32, #index>) -> tensor<64x128xbf16, #l2> {
-    %a = "ttnn.add"(%arg0, %arg0) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
-    %b = "ttnn.add"(%a, %a) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    %a = "ttnn.add"(%arg0, %arg0) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    %b = "ttnn.add"(%a, %a) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
     %va = "ttnn.reshape"(%a) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
     %vb = "ttnn.reshape"(%b) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
     // CHECK: ttnn.case
@@ -269,8 +269,8 @@ module {
   // them would hold a buffer to the end of the function.
   // CHECK-LABEL: func.func @case_forwards_ambiguous_local
   func.func @case_forwards_ambiguous_local(%arg0: tensor<64x128xbf16, #l2>, %arg1: tensor<si32, #index>) -> tensor<64x128xbf16, #l2> {
-    %a = "ttnn.add"(%arg0, %arg0) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
-    %b = "ttnn.add"(%a, %a) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    %a = "ttnn.add"(%arg0, %arg0) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    %b = "ttnn.add"(%a, %a) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
     // CHECK: ttnn.case
     %0 = ttnn.case index(%arg1 : tensor<si32, #index>) captures(%a, %b : tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) branches {
     ^bb0(%c0: tensor<64x128xbf16, #l2>, %c1: tensor<64x128xbf16, #l2>):
@@ -279,7 +279,7 @@ module {
     ^bb0(%c0: tensor<64x128xbf16, #l2>, %c1: tensor<64x128xbf16, #l2>):
       ttnn.yield %c1 : tensor<64x128xbf16, #l2>
     } -> (tensor<64x128xbf16, #l2>)
-    %r = "ttnn.multiply"(%0, %0) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    %r = "ttnn.multiply"(%0, %0) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
     // CHECK: "ttnn.deallocate"(%{{[0-9]+}}) <{force = false}>
     // CHECK: "ttnn.deallocate"(%{{[0-9]+}}) <{force = false}>
     // CHECK: "ttnn.deallocate"(%{{[0-9]+}}) <{force = true}>
