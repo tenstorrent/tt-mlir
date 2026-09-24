@@ -350,6 +350,15 @@ public:
         assert_builder();
         return tk::build_sigmoid(*mb_, input);
     }
+    // ttml cross_entropy_fw/cross_entropy_bw composites over [rows x C] logits and [rows] targets.
+    mlir::Value cross_entropy_fw(mlir::Value logits, mlir::Value target) {
+        assert_builder();
+        return tk::build_cross_entropy_fw(*mb_, logits, target);
+    }
+    mlir::Value cross_entropy_bw(mlir::Value grad, mlir::Value logits, mlir::Value target) {
+        assert_builder();
+        return tk::build_cross_entropy_bw(*mb_, grad, logits, target);
+    }
     mlir::Value floor_divide(mlir::Value lhs, mlir::Value rhs) {
         assert_builder();
         return tk::build_floor_divide(*mb_, lhs, rhs);
@@ -904,6 +913,8 @@ NB_MODULE(_native, m) {
         .def("layer_norm_with_stats", &PyModuleBuilder::layer_norm_with_stats, "input"_a, "weight"_a, "bias"_a,
              "normalized_shape"_a, "epsilon"_a)
         .def("sigmoid", &PyModuleBuilder::sigmoid, "input"_a)
+        .def("cross_entropy_fw", &PyModuleBuilder::cross_entropy_fw, "logits"_a, "target"_a)
+        .def("cross_entropy_bw", &PyModuleBuilder::cross_entropy_bw, "grad"_a, "logits"_a, "target"_a)
         .def("floor_divide", &PyModuleBuilder::floor_divide, "lhs"_a, "rhs"_a)
         .def("bitwise_and", &PyModuleBuilder::bitwise_and, "lhs"_a, "rhs"_a)
         .def("bitwise_or", &PyModuleBuilder::bitwise_or, "lhs"_a, "rhs"_a)
