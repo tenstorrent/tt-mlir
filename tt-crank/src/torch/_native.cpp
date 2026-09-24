@@ -614,6 +614,21 @@ public:
         return tk::build_tril(*mb_, input, diagonal);
     }
 
+    mlir::Value addcdiv(mlir::Value input, mlir::Value tensor1, mlir::Value tensor2, double value = 1.0) {
+        assert_builder();
+        return tk::build_addcdiv(*mb_, input, tensor1, tensor2, value);
+    }
+
+    mlir::Value addcmul(mlir::Value input, mlir::Value tensor1, mlir::Value tensor2, double value = 1.0) {
+        assert_builder();
+        return tk::build_addcmul(*mb_, input, tensor1, tensor2, value);
+    }
+
+    mlir::Value lerp(mlir::Value input, mlir::Value end, double weight) {
+        assert_builder();
+        return tk::build_lerp(*mb_, input, end, weight);
+    }
+
 private:
     void assert_builder() const {
         TORCH_CHECK(mb_.has_value(), "tt-crank ModuleBuilder: builder already consumed by compile()");
@@ -933,6 +948,9 @@ NB_MODULE(_native, m) {
              "step"_a, "lr"_a, "beta1"_a, "beta2"_a, "epsilon"_a, "weight_decay"_a)
         .def("index_copy", &PyModuleBuilder::index_copy, "input"_a, "dim"_a, "index"_a, "source"_a)
         .def("tril", &PyModuleBuilder::tril, "input"_a, "diagonal"_a = 0)
+        .def("addcdiv", &PyModuleBuilder::addcdiv, "input"_a, "tensor1"_a, "tensor2"_a, "value"_a = 1.0)
+        .def("addcmul", &PyModuleBuilder::addcmul, "input"_a, "tensor1"_a, "tensor2"_a, "value"_a = 1.0)
+        .def("lerp", &PyModuleBuilder::lerp, "input"_a, "end"_a, "weight"_a)
         // Consumes the builder. Subsequent calls on `self` raise.
         // `capture_ttir`: set when the TTIR string is needed.
         .def("compile", &PyModuleBuilder::compile, "outputs"_a, "options"_a, "capture_ttir"_a = false);
