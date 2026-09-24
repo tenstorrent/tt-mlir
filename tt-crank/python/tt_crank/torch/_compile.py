@@ -1539,42 +1539,32 @@ def _new_empty_strided_decomp(
     return self.new_zeros(size, dtype=dtype if dtype is not None else self.dtype)
 
 
-# torch's slice_scatter decomposition gathers `src` through an index tensor the size of the
-# result and masks with where; index and mask are constants the size of the result. With
-# step 1 the same thing is slices and concats: the untouched parts of `input` around `src`
-# (every `x[a:b]` backward, so the lm_head shift and both RoPE halves in a Llama step).
-# Measured on Blackhole (tests/python/test_slice_scatter_perf.py, local): 2-7x faster for
-# step 1 across sizes, dims and dtypes. A strided scatter regrouped as [.., groups, step, ..]
-# with `src` concatenated in as column 0 of each group was 3-8x SLOWER than torch's
-# gather + where (the concat along a width-1 innermost dim is the problem), so step > 1
-# keeps torch's decomposition.
-_torch_slice_scatter_decomp = get_decompositions([torch.ops.aten.slice_scatter])[
-    torch.ops.aten.slice_scatter.default
-]
-
-
 def _slice_scatter_decomp(input, src, dim=0, start=None, end=None, step=1):
     if step != 1:
-        return _torch_slice_scatter_decomp(input, src, dim, start, end, step)
+        torch_decomp = get_decompositions([_aten.slice_scatter])[
+            _aten.slice_scatter.default
+        ]
+        return torch_decomp(input, src, dim, start, end, step)
+
     dim = dim % input.dim()
     size = input.shape[dim]
-    start, end = (
-        default if b is None else min(max(b + size if b < 0 else b, 0), size)
-        for b, default in ((start, 0), (end, size))
-    )
+
+    start, end, _ = slice(start, end).indices(size)
     if end <= start:
-        return _aten.clone.default(input)
-    src_shape = [*input.shape[:dim], end - start, *input.shape[dim + 1 :]]
-    src = src if list(src.shape) == src_shape else _aten.expand.default(src, src_shape)
-    parts = [_aten.slice.Tensor(input, dim, 0, start)] if start > 0 else []
+        return input.clone()
+    src_shape = list(input.shape)
+    src_shape[dim] = end - start
+    src = src.expand(src_shape)
+    if start == 0 and end == size:
+        return src.clone()
+
+    parts = []
+    if start > 0:
+        parts.append(input.narrow(dim, 0, start))
     parts.append(src)
     if end < size:
-        parts.append(_aten.slice.Tensor(input, dim, end, size))
-    return (
-        _aten.cat.default(parts, dim)
-        if len(parts) > 1
-        else _aten.clone.default(parts[0])
-    )
+        parts.append(input.narrow(dim, end, size - end))
+    return torch.cat(parts, dim)
 
 
 def _build_decomposition_table():
