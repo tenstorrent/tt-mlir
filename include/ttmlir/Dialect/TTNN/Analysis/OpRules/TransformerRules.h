@@ -89,12 +89,12 @@ struct SDPADecodeRuleBook : SDPARuleBook {
 };
 
 /// RotaryEmbedding / RotaryEmbeddingLlama:
-/// NULL hint only, no reshards. Rejects width-sharded and block-sharded
-/// inputs (only height-sharded or interleaved accepted).
-/// Cache tensors are DRAM-interleaved; resharding them is wasteful.
+/// NULL hint only, reshards for operand 0. Rejects width-sharded and
+/// block-sharded inputs (only height-sharded or interleaved accepted). Cache
+/// tensors are DRAM-interleaved; resharding them is wasteful.
 struct RotaryEmbeddingRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
-  bool shouldExploreReshards() const override;
+  bool shouldExploreReshards(unsigned operandIdx) const override;
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;

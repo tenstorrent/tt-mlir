@@ -51,6 +51,12 @@ struct OpRuleBook {
   /// always outputs DRAM-interleaved regardless of input layout).
   virtual bool shouldExploreReshards() const { return true; }
 
+  /// Whether to generate reshard candidates for a particular operand.
+  /// Preserve the op-wide policy unless a rule overrides individual operands.
+  virtual bool shouldExploreReshards(unsigned /*operandIdx*/) const {
+    return shouldExploreReshards();
+  }
+
   /// Whether the greedy search should clone each tiled input candidate of this
   /// operand into a RowMajor sibling on demand. Default false. Override for
   /// operands whose kernel requires a RowMajor page layout (the candidate pool
