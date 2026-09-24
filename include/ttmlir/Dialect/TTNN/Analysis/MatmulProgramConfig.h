@@ -42,7 +42,6 @@ struct DRAMShardParams {
   int64_t in0BlockW;
   int64_t perCoreM;
   int64_t perCoreNStorage;
-  ttcore::DataType weightDataType;
 };
 
 // Shard geometry and a CB-fitting in0_block_w for an M×K×N matmul, or nullopt
