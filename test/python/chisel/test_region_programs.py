@@ -31,11 +31,11 @@ module {
       ttnn.yield %cap : tensor<64x128xbf16, #l2>
     }, {
     ^bb0(%cap: tensor<64x128xbf16, #l2>):
-      %1 = "ttnn.add"(%cap, %cap) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+      %1 = "ttnn.add"(%cap, %cap) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
       ttnn.yield %1 : tensor<64x128xbf16, #l2>
     }, {
     ^bb0(%cap: tensor<64x128xbf16, #l2>):
-      %1 = "ttnn.multiply"(%cap, %cap) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+      %1 = "ttnn.multiply"(%cap, %cap) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
       ttnn.yield %1 : tensor<64x128xbf16, #l2>
     } -> (tensor<64x128xbf16, #l2>)
     return %0 : tensor<64x128xbf16, #l2>
@@ -59,7 +59,7 @@ module {
         ttnn.yield %cap : tensor<64x128xbf16, #l2>
       }, {
       ^bb0(%cap: tensor<64x128xbf16, #l2>):
-        %2 = "ttnn.add"(%cap, %cap) : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+        %2 = "ttnn.add"(%cap, %cap) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
         ttnn.yield %2 : tensor<64x128xbf16, #l2>
       } -> (tensor<64x128xbf16, #l2>)
       ttnn.yield %1 : tensor<64x128xbf16, #l2>
