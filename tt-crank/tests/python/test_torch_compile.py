@@ -1340,13 +1340,10 @@ _SLICE_SCATTER_CASES = {
     "middle": (8, 24, 1),
     "tail": (-16, None, 1),
     "whole": (None, None, 1),
-    "stride-exact": (1, 64, 3),  # last group ends exactly at the dim size
-    "stride-cut": (
-        2,
-        60,
-        4,
-    ),  # last group is cut off by `end`, only its src column is written
-    "stride-partial": (5, None, 4),  # last group runs past the dim size
+    # step > 1 keeps torch's gather + where decomposition (see _slice_scatter_decomp).
+    "stride-exact": (1, 64, 3),  # last stride ends exactly at the dim size
+    "stride-cut": (2, 60, 4),  # last stride is cut off by `end`
+    "stride-partial": (5, None, 4),  # last stride runs past the dim size
     "stride-one": (10, 11, 5),  # a single element
 }
 
@@ -1356,8 +1353,11 @@ _SLICE_SCATTER_CASES = {
     "case", list(_SLICE_SCATTER_CASES), ids=list(_SLICE_SCATTER_CASES)
 )
 def test_compile_slice_scatter(case: str, dim: int) -> None:
-    """slice_scatter decomposes onto slice/view/cat for any step, so no gather through a
-    result-sized index tensor and no where masks reach the device."""
+    """With step 1, slice_scatter decomposes onto slice/cat, so no gather through a
+    result-sized index tensor and no where masks reach the device. With step > 1 it
+    stays on torch's index + where decomposition: the slice/view/cat regroup of a strided
+    scatter measured 3-8x slower than gather + where on device (concat along a width-1
+    innermost dim), so the check here is that the strided cases do NOT take the cat path."""
     start, end, step = _SLICE_SCATTER_CASES[case]
 
     class _Scatter(nn.Module):
@@ -1375,11 +1375,17 @@ def test_compile_slice_scatter(case: str, dim: int) -> None:
         )
     ):
         _assert_compile_matches_eager(_Scatter(), x, y)
-    assert not [
+    masked = [
         op
         for op in ops
         if "aten.index" in op or "aten.gather" in op or "aten.where" in op
-    ], sorted(ops)
+    ]
+    if step == 1:
+        assert not masked, sorted(ops)
+        assert "aten.cat.default" in ops or "aten.clone.default" in ops, sorted(ops)
+    else:
+        assert "aten.index.Tensor" in ops and "aten.where.self" in ops, sorted(ops)
+        assert "aten.cat.default" not in ops, sorted(ops)
 
 
 @pytest.mark.parametrize("divisor", [3, -3], ids=["pos", "neg"])
