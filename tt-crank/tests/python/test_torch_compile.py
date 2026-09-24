@@ -22,6 +22,7 @@ from tt_crank.torch.testing import (
     ExecutionMode,
     assert_close_cpu_vs_tt,
     get_supported_dtypes,
+    post_aot_fx_hook,
 )
 from tt_crank.torch._compile import (
     _compile_options,
@@ -1265,8 +1266,7 @@ def test_compile_all_via_any() -> None:
 
 
 def test_compile_slice_assign_strided() -> None:
-    """A strided slice assignment functionalizes into slice + copy + slice_scatter,
-    and slice_scatter decomposes onto arange/remainder/index/where."""
+    """A strided slice assignment functionalizes into slice + copy + slice_scatter."""
 
     class _Interleave(nn.Module):
         def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -1292,6 +1292,101 @@ def test_compile_slice_assign_broadcast() -> None:
     x = torch.randn((32, 64), dtype=torch.bfloat16)
     y = torch.randn((32, 64), dtype=torch.bfloat16)
     _assert_compile_matches_eager(_Fill(), x, y)
+
+
+_SLICE_BACKWARD_CASES = {
+    "drop-last": lambda x: x[:, :-1],
+    "middle": lambda x: x[:, 8:24],
+    "first-dim": lambda x: x[1:],
+    "rope-halves": lambda x: torch.cat([-x[..., 32:], x[..., :32]], dim=-1),
+}
+
+
+@pytest.mark.parametrize(
+    "case", list(_SLICE_BACKWARD_CASES), ids=list(_SLICE_BACKWARD_CASES)
+)
+def test_compile_slice_backward_concats(case: str) -> None:
+    """slice_backward functionalizes into new_zeros + slice_scatter. With step 1 the
+    slice_scatter decomposes onto slice/cat, not torch's gather through a result-sized
+    index tensor plus where masks."""
+    view = _SLICE_BACKWARD_CASES[case]
+
+    def loss(x):
+        return (view(x).float() ** 2).sum()
+
+    x = torch.randn((4, 32, 64), dtype=torch.bfloat16)
+    ref = x.clone().requires_grad_(True)
+    loss(ref).backward()
+
+    ops: set[str] = set()
+    x_tt = x.to("tt").requires_grad_(True)
+    with post_aot_fx_hook(
+        lambda gm: ops.update(
+            str(n.target) for n in gm.graph.nodes if n.op == "call_function"
+        )
+    ):
+        torch.compile(loss, backend="tt", fullgraph=True)(x_tt).backward()
+    assert "aten.cat.default" in ops, sorted(ops)
+    assert not [
+        op
+        for op in ops
+        if "aten.index" in op or "aten.gather" in op or "aten.where" in op
+    ], sorted(ops)
+    torch.testing.assert_close(x_tt.grad.cpu(), ref.grad)
+
+
+# (start, end, step) along a dim of 64
+_SLICE_SCATTER_CASES = {
+    "head": (0, 16, 1),
+    "middle": (8, 24, 1),
+    "tail": (-16, None, 1),
+    "whole": (None, None, 1),
+    # step > 1 keeps torch's gather + where decomposition (see _slice_scatter_decomp).
+    "stride-exact": (1, 64, 3),  # last stride ends exactly at the dim size
+    "stride-cut": (2, 60, 4),  # last stride is cut off by `end`
+    "stride-partial": (5, None, 4),  # last stride runs past the dim size
+    "stride-one": (10, 11, 5),  # a single element
+}
+
+
+@pytest.mark.parametrize("dim", [0, 1], ids=["dim0", "dim1"])
+@pytest.mark.parametrize(
+    "case", list(_SLICE_SCATTER_CASES), ids=list(_SLICE_SCATTER_CASES)
+)
+def test_compile_slice_scatter(case: str, dim: int) -> None:
+    """With step 1, slice_scatter decomposes onto slice/cat, so no gather through a
+    result-sized index tensor and no where masks reach the device. With step > 1 it
+    stays on torch's index + where decomposition: the slice/view/cat regroup of a strided
+    scatter measured 3-8x slower than gather + where on device (concat along a width-1
+    innermost dim), so the check here is that the strided cases do NOT take the cat path."""
+    start, end, step = _SLICE_SCATTER_CASES[case]
+
+    class _Scatter(nn.Module):
+        def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            return torch.slice_scatter(x, y, dim=dim, start=start, end=end, step=step)
+
+    shape = [64, 64]
+    shape[dim] = torch.empty(64)[start:end:step].numel()
+    x = torch.randn((64, 64), dtype=torch.bfloat16)
+    y = torch.randn(shape, dtype=torch.bfloat16)
+    ops: set[str] = set()
+    with post_aot_fx_hook(
+        lambda gm: ops.update(
+            str(n.target) for n in gm.graph.nodes if n.op == "call_function"
+        )
+    ):
+        _assert_compile_matches_eager(_Scatter(), x, y)
+    masked = [
+        op
+        for op in ops
+        if "aten.index" in op or "aten.gather" in op or "aten.where" in op
+    ]
+    if step == 1:
+        assert not masked, sorted(ops)
+        assert "aten.cat.default" in ops or "aten.clone.default" in ops, sorted(ops)
+    else:
+        assert "aten.index.Tensor" in ops and "aten.where.self" in ops, sorted(ops)
+        assert "aten.cat.default" not in ops, sorted(ops)
 
 
 @pytest.mark.parametrize("divisor", [3, -3], ids=["pos", "neg"])

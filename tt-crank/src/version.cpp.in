@@ -14,4 +14,8 @@ std::string_view ttmlir_git_worktree_hash() noexcept {
     return "@TTMLIR_GIT_WORKTREE_HASH@";
 }
 
+std::string_view ttmetal_git_worktree_hash() noexcept {
+    return "@TTMETAL_GIT_WORKTREE_HASH@";
+}
+
 } // namespace tt::crank
