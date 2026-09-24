@@ -5846,9 +5846,6 @@ public:
 // Lowers `ttnn.case` to an `emitpy.case`, whose emitter renders the branches as
 // a Python if/elif/else chain. The last branch becomes the bare `else`, which
 // is what reproduces the op's rule that an out-of-range index selects it.
-//
-// The values the branches produce stay in SSA all the way down, as for the
-// while loop, and the yields are again converted by their own pattern.
 class CaseOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::CaseOp> {
 public:
