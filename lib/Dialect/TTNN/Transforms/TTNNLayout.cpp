@@ -809,13 +809,47 @@ private:
 } // namespace
 
 namespace {
+// Relays out each of `operands` to the type of the block argument it binds to,
+// the first of them binding to `block`'s argument `firstArgument`. Region ops
+// such as `ttir.while` and `ttir.case` do not implement TTIROpInterface, so the
+// generic layout rewriter leaves their operands alone, while their block
+// arguments keep the default layout.
+static bool relayoutToBlockArguments(Operation *op,
+                                     MutableOperandRange operands, Block &block,
+                                     unsigned firstArgument,
+                                     PatternRewriter &rewriter) {
+  bool modified = false;
+
+  rewriter.setInsertionPoint(op);
+  for (auto [index, operand] : llvm::enumerate(operands)) {
+    auto expectedType = mlir::cast<RankedTensorType>(
+        block.getArgument(firstArgument + index).getType());
+    if (operand.get().getType() == expectedType) {
+      continue;
+    }
+    auto layout = mlir::cast<TTNNLayoutAttr>(expectedType.getEncoding());
+    std::optional<Value> relaidOut = createToLayoutOp(
+        rewriter, appendInputSuffix(op->getLoc(), operand.getOperandNumber()),
+        operand.get(), layout.getBufferType(),
+        mlir::isa<ttcore::TileType>(layout.getElementType()));
+    if (!relaidOut) {
+      continue;
+    }
+    OpOperand &operandRef = operand;
+    rewriter.modifyOpInPlace(op, [&]() { operandRef.set(*relaidOut); });
+    modified = true;
+  }
+  return modified;
+}
+
 // Brings a `ttir.while` into the shape the runtime and the `ttnn.while`
 // verifier require:
 //
 //   - the value yielded by `cond` is forced to a row-major `uint32` tensor in
 //     system memory, since the runtime reads it back to host every iteration;
-//   - every loop-carried value is relaid out to match its block argument, so
-//     that the layouts hold across the loop back-edge.
+//   - every init and capture is relaid out to match its block argument, and so
+//     every loop-carried value yielded by the body, so that the layouts hold on
+//     loop entry and across the loop back-edge.
 class TTNNLayoutWhileOpRewriter : public OpRewritePattern<ttir::WhileOp> {
 public:
   TTNNLayoutWhileOpRewriter(MLIRContext *ctx)
@@ -824,12 +858,25 @@ public:
   LogicalResult matchAndRewrite(ttir::WhileOp op,
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
+    modified |= rewriteInitsAndCaptures(op, rewriter);
     modified |= rewriteCondition(op, rewriter);
     modified |= rewriteBodyYield(op, rewriter);
     return modified ? success() : failure();
   }
 
 private:
+  bool rewriteInitsAndCaptures(ttir::WhileOp op,
+                               PatternRewriter &rewriter) const {
+    Block &block = op.getBodyBlock();
+    bool modified = false;
+    modified |= relayoutToBlockArguments(op, op.getInitsMutable(), block,
+                                         /*firstArgument=*/0, rewriter);
+    modified |= relayoutToBlockArguments(op, op.getCapturesMutable(), block,
+                                         /*firstArgument=*/op.getInits().size(),
+                                         rewriter);
+    return modified;
+  }
+
   bool rewriteCondition(ttir::WhileOp op, PatternRewriter &rewriter) const {
     ttir::YieldOp yieldOp = op.getCondYield();
     Value condition = yieldOp.getOperands().front();
@@ -904,6 +951,114 @@ private:
 } // namespace
 
 namespace {
+// Brings a `ttir.case` into the shape the runtime and the `ttnn.case` verifier
+// require:
+//
+//   - `index` is forced to a row-major `si32` tensor in system memory, since
+//     the runtime reads it back to host to pick a branch;
+//   - every capture is relaid out to match its block argument;
+//   - every branch's yielded values are relaid out to the op's result types, so
+//     that all branches agree on what they produce.
+class TTNNLayoutCaseOpRewriter : public OpRewritePattern<ttir::CaseOp> {
+public:
+  TTNNLayoutCaseOpRewriter(MLIRContext *ctx)
+      : OpRewritePattern<ttir::CaseOp>(ctx) {}
+
+  LogicalResult matchAndRewrite(ttir::CaseOp op,
+                                PatternRewriter &rewriter) const final {
+    bool modified = false;
+    modified |= rewriteIndex(op, rewriter);
+    modified |= rewriteCaptures(op, rewriter);
+    modified |= rewriteBranchYields(op, rewriter);
+    return modified ? success() : failure();
+  }
+
+private:
+  bool rewriteIndex(ttir::CaseOp op, PatternRewriter &rewriter) const {
+    Value index = op.getIndex();
+    auto indexType = mlir::cast<RankedTensorType>(index.getType());
+
+    // Signed deliberately: an out-of-range index selects the last branch, and a
+    // negative index is out of range. A typecast to an unsigned type is a value
+    // conversion rather than a bit reinterpretation, so it would clamp -1 to 0
+    // and pick branch 0 instead.
+    Type int32Type = rewriter.getI32Type();
+    bool modified = false;
+
+    rewriter.setInsertionPoint(op);
+
+    // Typecast happens first, while the tensor is still tiled and on device.
+    if (indexType.getElementType() != int32Type) {
+      auto castType = RankedTensorType::get(
+          indexType.getShape(), int32Type,
+          TTNNLayoutAttr::Builder(
+              mlir::cast<TTNNLayoutAttr>(indexType.getEncoding()),
+              indexType.getShape())
+              .setElementType(ttcore::TileType::get(int32Type))
+              .build());
+      index = rewriter.create<ttir::TypecastOp>(
+          appendInputSuffix(op.getLoc(), 0), castType, index,
+          /*conservative_folding=*/false);
+      modified = true;
+    }
+
+    std::optional<Value> onHost =
+        createToLayoutOp(rewriter, appendInputSuffix(op.getLoc(), 0), index,
+                         BufferType::SystemMemory, /*tiled=*/false);
+    if (onHost) {
+      index = *onHost;
+      modified = true;
+    }
+
+    if (modified) {
+      rewriter.modifyOpInPlace(op, [&]() { op.setOperand(0, index); });
+    }
+    return modified;
+  }
+
+  bool rewriteCaptures(ttir::CaseOp op, PatternRewriter &rewriter) const {
+    return relayoutToBlockArguments(op, op.getCapturesMutable(),
+                                    op.getBranches().front().front(),
+                                    /*firstArgument=*/0, rewriter);
+  }
+
+  bool rewriteBranchYields(ttir::CaseOp op, PatternRewriter &rewriter) const {
+    bool modified = false;
+
+    for (Region &region : op.getBranches()) {
+      auto yieldOp = mlir::cast<ttir::YieldOp>(region.front().getTerminator());
+
+      rewriter.setInsertionPoint(yieldOp);
+      for (OpOperand &operand : yieldOp->getOpOperands()) {
+        // Unlike a while body, which relaid out to its own block arguments, a
+        // branch has no per-branch target: all branches feed the one set of
+        // results, so the result type is what they all have to reach.
+        auto expectedType = mlir::cast<RankedTensorType>(
+            op.getResult(operand.getOperandNumber()).getType());
+        if (operand.get().getType() == expectedType) {
+          continue;
+        }
+        auto layout = mlir::cast<TTNNLayoutAttr>(expectedType.getEncoding());
+        std::optional<Value> relaidOut = createToLayoutOp(
+            rewriter,
+            appendInputSuffix(yieldOp.getLoc(), operand.getOperandNumber()),
+            operand.get(), layout.getBufferType(),
+            mlir::isa<ttcore::TileType>(layout.getElementType()));
+        if (!relaidOut) {
+          continue;
+        }
+        rewriter.modifyOpInPlace(yieldOp, [&]() {
+          yieldOp.setOperand(operand.getOperandNumber(), *relaidOut);
+        });
+        modified = true;
+      }
+    }
+    return modified;
+  }
+};
+} // namespace
+
+namespace {
 class TTNNLayout : public impl::TTNNLayoutBase<TTNNLayout> {
 public:
   using impl::TTNNLayoutBase<TTNNLayout>::TTNNLayoutBase;
@@ -950,6 +1105,7 @@ public:
       patterns.add<TTNNLayoutCompositeOpTypeRewriter>(&getContext());
 
       patterns.add<TTNNLayoutWhileOpRewriter>(&getContext());
+      patterns.add<TTNNLayoutCaseOpRewriter>(&getContext());
 
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();

@@ -708,9 +708,10 @@ private:
   // not a constant, so treat it as a non-match.
   bool verifyInitValue(mlir::Value val,
                        TypicalInitReductionValue desired) const {
-    Operation *initValue = resolveWhileCapture(val).getDefiningOp();
+    Operation *initValue = resolveControlFlowCapture(val).getDefiningOp();
     while (initValue && initValue->getNumOperands() == 1) {
-      initValue = resolveWhileCapture(initValue->getOperand(0)).getDefiningOp();
+      initValue =
+          resolveControlFlowCapture(initValue->getOperand(0)).getDefiningOp();
     }
     if (!initValue) {
       return false;
@@ -723,7 +724,7 @@ private:
     };
 
     // The constant may still be in StableHLO form, or may already have been
-    // converted: resolveWhileCapture steps out onto a `ttir.while` operand,
+    // converted: resolveControlFlowCapture steps out onto a capture operand,
     // which the driver converts before it reaches the ops inside the regions.
     if (auto constantOp =
             mlir::dyn_cast<mlir::stablehlo::ConstantOp>(initValue)) {
@@ -735,35 +736,45 @@ private:
     return false;
   }
 
-  // Steps out of a `ttir.while` region: given one of a region's block
+  // Steps out of a TTIR control flow region: given one of a region's block
   // arguments, returns the capture it is bound to, which lives in the enclosing
   // scope. Returns `val` unchanged if it is not such a block argument.
   //
-  // An argmax nested in a loop reads its -inf/0 init values from outside the
-  // loop, and the while conversion turns those into captures, hiding their
-  // defining ops behind block arguments.
-  //
-  // Only the captures resolve. Block arguments are `inits ++ captures`, and an
-  // init is rebound to the value the body yielded on every iteration after the
-  // first, so the loop's operand for it says nothing about what it holds.
-  static Value resolveWhileCapture(Value val) {
+  // An argmax nested in a loop or a branch reads its -inf/0 init values from
+  // outside, and the control flow conversions turn those into captures, hiding
+  // their defining ops behind block arguments.
+  static Value resolveControlFlowCapture(Value val) {
     auto blockArg = mlir::dyn_cast<BlockArgument>(val);
     if (!blockArg) {
       return val;
     }
     Block *block = blockArg.getOwner();
-    auto whileOp =
-        mlir::dyn_cast_if_present<ttir::WhileOp>(block->getParentOp());
-    if (!whileOp || !block->isEntryBlock()) {
+    if (!block->isEntryBlock()) {
       return val;
     }
-    unsigned numInits = whileOp.getInits().size();
+    Operation *parent = block->getParentOp();
     unsigned index = blockArg.getArgNumber();
-    mlir::OperandRange captures = whileOp.getCaptures();
-    if (index < numInits || index - numInits >= captures.size()) {
-      return val;
+
+    // A branch runs at most once, so every block argument is a capture.
+    if (auto caseOp = mlir::dyn_cast_if_present<ttir::CaseOp>(parent)) {
+      mlir::OperandRange captures = caseOp.getCaptures();
+      return index < captures.size() ? captures[index] : val;
     }
-    return captures[index - numInits];
+
+    // Only a while's captures resolve. Its block arguments are
+    // `inits ++ captures`, and an init is rebound to the value the body yielded
+    // on every iteration after the first, so the loop's operand for it says
+    // nothing about what it holds.
+    if (auto whileOp = mlir::dyn_cast_if_present<ttir::WhileOp>(parent)) {
+      unsigned numInits = whileOp.getInits().size();
+      mlir::OperandRange captures = whileOp.getCaptures();
+      if (index < numInits || index - numInits >= captures.size()) {
+        return val;
+      }
+      return captures[index - numInits];
+    }
+
+    return val;
   }
 };
 } // namespace
@@ -11211,6 +11222,82 @@ public:
   }
 };
 
+// Appends one block argument per captured value, redirects the region's uses of
+// those values to the new arguments, and turns `stablehlo.return` into
+// `ttir.yield`.
+//
+// TTIR control flow is `IsolatedFromAbove` while StableHLO's is not, so this is
+// what promotes a region's implicit captures to explicit block arguments. A
+// region that starts with no arguments at all - which is how JAX emits
+// `stablehlo.case` branches - is just the degenerate case where every argument
+// is a new capture.
+static LogicalResult appendCapturesAndRewriteTerminator(
+    Region &region, const llvm::SetVector<Value> &capturedValues,
+    const TypeConverter *typeConverter, ConversionPatternRewriter &rewriter) {
+  Block &block = region.front();
+  const unsigned numOriginalArgs = block.getNumArguments();
+
+  TypeConverter::SignatureConversion signatureConv(numOriginalArgs);
+  for (auto [index, argType] : llvm::enumerate(block.getArgumentTypes())) {
+    Type convertedType = typeConverter->convertType(argType);
+    if (!convertedType) {
+      return rewriter.notifyMatchFailure(region.getParentOp(),
+                                         "could not convert region argument "
+                                         "type");
+    }
+    signatureConv.addInputs(index, convertedType);
+  }
+  // Captures become brand-new trailing arguments with no original counterpart.
+  for (Value captured : capturedValues) {
+    Type convertedType = typeConverter->convertType(captured.getType());
+    if (!convertedType) {
+      return rewriter.notifyMatchFailure(region.getParentOp(),
+                                         "could not convert capture type");
+    }
+    signatureConv.addInputs(convertedType);
+  }
+
+  Block *newBlock =
+      rewriter.applySignatureConversion(&block, signatureConv, typeConverter);
+
+  auto usedInThisRegion = [&region](OpOperand &use) {
+    return region.isAncestor(use.getOwner()->getParentRegion());
+  };
+
+  for (auto [index, captured] : llvm::enumerate(capturedValues)) {
+    BlockArgument replacement = newBlock->getArgument(numOriginalArgs + index);
+    rewriter.replaceUsesWithIf(captured, replacement, usedInThisRegion);
+  }
+
+  auto returnOp =
+      mlir::cast<mlir::stablehlo::ReturnOp>(newBlock->getTerminator());
+  rewriter.setInsertionPoint(returnOp);
+  rewriter.replaceOpWithNewOp<ttir::YieldOp>(returnOp, returnOp.getOperands());
+
+  return success();
+}
+
+// Collects the values `regions` read from the enclosing scope, remapped into
+// the converted world, so they can be handed to a control flow op as explicit
+// captures. All regions are collected together, since they are given a common
+// signature.
+static LogicalResult collectCaptures(Operation *srcOp,
+                                     llvm::SetVector<Value> &capturedValues,
+                                     llvm::SmallVector<Value> &captures,
+                                     ConversionPatternRewriter &rewriter) {
+  mlir::getUsedValuesDefinedAbove(srcOp->getRegions(), capturedValues);
+
+  captures.reserve(capturedValues.size());
+  for (Value captured : capturedValues) {
+    if (!mlir::isa<RankedTensorType>(captured.getType())) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "region captures a value that is not a ranked tensor");
+    }
+    captures.push_back(rewriter.getRemappedValue(captured));
+  }
+  return success();
+}
+
 class StableHLOToTTIRWhileOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::WhileOp> {
   using OpConversionPattern<mlir::stablehlo::WhileOp>::OpConversionPattern;
@@ -11229,19 +11316,10 @@ public:
                                          "could not convert result types");
     }
 
-    // Both regions are given the same signature, so collect the captures of
-    // the two together.
     llvm::SetVector<Value> capturedValues;
-    mlir::getUsedValuesDefinedAbove(srcOp->getRegions(), capturedValues);
-
     llvm::SmallVector<Value> captures;
-    captures.reserve(capturedValues.size());
-    for (Value captured : capturedValues) {
-      if (!mlir::isa<RankedTensorType>(captured.getType())) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "loop body captures a value that is not a ranked tensor");
-      }
-      captures.push_back(rewriter.getRemappedValue(captured));
+    if (failed(collectCaptures(srcOp, capturedValues, captures, rewriter))) {
+      return failure();
     }
 
     auto whileOp = rewriter.create<ttir::WhileOp>(
@@ -11257,7 +11335,7 @@ public:
 
     for (Region *region : {&whileOp.getCond(), &whileOp.getBody()}) {
       if (failed(appendCapturesAndRewriteTerminator(*region, capturedValues,
-                                                    rewriter))) {
+                                                    typeConverter, rewriter))) {
         return failure();
       }
     }
@@ -11265,57 +11343,100 @@ public:
     rewriter.replaceOp(srcOp, whileOp.getResults());
     return success();
   }
+};
 
-private:
-  // Appends one block argument per captured value, redirects the region's uses
-  // of those values to the new arguments, and turns `stablehlo.return` into
-  // `ttir.yield`.
-  LogicalResult appendCapturesAndRewriteTerminator(
-      Region &region, const llvm::SetVector<Value> &capturedValues,
-      ConversionPatternRewriter &rewriter) const {
-    const TypeConverter *typeConverter = getTypeConverter();
-    Block &block = region.front();
-    const unsigned numOriginalArgs = block.getNumArguments();
+// Builds a `ttir.case` from `branches`, promoting everything they read from the
+// enclosing scope to captures. `branches` are taken in the order the op selects
+// them by index, and are consumed (inlined into the new op).
+static FailureOr<ttir::CaseOp>
+buildCaseOp(Operation *srcOp, Value index, llvm::ArrayRef<Region *> branches,
+            const TypeConverter *typeConverter,
+            ConversionPatternRewriter &rewriter) {
+  llvm::SmallVector<Type> resultTypes;
+  if (failed(
+          typeConverter->convertTypes(srcOp->getResultTypes(), resultTypes))) {
+    return rewriter.notifyMatchFailure(srcOp, "could not convert result types");
+  }
 
-    TypeConverter::SignatureConversion signatureConv(numOriginalArgs);
-    for (auto [index, argType] : llvm::enumerate(block.getArgumentTypes())) {
-      Type convertedType = typeConverter->convertType(argType);
-      if (!convertedType) {
-        return rewriter.notifyMatchFailure(
-            region.getParentOp(), "could not convert region argument type");
-      }
-      signatureConv.addInputs(index, convertedType);
+  llvm::SetVector<Value> capturedValues;
+  llvm::SmallVector<Value> captures;
+  if (failed(collectCaptures(srcOp, capturedValues, captures, rewriter))) {
+    return failure();
+  }
+
+  auto caseOp = rewriter.create<ttir::CaseOp>(
+      srcOp->getLoc(), resultTypes, index, captures,
+      /*branchesCount=*/branches.size());
+
+  // Move the StableHLO regions over wholesale; the driver then converts the ops
+  // inside them with the regular patterns.
+  for (auto [srcRegion, dstRegion] :
+       llvm::zip_equal(branches, caseOp.getBranches())) {
+    rewriter.inlineRegionBefore(*srcRegion, dstRegion, dstRegion.end());
+  }
+
+  for (Region &region : caseOp.getBranches()) {
+    if (failed(appendCapturesAndRewriteTerminator(region, capturedValues,
+                                                  typeConverter, rewriter))) {
+      return failure();
     }
-    // Captures become brand-new trailing arguments with no original
-    // counterpart.
-    for (Value captured : capturedValues) {
-      Type convertedType = typeConverter->convertType(captured.getType());
-      if (!convertedType) {
-        return rewriter.notifyMatchFailure(region.getParentOp(),
-                                           "could not convert capture type");
-      }
-      signatureConv.addInputs(convertedType);
+  }
+
+  return caseOp;
+}
+
+class StableHLOToTTIRCaseOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CaseOp> {
+  using OpConversionPattern<mlir::stablehlo::CaseOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CaseOp srcOp,
+                  mlir::stablehlo::CaseOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // `stablehlo.case` branch order is already selection order, and both
+    // dialects agree that an out-of-range index picks the last branch.
+    llvm::SmallVector<Region *> branches =
+        llvm::to_vector(llvm::make_pointer_range(srcOp.getBranches()));
+    FailureOr<ttir::CaseOp> caseOp = buildCaseOp(
+        srcOp, adaptor.getIndex(), branches, getTypeConverter(), rewriter);
+    if (failed(caseOp)) {
+      return failure();
     }
 
-    Block *newBlock =
-        rewriter.applySignatureConversion(&block, signatureConv, typeConverter);
+    rewriter.replaceOp(srcOp, caseOp->getResults());
+    return success();
+  }
+};
 
-    auto usedInThisRegion = [&region](OpOperand &use) {
-      return region.isAncestor(use.getOwner()->getParentRegion());
-    };
+class StableHLOToTTIRIfOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::IfOp> {
+  using OpConversionPattern<mlir::stablehlo::IfOp>::OpConversionPattern;
 
-    for (auto [index, captured] : llvm::enumerate(capturedValues)) {
-      BlockArgument replacement =
-          newBlock->getArgument(numOriginalArgs + index);
-      rewriter.replaceUsesWithIf(captured, replacement, usedInThisRegion);
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::IfOp srcOp,
+                  mlir::stablehlo::IfOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // `ttir.case` selects by index, so the predicate becomes a 0/1 index and
+    // the branches are ordered false-first to match.
+    Value pred = adaptor.getPred();
+    auto predType = mlir::cast<RankedTensorType>(pred.getType());
+    auto indexType =
+        RankedTensorType::get(predType.getShape(), rewriter.getI32Type());
+    Value index = rewriter.create<ttir::TypecastOp>(
+        srcOp.getLoc(), indexType, pred, /*conservative_folding=*/false);
+
+    llvm::SmallVector<Region *> branches = {&srcOp.getFalseBranch(),
+                                            &srcOp.getTrueBranch()};
+
+    FailureOr<ttir::CaseOp> caseOp =
+        buildCaseOp(srcOp, index, branches, getTypeConverter(), rewriter);
+    if (failed(caseOp)) {
+      return failure();
     }
 
-    auto returnOp =
-        mlir::cast<mlir::stablehlo::ReturnOp>(newBlock->getTerminator());
-    rewriter.setInsertionPoint(returnOp);
-    rewriter.replaceOpWithNewOp<ttir::YieldOp>(returnOp,
-                                               returnOp.getOperands());
-
+    rewriter.replaceOp(srcOp, caseOp->getResults());
     return success();
   }
 };
@@ -11326,6 +11447,13 @@ static void addWhileOpConversionPattern(MLIRContext *ctx,
                                         RewritePatternSet &patterns,
                                         TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRWhileOpConversionPattern>(typeConverter, ctx);
+}
+
+static void addCaseOpConversionPattern(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRCaseOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRIfOpConversionPattern>(typeConverter, ctx);
 }
 
 static void addSparseMatmulOpConversionPattern(MLIRContext *ctx,
@@ -11388,6 +11516,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addAllToAllOpsConversionPattern(ctx, patterns, typeConverter);
   addTTLangOpConversionPattern(ctx, patterns, typeConverter);
   addWhileOpConversionPattern(ctx, patterns, typeConverter);
+  addCaseOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

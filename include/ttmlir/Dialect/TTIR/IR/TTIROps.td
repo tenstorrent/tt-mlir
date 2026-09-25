@@ -303,6 +303,81 @@ def TTIR_WhileOp : TTIR_Op<"while", [
   let hasVerifier = 1;
 }
 
+def TTIR_CaseOp : TTIR_Op<"case", [
+    IsolatedFromAbove,
+    RecursiveMemoryEffects,
+    SingleBlockImplicitTerminator<"::mlir::tt::ttir::YieldOp">]> {
+  let summary = "N-way branch.";
+  let description = [{
+    Executes exactly one of `branches`, selected by `index`, and produces the
+    values that branch yields.
+
+    `index` is a single-element integer tensor. An index outside `[0, N)` -
+    which includes any negative one - selects the last branch, so there is
+    always a branch to run.
+
+    Every branch takes the same block arguments: the `captures`. Unlike
+    `ttir.while` there are no carried values, because a branch runs at most
+    once, so there is nothing to thread from one execution to the next.
+
+    Every branch yields one value per result, with matching types. Requiring the
+    types to match exactly is what makes the branches agree: the op has a single
+    set of results, so a branch that produced a different layout would leave the
+    consumer reading a tensor descriptor that does not describe it.
+
+    The op is `IsolatedFromAbove` for the same reason `ttir.while` is: at
+    runtime each branch becomes its own flatbuffer program with its own tensor
+    pool, and a nested program can only see tensors bound through its own
+    inputs. Values a branch uses but that are defined outside the op must
+    therefore be promoted to explicit `captures` operands.
+
+    Example:
+    ```mlir
+    %r = ttir.case index(%i : tensor<i32>)
+                   captures(%a, %b : tensor<4xf32>, tensor<4xf32>)
+    branches {
+    ^bb0(%ca: tensor<4xf32>, %cb: tensor<4xf32>):
+      %0 = ttir.add(%ca, %cb, ...) : ...
+      ttir.yield %0 : tensor<4xf32>
+    }, {
+    ^bb0(%ca: tensor<4xf32>, %cb: tensor<4xf32>):
+      %0 = ttir.subtract(%ca, %cb, ...) : ...
+      ttir.yield %0 : tensor<4xf32>
+    } -> (tensor<4xf32>)
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$index,
+                       Variadic<AnyRankedTensor>:$captures);
+
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let regions = (region VariadicRegion<SizedRegion<1>>:$branches);
+
+  // A variadic region is parsed by reading trailing regions while a comma
+  // follows, so nothing comma-led may come after `$branches`. The result clause
+  // is optional because an empty type list will not parse inside parentheses.
+  let assemblyFormat = [{
+    `index` `(` $index `:` type($index) `)`
+    (`captures` `(` $captures^ `:` type($captures) `)`)?
+    attr-dict
+    `branches` $branches
+    (`->` `(` type($results)^ `)`)?
+  }];
+
+  let extraClassDeclaration = [{
+    ::mlir::Block &getBranchBlock(unsigned index) {
+      return getBranches()[index].front();
+    }
+
+    // Defined out-of-line: YieldOp is only forward declared at this point in
+    // the generated header.
+    ::mlir::tt::ttir::YieldOp getBranchYield(unsigned index);
+  }];
+
+  let hasVerifier = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR top level named ops
 //===----------------------------------------------------------------------===//
