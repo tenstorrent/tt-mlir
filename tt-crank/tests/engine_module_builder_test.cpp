@@ -8,8 +8,6 @@
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/SymbolTable.h"
-#include <cstdlib>
-#include <iostream>
 #include <stdexcept>
 #include <vector>
 
