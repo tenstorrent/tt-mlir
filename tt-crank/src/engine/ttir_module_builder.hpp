@@ -82,11 +82,11 @@ public:
     // `ttcore.composite`: tt-mlir promotes it to the typed op or inlines `decomposition`
     // (emitted into a private function of this module via the usual `build_*` helpers).
     using CompositeDecomposition =
-        llvm::function_ref<llvm::SmallVector<mlir::Value, 4>(ModuleBuilder &, mlir::ValueRange)>;
-    llvm::SmallVector<mlir::Value, 4> create_composite(llvm::StringRef name, llvm::ArrayRef<mlir::Value> inputs,
-                                                       llvm::ArrayRef<mlir::Type> result_types,
-                                                       llvm::ArrayRef<mlir::NamedAttribute> attributes,
-                                                       CompositeDecomposition decomposition);
+        llvm::function_ref<llvm::SmallVector<mlir::Value>(ModuleBuilder &, mlir::ValueRange)>;
+    llvm::SmallVector<mlir::Value> create_composite(llvm::StringRef name, llvm::ArrayRef<mlir::Value> inputs,
+                                                    llvm::ArrayRef<mlir::Type> result_types,
+                                                    llvm::ArrayRef<mlir::NamedAttribute> attributes,
+                                                    CompositeDecomposition decomposition);
 
     mlir::OwningOpRef<mlir::ModuleOp> finalize(llvm::ArrayRef<mlir::Value> outputs) &&;
 
@@ -625,5 +625,25 @@ TT_CRANK_API std::array<mlir::Value, 4> build_adamw(ModuleBuilder &mb, mlir::Val
                                                     mlir::Value exp_avg, mlir::Value exp_avg_sq,
                                                     mlir::Value max_exp_avg_sq, mlir::Value step, mlir::Value lr,
                                                     float beta1, float beta2, float epsilon, float weight_decay);
+
+// Emit TTIR for addcdiv (aten::addcdiv.default):
+//   result[i] = input[i] + value * (tensor1[i] / tensor2[i])
+// No single TTIR op covers this, so it decomposes into div -> multiply by the
+// `value` scalar -> add, with the multiply skipped at value == 1.0.
+TT_CRANK_API mlir::Value build_addcdiv(ModuleBuilder &mb, mlir::Value input, mlir::Value tensor1, mlir::Value tensor2,
+                                       double value);
+
+// Emit TTIR for addcmul (aten::addcmul.default):
+//   result[i] = input[i] + value * (tensor1[i] * tensor2[i])
+// No single TTIR op covers this, so it decomposes into multiply -> multiply by
+// the `value` scalar -> add, with the scaling skipped at value == 1.0.
+TT_CRANK_API mlir::Value build_addcmul(ModuleBuilder &mb, mlir::Value input, mlir::Value tensor1, mlir::Value tensor2,
+                                       double value);
+
+// Emit TTIR for lerp (aten::lerp.Scalar):
+//   result[i] = input[i] + weight * (end[i] - input[i])
+// No single TTIR op covers this, so it decomposes into subtract -> scale by the
+// `weight` scalar -> add, with the scaling skipped at weight == 1.0.
+TT_CRANK_API mlir::Value build_lerp(ModuleBuilder &mb, mlir::Value input, mlir::Value end, double weight);
 
 } // namespace tt::crank

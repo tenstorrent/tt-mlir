@@ -163,8 +163,8 @@ private:
 CompilerCache cache; // NOLINT
 
 // Calculates sha256 compilation key.
-// Key is computed by hashing system descriptor, hashing all functions in module, hashing all pipeline options, and
-// hashing mlir git worktree.
+// Key is computed by hashing the system descriptor, all functions in the module, all pipeline options, and the
+// tt-mlir and tt-metal source states.
 std::string calc_compilation_key(mlir::ModuleOp module_op,
                                  const mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &pm_opts) {
     llvm::SHA256 sha;
@@ -181,6 +181,7 @@ std::string calc_compilation_key(mlir::ModuleOp module_op,
     sha.update(opts);
 
     sha.update(ttmlir_git_worktree_hash());
+    sha.update(ttmetal_git_worktree_hash());
     return llvm::toHex(sha.final());
 }
 

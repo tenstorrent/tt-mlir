@@ -1128,6 +1128,21 @@ def _(
     return mb.full(shape, float(fill_value), _to_runtime_dtype(dtype))
 
 
+@_lowering(_aten.addcdiv.default)
+def _(mb, input, tensor1, tensor2, value=1.0):
+    return mb.addcdiv(input, tensor1, tensor2, float(value))
+
+
+@_lowering(_aten.addcmul.default)
+def _(mb, input, tensor1, tensor2, value=1.0):
+    return mb.addcmul(input, tensor1, tensor2, float(value))
+
+
+@_lowering(_aten.lerp.Scalar)
+def _(mb, input, end, weight):
+    return mb.lerp(input, end, float(weight))
+
+
 def _is_tensor_schema_arg(
     idx: int,
     schema: torch._C.FunctionSchema,
@@ -1539,21 +1554,43 @@ def _new_empty_strided_decomp(
     return self.new_zeros(size, dtype=dtype if dtype is not None else self.dtype)
 
 
-# A few scatter decomps we rely on aren't in the core set; pull them in explicitly.
-_EXTRA_DECOMP_OPS = [
-    torch.ops.aten.slice_scatter,
-]
+def _slice_scatter_decomp(input, src, dim=0, start=None, end=None, step=1):
+    if step != 1:
+        torch_decomp = get_decompositions([_aten.slice_scatter])[
+            _aten.slice_scatter.default
+        ]
+        return torch_decomp(input, src, dim, start, end, step)
+
+    dim = dim % input.dim()
+    size = input.shape[dim]
+
+    start, end, _ = slice(start, end).indices(size)
+    if end <= start:
+        return input.clone()
+    src_shape = list(input.shape)
+    src_shape[dim] = end - start
+    src = src.expand(src_shape)
+    if start == 0 and end == size:
+        return src.clone()
+
+    parts = []
+    if start > 0:
+        parts.append(input.narrow(dim, 0, start))
+    parts.append(src)
+    if end < size:
+        parts.append(input.narrow(dim, end, size - end))
+    return torch.cat(parts, dim)
 
 
 def _build_decomposition_table():
-    # Use default core decompositions, plus a few extra and some custom ones.
+    # Use default core decompositions, plus some custom ones.
     table = dict(core_aten_decompositions())
-    table.update(get_decompositions(_EXTRA_DECOMP_OPS))
     table.update(
         {
             torch.ops.aten.empty_like.default: _empty_like_decomp,
             torch.ops.aten.fill.Scalar: _fill_scalar_decomp,
             torch.ops.aten.new_empty_strided.default: _new_empty_strided_decomp,
+            torch.ops.aten.slice_scatter.default: _slice_scatter_decomp,
         }
     )
     # Never decompose an op tt lowers directly — keep it as a leaf for its kernel.

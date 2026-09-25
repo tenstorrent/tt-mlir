@@ -4641,6 +4641,57 @@ public:
 };
 } // namespace
 
+// ChunkGatedDeltaRuleOp conversion pattern
+namespace {
+class ChunkGatedDeltaRuleOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::ChunkGatedDeltaRuleOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.chunk_gated_delta_rule";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.transformer.chunk_gated_delta_rule";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::ChunkGatedDeltaRuleOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ChunkGatedDeltaRuleOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ChunkGatedDeltaRuleOp>
+        emitter(srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getValue()),
+        emitter.emit(srcOp.getG()),
+        emitter.emit(srcOp.getBeta()),
+        emitter.emit<float>(srcOp.getScaleAttr(), "scale"),
+        emitter.emit(srcOp.getInitialState(), "initial_state"),
+        emitter.emit(srcOp.getOutputFinalState(), "output_final_state"),
+        emitter.emit(srcOp.getChunkSize(), "chunk_size"),
+        emitter.emit(srcOp.getUseQkL2norm(), "use_qk_l2norm"),
+        emitter.emit(srcOp.getOutputHeadMajor(), "output_head_major"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+        emitter.emit(srcOp.getEye(), "eye"),
+        emitter.emit(srcOp.getTril(), "tril"),
+        emitter.emit(srcOp.getOnes(), "ones"),
+        emitter.emit(srcOp.getMasks(), "masks"),
+    };
+    // The Python API always returns `(output, optional_final_state)`, including
+    // when the MLIR op omits its optional second result.
+    emitter.replaceOp(*this, args, /*callResultCount=*/2);
+    return success();
+  }
+};
+} // namespace
+
 // IndexerScoreDsaOp conversion pattern
 //
 namespace {
@@ -5639,6 +5690,29 @@ public:
   }
 };
 
+// RMSNormBackward conversion pattern.
+//
+// EmitPy lowering for ttnn.rmsnorm_bw is intentionally unsupported, for the
+// same reason as ttnn.rmsnorm_fw: tt-train does not expose the
+// ttml::metal::rmsnorm_bw primitive through its Python bindings.
+// See https://github.com/tenstorrent/tt-mlir/issues/9118.
+class RMSNormBackwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::RMSNormBackwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::RMSNormBackwardOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::RMSNormBackwardOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        "EmitPy lowering for ttnn.rmsnorm_bw is not supported: ttml does not "
+        "expose the metal::rmsnorm_bw primitive through its Python bindings.");
+  }
+};
+
 // LayerNormForward conversion pattern.
 //
 // EmitPy lowering for ttnn.layernorm_fw is intentionally unsupported. The
@@ -5661,6 +5735,31 @@ public:
         "EmitPy lowering for ttnn.layernorm_fw is not supported: ttml does not "
         "expose the metal::layernorm_fw primitive through its Python "
         "bindings.");
+  }
+};
+
+// SwigluElemwiseBackward conversion pattern.
+//
+// EmitPy lowering for ttnn.swiglu_elemwise_bw is intentionally unsupported.
+// The emitted Python would need to call the low-level
+// ttml::metal::swiglu_elemwise_bw primitive, which tt-train does not expose
+// through its Python bindings.
+class SwigluElemwiseBackwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::SwigluElemwiseBackwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::SwigluElemwiseBackwardOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SwigluElemwiseBackwardOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp, "EmitPy lowering for ttnn.swiglu_elemwise_bw is not supported: "
+               "ttml does not expose the metal::swiglu_elemwise_bw primitive "
+               "through its Python bindings.");
   }
 };
 } // namespace
@@ -6078,6 +6177,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
                                                              ctx);
   patterns.add<FlashMlaPrefillOpConversionPattern>(typeConverter, ctx);
+  patterns.add<ChunkGatedDeltaRuleOpConversionPattern>(typeConverter, ctx);
   patterns.add<IndexerScoreDsaOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);
@@ -6099,7 +6199,11 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Normalization forward ops deliberately decline conversion.
   patterns.add<RMSNormForwardOpConversionPattern>(typeConverter, ctx);
+  patterns.add<RMSNormBackwardOpConversionPattern>(typeConverter, ctx);
   patterns.add<LayerNormForwardOpConversionPattern>(typeConverter, ctx);
+
+  // SwigluElemwiseBackward: deliberately declines conversion, same reason.
+  patterns.add<SwigluElemwiseBackwardOpConversionPattern>(typeConverter, ctx);
 
   // CrossEntropyForward: deliberately declines conversion, same reason.
   patterns.add<CrossEntropyForwardOpConversionPattern>(typeConverter, ctx);
