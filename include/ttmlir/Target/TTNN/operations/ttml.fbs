@@ -31,6 +31,13 @@ table SDPAForwardOp {
   intermediates: tt.target.ttnn.TensorRef;
 }
 
+table SoftmaxBackwardOp {
+  softmax_output: tt.target.ttnn.TensorRef;
+  grad: tt.target.ttnn.TensorRef;
+  dimension: int32;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table RMSNormForwardOp {
   input: tt.target.ttnn.TensorRef;
   gamma: tt.target.ttnn.TensorRef;

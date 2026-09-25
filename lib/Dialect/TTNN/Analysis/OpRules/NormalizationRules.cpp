@@ -104,6 +104,24 @@ LayoutScore RmsNormRuleBook::adjustScore(
 }
 
 //===----------------------------------------------------------------------===//
+// TTMLSoftmaxBackwardRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn TTMLSoftmaxBackwardRuleBook::getInputLayoutFilter(
+    unsigned /*operandIdx*/) const {
+  return layout_filter_utils::requireTiled;
+}
+
+bool TTMLSoftmaxBackwardRuleBook::shouldExploreReshards() const {
+  return false;
+}
+
+OutputHints TTMLSoftmaxBackwardRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
+  return layout_filter_utils::nullHintOnly();
+}
+
+//===----------------------------------------------------------------------===//
 // TTMLRMSNormForwardRuleBook
 //===----------------------------------------------------------------------===//
 

@@ -5690,6 +5690,26 @@ public:
   }
 };
 
+// SoftmaxBackward conversion pattern. The low-level TTML primitive is not
+// exposed through tt-train's Python bindings.
+class SoftmaxBackwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::SoftmaxBackwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::SoftmaxBackwardOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SoftmaxBackwardOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        "EmitPy lowering for ttnn.softmax_backward is not supported: ttml "
+        "does not expose metal::softmax_backward through Python "
+        "bindings.");
+  }
+};
+
 // RMSNormBackward conversion pattern.
 //
 // EmitPy lowering for ttnn.rmsnorm_bw is intentionally unsupported, for the
@@ -6200,6 +6220,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Normalization forward ops deliberately decline conversion.
   patterns.add<RMSNormForwardOpConversionPattern>(typeConverter, ctx);
   patterns.add<RMSNormBackwardOpConversionPattern>(typeConverter, ctx);
+  patterns.add<SoftmaxBackwardOpConversionPattern>(typeConverter, ctx);
   patterns.add<LayerNormForwardOpConversionPattern>(typeConverter, ctx);
 
   // SwigluElemwiseBackward: deliberately declines conversion, same reason.

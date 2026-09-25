@@ -3769,6 +3769,47 @@ public:
 } // namespace
 
 //
+// SoftmaxBackwardOp conversion pattern
+// (emits ::ttml::metal::softmax_backward)
+//
+namespace {
+class SoftmaxBackwardOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::SoftmaxBackwardOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.softmax_backward";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttml::metal::softmax_backward";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SoftmaxBackwardOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = mlir::tt::ttnn::SoftmaxBackwardOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SoftmaxBackwardOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SoftmaxBackwardOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getSoftmaxOutput()), emitter.emit(srcOp.getGrad()),
+        emitter.emit(srcOp.getDimension())};
+    auto tensorType = rewriter.getType<emitc::OpaqueType>(
+        ttnn_to_emitc::TypeNameV<::ttnn::Tensor>);
+    auto call = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), tensorType, convertOpName(srcOp),
+        rewriter.getArrayAttr(args), /*template_args=*/nullptr,
+        adaptor.getOperands());
+    rewriter.replaceOp(srcOp, call.getResults());
+    return success();
+  }
+};
+} // namespace
+
+//
 // RMSNormBackwardOp conversion pattern (emits ::ttml::metal::rmsnorm_bw)
 //
 namespace {
@@ -6840,8 +6881,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       CumSumOpConversionPattern, CumProdOpConversionPattern,
       BatchNormInferenceOpConversionPattern, AdamWOpConversionPattern,
       SDPAForwardOpConversionPattern, SDPABackwardOpConversionPattern,
-      RMSNormForwardOpConversionPattern, RMSNormBackwardOpConversionPattern,
-      LayerNormForwardOpConversionPattern,
+      RMSNormForwardOpConversionPattern, SoftmaxBackwardOpConversionPattern,
+      RMSNormBackwardOpConversionPattern, LayerNormForwardOpConversionPattern,
       CrossEntropyForwardOpConversionPattern,
       CrossEntropyBackwardOpConversionPattern,
       SwigluElemwiseBackwardOpConversionPattern,
