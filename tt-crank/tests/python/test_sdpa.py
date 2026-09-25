@@ -5,11 +5,17 @@
 from __future__ import annotations
 
 import contextlib
+import json
+import os
+from pathlib import Path
 
 import pytest
 import torch
 import torch.nn.functional as F
 
+from tt_crank.torch import _artifacts
+from tt_crank.torch._artifacts import collect_artifacts
+from tt_crank.torch._compile import CompileOption
 from tt_crank.torch.testing import post_aot_fx_hook, strict_no_fallback
 
 # Present in the post-aot graph iff torch doesn't decompose the
@@ -17,7 +23,8 @@ from tt_crank.torch.testing import post_aot_fx_hook, strict_no_fallback
 # our dispatch registration of `_fused_sdp_choice_stub` which tells torch
 # we have our own kernel for sdpa.
 _SDPA_OVERRIDEABLE = "_scaled_dot_product_fused_attention_overrideable"
-# autograd node the fused op records; MATH records the decomposition's nodes instead
+_SDPA_OVERRIDEABLE_BW = _SDPA_OVERRIDEABLE + "_backward"
+# autograd node the fused op records in eager; MATH records the decomposition's nodes instead
 _FUSED_GRAD_FN = "ScaledDotProductFusedAttentionOverrideableBackward0"
 
 _DT = torch.bfloat16
@@ -135,60 +142,47 @@ def test_sdpa_multi_chip(tt_pg, parallel: str, masked: bool, mode: str) -> None:
     assert _pcc(got, ref) >= _PCC
 
 
-@pytest.mark.parametrize(
-    "mode",
-    [
-        pytest.param(
-            "eager",
-            marks=pytest.mark.xfail(
-                strict=False,
-                reason="#7930",
-            ),
-        ),
-        "compile",
-    ],
+# tt-mlir resolves the sdpa_fw/sdpa_bw composites by optimization level: 0 inlines
+# crank's plain-TTIR decomposition, 1 promotes to the ttml kernels. Eager compiles at 0.
+_OPT = {
+    "eager": None,
+    "compile": {CompileOption.OPT_LEVEL: 1},
+    "compile-opt0": {CompileOption.OPT_LEVEL: 0},
+}
+# Any OPT_LEVEL 1 compile aborts the process under ttsim, so the promotion cases cannot even run there.
+_SIM = os.environ.get("TT_CRANK_USE_SIMULATOR") == "1"
+_OPT1_ON_SIM = pytest.mark.xfail(
+    _SIM, reason="OPT_LEVEL 1 aborts under ttsim", run=False
 )
-def test_sdpa_backward(mode: str) -> None:
-    """
-    Autograd through SDPA works: the fused overrideable op has no differentiable
-    backward (and no meta kernel for AOTAutograd's joint trace), so with grad live the
-    choice function must pick MATH and decompose. Asserts the atomic op is *absent*
-    under compile - its presence is what breaks training - and that grads match CPU.
-    """
-    q, k, v = (torch.randn(_B, _H, _S, _E, dtype=_DT) for _ in range(3))
-    refs = [t.clone().requires_grad_(True) for t in (q, k, v)]
-    F.scaled_dot_product_attention(*refs).sum().backward()
+_COMPILE = pytest.param("compile", marks=_OPT1_ON_SIM)
+_OPT_MODES = [_COMPILE if m == "compile" else m for m in _OPT]
+# Eager MATH sdpa backward hits the unary f32/bf16 DataType mismatch that the debug runtime asserts on (#9344, was #7930).
+_EAGER_DECOMPOSE = pytest.param(
+    "eager",
+    marks=pytest.mark.xfail(
+        strict=False,
+        reason="#9344: ttnn.isfinite returns f32 for bf16, debug runtime asserts (MATH backward)",
+    ),
+)
 
-    tts = [t.to("tt").requires_grad_(True) for t in (q, k, v)]
 
-    def sdpa(a, b, c):
-        return F.scaled_dot_product_attention(a, b, c).sum()
-
+def _run_backward(mode: str, fn, *tt_args, strict: bool = True) -> set[str]:
+    """Run `fn(*tt_args).backward()`; return the post-aot op names (empty under eager)."""
     ops: set[str] = set()
+    if mode == "eager":
+        with strict_no_fallback() if strict else contextlib.nullcontext():
+            fn(*tt_args).backward()
+        return ops
 
     def record(gm):
         ops.update(str(n.target) for n in gm.graph.nodes if n.op == "call_function")
 
-    if mode == "eager":
-        sdpa(*tts).backward()
-    else:
-        with post_aot_fx_hook(record):
-            torch.compile(sdpa, backend="tt", fullgraph=True)(*tts).backward()
-        torch._dynamo.reset()
-        assert not any(
-            _SDPA_OVERRIDEABLE in op for op in ops
-        ), f"SDPA stayed atomic under autograd, which has no backward; post-aot ops: {sorted(ops)}"
-
-    for got, ref in zip(tts, refs):
-        assert got.grad is not None
-        assert _pcc(got.grad.cpu(), ref.grad) >= _PCC
-
-
-# Eager training: the choice stub picks the fused op when the ttml sdpa_fw/sdpa_bw kernels can run the
-# call, and MATH otherwise. Compiled training keeps MATH until the compile lowering lands.
-def _run_eager_backward(fn, *tt_args, strict: bool = True) -> None:
-    with strict_no_fallback() if strict else contextlib.nullcontext():
-        fn(*tt_args).backward()
+    with post_aot_fx_hook(record):
+        torch.compile(fn, backend="tt", fullgraph=True, options=_OPT[mode])(
+            *tt_args
+        ).backward()
+    torch._dynamo.reset()
+    return ops
 
 
 def _check_grads(tts, refs, pcc: float = _PCC) -> None:
@@ -215,7 +209,8 @@ _FUSED_CASES = {
     "gqa": ((1, 8, 2, 32, 64), True, None, _G3, _PCC, None),
     "gqa-noncausal": ((1, 8, 2, 32, 64), False, None, _G3, _PCC, None),
     "custom-scale": ((1, 8, 8, 32, 64), True, 0.5, _G3, _PCC, None),
-    # ttml scales by 1/sqrt(head_dim padded to 32); tight PCC catches a missing fold.
+    # head_dim not tile-aligned: Q/K are zero-padded to 64/96 for the kernel, which scales by 1/sqrt(padded D);
+    # tight PCC catches a missing fold or a missing dQ/dK slice.
     "head-dim-40": ((1, 8, 8, 32, 40), True, None, _G3, 0.999, None),
     "head-dim-80-noncausal": ((1, 8, 8, 32, 80), False, None, _G3, 0.999, None),
     "grad-q-only": ((1, 8, 8, 32, 64), True, None, (True, False, False), _PCC, None),
@@ -257,9 +252,10 @@ _FUSED_CASES = {
 }
 
 
+@pytest.mark.parametrize("mode", _OPT_MODES)
 @pytest.mark.parametrize("case", list(_FUSED_CASES), ids=list(_FUSED_CASES))
-def test_sdpa_eager_backward_fused(case: str) -> None:
-    """Eager training within ttml's reach runs the fused ttml pair (no CPU fallback) and matches CPU."""
+def test_sdpa_backward_fused(case: str, mode: str) -> None:
+    """Training within ttml's reach stays on the fused ttml pair and matches CPU."""
     (
         (batch, heads_q, heads_kv, seq, head_dim),
         is_causal,
@@ -286,19 +282,26 @@ def test_sdpa_eager_backward_fused(case: str) -> None:
         outs.append(F.scaled_dot_product_attention(a, b, c, **tt_kw))
         return outs[-1].sum()
 
-    _run_eager_backward(sdpa, *tts)
-    assert (
-        outs[-1].grad_fn.name() == _FUSED_GRAD_FN
-    ), f"training decomposed: {outs[-1].grad_fn.name()}"
+    ops = _run_backward(mode, sdpa, *tts)
+    if mode == "eager":
+        assert (
+            outs[-1].grad_fn.name() == _FUSED_GRAD_FN
+        ), f"training decomposed: {outs[-1].grad_fn.name()}"
+    else:
+        assert any(
+            _SDPA_OVERRIDEABLE_BW in op for op in ops
+        ), f"training decomposed; post-aot ops: {sorted(ops)}"
     assert _pcc(outs[-1].detach().cpu(), ref_out) >= pcc, "forward output mismatch"
     _check_grads(tts, refs, pcc)
 
 
-# q/k/v shapes, sdpa kwargs (mask built lazily)
+# q/k/v shapes, sdpa kwargs (mask built lazily), modes
+_EC = ("eager", "compile")
 _DECOMPOSE_CASES = {
     "float-mask": (
         [(1, 8, 32, 64)] * 3,
         lambda: dict(attn_mask=torch.randn(1, 1, 32, 32, dtype=_DT)),
+        _EC,
     ),
     # ttml takes one [1, 1, S, S] mask for all batches, so a per-batch padding mask decomposes.
     "bool-mask-per-batch": (
@@ -308,25 +311,27 @@ _DECOMPOSE_CASES = {
                 :, None
             ]
         ),
+        _EC,
     ),
-    "seq-48": ([(1, 8, 48, 64)] * 3, lambda: dict(is_causal=True)),
-    "seq-48-noncausal": ([(1, 8, 48, 64)] * 3, lambda: dict()),
-    "cross-seq": ([(1, 8, 32, 64), (1, 8, 64, 64), (1, 8, 64, 64)], lambda: dict()),
-    "3d": ([(8, 32, 64)] * 3, lambda: dict(is_causal=True)),
-    "3d-noncausal": ([(8, 32, 64)] * 3, lambda: dict()),
+    "seq-48": ([(1, 8, 48, 64)] * 3, lambda: dict(is_causal=True), _EC),
+    "seq-48-noncausal": ([(1, 8, 48, 64)] * 3, lambda: dict(), _EC),
+    "cross-seq": (
+        [(1, 8, 32, 64), (1, 8, 64, 64), (1, 8, 64, 64)],
+        lambda: dict(),
+        _EC,
+    ),
+    "3d": ([(8, 32, 64)] * 3, lambda: dict(is_causal=True), _EC),
+    "3d-noncausal": ([(8, 32, 64)] * 3, lambda: dict(), _EC),
 }
 
 
-# torch's MATH backward calls aten::isneginf, whose ttnn.isfinite lowering returns f32 for bf16; the debug
-# runtime (CI) asserts on the dtype mismatch, release runtimes do not (#9344).
-@pytest.mark.xfail(
-    strict=False,
-    reason="#9344: ttnn.isfinite returns f32 for bf16, debug runtime asserts",
-)
+@pytest.mark.parametrize("mode", [_EAGER_DECOMPOSE, _COMPILE])
 @pytest.mark.parametrize("case", list(_DECOMPOSE_CASES), ids=list(_DECOMPOSE_CASES))
-def test_sdpa_eager_backward_decomposes(case: str) -> None:
-    """Eager training outside ttml's reach falls back to the math decomposition, with correct grads."""
-    shapes, make_kw = _DECOMPOSE_CASES[case]
+def test_sdpa_backward_decomposes(case: str, mode: str) -> None:
+    """Training outside ttml's reach falls back to the math decomposition, with correct grads."""
+    shapes, make_kw, modes = _DECOMPOSE_CASES[case]
+    if mode not in modes:
+        pytest.skip(f"{case} not supported under {mode}")
     kw = make_kw()
     q, k, v = (torch.randn(*shape, dtype=_DT) for shape in shapes)
     refs = [t.clone().requires_grad_(True) for t in (q, k, v)]
@@ -334,24 +339,36 @@ def test_sdpa_eager_backward_decomposes(case: str) -> None:
 
     tts = [t.to("tt").requires_grad_(True) for t in (q, k, v)]
     tt_kw = {n: a.to("tt") if isinstance(a, torch.Tensor) else a for n, a in kw.items()}
+
     outs: list[torch.Tensor] = []
 
     def sdpa(a, b, c):
         outs.append(F.scaled_dot_product_attention(a, b, c, **tt_kw))
         return outs[-1].sum()
 
-    _run_eager_backward(sdpa, *tts, strict=False)
-    assert outs[-1].grad_fn.name() != _FUSED_GRAD_FN, "expected the math decomposition"
+    ops = _run_backward(mode, sdpa, *tts, strict=False)
+    if mode == "eager":
+        assert (
+            outs[-1].grad_fn.name() != _FUSED_GRAD_FN
+        ), "expected the math decomposition"
+    else:
+        assert not any(
+            _SDPA_OVERRIDEABLE in op for op in ops
+        ), f"expected math decomposition; ops: {sorted(ops)}"
     _check_grads(tts, refs)
 
 
-def test_sdpa_eager_dropout_not_implemented() -> None:
+@pytest.mark.parametrize("mode", ["eager", _COMPILE])
+def test_sdpa_dropout_not_implemented(mode: str) -> None:
     tts = [
         torch.randn(_B, _H, _S, _E, dtype=_DT).to("tt").requires_grad_(True)
         for _ in range(3)
     ]
-    with pytest.raises(Exception, match="dropout is not supported"):
-        _run_eager_backward(
+    with pytest.raises(
+        Exception, match="dropout is not supported"
+    ):  # dynamo rewraps under compile
+        _run_backward(
+            mode,
             lambda a, b, c: F.scaled_dot_product_attention(
                 a, b, c, dropout_p=0.1
             ).sum(),
@@ -359,11 +376,28 @@ def test_sdpa_eager_dropout_not_implemented() -> None:
         )
 
 
+@_OPT1_ON_SIM
+def test_sdpa_backward_f32_decomposes() -> None:
+    """ttml's kernels are bf16-only; f32 training takes the math decomposition."""
+    q, k, v = (torch.randn(_B, _H, _S, _E) for _ in range(3))
+    refs = [t.clone().requires_grad_(True) for t in (q, k, v)]
+    F.scaled_dot_product_attention(*refs, is_causal=True).sum().backward()
+    tts = [t.to("tt").requires_grad_(True) for t in (q, k, v)]
+    ops = _run_backward(
+        "compile",
+        lambda a, b, c: F.scaled_dot_product_attention(a, b, c, is_causal=True).sum(),
+        *tts,
+    )
+    assert not any(_SDPA_OVERRIDEABLE in op for op in ops), sorted(ops)
+    _check_grads(tts, refs)
+
+
 @pytest.mark.multichip
+@pytest.mark.parametrize("mode", ["eager", _COMPILE])
 @pytest.mark.parametrize("parallel", ["tp", "dp"])
 @pytest.mark.parametrize("grads", ["qkv", "q"])
-def test_sdpa_eager_multi_chip_causal_backward(
-    tt_pg, parallel: str, grads: str
+def test_sdpa_multi_chip_causal_backward(
+    tt_pg, parallel: str, mode: str, grads: str
 ) -> None:
     """TP (Shard(1)) and DP (Shard(0)) grads come back sharded on the same dim, no gather.
 
@@ -388,16 +422,24 @@ def test_sdpa_eager_multi_chip_causal_backward(
         distribute_tensor(t.to("tt"), mesh, [Shard(dim)]).requires_grad_(g)
         for t, g in zip((q, k, v), needs_grad)
     ]
-    outs: list[torch.Tensor] = []
 
     def sdpa(a, b, c):
-        outs.append(F.scaled_dot_product_attention(a, b, c, is_causal=True))
-        return outs[-1].sum()
+        return F.scaled_dot_product_attention(a, b, c, is_causal=True).sum()
 
-    _run_eager_backward(sdpa, *tts)
-    assert (
-        outs[-1].grad_fn.name() == _FUSED_GRAD_FN
-    ), f"training decomposed: {outs[-1].grad_fn.name()}"
+    if mode == "eager":
+        # Capturing the DTensor output out of a compiled function trips aot's subclass handling, so the
+        # autograd-node check is eager-only; compile asserts the op in the post-aot graph instead.
+        with strict_no_fallback():
+            out = F.scaled_dot_product_attention(*tts, is_causal=True)
+            assert (
+                out.grad_fn.name() == _FUSED_GRAD_FN
+            ), f"training decomposed: {out.grad_fn.name()}"
+            out.sum().backward()
+    else:
+        ops = _run_backward(mode, sdpa, *tts)
+        assert any(
+            _SDPA_OVERRIDEABLE_BW in op for op in ops
+        ), f"training decomposed; post-aot ops: {sorted(ops)}"
     for name, got, ref, wanted in zip("qkv", tts, refs, needs_grad):
         if not wanted:
             assert got.grad is None, f"unexpected gradient for frozen {name}"
@@ -409,3 +451,163 @@ def test_sdpa_eager_multi_chip_causal_backward(
         assert (
             _pcc(got.grad.full_tensor().cpu(), ref.grad) >= _PCC
         ), f"grad_{name} mismatch"
+
+
+def _main_func(ttir: str) -> str:
+    """`@main` of a TTIR dump, without the private decomposition functions that follow it."""
+    return ttir.split("func.func private")[0]
+
+
+@pytest.mark.parametrize(
+    "opt", [pytest.param(1, marks=_OPT1_ON_SIM), 0], ids=["opt1", "opt0"]
+)
+@pytest.mark.parametrize("case", list(_FUSED_CASES), ids=list(_FUSED_CASES))
+def test_sdpa_fused_lowering_ir(
+    case: str, opt: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every fused case lowers to one sdpa_fw and one sdpa_bw composite with the expected mask handling; OPT 1
+    promotes them to the ttml kernels, OPT 0 inlines the decomposition."""
+    monkeypatch.setattr(_artifacts, "_artifacts_root", lambda: tmp_path)
+    (
+        (batch, heads_q, heads_kv, seq, head_dim),
+        is_causal,
+        scale,
+        needs_grad,
+        _,
+        make_mask,
+    ) = _FUSED_CASES[case]
+    kw = dict(is_causal=is_causal, scale=scale, enable_gqa=heads_kv != heads_q)
+    if make_mask is not None:
+        kw["attn_mask"] = make_mask().to("tt")
+    q = (
+        torch.randn(batch, heads_q, seq, head_dim, dtype=_DT)
+        .to("tt")
+        .requires_grad_(needs_grad[0])
+    )
+    k = (
+        torch.randn(batch, heads_kv, seq, head_dim, dtype=_DT)
+        .to("tt")
+        .requires_grad_(needs_grad[1])
+    )
+    v = (
+        torch.randn(batch, heads_kv, seq, head_dim, dtype=_DT)
+        .to("tt")
+        .requires_grad_(needs_grad[2])
+    )
+
+    torch._dynamo.reset()
+    with collect_artifacts("sdpa_lowering"):
+        torch.compile(
+            lambda a, b, c: F.scaled_dot_product_attention(a, b, c, **kw).sum(),
+            backend="tt",
+            fullgraph=True,
+            options={CompileOption.OPT_LEVEL: opt},
+        )(q, k, v).backward()
+    (out_dir,) = list(tmp_path.iterdir())
+    fw_ttir = _main_func((out_dir / "graph_0_forward.ttir.mlir").read_text())
+    bw_ttir = _main_func((out_dir / "graph_1_backward.ttir.mlir").read_text())
+    fw_ttnn = (out_dir / "graph_0_forward.ttnn.mlir").read_text()
+    bw_ttnn = (out_dir / "graph_1_backward.ttnn.mlir").read_text()
+
+    # One composite each way, typed by how the mask reaches ttml (see sdpa_mask in ttir_module_builder.cpp).
+    mask_type = "causal" if is_causal else "arbitrary"
+    assert fw_ttir.count('composite_name = "sdpa_fw"') == 1, fw_ttir
+    assert bw_ttir.count('composite_name = "sdpa_bw"') == 1, bw_ttir
+    for ttir in (fw_ttir, bw_ttir):
+        assert f"mask_type = #ttcore.attention_mask_type<{mask_type}>" in ttir, ttir
+    if is_causal:
+        # The kernel does causal itself: no mask tensor, nothing to rebuild or zero.
+        assert (
+            "ttir.ones" not in fw_ttir
+            and "ttir.eq" not in fw_ttir
+            and "ttir.max" not in fw_ttir
+        ), fw_ttir
+    elif make_mask is None:
+        # Stand-in for ttml's broken `none`: an all-ones keep-mask, no bool rebuild.
+        assert "ttir.ones" in fw_ttir and "ttir.eq" not in fw_ttir, fw_ttir
+    else:
+        # Bool mask: rebuilt from torch's 0/-inf float (eq), rows keeping no key detected (max) and zeroed (multiply).
+        for op in ("ttir.eq", "ttir.max", "ttir.multiply"):
+            assert op in fw_ttir and op in bw_ttir, (op, fw_ttir)
+
+    assert "composite" not in fw_ttnn and "composite" not in bw_ttnn
+    if opt == 1:
+        assert (
+            "ttnn.sdpa_fw" in fw_ttnn and "ttnn.sdpa_bw" in bw_ttnn
+        ), "composites not promoted to the ttml kernels"
+        assert "ttnn.softmax" not in fw_ttnn
+    else:
+        assert "ttnn.sdpa_fw" not in fw_ttnn and "ttnn.sdpa_bw" not in bw_ttnn
+        assert "ttnn.softmax" in fw_ttnn, "decomposition not inlined"
+
+
+@_OPT1_ON_SIM
+def test_sdpa_training_is_two_device_programs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One forward and one backward program, each promoted to its ttml kernel, no host round-trip."""
+    monkeypatch.setattr(_artifacts, "_artifacts_root", lambda: tmp_path)
+    tts = [
+        torch.randn(_B, _H, _S, _E, dtype=_DT).to("tt").requires_grad_(True)
+        for _ in range(3)
+    ]
+
+    def sdpa(a, b, c):
+        return F.scaled_dot_product_attention(a, b, c, is_causal=True).sum()
+
+    torch._dynamo.reset()
+    torch._dynamo.utils.counters.clear()
+    with collect_artifacts("sdpa_training") as collection:
+        torch.compile(sdpa, backend="tt", fullgraph=True, options=_OPT["compile"])(
+            *tts
+        ).backward()
+
+    assert not torch._dynamo.utils.counters["graph_break"]
+    assert collection.compile_stats().num_graphs == 2
+    (out_dir,) = list(tmp_path.iterdir())
+    index = json.loads((out_dir / "artifacts.json").read_text())
+    assert [g["graph"] for g in index["graphs"]] == [
+        "graph_0_forward",
+        "graph_1_backward",
+    ]
+    host_ops = ("ttnn.from_device", "ttnn.to_device", "ttnn.to_layout", "ttnn.cpu")
+    for graph, name in (
+        ("graph_0_forward", "sdpa_fw"),
+        ("graph_1_backward", "sdpa_bw"),
+    ):
+        ttir = (out_dir / f"{graph}.ttir.mlir").read_text()
+        assert ttir.count(f'composite_name = "{name}"') == 1, ttir
+        ttnn = (out_dir / f"{graph}.ttnn.mlir").read_text()
+        assert f"ttnn.{name}" in ttnn, ttnn
+        assert not [
+            op for op in host_ops if op in ttnn
+        ], f"{graph} moves tensors through the host"
+
+
+@_OPT1_ON_SIM
+def test_sdpa_fw_logsumexp_matches_torch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pins the ttml lse tile contract (value in column 0 of a [B, H, S, 32] f32 tile) against torch."""
+    monkeypatch.setattr(_artifacts, "_artifacts_root", lambda: tmp_path)
+    q, k, v = (torch.randn(_B, _H, _S, _E, dtype=_DT) for _ in range(3))
+    logits = (q.float() @ k.float().transpose(2, 3)) * _E**-0.5
+    ref_lse = logits.masked_fill(
+        ~torch.ones(_S, _S, dtype=torch.bool).tril(), float("-inf")
+    ).logsumexp(-1)
+
+    def fw(a, b, c):
+        return torch.ops.aten._scaled_dot_product_fused_attention_overrideable(
+            a, b, c, None, 0.0, True
+        )[:2]
+
+    torch._dynamo.reset()
+    with collect_artifacts("sdpa_fw_lse"):
+        compiled = torch.compile(
+            fw, backend="tt", fullgraph=True, options=_OPT["compile"]
+        )
+        _, lse = compiled(*(t.to("tt") for t in (q, k, v)))
+    (out_dir,) = list(tmp_path.iterdir())
+    assert "ttnn.sdpa_fw" in (out_dir / "graph_0_inference.ttnn.mlir").read_text()
+    assert lse.dtype == torch.float32 and lse.shape == (_B, _H, _S)
+    assert _pcc(lse.cpu(), ref_lse) >= 0.999, "ttml logsumexp tile layout changed"
