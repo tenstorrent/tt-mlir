@@ -9,8 +9,10 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
+#include "ttmlir/Utils.h"
 
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/MathExtras.h"
 
 #include <array>
 #include <optional>
@@ -65,26 +67,6 @@ struct MatmulProblem {
   int64_t biasTileBytes;
   int64_t maxSubblockArea;
 };
-
-int64_t divUp(int64_t a, int64_t b) { return (a + b - 1) / b; }
-
-llvm::SmallVector<int64_t> divisorsUpTo(int64_t value, int64_t upper) {
-  llvm::SmallVector<int64_t> divisors;
-  for (int64_t d = 1; d <= std::min(value, upper); ++d) {
-    if (value % d == 0) {
-      divisors.push_back(d);
-    }
-  }
-  return divisors;
-}
-
-int64_t batchVolume(llvm::ArrayRef<int64_t> shape) {
-  int64_t volume = 1;
-  for (int64_t dim : shape.drop_back(2)) {
-    volume *= dim;
-  }
-  return volume;
-}
 
 // Returns the layout of a DRAM-interleaved, 32x32-tiled device tensor, or
 // null for anything else.
@@ -151,7 +133,10 @@ int64_t cbBytes(const MatmulProblem &p, int64_t outBlockH, int64_t outBlockW,
 llvm::SmallVector<int64_t> in0BlockWCandidates(const MatmulProblem &p,
                                                int64_t maxIn0BlockW) {
   llvm::SmallVector<int64_t> candidates;
-  for (int64_t bw : divisorsUpTo(p.kt, maxIn0BlockW)) {
+  for (int64_t bw : ttmlir::utils::getFactors(p.kt)) {
+    if (bw > maxIn0BlockW) {
+      break;
+    }
     if (p.kt == 1 || p.kt / bw >= 2) {
       candidates.push_back(bw);
     }
@@ -166,8 +151,8 @@ Blocking pick2D(const MatmulProblem &p, int64_t maxIn0BlockW,
   Blocking best;
   int64_t bestVolume = 0;
   for (int64_t bw : in0BlockWCandidates(p, maxIn0BlockW)) {
-    for (int64_t h : divisorsUpTo(p.perCoreM, p.perCoreM)) {
-      for (int64_t w : divisorsUpTo(p.perCoreN, p.perCoreN)) {
+    for (int64_t h : ttmlir::utils::getFactors(p.perCoreM)) {
+      for (int64_t w : ttmlir::utils::getFactors(p.perCoreN)) {
         if (cbBytes(p, h, w, bw) > l1Budget) {
           continue;
         }
@@ -257,8 +242,8 @@ std::optional<MatmulProblem> analyze(MatmulOpTy op, Value bias) {
   const int64_t k = aShape.back();
   const int64_t n =
       op.getTransposeB() ? bShape[bShape.size() - 2] : bShape.back();
-  const int64_t batchA = batchVolume(aShape);
-  const int64_t batchB = batchVolume(bShape);
+  const int64_t batchA = ttmlir::utils::volume(aShape.drop_back(2));
+  const int64_t batchB = ttmlir::utils::volume(bShape.drop_back(2));
   // A batch-broadcast A takes tt-metal's dedicated in0-reuse path.
   if (batchB > 1 && (batchA != batchB || aShape.size() != bShape.size())) {
     return std::nullopt;
@@ -282,7 +267,7 @@ std::optional<MatmulProblem> analyze(MatmulOpTy op, Value bias) {
   MatmulProblem p;
   p.m = m;
   p.n = n;
-  p.kt = divUp(k, kTileDim);
+  p.kt = llvm::divideCeil(k, kTileDim);
   p.gridX = workerGrid[1];
   p.gridY = workerGrid[0];
   p.aTileBytes = aLayout.getElementSizeBytes();
@@ -293,8 +278,8 @@ std::optional<MatmulProblem> analyze(MatmulOpTy op, Value bias) {
   p.biasTileBytes = biasTileBytes(bias);
   p.maxSubblockArea = (dstFullSyncEn ? 16 : 8) / (fp32DestAccEn ? 2 : 1);
 
-  const int64_t mt = divUp(m, kTileDim);
-  const int64_t nt = divUp(n, kTileDim);
+  const int64_t mt = llvm::divideCeil(m, kTileDim);
+  const int64_t nt = llvm::divideCeil(n, kTileDim);
   p.kernel = route(mt, nt);
   const int64_t numCores = p.gridX * p.gridY;
   if (p.kernel == MatmulKernel::Mcast2D) {
@@ -303,15 +288,15 @@ std::optional<MatmulProblem> analyze(MatmulOpTy op, Value bias) {
     }
     p.fuseBatch = batchB == 1;
     const int64_t mtTotal = p.fuseBatch ? batchA * mt : mt;
-    p.perCoreM = divUp(mtTotal, p.gridY);
-    p.perCoreN = divUp(nt, p.gridX);
+    p.perCoreM = llvm::divideCeil(mtTotal, p.gridY);
+    p.perCoreN = llvm::divideCeil(nt, p.gridX);
   } else if (p.kernel == MatmulKernel::Mcast1DIn0) {
     p.fuseBatch = false;
     p.perCoreM = mt;
-    p.perCoreN = divUp(nt, numCores);
+    p.perCoreN = llvm::divideCeil(nt, numCores);
   } else {
     p.fuseBatch = false;
-    p.perCoreM = divUp(mt, numCores);
+    p.perCoreM = llvm::divideCeil(mt, numCores);
     p.perCoreN = nt;
   }
   return p;
