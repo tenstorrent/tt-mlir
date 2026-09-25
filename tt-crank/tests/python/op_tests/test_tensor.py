@@ -69,17 +69,41 @@ def test_empty_strided() -> None:
 
 
 # -----------------------------------------------------------------------------
-# _copy_from
+# _to_copy
 # -----------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("shape", [(32, 32), (64, 128)])
 def test_cpu_tt_cpu_round_trip_preserves_data(shape: tuple[int, ...]) -> None:
-    # Exercises both _copy_from branches (cpu→tt and tt→cpu) without involving
-    # any op kernel. The runtime tensor stays host-resident, so tolerance is zero.
+    # Exercises CPU→TT conversion and TT→CPU readback. The runtime tensor stays
+    # host-resident, so tolerance is zero.
     src = torch.randn(shape, dtype=torch.bfloat16)
     round_trip = src.to("tt").cpu()
     torch.testing.assert_close(round_trip, src, atol=0, rtol=0)
+
+
+def test_cpu_tt_cpu_autograd() -> None:
+    source = torch.randn((32, 32), requires_grad=True)
+    gradient = torch.randn_like(source)
+    with strict_no_fallback():
+        converted = source.to("tt")
+        assert converted.device.type == "tt"
+        converted.cpu().backward(gradient)
+    torch.testing.assert_close(source.grad, gradient, atol=0, rtol=0)
+
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.int32])
+@pytest.mark.parametrize("non_blocking", [False, True])
+def test_cpu_to_tt_with_dtype_conversion(
+    dtype: torch.dtype, non_blocking: bool
+) -> None:
+    source = torch.arange(32, dtype=torch.float32)
+    expected = source.to(dtype)
+    with strict_no_fallback():
+        converted = source.to("tt", dtype=dtype, non_blocking=non_blocking)
+    del source
+    gc.collect()
+    torch.testing.assert_close(converted.cpu(), expected, atol=0, rtol=0)
 
 
 def test_tensor_borrowing() -> None:
@@ -158,6 +182,23 @@ def test_tensor_borrowing() -> None:
         tt_inf = inf.to("tt")
         torch.testing.assert_close(tt_inf.cpu(), expected_inf, atol=0, rtol=0)
         torch.testing.assert_close((tt_inf + x).cpu(), expected_inf + 1, atol=0, rtol=0)
+
+
+def test_to_copy() -> None:
+    source = torch.ones((32, 32), dtype=torch.bfloat16).to("tt")
+    assert source.to("tt") is source
+    with strict_no_fallback():
+        copied = source.to("tt", copy=True)
+        source.copy_(torch.full((32, 32), 2, dtype=torch.bfloat16))
+    assert copied is not source
+    torch.testing.assert_close(
+        copied.cpu(), torch.ones((32, 32), dtype=torch.bfloat16), atol=0, rtol=0
+    )
+
+
+# -----------------------------------------------------------------------------
+# _copy_from
+# -----------------------------------------------------------------------------
 
 
 def test_tt_to_tt_copy_preserves_data() -> None:

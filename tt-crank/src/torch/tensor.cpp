@@ -81,7 +81,8 @@ create_multi_device_host_tensor(std::vector<void *> &shards, const ::tt::runtime
 
 } // namespace
 
-TensorStorage::TensorStorage(::tt::runtime::Tensor tensor) : tensor_(std::move(tensor)) {}
+TensorStorage::TensorStorage(::tt::runtime::Tensor tensor, std::optional<TensorPin> pin)
+    : tensor_(std::move(tensor)), pin_(std::move(pin)) {}
 
 void TensorStorage::replace(::tt::runtime::Tensor tensor) {
     tensor_ = std::move(tensor);
@@ -147,8 +148,9 @@ at::Tensor &write_result_into(at::Tensor &out, const at::Tensor &result) {
     return out;
 }
 
-at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef sizes, c10::ScalarType dtype) {
-    TensorStorage *storage = new TensorStorage(std::move(runtime_tensor));
+at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef sizes, c10::ScalarType dtype,
+                          std::optional<TensorPin> pin) {
+    TensorStorage *storage = new TensorStorage(std::move(runtime_tensor), std::move(pin));
 
     c10::Device device(c10::DeviceType::PrivateUse1, 0);
     c10::DataPtr storage_data_ptr(storage, storage, &delete_storage, device);
