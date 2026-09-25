@@ -32,6 +32,7 @@ import torch
 import torch.fx
 from torch._decomp import core_aten_decompositions, get_decompositions
 from torch._dynamo.backends.common import aot_module_simplified
+from torch._functorch.partitioners import default_partition
 from torch._subclasses.fake_tensor import unset_fake_temporarily
 
 from . import _native
@@ -915,6 +916,101 @@ def _(
     return (output, logsumexp, None, None, None, None, rng, rng, None)
 
 
+def _gqa_expansion_base(node):
+    """HF `repeat_kv` in the aot graph: unsqueeze(2) -> expand -> clone -> view. Returns the [B, Hkv, S, D] base."""
+    if node.op != "call_function" or node.target not in (
+        _aten._unsafe_view.default,
+        _aten.view.default,
+        _aten.reshape.default,
+    ):
+        return None
+    n = node.args[0]
+    if n.target is _aten.clone.default:
+        n = n.args[0]
+    if n.target is not _aten.expand.default:
+        return None
+    n = n.args[0]
+    if n.target is not _aten.unsqueeze.default or n.args[1] not in (2, -3):
+        return None
+    base = n.args[0]
+    b, e = base.meta["val"].shape, node.meta["val"].shape
+    if (
+        len(b) != 4
+        or len(e) != 4
+        or (b[0], b[2], b[3]) != (e[0], e[2], e[3])
+        or e[1] % b[1]
+    ):
+        return None
+    return base
+
+
+def _peel_gqa_expansions(graph: torch.fx.Graph) -> bool:
+    """Feed sdpa the unexpanded K/V: the kernels do GQA natively. In the joint graph this also makes
+    aot save the [B, Hkv, S, D] tensors and drops the view/sum/squeeze that reduced dK/dV back."""
+    changed = False
+    for node in list(graph.nodes):
+        if node.target not in (_SDPA_FUSED_FW, _SDPA_FUSED_BW):
+            continue
+        k_idx, v_idx = (1, 2) if node.target is _SDPA_FUSED_FW else (2, 3)
+        k_base, v_base = _gqa_expansion_base(node.args[k_idx]), _gqa_expansion_base(
+            node.args[v_idx]
+        )
+        if (
+            k_base is None
+            or v_base is None
+            or k_base.meta["val"].shape != v_base.meta["val"].shape
+        ):
+            continue
+        node.update_arg(k_idx, k_base)
+        node.update_arg(v_idx, v_base)
+        changed = True
+        if node.target is _SDPA_FUSED_FW:
+            continue
+        for slot, base in ((1, k_base), (2, v_base)):
+            for grad in [
+                u
+                for u in node.users
+                if u.target is operator.getitem and u.args[1] == slot
+            ]:
+                grad.meta["val"] = base.meta["val"]
+                # view [B, Hkv, rep, S, D] -> sum(dim 2) -> (squeeze) reduced the expanded grad; now a no-op.
+                view = next(iter(grad.users), None)
+                if (
+                    view is None
+                    or len(grad.users) != 1
+                    or view.target
+                    not in (_aten.view.default, _aten._unsafe_view.default)
+                ):
+                    raise NotImplementedError(
+                        "tt-crank sdpa: unexpected consumer of the peeled GQA gradient"
+                    )
+                reduce = next(iter(view.users))
+                if reduce.target is not _aten.sum.dim_IntList or list(
+                    reduce.args[1]
+                ) != [2]:
+                    raise NotImplementedError(
+                        "tt-crank sdpa: unexpected reduction of the peeled GQA gradient"
+                    )
+                final = reduce
+                if len(reduce.args) > 2 and reduce.args[2]:
+                    final = next(iter(reduce.users))
+                    if final.target is not _aten.squeeze.dim:
+                        raise NotImplementedError(
+                            "tt-crank sdpa: unexpected squeeze of the peeled GQA gradient"
+                        )
+                final.replace_all_uses_with(grad)
+    if changed:
+        graph.eliminate_dead_code()
+        graph.lint()
+    return changed
+
+
+def _tt_partition(joint_module: torch.fx.GraphModule, joint_inputs, **kwargs):
+    if _peel_gqa_expansions(joint_module.graph):
+        joint_module.recompile()
+    return default_partition(joint_module, joint_inputs, **kwargs)
+
+
 @_lowering(_SDPA_FUSED_BW)
 @_skip_prepare(_SDPA_FUSED_BW)
 def _(
@@ -1537,6 +1633,8 @@ def _lower_and_compile(
     inputs and runs the compiled program on each call. `roles` tags each graph
     arg for const-eval (see tt_backend / _forward_parameter_roles).
     """
+    if _peel_gqa_expansions(gm.graph):
+        gm.recompile()
     if _post_aot_fx_hook is not None:
         _post_aot_fx_hook(gm)
     specs = [_spec_from_tensor(t) for t in example_inputs]
@@ -1699,6 +1797,7 @@ def tt_backend(
         fw_compiler=fw_compiler,
         bw_compiler=bw_compiler,
         decompositions=_TT_DECOMPOSITIONS,
+        partition_fn=_tt_partition,
     )
 
 
