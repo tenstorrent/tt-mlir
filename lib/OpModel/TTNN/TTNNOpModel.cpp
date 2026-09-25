@@ -539,6 +539,8 @@ auto getOpSymbol() {
     return WRAP_OP(::ttnn::relu6);
   } else if constexpr (std::is_same_v<OpTy, HardsigmoidOp>) {
     return WRAP_OP(::ttnn::hardsigmoid);
+  } else if constexpr (std::is_same_v<OpTy, HardswishOp>) {
+    return WRAP_OP(::ttnn::hardswish);
   } else if constexpr (std::is_same_v<OpTy, SqrtOp>) {
     return WRAP_OP(::ttnn::sqrt);
   } else if constexpr (std::is_same_v<OpTy, SinOp>) {
@@ -1453,6 +1455,7 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
 template struct UnaryEltwiseOpModel<ReluOp>;
 template struct UnaryEltwiseOpModel<Relu6Op>;
 template struct UnaryEltwiseOpModel<HardsigmoidOp>;
+template struct UnaryEltwiseOpModel<HardswishOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<SqrtOp>;
 template struct UnaryEltwiseOpModel<SinOp>;
 template struct UnaryEltwiseOpModel<AbsOp>;
