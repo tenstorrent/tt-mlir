@@ -7,10 +7,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
+#include <utility>
 #include <vector>
 
 #include <ATen/ATen.h>
 #include <ATen/InferSize.h>
+#include <ATen/ops/_to_copy_native.h>
 #include <c10/core/MemoryFormat.h>
 #include <c10/core/Scalar.h>
 #include <c10/core/Storage.h>
@@ -113,6 +116,28 @@ at::Tensor empty_strided(at::IntArrayRef size, at::IntArrayRef stride, std::opti
     // Ignore requested stride and force contig layout.
     (void)stride;
     return make_tt_tensor_from_host(/*data=*/nullptr, size, dtype.value_or(c10::ScalarType::Float));
+}
+
+at::Tensor to_copy(const at::Tensor &self, std::optional<at::ScalarType> dtype, std::optional<at::Layout> layout,
+                   std::optional<at::Device> device, std::optional<bool> pin_memory, bool non_blocking,
+                   std::optional<at::MemoryFormat> memory_format) {
+    const auto format = memory_format.value_or(at::MemoryFormat::Preserve);
+    if (!self.is_cpu() || !is_tt(device.value_or(self.device())) || self.layout() != at::kStrided ||
+        layout.value_or(self.layout()) != self.layout() || !self.is_contiguous() || pin_memory.value_or(false) ||
+        (format != at::MemoryFormat::Preserve && format != at::MemoryFormat::Contiguous)) {
+        // Call the native implementation directly to preserve other conversions and
+        // validation without redispatching to this kernel. This also keeps forced
+        // TT-to-TT copies independent, even when the dtype is unchanged.
+        return at::native::_to_copy(self, dtype, layout, device, pin_memory, non_blocking, memory_format);
+    }
+
+    // The generic conversion allocates a destination that _copy_from immediately
+    // replaces. Wrap the source directly, keeping any converted CPU buffer alive
+    // and retaining the same borrowing policy and mutation checks as copy_.
+    const at::Tensor source = self.to(dtype.value_or(self.scalar_type()));
+    auto [tensor, borrowed] = runtime_from_torch_tensor(source, /*try_borrow=*/true);
+    auto pin = borrowed ? std::optional(TensorPin(source)) : std::nullopt;
+    return wrap_tt_tensor(std::move(tensor), source.sizes(), source.scalar_type(), std::move(pin));
 }
 
 at::Tensor copy_from(const at::Tensor &self, const at::Tensor &dst, bool /*non_blocking*/) {
@@ -340,6 +365,7 @@ at::Scalar local_scalar_dense(const at::Tensor &self) {
 } // namespace
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
+    m.impl("_to_copy", TORCH_FN(to_copy));
     m.impl("empty_strided", TORCH_FN(empty_strided));
     m.impl("empty.memory_format", TORCH_FN(empty_memory_format));
     m.impl("resize_", TORCH_FN(resize_));

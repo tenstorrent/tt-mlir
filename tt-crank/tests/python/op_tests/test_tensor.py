@@ -11,11 +11,16 @@ they reach our backend; we don't register kernels for them.
 """
 
 import gc
+from collections.abc import Callable
 
 import pytest
 import torch
 
-from tt_crank.torch.testing import strict_no_fallback
+from tt_crank.torch.testing import (
+    ExecutionMode,
+    get_supported_dtypes,
+    strict_no_fallback,
+)
 
 # Not borrow-eligible in the runtime, so cpu→tt falls back to an owned copy.
 OWNED_COPY_DTYPE = torch.float16
@@ -235,10 +240,8 @@ def test_set_source_tensor_shares_storage() -> None:
 # -----------------------------------------------------------------------------
 # view / as_strided
 #
-# These ops MATERIALIZE on tt — they allocate a fresh contiguous copy rather
-# than aliasing the source storage. The xfail at the bottom pins down that
-# intentional break so a future switch to true aliasing semantics is a
-# deliberate decision.
+# Eager views currently materialize instead of aliasing the source storage.
+# The mutation test below tracks the resulting lost writes in issue #9303.
 # -----------------------------------------------------------------------------
 
 
@@ -292,6 +295,63 @@ def test_view_aliasing_is_broken_by_design() -> None:
     y = x.view(1024)
     y[0] = 5
     assert x.cpu()[0, 0].item() == 5.0
+
+
+@pytest.mark.parametrize("dtype", get_supported_dtypes(), ids=str)
+@pytest.mark.parametrize(
+    "make_view",
+    [
+        pytest.param(lambda x: x.view(96, 32), id="view"),
+        pytest.param(lambda x: x[:, 32:64], id="slice"),
+    ],
+)
+@pytest.mark.parametrize(
+    "mode",
+    [
+        pytest.param(
+            ExecutionMode.EAGER,
+            id="eager",
+            marks=pytest.mark.xfail(
+                reason="Eager view mutation does not update the base tensor: "
+                "https://github.com/tenstorrent/tt-mlir/issues/9303",
+                raises=AssertionError,
+                strict=True,
+            ),
+        ),
+        pytest.param(ExecutionMode.COMPILE, id="compile"),
+    ],
+)
+def test_view_inplace_updates_base(
+    mode: ExecutionMode,
+    make_view: Callable[[torch.Tensor], torch.Tensor],
+    dtype: torch.dtype,
+) -> None:
+    def update_view(
+        x: torch.Tensor, update: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        view = make_view(x)
+        view.copy_(update)
+        # Observe the base inside the graph as well as through the caller's input.
+        return view, x.clone()
+
+    initial = torch.zeros((32, 96), dtype=dtype)
+    # Keep the CPU reference independent of the storage borrowed by .to("tt").
+    cpu_base = initial.clone()
+    tt_base = initial.to("tt")
+    cpu_view = make_view(cpu_base)
+    update = (torch.arange(cpu_view.numel()).reshape(cpu_view.shape) % 8 + 1).to(dtype)
+    cpu_view, cpu_snapshot = update_view(cpu_base, update)
+
+    run = update_view
+    if mode is ExecutionMode.COMPILE:
+        run = torch.compile(run, backend="tt", fullgraph=True)
+    with torch.no_grad(), strict_no_fallback():
+        tt_view, tt_snapshot = run(tt_base, update.to("tt"))
+
+    # Check that the write itself worked before checking propagation to the base.
+    torch.testing.assert_close(tt_view.cpu(), cpu_view, atol=0, rtol=0)
+    torch.testing.assert_close(tt_base.cpu(), cpu_base, atol=0, rtol=0)
+    torch.testing.assert_close(tt_snapshot.cpu(), cpu_snapshot, atol=0, rtol=0)
 
 
 # -----------------------------------------------------------------------------
