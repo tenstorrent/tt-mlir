@@ -1,1 +1,2 @@
 tools/ttnn-standalone/*.cpp
+tt-crank/third_party/onnx/*
