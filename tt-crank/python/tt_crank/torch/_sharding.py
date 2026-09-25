@@ -136,8 +136,13 @@ def _sdpa_overrideable_backward_sharding(
     Shard(1) = heads) and dq/dk/dv come back with that same placement, so nothing is gathered. The
     optional mask and the 0-D philox tensors stay replicated; non-tensor args get None.
 
+    Outputs follow `grad_input_mask`: a gradient the caller did not ask for is an undefined tensor
+    (the fake kernel above returns None for it), and DTensor rejects a placement for an output with
+    no tensor behind it. So those slots get None too, and the attn_bias grad is never produced.
+
     Shard(0) row, inputs in schema order:
         [S0, S0, S0, S0, R, -, S0, S0, -, -, -, -, -, -, R, R]  ->  outputs [S0, S0, S0, -]
+    (with grad_input_mask = [True, False, False, False] the outputs are [S0, -, -, -]).
     """
     assert not grad_input_mask[
         3
@@ -167,7 +172,9 @@ def _sdpa_overrideable_backward_sharding(
             placed(philox_seed, replicated),
             placed(philox_offset, replicated),
         ]
-        return ([shard, shard, shard, None], inputs)  # dq, dk, dv, no attn_bias grad
+        # dq, dk, dv only where requested (see docstring); the attn_bias grad slot is always None.
+        grads = [shard if wanted else None for wanted in grad_input_mask[:3]]
+        return (grads + [None], inputs)
 
     return [row(Replicate()), row(Shard(0)), row(Shard(1))]
 

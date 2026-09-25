@@ -361,8 +361,16 @@ def test_sdpa_eager_dropout_not_implemented() -> None:
 
 @pytest.mark.multichip
 @pytest.mark.parametrize("parallel", ["tp", "dp"])
-def test_sdpa_eager_multi_chip_causal_backward(tt_pg, parallel: str) -> None:
-    """TP (Shard(1)) and DP (Shard(0)) grads come back sharded on the same dim, no gather."""
+@pytest.mark.parametrize("grads", ["qkv", "q"])
+def test_sdpa_eager_multi_chip_causal_backward(
+    tt_pg, parallel: str, grads: str
+) -> None:
+    """TP (Shard(1)) and DP (Shard(0)) grads come back sharded on the same dim, no gather.
+
+    `grads="q"` leaves k and v frozen: the backward then returns undefined dk/dv, and the DTensor
+    strategy has to give those output slots no placement (a spec for a missing tensor fails
+    sharding propagation with "does not have an associated TensorMeta").
+    """
     from torch.distributed.tensor import Shard, distribute_tensor
 
     n = torch.tt.num_chips()
@@ -370,14 +378,15 @@ def test_sdpa_eager_multi_chip_causal_backward(tt_pg, parallel: str) -> None:
     if parallel == "tp" and _H % n:
         pytest.skip(f"needs num_heads ({_H}) divisible by chip count ({n})")
     batch = _B if parallel == "tp" else n
+    needs_grad = [name in grads for name in "qkv"]
     q, k, v = (torch.randn(batch, _H, _S, _E, dtype=_DT) for _ in range(3))
-    refs = [t.clone().requires_grad_(True) for t in (q, k, v)]
+    refs = [t.clone().requires_grad_(g) for t, g in zip((q, k, v), needs_grad)]
     F.scaled_dot_product_attention(*refs, is_causal=True).sum().backward()
 
     mesh = torch.tt.init_device_mesh((n,), mesh_dim_names=(parallel,))
     tts = [
-        distribute_tensor(t.to("tt"), mesh, [Shard(dim)]).requires_grad_(True)
-        for t in (q, k, v)
+        distribute_tensor(t.to("tt"), mesh, [Shard(dim)]).requires_grad_(g)
+        for t, g in zip((q, k, v), needs_grad)
     ]
     outs: list[torch.Tensor] = []
 
@@ -389,7 +398,10 @@ def test_sdpa_eager_multi_chip_causal_backward(tt_pg, parallel: str) -> None:
     assert (
         outs[-1].grad_fn.name() == _FUSED_GRAD_FN
     ), f"training decomposed: {outs[-1].grad_fn.name()}"
-    for name, got, ref in zip("qkv", tts, refs):
+    for name, got, ref, wanted in zip("qkv", tts, refs, needs_grad):
+        if not wanted:
+            assert got.grad is None, f"unexpected gradient for frozen {name}"
+            continue
         assert got.grad is not None, f"no gradient for {name}"
         assert got.grad.placements == (
             Shard(dim),
