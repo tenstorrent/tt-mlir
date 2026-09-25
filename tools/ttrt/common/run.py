@@ -184,13 +184,6 @@ class Run:
             help="disable swap binary operands workaround",
         )
         Run.register_arg(
-            name="--disable-read-update-index-for-kv-cache",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable read update index for kv cache workaround",
-        )
-        Run.register_arg(
             name="--disable-blackhole-workarounds",
             type=bool,
             default=False,
@@ -542,7 +535,6 @@ class Run:
             self.logging.debug(f"setting tt runtime debug env={debug_env}")
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
                 not self["--disable-swap-binary-operands"],
-                not self["--disable-read-update-index-for-kv-cache"],
                 not self["--disable-blackhole-workarounds"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
