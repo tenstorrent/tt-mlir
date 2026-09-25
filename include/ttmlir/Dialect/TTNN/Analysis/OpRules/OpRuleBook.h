@@ -51,8 +51,7 @@ struct OpRuleBook {
   /// always outputs DRAM-interleaved regardless of input layout).
   virtual bool shouldExploreReshards() const { return true; }
 
-  /// Whether to generate reshard candidates for a particular operand.
-  /// Preserve the op-wide policy unless a rule overrides individual operands.
+  /// Per-operand reshard policy, defaulting to the op-wide policy.
   virtual bool shouldExploreReshards(unsigned /*operandIdx*/) const {
     return shouldExploreReshards();
   }

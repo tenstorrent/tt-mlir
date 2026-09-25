@@ -25,8 +25,7 @@ Policy policy = Policy::PerOperand;
 size_t validations = 0;
 } // namespace
 
-// GNU/LLVM linker wrapping keeps the experimental policies and mock backend
-// confined to this executable. The per-operand case calls the production rule.
+// Link wrapping isolates benchmark policies from production code.
 extern "C" bool realPolicy(mlir::Operation *, unsigned) asm(
     "__real__ZN4mlir2tt4ttnn21shouldExploreReshardsEPNS_9OperationEj");
 extern "C" bool wrappedPolicy(mlir::Operation *, unsigned) asm(
@@ -39,9 +38,7 @@ extern "C" bool wrappedPolicy(mlir::Operation *op, unsigned operandIdx) {
 }
 
 namespace mlir::tt::ttnn {
-// A deliberately cheap, permissive backend: accepts all input combinations
-// and makes output follow input 0. This measures search overhead, not kernel
-// legality, numerical correctness, real backend cost, or accelerator speed.
+// Permissive mock for measuring CPU search overhead only.
 op_constraint_validation::ValidationResult
 mockValidation(Operation *, llvm::ArrayRef<TTNNLayoutAttr>, const OpConfig &,
                uint64_t) asm("__wrap__ZN4mlir2tt4ttnn24op_constraint_"
@@ -183,7 +180,7 @@ int benchmark() {
   for (size_t cap : {0, 1, 4, 7}) {
     std::vector<double> samples[3];
     Result last[3];
-    // Interleave policies to reduce thermal/drift bias; exclude ten warmups.
+    // Interleave policies and discard warmups to reduce timing bias.
     for (size_t repeat = 0; repeat < 111; ++repeat) {
       for (size_t offset = 0; offset < 3; ++offset) {
         size_t index = (repeat + offset) % 3;

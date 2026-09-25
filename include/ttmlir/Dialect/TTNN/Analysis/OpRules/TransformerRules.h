@@ -88,10 +88,7 @@ struct SDPADecodeRuleBook : SDPARuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 };
 
-/// RotaryEmbedding / RotaryEmbeddingLlama:
-/// NULL hint only, reshards for operand 0. Rejects width-sharded and
-/// block-sharded inputs (only height-sharded or interleaved accepted). Cache
-/// tensors are DRAM-interleaved; resharding them is wasteful.
+/// Rotary ops explore input reshards while keeping caches DRAM-interleaved.
 struct RotaryEmbeddingRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards(unsigned operandIdx) const override;

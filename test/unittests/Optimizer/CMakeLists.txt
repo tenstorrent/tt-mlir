@@ -18,8 +18,7 @@ target_link_libraries(OptimizerTests
     MLIRTTNNPipelines
 )
 
-# Opt-in CPU search benchmark. Link wrapping supplies a synthetic backend only
-# to this executable; no production optimizer hooks or device are required.
+# Opt-in CPU benchmark with a link-wrapped mock backend.
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT TTMLIR_ENABLE_OPMODEL)
     add_executable(RotaryReshardSearchBenchmark EXCLUDE_FROM_ALL
         benchmarks/RotaryReshardSearchBenchmark.cpp

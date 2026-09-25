@@ -37,8 +37,7 @@ protected:
 
   void checkOperandPolicy(llvm::StringRef opName,
                           llvm::ArrayRef<bool> expected) {
-    // Rule dispatch only needs the operation name. Avoid device-dependent
-    // builders and backend validation in these policy tests.
+    // Rule dispatch only needs the operation name.
     OperationState state(UnknownLoc::get(&context), opName);
     Operation *op = Operation::create(state);
     for (unsigned operandIdx = 0; operandIdx < expected.size(); ++operandIdx) {
