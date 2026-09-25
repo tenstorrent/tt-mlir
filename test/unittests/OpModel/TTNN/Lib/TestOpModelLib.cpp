@@ -6194,6 +6194,31 @@ TEST_F(OpModelTest, LayerNormForwardOp) {
 }
 
 //===----------------------------------------------------------------------===//
+// SiluBackwardOp Tests
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelTest, SiluBackwardOp) {
+  const llvm::SmallVector<int64_t> shape = {1, 1, 128, 256};
+  const TTNNLayoutAttr layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<SiluBackwardOp>::getOpConstraints(
+      shape, layout, shape, layout,
+      /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  EXPECT_GT(constraintsExp.get().cbL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().tensorL1PeakSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputL1BufferSize, 0);
+  EXPECT_EQ(constraintsExp.get().outputLayouts.size(), 1u);
+
+  auto runtimeExp =
+      OpModel<SiluBackwardOp>::getOpRuntime(shape, layout, shape, layout,
+                                            /*outputLayout=*/TTNNLayoutAttr());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
+//===----------------------------------------------------------------------===//
 // SwigluElemwiseBackwardOp Tests
 //===----------------------------------------------------------------------===//
 

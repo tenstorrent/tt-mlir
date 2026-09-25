@@ -3130,6 +3130,36 @@ def TTNN_CrossEntropyBackwardOp : TTNN_Op<"cross_entropy_bw"> {
     let hasVerifier = 1;
 }
 
+def TTNN_SiluBackwardOp : TTNN_Op<"silu_bw"> {
+    let summary = "SiLU backward pass (ttml).";
+    let description = [{
+      Training-oriented backward pass of the SiLU activation, backed by the
+      ttml metal op `ttml::metal::silu_bw`. Given the input `input` and
+      upstream gradient `grad_output`, the op computes
+
+        grad_input = grad_output * sigmoid(input) *
+                     (1 + input * (1 - sigmoid(input)))
+
+      The backing kernel requires both operands to be rank 4 bfloat16 tensors
+      with the same shape, in tiled, interleaved DRAM device memory. The result
+      has the shape of `input` and is also allocated in DRAM.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$grad_output);
+
+    let results = (outs AnyRankedTensor:$grad_input);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSiluBackwardOpOperandsWorkarounds(this->getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_SwigluElemwiseBackwardOp : TTNN_Op<"swiglu_elemwise_bw"> {
     let summary = "SwiGLU elementwise backward (ttml).";
     let description = [{

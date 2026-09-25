@@ -89,6 +89,12 @@ table CrossEntropyBackwardOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+table SiluBackwardOp {
+  input: tt.target.ttnn.TensorRef;
+  grad_output: tt.target.ttnn.TensorRef;
+  grad_input: tt.target.ttnn.TensorRef;
+}
+
 table SwigluElemwiseBackwardOp {
   input: tt.target.ttnn.TensorRef;
   gate: tt.target.ttnn.TensorRef;

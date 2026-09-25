@@ -8,6 +8,25 @@
 namespace mlir::tt::ttnn {
 
 //===----------------------------------------------------------------------===//
+// TTMLSiluBackwardRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+TTMLSiluBackwardRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
+  return [](TTNNLayoutAttr layout) {
+    return layout_filter_utils::requireTiled(layout) &&
+           layout_filter_utils::requireDRAMInterleaved(layout);
+  };
+}
+
+bool TTMLSiluBackwardRuleBook::shouldExploreReshards() const { return false; }
+
+OutputHints TTMLSiluBackwardRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
+  return layout_filter_utils::nullHintOnly();
+}
+
+//===----------------------------------------------------------------------===//
 // TTMLSwigluElemwiseBackwardRuleBook
 //===----------------------------------------------------------------------===//
 

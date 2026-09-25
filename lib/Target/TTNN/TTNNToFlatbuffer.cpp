@@ -1825,6 +1825,19 @@ createOp(FlatbufferObjectCache &cache, CrossEntropyBackwardOp op) {
       *cache.fbb, input, target, grad, op.getScaler().convertToFloat(), output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SiluBackwardOp>
+createOp(FlatbufferObjectCache &cache, SiluBackwardOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto gradOutput = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGradOutput()));
+  auto gradInput = cache.getOrCreateNoSharding(
+      op.getGradInput(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateSiluBackwardOp(*cache.fbb, input, gradOutput,
+                                                  gradInput);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::SwigluElemwiseBackwardOp>
 createOp(FlatbufferObjectCache &cache, SwigluElemwiseBackwardOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4733,6 +4746,10 @@ emitTTMLOperation(FlatbufferObjectCache &cache, Operation *op,
       crossEntropyBwOp) {
     return createOperation(cache, createOp(cache, crossEntropyBwOp),
                            debugString, locInfo);
+  }
+  if (auto siluBwOp = dyn_cast<SiluBackwardOp>(op); siluBwOp) {
+    return createOperation(cache, createOp(cache, siluBwOp), debugString,
+                           locInfo);
   }
   if (auto swigluElemwiseBwOp = dyn_cast<SwigluElemwiseBackwardOp>(op);
       swigluElemwiseBwOp) {

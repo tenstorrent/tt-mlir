@@ -262,6 +262,10 @@ public:
   static TTNNOperandsWorkarounds
   createCrossEntropyBackwardOpOperandsWorkarounds();
 
+  // Create workarounds for SiLU backward op operands.
+  static TTNNOperandsWorkarounds
+  createSiluBackwardOpOperandsWorkarounds(Operation *op);
+
   // Create workarounds for swiglu elementwise backward op operands.
   static TTNNOperandsWorkarounds
   createSwigluElemwiseBackwardOpOperandsWorkarounds(Operation *op);

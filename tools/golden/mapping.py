@@ -1316,6 +1316,29 @@ def swiglu_elemwise_bw_golden(
     return grad_input.to(output_dtype), grad_gate.to(output_dtype)
 
 
+def silu_bw_golden(
+    input: GoldenMapTensor,
+    grad_output: GoldenMapTensor,
+    output_type_mlir: Type = None,
+    **kwargs,
+) -> GoldenMapTensor:
+    x = input.float()
+    sigmoid = torch.sigmoid(x)
+    # silu'(x) = sigmoid(x) * (1 + x * (1 - sigmoid(x)))
+    silu_grad = torch.mul(
+        sigmoid,
+        torch.add(torch.mul(x, torch.sub(1.0, sigmoid)), 1.0),
+    )
+    grad_input = torch.mul(grad_output.float(), silu_grad)
+
+    output_dtype = (
+        mlir_type_to_torch_dtype(output_type_mlir)
+        if output_type_mlir is not None
+        else input.dtype
+    )
+    return grad_input.to(output_dtype)
+
+
 def rms_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor] = None,
@@ -6694,6 +6717,15 @@ def ttcore_composite_golden(
             raise ValueError("ttcore.composite golden requires result types.")
 
         return rmsnorm_bw_golden(
+            *operand_tensors,
+            output_type_mlir=RankedTensorType(result_types[0]).element_type,
+        )
+
+    if composite_name == "silu_bw":
+        if not result_types:
+            raise ValueError("ttcore.composite golden requires result types.")
+
+        return silu_bw_golden(
             *operand_tensors,
             output_type_mlir=RankedTensorType(result_types[0]).element_type,
         )

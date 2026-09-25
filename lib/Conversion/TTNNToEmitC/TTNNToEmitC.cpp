@@ -3983,6 +3983,43 @@ public:
 } // namespace
 
 //
+// SiluBackwardOp conversion pattern (emits ::ttml::metal::silu_bw)
+//
+namespace {
+class SiluBackwardOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::SiluBackwardOp> {
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.silu_bw"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttml::metal::silu_bw";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SiluBackwardOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = mlir::tt::ttnn::SiluBackwardOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SiluBackwardOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SiluBackwardOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // Arg order matches ttml::metal::silu_bw(input, dL_dout). The trailing
+    // preallocated output operand is left defaulted.
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getGradOutput()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+//
 // SwigluElemwiseBackwardOp conversion pattern
 // (emits ::ttml::metal::swiglu_elemwise_bw)
 //
@@ -6843,7 +6880,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       RMSNormForwardOpConversionPattern, RMSNormBackwardOpConversionPattern,
       LayerNormForwardOpConversionPattern,
       CrossEntropyForwardOpConversionPattern,
-      CrossEntropyBackwardOpConversionPattern,
+      CrossEntropyBackwardOpConversionPattern, SiluBackwardOpConversionPattern,
       SwigluElemwiseBackwardOpConversionPattern,
       BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
       DitRMSNormUnaryFusedOpConversionPattern,
