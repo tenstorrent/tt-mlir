@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Fusing/RoPEFusingPattern.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Fusing/SDPAFusingPattern.h"
@@ -3506,10 +3508,30 @@ fuseTrailingAffineIntoNorm(AddOp addOp, MultiplyOp mul, mlir::Value weightRaw,
   return mlir::success();
 }
 
+// cluster_axis 0 is the sequence-parallel axis, which carries ring_joint SDPA.
+// Its kernels reset their persistent semaphores on device without a ring-wide
+// completion handshake, so a peer increment can land after the reset and leave
+// the semaphore non-zero for the next captured-trace replay. Folding the adaLN
+// affine into distributed_layer_norm reschedules every block and makes that
+// race reachable, so keep the unfused form on a Ring sequence-parallel axis
+// until the ring CCL semaphore lifecycle is trace-safe. Linear axes and meshes
+// with no per-axis fabric are unaffected.
+static bool hasRingSequenceParallelAxis(mlir::ModuleOp moduleOp) {
+  ttcore::DeviceOp deviceOp = ttcore::lookupDeviceOp(moduleOp);
+  if (!deviceOp) {
+    return false;
+  }
+  std::optional<ttcore::Topology> axisTopology =
+      ttcore::getMeshTopologyForClusterAxis(deviceOp.getDeviceAttr(),
+                                            /*clusterAxis=*/0);
+  return axisTopology && *axisTopology == ttcore::Topology::Ring;
+}
+
 class LayerNormAffineFusionPattern : public mlir::OpRewritePattern<AddOp> {
 public:
-  LayerNormAffineFusionPattern(MLIRContext *context)
-      : OpRewritePattern<AddOp>(context, /*benefit=*/3) {}
+  LayerNormAffineFusionPattern(MLIRContext *context, bool distributedEnabled)
+      : OpRewritePattern<AddOp>(context, /*benefit=*/3),
+        distributedEnabled(distributedEnabled) {}
 
   mlir::LogicalResult
   matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
@@ -3529,9 +3551,15 @@ public:
             addOp, mul, weightFromLhs, biasRaw, rewriter))) {
       return mlir::success();
     }
+    if (!distributedEnabled) {
+      return mlir::failure();
+    }
     return fuseTrailingAffineIntoNorm<DistributedLayerNormOp>(
         addOp, mul, weightFromLhs, biasRaw, rewriter);
   }
+
+private:
+  bool distributedEnabled;
 };
 
 // If value is defined by PermuteOp with permute dimensions
@@ -3875,7 +3903,8 @@ public:
       }
       patterns.add<RMSNormFusionPattern>(&getContext());
       patterns.add<NormalizeRMSNormFusionPattern>(&getContext());
-      patterns.add<LayerNormAffineFusionPattern>(&getContext());
+      patterns.add<LayerNormAffineFusionPattern>(
+          &getContext(), !hasRingSequenceParallelAxis(getOperation()));
 
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());
