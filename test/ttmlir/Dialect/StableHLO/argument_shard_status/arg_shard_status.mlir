@@ -14,4 +14,4 @@ module {
 }
 
 // CHECK: ttcore.local_shape = #ttcore<local_shape local_shape = tensor<128x2x32x32xf32>>, ttcore.shard_status = #ttcore.shard_status<presharded>
-// CHECK: ttcore.local_shape = #ttcore<local_shape local_shape = tensor<2048x1024xf32>>, ttcore.shard_status = #ttcore.shard_status<unsharded>
+// CHECK: ttcore.local_shape = #ttcore<local_shape local_shape = tensor<256x1024xf32>>, ttcore.shard_status = #ttcore.shard_status<presharded>
