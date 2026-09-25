@@ -12,6 +12,8 @@
 
 module attributes {} {
   // CHECK-LABEL: func.func @ds_matmul_m32
+  // No compute config; compute_config would sort before matmul_program_config.
+  // CHECK-NOT: compute_config
   // CHECK: matmul_program_config = #ttnn.matmul_multi_core_reuse_multi_cast_dram_sharded_program_config
   // CHECK-SAME: per_core_m = 1
   func.func @ds_matmul_m32(

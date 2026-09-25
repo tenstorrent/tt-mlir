@@ -18,6 +18,8 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <cmath>
@@ -252,6 +254,40 @@ static std::optional<DSDeviceContext> getDSDeviceContext(Operation *op) {
       l1Available};
 }
 
+// No collective implements the op-model interface.
+static bool isCCLOp(Operation *op) {
+  return mlir::isa<AllGatherOp, AllReduceOp, AllReduceAsyncOp, ReduceScatterOp,
+                   PointToPointOp>(op);
+}
+
+// Ops that pass their operand's layout on to the next consumer: the view-like
+// set from TTNNActivationDtypeLowering plus ToLayoutOp.
+static bool isLayoutForwardingOp(Operation *op) {
+  return mlir::isa<ReshapeOp, SliceStaticOp, ToMemoryConfigOp, ToLayoutOp>(op);
+}
+
+// Whether the result reaches a collective through layout-forwarding ops only.
+// The optimizer cannot cost a collective, so it would pick a DS output and put
+// the reshard on the collective's critical path: a measured loss on qb2.
+static bool resultFeedsCCL(Operation *op) {
+  llvm::SmallVector<Operation *, 8> worklist(op->getUsers().begin(),
+                                             op->getUsers().end());
+  llvm::SmallPtrSet<Operation *, 8> seen;
+  while (!worklist.empty()) {
+    Operation *user = worklist.pop_back_val();
+    if (!seen.insert(user).second) {
+      continue;
+    }
+    if (isCCLOp(user)) {
+      return true;
+    }
+    if (isLayoutForwardingOp(user)) {
+      worklist.append(user->getUsers().begin(), user->getUsers().end());
+    }
+  }
+  return false;
+}
+
 // Operand types and shard geometry. The output hint and the input reshard
 // candidates are built from the same plan, so they cannot disagree.
 struct DSPlan {
@@ -270,6 +306,14 @@ static std::optional<DSPlan> buildDSPlan(Operation *op) {
   if (!ttnn::utils::isDRAMShardedMatmulEnabled(op)) {
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "DS declined ({0}): enable-dram-sharded-matmul is off",
+                 opName);
+    return std::nullopt;
+  }
+
+  if (resultFeedsCCL(op)) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "DS declined ({0}): result feeds a collective, which the "
+                 "optimizer cannot cost",
                  opName);
     return std::nullopt;
   }
@@ -390,9 +434,10 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
   // buildDSPlan declines a fused activation, so there is none to pass.
   UnaryWithParamAttr fusedAct;
   auto progConfig = buildDRAMShardedProgramConfig(ctx, p, fusedAct);
-  auto computeConfig = buildComputeConfig(ctx, p.weightDataType);
 
-  return OpConfig(l1OutLayout, MatmulAttrs{progConfig, computeConfig});
+  // No compute config: tt-metal derives the knobs from the program config and
+  // output dtype, and TTNNSetComputeKernelConfig only fills knobs left unset.
+  return OpConfig(l1OutLayout, MatmulAttrs{progConfig, std::nullopt});
 }
 
 // ============================================================================

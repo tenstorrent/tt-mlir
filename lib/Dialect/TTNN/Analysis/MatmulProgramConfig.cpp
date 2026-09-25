@@ -304,9 +304,10 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
 // DRAM-sharded matmul config generation
 // ============================================================================
 
-// Floor on in0_block_w as a fraction of K-per-core: below it the block loop
-// runs too many rounds and the mcast configs win. Empirical.
-static constexpr int64_t kMinBlockWidthFraction = 2;
+// Smallest in0_block_w the DS path accepts: below it the per-bank read burst is
+// too short and the mcast configs win. Empirical; Blackhole's knee is higher,
+// so this is the more permissive of the two. A kPerCore below it declines DS.
+static constexpr int64_t kMinBlockWidth = 3;
 
 std::optional<DRAMShardParams>
 computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
@@ -369,7 +370,7 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
     return std::nullopt;
   }
 
-  if (p.in0BlockW * kMinBlockWidthFraction < kPerCore) {
+  if (p.in0BlockW < kMinBlockWidth) {
     return std::nullopt;
   }
 
@@ -396,21 +397,6 @@ buildDRAMShardedProgramConfig(MLIRContext *ctx, const DRAMShardParams &p,
                               UnaryWithParamAttr fusedAct) {
   return MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr::get(
       ctx, p.in0BlockW, p.perCoreM, p.perCoreNStorage, fusedAct);
-}
-
-DeviceComputeKernelConfigAttr
-buildComputeConfig(MLIRContext *ctx, ttcore::DataType weightDataType) {
-  // Observed per weight dtype, not derived from the formats.
-  MathFidelity fidelity = (weightDataType == ttcore::DataType::BFP_BFloat4)
-                              ? MathFidelity::LoFi
-                              : MathFidelity::HiFi2;
-  return DeviceComputeKernelConfigAttr::get(
-      ctx,
-      /*mathFidelity=*/fidelity,
-      /*mathApproxMode=*/mlir::BoolAttr{},
-      /*fp32DestAccEn=*/mlir::BoolAttr::get(ctx, false),
-      /*packerL1Acc=*/mlir::BoolAttr::get(ctx, true),
-      /*dstFullSyncEn=*/mlir::BoolAttr{});
 }
 
 } // namespace mlir::tt::ttnn

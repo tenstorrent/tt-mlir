@@ -5,9 +5,6 @@
 #include "ttmlir/Dialect/TTNN/Analysis/MatmulProgramConfig.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
-
-#include "mlir/IR/MLIRContext.h"
 
 #include "gtest/gtest.h"
 
@@ -76,13 +73,14 @@ TEST(MatmulDRAMShardParams, BlackholeBankCountChangesShardWidth) {
 
 // bfp4 tiles are about half of bfp8, so anywhere bfp8 fits bfp4 must too, and
 // some budget must separate them. Swept because at a generous budget both cap
-// at K-per-core; N is wide so in1 dominates the budget.
+// at K-per-core; N is wide so in1 dominates the budget. The sweep reaches
+// 425000, where bfp8 falls under kMinBlockWidth and bfp4 still fits.
 TEST(MatmulDRAMShardParams, Bfp4NeverFitsWorseThanBfp8) {
   constexpr int64_t kWideN = 8192;
   bool sawBfp4OnlyFit = false;
 
-  for (int64_t l1 : {600000, 700000, 800000, 900000, 1000000, 1100000,
-                     static_cast<int>(kL1Available)}) {
+  for (int64_t l1 : {425000, 500000, 600000, 700000, 800000, 900000, 1000000,
+                     1100000, static_cast<int>(kL1Available)}) {
     auto bfp8 =
         computeShardParams(kM, kK, kWideN, kWormholeBanks, kNumIn0Cores,
                            kWormholeCores, ttcore::DataType::BFP_BFloat8, l1);
@@ -146,23 +144,6 @@ TEST(MatmulDRAMShardParams, PrimeKPerCoreCollapseDeclined) {
       kM, /*K=*/11008, /*N=*/2048, kBlackholeBanks, kNumIn0Cores,
       kBlackholeCores, ttcore::DataType::BFP_BFloat8, kBlackholeL1Available);
   EXPECT_FALSE(p.has_value());
-}
-
-// Fidelity follows the weight dtype.
-class MatmulDRAMComputeConfig : public ::testing::Test {
-protected:
-  void SetUp() override { context.loadDialect<TTNNDialect>(); }
-  mlir::MLIRContext context;
-};
-
-TEST_F(MatmulDRAMComputeConfig, Bfp4RunsLoFi) {
-  auto cfg = buildComputeConfig(&context, ttcore::DataType::BFP_BFloat4);
-  EXPECT_EQ(cfg.getMathFidelity(), MathFidelity::LoFi);
-}
-
-TEST_F(MatmulDRAMComputeConfig, Bfp8RunsHiFi2) {
-  auto cfg = buildComputeConfig(&context, ttcore::DataType::BFP_BFloat8);
-  EXPECT_EQ(cfg.getMathFidelity(), MathFidelity::HiFi2);
 }
 
 } // namespace
