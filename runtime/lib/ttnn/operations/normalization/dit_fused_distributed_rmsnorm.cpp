@@ -70,7 +70,7 @@ void run(const ::tt::target::ttnn::DitFusedDistributedRmsnormOp *op,
   std::optional<size_t> numLinks =
       static_cast<size_t>(op->num_links() ? op->num_links().value() : 1u);
 
-  ::ttnn::ccl::Topology topology = ::ttnn::ccl::Topology::Ring;
+  ::ttnn::ccl::Topology topology = ::ttnn::ccl::Topology::Linear;
   if (op->topology()) {
     topology = static_cast<::ttnn::ccl::Topology>(
         ::tt::runtime::common::toMetalTopology(op->topology().value()));

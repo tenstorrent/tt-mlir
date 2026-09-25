@@ -46,6 +46,12 @@ public:
         [&](ReduceScatterOp op) { setCCLTopology(op, meshTopology, context); });
     moduleOp.walk(
         [&](MoeComputeOp op) { setCCLTopology(op, meshTopology, context); });
+    // Resolve-composites emits this op with no topology and the runtime used to
+    // fall back to Ring, so on a Linear axis metal looked for the wrap link and
+    // hit a fabric TT_FATAL.
+    moduleOp.walk([&](DitFusedDistributedRmsnormOp op) {
+      setCCLTopology(op, meshTopology, context);
+    });
   }
 
 private:
