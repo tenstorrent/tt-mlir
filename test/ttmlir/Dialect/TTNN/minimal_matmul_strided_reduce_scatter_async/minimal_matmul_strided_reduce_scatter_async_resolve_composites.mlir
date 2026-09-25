@@ -3,11 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // RUN: ttmlir-opt --ttnn-resolve-composites="composite-resolution=inline" --split-input-file %s | FileCheck %s --check-prefix=INLINE
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-resolve-composites="composite-resolution=force-promote" --split-input-file %s | FileCheck %s --check-prefix=PROMOTE
+// RUN: ttmlir-opt --ttcore-register-device="mesh-shape=2,2 mesh-topology=ring,linear" --ttnn-resolve-composites="composite-resolution=force-promote" --split-input-file %s | FileCheck %s --check-prefix=PROMOTE
+// RUN: ttmlir-opt --ttcore-register-device="mesh-shape=2,2 mesh-topology=linear,linear" --ttnn-resolve-composites="composite-resolution=force-promote" --split-input-file %s | FileCheck %s --check-prefix=LINEAR
 
 // Resolution of the `minimal_matmul_strided_reduce_scatter_async` composite.
 // Rank-4 pad is a runtime view (`ttnn.unsqueeze`), not a compiler reshape.
 // CCL knobs are left unset for the runtime to fill like metal Wan.
+// Promotion requires a Ring fabric on cluster_axis (metal kernel wrap link);
+// a Linear axis inlines the matmul + reduce_scatter decomposition instead.
 
 // INLINE-LABEL: func.func @rank2_matmul_reduce_scatter
 // INLINE-NOT: ttcore.composite
@@ -19,9 +22,13 @@
 // PROMOTE-NOT: "ttnn.reshape"
 // PROMOTE: "ttnn.minimal_matmul_strided_reduce_scatter_async"
 // PROMOTE-SAME: dim = 1
+// LINEAR-LABEL: func.func @rank2_matmul_reduce_scatter
+// LINEAR-NOT: minimal_matmul_strided_reduce_scatter_async
+// LINEAR: "ttir.matmul"
+// LINEAR: "ttir.reduce_scatter"
 func.func @rank2_matmul_reduce_scatter(%x: tensor<32x128xbf16>, %w: tensor<128x64xbf16>)
     -> tensor<32x32xbf16> {
-  %dev = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+  %dev = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 2x2>}> : () -> !ttnn.device
   %0 = "ttcore.composite"(%x, %w) <{
       composite_name = "minimal_matmul_strided_reduce_scatter_async",
       decomposition = @rank2_decomp,
@@ -50,9 +57,13 @@ func.func private @rank2_decomp(%x: tensor<32x128xbf16>, %w: tensor<128x64xbf16>
 // PROMOTE-NOT: "ttnn.reshape"
 // PROMOTE: "ttnn.minimal_matmul_strided_reduce_scatter_async"
 // PROMOTE-SAME: dim = 3
+// LINEAR-LABEL: func.func @rank4_matmul_reduce_scatter
+// LINEAR-NOT: minimal_matmul_strided_reduce_scatter_async
+// LINEAR: "ttir.matmul"
+// LINEAR: "ttir.reduce_scatter"
 func.func @rank4_matmul_reduce_scatter(%x: tensor<1x1x32x128xbf16>, %w: tensor<128x64xbf16>)
     -> tensor<1x1x32x32xbf16> {
-  %dev = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+  %dev = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 2x2>}> : () -> !ttnn.device
   %0 = "ttcore.composite"(%x, %w) <{
       composite_name = "minimal_matmul_strided_reduce_scatter_async",
       decomposition = @rank4_decomp,

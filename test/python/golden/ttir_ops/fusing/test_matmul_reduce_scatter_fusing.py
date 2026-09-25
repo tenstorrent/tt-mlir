@@ -53,13 +53,14 @@ def _promote_options() -> List[str]:
     """Pipeline options that force-promote the composite the fusing pattern
     emits into the typed ttnn op. Without the optimizer/OpModel the default
     (Auto) resolution inlines the composite back into matmul + reduce_scatter,
-    which would bypass the fused op.
+    which would bypass the fused op. The promotion guard also requires a Ring
+    fabric on the cluster axis; cluster_axis=1 maps to meshTopology[0].
 
     Returns a fresh list on each call: the compile helper appends
     system-desc-path/mesh-shape to this list in place, so a shared list would
     accumulate duplicate options across compiles.
     """
-    return ["composite-resolution=force-promote"]
+    return ["composite-resolution=force-promote", "mesh-topology=ring,linear"]
 
 
 def _full_to_shard_device(builder: TTIRBuilder, input: Operand, dim: int) -> Operand:

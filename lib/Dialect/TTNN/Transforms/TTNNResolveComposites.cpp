@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -32,10 +33,18 @@ using CompositeValidatorFn =
     std::function<OpValidationResult(ttcore::CompositeOp, OpBuilder &)>;
 using CompositeBuilderFn =
     std::function<Operation *(ttcore::CompositeOp, OpBuilder &)>;
+// An optional guard checked before promoting a composite to its typed op. When
+// it returns failure, the composite is inlined (its decomposition body is
+// spliced in) instead of promoted, and the pass keeps going. Used for
+// composites whose typed op is only valid under certain conditions, e.g. on a
+// specific architecture.
+using CompositePromotionGuardFn =
+    std::function<LogicalResult(ttcore::CompositeOp)>;
 
 struct CompositeEntry {
   CompositeValidatorFn validate;
   CompositeBuilderFn build;
+  CompositePromotionGuardFn promotionGuard; // may be empty
 };
 
 static llvm::StringMap<CompositeEntry> &getCompositeRegistry() {
@@ -124,7 +133,8 @@ static void registerBuiltinComposites() {
             compositeOp.getInputs()[2],
             builder.getI32IntegerAttr(kAttr.getInt()),
             builder.getI32IntegerAttr(numExpertsAttr.getInt()));
-      }};
+      },
+      /*promotionGuard=*/nullptr};
 
   registry["rotary_embedding"] = CompositeEntry{
       // Validate
@@ -149,7 +159,8 @@ static void registerBuiltinComposites() {
             compositeOp.getInputs()[2],
             /*token_index=*/mlir::IntegerAttr(),
             /*compute_config=*/nullptr);
-      }};
+      },
+      /*promotionGuard=*/nullptr};
 
   registry["flash_mla_prefill"] = CompositeEntry{
       // Validate
@@ -177,7 +188,8 @@ static void registerBuiltinComposites() {
             args.key, args.value, args.attentionMask,
             static_cast<uint32_t>(args.headDimV.getValue().getZExtValue()),
             args.isCausal.getValue(), args.scale);
-      }};
+      },
+      /*promotionGuard=*/nullptr};
 
   registry["minimal_matmul_strided_reduce_scatter_async"] = CompositeEntry{
       // Validate — the fused collective op is OpModelExempt, so there are no
@@ -239,9 +251,9 @@ static void registerBuiltinComposites() {
             addcmulInput1, addcmulInput2,
             /*multi_device_semaphore=*/ValueRange{},
             /*barrier_semaphore=*/Value(), device, clusterAxis, scalar,
-            // The kernel only supports Ring topology, so pin it here. The mesh
-            // must therefore be opened with a ring fabric (FABRIC_1D_RING) or
-            // it deadlocks.
+            // The kernel only supports Ring topology, so pin it here. The
+            // promotion guard below requires the cluster axis to already be a
+            // ring fabric (e.g. TT_XLA_GALAXY_RING_TP); otherwise we inline.
             /*topology=*/
             ttcore::TopologyAttr::get(builder.getContext(),
                                       ttcore::Topology::Ring),
@@ -253,7 +265,33 @@ static void registerBuiltinComposites() {
             /*dim=*/static_cast<int32_t>(
                 scatterDim.getValue().getSExtValue()));
       },
-      /*promotionGuard=*/nullptr};
+      // Metal MMRS waits on a wrap link. On a Linear galaxy axis (default
+      // FABRIC_1D, empty meshTopology) that is a fabric TT_FATAL, so veto
+      // promotion and inline matmul + reduce_scatter instead.
+      [](ttcore::CompositeOp compositeOp) -> LogicalResult {
+        DictionaryAttr attrs =
+            compositeOp.getCompositeAttributes().value_or(nullptr);
+        if (!attrs) {
+          return failure();
+        }
+        auto clusterAxisAttr = attrs.getAs<IntegerAttr>("cluster_axis");
+        if (!clusterAxisAttr) {
+          return failure();
+        }
+        uint32_t clusterAxis =
+            static_cast<uint32_t>(clusterAxisAttr.getValue().getZExtValue());
+
+        ttcore::DeviceOp deviceOp = ttcore::lookupDeviceOp(compositeOp);
+        if (!deviceOp) {
+          return failure();
+        }
+        std::optional<ttcore::Topology> axisTopology =
+            ttcore::getMeshTopologyForClusterAxis(deviceOp.getDeviceAttr(),
+                                                  clusterAxis);
+        // Empty meshTopology (Galaxy FABRIC_1D shortcut) is treated as Linear.
+        return success(axisTopology &&
+                       *axisTopology == ttcore::Topology::Ring);
+      }};
 }
 
 // Inline the decomposition function body at the composite ops location,
@@ -298,9 +336,10 @@ static LogicalResult inlineDecomposition(ttcore::CompositeOp compositeOp,
 
 // Try to create the typed op for a registered composite.
 //
-// Returns nullptr when the composite should be inlined instead — either because
-// the resolution mode is Inline, the composite is not in the registry, or
-// validation failed (in Validate mode).
+// Returns nullptr when the composite should be inlined instead — either
+// because the resolution mode is Inline, the composite is not in the
+// registry, a promotion guard vetoed promotion, or validation failed (in
+// Validate mode).
 static Operation *tryCreateTypedOp(ttcore::CompositeOp compositeOp,
                                    OpBuilder &builder,
                                    CompositeResolution resolution) {
@@ -315,6 +354,12 @@ static Operation *tryCreateTypedOp(ttcore::CompositeOp compositeOp,
   }
 
   auto &entry = it->second;
+
+  // A promotion guard can veto promotion.
+  // When it fails, fall back to inlining the decomposition.
+  if (entry.promotionGuard && mlir::failed(entry.promotionGuard(compositeOp))) {
+    return nullptr;
+  }
 
   if (resolution == CompositeResolution::Validate) {
     auto validationResult = entry.validate(compositeOp, builder);
