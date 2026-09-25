@@ -5,6 +5,7 @@
 #include "operations/ccl/all_gather_minimal_matmul_async.h"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
 #include "ttnn/global_semaphore.hpp"
@@ -13,6 +14,7 @@
 #include "ttnn/operations/experimental/minimal_matmul/device/minimal_matmul_device_operation_types.hpp"
 
 #include <algorithm>
+#include <string>
 
 namespace {
 // tt-metal Wan `ColParallelLinear` (TP>1) sets these; the AGMM API defaults
@@ -37,6 +39,20 @@ void selectWanLinkConfig(uint32_t in0Axis, bool isBlackhole,
   }
   numLinks = 1;
   numWorkersPerLink = in0Axis;
+}
+
+std::string makeGatherBufferPoolKey(const ::ttnn::Tensor &input,
+                                    uint32_t clusterAxis,
+                                    uint32_t ringSize,
+                                    ::ttnn::DataType dtype) {
+  std::string key = "agmm-gather:";
+  for (uint32_t dim : input.logical_shape()) {
+    key += std::to_string(dim) + "x";
+  }
+  key += "axis" + std::to_string(clusterAxis) + ":ring" +
+         std::to_string(ringSize) + ":dtype" +
+         std::to_string(static_cast<uint32_t>(dtype));
+  return key;
 }
 } // namespace
 
@@ -187,15 +203,50 @@ void run(const ::tt::target::ttnn::AllGatherMinimalMatmulAsyncOp *op,
     numBuffersPerChannel = isBlackhole ? 24u : 48u;
   }
 
+  // Match tt-metal Wan's CCLManager: keep a two-deep persistent all-gather
+  // scratch pool per compatible activation shape. Without this, every AGMM in
+  // an unrolled DiT graph allocates a fresh gathered-K DRAM tensor during the
+  // first trace capture. Two slots keep the current call separate from the
+  // previous call's in-flight fabric traffic.
+  //
+  // An explicit output memory config can change the required TensorSpec. Until
+  // it is encoded in the cache key, leave that case on tt-metal's normal
+  // per-call allocation path.
+  std::optional<::ttnn::Tensor> persistentOutputBuffer = std::nullopt;
+  if (!op->memory_config() && clusterAxis) {
+    ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
+    uint32_t ringSize = meshDevice.shape()[*clusterAxis];
+    ::ttnn::DataType outputDtype = dtype.value_or(input.dtype());
+    std::string poolKey =
+        makeGatherBufferPoolKey(input, *clusterAxis, ringSize, outputDtype);
+    constexpr size_t poolSize = 2;
+    size_t poolIndex =
+        context.nextCachedTensorPoolIndex(poolKey, poolSize);
+    std::string bufferKey =
+        poolKey + ":slot" + std::to_string(poolIndex);
+
+    if (const ::ttnn::Tensor *cached = context.getCachedTensor(bufferKey)) {
+      persistentOutputBuffer = *cached;
+    } else {
+      ::ttnn::Shape gatheredShape(input.logical_shape());
+      gatheredShape[-1] *= ringSize;
+      ::ttnn::Tensor buffer =
+          ::ttnn::empty(gatheredShape, outputDtype, ::ttnn::Layout::TILE,
+                        &meshDevice, input.memory_config());
+      persistentOutputBuffer =
+          context.cacheTensor(bufferKey, std::move(buffer));
+    }
+  }
+
   // `fused_activation`, `compute_kernel_config`, the persistent buffers and the
   // FSDP path are not modeled by the compiler yet; pass their tt-metal
-  // defaults.
+  // defaults. The activation gather scratch is runtime-managed above.
   std::vector<::ttnn::Tensor> outputs = ::ttnn::all_gather_minimal_matmul_async(
       input, weight, bias, scalar, addcmulInput1, addcmulInput2,
       /*fused_activation=*/std::nullopt, matmulConfig, multiDeviceSemaphore,
       topology, memoryConfig, dtype,
       /*compute_kernel_config=*/std::nullopt,
-      /*persistent_output_buffer=*/std::nullopt, numLinks, clusterAxis,
+      persistentOutputBuffer, numLinks, clusterAxis,
       barrierSemaphore, op->force_transpose(), numWorkersPerLink,
       numBuffersPerChannel, op->chunks(), op->dim());
 

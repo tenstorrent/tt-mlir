@@ -16,6 +16,7 @@
 #include <memory>
 #include <optional>
 #include <shared_mutex>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -306,6 +307,28 @@ public:
     return globalSemaphorePool;
   }
 
+  // Runtime-created helper tensors (for example fused normalization scratch)
+  // are shared by all compatible ops in one program.
+  // Keeping the handles here also guarantees that buffers referenced by a
+  // captured trace remain alive for the lifetime of the ProgramExecutor.
+  const ::ttnn::Tensor *getCachedTensor(const std::string &key) const {
+    auto it = cachedTensors.find(key);
+    return it == cachedTensors.end() ? nullptr : &it->second;
+  }
+
+  const ::ttnn::Tensor &cacheTensor(const std::string &key,
+                                    ::ttnn::Tensor tensor) {
+    return cachedTensors.try_emplace(key, std::move(tensor)).first->second;
+  }
+
+  size_t nextCachedTensorPoolIndex(const std::string &key, size_t poolSize) {
+    LOG_ASSERT(poolSize > 0, "Cached tensor pool size must be positive");
+    size_t &nextIndex = cachedTensorPoolIndices[key];
+    size_t index = nextIndex;
+    nextIndex = (nextIndex + 1) % poolSize;
+    return index;
+  }
+
   Binary &getExecutableHandle() { return executableHandle; }
 
   //
@@ -317,6 +340,10 @@ private:
   ProgramTensorPool tensorPool;
 
   ProgramGlobalSemaphorePool globalSemaphorePool;
+
+  std::unordered_map<std::string, ::ttnn::Tensor> cachedTensors;
+
+  std::unordered_map<std::string, size_t> cachedTensorPoolIndices;
 
   common::DylibManager dylibManager;
 
