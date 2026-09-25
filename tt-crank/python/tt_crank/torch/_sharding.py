@@ -138,6 +138,9 @@ def _sdpa_overrideable_backward_sharding(
 
     Shard(0) row, inputs in schema order:
         [S0, S0, S0, S0, R, -, S0, S0, -, -, -, -, -, -, R, R]  ->  outputs [S0, S0, S0, -]
+
+    A gradient `grad_input_mask` does not ask for is undefined and has no TensorMeta, so it gets
+    None -- e.g. a frozen `k_proj` fed by a frozen embedding leaves K without grad in layer 0.
     """
     assert not grad_input_mask[
         3
@@ -167,7 +170,8 @@ def _sdpa_overrideable_backward_sharding(
             placed(philox_seed, replicated),
             placed(philox_offset, replicated),
         ]
-        return ([shard, shard, shard, None], inputs)  # dq, dk, dv, no attn_bias grad
+        grads = [shard if wanted else None for wanted in grad_input_mask[:3]]
+        return (grads + [None], inputs)  # dq, dk, dv, no attn_bias grad
 
     return [row(Replicate()), row(Shard(0)), row(Shard(1))]
 

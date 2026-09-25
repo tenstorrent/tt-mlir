@@ -395,8 +395,14 @@ def test_sdpa_backward_f32_decomposes() -> None:
 @pytest.mark.multichip
 @pytest.mark.parametrize("mode", ["eager", _COMPILE])
 @pytest.mark.parametrize("parallel", ["tp", "dp"])
-def test_sdpa_multi_chip_causal_backward(tt_pg, parallel: str, mode: str) -> None:
-    """TP (Shard(1)) and DP (Shard(0)) grads come back sharded on the same dim, no gather."""
+@pytest.mark.parametrize(
+    "needs_grad", [(True, True, True), (True, False, True)], ids=["qkv", "qv"]
+)
+def test_sdpa_multi_chip_causal_backward(
+    tt_pg, parallel: str, mode: str, needs_grad: tuple[bool, bool, bool]
+) -> None:
+    """TP (Shard(1)) and DP (Shard(0)) grads come back sharded on the same dim, no gather. `qv` is
+    a LoRA layer 0: K comes from a frozen projection of a frozen embedding and needs no grad."""
     from torch.distributed.tensor import Shard, distribute_tensor
 
     n = torch.tt.num_chips()
@@ -405,13 +411,13 @@ def test_sdpa_multi_chip_causal_backward(tt_pg, parallel: str, mode: str) -> Non
         pytest.skip(f"needs num_heads ({_H}) divisible by chip count ({n})")
     batch = _B if parallel == "tp" else n
     q, k, v = (torch.randn(batch, _H, _S, _E, dtype=_DT) for _ in range(3))
-    refs = [t.clone().requires_grad_(True) for t in (q, k, v)]
+    refs = [t.clone().requires_grad_(g) for t, g in zip((q, k, v), needs_grad)]
     F.scaled_dot_product_attention(*refs, is_causal=True).sum().backward()
 
     mesh = torch.tt.init_device_mesh((n,), mesh_dim_names=(parallel,))
     tts = [
-        distribute_tensor(t.to("tt"), mesh, [Shard(dim)]).requires_grad_(True)
-        for t in (q, k, v)
+        distribute_tensor(t.to("tt"), mesh, [Shard(dim)]).requires_grad_(g)
+        for t, g in zip((q, k, v), needs_grad)
     ]
 
     def sdpa(a, b, c):
@@ -432,6 +438,9 @@ def test_sdpa_multi_chip_causal_backward(tt_pg, parallel: str, mode: str) -> Non
             _SDPA_OVERRIDEABLE_BW in op for op in ops
         ), f"training decomposed; post-aot ops: {sorted(ops)}"
     for name, got, ref in zip("qkv", tts, refs):
+        if not ref.requires_grad:
+            assert got.grad is None, f"unexpected gradient for {name}"
+            continue
         assert got.grad is not None, f"no gradient for {name}"
         assert got.grad.placements == (
             Shard(dim),
