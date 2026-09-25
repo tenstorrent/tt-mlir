@@ -451,8 +451,11 @@ mlir::Value build_all_gather(ModuleBuilder &mb, mlir::Value input, std::int64_t 
 }
 
 mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double value) {
-    // Shape `[1]` broadcasts against any rank via numpy-style prepend-1 rules.
-    auto tensor_type = mlir::RankedTensorType::get({1}, element_type);
+    // Rank 0, like torch's own Python-scalar operand: it broadcasts against any
+    // rank and, unlike a `[1]` constant, leaves a 0-d other operand 0-d
+    // (`x.sum() * 0.5` must stay `[]`, or the result no longer binds to the
+    // `[]` tensor torch allocated for it).
+    auto tensor_type = mlir::RankedTensorType::get({}, element_type);
     mlir::DenseElementsAttr value_attr;
     if (auto float_ty = mlir::dyn_cast<mlir::FloatType>(element_type)) {
         // Build the APFloat at the element type's semantics so bf16/f16/f64 keep
