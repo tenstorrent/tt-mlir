@@ -267,17 +267,19 @@ TEST_F(OpModelStrategyTest, UnknownOpUsesDefaultStrategy) {
 
 TEST_F(OpModelStrategyTest, ShouldExploreReshardsElementwiseTrue) {
   auto addOp = createMockAddOp();
-  EXPECT_TRUE(shouldExploreReshards(addOp));
+  EXPECT_TRUE(shouldExploreReshards(addOp, 0));
+  EXPECT_TRUE(shouldExploreReshards(addOp, 1));
 }
 
 TEST_F(OpModelStrategyTest, ShouldExploreReshardsReshapeFalse) {
   auto reshapeOp = createMockReshapeOp();
-  EXPECT_FALSE(shouldExploreReshards(reshapeOp));
+  EXPECT_FALSE(shouldExploreReshards(reshapeOp, 0));
 }
 
 TEST_F(OpModelStrategyTest, ShouldExploreReshardsMatmulTrue) {
   auto matmulOp = createMockMatmulOp();
-  EXPECT_TRUE(shouldExploreReshards(matmulOp));
+  EXPECT_TRUE(shouldExploreReshards(matmulOp, 0));
+  EXPECT_TRUE(shouldExploreReshards(matmulOp, 1));
 }
 
 //===----------------------------------------------------------------------===//

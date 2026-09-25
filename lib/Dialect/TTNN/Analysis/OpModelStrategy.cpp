@@ -13,8 +13,8 @@ OutputHints getOutputHints(Operation *op,
   return getRuleBook(op).getOutputHints(op, legalConfigs);
 }
 
-bool shouldExploreReshards(Operation *op) {
-  return getRuleBook(op).shouldExploreReshards();
+bool shouldExploreReshards(Operation *op, unsigned operandIdx) {
+  return getRuleBook(op).shouldExploreReshards(operandIdx);
 }
 
 bool generatesRowMajorInputSiblings(Operation *op, unsigned operandIdx) {

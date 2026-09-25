@@ -5,6 +5,7 @@ add_mlir_unittest(OptimizerTests
     TestConv2dConfigGenerator.cpp
     TestConv3dConfigHeuristic.cpp
     TestPipelineOptionResolution.cpp
+    TestOpRuleBook.cpp
     PARTIAL_SOURCES_INTENDED
 )
 
@@ -16,6 +17,21 @@ target_link_libraries(OptimizerTests
     MLIRTTNNValidation
     MLIRTTNNPipelines
 )
+
+# Opt-in CPU benchmark with a link-wrapped mock backend.
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT TTMLIR_ENABLE_OPMODEL)
+    add_executable(RotaryReshardSearchBenchmark EXCLUDE_FROM_ALL
+        benchmarks/RotaryReshardSearchBenchmark.cpp
+    )
+    target_compile_options(RotaryReshardSearchBenchmark PRIVATE -fno-rtti)
+    target_link_libraries(RotaryReshardSearchBenchmark PRIVATE
+        MLIRTTNNAnalysis MLIRTTNNValidation MLIRTTNNDialect MLIRTTTransforms
+    )
+    target_link_options(RotaryReshardSearchBenchmark PRIVATE
+        "LINKER:--wrap=_ZN4mlir2tt4ttnn21shouldExploreReshardsEPNS_9OperationEj"
+        "LINKER:--wrap=_ZN4mlir2tt4ttnn24op_constraint_validation17validateOperationEPNS_9OperationEN4llvm8ArrayRefINS1_14TTNNLayoutAttrEEERKNS1_8OpConfigEm"
+    )
+endif()
 
 if (TTMLIR_ENABLE_OPMODEL)
     add_mlir_unittest(OpModelStrategyTests
