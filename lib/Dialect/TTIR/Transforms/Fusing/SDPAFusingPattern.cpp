@@ -4,12 +4,16 @@
 
 #include "ttmlir/Dialect/TTIR/Transforms/Fusing/SDPAFusingPattern.h"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/SymbolTable.h"
 
 #include <limits>
+#include <type_traits>
 
 namespace mlir::tt::ttir::fusing {
 
@@ -208,13 +212,13 @@ GqaExpansion detectGqaExpansion(Value v) {
     return {v, nullptr, std::nullopt};
   }
   auto inType = mlir::dyn_cast<RankedTensorType>(repeatOp.getInput().getType());
-  if (!inType) {
+  if (!inType || inType.getRank() != kSdpaRank) {
     return {v, nullptr, std::nullopt};
   }
   int64_t dim = repeatOp.getDim();
   int64_t rank = inType.getRank();
   int64_t normDim = dim < 0 ? rank + dim : dim;
-  if (normDim != kNumHeadsDim) {
+  if (normDim != kNumHeadsDim || repeatOp.getRepeats() <= 1) {
     return {v, nullptr, std::nullopt};
   }
   return {repeatOp.getInput(), cast, repeatOp.getRepeats()};
@@ -242,6 +246,46 @@ Value reapplyGqaCast(PatternRewriter &rewriter, GqaExpansion g) {
     return g.native;
   }
   return rewriter.create<TypecastOp>(g.cast.getLoc(), fusedKvType(g), g.native);
+}
+
+// Keep the original decomposition available to other composites. The private
+// copy accepts native K/V heads and restores the expanded shapes inside its
+// body, so both promotion and inline fallback retain their original semantics.
+FlatSymbolRefAttr cloneDecompositionWithGqaExpansion(PatternRewriter &rewriter,
+                                                     func::FuncOp decomposition,
+                                                     GqaExpansion key,
+                                                     GqaExpansion value) {
+  auto module = decomposition->getParentOfType<ModuleOp>();
+  std::string name = (decomposition.getSymName() + "_gqa").str();
+  for (unsigned suffix = 0; module.lookupSymbol(name); ++suffix) {
+    name = (decomposition.getSymName() + "_gqa_" + Twine(suffix)).str();
+  }
+
+  // Finish adapting the detached clone before notifying the rewriter of its
+  // insertion, so every operation it visits has a consistent signature.
+  func::FuncOp clone = decomposition.clone();
+  clone.setSymName(name);
+  clone.setPrivate();
+  SmallVector<Type> inputTypes(clone.getArgumentTypes());
+  inputTypes[1] = fusedKvType(key);
+  inputTypes[2] = fusedKvType(value);
+  clone.setFunctionType(
+      rewriter.getFunctionType(inputTypes, clone.getResultTypes()));
+
+  OpBuilder builder = OpBuilder::atBlockBegin(&clone.front());
+  for (unsigned index : {1u, 2u}) {
+    BlockArgument argument = clone.getArgument(index);
+    Type expandedType = argument.getType();
+    argument.setType(inputTypes[index]);
+    auto expansion = builder.create<RepeatInterleaveOp>(
+        argument.getLoc(), expandedType, argument, *key.repeats, kNumHeadsDim);
+    argument.replaceAllUsesExcept(expansion.getResult(), expansion);
+  }
+
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPointAfter(decomposition);
+  rewriter.insert(clone);
+  return FlatSymbolRefAttr::get(rewriter.getContext(), name);
 }
 
 // True if the slice keeps [0 : lastDim-1] of the last dim and is otherwise a
@@ -667,32 +711,67 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
   return success();
 }
 
-mlir::LogicalResult SDPAHeadExpansionFusingPattern::matchAndRewrite(
-    ScaledDotProductAttentionOp op, mlir::PatternRewriter &rewriter) const {
+template <typename OpTy>
+mlir::LogicalResult SDPAHeadExpansionFusingPattern<OpTy>::matchAndRewrite(
+    OpTy op, mlir::PatternRewriter &rewriter) const {
+  func::FuncOp decomposition;
+  if constexpr (std::is_same_v<OpTy, ttcore::CompositeOp>) {
+    if (op.getCompositeName() != "sdpa_fw" ||
+        (op.getInputs().size() != 3 && op.getInputs().size() != 4)) {
+      return failure();
+    }
+    decomposition =
+        op->template getParentOfType<ModuleOp>()
+            .template lookupSymbol<func::FuncOp>(op.getDecomposition());
+    if (!decomposition || decomposition.isExternal()) {
+      return rewriter.notifyMatchFailure(op, "missing decomposition body");
+    }
+  }
+
   // Both K and V must carry the same head-expansion. SDPA is GQA-native, so
   // feeding it the un-expanded Hkv-head tensors is equivalent; a mismatch is
   // not a GQA expansion and is left alone.
-  GqaExpansion kGqa = detectGqaExpansion(op.getKey());
-  GqaExpansion vGqa = detectGqaExpansion(op.getValue());
+  GqaExpansion kGqa = detectGqaExpansion(op->getOperand(1));
+  GqaExpansion vGqa = detectGqaExpansion(op->getOperand(2));
   if (!kGqa.repeats.has_value() || !vGqa.repeats.has_value() ||
       *kGqa.repeats != *vGqa.repeats) {
     return failure();
   }
 
-  // The op requires K and V to have the same type.
-  if (fusedKvType(kGqa) != fusedKvType(vGqa)) {
-    return failure();
+  auto keyType = fusedKvType(kGqa);
+  auto valueType = fusedKvType(vGqa);
+  if constexpr (std::is_same_v<OpTy, ttcore::CompositeOp>) {
+    // Unlike the inference op, sdpa_fw allows V's head dimension to differ.
+    if (keyType.getShape().drop_back() != valueType.getShape().drop_back() ||
+        keyType.getElementType() != valueType.getElementType()) {
+      return failure();
+    }
+  } else {
+    if (keyType != valueType) {
+      return failure();
+    }
   }
 
   Value fusedKey = reapplyGqaCast(rewriter, kGqa);
   Value fusedValue = reapplyGqaCast(rewriter, vGqa);
+  FlatSymbolRefAttr fusedDecomposition;
+  if constexpr (std::is_same_v<OpTy, ttcore::CompositeOp>) {
+    fusedDecomposition =
+        cloneDecompositionWithGqaExpansion(rewriter, decomposition, kGqa, vGqa);
+  }
 
   // Update the K/V operands with the newly fused values.
   rewriter.modifyOpInPlace(op, [&] {
-    op.getKeyMutable().assign(fusedKey);
-    op.getValueMutable().assign(fusedValue);
+    op->setOperand(1, fusedKey);
+    op->setOperand(2, fusedValue);
+    if constexpr (std::is_same_v<OpTy, ttcore::CompositeOp>) {
+      op.setDecompositionAttr(fusedDecomposition);
+    }
   });
   return success();
 }
+
+template class SDPAHeadExpansionFusingPattern<ScaledDotProductAttentionOp>;
+template class SDPAHeadExpansionFusingPattern<ttcore::CompositeOp>;
 
 } // namespace mlir::tt::ttir::fusing
