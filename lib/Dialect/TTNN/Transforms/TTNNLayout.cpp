@@ -809,13 +809,47 @@ private:
 } // namespace
 
 namespace {
+// Relays out each of `operands` to the type of the block argument it binds to,
+// the first of them binding to `block`'s argument `firstArgument`. Region ops
+// such as `ttir.while` and `ttir.case` do not implement TTIROpInterface, so the
+// generic layout rewriter leaves their operands alone, while their block
+// arguments keep the default layout.
+static bool relayoutToBlockArguments(Operation *op,
+                                     MutableOperandRange operands, Block &block,
+                                     unsigned firstArgument,
+                                     PatternRewriter &rewriter) {
+  bool modified = false;
+
+  rewriter.setInsertionPoint(op);
+  for (auto [index, operand] : llvm::enumerate(operands)) {
+    auto expectedType = mlir::cast<RankedTensorType>(
+        block.getArgument(firstArgument + index).getType());
+    if (operand.get().getType() == expectedType) {
+      continue;
+    }
+    auto layout = mlir::cast<TTNNLayoutAttr>(expectedType.getEncoding());
+    std::optional<Value> relaidOut = createToLayoutOp(
+        rewriter, appendInputSuffix(op->getLoc(), operand.getOperandNumber()),
+        operand.get(), layout.getBufferType(),
+        mlir::isa<ttcore::TileType>(layout.getElementType()));
+    if (!relaidOut) {
+      continue;
+    }
+    OpOperand &operandRef = operand;
+    rewriter.modifyOpInPlace(op, [&]() { operandRef.set(*relaidOut); });
+    modified = true;
+  }
+  return modified;
+}
+
 // Brings a `ttir.while` into the shape the runtime and the `ttnn.while`
 // verifier require:
 //
 //   - the value yielded by `cond` is forced to a row-major `uint32` tensor in
 //     system memory, since the runtime reads it back to host every iteration;
-//   - every loop-carried value is relaid out to match its block argument, so
-//     that the layouts hold across the loop back-edge.
+//   - every init and capture is relaid out to match its block argument, and so
+//     every loop-carried value yielded by the body, so that the layouts hold on
+//     loop entry and across the loop back-edge.
 class TTNNLayoutWhileOpRewriter : public OpRewritePattern<ttir::WhileOp> {
 public:
   TTNNLayoutWhileOpRewriter(MLIRContext *ctx)
@@ -824,12 +858,25 @@ public:
   LogicalResult matchAndRewrite(ttir::WhileOp op,
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
+    modified |= rewriteInitsAndCaptures(op, rewriter);
     modified |= rewriteCondition(op, rewriter);
     modified |= rewriteBodyYield(op, rewriter);
     return modified ? success() : failure();
   }
 
 private:
+  bool rewriteInitsAndCaptures(ttir::WhileOp op,
+                               PatternRewriter &rewriter) const {
+    Block &block = op.getBodyBlock();
+    bool modified = false;
+    modified |= relayoutToBlockArguments(op, op.getInitsMutable(), block,
+                                         /*firstArgument=*/0, rewriter);
+    modified |= relayoutToBlockArguments(op, op.getCapturesMutable(), block,
+                                         /*firstArgument=*/op.getInits().size(),
+                                         rewriter);
+    return modified;
+  }
+
   bool rewriteCondition(ttir::WhileOp op, PatternRewriter &rewriter) const {
     ttir::YieldOp yieldOp = op.getCondYield();
     Value condition = yieldOp.getOperands().front();
@@ -909,6 +956,7 @@ namespace {
 //
 //   - `index` is forced to a row-major `si32` tensor in system memory, since
 //     the runtime reads it back to host to pick a branch;
+//   - every capture is relaid out to match its block argument;
 //   - every branch's yielded values are relaid out to the op's result types, so
 //     that all branches agree on what they produce.
 class TTNNLayoutCaseOpRewriter : public OpRewritePattern<ttir::CaseOp> {
@@ -920,6 +968,7 @@ public:
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
     modified |= rewriteIndex(op, rewriter);
+    modified |= rewriteCaptures(op, rewriter);
     modified |= rewriteBranchYields(op, rewriter);
     return modified ? success() : failure();
   }
@@ -965,6 +1014,12 @@ private:
       rewriter.modifyOpInPlace(op, [&]() { op.setOperand(0, index); });
     }
     return modified;
+  }
+
+  bool rewriteCaptures(ttir::CaseOp op, PatternRewriter &rewriter) const {
+    return relayoutToBlockArguments(op, op.getCapturesMutable(),
+                                    op.getBranches().front().front(),
+                                    /*firstArgument=*/0, rewriter);
   }
 
   bool rewriteBranchYields(ttir::CaseOp op, PatternRewriter &rewriter) const {
