@@ -31,7 +31,7 @@ void run(const ::tt::target::ttnn::NLPCreateQKVHeadsOp *op,
 
   auto [q, k, v] = ::ttnn::experimental::nlp_create_qkv_heads(
       input, inputKV, numQHeads, numKVHeads, op->transpose_k_heads(),
-      outputMemoryConfig);
+      /*kv_tied=*/false, outputMemoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->q_out(), q);
   tensorPool.insertTTNNTensorAndValidate(op->k_out(), k);
