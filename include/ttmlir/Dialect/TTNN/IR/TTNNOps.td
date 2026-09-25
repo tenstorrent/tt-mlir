@@ -360,6 +360,14 @@ def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil"> {
 
 def TTNN_SignOp: TTNN_ElementwiseUnaryOp<"sign"> {
     let summary = "Eltwise sign operation.";
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createIntegerToBFloat16OperandsWorkarounds(getInput().getType());
+      }
+    }];
+
     let description = [{
       Returns the sign of the `operand` element-wise and produces a `result`
       tensor.
@@ -398,7 +406,7 @@ def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf"> {
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::
-            createErfOpOperandsWorkarounds(getInput().getType());
+            createIntegerToBFloat16OperandsWorkarounds(getInput().getType());
       }
     }];
 
@@ -430,6 +438,14 @@ def TTNN_GeluOp: TTNN_ElementwiseUnaryOp<"gelu"> {
 
 def TTNN_IsFiniteOp: TTNN_ElementwiseUnaryOp<"isfinite"> {
     let summary = "Eltwise isfinite op.";
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createIntegerToBFloat16OperandsWorkarounds(getInput().getType());
+      }
+    }];
+
     let description = [{
       Eltwise isfinite operation.
     }];
@@ -4806,7 +4822,7 @@ def TTNN_IndexerScoreDsaOp : TTNN_Op<"indexer_score_dsa"> {
 
       For every query position `s` and key position `t`:
       ```
-      score[b, s, t] = sum_h relu(q[b, h, s, :] . k[b, t, :]) * weights[b, h, s]
+      score[b, s, t] = sum_h relu(q[b, h, s, :] . k[b, t, :]) * weights[b, 0, s, h]
       ```
       Causality is controlled by `chunk_start_idx`: key `t` is visible to query
       `s` iff `t <= chunk_start_idx + s`. Masked (future) positions are set to
@@ -4818,7 +4834,8 @@ def TTNN_IndexerScoreDsaOp : TTNN_Op<"indexer_score_dsa"> {
       Args:
           query (AnyRankedTensor): `[B x Hi x Sq x D]`.
           key (AnyRankedTensor): `[B x 1 x T x D]`.
-          weights (AnyRankedTensor): `[B x Hi x Sq x 1]` per-head gate scales.
+          weights (AnyRankedTensor): `[B x 1 x Sq x Hi]` per-head gate scales,
+              in the head-minor order the weights projection produces natively.
           chunk_start_idx (uint): Causal offset of the first query within the
               full key sequence. Defaults to `0`.
           cluster_axis (optional uint): Mesh axis carrying the query sequence
