@@ -84,3 +84,57 @@ func.func @different_yield_layout(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32>
     } -> (tensor<i32>, tensor<32x32xf32>)
   return %r#1 : tensor<32x32xf32>
 }
+
+// Conv3d produces a row-major tensor, while the block arguments and results are
+// tiled. The init has to be relaid out before it enters the loop.
+// CHECK-LABEL: func.func @different_init_layout
+// CHECK: %[[CONV:[0-9]+]] = "ttnn.conv3d"
+// CHECK: %[[INIT:[0-9]+]] = "ttnn.to_layout"(%[[CONV]])
+// CHECK: ttnn.while inits(%{{[0-9]+}}, %[[INIT]] :
+
+func.func @different_init_layout(%input: tensor<1x8x28x28x4xf32>, %weight: tensor<16x4x3x3x3xf32>) -> tensor<1x6x26x26x16xf32> {
+  %conv = "ttir.conv3d"(%input, %weight) <{stride = array<i32: 1, 1, 1>, padding = array<i32: 0, 0, 0>, groups = 1 : i32, padding_mode = "zeros"}> : (tensor<1x8x28x28x4xf32>, tensor<16x4x3x3x3xf32>) -> tensor<1x6x26x26x16xf32>
+  %i0 = "ttir.constant"() <{value = dense<0> : tensor<i32>}> : () -> tensor<i32>
+  %limit = "ttir.constant"() <{value = dense<4> : tensor<i32>}> : () -> tensor<i32>
+  %step = "ttir.constant"() <{value = dense<1> : tensor<i32>}> : () -> tensor<i32>
+  %r:2 = ttir.while inits(%i0, %conv : tensor<i32>, tensor<1x6x26x26x16xf32>)
+                    captures(%limit, %step : tensor<i32>, tensor<i32>)
+    cond {
+    ^cond(%i: tensor<i32>, %acc: tensor<1x6x26x26x16xf32>, %l: tensor<i32>, %s: tensor<i32>):
+      %p = "ttir.lt"(%i, %l) : (tensor<i32>, tensor<i32>) -> tensor<i1>
+      ttir.yield %p : tensor<i1>
+    } do {
+    ^body(%i: tensor<i32>, %acc: tensor<1x6x26x26x16xf32>, %l: tensor<i32>, %s: tensor<i32>):
+      %next = "ttir.add"(%i, %s) : (tensor<i32>, tensor<i32>) -> tensor<i32>
+      %acc2 = "ttir.add"(%acc, %acc) : (tensor<1x6x26x26x16xf32>, tensor<1x6x26x26x16xf32>) -> tensor<1x6x26x26x16xf32>
+      ttir.yield %next, %acc2 : tensor<i32>, tensor<1x6x26x26x16xf32>
+    } -> (tensor<i32>, tensor<1x6x26x26x16xf32>)
+  return %r#1 : tensor<1x6x26x26x16xf32>
+}
+
+// The same for a capture: it has to reach the tiled block arguments.
+// CHECK-LABEL: func.func @different_capture_layout
+// CHECK: %[[CONV:[0-9]+]] = "ttnn.conv3d"
+// CHECK: %[[CAPTURE:[0-9]+]] = "ttnn.to_layout"(%[[CONV]])
+// CHECK: ttnn.while
+// CHECK-SAME: captures(%{{[0-9]+}}, %{{[0-9]+}}, %[[CAPTURE]] :
+
+func.func @different_capture_layout(%input: tensor<1x8x28x28x4xf32>, %weight: tensor<16x4x3x3x3xf32>, %acc0: tensor<1x6x26x26x16xf32>) -> tensor<1x6x26x26x16xf32> {
+  %conv = "ttir.conv3d"(%input, %weight) <{stride = array<i32: 1, 1, 1>, padding = array<i32: 0, 0, 0>, groups = 1 : i32, padding_mode = "zeros"}> : (tensor<1x8x28x28x4xf32>, tensor<16x4x3x3x3xf32>) -> tensor<1x6x26x26x16xf32>
+  %i0 = "ttir.constant"() <{value = dense<0> : tensor<i32>}> : () -> tensor<i32>
+  %limit = "ttir.constant"() <{value = dense<4> : tensor<i32>}> : () -> tensor<i32>
+  %step = "ttir.constant"() <{value = dense<1> : tensor<i32>}> : () -> tensor<i32>
+  %r:2 = ttir.while inits(%i0, %acc0 : tensor<i32>, tensor<1x6x26x26x16xf32>)
+                    captures(%limit, %step, %conv : tensor<i32>, tensor<i32>, tensor<1x6x26x26x16xf32>)
+    cond {
+    ^cond(%i: tensor<i32>, %acc: tensor<1x6x26x26x16xf32>, %l: tensor<i32>, %s: tensor<i32>, %c: tensor<1x6x26x26x16xf32>):
+      %p = "ttir.lt"(%i, %l) : (tensor<i32>, tensor<i32>) -> tensor<i1>
+      ttir.yield %p : tensor<i1>
+    } do {
+    ^body(%i: tensor<i32>, %acc: tensor<1x6x26x26x16xf32>, %l: tensor<i32>, %s: tensor<i32>, %c: tensor<1x6x26x26x16xf32>):
+      %next = "ttir.add"(%i, %s) : (tensor<i32>, tensor<i32>) -> tensor<i32>
+      %acc2 = "ttir.add"(%acc, %c) : (tensor<1x6x26x26x16xf32>, tensor<1x6x26x26x16xf32>) -> tensor<1x6x26x26x16xf32>
+      ttir.yield %next, %acc2 : tensor<i32>, tensor<1x6x26x26x16xf32>
+    } -> (tensor<i32>, tensor<1x6x26x26x16xf32>)
+  return %r#1 : tensor<1x6x26x26x16xf32>
+}
