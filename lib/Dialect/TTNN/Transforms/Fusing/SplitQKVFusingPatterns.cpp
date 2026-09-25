@@ -1032,6 +1032,17 @@ static bool isUsedAsSDPAValue(Value v) {
     if (auto sdpa = dyn_cast<ScaledDotProductAttentionOp>(user)) {
       return sdpa.getValue() == cur;
     }
+    // TODO: uncomment once aackovic/ring-joint-sdpa lands. The ring SDPA ops
+    // below are defined there; without them the ring sequence-parallel path
+    // never fuses V into nlp_create_qkv_heads.
+    // if (auto ringSdpa =
+    //         dyn_cast<RingJointScaledDotProductAttentionOp>(user)) {
+    //   return ringSdpa.getValue() == cur;
+    // }
+    // if (auto expRingSdpa =
+    //         dyn_cast<ExpRingJointScaledDotProductAttentionOp>(user)) {
+    //   return expRingSdpa.getValue() == cur;
+    // }
     if (isa<ToLayoutOp, TypecastOp, ToMemoryConfigOp>(user) &&
         user->getNumResults() == 1) {
       cur = user->getResult(0);
