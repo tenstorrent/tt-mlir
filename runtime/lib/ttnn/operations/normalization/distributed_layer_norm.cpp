@@ -39,7 +39,7 @@ void run(const ::tt::target::ttnn::DistributedLayerNormOp *op,
     numLinks = static_cast<size_t>(op->num_links().value());
   }
 
-  ::ttnn::ccl::Topology topology = ::ttnn::ccl::Topology::Ring;
+  ::ttnn::ccl::Topology topology = ::ttnn::ccl::Topology::Linear;
   if (op->topology()) {
     topology = static_cast<::ttnn::ccl::Topology>(
         ::tt::runtime::common::toMetalTopology(op->topology().value()));
