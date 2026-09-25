@@ -75,9 +75,7 @@ struct ConvertTTNNToEmitCPass
     mlir::ModuleOp module = getOperation();
     mlir::ConversionTarget target(getContext());
 
-    // Inlining a composite can move a cached call before its helper's
-    // definition. Remember the helpers before load_cached is lowered to an
-    // opaque C++ function pointer, losing the symbolic reference.
+    // Collect helpers before lowering erases their symbolic references.
     llvm::SetVector<StringAttr> cachedCallees;
     module.walk([&](ttcore::LoadCachedOp op) {
       cachedCallees.insert(op.getCalleeAttr().getAttr());
@@ -151,10 +149,7 @@ struct ConvertTTNNToEmitCPass
       }
     }
 
-    // This pipeline retains func.func, which emitc.declare_func cannot
-    // reference. Let the C++ emitter render a bodyless EmitC function with the
-    // converted signature instead, then place the declaration after includes
-    // and before any definitions. Each cached helper is declared only once.
+    // emitc.declare_func cannot reference func.func.
     OpBuilder builder(module.getContext());
     auto include = *module.getOps<emitc::IncludeOp>().begin();
     builder.setInsertionPointAfter(include);

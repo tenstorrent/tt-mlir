@@ -6,8 +6,7 @@
 // RUN: ttmlir-translate --mlir-to-cpp %t.mlir -o %t.cpp
 // RUN: FileCheck %s --input-file=%t.cpp
 
-// Composite inlining can leave cached helpers after their callers (#9121).
-// Keep this order and check declarations for both cached-call signatures.
+// Helpers placed after their callers need forward declarations (#9121).
 // CHECK: #include "ttnn-precompiled.hpp"
 // CHECK-NEXT: ::std::vector<::ttnn::Tensor> prepare_with_input(::std::vector<::ttnn::Tensor>);
 // CHECK-NEXT: ::std::vector<::ttnn::Tensor> prepare_without_input();
