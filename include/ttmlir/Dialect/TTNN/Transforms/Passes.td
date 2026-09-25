@@ -697,6 +697,48 @@ def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::
   ];
 }
 
+def TTNNSetMatmulProgramConfig: Pass<"ttnn-set-matmul-program-config", "::mlir::ModuleOp"> {
+  let summary = "Set multicast program configs on DRAM-interleaved matmul and linear ops.";
+  let description = [{
+    Sets `matmul_program_config` on `ttnn.matmul` and `ttnn.linear` ops whose
+    operands and result are DRAM-interleaved and tiled, replacing tt-metal's
+    runtime default blocking. The kernel family (2D mcast, 1D mcast_in0, 1D
+    mcast_in1) and per-core tile counts follow tt-metal's
+    create_simple_matmul_program_config; only the block sizes change.
+
+    - 2D mcast: pick in0_block_w, out_block_h and out_block_w maximising
+      in0_block_w * out_block_h * out_block_w within the L1 budget, ties
+      towards the larger in0_block_w.
+    - 1D mcast_in0: out_block_w = per_core_N, out_block_h is per_core_M or,
+      when M >= split-min-dim, per_core_M / 2. 1D mcast_in1 mirrors this with
+      out_block_h = per_core_M and out_block_w halvable when N >= split-min-dim.
+      Pick the largest in0_block_w that fits, ties towards the larger block.
+
+    in0_block_w always divides Kt and leaves at least two K-blocks. Subblocks
+    follow tt-metal's subblock table under the op's compute_config. Linear ops
+    reserve L1 for the bias circular buffer. Fused activations are left to
+    the runtime.
+
+    Ops are left untouched when they already carry a program config, use
+    transpose_a, broadcast a batched B over an unbatched A, have no
+    compute_config (tt-metal would lower its default math fidelity once a
+    program config is present), or have no blocking that fits the L1 budget.
+
+    Example usage:
+    ttmlir-opt --ttnn-set-matmul-program-config input.mlir
+    ttmlir-opt --ttnn-set-matmul-program-config="max-in0-block-w=16 l1-budget=1000000" input.mlir
+  }];
+
+  let options = [
+    Option<"maxIn0BlockW", "max-in0-block-w", "int64_t", /*default=*/"32",
+           "Upper bound for in0_block_w in tiles">,
+    Option<"l1BudgetBytes", "l1-budget", "int64_t", /*default=*/"1400000",
+           "Per-core L1 bytes available for matmul circular buffers">,
+    Option<"splitMinDim", "split-min-dim", "int64_t", /*default=*/"1024",
+           "Minimum M (mcast_in0) or N (mcast_in1) at which 1D output blocks may be halved">
+  ];
+}
+
 def TTNNRecoverStructure: Pass<"ttnn-recover-structure", "::mlir::ModuleOp"> {
   let summary = "Recover program structure by splitting IR into multiple functions based on source locations.";
   let description = [{
