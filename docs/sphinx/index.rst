@@ -1,33 +1,37 @@
-.. builder documentation master file, created by
-   sphinx-quickstart on Wed Jun 18 13:55:09 2025.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
-Welcome to the builder documentation!
-==========================================
-
-Add your content using ``reStructuredText`` syntax. See the
-`reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
-documentation for details.
-
-**builder** is a tool for creating TTIR and StableHLO operations.
-
-.. note::
-
-   This project is under active development.
+TT-MLIR Documentation
+=====================
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+   :maxdepth: 1
 
-Contents
---------
+   src/overview
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 4
+   :caption: User Guide
 
-   builder/builder
-   builder/builder-golden
-   builder/builder-utils
-   builder/stablehlo-builder
-   builder/ttir-builder
+   nav/getting-started
+   nav/testing
+   nav/tools
+   src/optimizer
+   src/pykernel
+   src/ttnn-jit
+   src/ttnn-bug-repros
+   src/python-bindings
+   src/flatbuffers
+   src/llvm_dependency_update
+   src/ci
+   src/additional-reading
+   src/code-of-conduct
+
+.. toctree::
+   :maxdepth: 3
+   :caption: Code Documentation
+
+   src/project-structure
+   src/dialects-overview
+   nav/guidelines
+   nav/adding-an-op
+   src/decomposing-an-op-in-ttir
+   src/docs
+   nav/specs
