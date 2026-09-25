@@ -847,6 +847,24 @@ bool AddressSimSpillManagement<MemoryTracker>::replayFrom(size_t startIdx) {
 // evictUntil
 //===----------------------------------------------------------------------===//
 
+// A DS matmul needs an L1 width-sharded in0 and a sharded output. Probing
+// either spilled hits an uncatchable tt-metal abort, so callers reshard in0 and
+// keep the output sharded rather than validate or demote. Matches a bias-free
+// ttnn.linear too.
+static bool isDRAMShardedMatmul(Operation *op) {
+  std::optional<mlir::Attribute> pc;
+  if (auto matmulOp = mlir::dyn_cast<MatmulOp>(op)) {
+    pc = matmulOp.getMatmulProgramConfig();
+  } else if (auto linearOp = mlir::dyn_cast<LinearOp>(op)) {
+    pc = linearOp.getMatmulProgramConfig();
+  } else {
+    return false;
+  }
+  return pc.has_value() && *pc &&
+         mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+             *pc);
+}
+
 template <typename MemoryTracker>
 bool L1SpillManagementBase<MemoryTracker>::evictValue(
     Value victim, int64_t pos, ScheduleData &data, size_t &campaignMin,
@@ -954,7 +972,8 @@ bool L1SpillManagementBase<MemoryTracker>::evictValue(
       // positionMap, which can rehash and invalidate posIt.
       int64_t consumerPos = posIt->second;
       bool isPastConsumer = consumerPos < pos;
-      bool needsReshard = isPastConsumer;
+      // A DS matmul cannot be validated with a spilled in0; force the reshard.
+      bool needsReshard = isPastConsumer || isDRAMShardedMatmul(consumer);
       if (!needsReshard) {
         auto consumerInputs = utils::extractInputLayouts(consumer);
         auto consumerConfig = extractOpConfigFromIR(consumer);
@@ -1250,6 +1269,37 @@ uint64_t AddressSimSpillManagement<MemoryTracker>::handleFragmentation(
   // Eviction was exhausted (op's own output won't fit / CB still overlaps).
   // Demote this op's output to DRAM rather than ship a clashing layout.
   if (!fitsAfterEviction) {
+    // A DS matmul cannot be demoted, so the two failure modes behind this flag
+    // are told apart here.
+    if (isDRAMShardedMatmul(op)) {
+      auto freshOutputAddr = memoryTracker.wouldAllocateAt(outputL1Size);
+      if (!freshOutputAddr) {
+        // No slot for the sharded output and nothing left to evict. A spill
+        // would not help either: the matmul still produces into this slot.
+        op->emitError(
+            "L1SpillManagement: DRAM-sharded matmul output has no contiguous "
+            "L1 "
+            "placement after evicting every spillable tensor, and cannot be "
+            "demoted to DRAM (tt-metal requires a sharded output config)");
+        compilationFailed = true;
+        return 0;
+      }
+      // The output has a slot, so what evictUntil could not clear is the
+      // cushioned CB check. Spilling the output does not clear it for this op,
+      // whose output stays in L1 while it runs; it only relieves what follows.
+      // The bet is that the overshoot lies in the cbFragCushion margin, a
+      // precaution against unmodeled runtime fragmentation, not in the raw CB
+      // demand. Demoting is not an option.
+      spillToDram(op->getResult(0));
+      TTMLIR_DEBUG(
+          ttmlir::LogComponent::GreedyOptimizer,
+          "    DS_SPILL_OUTPUT: CB overlap after eviction (cushioned "
+          "cb={0}, raw cb={1}, lowest={2}); matmul output kept sharded "
+          "and spilled to DRAM",
+          cushionedCBUsage, cbPeakUsage,
+          std::min(*freshOutputAddr, memoryTracker.getLowestOccupiedAddress()));
+      return 0;
+    }
     demoteToDram(op);
     evictForDramCBGrowth(op, pos, data);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
@@ -1271,6 +1321,17 @@ uint64_t AddressSimSpillManagement<MemoryTracker>::handleFragmentation(
                  "    FRAG_RESOLVED: L1 now {0}/{1}",
                  memoryTracker.getOccupiedL1(), l1BudgetPerCore);
     return freshL1;
+  }
+
+  // The homogeneous-spill/demote fallback below would invalidate a DS config.
+  // Eviction already restored in0 to L1 and cleared the CB check, so keep the
+  // output L1-sharded.
+  if (isDRAMShardedMatmul(op)) {
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::GreedyOptimizer,
+        "    DS_KEEP_SHARDED: not applying homogeneous-spill/demote to "
+        "DS matmul; keeping L1-sharded");
+    return outputL1Size;
   }
 
   // If validation failed with a backend constraint error (not OOM) after
@@ -2204,6 +2265,15 @@ void StatefulL1SpillManagement::recoverFromOOM(
   // algorithm (the forward sweep), so it cannot diverge from it.
   Value victim = evictFarthestUse();
   if (!victim) {
+    if (isDRAMShardedMatmul(op)) {
+      // A DS matmul cannot be demoted.
+      op->emitError(
+          "L1SpillManagement: DRAM-sharded matmul cannot fit after evicting "
+          "every spillable tensor and cannot be demoted to DRAM "
+          "(tt-metal requires a sharded output config)");
+      compilationFailed = true;
+      return;
+    }
     // Nothing evictable remains (only non-evictable reshards / an irreducible,
     // genuinely-unplaceable working set). Degrade gracefully: demote this op's
     // output to DRAM and continue, rather than failing the pass.

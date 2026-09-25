@@ -854,3 +854,67 @@ TEST_F(FragmentationTrackerTest, WouldAllocateAtReportsNoFitAndRoundTrips) {
   EXPECT_EQ(tracker.getOccupiedL1(), 60 * kKiB);
   EXPECT_FALSE(tracker.wouldAllocateAt(60 * kKiB).has_value());
 }
+
+class StatefulDemotionTest : public L1SpillTestFixture,
+                             public ::testing::WithParamInterface<bool> {};
+
+TEST_P(StatefulDemotionTest, DRAMShardedOOMFailsWithoutDemotion) {
+  using namespace mlir::tt::ttnn;
+  llvm::SmallVector<int64_t> shape{32, 256};
+  auto type = tensorType(shape, makeL1Sharded(shape));
+  auto args = beginFunc({type, type});
+  mlir::Operation *op;
+  if (GetParam()) {
+    op = builder.create<LinearOp>(builder.getUnknownLoc(), type, args[0],
+                                  args[1], mlir::Value(), false, false,
+                                  mlir::StringAttr());
+  } else {
+    op = builder.create<MatmulOp>(builder.getUnknownLoc(), type, args[0],
+                                  args[1], false, false, mlir::Attribute(),
+                                  mlir::StringAttr());
+  }
+  auto config = MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr::get(
+      &context, 1, 1, 1, UnaryWithParamAttr());
+  op->setAttr("matmul_program_config", config);
+  forceOOM(op);
+  finishFunc({op->getResult(0)});
+
+  bool sawError = false;
+  mlir::ScopedDiagnosticHandler handler(&context, [&](mlir::Diagnostic &diag) {
+    sawError |=
+        diag.str().find("cannot be demoted to DRAM") != std::string::npos;
+    return mlir::success();
+  });
+  StatefulL1SpillManagement spill(
+      func, mlir::tt::ttcore::lookupDevice(module.get()).getWorkerGrid(),
+      l1BudgetPerCore);
+  spill.getMemoryTracker().backendValidator = makeValidator();
+  spill.run();
+
+  EXPECT_TRUE(spill.hasFailed());
+  EXPECT_TRUE(sawError);
+  EXPECT_EQ(op->getResult(0).getType(), type);
+  EXPECT_EQ(op->getAttr("matmul_program_config"), config);
+  EXPECT_EQ(countSpills(), 0u);
+}
+
+INSTANTIATE_TEST_SUITE_P(MatmulAndLinear, StatefulDemotionTest,
+                         ::testing::Bool());
+
+TEST_F(StatefulDemotionTest, OrdinaryOOMStillDemotes) {
+  llvm::SmallVector<int64_t> shape{32, 256};
+  auto type = tensorType(shape, makeL1Sharded(shape));
+  auto args = beginFunc({type});
+  auto *op = addUnary(args[0], type, 0);
+  forceOOM(op);
+  finishFunc({op->getResult(0)});
+
+  mlir::tt::ttnn::StatefulL1SpillManagement spill(
+      func, mlir::tt::ttcore::lookupDevice(module.get()).getWorkerGrid(),
+      l1BudgetPerCore);
+  spill.getMemoryTracker().backendValidator = makeValidator();
+  spill.run();
+
+  EXPECT_FALSE(spill.hasFailed());
+  EXPECT_FALSE(resultIsL1(op->getResult(0)));
+}

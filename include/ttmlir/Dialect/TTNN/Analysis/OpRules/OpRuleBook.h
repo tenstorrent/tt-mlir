@@ -90,13 +90,21 @@ struct OpRuleBook {
                                const BeamCandidate &b) const;
 
   /// Adjust a candidate's LayoutScore after the base scorer computed it.
-  /// Receives the output config, all operand input
-  /// layouts, and the reshard flag.
+  /// Receives the output config, all operand input layouts, and the reshard
+  /// flag. MatmulRuleBook uses it to set rulePreference for DS candidates.
   virtual LayoutScore adjustScore(Operation *op, LayoutScore base,
                                   const OpConfig &config,
                                   llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                                   bool requiresReshard) const {
     return base;
+  }
+
+  /// Extra input reshard candidates that go beyond what
+  /// generateReshardCandidates produces from tensorTypePossibleLayouts. Called
+  /// per-operand from getInputCandidateSets. Default returns nothing.
+  virtual std::vector<TTNNLayoutAttr>
+  getExtraInputReshardCandidates(Operation *op, unsigned operandIdx) const {
+    return {};
   }
 };
 

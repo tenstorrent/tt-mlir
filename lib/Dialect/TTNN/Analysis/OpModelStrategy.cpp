@@ -34,27 +34,33 @@ bool LayoutScore::operator>(const LayoutScore &other) const {
     return isSharded;
   }
 
-  // 3. Less DRAM input transfer > more DRAM input transfer.
+  // 3. Rule-book preference (e.g. the DRAM-sharded matmul config).
+  if (rulePreference != other.rulePreference) {
+    return rulePreference > other.rulePreference;
+  }
+
+  // 4. Less DRAM input transfer > more DRAM input transfer.
   if (inputDramBytes != other.inputDramBytes) {
     return inputDramBytes < other.inputDramBytes;
   }
 
-  // 4. No reshard > reshard.
+  // 5. No reshard > reshard.
   if (requiresReshard != other.requiresReshard) {
     return !requiresReshard;
   }
 
-  // 5. More cores > fewer cores.
+  // 6. More cores > fewer cores.
   if (coreCount != other.coreCount) {
     return coreCount > other.coreCount;
   }
 
-  // 6. Lower L1 usage is better (leaves more room for other tensors).
+  // 7. Lower L1 usage is better (leaves more room for other tensors).
   return outputL1Usage < other.outputL1Usage;
 }
 
 bool LayoutScore::operator==(const LayoutScore &other) const {
   return isL1 == other.isL1 && isSharded == other.isSharded &&
+         rulePreference == other.rulePreference &&
          inputDramBytes == other.inputDramBytes &&
          requiresReshard == other.requiresReshard &&
          coreCount == other.coreCount && outputL1Usage == other.outputL1Usage;

@@ -73,6 +73,11 @@ struct LayoutScore {
   /// Memory footprint from ValidationResult (for tie-breaking).
   uint64_t outputL1Usage = 0;
 
+  /// Preference set by the op's rule book (OpRuleBook::adjustScore); higher
+  /// wins. Compared after L1 and sharded, before DRAM traffic, so a rule book
+  /// can rank its own candidates without the scorer knowing what they are.
+  int64_t rulePreference = 0;
+
   /// Higher score is better.
   bool operator>(const LayoutScore &other) const;
   bool operator==(const LayoutScore &other) const;
