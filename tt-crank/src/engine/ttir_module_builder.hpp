@@ -25,7 +25,9 @@
 #include "mlir/IR/Value.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 #include <tt/runtime/types.h>
 
 #include "cast.hpp"
@@ -76,6 +78,15 @@ public:
 
     llvm::ArrayRef<mlir::Value> args() const { return args_; }
     mlir::Location loc() const { return loc_; }
+
+    // `ttcore.composite`: tt-mlir promotes it to the typed op or inlines `decomposition`
+    // (emitted into a private function of this module via the usual `build_*` helpers).
+    using CompositeDecomposition =
+        llvm::function_ref<llvm::SmallVector<mlir::Value>(ModuleBuilder &, mlir::ValueRange)>;
+    llvm::SmallVector<mlir::Value> create_composite(llvm::StringRef name, llvm::ArrayRef<mlir::Value> inputs,
+                                                    llvm::ArrayRef<mlir::Type> result_types,
+                                                    llvm::ArrayRef<mlir::NamedAttribute> attributes,
+                                                    CompositeDecomposition decomposition);
 
     mlir::OwningOpRef<mlir::ModuleOp> finalize(llvm::ArrayRef<mlir::Value> outputs) &&;
 
