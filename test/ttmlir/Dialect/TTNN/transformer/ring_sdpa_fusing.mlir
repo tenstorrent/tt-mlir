@@ -51,6 +51,8 @@ module {
     // CHECK-SAME: compute_with_storage_grid_size = <7, 8>
     // CHECK-SAME: q_chunk_size = 128
     // CHECK-SAME: k_chunk_size = 256
+    // Metal defaults an unset exp_approx_mode to true; Metal Wan pins false.
+    // CHECK-SAME: exp_approx_mode = false
     // CHECK-SAME: topology = #ttcore.topology<ring>
     %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32, num_links = 1 : ui32, topology = #ttcore.topology<ring>}> : (tensor<1x8x128x64xbf16, #sharded_layout>) -> tensor<1x8x256x64xbf16, #gathered_layout>
     %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32, num_links = 1 : ui32, topology = #ttcore.topology<ring>}> : (tensor<1x8x128x64xbf16, #sharded_layout>) -> tensor<1x8x256x64xbf16, #gathered_layout>

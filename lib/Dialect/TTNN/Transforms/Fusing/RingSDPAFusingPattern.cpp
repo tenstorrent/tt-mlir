@@ -225,11 +225,17 @@ RingSDPAFusing::buildProgramConfig(ScaledDotProductAttentionOp srcOp,
   auto [qPreferred, kPreferred] =
       lookupRingChunkSizes(isBlackhole, spFactor, tpFactor);
 
+  // Metal's ring_joint_sdpa_program_factory treats an unset exp_approx_mode as
+  // true (the fast approximate SFPU exp). Metal Wan passes False explicitly
+  // ("False is more correct"); the plain prefill SDPA op carries no program
+  // config to inherit from, so pin it here.
+  BoolAttr expApproxMode = BoolAttr::get(ctx, /*value=*/false);
+
   return SDPAProgramConfigAttr::get(
       ctx, grid, /*sub_core_grids=*/nullptr,
       /*q_chunk_size=*/fitChunkSize(localSeqLen, qPreferred),
       /*k_chunk_size=*/fitChunkSize(gatheredSeqLen, kPreferred),
-      /*exp_approx_mode=*/nullptr,
+      expApproxMode,
       /*max_cores_per_head_batch=*/std::nullopt);
 }
 

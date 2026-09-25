@@ -55,6 +55,18 @@ public:
   }
 
 private:
+  // Ring-SDPA persistent K/V buffers (tagged by allocateRingSDPABuffers in
+  // TTNNOps.cpp). ttnn.empty carries no host data, so it can be allocated
+  // inside the captured trace like any other intermediate. Left outside as a
+  // per-execution creation op it becomes a fresh device-resident trace input
+  // every run, and the runtime refreshes the slot by round-tripping the
+  // (uninitialized) buffer through the host: 2 x 80 MiB per device per forward
+  // on Wan 14B, ~10 GiB of PCIe traffic per iteration on an 8x4 Galaxy.
+  static bool isTraceInternalScratch(Operation *op) {
+    return ::mlir::isa<mlir::tt::ttnn::EmptyOp>(op) &&
+           op->hasAttr("ttnn.ring_sdpa_buffer_id");
+  }
+
   bool shouldHoistOp(Operation *op) {
     bool shouldHoist = true;
     shouldHoist &= !::mlir::isa<func::ReturnOp>(op);
@@ -62,8 +74,11 @@ private:
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::CaptureOrExecuteTraceOp>(op);
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::GetDeviceOp>(op);
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::AdamWOp>(op);
+    // Creation ops stay outside the trace because they may carry host data
+    // (ttnn.constant / ttnn.full) that cannot be written during capture.
     shouldHoist &=
-        !(op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>());
+        !(op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>() &&
+          !isTraceInternalScratch(op));
     return shouldHoist;
   }
 

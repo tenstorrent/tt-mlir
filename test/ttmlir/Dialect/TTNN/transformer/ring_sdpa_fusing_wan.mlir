@@ -33,6 +33,7 @@ module {
     // CHECK-SAME: compute_with_storage_grid_size = <7, 8>
     // CHECK-SAME: q_chunk_size = 128
     // CHECK-SAME: k_chunk_size = 256
+    // CHECK-SAME: exp_approx_mode = false
     // CHECK-SAME: topology = #ttcore.topology<linear>
     %0 = "ttnn.all_gather"(%k) <{all_gather_dim = 1 : si32, cluster_axis = 0 : ui32, topology = #ttcore.topology<linear>}> : (tensor<1x128x10x64xbf16, #kv_bshd>) -> tensor<1x1024x10x64xbf16, #gathered>
     %1 = "ttnn.all_gather"(%v) <{all_gather_dim = 1 : si32, cluster_axis = 0 : ui32, topology = #ttcore.topology<linear>}> : (tensor<1x128x10x64xbf16, #kv_bshd>) -> tensor<1x1024x10x64xbf16, #gathered>

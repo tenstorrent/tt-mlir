@@ -58,10 +58,12 @@ module {
     // BUFFERS-SAME: operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 1, 0>
 
     // CSE-LABEL: @ring_sdpa_prelude_binding
-    // CSE: %[[BUFK:.*]] = "ttnn.empty"
+    // Both empties insert right after ttnn.get_device, so the V buffer
+    // (created second) precedes K in the block; the op binds them as (K, V).
     // CSE: %[[BUFV:.*]] = "ttnn.empty"
+    // CSE: %[[BUFK:.*]] = "ttnn.empty"
     // CSE: "ttnn.ring_joint_scaled_dot_product_attention"
-    // CSE-SAME: %[[BUFK]], %[[BUFV]]
+    // CSE-SAME: %[[BUFK]], %[[BUFV]])
 
     // ALL-LABEL: @ring_sdpa_prelude_binding
     // Both allocators insert immediately after ttnn.get_device, so the pass
