@@ -21,11 +21,8 @@ namespace mlir::tt::ttnn {
 
 namespace {
 
-// Maps a control flow region's block argument to the operand it is bound to.
-// Overloaded per op rather than taking an `Operation *`, so that there is no
-// unhandled op to guard against: a `ttnn.while` region observes
-// `inits ++ captures`, a `ttnn.case` branch observes just the captures, and
-// nothing else has a binding to describe.
+// Maps a `ttnn.while` region's block argument to the operand it is bound to.
+// The region observes `inits ++ captures`.
 Value getBoundOperand(WhileOp op, unsigned argNumber) {
   unsigned numInits = op.getInits().size();
   if (argNumber < numInits) {
@@ -34,6 +31,8 @@ Value getBoundOperand(WhileOp op, unsigned argNumber) {
   return op.getCaptures()[argNumber - numInits];
 }
 
+// Maps a `ttnn.case` branch's block argument to the operand it is bound to.
+// A branch observes just the captures.
 Value getBoundOperand(CaseOp op, unsigned argNumber) {
   return op.getCaptures()[argNumber];
 }
@@ -97,8 +96,8 @@ llvm::SmallVector<Value> getForwardedOperands(Operation *op,
 // touching the pass logic.
 //
 // A `ttnn.case` result whose branches forward *different* operands has no
-// single source and so none is reported here; `collectDoNotForceRoots` keeps
-// those buffers out of the forcing decision instead.
+// single source and so none is reported here; `buildMayAliasGroups` groups
+// those roots instead.
 Value getViewSource(Value value) {
   Operation *op = value.getDefiningOp();
   if (!op) {
