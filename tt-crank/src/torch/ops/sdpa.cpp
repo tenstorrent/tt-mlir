@@ -35,7 +35,6 @@
 #include <ATen/core/grad_mode.h>
 #include <ATen/native/DispatchStub.h>
 #include <ATen/native/transformers/attention.h>
-#include <c10/core/impl/TorchDispatchModeTLS.h>
 #include <torch/library.h>
 
 #include "cast.hpp"
@@ -76,11 +75,6 @@ int64_t tt_fused_sdp_choice(const at::Tensor &query, const at::Tensor &key, cons
         at::GradMode::is_enabled() && (query.requires_grad() || key.requires_grad() || value.requires_grad());
     TORCH_CHECK_NOT_IMPLEMENTED(dropout_p == 0.0, "tt-crank sdpa: dropout is not supported, got dropout_p=", dropout_p);
     g_sdpa_mask_from_bool = attn_mask.has_value() && attn_mask->defined() && attn_mask->scalar_type() == at::kBool;
-    // Under dynamo/aot tracing (a TorchDispatchMode such as FakeTensorMode is active) the fused backward has
-    // no compile lowering yet, so training keeps the differentiable MATH decomposition there.
-    if (training && c10::impl::TorchDispatchModeTLS::stack_len() > 0) {
-        return as<int64_t>(at::SDPBackend::math);
-    }
     if (training && !ttml_sdpa_supported(query, key, value, attn_mask, g_sdpa_mask_from_bool)) {
         TORCH_WARN_ONCE("tt-crank sdpa: training call is outside what the ttml sdpa_fw/sdpa_bw kernels support "
                         "(non-bf16, float or per-batch mask, non-4-D, S % 32 != 0 or Sq != Sk); using the math "
