@@ -98,6 +98,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/SamplingOpRank2RewritePattern.cpp
         Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.cpp
         Workarounds/Decomposition/GroupNormChannelPadRewritePattern.cpp
+        Workarounds/Decomposition/IntegerPowScalarOpRewritePattern.cpp
         Workarounds/Decomposition/IntegerProdOpRewritePattern.cpp
         Workarounds/Decomposition/LinearOpRewritePattern.cpp
         Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.cpp
