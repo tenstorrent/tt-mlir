@@ -63,3 +63,18 @@ func.func @two_branch(%arg0: tensor<32x32xf32>, %index: tensor<i32>) -> tensor<3
   } -> (tensor<32x32xf32>)
   return %r : tensor<32x32xf32>
 }
+
+// A single branch is only the default arm, which selects it for every index.
+// CHECK-LABEL: func.func @one_branch
+// CHECK: emitc.switch
+// CHECK-NOT: case 0 {
+// CHECK: default {
+func.func @one_branch(%arg0: tensor<32x32xf32>, %index: tensor<i32>) -> tensor<32x32xf32> {
+  %r = ttir.case index(%index : tensor<i32>) captures(%arg0 : tensor<32x32xf32>)
+  branches {
+  ^bb0(%a: tensor<32x32xf32>):
+    %0 = "ttir.abs"(%a) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+    ttir.yield %0 : tensor<32x32xf32>
+  } -> (tensor<32x32xf32>)
+  return %r : tensor<32x32xf32>
+}

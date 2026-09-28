@@ -1155,9 +1155,15 @@ static LogicalResult printOperation(PythonEmitter &emitter, CaseOp caseOp) {
 
   const size_t numBranches = caseOp.getBranches().size();
   for (auto [index, region] : llvm::enumerate(caseOp.getBranches())) {
-    // The last branch is the else arm, so an index matching no branch selects
-    // it, which is the op's out-of-range rule.
-    if (index + 1 == numBranches) {
+    // The last branch is the `else` arm, so an index matching no branch selects
+    // it, which is the op's out-of-range rule (except if it is the only branch,
+    // in which case it can't be an `else` branch).
+    if (numBranches == 1) {
+      // There is a room for optimization here, since this can be inlined before
+      // we even get to the backend, but this is a good enough workaround until
+      // we actually see an one branch case in a model.
+      os << "if True:\n";
+    } else if (index + 1 == numBranches) {
       os << "else:\n";
     } else {
       os << (index == 0 ? "if " : "elif ") << selector << " == " << index

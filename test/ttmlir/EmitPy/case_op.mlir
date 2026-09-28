@@ -54,3 +54,20 @@ func.func @swap(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>, %index: tens
   } -> (tensor<32x32xf32>, tensor<32x32xf32>)
   return %r#0 : tensor<32x32xf32>
 }
+
+// A single branch always runs, and a lone `else` is not Python, so it is
+// emitted inline and the index is never read.
+// CHECK-LABEL: def one_branch
+// CHECK-NOT: else:
+// CHECK: ttnn_add{{.*}} = ttnn.add(
+// CHECK-NEXT: branch_0 = ttnn_add
+// CHECK: return [branch_0]
+func.func @one_branch(%arg0: tensor<32x32xf32>, %index: tensor<i32>) -> tensor<32x32xf32> {
+  %r = ttir.case index(%index : tensor<i32>) captures(%arg0 : tensor<32x32xf32>)
+  branches {
+  ^bb0(%a: tensor<32x32xf32>):
+    %0 = "ttir.add"(%a, %a) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    ttir.yield %0 : tensor<32x32xf32>
+  } -> (tensor<32x32xf32>)
+  return %r : tensor<32x32xf32>
+}
