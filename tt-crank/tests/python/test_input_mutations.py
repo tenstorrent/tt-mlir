@@ -56,3 +56,37 @@ def test_input_mutation_through_view_of_view():
         return x
     
     _check(fn, torch.randn(32, 32, dtype=torch.bfloat16), torch.randn(32, 2, 16, dtype=torch.bfloat16))
+
+
+def test_multiple_inputs_mutated():
+    def fn(x, y):
+        x.add_(1)
+        y.mul_(2)
+        return x * 2
+
+    _check(fn, torch.randn(32, 32, dtype=torch.bfloat16), torch.randn(32, 32, dtype=torch.bfloat16))
+
+
+def test_input_mutation_through_slice():
+    def fn(x):
+        x[32:].add_(1)
+        return x * 2
+
+    _check(fn, torch.randn(64, 32, dtype=torch.bfloat16))
+
+
+def test_input_mutation_through_transpose():
+    def fn(x):
+        x.t().add_(1)
+        return x * 2
+
+    _check(fn, torch.randn(32, 64, dtype=torch.bfloat16))
+
+
+def test_mutation_with_different_dtype_operand():
+    def fn(x, y):
+        x.add_(y)
+        return x * 2
+
+    _check(fn, torch.randn(32, 32, dtype=torch.bfloat16), torch.randn(32, 32, dtype=torch.float32))
+
