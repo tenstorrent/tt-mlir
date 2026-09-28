@@ -982,7 +982,7 @@ private:
     // negative index is out of range. A typecast to an unsigned type is a value
     // conversion rather than a bit reinterpretation, so it would clamp -1 to 0
     // and pick branch 0 instead.
-    Type int32Type = rewriter.getI32Type();
+    Type int32Type = rewriter.getIntegerType(32, /*isSigned=*/true);
     bool modified = false;
 
     rewriter.setInsertionPoint(op);
