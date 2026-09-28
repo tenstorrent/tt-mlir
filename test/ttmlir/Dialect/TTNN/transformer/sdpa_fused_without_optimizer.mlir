@@ -1,12 +1,12 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-decomposition-op-constraints=true" %s | FileCheck %s
 
-// Regression for tt-xla#6081: a runnable scaled_dot_product_attention must stay
-// fused through TTIR->TTNN even when the optimizer is OFF. The decomposition pass
-// validates against the op model (op-constraints enabled independent of the
-// optimizer), so an SDPA tt-metal can run is kept instead of being decomposed to
-// softmax + matmul. Before the fix, the no-optimizer pipeline unconditionally
-// decomposed every SDPA.
+// Regression for tt-xla#6081: with enable-decomposition-op-constraints=true, a
+// runnable scaled_dot_product_attention must stay fused through TTIR->TTNN even
+// when the optimizer is OFF. The decomposition pass validates against the op
+// model, so an SDPA tt-metal can run is kept instead of decomposed to
+// softmax + matmul. Without the flag (default) the no-optimizer pipeline still
+// decomposes, leaving other pipelines unchanged.
 module {
   func.func @sdpa_kept(%query: tensor<8x12x32x32xbf16>, %key: tensor<8x3x32x32xbf16>, %value: tensor<8x3x32x32xbf16>) -> tensor<8x12x32x32xbf16> {
     // CHECK: "ttnn.scaled_dot_product_attention"
