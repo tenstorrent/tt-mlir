@@ -860,7 +860,8 @@ NB_MODULE(_native, m) {
                 &::tt::crank::CompileOptions::experimental_enable_dram_space_saving_optimization)
         .def_rw("enable_create_d2m_subgraphs", &::tt::crank::CompileOptions::enable_create_d2m_subgraphs)
         .def_rw("ttnn_perf_metrics_enabled", &::tt::crank::CompileOptions::ttnn_perf_metrics_enabled)
-        .def_rw("ttnn_perf_metrics_output_file", &::tt::crank::CompileOptions::ttnn_perf_metrics_output_file);
+        .def_rw("ttnn_perf_metrics_output_file", &::tt::crank::CompileOptions::ttnn_perf_metrics_output_file)
+        .def_rw("enable_zero_copy_input_mutations", &::tt::crank::CompileOptions::enable_zero_copy_input_mutations);
 
     nb::class_<PyModuleBuilder>(m, "ModuleBuilder")
         .def(nb::init<std::vector<tk::TensorTypeSpec>, const std::vector<mlir::tt::ttcore::ArgumentType> &>(),

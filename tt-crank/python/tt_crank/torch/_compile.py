@@ -1313,6 +1313,7 @@ class CompileOption(StrEnum):
     ENABLE_CREATE_D2M_SUBGRAPHS = "enable_create_d2m_subgraphs"  # bool
     TTNN_PERF_METRICS_ENABLED = "ttnn_perf_metrics_enabled"  # bool
     TTNN_PERF_METRICS_OUTPUT_FILE = "ttnn_perf_metrics_output_file"  # str
+    ENABLE_ZERO_COPY_INPUT_MUTATIONS = "enable_zero_copy_input_mutations"  # bool
 
 
 COMPILE_OPTIONS = [opt for opt in CompileOption]
@@ -1422,6 +1423,11 @@ def _compile_options(
     if CompileOption.TTNN_PERF_METRICS_OUTPUT_FILE in options:
         opts.ttnn_perf_metrics_output_file = options[
             CompileOption.TTNN_PERF_METRICS_OUTPUT_FILE
+        ]
+
+    if CompileOption.ENABLE_ZERO_COPY_INPUT_MUTATIONS in options:
+        opts.enable_zero_copy_input_mutations = options[
+            CompileOption.ENABLE_ZERO_COPY_INPUT_MUTATIONS
         ]
 
     return opts
@@ -1617,7 +1623,7 @@ def _lower_and_compile(
             Artifact(_compile_options_dict(options), result, _aot_graph_kind())
         )
 
-    mutation_pairs = _input_mutation_pairs(gm)
+    mutation_pairs = _input_mutation_pairs(gm) if options.enable_zero_copy_input_mutations else []
 
     def runner(*inputs: torch.Tensor) -> list:
         produced = _native.run_program(program, list(inputs), output_dtypes)

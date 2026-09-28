@@ -80,6 +80,9 @@ struct TT_CRANK_API CompileOptions {
     // Output file for TTNN performance metrics (empty -> default location).
     std::optional<std::string> ttnn_perf_metrics_output_file;
 
+    // Write mutated graph inputs back by handing them the output's device buffer
+    std::optional<bool> enable_zero_copy_input_mutations = true;
+
     ///////////
     // Utils //
     ///////////
