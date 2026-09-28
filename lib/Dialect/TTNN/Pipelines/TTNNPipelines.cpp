@@ -383,29 +383,32 @@ void createTTIRToTTNNCommonPipeline(
     devicePm.addPass(mlir::createSymbolDCEPass());
     createTTNNFusingPass(devicePm, options);
 
-    // Create TTNN decomposition pass, optionally with op-model validation.
+    // Create TTNN decomposition pass. When op-model support is built, validate
+    // each op against the model before decomposing so a kernel tt-metal can run
+    // (e.g. scaled_dot_product_attention) is kept instead of unconditionally
+    // decomposed to matmul+softmax. This is independent of the optimizer:
+    // DevicePassesWrapper opens a mock device when none is provided. Without it
+    // every SDPA is decomposed, materializing per-layer score matrices
+    // (tt-xla#6081).
     if (options.ttnnDecompositionEnabled) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-      if (options.optimizerPassEnabled) {
-        DevicePassesWrapperOptions decompWrapperOptions;
-        decompWrapperOptions.devicePtr = options.devicePtr;
-        decompWrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
+      DevicePassesWrapperOptions decompWrapperOptions;
+      decompWrapperOptions.devicePtr = options.devicePtr;
+      decompWrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
-        uint32_t decompFallbackAttempts = options.maxFallbackAttempts;
-        devicePm.addPass(createDevicePassesWrapper(
-            [decompFallbackAttempts](OpPassManager &innerPm) {
-              TTNNDecompositionOptions decompOptions;
-              decompOptions.enableOpConstraints = true;
-              decompOptions.maxFallbackAttempts = decompFallbackAttempts;
-              innerPm.addPass(
-                  mlir::tt::ttnn::createTTNNDecomposition(decompOptions));
-            },
-            decompWrapperOptions));
-      } else
+      uint32_t decompFallbackAttempts = options.maxFallbackAttempts;
+      devicePm.addPass(createDevicePassesWrapper(
+          [decompFallbackAttempts](OpPassManager &innerPm) {
+            TTNNDecompositionOptions decompOptions;
+            decompOptions.enableOpConstraints = true;
+            decompOptions.maxFallbackAttempts = decompFallbackAttempts;
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNDecomposition(decompOptions));
+          },
+          decompWrapperOptions));
+#else
+      devicePm.addPass(createTTNNDecomposition());
 #endif
-      {
-        devicePm.addPass(createTTNNDecomposition());
-      }
     }
 
     TTNNMemoryManagementOptions memoryManagementOptions;
