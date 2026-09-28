@@ -824,9 +824,14 @@ private:
   }
 
   // Scale must have rank 4/5 and size 1 in all dimensions except the output
-  // feature dim.
-  // For Conv2dOp: shape (1, 1, 1, out_channels)
-  // For Conv3dOp: shape (1, 1, 1, 1, out_channels)
+  // feature dim, which is either the output channel count (a per-channel
+  // scale) or 1 (a single scalar broadcast over all channels).
+  // For Conv2dOp: shape (1, 1, 1, out_channels) or (1, 1, 1, 1)
+  // For Conv3dOp: shape (1, 1, 1, 1, out_channels) or (1, 1, 1, 1, 1)
+  //
+  // The scalar case is exact for the same reason the per-channel case is:
+  // conv is linear in its weights, so (conv(x, w)) * s == conv(x, w * s) for
+  // any s that is uniform across the output channels.
   static bool hasValidScaleShape(ConvOpType convOp,
                                  RankedTensorType scaleType) {
     const int64_t expectedRank = std::is_same_v<ConvOpType, Conv3dOp> ? 5 : 4;
@@ -848,7 +853,8 @@ private:
         mlir::cast<mlir::RankedTensorType>(convOp.getType()).getShape();
 
     for (auto [dim, dimSize] : llvm::enumerate(scaleType.getShape())) {
-      if (dim == outputFeatureDim && dimSize != outputShape[outputFeatureDim]) {
+      if (dim == outputFeatureDim && dimSize != outputShape[outputFeatureDim] &&
+          dimSize != 1) {
         return false;
       }
       if (dim != outputFeatureDim && dimSize != 1) {

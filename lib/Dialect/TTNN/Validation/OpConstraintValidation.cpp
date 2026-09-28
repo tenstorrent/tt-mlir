@@ -171,7 +171,7 @@ checkConstraintsResult(Operation *contextOp,
                outputTensorUsagePerCore);
 
   return ValidationResult::success(0, outputLayouts, outputTensorUsagePerCore,
-                                   cbPeakUsage);
+                                   cbPeakUsage, l1BuffersPeakUsage);
 }
 
 // ----------- Core constraint validation implementation ----------

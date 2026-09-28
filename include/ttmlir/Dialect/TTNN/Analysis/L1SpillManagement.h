@@ -157,6 +157,9 @@ struct SumL1MemoryTracker {
   llvm::SmallVector<Value>
   getValuesAboveVirtualThreshold(uint64_t threshold) const;
 
+  /// Number of tensors currently holding a simulated L1 address.
+  size_t getTrackedCount() const { return tensorAddresses.size(); }
+
 private:
   uint64_t currentOccupied = 0;
   llvm::DenseMap<Value, uint64_t> tensorSizes;
@@ -404,7 +407,8 @@ private:
   /// or 0 if the output was demoted to DRAM.
   uint64_t ensureFitsL1(Operation *op, int64_t pos, ScheduleData &data,
                         uint64_t opL1Usage, uint64_t cbPeakUsage,
-                        uint64_t l1Size);
+                        uint64_t l1Size,
+                        uint64_t l1BuffersPeakUsage = 0);
 
   /// True when `op` is a view-eligible reshape whose source operand is still
   /// resident in L1. Its output will alias the source's existing slot
@@ -431,6 +435,11 @@ private:
   /// shift, making the threshold check stale).
   void evictForCBOverlap(uint64_t cushionedCBUsage, int64_t pos,
                          ScheduleData &data);
+
+  /// Spill live ToLayoutOp outputs that still hold L1 to DRAM. Needed wherever
+  /// a CB region could overlap them, because evictForCBOverlap cannot reach
+  /// them (they are not tracked).
+  void spillLiveUntrackedToLayoutOutputs(int64_t pos, ScheduleData &data);
 
   /// Evict tensors (farthest-last-use first) until shouldStop() returns true
   /// or the live set is empty. Returns true if shouldStop was satisfied.

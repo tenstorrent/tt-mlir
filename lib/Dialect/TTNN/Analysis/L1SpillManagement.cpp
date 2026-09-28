@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cstdlib>
+#include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/raw_ostream.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1SpillManagement.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
@@ -18,6 +21,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <algorithm>
@@ -35,6 +39,23 @@ namespace mlir::tt::ttnn {
 // gap so that the CB region (growing bottom-up) never overlaps with tensor
 // buffers at runtime.
 static constexpr double kCBFragCushionFraction = 0.10;
+
+// Release-build probe for attributing a spill/eviction to the branch that
+// caused it. TTMLIR_DEBUG compiles to a no-op in Release (TTMLIR_ENABLE_DEBUG_LOGS
+// is undefined), so this writes to stderr directly, gated on TTMLIR_SPILL_PROBE.
+static bool spillProbeEnabled() {
+  static const bool enabled = (std::getenv("TTMLIR_SPILL_PROBE") != nullptr);
+  return enabled;
+}
+static llvm::StringRef probeOpName(mlir::Operation *op) {
+  return op ? op->getName().getStringRef() : llvm::StringRef("<null>");
+}
+#define SPILL_PROBE(...)                                                       \
+  do {                                                                         \
+    if (spillProbeEnabled()) {                                                 \
+      llvm::errs() << "[SPILL_PROBE] " << llvm::formatv(__VA_ARGS__) << "\n";  \
+    }                                                                          \
+  } while (0)
 
 //===----------------------------------------------------------------------===//
 // SumL1MemoryTracker
@@ -594,10 +615,20 @@ bool L1SpillManagement<MemoryTracker>::willAliasSourceInL1(
 template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
     Operation *op, int64_t pos, ScheduleData &data, uint64_t opL1Usage,
-    uint64_t cbPeakUsage, uint64_t l1Size) {
+    uint64_t cbPeakUsage, uint64_t l1Size, uint64_t l1BuffersPeakUsage) {
+  SPILL_PROBE("ENTER pos={0} op={1} opL1Usage={2} cbPeakUsage={3} "
+              "transientPeak={4} l1Size={5} budget={6} deadZone={7} "
+              "cushion={8} occupied={9} trackedLowest={10} nTracked={11}",
+              pos, probeOpName(op), opL1Usage, cbPeakUsage, l1BuffersPeakUsage,
+              l1Size, l1BudgetPerCore, l1DeadZone, cbFragCushion,
+              memoryTracker.getOccupiedL1(),
+              memoryTracker.getLowestOccupiedAddress(),
+              memoryTracker.getTrackedCount());
+
   // A view-eligible reshape aliases its source's existing L1 slot, so it
   // consumes no fresh L1. Skip fit/CB-overlap checks that assume new allocation.
   if (willAliasSourceInL1(op)) {
+    SPILL_PROBE("  EXIT aliasesSource pos={0}", pos);
     return l1Size;
   }
 
@@ -614,11 +645,11 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
                  "    DRAM_OP_CB_CHECK: cbPeak={0}, cushion={1}, "
                  "cushioned={2}, lowestExisting={3}",
                  cbPeakUsage, cbFragCushion, cushionedCB, lowestExisting);
+    SPILL_PROBE("  PATH=DRAM_OP_CB pos={0} cbPeak={1} cushioned={2} lowestExisting={3}",
+                pos, cbPeakUsage, cushionedCB, lowestExisting);
     if (cushionedCB > lowestExisting) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                   "    DRAM_OP_CB_EVICT: CB={0}+cushion={1}={2} > "
-                   "lowestExisting={3}, evicting L1 tensors",
-                   cbPeakUsage, cbFragCushion, cushionedCB, lowestExisting);
+      SPILL_PROBE("  ACTION=DRAM_OP_CB_EVICT pos={0} cushioned={1} > lowestExisting={2}",
+                  pos, cushionedCB, lowestExisting);
       evictForCBOverlap(cushionedCB, pos, data);
     }
     for (Value operand : op->getOperands()) {
@@ -640,12 +671,73 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
 
   auto speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
   if (!speculativeAddr) {
+    SPILL_PROBE("  ACTION=NO_FIT pos={0} l1Size={1} occupied={2}", pos, l1Size,
+                memoryTracker.getOccupiedL1());
     l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
     speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
   }
   if (l1Size > 0 && speculativeAddr) {
-    if (cbPeakUsage > l1DeadZone && cbPeakUsage <= l1BudgetPerCore) {
-      uint64_t cbVT = l1BudgetPerCore - cbPeakUsage;
+    // CB-zone eviction: make room for this op's full runtime L1 footprint.
+    //
+    // The footprint is cbPeakUsage (static circular buffers) PLUS the op's
+    // transient tensor buffers (l1BuffersPeakUsage, tt-metal graph-capture
+    // l1_buffers_peak_per_core). The transient part is what the compile-time
+    // address simulator cannot see -- these "ghost" buffers are allocated and
+    // released inside the program and fragment the runtime free list -- and it
+    // is exactly what the fixed 10% cushion was approximating.
+    //
+    // The gate is a pure capacity sum over SIZES and never consults the
+    // simulated address model:
+    //
+    //     cbPeak + transientPeak + occupiedL1 + cushion  >  budget
+    //
+    // Two earlier formulations were tried and reverted, both address-based
+    // (cushioned CB vs getLowestOccupiedAddress()); both failed the full BEV
+    // model with `validate_circular_buffer_region` clashes because the
+    // simulated addresses are hundreds of KB off the hardware's. Sizes are
+    // reliable; addresses are not. The previous size-free gate
+    // (cbPeak > l1DeadZone, deadZone = the 5% cap margin) fired on any op
+    // whose CBs exceeded ~68 KB and, on block A single camera 0, evicted 39
+    // tensors that were in no danger; it also MISSED ops whose CBs are tiny
+    // but whose transient buffers are over 1 MB (e.g. conv2d with
+    // l1_buffers_peak 1,160,448 on the full BEV model).
+    //
+    // When the gate fires, the reserve handed to the victim selector is the
+    // full footprint, so enough is evicted to actually fit it.
+    // The op's own L1 operands are already inside l1BuffersPeakUsage: the
+    // op-model graph capture creates every input tensor inside the trace, so
+    // l1_buffers_peak_per_core counts them (SumL1MemoryTracker::validate
+    // subtracts them from additionalL1Usage for the same reason). Only the
+    // OTHER live tensors add to the footprint. Counting operands twice made
+    // the gate fire on a block-sharded conv2d input and evict it; the conv
+    // then ran a different program (DRAM input, internal sharding, 1.3 MB of
+    // CBs) that clashed with the remaining L1 tensors.
+    llvm::SmallDenseSet<Value, 8> opOperands;
+    uint64_t operandBytesInOccupied = 0;
+    for (Value operand : op->getOperands()) {
+      if (!opOperands.insert(operand).second) {
+        continue;
+      }
+      if (memoryTracker.hasTensor(operand)) {
+        operandBytesInOccupied += memoryTracker.getTensorSize(operand);
+      }
+    }
+    uint64_t occupied = memoryTracker.getOccupiedL1();
+    uint64_t othersOccupied =
+        occupied > operandBytesInOccupied ? occupied - operandBytesInOccupied : 0;
+
+    uint64_t footprint = cbPeakUsage + l1BuffersPeakUsage;
+    uint64_t needed = footprint + othersOccupied + cbFragCushion;
+    bool cbZoneFires = footprint > 0 && footprint <= l1BudgetPerCore &&
+                       needed > l1BudgetPerCore;
+    SPILL_PROBE("  CB_ZONE_TEST pos={0} cbPeak={1} transientPeak={2} footprint={3} "
+                "occupied={4} operandBytes={5} needed={6} budget={7} "
+                "nTracked={8} fires={9}",
+                pos, cbPeakUsage, l1BuffersPeakUsage, footprint, occupied,
+                operandBytesInOccupied, needed, l1BudgetPerCore,
+                memoryTracker.getTrackedCount(), cbZoneFires);
+    if (cbZoneFires) {
+      uint64_t cbVT = l1BudgetPerCore > footprint ? l1BudgetPerCore - footprint : 0;
       bool anyEvicted = false;
       for (Value victim : memoryTracker.getValuesAboveVirtualThreshold(cbVT)) {
         if (!liveValues.count(victim)) {
@@ -660,10 +752,14 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
         if (insertedReshardValues.count(victim)) {
           continue;
         }
-        TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                     "    CB_ZONE_EVICT: cbPeakUsage={0} cbVT={1}, evicting "
-                     "high-virtual tensor to prevent CB-tensor clash",
-                     cbPeakUsage, cbVT);
+        // Never evict this op's own operands: they are part of the validated
+        // footprint, and moving one to DRAM changes the program the op runs
+        // (and its CB / transient sizes) without re-validation.
+        if (opOperands.count(victim)) {
+          continue;
+        }
+        SPILL_PROBE("  ACTION=CB_ZONE_EVICT pos={0} footprint={1} cbVT={2} victim={3}",
+                    pos, footprint, cbVT, probeOpName(victim.getDefiningOp()));
         size_t cbZoneCampaignMin = SIZE_MAX;
         evictValue(victim, pos, data, cbZoneCampaignMin);
         anyEvicted = true;
@@ -692,12 +788,16 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
     // Threshold = 40% × budget (530,261 B on WH N150) rejects the 589,824 B
     // Block A conv2d output while leaving smaller tensors (≤303,104 B) in L1.
     static constexpr double kMaxSingleTensorFraction = 0.40;
+    SPILL_PROBE("  LARGE_TENSOR_TEST pos={0} l1Size={1} threshold={2} fires={3}",
+                pos, l1Size,
+                static_cast<uint64_t>(kMaxSingleTensorFraction *
+                                      static_cast<double>(l1BudgetPerCore)),
+                l1Size > static_cast<uint64_t>(kMaxSingleTensorFraction *
+                                               static_cast<double>(l1BudgetPerCore)));
     if (l1Size > static_cast<uint64_t>(kMaxSingleTensorFraction *
                                        static_cast<double>(l1BudgetPerCore))) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                   "    LARGE_TENSOR_FRAG: l1Size={0} > 40%% budget={1}, "
-                   "forcing DRAM to prevent fragmentation OOM",
-                   l1Size, l1BudgetPerCore);
+      SPILL_PROBE("  ACTION=LARGE_TENSOR_FRAG pos={0} l1Size={1} budget={2}",
+                  pos, l1Size, l1BudgetPerCore);
       llvm::SmallVector<Value> toEvict;
       for (Value operand : op->getOperands()) {
         if (liveValues.count(operand) && !insertedReshardValues.count(operand)) {
@@ -712,7 +812,11 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
       evictForDramCBGrowth(op, pos, data, cbPeakUsage);
       return 0;
     }
-    if (wouldCBsOverlapTensors(op, pos, cbPeakUsage, *speculativeAddr)) {
+    bool cbOverlap = wouldCBsOverlapTensors(op, pos, cbPeakUsage, *speculativeAddr);
+    SPILL_PROBE("  CB_OVERLAP_TEST pos={0} cbPeak={1} addr={2} fires={3}", pos,
+                cbPeakUsage, *speculativeAddr, cbOverlap);
+    if (cbOverlap) {
+      SPILL_PROBE("  ACTION=CB_OVERLAP_FRAGMENTATION pos={0}", pos);
       l1Size =
           handleFragmentation(op, pos, data, opL1Usage, cbPeakUsage, l1Size);
     }
@@ -756,7 +860,8 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
   if (fitsAfterEviction) {
     uint64_t l1Size = result.outputL1Usage;
     if (l1Size > 0) {
-      l1Size = ensureFitsL1(op, pos, data, l1Size, result.cbPeakUsage, l1Size);
+      l1Size = ensureFitsL1(op, pos, data, l1Size, result.cbPeakUsage, l1Size,
+                            result.l1BuffersPeakUsage);
     } else {
       // DRAM-output op: validate's byte-budget check accounts for CB usage in
       // total but not for CB-vs-tensor address overlap. Evict low-address
@@ -1472,7 +1577,8 @@ void L1SpillManagement<MemoryTracker>::run() {
                      memoryTracker.getOccupiedL1(), l1BudgetPerCore);
         // CBPeakUsage fixed to 0 as we have no validation result for ToLayoutOp
         // itself which is yet to be decomposed.
-        ensureFitsL1(op, pos, data, derivedL1, /*cbPeakUsage=*/0, derivedL1);
+        ensureFitsL1(op, pos, data, derivedL1, /*cbPeakUsage=*/0, derivedL1,
+                     /*l1BuffersPeakUsage=*/0);
       }
 
       // Regardless of whether the ToLayoutOp's output is L1 or DRAM, we have no
@@ -1575,12 +1681,36 @@ void L1SpillManagement<MemoryTracker>::run() {
     if (result.isSuccess()) {
       uint64_t l1Size = result.outputL1Usage;
 
+      // The backend can report outputL1Usage == 0 for an op whose IR result
+      // type is L1 (seen on the full BEV model: ttnn.reshape
+      // 1x3x1280x2304 -> 1x1x96x92160 with an L1-interleaved result). The
+      // runtime honours the IR type, so the buffer WILL exist (276,480 B/core
+      // in that case) while the tracker would carry 0 for it; the consumer's
+      // CB/capacity checks then under-count L1 by that much and the program
+      // clashes with its circular buffers at runtime. Fall back to the
+      // layout-derived size, as is already done for ToTensorSpecOp.
+      if (l1Size == 0 && hasL1Output) {
+        uint64_t derived = 0;
+        for (auto r : tensorResults) {
+          auto lo = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+              mlir::cast<RankedTensorType>(r.getType()).getEncoding());
+          if (lo && lo.hasL1BufferType()) {
+            derived += utils::getPerCoreL1Usage(
+                lo, ttmlir::utils::volume(lo.getGridShape()));
+          }
+        }
+        SPILL_PROBE("  FIXUP=L1_RESULT_ZERO_USAGE pos={0} op={1} derived={2}",
+                    pos, probeOpName(op), derived);
+        l1Size = derived;
+      }
+
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                    "    VALIDATION SUCCESS: op {0}, "
                    "cbPeakUsage={1}, outputL1={2} bytes",
                    ttmlir::opToString(op), result.cbPeakUsage, l1Size);
 
-      l1Size = ensureFitsL1(op, pos, data, l1Size, result.cbPeakUsage, l1Size);
+      l1Size = ensureFitsL1(op, pos, data, l1Size, result.cbPeakUsage, l1Size,
+                            result.l1BuffersPeakUsage);
       if (rewindIfScheduleShifted()) {
         continue;
       }
@@ -1745,6 +1875,42 @@ void L1SpillManagement<MemoryTracker>::evictAllFromL1(int64_t pos,
 // evictForCBOverlap
 //===----------------------------------------------------------------------===//
 
+//===----------------------------------------------------------------------===//
+// spillLiveUntrackedToLayoutOutputs
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::spillLiveUntrackedToLayoutOutputs(
+    int64_t pos, ScheduleData &data) {
+  llvm::SmallVector<Value> toSpill;
+  for (auto &[val, lastUse] : data.lastUsePositions) {
+    if (lastUse < pos) {
+      continue;
+    }
+    Operation *defOp = val.getDefiningOp();
+    if (!defOp || !isa<ToLayoutOp>(defOp)) {
+      continue;
+    }
+    auto posIt = data.positionMap.find(defOp);
+    if (posIt == data.positionMap.end() || posIt->second >= pos) {
+      continue;
+    }
+    auto tensorType = mlir::dyn_cast<RankedTensorType>(val.getType());
+    if (!tensorType) {
+      continue;
+    }
+    auto lo = mlir::dyn_cast<TTNNLayoutAttr>(tensorType.getEncoding());
+    if (!lo || !lo.hasL1BufferType()) {
+      continue;
+    }
+    toSpill.push_back(val);
+  }
+  for (Value val : toSpill) {
+    SPILL_PROBE("  ACTION=UNTRACKED_TOLAYOUT_SPILL pos={0}", pos);
+    spillToDram(val);
+  }
+}
+
 template <typename MemoryTracker>
 void L1SpillManagement<MemoryTracker>::evictForCBOverlap(
     uint64_t cushionedCBUsage, int64_t pos, ScheduleData &data) {
@@ -1796,40 +1962,11 @@ void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
 
   evictForCBOverlap(dramCBCushioned, pos, data);
 
-  // ToLayoutOp outputs are deliberately excluded from liveValues and
-  // tensorAddresses, so evictForCBOverlap cannot reach them.  However, they
-  // occupy real hardware L1 addresses at runtime and can land within the op's
-  // CB region, causing validate_circular_buffer_region to throw.
-  for (auto &[val, lastUse] : data.lastUsePositions) {
-    if (lastUse < pos) {
-      continue;
-    }
-
-    auto *defOp = val.getDefiningOp();
-    if (!defOp || !isa<ToLayoutOp>(defOp)) {
-      continue;
-    }
-
-    auto posIt = data.positionMap.find(defOp);
-    if (posIt == data.positionMap.end() || posIt->second >= pos) {
-      continue;
-    }
-
-    auto tensorType = mlir::dyn_cast<RankedTensorType>(val.getType());
-    if (!tensorType) {
-      continue;
-    }
-    auto lo = mlir::dyn_cast<TTNNLayoutAttr>(tensorType.getEncoding());
-    if (!lo || !lo.hasL1BufferType()) {
-      continue;
-    }
-
-    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    DRAM_CB_LIVE_TOLAYOUT_SPILL: spilling live untracked L1 "
-                 "ToLayoutOp output at pos={0} (cbPeak={1})",
-                 pos, effectiveCBPeak);
-    spillToDram(val);
-  }
+  // ToLayoutOp outputs are excluded from liveValues and tensorAddresses, so
+  // evictForCBOverlap cannot reach them. They occupy real hardware L1 and can
+  // land within the op's CB region, causing validate_circular_buffer_region to
+  // throw, so they have to be spilled explicitly.
+  spillLiveUntrackedToLayoutOutputs(pos, data);
 }
 
 //===----------------------------------------------------------------------===//

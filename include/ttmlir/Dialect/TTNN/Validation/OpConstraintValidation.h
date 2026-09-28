@@ -50,6 +50,13 @@ struct ValidationResult {
   // CB peak L1 usage from op_model. Only valid if Success.
   uint64_t cbPeakUsage = 0;
 
+  // Peak per-core L1 held by the op's transient (non-output) tensor buffers
+  // during execution, from op_model (tt-metal graph capture
+  // l1_buffers_peak_per_core). These are the "ghost" allocations the address
+  // simulator cannot otherwise see: they are made and released inside the
+  // program and fragment the runtime free list. Only valid if Success.
+  uint64_t l1BuffersPeakUsage = 0;
+
   // Error message if status != Success.
   std::string errorMessage;
 
@@ -57,10 +64,12 @@ struct ValidationResult {
 
   explicit ValidationResult(
       size_t configIndex, llvm::SmallVector<TTNNLayoutAttr> actualOutputLayouts,
-      uint64_t outputL1Usage = 0, uint64_t cbPeakUsage = 0)
+      uint64_t outputL1Usage = 0, uint64_t cbPeakUsage = 0,
+      uint64_t l1BuffersPeakUsage = 0)
       : configIndex(configIndex),
         actualOutputLayouts(std::move(actualOutputLayouts)),
-        outputL1Usage(outputL1Usage), cbPeakUsage(cbPeakUsage) {}
+        outputL1Usage(outputL1Usage), cbPeakUsage(cbPeakUsage),
+        l1BuffersPeakUsage(l1BuffersPeakUsage) {}
 
   // Accessors for the first actual output layout (convenience for single-output
   // ops).
@@ -77,18 +86,20 @@ struct ValidationResult {
   static ValidationResult success(size_t configIndex,
                                   TTNNLayoutAttr actualOutputLayout,
                                   uint64_t outputL1Usage = 0,
-                                  uint64_t cbPeakUsage = 0) {
+                                  uint64_t cbPeakUsage = 0,
+                                  uint64_t l1BuffersPeakUsage = 0) {
     return ValidationResult(
         configIndex, llvm::SmallVector<TTNNLayoutAttr>{actualOutputLayout},
-        outputL1Usage, cbPeakUsage);
+        outputL1Usage, cbPeakUsage, l1BuffersPeakUsage);
   }
 
   static ValidationResult
   success(size_t configIndex,
           llvm::SmallVector<TTNNLayoutAttr> actualOutputLayouts,
-          uint64_t outputL1Usage = 0, uint64_t cbPeakUsage = 0) {
+          uint64_t outputL1Usage = 0, uint64_t cbPeakUsage = 0,
+          uint64_t l1BuffersPeakUsage = 0) {
     return ValidationResult(configIndex, std::move(actualOutputLayouts),
-                            outputL1Usage, cbPeakUsage);
+                            outputL1Usage, cbPeakUsage, l1BuffersPeakUsage);
   }
 
   static ValidationResult error(ValidationStatus status, std::string message) {

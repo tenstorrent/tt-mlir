@@ -370,13 +370,16 @@ private:
     toTileOp->moveAfter(r1);
     toTileOp.getInputMutable().assign(r1.getResult());
 
-    auto origTileTy = mlir::cast<RankedTensorType>(toTileOp.getResult().getType());
-    auto tileLo = TTNNLayoutAttr::Builder(origTileTy)
-                      .setBufferType(BufferType::DRAM)
-                      .setLayout(Layout::Tile)
-                      .setMemoryLayout(TensorMemoryLayout::Interleaved)
-                      .build();
-    auto newTileTy = utils::RankedTensorTypeFactory::create(r1OutRM, tileLo);
+    // The to_layout now sits after the reshape chain, so its result shape is
+    // r1's, not the shape it had before the move. Build the tiled layout from
+    // that shape rather than deriving it from the op's previous result type:
+    // the Builder(RankedTensorType) form copies the source layout's tile grid
+    // and linear map, which still describe the pre-reshape shape. Attaching
+    // those to the new shape yields a layout whose grid does not match its own
+    // tensor (e.g. a 144x48 tile grid on a 1x1x96x73728 tensor that tiles to
+    // 3x2304), and the layouting pass then has to insert extra relayouts to get
+    // back to the grid the consumer wants.
+    auto newTileTy = mkDRAMTileTy(r1OutRM);
     toTileOp.getResult().setType(newTileTy);
 
     SmallPtrSet<Operation *, 2> exceptions{toTileOp};
@@ -610,34 +613,28 @@ private:
     toTileOp->moveAfter(rFlat);
     toTileOp.getInputMutable().assign(rFlat.getResult());
 
-    auto origTileTy = mlir::cast<RankedTensorType>(toTileOp.getResult().getType());
-
     // to_layout can only change layout (RM→TILE), not buffer type per MLIR dialect
-    // rules. Keep tilize output in DRAM; insert to_memory_config for DRAM→L1 move.
-    auto dramTileLo = TTNNLayoutAttr::Builder(origTileTy)
-                          .setBufferType(BufferType::DRAM)
-                          .setLayout(Layout::Tile)
-                          .setMemoryLayout(TensorMemoryLayout::Interleaved)
-                          .build();
-    auto dramTileTy = utils::RankedTensorTypeFactory::create(rFlatOutRM, dramTileLo);
+    // rules. The tilize output stays in DRAM and the matmul reads it from there.
+    //
+    // The layout is built from rFlatOutRM's shape. Deriving it from the op's
+    // previous result type would carry over a tile grid and linear map
+    // describing the pre-reshape [N,C,H,W] shape, leaving a layout that does
+    // not match its own tensor and forcing extra relayouts downstream.
+    //
+    // No DRAM→L1 staging copy is inserted here. This pass runs after
+    // TTNNGreedyL1SpillManagement, so an L1 tensor created here is invisible
+    // to the L1 accounting that pass performed: on the full BEV model the
+    // 96x92160 activation (276,480 B/core, L1 interleaved) sat under the 1D
+    // mcast matmul's 749,568 B of circular buffers and the program failed
+    // validate_circular_buffer_region at runtime. The staging copy also does
+    // not pay for itself on this matmul: the DRAM-fed 96x73728 instances run
+    // in ~134 us while the L1-fed 96x92160 instance took 215 us plus a 93 us
+    // DRAM→L1 copy (Tracy, full BEV model, MLIR trace off).
+    auto dramTileTy = mkDRAMTileTy(rFlatOutRM);
     toTileOp.getResult().setType(dramTileTy);
 
-    // Insert to_memory_config(DRAM TILE → L1 TILE) after to_layout so the downstream
-    // matmul reads activation from L1. Transform 2 keeps this L1 mc intact.
-    auto l1TileLo = TTNNLayoutAttr::Builder(origTileTy)
-                        .setBufferType(BufferType::L1)
-                        .setLayout(Layout::Tile)
-                        .setMemoryLayout(TensorMemoryLayout::Interleaved)
-                        .build();
-    auto l1TileTy = utils::RankedTensorTypeFactory::create(rFlatOutRM, l1TileLo);
-    OpBuilder mcBuilder(toTileOp->getContext());
-    mcBuilder.setInsertionPointAfter(toTileOp);
-    auto mcToL1 = mcBuilder.create<ttnn::ToMemoryConfigOp>(
-        toTileOp.getLoc(), l1TileTy, toTileOp.getResult());
-    mcToL1->setAttr("memory_config", MemoryConfigAttr::get(l1TileLo));
-
     SmallPtrSet<Operation *, 2> exceptions{toTileOp};
-    rFlat.getResult().replaceAllUsesExcept(mcToL1.getResult(), exceptions);
+    rFlat.getResult().replaceAllUsesExcept(toTileOp.getResult(), exceptions);
 
     // ── Transform 2: remove L1 bounce + fuse matmul+add → linear ──────────────
     // The NCHW path lowers ttir::LinearOp(W^T, act, bias) to ttnn::MatmulOp +
@@ -788,10 +785,22 @@ private:
     auto rOutSrcTy = mlir::cast<RankedTensorType>(rOutSrc.getType());
     auto rOutSrcLo = mlir::dyn_cast_or_null<TTNNLayoutAttr>(rOutSrcTy.getEncoding());
     if (rOutSrcLo && rOutSrcLo.getBufferType() == BufferType::L1) {
+      auto dramTileTy = mkDRAMTileTy(rOutSrcTy);
       if (auto mcOp =
               mlir::dyn_cast_or_null<ttnn::ToMemoryConfigOp>(rOutSrc.getDefiningOp())) {
-        auto dramTileTy = mkDRAMTileTy(rOutSrcTy);
         updateMemoryConfig(mcOp, dramTileTy);
+        rOutSrcTy = dramTileTy;
+      } else {
+        // No to_memory_config to retarget -- rOutSrc comes straight from
+        // another op (e.g. the linear result picked up at the top of this
+        // function). Spill L1 -> DRAM explicitly: ttnn.to_layout may only
+        // change page layout and dtype, never buffer type, so without this
+        // the to_layout built below would be an invalid L1 -> DRAM op.
+        OpBuilder sb(rOut->getContext());
+        sb.setInsertionPoint(rOut);
+        rOutSrc = sb.create<ttnn::ToMemoryConfigOp>(rOut.getLoc(), dramTileTy,
+                                                    rOutSrc)
+                      .getResult();
         rOutSrcTy = dramTileTy;
       }
     }

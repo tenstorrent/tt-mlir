@@ -2331,6 +2331,59 @@ mlir::OpFoldResult ttnn::ToLayoutOp::fold(FoldAdaptor adaptor) {
   return nullptr;
 }
 
+// ToMemoryConfigOp folder
+//
+// Two cases, both of which leave the tensor in exactly the memory
+// configuration it already had:
+//
+//  1. Identity. The input layout equals the result layout, so the op moves
+//     nothing.
+//
+//  2. Cancelling round trip. The producer is another to_memory_config and this
+//     op returns the tensor to the producer's input type:
+//
+//       %a = to_memory_config(%x)   // X -> M
+//       %b = to_memory_config(%a)   // M -> X
+//
+//     %b is just %x. This shows up when a pass retypes an op and the layouting
+//     pass then routes the tensor out to a different memory space and straight
+//     back.
+//
+// The round-trip case only folds when the excursion is into L1 from a
+// non-L1 space. Folding an L1 -> DRAM -> L1 round trip would instead keep the
+// value resident in L1 across the ops in between, which can raise L1 pressure
+// that the allocator had accounted for; ToLayoutOp's consecutive-op folder
+// declines that case for the same reason.
+mlir::OpFoldResult ttnn::ToMemoryConfigOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldIdentityToLayoutOp(*this)) {
+    return foldResult;
+  }
+
+  auto producerOp = getInput().getDefiningOp<ttnn::ToMemoryConfigOp>();
+  if (!producerOp) {
+    return nullptr;
+  }
+
+  mlir::Value original = producerOp.getInput();
+  if (original.getType() != getResult().getType()) {
+    return nullptr;
+  }
+
+  auto intermediateLayout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
+      producerOp.getResult().getType().getEncoding());
+  auto originalLayout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
+      mlir::cast<mlir::RankedTensorType>(original.getType()).getEncoding());
+  if (!intermediateLayout || !originalLayout) {
+    return nullptr;
+  }
+  if (intermediateLayout.getBufferType() != BufferType::L1 ||
+      originalLayout.getBufferType() == BufferType::L1) {
+    return nullptr;
+  }
+
+  return original;
+}
+
 //===----------------------------------------------------------------------===//
 // ToTensorSpecOp
 //===----------------------------------------------------------------------===//
