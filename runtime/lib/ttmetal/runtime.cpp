@@ -545,6 +545,10 @@ void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
   }
 }
 
+void deviceSynchronize(Device device, std::optional<uint8_t> cqId) {
+  LOG_FATAL("deviceSynchronize is not supported for the ttmetal runtime");
+}
+
 uint32_t getNumShards(Tensor tensor) {
   return std::visit(
       utils::overloaded{

@@ -6,6 +6,7 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -625,6 +626,31 @@ public:
 };
 } // namespace
 
+// ttnn.linear / ttnn.matmul accept four matmul_program_config flavours, but
+// EmitCTypeConverter only implements multi_core_reuse_multi_cast_1d. An
+// unconvertible config would silently become std::nullopt, and ttnn then
+// re-derives a program config at runtime and picks the non-optimized path --
+// which rejects a sharded output with "Unsupported op for output sharding".
+// That failure only surfaces when the generated dylib runs, long after
+// compilation reported success, so refuse to convert instead of emitting code
+// that is known to abort.
+namespace {
+static LogicalResult
+verifyMatmulProgramConfigEmittable(mlir::Operation *op, mlir::Attribute config,
+                                   ConversionPatternRewriter &rewriter) {
+  if (!config ||
+      mlir::isa<
+          mlir::tt::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(
+          config)) {
+    return success();
+  }
+  return rewriter.notifyMatchFailure(
+      op, "matmul_program_config flavour is not implemented by TTNNToEmitC "
+          "(only matmul_multi_core_reuse_multi_cast_1d is); emitting "
+          "std::nullopt instead would produce a dylib that aborts at runtime");
+}
+} // namespace
+
 // Linear op conversion pattern
 //
 namespace {
@@ -643,6 +669,11 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::LinearOp> emitter(
         srcOp, adaptor, rewriter);
 
+    if (failed(verifyMatmulProgramConfigEmittable(
+            srcOp, srcOp.getMatmulProgramConfigAttr(), rewriter))) {
+      return failure();
+    }
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getA()),
         emitter.emit(srcOp.getB()),
@@ -651,7 +682,18 @@ public:
         emitter.emit(srcOp.getTransposeB()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
         emitter.emit(emitter.getOutputDtype(srcOp.getResult())),
-        /*program_config=*/emitter.emit(std::nullopt),
+        // Must forward the optimizer's matmul_program_config. Dropping it (this
+        // used to emit std::nullopt unconditionally) makes ttnn re-derive a
+        // program config at runtime and fall back to the non-optimized path,
+        // which rejects a sharded output with "Unsupported op for output
+        // sharding" -- the flatbuffer path forwards it, so only EmitC failed.
+        //
+        // The converter only understands the multi_core_reuse_multi_cast_1d
+        // flavour; the other three attributes LinearOp accepts still convert to
+        // std::nullopt and would hit the same runtime error.
+        /*program_config=*/
+        emitter.emit<ttnn_to_emitc::SparseMatmulProgramConfig>(
+            srcOp.getMatmulProgramConfigAttr()),
         emitter.emit(srcOp.getActivation()),
         emitter.emit(srcOp.getComputeConfig()),
     };
@@ -682,6 +724,11 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::MatmulOp> emitter(
         srcOp, adaptor, rewriter);
 
+    if (failed(verifyMatmulProgramConfigEmittable(
+            srcOp, srcOp.getMatmulProgramConfigAttr(), rewriter))) {
+      return failure();
+    }
+
     // ANCHOR: adding_an_op_matmul_ttnn_to_emitc_array_attrs
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getA()),
@@ -690,7 +737,12 @@ public:
         emitter.emit(srcOp.getTransposeB()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
         emitter.emit(emitter.getOutputDtype(srcOp.getResult())),
-        /*program_config=*/emitter.emit(std::nullopt),
+        // See the note in LinearOpConversionPattern: forwarding
+        // matmul_program_config is what keeps ttnn on the optimized path, which
+        // is the only one that supports a sharded output.
+        /*program_config=*/
+        emitter.emit<ttnn_to_emitc::SparseMatmulProgramConfig>(
+            srcOp.getMatmulProgramConfigAttr()),
         emitter.emit(srcOp.getActivation()),
         emitter.emit(srcOp.getComputeConfig()),
     };
@@ -1208,6 +1260,63 @@ public:
 // CumSum op conversion pattern
 //
 namespace {
+class PixelUnshuffleOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::PixelUnshuffleOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PixelUnshuffleOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PixelUnshuffleOp srcOp,
+                  mlir::tt::ttnn::PixelUnshuffleOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PixelUnshuffleOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // The op carries no output-layout attribute, so take the layout off the
+    // result type and pass it explicitly.
+    //
+    // Leaving this at ttnn's default is not equivalent. ttnn::pixel_unshuffle
+    // returns ROW_MAJOR unless told otherwise, while the result type here is
+    // usually tiled. The flatbuffer runtime reconciles the two -- it
+    // materialises the declared layout, inserting a Tilize when the op returns
+    // something else -- but EmitC emits raw ttnn:: calls with no such step, so
+    // whatever the op returns propagates. On BEV block A that left a
+    // [147456, 24] tensor row-major through concat/permute/copy, and the copy
+    // cost 972us against 76us tiled: the whole device-time gap between the two
+    // pipelines came from this one parameter.
+    mlir::RankedTensorType resultType =
+        mlir::cast<mlir::RankedTensorType>(srcOp.getResult().getType());
+    auto resultLayoutAttr =
+        mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+    mlir::tt::ttnn::LayoutAttr outputLayoutAttr =
+        mlir::tt::ttnn::LayoutAttr::get(srcOp.getContext(),
+                                        resultLayoutAttr.isTiled()
+                                            ? mlir::tt::ttnn::Layout::Tile
+                                            : mlir::tt::ttnn::Layout::RowMajor);
+
+    // ::ttnn::pixel_unshuffle(input, downscale_factor, memory_config,
+    //                         output_layout, channel_order)
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(static_cast<uint32_t>(srcOp.getDownscaleFactor())),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
+        emitter.emit(outputLayoutAttr),
+        emitter.emit(srcOp.getChannelOrder()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+// CumSum op conversion pattern
+//
+namespace {
 class CumSumOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::CumSumOp> {
 
@@ -1586,8 +1695,13 @@ public:
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getConv2dConfig()),
         emitter.emit(srcOp.getComputeConfig()),
-        emitter.emit(srcOp.getMirrorKernel()),
+        // Order matters: ttnn::prepare_conv_transpose2d_weights takes
+        // dram_slice_config_ before mirror_kernel (which is defaulted).
+        // Emitting mirror_kernel first makes the generated dylib fail to
+        // compile -- a bool cannot bind to const std::optional<const
+        // Conv2dSliceConfig>&.
         emitter.emit(srcOp.getConv2dSliceConfig()),
+        emitter.emit(srcOp.getMirrorKernel()),
     };
 
     emitter.replaceOp(*this, args);
@@ -5300,6 +5414,49 @@ public:
       Block &elseBlock = ifOp.getElseRegion().getBlocks().front();
       rewriter.setInsertionPointToStart(&elseBlock);
 
+      // Refresh the trace input slots before replaying. A trace reads from the
+      // slots captured on its first run, so without this every later call
+      // re-executes the first call's inputs. The flatbuffer runtime performs
+      // the same copy before each replay.
+      //
+      // Only runtime-varying inputs are refreshed. Constants and parameters --
+      // weights, and const-eval results, which are the bulk of the operands --
+      // are device-resident and identical on every call, so copying them per
+      // frame would cost a device round-trip each for no effect. The runtime
+      // reaches the same conclusion dynamically via its version check.
+      {
+        auto parentFunc = srcOp->template getParentOfType<func::FuncOp>();
+        llvm::SmallPtrSet<mlir::BlockArgument, 4> constsAndParams =
+            parentFunc ? ttcore::getConstsAndParams(parentFunc)
+                       : llvm::SmallPtrSet<mlir::BlockArgument, 4>{};
+
+        for (size_t i = 0; i < traceInputVariable.size(); ++i) {
+          mlir::Value origInput = srcOp.getInputs()[i];
+
+          // Two forms reach here depending on whether TTNNTuplifyTensors has
+          // already run. Before it, a static operand is a const/param block
+          // argument. After it the block arguments are gone -- the signature is
+          // one tuple -- and the surviving marker of a static operand is that
+          // it is produced by a const-eval `load_cached`, which tuplification
+          // leaves in place. Test both so the filter holds either way.
+          bool isStatic = false;
+          if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(origInput)) {
+            isStatic = constsAndParams.contains(blockArg);
+          } else if (mlir::Operation *def = origInput.getDefiningOp()) {
+            isStatic = mlir::isa<ttcore::LoadCachedOp>(def);
+          }
+          if (isStatic) {
+            continue;
+          }
+          rewriter.create<emitc::CallOpaqueOp>(
+              loc, TypeRange{}, ttnn_to_emitc::kRefreshTraceInputFunctionName,
+              /*args=*/nullptr, /*template_args=*/nullptr,
+              ValueRange{
+                  block->getArgument(i),
+                  loadGlobalVariable(rewriter, loc, traceInputVariable[i])});
+        }
+      }
+
       // execute_callee(trace_id);
       rewriter.create<emitc::CallOpaqueOp>(
           loc, TypeRange{}, srcOp.getExecuteCallee(), nullptr, nullptr,
@@ -5903,17 +6060,17 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Other ops
   //
-  patterns
-      .add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
-           DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
-           CumSumOpConversionPattern, CumProdOpConversionPattern,
-           BatchNormInferenceOpConversionPattern, AdamWOpConversionPattern,
-           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-           RMSNormPreAllGatherOpConversionPattern,
-           DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,
-           LayerNormPreAllGatherOpConversionPattern,
-           LayerNormPostAllGatherOpConversionPattern,
-           GroupNormOpConversionPattern>(typeConverter, ctx);
+  patterns.add<
+      SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
+      DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
+      CumSumOpConversionPattern, CumProdOpConversionPattern,
+      PixelUnshuffleOpConversionPattern, BatchNormInferenceOpConversionPattern,
+      AdamWOpConversionPattern, BatchNormTrainingOpConversionPattern,
+      RMSNormOpConversionPattern, RMSNormPreAllGatherOpConversionPattern,
+      DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,
+      LayerNormPreAllGatherOpConversionPattern,
+      LayerNormPostAllGatherOpConversionPattern, GroupNormOpConversionPattern>(
+      typeConverter, ctx);
 
   // CCL ops
   //

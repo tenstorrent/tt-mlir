@@ -233,6 +233,9 @@ void wait(::tt::runtime::Tensor tensor,
 void wait(const std::vector<::tt::runtime::Tensor> &tensors,
           std::optional<uint8_t> cqId = std::nullopt);
 
+void deviceSynchronize(::tt::runtime::Device device,
+                       std::optional<uint8_t> cqId = std::nullopt);
+
 uint32_t getNumShards(::tt::runtime::Tensor tensor);
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
                                           bool untilize = false,

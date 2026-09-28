@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <tt-metalium/distributed.hpp>
 #include "Constants.h"
 
 #include "operations/cpu/cpu.h"
@@ -862,6 +863,13 @@ void wait(const std::vector<::tt::runtime::Tensor> &tensors,
   }
 }
 
+void deviceSynchronize(::tt::runtime::Device device,
+                       std::optional<uint8_t> cqId) {
+  ::ttnn::MeshDevice &meshDevice =
+      device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  ::tt::tt_metal::distributed::Synchronize(&meshDevice, cqId);
+}
+
 uint32_t getNumShards(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
       utils::getTTNNTensorFromRuntimeTensor(tensor);
@@ -881,8 +889,15 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
       ::ttnn::distributed::get_device_tensors(
           utils::getTTNNTensorFromRuntimeTensor(multiDeviceHostTensor));
 
+  // Take the event from the host tensor toHostSingleTensor just produced, not
+  // from the input device tensor. A non-blocking read records its event inside
+  // toHostSingleTensor; the input tensor has no event of its own (an output of
+  // submit() never does), so reading it here stamped nullopt onto every shard
+  // and made wait() on the result a silent no-op -- the read was never awaited.
   const std::optional<::ttnn::MeshEvent> &meshEvent =
-      tensorWrapper.getMeshEvent();
+      multiDeviceHostTensor
+          .as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
+          .getMeshEvent();
 
   std::vector<::tt::runtime::Tensor> hostTensors;
   for (const ::ttnn::Tensor &tensor : singleTensors) {

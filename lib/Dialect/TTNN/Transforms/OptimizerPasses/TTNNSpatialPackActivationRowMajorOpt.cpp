@@ -70,7 +70,9 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinTypes.h"
 
 #include "llvm/ADT/SmallVector.h"
 
@@ -145,9 +147,154 @@ public:
       process(toTileOp);
       processNCHW(toTileOp);
     }
+
+    legalizeLayoutOps(mod);
+    restoreReturnTypes(mod);
   }
 
 private:
+  // process() and processNCHW() both run over every candidate and rewrite
+  // layouts by mutating types in place, so a value retyped by one path can end
+  // up feeding a ttnn.to_layout created or retyped by the other. ttnn.to_layout
+  // is deliberately the narrow op -- page layout and dtype only, never buffer
+  // type, memory layout or grid (see ToLayoutOp::verify) -- so those
+  // interactions can leave one straddling an aggregate change, e.g. an
+  // L1 TILE -> DRAM ROW_MAJOR op that is both an untilize and an L1 spill.
+  //
+  // Rather than chase every ordering between the two paths, legalize once here
+  // by splitting the aggregate change into the two ops that are each allowed to
+  // do their half: a ttnn.to_memory_config that moves the memory config while
+  // preserving the page layout, feeding the existing ttnn.to_layout which is
+  // then left doing only the retile.
+  //
+  // Note this deliberately does NOT emit ttnn.to_tensor_spec, even though that
+  // is what the ToLayoutOp verifier's diagnostic suggests: to_tensor_spec relies
+  // on TTNNDecomposeLayouts to split it, and this pass runs *after* that pass
+  // (it exists to repair what DecomposeLayouts did to the packing chain), so a
+  // to_tensor_spec created here would survive to the backend and fail to
+  // legalize -- EmitC has no pattern for it.
+  static void legalizeLayoutOps(ModuleOp mod) {
+    SmallVector<ttnn::ToLayoutOp> overBroad;
+    mod.walk([&](ttnn::ToLayoutOp op) {
+      auto inTy = mlir::dyn_cast<RankedTensorType>(op.getInput().getType());
+      auto outTy = mlir::dyn_cast<RankedTensorType>(op.getResult().getType());
+      if (!inTy || !outTy) {
+        return;
+      }
+      auto inLo = mlir::dyn_cast_or_null<TTNNLayoutAttr>(inTy.getEncoding());
+      auto outLo = mlir::dyn_cast_or_null<TTNNLayoutAttr>(outTy.getEncoding());
+      if (!inLo || !outLo) {
+        return;
+      }
+      if (inLo.getBufferType() != outLo.getBufferType() ||
+          inLo.getMemLayoutOpt() != outLo.getMemLayoutOpt() ||
+          inLo.getGridShape() != outLo.getGridShape()) {
+        overBroad.push_back(op);
+      }
+    });
+
+    for (ttnn::ToLayoutOp op : overBroad) {
+      auto inTy = mlir::cast<RankedTensorType>(op.getInput().getType());
+      auto outTy = mlir::cast<RankedTensorType>(op.getResult().getType());
+      auto inLo = mlir::cast<TTNNLayoutAttr>(inTy.getEncoding());
+      auto outLo = mlir::cast<TTNNLayoutAttr>(outTy.getEncoding());
+
+      // The rewrites above only ever retarget to DRAM interleaved. Anything
+      // else was not produced here, so leave it to whoever created it rather
+      // than guess at a split.
+      std::optional<TensorMemoryLayout> outMemLayout = outLo.getMemLayoutOpt();
+      if (outLo.getBufferType() != BufferType::DRAM || !outMemLayout ||
+          *outMemLayout != TensorMemoryLayout::Interleaved) {
+        continue;
+      }
+
+      // Keep the input's page layout across the memory move so the
+      // to_memory_config does not have to retile (which it cannot do).
+      RankedTensorType midTy = inLo.getLayout() == Layout::Tile
+                                   ? mkDRAMTileTy(inTy)
+                                   : mkDRAMRowMajorTy(inTy);
+      OpBuilder b(op);
+      auto mc =
+          b.create<ttnn::ToMemoryConfigOp>(op.getLoc(), midTy, op.getInput());
+      op.getInputMutable().assign(mc.getResult());
+    }
+  }
+
+  // process()/processNCHW() rewrite layouts by mutating result types in place
+  // (setType / updateMemoryConfig). When a mutated value flows to a func.return
+  // the enclosing function's declared result type goes stale and the verifier
+  // rejects it with "type of return operand N ... doesn't match function result
+  // type".
+  //
+  // This bites const-eval functions in particular: their bodies are ordinary
+  // device-module functions ending in func.return, so a packed activation chain
+  // rewritten inside one leaves the signature behind. It only shows up on paths
+  // that keep const-eval subgraphs in the device module (e.g. EmitC, which sets
+  // enableCPUHoistedConstEval=false -- issue #6100); the flatbuffer path hoists
+  // them to the CPU module, where this pass never runs.
+  //
+  // Convert back to the declared type at the return instead of rewriting the
+  // signature: the signature is the function's contract, and its callers
+  // (ttcore.load_cached for const-eval functions) carry matching result types
+  // that this pass has no business changing. Inside a const-eval function the
+  // extra conversion is executed once and cached, so it costs nothing at
+  // runtime.
+  static void restoreReturnTypes(ModuleOp mod) {
+    mod.walk([](func::FuncOp func) {
+      if (func.isDeclaration()) {
+        return;
+      }
+      FunctionType fnType = func.getFunctionType();
+      for (Block &block : func.getBody()) {
+        auto returnOp =
+            mlir::dyn_cast_or_null<func::ReturnOp>(block.getTerminator());
+        if (!returnOp || returnOp.getNumOperands() != fnType.getNumResults()) {
+          continue;
+        }
+        for (unsigned i = 0; i < returnOp.getNumOperands(); ++i) {
+          Value operand = returnOp.getOperand(i);
+          auto actualTy = mlir::dyn_cast<RankedTensorType>(operand.getType());
+          auto declaredTy =
+              mlir::dyn_cast<RankedTensorType>(fnType.getResult(i));
+          if (!actualTy || !declaredTy || actualTy == declaredTy) {
+            continue;
+          }
+          // Only a layout difference is this pass's doing. A shape mismatch
+          // means something else is wrong -- leave it for the verifier rather
+          // than papering over it with a bogus conversion.
+          if (actualTy.getShape() != declaredTy.getShape()) {
+            continue;
+          }
+          auto actualLo =
+              mlir::dyn_cast_or_null<TTNNLayoutAttr>(actualTy.getEncoding());
+          auto declaredLo =
+              mlir::dyn_cast_or_null<TTNNLayoutAttr>(declaredTy.getEncoding());
+          if (!actualLo || !declaredLo) {
+            continue;
+          }
+
+          // ttnn.to_memory_config cannot retile or retype; those aggregate
+          // changes are ttnn.to_tensor_spec's job (TTNNDecomposeLayouts splits
+          // it into to_device / to_memory_config / typecast / to_layout).
+          bool needsAggregate =
+              actualLo.getLayout() != declaredLo.getLayout() ||
+              actualTy.getElementType() != declaredTy.getElementType();
+
+          OpBuilder b(returnOp);
+          Value restored =
+              needsAggregate
+                  ? b.create<ttnn::ToTensorSpecOp>(returnOp.getLoc(),
+                                                   declaredTy, operand)
+                        .getResult()
+                  : b.create<ttnn::ToMemoryConfigOp>(returnOp.getLoc(),
+                                                     declaredTy, operand)
+                        .getResult();
+          returnOp.setOperand(i, restored);
+        }
+      }
+    });
+  }
+
   void process(ttnn::ToLayoutOp toTileOp) {
     // ── Match: to_layout(TILE) → reshape → permute → reshape ─────────────────
     ttnn::ReshapeOp r0;

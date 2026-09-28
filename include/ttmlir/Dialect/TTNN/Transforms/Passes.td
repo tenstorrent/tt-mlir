@@ -1130,4 +1130,31 @@ def TTNNSpatialPackActivationRowMajorOpt : Pass<"ttnn-spatial-pack-activation-rm
   let dependentDialects = ["mlir::tt::ttnn::TTNNDialect"];
 }
 
+def TTNNDumpModule : Pass<"ttnn-dump-module", "::mlir::ModuleOp"> {
+  let summary = "Write the current module to a file.";
+  let description = [{
+    Writes the module to `path` and leaves it otherwise untouched.
+
+    This exists because the TTNN form of a module lowered towards EmitC is
+    otherwise unrecoverable. `ttir-to-emitc-pipeline` ends in
+    `convert-ttnn-to-emitc`, which rewrites the module in place, so by the time
+    the pipeline returns there is no TTNN IR left to inspect -- while the
+    flatbuffer pipeline ends in TTNN and can simply be printed. That asymmetry
+    makes the two pipelines impossible to compare at the TTNN level, which is
+    the level at which they are supposed to agree.
+
+    Scheduling this immediately before the conversion captures the TTNN module
+    the EmitC backend actually consumes. It is a debugging aid: it mutates
+    nothing, and a failure to open the file is a warning rather than an error,
+    so a bad path cannot break a compile.
+  }];
+
+  let options = [
+    Option<"path", "path", "std::string", /*default=*/"\"\"",
+           "File to write the module to. No output when empty.">,
+  ];
+
+  let dependentDialects = ["mlir::tt::ttnn::TTNNDialect"];
+}
+
 #endif

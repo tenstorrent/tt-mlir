@@ -61,6 +61,95 @@ public:
   }
 };
 
+// Tensor vectors are materialized as named `std::vector<::ttnn::Tensor>`
+// locals: `util_create_vec` builds one for a variadic operand list, and ops
+// such as `ttnn::max_pool2d` return one that the generated code indexes into.
+// Either way the local lives until the enclosing function returns, so it keeps
+// a second reference to every tensor it holds. `ttnn::deallocate` frees a
+// buffer only when its handle is the last one referencing it, so the
+// deallocations the compiler emitted for those tensors become silent no-ops and
+// their L1 buffers are never released. The flatbuffer runtime does not have
+// this problem: it holds tensors in a pool and drops its reference right after
+// the op runs.
+//
+// Restore that behaviour by releasing each vector as soon as its last consumer
+// has run, which re-establishes the sole ownership that the deallocation passes
+// assume. A vector that escapes the function is owned by the caller and is left
+// untouched.
+static void releaseVariadicOperandVectors(mlir::ModuleOp module) {
+  module->walk([](func::FuncOp funcOp) {
+    if (funcOp.isDeclaration()) {
+      return;
+    }
+
+    // Only values produced by a call are considered: that covers both
+    // `util_create_vec` and ops returning a tensor vector, while leaving reads
+    // of the const-eval result globals alone, since those are owned by the
+    // cache rather than by the function.
+    auto vectorTy = emitc::OpaqueType::get(
+        funcOp.getContext(),
+        mlir::tt::ttnn_to_emitc::TypeNameV<std::vector<::ttnn::Tensor>>);
+
+    llvm::SmallVector<emitc::CallOpaqueOp> vectorOps;
+    funcOp.walk([&](emitc::CallOpaqueOp callOp) {
+      if (callOp.getNumResults() == 1 &&
+          callOp.getResult(0).getType() == vectorTy) {
+        vectorOps.push_back(callOp);
+      }
+    });
+
+    OpBuilder builder(funcOp.getContext());
+    for (emitc::CallOpaqueOp vectorOp : vectorOps) {
+      Value vector = vectorOp.getResult(0);
+
+      // Find the last consumer of the vector within the block that defines it.
+      // A use in another block, or no use at all, means the lifetime cannot be
+      // reasoned about locally, so the vector is left alone.
+      //
+      // Uses are followed through ops that yield a reference into the vector
+      // rather than a value copied out of it: an element is read as a
+      // `subscript` producing an lvalue followed by a `load` consuming it, and
+      // both fold into a single `vec[i]` expression when the C++ is emitted.
+      // Only the `load` copies the element out, so releasing after the
+      // `subscript` would clear the vector before it is read.
+      Operation *lastUser = nullptr;
+      bool releasable = !vector.use_empty();
+      llvm::SmallVector<Value> worklist{vector};
+      llvm::SmallPtrSet<Operation *, 8> visited;
+      while (releasable && !worklist.empty()) {
+        Value value = worklist.pop_back_val();
+        for (Operation *user : value.getUsers()) {
+          if (user->getBlock() != vectorOp->getBlock() ||
+              mlir::isa<func::ReturnOp>(user)) {
+            releasable = false;
+            break;
+          }
+          if (!lastUser || lastUser->isBeforeInBlock(user)) {
+            lastUser = user;
+          }
+          if (!visited.insert(user).second) {
+            continue;
+          }
+          for (Value result : user->getResults()) {
+            if (mlir::isa<emitc::LValueType>(result.getType())) {
+              worklist.push_back(result);
+            }
+          }
+        }
+      }
+      if (!releasable || !lastUser) {
+        continue;
+      }
+
+      builder.setInsertionPointAfter(lastUser);
+      builder.create<emitc::CallOpaqueOp>(
+          vectorOp.getLoc(), TypeRange{},
+          mlir::tt::ttnn_to_emitc::kReleaseVectorFunctionName,
+          /*args=*/nullptr, /*template_args=*/nullptr, ValueRange{vector});
+    }
+  });
+}
+
 struct ConvertTTNNToEmitCPass
     : public mlir::tt::ttnn::impl::ConvertTTNNToEmitCBase<
           ConvertTTNNToEmitCPass> {
@@ -135,6 +224,8 @@ struct ConvertTTNNToEmitCPass
         return;
       }
     }
+
+    releaseVariadicOperandVectors(module);
   }
 };
 

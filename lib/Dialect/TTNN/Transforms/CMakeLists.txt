@@ -69,6 +69,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Decomposition/TopKDecompositionRewritePattern.cpp
         Decomposition/TTNNDecompositionPass.cpp
         OpValidator.cpp
+        TTNNDumpModule.cpp
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp
         TTNNFusing.cpp

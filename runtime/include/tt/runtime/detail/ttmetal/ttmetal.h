@@ -136,6 +136,9 @@ void wait(Tensor tensor, std::optional<uint8_t> cqId = std::nullopt);
 void wait(const std::vector<Tensor> &tensors,
           std::optional<uint8_t> cqId = std::nullopt);
 
+void deviceSynchronize(Device device,
+                       std::optional<uint8_t> cqId = std::nullopt);
+
 std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking);
 
 uint32_t getNumShards(Tensor tensor);

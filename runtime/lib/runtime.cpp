@@ -957,6 +957,17 @@ void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
       [&]() { detail::fatalNotImplemented("wait", HostRuntime::Distributed); });
 }
 
+void deviceSynchronize(Device device, std::optional<uint8_t> cqId) {
+  using RetType = void;
+  DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() { ::tt::runtime::ttnn::deviceSynchronize(device, cqId); },
+      [&]() { ::tt::runtime::ttmetal::deviceSynchronize(device, cqId); },
+      [&]() {
+        detail::fatalNotImplemented("deviceSynchronize",
+                                    HostRuntime::Distributed);
+      });
+}
+
 std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
   using RetType = std::vector<Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(

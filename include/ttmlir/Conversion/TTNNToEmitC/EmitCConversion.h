@@ -625,6 +625,26 @@ struct EmitCTypeConverter<::ttnn::types::ShardOrientation> {
   }
 };
 
+// Spelled out rather than routed through
+// TypeName<::ttnn::PixelUnshuffleChannelOrder>: that C++ enum lives in
+// ttnn/operations/data_movement/pixel_unshuffle/pixel_unshuffle.hpp, which is
+// not pulled in here, so the type cannot be named as a template argument.
+// Converting from the MLIR enum keeps this header dependency-free (the EmitPy
+// converter does the same).
+template <>
+struct EmitCTypeConverter<::mlir::tt::ttnn::PixelUnshuffleChannelOrder> {
+  static std::string
+  convert(::mlir::tt::ttnn::PixelUnshuffleChannelOrder order) {
+    switch (order) {
+    case ::mlir::tt::ttnn::PixelUnshuffleChannelOrder::ChannelMajor:
+      return "::ttnn::PixelUnshuffleChannelOrder::CHANNEL_MAJOR";
+    case ::mlir::tt::ttnn::PixelUnshuffleChannelOrder::SpatialMajor:
+      return "::ttnn::PixelUnshuffleChannelOrder::SPATIAL_MAJOR";
+    }
+    llvm_unreachable("Unknown ttnn::PixelUnshuffleChannelOrder");
+  }
+};
+
 template <>
 struct EmitCTypeConverter<::ttnn::DataType> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
@@ -2013,6 +2033,15 @@ static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
 // Name for the function that creates a std::vector from a variadic number of
 // `ttnn::Tensor`s.
 inline constexpr const char *kCreateVectorFunctionName = "util_create_vec";
+
+// Name for the function that releases the `ttnn::Tensor` references held by a
+// vector created by `kCreateVectorFunctionName`.
+inline constexpr const char *kReleaseVectorFunctionName = "util_release_vec";
+
+// Name for the function that copies a call's input into the trace input slot
+// the traced program reads from.
+inline constexpr const char *kRefreshTraceInputFunctionName =
+    "util_refresh_trace_input";
 
 // Name for the function that gets a scalar (uint32_t) from a `ttnn::Tensor`.
 inline constexpr const char *kGetScalarFromTensorFunctionName =

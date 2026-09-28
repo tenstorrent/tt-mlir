@@ -14,6 +14,13 @@
 #include "operations/conv/conv2d/conv2d.hpp"
 #include "operations/conv/conv2d/prepare_conv2d_weights.hpp"
 #include "operations/conv/conv_transpose2d/conv_transpose2d.hpp"
+// Declares
+// ttnn::operations::conv::conv_transpose2d::prepare_conv_transpose2d_{weights,bias},
+// which TTNNToEmitC emits for PrepareConvTranspose2dWeights/Bias ops. Without
+// it the generated dylib fails to compile with "no member named
+// 'prepare_conv_transpose2d_weights'". Mirrors the conv2d and conv3d entries,
+// which already include their prepare_*_weights headers.
+#include "operations/conv/conv_transpose2d/prepare_conv_transpose2d_weights.hpp"
 #include "operations/core/core.hpp"
 #include "operations/creation/creation.hpp"
 #include "operations/data_movement/concat/concat.hpp"
@@ -21,6 +28,9 @@
 #include "operations/data_movement/moe_expert_token_remap/moe_expert_token_remap.hpp"
 #include "operations/data_movement/pad/pad.hpp"
 #include "operations/data_movement/permute/permute.hpp"
+// Declares ttnn::pixel_unshuffle and ttnn::PixelUnshuffleChannelOrder, emitted
+// by the TTNNToEmitC PixelUnshuffleOpConversionPattern.
+#include "operations/data_movement/pixel_unshuffle/pixel_unshuffle.hpp"
 #include "operations/data_movement/repeat/repeat.hpp"
 #include "operations/data_movement/repeat_interleave/repeat_interleave.hpp"
 #include "operations/data_movement/reshape_view/reshape.hpp"
@@ -55,8 +65,8 @@
 #include "operations/normalization/rmsnorm_distributed/rmsnorm_pre_all_gather.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/pool/generic/generic_pools.hpp"
-#include "operations/pool/upsample/upsample.hpp"
 #include "operations/pool/grid_sample/grid_sample.hpp"
+#include "operations/pool/upsample/upsample.hpp"
 #include "operations/rand/rand.hpp"
 #include "operations/reduction/accumulation/cumsum/cumsum.hpp"
 #include "operations/reduction/argmax/argmax.hpp"
@@ -85,6 +95,7 @@
 #include "ttnn/operations/reduction/topk/topk.hpp"
 #include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/tensor.hpp"
+#include "ttnn/tensor/tensor_ops.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/types.hpp"
 #include "workarounds.hpp"
@@ -101,6 +112,32 @@
 template <typename... T>
 std::vector<ttnn::Tensor> util_create_vec(T &&...t) {
   return std::vector<ttnn::Tensor>{std::forward<T>(t)...};
+}
+
+// Drops the `ttnn::Tensor` references a variadic-operand vector holds once its
+// consuming op has run. Without this the vector, being a function-scoped local,
+// keeps a second reference to every tensor it was built from alive until the
+// function returns, so `ttnn::deallocate` sees a use count greater than one and
+// silently frees nothing.
+inline void util_release_vec(std::vector<ttnn::Tensor> &vec) { vec.clear(); }
+
+// Copies one call's input into the trace input slot the traced program reads
+// from. A trace replays against the slots captured on its first run, so new
+// data only reaches it if it is written into those slots first; the flatbuffer
+// runtime does the same before every replay (see
+// runtime/lib/ttnn/operations/trace/capture_or_execute_trace.cpp).
+// `dst` is taken by value on purpose: a ttnn::Tensor is a handle onto a device
+// buffer, so the copy still lands in the trace slot, and the call can then be
+// emitted with a loaded value rather than an lvalue, which emitc.call_opaque
+// does not accept as an operand.
+inline void util_refresh_trace_input(const ttnn::Tensor &src,
+                                     ttnn::Tensor dst) {
+  if (src.storage_type() == ttnn::StorageType::DEVICE) {
+    ttnn::Tensor host_src = ttnn::from_device(src);
+    ttnn::copy_to_device(host_src, dst);
+  } else {
+    ttnn::copy_to_device(src, dst);
+  }
 }
 
 namespace ttnn {

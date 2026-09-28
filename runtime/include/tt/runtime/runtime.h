@@ -216,6 +216,11 @@ void wait(Tensor tensor, std::optional<uint8_t> cqId = std::nullopt);
 void wait(const std::vector<Tensor> &tensors,
           std::optional<uint8_t> cqId = std::nullopt);
 
+// Blocks until the device has finished all previously enqueued work on the given
+// command queue. Lets a caller separate device execution time from readback
+// time; without it a blocking toHost() reports both as one number.
+void deviceSynchronize(Device device, std::optional<uint8_t> cqId = std::nullopt);
+
 // Copies device tensor data to host tensor with owned storage, with option to
 // untilize data.
 std::vector<Tensor> toHost(Tensor tensor, bool untilize = false,

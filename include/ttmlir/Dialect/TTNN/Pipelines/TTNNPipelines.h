@@ -626,6 +626,20 @@ struct TTNNCommonToRuntimePipelineOptions
 //
 struct TTNNCommonToEmitCPipelineOptions
     : public PassPipelineOptions<TTNNCommonToEmitCPipelineOptions> {
+  // Path to write the TTNN module to, immediately before it is converted to
+  // EmitC. Empty (the default) writes nothing.
+  //
+  // The EmitC pipeline ends in convert-ttnn-to-emitc, which rewrites the module
+  // in place, so unlike the flatbuffer pipeline it leaves no TTNN IR behind to
+  // inspect. That makes the two backends impossible to compare at the level
+  // they are supposed to agree on. This captures the TTNN module the EmitC
+  // conversion actually consumes.
+  Option<std::string> dumpTtnnIrPath{
+      *this, "dump-ttnn-ir-path",
+      llvm::cl::desc("Write the TTNN module to this path just before the EmitC "
+                     "conversion. Empty disables the dump."),
+      llvm::cl::init("")};
+
   Option<bool> targetDylib{*this, "target-dylib",
                            llvm::cl::desc("Tailor passes for dylib target."),
                            llvm::cl::init(false)};
@@ -734,6 +748,16 @@ struct TTIRToEmitCPipelineOptions : public TTIRToTTNNCommonPipelineOptions,
   TTIRToEmitCPipelineOptions() {
     // TODO(dmilinkovic): Remove once CPU-hoisting is supported on EmitC - issue
     // #6100.
+    //
+    // Enabling this is not just a matter of adding the EmitC-side conversion:
+    // it aborts in shared code. CPUHoistConstEval's hoistability check runs a
+    // nested PassManager (HoistCPUOps.cpp, createConvertTTIRToLinalgPass),
+    // whose dependent dialects (Linalg et al.) are not in the registry forge
+    // builds, so PassManager::run calls MLIRContext::appendDialectRegistry and
+    // trips its "multi-threaded execution context" assertion.
+    // MLIRContext::disableMultithreading() does not avoid it. Curiously the
+    // flatbuffer pipeline runs the same pass at the same position and hoists
+    // fine, so the trigger is not yet understood.
     this->enableCPUHoistedConstEval = false;
   }
 };

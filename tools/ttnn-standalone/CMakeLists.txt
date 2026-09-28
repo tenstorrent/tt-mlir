@@ -171,5 +171,12 @@ set_target_properties(ttnn-dylib PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
   target_compile_options(ttnn-dylib PRIVATE -march=x86-64-v3)
 endif()
+# Generated dylibs build one std::tuple over every input/output tensor, so the
+# fold expression instantiated in <tuple> scales with the model's tensor count.
+# Clang's default nesting limit of 256 is exceeded by large models (a 6-camera
+# BEV net needs 474), failing with "instantiating fold expression with N
+# arguments exceeded expression nesting limit". Raise the limit rather than cap
+# model size; it only affects how deep the parser is willing to recurse.
+target_compile_options(ttnn-dylib PRIVATE -fbracket-depth=2048)
 
 target_precompile_headers(ttnn-dylib PRIVATE ttnn-precompiled.hpp)

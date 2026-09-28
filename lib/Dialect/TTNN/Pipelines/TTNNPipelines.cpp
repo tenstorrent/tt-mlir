@@ -625,7 +625,16 @@ void createTTNNCommonToEmitCPipeline(
   //
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
 
-  pm.addPass(createTTNNAdjustDeallocs());
+  // TTNNAdjustDeallocs removes deallocs for const-eval (ttcore.load_cached)
+  // results and const/parameter args, so those tensors stay resident for the
+  // program's lifetime. Temporary escape hatch for diagnosing L1 pressure:
+  // setting TTMLIR_EMITC_SKIP_ADJUST_DEALLOCS lets the same build be run with
+  // and without that residency, to attribute a circular-buffer/L1 clash.
+  // DIAGNOSTIC ONLY -- skipping this frees tensors the cache expects to keep,
+  // so it is not safe for repeated invocation of the generated dylib.
+  if (!std::getenv("TTMLIR_EMITC_SKIP_ADJUST_DEALLOCS")) {
+    pm.addPass(createTTNNAdjustDeallocs());
+  }
   if (options.tryRecoverStructure) {
     createRecoverStructureXLATorchPipeline(
         pm, RecoverStructureXLATorchPipelineOptions());
@@ -657,6 +666,14 @@ void createTTNNCommonToEmitCPipeline(
     } else {
       pm.addPass(createTTNNCreateInputGenerators());
     }
+  }
+
+  // Last chance to see the module as TTNN: the conversion below rewrites it in
+  // place, so anything downstream of this point is EmitC dialect.
+  if (!options.dumpTtnnIrPath.empty()) {
+    TTNNDumpModuleOptions dumpOptions;
+    dumpOptions.path = options.dumpTtnnIrPath;
+    pm.addPass(createTTNNDumpModule(dumpOptions));
   }
 
   pm.addPass(createConvertTTNNToEmitCPass());
@@ -789,10 +806,6 @@ void createTTIRToTTNNRuntimePipeline(
 //
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options) {
-  if (options.enableTrace) {
-    llvm::report_fatal_error(
-        "Trace currently not supported in createTTIRToEmitCPipeline");
-  }
 
   createTTIRToTTNNCommonPipeline(pm, options);
 

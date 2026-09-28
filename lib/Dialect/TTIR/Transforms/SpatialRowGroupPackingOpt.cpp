@@ -20,13 +20,13 @@
 // (K=TILE_WIDTH for IC coprime to TILE_WIDTH, e.g. IC=3 → K=32):
 //
 //   ── Weight packing (ops on constant parameter → auto const-eval'd) ────────
-//   Maps directly to _make_packed_weight() using 9 TTIR ops — NO embedded constant:
+//   Maps directly to _make_packed_weight() — NO embedded constant:
 //
 //   broadcast  %weight [OC,IC,1,1] → [OC,IC,K,K]   expand kH=kW=1 to K×K
-//   arange     [1,1,K,K] arange_dim=2               val[0,0,k,*]=k  (row indices)
-//   arange     [1,1,K,K] arange_dim=3               val[0,0,*,k]=k  (col indices)
-//   eq         row_grid == col_grid → [1,1,K,K] bool  True on K×K diagonal only
-//   typecast   bool → bf16           [1,1,K,K]       1.0/0.0 (identity I_K)
+//   arange     [K] arange_dim=0                     0..K-1 (canonical last-dim)
+//   reshape    [K]→[1,1,K,1] + broadcast →[1,1,K,K] val[0,0,k,*]=k  (row indices)
+//   reshape    [K]→[1,1,1,K] + broadcast →[1,1,K,K] val[0,0,*,k]=k  (col indices)
+//   eq         row_grid == col_grid → [1,1,K,K] bf16  1.0/0.0 (identity I_K)
 //   multiply   w_bc * i_k            [OC,IC,K,K]     zero off-diagonal elements
 //   permute    [0,2,1,3]             [OC,IC,K,K]→[OC,K,IC,K]  produces W^T
 //   reshape    [OC,K,IC,K]→[OC*K, IC*K]
@@ -214,13 +214,13 @@ private:
 
     // ── 3a. Weight packing (auto const-eval'd — origWeight is a parameter) ─
     //
-    // Implements _make_packed_weight() using 9 TTIR ops — NO embedded constant:
+    // Implements _make_packed_weight() — NO embedded constant:
     //
     //   broadcast  [OC,IC,1,1]→[OC,IC,K,K]   expand kH=kW=1 to K×K grid
-    //   arange     [1,1,K,K] arange_dim=2    val[0,0,k,*]=k  (row indices)
-    //   arange     [1,1,K,K] arange_dim=3    val[0,0,*,k]=k  (col indices)
-    //   eq         row==col → [1,1,K,K] bool  True only on K×K diagonal
-    //   typecast   bool→bf16  → I_K [1,1,K,K]  1.0/0.0, no dense constant
+    //   arange     [K] arange_dim=0           0..K-1 (canonical last-dim form)
+    //   reshape+bcast → [1,1,K,K]            val[0,0,k,*]=k  (row indices)
+    //   reshape+bcast → [1,1,K,K]            val[0,0,*,k]=k  (col indices)
+    //   eq         row==col → I_K [1,1,K,K] bf16  1.0/0.0, no dense constant
     //   multiply   w_bc * i_k → [OC,IC,K,K]  zero off-diagonal
     //   permute    [0,2,1,3] → [OC,K,IC,K]   OIHW-compatible (swap IC and K dims)
     //   reshape    → [IC*K, OC*K]
@@ -233,33 +233,61 @@ private:
                                      b.getDenseI64ArrayAttr({1, 1, K, K}))
             .getResult();
 
-    // arange [1,1,K,K] along dim=2: val[0,0,k,*]=k  (row index grid)
-    auto kGridTy = RankedTensorType::get({1, 1, K, K},
-                                          IntegerType::get(ctx, 64));
-    Value kRow   =
-        b.create<ttir::ArangeOp>(loc, kGridTy,
+    // Row/col index grids for the K×K diagonal mask.
+    //
+    // ttir.arange only converts to ttnn.arange when arange_dimension is the
+    // last dimension (see ArangeOpConversionPattern), so emit that canonical
+    // form directly: a 1-D arange [K] (dim 0 == rank-1) reshaped into the
+    // row/col position and broadcast out to [1,1,K,K]. This is exactly what
+    // ArangeForceLastDimensionPattern would produce, but emitting it here
+    // keeps the pass independent of whether a decomposition pass runs after
+    // it — const-eval hoisted arange ops are not decomposed again in paths
+    // that leave them on device (e.g. EmitC, which has no CPU const-eval).
+    // Element types must already be TTMLIR-supported: ElementTypeNormalization
+    // runs *before* createTTNNPipelineTTIRPasses, so any i64/i1 introduced here
+    // is never normalized and reaches TTNNLayout unsupported, where the layout
+    // picks a normalized scalar type while the tensor type keeps the raw one —
+    // tripping the ScalarDataTypeAnalysis layout/element-type consistency
+    // assertion. So emit si32 indices (what Int32 normalizes to) and a bf16
+    // mask (hardware has no bool; Bool normalizes to BFloat16) directly.
+    auto si32 =
+        IntegerType::get(ctx, 32, IntegerType::SignednessSemantics::Signed);
+    auto kGridTy = RankedTensorType::get({1, 1, K, K}, si32);
+    auto kVecTy  = RankedTensorType::get({K}, si32);
+    Value kVec   =
+        b.create<ttir::ArangeOp>(loc, kVecTy,
                                   /*start=*/(int64_t)0, /*end=*/K,
                                   /*step=*/(int64_t)1,
-                                  /*arange_dimension=*/(uint64_t)2)
+                                  /*arange_dimension=*/(uint64_t)0)
             .getResult();
 
-    // arange [1,1,K,K] along dim=3: val[0,0,*,k]=k  (col index grid)
-    Value kCol   =
-        b.create<ttir::ArangeOp>(loc, kGridTy,
-                                  /*start=*/(int64_t)0, /*end=*/K,
-                                  /*step=*/(int64_t)1,
-                                  /*arange_dimension=*/(uint64_t)3)
+    // row index grid: [K] → [1,1,K,1] → [1,1,K,K]   val[0,0,k,*]=k
+    auto kRowSeedTy = RankedTensorType::get({1, 1, K, 1}, si32);
+    Value kRowSeed  =
+        b.create<ttir::ReshapeOp>(loc, kRowSeedTy, kVec,
+                                   b.getI32ArrayAttr({1, 1, (int32_t)K, 1}))
+            .getResult();
+    Value kRow =
+        b.create<ttir::BroadcastOp>(loc, kGridTy, kRowSeed,
+                                     b.getDenseI64ArrayAttr({1, 1, 1, K}))
             .getResult();
 
-    // eq: diagonal boolean mask [1,1,K,K] — True where row_index == col_index
-    auto diagBoolTy = RankedTensorType::get({1, 1, K, K},
-                                             IntegerType::get(ctx, 1));
-    Value diagBool  =
-        b.create<ttir::EqualOp>(loc, diagBoolTy, kRow, kCol).getResult();
+    // col index grid: [K] → [1,1,1,K] → [1,1,K,K]   val[0,0,*,k]=k
+    auto kColSeedTy = RankedTensorType::get({1, 1, 1, K}, si32);
+    Value kColSeed  =
+        b.create<ttir::ReshapeOp>(loc, kColSeedTy, kVec,
+                                   b.getI32ArrayAttr({1, 1, 1, (int32_t)K}))
+            .getResult();
+    Value kCol =
+        b.create<ttir::BroadcastOp>(loc, kGridTy, kColSeed,
+                                     b.getDenseI64ArrayAttr({1, 1, K, 1}))
+            .getResult();
 
-    // typecast bool→bf16: produces I_K [1,1,K,K] (1.0 on diagonal, 0.0 off)
+    // eq: diagonal mask I_K [1,1,K,K] — 1.0 where row_index == col_index, else
+    // 0.0. Result is bf16 rather than i1 for the reason above, which also makes
+    // the former bool→bf16 typecast unnecessary.
     auto iKTy = RankedTensorType::get({1, 1, K, K}, bf16);
-    Value iK  = b.create<ttir::TypecastOp>(loc, iKTy, diagBool).getResult();
+    Value iK  = b.create<ttir::EqualOp>(loc, iKTy, kRow, kCol).getResult();
 
     // multiply: w_bc * i_k → [OC,IC,K,K]  (i_k broadcasts [1,1,K,K]→[OC,IC,K,K])
     auto wDiagTy = wBcTy;
