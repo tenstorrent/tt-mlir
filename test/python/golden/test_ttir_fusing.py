@@ -152,7 +152,7 @@ def test_batch_norm_decomposition(
         ),
         "ttnn_compiled.mlir",
     )
-    assert check_op(output_path, "conv2d") and not check_op(output_path, "batch_norm")
+    assert check_op(output_path, "conv2d") and not check_op(output_path, "batch_norm_inference") and not check_op(output_path, "batch_norm_training")
 
 
 @pytest.mark.xfail(
