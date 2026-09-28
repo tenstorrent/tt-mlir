@@ -18,7 +18,7 @@ def check_op(mlir_file: str, op_name: str) -> bool:
     """Check if an operation exists in the MLIR file."""
     with open(mlir_file, "r") as f:
         for line in f:
-            if f"ttnn.{op_name}" in line:
+            if f'"ttnn.{op_name}"' in line:
                 return True
     return False
 

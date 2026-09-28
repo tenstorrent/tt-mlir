@@ -20,7 +20,7 @@ pytestmark = pytest.mark.frontend("shlo")
 
 
 def check_op(mlir_file: str, op_name: str) -> bool:
-    op_name = "ttnn." + op_name
+    op_name = '"ttnn.' + op_name + '"'
     with open(mlir_file, "r") as f:
         for line in f:
             if op_name in line:

@@ -17,7 +17,7 @@ pytestmark = pytest.mark.frontend("ttir")
 def check_op(mlir_file: str, op_name: str) -> bool:
     with open(mlir_file, "r") as f:
         for line in f:
-            if f"ttnn.{op_name}" in line:
+            if f'"ttnn.{op_name}"' in line:
                 return True
     return False
 
@@ -152,7 +152,11 @@ def test_batch_norm_decomposition(
         ),
         "ttnn_compiled.mlir",
     )
-    assert check_op(output_path, "conv2d") and not check_op(output_path, "batch_norm")
+    assert (
+        check_op(output_path, "conv2d")
+        and not check_op(output_path, "batch_norm_inference")
+        and not check_op(output_path, "batch_norm_training")
+    )
 
 
 @pytest.mark.xfail(

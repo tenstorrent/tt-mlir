@@ -17,7 +17,7 @@ pytestmark = pytest.mark.frontend("ttir")
 
 def check_op(mlir_file: str, op_name: str, dialect: str = "ttnn") -> bool:
     """Check if an op exists in the MLIR file."""
-    op_pattern = f"{dialect}.{op_name}"
+    op_pattern = f'"{dialect}.{op_name}"'
     with open(mlir_file, "r") as f:
         for line in f:
             if op_pattern in line:
