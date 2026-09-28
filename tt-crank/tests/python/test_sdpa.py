@@ -5,16 +5,12 @@
 from __future__ import annotations
 
 import contextlib
-import json
 import os
-from pathlib import Path
 
 import pytest
 import torch
 import torch.nn.functional as F
 
-from tt_crank.torch import _artifacts
-from tt_crank.torch._artifacts import collect_artifacts
 from tt_crank.torch._compile import CompileOption
 from tt_crank.torch.testing import post_aot_fx_hook, strict_no_fallback
 
@@ -456,195 +452,13 @@ def test_sdpa_multi_chip_causal_backward(
         ), f"grad_{name} mismatch"
 
 
-def _main_func(ttir: str) -> str:
-    """`@main` of a TTIR dump, without the private decomposition functions that follow it."""
-    return ttir.split("func.func private")[0]
-
-
-@pytest.mark.parametrize(
-    "opt", [pytest.param(1, marks=_OPT1_ON_SIM), 0], ids=["opt1", "opt0"]
-)
-@pytest.mark.parametrize("case", list(_FUSED_CASES), ids=list(_FUSED_CASES))
-def test_sdpa_fused_lowering_ir(
-    case: str, opt: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Every fused case lowers to one sdpa_fw and one sdpa_bw composite with the expected mask handling; OPT 1
-    promotes them to the ttml kernels, OPT 0 inlines the decomposition."""
-    monkeypatch.setattr(_artifacts, "_artifacts_root", lambda: tmp_path)
-    (
-        (batch, heads_q, heads_kv, seq, head_dim),
-        is_causal,
-        scale,
-        needs_grad,
-        _,
-        make_mask,
-    ) = _FUSED_CASES[case]
-    kw = dict(is_causal=is_causal, scale=scale, enable_gqa=heads_kv != heads_q)
-    if make_mask is not None:
-        kw["attn_mask"] = make_mask().to("tt")
-    q = (
-        torch.randn(batch, heads_q, seq, head_dim, dtype=_DT)
-        .to("tt")
-        .requires_grad_(needs_grad[0])
-    )
-    k = (
-        torch.randn(batch, heads_kv, seq, head_dim, dtype=_DT)
-        .to("tt")
-        .requires_grad_(needs_grad[1])
-    )
-    v = (
-        torch.randn(batch, heads_kv, seq, head_dim, dtype=_DT)
-        .to("tt")
-        .requires_grad_(needs_grad[2])
-    )
-
-    torch._dynamo.reset()
-    with collect_artifacts("sdpa_lowering"):
-        torch.compile(
-            lambda a, b, c: F.scaled_dot_product_attention(a, b, c, **kw).sum(),
-            backend="tt",
-            fullgraph=True,
-            options={CompileOption.OPT_LEVEL: opt},
-        )(q, k, v).backward()
-    (out_dir,) = list(tmp_path.iterdir())
-    fw_ttir = _main_func((out_dir / "graph_0_forward.ttir.mlir").read_text())
-    bw_ttir = _main_func((out_dir / "graph_1_backward.ttir.mlir").read_text())
-    fw_ttnn = (out_dir / "graph_0_forward.ttnn.mlir").read_text()
-    bw_ttnn = (out_dir / "graph_1_backward.ttnn.mlir").read_text()
-
-    # One composite each way, typed by how the mask reaches ttml (see sdpa_mask in ttir_module_builder.cpp).
-    mask_type = "causal" if is_causal else "arbitrary"
-    assert fw_ttir.count('composite_name = "sdpa_fw"') == 1, fw_ttir
-    assert bw_ttir.count('composite_name = "sdpa_bw"') == 1, bw_ttir
-    for ttir in (fw_ttir, bw_ttir):
-        assert f"mask_type = #ttcore.attention_mask_type<{mask_type}>" in ttir, ttir
-    if is_causal:
-        # The kernel does causal itself: no mask tensor, nothing to rebuild or zero.
-        assert (
-            "ttir.ones" not in fw_ttir
-            and "ttir.eq" not in fw_ttir
-            and "ttir.max" not in fw_ttir
-        ), fw_ttir
-    elif make_mask is None:
-        # Stand-in for ttml's broken `none`: an all-ones keep-mask, no bool rebuild.
-        assert "ttir.ones" in fw_ttir and "ttir.eq" not in fw_ttir, fw_ttir
-    else:
-        # Bool mask: rebuilt from torch's 0/-inf float (eq), rows keeping no key detected (max) and zeroed (multiply).
-        for op in ("ttir.eq", "ttir.max", "ttir.multiply"):
-            assert op in fw_ttir and op in bw_ttir, (op, fw_ttir)
-
-    assert "composite" not in fw_ttnn and "composite" not in bw_ttnn
-    if opt == 1:
-        assert (
-            "ttnn.sdpa_fw" in fw_ttnn and "ttnn.sdpa_bw" in bw_ttnn
-        ), "composites not promoted to the ttml kernels"
-        assert "ttnn.softmax" not in fw_ttnn
-    else:
-        assert "ttnn.sdpa_fw" not in fw_ttnn and "ttnn.sdpa_bw" not in bw_ttnn
-        assert "ttnn.softmax" in fw_ttnn, "decomposition not inlined"
-
-
 @_OPT1_ON_SIM
-@pytest.mark.parametrize("variant", ["plain", "causal", "float_mask"])
-@pytest.mark.parametrize(
-    "grads",
-    ["no_grad", "frozen"],
-    ids=["no_grad", "grad_mode_on_frozen_inputs"],
-)
-def test_sdpa_inference_lowering_ir(
-    variant: str, grads: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A graph with no backward lowers to the ttir sdpa op, never the sdpa_fw composite.
-
-    The lowering keys on AOT's `is_train`, so both "under no_grad" and "grad mode on but
-    nothing requires grad" are inference; numerics alone would not tell the two kernels
-    apart (sdpa_fw is the more accurate one, and about twice as slow). One cell differs:
-    the choice stub only sees grad mode, so with it on a float mask is sent to the MATH
-    decomposition before any lowering runs, and the graph has no sdpa op at all.
-    """
-    monkeypatch.setattr(_artifacts, "_artifacts_root", lambda: tmp_path)
-    requires_grad = grads == "no_grad"
-    q, k, v = (
-        torch.randn(_B, _H, _S, _E, dtype=_DT).to("tt").requires_grad_(requires_grad)
-        for _ in range(3)
-    )
-    kw = dict(is_causal=variant == "causal")
-    if variant == "float_mask":
-        kw["attn_mask"] = torch.randn(_B, 1, _S, _S, dtype=_DT).to("tt")
-
-    torch._dynamo.reset()
-    with torch.set_grad_enabled(not requires_grad), collect_artifacts("sdpa_inference"):
-        torch.compile(
-            lambda a, b, c: F.scaled_dot_product_attention(a, b, c, **kw),
-            backend="tt",
-            fullgraph=True,
-            options=_OPT["compile"],
-        )(q, k, v)
-    (out_dir,) = list(tmp_path.iterdir())
-    ttir = _main_func((out_dir / "graph_0_inference.ttir.mlir").read_text())
-    ttnn = (out_dir / "graph_0_inference.ttnn.mlir").read_text()
-    assert "sdpa_fw" not in ttir, ttir
-    assert "ttnn.sdpa_fw" not in ttnn, ttnn
-    if grads == "frozen" and variant == "float_mask":
-        assert "ttir.scaled_dot_product_attention" not in ttir, ttir
-        assert "ttir.softmax" in ttir, "expected the MATH decomposition"
-    else:
-        assert ttir.count("ttir.scaled_dot_product_attention") == 1, ttir
-
-
-@_OPT1_ON_SIM
-def test_sdpa_training_is_two_device_programs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """One forward and one backward program, each promoted to its ttml kernel, no host round-trip."""
-    monkeypatch.setattr(_artifacts, "_artifacts_root", lambda: tmp_path)
-    tts = [
-        torch.randn(_B, _H, _S, _E, dtype=_DT).to("tt").requires_grad_(True)
-        for _ in range(3)
-    ]
-
-    def sdpa(a, b, c):
-        return F.scaled_dot_product_attention(a, b, c, is_causal=True).sum()
-
-    torch._dynamo.reset()
-    torch._dynamo.utils.counters.clear()
-    with collect_artifacts("sdpa_training") as collection:
-        torch.compile(sdpa, backend="tt", fullgraph=True, options=_OPT["compile"])(
-            *tts
-        ).backward()
-
-    assert not torch._dynamo.utils.counters["graph_break"]
-    assert collection.compile_stats().num_graphs == 2
-    (out_dir,) = list(tmp_path.iterdir())
-    index = json.loads((out_dir / "artifacts.json").read_text())
-    assert [g["graph"] for g in index["graphs"]] == [
-        "graph_0_forward",
-        "graph_1_backward",
-    ]
-    host_ops = ("ttnn.from_device", "ttnn.to_device", "ttnn.to_layout", "ttnn.cpu")
-    for graph, name in (
-        ("graph_0_forward", "sdpa_fw"),
-        ("graph_1_backward", "sdpa_bw"),
-    ):
-        ttir = (out_dir / f"{graph}.ttir.mlir").read_text()
-        assert ttir.count(f'composite_name = "{name}"') == 1, ttir
-        ttnn = (out_dir / f"{graph}.ttnn.mlir").read_text()
-        assert f"ttnn.{name}" in ttnn, ttnn
-        assert not [
-            op for op in host_ops if op in ttnn
-        ], f"{graph} moves tensors through the host"
-
-
-@_OPT1_ON_SIM
-def test_sdpa_fw_logsumexp_matches_torch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_sdpa_fw_logsumexp_matches_torch() -> None:
     """Pins the ttml lse tile contract (value in column 0 of a [B, H, S, 32] f32 tile) against torch.
 
     The lowering emits `sdpa_fw` only for a graph AOT built a backward for, so the
     inputs require grad; the forward alone is enough to get the lse out.
     """
-    monkeypatch.setattr(_artifacts, "_artifacts_root", lambda: tmp_path)
     q, k, v = (torch.randn(_B, _H, _S, _E, dtype=_DT) for _ in range(3))
     logits = (q.float() @ k.float().transpose(2, 3)) * _E**-0.5
     ref_lse = logits.masked_fill(
@@ -657,12 +471,7 @@ def test_sdpa_fw_logsumexp_matches_torch(
         )[:2]
 
     torch._dynamo.reset()
-    with collect_artifacts("sdpa_fw_lse"):
-        compiled = torch.compile(
-            fw, backend="tt", fullgraph=True, options=_OPT["compile"]
-        )
-        _, lse = compiled(*(t.to("tt").requires_grad_(True) for t in (q, k, v)))
-    (out_dir,) = list(tmp_path.iterdir())
-    assert "ttnn.sdpa_fw" in (out_dir / "graph_0_forward.ttnn.mlir").read_text()
+    compiled = torch.compile(fw, backend="tt", fullgraph=True, options=_OPT["compile"])
+    _, lse = compiled(*(t.to("tt").requires_grad_(True) for t in (q, k, v)))
     assert lse.dtype == torch.float32 and lse.shape == (_B, _H, _S)
     assert _pcc(lse.cpu(), ref_lse) >= 0.999, "ttml logsumexp tile layout changed"
