@@ -769,6 +769,14 @@ NB_MODULE(_native, m) {
         "tensor"_a, "cluster_axis"_a);
 
     m.def(
+        "write_result_into",
+        [](nb::handle py_out, nb::handle py_result) {
+            at::Tensor out = unpack_torch_tensor(py_out);
+            tk::write_result_into(out, unpack_torch_tensor(py_result));
+        },
+        "out"_a, "result"_a);
+
+    m.def(
         "reduce_scatter_into",
         [](nb::handle py_output, nb::handle py_input, std::uint32_t cluster_axis, std::int64_t scatter_dim) {
             tk::reduce_scatter_into(unpack_torch_tensor(py_output), unpack_torch_tensor(py_input), cluster_axis,

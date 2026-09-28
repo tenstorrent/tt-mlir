@@ -32,6 +32,7 @@ import torch
 import torch.fx
 from torch._decomp import core_aten_decompositions, get_decompositions
 from torch._dynamo.backends.common import aot_module_simplified
+from torch._functorch._aot_autograd.descriptors import InputMutationAOTOutput
 from torch._subclasses.fake_tensor import unset_fake_temporarily
 
 from . import _native
@@ -1518,6 +1519,39 @@ def _aot_graph_kind() -> str | None:
     return "_".join(tag).rpartition("_")[2] or None
 
 
+def _input_mutation_pairs(gm: torch.fx.GraphModule) -> list[tuple[int, int]]:
+    """`(graph input index, graph output index)` for each input aot_autograd writes
+    back after the graph runs (an `InputMutationAOTOutput` output).
+    """
+    placeholders = [n for n in gm.graph.nodes if n.op == "placeholder"]
+    input_pos = {
+        n.meta["desc"]: i for i, n in enumerate(placeholders) if "desc" in n.meta
+    }
+    output_node = gm.graph.output_node()
+    fx_outputs = output_node.args[0]
+    if not isinstance(fx_outputs, (tuple, list)):
+        fx_outputs = (fx_outputs,)
+
+    pairs = []
+    for out_pos, desc in enumerate(output_node.meta.get("desc", [])):
+        if (
+            not isinstance(desc, InputMutationAOTOutput)
+            or desc.mutated_input not in input_pos
+        ):
+            continue
+        inp_pos = input_pos[desc.mutated_input]
+        inp_val = placeholders[inp_pos].meta.get("val")
+        out_val = fx_outputs[out_pos].meta.get("val")
+        if (
+            isinstance(inp_val, torch.Tensor)
+            and isinstance(out_val, torch.Tensor)
+            and inp_val.shape == out_val.shape
+            and inp_val.dtype == out_val.dtype
+        ):
+            pairs.append((inp_pos, out_pos))
+    return pairs
+
+
 def _lower_and_compile(
     gm: torch.fx.GraphModule,
     example_inputs: list[torch.Tensor],
@@ -1583,9 +1617,14 @@ def _lower_and_compile(
             Artifact(_compile_options_dict(options), result, _aot_graph_kind())
         )
 
+    mutation_pairs = _input_mutation_pairs(gm)
+
     def runner(*inputs: torch.Tensor) -> list:
-        produced = iter(_native.run_program(program, list(inputs), output_dtypes))
-        return [None if is_none else next(produced) for is_none in none_mask]
+        produced = _native.run_program(program, list(inputs), output_dtypes)
+        for inp, out in mutation_pairs:
+            _native.write_result_into(inputs[inp], produced[out])
+        it = iter(produced)
+        return [None if is_none else next(it) for is_none in none_mask]
 
     return runner
 
