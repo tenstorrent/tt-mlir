@@ -17,7 +17,7 @@ pytestmark = pytest.mark.frontend("ttir")
 def check_op(mlir_file: str, op_name: str) -> bool:
     with open(mlir_file, "r") as f:
         for line in f:
-            if f"ttnn.{op_name}" in line:
+            if f'"ttnn.{op_name}"' in line:
                 return True
     return False
 
