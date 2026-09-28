@@ -4,57 +4,55 @@
 
 import torch
 
+from tt_crank.torch._compile import CompileOption
 
-def _fn(x, y):
-    x.add_(y)
-    x.mul_(2)
-    return x + y
+
+def _run_tt(fn, inputs, zero_copy):
+    torch._dynamo.reset()
+    tt_inputs = [t.clone().to("tt") for t in inputs]
+    options = {CompileOption.ENABLE_ZERO_COPY_INPUT_MUTATIONS: zero_copy}
+    out = torch.compile(fn, backend="tt", options=options)(*tt_inputs)
+    return out.cpu(), [t.cpu() for t in tt_inputs]
+
+
+def _check(fn, *inputs):
+    cpu_inputs = [t.clone() for t in inputs]
+    cpu_out = fn(*cpu_inputs)
+
+    on_out, on_inputs = _run_tt(fn, inputs, zero_copy=True)
+    off_out, off_inputs = _run_tt(fn, inputs, zero_copy=False)
+
+    torch.testing.assert_close(on_out, off_out)
+    torch.testing.assert_close(on_inputs, off_inputs)
+
+    torch.testing.assert_close(on_out, cpu_out)
+    torch.testing.assert_close(on_inputs, cpu_inputs)
 
 
 def test_input_mutations():
-    x, y = torch.randn(32, 32, dtype=torch.bfloat16), torch.randn(32, 32, dtype=torch.bfloat16)
-    x_tt, y_tt = x.to("tt"), y.to("tt")
+    def fn(x, y):
+        x.add_(y)
+        x.mul_(2)
+        return x + y
 
-    x_ref = x.clone()
-    out = _fn(x_ref, y)
-    out_tt = torch.compile(_fn, backend="tt")(x_tt, y_tt)
-
-    torch.testing.assert_close(out_tt.cpu(), out)
-    torch.testing.assert_close(x_tt.cpu(), x_ref)
-
-
-def _view_fn(x, y):
-    z = x.view(64, 16)
-    z.add_(y)
-    return x * 2
+    _check(fn, torch.randn(32, 32, dtype=torch.bfloat16), torch.randn(32, 32, dtype=torch.bfloat16))
 
 
 def test_input_mutation_through_view():
-    x, y = torch.randn(32, 32, dtype=torch.bfloat16), torch.randn(64, 16, dtype=torch.bfloat16)
-    x_tt, y_tt = x.to("tt"), y.to("tt")
-    x_ref = x.clone()
-    out = _view_fn(x_ref, y)
-    out_tt = torch.compile(_view_fn, backend="tt")(x_tt, y_tt)
+    def fn(x, y):
+        z = x.view(64, 16)
+        z.add_(y)
+        return x * 2
 
-    torch.testing.assert_close(out_tt.cpu(), out)
-    torch.testing.assert_close(x_tt.cpu(), x_ref)
-
-
-def _view_of_view_fn(x, y):
-    z = x.view(64, 16)
-    t = z.view(32, 2, 16)
-    z.mul_(2)
-    t.add_(y)
-    return x
+    _check(fn, torch.randn(32, 32, dtype=torch.bfloat16), torch.randn(64, 16, dtype=torch.bfloat16))
 
 
 def test_input_mutation_through_view_of_view():
-    x, y = torch.randn(32, 32, dtype=torch.bfloat16), torch.randn(32, 2, 16, dtype=torch.bfloat16)
-    x_tt, y_tt = x.to("tt"), y.to("tt")
-
-    x_ref = x.clone()
-    out = _view_of_view_fn(x_ref, y)
-    out_tt = torch.compile(_view_of_view_fn, backend="tt")(x_tt, y_tt)
-
-    torch.testing.assert_close(out_tt.cpu(), out)
-    torch.testing.assert_close(x_tt.cpu(), x_ref)
+    def fn(x, y):
+        z = x.view(64, 16)
+        t = z.view(32, 2, 16)
+        z.mul_(2)
+        t.add_(y)
+        return x
+    
+    _check(fn, torch.randn(32, 32, dtype=torch.bfloat16), torch.randn(32, 2, 16, dtype=torch.bfloat16))
