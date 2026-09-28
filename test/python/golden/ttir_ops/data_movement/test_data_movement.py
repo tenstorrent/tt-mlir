@@ -4,7 +4,7 @@
 import pytest
 import torch
 from typing import List, Optional
-from conftest import x86_only, get_request_kwargs
+from conftest import x86_only, get_request_kwargs, get_board_id
 from builder.base.builder_utils import Operand, Shape
 from builder.base.builder_enums import ReduceType
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -441,7 +441,42 @@ def test_slice(
     target: str,
     request,
     device,
+    system_desc,
 ):
+    # tt-metal's Metal 2.0 port of data_movement/slice (tt-metal #56494,
+    # commit 70ba57dc3ab) miscomputes row addressing when a non-innermost dim
+    # is truncated. For (5, 65, 1025) sliced to [5, 64, 1024], batch b returns
+    # its first b rows shifted one input row too early: output[1,0] comes back
+    # as input[0,64], output[2,0] as input[1,64], and so on. Six of 320 rows
+    # are wrong, which lands PCC at 0.9814 against a 0.99 threshold.
+    #
+    # This reproduces in plain ttnn with no compiler involved, so there is
+    # nothing to work around on the tt-mlir side - it needs an upstream fix.
+    #
+    # Only n150 is affected; the same slice is correct on p150, so the xfail is
+    # gated on the board or it would XPASS there.
+    #
+    # NOTE: bf16 is affected too (1 bad row instead of 6), but 0.3% wrong
+    # elements still score above 0.99, so it passes while returning bad data.
+    # Do not treat the bf16 variants as a correctness baseline here.
+    # Marked strict so that this starts failing again the moment tt-metal fixes
+    # it, rather than sitting here as a permanent xfail nobody revisits.
+    if (
+        tuple(shape) == (5, 65, 1025)
+        and dtype == torch.float32
+        and get_board_id(system_desc) == "n150"
+    ):
+        request.node.add_marker(
+            pytest.mark.xfail(
+                reason=(
+                    "tt-metal slice returns rows from one input row too early "
+                    "after the Metal 2.0 slice port (tt-metal #56494); "
+                    "actual_pcc=0.9814 < 0.99"
+                ),
+                strict=True,
+            )
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def slice_wrapper(

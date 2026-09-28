@@ -783,14 +783,26 @@ TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(operandWorkaround);
 }
 
-// tt-metal's `ttnn.erf` SFPU kernel (LUT-based rational approximation
-// introduced in tt-metal #41850) treats each input lane as a floating-point
-// value. When called with an integer dtype the integer bit pattern is
-// reinterpreted as a float, producing NaN/Inf/garbage that the new LUT is
-// unable to saturate to ±1 in all cases, so the result no longer matches the
-// mathematical erf. Force a bf16 typecast around the op for integer inputs.
+// Several tt-metal unary SFPU kernels are implemented only for the float
+// datapath: they read each input lane as a floating-point value, so an integer
+// dtype has its bit pattern reinterpreted as a float and the result no longer
+// matches the mathematical definition of the op. Since tt-metal #56980 these
+// ops are rejected outright for integer inputs rather than returning a wrong
+// answer (`unary_op_supports_integer_dtype` in unary_device_operation.cpp).
+//
+// Force a bf16 typecast around the op for integer inputs. This is exact for
+// ops that do not depend on the magnitude of the input - `sign` only needs
+// which side of zero a value falls on, and `isfinite` is unconditionally true
+// for every integer - but it is *not* safe for ops that consume the magnitude,
+// because bf16 has only 7 mantissa bits and cannot represent most int32
+// values. Do not reuse this for such ops.
+//
+// Affected ops and their tt-metal issues:
+//   erf      - tt-metal #41850 (LUT-based rational approximation)
+//   sign     - trivially implementable on int32; see ABS_INT32 for precedent
+//   isfinite - meaningless on integers, should ideally be folded away
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createErfOpOperandsWorkarounds(
+TTNNOperandsWorkaroundsFactory::createIntegerToBFloat16OperandsWorkarounds(
     mlir::RankedTensorType inputType) {
   TTNNOperandWorkarounds operandWorkaround;
   if (inputType.getElementType().isInteger()) {

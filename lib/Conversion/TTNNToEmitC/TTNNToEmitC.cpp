@@ -480,9 +480,7 @@ class ExperimentalGeluBackwardOpConversionPattern
           mlir::tt::ttnn::GeluBackwardOp> {
 private:
   std::string getPrefixSearchPattern() const override { return "ttnn.gelu_bw"; }
-  std::string getPrefixSwapPattern() const override {
-    return "ttnn::experimental::gelu_bw";
-  }
+  std::string getPrefixSwapPattern() const override { return "ttnn::gelu_bw"; }
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
@@ -499,11 +497,40 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getLhs()),
         emitter.emit(srcOp.getRhs()),
-        emitter.emit(srcOp.getApproximate()),
+        rewriter.getAttr<emitc::OpaqueAttr>(
+            srcOp.getApproximate() == "tanh"
+                ? "::ttnn::operations::unary::GeluVariant::TANH"
+                : "::ttnn::operations::unary::GeluVariant::ACCURATE"),
         emitter.emit(srcOp.getMemoryConfigAttr()),
     };
 
-    emitter.replaceOp(*this, args);
+    // ttnn::gelu_bw reports its gradient as a one-element vector of optionals
+    // (the shape shared by the in-place-capable *_bw ops) while the dialect op
+    // is single-result, so unwrap element 0.
+    using ReturnTy = std::vector<std::optional<::ttnn::Tensor>>;
+    auto geluBackwardOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(ttnn_to_emitc::TypeNameV<ReturnTy>),
+        convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    auto optionalType = emitc::OpaqueType::get(
+        rewriter.getContext(), ttnn_to_emitc::TypeNameV<ReturnTy::value_type>);
+    auto indexOp = rewriter.create<emitc::LiteralOp>(
+        srcOp.getLoc(), rewriter.getIndexType(), "0");
+    auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+        srcOp.getLoc(), emitc::LValueType::get(optionalType),
+        geluBackwardOp.getResult(0), indexOp.getResult());
+    auto loadOp = rewriter.create<emitc::LoadOp>(srcOp.getLoc(), optionalType,
+                                                 subscriptOp.getResult());
+    auto valueOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(
+            ttnn_to_emitc::TypeNameV<::ttnn::Tensor>),
+        ttnn_to_emitc::kGetOptionalValueFunctionName, /*args=*/nullptr,
+        /*template_args=*/nullptr, loadOp.getResult());
+
+    rewriter.replaceOp(srcOp, valueOp.getResult(0));
 
     return success();
   }

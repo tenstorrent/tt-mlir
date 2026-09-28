@@ -166,9 +166,7 @@ class GeluBackwardOpConversionPattern
           mlir::tt::ttnn::GeluBackwardOp> {
 private:
   std::string getPrefixSearchPattern() const override { return "ttnn.gelu_bw"; }
-  std::string getPrefixSwapPattern() const override {
-    return "ttnn.experimental.gelu_bw";
-  }
+  std::string getPrefixSwapPattern() const override { return "ttnn.gelu_bw"; }
 
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
@@ -184,11 +182,27 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getLhs()),
         emitter.emit(srcOp.getRhs()),
-        emitter.emit(srcOp.getApproximate(), "approximate"),
+        emitter.emitExpression(srcOp.getApproximate() == "tanh"
+                                   ? "ttnn.GeluVariant.Tanh"
+                                   : "ttnn.GeluVariant.Accurate",
+                               "variant"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
-    emitter.replaceOp(*this, args);
+    // ttnn.gelu_bw hands back a one-element list of gradients while the
+    // dialect op is single-result, so call it as a list and index element 0.
+    auto tensorListType = emitpy::OpaqueType::get(
+        rewriter.getContext(),
+        ttnn_to_emitpy::TypeNameV<std::vector<::ttnn::Tensor>>);
+    mlir::Value callResult = emitter.createCall(*this, args, tensorListType);
+
+    auto index = rewriter.create<emitpy::LiteralOp>(
+        srcOp.getLoc(), rewriter.getIndexType(), "0");
+    auto subscriptOp = rewriter.create<emitpy::SubscriptOp>(
+        srcOp.getLoc(),
+        getTypeConverter()->convertType(srcOp.getResult().getType()),
+        callResult, index.getResult());
+    rewriter.replaceOp(srcOp, subscriptOp.getResult());
 
     return success();
   }
