@@ -386,8 +386,8 @@ private:
       return;
     }
 
-    const int64_t l1Budget = std::min<int64_t>(
-        l1BudgetBytes, ttcore::getOpChipDescAttr(op).getUsableL1Size());
+    const int64_t l1Budget =
+        std::min<int64_t>(l1BudgetBytes, utils::getUsableL1PerCore(op));
     Blocking blocking =
         problem->kernel == MatmulKernel::Mcast2D
             ? pick2D(*problem, maxIn0BlockW, l1Budget)
