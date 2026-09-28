@@ -181,7 +181,9 @@ module {
   // A region that yields one of its block arguments unchanged makes the op's
   // result a second handle on that operand's buffer, which the runtime publishes
   // as such. The two therefore share a root, and here that root escapes through
-  // the return, so neither deallocation may be forced.
+  // the return, so neither deallocation may be forced. Here every branch
+  // forwards %arg0, the second through views, so the result is %arg0's buffer
+  // whichever branch runs.
   //
   // Without the aliasing, %arg0's deallocation would look like the last use of a
   // buffer of its own and get forced, freeing the buffer %0 still names.
@@ -194,8 +196,9 @@ module {
       ttnn.yield %cap : tensor<64x128xbf16, #l2>
     }, {
     ^bb0(%cap: tensor<64x128xbf16, #l2>):
-      %a = "ttnn.add"(%cap, %cap) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
-      ttnn.yield %a : tensor<64x128xbf16, #l2>
+      %v1 = "ttnn.reshape"(%cap) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
+      %v2 = "ttnn.reshape"(%v1) <{shape = [64 : i32, 128 : i32]}> : (tensor<1x64x128xbf16, #l3>) -> tensor<64x128xbf16, #l2>
+      ttnn.yield %v2 : tensor<64x128xbf16, #l2>
     } -> (tensor<64x128xbf16, #l2>)
     // CHECK-NOT: "ttnn.deallocate"
     "ttnn.deallocate"(%v) <{force = false}> : (tensor<1x64x128xbf16, #l3>) -> ()
@@ -288,6 +291,196 @@ module {
     "ttnn.deallocate"(%0) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
     // CHECK: return
     return %r : tensor<64x128xbf16, #l2>
+  }
+
+  // A branch forwards a capture however it hands it back: through views, as
+  // the result of a nested while that carries it through, or as the result of
+  // a nested case whose own branches forward different captures. One branch
+  // does each here, so the result may alias any of %a to %d, and all five are
+  // grouped: every deallocation is kept and only the bottom-most, the
+  // result's, is forced.
+  //
+  // Each capture is reached one way only, and its root has a second
+  // deallocation, its view's. A capture the pass fails to trace would get the
+  // last of those, right after the case, forced while the result may still
+  // name it.
+  // CHECK-LABEL: func.func @case_yields_forwarded_capture
+  func.func @case_yields_forwarded_capture(%arg0: tensor<64x128xbf16, #l2>, %arg1: tensor<si32, #index>, %arg2: tensor<ui32, #pred>) -> tensor<64x128xbf16, #l2> {
+    // CHECK: %[[A:[0-9]+]] = "ttnn.add"(%arg0, %arg0)
+    // CHECK: %[[B:[0-9]+]] = "ttnn.multiply"(%arg0, %arg0)
+    // CHECK: %[[C:[0-9]+]] = "ttnn.subtract"(%arg0, %arg0)
+    // CHECK: %[[D:[0-9]+]] = "ttnn.add"(%[[A]], %[[B]])
+    // CHECK: %[[R:[0-9]+]] = ttnn.case
+    %a = "ttnn.add"(%arg0, %arg0) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    %b = "ttnn.multiply"(%arg0, %arg0) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    %c = "ttnn.subtract"(%arg0, %arg0) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    %d = "ttnn.add"(%a, %b) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    %va = "ttnn.reshape"(%a) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
+    %vb = "ttnn.reshape"(%b) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
+    %vc = "ttnn.reshape"(%c) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
+    %vd = "ttnn.reshape"(%d) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
+    "ttnn.deallocate"(%va) <{force = false}> : (tensor<1x64x128xbf16, #l3>) -> ()
+    "ttnn.deallocate"(%vb) <{force = false}> : (tensor<1x64x128xbf16, #l3>) -> ()
+    "ttnn.deallocate"(%vc) <{force = false}> : (tensor<1x64x128xbf16, #l3>) -> ()
+    "ttnn.deallocate"(%vd) <{force = false}> : (tensor<1x64x128xbf16, #l3>) -> ()
+    %r = ttnn.case index(%arg1 : tensor<si32, #index>) captures(%a, %b, %c, %d, %arg1, %arg2 : tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>, tensor<si32, #index>, tensor<ui32, #pred>) branches {
+    ^bb0(%ca: tensor<64x128xbf16, #l2>, %cb: tensor<64x128xbf16, #l2>, %cc: tensor<64x128xbf16, #l2>, %cd: tensor<64x128xbf16, #l2>, %i: tensor<si32, #index>, %p: tensor<ui32, #pred>):
+      %v1 = "ttnn.reshape"(%ca) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
+      %v2 = "ttnn.reshape"(%v1) <{shape = [64 : i32, 128 : i32]}> : (tensor<1x64x128xbf16, #l3>) -> tensor<64x128xbf16, #l2>
+      ttnn.yield %v2 : tensor<64x128xbf16, #l2>
+    }, {
+    ^bb0(%ca: tensor<64x128xbf16, #l2>, %cb: tensor<64x128xbf16, #l2>, %cc: tensor<64x128xbf16, #l2>, %cd: tensor<64x128xbf16, #l2>, %i: tensor<si32, #index>, %p: tensor<ui32, #pred>):
+      %w = ttnn.while inits(%cb : tensor<64x128xbf16, #l2>) captures(%p : tensor<ui32, #pred>) {trip_count = 2 : i64} cond {
+      ^bb0(%acc: tensor<64x128xbf16, #l2>, %q: tensor<ui32, #pred>):
+        ttnn.yield %q : tensor<ui32, #pred>
+      } do {
+      ^bb0(%acc: tensor<64x128xbf16, #l2>, %q: tensor<ui32, #pred>):
+        ttnn.yield %acc : tensor<64x128xbf16, #l2>
+      } -> (tensor<64x128xbf16, #l2>)
+      ttnn.yield %w : tensor<64x128xbf16, #l2>
+    }, {
+    ^bb0(%ca: tensor<64x128xbf16, #l2>, %cb: tensor<64x128xbf16, #l2>, %cc: tensor<64x128xbf16, #l2>, %cd: tensor<64x128xbf16, #l2>, %i: tensor<si32, #index>, %p: tensor<ui32, #pred>):
+      %n = ttnn.case index(%i : tensor<si32, #index>) captures(%cc, %cd : tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) branches {
+      ^bb0(%e0: tensor<64x128xbf16, #l2>, %e1: tensor<64x128xbf16, #l2>):
+        ttnn.yield %e0 : tensor<64x128xbf16, #l2>
+      }, {
+      ^bb0(%e0: tensor<64x128xbf16, #l2>, %e1: tensor<64x128xbf16, #l2>):
+        ttnn.yield %e1 : tensor<64x128xbf16, #l2>
+      } -> (tensor<64x128xbf16, #l2>)
+      ttnn.yield %n : tensor<64x128xbf16, #l2>
+    } -> (tensor<64x128xbf16, #l2>)
+    // CHECK: "ttnn.deallocate"(%[[D]]) <{force = false}>
+    // CHECK-NEXT: "ttnn.deallocate"(%[[C]]) <{force = false}>
+    // CHECK-NEXT: "ttnn.deallocate"(%[[B]]) <{force = false}>
+    // CHECK-NEXT: "ttnn.deallocate"(%[[A]]) <{force = false}>
+    // CHECK-NEXT: "ttnn.multiply"(%[[R]], %[[R]])
+    // CHECK-NEXT: "ttnn.deallocate"(%[[R]]) <{force = true}>
+    // CHECK-NEXT: return
+    "ttnn.deallocate"(%d) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    "ttnn.deallocate"(%c) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    "ttnn.deallocate"(%b) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    "ttnn.deallocate"(%a) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    %u = "ttnn.multiply"(%r, %r) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    "ttnn.deallocate"(%r) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    return %u : tensor<64x128xbf16, #l2>
+  }
+
+  // A while result can be an init even though the body computes its own
+  // values: after an odd number of iterations of a body that swaps two slots,
+  // result 0 is init 1, and a loop without a trip count may not run at all.
+  // Each result is therefore grouped with the inits it may be: every
+  // deallocation is kept and only the bottom-most of each group is forced.
+  //
+  // %y and %z each have a second deallocation, their view's. Without the
+  // grouping, the last of those, right after the loops, would be forced while
+  // a result may still name that buffer.
+  // CHECK-LABEL: func.func @while_may_return_an_init
+  func.func @while_may_return_an_init(%arg0: tensor<64x128xbf16, #l2>, %arg1: tensor<ui32, #pred>) -> tensor<64x128xbf16, #l2> {
+    // CHECK: %[[X:[0-9]+]] = "ttnn.add"(%arg0, %arg0)
+    // CHECK: %[[Y:[0-9]+]] = "ttnn.multiply"(%arg0, %arg0)
+    // CHECK: %[[Z:[0-9]+]] = "ttnn.subtract"(%arg0, %arg0)
+    // CHECK: %[[S:[0-9]+]]:2 = ttnn.while
+    // CHECK: %[[T:[0-9]+]] = ttnn.while
+    %x = "ttnn.add"(%arg0, %arg0) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    %y = "ttnn.multiply"(%arg0, %arg0) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    %z = "ttnn.subtract"(%arg0, %arg0) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    %vy = "ttnn.reshape"(%y) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
+    %vz = "ttnn.reshape"(%z) <{shape = [1 : i32, 64 : i32, 128 : i32]}> : (tensor<64x128xbf16, #l2>) -> tensor<1x64x128xbf16, #l3>
+    "ttnn.deallocate"(%vy) <{force = false}> : (tensor<1x64x128xbf16, #l3>) -> ()
+    "ttnn.deallocate"(%vz) <{force = false}> : (tensor<1x64x128xbf16, #l3>) -> ()
+    %s:2 = ttnn.while inits(%x, %y : tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) captures(%arg1 : tensor<ui32, #pred>) {trip_count = 1 : i64} cond {
+    ^bb0(%a: tensor<64x128xbf16, #l2>, %b: tensor<64x128xbf16, #l2>, %p: tensor<ui32, #pred>):
+      ttnn.yield %p : tensor<ui32, #pred>
+    } do {
+    ^bb0(%a: tensor<64x128xbf16, #l2>, %b: tensor<64x128xbf16, #l2>, %p: tensor<ui32, #pred>):
+      ttnn.yield %b, %a : tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>
+    } -> (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>)
+    %t = ttnn.while inits(%z : tensor<64x128xbf16, #l2>) captures(%arg1 : tensor<ui32, #pred>) cond {
+    ^bb0(%a: tensor<64x128xbf16, #l2>, %p: tensor<ui32, #pred>):
+      ttnn.yield %p : tensor<ui32, #pred>
+    } do {
+    ^bb0(%a: tensor<64x128xbf16, #l2>, %p: tensor<ui32, #pred>):
+      %n = "ttnn.add"(%a, %a) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+      ttnn.yield %n : tensor<64x128xbf16, #l2>
+    } -> (tensor<64x128xbf16, #l2>)
+    // CHECK: "ttnn.deallocate"(%[[Z]]) <{force = false}>
+    // CHECK-NEXT: "ttnn.deallocate"(%[[Y]]) <{force = false}>
+    // CHECK-NEXT: "ttnn.deallocate"(%[[X]]) <{force = false}>
+    // CHECK-NEXT: %[[U:[0-9]+]] = "ttnn.add"(%[[S]]#0, %[[S]]#1)
+    // CHECK-NEXT: "ttnn.deallocate"(%[[S]]#1) <{force = false}>
+    // CHECK-NEXT: "ttnn.deallocate"(%[[S]]#0) <{force = true}>
+    // CHECK-NEXT: "ttnn.multiply"(%[[U]], %[[T]])
+    // CHECK-NEXT: "ttnn.deallocate"(%[[U]]) <{force = false}>
+    // CHECK-NEXT: "ttnn.deallocate"(%[[T]]) <{force = true}>
+    // CHECK-NEXT: return
+    "ttnn.deallocate"(%z) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    "ttnn.deallocate"(%y) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    "ttnn.deallocate"(%x) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    %u = "ttnn.add"(%s#0, %s#1) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    "ttnn.deallocate"(%s#1) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    "ttnn.deallocate"(%s#0) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    %w = "ttnn.multiply"(%u, %t) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    "ttnn.deallocate"(%u) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    "ttnn.deallocate"(%t) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    return %w : tensor<64x128xbf16, #l2>
+  }
+
+  // A branch that yields one value twice makes the two results one buffer when
+  // it runs, and two when the other branch does, so the results are grouped:
+  // both deallocations are kept, and the bottom-most is forced to free the
+  // shared one, whose refcount never drops to zero on its own.
+  // CHECK-LABEL: func.func @case_yields_twice
+  func.func @case_yields_twice(%arg0: tensor<64x128xbf16, #l2>, %arg1: tensor<si32, #index>) -> tensor<64x128xbf16, #l2> {
+    // CHECK: %[[R:[0-9]+]]:2 = ttnn.case
+    %r:2 = ttnn.case index(%arg1 : tensor<si32, #index>) captures(%arg0 : tensor<64x128xbf16, #l2>) branches {
+    ^bb0(%c: tensor<64x128xbf16, #l2>):
+      %a = "ttnn.add"(%c, %c) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+      ttnn.yield %a, %a : tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>
+    }, {
+    ^bb0(%c: tensor<64x128xbf16, #l2>):
+      %m = "ttnn.multiply"(%c, %c) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+      %s = "ttnn.subtract"(%c, %c) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+      ttnn.yield %m, %s : tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>
+    } -> (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>)
+    // CHECK: "ttnn.deallocate"(%[[R]]#0) <{force = false}>
+    // CHECK: "ttnn.deallocate"(%[[R]]#1) <{force = true}>
+    // CHECK-NEXT: return
+    %e = "ttnn.add"(%r#0, %r#0) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    "ttnn.deallocate"(%r#0) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    %t = "ttnn.add"(%e, %r#1) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    "ttnn.deallocate"(%e) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    "ttnn.deallocate"(%r#1) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    return %t : tensor<64x128xbf16, #l2>
+  }
+
+  // A parameter stays with the caller for the next call, and a const-eval
+  // result with the cache, so a handle that may be one is never force-freed.
+  // Each result here is grouped with what it may forward, a parameter and a
+  // cached value, and without the exemption the group's bottom-most
+  // deallocation would be forced.
+  // CHECK-LABEL: func.func @case_forwards_outliving
+  func.func @case_forwards_outliving(%arg0: tensor<64x128xbf16, #l2> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg1: tensor<si32, #index>) -> tensor<64x128xbf16, #l2> {
+    %cached = ttcore.load_cached(@outliving_const_eval_0, []) : () -> tensor<64x128xbf16, #l2>
+    %r:2 = ttnn.case index(%arg1 : tensor<si32, #index>) captures(%arg0, %cached : tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) branches {
+    ^bb0(%p: tensor<64x128xbf16, #l2>, %c: tensor<64x128xbf16, #l2>):
+      ttnn.yield %p, %c : tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>
+    }, {
+    ^bb0(%p: tensor<64x128xbf16, #l2>, %c: tensor<64x128xbf16, #l2>):
+      %a = "ttnn.add"(%p, %c) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+      %m = "ttnn.multiply"(%p, %c) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+      ttnn.yield %a, %m : tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>
+    } -> (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>)
+    // CHECK-NOT: force = true
+    // CHECK: return
+    %u = "ttnn.multiply"(%r#0, %r#1) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xbf16, #l2>, tensor<64x128xbf16, #l2>) -> tensor<64x128xbf16, #l2>
+    "ttnn.deallocate"(%r#1) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    "ttnn.deallocate"(%r#0) <{force = false}> : (tensor<64x128xbf16, #l2>) -> ()
+    return %u : tensor<64x128xbf16, #l2>
+  }
+
+  func.func private @outliving_const_eval_0() -> tensor<64x128xbf16, #l2> attributes {tt.function_type = "const_eval"} {
+    %0 = "ttnn.ones"() <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, shape = #ttnn.shape<64x128>}> : () -> tensor<64x128xbf16, #l2>
+    return %0 : tensor<64x128xbf16, #l2>
   }
 
   // No aliasing: a single deallocate per buffer already frees with force = false

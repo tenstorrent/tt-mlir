@@ -12,6 +12,16 @@
 
 namespace tt::runtime::ttnn::operations::control_flow {
 
+// Returns a private view of `tensor`: a fresh wrapper over the same underlying
+// ttnn tensor, with its own retain flag.
+//
+// No data is copied. The view shares the underlying buffer, which bumps its
+// refcount, so a non-forced deallocation of either wrapper frees nothing while
+// the other is still alive. That is what lets a control flow op publish a value
+// it hands back unchanged as a result of its own: the caller deallocates the
+// value and the result independently, each at its own last use.
+::tt::runtime::Tensor view(const ::tt::runtime::Tensor &tensor, bool retain);
+
 // Runs the region program `programId` with `sources` bound to its inputs, and
 // returns its outputs.
 //

@@ -95,7 +95,8 @@ void run(const ::tt::target::ttnn::WhileOp *op, ProgramContext &context) {
   const ::flatbuffers::Optional<uint64_t> tripCount = op->trip_count();
   const uint64_t maxIterations = getMaxIterations();
 
-  for (uint64_t iteration = 0;; ++iteration) {
+  uint64_t iteration = 0;
+  for (;; ++iteration) {
     if (tripCount) {
       if (iteration >= *tripCount) {
         break;
@@ -121,10 +122,21 @@ void run(const ::tt::target::ttnn::WhileOp *op, ProgramContext &context) {
     carried = std::move(next);
   }
 
-  // `carried` holds the inits, the body's own outputs, or - for a value the
-  // body yielded unchanged - a non-retained view of one of those. None of them
-  // is retained, so the results are published exactly as a func call would
-  // publish them.
+  // Without a single iteration, `carried` still holds the pool's own wrappers
+  // for the inits. Published under the result ids, each would be one wrapper
+  // for an init and a result that the caller deallocates independently, and
+  // the first of those deallocations would free the other's buffer. So every
+  // result gets a view of its init instead, as runSubProgram gives a value the
+  // body forwards unchanged.
+  if (iteration == 0) {
+    for (::tt::runtime::Tensor &value : carried) {
+      value = view(value, /*retain=*/false);
+    }
+  }
+
+  // `carried` now holds the body's own outputs, or non-retained views of
+  // values the loop handed back unchanged. None of them is retained, so the
+  // results are published exactly as a func call would publish them.
   LOG_ASSERT(carried.size() == op->outputs()->size(),
              "Number of outputs does not match");
   for (size_t i = 0; i < op->outputs()->size(); i++) {

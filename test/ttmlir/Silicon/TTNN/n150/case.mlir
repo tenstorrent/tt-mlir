@@ -145,3 +145,26 @@ func.func @nested(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
     } -> (tensor<i32>, tensor<32x32xf32>)
   return %r#1 : tensor<32x32xf32>
 }
+
+// A branch that yields one value twice. Its two results are deallocated at
+// their own last uses, so they must not share one runtime wrapper: the first
+// non-forced deallocation would free the buffer the other still reads.
+// CHECK-LABEL: func.func @duplicate_yield
+// CHECK: ttnn.case
+func.func @duplicate_yield(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
+  %index = "ttir.constant"() <{value = dense<0> : tensor<i32>}> : () -> tensor<i32>
+  %r:2 = ttir.case index(%index : tensor<i32>) captures(%arg0 : tensor<32x32xf32>)
+  branches {
+  ^bb0(%a: tensor<32x32xf32>):
+    %0 = "ttir.add"(%a, %a) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    ttir.yield %0, %0 : tensor<32x32xf32>, tensor<32x32xf32>
+  }, {
+  ^bb0(%a: tensor<32x32xf32>):
+    %0 = "ttir.multiply"(%a, %a) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %1 = "ttir.subtract"(%a, %a) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    ttir.yield %0, %1 : tensor<32x32xf32>, tensor<32x32xf32>
+  } -> (tensor<32x32xf32>, tensor<32x32xf32>)
+  %y = "ttir.exp"(%r#0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+  %z = "ttir.add"(%y, %r#1) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+  return %z : tensor<32x32xf32>
+}

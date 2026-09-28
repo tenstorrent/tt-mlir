@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -12,6 +14,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -37,83 +40,91 @@ Value getBoundOperand(CaseOp op, unsigned argNumber) {
   return op.getCaptures()[argNumber];
 }
 
-// The block argument a region hands straight back out as `resultNumber`, or a
-// null value if the region computes that result itself.
-BlockArgument getForwardedArgument(Region &region, unsigned resultNumber) {
-  auto yieldOp =
-      mlir::dyn_cast_if_present<YieldOp>(region.front().getTerminator());
-  if (!yieldOp || resultNumber >= yieldOp.getNumOperands()) {
-    return BlockArgument();
+using Origins = llvm::SmallSetVector<Value, 4>;
+
+Origins getOrigins(OpResult result);
+
+// Collects what `value` may be, seen from its block: a block argument it
+// forwards (directly, through views or nested control flow), or the value that
+// owns its buffer.
+void collectOrigins(Value value, Origins &origins) {
+  Operation *op = value.getDefiningOp();
+  while (op && canReshapeBeView(op)) {
+    value = op->getOperand(0);
+    op = value.getDefiningOp();
   }
-  return mlir::dyn_cast<BlockArgument>(yieldOp.getOperand(resultNumber));
+  if (!mlir::isa_and_present<WhileOp, CaseOp>(op)) {
+    origins.insert(value);
+    return;
+  }
+  // A nested op's operands live in this block, so follow them further.
+  for (Value origin : getOrigins(mlir::cast<OpResult>(value))) {
+    if (llvm::is_contained(op->getOperands(), origin)) {
+      collectOrigins(origin, origins);
+    } else {
+      origins.insert(origin);
+    }
+  }
 }
 
-// The operands a control flow op may hand back as `resultNumber` without
-// touching them, i.e. the buffers that result may turn out to alias.
-//
-// A `ttnn.while` result is only reported when the binding holds for every
-// iteration: a capture is bound to the same value throughout, and a carried
-// value forwarded into its own slot is never overwritten with anything else.
-// A carried value forwarded into a *different* slot depends on the iteration
-// count, so nothing is reported for it.
-llvm::SmallVector<Value> getForwardedOperands(Operation *op,
-                                              unsigned resultNumber) {
-  llvm::SmallVector<Value> operands;
-
-  if (auto whileOp = mlir::dyn_cast<WhileOp>(op)) {
-    BlockArgument arg = getForwardedArgument(whileOp.getBody(), resultNumber);
-    if (arg && (arg.getArgNumber() >= whileOp.getInits().size() ||
-                arg.getArgNumber() == resultNumber)) {
-      operands.push_back(getBoundOperand(whileOp, arg.getArgNumber()));
+// Adds the origins of `yielded`, seen from outside `op`, mapping `block`'s
+// arguments to their bound operands. Returns the mapped argument numbers.
+template <typename OpTy>
+llvm::SmallVector<unsigned> addYieldOrigins(OpTy op, Block &block,
+                                            Value yielded, Origins &origins) {
+  Origins yieldOrigins;
+  collectOrigins(yielded, yieldOrigins);
+  llvm::SmallVector<unsigned> argNumbers;
+  for (Value origin : yieldOrigins) {
+    auto arg = mlir::dyn_cast<BlockArgument>(origin);
+    if (arg && arg.getOwner() == &block) {
+      argNumbers.push_back(arg.getArgNumber());
+      origin = getBoundOperand(op, arg.getArgNumber());
     }
-    return operands;
+    origins.insert(origin);
+  }
+  return argNumbers;
+}
+
+// What a control flow result may be: operands the op forwards (inits or
+// captures), or buffers its regions allocate. A case result may be what any
+// branch yields. A while result is its init if the loop may run zero times, and
+// otherwise what the body yields into its slot; a carried value yielded there
+// leads to its own slot, so e.g. after a swap result 0 may be init 1.
+Origins getOrigins(OpResult result) {
+  Origins origins;
+  unsigned resultNumber = result.getResultNumber();
+
+  if (auto caseOp = mlir::dyn_cast<CaseOp>(result.getOwner())) {
+    for (unsigned i = 0; i < caseOp.getBranches().size(); ++i) {
+      addYieldOrigins(caseOp, caseOp.getBranchBlock(i),
+                      caseOp.getBranchYield(i).getOperand(resultNumber),
+                      origins);
+    }
+    return origins;
   }
 
-  if (auto caseOp = mlir::dyn_cast<CaseOp>(op)) {
-    // Exactly one branch runs, so the result may alias whatever any of them
-    // forwards.
-    for (Region &branch : caseOp.getBranches()) {
-      if (BlockArgument arg = getForwardedArgument(branch, resultNumber)) {
-        Value operand = getBoundOperand(caseOp, arg.getArgNumber());
-        if (!llvm::is_contained(operands, operand)) {
-          operands.push_back(operand);
-        }
+  auto whileOp = mlir::cast<WhileOp>(result.getOwner());
+  if (whileOp.getTripCount().value_or(0) == 0) {
+    // If it is possible that while runs zero times, its results are possibly
+    // just a view on inits.
+    origins.insert(whileOp.getInits()[resultNumber]);
+  }
+  unsigned numInits = whileOp.getInits().size();
+
+  llvm::SmallVector<unsigned> stack = {resultNumber};
+  llvm::SmallDenseSet<unsigned> visited = {resultNumber};
+  while (!stack.empty()) {
+    Value yielded = whileOp.getBodyYield().getOperand(stack.pop_back_val());
+    for (unsigned argNumber :
+         addYieldOrigins(whileOp, whileOp.getBodyBlock(), yielded, origins)) {
+      if (argNumber < numInits && !visited.contains(argNumber)) {
+        visited.insert(argNumber);
+        stack.push_back(argNumber);
       }
     }
   }
-
-  return operands;
-}
-
-// Returns the value whose device buffer `value` aliases, or a null Value if it
-// names a buffer of its own (i.e. is not acting as a view).
-//
-// Two things alias today: a view-eligible reshape aliases its input, and a
-// control flow op result aliases the operand a region forwards straight out of
-// it - the runtime publishes a second handle on that same buffer. This helper
-// is the single place that knowledge lives so that the rest of the pass is
-// decoupled from it. A future ViewOpInterface can replace the body without
-// touching the pass logic.
-//
-// A `ttnn.case` result whose branches forward *different* operands has no
-// single source and so none is reported here; `buildMayAliasGroups` groups
-// those roots instead.
-Value getViewSource(Value value) {
-  Operation *op = value.getDefiningOp();
-  if (!op) {
-    return Value();
-  }
-  if (canReshapeBeView(op)) {
-    return op->getOperand(0);
-  }
-  if (mlir::isa<WhileOp, CaseOp>(op)) {
-    llvm::SmallVector<Value> forwarded =
-        getForwardedOperands(op, mlir::cast<OpResult>(value).getResultNumber());
-    if (forwarded.size() == 1) {
-      return forwarded.front();
-    }
-  }
-  return Value();
+  return origins;
 }
 
 // Returns the activation of the given conv op if the conv deallocates it
@@ -134,82 +145,76 @@ Value getConvDeallocatedActivation(ConvOpTy conv) {
   return deallocatesActivation ? input : Value();
 }
 
-// Walks up the chain of view ops until reaching the value that produces the
-// underlying buffer, caching the result for every value on the path.
-Value canonicalRoot(Value value, llvm::DenseMap<Value, Value> &valueToRoot) {
-  llvm::SmallVector<Value, 4> path;
-  Value current = value;
-  while (true) {
-    auto it = valueToRoot.find(current);
-    if (it != valueToRoot.end()) {
-      current = it->second;
-      break;
-    }
-    Value source = getViewSource(current);
-    if (!source) {
-      break;
-    }
-    path.push_back(current);
-    current = source;
-  }
-  Value root = current;
-  for (Value aliased : path) {
-    valueToRoot[aliased] = root;
-  }
-  valueToRoot[root] = root;
-  return root;
-}
-
-// Groups roots that may name the same buffer without provably doing so, which
-// today means a control flow result whose branches forward different operands:
-// it aliases one of them, decided at runtime.
-//
-// These cannot be merged into a single root the way a view can. A root stands
-// for one buffer, and the members of a group are still distinct buffers - only
-// one of them turns out to be shared - so their deallocations are not
-// interchangeable and none of them is redundant.
-class MayAliasGroups {
+// Groups handles that may name the same buffer. A must-alias group (a view and
+// its source, or a result every path forwards) is one buffer. A may-alias group
+// (a result that depends on the path) holds distinct buffers, one of which is
+// shared at runtime.
+class AliasGroups {
 public:
-  Value find(Value root) const {
-    auto it = parent.find(root);
-    while (it != parent.end() && it->second != root) {
-      root = it->second;
-      it = parent.find(root);
+  Value find(Value value) const {
+    auto it = parent.find(value);
+    while (it != parent.end()) {
+      value = it->second;
+      it = parent.find(value);
     }
-    return root;
+    return value;
   }
 
-  void join(Value lhs, Value rhs) {
+  void join(Value lhs, Value rhs, bool mayAlias) {
     Value lhsGroup = find(lhs);
     Value rhsGroup = find(rhs);
-    parent[lhsGroup] = lhsGroup;
     if (lhsGroup != rhsGroup) {
       parent[rhsGroup] = lhsGroup;
+      mayAlias |= mayAliasGroups.erase(rhsGroup);
+    }
+    if (mayAlias) {
+      mayAliasGroups.insert(lhsGroup);
     }
   }
 
-  bool isGrouped(Value root) const { return parent.contains(root); }
+  bool isMayAlias(Value group) const { return mayAliasGroups.contains(group); }
 
 private:
   llvm::DenseMap<Value, Value> parent;
+  llvm::DenseSet<Value> mayAliasGroups;
 };
 
-MayAliasGroups buildMayAliasGroups(func::FuncOp funcOp,
-                                   llvm::DenseMap<Value, Value> &valueToRoot) {
-  MayAliasGroups groups;
+// The one place that knows what aliases: view-eligible reshapes, and control
+// flow results that forward an operand. A future ViewOpInterface can replace
+// the reshape check.
+AliasGroups buildAliasGroups(func::FuncOp funcOp) {
+  AliasGroups groups;
   funcOp.walk([&](Operation *op) {
+    if (canReshapeBeView(op)) {
+      groups.join(op->getResult(0), op->getOperand(0), /*mayAlias=*/false);
+      return;
+    }
     if (!mlir::isa<WhileOp, CaseOp>(op)) {
       return;
     }
+
+    llvm::SmallVector<Origins> origins =
+        llvm::map_to_vector(op->getResults(), getOrigins);
+    auto isOperand = [&](Value value) {
+      return llvm::is_contained(op->getOperands(), value);
+    };
     for (OpResult result : op->getResults()) {
-      llvm::SmallVector<Value> forwarded =
-          getForwardedOperands(op, result.getResultNumber());
-      if (forwarded.size() < 2) {
-        continue;
-      }
-      Value resultRoot = canonicalRoot(result, valueToRoot);
-      for (Value operand : forwarded) {
-        groups.join(resultRoot, canonicalRoot(operand, valueToRoot));
+      const Origins &resultOrigins = origins[result.getResultNumber()];
+      bool mustAlias =
+          resultOrigins.size() == 1 && isOperand(resultOrigins.front());
+      for (Value origin : resultOrigins) {
+        if (isOperand(origin)) {
+          groups.join(result, origin, /*mayAlias=*/!mustAlias);
+          continue;
+        }
+        // A region-allocated buffer, shared with any other result that may be
+        // it (e.g. a value yielded twice).
+        for (OpResult other : op->getResults()) {
+          if (other != result &&
+              origins[other.getResultNumber()].contains(origin)) {
+            groups.join(result, other, /*mayAlias=*/true);
+          }
+        }
       }
     }
   });
@@ -231,23 +236,13 @@ MayAliasGroups buildMayAliasGroups(func::FuncOp funcOp,
 // a deallocation of a buffer another live handle still names frees it out from
 // under that handle.
 //
-// Aliasing comes in two strengths. A view *must* alias its source, so all the
-// handles share one root and every deallocation but the last is a no-op that
-// can be removed. A control flow result whose branches forward different
-// operands only *may* alias each of them - which one is decided at runtime - so
-// those handles are grouped rather than merged: they are still distinct
-// buffers, no deallocation among them is redundant, and only the bottom-most is
-// forced, to free the one that is shared and whose refcount therefore never
-// drops to zero on its own.
-//
-// For each underlying buffer, this pass walks that buffer's deallocate ops from
-// bottom to top and sets the force flag to true on the last one in program
-// order (the true final use of that buffer), so the buffer is properly freed.
-// For buffers that are freed elsewhere, no deallocation is forced and all of
-// their (no-op) deallocations are removed. Those are buffers that escape the
-// block computing them (returned from the function and freed by the caller, or
-// yielded out of a region), buffers a region only borrows through its block
-// arguments, and conv activations the conv op force-deallocates itself.
+// For each group of aliasing handles (see AliasGroups), this pass forces the
+// last deallocation in program order. The other deallocations are removed in a
+// must-alias group and kept in a may-alias one, where each frees the buffer it
+// alone owns. Nothing is forced for buffers freed elsewhere: those that escape
+// their block (returned or yielded), region block arguments, buffers that
+// outlive the call (constant and parameter arguments, const-eval results), and
+// conv activations the conv frees itself.
 //
 // Bottom-to-top only means program order because every deallocation of a
 // block-owned buffer sits in that same block: a value defined in a region is
@@ -272,21 +267,35 @@ public:
   }
 
 private:
-  // Collects the roots that must never be force-freed: buffers that escape the
-  // block that computes them, buffers a region is only borrowing, and conv
-  // activations that the conv op deallocates itself.
-  llvm::DenseSet<Value>
-  collectDoNotForceRoots(func::FuncOp funcOp,
-                         llvm::DenseMap<Value, Value> &valueToRoot) {
-    llvm::DenseSet<Value> doNotForceRoots;
+  // Collects the groups that must never be force-freed: buffers that escape the
+  // block that computes them, buffers a region is only borrowing, buffers that
+  // outlive the call, and conv activations that the conv op deallocates itself.
+  llvm::DenseSet<Value> collectDoNotForceGroups(func::FuncOp funcOp,
+                                                const AliasGroups &groups) {
+    llvm::DenseSet<Value> doNotForceGroups;
+
+    // Weights and const-eval results are reused by the next call.
+    // TTNNAdjustDeallocs removed their own deallocations, not those of views or
+    // control flow results that alias them.
+    for (BlockArgument arg : ttcore::getConstsAndParams(funcOp)) {
+      doNotForceGroups.insert(groups.find(arg));
+    }
+
     funcOp.walk([&](Operation *op) {
+      if (mlir::isa<ttcore::LoadCachedOp>(op)) {
+        for (Value result : op->getResults()) {
+          doNotForceGroups.insert(groups.find(result));
+        }
+        return WalkResult::advance();
+      }
+
       // A terminator hands its operands to whoever its block returns to, so
       // this block is not the one that frees them: the caller for func.return,
       // the enclosing scope or the next iteration for a region terminator such
       // as ttnn.yield.
       if (op->hasTrait<OpTrait::IsTerminator>()) {
         for (Value operand : op->getOperands()) {
-          doNotForceRoots.insert(canonicalRoot(operand, valueToRoot));
+          doNotForceGroups.insert(groups.find(operand));
         }
         return WalkResult::advance();
       }
@@ -299,7 +308,7 @@ private:
         for (Region &region : op->getRegions()) {
           for (Block &block : region) {
             for (BlockArgument arg : block.getArguments()) {
-              doNotForceRoots.insert(canonicalRoot(arg, valueToRoot));
+              doNotForceGroups.insert(groups.find(arg));
             }
           }
         }
@@ -312,60 +321,40 @@ private:
               })
               .Default(Value());
       if (convActivation) {
-        doNotForceRoots.insert(canonicalRoot(convActivation, valueToRoot));
+        doNotForceGroups.insert(groups.find(convActivation));
       }
       return WalkResult::advance();
     });
-    return doNotForceRoots;
+    return doNotForceGroups;
   }
 
   // Forces the last deallocation of each buffer that has more than one
   // (aliasing) deallocations.
   void processFunc(func::FuncOp funcOp) {
-    // Resolves each value to the root value identifying its underlying
-    // buffer.
-    llvm::DenseMap<Value, Value> valueToRoot;
+    AliasGroups groups = buildAliasGroups(funcOp);
+    llvm::DenseSet<Value> doNotForceGroups =
+        collectDoNotForceGroups(funcOp, groups);
 
-    // Built before anything else resolves a root, so that every later lookup
-    // sees the same grouping.
-    MayAliasGroups mayAliasGroups = buildMayAliasGroups(funcOp, valueToRoot);
-    auto groupOf = [&](Value value) {
-      return mayAliasGroups.find(canonicalRoot(value, valueToRoot));
-    };
-
-    // Buffers that are used outside the function (returned variables) or
-    // deallocated by a conv op (conv op L1 activations) cannot be force-freed.
-    llvm::DenseSet<Value> doNotForceGroups;
-    for (Value root : collectDoNotForceRoots(funcOp, valueToRoot)) {
-      doNotForceGroups.insert(mayAliasGroups.find(root));
-    }
-
-    // Count deallocations per buffer so we only touch buffers that
-    // actually have multiple (aliasing) deallocations.
+    // Count deallocations per group so we only touch buffers that actually
+    // have multiple (aliasing) deallocations.
     llvm::SmallVector<DeallocateOp> deallocs;
     llvm::DenseMap<Value, unsigned> deallocCountByGroup;
     funcOp.walk([&](DeallocateOp deallocOp) {
       deallocs.push_back(deallocOp);
-      deallocCountByGroup[groupOf(deallocOp.getInput())]++;
+      deallocCountByGroup[groups.find(deallocOp.getInput())]++;
     });
 
-    // Walk deallocations bottom-to-top and decide, per buffer, which single
-    // deallocate (if any) should free it. All other deallocations of that
-    // buffer are no-ops and are removed.
+    // Walk deallocations bottom-to-top and decide, per group, which single
+    // deallocate (if any) should be forced.
     llvm::DenseSet<Value> forcedGroups;
     llvm::SmallVector<DeallocateOp> redundantDeallocs;
     for (auto deallocOp : llvm::reverse(deallocs)) {
-      Value group = groupOf(deallocOp.getInput());
-
-      // A may-alias group holds distinct buffers, only one of which turns out
-      // to be shared, so none of its deallocations is redundant: each frees
-      // whichever buffer it alone owns. Only the bottom-most needs forcing, to
-      // free the one that is shared and whose refcount therefore never drops
-      // to zero on its own.
-      bool mayAlias = mayAliasGroups.isGrouped(group);
+      Value group = groups.find(deallocOp.getInput());
+      bool mayAlias = groups.isMayAlias(group);
 
       // The buffer is freed elsewhere: escapes the function (freed by the
-      // caller) or is a conv activation the conv force-deallocates itself.
+      // caller), outlives the call, or is a conv activation the conv
+      // force-deallocates itself.
       if (doNotForceGroups.contains(group)) {
         if (!mayAlias) {
           redundantDeallocs.push_back(deallocOp);
@@ -381,8 +370,8 @@ private:
         continue;
       }
 
-      // Multiple aliasing deallocations: the first one seen is the last in
-      // program order, so force it. The rest are no-ops and are removed.
+      // The first one seen is the last in program order, so force it. The rest
+      // of a must-alias group are no-ops and are removed.
       if (forcedGroups.insert(group).second) {
         deallocOp.setForce(true);
       } else if (!mayAlias) {

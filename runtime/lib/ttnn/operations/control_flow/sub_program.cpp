@@ -7,21 +7,14 @@
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
+#include <algorithm>
+
 namespace tt::runtime::ttnn::operations::control_flow {
 
-namespace {
-
-// Returns a private view of `tensor`: a fresh wrapper over the same underlying
-// ttnn tensor, with its own retain flag.
-//
 // Retain is not this op's flag to touch on the caller's wrapper, since
 // const-eval, trace and host callers all keep tensors retained for their own
 // reasons. Setting it on a private view leaves theirs untouched by
 // construction.
-//
-// No data is copied. The view shares the underlying buffer, which bumps its
-// refcount, so a non-forced deallocation of either wrapper frees nothing while
-// the other is still alive.
 ::tt::runtime::Tensor view(const ::tt::runtime::Tensor &tensor, bool retain) {
   const ::tt::runtime::ttnn::TTNNTensorWrapper &wrapper =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
@@ -41,8 +34,6 @@ namespace {
       .syncVersion(wrapper);
   return result;
 }
-
-} // namespace
 
 std::vector<::tt::runtime::Tensor>
 runSubProgram(uint32_t programId, ProgramContext &context,
@@ -77,18 +68,37 @@ runSubProgram(uint32_t programId, ProgramContext &context,
   // one wrapper for both would let the first of those frees invalidate the
   // other. A second wrapper bumps the buffer's refcount, which makes the first
   // non-forced deallocation a no-op and leaves the survivor valid.
+  //
+  // A program that yields one value twice hands back one wrapper for both
+  // output ids, the same hazard between two results, so every repeat after the
+  // first gets its own view too. The repeat keeps the first's retain flag,
+  // because it is the same value.
+  std::vector<const void *> seenWrappers;
+  seenWrappers.reserve(outputs.size());
   for (::tt::runtime::Tensor &output : outputs) {
-    const void *outputWrapper =
-        &output.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+    const ::tt::runtime::ttnn::TTNNTensorWrapper &outputWrapper =
+        output.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+    // Keyed by the wrapper the program returned, since `output` may be
+    // replaced below.
+    const void *outputKey = &outputWrapper;
+
+    bool isInput = false;
     for (size_t i = 0; i < inputs.size(); i++) {
       const void *inputWrapper =
           &inputs[i].as<::tt::runtime::ttnn::TTNNTensorWrapper>(
               DeviceRuntime::TTNN);
-      if (inputWrapper == outputWrapper) {
+      if (inputWrapper == outputKey) {
         output = view(sources[i], /*retain=*/false);
+        isInput = true;
         break;
       }
     }
+
+    if (!isInput && std::find(seenWrappers.begin(), seenWrappers.end(),
+                              outputKey) != seenWrappers.end()) {
+      output = view(output, outputWrapper.shouldRetain());
+    }
+    seenWrappers.push_back(outputKey);
   }
 
   return outputs;
