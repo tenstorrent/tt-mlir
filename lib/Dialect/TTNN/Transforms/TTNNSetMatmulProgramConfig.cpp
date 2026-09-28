@@ -109,8 +109,10 @@ int64_t biasTileBytes(Value bias) {
   return kBf16TileBytes;
 }
 
-// is_narrow_shape plus the wide/tall split of
-// create_simple_matmul_program_config for all-DRAM-interleaved operands.
+// Picks the kernel family the way tt-metal's
+// create_simple_matmul_program_config does when every operand is
+// DRAM-interleaved: 2D mcast, unless is_narrow_shape holds, in which case 1D
+// mcast_in0 for a wide output and 1D mcast_in1 for a tall one.
 MatmulKernel route(int64_t mt, int64_t nt) {
   const int64_t height = mt * kTileDim;
   const int64_t width = nt * kTileDim;
@@ -244,7 +246,9 @@ std::optional<MatmulProblem> analyze(MatmulOpTy op, Value bias) {
 
   llvm::ArrayRef<int64_t> aShape = op.getA().getType().getShape();
   llvm::ArrayRef<int64_t> bShape = op.getB().getType().getShape();
-  if (aShape.size() < 2 || bShape.size() < 2) {
+  auto isZero = [](int64_t dim) { return dim == 0; };
+  if (aShape.size() < 2 || bShape.size() < 2 || llvm::any_of(aShape, isZero) ||
+      llvm::any_of(bShape, isZero)) {
     return std::nullopt;
   }
 
@@ -255,8 +259,9 @@ std::optional<MatmulProblem> analyze(MatmulOpTy op, Value bias) {
       op.getTransposeB() ? bShape[bShape.size() - 2] : bShape.back();
   const int64_t batchA = ttmlir::utils::volume(aShape.drop_back(2));
   const int64_t batchB = ttmlir::utils::volume(bShape.drop_back(2));
-  // A batch-broadcast A takes tt-metal's dedicated in0-reuse path.
-  if (batchB > 1 && (batchA != batchB || aShape.size() != bShape.size())) {
+  // A batched B must match A's batch dimensions exactly; any broadcast between
+  // them is left to tt-metal.
+  if (batchB > 1 && !llvm::equal(aShape.drop_back(2), bShape.drop_back(2))) {
     return std::nullopt;
   }
 

@@ -721,7 +721,8 @@ def TTNNSetMatmulProgramConfig: Pass<"ttnn-set-matmul-program-config", "::mlir::
     runtime.
 
     Ops are left untouched when they already carry a program config,
-    broadcast a batched B over an unbatched A, have no compute_config
+    have a batched B whose batch dimensions differ from A's, have a
+    zero-sized dimension, have no compute_config
     (tt-metal would lower its default math fidelity once a program config is
     present), or have no blocking that fits the L1 budget.
 
