@@ -126,18 +126,18 @@ def _skip_prepare(*targets):
     return decorator
 
 
-def _needs_node(fn):
-    """The lowering also receives the FX node: `fn(mb, node, *args)`."""
-    fn._needs_node = True
-    return fn
+def _compiling_training_graph() -> bool:
+    """True while lowering the forward of a graph AOT built a backward for.
 
-
-def _used_output_slots(node) -> set[int]:
-    return {
-        u.args[1]
-        for u in node.users
-        if u.op == "call_function" and u.target is operator.getitem
-    }
+    AOT decides this once per graph from whether any input requires grad and
+    records it as `fw_metadata.is_train` on the tracing context, which is live
+    for the whole compile. Grad mode is no substitute here: AOT runs the forward
+    compiler under no_grad whenever a backward exists, so `torch.is_grad_enabled()`
+    reads False exactly when training. No metadata (a graph compiled outside AOT)
+    counts as inference, the same fallback `_fw_args_roles` takes.
+    """
+    fw_meta = getattr(torch._guards.TracingContext.try_get(), "fw_metadata", None)
+    return bool(getattr(fw_meta, "is_train", False))
 
 
 @_lowering(_aten.add.Tensor)
@@ -880,10 +880,8 @@ _SDPA_FUSED_BW = _aten._scaled_dot_product_fused_attention_overrideable_backward
 
 @_lowering(_SDPA_FUSED_FW)
 @_skip_prepare(_SDPA_FUSED_FW)
-@_needs_node
 def _(
     mb,
-    node,
     query,
     key,
     value,
@@ -901,8 +899,8 @@ def _(
         raise NotImplementedError(
             "tt-crank sdpa: return_debug_mask=True is not supported"
         )
-    # Slot 1 (logsumexp) is only read by a following backward; inference keeps the prefill op.
-    if 1 not in _used_output_slots(node):
+    # Slot 1 (logsumexp) only feeds a backward; an inference graph keeps the prefill op.
+    if not _compiling_training_graph():
         result = mb.sdpa(
             query, key, value, is_causal=is_causal, scale=scale, attn_mask=attn_bias
         )
@@ -1491,8 +1489,6 @@ class _TTIRInterpreter(torch.fx.Interpreter):
             val = next(v for v in val if v is not None)
         target_dtype = _to_runtime_dtype(val.dtype)
         args = _prepare_op_args(self.mb, args, target_dtype, target)
-        if getattr(fn, "_needs_node", False):
-            return fn(self.mb, self._current_node, *args, **kwargs)
         return fn(self.mb, *args, **kwargs)
 
     def _call_operator(self, target, args, kwargs):

@@ -545,6 +545,54 @@ def test_sdpa_fused_lowering_ir(
 
 
 @_OPT1_ON_SIM
+@pytest.mark.parametrize("variant", ["plain", "causal", "float_mask"])
+@pytest.mark.parametrize(
+    "grads",
+    ["no_grad", "frozen"],
+    ids=["no_grad", "grad_mode_on_frozen_inputs"],
+)
+def test_sdpa_inference_lowering_ir(
+    variant: str, grads: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A graph with no backward lowers to the ttir sdpa op, never the sdpa_fw composite.
+
+    The lowering keys on AOT's `is_train`, so both "under no_grad" and "grad mode on but
+    nothing requires grad" are inference; numerics alone would not tell the two kernels
+    apart (sdpa_fw is the more accurate one, and about twice as slow). One cell differs:
+    the choice stub only sees grad mode, so with it on a float mask is sent to the MATH
+    decomposition before any lowering runs, and the graph has no sdpa op at all.
+    """
+    monkeypatch.setattr(_artifacts, "_artifacts_root", lambda: tmp_path)
+    requires_grad = grads == "no_grad"
+    q, k, v = (
+        torch.randn(_B, _H, _S, _E, dtype=_DT).to("tt").requires_grad_(requires_grad)
+        for _ in range(3)
+    )
+    kw = dict(is_causal=variant == "causal")
+    if variant == "float_mask":
+        kw["attn_mask"] = torch.randn(_B, 1, _S, _S, dtype=_DT).to("tt")
+
+    torch._dynamo.reset()
+    with torch.set_grad_enabled(not requires_grad), collect_artifacts("sdpa_inference"):
+        torch.compile(
+            lambda a, b, c: F.scaled_dot_product_attention(a, b, c, **kw),
+            backend="tt",
+            fullgraph=True,
+            options=_OPT["compile"],
+        )(q, k, v)
+    (out_dir,) = list(tmp_path.iterdir())
+    ttir = _main_func((out_dir / "graph_0_inference.ttir.mlir").read_text())
+    ttnn = (out_dir / "graph_0_inference.ttnn.mlir").read_text()
+    assert "sdpa_fw" not in ttir, ttir
+    assert "ttnn.sdpa_fw" not in ttnn, ttnn
+    if grads == "frozen" and variant == "float_mask":
+        assert "ttir.scaled_dot_product_attention" not in ttir, ttir
+        assert "ttir.softmax" in ttir, "expected the MATH decomposition"
+    else:
+        assert ttir.count("ttir.scaled_dot_product_attention") == 1, ttir
+
+
+@_OPT1_ON_SIM
 def test_sdpa_training_is_two_device_programs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -591,7 +639,11 @@ def test_sdpa_training_is_two_device_programs(
 def test_sdpa_fw_logsumexp_matches_torch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pins the ttml lse tile contract (value in column 0 of a [B, H, S, 32] f32 tile) against torch."""
+    """Pins the ttml lse tile contract (value in column 0 of a [B, H, S, 32] f32 tile) against torch.
+
+    The lowering emits `sdpa_fw` only for a graph AOT built a backward for, so the
+    inputs require grad; the forward alone is enough to get the lse out.
+    """
     monkeypatch.setattr(_artifacts, "_artifacts_root", lambda: tmp_path)
     q, k, v = (torch.randn(_B, _H, _S, _E, dtype=_DT) for _ in range(3))
     logits = (q.float() @ k.float().transpose(2, 3)) * _E**-0.5
@@ -609,8 +661,8 @@ def test_sdpa_fw_logsumexp_matches_torch(
         compiled = torch.compile(
             fw, backend="tt", fullgraph=True, options=_OPT["compile"]
         )
-        _, lse = compiled(*(t.to("tt") for t in (q, k, v)))
+        _, lse = compiled(*(t.to("tt").requires_grad_(True) for t in (q, k, v)))
     (out_dir,) = list(tmp_path.iterdir())
-    assert "ttnn.sdpa_fw" in (out_dir / "graph_0_inference.ttnn.mlir").read_text()
+    assert "ttnn.sdpa_fw" in (out_dir / "graph_0_forward.ttnn.mlir").read_text()
     assert lse.dtype == torch.float32 and lse.shape == (_B, _H, _S)
     assert _pcc(lse.cpu(), ref_lse) >= 0.999, "ttml logsumexp tile layout changed"
