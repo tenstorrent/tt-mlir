@@ -276,6 +276,36 @@ void createTTNNFusingPass(OpPassManager &pm,
   }
 }
 
+// Create the matmul program config pass. With the optimizer enabled it runs
+// inside the device wrapper and validates every chosen config with OpModel,
+// dropping configs that fail. Without the optimizer there is no OpModel device,
+// so configs are set unvalidated.
+void createTTNNSetMatmulProgramConfigPass(
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
+  if (!options.enableMatmulProgramConfig) {
+    return;
+  }
+  if (options.optimizerPassEnabled) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+    DevicePassesWrapperOptions wrapperOptions;
+    wrapperOptions.devicePtr = options.devicePtr;
+    wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
+    pm.addPass(createDevicePassesWrapper(
+        [](OpPassManager &innerPm) {
+          TTNNSetMatmulProgramConfigOptions configOptions;
+          configOptions.enableOpConstraints = true;
+          innerPm.addPass(createTTNNSetMatmulProgramConfig(configOptions));
+        },
+        wrapperOptions));
+#else
+    llvm::llvm_unreachable_internal(
+        "TTNN optimizer passes require OpModel support to be enabled.");
+#endif
+  } else {
+    pm.addPass(createTTNNSetMatmulProgramConfig());
+  }
+}
+
 // Create a pass to workaround issues in the TTNN dialect.
 void createTTNNPipelineWorkaroundPass(
     OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
@@ -475,9 +505,7 @@ void createTTIRToTTNNCommonPipeline(
 
     createTTNNPipelineAnalysisPasses(devicePm, options);
 
-    if (options.enableMatmulProgramConfig) {
-      devicePm.addPass(createTTNNSetMatmulProgramConfig());
-    }
+    createTTNNSetMatmulProgramConfigPass(devicePm, options);
 
     // Materialize PrepareConv3dWeightsOp for every Conv3dOp. Runs after the
     // optimizer (so it can read the optimizer's chosen Conv3dConfigAttr) but

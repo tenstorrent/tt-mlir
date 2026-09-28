@@ -314,7 +314,10 @@ struct TTIRToTTNNCommonPipelineOptions
 
   // Set multicast program configs on DRAM-interleaved matmul/linear ops after
   // the optimizer has decided layouts.
-  Option<bool> enableMatmulProgramConfig{
+  // If not explicitly set, enabled only without memory layout analysis: the
+  // pass sizes circular buffers against an empty L1, which does not hold once
+  // the optimizer keeps tensors in L1 across matmuls.
+  mutable Option<bool> enableMatmulProgramConfig{
       *this, "enable-matmul-program-config",
       llvm::cl::desc("Set matmul program configs on DRAM-interleaved "
                      "ttnn.matmul and ttnn.linear ops."),
@@ -591,6 +594,9 @@ struct TTIRToTTNNCommonPipelineOptions
     }
     if (!memoryLayoutAnalysisEnabled.hasValue()) {
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
+    }
+    if (!enableMatmulProgramConfig.hasValue()) {
+      enableMatmulProgramConfig = !memoryLayoutAnalysisEnabled;
     }
     if (!computeCfgMathFidelity.hasValue() && optimizationLevel > 0) {
       computeCfgMathFidelity = OptionalMathFidelity::Undefined;

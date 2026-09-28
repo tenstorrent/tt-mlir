@@ -716,13 +716,18 @@ def TTNNSetMatmulProgramConfig: Pass<"ttnn-set-matmul-program-config", "::mlir::
 
     in0_block_w always divides Kt and leaves at least two K-blocks. Subblocks
     follow tt-metal's subblock table under the op's compute_config. Linear ops
-    reserve L1 for the bias circular buffer. Fused activations are left to
-    the runtime.
+    reserve L1 for the bias circular buffer, and transpose_a ops for the
+    transposed copy of the in0 block. Fused activations are left to the
+    runtime.
 
-    Ops are left untouched when they already carry a program config, use
-    transpose_a, broadcast a batched B over an unbatched A, have no
-    compute_config (tt-metal would lower its default math fidelity once a
-    program config is present), or have no blocking that fits the L1 budget.
+    Ops are left untouched when they already carry a program config,
+    broadcast a batched B over an unbatched A, have no compute_config
+    (tt-metal would lower its default math fidelity once a program config is
+    present), or have no blocking that fits the L1 budget.
+
+    With enable-op-constraints, each chosen config is checked with one OpModel
+    getOpConstraints query and dropped if the query fails. The query is
+    stateless: it assumes nothing else occupies L1 while the matmul runs.
 
     Example usage:
     ttmlir-opt --ttnn-set-matmul-program-config input.mlir
@@ -735,7 +740,11 @@ def TTNNSetMatmulProgramConfig: Pass<"ttnn-set-matmul-program-config", "::mlir::
     Option<"l1BudgetBytes", "l1-budget", "int64_t", /*default=*/"1400000",
            "Per-core L1 bytes available for matmul circular buffers">,
     Option<"splitMinDim", "split-min-dim", "int64_t", /*default=*/"1024",
-           "Minimum M (mcast_in0) or N (mcast_in1) at which 1D output blocks may be halved">
+           "Minimum M (mcast_in0) or N (mcast_in1) at which 1D output blocks may be halved">,
+    Option<"enableOpConstraints", "enable-op-constraints", "bool",
+           /*default=*/"false",
+           "Validate each chosen config with OpModel and drop it on failure. "
+           "Requires TTMLIR_ENABLE_OPMODEL.">
   ];
 }
 

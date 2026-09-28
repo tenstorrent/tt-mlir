@@ -11,6 +11,12 @@
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
+#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#endif
+
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/MathExtras.h"
 
@@ -60,6 +66,7 @@ struct MatmulProblem {
   int64_t gridX;
   int64_t gridY;
   bool fuseBatch;
+  bool transposeA;
   int64_t aTileBytes;
   int64_t bTileBytes;
   int64_t outTileBytes;
@@ -116,13 +123,16 @@ MatmulKernel route(int64_t mt, int64_t nt) {
   return width > height ? MatmulKernel::Mcast1DIn0 : MatmulKernel::Mcast1DIn1;
 }
 
-// Circular buffer bytes of the mcast factories for one block choice.
+// Circular buffer bytes of the mcast factories for one block choice. With
+// transpose_a the factories allocate a second in0-sized CB that the compute
+// kernel transposes A tiles into.
 int64_t cbBytes(const MatmulProblem &p, int64_t outBlockH, int64_t outBlockW,
                 int64_t in0BlockW) {
   const int64_t depth =
       p.kt / in0BlockW > 1 ? kMcastInputBufferingDepth : int64_t{1};
   const int64_t area = outBlockH * outBlockW;
-  return depth * outBlockH * in0BlockW * p.aTileBytes +
+  const int64_t in0Bytes = depth * outBlockH * in0BlockW * p.aTileBytes;
+  return (p.transposeA ? 2 : 1) * in0Bytes +
          depth * outBlockW * in0BlockW * p.bTileBytes +
          area * (p.outTileBytes + p.intermTileBytes) +
          outBlockW * p.biasTileBytes;
@@ -214,7 +224,7 @@ std::pair<int64_t, int64_t> pickSubblock(int64_t outBlockH, int64_t outBlockW,
 
 template <typename MatmulOpTy>
 std::optional<MatmulProblem> analyze(MatmulOpTy op, Value bias) {
-  if (op.getMatmulProgramConfigAttr() || op.getTransposeA()) {
+  if (op.getMatmulProgramConfigAttr()) {
     return std::nullopt;
   }
 
@@ -238,8 +248,9 @@ std::optional<MatmulProblem> analyze(MatmulOpTy op, Value bias) {
     return std::nullopt;
   }
 
-  const int64_t m = aShape[aShape.size() - 2];
-  const int64_t k = aShape.back();
+  const bool transposeA = op.getTransposeA();
+  const int64_t m = transposeA ? aShape.back() : aShape[aShape.size() - 2];
+  const int64_t k = transposeA ? aShape[aShape.size() - 2] : aShape.back();
   const int64_t n =
       op.getTransposeB() ? bShape[bShape.size() - 2] : bShape.back();
   const int64_t batchA = ttmlir::utils::volume(aShape.drop_back(2));
@@ -270,6 +281,7 @@ std::optional<MatmulProblem> analyze(MatmulOpTy op, Value bias) {
   p.kt = llvm::divideCeil(k, kTileDim);
   p.gridX = workerGrid[1];
   p.gridY = workerGrid[0];
+  p.transposeA = transposeA;
   p.aTileBytes = aLayout.getElementSizeBytes();
   p.bTileBytes = bLayout.getElementSizeBytes();
   p.outTileBytes = outTileBytes;
@@ -286,7 +298,9 @@ std::optional<MatmulProblem> analyze(MatmulOpTy op, Value bias) {
     if (p.gridX < 2 || p.gridY < 2) {
       return std::nullopt;
     }
-    p.fuseBatch = batchB == 1;
+    // tt-metal rejects fuse_batch with transpose_a when A has batches of more
+    // than one M tile.
+    p.fuseBatch = batchB == 1 && !(transposeA && batchA > 1 && mt > 1);
     const int64_t mtTotal = p.fuseBatch ? batchA * mt : mt;
     p.perCoreM = llvm::divideCeil(mtTotal, p.gridY);
     p.perCoreN = llvm::divideCeil(nt, p.gridX);
@@ -320,6 +334,30 @@ Attribute buildConfig(MLIRContext *context, const MatmulProblem &p,
       /*mcast_in0=*/p.kernel == MatmulKernel::Mcast1DIn0,
       /*gather_in0=*/false, CoreRangeSetAttr::get(context, {}),
       /*num_global_cb_receivers=*/0, /*untilize_out=*/false);
+}
+
+// Runs one OpModel getOpConstraints query for the op with `config` in place of
+// its current program config. Without OpModel support every config passes.
+template <typename MatmulOpTy>
+bool passesOpConstraints(MatmulOpTy op, Attribute config) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  op_model::ScopedSingletonDeviceGuard deviceGuard(op);
+  OpConfig opConfig(getDramInterleavedTiledLayout(op.getResult()),
+                    MatmulAttrs{config, op.getComputeConfigAttr()});
+  op_constraint_validation::ValidationResult result =
+      op_constraint_validation::validateOperation(
+          op, utils::extractInputLayouts(op), opConfig);
+  if (!result.isSuccess()) {
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::General,
+        "TTNNSetMatmulProgramConfig - dropping {0} for {1}: {2} {3}", config,
+        op->getName().getStringRef(),
+        op_constraint_validation::validationStatusToString(result.status),
+        result.errorMessage);
+    return false;
+  }
+#endif
+  return true;
 }
 
 } // namespace
@@ -359,6 +397,9 @@ private:
     }
 
     Attribute config = buildConfig(op.getContext(), *problem, blocking);
+    if (enableOpConstraints && !passesOpConstraints(op, config)) {
+      return;
+    }
     TTMLIR_DEBUG(ttmlir::LogComponent::General,
                  "TTNNSetMatmulProgramConfig - {0}: {1}",
                  op->getName().getStringRef(), config);
