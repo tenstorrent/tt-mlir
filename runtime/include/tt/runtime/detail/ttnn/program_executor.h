@@ -69,6 +69,7 @@ private:
    * Executes a single operation
    */
   void runOperation(const ::tt::target::ttnn::Operation *op);
+  void traceOpOutputs(const ::tt::target::ttnn::Operation *op);
 
   /**
    * Conditionally reads profiler data from device buffer.

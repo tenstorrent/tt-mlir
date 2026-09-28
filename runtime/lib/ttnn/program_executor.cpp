@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/ttnn/program_executor.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+#include <cstdio>
 #include <cstdlib>
 
 #include <tt-metalium/distributed.hpp>
@@ -217,6 +219,49 @@ void ProgramExecutor::runProgramCallback(
   }
 }
 
+static bool rtOpTraceEnabled() {
+  static const bool enabled = (std::getenv("TTMLIR_RT_OP_TRACE") != nullptr);
+  return enabled;
+}
+
+void ProgramExecutor::traceOpOutputs(const ::tt::target::ttnn::Operation *op) {
+  std::shared_ptr<void> opPtr = ::tt::runtime::utils::unsafeBorrowShared(
+      const_cast<::tt::target::ttnn::Operation *>(op));
+  std::vector<::tt::runtime::TensorRef> refs;
+  try {
+    refs = ::tt::runtime::ttnn::getOpOutputRefs(
+        OpContext(opPtr, DeviceRuntime::TTNN));
+  } catch (...) {
+    return;
+  }
+  for (auto &ref : refs) {
+    const ::tt::target::ttnn::TensorRef *fbRef =
+        &ref.as<::tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+    if (!fbRef) {
+      continue;
+    }
+    try {
+      const ::ttnn::Tensor &t =
+          context->getTensorPool().getTTNNTensorAndValidate(fbRef);
+      if (t.storage_type() != ::ttnn::StorageType::DEVICE || !t.is_allocated()) {
+        std::fprintf(stderr, "[RT_OP] %s out id=%u host/unallocated\n",
+                     op->debug_info()->c_str(), fbRef->global_id());
+        continue;
+      }
+      const auto *buf = t.buffer();
+      std::fprintf(stderr,
+                   "[RT_OP] %s out id=%u addr=%u size=%lu type=%d layout=%d\n",
+                   op->debug_info()->c_str(), fbRef->global_id(),
+                   buf->address(), (unsigned long)buf->size(),
+                   static_cast<int>(buf->buffer_type()),
+                   static_cast<int>(t.memory_config().memory_layout()));
+    } catch (...) {
+      std::fprintf(stderr, "[RT_OP] %s out id=%u <not in pool>\n",
+                   op->debug_info()->c_str(), fbRef->global_id());
+    }
+  }
+}
+
 void ProgramExecutor::execute() {
   ZoneScopedN("program_execute");
   ZoneText(program->name()->c_str(), std::strlen(program->name()->c_str()));
@@ -239,6 +284,12 @@ void ProgramExecutor::execute() {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     syncAfterOpIfNeeded();
 #endif
+    // TTMLIR_RT_OP_TRACE=1: print every op's output buffer (address / size /
+    // buffer type / memory layout) as it executes. Used to map which trace
+    // intermediate lands on which device address (trace-replay debugging).
+    if (rtOpTraceEnabled()) {
+      traceOpOutputs(op);
+    }
 
     runOpCallback(debug::Hooks::get().getPostOperatorCallback(),
                   executableHandle, op, context.get());

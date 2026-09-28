@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <algorithm>
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/ConvRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -168,6 +169,86 @@ static uint64_t computeActBytesPerCore(Conv2dOp op) {
   return totalBytes / kDefaultCores;
 }
 
+// Read the TTNN conv2d padding attr as (top, bottom, left, right). A
+// 4-element attr is [pT, pB, pL, pR] (TTNN order, see TTNNOps.td); a
+// 2-element attr is (pH, pW) applied symmetrically.
+static void expandPadding(llvm::ArrayRef<int32_t> p, uint64_t &top,
+                          uint64_t &left, uint64_t &bottom, uint64_t &right) {
+  top = left = bottom = right = 0;
+  if (p.size() == 4) {
+    top = p[0]; bottom = p[1]; left = p[2]; right = p[3];
+  } else if (p.size() == 2) {
+    top = bottom = p[0]; left = right = p[1];
+  } else if (p.size() == 1) {
+    top = bottom = left = right = p[0];
+  }
+}
+
+// Estimate the per-core size of the halo'd (untilize_with_halo) input that an
+// L1Full conv2d materialises next to its sharded activation.
+//
+// tt-metal height-shards the conv OUTPUT across the cores and gathers, per
+// core, every padded input row its output rows read. A core owning n output
+// pixels spans R = ceil(n / outW) output image rows (one more when its range
+// is not aligned to an output row), and each output row needs
+// dilH*(kH-1)+1 padded input rows, consecutive rows being strideH apart:
+//
+//   haloRows  = (R-1)*strideH + dilH*(kH-1) + 1
+//   haloBytes = haloRows * (inW + padL + padR) * cPadded * 2 B
+//
+// The whole activation is still resident while the halo is written, so the
+// L1Full requirement is actBytes + haloBytes per core. For a wide, few-row
+// shard the halo dwarfs the activation shard; e.g. 1x3x384x1664 7x7/s2
+// pad(2,3,2,3) on 64 cores: 2496 output
+// pixels per core = 3 output rows → 11 padded input rows × 1669 × 32 × 2 B =
+// 1,174,976 B, which together with the 638,976 B activation shard does not
+// fit the 1.33 MB usable L1 (observed runtime OOM with exactly these sizes).
+static uint64_t computeHaloBytesPerCore(Conv2dOp op) {
+  static constexpr uint64_t kTileWidth    = 32;
+  static constexpr uint64_t kBytesPerElem = 2;   // bf16
+  static constexpr uint64_t kDefaultCores = 64;  // 8×8 Wormhole grid
+
+  uint64_t inH = static_cast<uint64_t>(op.getInputHeight());
+  uint64_t inW = static_cast<uint64_t>(op.getInputWidth());
+  uint64_t inC = static_cast<uint64_t>(op.getInChannels());
+  uint64_t cPadded = ((inC + kTileWidth - 1) / kTileWidth) * kTileWidth;
+
+  llvm::ArrayRef<int32_t> kernel = op.getKernelSize();
+  llvm::ArrayRef<int32_t> stride = op.getStride();
+  llvm::ArrayRef<int32_t> dilation = op.getDilation();
+  if (kernel.size() < 2 || stride.size() < 2 || dilation.size() < 2) {
+    return 0;
+  }
+  uint64_t kH = kernel[0], kW = kernel[1];
+  uint64_t sH = std::max<int32_t>(stride[0], 1);
+  uint64_t sW = std::max<int32_t>(stride[1], 1);
+  uint64_t dH = std::max<int32_t>(dilation[0], 1);
+  uint64_t dW = std::max<int32_t>(dilation[1], 1);
+  uint64_t pT, pL, pB, pR;
+  expandPadding(op.getPadding(), pT, pL, pB, pR);
+
+  uint64_t effKH = dH * (kH - 1) + 1;
+  uint64_t effKW = dW * (kW - 1) + 1;
+  uint64_t padH = inH + pT + pB;
+  uint64_t padW = inW + pL + pR;
+  if (padH < effKH || padW < effKW) {
+    return 0;
+  }
+  uint64_t outH = (padH - effKH) / sH + 1;
+  uint64_t outW = (padW - effKW) / sW + 1;
+  uint64_t batch = std::max<int64_t>(op.getBatchSize(), 1);
+  uint64_t outPixels = batch * outH * outW;
+
+  uint64_t perCore = (outPixels + kDefaultCores - 1) / kDefaultCores;
+  perCore = ((perCore + kTileWidth - 1) / kTileWidth) * kTileWidth;
+  uint64_t rows = (perCore + outW - 1) / outW;
+  if (perCore % outW != 0) {
+    rows += 1;  // range may straddle an extra output row
+  }
+  uint64_t haloRows = (rows - 1) * sH + effKH;
+  return haloRows * padW * cPadded * kBytesPerElem;
+}
+
 // Set the conv2d_slice_config attribute on every Conv2dOp before the
 // OperationValidationAndFallback pass runs.
 //
@@ -190,16 +271,22 @@ void applyConvSliceConfig(ModuleOp moduleOp) {
 
     if (auto chipDesc = ttcore::getOpChipDescAttr(conv2dOp)) {
       uint64_t l1PerCore    = chipDesc.getUsableL1Size();
-      uint64_t perCoreBytes = computeActBytesPerCore(conv2dOp);
+      uint64_t actBytes     = computeActBytesPerCore(conv2dOp);
+      uint64_t haloBytes    = computeHaloBytesPerCore(conv2dOp);
+      uint64_t perCoreBytes = actBytes + haloBytes;
 
       if (perCoreBytes > l1PerCore) {
-        sliceType = Conv2dSliceType::DramHeight;
+        // DramWidth, not DramHeight: on the 7x7/s2 asymmetric-padding stem
+        // conv (1x3x384x1664, pad top2/bottom3/left2/right3) DramHeight
+        // slicing produced NaN output at runtime while DramWidth (the slice
+        // type OperationValidationAndFallback also tries first) is correct.
+        sliceType = Conv2dSliceType::DramWidth;
         TTMLIR_DEBUG(
             ttmlir::LogComponent::GreedyOptimizer,
             "applyConvSliceConfig: Conv2d (H={}, W={}, C={}) activation "
-            "{}B/core exceeds L1 {}B — using DramHeight",
+            "{}B + halo {}B per core exceeds L1 {}B — using DramWidth",
             conv2dOp.getInputHeight(), conv2dOp.getInputWidth(),
-            conv2dOp.getInChannels(), perCoreBytes, l1PerCore);
+            conv2dOp.getInChannels(), actBytes, haloBytes, l1PerCore);
       }
     }
 

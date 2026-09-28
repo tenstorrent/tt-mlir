@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+
+#include <cstdlib>
 #include "ttmlir/Utils.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -205,11 +207,29 @@ namespace detail {
 llvm::Expected<::tt::tt_metal::TensorSpec>
 convertToTensorSpec(::tt::tt_metal::distributed::MeshDevice *device,
                     llvm::ArrayRef<int64_t> shape, TTNNLayoutAttr layout) {
-  const ::tt::tt_metal::TensorSpec spec =
-      conversion::getTensorSpec(shape, layout);
+  // TensorSpec's constructor validates the shard spec against the tensor
+  // (e.g. "Number of shards along height N must not exceed number of cores
+  // M") and throws on a malformed layout. A layout candidate that tt-metal
+  // rejects must fail the query it belongs to, not abort the whole compile,
+  // so turn the exception into an error the callers already handle.
+  std::optional<::tt::tt_metal::TensorSpec> spec;
+  try {
+    spec = conversion::getTensorSpec(shape, layout);
+  } catch (const std::exception &e) {
+    static const bool debug = std::getenv("TTMLIR_OPMODEL_DEBUG") != nullptr;
+    if (debug) {
+      llvm::errs() << "[OPMODEL] getTensorSpec threw for shape [";
+      llvm::interleaveComma(shape, llvm::errs());
+      llvm::errs() << "] layout " << layout << ": " << e.what() << "\n";
+    }
+    return llvm::createStringError(
+        llvm::Twine("Unable to create TensorSpec out of given shape and "
+                    "layout: ") +
+        e.what());
+  }
   if (conversion::validateTensorSpec(
-          spec, device->compute_with_storage_grid_size())) {
-    return spec;
+          *spec, device->compute_with_storage_grid_size())) {
+    return *spec;
   }
 
   return llvm::createStringError(
@@ -264,6 +284,28 @@ reorderPool2dPadding(llvm::ArrayRef<int32_t> padding) {
       static_cast<uint32_t>(padding[1]), // left
       static_cast<uint32_t>(padding[3]), // right
   };
+}
+
+/**
+ * @brief Convert a TTNN conv2d/conv_transpose2d padding attr to the tt-metal
+ * variant WITHOUT reordering.
+ *
+ * TTNN conv2d already stores 4-element padding in tt-metal order
+ * [top, bottom, left, right] (TTIRToTTNN reorders it from TTIR's
+ * [top, left, bottom, right]); the runtime passes it through unchanged. The
+ * pool2d ops keep TTIR order in TTNN and need reorderPool2dPadding, but
+ * applying that reorder to conv2d swaps bottom<->left and makes the op model
+ * simulate a different conv than the one that runs (e.g. padding [1,2,1,2]
+ * became top=1,bottom=1,left=2,right=2 -> output 191x833 instead of 192x832,
+ * yielding sharded output layouts whose shard count does not match the real
+ * tensor).
+ */
+std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>
+convertConv2dPadding(llvm::ArrayRef<int32_t> padding) {
+  if (padding.size() == 2) {
+    return conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding);
+  }
+  return conversion::convertLLVMArrayRefToStdArray<uint32_t, 4>(padding);
 }
 
 /**
@@ -686,7 +728,7 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
         in_channels, out_channels, batch_size, input_height, input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        detail::reorderPool2dPadding(padding),
+        detail::convertConv2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, *inputDtype, outputDtype,
         conv2dConfigConverted,
@@ -707,7 +749,7 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
         input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        detail::reorderPool2dPadding(padding), outputPaddingArr,
+        detail::convertConv2dPadding(padding), outputPaddingArr,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, *inputDtype, outputDtype,
         conv2dConfigConverted,
@@ -792,7 +834,7 @@ getPrepareConv2dBiasOpOutputTensorSpec(
         out_channels, batch_size, input_height, input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        detail::reorderPool2dPadding(padding),
+        detail::convertConv2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, *inputDtype, outputDtype, localConfig,
         /*compute_config_=*/std::nullopt,
@@ -807,7 +849,7 @@ getPrepareConv2dBiasOpOutputTensorSpec(
         in_channels, out_channels, batch_size, input_height, input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        detail::reorderPool2dPadding(padding),
+        detail::convertConv2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, *inputDtype, outputDtype, conv2dConfigConverted,
         /*compute_config_=*/std::nullopt,
@@ -5165,7 +5207,7 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
         out_channels, batch_size, input_height, input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        detail::reorderPool2dPadding(padding),
+        detail::convertConv2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, outputDtype, biasSpec, conv2dConfigConverted,
         deviceComputeKernelConfigConverted,
@@ -5245,7 +5287,7 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
         out_channels, batch_size, input_height, input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        detail::reorderPool2dPadding(padding),
+        detail::convertConv2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, outputDtype, biasSpec, conv2dConfigConverted,
         deviceComputeKernelConfigConverted,

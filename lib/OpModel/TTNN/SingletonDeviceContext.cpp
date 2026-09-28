@@ -12,6 +12,7 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include <tt-metalium/cluster.hpp>
 #include <tt-metalium/dispatch_core_common.hpp>
 #include <tt-metalium/experimental/context/metal_env.hpp>
 #include <tt-metalium/experimental/mock_device.hpp>
@@ -112,14 +113,20 @@ makeEnvDescriptor(bool isMock, ttcore::Arch arch, uint32_t numChips) {
   return ::tt::tt_metal::MetalEnvDescriptor{*mockClusterPath};
 }
 
-// Pick the dispatch core type for a device opened on this env. When every
-// available device is PCIe-attached there are no spare Ethernet-connected
-// chips to dispatch from, so fall back to WORKER cores; otherwise prefer ETH.
+// Pick the dispatch core type. WH boards (N150, N300, T3K, N300_2x2) require
+// ETH dispatch, which keeps the full 8x8 worker grid; WORKER dispatch on WH
+// shrinks it to 7x8 and causes validateComputeGridAgainstSystemDesc to abort.
 ::tt::tt_metal::DispatchCoreType
-selectDispatchCoreType(const ::tt::tt_metal::MetalEnv &env) {
-  return env.get_num_available_devices() == env.get_num_pcie_devices()
-             ? ::tt::tt_metal::DispatchCoreType::WORKER
-             : ::tt::tt_metal::DispatchCoreType::ETH;
+selectDispatchCoreType(const ::tt::tt_metal::MetalEnv &) {
+  switch (::tt::tt_metal::GetClusterType()) {
+  case ::tt::tt_metal::ClusterType::N150:
+  case ::tt::tt_metal::ClusterType::N300:
+  case ::tt::tt_metal::ClusterType::T3K:
+  case ::tt::tt_metal::ClusterType::N300_2x2:
+    return ::tt::tt_metal::DispatchCoreType::ETH;
+  default:
+    return ::tt::tt_metal::DispatchCoreType::WORKER;
+  }
 }
 
 } // namespace

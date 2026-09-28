@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/trace/capture_or_execute_trace.h"
+
+#include <cstdio>
+#include <cstdlib>
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
@@ -58,10 +61,16 @@ static void runTraceProgramAndCaptureTrace(
   std::vector<::tt::runtime::GlobalSemaphore> semaphoreInputs =
       utils::collectSemaphoreInputs(op->semaphore_inputs(), context);
 
+  if (std::getenv("TTMLIR_RT_OP_TRACE")) {
+    std::fprintf(stderr, "[RT_TRACE] capture-program START (eager run + capture + replay #1)\n");
+  }
   ProgramExecutor executor(deviceHandle, context.getExecutableHandle(),
                            op->capture_program_id(), inputTensors,
                            /*constEvalProgram=*/false, semaphoreInputs);
   executor.execute();
+  if (std::getenv("TTMLIR_RT_OP_TRACE")) {
+    std::fprintf(stderr, "[RT_TRACE] capture-program END\n");
+  }
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor.gatherOutputTensors();
 
@@ -188,6 +197,10 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
   // semaphores were baked into the captured trace at capture time and are not
   // arguments of the execute program. Passing them here would mismatch
   // program->semaphore_inputs() (which is empty for the execute program).
+  static int replayCount = 1;
+  if (std::getenv("TTMLIR_RT_OP_TRACE")) {
+    std::fprintf(stderr, "[RT_TRACE] execute-program START (replay #%d)\n", ++replayCount);
+  }
   ProgramExecutor executor(deviceHandle, context.getExecutableHandle(),
                            op->execute_program_id(), inputTensors,
                            /*constEvalProgram=*/false,
