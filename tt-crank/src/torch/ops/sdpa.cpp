@@ -19,8 +19,10 @@
 // path lowers that (see _compile.py); eager runs it through the kernels below. This
 // mirrors PyTorch's in-tree `openreg` backend.
 //
-// Inference uses `ttir.scaled_dot_product_attention`; training the ttml `sdpa_fw`/`sdpa_bw`
-// composites, or the MATH decomposition where ttml can't run (see ttml_sdpa_supported).
+// Grad mode picks the path, in the choice stub and the kernel alike: with grad mode off the op runs
+// `ttir.scaled_dot_product_attention`; with it on, the ttml `sdpa_fw`/`sdpa_bw` composites, or the MATH
+// decomposition where ttml can't run the call (see ttml_sdpa_supported). Inference belongs under
+// torch.no_grad(), as HF's generate already does.
 
 #include <array>
 #include <cstdint>
@@ -47,21 +49,19 @@ namespace tt::crank::torch_backend {
 
 namespace {
 
-// The sdpa composite turns a bool mask into a 0/-inf float one before calling the op; only the choice stub
-// sees the original, so it records here whether the mask the op receives next came from a bool one.
-thread_local bool g_sdpa_mask_from_bool = false;
-
 // ttml's `arbitrary` mask is one [1, 1, S, S] keep-mask for all batches/heads (HF's padded causal mask at
-// batch 1); genuine float masks and per-batch/head masks decompose.
+// batch 1); per-batch/head masks decompose. Shapes only: the sdpa composite turns a bool mask into a 0/-inf
+// float one before calling the op, so the choice stub, which still sees the original, is where genuine float
+// masks are turned away.
 bool ttml_sdpa_supported(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
-                         const std::optional<at::Tensor> &attn_mask, bool mask_from_bool) {
+                         const std::optional<at::Tensor> &attn_mask) {
     if (query.dim() != 4 || key.dim() != 4 || value.dim() != 4 || query.scalar_type() != at::kBFloat16) {
         return false;
     }
     const int64_t seq = query.size(2);
     if (attn_mask.has_value() && attn_mask->defined() &&
-        (!mask_from_bool || attn_mask->dim() < 2 || attn_mask->dim() > 4 || attn_mask->size(-1) != seq ||
-         attn_mask->size(-2) != seq || attn_mask->numel() != seq * seq)) {
+        (attn_mask->dim() < 2 || attn_mask->dim() > 4 || attn_mask->size(-1) != seq || attn_mask->size(-2) != seq ||
+         attn_mask->numel() != seq * seq)) {
         return false;
     }
     return seq % 32 == 0 && key.size(2) == seq && value.size(2) == seq && query.size(0) == key.size(0) &&
@@ -72,19 +72,23 @@ bool ttml_sdpa_supported(const at::Tensor &query, const at::Tensor &key, const a
 int64_t tt_fused_sdp_choice(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
                             const std::optional<at::Tensor> &attn_mask, double dropout_p, bool, std::optional<double>,
                             bool) {
-    const bool training =
-        at::GradMode::is_enabled() && (query.requires_grad() || key.requires_grad() || value.requires_grad());
     TORCH_CHECK_NOT_IMPLEMENTED(dropout_p == 0.0, "tt-crank sdpa: dropout is not supported, got dropout_p=", dropout_p);
-    g_sdpa_mask_from_bool = attn_mask.has_value() && attn_mask->defined() && attn_mask->scalar_type() == at::kBool;
+    // Grad mode alone decides, here and in tt_sdpa_overrideable: the kernel can't see requires_grad (DTensor
+    // re-dispatches on local tensors without it), and returning OVERRIDEABLE here with grad mode on is what tells
+    // the kernel the ttml composites can run the call.
+    if (!at::GradMode::is_enabled()) {
+        return as<int64_t>(at::SDPBackend::overrideable);
+    }
     // Under dynamo/aot tracing (a TorchDispatchMode such as FakeTensorMode is active) the fused backward has
     // no compile lowering yet, so training keeps the differentiable MATH decomposition there.
-    if (training && c10::impl::TorchDispatchModeTLS::stack_len() > 0) {
+    if (c10::impl::TorchDispatchModeTLS::stack_len() > 0) {
         return as<int64_t>(at::SDPBackend::math);
     }
-    if (training && !ttml_sdpa_supported(query, key, value, attn_mask, g_sdpa_mask_from_bool)) {
-        TORCH_WARN_ONCE("tt-crank sdpa: training call is outside what the ttml sdpa_fw/sdpa_bw kernels support "
-                        "(non-bf16, float or per-batch mask, non-4-D, S % 32 != 0 or Sq != Sk); using the math "
-                        "decomposition instead.");
+    const bool float_mask = attn_mask.has_value() && attn_mask->defined() && attn_mask->scalar_type() != at::kBool;
+    if (float_mask || !ttml_sdpa_supported(query, key, value, attn_mask)) {
+        TORCH_WARN_ONCE("tt-crank sdpa: call under grad mode is outside what the ttml sdpa_fw/sdpa_bw kernels "
+                        "support (non-bf16, float or per-batch mask, non-4-D, S % 32 != 0 or Sq != Sk); using the "
+                        "math decomposition instead. Run inference under torch.no_grad() for the fused kernel.");
         return as<int64_t>(at::SDPBackend::math);
     }
     return as<int64_t>(at::SDPBackend::overrideable);
@@ -160,9 +164,9 @@ tt_sdpa_overrideable(const at::Tensor &query, const at::Tensor &key, const at::T
 
     const int64_t b = query.size(0), h = query.size(1), s_q = query.size(2), s_kv = key.size(2);
     at::Tensor output, logsumexp;
-    // Gated on grad mode, not requires_grad: DTensor re-dispatches on local tensors with requires_grad stripped.
-    const bool mask_from_bool = std::exchange(g_sdpa_mask_from_bool, false);
-    if (at::GradMode::is_enabled() && ttml_sdpa_supported(query, key, value, attn_bias, mask_from_bool)) {
+    // Same criterion as tt_fused_sdp_choice, which only lets a grad-mode call through to this op when the ttml
+    // composites can run it.
+    if (at::GradMode::is_enabled()) {
         auto outputs = run_ttml(
             [&](ModuleBuilder &mb) {
                 auto a = mb.args();
@@ -188,7 +192,7 @@ tt_sdpa_overrideable_backward(const at::Tensor &grad_out, const at::Tensor &quer
                               const at::Tensor &, c10::SymInt, c10::SymInt, double dropout_p, bool is_causal,
                               const at::Tensor &, const at::Tensor &, std::optional<double> scale) {
     TORCH_CHECK(!grad_input_mask[3], "tt-crank sdpa backward: a gradient w.r.t. attn_bias is not supported");
-    TORCH_CHECK(ttml_sdpa_supported(query, key, value, attn_bias, /*mask_from_bool=*/true) && logsumexp.dim() == 3,
+    TORCH_CHECK(ttml_sdpa_supported(query, key, value, attn_bias) && logsumexp.dim() == 3,
                 "tt-crank sdpa backward: this call is outside what the ttml sdpa_bw kernel supports");
     auto grads = run_ttml(
         [&](ModuleBuilder &mb) {

@@ -197,13 +197,7 @@ def _index_copy_sharding(self, dim, index, source):
 
 
 def register_sharding_strategies() -> None:
-    """Register the tt-specific DTensor sharding strategies on the propagator.
-
-    All go through the public `register_sharding`: the overrideable SDPA op and its
-    backward (torch ships strategies only for the CUDA-family fused variants) and both
-    the in-place and functional `index_copy` overloads (which appear depending on
-    whether the write is traced (compile) or run eagerly).
-    """
+    """Register the tt-specific DTensor sharding strategies on the propagator."""
     aten = torch.ops.aten
     register_sharding(aten._scaled_dot_product_fused_attention_overrideable.default)(
         _sdpa_overrideable_sharding

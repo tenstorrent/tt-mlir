@@ -37,9 +37,12 @@ def _run_sdpa(mode: str, fn, *tt_args):
     silently route through CPU raises; ``compile`` captures the post-aot graph and
     asserts SDPA stayed the atomic overrideable op (lowered to one ttir.sdpa, not
     decomposed). The output feeds the caller's numeric check against a CPU reference.
+
+    Runs under ``torch.no_grad()``: grad mode is what selects the inference kernel; with
+    it on, the choice stub takes the training route (ttml composites or MATH).
     """
     if mode == "eager":
-        with strict_no_fallback():
+        with strict_no_fallback(), torch.no_grad():
             return fn(*tt_args)
 
     ops: set[str] = set()
@@ -47,7 +50,7 @@ def _run_sdpa(mode: str, fn, *tt_args):
     def record(gm):
         ops.update(str(n.target) for n in gm.graph.nodes if n.op == "call_function")
 
-    with post_aot_fx_hook(record):
+    with post_aot_fx_hook(record), torch.no_grad():
         out = torch.compile(fn, backend="tt", fullgraph=True)(*tt_args)
     torch._dynamo.reset()
     assert any(

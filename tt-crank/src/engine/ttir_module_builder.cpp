@@ -1702,9 +1702,9 @@ mlir::Value sdpa_fold_scale(ModuleBuilder &mb, mlir::Value query, std::optional<
 // torch side. `F.scaled_dot_product_attention(q, k, v, attn_mask, is_causal)` allows either `is_causal=True` or
 // an `attn_mask` (never both). A bool mask means keep (True) / drop (False); a float mask is added to the logits.
 // Before the fused op runs, torch's sdpa composite converts a bool mask into a float one: True -> 0.0,
-// False -> -inf. So this builder only ever sees floats; the choice stub in sdpa.cpp remembers whether the
-// original was bool (`g_sdpa_mask_from_bool`) and the eager gate (`ttml_sdpa_supported`) already rejected
-// anything below marked unsupported, routing it to torch's MATH decomposition.
+// False -> -inf. So this builder only ever sees floats; the choice stub in sdpa.cpp, which still sees the
+// original, has already routed genuine float masks and anything below marked unsupported to torch's MATH
+// decomposition.
 //
 // ttml side. Two mask types: `causal`, built into the kernel (no tensor, only the lower triangle attends), and
 // `arbitrary`, one [1, 1, S, S] keep-mask tensor in the q/k/v dtype, non-zero = attend, shared by every batch
