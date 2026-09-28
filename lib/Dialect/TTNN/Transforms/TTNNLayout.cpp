@@ -242,7 +242,7 @@ public:
       // Given the operand constraint, create the desired layout for the operand
       std::optional<Value> desiredLayout = createToLayoutOp(
           rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
-          /*tiled=*/true);
+          /*tiled=*/shouldTilizeOperand(op, operand.getOperandNumber()));
 
       // If layout changed update the operand
       if (desiredLayout) {
@@ -270,6 +270,24 @@ public:
   }
 
 private:
+  // Whether this operand should be handed to the op in TILE layout.
+  //
+  // Operands are tilized by default, which is right for almost every op. An op
+  // whose TTNN implementation consumes ROW_MAJOR pages must opt out, otherwise
+  // the layout pass inserts a tilize that the op then has to undo at runtime --
+  // two full-tensor conversions for no effect. Measured on the EVO50 stem that
+  // round trip cost 341.8 us on a 1x3x384x1664 input (171.1 us tilize +
+  // 170.7 us untilize).
+  bool shouldTilizeOperand(Operation *op, unsigned operandIdx) const {
+    // ttnn::pixel_unshuffle walks ROW_MAJOR pages: one W-element row is one
+    // page. A TILE input is untilized internally before the kernel runs.
+    if (mlir::isa<ttir::PixelUnshuffleOp>(op)) {
+      return false;
+    }
+
+    return true;
+  }
+
   bool shouldTilizeResult(Operation *op) const {
 
     // TTNN Reshape does not support implicit tilization/untilization

@@ -3218,6 +3218,29 @@ llvm::Expected<size_t> PrepareMoEComputeW2WeightsOp::getOpRuntime(
 // DeallocateOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+//===----------------------------------------------------------------------===//
+// PixelUnshuffleOp - TTNN Op Model Interface
+//
+// No constraint/runtime model. The op is emitted by
+// TTIRStridedConvSpaceToDepthOpt with a fixed placement, so the TTNN optimizer
+// never needs to reason about its layout. Returning an error here also keeps
+// pixel_unshuffle out of the op-model's mock-device query path.
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+PixelUnshuffleOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                   const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
+}
+
+llvm::Expected<size_t>
+PixelUnshuffleOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
+}
+
 llvm::Expected<op_model::OpConstraints>
 DeallocateOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                const OpConfig &opConfig) {

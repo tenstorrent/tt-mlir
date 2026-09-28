@@ -594,6 +594,17 @@ struct TTIRToTTNNCommonPipelineOptions
     }
   }
 
+  // Space-to-depth rewrite for narrow-channel stride-2 stem convolutions.
+  // Defaulted OFF here: it changes the emitted graph, so it is opt-in until
+  // validated per model. Forge4 defaults it on.
+  Option<bool> enableStridedConvSpaceToDepthOpt{
+      *this, "enable-strided-conv-space-to-depth-opt",
+      llvm::cl::desc("Rewrite narrow-channel stride-2 stem conv2d as "
+                     "pixel_unshuffle(2) + stride-1 conv2d with rearranged "
+                     "weights (removes the C->32 tile padding of the input "
+                     "permute)."),
+      llvm::cl::init(false)};
+
   // Resolve options controlled by optimization_level.
   void resolveOptimizationLevelOptions() const {
     // Validate optimization_level is in valid range.

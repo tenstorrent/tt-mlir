@@ -545,4 +545,31 @@ def TTIRCPUBooleanNarrowing : Pass<"ttir-cpu-boolean-narrowing", "::mlir::Module
   }];
 }
 
+def TTIRStridedConvSpaceToDepthOpt : Pass<"ttir-strided-conv-space-to-depth-opt", "::mlir::ModuleOp"> {
+  let summary = "Space-to-depth packing for narrow-channel stride-2 stem conv2d: "
+                "pixel_unshuffle(2) + stride-1 conv with rearranged weights.";
+  let description = [{
+    Matches (after TTIRFusing folds the NCHW->NHWC transposes into one permute):
+      permute(%input, {0,2,3,1})                  [N,C,H,W] -> [N,H,W,C]
+      conv2d(%0, %weight, %bias) {channel_last}   kernel kHxkW, stride 2x2,
+                                                  dilation 1, groups 1
+    Guards: C*4 <= 32, H and W even, top/left padding even, bottom/right
+    padding representable in the packed domain.
+
+    Rewrites to the exactly equivalent
+      pixel_unshuffle(%input) {downscale_factor=2, channel_order=channel_major}
+      permute({0,2,3,1})
+      conv2d(%1, %weight', %bias) {stride 1x1, kernel ceil(kH/2) x ceil(kW/2),
+                                   padding (pT/2, pL/2, pB', pR')}
+    where %weight'[oc, c*4+dy*2+dx, i, j] = %weight[oc, c, 2i+dy, 2j+dx] (zero
+    beyond the original kernel), built from rank<=4 pad/reshape/permute ops on
+    the parameter so const-eval hoisting lifts it out of the forward graph.
+
+    Removes the C->32 tile padding amplification of the input permute (10.7x
+    for C=3), the DRAM copy that follows it, and the activation slicing of the
+    conv.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 #endif

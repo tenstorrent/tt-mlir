@@ -8979,4 +8979,52 @@ foldSplatComparison(mlir::Operation *op, mlir::Attribute lhsAttr,
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// PixelUnshuffleOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::PixelUnshuffleOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getType();
+  if (inputType.getRank() != 4) {
+    return emitOpError("input must be 4D [N,C,H,W], got rank ")
+           << inputType.getRank();
+  }
+  if (outputType.getRank() != 4) {
+    return emitOpError("output must be 4D, got rank ") << outputType.getRank();
+  }
+  uint32_t r = getDownscaleFactor();
+  if (r == 0) {
+    return emitOpError("downscale_factor must be positive");
+  }
+  llvm::ArrayRef<int64_t> inShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outShape = outputType.getShape();
+  const int64_t rr = static_cast<int64_t>(r) * static_cast<int64_t>(r);
+
+  if (inShape[0] != ::mlir::ShapedType::kDynamic &&
+      outShape[0] != ::mlir::ShapedType::kDynamic && outShape[0] != inShape[0]) {
+    return emitOpError("output N=") << outShape[0] << " != input N="
+                                   << inShape[0];
+  }
+  if (inShape[1] != ::mlir::ShapedType::kDynamic &&
+      outShape[1] != ::mlir::ShapedType::kDynamic &&
+      outShape[1] != inShape[1] * rr) {
+    return emitOpError("output C=") << outShape[1] << " != C*r^2="
+                                    << inShape[1] * rr;
+  }
+  if (inShape[2] != ::mlir::ShapedType::kDynamic &&
+      outShape[2] != ::mlir::ShapedType::kDynamic &&
+      outShape[2] != inShape[2] / static_cast<int64_t>(r)) {
+    return emitOpError("output H=") << outShape[2] << " != H/r="
+                                    << inShape[2] / static_cast<int64_t>(r);
+  }
+  if (inShape[3] != ::mlir::ShapedType::kDynamic &&
+      outShape[3] != ::mlir::ShapedType::kDynamic &&
+      outShape[3] != inShape[3] / static_cast<int64_t>(r)) {
+    return emitOpError("output W=") << outShape[3] << " != W/r="
+                                    << inShape[3] / static_cast<int64_t>(r);
+  }
+  return ::mlir::success();
+}
+
 } // namespace mlir::tt::ttir

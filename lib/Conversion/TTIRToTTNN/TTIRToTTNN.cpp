@@ -3137,6 +3137,34 @@ public:
 } // namespace
 
 namespace {
+class PixelUnshuffleOpConversionPattern
+    : public OpConversionPattern<ttir::PixelUnshuffleOp> {
+public:
+  using OpConversionPattern<ttir::PixelUnshuffleOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PixelUnshuffleOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getType()));
+    // ttnn::pixel_unshuffle is NCHW-native, so no NCHW<->NHWC permutes are
+    // inserted here. The channel-order enums have identical cases in both
+    // dialects; map them explicitly rather than casting the underlying value.
+    ttnn::PixelUnshuffleChannelOrder ttnnChannelOrder =
+        (op.getChannelOrder() == ttir::PixelUnshuffleChannelOrder::SpatialMajor)
+            ? ttnn::PixelUnshuffleChannelOrder::SpatialMajor
+            : ttnn::PixelUnshuffleChannelOrder::ChannelMajor;
+    rewriter.replaceOpWithNewOp<ttnn::PixelUnshuffleOp>(
+        op, outputType, adaptor.getInput(), op.getDownscaleFactorAttr(),
+        ttnn::PixelUnshuffleChannelOrderAttr::get(rewriter.getContext(),
+                                                  ttnnChannelOrder),
+        /*memory_config=*/ttnn::MemoryConfigAttr{});
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class UpsampleOpConversionPattern
     : public OpConversionPattern<ttir::Upsample2dOp> {
 public:
@@ -3878,6 +3906,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ScatterOpConversionPattern,
            GatherOpConversionPattern,
            PermuteOpConversionPattern,
+           PixelUnshuffleOpConversionPattern,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,
            CollectiveBroadcastOpConversionPattern,

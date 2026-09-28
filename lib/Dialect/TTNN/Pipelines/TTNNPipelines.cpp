@@ -75,6 +75,16 @@ void createTTNNPipelineTTIRPasses(
   // Propagate per-arg weight_dtype annotations through TM ops to consumers.
   pm.addPass(mlir::tt::ttir::createTTIRPropagateWeightDtype());
 
+  // Space-to-depth packing for a narrow-channel stride-2 stem conv (e.g. a
+  // 7x7/s2 conv on a 3-channel image): pixel_unshuffle(2) + stride-1 conv, so
+  // the NCHW->NHWC permute pads 12 channels to a tile instead of 3, the DRAM
+  // copy disappears, and the conv no longer needs activation slicing.
+  // Must run after TTIRFusing has folded the NCHW->NHWC transposes into a
+  // single permute, and before FlattenSlidingWindow rewrites conv activations.
+  if (options.enableStridedConvSpaceToDepthOpt) {
+    pm.addPass(mlir::tt::ttir::createTTIRStridedConvSpaceToDepthOpt());
+  }
+
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
 

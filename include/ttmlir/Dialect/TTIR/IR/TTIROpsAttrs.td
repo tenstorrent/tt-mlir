@@ -110,4 +110,6 @@ def TTIR_ThreadAttr : AttrDef<TTIR_Dialect, "Thread", [], "::mlir::Attribute"> {
 
 def TTIR_ThreadArrayAttr : TypedArrayAttrBase<TTIR_ThreadAttr, "">;
 
+def TTIR_PixelUnshuffleChannelOrderAttr : EnumAttr<TTIR_Dialect, TTIR_PixelUnshuffleChannelOrder, "pixel_unshuffle_channel_order">;
+
 #endif // TTMLIR_TTIR_ATTRS_TD

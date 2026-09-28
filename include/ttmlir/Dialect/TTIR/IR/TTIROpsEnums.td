@@ -31,4 +31,12 @@ def TTIR_ThreadType : I32EnumAttr<"ThreadType", "TTIR ThreadType", [
   let cppNamespace = "::mlir::tt::ttir";
 }
 
+def TTIR_PixelUnshuffleChannelOrder : I32EnumAttr<"PixelUnshuffleChannelOrder", "TTIR pixel unshuffle channel order", [
+                                  I32EnumAttrCase<"ChannelMajor", 0, "channel_major">,
+                                  I32EnumAttrCase<"SpatialMajor", 1, "spatial_major">
+                                ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttir";
+}
+
 #endif

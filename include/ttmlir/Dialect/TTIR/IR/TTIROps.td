@@ -6860,4 +6860,41 @@ def TTIR_TTLangOp : TTIR_Op<"tt_lang_op",
   let hasVerifier = 1;
 }
 
+def TTIR_PixelUnshuffleOp : TTIR_NamedOp<"pixel_unshuffle"> {
+    let summary = "Pixel unshuffle (space-to-depth) with selectable channel ordering.";
+
+    let description = [{
+      Rearranges elements in an NCHW tensor from [N, C, H, W] to
+      [N, C*r^2, H/r, W/r] where r = downscale_factor.
+      H and W must be divisible by downscale_factor.
+
+      channel_order controls how the r^2 sub-pixel positions interleave with the
+      input channels:
+
+        ChannelMajor (default): c_out = c_in * r^2 + h_sub * r + w_sub
+          Matches torch.nn.functional.pixel_unshuffle.
+
+        SpatialMajor: c_out = h_sub * (r * C) + w_sub * C + c_in
+          Matches ONNX SpaceToDepth.
+
+      For C = 1 both orderings are identical.
+
+      Example:
+      ```mlir
+      %result = ttir.pixel_unshuffle(%input)
+          {downscale_factor = 2 : ui32,
+           channel_order = #ttir.pixel_unshuffle_channel_order<channel_major>}
+          : (tensor<1x3x384x1664xbf16>) -> tensor<1x12x192x832xbf16>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         UI32Attr:$downscale_factor,
+                         DefaultValuedAttr<TTIR_PixelUnshuffleChannelOrderAttr, "::mlir::tt::ttir::PixelUnshuffleChannelOrder::ChannelMajor">:$channel_order);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 #endif

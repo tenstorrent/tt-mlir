@@ -1550,6 +1550,25 @@ createOp(FlatbufferObjectCache &cache, PermuteOp op) {
                                              memoryConfig, padValue, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::PixelUnshuffleOp>
+createOp(FlatbufferObjectCache &cache, PixelUnshuffleOp op) {
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> in =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getInput()));
+  uint32_t downscaleFactor = op.getDownscaleFactor();
+  // channel_order serialises as uint32 (ChannelMajor=0, SpatialMajor=1); the
+  // runtime static_casts it back to ttnn::PixelUnshuffleChannelOrder.
+  uint32_t channelOrder = static_cast<uint32_t>(op.getChannelOrder());
+  flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+      op.getMemoryConfig() ? toFlatbuffer(cache, op.getMemoryConfig().value())
+                           : 0;
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> out =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+  return ::tt::target::ttnn::CreatePixelUnshuffleOp(
+      *cache.fbb, in, downscaleFactor, channelOrder, memoryConfig, out);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::BatchNormInferenceOp>
 createOp(FlatbufferObjectCache &cache, BatchNormInferenceOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -4837,6 +4856,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto permuteOp = dyn_cast<PermuteOp>(op); permuteOp) {
     return createOperation(cache, createOp(cache, permuteOp), debugString,
                            locInfo);
+  }
+  if (auto pixelUnshuffleOp = dyn_cast<PixelUnshuffleOp>(op);
+      pixelUnshuffleOp) {
+    return createOperation(cache, createOp(cache, pixelUnshuffleOp),
+                           debugString, locInfo);
   }
   if (auto upsampleOp = dyn_cast<UpsampleOp>(op); upsampleOp) {
     return createOperation(cache, createOp(cache, upsampleOp), debugString,

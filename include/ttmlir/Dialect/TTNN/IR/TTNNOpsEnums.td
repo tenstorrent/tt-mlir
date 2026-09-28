@@ -406,4 +406,12 @@ def TTNN_NocMode : I32EnumAttr<"NocMode", "TT NocMode",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+def TTNN_PixelUnshuffleChannelOrder : I32EnumAttr<"PixelUnshuffleChannelOrder", "TTNN pixel unshuffle channel order", [
+  I32EnumAttrCase<"ChannelMajor", 0, "channel_major">,
+  I32EnumAttrCase<"SpatialMajor", 1, "spatial_major">,
+]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 #endif
