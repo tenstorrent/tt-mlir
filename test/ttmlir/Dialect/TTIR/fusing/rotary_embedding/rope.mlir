@@ -350,3 +350,62 @@ module {
     return %result : tensor<1x4x2x8xf32>
   }
 }
+
+// =========================================================================
+// Pattern 4: backward RoPE
+// =========================================================================
+
+// Backward rotate-half emitted as two zero-padded concats. This is the
+// transpose rotation:
+//   x*cos + concat((x*sin)[D/2:], -(x*sin)[:D/2]).
+// CHECK-LABEL: @rope_backward_zero_padded
+// CHECK: "ttcore.composite"
+// CHECK-SAME: composite_name = "rotary_embedding"
+module {
+  func.func @rope_backward_zero_padded(%x: tensor<1x8x256x128xbf16>, %cos: tensor<1x1x256x128xbf16>, %sin: tensor<1x1x256x128xbf16>) -> tensor<1x8x256x128xbf16> {
+    %x_sin = "ttir.multiply"(%x, %sin) : (tensor<1x8x256x128xbf16>, tensor<1x1x256x128xbf16>) -> tensor<1x8x256x128xbf16>
+    %lo = "ttir.slice_static"(%x_sin) <{begins = [0:i32, 0:i32, 0:i32, 0:i32], ends = [1:i32, 8:i32, 256:i32, 64:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x8x256x128xbf16>) -> tensor<1x8x256x64xbf16>
+    %hi = "ttir.slice_static"(%x_sin) <{begins = [0:i32, 0:i32, 0:i32, 64:i32], ends = [1:i32, 8:i32, 256:i32, 128:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x8x256x128xbf16>) -> tensor<1x8x256x64xbf16>
+    %neg_lo = "ttir.neg"(%lo) : (tensor<1x8x256x64xbf16>) -> tensor<1x8x256x64xbf16>
+
+    %zeros0 = "ttir.zeros"() <{shape = array<i32: 1, 8, 256, 128>}> : () -> tensor<1x8x256x128xbf16>
+    %neg_lo_bc = "ttir.broadcast"(%neg_lo) <{broadcast_dimensions = array<i64: 1, 1, 1, 1>}> : (tensor<1x8x256x64xbf16>) -> tensor<1x8x256x64xbf16>
+    %zero_lo = "ttir.slice_static"(%zeros0) <{begins = [0:i32, 0:i32, 0:i32, 0:i32], ends = [1:i32, 8:i32, 256:i32, 64:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x8x256x128xbf16>) -> tensor<1x8x256x64xbf16>
+    %low_padded = "ttir.concat"(%zero_lo, %neg_lo_bc) <{dim = 3 : si32}> : (tensor<1x8x256x64xbf16>, tensor<1x8x256x64xbf16>) -> tensor<1x8x256x128xbf16>
+
+    %zeros1 = "ttir.zeros"() <{shape = array<i32: 1, 8, 256, 128>}> : () -> tensor<1x8x256x128xbf16>
+    %hi_bc = "ttir.broadcast"(%hi) <{broadcast_dimensions = array<i64: 1, 1, 1, 1>}> : (tensor<1x8x256x64xbf16>) -> tensor<1x8x256x64xbf16>
+    %zero_hi = "ttir.slice_static"(%zeros1) <{begins = [0:i32, 0:i32, 0:i32, 64:i32], ends = [1:i32, 8:i32, 256:i32, 128:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x8x256x128xbf16>) -> tensor<1x8x256x64xbf16>
+    %high_padded = "ttir.concat"(%hi_bc, %zero_hi) <{dim = 3 : si32}> : (tensor<1x8x256x64xbf16>, tensor<1x8x256x64xbf16>) -> tensor<1x8x256x128xbf16>
+
+    %rotated = "ttir.add"(%low_padded, %high_padded) : (tensor<1x8x256x128xbf16>, tensor<1x8x256x128xbf16>) -> tensor<1x8x256x128xbf16>
+    %x_cos = "ttir.multiply"(%x, %cos) : (tensor<1x8x256x128xbf16>, tensor<1x1x256x128xbf16>) -> tensor<1x8x256x128xbf16>
+    %result = "ttir.add"(%rotated, %x_cos) : (tensor<1x8x256x128xbf16>, tensor<1x8x256x128xbf16>) -> tensor<1x8x256x128xbf16>
+    return %result : tensor<1x8x256x128xbf16>
+  }
+}
+
+// A visibly duplicated sine cache only needs a full-width negation; swapping
+// its identical halves would be redundant.
+// CHECK-LABEL: @rope_backward_self_concat_sin
+// CHECK: %[[SIN:.*]] = "ttir.concat"(%arg2, %arg2)
+// CHECK-NOT: "ttir.slice_static"(%[[SIN]])
+// CHECK: %[[NEG_SIN:.*]] = "ttir.neg"(%[[SIN]])
+// CHECK: "ttcore.composite"(%arg0, %arg1, %[[NEG_SIN]])
+// CHECK-SAME: composite_name = "rotary_embedding"
+module {
+  func.func @rope_backward_self_concat_sin(%x: tensor<1x8x256x128xbf16>, %cos: tensor<1x1x256x128xbf16>, %sin_h: tensor<1x1x256x64xbf16>) -> tensor<1x8x256x128xbf16> {
+    %sin = "ttir.concat"(%sin_h, %sin_h) <{dim = 3 : si32}> : (tensor<1x1x256x64xbf16>, tensor<1x1x256x64xbf16>) -> tensor<1x1x256x128xbf16>
+    %x_sin = "ttir.multiply"(%x, %sin) : (tensor<1x8x256x128xbf16>, tensor<1x1x256x128xbf16>) -> tensor<1x8x256x128xbf16>
+    %lo = "ttir.slice_static"(%x_sin) <{begins = [0:i32, 0:i32, 0:i32, 0:i32], ends = [1:i32, 8:i32, 256:i32, 64:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x8x256x128xbf16>) -> tensor<1x8x256x64xbf16>
+    %hi = "ttir.slice_static"(%x_sin) <{begins = [0:i32, 0:i32, 0:i32, 64:i32], ends = [1:i32, 8:i32, 256:i32, 128:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x8x256x128xbf16>) -> tensor<1x8x256x64xbf16>
+    %neg_lo = "ttir.neg"(%lo) : (tensor<1x8x256x64xbf16>) -> tensor<1x8x256x64xbf16>
+    %zero = "ttir.zeros"() <{shape = array<i32: 1, 8, 256, 64>}> : () -> tensor<1x8x256x64xbf16>
+    %low_padded = "ttir.concat"(%zero, %neg_lo) <{dim = 3 : si32}> : (tensor<1x8x256x64xbf16>, tensor<1x8x256x64xbf16>) -> tensor<1x8x256x128xbf16>
+    %high_padded = "ttir.concat"(%hi, %zero) <{dim = 3 : si32}> : (tensor<1x8x256x64xbf16>, tensor<1x8x256x64xbf16>) -> tensor<1x8x256x128xbf16>
+    %rotated = "ttir.add"(%low_padded, %high_padded) : (tensor<1x8x256x128xbf16>, tensor<1x8x256x128xbf16>) -> tensor<1x8x256x128xbf16>
+    %x_cos = "ttir.multiply"(%x, %cos) : (tensor<1x8x256x128xbf16>, tensor<1x1x256x128xbf16>) -> tensor<1x8x256x128xbf16>
+    %result = "ttir.add"(%rotated, %x_cos) : (tensor<1x8x256x128xbf16>, tensor<1x8x256x128xbf16>) -> tensor<1x8x256x128xbf16>
+    return %result : tensor<1x8x256x128xbf16>
+  }
+}

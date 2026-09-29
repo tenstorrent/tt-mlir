@@ -19,6 +19,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GatherOpRank1RewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormChannelPadRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/IntegerPowScalarOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/IntegerProdOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MoeGptLayoutRewritePattern.h"
@@ -442,6 +443,7 @@ public:
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
           workarounds::decomposition::GroupNormChannelPadRewritePattern,
           workarounds::decomposition::GroupNormAffineReshapeRewritePattern,
+          workarounds::decomposition::IntegerPowScalarOpRewritePattern,
           workarounds::decomposition::IntegerProdOpRewritePattern,
           workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
           workarounds::decomposition::RotaryEmbeddingOpRewritePattern,
@@ -589,10 +591,5 @@ const std::set<mlir::StringRef>
         // RowMajor input siblings supply its ROW_MAJOR input (tt-metal #46340).
         // SDPABackwardOp is temporarily enabled to restrict the dtype to bf16:
         // https://github.com/tenstorrent/tt-mlir/issues/9233
-        ttnn::SDPABackwardOp::getOperationName(),
-        // RMSNormForwardOp's workaround is enabled because it sets dtype to
-        // bf16, which optimizer is currently unable to do correctly for a
-        // multi-output op with different output layouts:
-        // https://github.com/tenstorrent/tt-mlir/issues/9295
-        ttnn::RMSNormForwardOp::getOperationName()};
+        ttnn::SDPABackwardOp::getOperationName()};
 } // namespace mlir::tt::ttnn

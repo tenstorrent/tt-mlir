@@ -1509,6 +1509,14 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_FlashMlaPrefillOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::ChunkGatedDeltaRuleOp: {
+    auto *op = opContext.type_as_ChunkGatedDeltaRuleOp();
+    tensorRefs = {op->out()};
+    if (op->final_state()) {
+      tensorRefs.push_back(op->final_state());
+    }
+    break;
+  }
   case ::tt::target::ttnn::OpType::IndexerScoreDsaOp: {
     tensorRefs = {opContext.type_as_IndexerScoreDsaOp()->out()};
     break;
@@ -1632,6 +1640,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::RMSNormBackwardOp: {
+    auto *op = opContext.type_as_RMSNormBackwardOp();
+    tensorRefs = {op->grad_input(), op->grad_gamma()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
     auto *op = opContext.type_as_LayerNormForwardOp();
     tensorRefs = {op->out()};
@@ -1649,6 +1662,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::CrossEntropyBackwardOp: {
     tensorRefs = {opContext.type_as_CrossEntropyBackwardOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SwigluElemwiseBackwardOp: {
+    auto *op = opContext.type_as_SwigluElemwiseBackwardOp();
+    tensorRefs = {op->grad_input(), op->grad_gate()};
     break;
   }
   case ::tt::target::ttnn::OpType::AdamWOp:
@@ -2051,6 +2069,11 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     tensorRefs = {op->input(), op->gamma()};
     break;
   }
+  case ::tt::target::ttnn::OpType::RMSNormBackwardOp: {
+    auto *op = opContext.type_as_RMSNormBackwardOp();
+    tensorRefs = {op->input(), op->gamma(), op->rms(), op->grad_output()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
     auto *op = opContext.type_as_LayerNormForwardOp();
     tensorRefs = {op->input(), op->weight(), op->bias()};
@@ -2065,6 +2088,11 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_CrossEntropyBackwardOp()->input(),
                   opContext.type_as_CrossEntropyBackwardOp()->target(),
                   opContext.type_as_CrossEntropyBackwardOp()->grad()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SwigluElemwiseBackwardOp: {
+    auto *op = opContext.type_as_SwigluElemwiseBackwardOp();
+    tensorRefs = {op->input(), op->gate(), op->grad_output()};
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {
@@ -2416,6 +2444,17 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     }
     if (op->attention_mask()) {
       tensorRefs.push_back(op->attention_mask());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ChunkGatedDeltaRuleOp: {
+    auto *op = opContext.type_as_ChunkGatedDeltaRuleOp();
+    tensorRefs = {op->query(), op->key(), op->value(), op->g(), op->beta()};
+    for (auto *optional : {op->initial_state(), op->eye(), op->tril(),
+                           op->ones(), op->masks()}) {
+      if (optional) {
+        tensorRefs.push_back(optional);
+      }
     }
     break;
   }

@@ -8,8 +8,6 @@
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/SymbolTable.h"
-#include <cstdlib>
-#include <iostream>
 #include <stdexcept>
 #include <vector>
 
@@ -76,7 +74,7 @@ TEST(EngineModuleBuilderTest, CreateCompositeEmitsOpAndDecomposition) {
     auto attrs = mb.attrs().getNamedAttr("flag", mb.attrs().getBoolAttr(true));
     auto results = mb.create_composite(
         "test_add", mb.args(), {result_type}, {attrs}, [](ModuleBuilder &body, mlir::ValueRange args) {
-            return llvm::SmallVector<mlir::Value, 4>{tt::crank::build_add(body, args[0], args[1])};
+            return llvm::SmallVector<mlir::Value>{tt::crank::build_add(body, args[0], args[1])};
         });
     ASSERT_EQ(results.size(), 1U);
     auto module_op = std::move(mb).finalize({results[0]});
@@ -111,7 +109,7 @@ TEST(EngineModuleBuilderTest, CreateCompositeUniquifiesDecompositionSymbols) {
     auto mb = ModuleBuilder::init({f32_spec({32, 32}), f32_spec({32, 32})});
     auto result_type = mb.args()[0].getType();
     auto add = [](ModuleBuilder &body, mlir::ValueRange args) {
-        return llvm::SmallVector<mlir::Value, 4>{tt::crank::build_add(body, args[0], args[1])};
+        return llvm::SmallVector<mlir::Value>{tt::crank::build_add(body, args[0], args[1])};
     };
     auto first = mb.create_composite("test_add", mb.args(), {result_type}, {}, add);
     auto second = mb.create_composite("test_add", {first[0], mb.args()[1]}, {result_type}, {}, add);
@@ -128,47 +126,4 @@ TEST(EngineModuleBuilderTest, CreateCompositeUniquifiesDecompositionSymbols) {
 
     tt::crank::CompiledProgram &program = *tt::crank::compile_ttir_to_ttnn_flatbuffer(*module_op).program;
     EXPECT_EQ(program.num_inputs, 2U);
-}
-
-// Composites interleaved with plain ops: matmul -> composite(add) -> matmul -> composite(add). Both
-// composites survive into the TTIR handed to the pipeline (distinct decomposition symbols), and the
-// compiled TTNN keeps the op order with the decompositions inlined in place.
-TEST(EngineModuleBuilderTest, CompositesInterleavedWithMatmuls) {
-    auto mb = ModuleBuilder::init({f32_spec({32, 64}), f32_spec({64, 32}), f32_spec({32, 32})});
-    auto a = mb.args();
-    auto add = [](ModuleBuilder &body, mlir::ValueRange args) {
-        return llvm::SmallVector<mlir::Value, 4>{tt::crank::build_add(body, args[0], args[1])};
-    };
-    mlir::Value m1 = tt::crank::build_matmul(mb, a[0], a[1]); // [32, 32]
-    mlir::Value c1 = mb.create_composite("test_add", {m1, a[2]}, {m1.getType()}, {}, add)[0];
-    mlir::Value m2 = tt::crank::build_matmul(mb, c1, a[2]); // [32, 32]
-    mlir::Value c2 = mb.create_composite("test_add", {m2, c1}, {m2.getType()}, {}, add)[0];
-    auto module_op = std::move(mb).finalize({c2});
-
-    tt::crank::CompileResult result = tt::crank::compile_ttir_to_ttnn_flatbuffer(*module_op, {}, /*capture_ttir=*/true);
-    const std::string &ttir = result.ttir;
-    EXPECT_EQ(std::count(ttir.begin(), ttir.end(), '\n') > 0, true);
-    auto count = [](std::string_view text, std::string_view needle) {
-        std::size_t n = 0;
-        for (std::size_t pos = text.find(needle); pos != std::string_view::npos; pos = text.find(needle, pos + 1)) {
-            ++n;
-        }
-        return n;
-    };
-    EXPECT_EQ(count(ttir, "ttcore.composite"), 2U);
-    EXPECT_EQ(count(ttir, "func.func private @test_add_decomposition"), 2U); // base name + renamed sibling
-    EXPECT_EQ(count(ttir, "\"ttir.matmul\""), 2U);
-    EXPECT_EQ(count(ttir, "\"ttir.add\""), 2U); // one per decomposition body
-
-    std::string_view ttnn = result.program->ttnn_ir();
-    EXPECT_EQ(count(ttnn, "composite"), 0U);
-    EXPECT_EQ(count(ttnn, "\"ttnn.matmul\""), 2U);
-    EXPECT_EQ(count(ttnn, "\"ttnn.add\""), 2U);
-    // Order is preserved: matmul, add, matmul, add.
-    const std::size_t m1_pos = ttnn.find("\"ttnn.matmul\""), add1 = ttnn.find("\"ttnn.add\"");
-    const std::size_t m2_pos = ttnn.find("\"ttnn.matmul\"", m1_pos + 1), add2 = ttnn.find("\"ttnn.add\"", add1 + 1);
-    EXPECT_LT(m1_pos, add1);
-    EXPECT_LT(add1, m2_pos);
-    EXPECT_LT(m2_pos, add2);
-    EXPECT_EQ(result.program->num_inputs, 3U);
 }

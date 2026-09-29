@@ -1713,6 +1713,25 @@ createOp(FlatbufferObjectCache &cache, RMSNormForwardOp op) {
       op.getEpsilon().convertToFloat(), output, rms);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::RMSNormBackwardOp>
+createOp(FlatbufferObjectCache &cache, RMSNormBackwardOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto gamma = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGamma()));
+  auto rms = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getRms()));
+  auto gradOutput = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGradOutput()));
+  auto gradInput = cache.getOrCreateNoSharding(
+      op.getGradInput(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+  auto gradGamma = cache.getOrCreateNoSharding(
+      op.getGradGamma(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateRMSNormBackwardOp(
+      *cache.fbb, input, gamma, rms, gradOutput, gradInput, gradGamma);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::LayerNormForwardOp>
 createOp(FlatbufferObjectCache &cache, LayerNormForwardOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -1804,6 +1823,23 @@ createOp(FlatbufferObjectCache &cache, CrossEntropyBackwardOp op) {
 
   return ::tt::target::ttnn::CreateCrossEntropyBackwardOp(
       *cache.fbb, input, target, grad, op.getScaler().convertToFloat(), output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::SwigluElemwiseBackwardOp>
+createOp(FlatbufferObjectCache &cache, SwigluElemwiseBackwardOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto gate = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGate()));
+  auto gradOutput = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGradOutput()));
+  auto gradInput = cache.getOrCreateNoSharding(
+      op.getGradInput(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+  auto gradGate = cache.getOrCreateNoSharding(
+      op.getGradGate(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateSwigluElemwiseBackwardOp(
+      *cache.fbb, input, gate, gradOutput, gradInput, gradGate);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RMSNormOp>
@@ -3843,6 +3879,47 @@ createOp(FlatbufferObjectCache &cache, FlashMlaPrefillOp op) {
       out, memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ChunkGatedDeltaRuleOp>
+createOp(FlatbufferObjectCache &cache, ChunkGatedDeltaRuleOp op) {
+  auto tensorRef = [&](Value value) {
+    return value ? cache.at<::tt::target::ttnn::TensorRef>(
+                       getOperandThroughDPSOps(value))
+                 : ::flatbuffers::Offset<::tt::target::ttnn::TensorRef>(0);
+  };
+
+  auto query = tensorRef(op.getQuery());
+  auto key = tensorRef(op.getKey());
+  auto value = tensorRef(op.getValue());
+  auto g = tensorRef(op.getG());
+  auto beta = tensorRef(op.getBeta());
+  auto initialState = tensorRef(op.getInitialState());
+  auto eye = tensorRef(op.getEye());
+  auto tril = tensorRef(op.getTril());
+  auto ones = tensorRef(op.getOnes());
+  auto masks = tensorRef(op.getMasks());
+  auto out = cache.getOrCreateNoSharding(
+      op.getOutput(), tensorValueToFlatbuffer, /*local_shape=*/std::nullopt);
+  auto finalState =
+      op.getFinalState()
+          ? cache.getOrCreateNoSharding(op.getFinalState(),
+                                        tensorValueToFlatbuffer,
+                                        /*local_shape=*/std::nullopt)
+          : ::flatbuffers::Offset<::tt::target::ttnn::TensorRef>(0);
+
+  ::flatbuffers::Optional<float> scale = toFlatbuffer(
+      cache, op.getScale()
+                 ? std::make_optional(op.getScale().value().convertToFloat())
+                 : std::nullopt);
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  auto computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  return ::tt::target::ttnn::CreateChunkGatedDeltaRuleOp(
+      *cache.fbb, query, key, value, g, beta, initialState, eye, tril, ones,
+      masks, scale, op.getOutputFinalState(), op.getChunkSize(),
+      op.getUseQkL2norm(), op.getOutputHeadMajor(), out, finalState,
+      memoryConfig, computeConfig.value_or(0));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::IndexerScoreDsaOp>
 createOp(FlatbufferObjectCache &cache, IndexerScoreDsaOp op) {
   auto query = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4637,6 +4714,11 @@ emitTTMLOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, rmsNormForwardOp),
                            debugString, locInfo);
   }
+  if (auto rmsNormBackwardOp = dyn_cast<RMSNormBackwardOp>(op);
+      rmsNormBackwardOp) {
+    return createOperation(cache, createOp(cache, rmsNormBackwardOp),
+                           debugString, locInfo);
+  }
   if (auto layerNormForwardOp = dyn_cast<LayerNormForwardOp>(op);
       layerNormForwardOp) {
     return createOperation(cache, createOp(cache, layerNormForwardOp),
@@ -4650,6 +4732,11 @@ emitTTMLOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto crossEntropyBwOp = dyn_cast<CrossEntropyBackwardOp>(op);
       crossEntropyBwOp) {
     return createOperation(cache, createOp(cache, crossEntropyBwOp),
+                           debugString, locInfo);
+  }
+  if (auto swigluElemwiseBwOp = dyn_cast<SwigluElemwiseBackwardOp>(op);
+      swigluElemwiseBwOp) {
+    return createOperation(cache, createOp(cache, swigluElemwiseBwOp),
                            debugString, locInfo);
   }
 
@@ -5459,6 +5546,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto flashMlaPrefillOp = dyn_cast<FlashMlaPrefillOp>(op);
       flashMlaPrefillOp) {
     return createOperation(cache, createOp(cache, flashMlaPrefillOp),
+                           debugString, locInfo);
+  }
+  if (auto chunkGatedDeltaRuleOp = dyn_cast<ChunkGatedDeltaRuleOp>(op);
+      chunkGatedDeltaRuleOp) {
+    return createOperation(cache, createOp(cache, chunkGatedDeltaRuleOp),
                            debugString, locInfo);
   }
   if (auto indexerScoreDsaOp = dyn_cast<IndexerScoreDsaOp>(op);

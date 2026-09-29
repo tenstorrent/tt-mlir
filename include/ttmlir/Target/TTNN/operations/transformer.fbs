@@ -93,6 +93,28 @@ table FlashMlaPrefillOp {
   memcfg: tt.target.ttnn.MemoryConfig;
 }
 
+table ChunkGatedDeltaRuleOp {
+  query: tt.target.ttnn.TensorRef;
+  key: tt.target.ttnn.TensorRef;
+  value: tt.target.ttnn.TensorRef;
+  g: tt.target.ttnn.TensorRef;
+  beta: tt.target.ttnn.TensorRef;
+  initial_state: tt.target.ttnn.TensorRef;
+  eye: tt.target.ttnn.TensorRef;
+  tril: tt.target.ttnn.TensorRef;
+  ones: tt.target.ttnn.TensorRef;
+  masks: tt.target.ttnn.TensorRef;
+  scale: float = null;
+  output_final_state: bool = false;
+  chunk_size: uint32 = 64;
+  use_qk_l2norm: bool = false;
+  output_head_major: bool = false;
+  out: tt.target.ttnn.TensorRef;
+  final_state: tt.target.ttnn.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+}
+
 table IndexerScoreDsaOp {
   query: tt.target.ttnn.TensorRef;
   key: tt.target.ttnn.TensorRef;

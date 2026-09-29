@@ -54,11 +54,17 @@ func.func @remainder(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> te
 // CHECK-LABEL: def add(
 // CHECK: ttnn.add({{.*}}, dtype=ttnn.DataType.BFLOAT16, memory_config=ttnn.MemoryConfig
 
+// ttnn.gelu_bw selects the approximation with a GeluVariant member under the
+// `variant` keyword (the dialect carries it as a "none"/"tanh" string), and
+// hands back a one-element list of gradients that has to be indexed to match
+// the single-result dialect op.
 // CHECK-LABEL: def gelu_bw_default(
-// CHECK: approximate="none"
+// CHECK: ttnn.gelu_bw({{.*}}, variant=ttnn.GeluVariant.Accurate
+// CHECK: [0]
 
 // CHECK-LABEL: def gelu_bw(
-// CHECK: approximate="tanh"
+// CHECK: ttnn.gelu_bw({{.*}}, variant=ttnn.GeluVariant.Tanh
+// CHECK: [0]
 
 // CHECK-LABEL: def remainder(
 // CHECK: dtype=None

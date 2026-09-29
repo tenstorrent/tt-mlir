@@ -113,6 +113,7 @@
 #include "operations/trace/capture_or_execute_trace.h"
 #include "operations/trace/end_trace_capture.h"
 #include "operations/trace/execute_trace.h"
+#include "operations/transformer/chunk_gated_delta_rule.h"
 #include "operations/transformer/chunked_scaled_dot_product_attention.h"
 #include "operations/transformer/concatenate_heads.h"
 #include "operations/transformer/flash_mla_prefill.h"
@@ -131,9 +132,11 @@
 #include "operations/ttml/cross_entropy_bw.h"
 #include "operations/ttml/cross_entropy_fw.h"
 #include "operations/ttml/layernorm_fw.h"
+#include "operations/ttml/rmsnorm_bw.h"
 #include "operations/ttml/rmsnorm_fw.h"
 #include "operations/ttml/sdpa_bw.h"
 #include "operations/ttml/sdpa_fw.h"
+#include "operations/ttml/swiglu_elemwise_bw.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -665,6 +668,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::RMSNormForwardOp: {
     return operations::ttml::run(op->type_as_RMSNormForwardOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::RMSNormBackwardOp: {
+    return operations::ttml::run(op->type_as_RMSNormBackwardOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
     return operations::ttml::run(op->type_as_LayerNormForwardOp(),
                                  getContext());
@@ -675,6 +681,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::CrossEntropyBackwardOp: {
     return operations::ttml::run(op->type_as_CrossEntropyBackwardOp(),
+                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::SwigluElemwiseBackwardOp: {
+    return operations::ttml::run(op->type_as_SwigluElemwiseBackwardOp(),
                                  getContext());
   }
   case ::tt::target::ttnn::OpType::DumpTensorOp: {
@@ -728,6 +738,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::FlashMlaPrefillOp: {
     return operations::transformer::run(op->type_as_FlashMlaPrefillOp(),
+                                        getContext());
+  }
+  case ::tt::target::ttnn::OpType::ChunkGatedDeltaRuleOp: {
+    return operations::transformer::run(op->type_as_ChunkGatedDeltaRuleOp(),
                                         getContext());
   }
   case ::tt::target::ttnn::OpType::IndexerScoreDsaOp: {

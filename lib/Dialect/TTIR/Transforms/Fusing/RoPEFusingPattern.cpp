@@ -677,6 +677,212 @@ mlir::LogicalResult RoPEComplexRotationFusingPattern::matchAndRewrite(
 }
 
 //===----------------------------------------------------------------------===//
+// RoPEBackwardFusingPattern
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// The backward lowering builds concat(hi, -lo) as the sum of two
+// zero-padded tensors:
+//   concat(zeros[:D/2], -lo) + concat(hi, zeros[D/2:])
+struct BackwardRotationMatch {
+  MultiplyOp sinMul;
+};
+
+static bool isZeroHalfSlice(Value value, bool firstHalf) {
+  value = skipBroadcastOnly(value);
+  // Canonicalization folds slice(zeros) to a zeros op with the sliced shape.
+  // Its position in the concat determines which half it pads.
+  if (value.getDefiningOp<ZerosOp>()) {
+    return true;
+  }
+  auto slice = dyn_cast_or_null<SliceStaticOp>(value.getDefiningOp());
+  if (!slice || !slice.getOperand().getDefiningOp<ZerosOp>()) {
+    return false;
+  }
+  return firstHalf ? isFirstHalfSlice(slice) : isSecondHalfSlice(slice);
+}
+
+static std::optional<BackwardRotationMatch> matchBackwardRotation(Value value) {
+  auto add = dyn_cast_or_null<AddOp>(value.getDefiningOp());
+  if (!add) {
+    return std::nullopt;
+  }
+
+  // Addition is commutative, so try both assignments of the padded concats.
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    auto lowPadded =
+        dyn_cast_or_null<ConcatOp>(add->getOperand(attempt).getDefiningOp());
+    auto highPadded = dyn_cast_or_null<ConcatOp>(
+        add->getOperand(1 - attempt).getDefiningOp());
+    if (!lowPadded || !highPadded || lowPadded.getNumOperands() != 2 ||
+        highPadded.getNumOperands() != 2) {
+      continue;
+    }
+
+    auto lowType = mlir::dyn_cast<RankedTensorType>(lowPadded.getType());
+    auto highType = mlir::dyn_cast<RankedTensorType>(highPadded.getType());
+    if (!lowType || !highType || lowType != highType) {
+      continue;
+    }
+    int64_t lastDim = lowType.getRank() - 1;
+    if (lowPadded.getDim() != lastDim || highPadded.getDim() != lastDim) {
+      continue;
+    }
+
+    // concat(zeros[:D/2], broadcast(neg(slice(product, :D/2))))
+    if (!isZeroHalfSlice(lowPadded.getOperand(0), /*firstHalf=*/true)) {
+      continue;
+    }
+    Value negValue = skipBroadcastOnly(lowPadded.getOperand(1));
+    auto neg = dyn_cast_or_null<NegOp>(negValue.getDefiningOp());
+    if (!neg) {
+      continue;
+    }
+    Value lowSliceValue = skipBroadcastOnly(neg.getOperand());
+    auto lowSlice =
+        dyn_cast_or_null<SliceStaticOp>(lowSliceValue.getDefiningOp());
+    if (!lowSlice || !isFirstHalfSlice(lowSlice)) {
+      continue;
+    }
+
+    // concat(broadcast(slice(product, D/2:)), zeros[D/2:])
+    Value highSliceValue = skipBroadcastOnly(highPadded.getOperand(0));
+    auto highSlice =
+        dyn_cast_or_null<SliceStaticOp>(highSliceValue.getDefiningOp());
+    if (!highSlice || !isSecondHalfSlice(highSlice) ||
+        !isZeroHalfSlice(highPadded.getOperand(1), /*firstHalf=*/false)) {
+      continue;
+    }
+
+    if (lowSlice.getOperand() != highSlice.getOperand()) {
+      continue;
+    }
+    auto sinMul =
+        dyn_cast_or_null<MultiplyOp>(lowSlice.getOperand().getDefiningOp());
+    if (!sinMul) {
+      continue;
+    }
+
+    return BackwardRotationMatch{sinMul};
+  }
+
+  return std::nullopt;
+}
+
+// For arbitrary full-width sine caches, transpose RoPE is regular RoPE with
+// concat(-sin_hi, -sin_lo). When the cache is visibly self-concatenated, the
+// half swap is redundant, so negate the full cache without introducing slices.
+static Value buildBackwardSin(PatternRewriter &rewriter, Location loc,
+                              Value sinInput) {
+  auto sinType = mlir::cast<RankedTensorType>(sinInput.getType());
+  int64_t rank = sinType.getRank();
+  int64_t lastDim = rank - 1;
+
+  if (matchSelfConcatLastDim(sinInput)) {
+    return rewriter.create<NegOp>(loc, sinType, sinInput).getResult();
+  }
+
+  ArrayRef<int64_t> shape = sinType.getShape();
+  int64_t halfDim = shape[lastDim] / 2;
+  SmallVector<int64_t> halfShape(shape);
+  halfShape[lastDim] = halfDim;
+  auto halfType = RankedTensorType::get(halfShape, sinType.getElementType());
+
+  SmallVector<int64_t> lowBegins(rank, 0);
+  SmallVector<int64_t> lowEnds(shape);
+  lowEnds[lastDim] = halfDim;
+  SmallVector<int64_t> highBegins(rank, 0);
+  highBegins[lastDim] = halfDim;
+  SmallVector<int64_t> highEnds(shape);
+  SmallVector<int64_t> steps(rank, 1);
+
+  auto sinLow = rewriter.create<SliceStaticOp>(
+      loc, halfType, sinInput, makeSliceI32ArrayAttr(rewriter, lowBegins),
+      makeSliceI32ArrayAttr(rewriter, lowEnds),
+      makeSliceI32ArrayAttr(rewriter, steps));
+  auto sinHigh = rewriter.create<SliceStaticOp>(
+      loc, halfType, sinInput, makeSliceI32ArrayAttr(rewriter, highBegins),
+      makeSliceI32ArrayAttr(rewriter, highEnds),
+      makeSliceI32ArrayAttr(rewriter, steps));
+  auto negHigh = rewriter.create<NegOp>(loc, halfType, sinHigh.getResult());
+  auto negLow = rewriter.create<NegOp>(loc, halfType, sinLow.getResult());
+
+  return rewriter
+      .create<ConcatOp>(loc, sinType,
+                        ValueRange{negHigh.getResult(), negLow.getResult()},
+                        rewriter.getSI32IntegerAttr(lastDim))
+      .getResult();
+}
+
+} // namespace
+
+mlir::LogicalResult RoPEBackwardFusingPattern::matchAndRewrite(
+    AddOp srcOp, mlir::PatternRewriter &rewriter) const {
+  if (utils::isInsideCompositeDecomposition(srcOp)) {
+    return failure();
+  }
+
+  MultiplyOp cosMul = nullptr;
+  std::optional<BackwardRotationMatch> rotation;
+
+  // The final add is commutative: identify x*cos and the padded rotation.
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    auto candidateCosMul = dyn_cast_or_null<MultiplyOp>(
+        srcOp->getOperand(attempt).getDefiningOp());
+    auto candidateRotation =
+        matchBackwardRotation(srcOp->getOperand(1 - attempt));
+    if (candidateCosMul && candidateRotation) {
+      cosMul = candidateCosMul;
+      rotation = candidateRotation;
+      break;
+    }
+  }
+  if (!rotation) {
+    return failure();
+  }
+
+  // Determine which sin-multiply operand is x by checking it against x*cos.
+  Value xSource;
+  Value cosEmb;
+  Value sinEmb;
+  for (int operand = 0; operand < 2; ++operand) {
+    Value candidateX = rotation->sinMul->getOperand(operand);
+    auto inputType = mlir::dyn_cast<RankedTensorType>(candidateX.getType());
+    if (!inputType || inputType.getRank() != 4) {
+      continue;
+    }
+    auto cosXAndEmb = identifyXAndEmbedding(cosMul, candidateX);
+    if (!cosXAndEmb) {
+      continue;
+    }
+    xSource = candidateX;
+    cosEmb = cosXAndEmb->second;
+    sinEmb = rotation->sinMul->getOperand(1 - operand);
+    break;
+  }
+  if (!xSource) {
+    return failure();
+  }
+
+  Value cosInput = get4DEmbeddingInput(cosEmb);
+  Value sinInput = get4DEmbeddingInput(sinEmb);
+  auto sinType = mlir::dyn_cast<RankedTensorType>(sinInput.getType());
+  auto inputType = mlir::cast<RankedTensorType>(xSource.getType());
+  if (!sinType || sinType.getRank() != inputType.getRank() ||
+      sinType.getShape().back() != inputType.getShape().back() ||
+      sinType.getShape().back() % 2 != 0) {
+    return failure();
+  }
+
+  Value backwardSin = buildBackwardSin(rewriter, srcOp.getLoc(), sinInput);
+  auto resultType = mlir::cast<RankedTensorType>(srcOp.getType());
+  replaceWithRoPEComposite(srcOp, rewriter, xSource, cosInput, backwardSin,
+                           resultType);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // RoPEInterleavedPairFusingPattern
 //===----------------------------------------------------------------------===//
 

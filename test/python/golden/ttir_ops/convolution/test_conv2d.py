@@ -49,6 +49,9 @@ def clear_program_cache_after_test(device):
         ((1, 112, 112, 64), (64, 1, 3, 3), (1, 1, 1, 64), 1, 1, 1, 64),
         # Depthwise 3x3 stride=2 (spatial reduction)
         ((1, 56, 56, 128), (128, 1, 3, 3), (1, 1, 1, 128), 2, 1, 1, 128),
+        # Depthwise, unit-height input: the shape a framework produces when it
+        # decomposes a 1D convolution into conv2d (see #9276/#9331)
+        ((1, 1, 32, 64), (64, 1, 1, 3), (1, 1, 1, 64), 1, 0, 1, 64),
         # === Modern architectures (ConvNeXt/ViT) ===
         # Patchify stem: 4x4, stride=4, non-overlapping
         ((1, 224, 224, 3), (96, 3, 4, 4), (1, 1, 1, 96), 4, 0, 1, 1),
@@ -84,6 +87,7 @@ def clear_program_cache_after_test(device):
         "downsample_3x3_s2",
         "depthwise_3x3",
         "depthwise_3x3_s2",
+        "depthwise_h1_conv1d_decomposed",
         "convnext_patchify_4x4_s4",
         "convnext_depthwise_7x7",
         "inception_5x5",

@@ -2,37 +2,25 @@ include(GenerateExportHeader)
 
 add_subdirectory(common)
 
-# Bake tt-mlir provenance into version.cpp: the plain commit hash
-# (ttmlir_git_hash()) and a combined commit+worktree hash
-# (ttmlir_git_worktree_hash(), == commit when clean) for keying a compile cache.
-include(${PROJECT_SOURCE_DIR}/cmake/GitRev.cmake)
+set(TT_CRANK_VERSION_CPP "${CMAKE_CURRENT_BINARY_DIR}/version.cpp")
 
-set(TT_CRANK_TTMLIR_SOURCE_DIR "${CMAKE_SOURCE_DIR}")
-
-git_commit_hash(TTMLIR_GIT_HASH ${TT_CRANK_TTMLIR_SOURCE_DIR})
-if(TTMLIR_GIT_HASH STREQUAL "")
-    message(FATAL_ERROR
-        "Could not resolve the tt-mlir commit hash from "
-        "${TT_CRANK_TTMLIR_SOURCE_DIR}. Initialize the submodule "
-        "(git submodule update --init --recursive), or point "
-        "-DTTMLIR_SOURCE_DIR_OVERRIDE at a git checkout.")
-endif()
-
-git_worktree_hash(TTMLIR_GIT_WORKTREE_HASH ${TT_CRANK_TTMLIR_SOURCE_DIR})
-if(TTMLIR_GIT_WORKTREE_HASH STREQUAL "")
-    message(FATAL_ERROR
-        "Could not resolve the tt-mlir worktree hash from "
-        "${TT_CRANK_TTMLIR_SOURCE_DIR} ('git diff HEAD' failed).")
-endif()
-
-configure_file(
-    version.cpp.in
-    ${CMAKE_CURRENT_BINARY_DIR}/version.cpp
-    @ONLY
+# Recalculate the hashes of the tt-mlir and tt-metal source trees and generate
+# version.cpp before building tt_crank.
+add_custom_target(tt_crank_version
+    COMMAND ${CMAKE_COMMAND}
+        "-DPROJECT_VERSION=${PROJECT_VERSION}"
+        "-DTTMLIR_SOURCE_DIR=${TTMLIR_SOURCE_DIR}"
+        "-DTTMETAL_SOURCE_DIR=${TTMETAL_SOURCE_DIR}"
+        -P "${PROJECT_SOURCE_DIR}/cmake/GenerateVersion.cmake"
+    BYPRODUCTS "${TT_CRANK_VERSION_CPP}"
+    COMMENT "Generating tt-crank version.cpp"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+    VERBATIM
 )
+add_dependencies(tt_crank_version tt-metal-update)
 
 add_library(tt_crank SHARED
-    ${CMAKE_CURRENT_BINARY_DIR}/version.cpp
+    "${TT_CRANK_VERSION_CPP}"
     engine/compile.cpp
     engine/compile_options.cpp
     engine/device.cpp
@@ -43,6 +31,7 @@ add_library(tt_crank SHARED
     # TT_CRANK_SIM_DIR / TT_CRANK_TT_METAL_HOME defs are wired in cmake/TTsim.cmake.
     engine/sim_env.cpp
 )
+add_dependencies(tt_crank tt_crank_version)
 add_library(tt_crank::tt_crank ALIAS tt_crank)
 
 # Hide every symbol by default; only declarations marked TT_CRANK_API end up in

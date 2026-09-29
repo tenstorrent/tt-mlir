@@ -6,7 +6,11 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from tt_crank.torch.testing import assert_close_cpu_vs_tt, strict_no_fallback
+from tt_crank.torch.testing import (
+    assert_close_cpu_vs_tt,
+    get_supported_dtypes,
+    strict_no_fallback,
+)
 
 _REDUCTIONS = ["none", "mean", "sum"]
 
@@ -512,3 +516,48 @@ def test_index_copy_inplace_kv_cache_decode_step() -> None:
     with strict_no_fallback():
         tt.index_copy_(seq_dim, positions.to("tt"), values.to("tt"))
     torch.testing.assert_close(tt.cpu(), expected)
+
+
+@pytest.mark.parametrize("dtype", get_supported_dtypes())
+@pytest.mark.parametrize("value", [1.0, 0.5, -1.0])
+@pytest.mark.parametrize("shape", [(64, 128), (32, 32), (32, 64, 32)])
+def test_addcdiv(shape: tuple[int, ...], value: float, dtype: torch.dtype) -> None:
+    a = torch.randn(shape, dtype=dtype)
+    t1 = torch.randn(shape, dtype=dtype)
+    t2 = torch.rand(shape, dtype=dtype).add(0.1)
+    assert_close_cpu_vs_tt(
+        lambda x, y, z: torch.addcdiv(x, y, z, value=value),
+        a,
+        t1,
+        t2,
+        atol=0.05,
+        rtol=0.05,
+    )
+
+
+@pytest.mark.parametrize("dtype", get_supported_dtypes())
+@pytest.mark.parametrize("value", [1.0, 0.5, -1.0])
+@pytest.mark.parametrize("shape", [(64, 128), (32, 32), (32, 64, 32)])
+def test_addcmul(shape: tuple[int, ...], value: float, dtype: torch.dtype) -> None:
+    a = torch.randn(shape, dtype=dtype)
+    t1 = torch.randn(shape, dtype=dtype)
+    t2 = torch.randn(shape, dtype=dtype)
+    assert_close_cpu_vs_tt(
+        lambda x, y, z: torch.addcmul(x, y, z, value=value),
+        a,
+        t1,
+        t2,
+        atol=0.05,
+        rtol=0.05,
+    )
+
+
+@pytest.mark.parametrize("dtype", get_supported_dtypes())
+@pytest.mark.parametrize("weight", [0.0, 0.25, 1.0, -0.5])
+@pytest.mark.parametrize("shape", [(64, 128), (32, 32), (32, 64, 32)])
+def test_lerp_scalar(shape: tuple[int, ...], weight: float, dtype: torch.dtype) -> None:
+    a = torch.randn(shape, dtype=dtype)
+    end = torch.randn(shape, dtype=dtype)
+    assert_close_cpu_vs_tt(
+        lambda x, y: torch.lerp(x, y, weight), a, end, atol=0.05, rtol=0.05
+    )

@@ -4712,6 +4712,36 @@ RMSNormForwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// RMSNormBackwardOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints> RMSNormBackwardOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  assert(inputs.size() == 4 && "RMSNormBackwardOp must have 4 inputs");
+
+  return detail::constraintsDispatch(
+      *this, liveRecords, getInput().getType().getShape(), inputs[0],
+      getGamma().getType().getShape(), inputs[1], getRms().getType().getShape(),
+      inputs[2], getGradOutput().getType().getShape(), inputs[3],
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+RMSNormBackwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  assert(inputs.size() == 4 && "RMSNormBackwardOp must have 4 inputs");
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<RMSNormBackwardOp>::getOpRuntime, *this,
+      getInput().getType().getShape(), inputs[0],
+      getGamma().getType().getShape(), inputs[1], getRms().getType().getShape(),
+      inputs[2], getGradOutput().getType().getShape(), inputs[3],
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormForwardOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -4801,6 +4831,34 @@ CrossEntropyBackwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       getTarget().getType().getShape(), inputs[1],
       getGrad().getType().getShape(), inputs[2], getScaler(),
       opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// SwigluElemwiseBackwardOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+SwigluElemwiseBackwardOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  assert(inputs.size() == 3 && "SwigluElemwiseBackwardOp must have 3 inputs");
+
+  return detail::constraintsDispatch(
+      *this, liveRecords, getInput().getType().getShape(), inputs[0],
+      getGate().getType().getShape(), inputs[1],
+      getGradOutput().getType().getShape(), inputs[2], opConfig.outputLayout);
+}
+
+llvm::Expected<size_t> SwigluElemwiseBackwardOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() == 3 && "SwigluElemwiseBackwardOp must have 3 inputs");
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<SwigluElemwiseBackwardOp>::getOpRuntime, *this,
+      getInput().getType().getShape(), inputs[0],
+      getGate().getType().getShape(), inputs[1],
+      getGradOutput().getType().getShape(), inputs[2], opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

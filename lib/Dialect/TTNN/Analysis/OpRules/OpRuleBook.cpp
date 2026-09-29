@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/OpRuleBook.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/ActivationRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/ConvRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/EmbeddingRules.h"
@@ -81,7 +82,9 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static TTMLSDPAForwardRuleBook ttmlSdpaForward;
   static TTMLSDPABackwardRuleBook ttmlSdpaBackward;
   static TTMLRMSNormForwardRuleBook ttmlRmsNormForward;
+  static TTMLRMSNormBackwardRuleBook ttmlRmsNormBackward;
   static TTMLLayerNormForwardRuleBook ttmlLayerNormForward;
+  static TTMLSwigluElemwiseBackwardRuleBook ttmlSwigluElemwiseBackward;
   static SDPADecodeRuleBook sdpaDecode;
   static EmbeddingRuleBook embedding;
   static TypecastRuleBook typecast;
@@ -124,7 +127,10 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(SDPAForwardOp::getOperationName(), &ttmlSdpaForward);
     reg(SDPABackwardOp::getOperationName(), &ttmlSdpaBackward);
     reg(RMSNormForwardOp::getOperationName(), &ttmlRmsNormForward);
+    reg(RMSNormBackwardOp::getOperationName(), &ttmlRmsNormBackward);
     reg(LayerNormForwardOp::getOperationName(), &ttmlLayerNormForward);
+    reg(SwigluElemwiseBackwardOp::getOperationName(),
+        &ttmlSwigluElemwiseBackward);
     reg(ScaledDotProductAttentionDecodeOp::getOperationName(), &sdpaDecode);
     reg(PagedScaledDotProductAttentionDecodeOp::getOperationName(),
         &sdpaDecode);

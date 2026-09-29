@@ -2,19 +2,20 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/SymbolTable.h"
-
-#include "ttmlir/Asserts.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -61,6 +62,67 @@ struct FlashMlaPrefillCompositeArgs {
   BoolAttr isCausal;
   FloatAttr scale; // null when default is meant to be used
 };
+
+struct ChunkGatedDeltaRuleCompositeArgs {
+  Value query;
+  Value key;
+  Value value;
+  Value g;
+  Value beta;
+  Value initialState;
+  Value eye;
+  Value tril;
+  Value ones;
+  Value masks;
+  FloatAttr scale;
+  BoolAttr outputFinalState;
+  IntegerAttr chunkSize;
+  BoolAttr useQkL2norm;
+  BoolAttr outputHeadMajor;
+};
+
+static ChunkGatedDeltaRuleCompositeArgs
+extractChunkGatedDeltaRuleArgs(ttcore::CompositeOp compositeOp,
+                               OpBuilder &builder) {
+  DictionaryAttr attrs = compositeOp.getCompositeAttributes().value_or(nullptr);
+  TT_assert(attrs);
+
+  auto readBool = [&](StringRef name, bool defaultValue = false) {
+    if (auto attr = attrs.getAs<BoolAttr>(name)) {
+      return attr.getValue();
+    }
+    return defaultValue;
+  };
+
+  auto inputs = compositeOp.getInputs();
+  TT_assert(inputs.size() >= 5u);
+  unsigned idx = 5;
+  auto takeOptional = [&](StringRef flag) -> Value {
+    return readBool(flag) ? inputs[idx++] : Value();
+  };
+
+  ChunkGatedDeltaRuleCompositeArgs args;
+  args.query = inputs[0];
+  args.key = inputs[1];
+  args.value = inputs[2];
+  args.g = inputs[3];
+  args.beta = inputs[4];
+  args.initialState = takeOptional("has_initial_state");
+  args.eye = takeOptional("has_eye");
+  args.tril = takeOptional("has_tril");
+  args.ones = takeOptional("has_ones");
+  args.masks = takeOptional("has_masks");
+  TT_assert(idx == inputs.size());
+
+  args.scale = attrs.getAs<FloatAttr>("scale");
+  args.outputFinalState = builder.getBoolAttr(readBool("output_final_state"));
+  args.chunkSize = attrs.getAs<IntegerAttr>("chunk_size")
+                       ? attrs.getAs<IntegerAttr>("chunk_size")
+                       : builder.getUI32IntegerAttr(64);
+  args.useQkL2norm = builder.getBoolAttr(readBool("use_qk_l2norm"));
+  args.outputHeadMajor = builder.getBoolAttr(readBool("output_head_major"));
+  return args;
+}
 
 // Map the composite's variadic inputs back to (query, key, value, mask) using
 // the has_value / has_attention_mask flags, and pull out the typed attributes.
@@ -113,6 +175,38 @@ getIndexerScoreDsaClusterAxis(ttcore::CompositeOp compositeOp) {
   return attrs.getAs<mlir::IntegerAttr>("cluster_axis");
 }
 
+// Add a permute before the typed op. The `indexer_score_dsa` composite carries
+// weights in the head-major [B, Hi, Sq, 1] order its decomposition consumes,
+// while `ttnn::experimental::indexer_score_dsa` takes the [B, 1, Sq, Hi] order.
+static std::pair<Value, bool>
+createIndexerScoreDsaNativeWeights(OpBuilder &builder, Location loc,
+                                   Value weights) {
+  auto weightsType = mlir::cast<RankedTensorType>(weights.getType());
+  ArrayRef<int64_t> shape = weightsType.getShape();
+  if (shape.size() != 4) {
+    // Malformed weights: leave them alone and let the op verifier reject them.
+    return {weights, false};
+  }
+
+  static constexpr int64_t permutation[] = {0, 3, 2, 1};
+  SmallVector<int64_t> nativeShape =
+      ttmlir::utils::applyPermutation(shape, ArrayRef<int64_t>(permutation));
+  if (nativeShape == SmallVector<int64_t>(shape)) {
+    return {weights, false};
+  }
+
+  RankedTensorType nativeType =
+      mlir::isa_and_nonnull<TTNNLayoutAttr>(weightsType.getEncoding())
+          ? ttnn::utils::RankedTensorTypeFactory::create(weightsType,
+                                                         nativeShape)
+          : RankedTensorType::get(nativeShape, weightsType.getElementType());
+
+  auto permuteOp = builder.create<PermuteOp>(
+      loc, nativeType, weights, builder.getDenseI64ArrayAttr(permutation),
+      builder.getF32FloatAttr(0.0f));
+  return {permuteOp.getResult(), true};
+}
+
 static void registerBuiltinComposites() {
   auto &registry = getCompositeRegistry();
   if (!registry.empty()) {
@@ -148,6 +242,29 @@ static void registerBuiltinComposites() {
             compositeOp.getInputs()[0], compositeOp.getInputs()[1],
             attrs.getAs<BoolAttr>("return_intermediates"),
             attrs.getAs<FloatAttr>("epsilon"));
+      },
+      /*promotionGuard=*/nullptr};
+
+  registry["rmsnorm_bw"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 4u);
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<RMSNormBackwardOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], compositeOp.getInputs()[3]);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        TT_assert(compositeOp.getInputs().size() == 4u);
+        return builder.create<RMSNormBackwardOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], compositeOp.getInputs()[3]);
       },
       /*promotionGuard=*/nullptr};
 
@@ -246,6 +363,31 @@ static void registerBuiltinComposites() {
       },
       /*promotionGuard=*/nullptr};
 
+  registry["chunk_gated_delta_rule"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        (void)extractChunkGatedDeltaRuleArgs(compositeOp, builder);
+        // The public TTNN wrapper performs its own casts, layout transforms,
+        // padding, and memory placement. It is therefore intentionally exempt
+        // from single-kernel OpModel validation; the typed op verifier checks
+        // the semantic shape and option constraints after promotion.
+        return OpValidationResult::success();
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        ChunkGatedDeltaRuleCompositeArgs args =
+            extractChunkGatedDeltaRuleArgs(compositeOp, builder);
+        return builder.create<ChunkGatedDeltaRuleOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(), args.query,
+            args.key, args.value, args.g, args.beta, args.initialState,
+            args.eye, args.tril, args.ones, args.masks, args.scale,
+            args.outputFinalState, args.chunkSize, args.useQkL2norm,
+            args.outputHeadMajor,
+            /*memory_config=*/nullptr, /*compute_config=*/nullptr);
+      },
+      /*promotionGuard=*/nullptr};
+
   registry["flash_mla_prefill"] = CompositeEntry{
       // Validate
       [](ttcore::CompositeOp compositeOp,
@@ -286,20 +428,35 @@ static void registerBuiltinComposites() {
             getIndexerScoreDsaClusterAxis(compositeOp);
         SmallVector<Type> resultTypes(compositeOp.getResultTypes());
         IsolatedIRValidationWrapper validator(compositeOp.getContext());
-        return validator.validateOp<IndexerScoreDsaOp>(
+        // Validate against the weights layout the typed op will really be
+        // built with: the op model queries tt-metal, which rejects the
+        // composite's head-major form. The validator only captures operand
+        // types into an isolated module, so this permute is scaffolding --
+        // erase it again and let the build callback emit the one that stays.
+        auto [weights, weightsPermuted] = createIndexerScoreDsaNativeWeights(
+            builder, compositeOp.getLoc(), compositeOp.getInputs()[2]);
+        OpValidationResult result = validator.validateOp<IndexerScoreDsaOp>(
             compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
-            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
-            compositeOp.getInputs()[2], chunkStartIdx, clusterAxis);
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1], weights,
+            chunkStartIdx, clusterAxis);
+        if (weightsPermuted) {
+          weights.getDefiningOp()->erase();
+        }
+        return result;
       },
       // Build
       [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
         uint32_t chunkStartIdx = getIndexerScoreDsaChunkStartIdx(compositeOp);
         mlir::IntegerAttr clusterAxis =
             getIndexerScoreDsaClusterAxis(compositeOp);
+        Value weights =
+            createIndexerScoreDsaNativeWeights(builder, compositeOp.getLoc(),
+                                               compositeOp.getInputs()[2])
+                .first;
         return builder.create<IndexerScoreDsaOp>(
             compositeOp.getLoc(), compositeOp.getResultTypes(),
-            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
-            compositeOp.getInputs()[2], chunkStartIdx, clusterAxis);
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1], weights,
+            chunkStartIdx, clusterAxis);
       },
       // Promotion guard: ttnn.experimental.indexer_score_dsa is
       // Blackhole-only. On any other architecture, veto promotion so the
@@ -470,6 +627,29 @@ static void registerBuiltinComposites() {
             compositeOp.getLoc(), compositeOp.getResultTypes(),
             compositeOp.getInputs()[0], compositeOp.getInputs()[1],
             compositeOp.getInputs()[2], attrs.getAs<FloatAttr>("scaler"));
+      },
+      /*promotionGuard=*/nullptr};
+
+  registry["swiglu_elemwise_bw"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 3u);
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<SwigluElemwiseBackwardOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2]);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        TT_assert(compositeOp.getInputs().size() == 3u);
+        return builder.create<SwigluElemwiseBackwardOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2]);
       },
       /*promotionGuard=*/nullptr};
 }
