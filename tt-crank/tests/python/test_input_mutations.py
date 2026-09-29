@@ -35,7 +35,11 @@ def test_input_mutations():
         x.mul_(2)
         return x + y
 
-    _check(fn, torch.randn(32, 32, dtype=torch.bfloat16), torch.randn(32, 32, dtype=torch.bfloat16))
+    _check(
+        fn,
+        torch.randn(32, 32, dtype=torch.bfloat16),
+        torch.randn(32, 32, dtype=torch.bfloat16),
+    )
 
 
 def test_input_mutation_through_view():
@@ -44,7 +48,11 @@ def test_input_mutation_through_view():
         z.add_(y)
         return x * 2
 
-    _check(fn, torch.randn(32, 32, dtype=torch.bfloat16), torch.randn(64, 16, dtype=torch.bfloat16))
+    _check(
+        fn,
+        torch.randn(32, 32, dtype=torch.bfloat16),
+        torch.randn(64, 16, dtype=torch.bfloat16),
+    )
 
 
 def test_input_mutation_through_view_of_view():
@@ -54,8 +62,12 @@ def test_input_mutation_through_view_of_view():
         z.mul_(2)
         t.add_(y)
         return x
-    
-    _check(fn, torch.randn(32, 32, dtype=torch.bfloat16), torch.randn(32, 2, 16, dtype=torch.bfloat16))
+
+    _check(
+        fn,
+        torch.randn(32, 32, dtype=torch.bfloat16),
+        torch.randn(32, 2, 16, dtype=torch.bfloat16),
+    )
 
 
 def test_multiple_inputs_mutated():
@@ -64,7 +76,11 @@ def test_multiple_inputs_mutated():
         y.mul_(2)
         return x * 2
 
-    _check(fn, torch.randn(32, 32, dtype=torch.bfloat16), torch.randn(32, 32, dtype=torch.bfloat16))
+    _check(
+        fn,
+        torch.randn(32, 32, dtype=torch.bfloat16),
+        torch.randn(32, 32, dtype=torch.bfloat16),
+    )
 
 
 def test_input_mutation_through_slice():
@@ -88,5 +104,8 @@ def test_mutation_with_different_dtype_operand():
         x.add_(y)
         return x * 2
 
-    _check(fn, torch.randn(32, 32, dtype=torch.bfloat16), torch.randn(32, 32, dtype=torch.float32))
-
+    _check(
+        fn,
+        torch.randn(32, 32, dtype=torch.bfloat16),
+        torch.randn(32, 32, dtype=torch.float32),
+    )

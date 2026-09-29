@@ -32,7 +32,6 @@ import torch
 import torch.fx
 from torch._decomp import core_aten_decompositions, get_decompositions
 from torch._dynamo.backends.common import aot_module_simplified
-from torch._functorch._aot_autograd.descriptors import InputMutationAOTOutput
 from torch._subclasses.fake_tensor import unset_fake_temporarily
 
 from . import _native
@@ -1525,27 +1524,24 @@ def _aot_graph_kind() -> str | None:
     return "_".join(tag).rpartition("_")[2] or None
 
 
-def _input_mutation_pairs(gm: torch.fx.GraphModule) -> list[tuple[int, int]]:
+def _input_mutation_pairs(gm: torch.fx.GraphModule, fw_meta) -> list[tuple[int, int]]:
     """`(graph input index, graph output index)` for each input aot_autograd writes
-    back after the graph runs (an `InputMutationAOTOutput` output).
+    back after the graph runs.
     """
+    if fw_meta is None:
+        return []
     placeholders = [n for n in gm.graph.nodes if n.op == "placeholder"]
-    input_pos = {
-        n.meta["desc"]: i for i, n in enumerate(placeholders) if "desc" in n.meta
-    }
     output_node = gm.graph.output_node()
     fx_outputs = output_node.args[0]
     if not isinstance(fx_outputs, (tuple, list)):
         fx_outputs = (fx_outputs,)
 
+    num_tokens = len(fw_meta.tokens)
     pairs = []
-    for out_pos, desc in enumerate(output_node.meta.get("desc", [])):
-        if (
-            not isinstance(desc, InputMutationAOTOutput)
-            or desc.mutated_input not in input_pos
-        ):
+    for i, idx in enumerate(fw_meta.mutated_inp_runtime_indices):
+        if not fw_meta.input_info[idx].mutates_data:
             continue
-        inp_pos = input_pos[desc.mutated_input]
+        inp_pos, out_pos = num_tokens + idx, num_tokens + i
         inp_val = placeholders[inp_pos].meta.get("val")
         out_val = fx_outputs[out_pos].meta.get("val")
         if (
@@ -1562,6 +1558,7 @@ def _lower_and_compile(
     gm: torch.fx.GraphModule,
     example_inputs: list[torch.Tensor],
     roles: list["_native.ArgumentType"],
+    fw_meta=None,
     *,
     options: _native.CompileOptions,
 ) -> Callable:
@@ -1570,7 +1567,9 @@ def _lower_and_compile(
     Walks the graph once via _TTIRInterpreter, finalizes the accumulated TTIR
     module, compiles it to a flatbuffer, and returns a runner closure that binds
     inputs and runs the compiled program on each call. `roles` tags each graph
-    arg for const-eval (see tt_backend / _forward_parameter_roles).
+    arg for const-eval (see tt_backend / _forward_parameter_roles). `fw_meta` is
+    aot_autograd's forward metadata, used to write mutated inputs back in place;
+    None for the backward graph, which has no input mutations.
     """
     if _post_aot_fx_hook is not None:
         _post_aot_fx_hook(gm)
@@ -1623,7 +1622,11 @@ def _lower_and_compile(
             Artifact(_compile_options_dict(options), result, _aot_graph_kind())
         )
 
-    mutation_pairs = _input_mutation_pairs(gm) if options.enable_zero_copy_input_mutations else []
+    mutation_pairs = (
+        _input_mutation_pairs(gm, fw_meta)
+        if options.enable_zero_copy_input_mutations
+        else []
+    )
 
     def runner(*inputs: torch.Tensor) -> list:
         produced = _native.run_program(program, list(inputs), output_dtypes)
@@ -1725,7 +1728,7 @@ def tt_backend(
     ) -> Callable:
         fw_meta = getattr(torch._guards.TracingContext.try_get(), "fw_metadata", None)
         roles = _fw_args_roles(len(fw_inputs), fw_meta)
-        return lower_and_compile(fw_gm, fw_inputs, roles)
+        return lower_and_compile(fw_gm, fw_inputs, roles, fw_meta)
 
     def bw_compiler(
         bw_gm: torch.fx.GraphModule, bw_inputs: list[torch.Tensor]
