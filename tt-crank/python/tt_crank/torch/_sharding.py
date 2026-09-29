@@ -197,46 +197,9 @@ def _index_copy_sharding(self, dim, index, source):
 
 
 def _linear_backward_sharding(self, grad_output, weight, output_mask):
-    """DTensor sharding strategy for `linear_backward`, which tt keeps as a leaf op.
-
-    torch ships no rule for it (its own backends decompose `linear`), and DTensor's propagator
-    raises "does not have a sharding strategy registered" for an op without one, so without this
-    any DTensor training that backpropagates through a tt `nn.Linear` fails.
-
-    For `y = x @ W.T` with `x` = `self` `[*, in]` and `W` = `weight` `[out, in]`, the op returns
-
-        grad_input  = grad_output @ W               [*, in]
-        grad_weight = grad_output.T @ x             [out, in]
-        grad_bias   = grad_output.sum(leading dims) [out]
-
-    Three families -- the three ways a transformer shards a linear layer. Each is
-    redistribution-free on its own inputs, so the propagator picks whichever one the incoming
-    placements already satisfy and inserts no collective for it.
-
-    Data parallel (weight `Replicate`): activation and `grad_output` sharded on a leading
-    (batch/sequence) dim, so grad_input keeps that sharding while grad_weight and grad_bias are
-    per-shard partial sums -- `Partial`, and the redistribute to `Replicate` is the all-reduce.
-
-    Column parallel (weight `Shard(0)`, split on out_features): `grad_output` arrives sharded on
-    its last dim -- the same `out` axis -- so grad_input contracts over an axis sharded on both
-    operands and comes out `Partial`; the redistribute back to the replicated residual stream is
-    the all-reduce. grad_weight and grad_bias keep the out_features shard, so the weight gradient
-    needs no collective at all.
-
-    Row parallel (weight `Shard(1)`, split on in_features): the activation is sharded on
-    in_features and `grad_output` is replicated, so grad_input stays sharded on in_features and
-    grad_weight keeps that shard. grad_bias reduces over `out`, which is not sharded here, so
-    every shard computes the same full sum: `Replicate`.
-
-    The replicated family alone would also work, at the price of all-gathering the weight to
-    compute its gradient -- for a 70B model that is the entire 131 GB of weights on every chip.
-    `output_mask` is not a tensor -> None.
-    """
-    # Outputs the op leaves undefined get no spec. torch's meta kernel, which the propagator and
-    # the compile path see, returns grad_weight and grad_bias together whenever either is
-    # requested, so both get a spec if either is. The eager tt kernel returns only what is
-    # masked on; a spec on a None result is ignored by DTensor's wrap, a missing spec on a
-    # tensor result raises, so over-specifying is the safe direction.
+    """`linear_backward` on tt: DP, column-TP (weight Shard(0)) and row-TP (weight Shard(1)), no redistribution."""
+    # torch's meta returns grad_weight and grad_bias together when either is requested; the eager tt
+    # kernel returns only what is masked on. A spec on a None result is ignored, a missing one raises.
     wanted = (
         output_mask[0],
         output_mask[1] or output_mask[2],
@@ -278,24 +241,7 @@ def _linear_backward_sharding(self, grad_output, weight, output_mask):
 
 
 def _matmul_backward_sharding(grad, self, other, output_mask):
-    """DTensor sharding strategy for `matmul_backward`, which tt keeps as a leaf op.
-
-    For `out = self @ other`, the op returns
-
-        grad_self  = grad @ other.T
-        grad_other = self.T @ grad
-
-    Only the batch-parallel families are offered: every dim before the last two is a batch dim of a
-    batched matmul, so if `grad`, `self` and `other` are all sharded on the same batch dim the
-    grads are too and nothing has to move. Anything that shards a *contracted* dim would make a
-    grad `Partial` and is deliberately left out -- the propagator will redistribute to the
-    replicated combo instead of silently producing a wrong answer.
-
-    Reached by the MATH decomposition of SDPA, which the choice stub in src/torch/ops/sdpa.cpp
-    picks whenever the ttml kernels cannot take the call (HF's per-batch padding mask at batch > 1,
-    S % 32 != 0, ...): attention becomes matmul/softmax/matmul, and the head dim it is sharded on
-    is a batch dim of those matmuls. Any other batched matmul in a sharded model lands here too.
-    """
+    """`matmul_backward` on tt: batch-parallel families only; a sharded contraction dim falls back to replicated."""
     wanted = (output_mask[0], output_mask[1])
 
     def outputs(*placements):
