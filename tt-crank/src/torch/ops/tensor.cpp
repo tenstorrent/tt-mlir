@@ -29,14 +29,6 @@ namespace tt::crank::torch_backend {
 
 namespace {
 
-// Build a fresh tt tensor of `sizes` and `dtype` backed by an owned host
-// buffer. If `data` is non-null, its bytes are copied into the buffer at
-// construction; if null, the runtime returns a zero-initialized buffer of
-// the right size.
-at::Tensor make_tt_tensor_from_host(void *data, at::IntArrayRef sizes, c10::ScalarType dtype) {
-    return wrap_tt_tensor(runtime_from_host_shards({data}, sizes, dtype), sizes, dtype);
-}
-
 // Copy this rank's local shard (shard 0) of a tt tensor into `dst`. That's the
 // `to_local` semantic `.cpu()` / `.item()` want; the global cross-chip view is
 // reconstructed by DTensor's `full_tensor()` via a collective, not here.
@@ -55,7 +47,9 @@ std::vector<std::byte> read_to_host(const at::Tensor &self, const char *who) {
     return buffer;
 }
 
-// aten::empty.memory_format — returns a fresh zero-initialized tt tensor; only
+// aten::empty.memory_format — returns a fresh tt tensor over deferred storage:
+// nothing is allocated until it is first read (then it reads as zeros) or, far
+// more commonly, overwritten by `_copy_from` / a `.out` kernel. Only
 // contiguous layout is supported.
 at::Tensor empty_memory_format(at::IntArrayRef size, std::optional<at::ScalarType> dtype,
                                std::optional<at::Layout> /*layout*/, std::optional<at::Device> device,
@@ -64,7 +58,7 @@ at::Tensor empty_memory_format(at::IntArrayRef size, std::optional<at::ScalarTyp
                 "tt-crank empty.memory_format: device must be tt or unspecified");
     TORCH_CHECK(!memory_format.has_value() || memory_format.value() == c10::MemoryFormat::Contiguous,
                 "tt-crank empty.memory_format: only contiguous memory_format is supported");
-    return make_tt_tensor_from_host(/*data=*/nullptr, size, dtype.value_or(c10::ScalarType::Float));
+    return wrap_empty_tt_tensor(size, dtype.value_or(c10::ScalarType::Float));
 }
 
 // Read every chip's slab independently into its own host buffer. Used by the
@@ -112,7 +106,7 @@ at::Tensor empty_strided(at::IntArrayRef size, at::IntArrayRef stride, std::opti
     TORCH_CHECK(!device.has_value() || is_tt(*device), "tt-crank empty_strided: device must be tt or unspecified");
     // Ignore requested stride and force contig layout.
     (void)stride;
-    return make_tt_tensor_from_host(/*data=*/nullptr, size, dtype.value_or(c10::ScalarType::Float));
+    return wrap_empty_tt_tensor(size, dtype.value_or(c10::ScalarType::Float));
 }
 
 at::Tensor copy_from(const at::Tensor &self, const at::Tensor &dst, bool /*non_blocking*/) {
@@ -145,10 +139,16 @@ at::Tensor copy_from(const at::Tensor &self, const at::Tensor &dst, bool /*non_b
         // updates the cache tensor in-place), so output and input end up the same buffer and the
         // writeback is a self-copy; skip it instead of round-tripping every shard
         // through host.
-        const auto &self_handle = storage_of(self).tensor().handle;
-        const auto &dst_handle = storage_of(dst).tensor().handle;
-        if (self_handle != nullptr && self_handle.get() == dst_handle.get()) {
-            return dst;
+        // A deferred (never-read `empty`) storage owns no buffer yet, so it
+        // cannot alias anything; asking for its handle would only allocate it.
+        TensorStorage &self_storage = storage_of(self);
+        TensorStorage &dst_storage = storage_of(dst);
+        if (self_storage.materialized() && dst_storage.materialized()) {
+            const auto &self_handle = self_storage.tensor().handle;
+            const auto &dst_handle = dst_storage.tensor().handle;
+            if (self_handle != nullptr && self_handle.get() == dst_handle.get()) {
+                return dst;
+            }
         }
         // Per-shard deep copy: pull every chip's slab and rebuild, preserving
         // self's distribution. Collapsing to shard 0 would broadcast rank 0's
@@ -195,16 +195,12 @@ at::Tensor &zero_(at::Tensor &self) {
 //      1) because mean/sum reduce to a 0-dim scalar;
 //   3. the .out kernel finally overwrites the scalar via write_result_into.
 //
-//  In resize_ & memory_format we always allocate an owned host tensor, which is
-//  excessive in this case.
+//  Neither step allocates: `empty` produces a deferred storage and a
+//  numel-changing resize_ re-defers it, so only the final `.out` write
+//  materializes anything (at the final shape).
 //
-//  Also, when the element count changes resize_ allocates a fresh tensor and does
-//  not copy data from the one being resized (the same-numel case only rebinds the
-//  sizes metadata).
-//
-//  One solution could be to have `memory_format` produce an uninitialized, not allocated,
-//  tensor. And then we materialize it first time we need to access its content. Then `resize_`
-//  could know that it is dealing with an uninitialized tensor and can just modify its metadata.
+//  When the element count changes resize_ does not copy data from the tensor
+//  being resized (the same-numel case only rebinds the sizes metadata).
 const at::Tensor &resize_(const at::Tensor &self, at::IntArrayRef size, std::optional<at::MemoryFormat> memory_format) {
     TORCH_CHECK(is_tt(self), "tt-crank resize_: self must be tt (device: ", self.device(), ")");
     TORCH_CHECK(!memory_format.has_value() || memory_format.value() == c10::MemoryFormat::Contiguous,
@@ -212,8 +208,10 @@ const at::Tensor &resize_(const at::Tensor &self, at::IntArrayRef size, std::opt
 
     const std::int64_t new_numel = c10::multiply_integers(size);
     if (new_numel != self.numel()) {
-        auto runtime_tensor = runtime_from_host_shards({nullptr}, size, self.scalar_type());
-        storage_of(self).replace(std::move(runtime_tensor));
+        // The old contents are discarded, so don't allocate the new ones
+        // either: go back to a deferred storage and let the first read (or,
+        // typically, the copy that follows a resize) decide.
+        storage_of(self).defer(size, self.scalar_type());
 
         const std::size_t new_nbytes = as<std::size_t>(new_numel) * self.dtype().itemsize();
         self.storage().unsafeGetStorageImpl()->unsafe_set_nbytes(new_nbytes);

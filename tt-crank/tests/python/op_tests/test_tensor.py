@@ -15,6 +15,7 @@ import gc
 import pytest
 import torch
 
+from tt_crank.torch import _native
 from tt_crank.torch.testing import strict_no_fallback
 
 # Not borrow-eligible in the runtime, so cpu→tt falls back to an owned copy.
@@ -66,6 +67,99 @@ def test_empty_strided() -> None:
     assert t.device.type == "tt"
     assert tuple(t.shape) == (32, 32)
     assert t.is_contiguous()
+
+
+# -----------------------------------------------------------------------------
+# deferred storage: `empty` allocates nothing until it is read
+# -----------------------------------------------------------------------------
+
+
+def _rss_bytes() -> int:
+    with open("/proc/self/statm") as f:
+        return int(f.read().split()[1]) * 4096
+
+
+def test_empty_is_deferred_until_read() -> None:
+    t = torch.empty((64, 128), device="tt", dtype=torch.bfloat16)
+    assert not _native.tensor_storage_materialized(t)
+
+    # A read materializes it - as zeros, exactly what the eager allocation used to return.
+    host = t.cpu()
+    assert _native.tensor_storage_materialized(t)
+    assert host.shape == (64, 128) and host.dtype == torch.bfloat16
+    assert torch.equal(host, torch.zeros((64, 128), dtype=torch.bfloat16))
+
+
+def test_copy_into_empty_never_materializes_the_placeholder() -> None:
+    # `.to("tt")` is empty + `_copy_from`; the copy replaces the deferred
+    # storage outright, so the placeholder is never allocated.
+    src = torch.randn((64, 128), dtype=torch.bfloat16)
+    dst = torch.empty(src.shape, device="tt", dtype=torch.bfloat16)
+    dst.copy_(src)
+    assert _native.tensor_storage_materialized(dst)
+    torch.testing.assert_close(dst.cpu(), src, atol=0, rtol=0)
+
+    # Same for the owned-copy dtype (f16 rides on a lossy runtime alias, so
+    # compare with a tolerance) and for a tt -> tt copy into a fresh empty.
+    owned = torch.empty(src.shape, device="tt", dtype=OWNED_COPY_DTYPE)
+    owned.copy_(src.to(OWNED_COPY_DTYPE))
+    torch.testing.assert_close(
+        owned.cpu(), src.to(OWNED_COPY_DTYPE), atol=1e-2, rtol=1e-2
+    )
+
+    other = torch.empty(src.shape, device="tt", dtype=torch.bfloat16)
+    other.copy_(dst)
+    torch.testing.assert_close(other.cpu(), src, atol=0, rtol=0)
+
+
+def test_empty_allocates_no_host_memory() -> None:
+    # 4 x 64 MiB of `empty` must not move RSS by anything close to 64 MiB; the
+    # eager version allocated (and on a mesh, replicated per chip) every one.
+    shape = (4096, 8192)  # 64 MiB in bf16
+    nbytes = 4096 * 8192 * 2
+    gc.collect()
+    before = _rss_bytes()
+    kept = [torch.empty(shape, device="tt", dtype=torch.bfloat16) for _ in range(4)]
+    grown = _rss_bytes() - before
+    assert grown < nbytes // 2, f"empty grew RSS by {grown / 2**20:.0f} MiB"
+    assert all(not _native.tensor_storage_materialized(t) for t in kept)
+
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32, torch.int32])
+def test_empty_then_fill_(dtype: torch.dtype) -> None:
+    t = torch.empty((32, 64), device="tt", dtype=dtype)
+    t.fill_(3)
+    torch.testing.assert_close(
+        t.cpu(), torch.full((32, 64), 3, dtype=dtype), atol=0, rtol=0
+    )
+
+
+def test_inplace_op_on_untouched_empty_reads_zeros() -> None:
+    # An in-place op is the first *read* of the placeholder: the compiled
+    # program binds it as an input, which materializes the zero buffer.
+    t = torch.empty((32, 64), device="tt", dtype=torch.bfloat16)
+    with strict_no_fallback():
+        t.add_(1.0)
+    assert _native.tensor_storage_materialized(t)
+    torch.testing.assert_close(
+        t.cpu(), torch.ones((32, 64), dtype=torch.bfloat16), atol=0, rtol=0
+    )
+
+
+def test_resize_of_empty_stays_deferred() -> None:
+    t = torch.empty((0,), device="tt", dtype=torch.bfloat16)
+    t.resize_((16, 32))
+    assert tuple(t.shape) == (16, 32)
+    assert not _native.tensor_storage_materialized(t)
+    assert torch.equal(t.cpu(), torch.zeros((16, 32), dtype=torch.bfloat16))
+
+
+def test_resize_of_written_tensor_defers_again() -> None:
+    t = torch.ones((8, 8), dtype=torch.bfloat16).to("tt")
+    assert _native.tensor_storage_materialized(t)
+    t.resize_((4, 4))
+    assert not _native.tensor_storage_materialized(t)
+    assert tuple(t.shape) == (4, 4)
 
 
 # -----------------------------------------------------------------------------

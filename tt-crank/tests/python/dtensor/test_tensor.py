@@ -5,9 +5,13 @@
 """DTensor tensor distribution & manipulation on the tt backend.
 """
 
+import gc
+
 import pytest
 import torch
-from torch.distributed.tensor import Replicate, Shard, distribute_tensor
+from torch.distributed.tensor import DTensor, Replicate, Shard, distribute_tensor
+
+from tt_crank.torch import _native
 
 pytestmark = pytest.mark.multichip
 
@@ -84,3 +88,61 @@ def test_reshape_incompatible_with_sharding_raises(tt_pg) -> None:
 
     with pytest.raises(RuntimeError, match="redistribution"):
         dx.reshape(32 * n, 32)
+
+
+def _rss_bytes() -> int:
+    with open("/proc/self/statm") as f:
+        return int(f.read().split()[1]) * 4096
+
+
+def test_empty_on_mesh_allocates_no_host_memory(tt_pg) -> None:
+    """`empty` on a multi-chip mesh used to allocate one owned host copy per
+    chip (mesh_size x the tensor) before any data existed. It is deferred now:
+    no host memory until first read, and the read itself is one shared shard,
+    not one copy per chip.
+    """
+    n = torch.tt.num_chips()
+    torch.tt.init_device_mesh((n,), mesh_dim_names=("dp",))
+
+    shape = (4096, 8192)  # 64 MiB in bf16
+    nbytes = 4096 * 8192 * 2
+    gc.collect()
+    before = _rss_bytes()
+    t = torch.empty(shape, device="tt", dtype=torch.bfloat16)
+    assert _rss_bytes() - before < nbytes // 2
+    assert not _native.tensor_storage_materialized(t)
+
+    # First read materializes zeros once for the whole mesh: one shared host
+    # shard plus the CPU result tensor (~2x), where the per-chip copies gave
+    # (n + 1)x.
+    host = t.cpu()
+    grown = _rss_bytes() - before
+    assert (
+        grown < 2.5 * nbytes
+    ), f"materializing grew RSS by {grown / 2**20:.0f} MiB for {n} chips"
+    assert torch.equal(host, torch.zeros(shape, dtype=torch.bfloat16))
+
+
+def test_from_local_on_empty_then_write(tt_pg) -> None:
+    """`DTensor.from_local` over a fresh `empty` local (the placement pattern
+    `distribute_module` / optimizer state init use): a later write lands and
+    `full_tensor` sees every chip's shard. (from_local's replicate check reads
+    the local tensor, so the placeholder is allowed to materialize here.)
+    """
+    n = torch.tt.num_chips()
+    mesh = torch.tt.init_device_mesh((n,), mesh_dim_names=("dp",))
+
+    local = torch.empty((32, 64), device="tt", dtype=torch.bfloat16)
+    dt = DTensor.from_local(local, mesh, [Replicate()])
+
+    src = torch.randn((32, 64), dtype=torch.bfloat16)
+    dt._local_tensor.copy_(src)
+    torch.testing.assert_close(dt.full_tensor().cpu(), src, atol=0, rtol=0)
+
+    # Sharded from_local on an untouched empty reads zeros on every chip.
+    sharded = DTensor.from_local(
+        torch.empty((32, 64), device="tt", dtype=torch.bfloat16), mesh, [Shard(0)]
+    )
+    full = sharded.full_tensor().cpu()
+    assert tuple(full.shape) == (32 * n, 64)
+    assert torch.equal(full, torch.zeros_like(full))

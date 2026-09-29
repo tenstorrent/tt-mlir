@@ -83,8 +83,29 @@ create_multi_device_host_tensor(std::vector<void *> &shards, const ::tt::runtime
 
 TensorStorage::TensorStorage(::tt::runtime::Tensor tensor) : tensor_(std::move(tensor)) {}
 
+TensorStorage::TensorStorage(at::IntArrayRef sizes, c10::ScalarType dtype)
+    : deferred_(Deferred{{sizes.begin(), sizes.end()}, dtype}) {}
+
+::tt::runtime::Tensor &TensorStorage::materialize() const {
+    if (!tensor_.has_value()) {
+        TT_FATAL(deferred_.has_value(), "TensorStorage has neither a runtime tensor nor a deferred shape");
+        // Same zero-filled buffer the eager `aten::empty` used to allocate, so a
+        // read of a never-written tensor observes what it always did.
+        tensor_ = runtime_from_host_shards({nullptr}, deferred_->sizes, deferred_->dtype);
+        deferred_.reset();
+    }
+    return *tensor_;
+}
+
 void TensorStorage::replace(::tt::runtime::Tensor tensor) {
     tensor_ = std::move(tensor);
+    deferred_.reset();
+    pin_.reset();
+}
+
+void TensorStorage::defer(at::IntArrayRef sizes, c10::ScalarType dtype) {
+    tensor_.reset();
+    deferred_ = Deferred{{sizes.begin(), sizes.end()}, dtype};
     pin_.reset();
 }
 
@@ -123,7 +144,7 @@ void TensorStorage::check_version() {
 
 std::vector<::tt::runtime::Tensor> TensorStorage::to_host(bool untilize) {
     check_version();
-    return ::tt::runtime::toHost(tensor_, untilize);
+    return ::tt::runtime::toHost(tensor(), untilize);
 }
 
 TensorStorage &storage_of(const at::Tensor &t) {
@@ -147,9 +168,11 @@ at::Tensor &write_result_into(at::Tensor &out, const at::Tensor &result) {
     return out;
 }
 
-at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef sizes, c10::ScalarType dtype) {
-    TensorStorage *storage = new TensorStorage(std::move(runtime_tensor));
+namespace {
 
+// Hangs `storage` (heap-owned, released by `delete_storage`) off a new
+// at::Tensor with the per-chip shape `sizes` and user-facing `dtype`.
+at::Tensor wrap_storage(TensorStorage *storage, at::IntArrayRef sizes, c10::ScalarType dtype) {
     c10::Device device(c10::DeviceType::PrivateUse1, 0);
     c10::DataPtr storage_data_ptr(storage, storage, &delete_storage, device);
 
@@ -166,6 +189,19 @@ at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef 
         c10::Storage(std::move(storage_impl)), c10::DispatchKeySet{c10::DispatchKey::PrivateUse1}, type_meta);
     tensor_impl->set_sizes_contiguous(sizes);
     return at::Tensor(std::move(tensor_impl));
+}
+
+} // namespace
+
+at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef sizes, c10::ScalarType dtype) {
+    return wrap_storage(new TensorStorage(std::move(runtime_tensor)), sizes, dtype);
+}
+
+at::Tensor wrap_empty_tt_tensor(at::IntArrayRef sizes, c10::ScalarType dtype) {
+    // Validate the dtype up front so an unsupported one fails at `empty`, as
+    // it did when the buffer was allocated eagerly, not at some later read.
+    (void)to_runtime_dtype(dtype);
+    return wrap_storage(new TensorStorage(sizes, dtype), sizes, dtype);
 }
 
 ::tt::runtime::TensorDesc make_contiguous_desc(at::IntArrayRef sizes, c10::ScalarType dtype) {
@@ -193,8 +229,20 @@ at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef 
         return create_host_tensor(shards.front(), desc, borrow);
     }
 
-    void *first = shards.front();
-    shards.resize(mesh_size, first);
+    if (num_shards == 1) {
+        // One buffer for the whole mesh: build a single host shard and hand
+        // the same shard to every mesh coordinate. `from_host_shards` only
+        // takes a ref-counted view of each shard's HostBuffer, so this is one
+        // allocation (and, for `nullptr` data, one zero-fill) instead of one
+        // private copy per chip - the same on-host replication the
+        // per-pointer overload would produce, minus the (mesh_size - 1)
+        // redundant copies.
+        const ::tt::runtime::Tensor shard = create_host_tensor(shards.front(), desc, borrow);
+        const std::vector<::tt::runtime::Tensor> replicated(mesh_size, shard);
+        return ::tt::runtime::createMultiDeviceHostTensor(replicated, shard_strategy(num_shards, mesh_size),
+                                                          ::tt::crank::runtime_device_mesh_shape());
+    }
+
     return create_multi_device_host_tensor(shards, desc, shard_strategy(num_shards, mesh_size), borrow);
 }
 

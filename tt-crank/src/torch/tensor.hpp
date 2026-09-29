@@ -54,23 +54,54 @@ struct TensorPin {
 // (Shard / Replicate) plus the per-chip shards. The at::Tensor wrapper carries
 // the per-chip (local) shape, matching DTensor's `_local_tensor`, while the
 // runtime tensor underneath is the full tensor distributed across the mesh.
+//
+// A storage can also be *deferred*: `aten::empty` creates it with only a shape
+// and dtype and no runtime tensor at all. Almost every `empty` is overwritten
+// before it is ever read (`.to("tt")` is empty + `_copy_from`, `.out` kernels
+// and the CPU fallback resize-then-copy into it), so nothing is allocated up
+// front. The first read (`tensor()` / `to_host`) materializes a zero-filled
+// host tensor of that shape, which is exactly what the eager allocation used
+// to hand back, so callers see no difference.
 class TensorStorage {
 public:
     explicit TensorStorage(::tt::runtime::Tensor tensor);
 
-    const ::tt::runtime::Tensor &tensor() const { return tensor_; }
-    ::tt::runtime::Tensor &tensor() { return tensor_; }
+    // Deferred storage: no runtime tensor until first read (see above).
+    TensorStorage(at::IntArrayRef sizes, c10::ScalarType dtype);
+
+    const ::tt::runtime::Tensor &tensor() const { return materialize(); }
+    ::tt::runtime::Tensor &tensor() { return materialize(); }
+
+    // False while the storage is deferred (created by `aten::empty` and not
+    // yet read or replaced).
+    bool materialized() const { return tensor_.has_value(); }
 
     void replace(::tt::runtime::Tensor tensor);
     void replace(const at::Tensor &other);
+    // Drops the current runtime tensor (and pin) and turns the storage back
+    // into a deferred one of `sizes` / `dtype`. Used by `resize_` when the
+    // element count changes: the old contents are discarded anyway.
+    void defer(at::IntArrayRef sizes, c10::ScalarType dtype);
     void check_version();
     std::vector<::tt::runtime::Tensor> to_host(bool untilize);
 
     bool borrowed() { return pin_.has_value(); }
 
 private:
-    // Runtime tensor that represents tensor storage.
-    ::tt::runtime::Tensor tensor_;
+    // Allocates the zero-filled runtime tensor for a deferred storage; no-op
+    // once materialized. Logically const: it only changes *when* the tensor
+    // exists, never what a reader observes.
+    ::tt::runtime::Tensor &materialize() const;
+
+    // Shape and dtype a deferred storage materializes as; empty otherwise.
+    struct Deferred {
+        std::vector<std::int64_t> sizes;
+        c10::ScalarType dtype;
+    };
+
+    // Runtime tensor that represents tensor storage; empty while deferred.
+    mutable std::optional<::tt::runtime::Tensor> tensor_;
+    mutable std::optional<Deferred> deferred_;
 
     // Tensor pin, preventing torch tensor deallocations when out tensor is borrowed from torch tensor.
     std::optional<TensorPin> pin_;
@@ -86,6 +117,11 @@ TensorStorage &storage_of(const at::Tensor &t);
 // (f32) but the user expects the pre-demotion logical type (f64). `sizes` is
 // the per-chip shape.
 at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef sizes, c10::ScalarType dtype);
+
+// Build a tt tensor of `sizes` / `dtype` over a deferred TensorStorage: no
+// host or device memory is touched until the tensor is first read, at which
+// point it materializes zero-filled. This is what `aten::empty` returns.
+at::Tensor wrap_empty_tt_tensor(at::IntArrayRef sizes, c10::ScalarType dtype);
 
 // Move a freshly-computed result tensor's runtime buffer into a caller-provided
 // tensor (`.out` kernels, in-place ops, optimizer updates). Asserts `out` already has

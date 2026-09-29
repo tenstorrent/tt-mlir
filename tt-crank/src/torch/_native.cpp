@@ -782,6 +782,14 @@ NB_MODULE(_native, m) {
     m.def("set_fallback_strict", &tk::set_fallback_strict);
     m.def("fallback_strict", &tk::fallback_strict);
 
+    // Whether a tt tensor's storage holds a runtime tensor yet. `aten::empty`
+    // returns deferred storage that only allocates on first read; tests use
+    // this to assert that the common write-before-read paths never allocate.
+    m.def(
+        "tensor_storage_materialized",
+        [](nb::handle tensor) { return tk::storage_of(unpack_torch_tensor(tensor)).materialized(); }, "tensor"_a,
+        "True once a tt tensor's storage has been materialized (false for a never-read `empty`).");
+
     // ====== torch.compile backend bindings ======
     //
     // The Python `tt_crank.torch._compile` module walks an FX graph and calls
