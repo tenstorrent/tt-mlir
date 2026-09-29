@@ -61,11 +61,15 @@ _LINEAR_FAMILIES = {
 
 
 @pytest.mark.parametrize("mode", ["eager", "compile"])
+@pytest.mark.parametrize("bias", [True, False], ids=["bias", "no_bias"])
 @pytest.mark.parametrize("family", list(_LINEAR_FAMILIES), ids=list(_LINEAR_FAMILIES))
-def test_linear_backward_sharding(tt_pg, family: str, mode: str) -> None:
+def test_linear_backward_sharding(tt_pg, family: str, bias: bool, mode: str) -> None:
     """DP shards the batch, column TP the out_features, row TP the in_features. In every family the
     weight gradient comes out with the weight's own placement (or `Partial` for DP), never
-    `Replicate` -- a `Replicate` would mean the weight was all-gathered to compute it."""
+    `Replicate` -- a `Replicate` would mean the weight was all-gathered to compute it.
+
+    `no_bias` runs with output_mask (True, True, False): torch's meta still returns a grad_bias
+    tensor there, so the strategy must give it a spec or the compile path fails."""
     n, mesh = _mesh()
     (x_pl, w_pl, b_pl, g_pl), (gx_pl, gw_pl, gb_pl) = _LINEAR_FAMILIES[family]
     batch, in_features, out_features = 8 * n, 32 * n, 32 * n
@@ -75,18 +79,23 @@ def test_linear_backward_sharding(tt_pg, family: str, mode: str) -> None:
     grad_out = torch.randn(batch, out_features, dtype=_DT)
 
     refs = [t.float().clone().requires_grad_(True) for t in (x, w, b)]
-    F.linear(*refs).backward(grad_out.float())
+    F.linear(*refs[: 2 + bias]).backward(grad_out.float())
 
     dx = distribute_tensor(x.to("tt"), mesh, [x_pl]).requires_grad_(True)
     dw = distribute_tensor(w.to("tt"), mesh, [w_pl]).requires_grad_(True)
-    db = distribute_tensor(b.to("tt"), mesh, [b_pl]).requires_grad_(True)
+    db = (
+        distribute_tensor(b.to("tt"), mesh, [b_pl]).requires_grad_(True)
+        if bias
+        else None
+    )
     dg = distribute_tensor(grad_out.to("tt"), mesh, [g_pl])
 
     out = _run(mode, F.linear, dx, dw, db)
     out.backward(dg)
 
     for name, got, ref, pl in zip("xwb", (dx, dw, db), refs, (gx_pl, gw_pl, gb_pl)):
-        _check_grad(name, got.grad, ref.grad, pl)
+        if got is not None:
+            _check_grad(name, got.grad, ref.grad, pl)
 
 
 @pytest.mark.parametrize("mode", ["eager", "compile"])
