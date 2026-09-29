@@ -899,7 +899,6 @@ def _(
         raise NotImplementedError(
             "tt-crank sdpa: return_debug_mask=True is not supported"
         )
-    # Slot 1 (logsumexp) only feeds a backward; an inference graph keeps the prefill op.
     if not _compiling_training_graph():
         result = mb.sdpa(
             query, key, value, is_causal=is_causal, scale=scale, attn_mask=attn_bias
