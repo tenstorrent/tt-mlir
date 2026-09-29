@@ -8,9 +8,10 @@ weights, exported f32 with a dynamic batch pinned via free_dims."""
 import numpy as np
 import pytest
 import torch
-import torchvision
 
 import tt_crank.onnx as tt_onnx
+
+torchvision = pytest.importorskip("torchvision")
 
 BATCH = 4
 _DUMMY = torch.randn(1, 3, 224, 224)
