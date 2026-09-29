@@ -37,7 +37,6 @@
 #include <ATen/core/grad_mode.h>
 #include <ATen/native/DispatchStub.h>
 #include <ATen/native/transformers/attention.h>
-#include <c10/core/impl/TorchDispatchModeTLS.h>
 #include <torch/library.h>
 
 #include "cast.hpp"
@@ -78,11 +77,6 @@ int64_t tt_fused_sdp_choice(const at::Tensor &query, const at::Tensor &key, cons
     // the kernel the ttml composites can run the call.
     if (!at::GradMode::is_enabled()) {
         return as<int64_t>(at::SDPBackend::overrideable);
-    }
-    // Under dynamo/aot tracing (a TorchDispatchMode such as FakeTensorMode is active) the fused backward has
-    // no compile lowering yet, so training keeps the differentiable MATH decomposition there.
-    if (c10::impl::TorchDispatchModeTLS::stack_len() > 0) {
-        return as<int64_t>(at::SDPBackend::math);
     }
     const bool float_mask = attn_mask.has_value() && attn_mask->defined() && attn_mask->scalar_type() != at::kBool;
     if (float_mask || !ttml_sdpa_supported(query, key, value, attn_mask)) {
