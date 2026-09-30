@@ -4,9 +4,6 @@
 
 #pragma once
 
-// Eager single-op execution for the torch kernels: emit a TTIR module over a
-// set of tensors and run it right away.
-
 #include <concepts>
 #include <type_traits>
 #include <utility>
