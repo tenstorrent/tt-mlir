@@ -1901,6 +1901,42 @@ std::tuple<mlir::Value, mlir::Value, mlir::Value> build_sdpa_bw(ModuleBuilder &m
             sdpa_unpad_head_dim(mb, results[1], key), results[2]};
 }
 
+namespace {
+
+// Inlined when tt-mlir does not promote: computes in fp32 like torch, returns ttml's `(output, rms)`.
+llvm::SmallVector<mlir::Value, 2> rmsnorm_fw_decomposition(ModuleBuilder &mb, mlir::ValueRange args, double eps) {
+    mlir::Value input = args[0], gamma = args[1];
+    const mlir::Type element_type = element_type_of(input);
+    const mlir::Type fp32 = mb.attrs().getF32Type();
+    const int64_t last = as<int64_t>(shape_of(input).size()) - 1;
+    mlir::Value x = mb.insert_typecast(input, fp32);
+    mlir::Value mean_sq = build_add(mb, build_mean(mb, build_mul(mb, x, x), {last}, true), build_scalar(mb, fp32, eps));
+    mlir::Value output = build_mul(mb, build_mul(mb, x, build_rsqrt(mb, mean_sq)), mb.insert_typecast(gamma, fp32));
+    return {mb.insert_typecast(output, element_type), mb.insert_typecast(build_sqrt(mb, mean_sq), element_type)};
+}
+
+} // namespace
+
+std::pair<mlir::Value, mlir::Value> build_rmsnorm_fw(ModuleBuilder &mb, mlir::Value input, mlir::Value weight,
+                                                     double eps) {
+    auto input_shape = shape_of(input);
+    const mlir::Type element_type = element_type_of(input);
+    mlir::Value gamma = weight ? weight : build_ones(mb, {input_shape.back()}, element_type);
+    llvm::SmallVector<int64_t> stat_shape(input_shape);
+    stat_shape.back() = 1;
+    llvm::SmallVector<mlir::Type, 2> result_types{input.getType(),
+                                                  mlir::RankedTensorType::get(stat_shape, element_type)};
+    auto &attrs = mb.attrs();
+    llvm::SmallVector<mlir::NamedAttribute, 2> attributes{
+        attrs.getNamedAttr("return_intermediates", attrs.getBoolAttr(true)),
+        attrs.getNamedAttr("epsilon", attrs.getF32FloatAttr(as<float>(eps)))};
+    auto results = mb.create_composite(
+        "rmsnorm_fw", {input, gamma}, result_types, attributes,
+        [eps](ModuleBuilder &body, mlir::ValueRange args) { return rmsnorm_fw_decomposition(body, args, eps); });
+    // aten wants rstd = 1 / rms in fp32; ttml returns rms in the input dtype.
+    return {results[0], build_reciprocal(mb, mb.insert_typecast(results[1], attrs.getF32Type()))};
+}
+
 mlir::Value build_addcdiv(ModuleBuilder &mb, mlir::Value input, mlir::Value tensor1, mlir::Value tensor2,
                           double value) {
     auto div = build_div(mb, tensor1, tensor2);
