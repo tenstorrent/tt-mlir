@@ -281,10 +281,11 @@ def module_layernorm_fw_composite(builder: StableHLOBuilder):
         )
 
 
-def module_layernorm_bw_composite(builder: StableHLOBuilder):
-    shape = (1, 1, 128, 256)
-    param_shape = (1, 1, 1, 256)
-    stats_shape = (1, 1, 128, 1)
+def module_layernorm_bw_composite(
+    builder: StableHLOBuilder, shape: Shape = (1, 1, 128, 256)
+):
+    param_shape = (1,) * (len(shape) - 1) + (shape[-1],)
+    stats_shape = tuple(shape[:-1]) + (1,)
 
     @builder.func(
         [shape, param_shape, stats_shape, stats_shape, shape],
@@ -2551,10 +2552,14 @@ def test_layernorm_fw_composite(target: str, request, device):
     )
 
 
+@pytest.mark.parametrize("shape", [(1, 1, 128, 256), (3, 2, 128, 256)], ids=shape_str)
 @pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
-def test_layernorm_bw_composite(target: str, request, device):
+def test_layernorm_bw_composite(shape: Shape, target: str, request, device):
+    def module(builder: StableHLOBuilder):
+        module_layernorm_bw_composite(builder, shape)
+
     compile_and_execute_shlo(
-        module_layernorm_bw_composite,
+        module,
         **get_request_kwargs(request),
         target=target,
         device=device,

@@ -92,6 +92,28 @@ struct TTMLRMSNormBackwardRuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
+/// TTML layer norm forward:
+/// All operands must be tiled and DRAM-interleaved. The backend derives the
+/// output and optional statistics layouts from the input.
+struct TTMLLayerNormForwardRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
+/// TTML layer norm backward:
+/// All operands must be tiled and DRAM-interleaved. The backend derives the
+/// output layouts from the input.
+struct TTMLLayerNormBackwardRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_NORMALIZATIONRULES_H
