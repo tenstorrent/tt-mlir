@@ -22,16 +22,14 @@ def _pcc(a: torch.Tensor, b: torch.Tensor) -> float:
     return torch.corrcoef(torch.stack([a, b]))[0, 1].item()
 
 
-def _check(
-    got: torch.Tensor | None, ref: torch.Tensor | None, name: str, atol: float = 0.05
-) -> None:
+def _check(got: torch.Tensor | None, ref: torch.Tensor | None, name: str) -> None:
     if ref is None:
         assert got is None, f"unexpected {name}"
         return
     assert got is not None, f"no {name}"
     assert got.shape == ref.shape, f"{name} shape"
     assert _pcc(got.cpu(), ref) >= _PCC, f"{name} mismatch"
-    # PCC is invariant to scale/offset; allclose also catches magnitude errors.
+    atol = max(0.05, 0.01 * ref.abs().max().item())
     assert torch.allclose(
         got.cpu().float(), ref.float(), atol=atol, rtol=0.05
     ), f"{name} magnitude"
@@ -48,7 +46,11 @@ _FUSED_CASES = {
     "weight-grad-only": ((2, 32, 64), True, (False, True), 1e-6),
     # C not tile-aligned: checks the padded last tile is handled
     "c-48": ((2, 32, 48), True, (True, True), 1e-6),
+    # eps comparable to mean(x^2), so a dropped or wrong eps moves the output past tolerance
+    "eps-large": ((2, 32, 64), True, (True, True), 1.0),
+    "eps-default-small-input": ((2, 32, 64), True, (True, True), None),
 }
+_INPUT_SCALE = {"eps-default-small-input": 3e-4}
 
 
 @pytest.mark.parametrize("case", list(_FUSED_CASES), ids=list(_FUSED_CASES))
@@ -56,6 +58,8 @@ def test_rmsnorm_eager_fused(case: str) -> None:
     """bf16 rms_norm over the last dim takes the fused op pair natively and matches CPU."""
     shape, has_weight, (x_grad, w_grad), eps = _FUSED_CASES[case]
     x = torch.randn(*shape, dtype=_DT)
+    if case in _INPUT_SCALE:
+        x = (x.float() * _INPUT_SCALE[case]).to(_DT)
     w = torch.randn(shape[-1], dtype=_DT) if has_weight else None
     ref_x = x.clone().requires_grad_(x_grad)
     ref_w = w.clone().requires_grad_(w_grad) if has_weight else None
@@ -127,15 +131,25 @@ def test_rmsnorm_no_grad() -> None:
     _check(out, ref, "output")
 
 
+@pytest.mark.parametrize("case", list(_DECOMPOSE_CASES), ids=list(_DECOMPOSE_CASES))
+def test_rmsnorm_inference_mode_decomposes(case: str) -> None:
+    """inference_mode skips the autograd override, so the forward kernel must decompose unsupported calls itself."""
+    x_dtype, shape, normalized_shape, w_dtype = _DECOMPOSE_CASES[case]
+    x = torch.randn(*shape, dtype=x_dtype)
+    w = torch.randn(*normalized_shape, dtype=w_dtype)
+    ref = F.rms_norm(x, normalized_shape, w, 1e-6)
+
+    with torch.inference_mode():
+        out = F.rms_norm(x.to("tt"), normalized_shape, w.to("tt"), 1e-6)
+
+    _check(out, ref, "output")
+
+
 @pytest.mark.multichip
 @pytest.mark.parametrize("has_weight", [True, False], ids=["weight", "no-weight"])
 @pytest.mark.parametrize("dim", [0, 1], ids=["batch", "seq"])
 def test_rmsnorm_multi_chip(tt_pg, dim: int, has_weight: bool) -> None:
-    """Torch's own DTensor norm strategy keeps a batch- or seq-sharded input sharded through the fused pair.
-
-    The weight is replicated; its gradient is summed across shards, so only its value is checked.
-    """
-    from torch.distributed.tensor import Replicate, Shard, distribute_tensor
+   from torch.distributed.tensor import Replicate, Shard, distribute_tensor
 
     n = torch.tt.num_chips()
     shape = [2, 32, 64]
@@ -165,10 +179,4 @@ def test_rmsnorm_multi_chip(tt_pg, dim: int, has_weight: bool) -> None:
     _check(out.detach().full_tensor(), ref_out.detach(), "output")
     _check(tt_x.grad.full_tensor(), ref_x.grad, "grad_input")
     if has_weight:
-        # Per-shard partial sums are cast to bf16 before the cross-shard reduce; the error scales with their size.
-        _check(
-            tt_w.grad.full_tensor(),
-            ref_w.grad,
-            "grad_weight",
-            atol=0.01 * ref_w.grad.abs().max().item(),
-        )
+        _check(tt_w.grad.full_tensor(), ref_w.grad, "grad_weight")
