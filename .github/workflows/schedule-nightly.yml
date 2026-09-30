@@ -46,7 +46,6 @@ jobs:
     secrets: inherit
     with:
       docker_image: ${{ needs.build-image.outputs.docker-image }}
-      docker_tag: ${{ needs.build-image.outputs.docker-tag }}
       runner: ${{ needs.prepare-run.outputs.runner }}
       sh_builder: ${{ fromJson(needs.prepare-run.outputs.sh_builder) }}
   test:

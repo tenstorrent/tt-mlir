@@ -7,10 +7,6 @@ on:
         description: 'Docker image for the build'
         required: true
         type: string
-      docker_tag:
-        description: 'Docker tag; selects the base image used for the install test'
-        required: true
-        type: string
       runner:
         description: Runner machine
         required: false
@@ -102,10 +98,10 @@ jobs:
     name: Test tt-crank Wheel Installation
     runs-on: ubuntu-latest
 
-    # Base image: tt-metal's system deps and sfpi, but no tt-mlir toolchain or
-    # build tree - the closest thing we have to an upstream consumer's machine.
+    # Same image as the build, but a separate job: no checkout or build tree,
+    # and a fresh venv, so the imports can only resolve against the wheel.
     container:
-      image: ghcr.io/${{ github.repository }}/tt-mlir-base-ubuntu-24-04:${{ inputs.docker_tag }}
+      image: ${{ inputs.docker_image }}
 
     steps:
 
