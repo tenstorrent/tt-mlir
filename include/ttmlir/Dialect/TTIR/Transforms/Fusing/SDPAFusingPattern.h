@@ -59,21 +59,22 @@ public:
 };
 
 // Fuses a GQA head-expansion on the K/V operands into an existing
-// ttir.scaled_dot_product_attention. SDPA broadcasts Hkv heads up to Hq
-// natively, so an expansion ahead of the op is not needed.
+// ttir.scaled_dot_product_attention or an sdpa_fw composite. SDPA broadcasts
+// Hkv heads up to Hq natively, so an expansion ahead of the op is not needed.
 //
 // Anchored on the op, so it covers both paths: the decomposed matmul+softmax
 // form that SDPAFusingPattern fuses first, and frontends that emit the atomic
 // op directly with K/V pre-expanded. It matches on a head-dim
-// ttir.repeat_interleave.
-class SDPAHeadExpansionFusingPattern
-    : public mlir::OpRewritePattern<ScaledDotProductAttentionOp> {
+// ttir.repeat_interleave. For composites, the expansion is moved into a private
+// copy of the decomposition so that inlining preserves the original
+// computation.
+template <typename OpTy>
+class SDPAHeadExpansionFusingPattern : public mlir::OpRewritePattern<OpTy> {
 public:
-  using OpRewritePattern<ScaledDotProductAttentionOp>::OpRewritePattern;
+  using mlir::OpRewritePattern<OpTy>::OpRewritePattern;
 
   mlir::LogicalResult
-  matchAndRewrite(ScaledDotProductAttentionOp op,
-                  mlir::PatternRewriter &rewriter) const override;
+  matchAndRewrite(OpTy op, mlir::PatternRewriter &rewriter) const override;
 };
 
 } // namespace mlir::tt::ttir::fusing
