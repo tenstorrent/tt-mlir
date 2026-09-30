@@ -625,6 +625,11 @@ build_sdpa_bw(ModuleBuilder &mb, mlir::Value grad_output, mlir::Value attn_outpu
 TT_CRANK_API std::pair<mlir::Value, mlir::Value> build_rmsnorm_fw(ModuleBuilder &mb, mlir::Value input,
                                                                   mlir::Value weight, double eps);
 
+// ttml `rmsnorm_bw` composite; inverse of build_rmsnorm_fw. `rstd` is its fp32 `(..., 1)` result and
+// `weight` is `[C]` or null. Returns `(grad_input, grad_weight)`; grad_weight is null when weight is.
+TT_CRANK_API std::pair<mlir::Value, mlir::Value>
+build_rmsnorm_bw(ModuleBuilder &mb, mlir::Value grad_output, mlir::Value input, mlir::Value rstd, mlir::Value weight);
+
 // One fused AdamW step (`ttir.adamw`). `step`/`lr` are single-element tensors; grad is cast to bf16.
 // `max_exp_avg_sq` null = amsgrad off; then the last result is null too.
 TT_CRANK_API std::array<mlir::Value, 4> build_adamw(ModuleBuilder &mb, mlir::Value param, mlir::Value grad,
