@@ -41,6 +41,7 @@
 
 #include "cast.hpp"
 #include "torch/backend.hpp"
+#include "torch/eager.hpp"
 #include "torch/ops/builders.hpp"
 #include "torch/tensor.hpp"
 
@@ -140,7 +141,7 @@ mlir::Value mask_arg(ModuleBuilder &mb, std::size_t index) {
 std::vector<tt::runtime::Tensor> run_sdpa_fw(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
                                              const std::optional<at::Tensor> &attn_mask, bool is_causal,
                                              std::optional<double> scale) {
-    return run_op_eager(
+    return build_and_run(
         [&](ModuleBuilder &mb) {
             auto a = mb.args();
             auto [out, lse] = build_sdpa_fw(mb, a[0], a[1], a[2], is_causal, scale, mask_arg(mb, 3));
@@ -155,7 +156,7 @@ std::vector<tt::runtime::Tensor> run_sdpa_bw(const at::Tensor &grad_out, const a
                                              const at::Tensor &key, const at::Tensor &value,
                                              const at::Tensor &logsumexp, const std::optional<at::Tensor> &attn_mask,
                                              bool is_causal, std::optional<double> scale) {
-    return run_op_eager(
+    return build_and_run(
         [&](ModuleBuilder &mb) {
             auto a = mb.args();
             auto [dq, dk, dv] =
