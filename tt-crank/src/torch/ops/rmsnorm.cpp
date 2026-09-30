@@ -152,7 +152,10 @@ TORCH_LIBRARY_IMPL(aten, AutogradPrivateUse1, m) {
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("_fused_rms_norm", TORCH_FN(tt_fused_rms_norm));
-    m.impl("_fused_rms_norm_backward", TORCH_FN(tt_fused_rms_norm_backward));
+    m.impl(
+        "_fused_rms_norm_backward",
+        TORCH_FN(tt_fused_rms_norm_backward)
+    );
 }
 
 } // namespace tt::crank::torch_backend
