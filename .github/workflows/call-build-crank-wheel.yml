@@ -117,8 +117,6 @@ jobs:
         echo "Installing wheel: $WHEEL_FILE"
         pip install "$WHEEL_FILE"
 
-        # Run from / so nothing resolves against a source checkout.
-        cd /
         python -c "import tt_crank.torch; print('Imported tt_crank.torch:', tt_crank.torch)"
         python -c "import ttnn; print('Imported ttnn:', ttnn)"
         python -c "import tracy; print('Imported tracy:', tracy)"
