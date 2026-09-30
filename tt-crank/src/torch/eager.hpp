@@ -24,9 +24,12 @@ namespace tt::crank::torch_backend {
 
 // A callable that emits an op body into a ModuleBuilder (whose args are the
 // inputs, in order) and returns the values to export as the module's outputs.
+// The return type must be exactly `std::vector<mlir::Value>`: a callable that
+// produces something else converts it itself, at the call site, rather than
+// relying on an implicit conversion inside `build_and_run`.
 template <typename Build>
 concept OpBuilder = std::invocable<Build &, ModuleBuilder &> &&
-                    std::convertible_to<std::invoke_result_t<Build &, ModuleBuilder &>, std::vector<mlir::Value>>;
+                    std::same_as<std::invoke_result_t<Build &, ModuleBuilder &>, std::vector<mlir::Value>>;
 
 // Builds a TTIR module over `tensors` with `build`, compiles and runs it, and
 // returns the raw runtime outputs. CPU operands are uploaded first
