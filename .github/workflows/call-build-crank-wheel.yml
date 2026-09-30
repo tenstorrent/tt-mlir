@@ -62,8 +62,7 @@ jobs:
         CCACHE_NOHASHDIR: true
         CCACHE_BASEDIR: ${{ steps.strings.outputs.work-dir }}
 
-    # Nightly wheels must be distinguishable, so upstream can pin/upgrade:
-    # 0.1.0 -> 0.1.0.devYYYYMMDD+g<sha>.
+    # stamp time, date and sha 0.1.0 -> 0.1.0.devYYYYMMDD+g<sha>.
     - name: Stamp nightly version
       shell: bash
       run: |
@@ -98,8 +97,6 @@ jobs:
     name: Test tt-crank Wheel Installation
     runs-on: ubuntu-latest
 
-    # Same image as the build, but a separate job: no checkout or build tree,
-    # and a fresh venv, so the imports can only resolve against the wheel.
     container:
       image: ${{ inputs.docker_image }}
 
