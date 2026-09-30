@@ -4,11 +4,10 @@
 
 // RMSNorm integration for the tt (PrivateUse1) backend.
 //
-// `rms_norm` is CompositeImplicitAutograd and only routes to `_fused_rms_norm` on
-// devices it knows; on tt it decomposes to pow/mean/rsqrt/mul. An
-// AutogradPrivateUse1 override sends supported calls to `_fused_rms_norm`, whose
-// autograd kernel records `_fused_rms_norm_backward`; both run the ttml
-// `rmsnorm_fw`/`rmsnorm_bw` composites below.
+// `rms_norm` is CompositeImplicitAutograd and calls `_fused_rms_norm`, whose
+// autograd kernel records `_fused_rms_norm_backward`; on tt both run the ttml
+// `rmsnorm_fw`/`rmsnorm_bw` composites below. The AutogradPrivateUse1 `rms_norm`
+// override decomposes calls ttml cannot run before they reach those kernels.
 
 #include <array>
 #include <cstdint>
@@ -21,7 +20,7 @@
 #include "mlir/IR/Value.h"
 #include <ATen/ATen.h>
 #include <ATen/ops/_fused_rms_norm.h>
-#include <ATen/ops/rms_norm_compositeimplicitautograd_dispatch.h>
+#include <ATen/ops/_fused_rms_norm_compositeimplicitautograd_dispatch.h>
 #include <torch/library.h>
 
 #include "torch/backend.hpp"
@@ -55,12 +54,13 @@ std::vector<tt::runtime::Tensor> run_ttml(Build build, const std::vector<at::Ten
     return compile_and_run(std::move(module_op), aligned);
 }
 
-// rms_norm decomposes at the autograd key, so this is the last point to route a tt call to the fused op.
+// rms_norm always calls _fused_rms_norm, which now has a tt kernel; unsupported calls decompose here,
+// above autograd, so each primitive records its own backward.
 at::Tensor tt_rms_norm(const at::Tensor &input, c10::SymIntArrayRef normalized_shape,
                        const std::optional<at::Tensor> &weight, std::optional<double> eps) {
     const at::IntArrayRef shape = C10_AS_INTARRAYREF_SLOW(normalized_shape);
     if (!ttml_rmsnorm_supported(input, shape, weight)) {
-        return at::compositeimplicitautograd::rms_norm_symint(input, normalized_shape, weight, eps);
+        return std::get<0>(at::compositeimplicitautograd::_fused_rms_norm(input, shape, weight, eps));
     }
     return std::get<0>(at::_fused_rms_norm(input, shape, weight, eps));
 }
