@@ -1530,27 +1530,13 @@ def _input_mutation_pairs(gm: torch.fx.GraphModule, fw_meta) -> list[tuple[int, 
     """
     if fw_meta is None:
         return []
-    placeholders = [n for n in gm.graph.nodes if n.op == "placeholder"]
-    output_node = gm.graph.output_node()
-    fx_outputs = output_node.args[0]
-    if not isinstance(fx_outputs, (tuple, list)):
-        fx_outputs = (fx_outputs,)
-
     num_tokens = len(fw_meta.tokens)
     pairs = []
     for i, idx in enumerate(fw_meta.mutated_inp_runtime_indices):
         if not fw_meta.input_info[idx].mutates_data:
             continue
         inp_pos, out_pos = num_tokens + idx, num_tokens + i
-        inp_val = placeholders[inp_pos].meta.get("val")
-        out_val = fx_outputs[out_pos].meta.get("val")
-        if (
-            isinstance(inp_val, torch.Tensor)
-            and isinstance(out_val, torch.Tensor)
-            and inp_val.shape == out_val.shape
-            and inp_val.dtype == out_val.dtype
-        ):
-            pairs.append((inp_pos, out_pos))
+        pairs.append((inp_pos, out_pos))
     return pairs
 
 
