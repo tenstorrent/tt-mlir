@@ -619,6 +619,12 @@ build_sdpa_bw(ModuleBuilder &mb, mlir::Value grad_output, mlir::Value attn_outpu
               mlir::Value value, mlir::Value logsumexp, bool is_causal, std::optional<double> scale,
               mlir::Value attn_mask);
 
+// ttml `rmsnorm_fw` composite over the last dim: `input * rsqrt(mean(input^2) + eps) * weight`.
+// `weight` is `[C]` in the input dtype, or null for none. Returns `(output, rstd)` with rstd fp32 and
+// the last dim kept as 1, matching aten::_fused_rms_norm.
+TT_CRANK_API std::pair<mlir::Value, mlir::Value> build_rmsnorm_fw(ModuleBuilder &mb, mlir::Value input,
+                                                                  mlir::Value weight, double eps);
+
 // One fused AdamW step (`ttir.adamw`). `step`/`lr` are single-element tensors; grad is cast to bf16.
 // `max_exp_avg_sq` null = amsgrad off; then the last result is null too.
 TT_CRANK_API std::array<mlir::Value, 4> build_adamw(ModuleBuilder &mb, mlir::Value param, mlir::Value grad,
