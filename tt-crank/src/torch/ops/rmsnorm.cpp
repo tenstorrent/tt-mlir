@@ -6,8 +6,9 @@
 //
 // `rms_norm` is CompositeImplicitAutograd and calls `_fused_rms_norm`, whose
 // autograd kernel records `_fused_rms_norm_backward`; on tt both run the ttml
-// `rmsnorm_fw`/`rmsnorm_bw` composites below. The AutogradPrivateUse1 `rms_norm`
-// override decomposes calls ttml cannot run before they reach those kernels.
+// `rmsnorm_fw`/`rmsnorm_bw` composites below. Calls ttml cannot run are decomposed
+// by the AutogradPrivateUse1 `rms_norm` override, or by the forward kernel when
+// inference mode skips that override.
 
 #include <array>
 #include <cstdint>
@@ -20,9 +21,9 @@
 #include "mlir/IR/Value.h"
 #include <ATen/ATen.h>
 #include <ATen/ops/_fused_rms_norm.h>
-#include <ATen/ops/_fused_rms_norm_compositeimplicitautograd_dispatch.h>
 #include <torch/library.h>
 
+#include "cast.hpp"
 #include "torch/backend.hpp"
 #include "torch/ops/builders.hpp"
 #include "torch/tensor.hpp"
@@ -31,7 +32,7 @@ namespace tt::crank::torch_backend {
 
 namespace {
 
-// ttml normalizes one trailing dim in bf16; anything else takes torch's composite decomposition.
+// ttml normalizes one trailing dim in bf16; anything else goes through rms_norm_decomposed.
 bool ttml_rmsnorm_supported(const at::Tensor &input, at::IntArrayRef normalized_shape,
                             const std::optional<at::Tensor> &weight) {
     if (input.scalar_type() != at::kBFloat16 || normalized_shape.size() != 1 || normalized_shape[0] != input.size(-1)) {
@@ -39,6 +40,24 @@ bool ttml_rmsnorm_supported(const at::Tensor &input, at::IntArrayRef normalized_
     }
     return !weight.has_value() || !weight->defined() ||
            (weight->scalar_type() == at::kBFloat16 && weight->dim() == 1 && weight->size(0) == input.size(-1));
+}
+
+// `_fused_rms_norm`'s math in public ops: fp32 compute, output in the input dtype, fp32 keepdim rstd.
+std::tuple<at::Tensor, at::Tensor> rms_norm_decomposed(const at::Tensor &input, at::IntArrayRef normalized_shape,
+                                                       const std::optional<at::Tensor> &weight,
+                                                       std::optional<double> eps) {
+    std::vector<int64_t> dims;
+    for (int64_t i = 0; i < as<int64_t>(normalized_shape.size()); ++i) {
+        dims.push_back(input.dim() - 1 - i);
+    }
+    const at::Tensor x = input.to(at::kFloat);
+    at::Tensor rstd =
+        at::rsqrt(x.pow(2).mean(dims, /*keepdim=*/true).add(eps.value_or(std::numeric_limits<float>::epsilon())));
+    at::Tensor output = x * rstd;
+    if (weight.has_value() && weight->defined()) {
+        output = output * *weight;
+    }
+    return {output.to(input.scalar_type()), std::move(rstd)};
 }
 
 // Same as sdpa.cpp's run_ttml.
@@ -60,7 +79,7 @@ at::Tensor tt_rms_norm(const at::Tensor &input, c10::SymIntArrayRef normalized_s
                        const std::optional<at::Tensor> &weight, std::optional<double> eps) {
     const at::IntArrayRef shape = C10_AS_INTARRAYREF_SLOW(normalized_shape);
     if (!ttml_rmsnorm_supported(input, shape, weight)) {
-        return std::get<0>(at::compositeimplicitautograd::_fused_rms_norm(input, shape, weight, eps));
+        return std::get<0>(rms_norm_decomposed(input, shape, weight, eps));
     }
     return std::get<0>(at::_fused_rms_norm(input, shape, weight, eps));
 }
@@ -69,8 +88,10 @@ at::Tensor tt_rms_norm(const at::Tensor &input, c10::SymIntArrayRef normalized_s
 std::tuple<at::Tensor, at::Tensor> tt_fused_rms_norm(const at::Tensor &input, at::IntArrayRef normalized_shape,
                                                      const std::optional<at::Tensor> &weight,
                                                      std::optional<double> eps) {
-    TORCH_CHECK(ttml_rmsnorm_supported(input, normalized_shape, weight),
-                "tt-crank _fused_rms_norm: this call is outside what the ttml rmsnorm_fw kernel supports");
+    if (!ttml_rmsnorm_supported(input, normalized_shape, weight)) {
+        // Reached only when inference mode skipped the autograd override, so nothing needs a backward.
+        return rms_norm_decomposed(input, normalized_shape, weight, eps);
+    }
     // torch's None default for an fp32 computation dtype, which bf16 upcasts to.
     const double eps_value = eps.value_or(std::numeric_limits<float>::epsilon());
     const bool has_weight = weight.has_value() && weight->defined();
